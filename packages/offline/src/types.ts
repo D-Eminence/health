@@ -120,7 +120,7 @@ export interface OfflineCore extends OfflineRuntime {
   /** Page visibility changed. Hidden for 5 minutes locks. */
   noteVisibility(hidden: boolean): void
   connectivity(): Connectivity
-  /** True when no command is `sending` in any tab of this origin (the shell's Update now gate). */
+  /** True when no command is `sending` in this origin's outbox (amendment A7; asks other tabs too). */
   updateSafe(): Promise<boolean>
   /**
    * Add or refresh a patient in the sealed offline index (100 per vault, least
@@ -128,6 +128,15 @@ export interface OfflineCore extends OfflineRuntime {
    * the app calls this after an online `lookupPatient` or chart open.
    */
   rememberPatient(entry: PatientEntryInput): Promise<void>
+  /**
+   * Seal a file into the vault for an `ehr.document.upload` command (JPEG and
+   * PNG are re-encoded first, which strips EXIF and GPS). Put the result in the
+   * command input as `media`. Chunks are deleted once the upload is applied.
+   */
+  stageMedia(file: Blob, o: { index: number }): Promise<StagedMedia>
+  /** A sign-out happened offline: send `/auth/logout` first on the next online load, then call `logoutSent()`. */
+  logoutPending(): Promise<boolean>
+  logoutSent(): Promise<void>
   /** Stop timers, listeners and the sender. The store is left as it is. */
   dispose(): void
 }
@@ -154,4 +163,36 @@ export class SaveRefused extends Error {
     this.cause = o.cause ?? null
     this.bytes = o.bytes ?? null
   }
+}
+
+/**
+ * CC4 safety hold (§2.9) for prescriptions. The app supplies it: `capture`
+ * runs at save with what the form saw; `current` runs online just before the
+ * first send. When the hashes differ (or there was nothing to compare), the
+ * prescription is held for review. Without a probe, every prescription saved
+ * offline or from data older than 15 minutes is held.
+ */
+export interface SafetyProbe {
+  capture(input: Json): Promise<{ allergiesSha256: string; encounterRxSha256: string; seenAt: string } | null>
+  current(input: Json, resolved: Record<string, string>): Promise<{ allergiesSha256: string; encounterRxSha256: string }>
+}
+
+/** PUT to a presigned storage URL (wrap `uploadPresignedObject` from @hid/http). */
+export type MediaUploader = (o: { url: string; body: Blob; requiredHeaders: Readonly<Record<string, string>> }) => Promise<void>
+
+/** Redacted diagnostics: codes and counts only, never content. */
+export type OfflineReport =
+  | { kind: 'defect'; op: string; status: number | null; code: string | null }
+  | { kind: 'engine-error'; op: string; message: string }
+  | { kind: 'audit-rejected'; dropped: number; code: string }
+  | { kind: 'wipe'; reason: string }
+  | { kind: 'storage'; message: string }
+
+/** A file staged for an offline upload (Migrate capture, EHR documents). */
+export interface StagedMedia {
+  blobId: string
+  mediaType: 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/tiff'
+  sizeBytes: number
+  sha256Hex: string
+  fileName: string
 }

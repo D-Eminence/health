@@ -1,0 +1,394 @@
+/**
+ * Vaults (§2.4, §2.5, §2.6): one per account, facility and app host on this
+ * origin, at most five. Create, find with a KEK, open, wipe, delete, the
+ * device-wide failed-unlock counter, and the escrow re-wrap after a password
+ * change.
+ *
+ * A vault's plaintext record holds no identifiers: which account a vault
+ * belongs to is learned only by unwrapping its DK with that account's KEK and
+ * opening the sealed header.
+ */
+
+import { LIMITS, type StaffSessionSnapshot } from './contracts'
+import {
+  addEscrowWrap,
+  calibrateIterations,
+  createVaultKeys,
+  deriveKek,
+  kekOpens,
+  kekSalt,
+  open as openSealed,
+  randomBytes,
+  randomUuid,
+  recordAad,
+  rewrapWithEscrow,
+  seal,
+  unwrapVaultKeys,
+  type VaultKeys,
+} from './crypto'
+import { leaseUntil } from './lease'
+import { vaultRange, type MetaRecord, type OfflineStore, type Tx, type VaultRecord } from './store'
+
+export type VaultHeader = StaffSessionSnapshot
+
+export interface OpenVault {
+  record: VaultRecord
+  keys: VaultKeys
+  /** null after a cache wipe: the vault can send its queue but not restore a session offline. */
+  header: VaultHeader | null
+  /** Who and where the vault was made for (survives wipes). null for a vault made before bindings existed. */
+  binding: VaultBinding | null
+}
+
+export interface VaultBinding { accountId: string; membershipId: string; facilityId: string }
+
+export function bindAad(vaultId: string): string {
+  return recordAad(vaultId, 'vaults', [vaultId, 'bind'])
+}
+
+export class VaultLimitError extends Error {
+  constructor() {
+    super('Every offline copy on this device still has unsent work, so another cannot be added.')
+    this.name = 'VaultLimitError'
+  }
+}
+
+/** Stores holding work that must survive a sign-out or a wipe. */
+const KEPT_STORES = ['outbox', 'audit', 'media', 'receipts'] as const
+
+export function headerAad(vaultId: string): string {
+  return recordAad(vaultId, 'vaults', [vaultId, 'header'])
+}
+
+/** The vault restores a readable session offline (a header, not killed, no sign-out pending). */
+export function isReadable(r: VaultRecord): boolean {
+  return r.header !== null && !r.flags.killed && !r.flags.logoutPending
+}
+
+export function hasPendingWork(r: VaultRecord): boolean {
+  return r.pending.commands > 0 || r.pending.audit > 0 || r.pending.mediaBytes > 0
+}
+
+/** Recount a vault's pending work inside a write transaction and store it on the vault record. */
+export async function recountPending(tx: Tx, vaultId: string): Promise<VaultRecord | undefined> {
+  const record = await tx.get('vaults', vaultId)
+  if (!record) return undefined
+  const outbox = await tx.all('outbox', vaultRange(vaultId))
+  const audit = await tx.all('audit', vaultRange(vaultId))
+  const media = await tx.all('media', vaultRange(vaultId))
+  const commands = outbox.filter(o => o.state !== 'applied' && o.state !== 'discarded').length
+  const next: VaultRecord = {
+    ...record,
+    pending: {
+      commands,
+      audit: audit.filter(a => a.state === 'pending').length,
+      mediaBytes: media.reduce((n, m) => n + m.bytes, 0),
+    },
+  }
+  await tx.put('vaults', next)
+  return next
+}
+
+export interface VaultDeps {
+  readonly appHost: string
+  /** Trusted time in ms. */
+  readonly now: () => number
+  readonly calibrate?: () => Promise<number>
+}
+
+export class Vaults {
+  constructor(private readonly store: OfflineStore, private readonly deps: VaultDeps) {}
+
+  /** The device record, created (and the KDF calibrated) on first use. */
+  async meta(): Promise<MetaRecord> {
+    const existing = await this.store.read(['meta'], tx => tx.get('meta', 'device'))
+    if (existing) return existing
+    const iterations = await (this.deps.calibrate ?? calibrateIterations)()
+    const fresh: MetaRecord = {
+      id: 'device', v: 1, deviceId: randomUuid(), deviceSalt: randomBytes(16),
+      kdf: { alg: 'PBKDF2-SHA256', iterations, calibratedAt: new Date(this.deps.now()).toISOString() },
+      failedUnlocks: 0, lastFailureAt: null,
+    }
+    // Another tab may have won the race; keep whichever landed first.
+    return this.store.write(['meta'], async tx => {
+      const raced = await tx.get('meta', 'device')
+      if (raced) return raced
+      await tx.put('meta', fresh)
+      return fresh
+    })
+  }
+
+  async deriveKek(email: string, password: string): Promise<CryptoKey> {
+    const meta = await this.meta()
+    return deriveKek(password, await kekSalt(meta.deviceSalt, email), meta.kdf.iterations)
+  }
+
+  async list(): Promise<VaultRecord[]> {
+    const all = await this.store.read(['vaults'], tx => tx.all('vaults'))
+    // A record from a newer schema is left unread and kept (§2.4).
+    return all.filter(v => v.v === 1 && v.appHost === this.deps.appHost)
+  }
+
+  /** Every vault on this app host the KEK opens (one account can have one per facility). */
+  async openWith(kek: CryptoKey): Promise<OpenVault[]> {
+    const out: OpenVault[] = []
+    for (const record of await this.list()) {
+      if (!(await kekOpens(kek, record.vaultId, record.wraps.dk))) continue
+      out.push(await this.unwrap(kek, record))
+    }
+    return out
+  }
+
+  async unwrap(kek: CryptoKey, record: VaultRecord): Promise<OpenVault> {
+    const keys = await unwrapVaultKeys(kek, record.vaultId, record.wraps)
+    const header = record.header ? await openSealed<VaultHeader>(keys.dk, headerAad(record.vaultId), record.header) : null
+    const binding = record.bind ? await openSealed<VaultBinding>(keys.qk, bindAad(record.vaultId), record.bind) : null
+    return { record, keys, header, binding }
+  }
+
+  /** Create a vault for a session. Evicts the oldest vault with nothing pending past five; refuses if none can go. */
+  async create(kek: CryptoKey, session: StaffSessionSnapshot, escrow?: { key: CryptoKey; keyVersion: number }): Promise<OpenVault> {
+    return this.createWithId(kek, randomUuid(), session, escrow)
+  }
+
+  /** As `create`, with the id chosen first (the escrow key is derived for a vault id). */
+  async createWithId(kek: CryptoKey, vaultId: string, session: StaffSessionSnapshot, escrow?: { key: CryptoKey; keyVersion: number }): Promise<OpenVault> {
+    const { wraps, keys } = await createVaultKeys(kek, vaultId, escrow)
+    const header = await seal(keys.dk, 'dk', headerAad(vaultId), session)
+    const binding: VaultBinding = { accountId: session.accountId, membershipId: session.membershipId, facilityId: session.facilityId }
+    const bind = await seal(keys.qk, 'qk', bindAad(vaultId), binding)
+    const now = this.deps.now()
+    const record: VaultRecord = {
+      v: 1, vaultId, appHost: this.deps.appHost, createdAt: new Date(now).toISOString(), wraps,
+      lease: { signedInAt: now, lastServerContactAt: now, leaseUntil: leaseUntil(now, now), serverOffsetMs: 0, lastWallSeen: 0 },
+      counters: { cmdSeq: 0, auditSeq: 0 },
+      flags: { logoutPending: false, escrow: escrow !== undefined, killed: false, membershipEndedAt: null },
+      pending: { commands: 0, audit: 0, mediaBytes: 0 },
+      header,
+      bind,
+    }
+    await this.store.write(['vaults', 'cache', ...KEPT_STORES], async tx => {
+      const existing = (await tx.all('vaults')).filter(v => v.appHost === this.deps.appHost)
+      if (existing.length >= LIMITS.maxVaultsPerOrigin) {
+        // Oldest idle vault first, but one still holding a discarded or membership-held entry (kept sealed
+        // 30 days, §2.9 and D9) only when nothing else can go.
+        const ranked: { v: VaultRecord; keeps: boolean }[] = []
+        for (const v of existing.filter(x => !hasPendingWork(x))) {
+          const keeps = (await tx.all('outbox', vaultRange(v.vaultId))).some(o => o.state === 'discarded' || o.state === 'held_membership')
+          ranked.push({ v, keeps })
+        }
+        ranked.sort((a, b) => Number(a.keeps) - Number(b.keeps) || a.v.createdAt.localeCompare(b.v.createdAt))
+        const victim = ranked[0]?.v
+        if (!victim) throw new VaultLimitError()
+        await deleteVaultIn(tx, victim.vaultId)
+      }
+      await tx.put('vaults', record)
+    })
+    return { record, keys, header: session, binding }
+  }
+
+  /** Reseal the header after an online sign-in (the session snapshot may have changed). */
+  async writeHeader(open: OpenVault, session: StaffSessionSnapshot, lease: VaultRecord['lease']): Promise<OpenVault> {
+    const header = await seal(open.keys.dk, 'dk', headerAad(open.record.vaultId), session)
+    const record = await this.store.write(['vaults'], async tx => {
+      const current = await tx.get('vaults', open.record.vaultId)
+      if (!current) throw new Error('Vault disappeared')
+      // A server-verified sign-in at this facility: the membership is current again.
+      const next: VaultRecord = { ...current, header, lease, flags: { ...current.flags, logoutPending: false, killed: false, membershipEndedAt: null } }
+      await tx.put('vaults', next)
+      return next
+    })
+    return { ...open, record, header: session }
+  }
+
+  async addEscrow(kek: CryptoKey, open: OpenVault, escrow: { key: CryptoKey; keyVersion: number }): Promise<OpenVault> {
+    const qkEsc = await addEscrowWrap(kek, open.record.vaultId, open.record.wraps.qkPw, escrow)
+    const record = await this.update(open.record.vaultId, r => ({ ...r, wraps: { ...r.wraps, qkEsc }, flags: { ...r.flags, escrow: true } }))
+    return { ...open, record }
+  }
+
+  /**
+   * Password changed online: QK through escrow, new DK and IK, everything
+   * wrapped under the new KEK. The old cache (sealed with the old DK) is
+   * deleted in the same transaction. Returns null when escrow does not open it.
+   */
+  async rewrapAfterPasswordChange(newKek: CryptoKey, record: VaultRecord, escrowKey: CryptoKey, session: StaffSessionSnapshot): Promise<OpenVault | null> {
+    if (!record.wraps.qkEsc) return null
+    let rewrapped: Awaited<ReturnType<typeof rewrapWithEscrow>>
+    try {
+      rewrapped = await rewrapWithEscrow(newKek, record.vaultId, record.wraps.qkEsc, escrowKey)
+    } catch {
+      return null
+    }
+    const header = await seal(rewrapped.keys.dk, 'dk', headerAad(record.vaultId), session)
+    const next = await this.store.write(['vaults', 'cache'], async tx => {
+      await tx.delete('cache', vaultRange(record.vaultId))
+      const current = await tx.get('vaults', record.vaultId)
+      if (!current) throw new Error('Vault disappeared')
+      const updated: VaultRecord = { ...current, wraps: rewrapped.wraps, header }
+      await tx.put('vaults', updated)
+      return updated
+    })
+    const binding = next.bind ? await openSealed<VaultBinding>(rewrapped.keys.qk, bindAad(record.vaultId), next.bind).catch(() => null) : null
+    return { record: next, keys: rewrapped.keys, header: session, binding }
+  }
+
+  async update(vaultId: string, change: (r: VaultRecord) => VaultRecord): Promise<VaultRecord> {
+    return this.store.write(['vaults'], async tx => {
+      const current = await tx.get('vaults', vaultId)
+      if (!current) throw new Error('Vault disappeared')
+      const next = change(current)
+      await tx.put('vaults', next)
+      return next
+    })
+  }
+
+  async get(vaultId: string): Promise<VaultRecord | undefined> {
+    return this.store.read(['vaults'], tx => tx.get('vaults', vaultId))
+  }
+
+  /**
+   * Reserve one offline unlock attempt before the key is derived (D2: at most 5 wrong passwords). The counter is
+   * device-wide and counted up front, so parallel tabs cannot get more than five tries between them. Returns false
+   * once the limit is reached: the caller wipes and refuses without deriving.
+   */
+  async beginAttempt(): Promise<boolean> {
+    await this.meta()
+    return this.store.write(['meta'], async tx => {
+      const meta = (await tx.get('meta', 'device'))!
+      if (meta.failedUnlocks >= LIMITS.maxFailedUnlocks) return false
+      await tx.put('meta', { ...meta, failedUnlocks: meta.failedUnlocks + 1, lastFailureAt: new Date(this.deps.now()).toISOString() })
+      return true
+    })
+  }
+
+  /**
+   * A reserved attempt opened a vault. Only a password that opens every vault on this host proves nothing was
+   * guessed against another account, so only then is the counter cleared; otherwise just this attempt is given back
+   * (failures made against other accounts keep counting until the next online sign-in, amendment to §2.6).
+   */
+  async releaseAttempt(openedAll: boolean, opened?: { ids: readonly string[]; readableBefore: ReadonlySet<string> }): Promise<boolean> {
+    return this.store.write(['meta', 'vaults'], async tx => {
+      // Read in the same transaction as the counter, so a wipe that ran while this attempt derived is seen.
+      let readable = true
+      let wipedDuring = false
+      if (opened) {
+        const current: VaultRecord[] = []
+        for (const id of opened.ids) {
+          const r = await tx.get('vaults', id)
+          if (r) current.push(r)
+        }
+        readable = current.some(isReadable)
+        wipedDuring = !readable && current.some(r => opened.readableBefore.has(r.vaultId))
+      }
+      const meta = await tx.get('meta', 'device')
+      if (!meta) return readable
+      // The readable copy was wiped (failed unlocks elsewhere) while this attempt ran: at the limit it gives nothing
+      // back, so the counter stays at the limit until an online sign-in. A right password on a vault that was already
+      // signed out is not a wrong guess: it gives its attempt back.
+      if (wipedDuring && meta.failedUnlocks >= LIMITS.maxFailedUnlocks) return readable
+      const failedUnlocks = openedAll && readable ? 0 : Math.max(0, meta.failedUnlocks - 1)
+      await tx.put('meta', { ...meta, failedUnlocks, ...(failedUnlocks === 0 ? { lastFailureAt: null } : {}) })
+      return readable
+    })
+  }
+
+  async failures(): Promise<number> {
+    return (await this.store.read(['meta'], tx => tx.get('meta', 'device')))?.failedUnlocks ?? 0
+  }
+
+  /**
+   * Clear the counter after a server-verified online sign-in. A colleague can reset it this way too, but each cycle
+   * then costs a network sign-in, MFA and a server audit entry.
+   */
+  async clearFailures(): Promise<void> {
+    await this.store.write(['meta'], async tx => {
+      const meta = await tx.get('meta', 'device')
+      if (meta && meta.failedUnlocks !== 0) await tx.put('meta', { ...meta, failedUnlocks: 0, lastFailureAt: null })
+    })
+  }
+
+  /**
+   * Wipe the readable copy: every cache record and the sealed header. Outbox,
+   * audit, media and receipts are kept (§2.6 wipe triggers).
+   */
+  async wipeCache(vaultIds: readonly string[], o: { logoutPending?: boolean; killed?: boolean; membershipEndedAt?: number } = {}): Promise<void> {
+    await this.store.write(['vaults', 'cache'], async tx => {
+      for (const vaultId of vaultIds) {
+        await tx.delete('cache', vaultRange(vaultId))
+        const current = await tx.get('vaults', vaultId)
+        if (!current) continue
+        await tx.put('vaults', {
+          ...current, header: null,
+          flags: {
+            ...current.flags,
+            ...(o.logoutPending !== undefined ? { logoutPending: o.logoutPending } : {}),
+            ...(o.killed !== undefined ? { killed: o.killed } : {}),
+            ...(o.membershipEndedAt !== undefined ? { membershipEndedAt: current.flags.membershipEndedAt ?? o.membershipEndedAt } : {}),
+          },
+        })
+      }
+    })
+  }
+
+  async delete(vaultId: string): Promise<void> {
+    await this.store.write(['vaults', 'cache', ...KEPT_STORES], tx => deleteVaultIn(tx, vaultId))
+  }
+
+  /**
+   * Delete the vault if it has nothing pending. A vault still holding a discarded entry (kept sealed 30 days, §2.9)
+   * or one held after a membership ended is kept. Returns whether it was deleted.
+   */
+  async deleteIfIdle(vaultId: string): Promise<boolean> {
+    return this.store.write(['vaults', 'cache', ...KEPT_STORES], async tx => {
+      const r = await recountPending(tx, vaultId)
+      if (!r || hasPendingWork(r)) return false
+      if ((await tx.all('outbox', vaultRange(vaultId))).some(o => o.state === 'discarded' || o.state === 'held_membership')) return false
+      await deleteVaultIn(tx, vaultId)
+      return true
+    })
+  }
+}
+
+export interface SweepResult { deletedRecords: number; deletedVaults: number }
+
+/**
+ * Key-free expiry (D9, §2.9, A9.2), run on server time only (TrustedClock.serverNow, never the device clock):
+ * - outbox records whose keep time has passed are deleted one by one (applied after 60 s, discarded and
+ *   membership-held entries after 30 days);
+ * - a whole vault is deleted only when it has no header and its membership ended more than 30 days ago, or when it is
+ *   abandoned: every remaining outbox record is applied and its last server contact is more than 30 days old (with
+ *   or without a header). `spare`, the vault matched by the current sign-in, is never abandoned.
+ *   An abandoned vault's undelivered offline audit goes with it (A9.2 amends §2.11).
+ * Any other emptied vault is left to deleteIfIdle and eviction.
+ */
+export async function sweepExpired(store: OfflineStore, appHost: string, now: number, spare: string | null = null): Promise<SweepResult> {
+  return store.write(['vaults', 'cache', ...KEPT_STORES], async tx => {
+    const result: SweepResult = { deletedRecords: 0, deletedVaults: 0 }
+    for (const vault of (await tx.all('vaults')).filter(v => v.v === 1 && v.appHost === appHost)) {
+      const outbox = await tx.all('outbox', vaultRange(vault.vaultId))
+      const expired = outbox.filter(r => r.expiresAt !== null && r.expiresAt <= now)
+      for (const o of expired) await tx.delete('outbox', [vault.vaultId, o.seq])
+      result.deletedRecords += expired.length
+      const remaining = outbox.filter(r => !expired.includes(r))
+      const membershipGone = vault.flags.membershipEndedAt !== null && vault.flags.membershipEndedAt + LIMITS.membershipEndedKeepMs <= now
+      // The vault matched by the current sign-in is never abandoned: that sign-in is server contact and sends its
+      // audit (A9.2). Abandoned applies with or without a header: every lease expired long before.
+      const abandoned = vault.vaultId !== spare && remaining.every(r => r.state === 'applied')
+        && vault.lease.lastServerContactAt + LIMITS.membershipEndedKeepMs <= now
+      if ((vault.header === null && membershipGone) || abandoned) {
+        // Nothing that may still be sent or must still be kept: the vault goes, with its media and unsendable audit.
+        await deleteVaultIn(tx, vault.vaultId)
+        result.deletedVaults += 1
+      } else if (expired.length > 0) {
+        await recountPending(tx, vault.vaultId)
+      }
+    }
+    return result
+  })
+}
+
+async function deleteVaultIn(tx: Tx, vaultId: string): Promise<void> {
+  for (const s of ['cache', 'outbox', 'audit', 'media', 'receipts'] as const) await tx.delete(s, vaultRange(vaultId))
+  await tx.delete('vaults', vaultId)
+}

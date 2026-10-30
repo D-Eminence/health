@@ -48,6 +48,7 @@ import {
   type OfflineEnv,
   type OfflineOffer,
   type PatientEntryInput,
+  type StagedMedia,
 } from './types'
 
 export const DEMO_HOSPITAL_FACILITY_ID = '98d00002-0000-4000-8000-000000000001'
@@ -120,6 +121,8 @@ export interface FakeControls {
   /** Patient ids with a saved copy in the open vault. */
   cachedPatients(): string[]
   logoutPending(): boolean
+  /** Files staged with stageMedia and not yet applied. */
+  stagedMedia(): string[]
   failedUnlocks(): number
   now(): number
 }
@@ -151,6 +154,8 @@ interface FakeVault {
 }
 interface CommandRec {
   seq: number
+  /** A review successor's place in its lane (its original's), as the real engine. */
+  orderSeq?: number
   id: string
   key: `off1.${string}`
   op: OpName
@@ -172,6 +177,10 @@ interface CommandRec {
   value?: unknown
 }
 
+const ALLOWED_ACTIONS: Record<ConflictClass, readonly string[]> = {
+  CC1: [], CC2: ['apply-on-top', 'discard'], CC3: ['new-visit', 'edit-as-new', 'discard'], CC4: ['send-as-is', 'discard'],
+  CC5: ['ask-access', 'discard'], CC6: [], CC7: ['edit-as-new', 'discard'], CC8: [],
+}
 const DEFAULT_ENV: OfflineEnv = { mode: 'pilot', facilities: DEMO_HOSPITAL_FACILITY_ID, hosts: 'ehr,ocr', debug: 'false' }
 const UNFINISHED = new Set(['queued', 'sending', 'held_access', 'held_session', 'held_membership', 'review'])
 
@@ -210,8 +219,10 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
   let handler: ((r: FakeRequest) => FakeResponse | undefined) | null = null
   const requests: FakeRequest[] = []
   const listeners = new Set<() => void>()
+  const staged = new Map<string, Blob>()
 
-  const notify = () => { for (const l of [...listeners]) l() }
+  let summaryMemo: SyncSummary | null = null
+  const notify = () => { summaryMemo = null; for (const l of [...listeners]) l() }
   const iso = (ms: number) => new Date(ms).toISOString()
   const proof = (email: string, password: string) => `${email.trim().toLowerCase()}\u0000${password}`
   const wall = () => clockNow - wallSkew
@@ -273,6 +284,11 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
   }
 
   function summary(): SyncSummary {
+    summaryMemo ??= computeSummary()
+    return summaryMemo
+  }
+
+  function computeSummary(): SyncSummary {
     const v = open
     return {
       connectivity: conn,
@@ -363,10 +379,9 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
       c.nextAttemptAt = clockNow + (res.retryAfterMs ?? 0)
       return null
     }
-    if (!sentBefore && isDefinitiveFirstRefusal(answer)) {
-      return new TransportError({ status: res.status, code: res.code ?? null, problem, body: res.body })
-    }
-    if (needsReceiptCheck(cls, sentBefore)) {
+    const firstRefusal = !sentBefore && isDefinitiveFirstRefusal(answer)
+      ? new TransportError({ status: res.status, code: res.code ?? null, problem, body: res.body }) : null
+    if (needsReceiptCheck(cls, sentBefore) && !firstRefusal) {
       if (receiptsDown) { c.state = 'sending'; c.review = 'CC1'; return null }
       if (receiptsFound || cls === 'applied-unreadable') {
         c.state = 'applied'
@@ -390,12 +405,13 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
       session: 'CC6', access: 'CC5', edge: 'CC7', invalid: 'CC7', missing: 'CC3', state: 'CC3', version: 'CC2', 'applied-unreadable': 'CC1',
     }
     toReview(c, map[cls] ?? 'CC7')
-    return null
+    // Nothing was applied: a waiting save removes it and hands the error to the form; otherwise it stays in review.
+    return firstRefusal
   }
 
   function eligible(v: FakeVault): CommandRec[] {
     const heads = new Map<string, CommandRec>()
-    for (const c of [...v.commands].sort((a, b) => a.seq - b.seq)) {
+    for (const c of [...v.commands].sort((a, b) => (a.orderSeq ?? a.seq) - (b.orderSeq ?? b.seq) || a.seq - b.seq)) {
       if (!UNFINISHED.has(c.state)) continue
       if (!heads.has(c.lane)) heads.set(c.lane, c)
     }
@@ -442,6 +458,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
     if (bytes > LIMITS.maxBodyBytes) throw new SaveRefused('too-long', { bytes })
     const id = crypto.randomUUID()
     const { patientId, lane } = laneOf(def, input, id)
+    const prior = o.supersedes ? v.commands.find(c => c.id === o.supersedes) : undefined
     const local = Object.values(def.refs(input)).flatMap(r => ('local' in r ? [r.local] : []))
     v.cmdSeq += 1
     const c: CommandRec = {
@@ -450,6 +467,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
       lane, dependsOn: [...new Set([...(o.dependsOn ?? []), ...local])], capturedAt: iso(wall()), clock: clockState(),
       state: 'queued', everSent: false, attempts: 0, nextAttemptAt: 0, frozen: null, receipt: null, review: null, awaitingAccess: false,
       ...(o.supersedes ? { supersedes: o.supersedes } : {}),
+      ...(prior && prior.lane === lane ? { orderSeq: prior.orderSeq ?? prior.seq } : {}),
     }
     v.commands.push(c)
     notify()
@@ -505,6 +523,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
       if (!prepared) return vaults.length > 0 ? { kind: 'paused' } : { kind: 'unavailable', reason: 'not-opted-in' }
       if (existing && existing.passwordProof === prepared.passwordProof) return { kind: 'existing' }
       if (!prepared.passwordOk) return { kind: 'unavailable', reason: 'password-too-short' }
+      if (vaults.length >= LIMITS.maxVaultsPerOrigin && vaults.every(v => pendingCount(v) > 0)) return { kind: 'unavailable', reason: 'device-full' }
       return { kind: 'ask' }
     },
 
@@ -524,9 +543,14 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
         wipeCache(v)
         v.passwordProof = key.passwordProof
       }
-      if (!v && o.optIn && key.passwordOk) v = newVault(s, key.passwordProof) ?? undefined
+      let full = false
+      if (!v && o.optIn && key.passwordOk) {
+        v = newVault(s, key.passwordProof) ?? undefined
+        full = !v
+      }
       if (!v) {
-        lastPolicy = evaluatePolicy(config, { appHost, facilityId: s.facilityId, optedIn: o.optIn, passwordOk: key.passwordOk })
+        lastPolicy = full ? { mode: config.mode, enabled: false, reason: 'device-full' }
+          : evaluatePolicy(config, { appHost, facilityId: s.facilityId, optedIn: o.optIn, passwordOk: key.passwordOk })
         status = 'none'
         notify()
         return summary()
@@ -562,8 +586,11 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
       }
       failedUnlocks = 0
       if (clockNow >= leaseUntil(v)) { wipeCache(v); return { ok: false, reason: 'lease-expired' } }
+      // As the real runtime: a facility no longer enabled (kill switch, left the pilot) never opens offline.
+      if (facilityAllowed(config, appHost, v.session.facilityId)) return { ok: false, reason: 'no-vault' }
       open = v
       status = 'unlocked'
+      lastPolicy = { mode: config.mode, enabled: true }
       lastActivity = clockNow
       pushAudit(v, { action: 'ehr.offline.unlock', patientId: null, section: null, resourceId: null, grantExpiresAt: null })
       notify()
@@ -597,6 +624,9 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
     },
 
     async wipe(reason: WipeReason) {
+      if (reason === 'membership' && open) {
+        for (const c of open.commands) if (UNFINISHED.has(c.state)) { c.state = 'held_membership'; c.review = 'CC8' }
+      }
       for (const v of reason === 'failed-unlocks' || reason === 'kill-switch' ? vaults : open ? [open] : []) {
         wipeCache(v)
         pushAudit(v, { action: 'ehr.offline.wipe', patientId: null, section: reason, resourceId: null, grantExpiresAt: null })
@@ -626,6 +656,23 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
     connectivity: () => conn,
     updateSafe: async () => !(open?.commands.some(c => c.state === 'sending') ?? false),
     dispose() { listeners.clear() },
+
+    async stageMedia(file: Blob, o: { index: number }): Promise<StagedMedia> {
+      requireOpen()
+      const type = file.type as StagedMedia['mediaType']
+      if (!['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'].includes(type)) throw new Error('Only PDF, JPEG, PNG and TIFF files can be kept for upload.')
+      const blobId = crypto.randomUUID()
+      staged.set(blobId, file)
+      const d = new Date(clockNow)
+      const p = (n: number) => String(n).padStart(2, '0')
+      const ext = type === 'application/pdf' ? 'pdf' : type === 'image/jpeg' ? 'jpg' : type === 'image/png' ? 'png' : 'tiff'
+      return {
+        blobId, mediaType: type, sizeBytes: file.size, sha256Hex: `fake-${blobId}`,
+        fileName: `scan-${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}-${p(d.getUTCHours())}${p(d.getUTCMinutes())}-${o.index}.${ext}`,
+      }
+    },
+    logoutPending: async () => vaults.some(v => v.logoutPending),
+    async logoutSent() { for (const v of vaults) v.logoutPending = false },
 
     async rememberPatient(e: PatientEntryInput) {
       const v = open
@@ -754,7 +801,9 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
         const c = v.commands.find(x => x.id === commandId)
         if (!c) throw new Error('No such entry')
         const reason = (o.reason ?? '').trim()
-        if (action !== 'send-as-is' && action !== 'ask-access' && reason.length < 8) throw new Error('Give a reason of at least 8 characters.')
+        if (!c.review || !ALLOWED_ACTIONS[c.review].includes(action)) throw new Error('That action is not available for this entry.')
+        if (action !== 'send-as-is' && reason.length < 8) throw new Error('Give a reason of at least 8 characters.')
+        if (reason.length > 500) throw new Error('Keep the reason under 500 characters.')
         switch (action) {
           case 'send-as-is':
             if (c.review !== 'CC4') throw new Error('Only a safety hold can be sent as is.')
@@ -852,9 +901,47 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
     auditEvents: () => [...(open?.audit ?? [])],
     cachedPatients: () => [...(open?.cache.keys() ?? [])],
     logoutPending: () => vaults.some(v => v.logoutPending),
+    stagedMedia: () => [...staged.keys()],
     failedUnlocks: () => failedUnlocks,
     now: () => clockNow,
   }
 
   return { runtime, controls }
+}
+
+/**
+ * An in-memory Web Locks stand-in (exclusive locks, FIFO waiters, AbortSignal)
+ * for tests that run two runtimes against one store.
+ */
+export function createMemoryLocks(): { request<T>(name: string, options: { signal?: AbortSignal }, callback: () => Promise<T>): Promise<T>; held(name: string): boolean } {
+  const queues = new Map<string, (() => void)[]>()
+  const busy = new Set<string>()
+  const release = (name: string) => {
+    const next = queues.get(name)?.shift()
+    if (next) next()
+    else busy.delete(name)
+  }
+  return {
+    held: name => busy.has(name),
+    request<T>(name: string, options: { signal?: AbortSignal }, callback: () => Promise<T>): Promise<T> {
+      return new Promise<T>((resolve, reject) => {
+        const run = () => {
+          busy.add(name)
+          callback().then(resolve, reject).finally(() => release(name))
+        }
+        if (options.signal?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return }
+        if (!busy.has(name)) { run(); return }
+        const list = queues.get(name) ?? []
+        const waiter = () => { options.signal?.removeEventListener('abort', onAbort); run() }
+        const onAbort = () => {
+          const l = queues.get(name)
+          if (l) queues.set(name, l.filter(w => w !== waiter))
+          reject(new DOMException('Aborted', 'AbortError'))
+        }
+        options.signal?.addEventListener('abort', onAbort, { once: true })
+        list.push(waiter)
+        queues.set(name, list)
+      })
+    },
+  }
 }
