@@ -30,11 +30,23 @@ export interface EhrBluePage {
   readonly status: EhrBluePageStatus
   readonly element: ReactElement
   /**
+   * What the page's address shows when `visible` or the permission turns the page down: the page's own words, as
+   * today's page gives them ("Health ID support manages who works at …"). Left out, the frame's "… is not open to
+   * you here". It stands in for the page, so it makes no request of its own.
+   */
+  readonly refusal?: ReactElement
+  /**
    * Whether the page shows for this session at all, beyond its permission (how the facility signed up, a setting…).
    * Left out, it shows wherever its permission allows. A page it hides is left out of the sidebar, search and Home's
    * shortcuts, and says it is not open here if its address is opened.
    */
   readonly visible?: (session: StaffSession) => boolean
+  /**
+   * Whether the page has a sidebar entry and a search result for this session; left out, it has both wherever it is
+   * allowed. Unlike `visible`, the address still opens: Choose workspace is the account menu's facility switch at every
+   * facility, and a design review entry only at the demo facilities.
+   */
+  readonly listed?: (session: StaffSession) => boolean
   /**
    * The path of the page whose tabs this page joins, as the design draws Insurance & Claims (Claims | Policies) and
    * Supply (Stock | Procurement): it has no sidebar entry of its own, the frame draws the tabs above the heading, and the

@@ -364,6 +364,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     startPeriod()
     away.current = null
     setLock(null)
+    // A session that ended without Sign out left the last person's choice of the classic EHR: the next starts on blue.
+    resetClassicEhr()
     setState({ status: 'ready', session })
     announceStaffSessionChange()
     askIfHeardWhileOpening()

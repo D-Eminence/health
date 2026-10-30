@@ -1,18 +1,19 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { isValidElement, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { EhrAppShell, EhrModuleTabs, EhrSidebar, EhrTopBar, type EhrNavGroup, type EhrNavItem } from '@hid/ui/ehr'
 import { useStaff } from '../../staff/App'
+import { visibleNavigation } from '../../staff/navigation'
 import { ReviewBanner } from '../../staff/routes/ReviewBanner'
 import { BillingBanner } from '../../staff/routes/Billing'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { chooseClassicEhr, isDemoFacility } from '../blueFacilities'
-import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, pageAllowed, pageTabs } from '../routes'
+import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
 import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage, UnknownPage } from './LivePages'
-import { BluePageProvider, BluePagesProvider } from './pageContext'
+import { BluePageProvider, BluePagesProvider, OpenPagesProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
 import { TODAY_PATHS } from './pages'
 import { AccountMenu, AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
@@ -52,6 +53,8 @@ export function BlueFrame() {
   const facility = session?.actor.facility
   const permissions = useMemo(() => facility?.permissions ?? [], [facility])
   const allowed = useMemo(() => BLUE_PAGES.filter(page => pageAllowed(page, session)), [session])
+  // What the sidebar and search offer: the allowed pages this session lists.
+  const listed = useMemo(() => allowed.filter(page => !session || (page.listed?.(session) ?? true)), [allowed, session])
   const match = matchBluePage(BLUE_PAGES, location.pathname)
   const tabs = match ? pageTabs(allowed, match.page) : []
   // A tab has no sidebar entry: the page it joins is the current one.
@@ -62,6 +65,8 @@ export function BlueFrame() {
     if (lock === null && session) document.title = `${shownTitle} · Health ID EHR`
   }, [shownTitle, lock, session])
   if (!session) return null
+  const moved = movedAddress(location.pathname)
+  if (moved) return <Navigate replace to={{ pathname: moved, search: location.search, hash: location.hash }} />
 
   const follow = (item: { href: string }, event: MouseEvent<HTMLAnchorElement>) => {
     if (event.button !== 0 || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return
@@ -72,24 +77,30 @@ export function BlueFrame() {
   const classicEhr = () => {
     // Today's workspace serves its own pages at the same address, and only at that exact address: a record or a sample
     // under one (/provider/appointments/5a020001) is not one of today's, so it opens on today's Overview.
+    // So does a page today's sidebar lists for this facility: Staff, at a facility that signed itself up (Novu).
     const path = location.pathname.replace(/\/+$/, '').toLowerCase()
-    if (![...TODAY_PATHS].some(today => path === `/provider/${today}`) && !isLiveOnlyPath(path)) navigate('/provider')
+    const today = [...TODAY_PATHS].some(base => path === `/provider/${base}`) || isLiveOnlyPath(path)
+      || visibleNavigation(facility).some(item => item.to === path)
+    if (!today) navigate('/provider')
     chooseClassicEhr()
   }
 
+  // Today's page refuses in its own words ("Laboratory unavailable"), and reads nothing without the permission.
+  const todayRefuses = match !== null && match.page.status === 'live' && isValidElement(match.page.element)
+    && match.page.element.type === LivePage && (match.page.visible?.(session) ?? true)
   const content = match
-    ? pageAllowed(match.page, session)
+    ? pageAllowed(match.page, session) || todayRefuses
       ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
-      : <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'} />
+      : match.page.refusal ?? <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'} />
     : isLiveOnlyPath(location.pathname) ? <LivePage /> : <UnknownPage />
 
   return (
-    <BluePagesProvider value={BLUE_PAGES}>
+    <BluePagesProvider value={BLUE_PAGES}><OpenPagesProvider value={allowed}>
       <AttentionProvider facilityId={facility?.id} permissions={permissions}>
         <EhrAppShell
           sidebar={(
             <EhrSidebar
-              groups={navigationGroups(allowed.filter(page => !page.tabOf))}
+              groups={navigationGroups(listed.filter(page => !page.tabOf))}
               currentId={current?.path}
               brand={<BrandLogo className="hid-ehr-blue-logo" />}
               product="Hospital EHR"
@@ -100,7 +111,7 @@ export function BlueFrame() {
             <EhrTopBar
               start={<strong className="hid-ehr-blue-facility">{facility?.name ?? 'Health ID EHR'}</strong>}
               end={<>
-                <WorkspaceSearch pages={allowed} />
+                <WorkspaceSearch pages={listed} />
                 {isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} /> : null}
                 <NotificationsButton />
                 <AccountMenu onSample={setSamplePanel} onClassic={classicEhr} />
@@ -127,6 +138,6 @@ export function BlueFrame() {
           <AccountSamplePanel panel={samplePanel} onClose={() => setSamplePanel(null)} />
         </EhrAppShell>
       </AttentionProvider>
-    </BluePagesProvider>
+    </OpenPagesProvider></BluePagesProvider>
   )
 }

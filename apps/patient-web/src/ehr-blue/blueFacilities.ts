@@ -1,12 +1,16 @@
 import { useSyncExternalStore } from 'react'
 import type { Actor } from '../staff/api'
+import { BLUE_FOR_ALL } from './clinicSwitch'
 import { PAGE_FILES } from './pageSets'
 
+/** The clinic switch, set in its own one-line module (clinicSwitch.ts) so that tests can turn it. */
+export { BLUE_FOR_ALL }
+
 /**
- * Who opens the blue Hospital EHR. It is on for every facility once both the clinical pages (clinical/pages.ts) and
- * the department pages (departments/pages.ts) are merged; until then only for the four facilities of the sealed demo
- * tenant, and every other facility keeps today's provider workspace, unchanged. The ids are Identity's facility ids,
- * not names: a facility renamed "Demo" elsewhere is not one of these.
+ * Who opens the blue Hospital EHR. It is on for every facility once the clinic switch is set (clinicSwitch.ts) and both
+ * the clinical pages (clinical/pages.ts) and the department pages (departments/pages.ts) are merged; until then only
+ * for the four facilities of the sealed demo tenant, and every other facility keeps today's provider workspace,
+ * unchanged. The ids are Identity's facility ids, not names: a facility renamed "Demo" elsewhere is not one of these.
  */
 export const BLUE_FACILITIES = [
   { id: '98d00002-0000-4000-8000-000000000001', name: 'Demo Hospital' },
@@ -20,9 +24,12 @@ const BLUE_IDS: ReadonlySet<string> = new Set(BLUE_FACILITIES.map(facility => fa
 /** The page sets whose arrival switches the blue EHR on for every facility. */
 export const SWITCH_PAGE_SETS = ['./clinical/pages.ts', './departments/pages.ts'] as const
 
-/** Whether the blue EHR is on for every facility: once both the clinical and the department pages are present. */
-export function blueForAll(files: readonly string[] = PAGE_FILES): boolean {
-  return SWITCH_PAGE_SETS.every(set => files.includes(set))
+/**
+ * Whether the blue EHR is on for every facility: only once the clinic switch is set (BLUE_FOR_ALL, clinicSwitch.ts)
+ * and both the clinical and the department pages are present. Merging the pages alone moves no real clinic.
+ */
+export function blueForAll(files: readonly string[] = PAGE_FILES, switchedOn: boolean = BLUE_FOR_ALL): boolean {
+  return switchedOn && SWITCH_PAGE_SETS.every(set => files.includes(set))
 }
 
 /** One of the four demo facilities. */

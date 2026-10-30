@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { blueForAll, isBlueFacility, isDemoFacility, showsBlueEhr } from '../../../ehr-blue/blueFacilities'
+import type * as ClinicSwitch from '../../../ehr-blue/clinicSwitch'
 import type * as PageSets from '../../../ehr-blue/pageSets'
 import {
   DEMO_HOSPITAL, LAB_WORK, REAL_FACILITY, REQUESTS, SESSION, facility, json, openStaffApp, serve, sessionAt, where,
@@ -17,6 +18,9 @@ import {
 const blue = vi.hoisted(() => ({ loads: 0 }))
 const pageSets = vi.hoisted(() => ({ files: ['./frame/pages.ts', './home/pages.ts'] as string[] }))
 vi.mock('../../../ehr-blue/pageSets', () => ({ get PAGE_FILES() { return pageSets.files } }))
+// The clinic switch (clinicSwitch.ts): off, as it ships, unless a test turns it on.
+const clinic = vi.hoisted(() => ({ switchedOn: false }))
+vi.mock('../../../ehr-blue/clinicSwitch', () => ({ get BLUE_FOR_ALL() { return clinic.switchedOn } }))
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 
 const TODAY = ['./frame/pages.ts', './home/pages.ts']
@@ -28,6 +32,7 @@ const DEMO_IDS = ['98d00002-0000-4000-8000-000000000001', '98d00002-0000-4000-80
 beforeEach(() => {
   blue.loads = 0
   pageSets.files = [...TODAY]
+  clinic.switchedOn = false
   // Registered afresh for each test: a vi.mock factory's module outlives vi.resetModules, and would keep the blue EHR
   // bound to the staff app of the test before.
   vi.doMock('../../../ehr-blue/EhrBlueApp', async importOriginal => {
@@ -60,10 +65,23 @@ describe('blueFacilities', () => {
   })
 
   it('switches on for every facility only when both the clinical and the department pages are present', () => {
-    expect(blueForAll(TODAY)).toBe(false)
-    expect(blueForAll([...TODAY, CLINICAL])).toBe(false)
-    expect(blueForAll([...TODAY, DEPARTMENTS])).toBe(false)
-    expect(blueForAll([...TODAY, CLINICAL, DEPARTMENTS])).toBe(true)
+    expect(blueForAll(TODAY, true)).toBe(false)
+    expect(blueForAll([...TODAY, CLINICAL], true)).toBe(false)
+    expect(blueForAll([...TODAY, DEPARTMENTS], true)).toBe(false)
+    expect(blueForAll([...TODAY, CLINICAL, DEPARTMENTS], true)).toBe(true)
+  })
+
+  it('switches on for every facility only once the clinic switch is set, whatever pages are merged', async () => {
+    expect(blueForAll([...TODAY, CLINICAL, DEPARTMENTS], false)).toBe(false)
+    // As it ships: off.
+    const { BLUE_FOR_ALL } = await vi.importActual<typeof ClinicSwitch>('../../../ehr-blue/clinicSwitch')
+    expect(BLUE_FOR_ALL).toBe(false)
+    pageSets.files = [...TODAY, CLINICAL, DEPARTMENTS]
+    expect(blueForAll()).toBe(false)
+    expect(isBlueFacility(REAL_FACILITY)).toBe(false)
+    clinic.switchedOn = true
+    expect(blueForAll()).toBe(true)
+    expect(isBlueFacility(REAL_FACILITY)).toBe(true)
   })
 
   it('knows the four demo facilities by id, and until the switch nothing else', () => {
@@ -74,8 +92,9 @@ describe('blueFacilities', () => {
     expect(isBlueFacility(undefined)).toBe(false)
   })
 
-  it('takes every facility once both page sets are present, and still tells the demo ones apart', () => {
+  it('takes every facility once switched on with both page sets present, and still tells the demo ones apart', () => {
     pageSets.files = [...TODAY, CLINICAL, DEPARTMENTS]
+    clinic.switchedOn = true
     expect(isBlueFacility(REAL_FACILITY)).toBe(true)
     expect(isDemoFacility(REAL_FACILITY)).toBe(false)
     for (const id of DEMO_IDS) expect(isBlueFacility(id)).toBe(true)
@@ -91,6 +110,7 @@ describe('blueFacilities', () => {
     expect(showsBlueEhr({ facility: riverside, facilities: [demo] }, true)).toBe(true)
     expect(showsBlueEhr({ facilities: [] }, true)).toBe(false)
     pageSets.files = [...TODAY, CLINICAL, DEPARTMENTS]
+    clinic.switchedOn = true
     expect(showsBlueEhr({ facility: riverside, facilities: [demo, riverside] }, false)).toBe(true)
     expect(showsBlueEhr({ facility: demo, facilities: [demo, riverside] }, true)).toBe(true)
   })
@@ -101,6 +121,7 @@ describe('the staff app at a real facility', () => {
     ['no new page set', TODAY],
     ['only the clinical pages', [...TODAY, CLINICAL]],
     ['only the department pages', [...TODAY, DEPARTMENTS]],
+    ['both page sets but the clinic switch off', [...TODAY, CLINICAL, DEPARTMENTS]],
   ])('with %s, renders today\'s workspace and never loads the blue EHR', async (_, files) => {
     pageSets.files = files
     const riverside = real()
@@ -110,8 +131,9 @@ describe('the staff app at a real facility', () => {
     expect(blue.loads).toBe(0)
   })
 
-  it('with both the clinical and the department pages, opens the blue EHR on its own data', async () => {
+  it('with the clinic switch on and both page sets, opens the blue EHR on its own data', async () => {
     pageSets.files = [...TODAY, CLINICAL, DEPARTMENTS]
+    clinic.switchedOn = true
     const riverside = real()
     const sent = serve({ [SESSION]: [sessionAt(riverside, [riverside])], [REQUESTS]: [() => json([])] })
     await openStaffApp('/provider')
@@ -130,7 +152,7 @@ describe('the staff app at a real facility', () => {
 describe('the staff app at a demo facility', () => {
   it.each([
     ['before the switch', TODAY],
-    ['after the switch', [...TODAY, CLINICAL, DEPARTMENTS]],
+    ['with both page sets merged', [...TODAY, CLINICAL, DEPARTMENTS]],
   ])('opens the blue EHR %s', async (_, files) => {
     pageSets.files = files
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write', 'lab.work-item.read'])
@@ -161,6 +183,7 @@ describe('Use the classic EHR', () => {
 
   it('keeps a page today\'s workspace serves at the same address, as today\'s page', async () => {
     pageSets.files = [...TODAY, CLINICAL, DEPARTMENTS]
+    clinic.switchedOn = true
     const riverside = real()
     serve({ [SESSION]: [sessionAt(riverside, [riverside])], [REQUESTS]: [() => json([]), () => json([]), () => json([])] })
     await openStaffApp('/provider/requests')

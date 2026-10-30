@@ -19,11 +19,12 @@ const many = <T,>(answer: T, count = 8): T[] => Array.from({ length: count }, ()
 const nav = () => screen.getByRole('navigation', { name: 'Main navigation' })
 const follow = (name: string) => act(() => { fireEvent.click(within(nav()).getByRole('link', { name })) })
 
-/** The blue EHR at every facility: both page sets present (pageSets.ts lists the same files routes.tsx finds). */
+/** The blue EHR at every facility: the clinic switch on, and both page sets present (as pageSets.ts lists them). */
 function switchedOn() {
   vi.doMock('../../../ehr-blue/pageSets', () => ({
     PAGE_FILES: ['./clinical/pages.ts', './departments/pages.ts', './frame/pages.ts', './home/pages.ts'],
   }))
+  vi.doMock('../../../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: true }))
 }
 
 describe('1. samples belong to one person at one facility', () => {
@@ -106,7 +107,7 @@ describe('2. Home says what today\'s Overview says (a novu-v1 build)', () => {
     expect(within(check as HTMLElement).getByText(/Health ID support is checking Demo Hospital/)).toBeDefined()
   })
 
-  it('says when the member may open no live page, as today\'s Overview does, and not otherwise', async () => {
+  it('says when the member holds no clinical module\'s permission, as today\'s Overview does, and not otherwise', async () => {
     const none = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(none, [none])] })
     const { unmount } = await openStaffApp('/provider')
@@ -115,7 +116,7 @@ describe('2. Home says what today\'s Overview says (a novu-v1 build)', () => {
     unmount()
     vi.resetModules()
     withFramePages()
-    const some = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write'])
+    const some = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write', 'identity.patient.read'])
     serve({ [SESSION]: [sessionAt(some, [some])], [REQUESTS]: many(() => json([])) })
     await openStaffApp('/provider')
     await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })

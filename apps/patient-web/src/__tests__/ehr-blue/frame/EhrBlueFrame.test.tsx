@@ -192,9 +192,9 @@ describe('the blue frame', () => {
     await waitFor(() => expect(where()).toBe('/provider'))
   })
 
-  it('refuses a live page without its permission', async () => {
+  it('leaves today\'s page to refuse a live stand-in without its permission, in today\'s words', async () => {
     const sent = await openDemo('/provider/pharmacy')
-    expect(screen.getByText('Pharmacy is not open to you here')).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Pharmacy unavailable' })).toBeDefined()
     expect(sent.some(call => call.route.includes('/pharmacy/'))).toBe(false)
   })
 

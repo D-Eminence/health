@@ -26,6 +26,11 @@ const modules = [
   { title: 'Outreach', to: '/provider/outreach', permission: 'outreach.registration.read', detail: 'Review facility campaign registration work.' },
 ] as const
 
+/** Whether the member holds any clinical module's permission; without one, the Overview says so. */
+export function holdsClinicalModule(permissions: readonly string[]): boolean {
+  return modules.some(module => permissions.includes(module.permission))
+}
+
 /**
  * Orders other facilities sent here, waiting to be accepted (Novu, P4c, SPEC-FINAL §13.5), for a member who receives
  * them: a laboratory scientist or a pharmacist, at a laboratory or pharmacy (receivingHere). Each answer says, since item
@@ -254,7 +259,7 @@ export function Dashboard() {
         facilityId={facility.id} facilityName={facility.name} />}
       {activePatient && <Card className="staff-card"><h2>Current patient</h2><p>{activePatient.lookup.patient.fullName ?? activePatient.hid}</p><Link to="/provider/clinical" className="staff-text-link">Open clinical record →</Link></Card>}
     </div>}
-    <section className="staff-section"><h2>Workspaces</h2><div className="staff-grid">{modules.filter(module => permissions.includes(module.permission)).map(module => <Link className="staff-module" key={module.to} to={module.to}><strong>{module.title}</strong><span>{module.detail}</span><small>Open workspace →</small></Link>)}</div>{facility && modules.every(module => !permissions.includes(module.permission)) && <p className="staff-muted">Your active facility has no clinical module permissions. Ask an administrator to review your assignment.</p>}</section>
+    <section className="staff-section"><h2>Workspaces</h2><div className="staff-grid">{modules.filter(module => permissions.includes(module.permission)).map(module => <Link className="staff-module" key={module.to} to={module.to}><strong>{module.title}</strong><span>{module.detail}</span><small>Open workspace →</small></Link>)}</div>{facility && !holdsClinicalModule(permissions) && <p className="staff-muted">Your active facility has no clinical module permissions. Ask an administrator to review your assignment.</p>}</section>
     {/* It leads only to Document OCR, which a role without ocr.job.read cannot open: OCR is closed at launch, and no role holds it (hid-system 0091). */}
     {permissions.includes('ocr.job.read') && <Card className="staff-card staff-gap-card"><h2>Health ID Migrate</h2><p>Document capture, extraction, validation, and publication use the governed OCR API. Bulk import, project matching, and team operations need additional backend support.</p><Link to="/provider/ocr" className="staff-text-link">Open document workflow →</Link></Card>}
   </>
