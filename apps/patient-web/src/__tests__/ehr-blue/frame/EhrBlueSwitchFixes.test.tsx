@@ -22,11 +22,12 @@ const many = <T,>(answer: T, count = 8): T[] => Array.from({ length: count }, ()
 const ended = () => problem(401, 'AUTHENTICATION_REQUIRED', 'Valid authentication is required')
 const nav = () => screen.getByRole('navigation', { name: 'Main navigation' })
 
-/** The blue EHR at every facility: both page sets present (pageSets.ts lists the same files routes.tsx finds). */
+/** The blue EHR at every facility: the clinic switch on, and both page sets present (as pageSets.ts lists them). */
 function switchedOn() {
   vi.doMock('../../../ehr-blue/pageSets', () => ({
     PAGE_FILES: ['./clinical/pages.ts', './departments/pages.ts', './frame/pages.ts', './home/pages.ts'],
   }))
+  vi.doMock('../../../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: true }))
 }
 
 async function chooseClassic() {

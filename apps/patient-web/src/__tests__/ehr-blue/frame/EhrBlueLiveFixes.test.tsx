@@ -19,11 +19,12 @@ const many = <T,>(answer: T, count = 8): T[] => Array.from({ length: count }, ()
 const nav = () => screen.getByRole('navigation', { name: 'Main navigation' })
 const follow = (name: string) => act(() => { fireEvent.click(within(nav()).getByRole('link', { name })) })
 
-/** The blue EHR at every facility: both page sets present (pageSets.ts lists the same files routes.tsx finds). */
+/** The blue EHR at every facility: the clinic switch on, and both page sets present (as pageSets.ts lists them). */
 function switchedOn() {
   vi.doMock('../../../ehr-blue/pageSets', () => ({
     PAGE_FILES: ['./clinical/pages.ts', './departments/pages.ts', './frame/pages.ts', './home/pages.ts'],
   }))
+  vi.doMock('../../../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: true }))
 }
 
 describe('1. samples belong to one person at one facility', () => {
