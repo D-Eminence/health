@@ -49,3 +49,19 @@ describe('A11.1 without indexedDB.databases()', () => {
     expect(await databaseExists(noList)).toBe(true)
   })
 })
+
+describe('A11.1 when indexedDB.databases() throws', () => {
+  it('falls back to the probe: false and nothing created; true for an existing database', async () => {
+    const { IDBFactory } = await import('fake-indexeddb')
+    const { databaseExists, OfflineStore } = await import('../store')
+    const real = new IDBFactory()
+    const throwing = new Proxy(real, {
+      get: (t, p) => (p === 'databases' ? () => Promise.reject(new Error('not allowed')) : Reflect.get(t, p, t)),
+    }) as IDBFactory
+    expect(await databaseExists(throwing)).toBe(false)
+    expect(await real.databases()).toEqual([])
+    const store = await OfflineStore.open(real)
+    store.close()
+    expect(await databaseExists(throwing)).toBe(true)
+  })
+})
