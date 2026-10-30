@@ -60,8 +60,10 @@ async function expectBlueHome() {
   expect(screen.queryByRole('complementary', { name: 'Provider navigation' })).toBeNull()
 }
 
+/** The blue sign-in, as a clinic has it once the switch is on (frame/auth/BlueSignIn.tsx, the design's "Email"). */
 async function signIn() {
-  fireEvent.change(await screen.findByRole('textbox', { name: 'Work email' }), { target: { value: 'next.clinician@example.test' } })
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Email' }), { target: { value: 'next.clinician@example.test' } })
+  expect(document.querySelector('.hid-ehr.hid-ehr-blue-auth')).not.toBeNull()
   fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'fictional passphrase for tests' } })
   fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 }
