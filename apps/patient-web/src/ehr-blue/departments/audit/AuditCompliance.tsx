@@ -169,6 +169,8 @@ export function AuditCompliance() {
             </DeptNotice>
           )}
           {loading && !page && <EhrSkeleton label="Loading audit events" />}
+          {/* A page already shown stays while it is read again; the read is still said, as today's page says every read. */}
+          {loading && page && <p role="status" className="hid-ehr-sr-only">Loading audit events</p>}
           {!loading && page?.items.length === 0 && (cursors.length > 1
             ? <EhrEmptyState title="No older events" message={`There are no earlier audit events at ${facility.name}.`} />
             : <EhrEmptyState title="No audit events yet" message={`Events at ${facility.name} appear here once they are recorded.`} />)}

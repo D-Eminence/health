@@ -189,12 +189,18 @@ describe('Audit & Compliance: search, outcome and refresh', () => {
     expect(refresh.getAttribute('aria-busy')).toBe('true')
     expect(document.activeElement).toBe(refresh)
     expect(screen.getByRole('list', { name: 'Audit events, page 1' }).getAttribute('aria-busy')).toBe('true')
+    // The list stays on screen, and a visually hidden status says it is being read again.
+    const status = screen.getByRole('status')
+    expect(status.textContent).toBe('Loading audit events')
+    expect(status.className).toBe('hid-ehr-sr-only')
+    expect(screen.getByText('ehr.encounter.create')).toBeTruthy()
     fireEvent.click(refresh)
     expect(api.facilityAudit).toHaveBeenCalledTimes(2)
 
     await act(async () => { again.resolve(pageOf([event('54', { action: 'identity.session.start' })])) })
     expect(screen.getByText('identity.session.start')).toBeTruthy()
     expect(screen.queryByText('ehr.encounter.create')).toBeNull()
+    expect(screen.queryByRole('status')).toBeNull()
     expect(refresh.hasAttribute('aria-busy')).toBe(false)
     expect(document.activeElement).toBe(refresh)
     onlyAuditRead()
