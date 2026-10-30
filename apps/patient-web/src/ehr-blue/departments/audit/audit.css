@@ -1,0 +1,46 @@
+/*
+ * Audit & Compliance (admin/audit.png): the line under the heading, and each event
+ * as the target's list row: the action in bold, then its facts in small muted lines.
+ */
+.hid-ehr .hid-ehr-dept-audit-intro {
+  margin: 0 0 20px;
+  color: var(--ehr-ink);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-audit-card:focus-visible {
+  outline: var(--ehr-focus-ring-width, 3px) solid var(--ehr-brand);
+  outline-offset: 3px;
+}
+
+.hid-ehr .hid-ehr-dept-audit-event {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-dept-audit-action {
+  color: var(--ehr-ink);
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-audit-meta {
+  display: block;
+  color: var(--ehr-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-audit-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-audit-pager-note {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
