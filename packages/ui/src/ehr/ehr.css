@@ -8,6 +8,7 @@
  * tokens.ts holds the same values for script.
  */
 
+/* Both fonts are the upstream google/fonts variable fonts, converted losslessly to WOFF2 (fonts/README.md). */
 @font-face {
   font-family: Geist;
   src: url('./fonts/geist.woff2') format('woff2');
@@ -16,12 +17,9 @@
   font-display: swap;
 }
 
-/* The upstream variable Playfair Display (google/fonts ofl/playfairdisplay), unchanged: each table only
-   zlib-compressed into WOFF, with no WOFF metadata (OFL FAQ 2.2), so its Reserved Font Name stays usable.
-   fonts/PlayfairDisplay[wght].ttf is that upstream file; a test checks the two hold the same tables. */
 @font-face {
   font-family: 'Playfair Display';
-  src: url('./fonts/playfair-display.woff') format('woff');
+  src: url('./fonts/playfair-display.woff2') format('woff2');
   font-style: normal;
   font-weight: 400 900;
   font-display: swap;
@@ -841,6 +839,18 @@
 .hid-ehr .hid-ehr-scrim.hid-ehr-scrim-center {
   align-items: center;
   justify-content: center;
+}
+
+/* Focus guards at a modal's edges: never seen, they only catch Tab and send it round. */
+.hid-ehr .hid-ehr-focus-guard {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  outline: none;
 }
 
 .hid-ehr .hid-ehr-overlay-title {

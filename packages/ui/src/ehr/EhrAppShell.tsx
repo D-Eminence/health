@@ -12,6 +12,11 @@
  * overlay stack clears `inert` from the layer that holds the opener,
  * synchronously and through refs, before it moves focus back to the opener.
  * Nothing here waits for React state to remove `inert`.
+ *
+ * Tab stays inside the top overlay: it wraps at the first and last stops, focus
+ * guards at the scrim's edges catch a Tab the DOM order misjudged (a control
+ * hidden by CSS), and should focus fall out to the body anyway, the top overlay
+ * still answers Escape and Tab from the document.
  */
 
 import {
@@ -40,6 +45,8 @@ interface OverlayEntry {
 export interface EhrOverlayStack {
   readonly open: (container: HTMLElement, returnTo: HTMLElement | null) => OverlayEntry
   readonly close: (entry: OverlayEntry) => void
+  /** Whether this overlay is the top one, the only one that answers keys. */
+  readonly isTop: (entry: OverlayEntry) => boolean
 }
 
 function setInert(element: HTMLElement | null, inert: boolean) {
@@ -91,6 +98,9 @@ function createOverlayStack(workspace: RefObject<HTMLElement | null> | null): Eh
       // First clear inert from the layer below, then move focus into it.
       syncInert()
       if (wasTop) restoreFocus(entry)
+    },
+    isTop(entry) {
+      return entries.at(-1) === entry
     },
   }
 }
@@ -176,14 +186,45 @@ const FOCUSABLE = [
   'input:not([disabled]):not([type="hidden"])',
   'select:not([disabled])',
   'textarea:not([disabled])',
+  'details > summary:first-of-type',
   '[tabindex]',
   '[contenteditable="true"]',
 ].join(', ')
 
-/** The elements Tab reaches inside `root`, in order. */
+/** Whether a closed <details> hides the element (everything in it but its summary). */
+function inClosedDetails(element: HTMLElement): boolean {
+  for (let details = element.closest('details'); details; details = details.parentElement?.closest('details') ?? null) {
+    if (!details.open && !details.querySelector(':scope > summary')?.contains(element)) return true
+  }
+  return false
+}
+
+/** Of a named radio group, Tab stops only on the checked radio, when one is checked. */
+function radioStop(element: HTMLElement, root: HTMLElement): boolean {
+  if (!(element instanceof HTMLInputElement) || element.type !== 'radio' || !element.name || element.checked) return true
+  const group = [...root.querySelectorAll<HTMLInputElement>('input[type="radio"]')]
+    .filter(radio => radio.name === element.name && radio.form === element.form)
+  return !group.some(radio => radio.checked)
+}
+
+/**
+ * The elements Tab reaches inside `root`, in order, as near as the DOM tells: a control hidden by CSS still shows
+ * here, which is why each modal also keeps focus guards at its edges.
+ */
 function tabbable(root: HTMLElement): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(element =>
-    element.tabIndex >= 0 && !element.closest('[hidden], [inert]'))
+    element.tabIndex >= 0 && !element.hasAttribute('data-ehr-focus-guard') && !element.closest('[hidden], [inert]')
+    && !inClosedDetails(element) && radioStop(element, root))
+}
+
+/** Focuses the first (or last) element Tab reaches that takes focus; one hidden by CSS does not, so the next is tried. */
+function focusEdge(root: HTMLElement, edge: 'first' | 'last'): boolean {
+  const items = tabbable(root)
+  for (const item of edge === 'first' ? items : items.reverse()) {
+    item.focus()
+    if (document.activeElement === item) return true
+  }
+  return false
 }
 
 export interface EhrModalProps {
@@ -208,6 +249,11 @@ export function EhrModal({ children, scrimClassName, onEscape, initialFocusRef, 
   const stack = shell ? shell.stack : standaloneStack
   const ready = shell === null || shell.layer !== null
   const scrimRef = useRef<HTMLDivElement>(null)
+  // The latest onEscape, for the document listener below.
+  const onEscapeRef = useRef(onEscape)
+  useLayoutEffect(() => {
+    onEscapeRef.current = onEscape
+  })
 
   useLayoutEffect(() => {
     const scrim = scrimRef.current
@@ -218,7 +264,24 @@ export function EhrModal({ children, scrimClassName, onEscape, initialFocusRef, 
     const entry = stack.open(scrim, opener)
     const target = initialFocusRef?.current ?? tabbable(scrim)[0] ?? scrim.querySelector<HTMLElement>('[tabindex="-1"]')
     target?.focus()
-    return () => stack.close(entry)
+    // Should focus still fall out of the overlay (to the body), the top overlay keeps answering Escape and Tab. Keys
+    // pressed inside it are React's (onKeyDown below).
+    const onDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (!stack.isTop(entry)) return
+      if (event.target instanceof Node && scrim.contains(event.target)) return
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onEscapeRef.current()
+      } else if (event.key === 'Tab') {
+        event.preventDefault()
+        focusEdge(scrim, event.shiftKey ? 'last' : 'first')
+      }
+    }
+    document.addEventListener('keydown', onDocumentKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onDocumentKeyDown)
+      stack.close(entry)
+    }
   }, [ready, stack, initialFocusRef, returnFocusRef])
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -244,11 +307,17 @@ export function EhrModal({ children, scrimClassName, onEscape, initialFocusRef, 
     const inside = active instanceof Node && scrim.contains(active)
     if (event.shiftKey && (active === first || !inside || !items.includes(active as HTMLElement))) {
       event.preventDefault()
-      last.focus()
+      focusEdge(scrim, 'last')
     } else if (!event.shiftKey && (active === last || !inside)) {
       event.preventDefault()
-      first.focus()
+      focusEdge(scrim, 'first')
     }
+  }
+
+  // Where the DOM's order and the browser's tab order differ, Tab can still pass the edge: it lands on a guard, which
+  // sends focus round to the other end.
+  const wrapTo = (edge: 'first' | 'last') => {
+    if (scrimRef.current) focusEdge(scrimRef.current, edge)
   }
 
   // A press on the scrim itself would otherwise move focus to the page behind it.
@@ -258,7 +327,9 @@ export function EhrModal({ children, scrimClassName, onEscape, initialFocusRef, 
 
   const frame = (
     <div ref={scrimRef} className={cx('hid-ehr-scrim', scrimClassName)} onKeyDown={onKeyDown} onMouseDown={onMouseDown}>
+      <span className="hid-ehr-focus-guard" tabIndex={0} data-ehr-focus-guard="" onFocus={() => wrapTo('last')} />
       {children}
+      <span className="hid-ehr-focus-guard" tabIndex={0} data-ehr-focus-guard="" onFocus={() => wrapTo('first')} />
     </div>
   )
   if (!shell) return <div className="hid-ehr">{frame}</div>
