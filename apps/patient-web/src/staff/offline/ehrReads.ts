@@ -1,10 +1,10 @@
 import { useSyncExternalStore } from 'react'
 import { HidApiError } from '@hid/http'
-import { isTransportError, type OfflineCore } from '@hid/offline'
+import { isTransportError, TransportError, type OfflineCore } from '@hid/offline'
 import {
   isAllowedPatientLookup, staffApi, type ConsentStatus, type EmergencyRecords, type PatientLookup, type RecordKind,
 } from '../api'
-import { offlineActive, offlineRuntime } from './runtime'
+import { offlineActive, offlineRuntime, sessionRestoredOnly } from './runtime'
 
 /**
  * The chart reads the EHR may answer from the device (OFFLINE-CONTRACT §2.7 allowlist), with the same signatures as
@@ -57,7 +57,10 @@ async function cached<T>(method: string, args: readonly unknown[], patientId: st
   let result: Awaited<ReturnType<typeof runtime.reads.read<T>>>
   // The patient leads the key: a read whose own arguments do not name the patient (consent, reported health, visits)
   // must never answer with another patient's copy (A12.1).
-  try { result = await runtime.reads.read({ method, args: [patientId, ...args], patientId, network }) }
+  // A session restored offline and not yet confirmed sends nothing under the browser's cookie, which may be another
+  // account's (A12.3): the read is answered from the device, as when Health ID cannot be reached.
+  const send = sessionRestoredOnly() ? () => Promise.reject(new TransportError({ status: null, networkError: true })) : network
+  try { result = await runtime.reads.read({ method, args: [patientId, ...args], patientId, network: send }) }
   catch (caught) {
     // Offline with no readable copy on this device: said as the network error the pages already handle.
     if (isTransportError(caught) && caught.networkError) {
@@ -97,7 +100,11 @@ export const ehrReads = {
       await keepGrant(runtime, lookup)
       return lookup
     }
-    if (!known) return network()
+    if (!known) {
+      // Not on this device, and the session is not confirmed yet: nothing is asked of Health ID under another cookie.
+      if (sessionRestoredOnly()) throw new HidApiError(0, 'Health ID can’t be reached, and this is not kept on this device.', { code: 'NETWORK_ERROR', retryable: false })
+      return network()
+    }
     const lookup = await cached('lookupPatient', [code], known.patientId, 'summary', network, runtime)
     // A break-glass authorization is never kept: the device drops the patient (§2.6, per-patient wipe).
     if (isAllowedPatientLookup(lookup) && lookup.authorization.breakGlass) await runtime.reads.dropPatient(known.patientId)

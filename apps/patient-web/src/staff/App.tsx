@@ -35,7 +35,7 @@ import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { LIMITS, type LockReason, type OfflineCore, type StaffSessionSnapshot } from '@hid/offline'
-import { lockOtherAccount, markSessionReady, offlineActive, offlineRuntime, offlineRuntimeMayFollow, resolveOfflineRuntime, restoredStaffSession, useOfflineActive, useOfflineSummary } from './offline/runtime'
+import { lockOtherAccount, markSessionReady, setSessionRestoredOnly, offlineActive, offlineRuntime, offlineRuntimeMayFollow, resolveOfflineRuntime, restoredStaffSession, useOfflineActive, useOfflineSummary } from './offline/runtime'
 import { resaveGrantCloses } from './offline/ehrCommands'
 import { attachOnlineSession, healthIdUnreachable, keepsVaultFacility, offersOfflineSignIn, syncShell } from './offline/session'
 import { OfflineSignIn } from './offline/OfflineSignIn'
@@ -186,7 +186,9 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   // workspace is not locked (§2.8, "Eligible"), and Health ID confirmed the account. A session opened offline is not
   // confirmed: sending waits for the background read that confirms it (A12.3).
   const markReady = useCallback((ready: boolean) => {
-    setStaffSessionReady(ready)
+    // A session restored offline is not one Health ID confirmed: no protected request goes out under whatever cookie the
+    // browser holds until the background read confirms it (A12.3). Sign-in routes (/api/v1/auth/**) are not gated.
+    setStaffSessionReady(ready && !offlineMode.current)
     markSessionReady(offlineRuntime(), ready && !offlineMode.current, currentSession.current?.actor.id)
   }, [])
   const lockRef = useRef<SessionLock>(null)
@@ -204,6 +206,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   const setState = useCallback((next: SessionState) => {
     status.current = next.status; currentSession.current = next.session
     offlineMode.current = next.status === 'ready' && next.mode === 'offline'
+    setSessionRestoredOnly(offlineMode.current)
     facilityLost.current = next.status === 'ready' && next.facilityLost === true
     setSessionState(next)
     setStaffSessionActor(next.status === 'ready' ? next.session.actor.id : null)
@@ -542,6 +545,13 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   // the cookies it sets come after that. A change heard from here on is asked about once the session opens.
   async function login(email: string, password: string, turnstileToken?: string) {
     heardWhileOpening.current = false
+    // A sign-out noted offline ends the session it was made in before another sign-in replaces the cookies (A12.2):
+    // otherwise the next load would send it and end the new session instead.
+    const rt = runtimeRef.current ?? (offlineRuntimeMayFollow() ? await resolveOfflineRuntime() : null)
+    if (rt && await rt.logoutPending().catch(() => false)) {
+      await staffApi.sendPendingSignOut()
+      await rt.logoutSent()
+    }
     return staffApi.login(email, password, turnstileToken)
   }
 

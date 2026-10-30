@@ -326,6 +326,41 @@ describe('a sign-out made offline reaches Health ID (A12.2)', () => {
     expect(controls.logoutPending()).toBe(true)
   }, 20000)
 
+  it('is sent before another account signs in on the same tab, so the next load does not end the new session (re-review 4)', async () => {
+    let down = true
+    const bola = () => {
+      const session = staffSession()
+      return { ...session, actor: { ...session.actor, id: 'staff-2', email: 'bola@example.test', displayName: 'Bola Clinician' } }
+    }
+    serve(route => {
+      if (down) throw new TypeError('Failed to fetch')
+      return route === LOGOUT ? signedOut() : route === 'POST /api/v1/auth/login' ? json(bola())
+        : route === SESSION || route === 'POST /api/v1/auth/refresh' ? json({ code: 'AUTHENTICATION_REQUIRED' }, 401) : json([])
+    })
+    const { runtime, controls } = fakeOffline({ connectivity: 'offline' })
+    controls.seedVault(snapshotOf(PILOT, staffSession(), PERMISSIONS), PASSWORD)
+    await open(runtime, { mode: 'pilot', facilities: [PILOT] })
+    fireEvent.change(await screen.findByRole('textbox', { name: /Work email/ }, { timeout: 8000 }), { target: { value: 'ada@example.test' } })
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: PASSWORD } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open offline copy' }))
+    await screen.findByRole('heading', { level: 1, name: /Good to see you, Ada/ })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await waitFor(() => expect(controls.logoutPending()).toBe(true))
+
+    // Health ID is back; Bola signs in on this tab without a reload.
+    down = false
+    controls.setConnectivity('online')
+    calls.length = 0
+    fireEvent.change(await screen.findByRole('textbox', { name: /Work email/ }), { target: { value: 'bola@example.test' } })
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: PASSWORD } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await screen.findByRole('heading', { level: 1, name: /Good to see you, Bola/ })
+    // Ada's sign-out ended the session it was made in first, then Bola signed in.
+    expect(calls.indexOf(LOGOUT)).toBeGreaterThanOrEqual(0)
+    expect(calls.indexOf(LOGOUT)).toBeLessThan(calls.indexOf('POST /api/v1/auth/login'))
+    expect(controls.logoutPending()).toBe(false)
+  }, 25000)
+
   it('with no offline copy, a dropped connection still says the sign-out failed', async () => {
     let down = false
     serve(route => { if (down) throw new TypeError('Failed to fetch'); return route === SESSION ? json(staffSession(REAL, 'Lagos General')) : json([]) })
@@ -408,6 +443,40 @@ describe('sending is bound to the account Health ID confirmed (A12.3)', () => {
     await open(runtime, { mode: 'pilot', facilities: [PILOT] })
     await screen.findByRole('heading', { name: 'Welcome back.' }, { timeout: 8000 })
     expect(lock).toHaveBeenCalledWith('session')
+  }, 20000)
+
+  it('restored offline, sends nothing under the browser’s cookie until Health ID confirms the account (re-review 9)', async () => {
+    let online = false
+    let answerSession: (response: Response) => void = () => undefined
+    serve(route => {
+      if (!online) throw new TypeError('Failed to fetch')
+      // The background read is slow to answer, and will say another account holds the cookie.
+      if (route === 'GET /api/v1/auth/session') return new Promise<Response>(resolve => { answerSession = resolve })
+      return json({ items: [], nextCursor: null })
+    })
+    const { runtime, controls } = fakeOffline({ connectivity: 'offline' })
+    controls.seedVault(snapshotOf(PILOT, staffSession(), PERMISSIONS), PASSWORD)
+    await open(runtime, { mode: 'pilot', facilities: [PILOT] })
+    fireEvent.change(await screen.findByRole('textbox', { name: /Work email/ }, { timeout: 8000 }), { target: { value: 'ada@example.test' } })
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: PASSWORD } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open offline copy' }))
+    await screen.findByRole('heading', { level: 1, name: /Good to see you, Ada/ })
+
+    // Back online; the session read is still on its way.
+    online = true
+    await act(async () => { controls.setConnectivity('online') })
+    await waitFor(() => expect(calls).toContain('GET /api/v1/auth/session'))
+    const { ehrReads } = await import('../ehrReads')
+    const { staffApi } = await import('../../api')
+    const before = calls.length
+    // A Health ID not on this device: refused at once, never asked of Health ID.
+    await expect(ehrReads.lookupPatient(PILOT, 'HID-ADAPT9', 'direct-care')).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+    // An online-only change waits for the session to be confirmed.
+    void staffApi.updateRecord(PILOT, 'b1000000-0000-4000-8000-00000000a7c3', 'enc-1', 'prescriptions', 'rx-1',
+      { expectedRowVersion: 1, changeReason: 'Stopped by the clinician', status: 'cancelled' }).catch(() => undefined)
+    await new Promise(resolve => setTimeout(resolve, 200))
+    expect(calls.slice(before)).toEqual([])
+    answerSession(json({ code: 'AUTHENTICATION_REQUIRED' }, 401))
   }, 20000)
 
   /** Ada's vault, open on this tab as after her online sign-in with a copy kept. */

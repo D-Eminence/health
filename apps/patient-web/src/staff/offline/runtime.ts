@@ -148,6 +148,12 @@ export function lockOtherAccount(runtime: OfflineRuntime | null, accountId: stri
   if (runtime && open && open.accountId !== accountId) runtime.lock('session')
 }
 
+// Whether the workspace runs on a session restored from the vault that Health ID has not confirmed yet (A12.3).
+let restoredOnly = false
+/** True while the session was restored offline and not yet confirmed: chart reads then answer from the device only. */
+export function sessionRestoredOnly(): boolean { return restoredOnly }
+export function setSessionRestoredOnly(value: boolean): void { restoredOnly = value }
+
 /** The session as the vault keeps it (sealed in its header). */
 export function staffSnapshot(session: StaffSession): StaffSessionSnapshot | null {
   const { actor } = session
