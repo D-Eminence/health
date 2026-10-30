@@ -4,6 +4,7 @@ import { isHidApiError } from '@hid/http'
 import { ArrowLeft, ArrowRight, Check, ChevronLeft, CircleCheck, Clock, Eye, Lock, Mail, PenLine, Search, Share2, Stethoscope } from 'lucide-react'
 import { Button, PageHeader, cx } from '../kasuwa/ui'
 import { useToast } from '../kasuwa/toast'
+import { ShareEmailPreview, useMyCard } from './SharedCard'
 import { useSession } from '../session'
 import { describedBy, sentFromField, useDocumentTitle, useStepFocus } from '../authSteps'
 import { learnShareServed, useShareServed } from '../shareServed'
@@ -88,6 +89,7 @@ export function ShareRecords() {
 
 function ShareFlow() {
   const { api } = useSession()
+  const myCard = useMyCard()
   const [params] = useSearchParams()
   const [step, setStep] = useState<Step>(() => params.get('by') === 'email' ? 'invite' : 'search')
   const [query, setQuery] = useState('')
@@ -274,6 +276,11 @@ function ShareFlow() {
         <button type="button" onClick={() => go('level')} className="cursor-pointer border-0 bg-transparent text-[13px] font-semibold text-brand-ink hover:underline">Change<span className="sr-only"> how long</span></button></div>
     </dl>
     <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />If you already share with them, this replaces it. Every view is recorded, and you can end it any time.</p>
+    {/* Your card is what arrives: the email they will receive, before you send it. */}
+    {myCard && <div className="flex flex-col gap-2">
+      <p className="m-0 text-[13px] font-medium text-ink-2">What {provider.clinicianName} receives</p>
+      <ShareEmailPreview card={myCard} to={provider.clinicianName} level={level} duration={duration} />
+    </div>}
     {alert}
   </form>, <><Button disabled={busy} onClick={() => go('level')} icon={ArrowLeft}>Back</Button>
     <Button type="submit" form="share-confirm" variant="primary" icon={Share2} loading={busy} disabled={busy}>{busy ? 'Sharing…' : 'Share my records'}</Button></>)
@@ -281,9 +288,10 @@ function ShareFlow() {
   if (step === 'done' && created) return frame('done', <div className="flex flex-col items-center gap-3 py-4 text-center">
     <span className="inline-flex size-14 items-center justify-center rounded-full bg-success-soft text-success-ink"><CircleCheck className="size-7" aria-hidden /></span>
     {heading('Your records are shared')}
-    <p className="m-0 max-w-md text-sm text-ink-2">{created.clinicianName ? `${created.clinicianName} at ${created.facilityName}` : `A provider at ${created.facilityName}`} can see your
-      records {shareUntil(created.duration, created.expiresAt)}. They’ve been told.</p>
+    <p className="m-0 max-w-md text-sm text-ink-2">Your card is on its way to {created.clinicianName ? `${created.clinicianName} at ${created.facilityName}` : `a provider at ${created.facilityName}`}. They can open your
+      records {shareUntil(created.duration, created.expiresAt)}.</p>
     {created.replacedConsentGrantId && <p className="m-0 text-[13px] text-ink-3">This replaces the share you had with them before.</p>}
+    <Link to="/card/preview" className="text-[13px] font-semibold text-brand-ink no-underline hover:underline">Preview what they see when they open your card</Link>
   </div>, <><Button onClick={() => startAgain('search')}>Share with someone else</Button>
     <Button to="/access" variant="primary">See who has access</Button></>)
 

@@ -140,7 +140,7 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.contactChangeVerify',
       // Sharing with a clinician and invitations by email (hid-system 0095, Novu only; a backend before it answers 404).
       'identity.shareProviderSearch', 'identity.shares', 'identity.shareInvitations', 'identity.shareInvitationCancel',
-      'identity.shareInvitationConfirm'],
+      'identity.shareInvitationConfirm', 'identity.sharedCard'],
     access: ['access.patientRequests', 'access.approve', 'access.deny', 'access.revokeMyGrant'],
     // Imported history (#94) and patient record chat (#95, ADR-068) are patient-only routes.
     ehr: ['ehr.myRecords', 'ehr.myPatientEntries', 'ehr.myImportedHistory', 'ehr.patientChatAvailability', 'ehr.patientChat', 'ehr.patientChatHistory',

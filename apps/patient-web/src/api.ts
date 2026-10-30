@@ -136,6 +136,17 @@ export interface EnrollmentSignupDetails {
   hospitalCurrentlyUsing?: string
 }
 
+/** What the proposed identity/shared-cards/:token answers (BACKEND-NEEDS.md §2). */
+export interface SharedCardAnswer {
+  card: { fullName: string; hid: string; ninVerified: boolean | null; bloodGroup: string | null; genotype: string | null; allergies: string | null; photoUrl: string | null }
+  sharedBy: string
+  recipientEmail: string
+  level: string
+  duration: string
+  expiresAt: string
+  records: PatientRecords
+}
+
 /** What the patient enters for a record they add themselves (proposed: ehr/me/patient-entries). */
 export interface OwnRecordInput {
   kind: 'visit' | 'test' | 'medicine' | 'diagnosis' | 'vaccination' | 'other'
@@ -550,6 +561,11 @@ export function createPatientApi(sender: ApiClient) {
      * one does it answers 404, and the page says nothing was saved. Kept as "added by you", never as a clinician's.
      */
     addOwnRecord: (entry: OwnRecordInput, signal?: AbortSignal) => call<{ id: string }>('POST', 'ehr/me/patient-entries', entry, { signal }),
+    /**
+     * The card a provider opens from the email a patient's share sends (PROPOSED, BACKEND-NEEDS.md §2): the patient's card
+     * and the records the share allows, for as long as the share lasts. No session: the link's token is the access.
+     */
+    sharedCard: (token: string, signal?: AbortSignal) => call<SharedCardAnswer>('GET', `identity/shared-cards/${encodeURIComponent(token)}`, undefined, { signal }),
     participatingFacilities: () => call<ParticipatingFacilities>('GET', 'identity/patient-enrollments/participating-facilities'),
     enrollmentStart: (nin: string, turnstileToken: string, idempotencyKey: string) =>
       call<EnrollmentProgress>('POST', 'identity/patient-enrollments', { nin, turnstileAction: 'patient-enrollment', turnstileToken },

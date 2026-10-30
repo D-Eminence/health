@@ -19,6 +19,7 @@ import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_INVITATION_PATH } f
 import { usesNovuBackend } from './backendContract'
 import { LEGACY_PATIENT_PATHS } from './legacyPaths'
 import { ShareRecords } from './routes/ShareRecords'
+import { SharedCardPage, SharedCardPreview } from './routes/SharedCard'
 
 const StaffApp = lazy(async () => ({ default: (await import('./staff/App')).App }))
 const ProviderEnrollment = lazy(async () => ({ default: (await import('./staff/routes/ProviderEnrollment')).ProviderEnrollment }))
@@ -44,6 +45,9 @@ function PatientRoutes() {
       <Route path="/enroll" element={<Enrollment />} />
       <Route path="/enroll/facilities" element={<ParticipatingFacilitiesPage />} />
       <Route path="/recover" element={<Recovery />} />
+      {/* Sharing by card: the patient's preview of the provider's page, and the provider's page itself (the email's link). */}
+      <Route path="/card/preview" element={<RequireAccess requirement={PATIENT_ROUTE}><SharedCardPreview /></RequireAccess>} />
+      <Route path="/card/:token" element={<SharedCardPage />} />
       {/* hid-1.0's old addresses open the page that replaces each; nothing of the old address is kept. */}
       {Object.entries(LEGACY_PATIENT_PATHS).map(([from, to]) => <Route key={from} path={from} element={<Navigate to={to} replace />} />)}
       <Route path="/" element={<RequireAccess requirement={PATIENT_ROUTE}><PortalShell /></RequireAccess>}>

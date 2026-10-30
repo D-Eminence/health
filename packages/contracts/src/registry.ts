@@ -737,6 +737,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     'Patient sessions only. GET { shared, updatedAt }; POST { shared } answers { shared, changed, updatedAt }. Turning sharing on '
     + 'needs a recent sign-in (403 PATIENT_RECENT_AUTH_REQUIRED) and no recovery in the last 24 hours (403 PATIENT_RECENT_RECOVERY_HOLD); '
     + '503 IMPORTED_HISTORY_SHARING_DISABLED while the switch is off.'),
+  proposed(r('identity.sharedCard','identity','/api/v1/identity/shared-cards/:token',G,true,undefined,
+    'PROPOSED by the patient-portal redesign (BACKEND-NEEDS.md §2); no backend serves it. Public: the link in the email a provider '
+    + 'receives when a patient shares. Answers { card, sharedBy, recipientEmail, level, duration, expiresAt, records } while the share '
+    + 'is active, 404 once it has ended or been revoked. Every read is audited to the patient\'s access log as the recipient.')),
   proposed(r('ehr.myPatientEntries','ehr','/api/v1/ehr/me/patient-entries',P,false,undefined,
     'PROPOSED by the patient-portal redesign (BACKEND-NEEDS.md); no backend serves it. Patient sessions only. POST { kind, title, '
     + 'facilityName, occurredOn, notes, attachments[{ fileName, mediaType, sizeBytes, contentBase64 }] } answers 201 { id }. A record the '
