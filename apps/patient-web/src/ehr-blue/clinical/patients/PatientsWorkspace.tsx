@@ -1,4 +1,4 @@
-import { normalizeHealthIdInput } from '@hid/contracts'
+import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
 import { EhrButton, EhrCard, EhrPageHeading } from '@hid/ui/ehr'
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
@@ -10,7 +10,7 @@ import { RecordTable, SearchField, type RecordRow } from '../parts/RecordTable'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import type { EhrBluePageStatus } from '../types'
 import {
-  ACCESS_CLOSED, HID_FORMAT, OPEN_SHARED, actionUnavailable, administratorOf, healthIdInput, healthIdProblem, isRefusedLookup,
+  ACCESS_CLOSED, HID_FORMAT, METHOD_ROUTES, OPEN_SHARED, actionUnavailable, administratorOf, healthIdProblem, isRefusedLookup,
   offerHealthId, useOpenPatient,
 } from '../consent/access'
 import { PinAccess } from '../consent/PinAccess'
@@ -57,7 +57,8 @@ function PatientList() {
   const location = useLocation()
   const ended = useAccessEnded()
   const openPatient = useOpenPatient()
-  const [hid, setHid] = useState('')
+  // Today's field starts at HID- and is normalized as it changes.
+  const [hid, setHid] = useState(HEALTH_ID_PREFIX)
   const [problem, setProblem] = useState<{ message: string; alert: boolean } | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -66,7 +67,11 @@ function PatientList() {
   const [notice, setNotice] = useState(() => noticeOf(location.state))
   const searchBox = useRef<HTMLDivElement>(null)
   const canLook = !!facility && can('identity.patient.read')
-  const openSharedUnavailable = actionUnavailable(OPEN_SHARED, permissions, administratorOf(facility, permissions))
+  const administrator = administratorOf(facility, permissions)
+  const openSharedUnavailable = actionUnavailable(OPEN_SHARED, permissions, administrator)
+  // A refused patient's access steps the role cannot take are not offered, and today's reason is given with them.
+  const requestUnavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administrator)
+  const emergencyUnavailable = actionUnavailable(METHOD_ROUTES.emergency, permissions, administrator)
 
   function clearFeedback() { setNotice(''); setError(''); setRefused(null) }
 
@@ -110,7 +115,8 @@ function PatientList() {
 
   /**
    * The PIN is a Patients page; a request is External record access, which the frame opens only with
-   * identity.consent.write. The Health ID is handed over only where the form can open and read it.
+   * identity.consent.write, the permission sending a request needs: a role without it is not offered the step, so the
+   * Health ID is handed over only where the form can open and read it.
    */
   function obtain(target: 'new' | 'pin') {
     if (!refused || !facility) return
@@ -119,7 +125,8 @@ function PatientList() {
       navigate(href('pin'))
       return
     }
-    if (can('identity.consent.write')) offerHealthId(refused.hid, facility.id, setActivePatient)
+    if (requestUnavailable) return
+    offerHealthId(refused.hid, facility.id, setActivePatient)
     navigate(href.to('consent', 'new'))
   }
 
@@ -157,8 +164,9 @@ function PatientList() {
             placeholder="Enter a Health ID…"
             hint={HID_FORMAT}
             error={hidError}
-            onChange={value => { setHid(healthIdInput(value)); setProblem(null) }}
+            onChange={value => { setHid(normalizeHealthIdInput(value)); setProblem(null) }}
             onSubmit={search}
+            blankValue={HEALTH_ID_PREFIX}
           >
             <EhrButton type="submit" className="hid-ehr-clinical-patients-verify" busy={busy} disabled={!canLook}>Verify access</EhrButton>
           </SearchField>
@@ -169,13 +177,29 @@ function PatientList() {
             title="No access to this patient yet"
             actions={(
               <>
-                <EhrButton variant="secondary" onClick={() => obtain('new')}>Request access</EhrButton>
+                <EhrButton
+                  variant="secondary"
+                  disabled={requestUnavailable !== null}
+                  aria-describedby={requestUnavailable ? 'request-access-unavailable' : undefined}
+                  onClick={() => obtain('new')}
+                >
+                  Request access
+                </EhrButton>
                 <EhrButton variant="secondary" onClick={() => obtain('pin')}>Verify patient PIN</EhrButton>
-                <EhrButton variant="secondary" onClick={() => navigate(href.to('emergency'))}>Emergency break-glass access</EhrButton>
+                <EhrButton
+                  variant="secondary"
+                  disabled={emergencyUnavailable !== null}
+                  aria-describedby={emergencyUnavailable ? 'emergency-access-unavailable' : undefined}
+                  onClick={() => { if (!emergencyUnavailable) navigate(href.to('emergency')) }}
+                >
+                  Emergency break-glass access
+                </EhrButton>
               </>
             )}
           >
-            {refused.message}
+            <p>{refused.message}</p>
+            {requestUnavailable ? <p id="request-access-unavailable" className="hid-ehr-clinical-note">{requestUnavailable}</p> : null}
+            {emergencyUnavailable ? <p id="emergency-access-unavailable" className="hid-ehr-clinical-note">{emergencyUnavailable}</p> : null}
           </Banner>
         ) : null}
         {error ? <ErrorBox>{error}</ErrorBox> : null}

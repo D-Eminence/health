@@ -622,9 +622,9 @@
 
 /* ---- Consultation -------------------------------------------------------------- */
 
-/* "Edit unsigned draft" above the saved values (design: button, then the list, 10px apart). */
+/* "Edit unsigned draft" above the saved values (design: the list starts right under the button). */
 .hid-ehr .hid-ehr-clinical-consult-edit {
-  margin: 0 0 10px;
+  margin: 0;
 }
 
 /* Today's warning on an encounter status change, in the design's warning banner colours (not a live region). */
@@ -946,6 +946,11 @@
 
 .hid-ehr .hid-ehr-clinical-orders-connected .hid-ehr-clinical-history-list {
   margin-top: 4px;
+}
+
+/* Connected orders: a list's "Record pages" sits just under its caption ("Pharmacy", "Laboratory"). */
+.hid-ehr .hid-ehr-clinical-orders-pages > .hid-ehr-clinical-pager {
+  margin-top: 6px;
 }
 
 /* ---- Triage & Vitals ----------------------------------------------------------- */

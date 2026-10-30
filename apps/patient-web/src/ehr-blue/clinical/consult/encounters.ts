@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef } from 'react'
 import { usesNovuBackend } from '../../../backendContract'
 import type { ClinicalRecord, Encounter, Page } from '../../../staff/api'
 import { refusedFields, refusalSentences } from '../../../staff/fieldProblem'
-import type { FieldErrors } from '../parts/RecordForm'
+import type { FieldDef, FieldErrors, FormValues } from '../parts/RecordForm'
 import { shortId } from '../parts/format'
 import { NOTE_TYPE as NURSING_NOTE_TYPE } from '../nursing/observations'
 
@@ -56,12 +56,48 @@ export function retractionNotPermitted(status: string): string {
   return `You may not ${status === 'cancelled' ? 'cancel this encounter' : 'mark this encounter entered in error'}: it holds records that this change would also change, and your role may not change all of them. Nothing was changed. Ask a colleague whose role may change all of its records (usually a doctor or clinician) to make this change.`
 }
 
-/** Today's clinical note changes. */
+/**
+ * Today's clinical note changes. A note is signed by "Sign note", as nursing signs one (today's noteTransitions);
+ * the design's "Amend signed note" and "Edit unsigned draft" record a revision.
+ */
 export const NOTE_EIE_LABEL = 'Mark note entered in error'
-export const SIGN_LABEL = 'Sign encounter'
+export const SIGN_LABEL = 'Sign note'
 export const AMEND_LABEL = 'Amend signed note'
 export const EDIT_DRAFT_LABEL = 'Edit unsigned draft'
 export const WRITE_NOTE_LABEL = 'Write clinical note'
+
+/** The Notes card (today's Notes tab): every clinical note of the encounter that is not a nursing observation. */
+export const NOTES_TITLE = 'Clinical notes'
+export const NO_NOTES = 'No notes for this encounter.'
+export const NO_NOTES_ON_PAGE = 'No clinical notes on this page.'
+export const REVIEW_NOTE = 'Review note content'
+export const HIDE_NOTE = 'Hide note content'
+export const REFRESH_REVISIONS = 'Refresh revisions'
+export const ADD_REVISION_LABEL = 'Add a note revision'
+export const RECORD_REVISION = 'Record revision'
+export const RECORDING = 'Recording…'
+export const SAVE_DRAFT = 'Save draft'
+export const UPDATING = 'Updating…'
+
+/** Today's status change reason ("Reason for change") and revision reason ("Reason for revision"), at least 3 characters. */
+export const REASON_FIELD: FieldDef = { key: 'reason', label: 'Reason for change', required: true, maxLength: 500 }
+export const REVISION_REASON_FIELD: FieldDef = { key: 'reason', label: 'Reason for revision', required: true, maxLength: 500 }
+export const REVISION_CONTENT_FIELD: FieldDef = { key: 'content', label: 'Content', type: 'textarea', required: true, maxLength: 100_000 }
+export const CONTENT_EMPTY = 'Enter the revised note content.'
+export function reasonCheck(values: FormValues): FieldErrors {
+  return text(values.reason).length < 3 ? { reason: REASON_SHORT } : {}
+}
+export function contentCheck(values: FormValues): FieldErrors {
+  return text(values.content) ? {} : { content: CONTENT_EMPTY }
+}
+
+/** Today's note texts, word for word (Clinical.tsx NotePanel and changeRecordStatus). */
+export const RELOAD_NOTE = 'Reload the note before recording a revision.'
+export const RELOAD_RECORD = 'Reload the record before changing its status.'
+export const REVISION_FAILED = 'Note revision could not be recorded.'
+export const STATUS_FAILED = 'Status could not be changed.'
+export const RECORD_NOT_SAVED = 'Record could not be saved.'
+export const RELOAD_FAILED = 'The change was saved, but the records could not be reloaded.'
 
 /** Today's diagnosis choices. */
 export const DIAGNOSIS_CLINICAL_STATUSES: readonly StatusOption[] = [
