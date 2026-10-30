@@ -43,3 +43,12 @@ Don't add the endpoint to the mock as if it exists.
 
 All of it lives in `server.mjs`. Edit it there to test empty states, long
 names, many rows and so on.
+
+## Preview without a dev server
+
+`npm run build:preview` builds the portal into `dev/preview/dist` with the mock
+running inside the page (`browser-shim.mjs`, same answers as `routes.mjs`). It
+opens on any static host, including a Claude artifact. A bar in the corner
+switches between Patient, Provider and Admin. Add `?facility=classic` to the
+address for the classic provider screens. Endpoints the mock doesn't serve show
+as "N not mocked" on that bar and in the browser console.

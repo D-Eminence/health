@@ -37,3 +37,4 @@ play_around*
 # Generated production approval report; never a source input.
 /release/
 dev/mock-gateway/backend-needs.log
+dev/preview/dist/

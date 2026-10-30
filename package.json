@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "dev:mock": "node dev/mock-gateway/server.mjs",
+    "build:preview": "vite build --config dev/preview/vite.config.ts",
     "typecheck": "tsc --build --force",
     "test": "vitest run",
     "test:watch": "vitest",
