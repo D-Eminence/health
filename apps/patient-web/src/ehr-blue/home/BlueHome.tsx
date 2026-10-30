@@ -5,9 +5,9 @@ import { useStaff } from '../../staff/App'
 import { usesNovuBackend } from '../../backendContract'
 import { useBluePages } from '../frame/pageContext'
 import { pageHrefOf } from '../frame/pageHref'
+import { pageAllowed } from '../frame/pageAccess'
 import { useRoleView } from '../frame/roleView'
 import { sampleModule, sampleRecords, sampleVersion, subscribeSamples } from '../frame/sample/store'
-import type { EhrBluePage } from '../frame/types'
 import { AttentionLines, IncomingOrdersCard, TodayCard, useIncomingServices, WrongPatientOrdersCard } from './liveCards'
 import { RoleDashboard } from './RoleDashboard'
 
@@ -39,8 +39,7 @@ export function BlueHome() {
   if (role.viewing) return <RoleDashboard role={role.viewing} />
   if (!session) return null
   const name = session.actor.displayName ?? 'colleague'
-  const open = (page: EhrBluePage) => page.status === 'sample' || !page.permission || permissions.includes(page.permission)
-  const candidates = pages.filter(page => page.path !== '' && !page.group.startsWith('Design') && open(page))
+  const candidates = pages.filter(page => page.path !== '' && !page.group.startsWith('Design') && pageAllowed(page, session))
   const shortcuts = chosen
     ? candidates.filter(page => chosen.includes(page.path))
     : candidates.filter(page => page.status === 'live').slice(0, MAX_SHORTCUTS)

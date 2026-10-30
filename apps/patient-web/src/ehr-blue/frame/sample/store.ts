@@ -108,12 +108,13 @@ export function sampleModule(id: string): Module | undefined {
 }
 
 /**
- * A record's id: the workspace's place in the design's list, then the record's number in it ("S-0201" is the first
- * appointment). It is the same whichever workspace opens first, so a record's address keeps working until a reload.
+ * A record's id: eight hex digits, as the design shows record ids, made of the workspace's place in the design's list
+ * and the record's number in it ("5a020001" is the first appointment). It is the same whichever workspace opens first,
+ * so a record's address keeps working until a reload.
  */
 function sampleId(moduleId: string, number: number): string {
   const place = allModules.findIndex(module => module.id === moduleId) + 1
-  return `S-${String(place).padStart(2, '0')}${String(number).padStart(2, '0')}`
+  return (0x5a000000 + place * 0x10000 + number).toString(16)
 }
 
 /** Fixed sample times, so every visit shows the same rows: 29 October 2026, a few hours apart. */

@@ -4,7 +4,7 @@ import {
 } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
-  EhrBadge, EhrButton, EhrCard, EhrDataTable, EhrDialog, EhrDrawer, EhrField, EhrInput, EhrModuleTabs, EhrPageHeading,
+  EhrBadge, EhrButton, EhrCard, EhrDataTable, EhrDialog, EhrDrawer, EhrField, EhrInput, EhrPageHeading,
   EhrSampleBanner, EhrSelect, EhrTextarea, type EhrDataTableColumn,
 } from '@hid/ui/ehr'
 import { useStaff } from '../../../staff/App'
@@ -25,18 +25,11 @@ import {
  * with the actions the design gives each status. Everything here is a sample: fictional rows in memory, nothing sent,
  * nothing kept, a reload starts again.
  *
- * The address below the page picks the view: '' the list, 'new' the form, anything else a record. A tabbed workspace
- * (Insurance & Claims, Supply) gives each tab an address segment ('' for the first).
+ * The address below the page picks the view: '' the list, 'new' the form, anything else a record. A workspace's tabs
+ * (Claims and Policies, Stock and Procurement) are pages of their own, joined by tabOf; the frame draws the tabs.
  */
-export interface SampleTab {
-  readonly segment: string
-  readonly label: string
-  readonly moduleId: string
-}
-
 export interface SampleWorkspaceProps {
   readonly moduleId: string
-  readonly tabs?: readonly SampleTab[]
 }
 
 interface Choice {
@@ -68,47 +61,20 @@ const CARRIED_KINDS = ['encounter', 'visit', 'admission']
 /** A fictional unit price for invoices, in minor units, as the design's service catalogue prices them. */
 const SAMPLE_UNIT_PRICE = 500000
 
-export function SampleWorkspace({ moduleId, tabs }: SampleWorkspaceProps) {
+export function SampleWorkspace({ moduleId }: SampleWorkspaceProps) {
   const { page, rest } = useBluePage()
-  const followTab = useRouteNavigate()
-  const parts = rest.split('/').filter(Boolean)
-  const tab = tabs?.find(candidate => candidate.segment !== '' && candidate.segment === parts[0])
-  const active = tab ?? tabs?.find(candidate => candidate.segment === '')
-  const view = tab ? parts.slice(1) : parts
-  const module = sampleModule(active?.moduleId ?? moduleId)
-  const base = `${pageHrefOf(page)}${tab ? `/${tab.segment}` : ''}`
+  const view = rest.split('/').filter(Boolean)
+  const module = sampleModule(moduleId)
+  const base = pageHrefOf(page)
   if (!module) return <EhrPageHeading title={page.label} />
-  return (
-    <>
-      {tabs ? (
-        <EhrModuleTabs
-          label={page.label}
-          currentId={active?.segment ?? ''}
-          tabs={tabs.map(candidate => ({ id: candidate.segment, label: candidate.label,
-            href: `${pageHrefOf(page)}${candidate.segment ? `/${candidate.segment}` : ''}` }))}
-          onNavigate={followTab}
-        />
-      ) : null}
-      {view[0] === 'new' ? <SampleForm key={module.id} module={module} base={base} />
-        : view[0] ? <SampleDetail key={`${module.id}/${view[0]}`} module={module} base={base} id={view[0]} />
-          : <SampleList key={module.id} module={module} base={base} />}
-    </>
-  )
+  return view[0] === 'new' ? <SampleForm key={module.id} module={module} base={base} />
+    : view[0] ? <SampleDetail key={`${module.id}/${view[0]}`} module={module} base={base} id={view[0]} />
+      : <SampleList key={module.id} module={module} base={base} />
 }
 
 function BackToList({ base }: { readonly base: string }) {
   const navigate = useNavigate()
   return <EhrButton variant="secondary" onClick={() => navigate(base)}>Back to list</EhrButton>
-}
-
-/** Follows a plain left click in the app; a modified click (new tab) is left to the browser. */
-function useRouteNavigate() {
-  const navigate = useNavigate()
-  return (target: { href: string }, event: { button: number; metaKey: boolean; altKey: boolean; ctrlKey: boolean; shiftKey: boolean; preventDefault: () => void }) => {
-    if (event.button !== 0 || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return
-    event.preventDefault()
-    navigate(target.href)
-  }
 }
 
 /** The address of a design workspace when it opens as a sample here; null when it is a live page (or not here). */

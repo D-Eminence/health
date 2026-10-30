@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { vi } from 'vitest'
+import type * as BlueRoutes from '../../../ehr-blue/routes'
+import type { EhrBluePage } from '../../../ehr-blue/frame/types'
 
 /**
  * Renders the staff app as the portal does, against a fetch that answers only the routes a test names (anything else
@@ -57,3 +59,18 @@ export async function openStaffApp(path: string) {
   const { App } = await import('../../../staff/App')
   return render(<MemoryRouter initialEntries={[path]}><Where /><Routes><Route path="/provider/*" element={<App />} /></Routes></MemoryRouter>)
 }
+
+/**
+ * Runs the blue EHR on the frame's own registry (frame/pages.ts and home/pages.ts), with `extra` pages added, for the
+ * next app a test opens. A frame test of a stand-in (a sample workspace, its tabs) then keeps testing it after another
+ * folder's page takes its place. Registered per test: a vi.mock factory's module outlives vi.resetModules.
+ */
+export function withFramePages(extra: () => readonly EhrBluePage[] = () => []) {
+  vi.doMock('../../../ehr-blue/routes', async importOriginal => {
+    const actual = await importOriginal<typeof BlueRoutes>()
+    const frame = await import('../../../ehr-blue/frame/pages')
+    const home = await import('../../../ehr-blue/home/pages')
+    return { ...actual, BLUE_PAGES: actual.collectPages({ './frame/pages.ts': frame, './home/pages.ts': home, './extra/pages.ts': { pages: extra() } }) }
+  })
+}
+

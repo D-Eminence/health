@@ -171,6 +171,11 @@
   margin: 0;
 }
 
+/* The page's own gap sets the tabs apart from the heading, as the design spaces them. */
+.hid-ehr .hid-ehr-blue-page > .hid-ehr-module-tabs {
+  margin-bottom: 0;
+}
+
 .hid-ehr .hid-ehr-blue-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -410,6 +415,20 @@
 
 .hid-ehr .hid-ehr-blue-flush {
   margin: 0;
+}
+
+/* A page that failed to render (BluePageBoundary). */
+.hid-ehr .hid-ehr-blue-failed {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* A long action in a card, such as a tour's "Start: …", wraps rather than widening a phone screen. */
+.hid-ehr .hid-ehr-blue-facility-card .hid-ehr-button {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
 }
 
 .hid-ehr .hid-ehr-blue-subtitle {

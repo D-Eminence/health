@@ -13,6 +13,7 @@ type PagesModule = { readonly pages?: readonly EhrBluePage[] }
 const FRAME_MODULE = './frame/pages.ts'
 
 export { basePath, pageHrefOf }
+export { pageAllowed, pageTabs } from './frame/pageAccess'
 
 export function collectPages(modules: Readonly<Record<string, PagesModule>>): EhrBluePage[] {
   const frame = modules[FRAME_MODULE]?.pages ?? []
@@ -36,11 +37,6 @@ const found = import.meta.glob<PagesModule>('./*/pages.ts', { eager: true })
 
 /** Every page of the blue EHR, in sidebar order. */
 export const BLUE_PAGES: readonly EhrBluePage[] = collectPages(found)
-
-/** Live and partial pages need their permission; a sample page never does. */
-export function pageAllowed(page: EhrBluePage, permissions: readonly string[]): boolean {
-  return page.status === 'sample' || !page.permission || permissions.includes(page.permission)
-}
 
 /** The page an address under /provider opens: an exact path first, then the deepest '/*' page that takes it. */
 export function matchBluePage(pages: readonly EhrBluePage[], pathname: string): BluePageMatch | null {
