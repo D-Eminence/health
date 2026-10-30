@@ -23,6 +23,16 @@
   margin: 12px 0;
 }
 
+/* A card that opens with a paragraph starts it at the card's padding, where the design's first field sits. */
+.hid-ehr .hid-ehr-clinical-page .hid-ehr-card > p:first-child {
+  margin-top: 0;
+}
+
+/* A banner inside a card, after other content: 18px under it (it would touch the button above). */
+.hid-ehr .hid-ehr-clinical-page .hid-ehr-card > .hid-ehr-clinical-banner:not(:first-child) {
+  margin-top: 18px;
+}
+
 /* Buttons inside cards are 12px in the design (.hid-card .hid-button). */
 .hid-ehr .hid-ehr-clinical-page .hid-ehr-card .hid-ehr-button {
   font-size: 12px;
@@ -41,6 +51,11 @@
 /* Empty state title is bold in the design. */
 .hid-ehr .hid-ehr-clinical-page .hid-ehr-empty-state .hid-ehr-state-title {
   font-weight: 700;
+}
+
+/* The message sits right under the title (design .feedback-empty p: no margin). */
+.hid-ehr .hid-ehr-clinical-page .hid-ehr-empty-state .hid-ehr-state-message {
+  margin-top: 0;
 }
 
 /* Every link in a clinical page or its overlays. */
@@ -178,6 +193,14 @@
 .hid-ehr .hid-ehr-clinical-search-clear {
   align-self: flex-start;
   margin: 0;
+}
+
+/* A search's own button (Patients' "Verify access"), then "Clear search", on one line. */
+.hid-ehr .hid-ehr-clinical-search-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Previous page | Page n of m | Next page. */
@@ -410,6 +433,20 @@
   min-height: 110px;
 }
 
+/* The file field's own button: the host's reset leaves bare text, so draw it as the design's secondary button. */
+.hid-ehr .hid-ehr-clinical-page input[type='file'].hid-ehr-control::file-selector-button {
+  margin: 0 12px 0 0;
+  padding: 2px 10px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-surface);
+  color: var(--ehr-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
 /* Label text, then the 16px box (design order). */
 .hid-ehr .hid-ehr-clinical-checkbox {
   display: flex;
@@ -425,6 +462,11 @@
   height: 16px;
   margin: 8px;
   accent-color: var(--ehr-brand);
+}
+
+/* Keep the space before " *": as a flex item the marker loses its leading space ("expiry*"). */
+.hid-ehr .hid-ehr-clinical-checkbox > span[aria-hidden='true'] {
+  white-space: pre;
 }
 
 /* A group of radio choices (record access duration and the like). */
@@ -936,6 +978,12 @@
 
 /* ---- Sample workspaces --------------------------------------------------------- */
 
+/* Its own formatting context, like the design's always-present (empty) action list: "No further actions…" keeps its
+   12px top margin under the title's 16px (28px) instead of folding into it. */
+.hid-ehr .hid-ehr-clinical-sample-actions {
+  display: flow-root;
+}
+
 /* "Available actions" takes focus after an action, without a ring (it is not a control). */
 .hid-ehr .hid-ehr-clinical-sample-actions:focus {
   outline: none;
@@ -944,4 +992,10 @@
 /* A file field sits in the form's two-column grid, under any other fields. */
 .hid-ehr .hid-ehr-clinical-form-grid:not(:empty) + .hid-ehr-clinical-sample-file {
   margin-top: 18px;
+}
+
+/* The frame moves focus to the page's h1 after a move inside the EHR (pageFocus.ts); a heading is not a control, so no
+   ring, as the card titles that take focus. */
+.hid-ehr .hid-ehr-clinical-page .hid-ehr-page-title:focus {
+  outline: none;
 }

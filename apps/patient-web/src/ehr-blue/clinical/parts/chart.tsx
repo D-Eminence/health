@@ -18,7 +18,7 @@ export const CHOOSE_FIRST_DETAIL = 'Clinical records require a current backend a
 export const NO_AUTHORIZED_PATIENT = 'No authorized patient'
 export const OPEN_PATIENT_HOW = 'Open a patient using an approved request, patient PIN, or documented emergency access.'
 
-type WriteAccess = { readonly scope: string; readonly allowed: boolean; readonly failed: boolean }
+type WriteAccess = { readonly scope: string; readonly lookup: object; readonly allowed: boolean; readonly failed: boolean }
 
 interface ChartValue {
   readonly ended: boolean
@@ -40,17 +40,19 @@ export function ChartProvider({ children }: { children: ReactNode }) {
   const patientId = activePatient?.lookup.patient.patientId
   const directCare = activePatient?.purpose === 'direct-care'
   const facilityId = facility?.id
+  // Each lookup (a new grant, even for the same patient) is asked about afresh: an earlier grant's answer never shows.
+  const lookup = activePatient?.lookup
 
   useEffect(() => {
-    if (!facilityId || !patientId || !directCare) return
+    if (!facilityId || !patientId || !directCare || !lookup) return
     let current = true
     const scope = JSON.stringify([facilityId, patientId])
     staffApi.consentStatus(facilityId, patientId).then(
-      status => { if (current) setWriteAccess({ scope, allowed: status.writeAllowed === true, failed: false }) },
-      () => { if (current) setWriteAccess({ scope, allowed: false, failed: true }) },
+      status => { if (current) setWriteAccess({ scope, lookup, allowed: status.writeAllowed === true, failed: false }) },
+      () => { if (current) setWriteAccess({ scope, lookup, allowed: false, failed: true }) },
     )
     return () => { current = false }
-  }, [facilityId, patientId, directCare])
+  }, [facilityId, patientId, directCare, lookup])
 
   // A patient opened again (after access ended) clears the notice.
   useEffect(() => { if (patientId) setEnded(false) }, [patientId])
@@ -123,7 +125,7 @@ export function useChart(): Chart | null {
   return useMemo(() => {
     if (!facilityId || !activePatient || !patientId || context.ended) return null
     const scope = JSON.stringify([facilityId, patientId])
-    const known = writeAccess?.scope === scope ? writeAccess : null
+    const known = writeAccess?.scope === scope && writeAccess.lookup === activePatient.lookup ? writeAccess : null
     const directCare = activePatient.purpose === 'direct-care'
     const canWrite = directCare && known?.allowed === true
     const writeNotice = !directCare || !known || known.allowed ? null : known.failed ? WRITE_UNKNOWN : READ_ONLY
@@ -184,7 +186,7 @@ export function ChartGate({ children, allowEmergency = false }: { children: (cha
   }
   if (chart.purpose === 'emergency' && !allowEmergency) {
     return (
-      <Banner tone="warning" title="Emergency access is read-only" actions={<Link className="hid-ehr-clinical-link" to={href.to('emergency')}>Open the emergency summary →</Link>}>
+      <Banner tone="warning" title="Emergency access is read-only" actions={<Link className="hid-ehr-clinical-link" to={href.to('emergency', 'summary')}>Open the emergency summary →</Link>}>
         {`${chart.facts.name} is open under emergency access. Emergency access shows the read-only emergency summary only; nothing can be added or changed.`}
       </Banner>
     )

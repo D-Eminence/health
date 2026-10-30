@@ -143,8 +143,7 @@ export function SearchField({ label, value, onChange, placeholder = 'Search save
   return (
     <form className="hid-ehr-clinical-search" noValidate onSubmit={event => { event.preventDefault(); onSubmit() }}>
       {field}
-      {clear}
-      {children}
+      {children ? <div className="hid-ehr-clinical-search-actions">{children}{clear}</div> : clear}
     </form>
   )
 }

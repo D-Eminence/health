@@ -25,7 +25,7 @@ export const patientsStatus: EhrBluePageStatus = 'live'
  */
 export function PatientsWorkspace() {
   return (
-    <Workspace path="patients">
+    <Workspace path="patients" title="Patients">
       <ChartProvider>
         <Routes>
           <Route index element={<PatientList />} />

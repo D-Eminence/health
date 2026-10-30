@@ -21,7 +21,7 @@ export const consultStatus: EhrBluePageStatus = 'partial'
  */
 export function ConsultWorkspace() {
   return (
-    <Workspace path="consult">
+    <Workspace path="consult" title="Consultation">
       <ChartProvider>
         <Routes>
           <Route index element={<EncounterList />} />

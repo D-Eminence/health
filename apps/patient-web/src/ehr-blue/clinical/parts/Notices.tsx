@@ -1,5 +1,5 @@
 import { EhrButton, EhrPageHeading, EhrSkeleton } from '@hid/ui/ehr'
-import type { ReactNode } from 'react'
+import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 /** The design's generic failure line, for an operation whose own message would be technical. */
@@ -48,13 +48,36 @@ export function ListHeading({ title, createHref, createLabel = 'Create record' }
 }
 
 /** A record or create page's heading: its title and "Back to list". */
-export function RecordHeading({ title, backHref, backLabel = 'Back to list' }: { title: string; backHref: string; backLabel?: string }) {
+export function RecordHeading({ title, backHref, backLabel = 'Back to list' }: { title: ReactNode; backHref: string; backLabel?: string }) {
   const navigate = useNavigate()
+  const mark = useRef<HTMLSpanElement>(null)
+  // The frame moves focus to the page's h1 as the address changes (pageFocus.ts); a record still loading has none, so
+  // focus waits on the frame's page wrapper. The heading takes it from that container once the record shows.
+  useLayoutEffect(() => {
+    const heading = mark.current?.closest('h1')
+    const active = document.activeElement
+    if (!heading || !(active instanceof HTMLElement) || active === document.body || active === heading || !active.contains(heading)) return
+    if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1')
+    heading.focus()
+  }, [])
   return (
     <EhrPageHeading
-      title={title}
+      title={<span ref={mark}>{title}</span>}
       primaryAction={<EhrButton variant="secondary" onClick={() => navigate(backHref)}>{backLabel}</EhrButton>}
     />
+  )
+}
+
+/**
+ * "No further actions for your permission and this record state.", where the design puts it: after the (empty) action
+ * list, so it sits 28px under the card title as in the design.
+ */
+export function NoActions() {
+  return (
+    <>
+      <div className="hid-ehr-clinical-action-list" />
+      <p className="hid-ehr-clinical-note">{NO_ACTIONS}</p>
+    </>
   )
 }
 

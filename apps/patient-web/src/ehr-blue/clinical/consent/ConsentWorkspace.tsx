@@ -22,7 +22,7 @@ export const TITLE = 'External record access'
  */
 export function ConsentWorkspace() {
   return (
-    <Workspace path="consent">
+    <Workspace path="consent" title="External record access">
       <Routes>
         <Route index element={<RequestList />} />
         <Route path="new" element={<RequestAccess />} />
