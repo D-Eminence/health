@@ -1,6 +1,8 @@
 @import 'tailwindcss';
 @import '@hid/ui/tokens.css';
 @source '../../../packages/ui/src';
+@source not '../../../packages/ui/src/ehr';
+@source not './__tests__/ehr-ui';
 
 /*
  * The patient application does not make a third-party font request. These

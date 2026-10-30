@@ -53,6 +53,7 @@
  * its components use from being stripped out of this app's stylesheet.
  */
 @source '../../../packages/ui/src';
+@source not '../../../packages/ui/src/ehr';
 
 @layer base {
   /* The pill nav is sticky, so anchored sections need clearance or their
