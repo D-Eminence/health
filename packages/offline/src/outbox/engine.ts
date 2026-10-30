@@ -144,6 +144,11 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
   private items: Item[] = []
   private receipts = new Map<string, Receipt>()
   private loadedFor: string | null = null
+  /**
+   * Bumped by every change to `items` or `receipts`. A load whose read started before a change is stale (it could bring
+   * back a cancelled entry, or an older copy of one just written), so it reads again instead of replacing them.
+   */
+  private generation = 0
   private sender = false
   private releaseLock: (() => void) | null = null
   private lockAbort: AbortController | null = null
@@ -195,6 +200,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     this.loadedFor = null
     this.items = []
     this.receipts.clear()
+    this.generation += 1
     this.wake()
   }
 
@@ -242,6 +248,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     const v = this.host.vault()
     if (!v) { this.items = []; this.receipts.clear(); this.loadedFor = null; return }
     if (!force && this.loadedFor === v.vaultId) return
+    const started = this.generation
     const { outbox, receipts } = await this.host.store.read(['outbox', 'receipts'], async tx => ({
       outbox: await tx.all('outbox', vaultRange(v.vaultId)),
       receipts: await tx.all('receipts', vaultRange(v.vaultId)),
@@ -259,9 +266,11 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       if (r.v !== 1) continue
       map.set(r.commandId, await open<Receipt>(v.keys.qk, receiptAad(v.vaultId, r.commandId), r.value))
     }
+    if (started !== this.generation) return this.load(true)
     this.items = items.sort((a, b) => a.seq - b.seq)
     this.receipts = map
     this.loadedFor = v.vaultId
+    this.generation += 1
   }
 
   private async plaintext(v: OpenVaultRef, seq: number, cmd: Command, expiresAt: number | null): Promise<OutboxRecord> {
@@ -309,6 +318,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       if (at >= 0) this.items[at] = item
       else this.items.push(item)
       if (cmd.receipt && cmd.state === 'applied') this.receipts.set(cmd.id, cmd.receipt)
+      this.generation += 1
       this.host.broadcast(v.vaultId)
       this.host.changed()
       this.wake()
@@ -424,6 +434,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
         })
         if (removed) {
           this.items = this.items.filter(i => i.seq !== item.seq)
+          this.generation += 1
           this.host.broadcast(v.vaultId)
           this.host.changed()
           const p = c.lastProblem
@@ -463,6 +474,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       })
       if (!ok) throw new Error('This entry has already been sent. Save a change as a new entry.')
       this.items = this.items.filter(i => i !== item)
+      this.generation += 1
       this.host.broadcast(v.vaultId)
       this.host.changed()
       return
@@ -682,6 +694,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     })
     if (expired.length > 0) {
       this.items = this.items.filter(i => !expired.includes(i))
+      this.generation += 1
       this.host.changed()
     }
   }
@@ -905,7 +918,8 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       await this.applied(v, it, cmd, def, 200, null, 'lookup', guard)
       return
     }
-    if (cls === 'version' && def.method === 'PATCH' && sentBefore && def.reread && cmd.intent) {
+    // Any op that declares intent and reread (a PATCH, or a handoff such as to-lab, A10.7), whatever its method.
+    if (cls === 'version' && sentBefore && def.reread && cmd.intent) {
       // 412 on a PATCH sent before: if the record already shows our change, it was applied.
       try {
         const resolved = resolveRefs(cmd.refs, this.lookupRef)
@@ -986,6 +1000,12 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       timeoutMs: SEND_TIMEOUT_MS,
     })
     return { status: done.status, body: intent.body, date: done.date }
+  }
+
+  /** The receipt of an applied command in the open vault (A12.9), or null. */
+  async receiptFor(commandId: string): Promise<Receipt | null> {
+    await this.load(!this.sender)
+    return this.receipts.get(commandId) ?? null
   }
 
   /** For tests and diagnostics: every command in the open vault, decrypted. */

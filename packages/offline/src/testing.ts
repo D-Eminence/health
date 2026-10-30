@@ -202,6 +202,11 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
   let flapping = false
   let flapToggle = false
   let sessionReady = true
+  /** As the real runtime (A12.3), once the app names the account: only that account's vault sends. Unset at first. */
+  let readyAccount: string | null | undefined = undefined
+  /** The email unlockLocked reopens (A12.8): the attached session's, else the vault last opened here; none after sign-out. */
+  let attachedEmail: string | null = null
+  let lastEmail: string | null = null
   let prepared: { email: string; passwordProof: string; passwordOk: boolean } | null = null
   let open: FakeVault | null = null
   let status: VaultStatus = 'none'
@@ -231,6 +236,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
 
   function sendable(): boolean {
     return status === 'unlocked' && open !== null && sessionReady && conn !== 'offline'
+      && (readyAccount === undefined || open.session.accountId === readyAccount)
   }
 
   function findVault(accountId: string, facilityId: string): FakeVault | undefined {
@@ -390,7 +396,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
         return null
       }
     }
-    if (cls === 'version' && def.method === 'PATCH' && def.reread && def.intent) {
+    if (cls === 'version' && def.reread && def.intent) {
       const resolved = resolveRefs(def.refs(c.input), lookupById)
       const current = resolved ? await def.reread(c.input, resolved.ids) : null
       const intent = def.intent(c.input)
@@ -511,6 +517,8 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
   const runtime: OfflineCore = {
     policy: () => lastPolicy,
 
+    forgetSignIn() { prepared = null },
+
     prepareFromSignIn(email, password) {
       if (config.mode === 'off') { prepared = null; return }
       prepared = { email: email.trim().toLowerCase(), passwordProof: proof(email, password), passwordOk: passwordLongEnough(password) }
@@ -531,7 +539,13 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
       const reason = facilityAllowed(config, appHost, s.facilityId)
       const key = prepared
       prepared = null
+      attachedEmail = s.email
       if (reason || !key) {
+        // A facility switch (A12.7): the old facility's vault is closed before the new one attaches.
+        if (open && (open.session.accountId !== s.accountId || open.session.facilityId.toLowerCase() !== s.facilityId.toLowerCase())) {
+          open = null
+          if (status === 'unlocked') status = 'locked'
+        }
         lastPolicy = evaluatePolicy(config, { appHost, facilityId: s.facilityId, optedIn: key ? o.optIn : null })
         if (!reason && vaults.length > 0) status = 'locked'
         notify()
@@ -560,6 +574,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
       v.lastServerContactAt = clockNow
       v.logoutPending = false
       open = v
+      lastEmail = s.email
       status = 'unlocked'
       lastActivity = clockNow
       lastPolicy = { mode: config.mode, enabled: true }
@@ -589,6 +604,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
       // As the real runtime: a facility no longer enabled (kill switch, left the pilot) never opens offline.
       if (facilityAllowed(config, appHost, v.session.facilityId)) return { ok: false, reason: 'no-vault' }
       open = v
+      lastEmail = v.session.email
       status = 'unlocked'
       lastPolicy = { mode: config.mode, enabled: true }
       lastActivity = clockNow
@@ -598,9 +614,10 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
     },
 
     async unlockLocked(password) {
-      const target = open ?? vaults[0]
-      if (!target) return { ok: false, reason: 'no-vault' }
-      return runtime.unlockOffline(target.session.email, password)
+      // As the real runtime: without an email (no session, nothing opened since sign-out) there is nothing to reopen.
+      const email = open?.session.email ?? attachedEmail ?? lastEmail
+      if (!email) return { ok: false, reason: 'no-vault' }
+      return runtime.unlockOffline(email, password)
     },
 
     restoreSession: () => (status === 'unlocked' && open ? open.session : null),
@@ -619,6 +636,8 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
         if (o.online && pendingCount(v) === 0 && v.audit.length === 0) vaults.splice(vaults.indexOf(v), 1)
       }
       open = null
+      attachedEmail = null
+      lastEmail = null
       status = vaults.length > 0 ? 'locked' : 'none'
       notify()
     },
@@ -645,15 +664,17 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
 
     onResponseMeta(meta: ResponseMeta) {
       if (meta.networkError) return
-      if (open && meta.authenticated && meta.status !== null && meta.status >= 200 && meta.status < 300) open.lastServerContactAt = clockNow
+      if (open && (readyAccount === undefined || open.session.accountId === readyAccount) && meta.authenticated && meta.status !== null && meta.status >= 200 && meta.status < 300) open.lastServerContactAt = clockNow
     },
-    setSessionReady(ready) {
+    setSessionReady(ready, accountId) {
       sessionReady = ready
+      readyAccount = ready ? accountId ?? null : null
       if (ready) void flush()
     },
     noteActivity() { lastActivity = clockNow },
     noteVisibility(hidden) { hiddenSince = hidden ? clockNow : null },
     connectivity: () => conn,
+    receiptFor: async (commandId: string) => open?.commands.find(c => c.id === commandId)?.receipt ?? null,
     updateSafe: async () => !(open?.commands.some(c => c.state === 'sending') ?? false),
     dispose() { listeners.clear() },
 

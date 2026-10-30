@@ -12,7 +12,8 @@
 import { LIMITS, OFFLINE_PATHS, type ClockState, type Json, type OfflineAudit, type OfflineAuditEvent } from './contracts'
 import { open, randomUuid, recordAad, seal, type VaultKeys } from './crypto'
 import { vaultRange, type AuditRecord, type OfflineStore } from './store'
-import type { OfflineReport, OfflineTransport } from './types'
+import { isTransportError, type OfflineReport, type OfflineTransport } from './types'
+import { classify } from './outbox/classify'
 import { recountPending } from './vault'
 
 export const AUDIT_SECTIONS: ReadonlySet<string> = new Set([
@@ -139,7 +140,21 @@ export class AuditQueue implements OfflineAudit {
           headers: { 'X-Facility-ID': v.facilityId, 'X-Purpose-Of-Use': 'direct-care' },
         })
         body = (res.body ?? {}) as typeof body
-      } catch {
+      } catch (error) {
+        // 503 OFFLINE_AUDIT_UNAVAILABLE, network errors and other transient answers: kept and retried (A10.1). A 4xx
+        // refusal of the envelope (400 VALIDATION_FAILED) will not change on a retry: it is reported, and the batch
+        // is marked rejected (kept 7 days, then dropped with a report) instead of being retried silently (A10.2).
+        const e = isTransportError(error) ? error : null
+        // Only a refusal classified invalid: 423 (the §2.3 lever), 404 and 409 are retried and delivered later.
+        if (e && e.status !== null && classify({ status: e.status, code: e.code, problem: e.problem, networkError: e.networkError }) === 'invalid') {
+          this.host.report?.({ kind: 'audit-refused', status: e.status, code: e.code ?? 'UNKNOWN', events: batch.length })
+          await this.host.store.write(['vaults', 'outbox', 'audit', 'media'], async tx => {
+            for (const r of batch) await tx.put('audit', { ...r, state: 'rejected', rejectedAt: now })
+            await recountPending(tx, v.vaultId)
+          })
+          this.host.changed()
+          continue
+        }
         return // Retried on the next pump.
       }
       const ids = (x: unknown) => new Set(Array.isArray(x) ? x.filter((i): i is string => typeof i === 'string') : [])
@@ -188,7 +203,8 @@ export function fitAuditBatch(vaultId: string, events: readonly OfflineAuditEven
 function truncated(vaultId: string, e: OfflineAuditEvent): OfflineAuditEvent {
   const details = (e.details && typeof e.details === 'object' && !Array.isArray(e.details) ? e.details : {}) as Record<string, Json>
   const reason = typeof details.reason === 'string' ? details.reason : ''
-  const withReason = (r: string): OfflineAuditEvent => ({ ...e, details: { ...details, reason: r, reasonTruncated: true } })
+  // No marker key: the server rejects details keys beyond §2.10 (A10.2).
+  const withReason = (r: string): OfflineAuditEvent => ({ ...e, details: { ...details, reason: r } })
   let lo = 0
   let hi = reason.length
   while (lo < hi) {

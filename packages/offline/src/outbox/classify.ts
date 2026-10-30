@@ -39,7 +39,8 @@ export function classify(answer: Answer): FailureClass {
   const code = answer.code ?? null
   if (answer.networkError || status === null || status === 0) return 'transient'
   if (status >= 200 && status < 300) return 'applied'
-  if (status === 408 || status === 425 || status === 429 || status >= 500) return 'transient'
+  // 423 PLATFORM_PORTAL_DISABLED is the §2.3 emergency lever: wait it out (A10.6).
+  if (status === 408 || status === 423 || status === 425 || status === 429 || status >= 500) return 'transient'
   if (status === 401) return 'session'
   if (status === 403) {
     if (code === 'STAFF_MFA_REQUIRED') return 'session'

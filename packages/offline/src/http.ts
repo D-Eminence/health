@@ -40,8 +40,9 @@ export function transportFromApiClient(client: ApiClient): OfflineTransport {
           problem: m?.problem ?? false,
           networkError: m?.networkError ?? noAnswer,
           retryAfterMs: Number.isFinite(retryAfterMs) ? retryAfterMs : null,
-          // Field result codes only (never values), for the form's useFieldProblems.
-          body: { code: error.code, fields: error.fields },
+          // The refusal's code, field result codes and details (field errors), so a first-attempt 400
+          // VALIDATION_FAILED marks the refused fields as the online path does (A11.2).
+          body: { code: error.code, fields: error.fields, details: error.details },
           message: error.message,
         })
       }

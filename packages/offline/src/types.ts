@@ -14,6 +14,7 @@ import type {
   Json,
   OfflineRuntime,
   PolicyReason,
+  Receipt,
   ResponseMeta,
   StaffSessionSnapshot,
 } from './contracts'
@@ -109,17 +110,27 @@ export type OfflineOffer =
 
 /** The runtime as the app sees it: the frozen contract plus the wiring seams. */
 export interface OfflineCore extends OfflineRuntime {
+  /**
+   * Identity refused the sign-in (or it was abandoned): forget the password prepared by `prepareFromSignIn`, so it never
+   * keys a session that becomes ready later in this tab. Call it from the sign-in form's error path.
+   */
+  forgetSignIn(): void
   /** What to show after sign-in (A5). Never writes anything. */
   offer(session: StaffSessionSnapshot): Promise<OfflineOffer>
   /** Wire into `ApiClientOptions.onResponseMeta`: feeds the clock, lease and connectivity. */
   onResponseMeta(meta: ResponseMeta): void
-  /** The staff session is `ready` and not behind the lock overlay. The engine sends only then. */
-  setSessionReady(ready: boolean): void
+  /**
+   * The staff session is `ready` and not behind the lock overlay, for `accountId` (A12.3). The engine sends, audits
+   * and extends the lease only then, and only while the unlocked vault belongs to that account.
+   */
+  setSessionReady(ready: boolean, accountId?: string): void
   /** Keydown, pointerdown, touchstart or wheel. Resets the 5-minute idle lock. */
   noteActivity(): void
   /** Page visibility changed. Hidden for 5 minutes locks. */
   noteVisibility(hidden: boolean): void
   connectivity(): Connectivity
+  /** The receipt of an applied command (A12.9), or null; a screen swaps a `local:` visit for the server one. */
+  receiptFor(commandId: string): Promise<Receipt | null>
   /** True when no command is `sending` in this origin's outbox (amendment A7; asks other tabs too). */
   updateSafe(): Promise<boolean>
   /**
@@ -185,6 +196,7 @@ export type OfflineReport =
   | { kind: 'defect'; op: string; status: number | null; code: string | null }
   | { kind: 'engine-error'; op: string; message: string }
   | { kind: 'audit-rejected'; dropped: number; code: string }
+  | { kind: 'audit-refused'; status: number; code: string; events: number }
   | { kind: 'wipe'; reason: string }
   | { kind: 'storage'; message: string }
 

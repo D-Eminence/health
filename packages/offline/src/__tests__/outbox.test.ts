@@ -4,7 +4,7 @@ import type { Json, OpDefinition } from '../contracts'
 import { createMemoryLocks } from '../testing'
 import { SaveRefused } from '../types'
 import { PATIENT, SESSION, encounterUpdate } from './fixtures'
-import { createServer, makeEnv, makeRuntime, privateChannel, settle, signIn, type Server } from './harness'
+import { createServer, makeEnv, makeRuntime, privateChannel, settle, signIn, until, type Server } from './harness'
 
 async function online(server = createServer(), extra: Parameters<typeof makeRuntime>[0]['extra'] = {}) {
   const env = makeEnv()
@@ -203,7 +203,7 @@ describe('outbox: classification flows', () => {
     const { rt } = await sentThen({ status: 401 })
     expect(rt.summary().attention).toBe(1)
     expect((await rt.commands.pendingFor(PATIENT))[0]!.label).toBe('Waiting for you to sign in')
-    rt.setSessionReady(true)
+    rt.setSessionReady(true, SESSION.accountId)
     await settle(rt)
     expect(rt.summary().pending).toBe(0)
   })
@@ -238,8 +238,9 @@ describe('outbox: classification flows', () => {
     const [item] = await rt.review.list()
     await expect(rt.review.resolve(item!.commandId, 'send-as-is', {})).rejects.toThrow(/not available/)
     await rt.review.resolve(item!.commandId, 'discard', { reason: 'Entered on the other device' })
-    expect(rt.summary().pending).toBe(0)
-    rt.setSessionReady(true)
+    // The summary counts the discard's own audit event until it is sent, and refreshes in the background.
+    await until(() => rt.summary().pending === 0)
+    rt.setSessionReady(true, SESSION.accountId)
     await settle(rt)
     await new Promise(r => setTimeout(r, 20))
     const dump = await commands(rt)
@@ -297,7 +298,7 @@ describe('outbox: lanes and dependencies', () => {
     const vid = (visit as { commandId: string }).commandId
     await rt.commands.save('ehr.note.create', { patientId: PATIENT, encounter: { local: vid }, text: 'n1' }, { awaitMs: 0 })
     expect(await rt.commands.pendingFor(PATIENT, { local: vid })).toHaveLength(2)
-    rt.setSessionReady(true)
+    rt.setSessionReady(true, SESSION.accountId)
     await settle(rt)
     const [enc, note] = server.writes()
     const encId = (server.keys.get(enc!.spec.headers!['Idempotency-Key']!)!.body as { id: string }).id
@@ -311,7 +312,7 @@ describe('outbox: lanes and dependencies', () => {
     await rt.commands.save('ehr.note.create', { patientId: PATIENT, encounter: { server: 'e1' }, text: 'first' }, { awaitMs: 0 })
     await rt.commands.save('ehr.note.create', { patientId: PATIENT, encounter: { server: 'e1' }, text: 'second' }, { awaitMs: 0 })
     await rt.commands.save('ehr.note.create', { patientId: PATIENT, encounter: { server: 'e2' }, text: 'other visit' }, { awaitMs: 0 })
-    rt.setSessionReady(true)
+    rt.setSessionReady(true, SESSION.accountId)
     await settle(rt)
     rt.commands.syncNow()
     await settle(rt)
@@ -326,7 +327,7 @@ describe('outbox: lanes and dependencies', () => {
     const { rt, server } = await online()
     rt.setSessionReady(false)
     for (const t of ['a', 'b', 'c', 'd']) await rt.commands.save('ehr.note.create', { patientId: PATIENT, encounter: { server: 'e1' }, text: t }, { awaitMs: 0 })
-    rt.setSessionReady(true)
+    rt.setSessionReady(true, SESSION.accountId)
     await settle(rt)
     expect(server.writes().map(c => JSON.parse(c.bodyText).text)).toEqual(['a', 'b', 'c', 'd'])
   })
@@ -338,7 +339,7 @@ describe('outbox: lanes and dependencies', () => {
     const visit = await rt.commands.save('ehr.encounter.create', { patientId: PATIENT }, { awaitMs: 0 })
     const vid = (visit as { commandId: string }).commandId
     await rt.commands.save('ehr.note.create', { patientId: PATIENT, encounter: { local: vid }, text: 'n' }, { awaitMs: 0 })
-    rt.setSessionReady(true)
+    rt.setSessionReady(true, SESSION.accountId)
     await settle(rt)
     rt.commands.syncNow()
     await settle(rt)
@@ -385,7 +386,7 @@ describe('outbox: CC4 safety hold', () => {
     rt.setSessionReady(false)
     await rt.commands.save('ehr.prescription.create', { patientId: PATIENT, encounter: { server: 'e1' }, text: 'rx' }, { awaitMs: 0 })
     server.state.offline = false
-    rt.setSessionReady(true)
+    rt.setSessionReady(true, SESSION.accountId)
     await settle(rt)
     const [item] = await rt.review.list()
     expect(item!.class).toBe('CC4')
@@ -403,7 +404,7 @@ describe('outbox: CC4 safety hold', () => {
     const { rt } = await online(server, { safety: probe })
     rt.setSessionReady(false)
     await rt.commands.save('ehr.prescription.create', { patientId: PATIENT, encounter: { server: 'e1' }, text: 'rx' }, { awaitMs: 0 })
-    rt.setSessionReady(true)
+    rt.setSessionReady(true, SESSION.accountId)
     await settle(rt)
     expect(server.writes()).toHaveLength(1)
   })

@@ -17,6 +17,8 @@ export type Fault = { status: number | null; code?: string; problem?: boolean; n
  */
 export function createServer() {
   const calls: ServerCall[] = []
+  /** Every write body the server applied (first application only, as with the idempotency table). */
+  const applied: string[] = []
   const keys = new Map<string, { status: number; body: unknown; operationPath: string }>()
   const faults: Fault[] = []
   const rules: { when: (spec: SendSpec, bodyText: string) => boolean; faults: Fault[] }[] = []
@@ -24,6 +26,11 @@ export function createServer() {
   const state = {
     offline: false,
     escrow: true,
+    /** The newest escrow key version (rotation), and every keyVersion asked for. */
+    escrowVersion: 1,
+    escrowAsked: [] as (number | null)[],
+    /** Answer C2 with this refusal instead of accepting. */
+    auditRefusal: null as { status: number; code: string } | null,
     /** C2 answers 503 (audit unavailable), so offline audit stays queued. */
     auditDown: false,
     receiptsDown: false,
@@ -41,8 +48,8 @@ export function createServer() {
   let n = 0
 
   // Like the server's HKDF: bound to the signed-in account and the facility the request names (§2.10 C4).
-  async function escrowKey(vaultId: string, facilityId: string): Promise<string> {
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`server-secret|${state.account}|${facilityId}|${vaultId}`))
+  async function escrowKey(vaultId: string, facilityId: string, version: number): Promise<string> {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`server-secret-v${version}|${state.account}|${facilityId}|${vaultId}`))
     return b64url(new Uint8Array(digest))
   }
 
@@ -69,10 +76,15 @@ export function createServer() {
     }
     if (spec.path === OFFLINE_PATHS.escrow) {
       if (!state.escrow) throw new TransportError({ status: 503, code: 'OFFLINE_ESCROW_UNAVAILABLE', problem: true })
-      return { status: 200, date: null, body: { keyVersion: 1, key: await escrowKey((spec.body as { vaultId: string }).vaultId, spec.headers?.['X-Facility-ID'] ?? ''), algorithm: 'HKDF-SHA256' } }
+      const asked = spec.body as { vaultId: string; keyVersion: number | null }
+      state.escrowAsked.push(asked.keyVersion)
+      // null means the newest version (new wraps); a recovery names the version stored with the wrap (A10.5).
+      const version = asked.keyVersion ?? state.escrowVersion
+      return { status: 200, date: null, body: { keyVersion: version, key: await escrowKey(asked.vaultId, spec.headers?.['X-Facility-ID'] ?? '', version), algorithm: 'HKDF-SHA256' } }
     }
     if (spec.path === OFFLINE_PATHS.audit) {
-      if (state.auditDown) throw new TransportError({ status: 503, problem: true })
+      if (state.auditDown) throw new TransportError({ status: 503, code: 'OFFLINE_AUDIT_UNAVAILABLE', problem: true })
+      if (state.auditRefusal) throw new TransportError({ ...state.auditRefusal, problem: true })
       const b = spec.body as { vaultId: string; events: { eventId: string; seq: number; action: string }[] }
       audit.push(b)
       return {
@@ -105,6 +117,7 @@ export function createServer() {
       ? { document: { id }, upload: { method: 'PUT', url: `https://storage.example/${id}?sig=${n}`, requiredHeaders: { 'Content-Type': 'application/pdf' }, expiresInSeconds: 300 } }
       : { id, rowVersion: 1 }
     if (key) keys.set(key, { status: 201, body, operationPath: spec.path })
+    applied.push(bodyText)
     if (state.hangNextAnswer) {
       state.hangNextAnswer = false
       return new Promise<SendResult>(() => undefined)
@@ -117,7 +130,7 @@ export function createServer() {
   }
 
   return {
-    transport, calls, keys, audit, state,
+    transport, calls, keys, audit, state, applied,
     fail(...f: Fault[]) { faults.push(...f) },
     /** Faults for the requests whose body contains `text`, in order. */
     failWhenBody(text: string, ...f: Fault[]) { rules.push({ when: (_s, b) => b.includes(text), faults: f }) },
@@ -198,7 +211,7 @@ export async function signIn(runtime: OfflineRuntimeHandle, o: { optIn?: boolean
   runtime.prepareFromSignIn((o.session ?? SESSION).email, o.password ?? PASSWORD)
   clocked.get(runtime)?.()
   const summary = await runtime.attachSession(o.session ?? SESSION, { optIn: o.optIn ?? true, online: true })
-  runtime.setSessionReady(true)
+  runtime.setSessionReady(true, (o.session ?? SESSION).accountId)
   return summary
 }
 
