@@ -4,6 +4,10 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { SessionProvider, useSession } from '../session'
 
+// Today's workspace at every facility, as real clinics have it until the clinic switch (ehr-blue/clinicSwitch.ts):
+// these tests cover the classic portal whatever BLUE_FOR_ALL is. The blue one is EhrBlueAtClinics.test.tsx's.
+vi.mock('../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: false }))
+
 /**
  * One browser, both portals. The patient portal and the provider portal share
  * one origin and so one set of session cookies: a sign-in in either replaces the

@@ -5,6 +5,10 @@ import { HidApiError } from '@hid/http'
 import { App } from '../App'
 import { LEGACY_PATIENT_PATHS } from '../legacyPaths'
 
+// Today's workspace at every facility, as real clinics have it until the clinic switch (ehr-blue/clinicSwitch.ts):
+// these tests cover the classic portal whatever BLUE_FOR_ALL is. The blue one is EhrBlueAtClinics.test.tsx's.
+vi.mock('../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: false }))
+
 const calls = vi.hoisted(() => ({
   patientSession: vi.fn(), patientRefresh: vi.fn(), patientEnrollmentCurrent: vi.fn(), patientGoogleOnboarding: vi.fn(), patientProfile: vi.fn(),
   patientEnrollmentAvailability: vi.fn(), patientParticipatingFacilities: vi.fn(),
