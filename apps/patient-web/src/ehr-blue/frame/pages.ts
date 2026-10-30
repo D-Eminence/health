@@ -6,6 +6,8 @@ import { SampleWorkspace, type SampleTab } from './sample/SampleWorkspace'
 import { FacilityProfileSample, FacilitySetupSample, PlatformReviewSample, ReportsSample } from './admin/AdminSamples'
 import { WhatsLeft } from './WhatsLeft'
 import { ChooseWorkspacePage } from './ChooseWorkspace'
+import { DesignTourIndex, JourneyTour } from './tour/DesignTour'
+import { JOURNEYS } from './tour/journeys'
 
 /**
  * The design's whole registry (design/ehr-target src/navigation.ts and screens/), in its sidebar order and groups, with
@@ -94,4 +96,9 @@ export const pages: EhrBluePage[] = [
 
   page('institutions', 'Design review', 'Choose workspace', 'building', 'live', createElement(ChooseWorkspacePage)),
   page('whats-left', 'Design review', 'What’s left', 'checklist', 'live', createElement(WhatsLeft)),
+
+  // The design's journeys, as an interactive tour: samples, asking for no password and sending nothing.
+  page('tour', 'Design tour', 'Design tour', 'tour', 'sample', createElement(DesignTourIndex)),
+  ...JOURNEYS.map(journey => page(`tour/${journey.id}/*`, 'Design tour', journey.title, 'route', 'sample',
+    createElement(JourneyTour, { journeyId: journey.id }))),
 ]

@@ -315,6 +315,93 @@
   margin: 0;
 }
 
+/* ---- Design tour ---------------------------------------------------------- */
+
+.hid-ehr .hid-ehr-blue-tour {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.hid-ehr .hid-ehr-blue-tour-steps {
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-blue-tour-steps .hid-ehr-blue-link[aria-current='step'] {
+  color: var(--ehr-ink);
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-tour .hid-ehr-overlay-title:focus {
+  outline: none;
+}
+
+@media (max-width: 1000px) {
+  .hid-ehr .hid-ehr-blue-tour {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- Status bar (connection-tools in the design) ------------------------- */
+
+.hid-ehr .hid-ehr-main {
+  padding-bottom: 104px;
+}
+
+.hid-ehr .hid-ehr-blue-statusbar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--ehr-z-chrome);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 56px;
+  padding: 8px 20px;
+  border-top: 1px solid var(--ehr-tab-rule);
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-button.hid-ehr-blue-status-chip {
+  min-height: 36px;
+  padding: 6px 16px;
+  border-color: #b9d6ef;
+  border-radius: 24px;
+  background: var(--ehr-surface);
+  color: var(--ehr-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.hid-ehr .hid-ehr-blue-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ehr-muted);
+}
+
+.hid-ehr .hid-ehr-blue-statusbar .hid-ehr-popover-panel {
+  width: min(340px, calc(100vw - 32px));
+}
+
+.hid-ehr .hid-ehr-blue-statusbar .hid-ehr-popover-panel p {
+  margin: 0 0 4px;
+}
+
+.hid-ehr .hid-ehr-blue-sync-item p,
+.hid-ehr .hid-ehr-blue-drawer-section {
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-notification {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
 /* ---- Choose your workspace (screens/admin/institutions.png) --------------- */
 
 .hid-ehr.hid-ehr-blue-standalone {

@@ -32,7 +32,7 @@ describe('the page registry', () => {
   it('holds every workspace of the design, in the design\'s groups and order, each with a status', () => {
     const labels = BLUE_PAGES.map(page => page.label)
     for (const workspace of DESIGN_WORKSPACES) expect(labels).toContain(workspace)
-    const groups = [...new Set(BLUE_PAGES.map(page => page.group).filter(group => group && group !== 'Design review'))]
+    const groups = [...new Set(BLUE_PAGES.map(page => page.group).filter(group => group && group !== 'Design review' && group !== 'Design tour'))]
     expect(groups).toEqual(DESIGN_GROUPS)
     for (const page of BLUE_PAGES) expect(['live', 'partial', 'sample']).toContain(page.status)
     expect(labels.slice(0, 1)).toEqual(['Home'])

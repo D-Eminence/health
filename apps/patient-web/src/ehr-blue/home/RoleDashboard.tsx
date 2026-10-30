@@ -2,6 +2,7 @@ import { useState, useSyncExternalStore } from 'react'
 import { Link } from 'react-router-dom'
 import { EhrButton, EhrCard, EhrField, EhrPageHeading, EhrSampleBanner, EhrSelect, EhrStatCard } from '@hid/ui/ehr'
 import { useRoleView, type DemoRole } from '../frame/roleView'
+import { modulePath } from '../frame/sample/paths'
 import { sampleModule, sampleRecords, sampleTitle, sampleVersion, statusWords, subscribeSamples } from '../frame/sample/store'
 
 /**
@@ -26,16 +27,6 @@ const ROLE_MODULES: Record<DemoRole, readonly string[]> = {
   'Billing Officer': ['billing', 'insurance', 'policies'],
   Cashier: ['billing', 'insurance'],
   'Radiology Reporter': ['radiology'],
-}
-
-/** Where each design workspace opens in the blue EHR. */
-const MODULE_PATHS: Record<string, string> = {
-  consult: 'clinical', lab: 'laboratory', consent: 'requests', billing: 'patient-billing', inventory: 'supply',
-  procurement: 'supply/procurement', policies: 'insurance/policies',
-}
-
-export function modulePath(id: string): string {
-  return `/provider/${MODULE_PATHS[id] ?? id}`
 }
 
 export function RoleDashboard({ role }: { readonly role: DemoRole }) {

@@ -8,6 +8,7 @@ import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { BLUE_PAGES, isLiveOnlyPath, matchBluePage, pageAllowed } from '../routes'
 import { AttentionProvider } from './attention'
+import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage, UnknownPage } from './LivePages'
 import { BluePageProvider, BluePagesProvider } from './pageContext'
 import { pageHrefOf } from './pageHref'
@@ -98,6 +99,7 @@ export function BlueFrame() {
             <BillingBanner />
             {content}
           </div>
+          <ConnectionStatus />
           <AccountSamplePanel panel={samplePanel} onClose={() => setSamplePanel(null)} />
         </EhrAppShell>
       </AttentionProvider>

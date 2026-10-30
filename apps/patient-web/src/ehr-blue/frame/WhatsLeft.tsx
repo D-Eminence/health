@@ -13,11 +13,16 @@ export const STATUS_WORDS: Record<EhrBluePageStatus, { readonly label: string; r
 
 /** The frame's panels and route pages, which no pages.ts lists, with what each is today. */
 export const FRAME_PARTS: readonly { readonly name: string; readonly status: EhrBluePageStatus; readonly note: string }[] = [
-  { name: 'Sidebar and phone menu', status: 'live', note: 'Every workspace in the design, grouped as in the design.' },
-  { name: 'Account menu', status: 'live', note: 'Switch facility and Sign out use Health ID.' },
+  { name: 'Sidebar, collapsed rail and phone menu', status: 'live', note: 'Every workspace in the design, grouped as in the design.' },
+  { name: 'Account menu', status: 'partial', note: 'Switch facility and Sign out use Health ID; My profile, Preferences and Help are samples.' },
+  { name: 'Role dashboards (16 demo roles)', status: 'sample', note: 'Chosen from the account menu: View Home as.' },
   { name: 'Workspace search', status: 'partial', note: 'Finds work areas; patient and staff search is not connected.' },
-  { name: 'Notifications', status: 'partial', note: 'Pending access requests are live.' },
+  { name: 'Notifications drawer', status: 'partial', note: 'Pending access requests are live; recent activity is a sample.' },
   { name: 'Demo chip', status: 'live', note: 'Says what is live and what is a sample.' },
+  { name: 'Connection popover', status: 'sample', note: 'Health ID has no offline sync for staff yet.' },
+  { name: 'Sync drawer', status: 'sample', note: 'Health ID has no offline sync for staff yet.' },
+  { name: 'Record quick view', status: 'sample', note: 'On every sample workspace list.' },
+  { name: 'My profile drawer', status: 'sample', note: 'From the account menu.' },
   { name: 'Unknown address', status: 'live', note: 'An address that is no page says so.' },
   { name: 'Page not open to your role', status: 'live', note: 'A live page without its permission is refused, and nothing of it is read.' },
 ]

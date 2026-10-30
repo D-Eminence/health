@@ -8,6 +8,8 @@ import { roleLabels } from '../../staff/staffAccess'
 import { usesNovuBackend } from '../../backendContract'
 import { useAccessRequests } from './attention'
 import { DEMO_ROLES, useRoleView } from './roleView'
+import { modulePath } from './sample/paths'
+import { sampleModule, sampleRecords } from './sample/store'
 import { pageHrefOf } from './pageHref'
 import type { EhrBluePage } from './types'
 
@@ -80,9 +82,26 @@ export function NotificationsButton() {
                 <EhrButton variant="secondary" onClick={() => { setOpen(false); navigate('/provider/requests') }}>Review requests</EhrButton>
               </div>
             )}
+      <h3 className="hid-ehr-blue-subtitle hid-ehr-blue-drawer-section">Recent activity</h3>
+      <EhrSampleBanner />
+      <ul className="hid-ehr-blue-list">
+        {SAMPLE_ACTIVITY.map(moduleId => {
+          const module = sampleModule(moduleId)
+          const record = sampleRecords(moduleId)[0]
+          if (!module || !record) return null
+          return <li key={moduleId} className="hid-ehr-blue-list-item hid-ehr-blue-notification">
+            <span>{module.title} record created</span>
+            <EhrButton variant="secondary" size="sm" aria-label={`Open ${module.title} record`}
+              onClick={() => { setOpen(false); navigate(`${modulePath(moduleId)}/${record.id}`) }}>Open record</EhrButton>
+          </li>
+        })}
+      </ul>
     </EhrDrawer>
   </>
 }
+
+/** The workspaces the design's notification list draws from (screens/panels/notifications-drawer.png). */
+const SAMPLE_ACTIVITY = ['appointments', 'quality', 'nursing', 'icu', 'referrals'] as const
 
 export function DemoChip({ facility }: { readonly facility: string }) {
   const navigate = useNavigate()
