@@ -27,7 +27,7 @@ const patient = {
   },
   profileDetails: { hospitalCurrentlyUsing: 'Lagos University Teaching Hospital', hmoName: 'Hygeia HMO', rowVersion: 1 },
   healthProfile: {
-    bloodGroup: 'O+', genotype: 'AA', allergies: 'Penicillin', currentMedications: null, chronicConditions: null,
+    bloodGroup: 'O+', genotype: 'AA', allergies: 'Penicillin, sulfa drugs and peanuts', currentMedications: null, chronicConditions: null,
     medicalNotes: null, rowVersion: 1, updatedAt: '2026-10-20T07:00:00.000Z',
   },
   records: {

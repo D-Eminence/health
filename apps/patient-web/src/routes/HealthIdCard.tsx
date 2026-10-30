@@ -119,8 +119,11 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
   const face = photo.url
     ? <img src={photo.url} alt="" width={PHOTO_SIDE} height={PHOTO_SIDE} className="size-full object-cover" />
     : <span className="text-[5.4cqw] font-light tracking-[.12em] text-white/85" aria-hidden="true">{initialsOf(profile)}</span>
-  const allergy = allergies && allergies.length > 16 ? `${allergies.slice(0, 15).trimEnd()}…` : allergies
-  const facts = [bloodGroup && ['Blood', bloodGroup], genotype && ['Genotype', genotype], allergy && ['Allergy', allergy]].filter((f): f is [string, string] => Array.isArray(f))
+  // Allergies are free text; each one is listed, and the card prints the first with how many more (never cut off silently).
+  const allergyList = allergyItems(allergies)
+  const firstAllergy = allergyList[0] ?? null
+  const facts = [bloodGroup && ['Blood', bloodGroup], genotype && ['Genotype', genotype]].filter((f): f is [string, string] => Array.isArray(f))
+  const [allergiesOpen, setAllergiesOpen] = useState(false)
 
   return <div className={cx('flex flex-col gap-3', className)}>
     {/* Everything on the card is sized to the card's own width (cqw), so it is the same card, in the same proportion
@@ -160,10 +163,20 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
       </div>
 
       {/* What an emergency team needs first, printed under the chip. */}
-      {facts.length > 0 && <dl className="absolute top-[32cqw] left-[7.5cqw] m-0 flex max-w-[56cqw] gap-[5.5cqw]">
+      {(facts.length > 0 || firstAllergy) && <dl className="absolute top-[32cqw] left-[7.5cqw] m-0 flex max-w-[56cqw] gap-[5.5cqw]">
         {facts.map(([label, value]) => <div key={label} className="min-w-0">
           <dt className="text-[1.7cqw] font-medium tracking-[.28em] text-white/50 uppercase">{label}</dt>
           <dd className="m-0 mt-[1.1cqw] truncate text-[3cqw] leading-none font-medium tracking-[.04em] text-white/95">{value}</dd></div>)}
+        {firstAllergy && <div className="min-w-0">
+          <dt className="text-[1.7cqw] font-medium tracking-[.28em] text-white/50 uppercase">{allergyList.length > 1 ? 'Allergies' : 'Allergy'}</dt>
+          <dd className="m-0 mt-[1.1cqw]">
+            <button type="button" onClick={() => setAllergiesOpen(true)} title={allergyList.join(', ')}
+              className="flex max-w-full cursor-pointer items-center gap-[1.2cqw] border-0 bg-transparent p-0 text-left font-[inherit] text-white/95 hover:underline hover:underline-offset-2">
+              <span className="truncate text-[3cqw] leading-none font-medium tracking-[.04em]">{firstAllergy}</span>
+              {allergyList.length > 1 && <span className="shrink-0 rounded-full bg-white/15 px-[1.2cqw] py-[.4cqw] text-[2cqw] leading-none font-semibold ring-1 ring-white/25">+{allergyList.length - 1}</span>}
+              <span className="sr-only">, all allergies: {allergyList.join(', ')}. Open the list.</span>
+            </button>
+          </dd></div>}
       </dl>}
 
       {/* The holder: name, NIN and the ID. */}
@@ -183,6 +196,15 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
       {links.includes('profile') && <Button to="/profile" icon={UserRound} className="flex-1">View profile</Button>}
     </div>}
 
+    <Drawer open={allergiesOpen} onClose={() => setAllergiesOpen(false)} title={allergyList.length === 1 ? 'Allergy' : `${allergyList.length} allergies`}
+      icon={<IconChip icon={CircleAlert} tone="warn" />} description="On your card, and shown to clinicians you share your records with."
+      footer={<><Button onClick={() => setAllergiesOpen(false)}>Close</Button><Button to="/profile#health-information" variant="primary" onClick={() => setAllergiesOpen(false)}>Edit allergies</Button></>}>
+      <ul className="m-0 flex list-none flex-col gap-2 p-0">
+        {allergyList.map(item => <li key={item} className="flex items-center gap-3 rounded-xl bg-warn-soft/50 px-4 py-3 text-sm font-medium [overflow-wrap:anywhere] text-ink ring-1 ring-line">
+          <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-warn" />{item}</li>)}
+      </ul>
+    </Drawer>
+
     <Drawer open={open} onClose={close} title="Your card photo" icon={<IconChip icon={Camera} tone="brand" />}
       description="Clinicians see it when you share your records, so they know it’s you."
       footer={<>
@@ -198,6 +220,20 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
       </div>
     </Drawer>
   </div>
+}
+
+/**
+ * Allergies as the patient wrote them, one per item: split on commas, semicolons, new lines and a final "and", with
+ * repeats dropped. "Penicillin, sulfa drugs and peanuts" is three.
+ */
+export function allergyItems(text: string | null | undefined): string[] {
+  if (!text) return []
+  const seen = new Set<string>()
+  return text.split(/[,;\n]+|\s+and\s+/i).map(item => item.trim().replace(/\.$/, '')).filter(item => {
+    const key = item.toLowerCase()
+    if (!item || /^(none|nil|n\/a|no known allergies?)$/i.test(item) || seen.has(key)) return false
+    seen.add(key); return true
+  }).map(item => item.charAt(0).toUpperCase() + item.slice(1))
 }
 
 /**
