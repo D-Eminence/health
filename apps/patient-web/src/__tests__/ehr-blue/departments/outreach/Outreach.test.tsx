@@ -101,9 +101,9 @@ describe('who can open Outreach', () => {
   it('refuses a membership with no outreach read permission, and reads nothing', async () => {
     session.permissions = ['outreach.registration.write', 'outreach.campaign.write']
     renderPage()
-    expect(heading().textContent).toBe('Outreach')
-    expect(screen.getByRole('alert').textContent)
-      .toBe('Permission denied. This membership or branch cannot open this module: it needs outreach campaign or registration read permission.')
+    // Today's words (staff/routes/Operations.tsx Outreach): "Outreach unavailable" and the permission it needs.
+    expect(heading().textContent).toBe('Outreach unavailable')
+    expect(screen.getByText('This facility membership needs outreach campaign or registration read permission.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
     expect(api.outreachCases).not.toHaveBeenCalled()
     expect(api.outreachCampaigns).not.toHaveBeenCalled()

@@ -67,7 +67,7 @@ export async function toReview({ entry, type, product }: { entry?: string; type?
   await step('Agreements')
 }
 
-export const AGREEMENT_LABELS = ['I accept the Terms of Service', 'I accept the Data Processing Agreement',
+export const AGREEMENT_LABELS = ['I have read the Terms of Service', 'I have read the Privacy Policy',
   'I acknowledge data protection and patient consent responsibilities', 'I am authorised to register this facility']
 
 export function agreeToAll() {
@@ -83,8 +83,8 @@ export const submitButton = () => button('Submit facility for verification')
 export async function submitRegistration() {
   agreeToAll()
   fireEvent.click(submitButton())
-  const dialog = await screen.findByRole('alertdialog', { name: 'Submit the facility agreements?' })
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Accept agreements and submit' }))
+  const dialog = await screen.findByRole('alertdialog', { name: 'Submit this registration?' })
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm and submit' }))
 }
 
 /** Through the "Registration submitted" screen to the code. */

@@ -20,7 +20,7 @@ const SAMPLE_STEPS: ReadonlySet<StepName> = new Set(['Type', 'Departments', 'Bra
 
 /** The design's "Continue to …" below the card, where the step's card has no button of its own to go on. */
 const CONTINUE_BELOW: Partial<Record<StepName, string>> = {
-  Branches: 'Continue to staff',
+  Branches: 'Next (sample)',
   Staff: 'Continue to roles',
   Roles: 'Continue to billing',
 }
@@ -96,7 +96,7 @@ export function FacilitySetup() {
         // The heading names the step for a screen reader, where the eyebrow shows it.
         eyebrow={<span aria-hidden="true">{stepEyebrow(step)}</span>}
         title={<><span className="hid-ehr-sr-only">{stepEyebrow(step)}: </span>{SETUP_TITLE}</>}
-        primaryAction={<EhrButton variant="secondary" onClick={() => navigate('/provider/institutions')}>Save and exit</EhrButton>}
+        primaryAction={<EhrButton variant="secondary" onClick={() => navigate('/provider/institutions')}>Exit setup</EhrButton>}
       />
       {SAMPLE_STEPS.has(name) ? <EhrSampleBanner /> : null}
       <nav className="hid-ehr-onboarding-stepper" aria-label="Onboarding steps">
