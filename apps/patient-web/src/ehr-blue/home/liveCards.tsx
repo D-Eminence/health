@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import { EhrBadge, EhrCard, EhrEmptyState, EhrErrorState, EhrSkeleton } from '@hid/ui/ehr'
+import { EhrCard, EhrEmptyState, EhrErrorState, EhrSkeleton } from '@hid/ui/ehr'
 import {
   orderRoutesApi, staffApi, type Facility, type LabWorkItem, type PharmacyWorkItem, type ReceivingAnswer, type ReceivingService,
   type SentWrongPatientOrderRoute, type SentWrongPatientOrderRoutes,
 } from '../../staff/api'
-import { useStaff } from '../../staff/App'
-import { patientCard } from '../../staff/routes/IncomingOrders'
+import { useStaff, type ActivePatient } from '../../staff/App'
 import { refusalText } from '../../staff/fieldProblem'
 import {
   holdsReceivePermission, orderWord, receivingAnswer, receivingHere, rememberedReceiving, rememberReceiving, routeDay,
@@ -22,17 +21,26 @@ import { useAccessRequests } from '../frame/attention'
  * is read that today's pages would not read, and each audited read happens once, when Home opens.
  */
 
-export function AccessRequestsCard() {
+/** Needs attention's live lines (screens/roles: title, then "Workspace · status"): access requests and the current patient. */
+export function AttentionLines({ activePatient }: { readonly activePatient: ActivePatient | null }) {
   const read = useAccessRequests()
-  if (read.state === 'none') return null
-  return (
-    <EhrCard title="Access requests">
-      {read.state === 'loading' ? <EhrSkeleton label="Loading access requests" bars={1} />
-        : read.state === 'failed' ? <EhrErrorState title="Access requests could not be loaded" message={read.message} />
-          : <p>{read.pending} pending request{read.pending === 1 ? '' : 's'}</p>}
-      <Link to="/provider/requests" className="hid-ehr-blue-link">Review requests →</Link>
-    </EhrCard>
-  )
+  return <>
+    {read.state === 'loading' ? <li className="hid-ehr-blue-list-item"><EhrSkeleton label="Loading access requests" bars={1} /></li> : null}
+    {read.state === 'failed' ? <li className="hid-ehr-blue-list-item"><strong>Access requests could not be loaded</strong>
+      <span className="hid-ehr-blue-muted">{read.message}</span></li> : null}
+    {read.state === 'ready' ? (
+      <li className="hid-ehr-blue-list-item">
+        <Link to="/provider/requests" className="hid-ehr-blue-worklink"><strong>{read.pending} pending access request{read.pending === 1 ? '' : 's'}</strong></Link>
+        <span className="hid-ehr-blue-muted">External record access · pending</span>
+      </li>
+    ) : null}
+    {activePatient ? (
+      <li className="hid-ehr-blue-list-item">
+        <Link to="/provider/clinical" className="hid-ehr-blue-worklink"><strong>{activePatient.lookup.patient.fullName ?? activePatient.hid}</strong></Link>
+        <span className="hid-ehr-blue-muted">{activePatient.purpose === 'emergency' ? 'Consultation · emergency access, read only' : 'Consultation · open'}</span>
+      </li>
+    ) : null}
+  </>
 }
 
 // --- Incoming orders (Novu, P4c): today's Overview rules (readsIncoming, incomingServices, IncomingOrdersCard). ---
@@ -191,80 +199,66 @@ export function WrongPatientOrdersCard({ facilityId, facilityName }: { readonly 
   )
 }
 
-export function CurrentPatientCard() {
-  const { activePatient } = useStaff()
-  if (!activePatient) return null
-  return (
-    <EhrCard title="Current patient">
-      <p>{activePatient.lookup.patient.fullName ?? activePatient.hid}</p>
-      {activePatient.purpose === 'emergency' ? <p><EhrBadge tone="critical">Emergency access: read only</EhrBadge></p> : null}
-      <Link to="/provider/clinical" className="hid-ehr-blue-link">Open clinical record →</Link>
-    </EhrCard>
-  )
-}
-
 // --- Lab and pharmacy work: what today's Laboratory and Pharmacy pages list, a few rows each. ---
-
-/** Who the patient is on a work row, as today's work pages say it: named once an accepted order names them, else masked. */
-function patientLabel(item: { patientId: string; patient?: LabWorkItem['patient'] }): string {
-  return item.patient ? patientCard(item.patient) : `Patient ••••${item.patientId.slice(-6)}`
-}
 
 function workError(error: unknown): string {
   return refusalText(error, 'Work could not be loaded.')
 }
 
-type WorkRead<T> = { state: 'loading' } | { state: 'failed'; message: string } | { state: 'ready'; items: readonly T[] }
+type WorkRead<T> = { state: 'off' } | { state: 'loading' } | { state: 'failed'; message: string } | { state: 'ready'; items: readonly T[] }
 
-function useWork<T>(facilityId: string, load: (id: string) => Promise<{ items: T[] }>): WorkRead<T> {
-  const [read, setRead] = useState<WorkRead<T>>({ state: 'loading' })
+function useWork<T>(facilityId: string, enabled: boolean, load: (id: string) => Promise<{ items: T[] }>): WorkRead<T> {
+  const [read, setRead] = useState<WorkRead<T>>({ state: enabled ? 'loading' : 'off' })
   useEffect(() => {
+    if (!enabled) {
+      setRead({ state: 'off' })
+      return
+    }
     let active = true
     setRead({ state: 'loading' })
     void load(facilityId).then(
       answer => { if (active) setRead({ state: 'ready', items: Array.isArray(answer?.items) ? answer.items : [] }) },
       caught => { if (active) setRead({ state: 'failed', message: workError(caught) }) })
     return () => { active = false }
-  }, [facilityId, load])
+  }, [facilityId, enabled, load])
   return read
 }
 
 const loadLab = (id: string) => staffApi.labWorkItems(id)
 const loadPharmacy = (id: string) => staffApi.pharmacyWorkItems(id)
 
-export function LabWorkCard({ facilityId }: { readonly facilityId: string }) {
-  const read = useWork<LabWorkItem>(facilityId, loadLab)
+/**
+ * Today (screens/roles): the facility's laboratory and pharmacy work, as today's Laboratory and Pharmacy pages list it,
+ * each line the design's "title, then Workspace · status". No patient is named here: the work pages say who it is.
+ */
+export function TodayCard({ facilityId, lab, pharmacy }: { readonly facilityId: string; readonly lab: boolean; readonly pharmacy: boolean }) {
+  const labRead = useWork<LabWorkItem>(facilityId, lab, loadLab)
+  const pharmacyRead = useWork<PharmacyWorkItem>(facilityId, pharmacy, loadPharmacy)
+  const lines = [
+    ...(labRead.state === 'ready' ? labRead.items.slice(0, 5).map(item => ({ key: `lab-${item.id}`, title: item.testName ?? 'Lab test',
+      meta: `Laboratory · ${item.status.replace(/[-_]+/g, ' ')}`, to: '/provider/laboratory' })) : []),
+    ...(pharmacyRead.state === 'ready' ? pharmacyRead.items.slice(0, 5).map(item => ({ key: `rx-${item.id}`, title: item.medication?.display ?? 'Medicine',
+      meta: `Pharmacy · ${item.dispensing && !item.dispensing.reversed ? 'dispensed' : 'to dispense'}`, to: '/provider/pharmacy' })) : []),
+  ]
+  const loading = labRead.state === 'loading' || pharmacyRead.state === 'loading'
+  const failures = [
+    labRead.state === 'failed' ? { what: 'Laboratory work could not be loaded', message: labRead.message } : null,
+    pharmacyRead.state === 'failed' ? { what: 'Pharmacy work could not be loaded', message: pharmacyRead.message } : null,
+  ].filter(failure => failure !== null)
   return (
-    <EhrCard title="Laboratory work">
-      {read.state === 'loading' ? <EhrSkeleton label="Loading laboratory work" bars={2} />
-        : read.state === 'failed' ? <EhrErrorState title="Laboratory work could not be loaded" message={read.message} />
-          : read.items.length === 0 ? <EhrEmptyState title="No accepted lab work" message="Tests ordered here appear once they are accepted." />
-            : <ul className="hid-ehr-blue-list">{read.items.slice(0, 5).map(item => (
-              <li key={item.id} className="hid-ehr-blue-list-item">
-                <strong>{item.testName ?? 'Lab test'}</strong>
-                <span className="hid-ehr-blue-muted">{patientLabel(item)} · {item.status.replace(/[-_]+/g, ' ')}</span>
-              </li>
-            ))}</ul>}
-      <Link to="/provider/laboratory" className="hid-ehr-blue-link">Open Laboratory →</Link>
+    <EhrCard title="Today">
+      {failures.map(failure => <EhrErrorState key={failure.what} title={failure.what} message={failure.message} />)}
+      {loading ? <EhrSkeleton label="Loading today's work" bars={2} /> : null}
+      {!loading && lines.length === 0 && failures.length === 0 ? (
+        <EhrEmptyState title={lab || pharmacy ? 'No accepted work yet' : 'Nothing scheduled for you'}
+          message={lab || pharmacy ? 'Tests and prescriptions appear here once they are accepted.' : 'Laboratory and pharmacy work shows here for roles that do it.'} />
+      ) : null}
+      {lines.length > 0 ? <ul className="hid-ehr-blue-list">{lines.map(line => (
+        <li key={line.key} className="hid-ehr-blue-list-item">
+          <Link to={line.to} className="hid-ehr-blue-worklink"><strong>{line.title}</strong></Link>
+          <span className="hid-ehr-blue-muted">{line.meta}</span>
+        </li>
+      ))}</ul> : null}
     </EhrCard>
   )
 }
-
-export function PharmacyWorkCard({ facilityId }: { readonly facilityId: string }) {
-  const read = useWork<PharmacyWorkItem>(facilityId, loadPharmacy)
-  return (
-    <EhrCard title="Pharmacy work">
-      {read.state === 'loading' ? <EhrSkeleton label="Loading pharmacy work" bars={2} />
-        : read.state === 'failed' ? <EhrErrorState title="Pharmacy work could not be loaded" message={read.message} />
-          : read.items.length === 0 ? <EhrEmptyState title="No accepted prescriptions" message="Prescriptions appear here once they are accepted." />
-            : <ul className="hid-ehr-blue-list">{read.items.slice(0, 5).map(item => (
-              <li key={item.id} className="hid-ehr-blue-list-item">
-                <strong>{item.medication?.display ?? 'Medicine'}</strong>
-                <span className="hid-ehr-blue-muted">{patientLabel(item)} · {item.dispensing && !item.dispensing.reversed ? 'dispensed' : 'to dispense'}</span>
-              </li>
-            ))}</ul>}
-      <Link to="/provider/pharmacy" className="hid-ehr-blue-link">Open Pharmacy →</Link>
-    </EhrCard>
-  )
-}
-

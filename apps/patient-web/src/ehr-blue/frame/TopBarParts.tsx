@@ -143,13 +143,14 @@ export function AccountMenu({ onSample }: { readonly onSample?: (panel: 'profile
   }
 
   return <>
-    <EhrPopover trigger={<span className="hid-ehr-blue-avatar" aria-hidden="true">{initials(name)}</span>} triggerLabel="Account menu" label="Account">
+    <EhrPopover trigger={<span className="hid-ehr-blue-avatar" aria-hidden="true">{initials(name)}<span className="hid-ehr-blue-presence" /></span>} triggerLabel="Account menu" label="Account">
       {close => (
         <div className="hid-ehr-blue-menu">
           <p className="hid-ehr-blue-menu-name">{name}</p>
           <p className="hid-ehr-blue-muted">{roles}{facility ? ` · ${facility.name}` : ''}</p>
           {onSample ? <>
             <EhrButton variant="secondary" onClick={() => { close(false); onSample('profile') }}>My profile</EhrButton>
+            <EhrButton variant="secondary" onClick={() => { close(false); onSample('profile') }}>Status: Online</EhrButton>
             <EhrButton variant="secondary" onClick={() => { close(false); onSample('preferences') }}>Preferences</EhrButton>
             <EhrButton variant="secondary" onClick={() => { close(false); onSample('help') }}>Help</EhrButton>
           </> : null}

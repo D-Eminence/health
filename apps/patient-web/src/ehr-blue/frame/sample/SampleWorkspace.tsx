@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent, type RefObject } from 'react'
+import { useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent, type MouseEvent, type RefObject } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   EhrBadge, EhrButton, EhrCard, EhrDataTable, EhrDialog, EhrDrawer, EhrField, EhrInput, EhrModuleTabs, EhrPageHeading,
@@ -36,7 +36,7 @@ function useSamples(moduleId: string): readonly SampleRecord[] {
   return sampleRecords(moduleId)
 }
 
-const when = (value: string) => new Date(value).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })
+const when = (value: string) => new Date(value).toLocaleString('en-US')
 
 export function SampleWorkspace({ moduleId, tabs }: SampleWorkspaceProps) {
   const { page, rest } = useBluePage()
@@ -48,9 +48,10 @@ export function SampleWorkspace({ moduleId, tabs }: SampleWorkspaceProps) {
   const module = sampleModule(active?.moduleId ?? moduleId)
   const base = `${pageHrefOf(page)}${tab ? `/${tab.segment}` : ''}`
   if (!module) return <EhrPageHeading title={page.label} />
+  const listing = !view[0]
   return (
     <>
-      <EhrPageHeading title={page.label} />
+      <EhrPageHeading title={page.label} primaryAction={listing ? <CreateButton base={base} /> : undefined} />
       <EhrSampleBanner />
       {tabs ? (
         <EhrModuleTabs
@@ -66,6 +67,11 @@ export function SampleWorkspace({ moduleId, tabs }: SampleWorkspaceProps) {
           : <SampleList module={module} base={base} />}
     </>
   )
+}
+
+function CreateButton({ base }: { readonly base: string }) {
+  const navigate = useNavigate()
+  return <EhrButton onClick={() => navigate(`${base}/new`)}>Create record</EhrButton>
 }
 
 /** Follows a plain left click in the app; a modified click (new tab) is left to the browser. */
@@ -85,24 +91,29 @@ function SampleList({ module, base }: { readonly module: Module; readonly base: 
   const [quick, setQuick] = useState<SampleRecord | null>(null)
   const shown = records.filter(record => !query.trim()
     || JSON.stringify(record.fields).toLowerCase().includes(query.trim().toLowerCase()))
+  const open = (record: SampleRecord) => (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    event.preventDefault()
+    navigate(`${base}/${record.id}`)
+  }
   const columns: EhrDataTableColumn<SampleRecord>[] = [
-    { id: 'record', header: 'Record', cell: record => (
-      <a className="hid-ehr-blue-link" href={`${base}/${record.id}`} onClick={event => {
-        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-        event.preventDefault()
-        navigate(`${base}/${record.id}`)
-      }}>{sampleTitle(module, record)}</a>
-    ) },
-    ...(module.patient ? [{ id: 'patient', header: 'Patient', cell: (record: SampleRecord) => String(record.fields.patient ?? '') }] : []),
+    { id: 'record', header: 'Record', cell: record => <>
+      <a className="hid-ehr-blue-link" href={`${base}/${record.id}`} onClick={open(record)}>{sampleTitle(module, record)}</a>
+      <span className="hid-ehr-blue-record-id">{record.id.toLowerCase()}</span>
+    </> },
+    { id: 'patient', header: 'Patient / context', cell: record => String(record.fields.patient ?? (module.id === 'patients' ? record.fields.name ?? '' : '')) },
     { id: 'status', header: 'Status', cell: record => <EhrBadge tone="neutral">{statusWords(record.status)}</EhrBadge> },
     { id: 'updated', header: 'Updated', cell: record => when(record.updatedAt) },
     { id: 'quick', header: <span className="hid-ehr-sr-only">Actions</span>, cell: record => (
-      <EhrButton variant="secondary" size="sm" onClick={() => setQuick(record)}>Quick view</EhrButton>
+      <span className="hid-ehr-blue-row-actions">
+        <EhrButton variant="secondary" onClick={() => setQuick(record)}>Quick view</EhrButton>
+        <a className="hid-ehr-blue-link" href={`${base}/${record.id}`} onClick={open(record)} aria-label={`Open ${sampleTitle(module, record)}`}>Open →</a>
+      </span>
     ) },
   ]
   return (
-    <EhrCard title={`${module.title} records`} actions={<EhrButton size="sm" onClick={() => navigate(`${base}/new`)}>New record</EhrButton>}>
-      <EhrField label={`Search ${module.title.toLowerCase()}`}>
+    <EhrCard>
+      <EhrField label={`Search ${module.title}`}>
         <EhrInput type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search saved records…" />
       </EhrField>
       <div className="hid-ehr-blue-gap" />

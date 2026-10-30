@@ -99,7 +99,7 @@ describe('the blue frame', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Appointments' })).toBeDefined()
     expect(screen.getByText(SAMPLE_NOTICE)).toBeDefined()
     const before = sent.length
-    fireEvent.click(screen.getByRole('button', { name: 'New record' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
     await waitFor(() => expect(where()).toBe('/provider/appointments/new'))
     fireEvent.click(screen.getByRole('button', { name: 'Save sample record' }))
     const clinician = screen.getByRole('textbox', { name: 'Clinician' })

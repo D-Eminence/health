@@ -41,7 +41,7 @@
   padding: 6px 12px;
   border-color: var(--ehr-tab-rule);
   border-radius: 30px;
-  background: var(--ehr-surface-tint);
+  background: var(--ehr-surface);
   color: var(--ehr-ink);
   font-size: 12px;
 }
@@ -53,6 +53,7 @@
 }
 
 .hid-ehr .hid-ehr-blue-avatar {
+  position: relative;
   display: inline-grid;
   place-items: center;
   width: 32px;
@@ -62,6 +63,30 @@
   color: var(--ehr-brand-dark);
   font-size: 13px;
   font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-presence {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--ehr-surface);
+  border-radius: 50%;
+  background: #17834b;
+}
+
+.hid-ehr .hid-ehr-blue-record-id {
+  display: block;
+  margin-top: 4px;
+  color: var(--ehr-muted);
+  font-size: 10px;
+}
+
+.hid-ehr .hid-ehr-blue-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .hid-ehr .hid-ehr-blue-menu {
@@ -113,6 +138,16 @@
   text-decoration: underline;
 }
 
+.hid-ehr .hid-ehr-blue-worklink {
+  color: var(--ehr-ink);
+  text-decoration: none;
+}
+
+.hid-ehr .hid-ehr-blue-worklink:hover {
+  color: var(--ehr-brand);
+}
+
+.hid-ehr .hid-ehr-blue-worklink:focus-visible,
 .hid-ehr .hid-ehr-blue-link:focus-visible,
 .hid-ehr .hid-ehr-blue-result:focus-visible,
 .hid-ehr .hid-ehr-blue-check-input:focus-visible {
@@ -343,10 +378,57 @@
   }
 }
 
+/* ---- Home (screens/roles) ------------------------------------------------- */
+
+.hid-ehr .hid-ehr-blue-period {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-period .hid-ehr-field {
+  max-width: 240px;
+}
+
+.hid-ehr .hid-ehr-blue-period-note {
+  padding-bottom: 12px;
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-activity {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-activity-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-activity-figure strong {
+  color: var(--ehr-ink);
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-activity-figure small {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
 /* ---- Status bar (connection-tools in the design) ------------------------- */
 
 .hid-ehr .hid-ehr-main {
   padding-bottom: 104px;
+}
+
+/* The sidebar ends above the status bar, as in the design. */
+.hid-ehr .hid-ehr-sidebar {
+  height: calc(100vh - 56px);
 }
 
 .hid-ehr .hid-ehr-blue-statusbar {

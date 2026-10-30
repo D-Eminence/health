@@ -1,66 +1,113 @@
+import { useState, useSyncExternalStore } from 'react'
 import { Link } from 'react-router-dom'
-import { EhrCard, EhrPageHeading } from '@hid/ui/ehr'
+import { EhrButton, EhrCard, EhrDrawer, EhrField, EhrPageHeading, EhrSampleBanner, EhrSelect } from '@hid/ui/ehr'
 import { useStaff } from '../../staff/App'
 import { usesNovuBackend } from '../../backendContract'
 import { useBluePages } from '../frame/pageContext'
 import { pageHrefOf } from '../frame/pageHref'
 import { useRoleView } from '../frame/roleView'
-import {
-  AccessRequestsCard, CurrentPatientCard, IncomingOrdersCard, LabWorkCard, PharmacyWorkCard, useIncomingServices, WrongPatientOrdersCard,
-} from './liveCards'
+import { sampleModule, sampleRecords, sampleVersion, subscribeSamples } from '../frame/sample/store'
+import type { EhrBluePage } from '../frame/types'
+import { AttentionLines, IncomingOrdersCard, TodayCard, useIncomingServices, WrongPatientOrdersCard } from './liveCards'
 import { RoleDashboard } from './RoleDashboard'
 
+const ACTIVITY = ['patients', 'appointments', 'journey', 'triage'] as const
+const MAX_SHORTCUTS = 6
+
 /**
- * Home (design: screens/roles/*-dashboard.png). Live: the cards today's Overview and work pages read, for the
- * facility's permissions: access requests, incoming orders, orders accepted for the wrong person, the current patient,
- * and laboratory and pharmacy work. The design's reporting period and activity counts need data Health ID does not
- * serve yet: they show in each role's sample dashboard, chosen from the account menu ("View as"), never here.
+ * Home, as the design draws it (screens/roles/*-dashboard.png): the welcome heading with Customize shortcuts, the
+ * reporting period and Activity in period, Needs attention, Today and Pinned shortcuts.
+ * - Live: Needs attention (access requests, the current patient; incoming orders and orders accepted for the wrong
+ *   person as their own cards, in today's words) and Today (laboratory and pharmacy work), each under today's
+ *   permission and read as today's Overview and work pages read them.
+ * - Sample: the reporting period and its activity counts (Health ID serves no such counts yet), and the shortcuts a
+ *   person picks, kept in memory only.
+ * Each demo role's dashboard replaces it from the account menu ("View Home as").
  */
 export function BlueHome() {
-  const { state } = useStaff()
+  const { state, activePatient } = useStaff()
   const role = useRoleView()
   const pages = useBluePages()
   const session = state.status === 'ready' ? state.session : null
   const facility = session?.actor.facility
   const permissions = facility?.permissions ?? []
   const incoming = useIncomingServices(facility)
+  const [period, setPeriod] = useState('7')
+  const [customizing, setCustomizing] = useState(false)
+  const [chosen, setChosen] = useState<readonly string[] | null>(null)
+  useSyncExternalStore(subscribeSamples, sampleVersion, sampleVersion)
   if (role.viewing) return <RoleDashboard role={role.viewing} />
   if (!session) return null
   const name = session.actor.displayName ?? 'colleague'
-  // Pinned shortcuts: the first six live pages this facility opens (UI-RULES 7: at most six).
-  const shortcuts = pages.filter(page => page.path !== '' && page.status === 'live' && page.group !== 'Design review'
-    && (!page.permission || permissions.includes(page.permission))).slice(0, 6)
+  const open = (page: EhrBluePage) => page.status === 'sample' || !page.permission || permissions.includes(page.permission)
+  const candidates = pages.filter(page => page.path !== '' && !page.group.startsWith('Design') && open(page))
+  const shortcuts = chosen
+    ? candidates.filter(page => chosen.includes(page.path))
+    : candidates.filter(page => page.status === 'live').slice(0, MAX_SHORTCUTS)
   const lab = permissions.includes('lab.work-item.read')
   const pharmacy = permissions.includes('pharmacy.work-item.read')
+
   return <>
-    <EhrPageHeading title={`Welcome, ${name}`} description={facility ? `Working at ${facility.name}. Everything here uses your membership and is checked by Health ID.` : undefined} />
-    <div className="hid-ehr-blue-grid">
-      <section className="hid-ehr-blue-column" aria-labelledby="hid-ehr-blue-attention">
-        <h2 id="hid-ehr-blue-attention" className="hid-ehr-blue-section-title">Needs attention</h2>
-        <AccessRequestsCard />
-        {facility && usesNovuBackend() && incoming.services.length > 0
-          ? <IncomingOrdersCard facility={facility} services={incoming.services} unsure={incoming.unsure} sure={incoming.sure} /> : null}
-        {facility && usesNovuBackend() && permissions.includes('ehr.order-route.send')
-          ? <WrongPatientOrdersCard key={facility.id} facilityId={facility.id} facilityName={facility.name} /> : null}
-        <CurrentPatientCard />
-        {!permissions.includes('identity.consent.write') && !lab && !pharmacy ? (
-          <EhrCard title="Nothing waiting"><p className="hid-ehr-blue-muted">Work that needs you here shows in this column.</p></EhrCard>
-        ) : null}
-      </section>
-      <section className="hid-ehr-blue-column" aria-labelledby="hid-ehr-blue-today">
-        <h2 id="hid-ehr-blue-today" className="hid-ehr-blue-section-title">Today</h2>
-        {facility && lab ? <LabWorkCard facilityId={facility.id} /> : null}
-        {facility && pharmacy ? <PharmacyWorkCard facilityId={facility.id} /> : null}
-        {!lab && !pharmacy ? <EhrCard title="Your work today"><p className="hid-ehr-blue-muted">Laboratory and pharmacy work shows here for roles that do it.</p></EhrCard> : null}
-      </section>
+    <EhrPageHeading title={`Welcome, ${name}`}
+      primaryAction={<EhrButton variant="secondary" onClick={() => setCustomizing(true)}>Customize shortcuts</EhrButton>} />
+    <div className="hid-ehr-blue-period">
+      <EhrField label="Reporting period">
+        <EhrSelect value={period} onChange={event => setPeriod(event.target.value)}>
+          <option value="7">Last 7 days</option>
+          <option value="30">Last 30 days</option>
+        </EhrSelect>
+      </EhrField>
+      <span className="hid-ehr-blue-period-note">Record creation dates · local time</span>
     </div>
-    {shortcuts.length > 0 ? (
-      <section aria-labelledby="hid-ehr-blue-shortcuts">
-        <h2 id="hid-ehr-blue-shortcuts" className="hid-ehr-blue-section-title">Pinned shortcuts</h2>
-        <ul className="hid-ehr-blue-shortcuts">
-          {shortcuts.map(page => <li key={page.path}><Link className="hid-ehr-button hid-ehr-button-secondary" to={pageHrefOf(page)}>{page.label}</Link></li>)}
+    <div className="hid-ehr-blue-grid">
+      <EhrCard title="Activity in period">
+        <EhrSampleBanner />
+        <div className="hid-ehr-blue-activity">
+          {ACTIVITY.map(id => (
+            <div key={id} className="hid-ehr-blue-activity-figure">
+              <span>{sampleModule(id)?.title} created</span>
+              <strong>{sampleRecords(id).length}</strong>
+              <small>No comparison yet</small>
+            </div>
+          ))}
+        </div>
+      </EhrCard>
+      <EhrCard title="Needs attention">
+        <ul className="hid-ehr-blue-list">
+          <AttentionLines activePatient={activePatient} />
         </ul>
-      </section>
-    ) : null}
+        {!permissions.includes('identity.consent.write') ? <p className="hid-ehr-blue-muted">Nothing needs your attention here.</p> : null}
+      </EhrCard>
+      {facility ? <TodayCard facilityId={facility.id} lab={lab} pharmacy={pharmacy} /> : null}
+      {facility && usesNovuBackend() && incoming.services.length > 0
+        ? <IncomingOrdersCard facility={facility} services={incoming.services} unsure={incoming.unsure} sure={incoming.sure} /> : null}
+      {facility && usesNovuBackend() && permissions.includes('ehr.order-route.send')
+        ? <WrongPatientOrdersCard key={facility.id} facilityId={facility.id} facilityName={facility.name} /> : null}
+    </div>
+    <section aria-labelledby="hid-ehr-blue-shortcuts">
+      <h2 id="hid-ehr-blue-shortcuts" className="hid-ehr-blue-section-title">Pinned shortcuts</h2>
+      <ul className="hid-ehr-blue-shortcuts">
+        {shortcuts.map(page => <li key={page.path}><Link className="hid-ehr-button hid-ehr-button-secondary" to={pageHrefOf(page)}>{page.label}</Link></li>)}
+      </ul>
+    </section>
+    <EhrDrawer open={customizing} title="Customize shortcuts" onClose={() => setCustomizing(false)}>
+      <EhrSampleBanner />
+      <fieldset className="hid-ehr-blue-steps">
+        <legend className="hid-ehr-blue-muted">Choose up to {MAX_SHORTCUTS} shortcuts for Home.</legend>
+        {candidates.map(page => {
+          const picked = (chosen ?? shortcuts.map(shortcut => shortcut.path)).includes(page.path)
+          const current = chosen ?? shortcuts.map(shortcut => shortcut.path)
+          return (
+            <label key={page.path} className="hid-ehr-blue-check">
+              <input type="checkbox" className="hid-ehr-blue-check-input" checked={picked}
+                disabled={!picked && current.length >= MAX_SHORTCUTS}
+                onChange={event => setChosen(event.target.checked ? [...current, page.path] : current.filter(path => path !== page.path))} />
+              {page.label}
+            </label>
+          )
+        })}
+      </fieldset>
+      <EhrButton onClick={() => setCustomizing(false)}>Done</EhrButton>
+    </EhrDrawer>
   </>
 }

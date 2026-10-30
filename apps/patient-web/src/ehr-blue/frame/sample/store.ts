@@ -17,6 +17,14 @@ export interface SampleRecord {
   readonly history: readonly { readonly what: string; readonly at: string }[]
 }
 
+/** The design's own fictional values for the fields its screenshots show. */
+const DESIGN_VALUES: Record<string, readonly string[]> = {
+  reason: ['Review of results', 'Medication review', 'Antenatal review'],
+  test: ['Full blood count', 'Blood culture', 'Malaria parasite test'],
+  procedure: ['Appendicectomy (fictional)', 'Wound debridement (fictional)', 'Hernia repair (fictional)'],
+  modality: ['X-ray', 'Ultrasound', 'CT'],
+}
+
 export const FICTIONAL_PATIENTS = ['Alex Example', 'Taylor Fiction', 'Jordan Sample', 'Sam Placeholder', 'Riley Demo'] as const
 
 const records = new Map<string, SampleRecord[]>()
@@ -44,6 +52,8 @@ function sampleValue(module: Module, field: Field, index: number): SampleValue {
   if (field.choices?.length) return field.choices[index % field.choices.length]!.value
   if (field.ref) return field.ref === 'patient' ? patient : `${field.label} ${index + 1} (fictional)`
   if (module.id === 'patients' && field.key === 'name') return patient
+  const named = DESIGN_VALUES[field.key]?.[index]
+  if (named) return named
   switch (field.type) {
     case 'date': return `2026-10-${String(20 + index).padStart(2, '0')}`
     case 'datetime-local': return `2026-10-${String(29 + (index % 2)).padStart(2, '0')}T${String(9 + index).padStart(2, '0')}:00`
@@ -122,10 +132,13 @@ export function updateSample(moduleId: string, id: string, change: { status?: st
   publish()
 }
 
-/** The record's name in a list: its first text field, or its id. */
+/** The record's name in a list, as the design names it (its name, title, number, test… reason), else its id. */
+const NAME_KEYS = ['name', 'title', 'number', 'test', 'modality', 'procedure', 'reason', 'sampleCode', 'lot'] as const
+
 export function sampleTitle(module: Module, record: SampleRecord): string {
-  const first = module.fields.find(field => typeof record.fields[field.key] === 'string' && record.fields[field.key] !== '')
-  return first ? String(record.fields[first.key]) : record.id
+  const key = NAME_KEYS.find(candidate => typeof record.fields[candidate] === 'string' && record.fields[candidate] !== '')
+    ?? module.fields.find(field => typeof record.fields[field.key] === 'string' && record.fields[field.key] !== '')?.key
+  return key ? String(record.fields[key]) : record.id
 }
 
 /** "checked-in" → "checked in". */

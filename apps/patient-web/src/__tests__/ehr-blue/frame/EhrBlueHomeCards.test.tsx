@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { staffApi } from '../../../staff/api'
 import type * as StaffApi from '../../../staff/api'
 import { AttentionProvider } from '../../../ehr-blue/frame/attention'
-import { AccessRequestsCard, LabWorkCard, PharmacyWorkCard } from '../../../ehr-blue/home/liveCards'
+import { AttentionLines, TodayCard } from '../../../ehr-blue/home/liveCards'
 import { RoleDashboard } from '../../../ehr-blue/home/RoleDashboard'
 import { RoleViewProvider } from '../../../ehr-blue/frame/roleView'
 
@@ -26,57 +26,72 @@ function inRouter(children: ReactNode) {
   return render(<MemoryRouter>{children}</MemoryRouter>)
 }
 
-describe('Access requests card', () => {
+const Attention = ({ permissions }: { readonly permissions: readonly string[] }) => (
+  <AttentionProvider facilityId={FACILITY_ID} permissions={permissions}><ul><AttentionLines activePatient={null} /></ul></AttentionProvider>
+)
+
+describe('Needs attention: access requests', () => {
   it('shows nothing, and reads nothing, without the permission to answer requests', () => {
-    inRouter(<AttentionProvider facilityId={FACILITY_ID} permissions={[]}><AccessRequestsCard /></AttentionProvider>)
-    expect(screen.queryByRole('heading', { name: 'Access requests' })).toBeNull()
+    inRouter(<Attention permissions={[]} />)
+    expect(screen.queryByText(/access request/)).toBeNull()
     expect(staffApi.listAccessRequests).not.toHaveBeenCalled()
   })
 
-  it('says it is loading, then counts the pending requests', async () => {
+  it('says it is loading, then counts the pending requests and leads to them', async () => {
     vi.mocked(staffApi.listAccessRequests).mockResolvedValue([
       { accessRequestId: 'a', status: 'pending' }, { accessRequestId: 'b', status: 'approved' },
     ] as Awaited<ReturnType<typeof staffApi.listAccessRequests>>)
-    inRouter(<AttentionProvider facilityId={FACILITY_ID} permissions={['identity.consent.write']}><AccessRequestsCard /></AttentionProvider>)
+    inRouter(<Attention permissions={['identity.consent.write']} />)
     expect(screen.getByRole('status').textContent).toBe('Loading access requests')
-    expect(await screen.findByText('1 pending request')).toBeDefined()
-    expect(screen.getByRole('link', { name: 'Review requests →' }).getAttribute('href')).toBe('/provider/requests')
+    const link = await screen.findByRole('link', { name: '1 pending access request' })
+    expect(link.getAttribute('href')).toBe('/provider/requests')
+    expect(screen.getByText('External record access · pending')).toBeDefined()
   })
 
   it('says a refusal in today\'s words', async () => {
     vi.mocked(staffApi.listAccessRequests).mockRejectedValue(refused('PERMISSION_DENIED', 'Denied'))
-    inRouter(<AttentionProvider facilityId={FACILITY_ID} permissions={['identity.consent.write']}><AccessRequestsCard /></AttentionProvider>)
+    inRouter(<Attention permissions={['identity.consent.write']} />)
     expect(await screen.findByText('Your role at this facility cannot list access requests. Ask an administrator to review your assignment.')).toBeDefined()
   })
 })
 
-describe('Laboratory and pharmacy work cards', () => {
-  it('say they are loading', () => {
+describe('Today: laboratory and pharmacy work', () => {
+  it('says it is loading', () => {
     vi.mocked(staffApi.labWorkItems).mockReturnValue(pending())
-    inRouter(<LabWorkCard facilityId={FACILITY_ID} />)
-    expect(screen.getByRole('status').textContent).toBe('Loading laboratory work')
+    inRouter(<TodayCard facilityId={FACILITY_ID} lab pharmacy={false} />)
+    expect(screen.getByRole('status').textContent).toBe('Loading today\'s work')
+    expect(staffApi.pharmacyWorkItems).not.toHaveBeenCalled()
   })
 
-  it('say when there is no work', async () => {
+  it('says when there is no work, and reads nothing for a role that does none', async () => {
     vi.mocked(staffApi.labWorkItems).mockResolvedValue({ items: [] })
     vi.mocked(staffApi.pharmacyWorkItems).mockResolvedValue({ items: [] })
-    inRouter(<><LabWorkCard facilityId={FACILITY_ID} /><PharmacyWorkCard facilityId={FACILITY_ID} /></>)
-    expect(await screen.findByText('No accepted lab work')).toBeDefined()
-    expect(await screen.findByText('No accepted prescriptions')).toBeDefined()
+    const { unmount } = inRouter(<TodayCard facilityId={FACILITY_ID} lab pharmacy />)
+    expect(await screen.findByText('No accepted work yet')).toBeDefined()
+    unmount()
+    vi.clearAllMocks()
+    inRouter(<TodayCard facilityId={FACILITY_ID} lab={false} pharmacy={false} />)
+    expect(screen.getByText('Nothing scheduled for you')).toBeDefined()
+    expect(staffApi.labWorkItems).not.toHaveBeenCalled()
   })
 
-  it('list work with the patient masked until an accepted order names them', async () => {
+  it('lists work as the design does, naming no patient', async () => {
     vi.mocked(staffApi.labWorkItems).mockResolvedValue({ items: [
       { id: 'w1', patientId: 'p-000000abc123', version: 1, status: 'in_progress', testName: 'Full blood count' },
     ] })
-    inRouter(<LabWorkCard facilityId={FACILITY_ID} />)
-    const item = (await screen.findByText('Full blood count')).closest('li')!
-    expect(within(item).getByText('Patient ••••abc123 · in progress')).toBeDefined()
+    vi.mocked(staffApi.pharmacyWorkItems).mockResolvedValue({ items: [
+      { id: 'x1', patientId: 'p-000000def456', version: 1, acceptedAt: '2026-10-29T09:00:00Z', medication: { display: 'Amoxicillin 500 mg capsule' } },
+    ] })
+    inRouter(<TodayCard facilityId={FACILITY_ID} lab pharmacy />)
+    expect((await screen.findByRole('link', { name: 'Full blood count' })).getAttribute('href')).toBe('/provider/laboratory')
+    expect(screen.getByText('Laboratory · in progress')).toBeDefined()
+    expect(await screen.findByText('Pharmacy · to dispense')).toBeDefined()
+    expect(document.body.textContent).not.toMatch(/abc123|def456/)
   })
 
-  it('say a failure in today\'s words', async () => {
+  it('says a failure in today\'s words', async () => {
     vi.mocked(staffApi.pharmacyWorkItems).mockRejectedValue(refused('PERMISSION_DENIED', 'This membership cannot read pharmacy work.'))
-    inRouter(<PharmacyWorkCard facilityId={FACILITY_ID} />)
+    inRouter(<TodayCard facilityId={FACILITY_ID} lab={false} pharmacy />)
     expect(await screen.findByText('Pharmacy work could not be loaded')).toBeDefined()
     expect(screen.getByText('This membership cannot read pharmacy work.')).toBeDefined()
   })
