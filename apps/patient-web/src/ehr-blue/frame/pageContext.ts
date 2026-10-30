@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, type ReactElement } from 'react'
 import { pageHrefOf } from './pageHref'
 import { modulePath } from './sample/paths'
 import type { EhrBluePage } from './types'
@@ -11,9 +11,19 @@ export interface BluePageMatch {
 
 const BluePageContext = createContext<BluePageMatch | null>(null)
 const BluePagesContext = createContext<readonly EhrBluePage[]>([])
+const TodayPageContext = createContext<ReactElement | null>(null)
 
 export const BluePageProvider = BluePageContext.Provider
 export const BluePagesProvider = BluePagesContext.Provider
+export const TodayPageProvider = TodayPageContext.Provider
+
+/**
+ * Today's provider page for this address, as today's routes chose it (their outlet where the blue EHR is mounted): what
+ * a live stand-in shows. The frame passes it down because a page's own routes no longer sit under today's.
+ */
+export function useTodayPage(): ReactElement | null {
+  return useContext(TodayPageContext)
+}
 
 /** The page being shown. Pages read the rest of their address here: react-router's useParams belongs to today's routes. */
 export function useBluePage(): BluePageMatch {
