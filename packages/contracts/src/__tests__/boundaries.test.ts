@@ -192,6 +192,23 @@ describe('application boundaries', () => {
     expect(() => assertEndpointAllowed('staff-web', 'auth.googleExchange')).toThrow(BoundaryViolationError)
   })
 
+  it('grants the provider portal the offline runtime\'s four routes (OFFLINE-CONTRACT A12.11), and no other portal', () => {
+    const routes = [
+      ['ehr.offlinePing', 'GET', '/api/v1/ehr/offline/ping'],
+      ['ehr.offlineReceipts', 'POST', '/api/v1/ehr/offline/receipts/lookup'],
+      ['ehr.offlineAuditEvents', 'POST', '/api/v1/ehr/offline/audit-events'],
+      ['ehr.offlineEscrowKey', 'POST', '/api/v1/ehr/offline/escrow-key'],
+    ] as const
+    for (const [name, method, path] of routes) {
+      expect(findEndpoint(name)).toMatchObject({ service: 'ehr', path })
+      expect(assertRegisteredBrowserRequest(method, path).name).toBe(name)
+      expect(() => assertEndpointAllowed('staff-web', name)).not.toThrow()
+      for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+  })
+
   it('registers clinician self sign-up (hid-system ADR-066) for the provider portal only', () => {
     const base = '/api/v1/identity/clinician-applications'
     const applicationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'

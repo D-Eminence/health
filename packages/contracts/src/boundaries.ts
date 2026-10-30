@@ -199,7 +199,10 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // The Overview's orders that the receiver ended as accepted for the wrong person (item 3, D10; proposed, 404 until served).
       'ehr.orderRoutesWrongPatient',
       // The health information the patient entered, on the chart as reported by the patient (hid-system 0094; 404 until served).
-      'ehr.patientReportedHealthProfile'],
+      'ehr.patientReportedHealthProfile',
+      // Offline-first wave 1 (docs/OFFLINE-CONTRACT.md 2.10, A12.11): the probe, receipt lookup, offline audit and escrow
+      // key, sent by the offline runtime through the staff client (OFFLINE_PATHS; 404 until served).
+      'ehr.offlinePing', 'ehr.offlineReceipts', 'ehr.offlineAuditEvents', 'ehr.offlineEscrowKey'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices'],

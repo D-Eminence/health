@@ -176,6 +176,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   const offlineMode = useRef(false)
   // The facility whose vault is open: a session read that no longer lists it ends the membership on this device.
   const vaultFacility = useRef<string | null>(null)
+  // Set while a facility switch closes the vault it leaves: that close is not an idle lock to ask a password for.
+  const leavingVault = useRef(false)
   const [offlineLockReason, setOfflineLockReason] = useState<LockReason | 'unconfirmed' | null>(null)
   const [offlineChoice, setOfflineChoice] = useState<StaffSessionSnapshot | null>(null)
   const [offlinePaused, setOfflinePaused] = useState(false)
@@ -402,7 +404,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     let wasOpen = runtime.summary().vault === 'unlocked'
     const stop = runtime.subscribe(() => {
       const open = runtime.summary().vault === 'unlocked'
-      if (wasOpen && !open && status.current === 'ready' && lockRef.current !== 'offline' && runtime.policy().enabled) {
+      if (wasOpen && !open && status.current === 'ready' && lockRef.current !== 'offline' && !leavingVault.current && runtime.policy().enabled) {
         setOfflineLockReason(document.visibilityState === 'hidden' ? 'hidden' : 'idle'); setLock('offline')
       }
       wasOpen = open
@@ -575,8 +577,16 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     // Identity accepted this tab's own choice: an answer for the facility sent is that choice, whatever
     // selection it reports. Asking again straight away would leave the person no way on.
     const chosen: StaffSession = session.actor.facility?.id === id ? { ...session, facilitySelection: 'selected' } : session
+    // The vault of the facility left is closed and its keys dropped before the new facility attaches (A12.7): an
+    // unlock afterwards opens only the new facility's own vault. Nothing about the old one carries over.
+    if (runtime) {
+      leavingVault.current = true
+      runtime.lock('manual')
+      vaultFacility.current = null
+      setOfflineChoice(null); setOfflinePaused(false); setOfflineLockReason(null)
+    }
     setState({ status: 'ready', session: chosen })
-    void attachOffline(chosen)
+    void attachOffline(chosen).finally(() => { leavingVault.current = false })
     return true
   }
 

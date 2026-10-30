@@ -396,3 +396,36 @@ describe('sending is bound to the account Health ID confirmed (A12.3)', () => {
   /** Ada's vault, open on this tab as after her online sign-in with a copy kept. */
   function openVaultFor() { return openVault(snapshotOf(PILOT, staffSession(), PERMISSIONS)) }
 })
+
+describe('switching facility (A12.7)', () => {
+  const SECOND = '98d00002-0000-4000-8000-0000000000f2'
+  const twoFacilities = (at: string) => {
+    const session = staffSession()
+    const facilities = [facility(PILOT, 'Demo Hospital'), facility(SECOND, 'Demo Clinic')]
+    return { ...session, actor: { ...session.actor, facilities, facility: facilities.find(item => item.id === at)! } }
+  }
+
+  it('closes the vault it leaves before the new facility attaches, without asking for a password', async () => {
+    serve(route => route === 'GET /api/v1/auth/session' || route === 'POST /api/v1/auth/refresh' ? json({ code: 'AUTHENTICATION_REQUIRED' }, 401)
+      : route === 'POST /api/v1/auth/login' ? json(twoFacilities(PILOT))
+        : route === 'POST /api/v1/auth/facility' ? json(twoFacilities(SECOND)) : json([]))
+    const { runtime } = fakeOffline()
+    await open(runtime, { mode: 'pilot', facilities: [PILOT, SECOND] }, '/provider/sign-in')
+    await signIn()
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep an offline copy' }))
+    await screen.findByText('Offline and sync')
+    expect(runtime.restoreSession()?.facilityId).toBe(PILOT)
+    const lock = vi.spyOn(runtime, 'lock')
+    const attach = vi.spyOn(runtime, 'attachSession')
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Working at' }), { target: { value: SECOND } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Switch facility' })) })
+    expect(await screen.findByText(/Working at Demo Clinic\./)).toBeTruthy()
+
+    expect(lock).toHaveBeenCalledWith('manual')
+    if (attach.mock.calls.length > 0) expect(lock.mock.invocationCallOrder[0]).toBeLessThan(attach.mock.invocationCallOrder[0]!)
+    // The old facility's vault is not open, and its closing is not an idle lock.
+    expect(runtime.restoreSession()?.facilityId).not.toBe(PILOT)
+    expect(screen.queryByRole('heading', { name: 'Health ID is locked' })).toBeNull()
+  }, 20000)
+})
