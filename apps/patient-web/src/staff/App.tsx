@@ -36,6 +36,7 @@ import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { LIMITS, type LockReason, type OfflineCore, type StaffSessionSnapshot } from '@hid/offline'
 import { lockOtherAccount, markSessionReady, offlineActive, offlineRuntime, offlineRuntimeMayFollow, resolveOfflineRuntime, restoredStaffSession, useOfflineActive, useOfflineSummary } from './offline/runtime'
+import { resaveGrantCloses } from './offline/ehrCommands'
 import { attachOnlineSession, healthIdUnreachable, keepsVaultFacility, offersOfflineSignIn, syncShell } from './offline/session'
 import { OfflineSignIn } from './offline/OfflineSignIn'
 import { UnlockScreen } from './offline/UnlockScreen'
@@ -517,6 +518,17 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       }).finally(() => { reading = false })
     })
   }, [runtime, setState, setLock, startPeriod, checkVaultFacility])
+
+  // A close of access left in review because a change it waited for was discarded is saved again (A12.6).
+  useEffect(() => {
+    if (!runtime) return
+    let running = false
+    return runtime.subscribe(() => {
+      if (running || runtime.summary().attention === 0 || runtime.summary().vault !== 'unlocked') return
+      running = true
+      void resaveGrantCloses(runtime).catch(() => 0).finally(() => { running = false })
+    })
+  }, [runtime])
 
   useEffect(() => { void refresh() }, [refresh])
 

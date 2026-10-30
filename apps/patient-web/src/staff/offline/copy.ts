@@ -59,6 +59,7 @@ export const SAVE = {
   savedHere: 'Saved on this device. It will be sent when Health ID can be reached.',
   sendingHere: 'Saved on this device, sending…',
   tooLong: 'Too long to save; split it into two entries.',
+  activeLabNeedsVisit: 'An active lab request needs this visit to be on Health ID first. Save it as a draft for now, and activate it once the visit is sent.',
 } as const
 
 export const CONNECTIVITY: Readonly<Record<Connectivity, string>> = {

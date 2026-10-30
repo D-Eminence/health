@@ -1,5 +1,5 @@
 import { HidApiError } from '@hid/http'
-import { isTransportError, LIMITS, SaveRefused, type CommandOutcome, type Json, type OpName, type Receipt, type Ref, type TransportError } from '@hid/offline'
+import { isTransportError, LIMITS, SaveRefused, type CommandOutcome, type Json, type OfflineCore, type OpName, type Receipt, type Ref, type TransportError } from '@hid/offline'
 import {
   staffApi, type ClinicalRecord, type DiagnosisUpdate, type Encounter, type GrantResult, type NoteRevision, type RecordKind,
   type SavedRecord, type VitalCorrection, type VitalMeasurements,
@@ -61,13 +61,14 @@ function localDependencies(...refs: Ref[]): string[] {
 }
 
 /**
- * Saves `input` as `op` when offline is in use, else runs `online`. `online` is the unchanged staffApi call.
+ * Saves `input` as `op` when offline is in use, else runs `online`. `online` is the unchanged staffApi call. `after`
+ * names commands on this device it must follow besides those that create its refs.
  */
 export async function saveCommand<V>(op: OpName, input: Record<string, unknown>, online: () => Promise<V>, resourceType: string,
-  refs: Ref[] = []): Promise<CommandOutcome<V>> {
+  refs: Ref[] = [], after: readonly string[] = []): Promise<CommandOutcome<V>> {
   const runtime = offlineRuntime()
   if (!offlineActive(runtime)) return appliedOnline(await online(), resourceType)
-  const dependsOn = localDependencies(...refs)
+  const dependsOn = [...new Set([...localDependencies(...refs), ...after])]
   try {
     return await runtime.commands.save<V>(op, input as Json, { awaitMs: LIMITS.receiptWaitMs, ...(dependsOn.length ? { dependsOn } : {}) })
   } catch (caught) {
@@ -90,10 +91,16 @@ export const ehrCommands = {
     saveCommand('ehr.encounter.create', { facilityId, patientId, localId, body: input },
       () => staffApi.createEncounter(facilityId, patientId, input, idempotencyKey), 'encounter'),
 
-  createRecord: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, input: object,
+  createRecord: async (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, input: object,
     idempotencyKey?: string): Promise<CommandOutcome<SavedRecord>> => {
     const encounter = refFromId(encounterId)
-    return saveCommand(OP_KINDS[kind], { facilityId, patientId, encounter, body: input },
+    // An active lab request stays online (A12.5): EHR saves it, then Lab may refuse it, which the form must say at once.
+    // It needs a connection and a visit already on Health ID; only a draft goes through the device.
+    if (kind === 'lab-requests' && (input as { status?: unknown }).status === 'active') {
+      if ('local' in encounter) throw new Error(SAVE.activeLabNeedsVisit)
+      return appliedOnline(await staffApi.createRecord(facilityId, patientId, encounterId, kind, input, idempotencyKey), kind)
+    }
+    return await saveCommand(OP_KINDS[kind], { facilityId, patientId, encounter, body: input },
       () => staffApi.createRecord(facilityId, patientId, encounterId, kind, input, idempotencyKey), kind, [encounter])
   },
 
@@ -161,12 +168,36 @@ export const ehrCommands = {
 
   /**
    * Closes the clinician's own grant. Offline, the patient leaves this device first (§2.8, `identity.grant.close`:
-   * "the patient is removed locally first"), then the close is sent when Health ID can be reached.
+   * "the patient is removed locally first"), then the close is sent when Health ID can be reached: after every change
+   * for this patient still on the device, held or in review included, which the close would otherwise refuse (A12.6).
    */
   closeGrant: async (facilityId: string, patientId: string, grantId: string, reason: string): Promise<CommandOutcome<GrantResult>> => {
     const runtime = offlineRuntime()
-    if (offlineActive(runtime)) await runtime.reads.dropPatient(patientId)
+    let unfinished: string[] = []
+    if (offlineActive(runtime)) {
+      unfinished = (await runtime.commands.pendingFor(patientId)).map(view => view.commandId)
+      await runtime.reads.dropPatient(patientId)
+    }
     return saveCommand('identity.grant.close', { facilityId, patientId, grantId, body: { reason } },
-      () => staffApi.closeGrant(facilityId, grantId, reason), 'consent-grant')
+      () => staffApi.closeGrant(facilityId, grantId, reason), 'consent-grant', [], unfinished)
   },
+}
+
+/** The reason kept with a close re-saved after one of the changes it waited for was discarded. */
+export const CLOSE_RESAVED = 'Close access as the clinician asked'
+
+/**
+ * A close waits for the patient's changes; one of them discarded leaves it in review (CC3), never to be sent. It is
+ * saved again as it was, so access still closes as the clinician asked (A12.6). Returns how many were saved again.
+ */
+export async function resaveGrantCloses(runtime: OfflineCore): Promise<number> {
+  const stuck = (await runtime.review.list()).filter(item => item.op === 'identity.grant.close' && item.class === 'CC3')
+  let saved = 0
+  for (const item of stuck) {
+    const view = (await runtime.commands.pendingFor(item.patientId)).find(entry => entry.commandId === item.commandId)
+    if (!view) continue
+    try { await runtime.review.resolve(item.commandId, 'edit-as-new', { input: view.input, reason: CLOSE_RESAVED }); saved += 1 }
+    catch { /* Another tab saved it again first, or it no longer needs review. */ }
+  }
+  return saved
 }

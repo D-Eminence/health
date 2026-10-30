@@ -1955,7 +1955,8 @@ export function Clinical() {
           <SendToFacility key={`send-route-${record.id}`} id={`record-${record.id}-route`} kind={routeKindOf(activeTab)} context={routeContext}
             priority={typeof record.priority === 'string' ? record.priority : undefined}
             onSend={(destination, version, key) => sendOrder(activeTab, record, destination, version, key)} />}
-      </div>)}</div></Card>{canMutate && permissions.includes(writePermissions[activeTab]) && <RecordForm key={`${selected.id}-${activeTab}`} tab={activeTab} onCreated={createRecord} disabled={!selected} canSendToLab={canSendToLab}
+      </div>)}</div></Card>{canMutate && permissions.includes(writePermissions[activeTab]) && <RecordForm key={`${selected.id}-${activeTab}`} tab={activeTab} onCreated={createRecord} disabled={!selected}
+        canSendToLab={canSendToLab && !offline && !localVisit}
         routing={activeTab === 'lab-requests' && canRoute('lab-requests') ? routeContext : null} onCreateAndSend={createAndSend}
         prescriptionRouting={activeTab === 'prescriptions' && canRoute('prescriptions')} />}</div>}</TabPanel></>}
     </section>}

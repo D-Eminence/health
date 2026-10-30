@@ -171,3 +171,48 @@ describe('reading with offline in use', () => {
     expect(controls.cachedPatients()).toEqual([])
   })
 })
+
+describe('an active lab request stays online (A12.5)', () => {
+  const LAB = ['ehr.lab-request.read', 'ehr.lab-request.write', 'lab.work-item.accept']
+  beforeEach(() => { facility.permissions.push(...LAB) })
+  afterEach(() => { facility.permissions.splice(facility.permissions.length - LAB.length, LAB.length) })
+
+  async function labForm() {
+    renderClinical()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Lab requests' }))
+    return await screen.findByRole('combobox', { name: /Request handling/ }) as HTMLSelectElement
+  }
+  const choices = (select: HTMLSelectElement) => [...select.options].map(option => option.value)
+
+  it('online with a vault open, the form still offers an active request', async () => {
+    await vault()
+    expect(choices(await labForm())).toEqual(['draft', 'active'])
+  })
+
+  it('offline, the form offers a draft only', async () => {
+    const { controls } = await vault()
+    await keepChart()
+    controls.setConnectivity('offline')
+    expect(choices(await labForm())).toEqual(['draft'])
+  })
+
+  it('an active request is sent to Health ID directly, never kept on the device', async () => {
+    const { controls } = await vault()
+    const { ehrCommands } = await import('../ehrCommands')
+    api.createRecord.mockResolvedValue({ id: 'lab-1', status: 'active', labHandoff: { state: 'accepted' } })
+    const outcome = await ehrCommands.createRecord(FACILITY_ID, PATIENT_ID, 'enc-1', 'lab-requests', { status: 'active', testCode: '718-7' }, 'key-1')
+    expect(outcome.kind).toBe('applied')
+    expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, 'enc-1', 'lab-requests', { status: 'active', testCode: '718-7' }, 'key-1')
+    expect(controls.commands()).toEqual([])
+  })
+
+  it('an active request for a visit saved on this device is refused, and a draft is kept', async () => {
+    const { controls } = await vault()
+    const { ehrCommands } = await import('../ehrCommands')
+    await expect(ehrCommands.createRecord(FACILITY_ID, PATIENT_ID, 'local:visit-1', 'lab-requests', { status: 'active' }))
+      .rejects.toThrow('An active lab request needs this visit to be on Health ID first.')
+    expect(api.createRecord).not.toHaveBeenCalled()
+    await ehrCommands.createRecord(FACILITY_ID, PATIENT_ID, 'enc-1', 'lab-requests', { status: 'draft', testCode: '718-7' })
+    expect(controls.commands().map(command => command.op)).toEqual(['ehr.lab-request.create'])
+  })
+})
