@@ -375,6 +375,17 @@ function sharedAs(item: HistoryItem) {
   return level || duration ? ['Shared by you', level, duration].filter(Boolean).join(' · ') : null
 }
 
+/**
+ * How long the facility asked for access, so the patient sees it before approving (D4): " · for 8 hours". Nothing
+ * when the request does not say.
+ */
+function accessLength(minutes: number | undefined): string {
+  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) return ''
+  if (minutes % 60 !== 0) return ` · for ${minutes} minutes`
+  const hours = minutes / 60
+  return ` · for ${hours} ${hours === 1 ? 'hour' : 'hours'}`
+}
+
 export function AccessPage() {
   const { api } = useSession()
   useDocumentTitle('Access and consent · Health ID')
@@ -444,7 +455,7 @@ export function AccessPage() {
     <div className="patient-card" aria-busy={(requests.loading && requests.data !== null) || undefined}><h2 ref={requestsHeading} tabIndex={-1}>Access requests</h2>
       <LoadState loading={requests.loading} error={requests.error} retry={requests.reload} hasData={requests.data !== null} focusTarget={requestsHeading} />
       {requests.data && !requests.error && (requests.data.length === 0 ? <p className="patient-empty">There are no access requests.</p> : <ul className="patient-list">
-        {requests.data.map(item => <li key={item.accessRequestId} className="patient-access-item"><div><strong>{item.facilityName}</strong><span>{item.scope} · {date(item.requestedAt)} · {item.status}</span><p>{item.reason}</p></div>
+        {requests.data.map(item => <li key={item.accessRequestId} className="patient-access-item"><div><strong>{item.facilityName}</strong><span>{item.scope} · {date(item.requestedAt)} · {item.status}{accessLength(item.requestedDurationMinutes)}</span><p>{item.reason}</p></div>
           {item.status.toLowerCase() === 'pending' && <div className="patient-decision-actions"><button id={`approve-${item.accessRequestId}`} type="button" className="patient-primary-button" disabled={!!working || requests.loading} onClick={() => void decide(item.accessRequestId, 'approve')}>Approve <ItemName>the request from {item.facilityName}, {item.scope}, {dateTime(item.requestedAt)}</ItemName></button>
             <button id={`deny-${item.accessRequestId}`} type="button" className="patient-secondary-button" disabled={!!working || requests.loading} onClick={() => openDenial(item.accessRequestId)}>Deny <ItemName>the request from {item.facilityName}, {item.scope}, {dateTime(item.requestedAt)}</ItemName></button></div>}
           {denying === item.accessRequestId && <form className="patient-deny-form" onSubmit={event => { event.preventDefault(); void decide(item.accessRequestId, 'deny') }}><label>Reason for denial<input id={`deny-reason-${item.accessRequestId}`} autoFocus required minLength={3} maxLength={500} value={reason} onChange={event => setReason(event.target.value)}

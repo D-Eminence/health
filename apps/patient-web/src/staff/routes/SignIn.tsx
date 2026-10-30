@@ -17,6 +17,7 @@ import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE, StaffMfaSteps, type S
 import { ClinicianSignUpEntry, PageLink } from '../clinician/ClinicianSignUpEntry'
 import { servesClinicianApplications, usesNovuBackend } from '../../backendContract'
 import { capturedStaffInvitation } from '../invitationCapture'
+import { currentOfflineRuntime, forgetRefusedSignIn } from '../offline/holder'
 
 /**
  * Said when Identity ended the sign-in for want of an authenticator
@@ -134,6 +135,10 @@ export function SignIn() {
     setError('')
     setNoFacility(false)
     setBusy(true)
+    // When the build has offline on, the key for an offline copy is derived while Identity checks the password, and kept
+    // in memory only (amendment A5: nothing is shown, and nothing is written unless the person later chooses to keep a
+    // copy at a facility that offers it). Without offline there is no runtime and nothing happens.
+    currentOfflineRuntime()?.prepareFromSignIn(email.trim(), password)
     try {
       const answer = await login(email.trim(), password, token || undefined)
       if (answer.kind === 'challenge') {
@@ -144,6 +149,8 @@ export function SignIn() {
       else finish(answer.session)
     }
     catch (caught) {
+      // The key derived from a refused password is dropped before anything else (D2).
+      forgetRefusedSignIn()
       setError(passwordRefusal(caught))
       setNoFacility(isHidApiError(caught) && caught.code === 'NO_ACTIVE_FACILITY_MEMBERSHIP')
     }

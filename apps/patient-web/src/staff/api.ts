@@ -17,6 +17,7 @@ import {
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { heldByOtherPortal } from '../sessionChange'
 import { staffLoginAction } from '../productHostname'
+import { currentOfflineRuntime } from './offline/holder'
 
 export interface Facility {
   id: string
@@ -1125,6 +1126,9 @@ const transport = createApiClient({
   baseUrl: getEnvironment().apiBaseUrl,
   clientId: 'staff-web',
   sessionMode: 'cookie',
+  // Every answer's status and Date feed the offline runtime's trusted clock, lease and connectivity (§2.6). Without
+  // an offline runtime (offline off, or a host not built for it) this does nothing.
+  onResponseMeta: meta => currentOfflineRuntime()?.onResponseMeta(meta),
   refreshSession: async () => {
     const sentIn = staffSessionGeneration()
     reportStaffSessionRead(await restoreStaffSession(), sentIn)
@@ -1200,6 +1204,12 @@ function reportingSessionEnd(inner: ApiClient): ApiClient {
 }
 
 const client = createRegisteredBrowserClient(reportingSessionEnd(transport), 'staff-web')
+
+/**
+ * The staff client, for @hid/offline's engine (staff/offline/runtime.ts): every request it sends goes through
+ * the same session readiness, facility check and registry as the portal's own.
+ */
+export const staffTransport: ApiClient = client
 
 let refreshing: Promise<StaffSession> | null = null
 
@@ -1338,6 +1348,26 @@ async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
     catch (refused) { if (endsStaffSession(refused)) return; throw refused }
     if (staffSessionGeneration() !== sentIn) return
   }
+}
+
+/**
+ * A sign-out made offline, sent on the next page load before any session is read (OFFLINE-CONTRACT §2.6, A12.2).
+ * It ends whatever session the browser holds: the account that signed out offline is the one this browser last
+ * signed in, and no session read may open its workspace first. A 401 restores the session once and sends it again; a
+ * refresh refused, or a browser holding a patient's sign-in, means no staff session is left to end. Sign-in waits for
+ * it, as for any sign-out in progress.
+ */
+function sendPendingSignOut(): Promise<void> {
+  const signingOut = (async () => {
+    for (let attempt = 1; ; attempt += 1) {
+      try { await signOutInTurn(async () => true, () => client.post<null>('/api/v1/auth/logout')); return }
+      catch (error) { if (heldByOtherPortal(error)) return; if (!endsStaffSession(error)) throw error }
+      if (attempt === SIGN_OUT_ATTEMPTS) throw new Error('Sign-out could not be completed. Try again.')
+      try { await refreshStaffSession() } catch (refused) { if (endsStaffSession(refused)) return; throw refused }
+    }
+  })()
+  leaving = signingOut.catch(() => undefined)
+  return signingOut
 }
 
 /**
@@ -1715,6 +1745,7 @@ export const staffApi = {
   session: () => client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional' }),
   refresh: () => refreshStaffSession(),
   logout: signOut,
+  sendPendingSignOut,
   checkSession: checkStaffSession,
   // The second steps of staff sign-in need no Turnstile token, CSRF token or session: the challenge
   // cookie is their credential. Under /api/v1/auth/ with auth 'none', a 401 there (a wrong code, a
@@ -1937,7 +1968,9 @@ export const staffApi = {
   documentDownload: (facilityId: string, documentId: string) =>
     client.get<{ url: string; expiresInSeconds: number }>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
       { headers: facilityHeaders(facilityId) }),
-  async uploadDocument(facilityId: string, patientId: string, encounterId: string, file: File) {
+  // `idempotencyKey`: one per file chosen, so sending the same file again after no answer replays the intent
+  // (the same document, a fresh upload link) rather than making a second document.
+  async uploadDocument(facilityId: string, patientId: string, encounterId: string, file: File, idempotencyKey?: string) {
     // Every step runs only while the session the upload started in is ready: each
     // waits while that session is checked, unconfirmed or away, and the upload is
     // abandoned once it has ended (another account signed in, or signed out), so
@@ -1954,7 +1987,7 @@ export const staffApi = {
     }>('/api/v1/ehr/documents/upload-intents', {
       patientId, encounterId, fileName: file.name, mediaType: file.type, sizeBytes: file.size,
       sha256Hex, classification: 'phi', retentionClass: 'clinical-10y',
-    }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } })
+    }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } })
     await untilStaffSessionReady(sentIn)
     await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders, signal,
       allowLocalHttp: getEnvironment().name === 'local' })

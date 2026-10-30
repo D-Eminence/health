@@ -4,6 +4,7 @@ import { Badge, Button, Card, EmptyState, Field, Select } from '@hid/ui'
 import { ACCESS_OUTCOME_FILTERS, ACCESS_REQUEST_STATUSES, staffApi, type AccessRequest, type AccessRequestStatus } from '../api'
 import { useStaff } from '../App'
 import { UNAVAILABLE, useFocusById } from '../focus'
+import { ehrCommands } from '../offline/ehrCommands'
 
 /** How a request ended up, from its effective status (hid-system 0074) or, before that, its own status. */
 const OUTCOMES: Record<string, { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' }> = {
@@ -84,8 +85,11 @@ export function AccessRequests() {
     const grantId = request.consentGrantId
     setClosing(request.accessRequestId); setError(''); setNotice('')
     let failure = ''
+    let saved = false
     try {
-      await staffApi.closeGrant(facility.id, grantId, 'Clinician closed completed patient access')
+      // Through the device when offline is in use, so the close waits for the patient's unsent work and the patient
+      // leaves this device first (A12.6, §2.8); without it, the staffApi call as before.
+      saved = (await ehrCommands.closeGrant(facility.id, request.patientId, grantId, 'Clinician closed completed patient access')).kind === 'saved'
       // The open record, if this grant opened it, has ended too.
       if (activePatient?.lookup.authorization.consentGrantId === grantId) setActivePatient(null)
     } catch (caught) { failure = closeError(caught) }
@@ -93,7 +97,8 @@ export function AccessRequests() {
     // Reload either way, then report the close (the reload clears earlier messages).
     await load()
     if (failure) setError(failure)
-    else setNotice('Access was closed by the backend.')
+    else setNotice(saved ? 'The patient was removed from this device. Access is closed when Health ID can be reached.'
+      : 'Access was closed by the backend.')
     focus('access-requests-title', true)
   }
 

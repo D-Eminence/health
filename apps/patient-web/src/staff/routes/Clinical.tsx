@@ -10,6 +10,15 @@ import { assertSignedStorageUrl, isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, TabList, TabPanel, Textarea } from '@hid/ui'
 import { isAllowedPatientLookup, orderRoutesApi, staffApi, type ClinicalRecord, type DiagnosisUpdate, type DocumentRecord, type EmergencyRecords, type EmergencySection, type Encounter, type LabHandoff, type LabOrderReleasedResults, type NoteRevision, type OrderDestination, type OrderRouteKind, type OrderRouteSummary, type OrderRouteWithdrawReason, type Page, type RecordKind, type SavedRecord, type StatusRecordKind, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../api'
 import { useStaff } from '../App'
+import type { PendingView, Ref } from '@hid/offline'
+import { ehrReads, keepPatientOffline, useDeviceCopySavedAt } from '../offline/ehrReads'
+import { capturedNow, ehrCommands } from '../offline/ehrCommands'
+import { documentCommands } from '../offline/documentCommands'
+import { offlineRuntime, receiptOf, useOffline, useOfflineActive } from '../offline/runtime'
+import { idFromRef } from '../offline/registry'
+import { CachedNotice } from '../offline/CachedNotice'
+import { PendingRow } from '../offline/PendingRow'
+import { KEEP, ONLINE_ONLY, SAVE } from '../offline/copy'
 import { getEnvironment } from '../env'
 import { refusalText, refusedFields } from '../fieldProblem'
 import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE, useFocusById } from '../focus'
@@ -58,7 +67,16 @@ const writePermissions: Record<RecordKind | 'documents', string> = {
 
 function text(form: FormData, name: string) { return String(form.get(name) ?? '').trim() }
 function number(form: FormData, name: string) { const value = text(form, name); return value === '' ? undefined : Number(value) }
-function isoNow() { return new Date().toISOString() }
+// Captured at save: by the trusted clock when offline is in use (§2.6, §2.8), else the device's, as before.
+function isoNow() { return capturedNow() }
+
+/** The records tab each pending change belongs to, for the pending overlay. */
+const PENDING_TABS: Partial<Record<string, RecordKind>> = {
+  'ehr.note.create': 'clinical-notes', 'ehr.note.revise': 'clinical-notes', 'ehr.note.update': 'clinical-notes',
+  'ehr.vital.create': 'vitals', 'ehr.vital.correct': 'vitals', 'ehr.diagnosis.create': 'diagnoses', 'ehr.diagnosis.update': 'diagnoses',
+  'ehr.prescription.create': 'prescriptions', 'ehr.prescription.to-pharmacy': 'prescriptions',
+  'ehr.lab-request.create': 'lab-requests', 'ehr.lab-request.to-lab': 'lab-requests',
+}
 
 type StatusOption = { readonly value: string; readonly label: string }
 const encounterTransitions: Readonly<Record<string, readonly StatusOption[]>> = {
@@ -770,7 +788,7 @@ function VitalPanel({ facilityId, patientId, encounterId, vital, canCorrect, dis
   useEffect(() => {
     if (!corrected) return
     let active = true
-    void staffApi.vitalCorrections(facilityId, patientId, encounterId, vital.id).then(items => {
+    void ehrReads.vitalCorrections(facilityId, patientId, encounterId, vital.id).then(items => {
       if (!active) return
       const current = items.find(item => item.correctionNo === correctionNo)
       if (current) setLatest(current)
@@ -816,7 +834,7 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
     if (!open) return
     let active = true
     setLoading(true); setLoadError('')
-    void staffApi.noteRevisions(facilityId, patientId, encounterId, note.id)
+    void ehrReads.noteRevisions(facilityId, patientId, encounterId, note.id)
       .then(value => { if (active) setRevisions(value) })
       .catch(caught => { if (active) setLoadError(refusalText(caught, 'Note content could not be loaded.')) })
       .finally(() => { if (active) setLoading(false) })
@@ -842,10 +860,10 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
     submitting.current = true; setBusy(true); setError(''); setNotice('')
     try {
       await verify()
-      await staffApi.addNoteRevision(facilityId, patientId, encounterId, note.id, attempt.current.input, attempt.current.key)
+      const outcome = await ehrCommands.addNoteRevision(facilityId, patientId, encounterId, note.id, attempt.current.input, attempt.current.key)
       attempt.current = null
       formElement.reset()
-      setNotice('A new note revision was recorded.')
+      setNotice(outcome.kind === 'saved' ? SAVE.savedHere : 'A new note revision was recorded.')
       setRevision(value => value + 1)
       await onChanged()
     } catch (caught) { setError(refusalText(caught, 'Note revision could not be recorded.')) }
@@ -957,7 +975,10 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const problems = useFieldProblems()
-  async function load() { setLoading(true); setError(''); try { setItems((await staffApi.documents(facilityId, patientId, encounterId)).items) } catch (caught) { setError(caught instanceof Error ? caught.message : 'Documents could not be loaded.') } finally { setLoading(false) } }
+  const offline = useOffline()
+  // One key per file chosen: pressing again after no answer replays the same upload, never a second document.
+  const uploadAttempt = useRef<{ signature: string; key: string } | null>(null)
+  async function load() { setLoading(true); setError(''); try { setItems((await ehrReads.documents(facilityId, patientId, encounterId)).items) } catch (caught) { setError(caught instanceof Error ? caught.message : 'Documents could not be loaded.') } finally { setLoading(false) } }
   useEffect(() => { void load() }, [facilityId, patientId, encounterId])
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -968,10 +989,15 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
     const file = new FormData(formElement).get('document')
     if (!(file instanceof File) || !file.size) return problems.refuse('clinical-document', 'Select a file first.')
     if (!['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'].includes(file.type) || file.size > 52_428_800) return problems.refuse('clinical-document', 'Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')
+    const signature = JSON.stringify([file.name, file.size, file.lastModified, file.type])
+    if (uploadAttempt.current?.signature !== signature) uploadAttempt.current = { signature, key: crypto.randomUUID() }
     setBusy(true)
     try {
-      await verify(); await staffApi.uploadDocument(facilityId, patientId, encounterId, file); await load(); formElement.reset()
-      setNotice('Document uploaded. It can be opened once its virus scan is clean.')
+      await verify()
+      const outcome = await documentCommands.uploadDocument(facilityId, patientId, encounterId, file, uploadAttempt.current.key)
+      uploadAttempt.current = null
+      await load(); formElement.reset()
+      setNotice(outcome.kind === 'saved' ? SAVE.savedHere : 'Document uploaded. It can be opened once its virus scan is clean.')
     }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Document could not be uploaded.') }
     finally { setBusy(false) }
@@ -992,7 +1018,7 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
     }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Document could not be opened.') }
   }
-  return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{item.mediaType} · {fileSize(item.sizeBytes)}{item.status === 'initiated' ? '' : ` · scan: ${item.scanStatus}`}</p>{item.status === 'initiated' && <p className="staff-muted">Upload not completed; only the person who started it can finish it. Upload the file again.</p>}<Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean'}>Open file</Button>{canOcr && item.scanStatus === 'clean' && <Link to="/provider/ocr" state={{ ocrDocumentId: item.id, ocrPatientId: patientId, actorId, facilityId }} className="staff-text-link">Extract with OCR</Link>}</div>)}</div></Card>{canWrite && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}><Field label="Clinical document" htmlFor="clinical-document" error={problems.error('clinical-document')}><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required {...problems.control('clinical-document')} /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Uploading…' : 'Upload document'}</Button></form><div role="status">{notice && <p className="staff-success">{notice}</p>}</div></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
+  return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{item.mediaType} · {fileSize(item.sizeBytes)}{item.status === 'initiated' ? '' : ` · scan: ${item.scanStatus}`}</p>{item.status === 'initiated' && <p className="staff-muted">Upload not completed; only the person who started it can finish it. Upload the file again.</p>}<Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean' || offline}>Open file</Button>{offline && <p className="staff-muted">{ONLINE_ONLY}</p>}{canOcr && item.scanStatus === 'clean' && <Link to="/provider/ocr" state={{ ocrDocumentId: item.id, ocrPatientId: patientId, actorId, facilityId }} className="staff-text-link">Extract with OCR</Link>}</div>)}</div></Card>{canWrite && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}><Field label="Clinical document" htmlFor="clinical-document" error={problems.error('clinical-document')}><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required {...problems.control('clinical-document')} /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Uploading…' : 'Upload document'}</Button></form><div role="status">{notice && <p className="staff-success">{notice}</p>}</div></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
 }
 
 // What EHR's emergency summary sends of each section at most (patient-records.service.ts
@@ -1245,7 +1271,7 @@ export function Clinical() {
     if (!facility || !activePatient) throw new Error('Open a patient through governed access first.')
     let result: Awaited<ReturnType<typeof staffApi.lookupPatient>>
     try {
-      result = await staffApi.lookupPatient(facility.id, activePatient.hid, activePatient.purpose)
+      result = await ehrReads.lookupPatient(facility.id, activePatient.hid, activePatient.purpose)
     } catch (caught) {
       // The backend refuses a lookup once access has ended (403) or the patient is
       // unavailable (404); it never answers with a deny decision. The record closes.
@@ -1279,7 +1305,7 @@ export function Clinical() {
     try {
       await verify()
       const { page, cursors, restarted } = await readPage(
-        (cursor, fresh) => staffApi.encounters(facility.id, patientId, { cursor, fresh }), wanted, request.fresh ?? false)
+        (cursor, fresh) => ehrReads.encounters(facility.id, patientId, { cursor, fresh }), wanted, request.fresh ?? false)
       if (sequence !== loadSequence.current) return
       encounterRequested.current = cursors
       setEncounters(page.items)
@@ -1296,7 +1322,7 @@ export function Clinical() {
       const documented = selectionShown.current
       if (request.fresh && !request.select && documented?.patientId === patientId && documented.facilityId === facility.id
         && !page.items.some(item => item.id === documented.id)) {
-        const current = await staffApi.encounter(facility.id, patientId, documented.id).catch(() => null)
+        const current = documented.id.startsWith('local:') ? null : await ehrReads.encounter(facility.id, patientId, documented.id).catch(() => null)
         if (current && sequence === loadSequence.current) setSelection(selected => selected?.id === current.id ? current : selected)
       }
     } catch (caught) {
@@ -1320,7 +1346,7 @@ export function Clinical() {
     const scope = recordScope
     recordRequested.current = { scope, cursors: FIRST_PAGE }
     setRecords([]); setRecordsFor(''); setRecordPages(null); setRecordNotice(null); setRecordsLoading(true); setError('')
-    void staffApi.records(facility.id, patientId, encounterId, activeTab).then(result => {
+    void ehrReads.records(facility.id, patientId, encounterId, activeTab).then(result => {
       if (sequence !== recordLoad.current) return
       setRecords(result.items); setRecordsFor(scope); setRecordPages({ scope, cursors: FIRST_PAGE, next: result.nextCursor ?? null })
       setOrdersOpen({ scope, open: result.crossFacilityOrders === true })
@@ -1344,7 +1370,7 @@ export function Clinical() {
     let active = true
     linkedFocus.current = order.orderId
     setTab(order.kind === 'lab_request' ? 'lab-requests' : 'prescriptions')
-    void staffApi.encounter(facility.id, patientId, order.encounterId)
+    void ehrReads.encounter(facility.id, patientId, order.encounterId)
       .then(encounter => { if (active && encounter?.id === order.encounterId) setSelection(encounter) })
       .catch(() => undefined)
     return () => { active = false }
@@ -1365,12 +1391,74 @@ export function Clinical() {
   useEffect(() => {
     if (!facility || !patientId || activePatient?.purpose !== 'direct-care') return
     let active = true
-    void staffApi.consentStatus(facility.id, patientId)
+    void ehrReads.consentStatus(facility.id, patientId)
       .then(status => { if (active) setWriteAccess({ scope: accessScope, allowed: status.writeAllowed === true, failed: false }) })
       .catch(() => { if (active) setWriteAccess({ scope: accessScope, allowed: false, failed: true }) })
     return () => { active = false }
   }, [facility?.id, patientId, activePatient?.purpose, accessScope])
   const currentWriteAccess = writeAccess?.scope === accessScope ? writeAccess : null
+
+  // Offline (OFFLINE-CONTRACT §2.7, "Pending overlay"): changes saved on this device and not yet confirmed are shown
+  // beside the records as what they are, never merged into the chart as Health ID's. Nothing of this exists, and
+  // nothing here runs, unless offline is in use at this facility.
+  const runtime = offlineRuntime()
+  const offlineInUse = useOfflineActive(runtime)
+  const offline = useOffline(runtime)
+  const deviceCopy = useDeviceCopySavedAt(patientId)
+  // `visits` names the server visit of each visit saved on this device that Health ID has applied, so the changes still
+  // waiting on it stay shown on that visit once the page documents it (A12.9).
+  const [pending, setPending] = useState<{ patientId: string; items: PendingView[]; visits: Readonly<Record<string, string>> }>(
+    { patientId: '', items: [], visits: {} })
+  const [keeping, setKeeping] = useState<'idle' | 'busy' | 'done' | 'failed'>('idle')
+  const loadPending = useCallback(() => {
+    if (!runtime || !offlineInUse || !patientId) return
+    void runtime.commands.pendingFor(patientId).then(async items => {
+      const locals = new Set(items.flatMap(item => {
+        const visit = (item.input as { encounter?: Ref } | null)?.encounter
+        return visit && 'local' in visit ? [visit.local] : []
+      }))
+      const visits: Record<string, string> = {}
+      for (const local of locals) {
+        const receipt = await receiptOf(runtime, local).catch(() => null)
+        if (receipt?.resourceId) visits[`local:${local}`] = receipt.resourceId
+      }
+      setPending({ patientId, items, visits })
+    }, () => undefined)
+  }, [runtime, offlineInUse, patientId])
+  useEffect(() => {
+    if (!runtime || !offlineInUse) return
+    loadPending()
+    return runtime.subscribe(loadPending)
+  }, [runtime, offlineInUse, loadPending])
+  const pendingHere = pending.patientId === patientId ? pending.items : []
+  const pendingVisitIds = pending.patientId === patientId ? pending.visits : {}
+  // The local visit each server visit replaced here, so a form being typed on it is not remounted empty (A12.9).
+  const [replacedVisits, setReplacedVisits] = useState<Readonly<Record<string, string>>>({})
+  // A visit saved on this device and documented here becomes Health ID's visit as soon as its command is applied
+  // (A12.9): the page then documents the server visit, never the local one it no longer sends to.
+  const documentingLocal = selectedEncounter?.id.startsWith('local:') ? selectedEncounter.id : null
+  useEffect(() => {
+    if (!runtime || !documentingLocal || !patientId || !facility) return
+    let active = true
+    let looking = false
+    const commandId = documentingLocal.slice('local:'.length)
+    const look = () => {
+      if (looking) return
+      looking = true
+      void receiptOf(runtime, commandId).then(async receipt => {
+        if (!active || !receipt?.resourceId) return
+        const server = await ehrReads.encounter(facility.id, patientId, receipt.resourceId).catch(() => null)
+        if (!active) return
+        setReplacedVisits(map => ({ ...map, [receipt.resourceId]: documentingLocal }))
+        setSelection(current => current?.id !== documentingLocal ? current
+          : server ?? { ...current, id: receipt.resourceId })
+        void loadEncounters({ fresh: true })
+      }, () => undefined).finally(() => { looking = false })
+    }
+    look()
+    const stop = runtime.subscribe(look)
+    return () => { active = false; stop() }
+  }, [runtime, documentingLocal, patientId, facility, loadEncounters])
 
   if (!activePatient || !facility) return <><div className="staff-page-head"><p className="staff-eyebrow">Clinical record</p><h1>Choose a patient first.</h1><p>Clinical records require a current backend authorization for the selected facility.</p></div><EmptyState title="No authorized patient" description="Open a patient using an approved request, patient PIN, or documented emergency access." action={<Link className="staff-text-link" to="/provider/patients">Go to patient access →</Link>} /></>
   if (activePatient.purpose === 'emergency') return <EmergencySummary facilityId={facility.id}
@@ -1385,18 +1473,48 @@ export function Clinical() {
   // send permission only (no consent: it discloses nothing). A main-v1 build has neither.
   const novu = usesNovuBackend()
   const ordersOpenHere = ordersOpen?.scope === recordScope && ordersOpen.open
-  const canRouteOrders = novu && ordersOpenHere && canMutate && permissions.includes('ehr.order-route.send')
+  // Orders to another facility need a connection (§1.2 online-only): offline the controls give way to a note.
+  const canRouteOrders = novu && ordersOpenHere && canMutate && !offline && permissions.includes('ehr.order-route.send')
+  const localVisit = selectedEncounter?.id.startsWith('local:') === true
+  // The pending rows of the visit and tab shown, and the visits saved on this device.
+  const pendingVisits = pendingHere.filter(item => item.op === 'ehr.encounter.create')
+  const pendingRecords = pendingHere.filter(item => {
+    const input = item.input as { encounter?: Ref } | null
+    const visit = input?.encounter ? idFromRef(input.encounter) : null
+    return item.op !== 'ehr.encounter.create' && visit !== null && (pendingVisitIds[visit] ?? visit) === encounterId
+      && PENDING_TABS[item.op] === activeTab
+  })
+  async function keepOffline() {
+    if (!facility || !patientId || keeping === 'busy') return
+    setKeeping('busy')
+    try { await keepPatientOffline(facility.id, patientId); setKeeping('done') }
+    catch { setKeeping('failed') }
+  }
   const canRoute = (kind: RecordKind) => canRouteOrders && permissions.includes(writePermissions[kind])
   const canWithdrawRoutes = novu && activePatient.purpose === 'direct-care' && permissions.includes('ehr.order-route.send')
   const routeContext: RouteContext = { facilityId: facility.id, orderingFacility: facility.name,
     patient: activePatient.lookup.patient.fullName ?? activePatient.hid }
+
+  // Saved on this device and not confirmed by Health ID: said as such, never as saved by the backend, and shown
+  // among the pending rows until it is.
+  function savedOnDevice() {
+    setSuccess(SAVE.savedHere)
+    loadPending()
+  }
 
   // A new encounter starts now, so it usually heads the first page; it is the
   // one documented next even when it does not (a backdated start).
   async function createEncounter(input: { encounterType: string; status: string; startedAt: string; chiefComplaint: string }, key: string) {
     if (!facility || !patientId) return
     await verify()
-    const result = await staffApi.createEncounter(facility.id, patientId, input, key)
+    const outcome = await ehrCommands.createEncounter(facility.id, patientId, input, key)
+    if (outcome.kind === 'saved') {
+      // Documented next on this device, as the visit it will be once Health ID has it.
+      setSelection({ id: `local:${outcome.commandId}`, patientId, facilityId: facility.id, ...input, rowVersion: 0 })
+      savedOnDevice()
+      return
+    }
+    const result = outcome.value
     if (result?.id) setSelection(result)
     await loadEncounters({ fresh: true, select: result })
     setSuccess('Encounter created by the backend.')
@@ -1422,7 +1540,7 @@ export function Clinical() {
     if (!afterChange) { setError(''); setRecordNotice(null) }
     try {
       const { page, cursors: shown, restarted } = await readPage(
-        (cursor, fresh) => staffApi.records(facility.id, patientId, encounterId, kind, { cursor, fresh }), wanted, afterChange !== false)
+        (cursor, fresh) => ehrReads.records(facility.id, patientId, encounterId, kind, { cursor, fresh }), wanted, afterChange !== false)
       if (sequence !== recordLoad.current) return null
       recordRequested.current = { scope, cursors: shown }
       setRecords(page.items); setRecordsFor(scope); setRecordPages({ scope, cursors: shown, next: page.nextCursor ?? null })
@@ -1458,7 +1576,11 @@ export function Clinical() {
     if (activeLab) setError('')
     await verify()
     let saved: SavedRecord
-    try { saved = await staffApi.createRecord(facility.id, patientId, encounterId, kind, body, key) }
+    try {
+      const outcome = await ehrCommands.createRecord(facility.id, patientId, encounterId, kind, body, key)
+      if (outcome.kind === 'saved') return savedOnDevice()
+      saved = outcome.value
+    }
     catch (caught) {
       const handoff = isHidApiError(caught) && (caught.code === 'LAB_HANDOFF_REFUSED' || caught.code === 'LAB_HANDOFF_UNCONFIRMED')
       // Not an active request, or fields EHR refused before saving anything (its ValidationPipe).
@@ -1512,10 +1634,12 @@ export function Clinical() {
     await verify()
     let updated: Encounter
     try {
-      updated = await staffApi.updateEncounter(facility.id, patientId, selected.id, {
+      const outcome = await ehrCommands.updateEncounter(facility.id, patientId, selected.id, {
         expectedRowVersion, changeReason: reason, status,
         ...(status === 'completed' ? { endedAt: isoNow() } : {}),
       })
+      if (outcome.kind === 'saved') return savedOnDevice()
+      updated = outcome.value
     } catch (caught) {
       if (isHidApiError(caught) && caught.status === 403 && caught.code === 'ENCOUNTER_RETRACTION_NOT_PERMITTED') {
         throw new Error(retractionNotPermitted(status))
@@ -1523,7 +1647,7 @@ export function Clinical() {
       // Someone changed the encounter first: show it as it is now (the status
       // form is rebuilt for it) and say why the change was not made.
       if (!isHidApiError(caught) || (caught.status !== 409 && caught.status !== 412)) throw caught
-      const current = await staffApi.encounter(facility.id, patientId, selected.id).catch(() => null)
+      const current = await ehrReads.encounter(facility.id, patientId, selected.id).catch(() => null)
       if (!current) throw caught
       setSelection(chosen => chosen?.id === current.id ? current : chosen)
       setEncounters(items => items.map(item => item.id === current.id ? current : item))
@@ -1554,8 +1678,10 @@ export function Clinical() {
     setSuccess('')
     if (toLab) setError('')
     await verify()
-    const saved = await staffApi.updateRecord(facility.id, patientId, encounterId, kind, record.id,
+    const answer = await ehrCommands.updateRecord(facility.id, patientId, encounterId, kind, record.id,
       { expectedRowVersion, changeReason: reason, status })
+    if (answer.kind === 'saved') return savedOnDevice()
+    const saved = answer.value
     // An EHR before #56 reports no handoff, and sent nothing to Lab.
     const outcome = toLab ? labHandoffOutcome(saved?.labHandoff ?? null, record.status === 'on_hold' ? 'resumed' : 'activated', canSendToLab) : null
     if (!outcome || outcome.accepted) setSuccess(outcome?.text ?? (kind === 'clinical-notes' ? 'Clinical note status updated.'
@@ -1575,7 +1701,10 @@ export function Clinical() {
     if (!expectedRowVersion) throw new LabSendError('Reload the lab request before sending it to Lab.', false)
     setSuccess(''); setError('')
     await verify()
-    try { await staffApi.sendLabRequestToLab(facility.id, patientId, encounterId, record.id, expectedRowVersion, key) }
+    try {
+      const outcome = await ehrCommands.sendLabRequestToLab(facility.id, patientId, encounterId, record.id, expectedRowVersion, key)
+      if (outcome.kind === 'saved') return savedOnDevice()
+    }
     catch (caught) {
       const refusal = labSendRefusal(caught)
       if (!refusal.reload) throw new LabSendError(refusal.text, refusal.retry === true)
@@ -1698,8 +1827,9 @@ export function Clinical() {
     if (!expectedRowVersion) throw new Error('Reload the diagnosis before changing it.')
     setSuccess('')
     await verify()
-    await staffApi.updateDiagnosis(facility.id, patientId, encounterId, record.id,
+    const outcome = await ehrCommands.updateDiagnosis(facility.id, patientId, encounterId, record.id,
       { expectedRowVersion, changeReason: reason, ...changes })
+    if (outcome.kind === 'saved') return savedOnDevice()
     setSuccess('Diagnosis updated.')
     await loadRecords('diagnoses', 'shown', true)
     focus([`diagnosis-${record.id}-clinical`, `record-${record.id}-title`, 'clinical-records-title'], true)
@@ -1712,8 +1842,9 @@ export function Clinical() {
     setSuccess('')
     await verify()
     try {
-      await staffApi.correctVital(facility.id, patientId, encounterId, record.id,
+      const outcome = await ehrCommands.correctVital(facility.id, patientId, encounterId, record.id,
         { expectedRowVersion, changeReason: reason, replacementValues }, key)
+      if (outcome.kind === 'saved') return savedOnDevice()
     } catch (caught) {
       // Changed since it was loaded: corrected, or (hid-system #74) marked entered in error on its
       // own or with its encounter. Either change raises its row version, which EHR checks first, so
@@ -1741,7 +1872,10 @@ export function Clinical() {
     if (!expectedRowVersion) throw new Error('Reload the prescription before sending it to Pharmacy.')
     setSuccess('')
     await verify()
-    try { await staffApi.acceptPrescription(facility.id, patientId, encounterId, record.id, expectedRowVersion, reason, key) }
+    try {
+      const outcome = await ehrCommands.acceptPrescription(facility.id, patientId, encounterId, record.id, expectedRowVersion, reason, key)
+      if (outcome.kind === 'saved') return savedOnDevice()
+    }
     catch (caught) {
       if (!isHidApiError(caught)) throw caught
       // Pharmacy holds one work item per prescription (hid-system #48), whatever version it was sent.
@@ -1765,7 +1899,11 @@ export function Clinical() {
 
   return <>
     <div className="staff-page-head"><p className="staff-eyebrow">Clinical record · {facility.name}</p><h1>{activePatient.lookup.patient.fullName ?? activePatient.hid}</h1><p>HID {activePatient.hid} · Direct care access. The server rechecks authorization before changes.</p></div>
-    <div className="staff-row staff-toolbar"><Badge tone="success">Authorized</Badge><Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={UNAVAILABLE} onClick={() => { if (!loading) void loadEncounters({ cursors: 'shown', fresh: true }) }}>Refresh encounters</Button><Link className="staff-text-link" to="/provider/patients">Change patient →</Link></div>
+    <div className="staff-row staff-toolbar"><Badge tone="success">Authorized</Badge><Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={UNAVAILABLE} onClick={() => { if (!loading) void loadEncounters({ cursors: 'shown', fresh: true }) }}>Refresh encounters</Button><Link className="staff-text-link" to="/provider/patients">Change patient →</Link>
+      {offlineInUse && !offline && <Button tone="secondary" size="sm" aria-disabled={keeping === 'busy' || undefined} className={UNAVAILABLE}
+        onClick={() => void keepOffline()}>{keeping === 'busy' ? KEEP.working : KEEP.button}</Button>}</div>
+    {offlineInUse && (keeping === 'done' || keeping === 'failed') && <p className={keeping === 'done' ? 'staff-success' : 'staff-error'} role="status">{keeping === 'done' ? KEEP.done : KEEP.failed}</p>}
+    {offlineInUse && <CachedNotice savedAt={deviceCopy} />}
     {currentWriteAccess && !currentWriteAccess.allowed && <div className="staff-notice" role="status">{currentWriteAccess.failed
       ? 'Write access could not be confirmed, so changes are unavailable. Refresh the page to try again.'
       : 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'}</div>}
@@ -1773,10 +1911,10 @@ export function Clinical() {
     {/* Mounted throughout, so what a change says is announced. */}
     <div id="clinical-status" role="status">{success && <p className="staff-success">{success}</p>}</div>
     {/* Off unless the build turns them on: hid-system main does not serve their routes (stagingOnlyFeatures.ts). */}
-    {!usesNovuBackend() && permissions.includes('ehr.imported-history.read') && activePatient.purpose === 'direct-care' && <StaffImportedHistory
+    {!offline && !usesNovuBackend() && permissions.includes('ehr.imported-history.read') && activePatient.purpose === 'direct-care' && <StaffImportedHistory
       key={JSON.stringify([state.status === 'ready' ? state.session.actor.id : '', facility.id, patientId, activePatient.purpose, permissions])}
       facilityId={facility.id} patientId={patientId!} />}
-    {permissions.includes(usesNovuBackend() ? 'ehr.note.read' : 'ehr.record-chat.use') && activePatient.purpose === 'direct-care' && staffPatientChatEnabled() && <StaffPatientChat
+    {!offline && permissions.includes(usesNovuBackend() ? 'ehr.note.read' : 'ehr.record-chat.use') && activePatient.purpose === 'direct-care' && staffPatientChatEnabled() && <StaffPatientChat
       key={JSON.stringify([state.status==='ready'?state.session.actor.id:'',facility.id,facility.membershipId,patientId,activePatient.purpose,permissions])}
       facilityId={facility.id} facilityName={facility.name} patientId={patientId!}
       patientName={activePatient.lookup.patient.fullName??activePatient.hid} hid={activePatient.hid} />}
@@ -1785,7 +1923,7 @@ export function Clinical() {
     {permissions.includes('ehr.note.read') && activePatient.purpose === 'direct-care' && <PatientReportedHealth
       key={JSON.stringify([state.status === 'ready' ? state.session.actor.id : '', facility.id, patientId, activePatient.purpose, permissions])}
       facilityId={facility.id} patientId={patientId!} />}
-    {permissions.includes('ehr.note.read') && importedRecordsEnabled() && <ImportedPatientHistory
+    {!offline && permissions.includes('ehr.note.read') && importedRecordsEnabled() && <ImportedPatientHistory
       key={JSON.stringify([state.status === 'ready' ? state.session.actor.id : '', facility.id, patientId, activePatient.purpose, permissions])}
       facilityId={facility.id} patientId={patientId!} purpose="direct-care" verify={verify}
       canDownload={permissions.includes('ehr.document.read')} />}
@@ -1793,19 +1931,29 @@ export function Clinical() {
       <Notice notice={encounterNotice} scope={encounterScope} />
       <Pager label="Encounter pages" position={encounterPosition} busy={loading} onShow={cursors => void loadEncounters({ cursors, paging: true })} />
       {selected && !scopedEncounters.some(item => item.id === selected.id) && <p className="staff-muted">The encounter being documented, {selected.encounterType.replace('_', ' ')} started {new Date(selected.startedAt).toLocaleString()}, is on another page.</p>}
-      {!loading && scopedEncounters.length === 0 && <p>No encounters are available for this patient and facility.</p>}<div className="staff-list">{scopedEncounters.map(item => <button type="button" key={item.id} className={`staff-list-item staff-select-row${item.id === encounterId ? ' selected' : ''}`} aria-current={item.id === encounterId ? 'true' : undefined} onClick={() => setSelection(item)}><strong>{item.encounterType.replace('_', ' ')} · {item.status.replace('_', ' ')}</strong><p>{new Date(item.startedAt).toLocaleString()}</p><p>{item.chiefComplaint || 'No chief complaint provided'}</p></button>)}</div>
+      {!loading && scopedEncounters.length === 0 && <p>No encounters are available for this patient and facility.</p>}{pendingVisits.length > 0 && <div className="staff-list">{pendingVisits.map(view => {
+        const id = `local:${view.commandId}`
+        return <div key={view.commandId} className="staff-stack"><PendingRow view={view} />
+          <Button tone="secondary" size="sm" aria-pressed={encounterId === id} onClick={() => {
+            const body = (view.input as { body?: { encounterType: string; status: string; startedAt: string; chiefComplaint: string } }).body
+            if (body && patientId) setSelection({ id, patientId, facilityId: facility.id, ...body, rowVersion: 0 })
+          }}>Document this visit</Button></div>
+      })}</div>}
+      <div className="staff-list">{scopedEncounters.map(item => <button type="button" key={item.id} className={`staff-list-item staff-select-row${item.id === encounterId ? ' selected' : ''}`} aria-current={item.id === encounterId ? 'true' : undefined} onClick={() => setSelection(item)}><strong>{item.encounterType.replace('_', ' ')} · {item.status.replace('_', ' ')}</strong><p>{new Date(item.startedAt).toLocaleString()}</p><p>{item.chiefComplaint || 'No chief complaint provided'}</p></button>)}</div>
 </Card>{permissions.includes('ehr.encounter.write') && canMutate && <EncounterForm onCreated={createEncounter} disabled={!facility} />}</div>
     {selected && <section className="staff-section" aria-labelledby="clinical-documentation-title"><div className="staff-page-head"><p className="staff-eyebrow">Selected encounter</p><h2 id="clinical-documentation-title" tabIndex={-1}>Care documentation</h2><p>{new Date(selected.startedAt).toLocaleString()} · {selected.status.replace('_', ' ')}</p></div>
-      {canMutate && permissions.includes('ehr.encounter.write') && (encounterTransitions[selected.status]?.length ?? 0) > 0 &&
+      {canMutate && !localVisit && permissions.includes('ehr.encounter.write') && (encounterTransitions[selected.status]?.length ?? 0) > 0 &&
         <Card className="staff-card"><StatusActionForm key={`${selected.id}-${selected.rowVersion}`} id={`encounter-${selected.id}`} title="Encounter status"
           choices={encounterTransitions[selected.status]!} warning={encounterClosesRecords()} disabled={loading} onChange={changeEncounterStatus} /></Card>}
       {!activeTab ? <p className="staff-muted">Your current facility role does not grant access to encounter records.</p>
         : <><TabList items={visibleTabs} selectedId={activeTab} onSelect={id => setTab(id as RecordKind | 'documents')} label="Clinical record section"
           idPrefix="clinical-record" className="staff-tabs" />
-        <TabPanel id={activeTab} idPrefix="clinical-record">{activeTab === 'documents' ? <Documents key={selected.id} patientId={patientId!} encounterId={selected.id} facilityId={facility.id} canWrite={canMutate && permissions.includes(writePermissions.documents)} canOcr={permissions.includes('ocr.job.read')} verify={verify} /> : <div className="staff-two-col"><Card className="staff-card"><h2 id="clinical-records-title" tabIndex={-1}>{tabs.find(item => item.id === activeTab)?.label}</h2>{recordsLoading && <p role="status">Loading records…</p>}
+        <TabPanel id={activeTab} idPrefix="clinical-record">{activeTab === 'documents' ? <Documents key={replacedVisits[selected.id] ?? selected.id} patientId={patientId!} encounterId={selected.id} facilityId={facility.id} canWrite={canMutate && permissions.includes(writePermissions.documents)} canOcr={permissions.includes('ocr.job.read')} verify={verify} /> : <div className="staff-two-col"><Card className="staff-card"><h2 id="clinical-records-title" tabIndex={-1}>{tabs.find(item => item.id === activeTab)?.label}</h2>{recordsLoading && <p role="status">Loading records…</p>}
         <Notice notice={recordNotice} scope={recordScope} />
         <Pager label="Record pages" position={recordPosition} busy={recordsLoading} onShow={cursors => void loadRecords(activeTab, cursors, false)} />
-        {!recordsLoading && visibleRecords.length === 0 && <p>No {tabs.find(item => item.id === activeTab)?.label.toLowerCase()} for this encounter.</p>}<div className="staff-list">{visibleRecords.map(record => <div className="staff-list-item staff-stack" key={record.id}><strong id={`record-${record.id}-title`} tabIndex={-1}>{recordTitle(activeTab, record)}</strong>
+        {pendingRecords.length > 0 && <div className="staff-list">{pendingRecords.map(view => <PendingRow key={view.commandId} view={view} />)}</div>}
+        {offline && (activeTab === 'prescriptions' || activeTab === 'lab-requests') && canMutate && <p className="staff-muted">{ONLINE_ONLY}</p>}
+        {!recordsLoading && visibleRecords.length === 0 && pendingRecords.length === 0 && <p>No {tabs.find(item => item.id === activeTab)?.label.toLowerCase()} for this encounter.</p>}<div className="staff-list">{visibleRecords.map(record => <div className="staff-list-item staff-stack" key={record.id}><strong id={`record-${record.id}-title`} tabIndex={-1}>{recordTitle(activeTab, record)}</strong>
         {activeTab === 'diagnoses' && record.verificationStatus === 'entered_in_error' && <Badge tone="warning">Entered in error</Badge>}
         {activeTab === 'vitals' ? <VitalPanel key={`${record.id}-${String(record.rowVersion)}`} facilityId={facility.id} patientId={patientId!} encounterId={selected.id}
           vital={record} canCorrect={canMutate && permissions.includes('ehr.vital.write')} disabled={recordsLoading}
@@ -1815,7 +1963,7 @@ export function Clinical() {
           note={record} canWrite={canMutate && permissions.includes('ehr.note.write')} verify={verify}
           onStatus={(status, reason) => changeRecordStatus(record, 'clinical-notes', status, reason)}
           onChanged={async () => { await loadRecords('clinical-notes', 'shown', true) }} />}
-        {activeTab === 'prescriptions' && canMutate && permissions.includes('ehr.prescription.write') && (prescriptionTransitions[String(record.status)]?.length ?? 0) > 0 &&
+        {activeTab === 'prescriptions' && canMutate && !offline && permissions.includes('ehr.prescription.write') && (prescriptionTransitions[String(record.status)]?.length ?? 0) > 0 &&
           <StatusActionForm key={`${record.id}-${record.rowVersion}`} id={`prescription-${record.id}`} title="Prescription status" choices={prescriptionTransitions[String(record.status)]!}
             warning={routedElsewhere(orderRouteOf(record)) ? routedChangeWarning(orderRouteOf(record), routeContext.patient, wrongPatientServed, lateCorrectionServed)
               : record.status === 'active' || record.status === 'on_hold' ? PHARMACY_NOT_TOLD : undefined}
@@ -1826,7 +1974,7 @@ export function Clinical() {
         {activeTab === 'diagnoses' && canMutate && permissions.includes('ehr.diagnosis.write') && record.verificationStatus !== 'entered_in_error' &&
           <DiagnosisUpdateForm key={`${record.id}-${String(record.rowVersion)}`} id={`diagnosis-${record.id}`} diagnosis={record}
             disabled={recordsLoading} onUpdate={(changes, reason) => updateDiagnosis(record, changes, reason)} />}
-        {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && labChoices(record).length > 0 &&
+        {activeTab === 'lab-requests' && canMutate && !offline && permissions.includes('ehr.lab-request.write') && labChoices(record).length > 0 &&
           <StatusActionForm key={`${record.id}-${String(record.rowVersion)}`} id={`lab-request-${record.id}`} title="Lab request status" choices={labChoices(record)}
             warning={routedElsewhere(orderRouteOf(record)) ? routedChangeWarning(orderRouteOf(record), routeContext.patient, wrongPatientServed, lateCorrectionServed) : undefined}
             disabled={recordsLoading} onChange={(status, reason) => changeRecordStatus(record, 'lab-requests', status, reason)} />}
@@ -1850,7 +1998,8 @@ export function Clinical() {
           <SendToFacility key={`send-route-${record.id}`} id={`record-${record.id}-route`} kind={routeKindOf(activeTab)} context={routeContext}
             priority={typeof record.priority === 'string' ? record.priority : undefined}
             onSend={(destination, version, key) => sendOrder(activeTab, record, destination, version, key)} />}
-      </div>)}</div></Card>{canMutate && permissions.includes(writePermissions[activeTab]) && <RecordForm key={`${selected.id}-${activeTab}`} tab={activeTab} onCreated={createRecord} disabled={!selected} canSendToLab={canSendToLab}
+      </div>)}</div></Card>{canMutate && permissions.includes(writePermissions[activeTab]) && <RecordForm key={`${replacedVisits[selected.id] ?? selected.id}-${activeTab}`} tab={activeTab} onCreated={createRecord} disabled={!selected}
+        canSendToLab={canSendToLab && !offline && !localVisit}
         routing={activeTab === 'lab-requests' && canRoute('lab-requests') ? routeContext : null} onCreateAndSend={createAndSend}
         prescriptionRouting={activeTab === 'prescriptions' && canRoute('prescriptions')} />}</div>}</TabPanel></>}
     </section>}
