@@ -6,12 +6,14 @@ import { ReviewBanner } from '../../staff/routes/ReviewBanner'
 import { BillingBanner } from '../../staff/routes/Billing'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
+import { chooseClassicEhr, isDemoFacility } from '../blueFacilities'
 import { BLUE_PAGES, isLiveOnlyPath, matchBluePage, pageAllowed } from '../routes'
 import { AttentionProvider } from './attention'
 import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage, UnknownPage } from './LivePages'
 import { BluePageProvider, BluePagesProvider } from './pageContext'
-import { pageHrefOf } from './pageHref'
+import { basePath, pageHrefOf } from './pageHref'
+import { TODAY_PATHS } from './pages'
 import { AccountMenu, AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
 import type { EhrBluePage } from './types'
 
@@ -34,7 +36,7 @@ export function navigationGroups(pages: readonly EhrBluePage[]): EhrNavGroup[] {
 }
 
 /**
- * The blue Hospital EHR's frame for a demo facility: EhrAppShell with the design's sidebar and top bar, and the page
+ * The blue Hospital EHR's frame: EhrAppShell with the design's sidebar and top bar, and the page
  * the address opens. Session, sign-out and facility switch are today's (useStaff). A page another folder exports
  * replaces the frame's stand-in for its path; an address no page takes says so.
  */
@@ -87,9 +89,13 @@ export function BlueFrame() {
               start={<strong className="hid-ehr-blue-facility">{facility?.name ?? 'Health ID EHR'}</strong>}
               end={<>
                 <WorkspaceSearch pages={allowed} />
-                <DemoChip facility={facility?.name ?? 'This facility'} />
+                {isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} /> : null}
                 <NotificationsButton />
-                <AccountMenu onSample={setSamplePanel} />
+                <AccountMenu onSample={setSamplePanel} onClassic={() => {
+                  // Today's workspace serves its own pages at the same address; anything else opens on its Overview.
+                  if (!(match && TODAY_PATHS.has(basePath(match.page.path))) && !isLiveOnlyPath(location.pathname)) navigate('/provider')
+                  chooseClassicEhr()
+                }} />
               </>}
             />
           )}

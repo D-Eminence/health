@@ -20,7 +20,10 @@ import { JOURNEYS } from './tour/journeys'
 
 const icon = (name: EhrIconName) => createElement(EhrIcon, { name })
 
+const todayPaths: string[] = []
+
 function live(path: string, group: string, label: string, iconName: EhrIconName, permission: string): EhrBluePage {
+  todayPaths.push(path)
   return { path, group, label, icon: icon(iconName), permission, status: 'live', element: createElement(LivePage) }
 }
 
@@ -102,3 +105,9 @@ export const pages: EhrBluePage[] = [
   ...JOURNEYS.map(journey => page(`tour/${journey.id}/*`, 'Design tour', journey.title, 'route', 'sample',
     createElement(JourneyTour, { journeyId: journey.id }))),
 ]
+
+/**
+ * The addresses today's provider portal serves, where these live stand-ins show today's page (a clinical or department
+ * page that replaces one keeps its address). "Use the classic EHR" stays on them.
+ */
+export const TODAY_PATHS: ReadonlySet<string> = new Set(todayPaths)

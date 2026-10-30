@@ -121,7 +121,11 @@ function initials(name: string): string {
   return (letters.length > 1 ? letters[0]! + letters.at(-1)! : letters[0] ?? 'H').slice(0, 2)
 }
 
-export function AccountMenu({ onSample }: { readonly onSample?: (panel: 'profile' | 'preferences' | 'help') => void }) {
+export function AccountMenu({ onSample, onClassic }: {
+  readonly onSample?: (panel: 'profile' | 'preferences' | 'help') => void
+  /** "Use the classic EHR": back to today's staff portal in this tab, until it reloads. */
+  readonly onClassic?: () => void
+}) {
   const { state, signOut } = useStaff()
   const navigate = useNavigate()
   const role = useRoleView()
@@ -157,6 +161,7 @@ export function AccountMenu({ onSample }: { readonly onSample?: (panel: 'profile
           {actor.facilities.length > 1 ? (
             <EhrButton variant="secondary" onClick={() => { close(false); navigate('/provider/institutions') }}>Switch facility</EhrButton>
           ) : null}
+          {onClassic ? <EhrButton variant="secondary" onClick={() => { close(false); onClassic() }}>Use the classic EHR</EhrButton> : null}
           <div className="hid-ehr-blue-roles" role="group" aria-labelledby="hid-ehr-blue-roles-title">
             <p id="hid-ehr-blue-roles-title" className="hid-ehr-blue-muted">View Home as a demo role (sample)</p>
             {role.viewing ? <EhrButton variant="quiet" size="sm" onClick={() => { close(); role.view(null); navigate('/provider') }}>My own dashboard</EhrButton> : null}

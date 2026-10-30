@@ -34,10 +34,11 @@ import { resolveStaffProductHostname, STAFF_JOIN_PATH } from '../productHostname
 import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
-import { showsBlueEhr } from '../ehr-blue/blueFacilities'
+import { showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
 import './style.css'
 
-// The blue Hospital EHR, for the demo facilities only: loaded on demand, so no other facility downloads it.
+// The blue Hospital EHR (ehr-blue/blueFacilities.ts says for whom): loaded on demand, so no other facility downloads
+// it. "Use the classic EHR" brings this tab back to today's workspace until it reloads.
 const EhrBlueApp = lazy(() => import('../ehr-blue/EhrBlueApp'))
 
 /** `reason`: why Identity ended the session, when it said (see StaffSessionEndReason). */
@@ -660,8 +661,9 @@ function Shell() {
     setChoice(null)
     setFacilityError('')
   }, [choiceNeeded])
+  const classic = useClassicEhrChosen()
   if (state.status !== 'ready') return null
-  if (showsBlueEhr(state.session.actor, choiceNeeded !== null)) {
+  if (!classic && showsBlueEhr(state.session.actor, choiceNeeded !== null)) {
     return <Suspense fallback={<main className="staff-centered"><p role="status">Opening Health ID EHR…</p></main>}><EhrBlueApp /></Suspense>
   }
   const { actor } = state.session
