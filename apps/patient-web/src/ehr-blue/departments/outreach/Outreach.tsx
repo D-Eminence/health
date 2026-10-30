@@ -121,13 +121,7 @@ export function Outreach() {
       </DeptPage>
     )
   }
-  if (!canReadCases && !canReadCampaigns) {
-    return (
-      <DeptPage title="Outreach">
-        <ErrorBox message={NO_READ_PERMISSION} />
-      </DeptPage>
-    )
-  }
+  if (!canReadCases && !canReadCampaigns) return <OutreachRefusal />
 
   const readers = canReadCampaigns ? campaigns.value?.map(campaign => (
     <CampaignMembersRead key={campaign.id} facilityId={facilityId} membershipId={membershipId} campaign={campaign}
@@ -350,5 +344,14 @@ function RecordList<T>({ label, caption, pagesLabel, read, columns, rowKey, sear
             : <EhrDataTable caption={caption} captionHidden columns={columns} rows={rows.slice(shownPage * PAGE_SIZE, (shownPage + 1) * PAGE_SIZE)} rowKey={rowKey} />}
       </DeptSearch>
     </div>
+  )
+}
+
+/** What Outreach says to a membership with neither campaign nor registration read; the frame shows it at the address. */
+export function OutreachRefusal() {
+  return (
+    <DeptPage title="Outreach">
+      <ErrorBox message={NO_READ_PERMISSION} />
+    </DeptPage>
   )
 }
