@@ -134,6 +134,40 @@ describe('the one-time choice at a pilot facility (amendment A5)', () => {
     expect(await screen.findByText('Offline and sync')).toBeTruthy()
   })
 
+  it('is not carried over to the next account after the session ends (re-review 12)', async () => {
+    let phase: 'ada' | 'ended' | 'bola' = 'ada'
+    const bola = () => {
+      const session = staffSession()
+      return { ...session, actor: { ...session.actor, id: 'staff-2', email: 'bola@example.test', displayName: 'Bola Clinician' } }
+    }
+    serve(route => {
+      if (route === 'GET /api/v1/auth/session' || route === 'POST /api/v1/auth/refresh') {
+        return phase === 'bola' ? json(bola()) : json({ code: 'AUTHENTICATION_REQUIRED' }, 401)
+      }
+      if (route === 'POST /api/v1/auth/login') return json(phase === 'ada' ? staffSession() : bola())
+      return json([])
+    })
+    const { runtime } = fakeOffline()
+    await open(runtime, { mode: 'pilot', facilities: [PILOT] }, '/provider/sign-in')
+    await signIn()
+    expect(await screen.findByRole('heading', { name: 'Keep an offline copy on this device (personal devices only)' })).toBeTruthy()
+
+    // Ada's session ends in another tab; the page is asked about it when it comes back.
+    phase = 'ended'
+    await act(async () => { window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true })) })
+    fireEvent.click(await screen.findByRole('link', { name: /Sign in again/ }, { timeout: 8000 }))
+
+    // Bola signs in; the device has not answered for Bola yet.
+    vi.spyOn(runtime, 'offer').mockReturnValue(new Promise(() => undefined))
+    phase = 'bola'
+    fireEvent.change(await screen.findByRole('textbox', { name: /Work email/ }), { target: { value: 'bola@example.test' } })
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: PASSWORD } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await screen.findByRole('heading', { level: 1, name: /Good to see you, Bola/ })
+    // Ada's question is not shown to Bola.
+    expect(screen.queryByRole('heading', { name: /Keep an offline copy on this device/ })).toBeNull()
+  }, 25000)
+
   it('declined, keeps nothing and shows nothing more', async () => {
     serve(signingIn(staffSession()))
     const { runtime } = fakeOffline()
@@ -361,6 +395,32 @@ describe('a sign-out made offline reaches Health ID (A12.2)', () => {
     expect(controls.logoutPending()).toBe(false)
   }, 25000)
 
+  it('from "We could not confirm your session" with Health ID unreachable, signs out offline (re-review 10)', async () => {
+    let mode: 'online' | 'unconfirmed' = 'online'
+    const online = signingIn(staffSession())
+    serve(route => {
+      if (mode === 'online') return online(route)
+      // A request is refused, and Health ID cannot be reached to say whose session it is.
+      if (route.includes('/auth/')) throw new TypeError('Failed to fetch')
+      return json({ code: 'AUTHENTICATION_REQUIRED' }, 401)
+    })
+    const { runtime, controls } = fakeOffline()
+    const signOut = vi.spyOn(runtime, 'signOut')
+    await open(runtime, { mode: 'pilot', facilities: [PILOT] }, '/provider/sign-in')
+    await signIn()
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep an offline copy' }))
+    await screen.findByText('Offline and sync')
+    mode = 'unconfirmed'
+    // The page comes back from the back/forward cache: the session is asked about, and Health ID cannot answer.
+    await act(async () => { window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true })) })
+    expect(await screen.findByRole('heading', { name: 'We could not confirm your session' }, { timeout: 8000 })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await waitFor(() => expect(signOut).toHaveBeenCalledWith({ online: false }))
+    expect(runtime.restoreSession()).toBeNull()
+    expect(controls.logoutPending()).toBe(true)
+  }, 25000)
+
   it('with no offline copy, a dropped connection still says the sign-out failed', async () => {
     let down = false
     serve(route => { if (down) throw new TypeError('Failed to fetch'); return route === SESSION ? json(staffSession(REAL, 'Lagos General')) : json([]) })
@@ -511,6 +571,30 @@ describe('switching facility (A12.7)', () => {
     expect(lock).toHaveBeenCalledWith('manual')
     if (attach.mock.calls.length > 0) expect(lock.mock.invocationCallOrder[0]).toBeLessThan(attach.mock.invocationCallOrder[0]!)
     // The old facility's vault is not open, and its closing is not an idle lock.
+    expect(runtime.restoreSession()?.facilityId).not.toBe(PILOT)
+    expect(screen.queryByRole('heading', { name: 'Health ID is locked' })).toBeNull()
+  }, 20000)
+
+  it('back online after an offline cold start, a session at another facility closes the restored vault (re-review 11)', async () => {
+    let online = false
+    serve(route => {
+      if (!online) throw new TypeError('Failed to fetch')
+      return route === 'GET /api/v1/auth/session' ? json(twoFacilities(SECOND)) : json([])
+    })
+    const { runtime, controls } = fakeOffline({ connectivity: 'offline' })
+    controls.seedVault(snapshotOf(PILOT, twoFacilities(PILOT), PERMISSIONS), PASSWORD)
+    await open(runtime, { mode: 'pilot', facilities: [PILOT, SECOND] })
+    fireEvent.change(await screen.findByRole('textbox', { name: /Work email/ }, { timeout: 8000 }), { target: { value: 'ada@example.test' } })
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: PASSWORD } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open offline copy' }))
+    await screen.findByText(/Working at Demo Hospital\./)
+    expect(runtime.restoreSession()?.facilityId).toBe(PILOT)
+    const lock = vi.spyOn(runtime, 'lock')
+
+    online = true
+    await act(async () => { controls.setConnectivity('online') })
+    expect(await screen.findByText(/Working at Demo Clinic\./)).toBeTruthy()
+    expect(lock).toHaveBeenCalledWith('manual')
     expect(runtime.restoreSession()?.facilityId).not.toBe(PILOT)
     expect(screen.queryByRole('heading', { name: 'Health ID is locked' })).toBeNull()
   }, 20000)

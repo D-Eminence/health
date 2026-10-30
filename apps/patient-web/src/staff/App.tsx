@@ -276,6 +276,11 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   // or signed in: that answer may predate it, so the session is asked about once
   // it is ready.
   const heardWhileOpening = useRef(false)
+  // What this tab knew of the offline copy for the session that ended: none of it carries over to the next account.
+  const forgetOfflineSession = useCallback(() => {
+    vaultFacility.current = null
+    setOfflineChoice(null); setOfflinePaused(false); setOfflineLockReason(null)
+  }, [])
   const ask = useCallback((sentIn: number) => {
     const actor = currentSession.current?.actor
     if (status.current !== 'ready' || !actor || sentIn !== staffSessionGeneration()) return
@@ -289,6 +294,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       if (answer === 'ended') {
         // The vault closes with the session: no other account's work is sent from it (A12.3).
         runtime?.lock('session')
+        forgetOfflineSession()
         startStaffSessionGeneration()
         startPeriod()
         away.current = null
@@ -306,7 +312,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       else if (offlineActive(runtime) && runtime.summary().connectivity === 'offline') lockOffline('unconfirmed')
       else setLock('unconfirmed')
     })
-  }, [setState, setLock, startPeriod, runtime, lockOffline])
+  }, [setState, setLock, startPeriod, runtime, lockOffline, forgetOfflineSession])
   useEffect(() => onStaffSessionEnded(ask), [ask])
 
   // A refresh or check of this session that finds the facility this tab works at no
@@ -512,6 +518,17 @@ export function StaffProvider({ children }: { children: ReactNode }) {
         if (sentIn !== staffSessionGeneration() || !offlineMode.current) return
         if (read?.actor?.id !== actorId) throw new Error('another account')
         checkVaultFacility(read)
+        // The session is at another facility now (switched in another tab): the restored facility's vault closes before
+        // the new facility attaches, so nothing of one facility goes into the other's vault (A12.7).
+        const restored = vaultFacility.current
+        if (restored !== null && read.actor.facility?.id?.toLowerCase() !== restored.toLowerCase()) {
+          leavingVault.current = true
+          runtime.lock('manual')
+          vaultFacility.current = null
+          setState({ status: 'ready', session: read })
+          void attachOffline(read).finally(() => { leavingVault.current = false })
+          return
+        }
         setState({ status: 'ready', session: read })
       }).catch((error: unknown) => {
         if (sentIn !== staffSessionGeneration() || !offlineMode.current) return
@@ -522,7 +539,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
         setLock(null)
       }).finally(() => { reading = false })
     })
-  }, [runtime, setState, setLock, startPeriod, checkVaultFacility])
+  }, [runtime, setState, setLock, startPeriod, checkVaultFacility, attachOffline])
 
   // A close of access left in review because a change it waited for was discarded is saved again (A12.6).
   useEffect(() => {
@@ -572,6 +589,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     if (session.actor.kind === 'patient') throw new Error('A staff account is required for this portal.')
     // Another account signed in on this tab: the vault left open is locked first (A12.3).
     lockOtherAccount(runtime, session.actor.id)
+    forgetOfflineSession()
     startStaffSessionGeneration()
     startPeriod()
     away.current = null
@@ -614,9 +632,13 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       // A logout that cannot reach Health ID, on a device keeping an offline copy, signs out offline instead of
       // failing (A12.2): the copy closes now, and the logout is sent first on the next online load.
       let reached = true
-      try { await staffApi.logout(lockRef.current === 'checking' || lockRef.current === 'unconfirmed') }
+      const confirmFirst = lockRef.current === 'checking' || lockRef.current === 'unconfirmed'
+      try { await staffApi.logout(confirmFirst) }
       catch (error) {
-        if (!(runtime && healthIdUnreachable(error) && await runtime.hasVaults().catch(() => false))) throw error
+        // From a locked workspace the server is asked first whose session it is; that question unanswered is said as a
+        // plain error, so Health ID is asked once more whether it can be reached at all.
+        const unreachable = healthIdUnreachable(error) || (confirmFirst && await staffApi.session().then(() => false, healthIdUnreachable))
+        if (!(runtime && unreachable && await runtime.hasVaults().catch(() => false))) throw error
         reached = false
       }
       if (runtime) {
