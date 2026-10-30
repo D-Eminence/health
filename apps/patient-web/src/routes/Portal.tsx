@@ -5,8 +5,7 @@ import { getEnvironment } from '../env'
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronRight, Plus, FilePlus2 } from 'lucide-react'
-import { MedicalRecords } from '@healthicons/react'
+import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronRight, Plus, FilePlus2, FolderHeart } from 'lucide-react'
 import { AppShell, type NavGroup } from '../kasuwa/AppShell'
 import { Badge, Button, buttonClass, Card, CardHeader, EmptyState, FilterTabs, IconChip, Input, PageHeader, cx, timeAgo, type Icon } from '../kasuwa/ui'
 import { HealthIdCard } from './HealthIdCard'
@@ -154,7 +153,7 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
     { items: [{ to: '/', label: 'Overview', icon: LayoutDashboard, end: true }] },
     { title: 'Your health', items: [
       ...(patientChatEnabled() ? [{ to: '/chat', label: 'Ask about your records', icon: MessageSquareText }] : []),
-      { to: '/records', label: 'Records', icon: MedicalRecords },
+      { to: '/records', label: 'Records', icon: FolderHeart },
       { to: '/access', label: 'Access & sharing', icon: ShieldCheck },
     ] },
     { title: 'Account', items: [{ to: '/profile', label: 'Profile', icon: UserRound }] },
@@ -172,7 +171,7 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
     signingOut={signingOut}
     headerStart={<NavLink to="/" aria-label="Health ID home" className="inline-flex items-center no-underline lg:hidden"><BrandLogo className="h-7 w-auto" /></NavLink>}
     headerActions={<NotificationBell />}
-    tabs={[{ to: '/', label: 'Home', icon: House, end: true }, { to: '/records', label: 'Records', icon: MedicalRecords }, { to: '/access', label: 'Access', icon: ShieldCheck }]}
+    tabs={[{ to: '/', label: 'Home', icon: House, end: true }, { to: '/records', label: 'Records', icon: FolderHeart }, { to: '/access', label: 'Access', icon: ShieldCheck }]}
     create={{ label: 'Add or share', items: [
       { to: '/records?add=record', label: 'Add a record', hint: 'A visit, result or medicine, with a photo', icon: FilePlus2, main: true },
       { to: shareTo, label: 'Share my records', hint: 'Let a hospital or doctor see them', icon: Share2 },
@@ -458,7 +457,7 @@ export function RecordsPage() {
       {/* Novu serves encounters, notes and imported history; the other sections belong to main-v1 and are absent from its response. */}
       {visible.map(section => <SectionCard key={section} data={ready} section={section} none={NONE[section]} query={query}
         row={rows[section] as (item: Row<typeof section>) => ReactNode} />)}
-      {visible.length === 0 && !(ready.importedRecords?.length) && <EmptyState icon={searching ? Search : MedicalRecords as Icon}
+      {visible.length === 0 && !(ready.importedRecords?.length) && <EmptyState icon={searching ? Search : FolderHeart}
         title={searching ? 'Nothing matches' : 'No records yet'}
         description={searching ? 'Try a date like “March 2024”, a type like “vitals”, or a word from a note.' : 'Records from your providers appear here. You can add your own too, from any hospital, with a photo of the paper.'}
         action={searching ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}
@@ -721,7 +720,7 @@ export function NotificationsPage() {
       ? <EmptyState icon={Bell} title="No notifications" description="You'll hear here when a facility asks for, opens or is given access to your records." />
       : <Card aria-busy={notifications.loading || undefined}><ul className="m-0 list-none divide-y divide-line p-0">
         {items.map(item => <li key={item.id} className={cx('flex items-start gap-3 px-5 py-4', !item.readAt && 'bg-brand-soft/40')}>
-          <span className="relative mt-0.5"><IconChip size="sm" icon={item.resourceType?.includes('request') ? ShieldCheck : item.resourceType?.includes('record') ? MedicalRecords as Icon : Bell} tone={item.readAt ? 'neutral' : 'brand'} />
+          <span className="relative mt-0.5"><IconChip size="sm" icon={item.resourceType?.includes('request') ? ShieldCheck : item.resourceType?.includes('record') ? FolderHeart : Bell} tone={item.readAt ? 'neutral' : 'brand'} />
             {!item.readAt && <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-brand ring-2 ring-surface" aria-hidden />}</span>
           <div className="min-w-0 flex-1">
             <p className={cx('m-0 text-sm [overflow-wrap:anywhere] text-ink', !item.readAt && 'font-semibold')}>{notificationTitle(item)}</p>

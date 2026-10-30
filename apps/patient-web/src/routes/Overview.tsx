@@ -1,6 +1,6 @@
 import { useMemo, useRef } from 'react'
-import { ArrowRight, BadgeCheck, ChevronRight, CircleDashed, History, IdCard, NotebookPen, PhoneCall, ShieldAlert, ShieldCheck, Stethoscope } from 'lucide-react'
-import { Allergies, BloodDrop, Dna, MedicalRecords } from '@healthicons/react'
+import { ArrowRight, BadgeCheck, ChevronRight, CircleDashed, History, IdCard, NotebookPen, PhoneCall, ShieldAlert, ShieldCheck, Stethoscope, FolderHeart } from 'lucide-react'
+import { Allergies, BloodDrop, Dna } from '@healthicons/react'
 import { Alert, Button, Card, CardHeader, EmptyState, IconChip, ListRow, PageHeader, PageSkeleton, StatCard, StatGroup, Timeline, greeting, timeAgo, type Icon } from '../kasuwa/ui'
 import { COMPLETION_ITEMS, type CompletionKey } from './profileCompletion'
 import { Link } from 'react-router-dom'
@@ -200,7 +200,7 @@ export function Overview() {
         </StatGroup>
 
         <Card aria-labelledby="overview-contributions" aria-busy={(records.loading && records.data !== null) || undefined}>
-          <CardHeader as="h2" titleId="overview-contributions" title="Latest from your providers" icon={MedicalRecords as Icon} iconTone="brand"
+          <CardHeader as="h2" titleId="overview-contributions" title="Latest from your providers" icon={FolderHeart} iconTone="brand"
             actions={<Button to="/records" size="sm" variant="ghost" iconRight={ArrowRight}>All records</Button>} />
           {records.loading && !records.data ? <PageSkeletonRows />
             : records.error ? <div className="p-5"><Alert intent="error" title="Couldn't load your records" action={<Button size="sm" onClick={() => void records.reload()}>Try again <ItemName>loading recent provider contributions</ItemName></Button>}>{records.error}</Alert></div>
