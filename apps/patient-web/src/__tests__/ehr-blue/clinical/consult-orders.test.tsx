@@ -242,6 +242,153 @@ describe('Connected orders', () => {
   })
 })
 
+/** Fictional orders past today's 50 to a page: "Test medicine 1" … and "Test 1" … with ids of their own. */
+function manyPrescriptions(from: number, to: number) {
+  return Array.from({ length: to - from + 1 }, (_, index) => prescription({
+    id: `b1000000-0000-4000-8000-${String(from + index).padStart(12, '0')}`, medicationDisplay: `Test medicine ${from + index}`,
+  }))
+}
+
+function manyLabRequests(from: number, to: number) {
+  return Array.from({ length: to - from + 1 }, (_, index) => labRequest({
+    id: `c1000000-0000-4000-8000-${String(from + index).padStart(12, '0')}`, testDisplay: `Test ${from + index}`,
+  }))
+}
+
+type PageAnswer = { items: unknown[]; nextCursor: string | null }
+
+/** Each kind's pages by cursor (none: the first page); a cursor with no page is refused as today's EHR refuses a stale one. */
+function pagedLists(pages: Record<string, Record<string, PageAnswer>>) {
+  api.records.mockImplementation(async (_facility: string, _patient: string, _encounter: string, kind: string, page?: { cursor?: string }) => {
+    const answer = pages[kind]?.[page?.cursor ?? 'first']
+    if (!answer) throw new HidApiError(400, 'The cursor is invalid.', { code: 'INVALID_CURSOR' })
+    return answer
+  })
+}
+
+const RX_PAGES = { first: { items: manyPrescriptions(1, 50), nextCursor: 'rx-page-2' }, 'rx-page-2': { items: manyPrescriptions(51, 53), nextCursor: null } }
+const LAB_PAGES = { first: { items: manyLabRequests(1, 50), nextCursor: 'lab-page-2' }, 'lab-page-2': { items: manyLabRequests(51, 52), nextCursor: null } }
+
+async function pagerOf(list: 'Pharmacy' | 'Laboratory') {
+  const group = await screen.findByRole('group', { name: list })
+  return { group, pager: within(group).getByRole('navigation', { name: 'Record pages' }) }
+}
+
+function pageButton(pager: HTMLElement, name: 'Previous page' | 'Next page') {
+  return within(pager).getByRole('button', { name }) as HTMLButtonElement
+}
+
+describe('Connected orders past 50 (review item 6: pagers past 50)', () => {
+  it('item 6: pages more than 50 prescriptions with Next and Previous, sending today’s cursor', async () => {
+    pagedLists({ prescriptions: RX_PAGES, 'lab-requests': { first: { items: [labRequest()], nextCursor: null } } })
+    open(ENCOUNTER_ID)
+    const { pager } = await pagerOf('Pharmacy')
+    // The lab requests fit on one page: only the prescriptions are paged.
+    expect(screen.getAllByRole('navigation', { name: 'Record pages' })).toHaveLength(1)
+    expect(within(pager).getByText('Page 1')).toBeTruthy()
+    expect(pageButton(pager, 'Previous page').disabled).toBe(true)
+    const list = screen.getByRole('list', { name: 'Orders from this encounter' })
+    expect(within(list).getAllByRole('link', { name: /^Pharmacy · / })).toHaveLength(50)
+    expect(within(list).queryByRole('link', { name: 'Pharmacy · Test medicine 51' })).toBeNull()
+    // Today's first read takes no page argument.
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
+
+    fireEvent.click(pageButton(pager, 'Next page'))
+    expect(await within(pager).findByText('Page 2')).toBeTruthy()
+    expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: 'rx-page-2', fresh: false })
+    const second = screen.getByRole('list', { name: 'Orders from this encounter' })
+    expect(within(second).getAllByRole('link', { name: /^Pharmacy · / }).map(link => link.textContent))
+      .toEqual(['Pharmacy · Test medicine 51', 'Pharmacy · Test medicine 52', 'Pharmacy · Test medicine 53'])
+    expect(within(second).getByRole('link', { name: 'Laboratory · Haemoglobin' })).toBeTruthy()
+    expect(pageButton(pager, 'Next page').disabled).toBe(true)
+    expect(pageButton(pager, 'Previous page').disabled).toBe(false)
+
+    fireEvent.click(pageButton(pager, 'Previous page'))
+    expect(await within(pager).findByText('Page 1')).toBeTruthy()
+    expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: undefined, fresh: false })
+    expect(screen.getByRole('link', { name: 'Pharmacy · Test medicine 1' })).toBeTruthy()
+    // As today, moving between record pages re-checks no access.
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
+  it('item 6: pages more than 50 lab requests with Next and Previous on their own pager, sending today’s cursor', async () => {
+    pagedLists({ prescriptions: RX_PAGES, 'lab-requests': LAB_PAGES })
+    open(ENCOUNTER_ID)
+    const lab = await pagerOf('Laboratory')
+    const rx = await pagerOf('Pharmacy')
+    expect(screen.getAllByRole('navigation', { name: 'Record pages' })).toHaveLength(2)
+    expect(within(screen.getByRole('list', { name: 'Orders from this encounter' })).getAllByRole('link', { name: /^Laboratory · / })).toHaveLength(50)
+
+    fireEvent.click(pageButton(lab.pager, 'Next page'))
+    expect(await within(lab.pager).findByText('Page 2')).toBeTruthy()
+    expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests', { cursor: 'lab-page-2', fresh: false })
+    const list = screen.getByRole('list', { name: 'Orders from this encounter' })
+    expect(within(list).getAllByRole('link', { name: /^Laboratory · / }).map(link => link.textContent))
+      .toEqual(['Laboratory · Test 51', 'Laboratory · Test 52'])
+    // The prescriptions stay on their own first page.
+    expect(within(rx.pager).getByText('Page 1')).toBeTruthy()
+    expect(within(list).getAllByRole('link', { name: /^Pharmacy · / })).toHaveLength(50)
+    expect(pageButton(lab.pager, 'Next page').disabled).toBe(true)
+
+    fireEvent.click(pageButton(lab.pager, 'Previous page'))
+    expect(await within(lab.pager).findByText('Page 1')).toBeTruthy()
+    expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests', { cursor: undefined, fresh: false })
+    expect(screen.getByRole('link', { name: 'Laboratory · Test 1' })).toBeTruthy()
+  })
+
+  it('item 6: starts a list again from the newest, with today’s notice, when EHR no longer accepts its cursor', async () => {
+    // EHR refuses the second page's cursor (400 INVALID_CURSOR): the list is read again from the newest, afresh.
+    pagedLists({ prescriptions: { first: RX_PAGES.first }, 'lab-requests': { first: { items: [labRequest()], nextCursor: null } } })
+    open(ENCOUNTER_ID)
+    const { group, pager } = await pagerOf('Pharmacy')
+    fireEvent.click(pageButton(pager, 'Next page'))
+    const notice = await within(group).findByRole('status')
+    expect(notice.textContent).toBe('This list changed since it was opened, so it shows the newest entries again.')
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: 'rx-page-2', fresh: false })
+    expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: undefined, fresh: true })
+    const shown = within(screen.getByRole('group', { name: 'Pharmacy' })).getByRole('navigation', { name: 'Record pages' })
+    expect(within(shown).getByText('Page 1')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Pharmacy · Test medicine 1' })).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('item 6: says a page that could not be loaded beside its pager, in today’s words, and keeps the page shown', async () => {
+    pagedLists({ prescriptions: RX_PAGES, 'lab-requests': { first: { items: [labRequest()], nextCursor: null } } })
+    open(ENCOUNTER_ID)
+    const { group, pager } = await pagerOf('Pharmacy')
+    api.records.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
+    fireEvent.click(pageButton(pager, 'Next page'))
+    expect((await within(group).findByRole('alert')).textContent).toBe('The page could not be loaded. EHR is unavailable.')
+    expect(within(pager).getByText('Page 1')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Pharmacy · Test medicine 1' })).toBeTruthy()
+    // The next move clears the notice and reads the page.
+    fireEvent.click(pageButton(pager, 'Next page'))
+    expect(await within(pager).findByText('Page 2')).toBeTruthy()
+    expect(within(group).queryByRole('alert')).toBeNull()
+  })
+
+  it('item 6: shows no pager while each list fits on one page', async () => {
+    open(ENCOUNTER_ID)
+    await screen.findByRole('list', { name: 'Orders from this encounter' })
+    expect(screen.queryByRole('navigation', { name: 'Record pages' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Pharmacy' })).toBeNull()
+  })
+
+  it('item 6: opens a prescription past the first 50 from its page, found by the order page’s own search across pages', async () => {
+    pagedLists({ prescriptions: RX_PAGES, 'lab-requests': { first: { items: [labRequest()], nextCursor: null } } })
+    open(ENCOUNTER_ID)
+    const { pager } = await pagerOf('Pharmacy')
+    fireEvent.click(pageButton(pager, 'Next page'))
+    const link = await screen.findByRole('link', { name: 'Pharmacy · Test medicine 52' })
+    expect(link.getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/pharmacy/b1000000-0000-4000-8000-000000000052`)
+    api.records.mockClear()
+    fireEvent.click(link)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Test medicine 52' })).toBeTruthy()
+    expect(api.records).toHaveBeenNthCalledWith(1, FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
+    expect(api.records).toHaveBeenNthCalledWith(2, FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: 'rx-page-2', fresh: false })
+  })
+})
+
 describe('New pharmacy (prescription)', () => {
   async function form() {
     open(`${ENCOUNTER_ID}/orders/new/pharmacy`)

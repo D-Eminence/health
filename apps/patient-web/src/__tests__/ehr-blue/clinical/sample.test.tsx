@@ -156,6 +156,15 @@ describe('sample engine', () => {
     expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(5)
   })
 
+  it.each(['appointments', 'journey', 'radiology'])('item 12: shows the sample notice first in the record quick view on %s', id => {
+    open(id)
+    fireEvent.click(screen.getAllByRole('button', { name: /^Quick view / })[0]!)
+    const drawer = screen.getByRole('dialog', { name: 'Record quick view' })
+    const notice = within(drawer).getByText(SAMPLE_NOTICE)
+    const content = drawer.querySelector('.hid-ehr-clinical-quick')!
+    expect(content.firstElementChild).toBe(notice.closest('[data-ehr-sample]'))
+  })
+
   it('opens the record quick view, which Escape closes, and Open full record goes to the record', async () => {
     open('nursing-tasks')
     fireEvent.click(screen.getByRole('button', { name: 'Quick view 4-hourly observations' }))
@@ -320,19 +329,14 @@ describe('sample engine', () => {
     expect(sampleState().records.find(record => record.id === created.id)!.status).toBe('occupied')
   })
 
-  it('hands off to Nursing tasks with the patient and admission chosen, and to live Nursing observations', async () => {
-    const view = openMany(`${BASE}/inpatient/${IDS.admitTaylor}`, ['inpatient', 'nursing-tasks'])
+  it('hands off to Nursing tasks with the patient and admission chosen', async () => {
+    openMany(`${BASE}/inpatient/${IDS.admitTaylor}`, ['inpatient', 'nursing-tasks'])
     expect(screen.getByRole('heading', { name: 'Continue care' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Create nursing tasks' }))
     await waitFor(() => expect(heading()).toBe('New nursing tasks'))
     expect((field('Patient') as unknown as HTMLSelectElement).value).toBe(sampleState().patients[1]!.id)
     expect((field('Admission') as unknown as HTMLSelectElement).value).toBe(IDS.admitTaylor)
     expect(sampleState().handoff).toBeNull()
-    view.unmount()
-
-    openMany(`${BASE}/inpatient/${IDS.admitTaylor}`, ['inpatient'])
-    fireEvent.click(screen.getByRole('button', { name: 'Create nursing observations' }))
-    expect(screen.getByTestId('elsewhere').textContent).toBe(`${BASE}/nursing/new`)
   })
 
   it('lists the same patient’s records in other sample workspaces as connected history', () => {
@@ -352,8 +356,6 @@ describe('sample engine', () => {
     open('journey', `/${IDS.visitTaylor}`)
     const history = screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section')!
     expect(within(history).queryAllByRole('link')).toHaveLength(0)
-    expect(within(actionsCard()).getByRole('button', { name: 'Create triage & vitals' })).toBeTruthy()
-    expect(within(actionsCard()).getByRole('button', { name: 'Create consultation' })).toBeTruthy()
   })
 
   it('keeps every earlier version, each with its author and values', () => {

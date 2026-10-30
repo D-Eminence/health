@@ -7,7 +7,7 @@ import { COMPLETE_FIELD, RecordForm, type FormValues } from '../parts/RecordForm
 import { SampleBanner } from '../parts/SampleBanner'
 import { useWorkspaceHref } from '../parts/Workspace'
 import { useStandaloneSample } from './context'
-import type { SampleAction, SampleDefinition, SampleField } from './definitions'
+import { isSampleWorkspace, type SampleAction, type SampleDefinition, type SampleField } from './definitions'
 import { formFields, toData } from './fields'
 import { UNKNOWN_SAMPLE } from './SampleList'
 import type { SampleRecord } from './seed'
@@ -22,7 +22,8 @@ const MAX_FILE = 2 * 1024 * 1024
 /**
  * The design's record page: heading and "Back to list", the status line, "Saved record" beside "Available actions"
  * (each action opens its inline form; cancel asks first; delete, sign and refund ask for the typed word),
- * "Continue care", "Connected hospital history" and "Preserved versions & amendments".
+ * "Continue care" (into another sample workspace only), "Connected hospital history" and "Preserved versions &
+ * amendments".
  */
 export function SampleDetail({ id }: { id: string }) {
   const { recordId } = useParams()
@@ -61,6 +62,8 @@ function RecordPage({ definition, record, current }: { definition: SampleDefinit
   const available = definition.actions.filter(action => action.from.includes(record.status))
   const action = available.find(item => item.id === selected)
   const history = historyFor(current, definition, record)
+  // Only ever another sample workspace's create page, never a live one (whose form would open on the chart's patient).
+  const handoffs = (definition.continueCare ?? []).filter(handoff => isSampleWorkspace(handoff.workspace))
 
   const ask = (label: string, word: string | undefined) => new Promise<boolean>(resolve => {
     setAsking({ label, word, answer: resolve })
@@ -96,16 +99,16 @@ function RecordPage({ definition, record, current }: { definition: SampleDefinit
                 onDone={() => { setSelected(null); setSettled(count => count + 1) }}
               />
             ) : null}
-            {definition.continueCare ? (
+            {handoffs.length > 0 ? (
               <>
                 <SubHeading>Continue care</SubHeading>
                 <div className="hid-ehr-clinical-step-row">
-                  {definition.continueCare.map(handoff => (
+                  {handoffs.map(handoff => (
                     <EhrButton
                       key={handoff.workspace}
                       variant="secondary"
                       onClick={() => {
-                        if (sampleDefinition(handoff.workspace)) setSampleHandoff(handoff, record)
+                        setSampleHandoff(handoff, record)
                         navigate(href.to(handoff.workspace, 'new'))
                       }}
                     >

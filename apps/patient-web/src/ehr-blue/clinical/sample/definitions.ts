@@ -28,9 +28,13 @@ export interface SampleAction {
   readonly fields?: readonly SampleField[]
 }
 
-/** A "Continue care" hand-off: another workspace's create page, with the patient (and this record) carried. */
+/**
+ * A "Continue care" hand-off: another sample workspace's create page, with the patient (and this record) carried.
+ * Never a live workspace (Patients, Consultation, Triage, Nursing, Emergency, External record access): a live create
+ * form opens on the patient open in the chart, a real one at a real facility, so a fictional record never leads there.
+ */
 export interface SampleHandoff {
-  readonly workspace: string
+  readonly workspace: SampleWorkspaceId
   /** The target's sidebar label; the button reads "Create {title lower-cased}". */
   readonly title: string
   /** A field of the target set to this record's id (an admission for nursing tasks). */
@@ -69,8 +73,8 @@ const admissionActions: readonly SampleAction[] = [
   action('discharge', 'Discharge patient', ['discharge-ready'], 'discharged', [f('summary', 'Discharge summary', 'textarea')]),
 ]
 
+/** The design also hands off to Nursing observations, a live workspace, so the sample leaves it out. */
 const admissionCare: readonly SampleHandoff[] = [
-  { workspace: 'nursing', title: 'Nursing observations' },
   { workspace: 'nursing-tasks', title: 'Nursing tasks', carry: 'admission' },
 ]
 
@@ -100,7 +104,7 @@ export const SAMPLE_DEFINITIONS: Readonly<Record<string, SampleDefinition>> = {
       action('complete', 'Complete visit', ['waiting', 'triaged', 'consulting'], 'completed', [f('disposition', 'Disposition')]),
       action('cancel', 'Cancel visit', ['waiting', 'triaged'], 'cancelled', [reason]),
     ],
-    continueCare: [{ workspace: 'triage', title: 'Triage & Vitals' }, { workspace: 'consult', title: 'Consultation' }],
+    // The design's hand-offs from a visit (Triage & Vitals, Consultation) are live workspaces: a visit has none.
     listNote: 'Journey stages are derived from visits, triage, encounters, investigations, prescriptions and invoices. Pending activities can run in parallel.',
     historyFromRecord: true,
   },
@@ -265,6 +269,13 @@ export const SAMPLE_WORKSPACE_IDS = [
   'appointments', 'journey', 'inpatient', 'wards', 'ward-config', 'icu', 'nursing-tasks', 'maternity', 'surgery', 'dental',
   'radiology', 'referrals', 'telemedicine', 'bloodbank',
 ] as const
+
+export type SampleWorkspaceId = (typeof SAMPLE_WORKSPACE_IDS)[number]
+
+/** Whether a workspace is one of the 14 sample workspaces (never a live one, nor the emergency board). */
+export function isSampleWorkspace(id: string): id is SampleWorkspaceId {
+  return (SAMPLE_WORKSPACE_IDS as readonly string[]).includes(id)
+}
 
 /**
  * Connected hospital history order: the design's module order (catalog.ts), sample workspaces only. Record kinds a
