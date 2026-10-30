@@ -612,3 +612,12 @@
 .hid-drawer { animation: sheet-up .26s cubic-bezier(.2,.9,.3,1); }
 @media (min-width: 640px) { .hid-drawer { animation-name: drawer-in; } }
 @media (prefers-reduced-motion: reduce) { [class*="toast-drop"], .hid-drawer { animation: none !important; } }
+
+/* The Health ID card (HealthIdCard.tsx): a lean toward the pointer, a light that follows it, an idle sway and sheen. */
+.hid-card { transform: rotateX(var(--hid-rx, 0deg)) rotateY(var(--hid-ry, 0deg)); transform-style: preserve-3d; transition: transform .35s cubic-bezier(.2,.8,.2,1); will-change: transform; }
+.hid-card[data-lit] { transition-duration: .08s; }
+.hid-card-glare { opacity: 0; transition: opacity .3s; background: radial-gradient(circle at var(--hid-mx, 30%) var(--hid-my, 20%), rgba(255,255,255,.55), rgba(255,255,255,0) 42%); }
+.hid-card[data-lit] .hid-card-glare { opacity: 1; }
+@keyframes hid-card-idle { 0%, 100% { transform: rotate(0deg) translateY(0); } 25% { transform: rotate(-.5deg) translateY(-1px); } 75% { transform: rotate(.5deg) translateY(-2px); } }
+@keyframes hid-card-sheen { 0%, 62% { transform: translateX(0); } 86%, 100% { transform: translateX(400%); } }
+@media (prefers-reduced-motion: reduce) { .hid-card { transition: none; transform: none; } }

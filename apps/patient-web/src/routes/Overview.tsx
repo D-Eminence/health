@@ -1,6 +1,5 @@
 import { useMemo, useRef } from 'react'
-import { ArrowRight, BadgeCheck, ChevronRight, CircleDashed, History, IdCard, NotebookPen, PhoneCall, ShieldAlert, ShieldCheck, Stethoscope, FolderHeart } from 'lucide-react'
-import { Allergies, BloodDrop, Dna } from '@healthicons/react'
+import { ArrowRight, BadgeCheck, ChevronRight, CircleDashed, History, IdCard, NotebookPen, PhoneCall, ShieldAlert, ShieldCheck, Stethoscope, FolderHeart, FileText, Pill } from 'lucide-react'
 import { Alert, Button, Card, CardHeader, EmptyState, IconChip, ListRow, PageHeader, PageSkeleton, StatCard, StatGroup, Timeline, greeting, timeAgo, type Icon } from '../kasuwa/ui'
 import { COMPLETION_ITEMS, type CompletionKey } from './profileCompletion'
 import { Link } from 'react-router-dom'
@@ -100,18 +99,22 @@ export function attentionItems({ profile, requests, completion, contacts }: {
   return items
 }
 
-/** A tile's value: what the patient entered, or what they kept in hid-1.0 until they first save their own. */
-function healthValue(entered: string | null, fromHid1: string | undefined, saved: HealthProfile): string {
-  if (entered) return entered
-  if (neverSaved(saved) && fromHid1) return fromHid1
-  return 'Not added'
+/** What the record holds, counted from the records answer: every record, the documents among them, and medicines still taken. */
+export function recordCounts(records: PatientRecords) {
+  const size = (value: unknown) => Array.isArray(value) ? value.length : 0
+  const sections = ['encounters', 'notes', 'vitals', 'diagnoses', 'prescriptions', 'labRequests', 'documents'] as const
+  const medicines = list<PatientRecords['prescriptions'][number]>(records.prescriptions)
+  return {
+    records: sections.reduce((sum, key) => sum + size(records[key]), 0) + size(records.importedRecords),
+    documents: size(records.documents),
+    medicines: medicines.filter(item => typeof item?.status !== 'string' || !/stopped|completed|cancel/i.test(item.status)).length,
+  }
 }
 
 /** What the card prints: the patient's own value, or hid-1.0's until they save one; nothing rather than "Not added". */
 const cardFact = (entered: string | null | undefined, fromHid1: string | undefined, saved: HealthProfile | null) =>
   entered || (saved && neverSaved(saved) && fromHid1) || null
 
-const short = (text: string, limit = 80) => text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text
 
 export function Overview() {
   const { api } = useSession()
@@ -149,6 +152,7 @@ export function Overview() {
   const steps = completion ? COMPLETION_ITEMS.filter(item => completion.done.some(d => d.key === item.key) || completion.missing.some(m => m.key === item.key)) : []
   const checklist = completion && completion.percent < 100 ? CHECKLIST.filter(c => steps.some(item => item.key === c.key)) : []
   const active = history.data && !history.error ? activeAccesses(history.data) : null
+  const counts = records.data && !records.error ? recordCounts(records.data) : null
 
   if (profile.loading && !profile.data) return <PageSkeleton />
   if (profile.error) return <div className="flex flex-col gap-6"><PageHeader title="Overview" titleRef={heading} />
@@ -167,6 +171,7 @@ export function Overview() {
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_1fr]">
       <HealthIdCard className="self-start lg:col-start-2 lg:row-start-1" profile={shown} onChanged={profile.reload}
         verified={typeof shown.ninVerified === 'boolean' ? ninVerifiedOf(shown) : null} shareTo={shareTo}
+        allergies={cardFact(savedHealth?.allergies, fromHid1?.content.allergies, savedHealth)}
         bloodGroup={cardFact(savedHealth?.bloodGroup, fromHid1?.content.blood_group, savedHealth)} genotype={cardFact(savedHealth?.genotype, fromHid1?.content.genotype, savedHealth)} />
 
       <div className="flex min-w-0 flex-col gap-6 lg:col-start-1 lg:row-span-2 lg:row-start-1">
@@ -192,13 +197,12 @@ export function Overview() {
           </ul>
         </Card>}
 
-        <StatGroup label="Health summary">
-          {savedHealth && <>
-            <StatCard icon={BloodDrop as Icon} tone="danger" label="Blood group" value={healthValue(savedHealth.bloodGroup, fromHid1?.content.blood_group, savedHealth)} to="/profile#health-information" />
-            <StatCard icon={Dna as Icon} tone="violet" label="Genotype" value={healthValue(savedHealth.genotype, fromHid1?.content.genotype, savedHealth)} to="/profile#health-information" />
-            <StatCard icon={Allergies as Icon} tone="warn" label="Allergies" value={short(healthValue(savedHealth.allergies, fromHid1?.content.allergies, savedHealth), 24)} to="/profile#health-information" />
-          </>}
+        {/* Blood group, genotype and allergies are on the card; these say what the record holds. */}
+        <StatGroup label="Your record at a glance">
+          <StatCard icon={FolderHeart} tone="brand" label="Records" value={counts ? counts.records : '…'} to="/records" />
+          <StatCard icon={FileText} tone="violet" label="Documents" value={counts ? counts.documents : '…'} to="/records" />
           <StatCard icon={ShieldCheck} tone="success" label={active === 1 ? 'Facility with access' : 'Facilities with access'} value={active ?? (history.error ? '—' : '…')} to="/access" />
+          <StatCard icon={Pill} tone="warn" label="Medicines" value={counts ? counts.medicines : '…'} to="/records" />
         </StatGroup>
 
         <Card aria-labelledby="overview-contributions" aria-busy={(records.loading && records.data !== null) || undefined}>
