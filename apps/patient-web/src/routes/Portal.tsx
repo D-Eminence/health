@@ -34,10 +34,9 @@ import { ProfileChangeProvider, useOnProfileChange } from '../profileChange'
 import { useFocusSectionFromHash, useOpenSections } from './sectionFocus'
 import { OpenSectionsContext, ProfileSection } from './ProfileSection'
 import { completionOf, useProfileSources } from './profileSources'
-import { completionServed } from './profileCompletion'
 import { ProfileCompletionCard } from './ProfileCompletion'
 import { ContactDetails } from './ProfileContact'
-import { Avatar, ProfilePhotoControl, usePatientPhoto } from './ProfilePhoto'
+import { Avatar, usePatientPhoto } from './ProfilePhoto'
 import { CoverageCard } from './ProfileCoverage'
 import { HealthInformationCard } from './HealthInformation'
 import { ShareInvitationsCard } from './ShareInvitations'
@@ -233,7 +232,6 @@ export function ProfilePage() {
   const completion = completionOf(profile.error ? null : profile.data, { details, health, contacts })
   const shown = profile.data && !profile.error ? profile.data : null
 
-  const photo = usePatientPhoto(shown?.hasPhoto === true)
   const share = useShareServed()
 
   return <div className="flex flex-col gap-6">
@@ -242,15 +240,16 @@ export function ProfilePage() {
     {shown && <div className="grid items-start gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
       {/* The card first, as on Home: on a phone it is the top of the page; on a computer it stays in view beside the sections. */}
       <div className="flex flex-col gap-6 lg:sticky lg:top-24">
-        <HealthIdCard name={shown.fullName} hid={shown.hid} verified={typeof shown.ninVerified === 'boolean' ? ninVerifiedOf(shown) : null}
-          photo={<Avatar profile={shown} url={photo.url} size="medium" />} shareTo={share === true ? '/access/share' : '/access'} links={['share']} />
+        <HealthIdCard profile={shown} onChanged={profile.reload} verified={typeof shown.ninVerified === 'boolean' ? ninVerifiedOf(shown) : null}
+          bloodGroup={health.error ? null : health.data?.bloodGroup} genotype={health.error ? null : health.data?.genotype}
+          shareTo={share === true ? '/access/share' : '/access'} links={['share']} />
         {completion && <ProfileCompletionCard completion={completion} />}
       </div>
       <div className="patient-section">
         <OpenSectionsContext.Provider value={sections}>
           {/* Not the whole section busy while the profile reloads: the photo's, contact's and PIN's notices are in it. */}
           <ProfileSection id="bio-data" title="Bio-data" state={shown.dateOfBirth ? `Born ${date(shown.dateOfBirth)}` : null}>
-            {completionServed(shown) && <ProfilePhotoControl profile={shown} onChanged={profile.reload} />}
+            {/* The photo is changed on the card above (tap it), not here as well. */}
             <dl className="patient-details" aria-busy={profile.loading || undefined}>
               <div><dt>Full name</dt><dd>{shown.fullName}</dd></div>
               <div><dt>Date of birth</dt><dd>{date(shown.dateOfBirth)}</dd></div>

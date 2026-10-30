@@ -26,6 +26,7 @@ try {
 } catch { /* cookies blocked: the client falls back to the X-CSRF-Token response header */ }
 
 const unserved = new Set()
+let previewPhoto = null
 const realFetch = window.fetch.bind(window)
 
 window.fetch = async (input, init = {}) => {
@@ -36,8 +37,20 @@ window.fetch = async (input, init = {}) => {
   const workspace = workspaceFor(path, window.location.pathname)
   await new Promise(resolve => setTimeout(resolve, 120)) // a little latency, so loading states show
   if (init.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-  const hit = respond(method, path, workspace)
   const headers = { 'X-CSRF-Token': CSRF }
+  // The patient's photo, kept in this page's memory only (never stored), so changing it from the card can be tried.
+  if (workspace === 'patient' && path === '/identity/me/photo') {
+    if (method === 'PUT') {
+      const body = JSON.parse(String(init.body ?? (input instanceof Request ? await input.text() : '{}')))
+      const bytes = Uint8Array.from(atob(body.data ?? ''), c => c.charCodeAt(0))
+      previewPhoto = new Blob([bytes], { type: body.mediaType ?? 'image/jpeg' })
+      return new Response(JSON.stringify({ hasPhoto: true }), { status: 200, headers: { ...headers, 'Content-Type': 'application/json' } })
+    }
+    if (method === 'DELETE') { previewPhoto = null; return new Response(JSON.stringify({ hasPhoto: false }), { status: 200, headers: { ...headers, 'Content-Type': 'application/json' } }) }
+    if (method === 'GET' && previewPhoto) return new Response(previewPhoto, { status: 200, headers: { ...headers, 'Content-Type': previewPhoto.type } })
+  }
+  const hit = respond(method, path, workspace)
+  if (hit && workspace === 'patient' && method === 'GET' && path === '/identity/me' && hit.body) hit.body = { ...hit.body, hasPhoto: previewPhoto !== null }
   if (!hit) {
     const key = `${method} ${path}`
     if (!EXPECTED_404.has(key) && !unserved.has(key)) {

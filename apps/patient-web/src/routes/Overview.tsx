@@ -14,7 +14,6 @@ import { useDocumentTitle } from '../authSteps'
 import { useRetryFocus } from './actionFocus'
 import { ItemName } from '../ItemName'
 import { HealthIdCard } from './HealthIdCard'
-import { Avatar, usePatientPhoto } from './ProfilePhoto'
 import { completionOf, servedOrNull, useProfileSources } from './profileSources'
 import type { ProfileCompletion } from './profileCompletion'
 import { contactsToCount } from './AccountSafety'
@@ -108,6 +107,10 @@ function healthValue(entered: string | null, fromHid1: string | undefined, saved
   return 'Not added'
 }
 
+/** What the card prints: the patient's own value, or hid-1.0's until they save one; nothing rather than "Not added". */
+const cardFact = (entered: string | null | undefined, fromHid1: string | undefined, saved: HealthProfile | null) =>
+  entered || (saved && neverSaved(saved) && fromHid1) || null
+
 const short = (text: string, limit = 80) => text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text
 
 export function Overview() {
@@ -130,7 +133,6 @@ export function Overview() {
   const heading = useRef<HTMLHeadingElement>(null)
   const retryFocus = useRetryFocus(heading)
   const shown = profile.data && !profile.error ? profile.data : null
-  const photo = usePatientPhoto(shown?.hasPhoto === true)
   const completion = completionOf(shown, { details, health, contacts })
   const counted = contacts.error ? null : contactsToCount(contacts.data)
   const fromHid1: ImportedHealthProfile | null = records.error ? null : records.data?.importedHealthProfile ?? null
@@ -163,9 +165,9 @@ export function Overview() {
 
     {/* The Health ID card is first on a phone (it is what a front desk asks for), and heads the side column on a computer. */}
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_1fr]">
-      <HealthIdCard className="self-start lg:col-start-2 lg:row-start-1" name={shown.fullName} hid={shown.hid}
-        verified={typeof shown.ninVerified === 'boolean' ? ninVerifiedOf(shown) : null}
-        photo={<Avatar profile={shown} url={photo.url} size="medium" />} shareTo={shareTo} />
+      <HealthIdCard className="self-start lg:col-start-2 lg:row-start-1" profile={shown} onChanged={profile.reload}
+        verified={typeof shown.ninVerified === 'boolean' ? ninVerifiedOf(shown) : null} shareTo={shareTo}
+        bloodGroup={cardFact(savedHealth?.bloodGroup, fromHid1?.content.blood_group, savedHealth)} genotype={cardFact(savedHealth?.genotype, fromHid1?.content.genotype, savedHealth)} />
 
       <div className="flex min-w-0 flex-col gap-6 lg:col-start-1 lg:row-span-2 lg:row-start-1">
         {/* Each decision waiting for the patient, in words they act on (inverted pyramid). */}
@@ -226,7 +228,7 @@ const CHECKLIST: ReadonlyArray<{ key: CompletionKey; label: string; to: string }
   { key: 'nin', label: 'Verify your NIN', to: '/profile#nin-verification' },
   { key: 'bloodGroup', label: 'Add your blood group', to: '/profile#health-information' },
   { key: 'emergencyContact', label: 'Add an emergency contact', to: '/profile#emergency-contacts' },
-  { key: 'photo', label: 'Add a profile photo', to: '/profile#bio-data' },
+  { key: 'photo', label: 'Add a photo to your card', to: '/?photo=add' },
   { key: 'genotype', label: 'Add your genotype', to: '/profile#health-information' },
   { key: 'hmo', label: 'Add your HMO', to: '/profile#coverage' },
   { key: 'hospital', label: 'Name the hospital you use', to: '/profile#coverage' },
