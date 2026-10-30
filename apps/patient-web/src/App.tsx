@@ -19,9 +19,14 @@ import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_INVITATION_PATH } f
 import { usesNovuBackend } from './backendContract'
 import { LEGACY_PATIENT_PATHS } from './legacyPaths'
 import { ShareRecords } from './routes/ShareRecords'
+import { BLUE_FOR_ALL } from './ehr-blue/clinicSwitch'
 
 const StaffApp = lazy(async () => ({ default: (await import('./staff/App')).App }))
-const ProviderEnrollment = lazy(async () => ({ default: (await import('./staff/routes/ProviderEnrollment')).ProviderEnrollment }))
+// Facility sign-up: the blue registration once the clinic switch is on (clinicSwitch.ts, a one-line constant module, so
+// no blue code reaches this bundle), today's page until then. Both load lazily, at the same address.
+const ProviderEnrollment = lazy(async () => BLUE_FOR_ALL
+  ? { default: (await import('./ehr-blue/signup/BlueProviderEnrollment')).BlueProviderEnrollment }
+  : { default: (await import('./staff/routes/ProviderEnrollment')).ProviderEnrollment })
 const ClinicianSignUp = lazy(async () => ({ default: (await import('./staff/routes/ClinicianSignUp')).ClinicianSignUp }))
 const ClinicianApplicationStatus = lazy(async () => ({
   default: (await import('./staff/routes/ClinicianApplicationStatus')).ClinicianApplicationStatus }))

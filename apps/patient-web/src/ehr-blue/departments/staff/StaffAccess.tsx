@@ -36,6 +36,27 @@ export function StaffAccess() {
   return <StaffAccessPage />
 }
 
+/** Today's words where Health ID support manages a facility's staff (staff/routes/Staff.tsx). */
+function managedBySupport(facility: string): string {
+  return `Health ID support manages who works at ${facility}. Contact Health ID support to add or remove staff.`
+}
+
+/**
+ * What a staff page's address says where the frame turns it down (visible(): a governed facility, or a service without
+ * staff management; or no workforce.manage): the page's own words, from the session alone. It reads no staff. Staff &
+ * access and HR & Credentials both give it, each under its own title.
+ */
+export function StaffRefusal({ title = TITLE }: { readonly title?: string }) {
+  const { state } = useStaff()
+  const facility = state.status === 'ready' ? state.session.actor.facility : undefined
+  if (!usesNovuBackend()) return <DeptUnavailable title={title} message={`${title} isn’t available on this Health ID service.`} />
+  if (!facility) return <DeptUnavailable title={title} message="Choose the facility you are working at first." />
+  if (!facility.permissions.includes('workforce.manage')) {
+    return <DeptUnavailable title={title} message={`Only ${facility.name}’s administrator can manage its staff.`} />
+  }
+  return <DeptUnavailable title={title} message={managedBySupport(facility.name)} />
+}
+
 type Loaded =
   | { facilityId: string; status: 'loading' }
   | { facilityId: string; status: 'ready'; staff: FacilityStaff }
@@ -77,8 +98,7 @@ function StaffAccessPage() {
 
   if (!facility) return <DeptUnavailable title={TITLE} message="Choose the facility you are working at first." />
   if (!canManage) return <DeptUnavailable title={TITLE} message={`Only ${facility.name}’s administrator can manage its staff.`} />
-  const notAvailable = <DeptUnavailable title={TITLE} message={`Health ID support manages who works at ${facility.name}. `
-    + 'Contact Health ID support to add or remove staff.'} />
+  const notAvailable = <DeptUnavailable title={TITLE} message={managedBySupport(facility.name)} />
   if (!selfService) return notAvailable
   if (!current || current.status === 'loading') {
     return <DeptPage eyebrow={EYEBROW} title={TITLE}><EhrSkeleton label="Loading staff and invitations" /></DeptPage>

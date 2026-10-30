@@ -845,7 +845,8 @@ describe('work from another facility', () => {
     api.labWorkItems.mockResolvedValue(answer([local]))
     renderDept(<Laboratory />)
     expect(await screen.findByRole('heading', { name: /^Incoming/ })).toBeTruthy()
-    expect(routes.incoming).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'lab', undefined)
+    // Incoming asks once it is on the page, in an effect after the heading is drawn.
+    await waitFor(() => expect(routes.incoming).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'lab', undefined))
   })
 
   it('shows Incoming to nobody without the receive permission', async () => {
