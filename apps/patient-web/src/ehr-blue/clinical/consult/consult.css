@@ -1,0 +1,39 @@
+/* Consultation: what the shared clinical styles do not cover. Everything sits under .hid-ehr. */
+
+/* "Edit unsigned draft" above the saved values (design: button, then the list, 10px apart). */
+.hid-ehr .hid-ehr-clinical-consult-edit {
+  margin: 0 0 10px;
+}
+
+/* Today's warning on an encounter status change, in the design's warning banner colours (not a live region). */
+.hid-ehr .hid-ehr-clinical-consult-warning {
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  border-left: 4px solid #94600c;
+  border-radius: 10px;
+  background: #fff7e6;
+  color: var(--ehr-ink);
+}
+
+/* A diagnosis row and its change form. */
+.hid-ehr .hid-ehr-clinical-consult-record {
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.hid-ehr .hid-ehr-clinical-consult-record > .hid-ehr-clinical-history-row {
+  border-bottom: 0;
+}
+
+/* A document's status and "Open file", side by side at the row's end. */
+.hid-ehr .hid-ehr-clinical-consult-document-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+/* The card title takes focus after an action removes its form. */
+.hid-ehr .hid-ehr-clinical-consult-focus:focus {
+  outline: none;
+}

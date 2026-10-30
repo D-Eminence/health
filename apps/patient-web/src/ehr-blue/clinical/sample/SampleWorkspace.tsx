@@ -1,21 +1,47 @@
-import { Workspace } from '../parts/Workspace'
+import './sample.css'
+import { Route, Routes } from 'react-router-dom'
+import { ListHeading } from '../parts/Notices'
+import { Workspace, useWorkspaceHref } from '../parts/Workspace'
+import type { EhrBluePageStatus } from '../types'
+import { InsideSampleWorkspace } from './context'
+import { SampleCreate } from './SampleCreate'
+import { SampleDetail } from './SampleDetail'
+import { SampleList } from './SampleList'
+import { sampleDefinition } from './store'
 
-/** A whole sample workspace (list, `new`, `:recordId`). Placeholder until the sample engine is built. */
+export { SampleCreate } from './SampleCreate'
+export { SampleDetail } from './SampleDetail'
+export { SampleList } from './SampleList'
+export { resetSampleStore } from './store'
+
+/**
+ * Sample only: no part of these workspaces is on the Health ID API. Records are fictional, live in this page's
+ * memory, call nothing and are gone on reload.
+ */
+export const sampleStatus: EhrBluePageStatus = 'sample'
+
+/** A whole sample workspace: the list (`index`), `new` and `:recordId`, under the sample notice. */
 export function SampleWorkspace({ id }: { id: string }) {
-  return <Workspace path={id} sample><SampleList id={id} /></Workspace>
+  return (
+    <Workspace path={id} sample>
+      <InsideSampleWorkspace.Provider value>
+        <Routes>
+          <Route index element={<SampleHome id={id} />} />
+          <Route path="new" element={<SampleCreate id={id} />} />
+          <Route path=":recordId" element={<SampleDetail id={id} />} />
+        </Routes>
+      </InsideSampleWorkspace.Provider>
+    </Workspace>
+  )
 }
 
-/** A sample workspace's list card (search and table), for use inside another workspace. Placeholder. */
-export function SampleList(_props: { id: string }) {
-  return null
-}
-
-/** A sample workspace's create page. Placeholder. */
-export function SampleCreate(_props: { id: string }) {
-  return null
-}
-
-/** A sample workspace's record page. Placeholder. */
-export function SampleDetail(_props: { id: string }) {
-  return null
+/** The list page: the sidebar label as heading with "Create record", then the list card. */
+function SampleHome({ id }: { id: string }) {
+  const href = useWorkspaceHref()
+  return (
+    <>
+      <ListHeading title={sampleDefinition(id)?.title ?? id} createHref={href('new')} />
+      <SampleList id={id} />
+    </>
+  )
 }

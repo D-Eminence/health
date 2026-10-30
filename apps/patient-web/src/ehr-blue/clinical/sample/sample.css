@@ -1,0 +1,16 @@
+/* Sample engine (blue EHR): only what the shared clinical styles do not cover. */
+
+/* An empty "Connected hospital history" shows only its sentence, as in the design. */
+.hid-ehr .hid-ehr-clinical-sample-history .hid-ehr-card > p:empty {
+  display: none;
+}
+
+/* "Available actions" takes focus after an action, without a ring (it is not a control). */
+.hid-ehr .hid-ehr-clinical-sample-actions:focus {
+  outline: none;
+}
+
+/* A file field sits in the form's two-column grid, under any other fields. */
+.hid-ehr .hid-ehr-clinical-form-grid:not(:empty) + .hid-ehr-clinical-sample-file {
+  margin-top: 18px;
+}
