@@ -216,3 +216,33 @@ describe('an active lab request stays online (A12.5)', () => {
     expect(controls.commands().map(command => command.op)).toEqual(['ehr.lab-request.create'])
   })
 })
+
+describe('a visit saved on this device becomes Health ID’s visit (A12.9)', () => {
+  it('is replaced by the server visit as soon as its command is applied', async () => {
+    const { runtime, controls } = await vault()
+    await keepChart()
+    controls.setConnectivity('offline')
+    renderClinical()
+    fireEvent.change(await screen.findByRole('combobox', { name: /Encounter type/ }), { target: { value: 'emergency' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /Chief complaint/ }), { target: { value: 'Fall at home' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start encounter' }))
+    const pressed = await screen.findByRole('button', { name: 'Document this visit', pressed: true })
+    expect(pressed).toBeTruthy()
+    const [visit] = controls.commands()
+    expect(visit).toMatchObject({ op: 'ehr.encounter.create' })
+
+    // Health ID applies it: the runtime's receipt names the server visit (receiptFor, #39).
+    const server = { ...encounter, id: 'enc-9', encounterType: 'emergency', chiefComplaint: 'Fall at home', rowVersion: 1 }
+    api.encounter.mockResolvedValue(server)
+    api.encounters.mockResolvedValue({ items: [server, encounter], nextCursor: null })
+    Object.assign(runtime, { receiptFor: vi.fn(async (commandId: string) => commandId === visit!.id
+      ? { commandId, resourceType: 'encounter', resourceId: 'enc-9', status: 201, replay: false, serverDate: '2026-10-30T08:00:00.000Z', via: 'response' }
+      : null) })
+    controls.setConnectivity('online')
+
+    await waitFor(() => expect(api.encounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, 'enc-9'))
+    const current = await screen.findByRole('button', { current: true })
+    expect(current.textContent).toMatch(/emergency/)
+    expect(screen.queryByRole('button', { name: 'Document this visit', pressed: true })).toBeNull()
+  })
+})

@@ -14,7 +14,7 @@ import type { PendingView, Ref } from '@hid/offline'
 import { ehrReads, keepPatientOffline, useDeviceCopySavedAt } from '../offline/ehrReads'
 import { capturedNow, ehrCommands } from '../offline/ehrCommands'
 import { documentCommands } from '../offline/documentCommands'
-import { offlineRuntime, useOffline, useOfflineActive } from '../offline/runtime'
+import { offlineRuntime, receiptOf, useOffline, useOfflineActive } from '../offline/runtime'
 import { idFromRef } from '../offline/registry'
 import { CachedNotice } from '../offline/CachedNotice'
 import { PendingRow } from '../offline/PendingRow'
@@ -1417,6 +1417,30 @@ export function Clinical() {
     return runtime.subscribe(loadPending)
   }, [runtime, offlineInUse, loadPending])
   const pendingHere = pending.patientId === patientId ? pending.items : []
+  // A visit saved on this device and documented here becomes Health ID's visit as soon as its command is applied
+  // (A12.9): the page then documents the server visit, never the local one it no longer sends to.
+  const documentingLocal = selectedEncounter?.id.startsWith('local:') ? selectedEncounter.id : null
+  useEffect(() => {
+    if (!runtime || !documentingLocal || !patientId || !facility) return
+    let active = true
+    let looking = false
+    const commandId = documentingLocal.slice('local:'.length)
+    const look = () => {
+      if (looking) return
+      looking = true
+      void receiptOf(runtime, commandId).then(async receipt => {
+        if (!active || !receipt?.resourceId) return
+        const server = await ehrReads.encounter(facility.id, patientId, receipt.resourceId).catch(() => null)
+        if (!active) return
+        setSelection(current => current?.id !== documentingLocal ? current
+          : server ?? { ...current, id: receipt.resourceId })
+        void loadEncounters({ fresh: true })
+      }, () => undefined).finally(() => { looking = false })
+    }
+    look()
+    const stop = runtime.subscribe(look)
+    return () => { active = false; stop() }
+  }, [runtime, documentingLocal, patientId, facility, loadEncounters])
 
   if (!activePatient || !facility) return <><div className="staff-page-head"><p className="staff-eyebrow">Clinical record</p><h1>Choose a patient first.</h1><p>Clinical records require a current backend authorization for the selected facility.</p></div><EmptyState title="No authorized patient" description="Open a patient using an approved request, patient PIN, or documented emergency access." action={<Link className="staff-text-link" to="/provider/patients">Go to patient access →</Link>} /></>
   if (activePatient.purpose === 'emergency') return <EmergencySummary facilityId={facility.id}
