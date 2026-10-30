@@ -16,11 +16,14 @@
   font-display: swap;
 }
 
+/* The upstream variable Playfair Display (google/fonts ofl/playfairdisplay), unchanged: each table only
+   zlib-compressed into WOFF, with no WOFF metadata (OFL FAQ 2.2), so its Reserved Font Name stays usable.
+   fonts/PlayfairDisplay[wght].ttf is that upstream file; a test checks the two hold the same tables. */
 @font-face {
   font-family: 'Playfair Display';
-  src: url('./fonts/playfair.woff2') format('woff2');
+  src: url('./fonts/playfair-display.woff') format('woff');
   font-style: normal;
-  font-weight: 400;
+  font-weight: 400 900;
   font-display: swap;
 }
 
@@ -63,9 +66,9 @@
   --ehr-tab-current-text: #005dbd;
   --ehr-tab-current-border: #006fe6;
   --ehr-tab-rule: #dce4ed;
-  /* Accessible substitutions (owner decisions 55, 56, 58 and 60 are open): one token each. */
-  --ehr-control-border: #8a8a8e;
-  --ehr-nav-group-text: #627389;
+  /* The design's exact values (owner decision), both below WCAG contrast by design: one token each. */
+  --ehr-control-border: #c6c6cc;
+  --ehr-nav-group-text: #63758b;
   --ehr-radius-md: 6px;
   --ehr-radius-lg: 6px;
   --ehr-radius-xl: 8px;
@@ -257,10 +260,8 @@
   cursor: pointer;
 }
 
-/* #627389 is 4.51:1 only on surface-tint, so the hover darkens the text too. */
 .hid-ehr .hid-ehr-nav-group-toggle:hover {
   background: #f0f0f0;
-  color: var(--ehr-ink);
 }
 
 .hid-ehr .hid-ehr-nav-link {
@@ -775,26 +776,6 @@
   white-space: nowrap;
 }
 
-.hid-ehr .hid-ehr-badge.hid-ehr-badge-positive {
-  background: var(--ehr-success-50);
-  color: var(--ehr-success-600);
-}
-
-.hid-ehr .hid-ehr-badge.hid-ehr-badge-caution {
-  background: var(--ehr-warning-50);
-  color: var(--ehr-warning-600);
-}
-
-.hid-ehr .hid-ehr-badge.hid-ehr-badge-critical {
-  background: var(--ehr-danger-50);
-  color: var(--ehr-danger-text);
-}
-
-.hid-ehr .hid-ehr-badge.hid-ehr-badge-neutral {
-  background: var(--ehr-surface-sunk);
-  color: var(--ehr-muted);
-}
-
 /* ---- Module tabs (navigation links, not ARIA tabs) ------------------------ */
 
 .hid-ehr .hid-ehr-module-tabs {
@@ -1007,6 +988,71 @@
 .hid-ehr .hid-ehr-skeleton-bar:nth-child(2) {
   width: 95%;
   height: 90px;
+}
+
+/* ---- Sample notice --------------------------------------------------------- */
+
+.hid-ehr .hid-ehr-sample-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 12px 16px;
+  border-left: 4px solid var(--ehr-caution);
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-warning-banner-surface);
+  color: var(--ehr-warning-banner-text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
+}
+
+.hid-ehr .hid-ehr-sample-banner-mark {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--ehr-caution);
+}
+
+/* ---- Popover ---------------------------------------------------------------- */
+
+.hid-ehr .hid-ehr-popover {
+  position: relative;
+  display: inline-flex;
+}
+
+.hid-ehr .hid-ehr-popover-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: var(--ehr-z-popover);
+  box-sizing: border-box;
+  width: 280px;
+  max-width: calc(100vw - 24px);
+  max-height: 70vh;
+  padding: 18px;
+  overflow: auto;
+  border: 1px solid var(--ehr-line-strong);
+  border-radius: 12px;
+  background: var(--ehr-surface);
+  color: var(--ehr-ink);
+  box-shadow: 0 10px 32px #0b1b2e22;
+}
+
+.hid-ehr .hid-ehr-popover-panel:focus {
+  outline: none;
+}
+
+.hid-ehr .hid-ehr-popover-panel.hid-ehr-popover-start {
+  right: auto;
+  left: 0;
+}
+
+.hid-ehr .hid-ehr-popover-panel.hid-ehr-popover-above {
+  top: auto;
+  bottom: calc(100% + 10px);
 }
 
 /* ---- Focus ---------------------------------------------------------------- */

@@ -92,7 +92,7 @@ describe('ehr.css scope', () => {
     expect(faces).toHaveLength(2)
     for (const face of faces) {
       expect(declarations(face.body, 'font-display')).toEqual(['swap'])
-      expect(declarations(face.body, 'src')[0]).toMatch(/^url\('\.\/fonts\/[\w-]+\.woff2'\) format\('woff2'\)$/)
+      expect(declarations(face.body, 'src')[0]).toMatch(/^url\('\.\/fonts\/[\w-]+\.(woff2?)'\) format\('\1'\)$/)
     }
   })
 })
@@ -193,8 +193,8 @@ describe('ehr.css behaviour', () => {
     expect(resolved(title, 'font-size', PHONE)).toBe('24px')
   })
 
-  it('gives controls the substituted border and a not-allowed cursor when disabled', () => {
-    expect(resolved('.hid-ehr .hid-ehr-control', 'border', DESKTOP)).toBe('1px solid #8a8a8e')
+  it('gives controls the design\'s border and a not-allowed cursor when disabled', () => {
+    expect(resolved('.hid-ehr .hid-ehr-control', 'border', DESKTOP)).toBe('1px solid #c6c6cc')
     expect(valueAt(ehrCss, '.hid-ehr .hid-ehr-control:disabled', 'cursor', DESKTOP)).toBe('not-allowed')
     expect(valueAt(ehrCss, '.hid-ehr .hid-ehr-button:disabled', 'cursor', DESKTOP)).toBe('not-allowed')
   })

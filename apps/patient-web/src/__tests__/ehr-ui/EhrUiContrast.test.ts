@@ -33,7 +33,6 @@ describe('EHR text colours', () => {
     ['danger-text', 'danger-50', null],
     ['warning-banner-text', 'warning-banner-surface', null],
     ['tab-current-text', 'tab-current-surface', null],
-    ['nav-group-text', 'surface-tint', 4.51],
   ])('%s on %s reaches 4.5:1', (foreground, background, expected) => {
     const ratio = contrast(colour(foreground), colour(background))
     expect(ratio).toBeGreaterThanOrEqual(TEXT)
@@ -46,20 +45,30 @@ describe('EHR text colours', () => {
     expect([token('danger-text'), token('danger-50')]).toEqual(['#a9322d', '#fdf0ef'])
     expect([token('warning-banner-text'), token('warning-banner-surface')]).toEqual(['#94600c', '#fff7e6'])
     expect([token('tab-current-text'), token('tab-current-surface')]).toEqual(['#005dbd', '#e7f1ff'])
-    expect(token('nav-group-text')).toBe('#627389')
+    expect(token('nav-group-text')).toBe('#63758b')
   })
 })
 
-describe('EHR non-text colours', () => {
+describe('The design\'s exact values below WCAG contrast (owner decision)', () => {
+  // The owner chose the design's own control border and sidebar group heading over the accessible substitutes of
+  // PR #37. These record how far each falls short, so a change to either is a decision, not an accident.
   it.each<[string, number]>([
-    ['surface', 3.44],
-    ['surface-tint', 3.2],
-    ['surface-sunk', 3.06],
-    ['tint', 3.09],
-  ])('the control border reaches 3:1 on %s', (surface, expected) => {
+    ['surface', 1.7],
+    ['surface-tint', 1.58],
+    ['surface-sunk', 1.51],
+    ['tint', 1.53],
+  ])('the control border #c6c6cc is below 3:1 on %s', (surface, expected) => {
+    expect(token('control-border')).toBe('#c6c6cc')
     const ratio = contrast(token('control-border'), token(surface))
-    expect(ratio).toBeGreaterThanOrEqual(NON_TEXT)
+    expect(ratio).toBeLessThan(NON_TEXT)
     expect(ratio).toBeCloseTo(expected, 1)
+  })
+
+  it('the sidebar group heading #63758b is below 4.5:1 on surface-tint', () => {
+    expect(token('nav-group-text')).toBe('#63758b')
+    const ratio = contrast(token('nav-group-text'), token('surface-tint'))
+    expect(ratio).toBeLessThan(TEXT)
+    expect(ratio).toBeCloseTo(4.39, 1)
   })
 
   it('draws the focus ring at 3:1 or more on white', () => {
