@@ -41,7 +41,7 @@ Don't add the endpoint to the mock as if it exists.
 
 ## Sample data
 
-All of it lives in `server.mjs`. Edit it there to test empty states, long
+All of it lives in `routes.mjs` (used by both the server and the preview). Edit it there to test empty states, long
 names, many rows and so on.
 
 ## Preview without a dev server
