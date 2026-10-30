@@ -8,10 +8,9 @@ import {
   EhrSampleBanner, EhrSelect, EhrTextarea, type EhrDataTableColumn,
 } from '@hid/ui/ehr'
 import { useStaff } from '../../../staff/App'
-import { useBluePage, useBluePages } from '../pageContext'
+import { useBluePage, useSampleHref } from '../pageContext'
 import { pageHrefOf } from '../pageHref'
 import type { Action, Field, Module } from './catalog'
-import { modulePath } from './paths'
 import {
   actOnSample, clearSampleHandoff, connectedSamples, createSample, editSampleDraft, FICTIONAL_PATIENTS, findSample,
   handOffSample, sampleFacilityChoices, sampleHandoff, sampleModule, samplePatientAllergies, samplePatientLine,
@@ -75,17 +74,6 @@ export function SampleWorkspace({ moduleId }: SampleWorkspaceProps) {
 function BackToList({ base }: { readonly base: string }) {
   const navigate = useNavigate()
   return <EhrButton variant="secondary" onClick={() => navigate(base)}>Back to list</EhrButton>
-}
-
-/** The address of a design workspace when it opens as a sample here; null when it is a live page (or not here). */
-function useSampleHref(): (moduleId: string) => string | null {
-  const pages = useBluePages()
-  return moduleId => {
-    const href = modulePath(moduleId)
-    const opens = pages.some(candidate => candidate.status === 'sample' && (pageHrefOf(candidate) === href
-      || (candidate.path.endsWith('/*') && href.startsWith(`${pageHrefOf(candidate)}/`))))
-    return opens ? href : null
-  }
 }
 
 function SampleList({ module, base }: { readonly module: Module; readonly base: string }) {

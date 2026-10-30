@@ -40,11 +40,32 @@ const DESIGN_VALUES: Record<string, readonly string[]> = {
   modality: ['X-ray', 'Ultrasound', 'CT'],
 }
 
-/** The design's own fictional values for one workspace's fields (its stock items and invoices). */
+/**
+ * Fictional values for one workspace's fields: the design's stock items, and readings in a plausible adult range. Each
+ * row matches the option its record gets by position: triage is Routine, Urgent, Emergency; a nursing entry is Vitals,
+ * Medication administration, Handover.
+ */
 const DESIGN_MODULE_VALUES: Record<string, Record<string, readonly string[]>> = {
   inventory: {
     name: ['Fictional Med A', 'Fictional Gloves', 'Fictional Syringe'], unit: ['tablet', 'pair', 'piece'],
     packSize: ['10', '50', '100'], threshold: ['20', '100', '50'],
+  },
+  triage: {
+    complaint: ['Headache for two days', 'Fever and cough', 'Shortness of breath'],
+    bp: ['118/76', '132/84', '146/92'],
+    pulse: ['76', '98', '118'],
+    temperature: ['36.8', '38.4', '37.6'],
+    spo2: ['98', '96', '89'],
+    observations: ['Alert and comfortable.', 'Flushed, drinking fluids.', 'Breathless at rest: seen by the doctor at once.'],
+  },
+  nursing: {
+    note: ['BP 124/78 mmHg, pulse 80 bpm, temperature 36.9 °C, SpO2 97%.', 'Fictional Med A given by mouth, as prescribed.',
+      'Comfortable overnight, observations stable. Handed over to the day team.'],
+    units: ['Not applicable', '500 mg', 'Not applicable'],
+  },
+  icu: {
+    reason: ['Monitoring after abdominal surgery', 'Pneumonia needing high-flow oxygen', 'Sepsis needing close observation'],
+    team: ['ICU team A (fictional)', 'ICU team B (fictional)', 'ICU team A (fictional)'],
   },
 }
 

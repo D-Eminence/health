@@ -1,4 +1,6 @@
 import { matchPath } from 'react-router-dom'
+import { usesNovuBackend } from '../backendContract'
+import { STAFF_JOIN_PATH } from '../productHostname'
 import type { BluePageMatch } from './frame/pageContext'
 import { basePath, pageHrefOf } from './frame/pageHref'
 import type { EhrBluePage } from './frame/types'
@@ -54,11 +56,22 @@ export function matchBluePage(pages: readonly EhrBluePage[], pathname: string): 
 
 /**
  * Today's provider routes no page lists, opened from links elsewhere (the migration notice, a staff invitation): the
- * frame shows today's page for them.
+ * frame shows today's page for them, under the tab title today's app gives it (staff/App.tsx PAGE_TITLES).
  */
-export const LIVE_ONLY_PATHS: readonly string[] = ['/provider/migrate', '/provider/staff/join']
+const LIVE_ONLY_TITLES: Readonly<Record<string, string>> = {
+  '/provider/migrate': 'Migration workspace',
+  [STAFF_JOIN_PATH]: 'Join a facility',
+}
+
+const normalized = (pathname: string) => pathname.replace(/\/+$/, '').toLowerCase()
 
 export function isLiveOnlyPath(pathname: string): boolean {
-  const path = pathname.replace(/\/+$/, '').toLowerCase()
-  return LIVE_ONLY_PATHS.includes(path)
+  return Object.hasOwn(LIVE_ONLY_TITLES, normalized(pathname))
+}
+
+/** The tab title of a live-only route. Today's app serves the invitation on Novu only; elsewhere it is not found. */
+export function liveOnlyTitle(pathname: string): string | undefined {
+  const path = normalized(pathname)
+  if (!isLiveOnlyPath(path) || (path === STAFF_JOIN_PATH && !usesNovuBackend())) return undefined
+  return LIVE_ONLY_TITLES[path]
 }

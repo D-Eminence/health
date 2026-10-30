@@ -11,6 +11,7 @@
 
 .hid-ehr .hid-ehr-sidebar-collapsed .hid-ehr-blue-logo {
   width: 32px;
+  height: 32px;
   object-fit: cover;
   object-position: left center;
 }
@@ -231,6 +232,15 @@
   margin: 12px 0 0;
   padding: 0;
   list-style: none;
+}
+
+/* A role's workspace that is live here: named, not linked, as the sample records it lists open nowhere live. */
+.hid-ehr .hid-ehr-blue-shortcut-text {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 4px;
+  color: var(--ehr-muted);
 }
 
 .hid-ehr .hid-ehr-blue-stats {
@@ -652,6 +662,11 @@
   border-bottom: 1px solid #ececec;
 }
 
+/* The heading takes focus only so a screen reader starts there (tabIndex -1): no ring around the whole title. */
+.hid-ehr .hid-ehr-blue-chooser .hid-ehr-page-title:focus {
+  outline: none;
+}
+
 .hid-ehr .hid-ehr-blue-eyebrow {
   margin: 0;
   color: var(--ehr-muted);
@@ -724,6 +739,130 @@
   }
 
   .hid-ehr .hid-ehr-blue-context-line {
+    align-items: flex-start;
+  }
+}
+
+/* ---- Administration samples (screens/admin: platform, facility, setup, reports) ---------------------------------- */
+
+.hid-ehr .hid-ehr-blue-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-half {
+  max-width: calc(50% - 9px);
+}
+
+.hid-ehr .hid-ehr-blue-subheading {
+  margin: 0 0 8px;
+  color: var(--ehr-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-picture {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.hid-ehr .hid-ehr-blue-initials {
+  display: inline-grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: var(--ehr-tint);
+  color: var(--ehr-brand);
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-control.hid-ehr-blue-multi {
+  height: auto;
+  min-height: 110px;
+}
+
+/* The design's warning banner (feedback.css .feedback-banner.warning). */
+.hid-ehr .hid-ehr-blue-callout {
+  margin: 0 0 18px;
+  padding: 16px 20px;
+  border-left: 4px solid var(--ehr-warning-banner-text);
+  border-radius: 10px;
+  background: var(--ehr-warning-banner-surface);
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-blue-callout p {
+  margin: 4px 0 0;
+}
+
+/* The design's stepper (application.css .stepper). */
+.hid-ehr .hid-ehr-blue-stepper {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 24px;
+  padding-bottom: 6px;
+  overflow-x: auto;
+}
+
+.hid-ehr .hid-ehr-blue-stepper .hid-ehr-button {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-department-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-department {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  padding: 12px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 10px;
+}
+
+.hid-ehr .hid-ehr-blue-department small {
+  grid-column: 2;
+  color: var(--ehr-muted);
+}
+
+.hid-ehr .hid-ehr-blue-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-blue-tags li {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--ehr-tint);
+  color: var(--ehr-brand-dark);
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-blue-half {
+    max-width: none;
+  }
+
+  .hid-ehr .hid-ehr-blue-department-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hid-ehr .hid-ehr-blue-picture {
     align-items: flex-start;
   }
 }

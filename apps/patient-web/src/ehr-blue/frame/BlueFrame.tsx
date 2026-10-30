@@ -7,7 +7,7 @@ import { BillingBanner } from '../../staff/routes/Billing'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { chooseClassicEhr, isDemoFacility } from '../blueFacilities'
-import { BLUE_PAGES, isLiveOnlyPath, matchBluePage, pageAllowed, pageTabs } from '../routes'
+import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, pageAllowed, pageTabs } from '../routes'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
 import { ConnectionStatus } from './ConnectionStatus'
@@ -56,7 +56,7 @@ export function BlueFrame() {
   const tabs = match ? pageTabs(allowed, match.page) : []
   // A tab has no sidebar entry: the page it joins is the current one.
   const current = match?.page.tabOf ? allowed.find(page => basePath(page.path) === match.page.tabOf) ?? match.page : match?.page
-  const shownTitle = match ? match.page.label : 'Page not found'
+  const shownTitle = match ? match.page.label : liveOnlyTitle(location.pathname) ?? 'Page not found'
   // Today's tab title names today's pages only: the blue page names itself once the workspace is open.
   useEffect(() => {
     if (lock === null && session) document.title = `${shownTitle} · Health ID EHR`
@@ -70,8 +70,10 @@ export function BlueFrame() {
   }
 
   const classicEhr = () => {
-    // Today's workspace serves its own pages at the same address; anything else opens on its Overview.
-    if (!(match && TODAY_PATHS.has(basePath(match.page.path))) && !isLiveOnlyPath(location.pathname)) navigate('/provider')
+    // Today's workspace serves its own pages at the same address, and only at that exact address: a record or a sample
+    // under one (/provider/appointments/5a020001) is not one of today's, so it opens on today's Overview.
+    const path = location.pathname.replace(/\/+$/, '').toLowerCase()
+    if (![...TODAY_PATHS].some(today => path === `/provider/${today}`) && !isLiveOnlyPath(path)) navigate('/provider')
     chooseClassicEhr()
   }
 

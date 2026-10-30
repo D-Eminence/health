@@ -83,7 +83,8 @@ export function BlueHome() {
         <ul className="hid-ehr-blue-list">
           <AttentionLines activePatient={activePatient} />
         </ul>
-        {!permissions.includes('identity.consent.write') ? <p className="hid-ehr-blue-muted">Nothing needs your attention here.</p> : null}
+        {/* Only when the list is empty: no access requests to count and no patient open. */}
+        {!permissions.includes('identity.consent.write') && !activePatient ? <p className="hid-ehr-blue-muted">Nothing needs your attention here.</p> : null}
       </EhrCard>
       {/* Today's card and its once-only "Done" rule, at a self-signed-up facility (Novu). */}
       {facility ? <FacilityCheckCard facility={facility} /> : null}
