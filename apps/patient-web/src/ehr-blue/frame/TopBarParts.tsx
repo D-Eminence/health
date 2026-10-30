@@ -6,7 +6,7 @@ import {
 import { useStaff } from '../../staff/App'
 import { roleLabels } from '../../staff/staffAccess'
 import { usesNovuBackend } from '../../backendContract'
-import { useAccessRequests } from './attention'
+import { useAccessRequests, useReloadAccessRequests } from './attention'
 import { DEMO_ROLES, useRoleView } from './roleView'
 import { modulePath } from './sample/paths'
 import { sampleModule, sampleRecords } from './sample/store'
@@ -22,9 +22,11 @@ export function WorkspaceSearch({ pages }: { readonly pages: readonly EhrBluePag
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const navigate = useNavigate()
-  // Ctrl+K or Command+K opens it from anywhere in the workspace.
+  const { lock } = useStaff()
+  // Ctrl+K or Command+K opens it from anywhere in the workspace, but not over the session check (the lock screen).
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (lock !== null) return
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         setOpen(true)
@@ -32,7 +34,7 @@ export function WorkspaceSearch({ pages }: { readonly pages: readonly EhrBluePag
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [lock])
   const words = query.trim().toLowerCase()
   const found = pages.filter(page => !words || page.label.toLowerCase().includes(words) || page.group.toLowerCase().includes(words))
   const close = () => { setOpen(false); setQuery('') }
@@ -65,9 +67,10 @@ export function NotificationsButton() {
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
   const read = useAccessRequests()
+  const reload = useReloadAccessRequests()
   const pending = read.state === 'ready' ? read.pending : 0
   return <>
-    <EhrButton variant="secondary" icon={<EhrIcon name="bell" />} onClick={() => setOpen(true)}
+    <EhrButton variant="secondary" icon={<EhrIcon name="bell" />} onClick={() => { setOpen(true); reload() }}
       aria-label={pending > 0 ? `Notifications, ${pending} pending` : 'Notifications'}>
       Notifications{pending > 0 ? <span className="hid-ehr-blue-count" aria-hidden="true">{pending}</span> : null}
     </EhrButton>

@@ -252,12 +252,15 @@ describe('the blue frame', () => {
     await waitFor(() => expect(where()).toBe('/provider/bloodbank'))
   })
 
-  it('counts pending access requests on the bell, from today\'s read', async () => {
-    await openDemo('/provider/whats-left')
-    const bell = await screen.findByRole('button', { name: 'Notifications, 1 pending' })
-    fireEvent.click(bell)
+  it('counts pending access requests on the bell once they are read: on opening its drawer, or Home', async () => {
+    const sent = await openDemo('/provider/whats-left')
+    // Away from Home nothing reads them, as today: only Overview and Requests do.
+    expect(sent.some(call => call.route === REQUESTS)).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }))
     const drawer = screen.getByRole('dialog', { name: 'Notifications' })
-    expect(within(drawer).getByText('1 pending access request')).toBeDefined()
+    expect(await within(drawer).findByText('1 pending access request')).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Notifications, 1 pending' })).toBeDefined()
+    expect(sent.filter(call => call.route === REQUESTS)).toHaveLength(1)
   })
 })
 

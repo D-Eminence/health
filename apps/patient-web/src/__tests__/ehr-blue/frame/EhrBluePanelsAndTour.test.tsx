@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { JOURNEYS } from '../../../ehr-blue/frame/tour/journeys'
 import { DEMO_HOSPITAL, REQUESTS, SESSION, facility, json, openStaffApp, serve, sessionAt, where, withFramePages } from './blueHarness'
 
@@ -51,9 +51,17 @@ describe('the Design tour', () => {
 })
 
 describe('the frame\'s sample panels', () => {
-  it('opens the connection popover from the status chip, and the sync details from it', async () => {
+  it('shows the sample status chip only on sample pages, saying it is a sample', async () => {
     await openDemo('/provider/whats-left')
-    const chip = screen.getByRole('button', { name: 'Needs attention · 4 pending' })
+    expect(screen.queryByRole('button', { name: /Needs attention/ })).toBeNull()
+    act(() => { fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('link', { name: 'Radiology' })) })
+    expect(await screen.findByRole('button', { name: 'Sample · Needs attention · 4 pending' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Sample · Needs attention · 4 pending' }).textContent).toBe('Sample · Needs attention · 4 pending')
+  })
+
+  it('opens the connection popover from the status chip, and the sync details from it', async () => {
+    await openDemo('/provider/appointments')
+    const chip = screen.getByRole('button', { name: 'Sample · Needs attention · 4 pending' })
     fireEvent.click(chip)
     const popover = screen.getByRole('region', { name: 'Connection and sync status' })
     expect(within(popover).getByText(SAMPLE_NOTICE)).toBeDefined()

@@ -1,17 +1,22 @@
 import { useState } from 'react'
 import { EhrButton, EhrDrawer, EhrPopover, EhrSampleBanner } from '@hid/ui/ehr'
 
+/** The chip's words, which say it is a sample before anything else. */
+const CHIP = 'Sample · Needs attention · 4 pending'
+
 /**
  * The design's connection and sync status (screens/panels/connection-popover.png and sync-drawer.png): a chip in the
  * bar at the bottom of the workspace, a popover with the summary and a drawer with the details. Health ID has no
- * offline sync for staff today, so all three are samples with fictional figures.
+ * offline sync for staff today, so all three are samples with fictional figures, and the frame shows the chip only on
+ * sample pages.
  */
 export function ConnectionStatus() {
   const [details, setDetails] = useState(false)
   return (
     <div className="hid-ehr-blue-statusbar">
       <EhrPopover
-        trigger={<><span className="hid-ehr-blue-status-dot" aria-hidden="true" />Needs attention · 4 pending</>}
+        trigger={<><span className="hid-ehr-blue-status-dot" aria-hidden="true" />{CHIP}</>}
+        triggerLabel={CHIP}
         label="Connection and sync status"
         placement="above"
         triggerClassName="hid-ehr-blue-status-chip"

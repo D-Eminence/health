@@ -120,7 +120,8 @@ export function BlueFrame() {
             {/* A page that fails would take the frame with it, and the account menu's way back to the classic EHR. */}
             <BluePageBoundary key={location.pathname} onClassic={classicEhr}>{content}</BluePageBoundary>
           </div>
-          <ConnectionStatus />
+          {/* Fictional figures: only where the page itself is a sample. */}
+          {match?.page.status === 'sample' ? <ConnectionStatus /> : null}
           <AccountSamplePanel panel={samplePanel} onClose={() => setSamplePanel(null)} />
         </EhrAppShell>
       </AttentionProvider>

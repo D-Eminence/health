@@ -274,6 +274,17 @@ export function clearSampleHandoff(moduleId: string) {
   handoffs.delete(moduleId)
 }
 
+/**
+ * Forgets every sample record and handoff, for the next person or facility in this tab: the frame calls it when the
+ * signed-in person or their facility changes, and on sign-out. The workspaces start again from their fictional rows.
+ */
+export function resetSamples() {
+  records.clear()
+  handoffs.clear()
+  version += 1
+  publish()
+}
+
 /** The record's name in a list, as the design names it (its name, title, number, test… reason), else its id. */
 const NAME_KEYS = ['name', 'title', 'number', 'test', 'modality', 'procedure', 'reason', 'sampleCode', 'lot'] as const
 
