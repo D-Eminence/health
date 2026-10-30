@@ -14,7 +14,7 @@ import { InviteCard, OwnLicenceCard } from './InviteCard'
 import { Memberships } from './Memberships'
 import type { StaffShared } from './shared'
 import { ErrorBox } from './StaffFields'
-import { cannotInvite, IDS } from './staffText'
+import { cannotInvite, IDS, type StaffNotice } from './staffText'
 import './staff.css'
 
 /**
@@ -117,6 +117,8 @@ function StaffView({ staff, facilityId, actorEmail, problem, onProblem, reload }
   const reviewed = staff.facility.reviewState === 'reviewed'
   const canInvite = reviewed && staff.canInvite
   const [inviting, setInviting] = useState(false)
+  // A fact an action leaves for the administrator (an email not delivered, consents ended): a banner, never a toast.
+  const [notice, setNotice] = useState<StaffNotice | null>(null)
   const focus = useFocusById()
   // Where focus goes once the list has been read again after an action, if the control used is gone.
   const afterRead = useRef<readonly string[] | null>(null)
@@ -129,15 +131,18 @@ function StaffView({ staff, facilityId, actorEmail, problem, onProblem, reload }
 
   const shared: StaffShared = {
     staff, facilityId, facilityName, actorEmail, reload,
-    done: focusAfter => {
+    done: (focusAfter, next = null) => {
       onProblem('')
+      setNotice(next)
       if (focusAfter) afterRead.current = focusAfter
       reload()
     },
+    notify: setNotice,
     refused: caught => {
       const text = staffProblemText(caught, { facility: facilityName, limits: staff.limits })
       if (isHidApiError(caught) && STAFF_REFRESHING.includes(caught.code)) {
         onProblem(text)
+        setNotice(null)
         afterRead.current = [IDS.problem]
         reload()
       }
@@ -152,15 +157,16 @@ function StaffView({ staff, facilityId, actorEmail, problem, onProblem, reload }
         aria-describedby={canInvite ? undefined : IDS.inviteWhy} onClick={() => setInviting(open => !open)}>Invite staff</EhrButton>
     }>
       {problem ? <ErrorBox id={IDS.problem} tabIndex={-1}>{problem}</ErrorBox> : null}
+      <div role="status" id={IDS.notice}>{notice ? <DeptNotice tone={notice.tone}>{notice.text}</DeptNotice> : null}</div>
       {!reviewed ? <DeptNotice id={IDS.inviteWhy}>You can add staff once Health ID support has checked {facilityName}.</DeptNotice> : null}
       {reviewed && staff.facility.firstThirtyDaysEndAt ? <DeptNotice>In its first 30 days on Health ID, {facilityName} can send
         {' '}{staff.limits.invitationsPerDay} invitations a day. Ask Health ID support if you need more.</DeptNotice> : null}
       {reviewed && !staff.canInvite ? <DeptNotice tone="caution" id={IDS.inviteWhy}>{cannotInvite(staff)}</DeptNotice> : null}
       {!reviewed && staff.administratorLicenceBodies.some(isLicenceBody) ? <OwnLicenceCard shared={shared} /> : null}
-      {canInvite && inviting ? <InviteCard shared={shared} onSent={() => {
+      {canInvite && inviting ? <InviteCard shared={shared} onSent={sentNotice => {
         setInviting(false)
         focus(IDS.inviteToggle)
-        shared.done()
+        shared.done(undefined, sentNotice)
       }} /> : null}
       <Memberships shared={shared} reviewed={reviewed} />
       <InvitationLifecycle shared={shared} reviewed={reviewed} />

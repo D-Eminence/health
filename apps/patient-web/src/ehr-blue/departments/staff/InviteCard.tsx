@@ -14,7 +14,7 @@ import { DeptNotice } from '../parts/DeptNotice'
 import type { StaffShared } from './shared'
 import { fieldAria, FormFooter, StaffCheck, StaffField, StaffPassword } from './StaffFields'
 import {
-  attestationText, deliveryToast, EMAIL, EMAIL_PROBLEM, holders, licenceNumberProblem, REQUIRED,
+  attestationText, deliveryNotice, EMAIL, EMAIL_PROBLEM, holders, licenceNumberProblem, REQUIRED, type StaffNotice,
 } from './staffText'
 
 /** The role, and the licence number its regulator issues (none for a receptionist), as the target's form fields. */
@@ -53,7 +53,7 @@ const INVITE_FIELDS = ['name', 'email', 'role', 'licence', 'attested', 'password
  * "Invite a staff member" (the target's card under "Invite staff"): name, email and assigned role as on the target;
  * the licence the role needs, the facility's confirmation and the administrator's password, which Identity asks for.
  */
-export function InviteCard({ shared, onSent }: { readonly shared: StaffShared; readonly onSent: () => void }) {
+export function InviteCard({ shared, onSent }: { readonly shared: StaffShared; readonly onSent: (notice: StaffNotice | null) => void }) {
   const { staff, facilityId, facilityName, actorEmail, refused } = shared
   // One key per invitation form, kept for its retries: Identity answers a repeated key and request with the same invitation.
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID())
@@ -101,9 +101,11 @@ export function InviteCard({ shared, onSent }: { readonly shared: StaffShared; r
         name: normalizePersonName(name), email: address, role,
         ...(body ? { licenceBody: body, licenceNumber: normalizeLicenceNumber(number) } : {}), currentPassword: password,
       }, idempotencyKey)
-      if (created.replayed) toast.info('Invitation already sent', { description: `This invitation was already sent to ${address}.` })
-      else deliveryToast(created.deliveryOutcome, address, false)
-      onSent()
+      // A toast carries a generic title only; what the administrator must know about this address stays in a banner.
+      const notice: StaffNotice | null = created.replayed ? { tone: 'info', text: `This invitation was already sent to ${address}.` }
+        : deliveryNotice(created.deliveryOutcome, address, false)
+      if (!notice) toast.success('Invitation created')
+      onSent(notice)
     } catch (caught) {
       setPassword('')
       // A reused key belongs to another request: a new one sends this one.
@@ -170,10 +172,10 @@ export function OwnLicenceCard({ shared }: { readonly shared: StaffShared }) {
     if (found.body || found.number) { focus(found.body ? 'ehr-staff-own-licence-body' : 'ehr-staff-own-licence-number'); return }
     setBusy(true)
     try {
-      const recorded = await facilityStaffApi.recordAdministratorLicence(facilityId, body, normalizeLicenceNumber(number))
+      await facilityStaffApi.recordAdministratorLicence(facilityId, body, normalizeLicenceNumber(number))
       setNumber('')
-      toast.success('Licence saved', { description: `${recorded.licenceBody}${recorded.numberHint ? ` ending ${recorded.numberHint}` : ''}. `
-        + `Health ID support checks it when it reviews ${facilityName}.` })
+      // The card itself says what was saved once the list is read again ("Saved: NMCN ending 4321…"): the toast is generic.
+      toast.success('Licence saved')
       announceFacilityStaffChanged()
       done()
     } catch (caught) { setError(refused(caught)) }

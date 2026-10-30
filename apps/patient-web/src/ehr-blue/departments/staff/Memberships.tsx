@@ -3,7 +3,7 @@ import { toast } from '@hid/ui'
 import { EhrButton, EhrDialog, EhrDrawer, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { facilityStaffApi, type FacilityStaffMember } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
-import { licenceBodyForRole, licenceNumberAcceptable, normalizeLicenceNumber, roleInSentence, roleLabels } from '../../../staff/staffAccess'
+import { licenceBodyForRole, licenceNumberAcceptable, normalizeLicenceNumber, roleLabels } from '../../../staff/staffAccess'
 import { DeptSection } from '../parts/DeptPage'
 import { DeptFacts, type DeptFact } from '../parts/DeptRecord'
 import { RoleFields } from './InviteCard'
@@ -126,10 +126,10 @@ function MemberAccess({ member, shared, onDirty, onClose }: {
   async function changeRole() {
     setBusy(true)
     try {
-      const changed = await facilityStaffApi.changeRole(facilityId, member, { role,
+      await facilityStaffApi.changeRole(facilityId, member, { role,
         ...(body ? { licenceBody: body, licenceNumber: normalizeLicenceNumber(number) } : {}), reason: reason.trim(),
         currentPassword: password })
-      toast.success('Access updated', { description: `${member.name} is now ${roleInSentence(changed.roleCode || role)} at ${facilityName}.` })
+      toast.success('Access updated')
       onClose()
       done([editButton(id), IDS.members])
     } catch (caught) { setPassword(''); setError(refused(caught)) }
@@ -143,10 +143,11 @@ function MemberAccess({ member, shared, onDirty, onClose }: {
       const ended = await facilityStaffApi.end(facilityId, member, reason.trim(), password)
       const consents = ended.grantsRevoked === 1 ? ' 1 patient consent to them ended.'
         : ended.grantsRevoked > 1 ? ` ${ended.grantsRevoked} patient consents to them ended.` : ''
-      toast.success('Staff member deactivated', { description: `${member.name} no longer has access to ${facilityName}.${consents}` })
+      // Ended consents are a fact to keep on the page: said in the banner, with no toast. Otherwise a generic toast.
+      if (!consents) toast.success('Staff member deactivated')
       setDeciding(false)
       onClose()
-      done([IDS.members])
+      done([IDS.members], consents ? { tone: 'info', text: `${member.name} no longer has access to ${facilityName}.${consents}` } : null)
     } catch (caught) { setPassword(''); setDeciding(false); setError(refused(caught)) }
     finally { setBusy(false) }
   }

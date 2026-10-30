@@ -1,4 +1,5 @@
 import type { FacilityStaff } from '../../../staff/api'
+import type { StaffNotice } from './staffText'
 
 /** What every part of the Staff & access page shares: the facility's staff as last read, and how an action ends. */
 export interface StaffShared {
@@ -7,10 +8,12 @@ export interface StaffShared {
   readonly facilityName: string
   readonly actorEmail: string
   /**
-   * An action succeeded: the page's problem is cleared and the list is read again. `focusAfter` takes focus once it
-   * is, if focus was lost meanwhile (the control used is gone).
+   * An action succeeded: the page's problem is cleared, its banner becomes `notice` (none by default), and the list
+   * is read again. `focusAfter` takes focus once it is, if focus was lost meanwhile (the control used is gone).
    */
-  readonly done: (focusAfter?: readonly string[]) => void
+  readonly done: (focusAfter?: readonly string[], notice?: StaffNotice | null) => void
+  /** Says a fact in the page's banner without reading the list again. */
+  readonly notify: (notice: StaffNotice | null) => void
   /** Reads the list again, keeping what the page says. */
   readonly reload: () => void
   /**

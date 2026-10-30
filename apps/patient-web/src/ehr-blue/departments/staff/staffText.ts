@@ -1,4 +1,3 @@
-import { toast } from '@hid/ui'
 import type { FacilityStaff, FacilityStaffInvitation, FacilityStaffMember, StaffDeliveryOutcome } from '../../../staff/api'
 import { isLicenceBody, LICENCE_BODIES, type LicenceBody } from '../../../staff/staffAccess'
 import { dateText } from '../parts/format'
@@ -13,6 +12,7 @@ export const IDS = {
   inviteToggle: 'ehr-staff-invite-toggle',
   inviteWhy: 'ehr-staff-invite-why',
   problem: 'ehr-staff-problem',
+  notice: 'ehr-staff-notice',
   members: 'ehr-staff-members-title',
   invitations: 'ehr-staff-invitations-title',
   retry: 'ehr-staff-retry',
@@ -85,18 +85,22 @@ export const DELIVERY_WORDS: Readonly<Record<string, string>> = {
   pending: 'sending',
 }
 
-/** What became of an invitation email just sent, as a toast: the target's "Invitation created", and the delivery. */
-export function deliveryToast(outcome: StaffDeliveryOutcome | string, email: string, again: boolean) {
-  const title = again ? 'Invitation sent again' : 'Invitation created'
-  if (outcome === 'accepted') {
-    toast.success(title, { description: `Sent to ${email}.` })
-  } else if (outcome === 'definitive_failure') {
-    toast.warning(title, { description: `The email to ${email} couldn’t be delivered. Check the address: if it’s wrong, `
-      + 'revoke this invitation and invite the right one.' })
-  } else {
-    toast.warning(title, { description: `We couldn’t confirm that the email to ${email} was delivered. If it doesn’t `
-      + 'arrive, resend it in a minute.' })
-  }
+/** A fact the page keeps saying in a banner after an action: a toast carries only a generic title (UI-PATTERNS.md). */
+export interface StaffNotice {
+  readonly tone: 'caution' | 'info'
+  readonly text: string
+}
+
+/**
+ * What became of an invitation email just sent, when the administrator must act on it: null when it was sent (a
+ * generic toast says so), otherwise today's words in a caution banner, naming the address.
+ */
+export function deliveryNotice(outcome: StaffDeliveryOutcome | string, email: string, again: boolean): StaffNotice | null {
+  if (outcome === 'accepted') return null
+  if (outcome === 'definitive_failure') return { tone: 'caution', text: `The invitation to ${email} couldn’t be delivered. `
+    + 'Check the address: if it’s wrong, revoke this invitation and invite the right one.' }
+  return { tone: 'caution', text: `${again ? 'The invitation was renewed' : 'The invitation was created'}, but we couldn’t `
+    + `confirm that the email to ${email} was delivered. If it doesn’t arrive, resend it in a minute.` }
 }
 
 /** Why "Invite staff" is not available now, in the order Identity would refuse. */

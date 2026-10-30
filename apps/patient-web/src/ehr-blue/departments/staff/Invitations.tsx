@@ -9,7 +9,7 @@ import { DeptFacts, type DeptFact } from '../parts/DeptRecord'
 import type { StaffShared } from './shared'
 import { ErrorBox } from './StaffFields'
 import {
-  dateText, DELIVERY_WORDS, deliveryToast, IDS, invitationStatus, licenceNumberText, plural, resendTime,
+  dateText, DELIVERY_WORDS, deliveryNotice, IDS, invitationStatus, licenceNumberText, plural, resendTime, type StaffNotice,
 } from './staffText'
 
 const nameId = (id: string) => `ehr-staff-invitation-${id}`
@@ -24,7 +24,7 @@ const actionable = (invitation: FacilityStaffInvitation) => invitation.status ==
  * Identity decides every send: a resend waits for the time it gives, and a refusal is said where it happened.
  */
 export function InvitationLifecycle({ shared, reviewed }: { readonly shared: StaffShared; readonly reviewed: boolean }) {
-  const { staff, facilityId, facilityName, done, reload, refused } = shared
+  const { staff, facilityId, facilityName, done, notify, reload, refused } = shared
   const [details, setDetails] = useState<string | null>(null)
   const [selected, setSelected] = useState<readonly string[]>([])
   const [bulkError, setBulkError] = useState('')
@@ -44,6 +44,7 @@ export function InvitationLifecycle({ shared, reviewed }: { readonly shared: Sta
     setBulkBusy('resend')
     let sent = 0
     let failed = false
+    const problems: StaffNotice[] = []
     try {
       for (const id of chosen) {
         const invitation = list.find(entry => entry.invitationId === id)
@@ -56,9 +57,10 @@ export function InvitationLifecycle({ shared, reviewed }: { readonly shared: Sta
         }
         try {
           const result = await facilityStaffApi.resend(facilityId, invitation)
-          sent += 1
           setSelected(old => old.filter(entry => entry !== id))
-          if (result.deliveryOutcome !== 'accepted') deliveryToast(result.deliveryOutcome, invitation.email, true)
+          const problem = deliveryNotice(result.deliveryOutcome, invitation.email, true)
+          if (problem) problems.push(problem)
+          else sent += 1
         } catch (caught) {
           setBulkError(refused(caught))
           failed = true
@@ -66,10 +68,12 @@ export function InvitationLifecycle({ shared, reviewed }: { readonly shared: Sta
         }
       }
     } finally { setBulkBusy(null) }
-    if (sent > 0) {
-      toast.success(`${plural(sent, 'invitation')} sent again`)
-      if (failed) reload()
-      else done()
+    // A count only in the toast; an address whose email went wrong stays in the banner.
+    if (sent > 0) toast.success(`${plural(sent, 'invitation')} sent again`)
+    const notice: StaffNotice | null = problems.length > 0 ? { tone: 'caution', text: problems.map(problem => problem.text).join(' ') } : null
+    if (sent + problems.length > 0) {
+      if (failed) { notify(notice); reload() }
+      else done(undefined, notice)
     }
     focus(IDS.invitations, true)
   }
@@ -174,8 +178,9 @@ function InvitationRow({ invitation, shared, selected, onSelect, onDetails }: {
     setBusy('resend')
     try {
       const sent = await facilityStaffApi.resend(facilityId, invitation)
-      deliveryToast(sent.deliveryOutcome, invitation.email, true)
-      done([detailsButton(id), IDS.invitations])
+      const notice = deliveryNotice(sent.deliveryOutcome, invitation.email, true)
+      if (!notice) toast.success('Invitation sent again')
+      done([detailsButton(id), IDS.invitations], notice)
     } catch (caught) { setError(refused(caught)) }
     finally { setBusy(null) }
   }
@@ -186,7 +191,7 @@ function InvitationRow({ invitation, shared, selected, onSelect, onDetails }: {
     setBusy('revoke')
     try {
       await facilityStaffApi.revoke(facilityId, invitation)
-      toast.success('Invitation revoked', { description: `The link and code sent to ${invitation.email} no longer work.` })
+      toast.success('Invitation revoked')
       setConfirming(false)
       done([detailsButton(id), IDS.invitations])
     } catch (caught) {
