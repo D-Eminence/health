@@ -1,0 +1,520 @@
+/*
+ * The blue Hospital EHR's department and admin pages. Every rule sits under
+ * .hid-ehr (the frame's EhrAppShell root) and names hid-ehr-dept-* classes, so
+ * nothing here reaches the live provider workspace. Values come from the
+ * --ehr-* tokens that @hid/ui/ehr declares on .hid-ehr.
+ */
+
+.hid-ehr .hid-ehr-dept {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  color: var(--ehr-text);
+  font-family: var(--ehr-font-body);
+  font-size: var(--ehr-text-md);
+  line-height: var(--ehr-leading-md);
+}
+
+.hid-ehr .hid-ehr-dept > * {
+  min-width: 0;
+}
+
+/* The page heading. */
+.hid-ehr .hid-ehr-dept-eyebrow {
+  margin: 0 0 6px;
+  color: var(--ehr-muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hid-ehr .hid-ehr-dept-heading-after-eyebrow {
+  margin-top: 0;
+}
+
+.hid-ehr .hid-ehr-dept .hid-ehr-page-description {
+  max-width: 72ch;
+}
+
+/* Sections: the target's cards, 20px apart. */
+.hid-ehr .hid-ehr-dept-section {
+  margin: 0 0 20px;
+}
+
+.hid-ehr .hid-ehr-dept-section > .hid-ehr-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.hid-ehr .hid-ehr-dept-section h3 {
+  margin: 18px 0 10px;
+  color: var(--ehr-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-section p {
+  margin: 0 0 10px;
+}
+
+.hid-ehr .hid-ehr-dept-section p:last-child {
+  margin-bottom: 0;
+}
+
+.hid-ehr .hid-ehr-dept-unavailable {
+  text-align: left;
+}
+
+.hid-ehr .hid-ehr-dept-stack {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-dept-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+/* Text helpers. */
+.hid-ehr .hid-ehr-dept-muted {
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-strong {
+  color: var(--ehr-ink);
+  font-weight: 500;
+}
+
+.hid-ehr .hid-ehr-dept-reference {
+  display: block;
+  margin-top: 4px;
+  color: var(--ehr-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A record name or "Open": a button that looks like the target's link. */
+.hid-ehr .hid-ehr-dept-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ehr-brand-dark);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.hid-ehr .hid-ehr-dept-link:focus-visible {
+  outline: var(--ehr-focus-ring-width, 3px) solid var(--ehr-brand);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.hid-ehr .hid-ehr-dept-record-name {
+  display: grid;
+  justify-items: start;
+}
+
+/* The list card: search, filters and the table under them. */
+.hid-ehr .hid-ehr-dept-list-card {
+  padding: 20px;
+}
+
+.hid-ehr .hid-ehr-dept-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  align-items: end;
+}
+
+.hid-ehr .hid-ehr-dept-search {
+  margin: 0 0 18px;
+}
+
+.hid-ehr .hid-ehr-dept-search-row .hid-ehr-field {
+  margin: 0 0 18px;
+}
+
+.hid-ehr .hid-ehr-dept-list-card .hid-ehr-table-scroll,
+.hid-ehr .hid-ehr-dept-list-card .hid-ehr-empty-state,
+.hid-ehr .hid-ehr-dept-list-card .hid-ehr-error-state,
+.hid-ehr .hid-ehr-dept-list-card .hid-ehr-skeleton {
+  margin-top: 0;
+}
+
+.hid-ehr .hid-ehr-dept-table-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.hid-ehr .hid-ehr-dept-table-actions .hid-ehr-dept-link {
+  margin-left: 4px;
+}
+
+.hid-ehr .hid-ehr-dept-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 20px;
+}
+
+.hid-ehr .hid-ehr-dept-toolbar-note {
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+/* A record's status line under its title. */
+.hid-ehr .hid-ehr-dept-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0 0 20px;
+}
+
+.hid-ehr .hid-ehr-dept-context-item {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-context-item:nth-of-type(2) {
+  color: var(--ehr-ink);
+  font-size: 14px;
+}
+
+/* "Saved record": label and value in two columns. */
+.hid-ehr .hid-ehr-dept-facts {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-fact {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr);
+  gap: 18px;
+  align-items: baseline;
+}
+
+.hid-ehr .hid-ehr-dept-fact dt {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-fact dd {
+  margin: 0;
+  color: var(--ehr-ink);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* "Available actions": each action full width; an open one shows its form under it. */
+.hid-ehr .hid-ehr-dept-actions-card .hid-ehr-card-title {
+  margin: 0 0 16px;
+}
+
+.hid-ehr .hid-ehr-dept-action-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-action-stack > .hid-ehr-button {
+  width: 100%;
+}
+
+.hid-ehr .hid-ehr-dept-action-stack > .hid-ehr-button[aria-expanded='true'] {
+  background: var(--ehr-surface-tint);
+}
+
+.hid-ehr .hid-ehr-dept-action-form {
+  display: grid;
+  gap: 16px;
+  margin: 8px 0 8px;
+}
+
+/* Forms. */
+.hid-ehr .hid-ehr-dept-form {
+  display: grid;
+  gap: 18px;
+}
+
+.hid-ehr .hid-ehr-dept-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.hid-ehr .hid-ehr-dept-form-grid > .hid-ehr-dept-full {
+  grid-column: 1 / -1;
+}
+
+.hid-ehr .hid-ehr-dept-form .hid-ehr-field {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-dept-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--ehr-brand);
+}
+
+.hid-ehr .hid-ehr-dept-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Preserved versions: native disclosures. */
+.hid-ehr .hid-ehr-dept-history {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-dept-history summary {
+  color: var(--ehr-ink);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-dept-history summary:focus-visible {
+  outline: 3px solid var(--ehr-brand);
+  outline-offset: 3px;
+}
+
+.hid-ehr .hid-ehr-dept-history-detail {
+  margin-top: 10px;
+}
+
+/* Rows in a card: memberships, invitations, events. */
+.hid-ehr .hid-ehr-dept-rows {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-rows > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--ehr-line);
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-rows > li:last-child {
+  border-bottom: 0;
+}
+
+.hid-ehr .hid-ehr-dept-row-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+.hid-ehr .hid-ehr-dept-row-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ehr-ink);
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--ehr-tint);
+  color: var(--ehr-brand-dark);
+  font-size: 12px;
+  font-weight: 600;
+  flex: none;
+}
+
+/* Banners. */
+.hid-ehr .hid-ehr-dept-notice {
+  margin: 0 0 20px;
+  padding: 14px 20px;
+  border-left: 4px solid var(--ehr-brand);
+  border-radius: var(--ehr-radius-xl);
+  background: var(--ehr-tint);
+  color: var(--ehr-ink);
+  font-size: 14px;
+}
+
+.hid-ehr .hid-ehr-dept-notice:focus-visible {
+  outline: 3px solid var(--ehr-brand);
+  outline-offset: 3px;
+}
+
+.hid-ehr .hid-ehr-dept-notice-title {
+  margin: 0 0 2px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-notice-body > p {
+  margin: 0 0 6px;
+}
+
+.hid-ehr .hid-ehr-dept-notice-body > p:last-child {
+  margin-bottom: 0;
+}
+
+.hid-ehr .hid-ehr-dept-notice-caution {
+  border-left-color: var(--ehr-caution);
+  background: var(--ehr-warning-banner-surface);
+}
+
+.hid-ehr .hid-ehr-dept-notice-critical {
+  border-left-color: var(--ehr-critical);
+  background: var(--ehr-danger-50);
+  color: var(--ehr-danger-text);
+}
+
+.hid-ehr .hid-ehr-dept-notice-positive {
+  border-left-color: var(--ehr-positive);
+  background: var(--ehr-success-50);
+  color: var(--ehr-success-600);
+}
+
+/* The sample notice: on every sample workspace and sample section, never dismissible. */
+.hid-ehr .hid-ehr-dept-sample-banner {
+  margin: 0 0 20px;
+  padding: 12px 20px;
+  border: 1px solid #f0d9a8;
+  border-left: 4px solid var(--ehr-caution);
+  border-radius: var(--ehr-radius-xl);
+  background: var(--ehr-warning-banner-surface);
+  color: var(--ehr-warning-banner-text);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.hid-ehr .hid-ehr-dept-icon {
+  display: block;
+  flex: none;
+}
+
+/*
+ * Parts of today's provider workspace reused as they are (orders from other
+ * facilities, ended orders, can't complete). Their live --color-* tokens are
+ * pointed at the blue ones here, so they take the blue look without a change.
+ */
+.hid-ehr .hid-ehr-dept-embedded {
+  --color-brand: var(--ehr-brand);
+  --color-brand-dark: var(--ehr-brand-dark);
+  --color-brand-hover: var(--ehr-brand-dark);
+  --color-brand-active: var(--ehr-primary-700);
+  --color-brand-tint: var(--ehr-tint);
+  --color-brand-tint-hover: var(--ehr-primary-100);
+  --color-brand-border: var(--ehr-primary-200);
+  --color-page: var(--ehr-surface);
+  --color-surface: var(--ehr-surface);
+  --color-surface-raised: var(--ehr-surface);
+  --color-surface-sunk: var(--ehr-surface-sunk);
+  --color-surface-tint: var(--ehr-surface-tint);
+  --color-surface-hover: var(--ehr-surface-tint);
+  --color-surface-selected: var(--ehr-primary-50);
+  --color-ink: var(--ehr-ink);
+  --color-text: var(--ehr-text);
+  --color-muted: var(--ehr-muted);
+  --color-line: var(--ehr-line);
+  --color-line-strong: var(--ehr-line-strong);
+  --color-line-control: var(--ehr-control-border);
+  --color-critical: var(--ehr-critical);
+  --color-positive-ink: var(--ehr-success-600);
+  --color-caution-ink: var(--ehr-warning-600);
+  --font-sans: var(--ehr-font-body);
+  --radius-card: var(--ehr-radius-xl);
+  margin: 0 0 20px;
+  font-family: var(--ehr-font-body);
+}
+
+.hid-ehr .hid-ehr-dept-embedded .staff-card,
+.hid-ehr .hid-ehr-dept-embedded .staff-list-item {
+  border: 0.5px solid #e7e7e7;
+  border-radius: var(--ehr-radius-xl);
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-dept-embedded .staff-card h2,
+.hid-ehr .hid-ehr-dept-embedded .staff-section > h2 {
+  color: var(--ehr-ink);
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.hid-ehr .hid-ehr-dept-embedded .staff-notice {
+  border-left-width: 4px;
+  border-radius: var(--ehr-radius-md);
+}
+
+@media (max-width: 1000px) {
+  .hid-ehr .hid-ehr-dept-two-col {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-dept-form-grid,
+  .hid-ehr .hid-ehr-dept-search-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hid-ehr .hid-ehr-dept-fact {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}
