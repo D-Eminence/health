@@ -148,7 +148,7 @@ function SpecimenActions({ facilityId, accessionId, specimen, permissions, onSta
   const allowed = specimenSteps(specimen, permissions)
   const [open, setOpen] = useState<SpecimenActionKind | null>(null)
   const shown = open && allowed.includes(open) ? open : null
-  return <LabActions none={allowed.length === 0} title={<>Available actions<span className="hid-ehr-sr-only"> for sample {specimen.specimenIdentifier}</span></>}>
+  return <LabActions none={allowed.length === 0} title={<>{'Available actions '}<span className="hid-ehr-sr-only">for sample {specimen.specimenIdentifier}</span></>}>
     {allowed.map((action, index) => <LabActionButton key={action} id={index === 0 ? `lab-action-${specimen.id}` : undefined}
       open={shown === action} onToggle={() => setOpen(current => current === action ? null : action)}>{SPECIMEN_STEP[action]}</LabActionButton>)}
     {shown && <SpecimenStepForm key={shown} facilityId={facilityId} accessionId={accessionId} specimen={specimen} action={shown}
@@ -562,7 +562,7 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
         {canStart && !canRead && !loading && !error && !items && <p className="hid-ehr-dept-muted">Start processing once this sample is ready.</p>}
       </SpecimenCard>}
       aside={<LabActions none={!offerStart && actions.length === 0}
-        title={<>Available actions<span className="hid-ehr-sr-only"> for sample {specimen.specimenIdentifier}</span></>}>
+        title={<>{'Available actions '}<span className="hid-ehr-sr-only">for sample {specimen.specimenIdentifier}</span></>}>
         {offerStart && <LabActionButton id={`lab-start-${specimen.id}`} open={shown === 'start'} onToggle={() => toggle('start')}>Start processing</LabActionButton>}
         {actions.map(entry => <LabActionButton key={entry.key} open={shown !== 'start' && shown?.key === entry.key} onToggle={() => toggle(entry.key)}>
           {executionActionLabel(entry.action, entry.execution.result)}{several ? ` · ${entry.execution.test.name}` : ''}</LabActionButton>)}
