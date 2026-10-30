@@ -989,6 +989,12 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     return { status: done.status, body: intent.body, date: done.date }
   }
 
+  /** The receipt of an applied command in the open vault (A12.9), or null. */
+  async receiptFor(commandId: string): Promise<Receipt | null> {
+    await this.load(!this.sender)
+    return this.receipts.get(commandId) ?? null
+  }
+
   /** For tests and diagnostics: every command in the open vault, decrypted. */
   async snapshot(): Promise<{ seq: number; cmd: Command }[]> {
     await this.load(true)

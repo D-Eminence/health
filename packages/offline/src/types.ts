@@ -14,6 +14,7 @@ import type {
   Json,
   OfflineRuntime,
   PolicyReason,
+  Receipt,
   ResponseMeta,
   StaffSessionSnapshot,
 } from './contracts'
@@ -123,6 +124,8 @@ export interface OfflineCore extends OfflineRuntime {
   /** Page visibility changed. Hidden for 5 minutes locks. */
   noteVisibility(hidden: boolean): void
   connectivity(): Connectivity
+  /** The receipt of an applied command (A12.9), or null; a screen swaps a `local:` visit for the server one. */
+  receiptFor(commandId: string): Promise<Receipt | null>
   /** True when no command is `sending` in this origin's outbox (amendment A7; asks other tabs too). */
   updateSafe(): Promise<boolean>
   /**

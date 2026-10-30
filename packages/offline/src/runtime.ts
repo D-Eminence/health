@@ -1008,6 +1008,10 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     noteVisibility(hidden) { hiddenSince = hidden ? mono() : null },
     connectivity: (): Connectivity => connectivity.current(),
 
+    async receiptFor(commandId: string) {
+      return engine.receiptFor(commandId)
+    },
+
     async updateSafe() {
       if (await outboxSending()) return false
       return broadcast.othersSafe()

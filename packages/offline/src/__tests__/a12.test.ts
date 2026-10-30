@@ -142,3 +142,30 @@ describe('A12.7: a facility switch drops the open vault\'s keys', () => {
     expect(rt.restoreSession()?.facilityId ?? null).not.toBe(SESSION.facilityId)
   })
 })
+
+describe('A12.9: receiptFor', () => {
+  it('after an encounter create applies, receiptFor gives its resourceId', async () => {
+    const server = createServer()
+    const rt = makeRuntime({ server, env: makeEnv() })
+    await signIn(rt, { server })
+    server.state.offline = true
+    const saved = await rt.commands.save('ehr.encounter.create', { patientId: PATIENT }, { awaitMs: 0 })
+    if (saved.kind !== 'saved') throw new Error('expected saved')
+    expect(await rt.receiptFor(saved.commandId)).toBeNull()
+    server.state.offline = false
+    rt.commands.syncNow()
+    await settle(rt)
+    const r = await rt.receiptFor(saved.commandId)
+    const applied = server.keys.values().next().value as { body: { id: string } }
+    expect(r?.resourceId).toBe(applied.body.id)
+  })
+
+  it('the fake answers the same way', async () => {
+    const { runtime } = await fakeSignedIn()
+    runtime.setSessionReady(true, SESSION.accountId)
+    const out = await runtime.commands.save('ehr.encounter.create', { patientId: PATIENT })
+    if (out.kind !== 'applied') throw new Error('expected applied')
+    expect(await runtime.receiptFor('no-such-command')).toBeNull()
+    expect((await runtime.receiptFor(out.receipt.commandId))?.resourceId).toBe(out.receipt.resourceId)
+  })
+})

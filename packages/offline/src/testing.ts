@@ -672,6 +672,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
     noteActivity() { lastActivity = clockNow },
     noteVisibility(hidden) { hiddenSince = hidden ? clockNow : null },
     connectivity: () => conn,
+    receiptFor: async (commandId: string) => open?.commands.find(c => c.id === commandId)?.receipt ?? null,
     updateSafe: async () => !(open?.commands.some(c => c.state === 'sending') ?? false),
     dispose() { listeners.clear() },
 
