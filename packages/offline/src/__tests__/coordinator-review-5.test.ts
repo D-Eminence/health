@@ -158,3 +158,21 @@ describe('6. unlock attempts are serialised across tabs (P3)', () => {
     expect(both.map(r => r.ok)).toEqual([true, true])
   })
 })
+
+describe('outbox: a load that started before a local change never undoes it', () => {
+  it('cancel while another edit reloads: the cancelled entry stays gone (30 races)', async () => {
+    const server = createServer()
+    const rt = makeRuntime({ server, env: makeEnv() })
+    await signIn(rt, { server })
+    rt.setSessionReady(false)
+    for (let i = 0; i < 30; i += 1) {
+      const p = `race-${i}`
+      const a = await rt.commands.save('ehr.encounter.create', { patientId: p, text: 'a' }, { awaitMs: 0 })
+      const b = await rt.commands.save('ehr.encounter.create', { patientId: p, text: 'b' }, { awaitMs: 0 })
+      const idA = (a as { commandId: string }).commandId
+      const idB = (b as { commandId: string }).commandId
+      await Promise.all([rt.commands.edit(idB, { patientId: p, text: 'b2' }), rt.commands.cancel(idA)])
+      expect((await rt.commands.pendingFor(p)).map(x => x.commandId)).toEqual([idB])
+    }
+  })
+})
