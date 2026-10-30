@@ -266,77 +266,47 @@ describe('the summary is read-only', () => {
 })
 
 describe('closing my grant', () => {
-  const dialog = () => screen.getByRole('alertdialog', { name: 'Close my grant?' })
-  /** Presses "Close my grant" on the page; the design's dialog asks first. */
-  async function askToClose() {
-    const close = screen.getByRole('button', { name: 'Close my grant' })
-    close.focus()
-    await act(async () => { fireEvent.click(close) })
-    return close
-  }
-  async function confirm() {
-    await act(async () => { fireEvent.click(within(dialog()).getByRole('button', { name: 'Close my grant' })) })
+  /** Presses "Close my grant": as today, it closes at once, with no question in between. */
+  async function close() {
+    const button = screen.getByRole('button', { name: 'Close my grant' })
+    button.focus()
+    await act(async () => { fireEvent.click(button) })
+    return button
   }
 
-  it('asks first, in the design’s dialog, and Cancel closes nothing', async () => {
+  it('closes the grant at once, as today: no dialog stands between the clinician and the close', async () => {
     await renderSummary()
-    const close = await askToClose()
-    expect(within(dialog()).getByRole('heading', { level: 2, name: 'Close my grant?' })).toBeTruthy()
-    expect(api.closeGrant).not.toHaveBeenCalled()
-    const cancel = within(dialog()).getByRole('button', { name: 'Cancel' })
-    expect(document.activeElement).toBe(cancel)
-    await act(async () => { fireEvent.click(cancel) })
+    await close()
     expect(screen.queryByRole('alertdialog')).toBeNull()
-    expect(api.closeGrant).not.toHaveBeenCalled()
-    expect(staff.setActivePatient).not.toHaveBeenCalled()
-    expect(screen.getByRole('region', { name: 'Patient' })).toBeTruthy()
-    expect(document.activeElement).toBe(close)
+    expect(api.closeGrant).toHaveBeenCalledTimes(1)
   })
 
-  it('closes the grant once on confirm, with today’s reason, closes the patient and says so', async () => {
+  it('closes the grant once, with today’s reason, closes the patient and says so', async () => {
     let answer: (value: unknown) => void = () => {}
     api.closeGrant.mockReturnValue(new Promise(resolve => { answer = resolve }))
     await renderSummary()
-    await askToClose()
-    const yes = within(dialog()).getByRole('button', { name: 'Close my grant' })
-    await act(async () => { fireEvent.click(yes); fireEvent.click(yes) })
-    expect(yes.getAttribute('aria-busy')).toBe('true')
-    await act(async () => { fireEvent.click(yes) })
+    const button = screen.getByRole('button', { name: 'Close my grant' })
+    await act(async () => { fireEvent.click(button); fireEvent.click(button) })
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    await act(async () => { fireEvent.click(button) })
     expect(api.closeGrant).toHaveBeenCalledTimes(1)
     expect(api.closeGrant).toHaveBeenCalledWith(FACILITY_ID, 'grant-1', 'Clinician closed completed patient access')
     await act(async () => { answer({ consentGrantId: 'grant-1', status: 'closed' }) })
     expect(api.closeGrant).toHaveBeenCalledTimes(1)
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
-    expect(screen.queryByRole('alertdialog')).toBeNull()
     const said = await screen.findByText('Access was closed by the backend.')
     expect(said.closest('[role="status"]')).toBeTruthy()
     expect(document.activeElement).toBe(said)
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()
   })
 
-  it('sends nothing more from the dialog opened again while the first close runs', async () => {
-    let answer: (value: unknown) => void = () => {}
-    api.closeGrant.mockReturnValue(new Promise(resolve => { answer = resolve }))
-    await renderSummary()
-    await askToClose()
-    await confirm()
-    await act(async () => { fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' })) })
-    await askToClose()
-    await confirm()
-    expect(api.closeGrant).toHaveBeenCalledTimes(1)
-    await act(async () => { answer({ consentGrantId: 'grant-1', status: 'closed' }) })
-    expect(api.closeGrant).toHaveBeenCalledTimes(1)
-    expect(await screen.findByText('Access was closed by the backend.')).toBeTruthy()
-  })
-
   it('shows a refused close and keeps the patient open', async () => {
     api.closeGrant.mockRejectedValue(new HidApiError(409, 'This access had already ended', { code: 'CONSENT_COMMAND_CONFLICT' }))
     await renderSummary()
-    const close = await askToClose()
-    await confirm()
+    const button = await close()
     expect((await screen.findByRole('alert')).textContent).toBe('This access had already ended')
     expect(screen.queryByRole('alertdialog')).toBeNull()
-    expect(document.activeElement).toBe(close)
+    expect(document.activeElement).toBe(button)
     expect(staff.setActivePatient).not.toHaveBeenCalled()
     expect(screen.getByRole('region', { name: 'Patient' })).toBeTruthy()
   })
@@ -344,8 +314,7 @@ describe('closing my grant', () => {
   it('falls back to today’s sentence when a refused close has no words', async () => {
     api.closeGrant.mockRejectedValue('offline')
     await renderSummary()
-    await askToClose()
-    await confirm()
+    await close()
     expect((await screen.findByRole('alert')).textContent).toBe('Grant could not be closed.')
   })
 

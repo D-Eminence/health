@@ -26,6 +26,7 @@ import {
   recordStatus, refusedFieldErrors, retractionNotPermitted, rowVersion, text, useLatest,
 } from './encounters'
 import { EncounterOrders, orderPath } from './orders'
+import { TodaySections } from './TodaySections'
 import { useDocumentList, useRecordList, useRevisions, type RecordList } from './records'
 
 /** One encounter's page, or the chart's own state. */
@@ -355,6 +356,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
           <EncounterOrders chart={chart} encounter={encounter} />
         </EhrCard>
       </DetailGrid>
+      <TodaySections chart={chart} />
       <HistoryCard items={historyItems(href, encounterId, others, { notes, diagnoses, vitals, prescriptions, labs }, documents)}>
         <HistoryErrors lists={[notes, diagnoses, vitals, prescriptions, labs, documents]} />
       </HistoryCard>

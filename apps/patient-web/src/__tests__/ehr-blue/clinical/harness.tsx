@@ -46,7 +46,12 @@ export interface StaffMock {
   permissions: string[]
   activePatient: ReturnType<typeof activePatient> | null
   setActivePatient: Mock
+  /** The working facility's id; FACILITY_ID unless a test needs another (a demo facility, for example). */
+  facilityId?: string
 }
+
+/** Demo Hospital, one of the sealed demo tenant's four facilities (ehr-blue/blueFacilities.ts). */
+export const DEMO_HOSPITAL_ID = '98d00002-0000-4000-8000-000000000001'
 
 export function staffValue(staff: StaffMock) {
   return {
@@ -59,7 +64,7 @@ export function staffValue(staff: StaffMock) {
           roles: ['doctor'],
           permissions: staff.permissions,
           facilities: [],
-          facility: { id: FACILITY_ID, membershipId: 'member-1', organizationId: 'org-1', name: FACILITY_NAME, roles: ['doctor'], permissions: staff.permissions, isPrimary: true },
+          facility: { id: staff.facilityId ?? FACILITY_ID, membershipId: 'member-1', organizationId: 'org-1', name: FACILITY_NAME, roles: ['doctor'], permissions: staff.permissions, isPrimary: true },
         },
       },
     },

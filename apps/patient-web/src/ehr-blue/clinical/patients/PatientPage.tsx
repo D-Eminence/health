@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
-import { ActionList, ConfirmAction, DetailGrid, HistoryCard, SavedRecord, Step, SubHeading } from '../parts/Detail'
+import { ActionList, DetailGrid, HistoryCard, SavedRecord, Step, SubHeading } from '../parts/Detail'
 import { formatDate, formatWhen, shortId } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import { Banner, ErrorBox, Loading, NoActions, RecordHeading } from '../parts/Notices'
@@ -53,7 +53,6 @@ function PatientRecord({ chart }: { chart: Chart }) {
   const { facility, permissions, can, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
-  const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState('')
   const emergency = chart.purpose === 'emergency'
   const grantId = chart.patient.lookup.authorization.consentGrantId ?? null
@@ -66,11 +65,9 @@ function PatientRecord({ chart }: { chart: Chart }) {
     try {
       await staffApi.closeGrant(chart.facilityId, grantId, CLOSE_REASON)
     } catch (caught) {
-      setConfirming(false)
       setError(caught instanceof Error ? caught.message : 'Grant could not be closed.')
       return
     }
-    setConfirming(false)
     setActivePatient(null)
     navigate(href(), { state: { notice: CLOSED_NOTICE } })
   }
@@ -102,7 +99,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
                   variant="secondary"
                   disabled={closeUnavailable !== null}
                   aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}
-                  onClick={() => setConfirming(true)}
+                  onClick={closeGrant}
                 >
                   Close my grant
                 </EhrButton>
@@ -123,7 +120,6 @@ function PatientRecord({ chart }: { chart: Chart }) {
         </EhrCard>
       </DetailGrid>
       {!emergency && chart.can('ehr.encounter.read') ? <EncounterHistory chart={chart} /> : null}
-      <ConfirmAction open={confirming} label="Close my grant" onConfirm={closeGrant} onCancel={() => setConfirming(false)} />
     </>
   )
 }

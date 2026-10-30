@@ -158,7 +158,8 @@ describe('New external record access', () => {
   it('checks the Health ID, reason and duration at their fields before sending anything', async () => {
     open('/new')
     const form = screen.getByRole('button', { name: 'Send access request' }).closest('form')!
-    expect((screen.getByLabelText(labelled('Duration (minutes, max 60)')) as HTMLInputElement).value).toBe('30')
+    // Today always asks for 60 minutes: 60 is the default, and less may be chosen.
+    expect((screen.getByLabelText(labelled('Duration (minutes, max 60)')) as HTMLInputElement).value).toBe('60')
     fireEvent.submit(form)
     expect(await screen.findByText('Enter the patient’s Health ID.')).toBeTruthy()
     expect(document.activeElement).toBe(screen.getByLabelText(labelled('Health ID')))

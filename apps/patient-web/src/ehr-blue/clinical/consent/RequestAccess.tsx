@@ -11,8 +11,8 @@ import {
   HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem, offeredHealthId,
 } from './access'
 
-/** The design prefills 30 minutes; Identity's grant lasts what was asked, up to the design's 60. */
-export const DEFAULT_MINUTES = '30'
+/** Today always asks for 60 minutes, so 60 is the default; the person may choose less (the design's 1 to 60). */
+export const DEFAULT_MINUTES = '60'
 export const DURATION_PROBLEM = 'Access duration must be 1–60 minutes.'
 export const REASON_PROBLEM = 'Enter a clinical reason of at least 8 characters.'
 

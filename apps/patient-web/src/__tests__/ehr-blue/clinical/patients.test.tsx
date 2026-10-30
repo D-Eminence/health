@@ -298,11 +298,11 @@ describe('The open patient’s page', () => {
     expect(within(screen.getByRole('group', { name: 'Flags' })).getByText('Read only')).toBeTruthy()
   })
 
-  it('closes my grant after the confirmation, then lists no patient and says so', async () => {
+  it('closes my grant at once, as today, then lists no patient and says so', async () => {
     staff.activePatient = activePatient()
     open('/open')
     fireEvent.click(screen.getByRole('button', { name: 'Close my grant' }))
-    fireEvent.click(within(screen.getByRole('alertdialog', { name: 'Close my grant?' })).getByRole('button', { name: 'Close my grant' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(await screen.findByText('Access was closed by the backend.')).toBeTruthy()
     expect(api.closeGrant).toHaveBeenCalledWith(FACILITY_ID, 'grant-1', 'Clinician closed completed patient access')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)

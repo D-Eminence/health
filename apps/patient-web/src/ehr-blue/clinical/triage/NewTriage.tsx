@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { staffApi, type VitalMeasurements } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
+import { isDemoFacility } from '../../blueFacilities'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
 import { formatWhen, statusLabel } from '../parts/format'
 import { KeyValueList } from '../parts/KeyValueList'
@@ -97,7 +98,8 @@ function NewTriageForm({ chart }: { chart: Chart }) {
         {canCreate ? (
           list.encounters === null ? (list.loading ? <Loading label="Loading encounters…" /> : null) : (
             <VitalsForm mode="record" visits={visits} visitHint={visitHint} groupLabel="Vital measurements" submitLabel="Save record" onSubmit={submit}>
-              <SampleTriage />
+              {/* Sample fields inside a live form: only at the demo facilities, where nothing real is recorded. */}
+              {isDemoFacility(chart.facilityId) ? <SampleTriage /> : null}
             </VitalsForm>
           )
         ) : null}
@@ -108,7 +110,8 @@ function NewTriageForm({ chart }: { chart: Chart }) {
 
 /**
  * The design's priority and observations, which today's vitals have no field for: a clearly marked sample, held in
- * this page only and never sent.
+ * this page only and never sent. Shown only at the four demo facilities, so at a real facility no one can type in a
+ * field that is not saved.
  */
 function SampleTriage() {
   const [priority, setPriority] = useState<string>('Routine')

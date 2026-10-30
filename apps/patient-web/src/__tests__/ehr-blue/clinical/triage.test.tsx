@@ -2,7 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TriageWorkspace, triageStatus } from '../../../ehr-blue/clinical/triage/TriageWorkspace'
-import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, renderPage } from './harness'
+import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, renderPage } from './harness'
 
 /**
  * Triage & Vitals: the open patient's vitals (today's records of kind "vitals", per encounter) in the design's list,
@@ -14,7 +14,7 @@ const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), encounters: vi.fn(), encounter: vi.fn(), records: vi.fn(), createRecord: vi.fn(),
   vitalCorrections: vi.fn(), correctVital: vi.fn(), reportedHealthProfile: vi.fn(),
 }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
+const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined }))
 
 vi.mock('../../../staff/api', async () => ({ staffApi: api, isAllowedPatientLookup: (await import('./harness')).isAllowedPatientLookup }))
 vi.mock('../../../staff/App', async () => {
@@ -50,6 +50,7 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
+  staff.facilityId = undefined
   vi.clearAllMocks()
   staff.permissions = [...ALL]
   staff.activePatient = activePatient()
@@ -317,7 +318,18 @@ describe('New triage & vitals', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'f1111111' })).toBeTruthy()
   })
 
-  it('keeps the sample priority and observations in the page: marked, and never sent', async () => {
+  it('shows no sample fields at a real facility: everything in the form is saved', async () => {
+    const form = await openNew()
+    expect(within(form).queryByRole('group', { name: 'Priority and observations (sample)' })).toBeNull()
+    expect(within(form).queryByLabelText('Priority')).toBeNull()
+    expect(within(form).queryByLabelText('Observations')).toBeNull()
+    expect(within(form).queryByText('Sample only: not connected to Health ID yet. Nothing you do here is saved.')).toBeNull()
+  })
+
+  it('keeps the sample priority and observations in the page at a demo facility: marked, and never sent', async () => {
+    staff.facilityId = DEMO_HOSPITAL_ID
+    // The page lists only this facility's visits.
+    api.encounters.mockResolvedValue({ items: [{ ...ENCOUNTER, facilityId: DEMO_HOSPITAL_ID }], nextCursor: null })
     const form = await openNew()
     const sample = within(form).getByRole('group', { name: 'Priority and observations (sample)' })
     expect(within(sample).getByText('Sample only: not connected to Health ID yet. Nothing you do here is saved.')).toBeTruthy()

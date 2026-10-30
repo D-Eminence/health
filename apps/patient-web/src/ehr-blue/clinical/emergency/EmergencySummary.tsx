@@ -6,7 +6,7 @@ import { staffApi, type EmergencyRecords, type EmergencySection } from '../../..
 import { refusalText } from '../../../staff/fieldProblem'
 import { selfServiceReview } from '../../../staff/staffAccess'
 import { CHOOSE_FIRST, CHOOSE_FIRST_DETAIL, ChartGate, OPEN_PATIENT_HOW, type Chart } from '../parts/chart'
-import { ActionList, ConfirmAction, DetailGrid, Step } from '../parts/Detail'
+import { ActionList, DetailGrid, Step } from '../parts/Detail'
 import { formatWhen } from '../parts/format'
 import { ErrorBox, Loading, RecordHeading } from '../parts/Notices'
 import { PatientHeader } from '../parts/PatientHeader'
@@ -198,8 +198,8 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
 
 /**
  * The open emergency patient's read-only summary: today's re-check (an emergency lookup), then the emergency records.
- * The only actions are reading again, closing this clinician's own grant (today's "Close my grant", asked first in the
- * design's dialog, as on the Patients page) and leaving.
+ * The only actions are reading again, closing this clinician's own grant (today's "Close my grant", at once, as today:
+ * nothing may stand between a clinician and ending emergency access) and leaving.
  */
 function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
   const { facility, permissions, setActivePatient } = useClinical()
@@ -211,9 +211,7 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
   const [error, setError] = useState('')
   const [revision, setRevision] = useState(0)
   const [closeError, setCloseError] = useState('')
-  const [confirming, setConfirming] = useState(false)
-  // A close already on its way is not sent again: not by a second press of confirm, nor from the dialog opened again
-  // after Cancel while it runs.
+  // A close already on its way is not sent again by a second press.
   const closing = useRef(false)
   // The latest re-check, so a new function identity does not read the summary again.
   const verify = useRef(chart.verify)
@@ -246,13 +244,11 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
     try {
       await staffApi.closeGrant(facilityId, grantId, CLOSE_REASON)
     } catch (caught) {
-      setConfirming(false)
       setCloseError(caught instanceof Error && caught.message ? caught.message : CLOSE_FAILED)
       return
     } finally {
       closing.current = false
     }
-    setConfirming(false)
     setActivePatient(null)
     onClosed()
   }
@@ -273,7 +269,7 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
                 variant="secondary"
                 disabled={closeUnavailable !== null}
                 aria-describedby={closeUnavailable ? closeUnavailableId : undefined}
-                onClick={() => setConfirming(true)}
+                onClick={closeGrant}
               >
                 Close my grant
               </EhrButton>
@@ -287,7 +283,6 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
       {loading ? <Loading label={LOADING_SUMMARY} /> : null}
       {error ? <ErrorBox>{error}</ErrorBox> : null}
       {summary ? <Sections summary={summary} facilityId={facilityId} may={permission => permissions.includes(permission)} /> : null}
-      <ConfirmAction open={confirming} label="Close my grant" onConfirm={closeGrant} onCancel={() => setConfirming(false)} />
     </>
   )
 }
