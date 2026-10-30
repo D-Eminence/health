@@ -2,7 +2,7 @@ import type * as ApiModuleNs from '../../api'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
 import { HidApiError } from '@hid/http'
-import type { Json } from '@hid/offline'
+import { TransportError, type Json } from '@hid/offline'
 import { fakeServer, PILOT, realVault } from './offlineFixture'
 
 type ApiModule = typeof ApiModuleNs
@@ -197,5 +197,85 @@ describe('this device’s own earlier prescriptions on the visit', () => {
     expect(visit.sentMedicines()).toEqual([])
     expect(await reviewed(visit.runtime)).toEqual([[second, 'CC4']])
     visit.runtime.dispose()
+  })
+})
+
+/** Re-review 1 and 5: a chart from the device is checked online before sending; a re-read refused for good holds it. */
+describe('the CC4 check before sending', () => {
+  beforeEach(() => { api.records.mockReset(); api.reportedHealthProfile.mockReset() })
+
+  it('a prescription written from an old copy on the device is checked online, and held for a new allergy', async () => {
+    let wall = Date.parse('2026-10-30T08:00:00.000Z')
+    const server = fakeServer()
+    let slow = false
+    let allergies: string | null = null
+    const answer = async <T,>(value: () => T) => {
+      if (slow) await new Promise(resolve => setTimeout(resolve, 100))
+      return value()
+    }
+    api.reportedHealthProfile.mockImplementation(() => answer(() => profile(allergies)))
+    api.records.mockImplementation(() => answer(() => ({ items: [], nextCursor: null })))
+    const runtime = await realVault(new IDBFactory(), server.transport, undefined,
+      { safety: staffSafetyProbe, wall: () => wall, mono: () => wall, networkFirstMs: 20 })
+    setOfflineRuntimeForTests(runtime)
+    await runtime.reads.setGrant({ patientId: PATIENT, readAllowed: true, writeAllowed: true, expiresAt: null, breakGlass: false,
+      observedAt: runtime.trustedNow().at.toISOString() })
+    // 08:00: the chart is read online and kept.
+    await staffSafetyProbe.capture(input as unknown as Json)
+
+    // 11:00: Health ID now has an anaphylaxis, but answers slower than the read waits; the connection still looks fine.
+    wall += 3 * 60 * 60_000
+    // The prescriber is at the keyboard (the vault stays open).
+    runtime.noteActivity()
+    slow = true
+    allergies = 'Penicillin (anaphylaxis)'
+    await runtime.commands.save('ehr.prescription.create', input as unknown as Json, { awaitMs: 0 })
+    for (let i = 0; i < 4; i += 1) {
+      runtime.noteActivity(); await runtime.tick(); await runtime.settle(); await new Promise(resolve => setTimeout(resolve, 150))
+    }
+    expect(runtime.summary().vault).toBe('unlocked')
+    expect(server.sent.filter(spec => spec.path.endsWith('/prescriptions'))).toEqual([])
+    expect((await runtime.review.list()).map(item => item.class)).toEqual(['CC4'])
+    runtime.dispose()
+  })
+
+  it('a re-read Health ID refuses for good (access ended) holds it for review instead of waiting unseen', async () => {
+    api.reportedHealthProfile.mockResolvedValue(profile('Penicillin (rash)'))
+    api.records.mockResolvedValue({ items: [], nextCursor: null })
+    const server = fakeServer()
+    const runtime = await realVault(new IDBFactory(), server.transport, undefined, { safety: staffSafetyProbe })
+    setOfflineRuntimeForTests(runtime)
+    await runtime.reads.setGrant({ patientId: PATIENT, readAllowed: true, writeAllowed: true, expiresAt: null, breakGlass: false,
+      observedAt: runtime.trustedNow().at.toISOString() })
+    expect(await staffSafetyProbe.capture(input as unknown as Json)).not.toBeNull()
+    server.state.offline = true
+    for (let i = 0; i < 3; i += 1) runtime.onResponseMeta(meta(null))
+    // A note on one visit, and the prescription on another, so the prescription does not wait behind the note.
+    await runtime.commands.save('ehr.note.create', { ...input, encounter: { server: 'enc-2' }, body: { noteType: 'Consultation',
+      title: 'Ward round', status: 'draft', content: 'Stable' } } as unknown as Json, { awaitMs: 0 })
+    await runtime.commands.save('ehr.prescription.create', input as unknown as Json, { awaitMs: 0 })
+    await runtime.settle()
+    // Back online, access has ended: the reads and the writes are all refused for good.
+    const refused = new HidApiError(403, 'Access to this patient has ended.', { code: 'CONSENT_REQUIRED' })
+    api.reportedHealthProfile.mockRejectedValue(refused)
+    api.records.mockRejectedValue(refused)
+    server.state.answer = () => { throw new TransportError({ status: 403, code: 'CONSENT_REQUIRED', problem: true, networkError: false }) }
+    server.state.offline = false
+    for (let i = 0; i < 3; i += 1) runtime.onResponseMeta(meta(200))
+    runtime.commands.syncNow()
+    for (let i = 0; i < 5; i += 1) { await runtime.tick(); await runtime.settle() }
+    const states = Object.fromEntries((await runtime.commands.pendingFor(PATIENT)).map(view => [view.op, view.state]))
+    expect(states['ehr.prescription.create']).toBe('review')
+    expect((await runtime.review.list()).find(item => item.op === 'ehr.prescription.create')?.class).toBe('CC4')
+    runtime.dispose()
+  })
+
+  it('a session or passing failure of the re-read is tried again later, not held', async () => {
+    setOfflineRuntimeForTests(null)
+    api.reportedHealthProfile.mockRejectedValue(new HidApiError(401, 'Sign in again.', { code: 'AUTHENTICATION_REQUIRED' }))
+    api.records.mockResolvedValue({ items: [], nextCursor: null })
+    await expect(staffSafetyProbe.current(input as unknown as Json, { encounterId: 'enc-1' })).rejects.toThrow('Sign in again.')
+    api.reportedHealthProfile.mockRejectedValue(new HidApiError(429, 'Slow down.', { code: 'RATE_LIMITED' }))
+    await expect(staffSafetyProbe.current(input as unknown as Json, { encounterId: 'enc-1' })).rejects.toThrow('Slow down.')
   })
 })

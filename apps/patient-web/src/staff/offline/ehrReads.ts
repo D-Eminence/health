@@ -43,6 +43,11 @@ export function useDeviceCopySavedAt(patientId: string | undefined): string | nu
   return deviceCopySavedAt(patientId)
 }
 
+/** When the copy last shown from this device for `patientId`'s `method` read was saved, or null if Health ID answered it. */
+export function deviceCopyFor(patientId: string, method: string): string | null {
+  return shownFromDevice.get(`${patientId}|${method}`)?.savedAt ?? null
+}
+
 /** Tests only. */
 export function forgetDeviceCopies(): void { shownFromDevice.clear(); changed() }
 

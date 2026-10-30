@@ -1,5 +1,5 @@
 import { createFakeOfflineRuntime, DEMO_HOSPITAL_FACILITY_ID } from '@hid/offline/testing'
-import { createOfflineRuntime, TransportError, type OfflineEnv, type SafetyProbe, type SendResult, type SendSpec, type StaffSessionSnapshot } from '@hid/offline'
+import { createOfflineRuntime, TransportError, type OfflineEnv, type SendResult, type SendSpec, type StaffSessionSnapshot } from '@hid/offline'
 import type { IDBFactory } from 'fake-indexeddb'
 import { STAFF_OFFLINE_REGISTRY } from '../registry'
 
@@ -47,8 +47,11 @@ export function fakeServer() {
 }
 
 /** The real core on an in-memory IndexedDB (fake-indexeddb), with this registry; timers off. */
+/** What a test may add to the real core's options: the safety probe, the clock, and how long a read waits for Health ID. */
+export type RealExtra = Partial<Pick<Parameters<typeof createOfflineRuntime>[0], 'safety' | 'wall' | 'mono' | 'networkFirstMs'>>
+
 export function realRuntime(idb: IDBFactory, transport: (spec: SendSpec) => Promise<SendResult>, env: OfflineEnv = { mode: 'pilot', facilities: PILOT, hosts: 'ehr,ocr' }, appHost = 'ehr',
-  extra: { safety?: SafetyProbe } = {}) {
+  extra: RealExtra = {}) {
   const runtime = createOfflineRuntime({ appHost, env, transport, idbFactory: idb, calibrate: async () => 1000, timers: false,
     BroadcastChannel: null, locks: null, storage: null, ...extra })
   runtime.commands.register(STAFF_OFFLINE_REGISTRY)
@@ -57,7 +60,7 @@ export function realRuntime(idb: IDBFactory, transport: (spec: SendSpec) => Prom
 
 /** A real runtime with an open vault for `snapshot` (signed in online, "Keep an offline copy" chosen). */
 export async function realVault(idb: IDBFactory, transport: (spec: SendSpec) => Promise<SendResult>, snapshot: StaffSessionSnapshot = snapshotOf(),
-  extra: { safety?: SafetyProbe } = {}) {
+  extra: RealExtra = {}) {
   const runtime = realRuntime(idb, transport, undefined, undefined, extra)
   runtime.prepareFromSignIn(snapshot.email, PASSWORD)
   await runtime.attachSession(snapshot, { optIn: true, online: true })
