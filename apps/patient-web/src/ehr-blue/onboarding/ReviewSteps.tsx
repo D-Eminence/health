@@ -11,10 +11,12 @@ import { paymentMethods, type SampleSetup } from './setupState'
  * What stands before launch on Health ID itself: Health ID support's check of a facility that signed itself up, live from
  * the session, in today's words (FacilityCheckCard). Nothing once the check is done.
  */
-function FacilityCheckBlocker({ facility }: { readonly facility: Facility }) {
+function FacilityCheckBlocker({ facility, id }: { readonly facility: Facility; readonly id?: string }) {
   if (selfServiceReview(facility) !== 'pending') return null
-  return <div className="hid-ehr-onboarding-blocker"><p>{facilityCheckPending(facility.name)}</p></div>
+  return <div id={id} className="hid-ehr-onboarding-blocker"><p>{facilityCheckPending(facility.name)}</p></div>
 }
+
+const LAUNCH_WAITING = 'hid-ehr-onboarding-launch-waiting'
 
 /**
  * Step 8, Review (screen 21): the facility's name and Health ID support's check (live), then what the sample steps
@@ -63,18 +65,20 @@ export function ReviewStep({ facility, setup, onNext }: {
 
 /**
  * Step 9, Launch (screen 22), a sample: Health ID has no launch step, and a facility's EHR opens as soon as it signs up.
- * "Launch hospital" sends nothing: it opens Home, saying so in a status that outlives the page (the portal's toasts,
- * whose words are generic).
+ * "Launch facility" waits for Health ID support's check, saying today's waiting sentence until it is done; then it sends
+ * nothing: it opens Home, saying so in a status that outlives the page (the portal's toasts, whose words are generic).
  */
 export function LaunchStep({ facility }: { readonly facility: Facility }) {
   const navigate = useNavigate()
+  const waiting = selfServiceReview(facility) === 'pending'
   return (
     <EhrCard title="Ready to launch?">
       <div className="hid-ehr-onboarding-stack">
-        <FacilityCheckBlocker facility={facility} />
-        <p className="hid-ehr-onboarding-text">A new hospital starts with no patients, stock or transactions.</p>
+        <FacilityCheckBlocker facility={facility} id={LAUNCH_WAITING} />
+        <p className="hid-ehr-onboarding-text">A new facility starts with no patients, stock or transactions.</p>
         <div>
-          <EhrButton onClick={() => { toast.info(NO_LAUNCH_STEP); navigate('/provider') }}>Launch hospital</EhrButton>
+          <EhrButton disabled={waiting} aria-describedby={waiting ? LAUNCH_WAITING : undefined}
+            onClick={() => { toast.info(NO_LAUNCH_STEP); navigate('/provider') }}>Launch facility</EhrButton>
         </div>
       </div>
     </EhrCard>
