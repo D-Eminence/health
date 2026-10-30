@@ -539,6 +539,11 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
       prepared = null
       attachedEmail = s.email
       if (reason || !key) {
+        // A facility switch (A12.7): the old facility's vault is closed before the new one attaches.
+        if (open && open.session.facilityId.toLowerCase() !== s.facilityId.toLowerCase()) {
+          open = null
+          if (status === 'unlocked') status = 'locked'
+        }
         lastPolicy = evaluatePolicy(config, { appHost, facilityId: s.facilityId, optedIn: key ? o.optIn : null })
         if (!reason && vaults.length > 0) status = 'locked'
         notify()

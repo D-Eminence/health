@@ -4,9 +4,11 @@ import { describe, expect, it } from 'vitest'
 import { OFFLINE_PATHS, type GrantState } from '../contracts'
 import { createFakeOfflineRuntime } from '../testing'
 import { TransportError } from '../types'
-import { ALL_DEFS, PASSWORD, PATIENT, SESSION } from './fixtures'
+import { ALL_DEFS, OTHER_FACILITY, PASSWORD, PATIENT, SESSION } from './fixtures'
 import { createServer, makeEnv, makeRuntime, settle, signIn, type Env } from './harness'
 
+const TWO_PILOTS = { env: { mode: 'pilot', facilities: `${SESSION.facilityId},${OTHER_FACILITY}`, hosts: 'ehr' } }
+const AT_Y = { ...SESSION, facilityId: OTHER_FACILITY, facilityName: 'Second Pilot' }
 const PATIENT_B = '66666666-6666-4666-8666-666666666666'
 const HOUR = 3600_000
 type Rt = ReturnType<typeof makeRuntime>
@@ -120,5 +122,23 @@ describe('A12.8: unlock after an offline cold start', () => {
     await runtime.signOut({ online: false })
     expect(await runtime.hasVaults()).toBe(true)
     expect(await runtime.unlockLocked(PASSWORD)).toEqual({ ok: false, reason: 'no-vault' })
+  })
+})
+
+describe('A12.7: a facility switch drops the open vault\'s keys', () => {
+  it('unlocked at X, then attachSession at Y with no password: X is no longer open', async () => {
+    const server = createServer()
+    const env = makeEnv()
+    const rt = makeRuntime({ server, env, extra: TWO_PILOTS })
+    await signIn(rt, { server })
+    const x = rt.restoreSession()
+    expect(x?.facilityId).toBe(SESSION.facilityId)
+    await rt.attachSession(AT_Y, { optIn: false, online: true })
+    const after = rt.restoreSession()
+    expect(after?.facilityId ?? null).not.toBe(SESSION.facilityId)
+    expect(rt.summary().vault).not.toBe('unlocked')
+    // X's keys are gone, not just hidden: unlocking now opens only Y's own vault (there is none), never X's.
+    expect(await rt.unlockLocked(PASSWORD)).toEqual({ ok: false, reason: 'no-vault' })
+    expect(rt.restoreSession()?.facilityId ?? null).not.toBe(SESSION.facilityId)
   })
 })

@@ -766,6 +766,11 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
         // Online reload: no password in this tab. Vaults stay sealed until the person unlocks.
         if (reason) setPolicy(evaluatePolicy(config, { appHost, facilityId: s.facilityId, supported }))
         else setPolicy(evaluatePolicy(config, { appHost, facilityId: s.facilityId, optedIn: null, supported }))
+        // A facility switch (A12.7): the open vault is the old facility's, so its keys go before the new one attaches.
+        if (unlocked && !unlocked.sendOnly && unlocked.session.facilityId.toLowerCase() !== s.facilityId.toLowerCase()) {
+          void persistLease()
+          dropKeys('locked')
+        }
         status = (await runtime.hasVaults()) ? 'locked' : 'none'
         await refreshSummary()
         return summaryCache
