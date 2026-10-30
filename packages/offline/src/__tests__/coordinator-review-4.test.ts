@@ -213,7 +213,7 @@ describe('6. a password-changed sign-in does not sweep the vault escrow can stil
     serverContact(again)
     if (withOffer) await again.offer(SESSION)
     await again.attachSession(SESSION, { optIn: true, online: true })
-    again.setSessionReady(true)
+    again.setSessionReady(true, SESSION.accountId)
     await settle(again)
     return { server, from }
   }

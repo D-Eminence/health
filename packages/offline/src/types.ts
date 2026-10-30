@@ -113,8 +113,11 @@ export interface OfflineCore extends OfflineRuntime {
   offer(session: StaffSessionSnapshot): Promise<OfflineOffer>
   /** Wire into `ApiClientOptions.onResponseMeta`: feeds the clock, lease and connectivity. */
   onResponseMeta(meta: ResponseMeta): void
-  /** The staff session is `ready` and not behind the lock overlay. The engine sends only then. */
-  setSessionReady(ready: boolean): void
+  /**
+   * The staff session is `ready` and not behind the lock overlay, for `accountId` (A12.3). The engine sends, audits
+   * and extends the lease only then, and only while the unlocked vault belongs to that account.
+   */
+  setSessionReady(ready: boolean, accountId?: string): void
   /** Keydown, pointerdown, touchstart or wheel. Resets the 5-minute idle lock. */
   noteActivity(): void
   /** Page visibility changed. Hidden for 5 minutes locks. */

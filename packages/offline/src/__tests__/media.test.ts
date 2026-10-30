@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { LIMITS, type Json, type OpDefinition } from '../contracts'
-import { PATIENT, documentUpload } from './fixtures'
+import { PATIENT, SESSION, documentUpload } from './fixtures'
 import { createServer, makeEnv, makeRuntime, settle, signIn } from './harness'
 
 async function ready(extra: Parameters<typeof makeRuntime>[0]['extra'] = {}) {
@@ -26,7 +26,7 @@ describe('media', () => {
     const store = (await rt.storeForDiagnostics())!
     expect((await store.dump()).media).toHaveLength(3)
     await rt.commands.save('ehr.document.upload', { patientId: PATIENT, encounterId: 'e1', media: staged } as unknown as Json, { awaitMs: 0 })
-    rt.setSessionReady(true)
+    rt.setSessionReady(true, SESSION.accountId)
     await settle(rt)
     expect(uploads).toHaveLength(1)
     expect(uploads[0]!.bytes.length).toBe(bytes.length)

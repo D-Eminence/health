@@ -144,6 +144,8 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
   /** When attachedSession was verified by the server (server time when known). */
   let attachedAt = 0
   let sessionReady = false
+  /** The account Health ID confirmed for this tab's session (A12.3): only that account's vault sends or extends its lease. */
+  let readyAccount: string | null = null
   let policy: OfflinePolicy = evaluatePolicy(config, { appHost, supported })
   let lastActivity = mono()
   let hiddenSince: number | null = null
@@ -272,7 +274,8 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
   })
 
   function sendAllowed(): boolean {
-    return unlocked !== null && status === 'unlocked' && sessionReady && connectivity.current() !== 'offline'
+    return unlocked !== null && status === 'unlocked' && sessionReady && unlocked.session.accountId === readyAccount
+      && connectivity.current() !== 'offline'
   }
 
   const engine = new OutboxEngine({
@@ -346,7 +349,8 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
   }
 
   async function touchServerContact(): Promise<void> {
-    if (!unlocked) return
+    // A response for some other account's session is not contact for this vault (A12.3).
+    if (!unlocked || unlocked.session.accountId !== readyAccount) return
     const record = unlocked.open.record
     const lease = touchLease(record.lease, clock.now())
     unlocked.open = { ...unlocked.open, record: { ...record, lease } }
@@ -979,8 +983,9 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       }
     },
 
-    setSessionReady(ready) {
+    setSessionReady(ready, accountId) {
       sessionReady = ready
+      readyAccount = ready ? accountId ?? null : null
       if (ready) {
         void engine.resumeSession()
         engine.syncNow()

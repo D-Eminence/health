@@ -31,7 +31,7 @@ describe('kill switch (§2.3, T17, T19)', () => {
 
     off.prepareFromSignIn(SESSION.email, PASSWORD)
     await off.attachSession(SESSION, { optIn: false, online: true })
-    off.setSessionReady(true)
+    off.setSessionReady(true, SESSION.accountId)
     await settle(off)
     await settle(off)
     expect(server.keys.size).toBe(1)
@@ -45,7 +45,7 @@ describe('kill switch (§2.3, T17, T19)', () => {
     rt.prepareFromSignIn(SESSION.email, PASSWORD)
     expect(await rt.offer(SESSION)).toEqual({ kind: 'unavailable', reason: 'facility-off' })
     await rt.attachSession(SESSION, { optIn: false, online: true })
-    rt.setSessionReady(true)
+    rt.setSessionReady(true, SESSION.accountId)
     await settle(rt)
     await settle(rt)
     expect(server.keys.size).toBe(1)

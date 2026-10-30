@@ -339,7 +339,7 @@ export async function runSequence(seed: number, steps: number): Promise<void> {
       server.state.account = ACCOUNT[a2].accountId
       serverContact(t.rt)
       await t.rt.attachSession(session(a2, fac), { optIn: r.chance(0.8), online: true })
-      t.rt.setSessionReady(true)
+      t.rt.setSessionReady(true, ACCOUNT[a2].accountId)
       t.attached = { acc: a2, fac }
       t.attachedStep = stepNo
       membershipEnded.delete(key(a2, fac))
@@ -359,7 +359,7 @@ export async function runSequence(seed: number, steps: number): Promise<void> {
       server.state.account = ACCOUNT[acc].accountId
       serverContact(t.rt)
       await t.rt.attachSession(session(acc, fac), { optIn: false, online: true })
-      t.rt.setSessionReady(true)
+      t.rt.setSessionReady(true, ACCOUNT[acc].accountId)
       t.attached = { acc, fac }
       t.attachedStep = stepNo
       membershipEnded.delete(key(acc, fac))
@@ -447,7 +447,7 @@ export async function runSequence(seed: number, steps: number): Promise<void> {
         serverContact(rt)
         await rt.logoutSent()
         await rt.attachSession(session(acc, fac), { optIn: false, online: true })
-        rt.setSessionReady(true)
+        rt.setSessionReady(true, ACCOUNT[acc].accountId)
         // Until this owner's pending commands at this facility are sent (a loaded machine needs more rounds).
         const owedHere = () => {
           const applied = appliedTokens()

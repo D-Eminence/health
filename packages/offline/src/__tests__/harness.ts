@@ -211,7 +211,7 @@ export async function signIn(runtime: OfflineRuntimeHandle, o: { optIn?: boolean
   runtime.prepareFromSignIn((o.session ?? SESSION).email, o.password ?? PASSWORD)
   clocked.get(runtime)?.()
   const summary = await runtime.attachSession(o.session ?? SESSION, { optIn: o.optIn ?? true, online: true })
-  runtime.setSessionReady(true)
+  runtime.setSessionReady(true, (o.session ?? SESSION).accountId)
   return summary
 }
 

@@ -202,6 +202,8 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
   let flapping = false
   let flapToggle = false
   let sessionReady = true
+  /** As the real runtime (A12.3), once the app names the account: only that account's vault sends. Unset at first. */
+  let readyAccount: string | null | undefined = undefined
   let prepared: { email: string; passwordProof: string; passwordOk: boolean } | null = null
   let open: FakeVault | null = null
   let status: VaultStatus = 'none'
@@ -231,6 +233,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
 
   function sendable(): boolean {
     return status === 'unlocked' && open !== null && sessionReady && conn !== 'offline'
+      && (readyAccount === undefined || open.session.accountId === readyAccount)
   }
 
   function findVault(accountId: string, facilityId: string): FakeVault | undefined {
@@ -645,10 +648,11 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
 
     onResponseMeta(meta: ResponseMeta) {
       if (meta.networkError) return
-      if (open && meta.authenticated && meta.status !== null && meta.status >= 200 && meta.status < 300) open.lastServerContactAt = clockNow
+      if (open && (readyAccount === undefined || open.session.accountId === readyAccount) && meta.authenticated && meta.status !== null && meta.status >= 200 && meta.status < 300) open.lastServerContactAt = clockNow
     },
-    setSessionReady(ready) {
+    setSessionReady(ready, accountId) {
       sessionReady = ready
+      readyAccount = ready ? accountId ?? null : null
       if (ready) void flush()
     },
     noteActivity() { lastActivity = clockNow },
