@@ -53,9 +53,17 @@ describe('with the clinic switch on', () => {
     const facts = screen.getByRole('heading', { level: 2, name: 'Current plan' }).closest('.hid-ehr-card') as HTMLElement
     expect(within(facts).getByText('Trial ends')).toBeDefined()
     expect(within(facts).getByText('Only your facility administrator can start a trial or pay.')).toBeDefined()
-    const table = await screen.findByRole('table', { name: 'Invoices' })
+    // The design's cards after Current plan: Renewal reminders, which Health ID does not send yet, and Subscription
+    // history, the invoices.
+    const reminders = screen.getByRole('heading', { level: 2, name: 'Renewal reminders' }).closest('.hid-ehr-card') as HTMLElement
+    expect(within(reminders).getByText('No renewal reminders yet.')).toBeDefined()
+    expect(within(reminders).getByText(/does not send renewal reminders by email or text message yet/)).toBeDefined()
+    const history = screen.getByRole('heading', { level: 2, name: 'Subscription history' }).closest('.hid-ehr-card') as HTMLElement
+    const table = await within(history).findByRole('table', { name: 'Invoices' })
     expect(within(table).getByText('HID-0001')).toBeDefined()
     expect(within(table).getByText('Paid')).toBeDefined()
+    expect([...document.querySelectorAll('.hid-ehr-card-title')].map(title => title.textContent))
+      .toEqual(['Current plan', 'Renewal reminders', 'Subscription history'])
     // Today's banner stays off its own page.
     expect(screen.queryByRole('link', { name: 'Choose a plan' })).toBeNull()
   })

@@ -28,8 +28,9 @@ export function FacilitySubscriptionPage() {
 /**
  * The design's Facility subscription (screens/6-subscription), on today's billing: the same reads (the plan and the
  * invoices), the same actions (start the free trial, pay through Paystack's checkout), the same return from Paystack and
- * today's words for every state and refusal (staff/routes/Billing.tsx). The design's simulated plan, reminders and
- * history are not drawn: Health ID serves none of them.
+ * today's words for every state and refusal (staff/routes/Billing.tsx). Its cards are the design's: Current plan,
+ * Renewal reminders (Health ID sends none yet, and the card says so) and Subscription history (the invoices). The
+ * design's simulated plan and its controls are not drawn.
  */
 export function BlueSubscription() {
   const { state } = useStaff()
@@ -157,7 +158,14 @@ export function BlueSubscription() {
       {payable && <p className="hid-ehr-blue-muted">Payment opens Paystack’s secure checkout. Card details never pass through Health ID.</p>}
     </EhrCard>}
 
-    <EhrCard title="Invoices">
+    {/* The design's Renewal reminders: Health ID sends none yet, so the card says so, with no sample rows on a live page. */}
+    {plan && <EhrCard title="Renewal reminders">
+      <p className="hid-ehr-blue-flush">No renewal reminders yet.</p>
+      <p className="hid-ehr-blue-muted">Health ID does not send renewal reminders by email or text message yet. The dates above are your plan’s.</p>
+    </EhrCard>}
+
+    {/* The design's Subscription history: the facility's invoices, as today's billing page lists them. */}
+    <EhrCard title="Subscription history">
       {invoices.kind === 'loading' && <p role="status" className="hid-ehr-blue-muted">Loading invoices…</p>}
       {invoices.kind === 'error' && <p role="alert" className="hid-ehr-error">{invoices.message}</p>}
       {invoices.kind === 'unavailable' && <p className="hid-ehr-blue-muted">Invoices are not available yet.</p>}
