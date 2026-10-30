@@ -1,5 +1,7 @@
 import { createElement } from 'react'
 import { EhrIcon, type EhrIconName } from '@hid/ui/ehr'
+import { isDemoFacility } from '../blueFacilities'
+import type { StaffSession } from '../../staff/api'
 import type { EhrBluePage, EhrBluePageStatus } from './types'
 import { LivePage, StaffAccessPage } from './LivePages'
 import { SampleWorkspace } from './sample/SampleWorkspace'
@@ -35,6 +37,16 @@ function page(path: string, group: string, label: string, iconName: EhrIconName,
   element: EhrBluePage['element'], permission?: string): EhrBluePage {
   return { path, group, label, icon: icon(iconName), status, element, ...(permission ? { permission } : {}) }
 }
+
+/**
+ * A page for reviewing the design (the checklist, the tour, Health ID's own facility review): only at the four demo
+ * facilities. A clinic switches facility from the account menu, as today.
+ */
+function demoOnly(entry: EhrBluePage): EhrBluePage {
+  return { ...entry, visible: atDemoFacility }
+}
+
+const atDemoFacility = (session: StaffSession) => isDemoFacility(session.actor.facility?.id)
 
 export const pages: EhrBluePage[] = [
   // Replaced by home/pages.ts.
@@ -78,7 +90,7 @@ export const pages: EhrBluePage[] = [
   page('staff', 'People', 'Staff & access', 'users', 'partial', createElement(StaffAccessPage), 'workforce.manage'),
 
   sample('quality', 'Administration', 'Quality & Safety', 'flag'),
-  page('platform', 'Administration', 'Facility review', 'review', 'sample', createElement(PlatformReviewSample)),
+  demoOnly(page('platform', 'Administration', 'Facility review', 'review', 'sample', createElement(PlatformReviewSample))),
 
   sample('services', 'Settings', 'Service catalogue', 'tag'),
   sample('ward-config', 'Settings', 'Ward configuration', 'wardSettings'),
@@ -93,13 +105,14 @@ export const pages: EhrBluePage[] = [
   page('reports', 'Insight', 'Reports & Analytics', 'chart', 'sample', createElement(ReportsSample)),
   live('audit', 'Insight', 'Audit & Compliance', 'history', 'audit.read'),
 
-  page('institutions', 'Design review', 'Choose workspace', 'building', 'live', createElement(ChooseWorkspacePage)),
-  page('whats-left', 'Design review', 'What’s left', 'checklist', 'live', createElement(WhatsLeft)),
+  // Listed only at the demo facilities; everywhere, the account menu's Switch facility opens it.
+  { ...page('institutions', 'Design review', 'Choose workspace', 'building', 'live', createElement(ChooseWorkspacePage)), listed: atDemoFacility },
+  demoOnly(page('whats-left', 'Design review', 'What’s left', 'checklist', 'live', createElement(WhatsLeft))),
 
   // The design's journeys, as an interactive tour: samples, asking for no password and sending nothing.
-  page('tour', 'Design tour', 'Design tour', 'tour', 'sample', createElement(DesignTourIndex)),
-  ...JOURNEYS.map(journey => page(`tour/${journey.id}/*`, 'Design tour', journey.title, 'route', 'sample',
-    createElement(JourneyTour, { journeyId: journey.id }))),
+  demoOnly(page('tour', 'Design tour', 'Design tour', 'tour', 'sample', createElement(DesignTourIndex))),
+  ...JOURNEYS.map(journey => demoOnly(page(`tour/${journey.id}/*`, 'Design tour', journey.title, 'route', 'sample',
+    createElement(JourneyTour, { journeyId: journey.id })))),
 ]
 
 /**

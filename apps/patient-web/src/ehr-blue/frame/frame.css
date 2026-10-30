@@ -434,6 +434,11 @@
   gap: 24px;
 }
 
+/* Its heading sits the gap's 24 px above the message, as a page's does, not its own margin as well. */
+.hid-ehr .hid-ehr-blue-failed > .hid-ehr-page-heading {
+  margin-bottom: 0;
+}
+
 /* A long action in a card, such as a tour's "Start: …", wraps rather than widening a phone screen. */
 .hid-ehr .hid-ehr-blue-facility-card .hid-ehr-button {
   max-width: 100%;

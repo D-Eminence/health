@@ -11,9 +11,12 @@ export interface BluePageMatch {
 
 const BluePageContext = createContext<BluePageMatch | null>(null)
 const BluePagesContext = createContext<readonly EhrBluePage[]>([])
+const OpenPagesContext = createContext<readonly EhrBluePage[] | null>(null)
 
 export const BluePageProvider = BluePageContext.Provider
 export const BluePagesProvider = BluePagesContext.Provider
+/** The pages the working session may open (their permission held, `visible` saying yes). */
+export const OpenPagesProvider = OpenPagesContext.Provider
 
 /** The page being shown. Pages read the rest of their address here: react-router's useParams belongs to today's routes. */
 export function useBluePage(): BluePageMatch {
@@ -32,7 +35,9 @@ export function useBluePages(): readonly EhrBluePage[] {
  * does). A sample record links only where this says: a live page knows nothing of samples, and would not find one.
  */
 export function useSampleHref(): (moduleId: string) => string | null {
-  const pages = useBluePages()
+  // Only a page this session may open: Facility review is a demo facility's alone, say.
+  const all = useBluePages()
+  const pages = useContext(OpenPagesContext) ?? all
   return moduleId => {
     const href = modulePath(moduleId)
     const opens = pages.some(candidate => candidate.status === 'sample' && (pageHrefOf(candidate) === href

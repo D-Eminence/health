@@ -55,6 +55,22 @@ export function matchBluePage(pages: readonly EhrBluePage[], pathname: string): 
 }
 
 /**
+ * Addresses the design's tabs had in #41, before Policies and Procurement became pages of their own: an old link opens
+ * the page (and whatever followed, a record's id, below it).
+ */
+const MOVED_ADDRESSES: readonly (readonly [string, string])[] = [
+  ['/provider/insurance/policies', '/provider/policies'],
+  ['/provider/supply/procurement', '/provider/procurement'],
+]
+
+/** Where an old address now is, or null for any other. */
+export function movedAddress(pathname: string): string | null {
+  const path = pathname.toLowerCase()
+  const moved = MOVED_ADDRESSES.find(([from]) => path === from || path.startsWith(`${from}/`))
+  return moved ? moved[1] + pathname.slice(moved[0].length) : null
+}
+
+/**
  * Today's provider routes no page lists, opened from links elsewhere (the migration notice, a staff invitation): the
  * frame shows today's page for them, under the tab title today's app gives it (staff/App.tsx PAGE_TITLES).
  */
