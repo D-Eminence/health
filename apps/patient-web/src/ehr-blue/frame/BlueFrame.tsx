@@ -17,7 +17,7 @@ import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage, UnknownPage } from './LivePages'
 import { BluePageProvider, BluePagesProvider, OpenPagesProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
-import { AccountMenu, AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
+import { AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
 import type { EhrBluePage } from './types'
 
 /**
@@ -157,7 +157,7 @@ export function BlueFrame() {
               <a href="/provider" onClick={event => { event.preventDefault(); navigate('/provider') }} className="inline-flex no-underline lg:hidden" aria-label="Health ID EHR home"><BrandLogo className="h-7 w-auto" /></a>
               <span className="hidden min-w-0 items-center gap-2 text-sm text-ink-3 lg:inline-flex"><Hospital className="size-4" aria-hidden /><span className="truncate font-medium text-ink">{facility?.name}</span>{isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} /> : null}</span>
             </>}
-            headerActions={<div className="hid-ehr-host-actions flex items-center gap-2"><WorkspaceSearch pages={listed} /><NotificationsButton /><AccountMenu onSample={setSamplePanel} /></div>}
+            headerActions={<div className="hid-ehr-host-actions flex items-center gap-2"><WorkspaceSearch pages={listed} /><NotificationsButton /></div>}
             tabs={[home, tab('patients', 'Patients', home), tab('clinical', 'Consult', home)]}
             create={{ label: 'Start', items: [
               ...(tabsFor('patients') ? [{ to: '/provider/patients', label: 'Find a patient', hint: 'By Health ID, with their approval', icon: Search, main: true }] : []),

@@ -1,14 +1,14 @@
-import { EhrButton, EhrCard } from '@hid/ui/ehr'
+import { Activity, ChevronLeft, ChevronRight, FolderOpen, History, ListChecks, LogOut, Send, ShieldCheck, Siren, Stethoscope, UserPlus } from 'lucide-react'
+import { Alert, Badge, Button, Card, CardHeader, IconChip, ListRow, PageHeader } from '../../../kasuwa/ui'
+import { CardFace } from '../../../routes/HealthIdCard'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
-import { ChartGate, useChart, type Chart } from '../parts/chart'
-import { ActionList, DetailGrid, HistoryCard, SavedRecord, Step, SubHeading } from '../parts/Detail'
+import { ChartGate, type Chart } from '../parts/chart'
 import { formatDate, formatWhen, shortId } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
-import { Banner, ErrorBox, Loading, NoActions, RecordHeading } from '../parts/Notices'
-import { PatientHeader, type PatientFacts } from '../parts/PatientHeader'
+import type { PatientFacts } from '../parts/PatientHeader'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isDemoFacility } from '../../blueFacilities'
 import { CLOSE_GRANT, CLOSE_REASON, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
@@ -38,15 +38,29 @@ export function patientDetails(patient: ActivePatient, facts: PatientFacts): Key
   ]
 }
 
-/** The open patient's page (`patients/open`: the URL names no patient). */
+/** Age in whole years from an ISO date of birth; empty when unknown. */
+function ageOf(dateOfBirth: string | undefined): string {
+  if (!dateOfBirth) return ''
+  const born = new Date(dateOfBirth)
+  if (Number.isNaN(born.getTime())) return ''
+  const now = new Date()
+  let age = now.getFullYear() - born.getFullYear()
+  if (now < new Date(now.getFullYear(), born.getMonth(), born.getDate())) age -= 1
+  return `${age} years`
+}
+
+/**
+ * The open patient's page (`patients/open`: the URL names no patient). The patient's own Health ID card heads it, the
+ * same card they carry and share, so the clinician confirms who this is at a glance; then one action that matters
+ * (Open chart), the next steps, and this facility's visits.
+ */
 export function PatientPage() {
-  const chart = useChart()
   const href = useWorkspaceHref()
   return (
-    <>
-      <RecordHeading title={chart ? chart.facts.name : 'Patients'} backHref={href()} />
+    <div className="flex flex-col gap-5">
+      <Link to={href()} className="inline-flex items-center gap-1 self-start text-[13px] font-medium text-ink-3 no-underline hover:text-ink"><ChevronLeft className="size-4" aria-hidden />Find a patient</Link>
       <ChartGate allowEmergency>{current => <PatientRecord chart={current} />}</ChartGate>
-    </>
+    </div>
   )
 }
 
@@ -58,7 +72,9 @@ function PatientRecord({ chart }: { chart: Chart }) {
   const emergency = chart.purpose === 'emergency'
   const grantId = chart.patient.lookup.authorization.consentGrantId ?? null
   const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administratorOf(facility, permissions))
-  const flags = [accessLabel(chart.patient), ...(chart.writeNotice === null ? [] : ['Read only'])]
+  const expires = chart.patient.lookup.authorization.expiresAt
+  const facts = chart.facts
+  const about = [ageOf(facts.dateOfBirth), sexText(facts.sex), facts.dateOfBirth ? `born ${formatDate(facts.dateOfBirth)}` : ''].filter(Boolean).join(' · ')
 
   async function closeGrant() {
     if (!grantId || closeUnavailable) return
@@ -79,66 +95,61 @@ function PatientRecord({ chart }: { chart: Chart }) {
     navigate(href.to('consent', 'new'))
   }
 
+  const initials = facts.name.split(/\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase()
   return (
-    <>
-      <PatientHeader facts={chart.facts} flags={flags} />
-      {emergency ? (
-        <Banner tone="warning" title="Emergency access is read-only">
-          {`${chart.facts.name} is open under emergency access. Emergency access shows the read-only emergency summary only; nothing can be added or changed.`}
-        </Banner>
-      ) : null}
-      {chart.writeNotice ? <Banner title="Read only">{chart.writeNotice}</Banner> : null}
-      {error ? <ErrorBox>{error}</ErrorBox> : null}
-      <DetailGrid>
-        <SavedRecord items={patientDetails(chart.patient, chart.facts)} />
-        <EhrCard title="Available actions">
-          {grantId ? (
-            <>
-              {closeUnavailable ? <p id="close-grant-unavailable" className="hid-ehr-clinical-note">{closeUnavailable}</p> : null}
-              <ActionList>
-                <EhrButton
-                  variant="secondary"
-                  disabled={closeUnavailable !== null}
-                  aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}
-                  onClick={closeGrant}
-                >
-                  Close my grant
-                </EhrButton>
-              </ActionList>
-            </>
-          ) : <NoActions />}
-          <SubHeading>Next steps</SubHeading>
-          {emergency ? (
-            <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('emergency', 'summary'))}>Open the emergency summary</EhrButton></Step>
-          ) : (
-            <>
-              {/* Appointments and patient visits are samples: offered only at the demo facilities. Today's Patients
-                  page offers no registration, so a real facility gets neither step. */}
-              {isDemoFacility(chart.facilityId) ? (
-                <>
-                  <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('appointments'))}>Open appointments</EhrButton></Step>
-                  <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('journey', 'new'))}>Register walk-in visit</EhrButton></Step>
-                </>
-              ) : null}
-              <Step><EhrButton variant="secondary" onClick={openConsent}>Open consent</EhrButton></Step>
-              <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('consult'))}>Open clinical record</EhrButton></Step>
-            </>
-          )}
-        </EhrCard>
-      </DetailGrid>
-      {!emergency && chart.can('ehr.encounter.read') ? <EncounterHistory chart={chart} /> : null}
-    </>
+    <div className="grid items-start gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="flex flex-col gap-3 lg:sticky lg:top-24">
+        <CardFace name={facts.name} hid={facts.hid} verified={null} facts={[]} allergies={[]} label="Patient"
+          face={<span className="text-[5.4cqw] font-light tracking-[.12em] text-white/85" aria-hidden="true">{initials}</span>} />
+        <Card>
+          <div className="flex items-center gap-3 px-4 py-3">
+            <IconChip icon={emergency ? Siren : ShieldCheck} tone={emergency ? 'danger' : 'success'} size="sm" />
+            <div className="min-w-0 flex-1">
+              <p className="m-0 text-sm font-semibold text-ink">{emergency ? 'Emergency access' : 'You have access'}{chart.writeNotice !== null ? ' · read only' : ''}</p>
+              <p className="m-0 text-[12px] text-ink-3">{emergency ? 'Read-only emergency summary' : 'Direct care'}{expires ? ` · until ${formatWhen(expires)}` : ''}</p>
+            </div>
+          </div>
+          {grantId ? <div className="border-t border-line px-4 py-2.5">
+            {closeUnavailable ? <p id="close-grant-unavailable" className="m-0 mb-1.5 text-[12px] text-ink-3">{closeUnavailable}</p> : null}
+            <Button variant="danger" size="sm" icon={LogOut} disabled={closeUnavailable !== null} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}
+              onClick={() => void closeGrant()}>End my access</Button>
+          </div> : null}
+        </Card>
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-5">
+        <PageHeader title={facts.name} description={about || undefined}
+          actions={emergency ? <Button variant="primary" icon={Siren} onClick={() => navigate(href.to('emergency', 'summary'))}>Open emergency summary</Button>
+            : <Button variant="primary" icon={FolderOpen} onClick={() => navigate(href.to('consult'))}>Open chart</Button>} />
+        {emergency ? <Alert intent="warning" title="Emergency access is read-only">{`Only the emergency summary can be seen. Nothing can be added or changed for ${facts.name}.`}</Alert> : null}
+        {chart.writeNotice ? <Alert intent="info" title="Read only">{chart.writeNotice}</Alert> : null}
+        {error ? <Alert intent="error" title="Couldn’t end access">{error}</Alert> : null}
+
+        {!emergency ? <Card>
+          <CardHeader as="h2" title="Next steps" icon={ListChecks} iconTone="brand" />
+          <ul className="m-0 list-none divide-y divide-line p-0">
+            <li><ListRow onClick={() => navigate(href.to('consult', 'new'))} leading={<IconChip size="sm" icon={Stethoscope} />} title="Start a consultation" subtitle="Notes, diagnoses and orders in one place" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>
+            <li><ListRow onClick={() => navigate(href.to('triage', 'new'))} leading={<IconChip size="sm" icon={Activity} />} title="Record vitals" subtitle="Blood pressure, temperature, pulse, oxygen" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>
+            {/* Appointments and walk-in visits are samples: offered only at the demo facilities. */}
+            {isDemoFacility(chart.facilityId) ? <li><ListRow onClick={() => navigate(href.to('journey', 'new'))} leading={<IconChip size="sm" icon={UserPlus} />} title="Register a walk-in visit" subtitle="Sample at demo facilities" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            <li><ListRow onClick={openConsent} leading={<IconChip size="sm" icon={Send} />} title="Ask for more access" subtitle="A longer or wider grant, approved by the patient" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>
+          </ul>
+        </Card> : null}
+        {!emergency && chart.can('ehr.encounter.read') ? <EncounterHistory chart={chart} /> : null}
+      </div>
+    </div>
   )
 }
 
 type HistoryState = { readonly items: readonly Encounter[] } | { readonly error: string } | null
 
 /**
- * "Connected hospital history": this facility's encounters for the patient (today's chart list), each opening in
- * Consultation. Read after today's re-check; a refusal there closes the patient and shows that access ended.
+ * This facility's visits for the patient (today's chart list), each opening in Consultation. Read after today's
+ * re-check; a refusal there closes the patient and shows that access ended.
  */
 function EncounterHistory({ chart }: { chart: Chart }) {
   const href = useWorkspaceHref()
+  const navigate = useNavigate()
   const [state, setState] = useState<HistoryState>(null)
   const { facilityId, patientId, verify } = chart
   // Read once per patient: the re-check itself may be a new function on each render.
@@ -160,23 +171,14 @@ function EncounterHistory({ chart }: { chart: Chart }) {
     return () => { current = false }
   }, [facilityId, patientId])
 
-  if (state === null || 'error' in state) {
-    return (
-      <EhrCard title="Connected hospital history">
-        <p>Only records available to your current permissions are listed.</p>
-        {state === null ? <Loading label="Loading encounters…" /> : <ErrorBox>{state.error}</ErrorBox>}
-      </EhrCard>
-    )
-  }
-  return (
-    <HistoryCard
-      empty="No encounters are available for this patient and facility."
-      items={state.items.map(item => ({
-        key: item.id,
-        label: `Consultation · ${shortId(item.id)}`,
-        href: href.to('consult', item.id),
-        status: item.status,
-      }))}
-    />
-  )
+  return <Card>
+    <CardHeader as="h2" title="Visits here" description="Only what your role may see" icon={History} />
+    {state === null ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3" role="status">Loading visits…</p>
+      : 'error' in state ? <div className="p-5"><Alert intent="error" title="Couldn’t load visits">{state.error}</Alert></div>
+      : state.items.length === 0 ? <p className="m-0 px-5 py-5 text-[13px] text-ink-3">No visits at this facility yet. Start a consultation to begin one.</p>
+      : <ul className="m-0 list-none divide-y divide-line p-0">{state.items.map(item => <li key={item.id}>
+          <ListRow onClick={() => navigate(href.to('consult', item.id))} leading={<IconChip size="sm" icon={Stethoscope} />} title={`Consultation · ${shortId(item.id)}`}
+            trailing={<Badge size="sm" tone={item.status === 'in_progress' || item.status === 'open' ? 'brand' : 'neutral'}>{sexText(item.status)}</Badge>} />
+        </li>)}</ul>}
+  </Card>
 }
