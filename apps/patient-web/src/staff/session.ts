@@ -2,6 +2,7 @@ import { HidApiError, isHidApiError } from '@hid/http'
 import { announceSessionChange, onOtherTabSessionChange } from '../sessionChange'
 import type { StaffSession } from './api'
 import { usesNovuBackend } from '../backendContract'
+import { BLUE_RETURN_PATHS } from '../ehr-blue/returnPaths'
 
 /**
  * The end of the provider's staff session, as the staff API finds it. hid-system
@@ -242,7 +243,9 @@ export const NOVU_STAFF_RETURN_PATHS: readonly string[] = ['/provider/staff', '/
 
 export function staffReturnPath(path: string | null): string | null {
   if (path === null) return null
-  return STAFF_RETURN_PATHS.includes(path) || (usesNovuBackend() && NOVU_STAFF_RETURN_PATHS.includes(path)) ? path : null
+  return STAFF_RETURN_PATHS.includes(path) || (usesNovuBackend() && NOVU_STAFF_RETURN_PATHS.includes(path))
+    // The blue EHR's own pages, by the same exact match (ehr-blue/returnPaths.ts).
+    || BLUE_RETURN_PATHS.includes(path) ? path : null
 }
 
 /** The staff sign-in page, returning afterwards to `path` when it is a workspace page. */

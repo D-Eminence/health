@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Route, Routes, UNSAFE_RouteContext, useLocation, useNavigate, useOutlet } from 'react-router-dom'
 import { EhrAppShell, EhrModuleTabs, EhrSidebar, EhrTopBar, type EhrNavGroup, type EhrNavItem } from '@hid/ui/ehr'
 import { useStaff } from '../../staff/App'
 import { ReviewBanner } from '../../staff/routes/ReviewBanner'
@@ -12,7 +12,7 @@ import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
 import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage, UnknownPage } from './LivePages'
-import { BluePageProvider, BluePagesProvider } from './pageContext'
+import { BluePageProvider, BluePagesProvider, TodayPageProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
 import { TODAY_PATHS } from './pages'
 import { AccountMenu, AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
@@ -37,6 +37,12 @@ export function navigationGroups(pages: readonly EhrBluePage[]): EhrNavGroup[] {
 }
 
 /**
+ * Where a page's own routes start: no parent route. The blue EHR is mounted inside today's pathless Shell route, and
+ * react-router warns about every <Routes> below a parent route without a trailing "*" (a page's own, or the frame's).
+ */
+const NO_PARENT_ROUTE = { outlet: null, matches: [], isDataRoute: false }
+
+/**
  * The blue Hospital EHR's frame: EhrAppShell with the design's sidebar and top bar, and the page
  * the address opens. Session, sign-out and facility switch are today's (useStaff). A page another folder exports
  * replaces the frame's stand-in for its path; an address no page takes says so.
@@ -45,6 +51,8 @@ export function BlueFrame() {
   const { state, lock } = useStaff()
   const location = useLocation()
   const navigate = useNavigate()
+  // Today's page for this address, which a live stand-in shows.
+  const todayPage = useOutlet()
   const pageRef = useRef<HTMLDivElement>(null)
   const [samplePanel, setSamplePanel] = useState<'profile' | 'preferences' | 'help' | null>(null)
   useFocusOnPageChange(pageRef, lock !== null)
@@ -120,7 +128,15 @@ export function BlueFrame() {
               />
             ) : null}
             {/* A page that fails would take the frame with it, and the account menu's way back to the classic EHR. */}
-            <BluePageBoundary key={location.pathname} onClassic={classicEhr}>{content}</BluePageBoundary>
+            <BluePageBoundary key={location.pathname} onClassic={classicEhr}>
+              {/* A page's own <Routes> resolve from its address: index is the page, "new" is <page>/new. */}
+              <UNSAFE_RouteContext.Provider value={NO_PARENT_ROUTE}>
+                <Routes>
+                  <Route path={match ? `${pageHrefOf(match.page)}/*` : '/provider/*'}
+                    element={<TodayPageProvider value={todayPage}>{content}</TodayPageProvider>} />
+                </Routes>
+              </UNSAFE_RouteContext.Provider>
+            </BluePageBoundary>
           </div>
           {/* Fictional figures: only where the page itself is a sample. */}
           {match?.page.status === 'sample' ? <ConnectionStatus /> : null}
