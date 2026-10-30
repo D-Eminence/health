@@ -1073,3 +1073,91 @@
 .hid-ehr .hid-ehr-clinical-page .hid-ehr-page-title:focus {
   outline: none;
 }
+
+/* ---- In-person check ------------------------------------------------------------ */
+
+/* "As written on the document" and "Confirm each statement": groups of the form, borderless, their legend drawn as
+   the design's card h3 (14px bold, body grey). min-width 0 lets the statements wrap at 320px. */
+.hid-ehr .hid-ehr-clinical-in-person-check-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.hid-ehr .hid-ehr-clinical-in-person-check-group > legend {
+  margin: 0 0 10px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 21px;
+  color: var(--ehr-text);
+}
+
+/* The five statements, one per line, each the design's checkbox (text, then the box); long text wraps on a phone. */
+.hid-ehr .hid-ehr-clinical-in-person-check-statements > .hid-ehr-clinical-checkbox {
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-clinical-in-person-check-statements > .hid-ehr-clinical-checkbox > span {
+  min-width: 0;
+}
+
+/* The one method, as the design's choice: padded so a wrapped line keeps off the border. */
+.hid-ehr .hid-ehr-clinical-in-person-check-form .hid-ehr-clinical-choice {
+  /* As tall as the design's 43px input beside it (Desk code), so the row's controls end on one line. */
+  min-height: 43px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  overflow-wrap: anywhere;
+}
+
+/* An answer's title: the Banner's bold title line, as an h2 that takes focus (no ring: it is not a control). */
+.hid-ehr .hid-ehr-clinical-in-person-check-title {
+  margin: 0;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+.hid-ehr .hid-ehr-clinical-in-person-check-title:focus,
+.hid-ehr .hid-ehr-clinical-in-person-check-focus:focus {
+  outline: none;
+}
+
+/* "Result for each detail": three lines in the warning banner. */
+.hid-ehr .hid-ehr-clinical-in-person-check-results {
+  margin: 8px 0;
+  padding-left: 20px;
+  list-style: disc;
+}
+
+/* ---- Patient registration ------------------------------------------------------ */
+
+/* The NIN has its row to itself, as today's form: First name starts the next row of the design's two columns. */
+.hid-ehr .hid-ehr-clinical-form-grid > .hid-ehr-clinical-registration-row-start {
+  grid-column-start: 1;
+}
+
+/* The candidates a case reports, as the design's list rows: the name, then date of birth and patient ID. */
+.hid-ehr .hid-ehr-clinical-registration-candidates {
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-clinical-registration-candidates > li {
+  padding: 14px 0;
+  border-bottom: 1px solid #f0f0f0;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-clinical-registration-candidates > li > p {
+  margin: 4px 0 0;
+}
+
+/* "Candidate details are unavailable…": today's error line, in the design's error red. */
+.hid-ehr .hid-ehr-clinical-registration-problem {
+  margin: 18px 0 0;
+  color: var(--ehr-critical);
+}
