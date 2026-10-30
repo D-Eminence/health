@@ -1,0 +1,21 @@
+{
+  "name": "hid-offline-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Opt-in Playwright cards for the Health ID offline-first work. Run by a person, headed, on production in the sealed demo tenant only. Never part of CI.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "list": "playwright test --list --reporter=list",
+    "selftest": "playwright test --project=selftest",
+    "cards": "playwright test --project=ehr-cards --project=migrate-cards --project=portal-cards --max-failures=1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/node": "22.20.1",
+    "typescript": "5.9.3"
+  }
+}
