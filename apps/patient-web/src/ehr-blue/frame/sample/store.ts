@@ -40,11 +40,32 @@ const DESIGN_VALUES: Record<string, readonly string[]> = {
   modality: ['X-ray', 'Ultrasound', 'CT'],
 }
 
-/** The design's own fictional values for one workspace's fields (its stock items and invoices). */
+/**
+ * Fictional values for one workspace's fields: the design's stock items, and readings in a plausible adult range. Each
+ * row matches the option its record gets by position: triage is Routine, Urgent, Emergency; a nursing entry is Vitals,
+ * Medication administration, Handover.
+ */
 const DESIGN_MODULE_VALUES: Record<string, Record<string, readonly string[]>> = {
   inventory: {
     name: ['Fictional Med A', 'Fictional Gloves', 'Fictional Syringe'], unit: ['tablet', 'pair', 'piece'],
     packSize: ['10', '50', '100'], threshold: ['20', '100', '50'],
+  },
+  triage: {
+    complaint: ['Headache for two days', 'Fever and cough', 'Shortness of breath'],
+    bp: ['118/76', '132/84', '146/92'],
+    pulse: ['76', '98', '118'],
+    temperature: ['36.8', '38.4', '37.6'],
+    spo2: ['98', '96', '89'],
+    observations: ['Alert and comfortable.', 'Flushed, drinking fluids.', 'Breathless at rest: seen by the doctor at once.'],
+  },
+  nursing: {
+    note: ['BP 124/78 mmHg, pulse 80 bpm, temperature 36.9 °C, SpO2 97%.', 'Fictional Med A given by mouth, as prescribed.',
+      'Comfortable overnight, observations stable. Handed over to the day team.'],
+    units: ['Not applicable', '500 mg', 'Not applicable'],
+  },
+  icu: {
+    reason: ['Monitoring after abdominal surgery', 'Pneumonia needing high-flow oxygen', 'Sepsis needing close observation'],
+    team: ['ICU team A (fictional)', 'ICU team B (fictional)', 'ICU team A (fictional)'],
   },
 }
 
@@ -108,12 +129,13 @@ export function sampleModule(id: string): Module | undefined {
 }
 
 /**
- * A record's id: the workspace's place in the design's list, then the record's number in it ("S-0201" is the first
- * appointment). It is the same whichever workspace opens first, so a record's address keeps working until a reload.
+ * A record's id: eight hex digits, as the design shows record ids, made of the workspace's place in the design's list
+ * and the record's number in it ("5a020001" is the first appointment). It is the same whichever workspace opens first,
+ * so a record's address keeps working until a reload.
  */
 function sampleId(moduleId: string, number: number): string {
   const place = allModules.findIndex(module => module.id === moduleId) + 1
-  return `S-${String(place).padStart(2, '0')}${String(number).padStart(2, '0')}`
+  return (0x5a000000 + place * 0x10000 + number).toString(16)
 }
 
 /** Fixed sample times, so every visit shows the same rows: 29 October 2026, a few hours apart. */
@@ -271,6 +293,17 @@ export function sampleHandoff(moduleId: string): Record<string, SampleValue> | u
 
 export function clearSampleHandoff(moduleId: string) {
   handoffs.delete(moduleId)
+}
+
+/**
+ * Forgets every sample record and handoff, for the next person or facility in this tab: the frame calls it when the
+ * signed-in person or their facility changes, and on sign-out. The workspaces start again from their fictional rows.
+ */
+export function resetSamples() {
+  records.clear()
+  handoffs.clear()
+  version += 1
+  publish()
 }
 
 /** The record's name in a list, as the design names it (its name, title, number, test… reason), else its id. */

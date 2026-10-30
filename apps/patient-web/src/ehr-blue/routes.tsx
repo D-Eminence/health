@@ -1,4 +1,6 @@
 import { matchPath } from 'react-router-dom'
+import { usesNovuBackend } from '../backendContract'
+import { STAFF_JOIN_PATH } from '../productHostname'
 import type { BluePageMatch } from './frame/pageContext'
 import { basePath, pageHrefOf } from './frame/pageHref'
 import type { EhrBluePage } from './frame/types'
@@ -13,6 +15,7 @@ type PagesModule = { readonly pages?: readonly EhrBluePage[] }
 const FRAME_MODULE = './frame/pages.ts'
 
 export { basePath, pageHrefOf }
+export { pageAllowed, pageTabs } from './frame/pageAccess'
 
 export function collectPages(modules: Readonly<Record<string, PagesModule>>): EhrBluePage[] {
   const frame = modules[FRAME_MODULE]?.pages ?? []
@@ -37,11 +40,6 @@ const found = import.meta.glob<PagesModule>('./*/pages.ts', { eager: true })
 /** Every page of the blue EHR, in sidebar order. */
 export const BLUE_PAGES: readonly EhrBluePage[] = collectPages(found)
 
-/** Live and partial pages need their permission; a sample page never does. */
-export function pageAllowed(page: EhrBluePage, permissions: readonly string[]): boolean {
-  return page.status === 'sample' || !page.permission || permissions.includes(page.permission)
-}
-
 /** The page an address under /provider opens: an exact path first, then the deepest '/*' page that takes it. */
 export function matchBluePage(pages: readonly EhrBluePage[], pathname: string): BluePageMatch | null {
   for (const page of pages) {
@@ -58,11 +56,22 @@ export function matchBluePage(pages: readonly EhrBluePage[], pathname: string): 
 
 /**
  * Today's provider routes no page lists, opened from links elsewhere (the migration notice, a staff invitation): the
- * frame shows today's page for them.
+ * frame shows today's page for them, under the tab title today's app gives it (staff/App.tsx PAGE_TITLES).
  */
-export const LIVE_ONLY_PATHS: readonly string[] = ['/provider/migrate', '/provider/staff/join']
+const LIVE_ONLY_TITLES: Readonly<Record<string, string>> = {
+  '/provider/migrate': 'Migration workspace',
+  [STAFF_JOIN_PATH]: 'Join a facility',
+}
+
+const normalized = (pathname: string) => pathname.replace(/\/+$/, '').toLowerCase()
 
 export function isLiveOnlyPath(pathname: string): boolean {
-  const path = pathname.replace(/\/+$/, '').toLowerCase()
-  return LIVE_ONLY_PATHS.includes(path)
+  return Object.hasOwn(LIVE_ONLY_TITLES, normalized(pathname))
+}
+
+/** The tab title of a live-only route. Today's app serves the invitation on Novu only; elsewhere it is not found. */
+export function liveOnlyTitle(pathname: string): string | undefined {
+  const path = normalized(pathname)
+  if (!isLiveOnlyPath(path) || (path === STAFF_JOIN_PATH && !usesNovuBackend())) return undefined
+  return LIVE_ONLY_TITLES[path]
 }

@@ -1,4 +1,5 @@
 import type { ReactElement, ReactNode } from 'react'
+import type { StaffSession } from '../../staff/api'
 
 /**
  * How much of a page runs on Health ID today:
@@ -28,4 +29,18 @@ export interface EhrBluePage {
   readonly permission?: string
   readonly status: EhrBluePageStatus
   readonly element: ReactElement
+  /**
+   * Whether the page shows for this session at all, beyond its permission (how the facility signed up, a setting…).
+   * Left out, it shows wherever its permission allows. A page it hides is left out of the sidebar, search and Home's
+   * shortcuts, and says it is not open here if its address is opened.
+   */
+  readonly visible?: (session: StaffSession) => boolean
+  /**
+   * The path of the page whose tabs this page joins, as the design draws Insurance & Claims (Claims | Policies) and
+   * Supply (Stock | Procurement): it has no sidebar entry of its own, the frame draws the tabs above the heading, and the
+   * sidebar marks the page it joins as current.
+   */
+  readonly tabOf?: string
+  /** The page's own name among its tabs, when other pages join it ('Claims' for Insurance & Claims). Else its label. */
+  readonly tabLabel?: string
 }

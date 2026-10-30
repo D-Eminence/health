@@ -34,7 +34,7 @@ import { resolveStaffProductHostname, STAFF_JOIN_PATH } from '../productHostname
 import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
-import { showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
+import { resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
 import './style.css'
 
 // The blue Hospital EHR (ehr-blue/blueFacilities.ts says for whom): loaded on demand, so no other facility downloads
@@ -391,6 +391,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     away.current = null
     setState({ status: 'signed-out', session: null })
     setLock(null)
+    // "Use the classic EHR" was this person's choice: the next one starts on the blue EHR.
+    resetClassicEhr()
     announceStaffSessionChange()
   }
 

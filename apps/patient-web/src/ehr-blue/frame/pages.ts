@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { EhrIcon, type EhrIconName } from '@hid/ui/ehr'
 import type { EhrBluePage, EhrBluePageStatus } from './types'
 import { LivePage, StaffAccessPage } from './LivePages'
-import { SampleWorkspace, type SampleTab } from './sample/SampleWorkspace'
+import { SampleWorkspace } from './sample/SampleWorkspace'
 import { FacilityProfileSample, FacilitySetupSample, PlatformReviewSample, ReportsSample } from './admin/AdminSamples'
 import { WhatsLeft } from './WhatsLeft'
 import { ChooseWorkspacePage } from './ChooseWorkspace'
@@ -27,8 +27,8 @@ function live(path: string, group: string, label: string, iconName: EhrIconName,
   return { path, group, label, icon: icon(iconName), permission, status: 'live', element: createElement(LivePage) }
 }
 
-function sample(id: string, group: string, label: string, iconName: EhrIconName, tabs?: readonly SampleTab[], path = `${id}/*`): EhrBluePage {
-  return { path, group, label, icon: icon(iconName), status: 'sample', element: createElement(SampleWorkspace, { moduleId: id, tabs }) }
+function sample(id: string, group: string, label: string, iconName: EhrIconName, path = `${id}/*`): EhrBluePage {
+  return { path, group, label, icon: icon(iconName), status: 'sample', element: createElement(SampleWorkspace, { moduleId: id }) }
 }
 
 function page(path: string, group: string, label: string, iconName: EhrIconName, status: EhrBluePageStatus,
@@ -62,11 +62,9 @@ export const pages: EhrBluePage[] = [
   sample('radiology', 'Diagnostics', 'Radiology', 'scan'),
   live('pharmacy', 'Diagnostics', 'Pharmacy', 'pill', 'pharmacy.work-item.read'),
 
-  sample('billing', 'Finance', 'Patient billing', 'receipt', undefined, 'patient-billing/*'),
-  sample('insurance', 'Finance', 'Insurance & Claims', 'shield', [
-    { segment: '', label: 'Claims', moduleId: 'insurance' },
-    { segment: 'policies', label: 'Policies', moduleId: 'policies' },
-  ]),
+  sample('billing', 'Finance', 'Patient billing', 'receipt', 'patient-billing/*'),
+  { ...sample('insurance', 'Finance', 'Insurance & Claims', 'shield'), tabLabel: 'Claims' },
+  { ...sample('policies', 'Finance', 'Policies', 'shield'), tabOf: 'insurance' },
 
   sample('referrals', 'Network & Services', 'Referral Network', 'share'),
   sample('ambulance', 'Network & Services', 'Dispatch', 'truck'),
@@ -89,10 +87,8 @@ export const pages: EhrBluePage[] = [
   page('setup', 'Settings', 'Facility settings', 'edit', 'sample', createElement(FacilitySetupSample)),
   live('billing', 'Settings', 'Facility subscription', 'subscription', 'billing.subscription.read'),
 
-  sample('inventory', 'Supply', 'Supply', 'box', [
-    { segment: '', label: 'Stock', moduleId: 'inventory' },
-    { segment: 'procurement', label: 'Procurement', moduleId: 'procurement' },
-  ], 'supply/*'),
+  { ...sample('inventory', 'Supply', 'Supply', 'box', 'supply/*'), tabLabel: 'Stock' },
+  { ...sample('procurement', 'Supply', 'Procurement', 'box'), tabOf: 'supply' },
 
   page('reports', 'Insight', 'Reports & Analytics', 'chart', 'sample', createElement(ReportsSample)),
   live('audit', 'Insight', 'Audit & Compliance', 'history', 'audit.read'),

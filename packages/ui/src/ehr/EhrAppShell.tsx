@@ -267,7 +267,8 @@ export function EhrModal({ children, scrimClassName, onEscape, initialFocusRef, 
     // Should focus still fall out of the overlay (to the body), the top overlay keeps answering Escape and Tab. Keys
     // pressed inside it are React's (onKeyDown below).
     const onDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (!stack.isTop(entry)) return
+      // Not while the overlay itself is hidden or inert: something above the whole shell (a session check) has the keys.
+      if (!stack.isTop(entry) || scrim.closest('[hidden], [inert]')) return
       if (event.target instanceof Node && scrim.contains(event.target)) return
       if (event.key === 'Escape') {
         event.preventDefault()

@@ -57,6 +57,13 @@ export function chooseClassicEhr(): void {
   classicListeners.forEach(listener => listener())
 }
 
+/** Back to the blue EHR for whoever signs in next in this tab: StaffProvider calls it on sign-out. */
+export function resetClassicEhr(): void {
+  if (!classic) return
+  classic = false
+  classicListeners.forEach(listener => listener())
+}
+
 function subscribeClassic(listener: () => void): () => void {
   classicListeners.add(listener)
   return () => { classicListeners.delete(listener) }

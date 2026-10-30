@@ -1,11 +1,11 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { staffApi } from '../../../staff/api'
 import type * as StaffApi from '../../../staff/api'
-import { AttentionProvider } from '../../../ehr-blue/frame/attention'
+import { AttentionProvider, useReloadAccessRequests } from '../../../ehr-blue/frame/attention'
 import { AttentionLines, TodayCard } from '../../../ehr-blue/home/liveCards'
 import { RoleDashboard } from '../../../ehr-blue/home/RoleDashboard'
 import { RoleViewProvider } from '../../../ehr-blue/frame/roleView'
@@ -26,8 +26,15 @@ function inRouter(children: ReactNode) {
   return render(<MemoryRouter>{children}</MemoryRouter>)
 }
 
+/** Asks for the read on mounting, as Home does when it opens. */
+function AsHomeDoes() {
+  const reload = useReloadAccessRequests()
+  useEffect(() => { reload() }, [reload])
+  return null
+}
+
 const Attention = ({ permissions }: { readonly permissions: readonly string[] }) => (
-  <AttentionProvider facilityId={FACILITY_ID} permissions={permissions}><ul><AttentionLines activePatient={null} /></ul></AttentionProvider>
+  <AttentionProvider facilityId={FACILITY_ID} permissions={permissions}><AsHomeDoes /><ul><AttentionLines activePatient={null} /></ul></AttentionProvider>
 )
 
 describe('Needs attention: access requests', () => {

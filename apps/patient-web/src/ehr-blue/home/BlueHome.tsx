@@ -1,14 +1,17 @@
-import { useState, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Link } from 'react-router-dom'
 import { EhrButton, EhrCard, EhrDrawer, EhrField, EhrPageHeading, EhrSampleBanner, EhrSelect } from '@hid/ui/ehr'
 import { useStaff } from '../../staff/App'
+import { FacilityCheckCard } from '../../staff/routes/ReviewBanner'
 import { usesNovuBackend } from '../../backendContract'
+import { isDemoFacility } from '../blueFacilities'
+import { useReloadAccessRequests } from '../frame/attention'
 import { useBluePages } from '../frame/pageContext'
 import { pageHrefOf } from '../frame/pageHref'
+import { pageAllowed } from '../frame/pageAccess'
 import { useRoleView } from '../frame/roleView'
 import { sampleModule, sampleRecords, sampleVersion, subscribeSamples } from '../frame/sample/store'
-import type { EhrBluePage } from '../frame/types'
-import { AttentionLines, IncomingOrdersCard, TodayCard, useIncomingServices, WrongPatientOrdersCard } from './liveCards'
+import { AttentionLines, IncomingOrdersCard, TodayCard, TodayLinks, useIncomingServices, WrongPatientOrdersCard } from './liveCards'
 import { RoleDashboard } from './RoleDashboard'
 
 const ACTIVITY = ['patients', 'appointments', 'journey', 'triage'] as const
@@ -36,14 +39,18 @@ export function BlueHome() {
   const [customizing, setCustomizing] = useState(false)
   const [chosen, setChosen] = useState<readonly string[] | null>(null)
   useSyncExternalStore(subscribeSamples, sampleVersion, sampleVersion)
+  // Home reads the access requests each time it opens, as today's Overview does.
+  const reloadRequests = useReloadAccessRequests()
+  useEffect(() => { reloadRequests() }, [reloadRequests])
   if (role.viewing) return <RoleDashboard role={role.viewing} />
   if (!session) return null
   const name = session.actor.displayName ?? 'colleague'
-  const open = (page: EhrBluePage) => page.status === 'sample' || !page.permission || permissions.includes(page.permission)
-  const candidates = pages.filter(page => page.path !== '' && !page.group.startsWith('Design') && open(page))
+  const candidates = pages.filter(page => page.path !== '' && !page.group.startsWith('Design') && pageAllowed(page, session))
   const shortcuts = chosen
     ? candidates.filter(page => chosen.includes(page.path))
     : candidates.filter(page => page.status === 'live').slice(0, MAX_SHORTCUTS)
+  // As today's Overview says when none of its workspaces is open to the member: here, no live or partial page.
+  const holdsLivePage = pages.some(page => page.status !== 'sample' && page.permission !== undefined && permissions.includes(page.permission))
   const lab = permissions.includes('lab.work-item.read')
   const pharmacy = permissions.includes('pharmacy.work-item.read')
 
@@ -76,9 +83,14 @@ export function BlueHome() {
         <ul className="hid-ehr-blue-list">
           <AttentionLines activePatient={activePatient} />
         </ul>
-        {!permissions.includes('identity.consent.write') ? <p className="hid-ehr-blue-muted">Nothing needs your attention here.</p> : null}
+        {/* Only when the list is empty: no access requests to count and no patient open. */}
+        {!permissions.includes('identity.consent.write') && !activePatient ? <p className="hid-ehr-blue-muted">Nothing needs your attention here.</p> : null}
       </EhrCard>
-      {facility ? <TodayCard facilityId={facility.id} lab={lab} pharmacy={pharmacy} /> : null}
+      {/* Today's card and its once-only "Done" rule, at a self-signed-up facility (Novu). */}
+      {facility ? <FacilityCheckCard facility={facility} /> : null}
+      {/* Live work counts are audited reads: only at the demo facilities. */}
+      {facility ? isDemoFacility(facility.id) ? <TodayCard facilityId={facility.id} lab={lab} pharmacy={pharmacy} />
+        : <TodayLinks lab={lab} pharmacy={pharmacy} /> : null}
       {facility && usesNovuBackend() && incoming.services.length > 0
         ? <IncomingOrdersCard facility={facility} services={incoming.services} unsure={incoming.unsure} sure={incoming.sure} /> : null}
       {facility && usesNovuBackend() && permissions.includes('ehr.order-route.send')
@@ -89,6 +101,9 @@ export function BlueHome() {
       <ul className="hid-ehr-blue-shortcuts">
         {shortcuts.map(page => <li key={page.path}><Link className="hid-ehr-button hid-ehr-button-secondary" to={pageHrefOf(page)}>{page.label}</Link></li>)}
       </ul>
+      {facility && !holdsLivePage ? (
+        <p className="hid-ehr-blue-muted">Your active facility has no clinical module permissions. Ask an administrator to review your assignment.</p>
+      ) : null}
     </section>
     <EhrDrawer open={customizing} title="Customize shortcuts" onClose={() => setCustomizing(false)}>
       <EhrSampleBanner />

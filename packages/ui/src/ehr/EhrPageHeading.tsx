@@ -9,6 +9,8 @@ import { cx } from '../primitives'
 
 export interface EhrPageHeadingProps {
   readonly title: ReactNode
+  /** A short line above the title, in capitals ("Platform administration", "Step 9 of 9 · Launch"). */
+  readonly eyebrow?: ReactNode
   readonly description?: ReactNode
   /** One primary action, usually an EhrButton. */
   readonly primaryAction?: ReactNode
@@ -17,12 +19,13 @@ export interface EhrPageHeadingProps {
   readonly className?: string
 }
 
-export function EhrPageHeading({ title, description, primaryAction, secondaryActions, className }: EhrPageHeadingProps) {
+export function EhrPageHeading({ title, eyebrow, description, primaryAction, secondaryActions, className }: EhrPageHeadingProps) {
   const actions = primaryAction !== undefined || secondaryActions !== undefined
 
   return (
     <div className={cx('hid-ehr-page-heading', className)}>
       <div className="hid-ehr-page-heading-text">
+        {eyebrow !== undefined ? <p className="hid-ehr-page-eyebrow">{eyebrow}</p> : null}
         <h1 className="hid-ehr-page-title">{title}</h1>
         {description !== undefined ? <p className="hid-ehr-page-description">{description}</p> : null}
       </div>

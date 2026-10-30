@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Backend release backend-40735105463-1-1482c5804e7040ef from production-backend-images run 40735105463 (D-Eminence/hid-system#129 at ef81b4f, carrying migration 0097; deployed 2026-10-28). That release deployed all twelve services at ef81b4f, so every pin moves to it. Browser-facing changes since the previous pins: GET /api/v1/identity/me/web-push, PUT /api/v1/identity/me/web-push/subscription and POST /api/v1/identity/me/web-push/subscription/remove, each answering a plain 404 while push is not configured (no VAPID public key). This frontend shows the device notifications and install cards only where those routes answer. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-28 (batch approval for this parity work).",
+  "review_reference": "The services as deployed now, after four backend releases since ef81b4f: backend-40944746728-1-af283acb04b5abf5 (D-Eminence/hid-system#134 at 61fb36b, Node 22.23.4 security fix, all twelve services), backend-40981383492-1-e81fc1538b1028ac (#131 at 8749271, ehr-api), backend-41019669602-1-4c6216ab762aaf4c (#132 at 24b976d, migration 0098, identity-api and ehr-api) and backend-41025269743-1-c5c90b301b8da2d9 (#135 at f2d2d55, migration 0099, ehr-api). So identity-api pins to 24b976d, ehr-api to f2d2d55 and every other service to 61fb36b. Browser-facing changes since the previous pins: new EHR offline routes (ping, receipt lookup, audit ingest, escrow key; this frontend does not call them yet) and the sealed demo tenant's guards in identity-api (demo facilities refuse sharing with real ones). Nothing this frontend calls changed shape. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-30 (\"Approve\", in reply to the request to re-pin the website so the blue EHR can release).",
   "backend_commits": {
-    "gateway": "ef81b4f102799b21d7f13a499af03b3bd05d2b73",
-    "identity-api": "ef81b4f102799b21d7f13a499af03b3bd05d2b73",
-    "ehr-api": "ef81b4f102799b21d7f13a499af03b3bd05d2b73",
-    "lab-api": "ef81b4f102799b21d7f13a499af03b3bd05d2b73",
-    "pharmacy-api": "ef81b4f102799b21d7f13a499af03b3bd05d2b73",
-    "ocr-api": "ef81b4f102799b21d7f13a499af03b3bd05d2b73",
-    "outreach-api": "ef81b4f102799b21d7f13a499af03b3bd05d2b73",
-    "support-api": "ef81b4f102799b21d7f13a499af03b3bd05d2b73",
-    "notification-api": "ef81b4f102799b21d7f13a499af03b3bd05d2b73"
+    "gateway": "61fb36b123703f7cd13cd9d55f4c86a3d36c4527",
+    "identity-api": "24b976d8a19cb324a04b11e3833bf14040b48b39",
+    "ehr-api": "f2d2d554918cf65c89b3db91b56b88ad7eaf33cf",
+    "lab-api": "61fb36b123703f7cd13cd9d55f4c86a3d36c4527",
+    "pharmacy-api": "61fb36b123703f7cd13cd9d55f4c86a3d36c4527",
+    "ocr-api": "61fb36b123703f7cd13cd9d55f4c86a3d36c4527",
+    "outreach-api": "61fb36b123703f7cd13cd9d55f4c86a3d36c4527",
+    "support-api": "61fb36b123703f7cd13cd9d55f4c86a3d36c4527",
+    "notification-api": "61fb36b123703f7cd13cd9d55f4c86a3d36c4527"
   }
 }
