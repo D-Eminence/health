@@ -383,13 +383,8 @@
   flex: none;
 }
 
-/* Banners. */
+/* Notices: the design's Banner (a persistent condition) and its ErrorBox and info box (what an action answered). */
 .hid-ehr .hid-ehr-dept-notice {
-  margin: 0 0 20px;
-  padding: 14px 20px;
-  border-left: 4px solid var(--ehr-brand);
-  border-radius: var(--ehr-radius-xl);
-  background: var(--ehr-tint);
   color: var(--ehr-ink);
   font-size: 14px;
 }
@@ -399,9 +394,54 @@
   outline-offset: 3px;
 }
 
+.hid-ehr .hid-ehr-dept-notice-banner {
+  margin: 0 0 18px;
+  padding: 16px 20px;
+  border-left: 4px solid var(--ehr-brand);
+  border-radius: 10px;
+  background: var(--ehr-tint);
+}
+
+.hid-ehr .hid-ehr-dept-notice-banner.hid-ehr-dept-notice-caution {
+  border-left-color: #94600c;
+  background: #fff7e6;
+}
+
+.hid-ehr .hid-ehr-dept-notice-banner.hid-ehr-dept-notice-critical {
+  border-left-color: var(--ehr-critical);
+  background: #fff0ee;
+}
+
+.hid-ehr .hid-ehr-dept-notice-banner.hid-ehr-dept-notice-positive {
+  border-left-color: var(--ehr-positive);
+  background: var(--ehr-success-50);
+}
+
+.hid-ehr .hid-ehr-dept-notice-box {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border-radius: 6px;
+  background: var(--ehr-tint);
+}
+
+.hid-ehr .hid-ehr-dept-notice-box.hid-ehr-dept-notice-critical {
+  border: 1px solid #e9bcb9;
+  background: var(--ehr-danger-50);
+  color: var(--ehr-danger-text);
+}
+
+.hid-ehr .hid-ehr-dept-notice-box.hid-ehr-dept-notice-caution {
+  background: #fff7e6;
+  color: var(--ehr-warning-banner-text);
+}
+
+.hid-ehr .hid-ehr-dept-notice-box.hid-ehr-dept-notice-positive {
+  background: var(--ehr-success-50);
+  color: var(--ehr-success-600);
+}
+
 .hid-ehr .hid-ehr-dept-notice-title {
-  margin: 0 0 2px;
-  font-weight: 600;
+  display: block;
 }
 
 .hid-ehr .hid-ehr-dept-notice-body > p {
@@ -412,34 +452,16 @@
   margin-bottom: 0;
 }
 
-.hid-ehr .hid-ehr-dept-notice-caution {
-  border-left-color: var(--ehr-caution);
-  background: var(--ehr-warning-banner-surface);
-}
-
-.hid-ehr .hid-ehr-dept-notice-critical {
-  border-left-color: var(--ehr-critical);
-  background: var(--ehr-danger-50);
-  color: var(--ehr-danger-text);
-}
-
-.hid-ehr .hid-ehr-dept-notice-positive {
-  border-left-color: var(--ehr-positive);
-  background: var(--ehr-success-50);
-  color: var(--ehr-success-600);
-}
-
-/* The sample notice: on every sample workspace and sample section, never dismissible. */
+/* The sample notice, in the design's warning Banner: on every sample workspace and section, never dismissible. */
 .hid-ehr .hid-ehr-dept-sample-banner {
-  margin: 0 0 20px;
-  padding: 12px 20px;
-  border: 1px solid #f0d9a8;
-  border-left: 4px solid var(--ehr-caution);
-  border-radius: var(--ehr-radius-xl);
-  background: var(--ehr-warning-banner-surface);
-  color: var(--ehr-warning-banner-text);
+  margin: 0 0 18px;
+  padding: 16px 20px;
+  border-left: 4px solid #94600c;
+  border-radius: 10px;
+  background: #fff7e6;
+  color: var(--ehr-ink);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .hid-ehr .hid-ehr-dept-icon {
