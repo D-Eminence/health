@@ -92,6 +92,9 @@ export function useChart(): Chart | null {
   if (!context) throw new Error('Chart pages render inside <ChartProvider>')
   const { facility, activePatient, setActivePatient, can } = useClinical()
   const { markEnded, writeAccess } = context
+  // Keyed on values, not on the facility object, so verify keeps its identity while the session is unchanged.
+  const facilityId = facility?.id
+  const facilityName = facility?.name
   const patientId = activePatient?.lookup.patient.patientId
 
   const endAccess = useCallback(() => {
@@ -100,10 +103,10 @@ export function useChart(): Chart | null {
   }, [markEnded, setActivePatient])
 
   const verify = useCallback(async () => {
-    if (!facility || !activePatient) throw new Error(OPEN_FIRST)
+    if (!facilityId || !activePatient) throw new Error(OPEN_FIRST)
     let answer
     try {
-      answer = await staffApi.lookupPatient(facility.id, activePatient.hid, activePatient.purpose)
+      answer = await staffApi.lookupPatient(facilityId, activePatient.hid, activePatient.purpose)
     } catch (caught) {
       if (isHidApiError(caught) && (caught.status === 403 || caught.status === 404)) {
         endAccess()
@@ -115,18 +118,18 @@ export function useChart(): Chart | null {
       endAccess()
       throw new Error(ACCESS_ENDED)
     }
-  }, [activePatient, endAccess, facility, patientId])
+  }, [activePatient, endAccess, facilityId, patientId])
 
   return useMemo(() => {
-    if (!facility || !activePatient || !patientId || context.ended) return null
-    const scope = JSON.stringify([facility.id, patientId])
+    if (!facilityId || !activePatient || !patientId || context.ended) return null
+    const scope = JSON.stringify([facilityId, patientId])
     const known = writeAccess?.scope === scope ? writeAccess : null
     const directCare = activePatient.purpose === 'direct-care'
     const canWrite = directCare && known?.allowed === true
     const writeNotice = !directCare || !known || known.allowed ? null : known.failed ? WRITE_UNKNOWN : READ_ONLY
     return {
-      facilityId: facility.id,
-      facilityName: facility.name,
+      facilityId,
+      facilityName: facilityName ?? '',
       patient: activePatient,
       patientId,
       facts: patientFacts(activePatient),
@@ -137,7 +140,7 @@ export function useChart(): Chart | null {
       verify,
       endAccess,
     }
-  }, [activePatient, can, context.ended, endAccess, facility, patientId, verify, writeAccess])
+  }, [activePatient, can, context.ended, endAccess, facilityId, facilityName, patientId, verify, writeAccess])
 }
 
 /** Whether access ended in this workspace (the patient was closed by a refusal). */

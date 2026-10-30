@@ -1,4 +1,3 @@
-import './orders.css'
 import { EhrButton } from '@hid/ui/ehr'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'

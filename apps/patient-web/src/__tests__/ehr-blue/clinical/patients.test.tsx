@@ -122,7 +122,7 @@ describe('Patients list', () => {
     expect(within(banner).getByRole('button', { name: 'Verify patient PIN' })).toBeTruthy()
     expect(within(banner).getByRole('button', { name: 'Emergency break-glass access' })).toBeTruthy()
     fireEvent.click(within(banner).getByRole('button', { name: 'Request access' }))
-    expect(where()).toBe('/ehr/consent/new')
+    expect(where()).toBe('/provider/requests/new')
     expect(offeredHealthId(FACILITY_ID)).toBe(PATIENT_HID)
     expect(staff.setActivePatient).not.toHaveBeenCalled()
   })
@@ -150,7 +150,7 @@ describe('Patients list', () => {
     staff.activePatient = activePatient()
     open()
     const table = screen.getByRole('table', { name: 'Patients' })
-    expect(within(table).getByRole('link', { name: PATIENT_NAME }).getAttribute('href')).toBe('/ehr/patients/open')
+    expect(within(table).getByRole('link', { name: PATIENT_NAME }).getAttribute('href')).toBe('/provider/patients/open')
     expect(within(table).getByText(PATIENT_HID)).toBeTruthy()
     expect(within(table).getByText('Access allowed')).toBeTruthy()
     fireEvent.click(within(table).getByRole('button', { name: `Quick view ${PATIENT_NAME}` }))
@@ -173,18 +173,18 @@ describe('The open patient’s page', () => {
     expect(within(header).getByText('Access allowed')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Next steps' })).toBeTruthy()
     const history = await screen.findByRole('link', { name: 'Consultation · e0000000' })
-    expect(history.getAttribute('href')).toBe(`/ehr/consult/${ENCOUNTER_ID}`)
+    expect(history.getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
     expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.encounters.mock.invocationCallOrder[0]!)
     expect(api.encounters).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID)
     fireEvent.click(screen.getByRole('button', { name: 'Open consent' }))
-    expect(where()).toBe('/ehr/consent/new')
+    expect(where()).toBe('/provider/requests/new')
     expect(offeredHealthId(FACILITY_ID)).toBe(PATIENT_HID)
   })
 
   it.each([
-    ['Open appointments', '/ehr/appointments'],
-    ['Register walk-in visit', '/ehr/journey/new'],
-    ['Open clinical record', '/ehr/consult'],
+    ['Open appointments', '/provider/appointments'],
+    ['Register walk-in visit', '/provider/journey/new'],
+    ['Open clinical record', '/provider/clinical'],
   ])('%s goes to %s', (label, path) => {
     staff.activePatient = activePatient()
     open('/open')
@@ -227,7 +227,7 @@ describe('The open patient’s page', () => {
     expect(screen.queryByRole('button', { name: 'Open consent' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Connected hospital history' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Open the emergency summary' }))
-    expect(where()).toBe('/ehr/emergency')
+    expect(where()).toBe('/provider/emergency')
     expect(api.encounters).not.toHaveBeenCalled()
     expect(api.consentStatus).not.toHaveBeenCalled()
   })

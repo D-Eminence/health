@@ -61,7 +61,7 @@ export interface HistoryItem {
   readonly status?: string
 }
 
-/** "Connected hospital history": records of the same patient this user may see, each with its status. */
+/** "Connected hospital history": records of the same patient this user may see, each with its status. An empty `empty` draws nothing when there are none. */
 export function HistoryCard({ items, empty = 'No other records for this patient yet.', children }: {
   items: readonly HistoryItem[]
   empty?: string
@@ -71,7 +71,7 @@ export function HistoryCard({ items, empty = 'No other records for this patient 
     <EhrCard title="Connected hospital history">
       <p>Only records available to your current permissions are listed.</p>
       {children}
-      {items.length === 0 ? <p>{empty}</p> : (
+      {items.length === 0 ? (empty ? <p>{empty}</p> : null) : (
         <ul className="hid-ehr-clinical-history-list">
           {items.map(item => (
             <li key={item.key} className="hid-ehr-clinical-history-row">

@@ -78,7 +78,7 @@ describe('External record access list', () => {
     expect(screen.getByText('Loading requests…')).toBeTruthy()
     const table = await screen.findByRole('table', { name: 'Access requests' })
     expect(api.listAccessRequests).toHaveBeenCalledWith(FACILITY_ID, undefined)
-    expect(within(table).getByRole('link', { name: 'Follow-up consultation' }).getAttribute('href')).toBe('/ehr/consent/r0000000-0000-4000-8000-000000000001')
+    expect(within(table).getByRole('link', { name: 'Follow-up consultation' }).getAttribute('href')).toBe('/provider/requests/r0000000-0000-4000-8000-000000000001')
     expect(within(table).getAllByText('Patient ••••0001')).toHaveLength(3)
     expect(within(table).getByText('Waiting for the patient')).toBeTruthy()
     expect(within(table).getByText('Access active')).toBeTruthy()
@@ -204,7 +204,7 @@ describe('Patient PIN access', () => {
     expect(pin.type).toBe('password')
     fireEvent.change(pin, { target: { value: '12 34' } })
     fireEvent.submit(pin.closest('form')!)
-    await waitFor(() => expect(where()).toBe('/ehr/patients/open'))
+    await waitFor(() => expect(where()).toBe('/provider/patients/open'))
     expect(api.verifyPin).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, '1234')
     expect(session.untilStaffSessionReady).toHaveBeenCalledWith(3)
     expect(api.lookupPatient).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'direct-care')
@@ -266,7 +266,7 @@ describe('An access request’s page', () => {
     expect(screen.getByText('No further actions for your permission and this record state.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Close access' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Emergency break-glass access' }))
-    expect(where()).toBe('/ehr/emergency')
+    expect(where()).toBe('/provider/emergency')
   })
 
   it('shows the patient’s reason for denying', async () => {

@@ -5,6 +5,7 @@ import type { ClinicalRecord, Encounter, Page } from '../../../staff/api'
 import { refusedFields, refusalSentences } from '../../../staff/fieldProblem'
 import type { FieldErrors } from '../parts/RecordForm'
 import { shortId } from '../parts/format'
+import { NOTE_TYPE as NURSING_NOTE_TYPE } from '../nursing/observations'
 
 /** The sidebar label, the list's heading. */
 export const TITLE = 'Consultation'
@@ -149,8 +150,10 @@ export function field(record: ClinicalRecord, key: string): string {
  * newest first.
  */
 export function consultationNote(notes: readonly ClinicalRecord[] | null): ClinicalRecord | null {
-  if (!notes || notes.length === 0) return null
-  return notes.find(note => note.status !== 'entered_in_error') ?? notes[0] ?? null
+  // A nursing observation is a clinical note too (nursing/observations.ts): it is never the consultation's note.
+  const consultation = (notes ?? []).filter(note => note.noteType !== NURSING_NOTE_TYPE)
+  if (consultation.length === 0) return null
+  return consultation.find(note => note.status !== 'entered_in_error') ?? consultation[0] ?? null
 }
 
 /**

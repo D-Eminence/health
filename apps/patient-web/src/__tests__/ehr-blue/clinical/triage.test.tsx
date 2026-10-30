@@ -102,7 +102,7 @@ describe('Triage & Vitals list', () => {
     const table = await screen.findByRole('table', { name: 'Triage & Vitals' })
     expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Record', 'Patient / context', 'Status', 'Updated', 'Actions'])
     const link = within(table).getByRole('link', { name: 'f0000000' })
-    expect(link.getAttribute('href')).toBe(`/ehr/triage/${ENCOUNTER_ID}~${VITAL_ID}`)
+    expect(link.getAttribute('href')).toBe(`/provider/triage/${ENCOUNTER_ID}~${VITAL_ID}`)
     expect(within(table).getByText(PATIENT_NAME)).toBeTruthy()
     expect(within(table).getByText('final')).toBeTruthy()
     expect(api.lookupPatient).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'direct-care')
@@ -213,7 +213,7 @@ describe('Triage & Vitals list', () => {
     staff.activePatient = null
     open()
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Go to patient access →' }).getAttribute('href')).toBe('/ehr/patients')
+    expect(screen.getByRole('link', { name: 'Go to patient access →' }).getAttribute('href')).toBe('/provider/patients')
     expect(api.encounters).not.toHaveBeenCalled()
   })
 
@@ -374,7 +374,7 @@ describe('Triage & Vitals record', () => {
     expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.encounter.mock.invocationCallOrder[0]!)
     expect(api.encounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID)
     const history = screen.getByRole('heading', { level: 2, name: 'Connected hospital history' }).closest('section')!
-    expect(within(history).getByRole('link', { name: 'Consultation · e0000000' }).getAttribute('href')).toBe(`/ehr/consult/${ENCOUNTER_ID}`)
+    expect(within(history).getByRole('link', { name: 'Consultation · e0000000' }).getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
   })
 
   it('says the record was not found, and shows a refused read', async () => {

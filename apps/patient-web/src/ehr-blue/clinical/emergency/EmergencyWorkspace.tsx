@@ -1,4 +1,3 @@
-import './emergency.css'
 import { Route, Routes } from 'react-router-dom'
 import type { EhrBluePageStatus } from '../types'
 import { ChartProvider } from '../parts/chart'

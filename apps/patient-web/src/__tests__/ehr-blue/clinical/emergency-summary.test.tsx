@@ -234,7 +234,7 @@ describe('the emergency summary page', () => {
   it('leads back to the list and to patient access', async () => {
     await renderSummary()
     fireEvent.click(screen.getByRole('link', { name: 'Change patient →' }))
-    expect(screen.getByTestId('elsewhere').textContent).toBe('/ehr/patients')
+    expect(screen.getByTestId('elsewhere').textContent).toBe('/provider/patients')
   })
 
   it('goes back to the Emergency list from Back to list', async () => {

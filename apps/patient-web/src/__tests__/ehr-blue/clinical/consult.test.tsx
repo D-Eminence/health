@@ -88,7 +88,7 @@ describe('Consultation list', () => {
     const table = await screen.findByRole('table', { name: 'Encounters' })
     expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Record', 'Patient / context', 'Status', 'Updated', 'Actions'])
     const link = within(table).getByRole('link', { name: 'e0000000' })
-    expect(link.getAttribute('href')).toBe(`/ehr/consult/${ENCOUNTER_ID}`)
+    expect(link.getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
     expect(within(table).getAllByText(PATIENT_NAME)).toHaveLength(2)
     expect(within(table).getByText('in progress')).toBeTruthy()
     expect(within(table).getByText('completed')).toBeTruthy()
@@ -149,7 +149,7 @@ describe('Consultation list', () => {
     expect(await within(pager).findByText('Page 2')).toBeTruthy()
     expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: 'cursor-2', fresh: false })
     expect(api.lookupPatient).toHaveBeenCalledTimes(2)
-    expect(screen.getByRole('link', { name: 'e2222222' }).getAttribute('href')).toBe(`/ehr/consult/${SECOND.id}`)
+    expect(screen.getByRole('link', { name: 'e2222222' }).getAttribute('href')).toBe(`/provider/clinical/${SECOND.id}`)
 
     // A failed page read is an alert; the page shown stays.
     api.encounters.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
@@ -211,7 +211,7 @@ describe('Consultation list', () => {
     open()
     expect(screen.getByRole('heading', { level: 1, name: 'Consultation' })).toBeTruthy()
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Go to patient access →' }).getAttribute('href')).toBe('/ehr/patients')
+    expect(screen.getByRole('link', { name: 'Go to patient access →' }).getAttribute('href')).toBe('/provider/patients')
     expect(api.encounters).not.toHaveBeenCalled()
   })
 

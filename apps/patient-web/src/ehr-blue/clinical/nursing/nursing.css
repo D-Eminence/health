@@ -1,6 +1,0 @@
-/* Nursing observations: what the shared clinical styles do not cover. Under .hid-ehr only. */
-
-/* "Available actions" takes focus after an amendment removes its form. */
-.hid-ehr .hid-ehr-clinical-nursing-focus:focus {
-  outline: none;
-}

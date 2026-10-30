@@ -1,6 +1,7 @@
 import { render } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { segmentOf } from '../../../ehr-blue/clinical/parts/segments'
 import type { Mock } from 'vitest'
 
 /**
@@ -16,8 +17,8 @@ export const PATIENT_HID = 'HID-ZDEMAAA2'
 export const PATIENT_NAME = 'Patient One'
 export const ENCOUNTER_ID = 'e0000000-0000-4000-8000-000000000001'
 
-/** The frame mounts every page at `${BASE}/${path}/*`. */
-export const BASE = '/ehr'
+/** The blue EHR's base: the frame shows every page at `/provider/${segment}` and the addresses below it. */
+export const BASE = '/provider'
 
 export const allowedLookup = {
   patient: { patientId: PATIENT_ID, hid: PATIENT_HID, fullName: PATIENT_NAME, dateOfBirth: '1990-04-12', gender: 'female', version: 1 },
@@ -74,12 +75,16 @@ function Elsewhere() {
   return <p data-testid="elsewhere">{location.pathname}</p>
 }
 
-/** Renders one page as the frame mounts it, at `${BASE}/${path}${rest}`. */
+/**
+ * Renders one workspace at `${BASE}/${segment}${rest}`, where `segment` is the workspace's address segment
+ * (consult is /provider/clinical, consent /provider/requests).
+ */
 export function renderPage(element: ReactElement, path: string, rest = '') {
+  const segment = segmentOf(path)
   return render(
-    <MemoryRouter initialEntries={[`${BASE}/${path}${rest}`]}>
+    <MemoryRouter initialEntries={[`${BASE}/${segment}${rest}`]}>
       <Routes>
-        <Route path={`${BASE}/${path}/*`} element={element} />
+        <Route path={`${BASE}/${segment}/*`} element={element} />
         <Route path="*" element={<Elsewhere />} />
       </Routes>
     </MemoryRouter>,

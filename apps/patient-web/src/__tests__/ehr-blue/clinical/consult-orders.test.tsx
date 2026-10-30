@@ -157,8 +157,8 @@ describe('Connected orders', () => {
     expect(screen.getByText(CONNECTED_ORDERS_NOTE)).toBeTruthy()
     const list = await screen.findByRole('list', { name: 'Orders from this encounter' })
     const rx = within(list).getByRole('link', { name: 'Pharmacy · Amoxicillin' })
-    expect(rx.getAttribute('href')).toBe(`/ehr/consult/${ENCOUNTER_ID}/orders/pharmacy/${RX}`)
-    expect(within(list).getByRole('link', { name: 'Laboratory · Haemoglobin' }).getAttribute('href')).toBe(`/ehr/consult/${ENCOUNTER_ID}/orders/laboratory/${LAB}`)
+    expect(rx.getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/pharmacy/${RX}`)
+    expect(within(list).getByRole('link', { name: 'Laboratory · Haemoglobin' }).getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/laboratory/${LAB}`)
     expect(within(list).getAllByText('draft')).toHaveLength(2)
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests')
@@ -177,13 +177,13 @@ describe('Connected orders', () => {
   it('links radiology and referrals to their sample workspaces with no record of this patient in the address', async () => {
     open(ENCOUNTER_ID)
     fireEvent.click(await screen.findByRole('button', { name: 'Create radiology record' }))
-    expect(where()).toBe('/ehr/radiology/new')
+    expect(where()).toBe('/provider/radiology/new')
   })
 
   it('links referrals to the sample Referral Network workspace', async () => {
     open(ENCOUNTER_ID)
     fireEvent.click(await screen.findByRole('button', { name: 'Create referral network record' }))
-    expect(where()).toBe('/ehr/referrals/new')
+    expect(where()).toBe('/provider/referrals/new')
   })
 
   it('offers no create step under read-only access, and still lists the orders', async () => {

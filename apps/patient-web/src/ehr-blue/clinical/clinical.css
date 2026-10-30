@@ -75,28 +75,30 @@
 /* ---- Notices --------------------------------------------------------------- */
 
 /* "Sample only: not connected to Health ID yet. Nothing you do here is saved."
-   Above the page heading, where the design puts its banners, in the design's
-   warning banner tone. */
+   The frame's EhrSampleBanner, drawn the same way (values from its rule in the
+   frame's ehr.css): above the page heading, where the design puts banners. */
 .hid-ehr .hid-ehr-clinical-sample-banner {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  margin: 0 0 18px;
-  padding: 16px 20px;
-  border-left: 4px solid var(--ehr-warning-banner-text);
-  border-radius: 10px;
+  margin: 0 0 20px;
+  padding: 12px 16px;
+  border-left: 4px solid var(--ehr-caution);
+  border-radius: var(--ehr-radius-md);
   background: var(--ehr-warning-banner-surface);
-  color: var(--ehr-ink);
-}
-
-.hid-ehr .hid-ehr-clinical-sample-banner > svg {
-  flex-shrink: 0;
-  margin-top: 1px;
   color: var(--ehr-warning-banner-text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 19px;
 }
 
-.hid-ehr .hid-ehr-clinical-sample-banner > p {
-  margin: 0;
+.hid-ehr .hid-ehr-clinical-sample-banner-mark {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--ehr-caution);
 }
 
 /* Design Banner: strong title on its own line, then the message. */
@@ -560,3 +562,386 @@
 }
 
 /* ---- Screen-specific rules ---------------------------------------------------- */
+
+/* ---- Patients ------------------------------------------------------------------ */
+
+.hid-ehr .hid-ehr-clinical-patients-verify {
+  align-self: flex-start;
+}
+
+/* "Shared with you" and "Invitations", side by side when both are served. */
+.hid-ehr .hid-ehr-clinical-patients-sharing {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 0 20px;
+  align-items: start;
+}
+
+/* A sharing row's level badge and its button, at the row's end. */
+.hid-ehr .hid-ehr-clinical-patients-share-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ---- External record access ---------------------------------------------------- */
+
+.hid-ehr .hid-ehr-clinical-consent-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.hid-ehr .hid-ehr-clinical-consent-toolbar > .hid-ehr-field {
+  min-width: 220px;
+}
+
+/* The always-mounted status region on a request's page takes focus only when a close removed its button. */
+.hid-ehr .hid-ehr-clinical-consent-status:focus {
+  outline: none;
+}
+
+/* ---- Consultation -------------------------------------------------------------- */
+
+/* "Edit unsigned draft" above the saved values (design: button, then the list, 10px apart). */
+.hid-ehr .hid-ehr-clinical-consult-edit {
+  margin: 0 0 10px;
+}
+
+/* Today's warning on an encounter status change, in the design's warning banner colours (not a live region). */
+.hid-ehr .hid-ehr-clinical-consult-warning {
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  border-left: 4px solid #94600c;
+  border-radius: 10px;
+  background: #fff7e6;
+  color: var(--ehr-ink);
+}
+
+/* A diagnosis row and its change form. */
+.hid-ehr .hid-ehr-clinical-consult-record {
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.hid-ehr .hid-ehr-clinical-consult-record > .hid-ehr-clinical-history-row {
+  border-bottom: 0;
+}
+
+/* A document's status and "Open file", side by side at the row's end. */
+.hid-ehr .hid-ehr-clinical-consult-document-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+/* The card title takes focus after an action removes its form. */
+.hid-ehr .hid-ehr-clinical-consult-focus:focus {
+  outline: none;
+}
+
+/* ---- Consultation orders ------------------------------------------------------- */
+
+.hid-ehr .hid-ehr-clinical-orders-muted {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ehr-muted);
+}
+
+.hid-ehr .hid-ehr-clinical-orders-gap {
+  margin-top: 12px;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-lead {
+  margin: 16px 0 0;
+}
+
+/* The chosen action shows it is open, as the design's pressed action button does. */
+.hid-ehr .hid-ehr-clinical-orders-actions .hid-ehr-button[aria-expanded='true'] {
+  background: var(--ehr-surface-sunk);
+}
+
+.hid-ehr .hid-ehr-clinical-orders-action-form .hid-ehr-clinical-form-footer {
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-choices {
+  margin-top: 18px;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-stack,
+.hid-ehr .hid-ehr-clinical-orders-send,
+.hid-ehr .hid-ehr-clinical-orders-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-send {
+  margin-top: 18px;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-picker-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ehr-ink);
+}
+
+/* Search field, then its button, on one line. */
+.hid-ehr .hid-ehr-clinical-orders-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 12px;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-search > .hid-ehr-field {
+  flex: 1 1 260px;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-search > .hid-ehr-button {
+  margin-top: 25px;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-destinations {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-destinations > .hid-ehr-clinical-choice {
+  min-height: 0;
+  padding: 10px 14px;
+  line-height: 1.5;
+}
+
+/* The patient's agreement: box first, the sentence wraps beside it. */
+.hid-ehr .hid-ehr-clinical-orders-attest {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ehr-ink);
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-attest > input {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--ehr-brand);
+}
+
+.hid-ehr .hid-ehr-clinical-orders-attest > input:focus-visible {
+  outline: var(--ehr-focus-ring-width) solid var(--ehr-focus-ring-color);
+  outline-offset: var(--ehr-focus-ring-offset);
+}
+
+.hid-ehr .hid-ehr-clinical-orders-notes {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+
+/* A notice in the design's banner tones, without being a live region. */
+.hid-ehr .hid-ehr-clinical-orders-notice {
+  margin: 12px 0;
+  padding: 12px 16px;
+  border-left: 4px solid var(--ehr-brand);
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-tint);
+  color: var(--ehr-ink);
+  line-height: 1.55;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-notice.hid-ehr-clinical-orders-danger {
+  border-left-color: var(--ehr-critical);
+  background: #fff0ee;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-notice > p {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-notice > p + p {
+  margin-top: 8px;
+}
+
+/* Where a sent order stands, in the tone of its state. */
+.hid-ehr .hid-ehr-clinical-orders-route-status {
+  margin: 12px 0;
+  padding: 8px 12px;
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-tint);
+  color: var(--ehr-brand-dark);
+}
+
+.hid-ehr .hid-ehr-clinical-orders-tone-positive {
+  background: var(--ehr-success-50);
+  color: var(--ehr-success-600);
+}
+
+.hid-ehr .hid-ehr-clinical-orders-tone-caution {
+  background: var(--ehr-warning-50);
+  color: var(--ehr-warning-600);
+}
+
+.hid-ehr .hid-ehr-clinical-orders-tone-neutral {
+  background: var(--ehr-surface-sunk);
+  color: var(--ehr-muted);
+}
+
+.hid-ehr .hid-ehr-clinical-orders-view,
+.hid-ehr .hid-ehr-clinical-orders-result {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-clinical-orders-view > p,
+.hid-ehr .hid-ehr-clinical-orders-result > p {
+  margin: 6px 0;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-revisions {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-revision {
+  padding: 10px 0;
+  border-top: 1px solid #f0f0f0;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-revision > p {
+  margin: 4px 0 0;
+}
+
+.hid-ehr .hid-ehr-clinical-orders-connected .hid-ehr-clinical-history-list {
+  margin-top: 4px;
+}
+
+/* ---- Triage & Vitals ----------------------------------------------------------- */
+
+/* The eight measurements: a two-column grid of their own inside the form grid, with the group's problem under it. */
+.hid-ehr .hid-ehr-clinical-triage-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.hid-ehr .hid-ehr-clinical-triage-group-error {
+  grid-column: 1 / -1;
+}
+
+/* The sample-only priority and observations, below the measurements. */
+.hid-ehr .hid-ehr-clinical-triage-sample {
+  margin-top: 18px;
+}
+
+/* A card title that takes focus after an action removes its form. */
+.hid-ehr .hid-ehr-clinical-triage-focus:focus {
+  outline: none;
+}
+
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-clinical-triage-group {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- Nursing observations ------------------------------------------------------ */
+
+/* "Available actions" takes focus after an amendment removes its form. */
+.hid-ehr .hid-ehr-clinical-nursing-focus:focus {
+  outline: none;
+}
+
+/* ---- Emergency ----------------------------------------------------------------- */
+
+/* "Current emergency summary": name, badge and link on one line. */
+.hid-ehr .hid-ehr-clinical-emergency-current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+/* The entries of one summary section. */
+.hid-ehr .hid-ehr-clinical-emergency-entries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-clinical-emergency-entry {
+  padding: 14px 0;
+  border-bottom: 1px solid #f0f0f0;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-clinical-emergency-entry:first-child {
+  padding-top: 0;
+}
+
+.hid-ehr .hid-ehr-clinical-emergency-entry-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-clinical-emergency-entry p {
+  margin: 4px 0 0;
+}
+
+.hid-ehr .hid-ehr-clinical-emergency-content {
+  white-space: pre-wrap;
+}
+
+.hid-ehr .hid-ehr-clinical-emergency-muted {
+  font-size: 12px;
+  color: var(--ehr-muted);
+}
+
+/* Released Lab results under a lab request. */
+.hid-ehr .hid-ehr-clinical-emergency-results {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.hid-ehr .hid-ehr-clinical-emergency-results > .hid-ehr-clinical-emergency-entries {
+  align-self: stretch;
+}
+
+/* ---- Sample workspaces --------------------------------------------------------- */
+
+/* "Available actions" takes focus after an action, without a ring (it is not a control). */
+.hid-ehr .hid-ehr-clinical-sample-actions:focus {
+  outline: none;
+}
+
+/* A file field sits in the form's two-column grid, under any other fields. */
+.hid-ehr .hid-ehr-clinical-form-grid:not(:empty) + .hid-ehr-clinical-sample-file {
+  margin-top: 18px;
+}

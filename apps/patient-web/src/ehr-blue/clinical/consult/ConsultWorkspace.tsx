@@ -1,4 +1,3 @@
-import './consult.css'
 import { Route, Routes } from 'react-router-dom'
 import { ChartProvider } from '../parts/chart'
 import { Workspace } from '../parts/Workspace'

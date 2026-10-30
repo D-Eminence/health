@@ -1,13 +1,15 @@
 import '@hid/ui/ehr.css'
 import '../clinical.css'
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
-import { useLocation, useParams } from 'react-router-dom'
+import { Route, Routes, useLocation } from 'react-router-dom'
 import { useStaff } from '../../../staff/App'
 import { SampleBanner } from './SampleBanner'
+import { segmentOf } from './segments'
 
 /**
- * Where the blue EHR is mounted. The frame mounts each page at `${base}/${path}/*`; the page works out `base` from
- * the URL, so links between workspaces (`href('appointments')`) need no knowledge of the frame's own route.
+ * Where the blue EHR is mounted. The frame shows each page at `${base}/${segment}` and every address below it; the
+ * page works out `base` from the address, so links between workspaces (`href.to('appointments')`) need no knowledge of
+ * the frame's own route.
  */
 interface WorkspaceValue {
   readonly base: string
@@ -16,23 +18,34 @@ interface WorkspaceValue {
 
 const WorkspaceContext = createContext<WorkspaceValue | null>(null)
 
-/** The root of one clinical workspace page: `.hid-ehr-clinical-page`, with the sample notice when `sample`. */
+/**
+ * The root of one clinical workspace page: `.hid-ehr-clinical-page`, with the sample notice when `sample`. Its relative
+ * routes (index, `new`, `:recordId`) match the address below the workspace's segment, both where the frame renders the
+ * page under today's provider routes (the address left is `clinical/…`) and where a route `${segment}/*` mounts it
+ * (the address left is `…`).
+ */
 export function Workspace({ path, sample = false, children }: { path: string; sample?: boolean; children: ReactNode }) {
+  const segment = segmentOf(path)
   const { pathname } = useLocation()
-  const rest = useParams()['*'] ?? ''
   const base = useMemo(() => {
-    let mount = rest && pathname.endsWith(rest) ? pathname.slice(0, pathname.length - rest.length) : pathname
-    mount = mount.replace(/\/+$/, '')
-    return mount.endsWith(`/${path}`) ? mount.slice(0, mount.length - path.length - 1) : mount
-  }, [pathname, path, rest])
+    const parts = pathname.split('/')
+    const at = parts.indexOf(segment, 1)
+    return at > 0 ? parts.slice(0, at).join('/') : pathname.replace(/\/+$/, '')
+  }, [pathname, segment])
   const value = useMemo(() => ({ base, path }), [base, path])
+  const page = (
+    <div className="hid-ehr-clinical-page" data-workspace={path}>
+      {sample ? <SampleBanner /> : null}
+      {children}
+    </div>
+  )
 
   return (
     <WorkspaceContext.Provider value={value}>
-      <div className="hid-ehr-clinical-page" data-workspace={path}>
-        {sample ? <SampleBanner /> : null}
-        {children}
-      </div>
+      <Routes>
+        <Route path={`${segment}/*`} element={page} />
+        <Route path="*" element={page} />
+      </Routes>
     </WorkspaceContext.Provider>
   )
 }
@@ -46,8 +59,8 @@ export function useWorkspaceHref() {
   if (!value) throw new Error('Clinical pages render inside <Workspace>')
   return useMemo(() => {
     const join = (...parts: string[]) => [value.base, ...parts.filter(Boolean).map(encodeSegment)].join('/') || '/'
-    const href = (...parts: string[]) => join(value.path, ...parts)
-    href.to = (workspace: string, ...parts: string[]) => join(workspace, ...parts)
+    const href = (...parts: string[]) => join(segmentOf(value.path), ...parts)
+    href.to = (workspace: string, ...parts: string[]) => join(segmentOf(workspace), ...parts)
     return href
   }, [value])
 }
@@ -63,10 +76,11 @@ function encodeSegment(part: string) {
 export function useClinical() {
   const staff = useStaff()
   const facility = staff.state.status === 'ready' ? staff.state.session.actor.facility : undefined
-  const permissions = useMemo(() => facility?.permissions ?? [], [facility])
+  const held = facility?.permissions
+  const permissions = useMemo(() => held ?? [], [held])
   const can = useMemo(() => {
-    const held = new Set(permissions)
-    return (...needed: string[]) => needed.every(permission => held.has(permission))
+    const granted = new Set(permissions)
+    return (...needed: string[]) => needed.every(permission => granted.has(permission))
   }, [permissions])
   return { ...staff, facility, permissions, can }
 }

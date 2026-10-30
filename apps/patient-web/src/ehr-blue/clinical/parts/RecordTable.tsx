@@ -37,7 +37,9 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
   emptyMessage: ReactNode
   emptyAction?: ReactNode
 }) {
-  const [viewing, setViewing] = useState<RecordRow | null>(null)
+  // By id, so the quick view shows the row as it is now if the rows change while it is open.
+  const [viewingId, setViewingId] = useState<string | null>(null)
+  const viewing = viewingId === null ? null : rows.find(row => row.id === viewingId) ?? null
   const navigate = useNavigate()
   const columns: EhrDataTableColumn<RecordRow>[] = [
     {
@@ -76,7 +78,7 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
       header: <span className="hid-ehr-sr-only">Actions</span>,
       cell: row => (
         <span className="hid-ehr-clinical-row-actions">
-          <EhrButton variant="secondary" aria-label={`Quick view ${row.name}`} onClick={() => setViewing(row)}>Quick view</EhrButton>
+          <EhrButton variant="secondary" aria-label={`Quick view ${row.name}`} onClick={() => setViewingId(row.id)}>Quick view</EhrButton>
           <Link className="hid-ehr-clinical-link" to={hrefFor(row)} aria-label={`Open ${row.name}`}>Open →</Link>
         </span>
       ),
@@ -97,13 +99,13 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
         emptyMessage={emptyMessage}
         emptyAction={emptyAction}
       />
-      <EhrDrawer open={viewing !== null} title="Record quick view" onClose={() => setViewing(null)}>
+      <EhrDrawer open={viewing !== null} title="Record quick view" onClose={() => setViewingId(null)}>
         {viewing ? (
           <div className="hid-ehr-clinical-quick">
             <h3 className="hid-ehr-clinical-quick-title">{viewing.name}</h3>
             {viewing.updated ? <p className="hid-ehr-clinical-quick-updated">Last updated {formatWhen(viewing.updated)}</p> : null}
             <KeyValueList items={viewing.details} />
-            <EhrButton onClick={() => { const to = hrefFor(viewing); setViewing(null); navigate(to) }}>Open full record</EhrButton>
+            <EhrButton onClick={() => { const to = hrefFor(viewing); setViewingId(null); navigate(to) }}>Open full record</EhrButton>
           </div>
         ) : null}
       </EhrDrawer>

@@ -106,7 +106,7 @@ describe('Nursing observations list', () => {
     const table = await screen.findByRole('table', { name: 'Nursing observations' })
     const links = within(table).getAllByRole('link', { name: /^c/ })
     expect(links.map(link => link.textContent)).toEqual(['c0000000'])
-    expect(links[0]!.getAttribute('href')).toBe(`/ehr/nursing/${ENCOUNTER_ID}~${NOTE_ID}`)
+    expect(links[0]!.getAttribute('href')).toBe(`/provider/nursing/${ENCOUNTER_ID}~${NOTE_ID}`)
     expect(within(table).getByText(PATIENT_NAME)).toBeTruthy()
     expect(within(table).getByText('draft')).toBeTruthy()
     expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.encounters.mock.invocationCallOrder[0]!)

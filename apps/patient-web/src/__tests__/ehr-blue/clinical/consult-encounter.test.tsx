@@ -134,7 +134,7 @@ describe('Consultation record', () => {
     await openEncounter()
     const history = within(card('Connected hospital history'))
     expect(history.getByText('Only records available to your current permissions are listed.')).toBeTruthy()
-    expect(history.getByRole('link', { name: 'Consultation · e2222222' }).getAttribute('href')).toBe(`/ehr/consult/${OTHER.id}`)
+    expect(history.getByRole('link', { name: 'Consultation · e2222222' }).getAttribute('href')).toBe(`/provider/clinical/${OTHER.id}`)
     for (const label of ['Clinical notes · Consultation note', 'Diagnoses · Malaria (fictional)', 'Triage & Vitals · Vitals recorded', 'Documents · referral-letter.pdf']) {
       expect(history.getByText(label)).toBeTruthy()
     }

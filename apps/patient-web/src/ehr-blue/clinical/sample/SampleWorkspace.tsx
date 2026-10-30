@@ -1,4 +1,3 @@
-import './sample.css'
 import { Route, Routes } from 'react-router-dom'
 import { ListHeading } from '../parts/Notices'
 import { Workspace, useWorkspaceHref } from '../parts/Workspace'

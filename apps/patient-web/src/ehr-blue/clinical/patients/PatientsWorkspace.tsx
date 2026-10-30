@@ -15,7 +15,6 @@ import {
 } from '../consent/access'
 import { CLOSED_NOTICE, PatientPage, accessLabel, patientDetails } from './PatientPage'
 import { ShareInvitationsForMe, SharedWithYou } from './SharingCards'
-import './patients.css'
 
 /** Every part is on today's Health ID API: the Health ID lookup, the grant, encounters and patient sharing. */
 export const patientsStatus: EhrBluePageStatus = 'live'
