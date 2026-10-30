@@ -138,6 +138,11 @@ export const billingSample: SampleDefinition = {
       state: { paidCents: 0 },
     }
   },
+  // A draft's service or quantity changed: its unit price and total follow.
+  edited: (record, values) => {
+    const unit = unitCents(values.service ?? record.values.service)
+    return { values: { unitCents: String(unit), totalCents: String(unit * Number(values.quantity ?? record.values.quantity ?? 0)) } }
+  },
   actions: [
     { id: 'issue', label: 'Issue invoice', from: ['draft'], to: 'issued' },
     {

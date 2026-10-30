@@ -6,7 +6,7 @@ import { SampleDetail } from './SampleDetail'
 import { SampleList } from './SampleList'
 import { useSampleFocus, useSiblingPages } from './navigation'
 import {
-  downloadFile, givenValues, recordName, sampleCsv, sampleId, type SampleAction, type SampleDefinition, type SampleRecord, type SampleValues,
+  downloadFile, EDIT_REASON, givenValues, recordName, sampleCsv, sampleId, type SampleAction, type SampleDefinition, type SampleRecord, type SampleValues,
 } from './model'
 import './sample.css'
 
@@ -101,6 +101,21 @@ export function SampleWorkspace({ definition }: { readonly definition: SampleDef
     return undefined
   }
 
+  const edit = (record: SampleRecord, values: SampleValues) => {
+    const given = givenValues(values)
+    const at = new Date().toISOString()
+    const extra = definition.edited?.(record, given)
+    const next: SampleRecord = {
+      ...record,
+      values: { ...record.values, ...given, ...extra?.values },
+      updatedAt: at,
+      versions: [...record.versions, { at, status: record.status, reason: EDIT_REASON, values: record.values }],
+    }
+    setRecords(old => old.map(row => row.id === record.id ? next : row))
+    setAnnouncement('Record changes saved.')
+    requestFocus(savedHeadingId)
+  }
+
   const exportRows = (rows: readonly SampleRecord[]) => {
     downloadFile(`health-id-sample-${definition.id}.csv`, 'text/csv;charset=utf-8', sampleCsv(definition, rows))
     setAnnouncement(`Exported ${rows.length} ${rows.length === 1 ? 'record' : 'records'}.`)
@@ -114,7 +129,7 @@ export function SampleWorkspace({ definition }: { readonly definition: SampleDef
         <SampleCreate definition={definition} above={above} onBack={() => showList(createId)} onCreate={create} />
       ) : current ? (
         <SampleDetail key={current.id} definition={definition} record={current} above={above} onBack={() => showList(nameId(current.id))}
-          onAct={act} savedHeadingId={savedHeadingId} />
+          onAct={act} onEdit={edit} focus={requestFocus} savedHeadingId={savedHeadingId} />
       ) : (
         <SampleList definition={definition} records={records} search={search} onSearch={setSearch} above={above}
           onCreate={() => { setView({ kind: 'new' }); setAnnouncement(''); requestFocus() }} onExport={exportRows} onOpen={open}

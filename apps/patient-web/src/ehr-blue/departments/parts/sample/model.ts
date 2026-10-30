@@ -121,6 +121,8 @@ export interface SampleDefinition {
   readonly tabs?: SampleTabs
   /** Values worked out when a record is created, after the form's (an invoice's number and totals). */
   readonly created?: (values: SampleValues, sequence: number) => { readonly values?: SampleValues; readonly state?: SampleState }
+  /** Values worked out again when a record is edited (an invoice's totals). */
+  readonly edited?: (record: SampleRecord, values: SampleValues) => { readonly values?: SampleValues }
   /** An action's own rule (a payment over the balance, negative stock). */
   readonly apply?: (context: SampleApplyContext) => SampleApplied
   /** More of the "Saved record" card: an invoice's totals, a stock item's batches. */
@@ -155,6 +157,9 @@ export function patientLine(patient: SamplePatient) {
 
 /** The error under a required field left empty, in the design's words. */
 export const REQUIRED_TEXT = 'Complete this field.'
+
+/** A preserved version's reason when the record's fields were edited. */
+export const EDIT_REASON = 'Edit record'
 
 /** The words under a form whose action was refused, in the design's words. */
 export const RETRY_TEXT = 'Correct the issue or retry using the same button. No success is reported until saved.'

@@ -16,6 +16,10 @@ export interface SampleDetailProps {
   readonly onBack: () => void
   /** Records the action; a refusal in plain words keeps its form open with it. */
   readonly onAct: (record: SampleRecord, action: SampleAction, values: SampleValues) => string | undefined
+  /** Saves the edited fields, keeping the version before. */
+  readonly onEdit: (record: SampleRecord, values: SampleValues) => void
+  /** Moves focus to an element by id, in the commit that shows it. */
+  readonly focus: (id: string) => void
   /** The id of the "Saved record" heading, where focus goes after an action. */
   readonly savedHeadingId: string
 }
@@ -38,11 +42,19 @@ function confirmFor(action: SampleAction): SampleConfirm | undefined {
  * The design's record view: the record's name with "Back to list"; its status, patient and when it was saved; "Saved
  * record" beside "Available actions" (each action the record's status allows, its form under the actions once
  * chosen); "Connected hospital history" on a record about a patient; and "Preserved versions & amendments".
+ *
+ * "Edit record" is the design's "Edit unsigned draft" pattern (as on HR & Credentials): a button in "Saved record"
+ * while the record is still in the status it was created in, opening the fields there with "Save changes"; each edit
+ * keeps the version before.
  */
-export function SampleDetail({ definition, record, above, onBack, onAct, savedHeadingId }: SampleDetailProps) {
+export function SampleDetail({ definition, record, above, onBack, onAct, onEdit, focus, savedHeadingId }: SampleDetailProps) {
   const uid = useId()
   const formId = `${uid}-action-form`
+  const editToggleId = `${uid}-edit-toggle`
+  const editFormId = `${uid}-edit-form`
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const editable = record.status === definition.initial
   const { href, follow } = useSiblingPages()
   const patient = samplePatient(record.patientId)
   const available = definition.actions.filter(action => action.from.includes(record.status))
@@ -51,7 +63,10 @@ export function SampleDetail({ definition, record, above, onBack, onAct, savedHe
 
   const act = (action: SampleAction, values: SampleValues) => {
     const refused = onAct(record, action, values)
-    if (refused === undefined) setSelectedId(null)
+    if (refused === undefined) {
+      setSelectedId(null)
+      setEditing(false)
+    }
     return refused
   }
 
@@ -65,6 +80,23 @@ export function SampleDetail({ definition, record, above, onBack, onAct, savedHe
       <DeptRecordLayout
         main={(
           <DeptSection title="Saved record" headingId={savedHeadingId}>
+            {editable ? (
+              <div className="hid-ehr-dept-toolbar">
+                <EhrButton id={editToggleId} variant="secondary" aria-expanded={editing} aria-controls={editing ? editFormId : undefined}
+                  onClick={() => {
+                    // Opening moves focus to the first field (the form does it); cancelling brings it back here.
+                    if (editing) focus(editToggleId)
+                    setEditing(!editing)
+                  }}>
+                  {editing ? 'Cancel editing' : 'Edit record'}
+                </EhrButton>
+              </div>
+            ) : null}
+            {editable && editing ? (
+              <SampleForm key={`${record.id}-edit-${record.updatedAt}`} id={editFormId} className="hid-ehr-dept-action-form" focusFirst
+                fields={definition.fields} initial={record.values} context={{ patientId: record.patientId, record }} submitLabel="Save changes"
+                onSubmit={values => { setEditing(false); onEdit(record, values); return undefined }} />
+            ) : null}
             <DeptFacts facts={valueFacts(record.values)} />
             {definition.savedExtra?.(record)}
           </DeptSection>

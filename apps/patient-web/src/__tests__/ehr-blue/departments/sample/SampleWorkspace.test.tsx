@@ -428,6 +428,96 @@ describe('the record view', () => {
   })
 })
 
+describe('Edit record', () => {
+  function editToggle() {
+    return within(screen.getByRole('heading', { name: 'Saved record' }).closest('section')!).getByRole('button', { name: /^(Edit record|Cancel editing)$/ })
+  }
+
+  it('opens the fields in "Saved record", saves the edit in memory and keeps the version before', () => {
+    renderSample('billing')
+    openRecord('DEMO-3')
+    const toggle = editToggle()
+    expect(toggle.textContent).toBe('Edit record')
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    // The design's edit pattern: in the record's own card, not among the actions.
+    expect(actionButtons().map(button => button.textContent)).toEqual(['Issue invoice', 'Void invoice'])
+
+    fireEvent.click(toggle)
+    expect(toggle.textContent).toBe('Cancel editing')
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    const form = document.getElementById(toggle.getAttribute('aria-controls')!)!
+    expect(form.tagName).toBe('FORM')
+    expect(screen.getByRole('heading', { name: 'Saved record' }).closest('section')!.contains(form)).toBe(true)
+    const service = within(form).getByRole('combobox', { name: 'Service charge' }) as HTMLSelectElement
+    expect(service.value).toBe('General consultation')
+    expect(document.activeElement).toBe(service)
+    expect((within(form).getByRole('spinbutton', { name: 'Service quantity' }) as HTMLInputElement).value).toBe('1')
+    expect((within(form).getByRole('textbox', { name: 'Unique charge reference (order / service ID)' }) as HTMLInputElement).value).toBe('SERVICE-003')
+
+    // The same inline validation as the create form.
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Unique charge reference (order / service ID)' }), { target: { value: '' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save changes' }))
+    expect(within(form).getByText('Complete this field.')).toBeDefined()
+    expect(document.activeElement).toBe(within(form).getByRole('textbox', { name: 'Unique charge reference (order / service ID)' }))
+
+    type('Unique charge reference (order / service ID)', 'SERVICE-030')
+    type('Service quantity', '3', 'spinbutton')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save changes' }))
+
+    expect(form.isConnected).toBe(false)
+    expect(editToggle().textContent).toBe('Edit record')
+    expect(savedFacts()).toMatchObject({ Quantity: '3', Source: 'SERVICE-030', Number: 'DEMO-3', 'Total Cents': '1500000', Total: '1500000', Due: '1500000' })
+    expect(statusBadge()).toBe('draft')
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Saved record' }))
+    expect(screen.getByRole('status').textContent).toBe('Record changes saved.')
+    const entry = screen.getByText(/ · draft · Edit record$/)
+    const details = entry.closest('details')!
+    // The version keeps the record as it was before the edit.
+    expect(within(details).getByText('SERVICE-003')).toBeDefined()
+    expect(within(details).queryByText('SERVICE-030')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'DEMO-3' }))
+    expect(savedFacts()).toMatchObject({ Quantity: '3', Source: 'SERVICE-030' })
+    expect(where()).toBe('/ehr/billing')
+  })
+
+  it('keeps the record as it was on Cancel editing and gives focus back to the button', () => {
+    renderSample('services')
+    openRecord('Malaria test')
+    fireEvent.click(editToggle())
+    type('Service name', 'Changed (fictional)')
+    fireEvent.click(editToggle())
+    expect(editToggle().textContent).toBe('Edit record')
+    expect(editToggle().getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(editToggle())
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull()
+    expect(savedFacts()).toEqual({ Name: 'Malaria test', Price: '1500' })
+    expect(heading().textContent).toBe('Malaria test')
+    expect(screen.queryByRole('heading', { name: 'Preserved versions & amendments' })).toBeNull()
+
+    // Opened again, it starts from the saved values.
+    fireEvent.click(editToggle())
+    expect((screen.getByRole('textbox', { name: 'Service name' }) as HTMLInputElement).value).toBe('Malaria test')
+  })
+
+  it('renames a record named by its fields, and is offered only while the record keeps the status it was created in', () => {
+    renderSample('quality')
+    openRecord('Near-miss labelling (fictional)')
+    fireEvent.click(editToggle())
+    type('Incident title', 'Near-miss labelling, ward 2 (fictional)')
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(heading().textContent).toBe('Near-miss labelling, ward 2 (fictional)')
+    expect(screen.getByText(/ · reported · Edit record$/)).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Assign reviewer' }))
+    type('Reviewer membership ID', 'Admin')
+    fireEvent.click(within(document.querySelector('.hid-ehr-dept-action-form') as HTMLElement).getByRole('button', { name: 'Assign reviewer' }))
+    expect(statusBadge()).toBe('assigned')
+    expect(screen.queryByRole('button', { name: 'Edit record' })).toBeNull()
+  })
+})
+
 describe('module tabs', () => {
   it('links Stock and Procurement by the current route and moves between them in the app', () => {
     renderSample('inventory')

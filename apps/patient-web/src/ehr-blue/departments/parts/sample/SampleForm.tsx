@@ -27,6 +27,8 @@ export interface SampleFormProps {
   readonly onSubmit: (values: SampleValues) => string | undefined
   readonly className?: string
   readonly id?: string
+  /** Focus the first field as the form opens (an edit form opened by its button). */
+  readonly focusFirst?: boolean
 }
 
 /**
@@ -35,7 +37,7 @@ export interface SampleFormProps {
  * this field." under each such field and focus on the first. A consequential action asks first; a refusal shows
  * above the button.
  */
-export function SampleForm({ fields, initial = {}, context = {}, submitLabel, confirm, onSubmit, className, id }: SampleFormProps) {
+export function SampleForm({ fields, initial = {}, context = {}, submitLabel, confirm, onSubmit, className, id, focusFirst = false }: SampleFormProps) {
   const [values, setValues] = useState<SampleValues>(() => Object.fromEntries(
     fields.map(field => [field.key, initial[field.key] ?? '']),
   ))
@@ -51,6 +53,12 @@ export function SampleForm({ fields, initial = {}, context = {}, submitLabel, co
     setFocusKey(null)
     controls.current.get(focusKey.key)?.focus()
   }, [focusKey])
+
+  // Once, in the commit that shows the form.
+  const [opening] = useState(() => (focusFirst ? fields[0]?.key : undefined))
+  useLayoutEffect(() => {
+    if (opening) controls.current.get(opening)?.focus()
+  }, [opening])
 
   const change = (key: string, value: string) => {
     setValues(old => ({ ...old, [key]: value }))
