@@ -35,7 +35,7 @@ import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { LIMITS, type LockReason, type OfflineCore, type StaffSessionSnapshot } from '@hid/offline'
-import { offlineActive, offlineRuntime, restoredStaffSession, useOfflineActive, useOfflineSummary } from './offline/runtime'
+import { offlineActive, offlineRuntime, resolveOfflineRuntime, restoredStaffSession, useOfflineActive, useOfflineSummary } from './offline/runtime'
 import { attachOnlineSession, healthIdUnreachable, keepsVaultFacility, offersOfflineSignIn, syncShell } from './offline/session'
 import { OfflineSignIn } from './offline/OfflineSignIn'
 import { UnlockScreen } from './offline/UnlockScreen'
@@ -159,7 +159,15 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   const currentSession = useRef<StaffSession | null>(null)
   const facilityLost = useRef(false)
   // The offline runtime, when the build has one for this host (null otherwise: nothing below changes then).
-  const runtime = useMemo(() => offlineRuntime(), [])
+  const [runtime, setRuntime] = useState(() => offlineRuntime())
+  // An `off` build makes the runtime only if this origin already keeps an offline database (kill switch, A11.1):
+  // it then sends what is pending after the next sign-in and deletes each vault once empty.
+  useEffect(() => {
+    if (runtime) return
+    let active = true
+    void resolveOfflineRuntime().then(found => { if (active && found) setRuntime(found) })
+    return () => { active = false }
+  }, [runtime])
   // Whether the session in use was restored from this device's vault, with Health ID out of reach.
   const offlineMode = useRef(false)
   // The facility whose vault is open: a session read that no longer lists it ends the membership on this device.
