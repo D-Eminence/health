@@ -50,7 +50,9 @@ async function cached<T>(method: string, args: readonly unknown[], patientId: st
   runtime: OfflineCore | null = offlineRuntime()): Promise<T> {
   if (!offlineActive(runtime)) return network()
   let result: Awaited<ReturnType<typeof runtime.reads.read<T>>>
-  try { result = await runtime.reads.read({ method, args, patientId, network }) }
+  // The patient leads the key: a read whose own arguments do not name the patient (consent, reported health, visits)
+  // must never answer with another patient's copy (A12.1).
+  try { result = await runtime.reads.read({ method, args: [patientId, ...args], patientId, network }) }
   catch (caught) {
     // Offline with no readable copy on this device: said as the network error the pages already handle.
     if (isTransportError(caught) && caught.networkError) {

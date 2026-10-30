@@ -29,7 +29,11 @@ export const documentCommands = {
       staged += 1
       media = await runtime.stageMedia(file, { index: staged })
     } catch (caught) {
-      // Refused on the device (type, size, space): said in its own words; nothing was kept.
+      // A file the device cannot keep (size, space) still uploads online, as today (A12.10); only offline, or a type
+      // EHR would refuse too, is it refused, in the device's own words. Nothing was kept either way.
+      if (caught instanceof MediaRefused && caught.reason !== 'type' && runtime.connectivity() !== 'offline') {
+        return appliedOnline(await staffApi.uploadDocument(facilityId, patientId, encounterId, file, idempotencyKey), 'document')
+      }
       if (caught instanceof MediaRefused) throw new Error(caught.message)
       throw caught
     }

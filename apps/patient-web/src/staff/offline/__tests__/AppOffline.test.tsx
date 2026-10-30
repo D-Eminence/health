@@ -66,7 +66,7 @@ async function signIn() {
   fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 }
 
-beforeEach(() => { vi.stubGlobal('BroadcastChannel', TabChannel) })
+beforeEach(() => { vi.resetModules(); vi.stubGlobal('BroadcastChannel', TabChannel) })
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules() })
 
 describe('offline cold start', () => {

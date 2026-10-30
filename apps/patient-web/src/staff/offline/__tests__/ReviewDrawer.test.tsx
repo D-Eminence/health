@@ -68,6 +68,19 @@ describe('review drawer', () => {
     await waitFor(() => expect(fake.controls.commands().some(command => command.state === 'discarded')).toBe(true))
   })
 
+  it('412 on a vitals correction: your change shows the corrected readings', async () => {
+    api.records.mockResolvedValue({ items: [{ id: 'vital-1', patientId: PATIENT_ID, encounterId: 'enc-1', createdAt: '2026-10-29T08:00:00.000Z',
+      systolicMmhg: 120, diastolicMmhg: 80, rowVersion: 3 }], nextCursor: null })
+    const fake = await openVault(snapshotOf(PILOT))
+    fake.controls.respondNext(lost, { status: 412, code: 'VERSION_CONFLICT' })
+    await fake.runtime.commands.save('ehr.vital.correct', { ...scope, vital: { server: 'vital-1' }, body: { expectedRowVersion: 2,
+      changeReason: 'Repeat reading after rest', replacementValues: { systolicMmhg: 182, diastolicMmhg: 121 } } } as unknown as Json, { awaitMs: 8000 })
+    await drawer(fake)
+    const yours = (await screen.findByRole('heading', { name: 'Your change' })).parentElement as HTMLElement
+    expect(await within(yours).findByText('182')).toBeTruthy()
+    expect(within(yours).getByText('121')).toBeTruthy()
+  })
+
   it('CC4: shows the new allergy beside the held prescription', async () => {
     api.reportedHealthProfile.mockResolvedValue({ bloodGroup: null, genotype: null, allergies: 'Penicillin (rash)',
       currentMedications: 'Metformin 500 mg', chronicConditions: null, medicalNotes: null, updatedAt: '2026-10-29T09:30:00.000Z' })

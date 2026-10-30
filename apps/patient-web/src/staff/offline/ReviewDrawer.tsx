@@ -29,7 +29,10 @@ const MIN_REASON = 8
 /** A change's fields as label and value, for comparing "Your change" with "Current record". */
 function Fields({ value }: { value: unknown }) {
   if (!value || typeof value !== 'object') return <p className="staff-muted">{REVIEW.currentUnavailable}</p>
+  // One level of nesting opened, so a correction's replacement readings (`replacementValues`) are shown too.
   const entries = Object.entries(value as Record<string, unknown>)
+    .flatMap(([name, item]): [string, unknown][] => item && typeof item === 'object' && !Array.isArray(item)
+      ? Object.entries(item as Record<string, unknown>) : [[name, item]])
     .filter(([name, item]) => !['id', 'patientId', 'encounterId', 'facilityId', 'createdAt', 'updatedAt'].includes(name)
       && item !== null && item !== undefined && typeof item !== 'object')
   return <dl className="offline-facts">{entries.map(([name, item]) => <div key={name}><dt>{name.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()}</dt><dd>{String(item)}</dd></div>)}</dl>

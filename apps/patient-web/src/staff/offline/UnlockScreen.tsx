@@ -1,8 +1,18 @@
 import { useLayoutEffect, useRef, useState, type FormEvent } from 'react'
-import type { LockReason, OfflineRuntime } from '@hid/offline'
+import type { LockReason, OfflineRuntime, UnlockResult } from '@hid/offline'
 import { Button, Field, PasswordInput } from '@hid/ui'
 import { BrandLogo } from '../../BrandLogo'
 import { SIGN_IN, UNLOCK } from './copy'
+
+type Refusal = Extract<UnlockResult, { ok: false }>['reason']
+/** Each refusal in its own words (A12.8): a refusal is never shown as a wrong password unless it is one. */
+const REFUSALS: Readonly<Record<Refusal, string>> = {
+  'wrong-credentials': UNLOCK.wrong,
+  'lease-expired': SIGN_IN.leaseExpired,
+  'clock-suspect': SIGN_IN.clockSuspect,
+  wiped: SIGN_IN.wiped,
+  'no-vault': UNLOCK.noVault,
+}
 
 /**
  * Over the locked workspace, which stays mounted beneath it (inert and hidden), so a form in progress keeps its text
@@ -31,8 +41,7 @@ export function UnlockScreen({ runtime, reason, onUnlocked, onSignOut, onCancel 
       const result = await runtime.unlockLocked(password)
       setPassword('')
       if (result.ok) { onUnlocked(); return }
-      setError(result.reason === 'wrong-credentials' ? UNLOCK.wrong : result.reason === 'lease-expired' ? SIGN_IN.leaseExpired
-        : result.reason === 'clock-suspect' ? SIGN_IN.clockSuspect : SIGN_IN.wiped)
+      setError(REFUSALS[result.reason])
     } catch { setError(UNLOCK.wrong) }
     finally { setBusy(false) }
   }
