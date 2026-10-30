@@ -95,49 +95,60 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, shareTo,
 
   const face = photo.url
     ? <img src={photo.url} alt="" width={PHOTO_SIDE} height={PHOTO_SIDE} className="size-full object-cover" />
-    : <span className="text-[17px] font-semibold tracking-wide text-white" aria-hidden="true">{initialsOf(profile)}</span>
+    : <span className="text-[5cqw] font-semibold tracking-wide text-white/90" aria-hidden="true">{initialsOf(profile)}</span>
   const facts = [bloodGroup && ['Blood', bloodGroup], genotype && ['Genotype', genotype]].filter((f): f is [string, string] => Array.isArray(f))
 
   return <div className={cx('flex flex-col gap-3', className)}>
+    {/* Everything on the card is sized to the card's own width (cqw), so it is the same card, in the same proportion
+        (ISO ID-1, 85.6 × 54 mm), on any screen. */}
+    <div className="@container">
     <section aria-label="Your Health ID card"
-      className="relative isolate w-full min-[360px]:aspect-[1.586/1] overflow-hidden rounded-2xl text-white shadow-[0_16px_32px_-16px_rgba(21,112,239,.55),0_1px_3px_rgba(16,24,40,.12)] select-none [background:linear-gradient(140deg,#0b4fbf_0%,#1570ef_60%,#2e8cf6_100%)] motion-safe:transition-transform motion-safe:duration-500 motion-safe:hover:-translate-y-0.5">
-      {/* The brand's own mark, large and faint, as the card's only print. */}
-      <img src={markSrc} alt="" aria-hidden="true" className="pointer-events-none absolute -right-[12%] -bottom-[22%] h-[118%] w-auto opacity-[.09] brightness-0 invert" />
+      className="group/card relative isolate aspect-[1.586/1] w-full overflow-hidden rounded-[4.5cqw] text-white select-none [background:linear-gradient(135deg,#071f45_0%,#0b3f94_42%,#0e63c9_72%,#0f8a96_100%)] shadow-[0_24px_48px_-24px_rgba(7,31,69,.75),0_2px_6px_rgba(16,24,40,.14)] motion-safe:transition-transform motion-safe:duration-500 motion-safe:hover:[transform:perspective(1000px)_rotateX(3deg)_rotateY(-4deg)]">
+      <CardPrint />
+      {/* Laminate: a hairline inner edge, and a sheen that passes over on hover. */}
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-white/15 ring-inset" />
+      <span aria-hidden="true" className="pointer-events-none absolute inset-0 -translate-x-full bg-[linear-gradient(105deg,transparent_35%,rgba(255,255,255,.16)_50%,transparent_65%)] motion-safe:transition-transform motion-safe:duration-[900ms] motion-safe:group-hover/card:translate-x-full" />
 
-      <div className="relative flex h-full flex-col justify-between gap-4 p-5">
-        <div className="flex items-center justify-between">
-          <img src={logoSrc} alt="Health ID" width={890} height={264} className="h-6 w-auto brightness-0 invert" />
-          <span className="text-[10px] font-semibold tracking-[.16em] text-white/70 uppercase">Patient</span>
+      <div className="relative grid h-full grid-rows-[auto_1fr_auto] p-[6cqw]">
+        <div className="flex items-start justify-between">
+          <img src={logoSrc} alt="Health ID" width={890} height={264} className="h-[7.2cqw] w-auto brightness-0 invert" />
+          <span className="pt-[.8cqw] text-[2.5cqw] font-semibold tracking-[.22em] text-white/60 uppercase">Patient</span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-[4cqw]">
           {/* The photo is the control: a label around the hidden picker. */}
-          {editable ? <label className="group/photo relative size-14 shrink-0 cursor-pointer overflow-hidden rounded-xl bg-white/15 ring-1 ring-white/35 focus-within:ring-2 focus-within:ring-white">
+          {editable ? <label className="group/photo relative aspect-[4/5] w-[17cqw] shrink-0 cursor-pointer overflow-hidden rounded-[2.6cqw] bg-white/10 ring-1 ring-white/30 focus-within:ring-2 focus-within:ring-white">
             <span className="absolute inset-0 flex items-center justify-center">{face}</span>
-            <span aria-hidden="true" className="absolute right-0.5 bottom-0.5 inline-flex size-5 items-center justify-center rounded-full bg-white text-brand shadow-sm"><Camera className="size-3" /></span>
+            <span aria-hidden="true" className="absolute right-[1cqw] bottom-[1cqw] inline-flex size-[5.4cqw] items-center justify-center rounded-full bg-white text-[#0b3f94] shadow"><Camera className="size-[3.2cqw]" /></span>
             <input ref={picker} type="file" accept="image/jpeg,image/png" className="sr-only" disabled={busy !== null}
               aria-label={photo.url ? 'Change the photo on your card' : 'Add a photo to your card'} onChange={event => void choose(event)} />
-          </label> : <span className="relative flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/15 ring-1 ring-white/35">{face}</span>}
-          <div className="min-w-0">
-            <p className="m-0 truncate text-base leading-tight font-semibold">{profile.fullName}</p>
-            {verified !== null && <p className={cx('m-0 mt-1 inline-flex items-center gap-1 text-[12px] font-medium', verified ? 'text-white/85' : 'text-amber-200')}>
-              {verified ? <BadgeCheck className="size-3.5" aria-hidden /> : <CircleAlert className="size-3.5" aria-hidden />}{verified ? 'NIN verified' : 'NIN not verified'}</p>}
+          </label> : <span className="relative flex aspect-[4/5] w-[17cqw] shrink-0 items-center justify-center overflow-hidden rounded-[2.6cqw] bg-white/10 ring-1 ring-white/30">{face}</span>}
+          <div className="min-w-0 flex-1">
+            <p className="m-0 truncate text-[4.6cqw] leading-tight font-semibold tracking-[-.01em]">{profile.fullName}</p>
+            {verified !== null && <p className={cx('m-0 mt-[1.2cqw] inline-flex items-center gap-[1cqw] text-[3cqw] font-medium', verified ? 'text-[#9ff0cf]' : 'text-amber-200')}>
+              {verified ? <BadgeCheck className="size-[3.6cqw]" aria-hidden /> : <CircleAlert className="size-[3.6cqw]" aria-hidden />}{verified ? 'NIN verified' : 'NIN not verified'}</p>}
           </div>
+          {/* A plain gold contact chip: the one detail that says "card". */}
+          <span aria-hidden="true" className="relative h-[9.5cqw] w-[12.5cqw] shrink-0 self-start overflow-hidden rounded-[1.8cqw] [background:linear-gradient(135deg,#f7e9b8_0%,#d8b56a_45%,#f1d891_70%,#c9a457_100%)] shadow-[inset_0_0_0_1px_rgba(120,90,30,.35)]">
+            <span className="absolute inset-x-0 top-1/3 h-px bg-[#8f6f2e]/45" /><span className="absolute inset-x-0 top-2/3 h-px bg-[#8f6f2e]/45" />
+            <span className="absolute inset-y-0 left-1/3 w-px bg-[#8f6f2e]/45" /><span className="absolute inset-y-0 left-2/3 w-px bg-[#8f6f2e]/45" />
+          </span>
         </div>
 
-        <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+        <div className="flex items-end justify-between gap-[4cqw]">
           <div className="min-w-0">
-            <p className="m-0 text-[10px] font-semibold tracking-[.16em] text-white/70 uppercase">Health ID</p>
-            <div className="mt-0.5 [&_.patient-hid]:gap-0.5 [&_.patient-hid-code]:text-[clamp(18px,5.4vw,22px)] [&_.patient-hid-code]:leading-tight [&_.patient-hid-code]:font-semibold [&_.patient-hid-code]:tracking-[.06em] [&_.patient-hid-code]:whitespace-nowrap [&_.patient-hid-note]:text-[10px] [&_.patient-hid-note]:text-white/70"><HealthIdCode code={profile.hid} /></div>
+            <p className="m-0 text-[2.5cqw] font-semibold tracking-[.22em] text-white/60 uppercase">Health ID</p>
+            <div className="mt-[.6cqw] [&_.patient-hid]:gap-0 [&_.patient-hid-code]:p-0 [&_.patient-hid-code]:text-[6.4cqw] [&_.patient-hid-code]:leading-none [&_.patient-hid-code]:font-semibold [&_.patient-hid-code]:tracking-[.08em] [&_.patient-hid-code]:whitespace-nowrap [&_.patient-hid-code]:[text-shadow:0_1px_0_rgba(0,0,0,.35),0_-1px_0_rgba(255,255,255,.12)] [&_.patient-hid-note]:text-[2.6cqw] [&_.patient-hid-note]:text-white/70"><HealthIdCode code={profile.hid} /></div>
           </div>
-          {facts.length > 0 && <dl className="m-0 flex shrink-0 gap-4 text-left min-[360px]:text-right">
+          {facts.length > 0 && <dl className="m-0 flex shrink-0 gap-[4cqw] text-right">
             {facts.map(([label, value]) => <div key={label}>
-              <dt className="text-[10px] font-semibold tracking-[.16em] text-white/70 uppercase">{label}</dt>
-              <dd className="m-0 mt-0.5 text-[15px] leading-tight font-semibold">{value}</dd></div>)}
+              <dt className="text-[2.5cqw] font-semibold tracking-[.22em] text-white/60 uppercase">{label}</dt>
+              <dd className="m-0 mt-[.6cqw] text-[4.4cqw] leading-none font-semibold">{value}</dd></div>)}
           </dl>}
         </div>
       </div>
     </section>
+    </div>
 
     {links.length > 0 && <div className="flex gap-2">
       {links.includes('share') && <Button to={shareTo} variant="primary" icon={Share2} className="flex-1">Share records</Button>}
@@ -159,4 +170,18 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, shareTo,
       </div>
     </Drawer>
   </div>
+}
+
+/** The card's print, kept quiet: a soft light, fine guilloche rings, and the brand's fingerprint mark. Decoration only. */
+function CardPrint() {
+  return <>
+    <svg aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" viewBox="0 0 400 252" preserveAspectRatio="xMidYMid slice">
+      <defs><radialGradient id="hid-light" cx="88%" cy="0%" r="75%"><stop offset="0" stopColor="#6fd8ff" stopOpacity=".38" /><stop offset="1" stopColor="#6fd8ff" stopOpacity="0" /></radialGradient></defs>
+      <rect width="400" height="252" fill="url(#hid-light)" />
+      <g fill="none" stroke="#fff" strokeOpacity=".06" strokeWidth=".7">
+        {Array.from({ length: 22 }, (_, i) => <ellipse key={i} cx={340} cy={40} rx={36 + i * 9} ry={24 + i * 7} transform={`rotate(${i * 6} 340 40)`} />)}
+      </g>
+    </svg>
+    <img src={markSrc} alt="" aria-hidden="true" className="pointer-events-none absolute -right-[9%] -bottom-[30%] h-[110%] w-auto opacity-[.07] brightness-0 invert" />
+  </>
 }
