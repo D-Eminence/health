@@ -66,14 +66,17 @@ export function Pharmacy() {
   const [page, setPage] = useState(0)
   const focus = useFocusById()
 
-  // The record open, only as the list now has it: work that has left the list (an order ended, here or elsewhere) is
+  // The rows shown: an order this pharmacy couldn't complete and later withdrew as the wrong person is no longer shown.
+  const visible = items ? notCompleted.shown(items) : null
+  // The record open, only as the list now shows it: work that has left the list (an order ended, here or elsewhere) is
   // never shown again, even once other work is listed.
-  const selected = opened && opened.facilityId === facilityId ? items?.find(item => item.id === opened.id) ?? null : null
+  const selected = opened && opened.facilityId === facilityId ? visible?.find(item => item.id === opened.id) ?? null : null
+  const gone = Boolean(opened && (opened.facilityId !== facilityId || (visible !== null && !selected)))
   useEffect(() => {
-    if (!opened || (opened.facilityId === facilityId && (items === null || items.some(item => item.id === opened.id)))) return
+    if (!gone) return
     setOpened(null)
     focus(HEADING, true)
-  }, [opened, facilityId, items, focus])
+  }, [gone, focus])
   useEffect(() => {
     if (!items) return
     setUndispensable(current => {
@@ -115,7 +118,7 @@ export function Pharmacy() {
     void read.refresh()
   }
 
-  const rows = items ? notCompleted.shown(items) : []
+  const rows = visible ?? []
   const matching = rows.filter(item => matchesItem(search, item, statusOf(item, notDispensable(item.id))))
   const pages = Math.max(1, Math.ceil(matching.length / PAGE_SIZE))
   const current = Math.min(page, pages - 1)
@@ -152,7 +155,7 @@ export function Pharmacy() {
     ) },
   ]
 
-  const listed = Boolean(items?.length)
+  const listed = rows.length > 0
   const refresh = <RefreshButton loading={read.loading} onRefresh={read.refresh}>Refresh list</RefreshButton>
   return (
     <DeptPage title={selected ? <span id={`pharmacy-${selected.id}-title`} tabIndex={-1}>{selected.medication.display}</span>
