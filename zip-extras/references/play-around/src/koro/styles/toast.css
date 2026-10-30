@@ -1,0 +1,179 @@
+/* KORO toast notifications — built on the Waya product toast anatomy
+   (semantic raised surface, hairline border, 8px radius, toast shadow,
+   22px semantic icon, capped stack) and its design tokens. */
+
+.toast-region {
+  position: fixed;
+  z-index: var(--z-toast);
+  top: max(var(--space-5), env(safe-area-inset-top));
+  right: max(var(--space-5), env(safe-area-inset-right));
+  width: min(370px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+
+.product-toast {
+  position: relative;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 28px;
+  column-gap: var(--space-3);
+  align-items: start;
+  padding: 15px 14px 14px;
+  overflow: hidden;
+  border: var(--border-width-hairline) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  box-shadow: var(--shadow-toast);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(calc(var(--space-4) * -1));
+  will-change: transform, opacity;
+  transition: opacity var(--motion-duration-base) var(--motion-ease-out),
+    transform var(--motion-duration-base) var(--motion-ease-out);
+}
+
+.product-toast.is-open {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity var(--motion-duration-slow) var(--motion-ease-out),
+    transform var(--motion-duration-slow) var(--motion-ease-out);
+}
+
+.product-toast-icon {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+  border-radius: var(--radius-round);
+  color: var(--color-on-accent);
+}
+.product-toast[data-type='success'] .product-toast-icon { background: var(--color-success); }
+.product-toast[data-type='error'] .product-toast-icon { background: var(--color-danger); }
+.product-toast[data-type='warning'] .product-toast-icon { background: var(--color-warning); }
+.product-toast[data-type='info'] .product-toast-icon,
+.product-toast[data-type='loading'] .product-toast-icon { background: var(--color-info); }
+
+.toast-glyph {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.product-toast-copy { min-width: 0; padding-top: 1px; }
+
+.product-toast-title {
+  display: block;
+  margin: 0;
+  color: var(--color-text-strong);
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: -0.01em;
+}
+
+.product-toast-message {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: 18px;
+}
+
+.product-toast-action {
+  min-height: 28px;
+  margin-top: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-strong);
+  font-size: var(--font-size-label);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.product-toast-action:hover { color: var(--koro-cta); }
+.product-toast-action:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+
+.product-toast-close {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  margin: -3px -4px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text-soft);
+  cursor: pointer;
+}
+.product-toast-close:hover { background: var(--color-surface-subtle); color: var(--color-text); }
+.product-toast-close:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.product-toast-close .toast-glyph { width: 15px; height: 15px; }
+
+.product-toast-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--color-on-accent-muted);
+  border-top-color: var(--color-on-accent);
+  border-radius: var(--radius-round);
+  animation: toast-spin 0.75s linear infinite;
+}
+
+.product-toast-progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  overflow: hidden;
+  background: var(--color-surface-subtle);
+}
+.product-toast-progress > span {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: var(--toast-progress-color, var(--color-info));
+  animation-name: toast-timer;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+.product-toast[data-type='success'] { --toast-progress-color: var(--color-success); }
+.product-toast[data-type='error'] { --toast-progress-color: var(--color-danger); }
+.product-toast[data-type='warning'] { --toast-progress-color: var(--color-warning); }
+
+@keyframes toast-spin { to { transform: rotate(360deg); } }
+@keyframes toast-timer { from { width: 100%; } to { width: 0%; } }
+
+/* Mobile: top, full-width within safe-area insets. Placement matches desktop
+   (top edge, newest toast nearest that edge, entering from above) — only the
+   anchor gutter and the stacked close-button size change. */
+@media (max-width: 600px) {
+  .toast-region {
+    width: auto;
+    top: max(var(--layout-content-gutter-mobile), env(safe-area-inset-top));
+    bottom: auto;
+    left: max(var(--layout-content-gutter-mobile), env(safe-area-inset-left));
+    right: max(var(--layout-content-gutter-mobile), env(safe-area-inset-right));
+  }
+  .product-toast {
+    grid-template-columns: 22px minmax(0, 1fr) 32px;
+    padding: 14px 12px 13px;
+  }
+  .product-toast-close { width: 32px; height: 32px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .product-toast { transition: none !important; }
+  .product-toast-spinner { animation: none !important; }
+  .product-toast-progress > span { animation: none !important; }
+}

@@ -1,0 +1,23 @@
+/* Final desktop alignment against the approved 3298 × 2328 reference. */
+@media (min-width: 601px) {
+  .content {
+    padding-bottom: 8px;
+  }
+
+  .settings-section:nth-child(2) {
+    min-height: 240px;
+  }
+
+  .settings-section:nth-child(3) {
+    border-bottom: 0;
+  }
+
+  .settings-section:nth-child(3) > div:last-child {
+    transform: translateY(-16px);
+  }
+}
+/* The React root is layout-transparent so the canonical trigger remains the
+   centered grid item in the existing Settings utility bar. */
+.global-search-root {
+  display: contents;
+}

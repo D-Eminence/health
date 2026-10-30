@@ -1,0 +1,20 @@
+# Files the Vercel CLI must never upload with a deployment.
+#
+# `.env` holds the Bachs and Flutterwave SECRET keys (BACHS_SECRET_KEY,
+# FLUTTERWAVE_SECRET_KEY, FLUTTERWAVE_ENCRYPTION_KEY). This project is not a
+# git repository, so `.gitignore` alone is not a guarantee here — this file
+# makes the exclusion explicit for `vercel deploy` / `vercel build`.
+#
+# Configure the real values in the Vercel dashboard (or `vercel env add`)
+# instead; they are injected into the /api functions at runtime.
+
+.env
+.env.*
+.env.local
+
+# Local artefacts — Vercel installs and builds these itself.
+node_modules
+dist
+.vercel
+*.tsbuildinfo
+*.log

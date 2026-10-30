@@ -1,0 +1,474 @@
+/* Audit log: full-bleed retention notice, anchored filters, the activity
+   table, and the event detail drawer. Reuses the canonical .data-table,
+   .table-filter-panel, .table-pagination and .bulk-action-bar patterns. */
+
+/* Page notice ------------------------------------------------------------ */
+
+.page-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2-5);
+  min-height: 42px;
+  padding: var(--space-2-5) var(--content-gutter);
+  /* Cancel the content gutter so the notice meets both shell edges. */
+  margin-inline: calc(var(--content-gutter) * -1);
+  background: var(--color-info-surface);
+  color: var(--color-info);
+  font-size: var(--font-size-body-sm);
+  text-align: center;
+}
+
+.page-notice p { margin: 0; }
+.page-notice .svg-icon { width: var(--icon-size-xs); height: var(--icon-size-xs); flex: none; color: var(--color-info); }
+
+.page-notice-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-info);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+
+.page-notice-action:hover { color: color-mix(in srgb, var(--color-info) 78%, var(--color-text-strong)); }
+
+/* Filter panel ----------------------------------------------------------- */
+
+/* Audit uses the same anchored panel and option controls as Account. */
+
+.audit-filter-count {
+  min-width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: var(--font-size-xs);
+  font-weight: 650;
+}
+
+/* Applied filters -------------------------------------------------------- */
+
+.audit-applied-filters:empty { display: none; }
+
+.audit-applied-filters-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  min-height: 46px;
+  padding-bottom: var(--space-4);
+  animation: audit-filters-in var(--motion-duration-quick) var(--motion-ease-out);
+}
+
+.audit-applied-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.audit-applied-label,
+.audit-applied-value {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+
+.audit-applied-label { padding: 0 var(--space-2-5); }
+.audit-applied-value { gap: var(--space-1); padding: 0 var(--space-1) 0 var(--space-2-5); }
+.audit-applied-value > span { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.audit-applied-value button {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.audit-applied-value button:hover { background: var(--color-surface-hover); color: var(--color-text); }
+.audit-applied-value button .svg-icon { width: 11px; height: 11px; }
+
+.audit-clear-filters {
+  min-height: 30px;
+  padding: 0 var(--space-1);
+  border: 0;
+  background: transparent;
+  color: var(--color-info);
+  font-size: var(--font-size-body-sm);
+  font-weight: 500;
+}
+
+.audit-clear-filters:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+@keyframes audit-filters-in { from { opacity: 0; transform: translateY(-3px); } }
+
+/* Activity table --------------------------------------------------------- */
+
+.audit-verb {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+  height: 20px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-caption);
+  font-weight: 550;
+}
+
+.audit-verb .svg-icon { width: 10px; height: 10px; flex: none; }
+
+.audit-verb[data-tone="info"] { background: var(--color-info-surface); color: var(--color-info); }
+.audit-verb[data-tone="success"] { background: var(--color-success-surface); color: var(--color-success); }
+.audit-verb[data-tone="warning"] { background: var(--color-warning-surface); color: var(--color-warning); }
+.audit-verb[data-tone="danger"] { background: var(--color-danger-surface); color: var(--color-danger); }
+.audit-verb[data-tone="accent"] { background: var(--color-accent-surface); color: var(--color-accent); }
+
+.audit-activity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.audit-activity strong { font-weight: 500; color: var(--color-text); flex: none; }
+.audit-object { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.audit-open,
+.audit-target {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audit-target { color: var(--color-text-secondary); text-decoration: underline; text-underline-offset: 3px; }
+.audit-target:hover { color: var(--color-text-strong); }
+.audit-open:hover { color: var(--color-text-strong); }
+
+.data-table--audit tbody tr.is-active { background: var(--color-surface-selected); }
+
+@media (min-width: 601px) {
+  .data-table--audit { min-width: 820px; }
+  .data-table--audit { font-size: var(--font-size-label); }
+  .data-table--audit th { height: 38px; font-size: var(--font-size-label); }
+  .data-table--audit td { height: 43px; }
+  .data-table--audit .col-datetime { width: 23%; white-space: nowrap; }
+  .data-table--audit .col-activity { width: 31%; }
+  .data-table--audit .col-target { width: 25%; }
+  .data-table--audit .col-role { width: 21%; }
+  .data-table--audit .table-cell-icon { display: flex; }
+
+  /* Rows scroll in their own box so pagination stays pinned, and the column
+     headers freeze at the top of that box. */
+  .audit-table-scroll { max-height: calc(100dvh - 354px); overflow-y: auto; }
+  #tab-content:has(.audit-applied-filters-list) .audit-table-scroll { max-height: calc(100dvh - 400px); }
+
+  .audit-table-scroll thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    border-bottom: 0;
+    background: var(--color-surface);
+    box-shadow: 0 var(--border-width-hairline) 0 var(--color-border);
+  }
+}
+
+/* Event drawer ----------------------------------------------------------- */
+
+.audit-drawer-scrim {
+  position: fixed;
+  z-index: calc(var(--z-overlay) - 1);
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: var(--color-overlay);
+  opacity: 0;
+  animation: audit-scrim-in var(--motion-duration-quick) var(--motion-ease-out) forwards;
+}
+
+@keyframes audit-scrim-in { to { opacity: 1; } }
+
+.audit-drawer {
+  position: fixed;
+  z-index: var(--z-overlay);
+  top: calc(var(--system-banner-height, 0px) + var(--space-3));
+  right: var(--space-3);
+  bottom: var(--space-3);
+  width: min(600px, calc(100vw - var(--space-6)));
+  display: flex;
+  flex-direction: column;
+  border: var(--border-width-hairline) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-dialog);
+  opacity: 0;
+  transform: translateX(12px);
+  transition: opacity var(--motion-duration-base) var(--motion-ease-out), transform var(--motion-duration-base) var(--motion-ease-out);
+}
+
+body.is-audit-route .audit-drawer { top: var(--space-3); }
+
+.audit-drawer.is-open { opacity: 1; transform: none; }
+.audit-drawer:focus { outline: none; }
+
+.audit-drawer-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 56px;
+  padding: 0 var(--space-4) 0 var(--space-6);
+  border-bottom: var(--border-width-hairline) solid var(--color-border);
+  background: var(--color-surface-raised);
+}
+
+.audit-drawer-head h2 {
+  margin: 0;
+  color: var(--color-text-strong);
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+
+.audit-drawer-close {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text-muted);
+  margin-left: auto;
+}
+
+.audit-drawer-close:hover { background: var(--color-surface-hover); color: var(--color-text); }
+.audit-drawer-close .svg-icon { width: var(--icon-size-sm); height: var(--icon-size-sm); }
+
+.audit-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: var(--space-6) 26px var(--space-5);
+}
+
+.audit-drawer-identity .table-avatar {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  font-size: var(--font-size-body);
+}
+
+.audit-drawer-identity h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin: var(--space-4-5) 0 0;
+  color: var(--color-text-strong);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -.025em;
+  line-height: var(--line-height-ui);
+}
+
+.audit-drawer-identity p { margin: var(--space-2) 0 0; color: var(--color-text-muted); font-size: var(--font-size-body); }
+
+/* The workspace menu's .role-chip is the canonical role badge, so the drawer
+   reuses it and only sizes it for this larger context. */
+.audit-drawer-identity .role-chip {
+  height: 22px;
+  margin-top: 0;
+  padding: 2px 8px;
+  font-size: var(--font-size-caption);
+  line-height: 16px;
+}
+
+.audit-drawer-identity .role-chip .svg-icon { width: 12px; height: 12px; }
+
+.audit-drawer-section {
+  margin: var(--space-8) 0 var(--space-3-5);
+  padding-bottom: var(--space-3);
+  border-bottom: var(--border-width-hairline) solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.audit-detail-list { margin: 0; display: grid; gap: var(--space-0-5); }
+
+.audit-detail {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-5);
+  min-height: 46px;
+  padding: var(--space-2) 0;
+}
+
+.audit-detail dt { color: var(--color-text-muted); font-size: var(--font-size-body); }
+
+.audit-detail dd {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-body);
+}
+
+.audit-detail-value,
+.audit-detail-person {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.audit-detail-value .svg-icon,
+.audit-detail-person .svg-icon { width: var(--icon-size-sm); height: var(--icon-size-sm); flex: none; color: var(--color-text-muted); }
+.audit-detail-value > span { overflow: hidden; text-overflow: ellipsis; }
+.audit-event-id { font-family: var(--font-mono); font-size: var(--font-size-body-sm); }
+
+.audit-detail-link,
+.audit-copy {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.audit-detail-link:hover,
+.audit-copy:hover { background: var(--color-surface-hover); color: var(--color-text); }
+.audit-copy.is-copied { color: var(--color-success); }
+
+.audit-changes { display: grid; gap: 1px; }
+
+.audit-changes-head,
+.audit-change {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.audit-changes-head {
+  padding-bottom: var(--space-2);
+  border-bottom: var(--border-width-hairline) solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+}
+
+.audit-change { min-height: 48px; font-size: var(--font-size-body); }
+.audit-change-field { color: var(--color-text-muted); }
+
+.audit-change-before,
+.audit-change-after {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-text);
+}
+
+.audit-change-before .svg-icon,
+.audit-change-after .svg-icon { width: var(--icon-size-xs); height: var(--icon-size-xs); flex: none; color: var(--color-text-muted); }
+.audit-change-before > span,
+.audit-change-after > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.audit-drawer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 64px;
+  padding: var(--space-3) var(--space-6);
+  border-top: var(--border-width-hairline) solid var(--color-border);
+  background: var(--color-surface-raised);
+}
+
+/* On wide screens the reference is a true inspection workspace: the log and
+   event details coexist without one obscuring the other. Smaller desktops and
+   tablets retain an overlay because squeezing the data columns would make the
+   table harder to scan. */
+@media (min-width: 1680px) {
+  :root {
+    --audit-drawer-width: clamp(540px, 30vw, 600px);
+    --audit-drawer-gap: var(--space-3);
+  }
+
+  body.audit-drawer-open .shell {
+    width: calc(100% - var(--audit-drawer-width) - (var(--audit-drawer-gap) * 2));
+    transition: width var(--motion-duration-base) var(--motion-ease-out), grid-template-columns var(--duration-fast) var(--ease-smooth);
+  }
+
+  .audit-drawer-scrim { display: none; }
+
+  .audit-drawer {
+    right: var(--audit-drawer-gap);
+    bottom: var(--audit-drawer-gap);
+    width: var(--audit-drawer-width);
+  }
+}
+
+@media (max-width: 600px) {
+  .page-notice { flex-wrap: wrap; }
+
+  .audit-drawer {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    max-height: 92dvh;
+    border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+    transform: translateY(16px);
+  }
+
+  .audit-drawer-body { padding: var(--space-5); scrollbar-gutter: auto; }
+  .audit-drawer-close { position: absolute; top: var(--space-3); right: var(--space-4); }
+  .audit-detail { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+  .audit-changes-head { display: none; }
+  .audit-change { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); padding: var(--space-3) 0; border-bottom: var(--border-width-hairline) solid var(--color-border); }
+  .audit-drawer-foot { gap: var(--space-2); padding: var(--space-2-5) var(--space-3); }
+  .audit-drawer-foot .page-button { min-width: 0; flex: 1; padding-inline: var(--space-2); font-size: var(--font-size-label); }
+
+  /* The row checkbox is pinned to the card corner, so the first field clears it. */
+  .data-table--audit td.col-datetime { padding-right: 34px; }
+}

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Settings · Waya</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./refinements.css" />
+    <link rel="stylesheet" href="./sidebar-system.css" />
+    <link rel="stylesheet" href="./theme-preview.css" />
+    <link rel="stylesheet" href="./toast-system.css" />
+    <link rel="stylesheet" href="./dashboard-pages.css" />
+    <link rel="stylesheet" href="./home-dashboard.css" />
+    <link rel="stylesheet" href="./account-page.css" />
+    <link rel="stylesheet" href="./audit-log.css" />
+    <link rel="stylesheet" href="./search-assets/global-search.css" />
+  </head>
+  <body>
+    <div class="system-banner" role="region" aria-label="Service status">
+      <span class="system-banner-icon" data-icon="warning"></span>
+      <p>We are experiencing a temporary outage with our banking partner. All transactions will be processed as soon as the system is restored.</p>
+      <a href="#/account">Go to account</a>
+    </div>
+    <div class="shell" id="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <div class="sidebar-top">
+          <button class="brand" data-action="business" aria-label="Open business profile"><span class="brand-mark">W</span><span class="nav-copy">Business name</span></button>
+          <button class="icon-button collapse" data-action="collapse" aria-label="Collapse sidebar" data-tooltip="Collapse sidebar"></button>
+        </div>
+        <nav class="navigation" id="navigation"></nav>
+        <button class="nav-item help" data-route="/help"><span data-icon="question"></span><span class="nav-copy">Help</span></button>
+      </aside>
+      <main class="content">
+        <header class="topbar">
+          <button class="mobile-menu icon-button" data-action="mobile-menu" aria-label="Open navigation"><span data-icon="menu"></span></button>
+          <div id="global-search-root" class="global-search-root"></div>
+          <div class="top-actions">
+            <button class="icon-button" data-action="toggle-theme" aria-label="Switch to dark mode" aria-pressed="false" data-tooltip="Switch to dark mode"><span data-icon="sun"></span></button>
+            <button class="icon-button notification-trigger" data-action="notifications" aria-label="Open notifications" data-tooltip="Notifications"><span data-icon="bell"></span><span class="notification-dot" hidden></span></button>
+          </div>
+        </header>
+        <section class="settings-page" aria-labelledby="page-title">
+          <div id="page-notice"></div>
+          <div class="page-heading-row">
+            <h1 id="page-title">Settings</h1>
+            <div class="page-heading-actions" id="page-heading-actions"></div>
+          </div>
+          <div class="tabs" role="tablist" aria-label="Settings sections">
+            <button role="tab" data-tab="general" aria-controls="general-panel"><span data-icon="sliders"></span>General</button>
+            <button role="tab" data-tab="team" aria-controls="team-panel"><span data-icon="users"></span>Team</button>
+            <button role="tab" data-tab="sessions" aria-controls="sessions-panel"><span data-icon="devices"></span>Sessions</button>
+            <button role="tab" data-tab="support" aria-controls="support-panel"><span data-icon="headset"></span>Support</button>
+          </div>
+          <div id="tab-content"></div>
+        </section>
+      </main>
+    </div>
+    <div class="drawer-root" id="drawer-root"></div>
+    <div class="overlay-root" id="overlay-root" aria-live="polite"></div>
+    <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <script src="./search-assets/global-search.js"></script>
+    <script src="./toast-system.js"></script>
+    <script src="./app.js"></script>
+    <script src="./sidebar-system.js"></script>
+    <script src="./theme-preview.js"></script>
+    <script src="./dashboard-pages.js"></script>
+  </body>
+</html>

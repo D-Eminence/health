@@ -1,0 +1,24 @@
+# Design-System Do Nots
+
+- Do not invent spacing values when an existing spacing token fits.
+- Do not center sections independently when they belong to the shared content grid.
+- Do not use heavy borders for structural separation; use panel surfaces + hairlines.
+- Do not turn every content group into a raised card.
+- Do not add shadows to static cards simply for decoration.
+- Do not crop product imagery aggressively; product-card media is 4:3 and uses contain.
+- Do not introduce new accent colors into KORO primary actions; the commerce action accent is charcoal.
+- Do not use purple as a decorative storefront accent merely because it exists in Waya.
+- Do not use status color without a text/icon cue.
+- Do not use hover as a substitute for selected/current state.
+- Do not remove focus-visible rings.
+- Do not use arbitrary z-index values when the stacking tokens already describe the role.
+- Do not create another Button/Input/Card/Table implementation unless an existing primitive cannot express the required behavior.
+- Do not create a second sidebar, toast, theme selector, table, or command-search visual language.
+- Do not use pill radii on ordinary cards.
+- Do not make all radii larger for a generic “modern SaaS” look.
+- Do not introduce gradients unless a future documented brand rule explicitly requires them.
+- Do not use decorative animation; motion should communicate transition, feedback, or hierarchy.
+- Do not ignore reduced-motion.
+- Do not make desktop layouts responsive by cropping or hiding core content first; reflow the grid.
+- Do not squeeze mobile search between logo/actions; allow it to become a separate row.
+- Do not flatten Waya dashboard patterns and KORO commerce patterns into one ambiguous component.

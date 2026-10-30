@@ -1,0 +1,225 @@
+/* Account page: balance, transaction table, and the transfer details rail.
+   Reuses the canonical .data-table, .table-search, .table-filter-panel,
+   .table-pagination and .bulk-action-bar patterns from dashboard-pages.css. */
+
+.account-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: start;
+  gap: var(--space-6);
+}
+
+.account-main { min-width: 0; }
+
+/* Balance */
+
+.account-balance {
+  min-height: 150px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-panel);
+}
+
+.account-balance-label {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body);
+}
+
+.account-balance-amount {
+  display: block;
+  margin-top: var(--space-4);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-display-mobile);
+  font-weight: 500;
+  line-height: var(--line-height-tight);
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.account-refresh {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  border: var(--border-width-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  transition: background var(--motion-duration-quick) ease, color var(--motion-duration-quick) ease;
+}
+
+.account-refresh:hover { background: var(--color-surface-hover); color: var(--color-text); }
+.account-refresh .svg-icon { width: var(--icon-size-sm); height: var(--icon-size-sm); }
+.account-refresh.is-busy { color: var(--color-accent); }
+.account-refresh.is-busy .svg-icon { animation: account-refresh-spin .75s linear infinite; }
+
+@keyframes account-refresh-spin { to { transform: rotate(360deg); } }
+
+/* Toolbar */
+
+.account-toolbar {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin: var(--space-4) 0 var(--space-5);
+}
+
+.account-toolbar-left {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Table */
+
+@media (min-width: 601px) {
+  /* Proportional columns so the table fills the main column at every desktop
+     width instead of scrolling behind the details rail. */
+  .data-table--account { min-width: 760px; }
+  .data-table--account .col-direction { width: 18%; }
+  .data-table--account .col-counterparty { width: 25%; }
+  .data-table--account .col-status { width: 17%; }
+  .data-table--account .col-date { width: 22%; text-align: left; white-space: nowrap; }
+  .data-table--account .col-amount { width: 18%; font-variant-numeric: tabular-nums; }
+
+  /* Fill the fixed cell so a long counterparty name truncates instead of
+     running into the next column. */
+  .data-table--account .table-cell-icon { display: flex; }
+
+  /* Same treatment as .transactions-table-scroll: the rows scroll inside their
+     own box so the pagination stays pinned to the bottom of the viewport
+     instead of being pushed below the fold. The offset is the transactions
+     offset (292px of shell chrome, page heading, table head and pagination)
+     plus this page’s extra chrome above the table: the 150px balance card and
+     the 74px toolbar band. */
+  .account-table-scroll { max-height: calc(100dvh - 516px); overflow-y: auto; }
+
+  /* Freeze the column headers while the rows scroll under them. The row
+     divider is drawn with a shadow because border-collapse: collapse paints
+     cell borders on the table, so a sticky cell would lose its border. */
+  .account-table-scroll thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    border-bottom: 0;
+    background: var(--color-surface);
+    box-shadow: 0 var(--border-width-hairline) 0 var(--color-border);
+  }
+
+  /* The table box already reaches the bottom of the viewport, so the shell-s
+     bottom gutter would add a short dead scroll below the pinned pagination. */
+  .content:has(.account-layout) { padding-bottom: 0; }
+}
+
+/* Account details rail */
+
+.account-details { min-width: 0; }
+
+.account-details-mark {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border: var(--border-width-hairline) solid var(--color-border-strong);
+  border-radius: var(--radius-round);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-secondary);
+}
+
+.account-details-mark .svg-icon { width: var(--icon-size-lg); height: var(--icon-size-lg); }
+
+.account-details h2 {
+  margin: var(--space-5) 0 0;
+  color: var(--color-text-strong);
+  font: 400 var(--font-size-title)/var(--line-height-tight) var(--font-heading);
+  letter-spacing: -.01em;
+}
+
+.account-details-lede {
+  margin: var(--space-2) 0 var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body);
+}
+
+.account-detail-list {
+  margin: 0;
+  padding-top: var(--space-5);
+  border-top: var(--border-width-hairline) solid var(--color-border-strong);
+  display: grid;
+  gap: var(--space-5);
+}
+
+.account-detail {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.account-detail > div { min-width: 0; }
+
+.account-detail dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-body-sm);
+}
+
+.account-detail dd {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-strong);
+  font-size: var(--font-size-body-lg);
+  font-weight: 500;
+}
+
+.account-copy {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text-muted);
+  transition: background var(--motion-duration-quick) ease, color var(--motion-duration-quick) ease;
+}
+
+.account-copy:hover { background: var(--color-surface-hover); color: var(--color-text); }
+.account-copy .svg-icon { width: var(--icon-size-sm); height: var(--icon-size-sm); }
+.account-copy.is-copied { color: var(--color-success); }
+
+.account-copy-all { margin-top: var(--space-6); }
+
+/* The rail sits beside the table only on large desktop. Below that the table
+   takes the full content width and the transfer details drop underneath it. */
+@media (max-width: 1439px) {
+  .account-layout { grid-template-columns: minmax(0, 1fr); gap: var(--space-8); }
+  .account-details { max-width: 480px; }
+}
+
+@media (max-width: 600px) {
+  .account-balance { min-height: 0; padding: var(--space-5); }
+  .account-balance-amount { margin-top: var(--space-3); }
+  .account-toolbar { flex-wrap: wrap; }
+  .account-toolbar-left { width: 100%; }
+  .account-toolbar-left .table-search { flex: 1; width: auto; }
+  .account-toolbar > .page-button { width: 100%; }
+  .account-details { max-width: none; }
+
+  /* The row checkbox is pinned to the card corner, so the first field keeps
+     clear of it. This table ends on Amount rather than Date, so that cell
+     keeps its label instead of being treated as an unlabelled trailer. */
+  .data-table--account td.col-direction { padding-right: 34px; }
+  .data-table--account td.col-amount::before { display: block; }
+  .data-table--account td.col-amount { color: var(--color-text-strong); font-weight: 600; }
+}

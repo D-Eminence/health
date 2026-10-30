@@ -1,0 +1,131 @@
+:root {
+  --check-box: var(--motion-duration-quick);
+  --check-draw: var(--motion-duration-slow);
+  --check-delay: 0ms;
+  --check-uncheck: var(--motion-duration-quick);
+  --check-ease: var(--motion-ease-out);
+}
+
+.theme-preview {
+  display: block;
+  padding: 9px;
+  background: var(--color-preview-light-canvas);
+}
+
+.theme-preview::before,
+.theme-preview::after {
+  display: none;
+}
+
+.theme-mini-grid {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: 24fr 37fr 39fr;
+  gap: 2px;
+  overflow: hidden;
+  background: var(--color-preview-light-surface);
+}
+
+.theme-mini-cell {
+  min-width: 0;
+  background: var(--color-preview-light-panel);
+}
+
+.theme-mini-cell:nth-child(n + 5) {
+  grid-column: span 2;
+}
+
+.theme-preview.system {
+  background: linear-gradient(90deg, var(--color-preview-light-canvas) 0 50%, var(--color-preview-dark-canvas) 50%);
+}
+
+.theme-preview.system .theme-mini-grid {
+  background: linear-gradient(90deg, var(--color-preview-light-surface) 0 50%, var(--color-preview-dark-surface) 50%);
+}
+
+.theme-preview.system .theme-mini-cell:nth-child(3),
+.theme-preview.system .theme-mini-cell:nth-child(4),
+.theme-preview.system .theme-mini-cell:nth-child(6),
+.theme-preview.system .theme-mini-cell:nth-child(8) {
+  background: var(--color-preview-dark-panel);
+}
+
+.theme-preview.dark {
+  border-color: var(--color-preview-dark-canvas);
+  background: var(--color-preview-dark-canvas);
+}
+
+.theme-preview.dark .theme-mini-grid {
+  background: var(--color-preview-dark-surface);
+}
+
+.theme-preview.dark .theme-mini-cell {
+  background: var(--color-preview-dark-panel);
+}
+
+.theme-label {
+  min-height: 20px;
+  align-items: center;
+  gap: 8px;
+  line-height: 20px;
+}
+
+.radio-mark.t-check {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  display: grid;
+  place-items: center;
+  border: var(--border-width-control) solid var(--color-border-strong);
+  background: transparent;
+}
+
+.radio-mark.t-check svg {
+  display: block;
+  width: 10px;
+  height: 10px;
+  overflow: visible;
+  fill: none;
+  stroke: var(--color-on-accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.theme-option.selected .radio-mark.t-check {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+
+/* The enhanced control draws its single check with the SVG path. */
+.theme-option.selected .radio-mark.t-check::after {
+  content: none;
+}
+
+/* transitions.dev checkbox check */
+.t-check {
+  transition:
+    background var(--check-box) var(--check-ease),
+    box-shadow var(--check-box) var(--check-ease);
+}
+.t-check svg path {
+  stroke-dasharray: var(--check-len, 15);
+  stroke-dashoffset: var(--check-len, 15);
+  transition: stroke-dashoffset var(--check-uncheck) var(--check-ease);
+}
+.t-check[aria-checked="true"] svg path {
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset var(--check-draw) var(--check-ease) var(--check-delay);
+}
+
+@media (max-width: 600px) {
+  .theme-preview {
+    padding: 7px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-check, .t-check svg path { transition: none !important; }
+}
