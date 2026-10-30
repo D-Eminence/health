@@ -14,9 +14,9 @@ import { useActionFocus, useRetryFocus } from './actionFocus'
 export const WHAT: Readonly<Record<AccessLogAction, string>> = {
   viewed: 'Viewed your record',
   changed: 'Changed your record',
-  access_granted: 'Was given access to your record',
+  access_granted: 'Got access to your record',
   access_ended: 'Access to your record ended',
-  emergency_access: 'Used emergency access to your record',
+  emergency_access: 'Opened your record in an emergency',
 }
 
 function when(value: string) {
@@ -30,9 +30,9 @@ export function accessLogActor(event: AccessLogEvent): string {
     case 'patient': return 'You'
     case 'support': return 'Health ID support'
     case 'system': return event.facilityName ?? 'Health ID'
-    case 'facility': return event.facilityName ?? event.actorName ?? 'A facility'
+    case 'facility': return event.facilityName ?? event.actorName ?? 'A health facility'
     case 'clinician': {
-      const clinician = event.actorName ?? 'A clinician'
+      const clinician = event.actorName ?? 'A health worker'
       return event.facilityName ? `${clinician} at ${event.facilityName}` : clinician
     }
   }
@@ -128,26 +128,25 @@ export function AccessLogCard() {
       if (shownPage.current !== from) { focusAfter(() => document.getElementById('access-log-more') ?? heading.current); return }
       setOlder({ events: [...older?.events ?? [], ...more.events], next: more.nextBefore })
       if (more.events.length === 0) {
-        setMoreNote(more.nextBefore ? 'No entries in this stretch of time. Show more to look further back.' : 'There are no older entries.')
+        setMoreNote(more.nextBefore ? 'Nothing found here. Tap Show more to look further back.' : 'There’s nothing older.')
       }
       // The first event added, or the button again when nothing new came, or the heading once there is nothing more.
       focusAfter(() => list.current?.querySelectorAll<HTMLElement>('li[tabindex]')[before]
         ?? document.getElementById('access-log-more') ?? heading.current)
     } catch (cause) {
-      setMoreError(isHidApiError(cause) ? cause.message : 'Older events could not be loaded.')
+      setMoreError(isHidApiError(cause) ? cause.message : 'Couldn’t load more. Try again.')
       focusAfter(() => document.getElementById('access-log-more'))
     } finally { setLoadingMore(false) }
   }
 
   return <div className="patient-card" aria-busy={(first.loading && first.data !== null) || undefined}>
     <h2 ref={heading} tabIndex={-1}>Who viewed or changed your record</h2>
-    <p className="patient-field-hint">Each time a clinician or facility opened or changed your health record, or was given or lost
-      access to it, newest first.</p>
-    {first.loading && first.data === null && <p role="status">Loading who viewed or changed your record…</p>}
+    <p className="patient-field-hint">Newest first.</p>
+    {first.loading && first.data === null && <p role="status">Loading…</p>}
     {first.error && <div role="alert"><p>{first.error}</p>
       <button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(first.reload)}>Try again</button></div>}
     {page && !first.error && (events.length === 0 ? <p className="patient-empty">{next
-      ? 'No recent entries. Show more to look further back.' : 'No one has viewed or changed your record yet.'}</p>
+      ? 'Nothing recent. Tap Show more to look further back.' : 'No one has viewed or changed your record yet.'}</p>
       : <ul ref={list} className="patient-list patient-access-log">{events.map(event => <li key={event.id} tabIndex={-1}><div>
         <strong>{accessLogActor(event)}</strong>
         <span>{WHAT[event.action]}</span>

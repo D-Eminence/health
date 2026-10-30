@@ -35,15 +35,15 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
  * rate limited; a contact another account holds is refused with no further detail, so nothing is learned about it.
  */
 export const CONTACT_REFUSALS: Readonly<Record<string, { message: string; field: Field }>> = {
-  PASSWORD_INCORRECT: { message: 'That password is not right. Enter the password you sign in to Health ID with.', field: 'password' },
+  PASSWORD_INCORRECT: { message: 'Wrong password. Enter the password you use to sign in.', field: 'password' },
   CONTACT_UNAVAILABLE: { message: 'That email address or phone number can’t be used.', field: 'value' },
-  PASSWORD_REQUIRED: { message: 'Set a password first to change your contact details.', field: null },
-  OTP_INVALID_OR_EXPIRED: { message: 'That code is wrong or has expired. Check it and try again, or send a new code.', field: 'code' },
-  PATIENT_RECENT_AUTH_REQUIRED: { message: 'For your security, sign out, sign in again, and return here within 10 minutes to change your contact details.', field: null },
+  PASSWORD_REQUIRED: { message: 'Set a password first, then you can change these.', field: null },
+  OTP_INVALID_OR_EXPIRED: { message: 'That code is wrong or has expired. Try again, or send a new code.', field: 'code' },
+  PATIENT_RECENT_AUTH_REQUIRED: { message: 'For your safety, sign in again first, then come back within 10 minutes.', field: null },
 }
 
 function refusal(cause: unknown, step: Step['kind']): { message: string; field: Field } {
-  if (!isHidApiError(cause)) return { message: 'Your contact details could not be changed. Try again.', field: null }
+  if (!isHidApiError(cause)) return { message: 'Couldn’t save the change. Try again.', field: null }
   const known = CONTACT_REFUSALS[cause.code]
   if (known) return known
   // Identity says how long: "Wait a moment before asking for another code.", "Try again in 15 minutes."
@@ -152,7 +152,7 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
         setPassword(''); setCode('')
         setStep({ kind: 'email-code', pending })
         const wait = refusal(cause, 'email').message
-        setError({ message: `${wait} The code we sent to ${pending.change.maskedContact} still works: enter it here.`, field: null, alert: true })
+        setError({ message: `${wait} The code we sent to ${pending.change.maskedContact} still works. Enter it here.`, field: null, alert: true })
       } else if (ownUnverified(typed) && isHidApiError(cause) && cause.code === 'CONTACT_UNCHANGED') {
         // Identity answers this for the account's own address only once it is verified (in another tab, say).
         setStep({ kind: 'idle' }); setPassword(''); setEmail(''); setResendNote(null)
@@ -174,7 +174,7 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
     if (step.kind !== 'email-code' || busy) return
     const wait = secondsBeforeResend(step.pending, Date.now())
     if (wait > 0) {
-      setResendNote(`You can ask for a new code in ${duration(wait)}. The code we sent to ${step.pending.change.maskedContact} still works.`)
+      setResendNote(`You can get a new code in ${duration(wait)}. The last code we sent still works.`)
       return
     }
     setStep({ kind: 'email', pending: step.pending, verify: ownUnverified(step.pending.email) }); setEmail(step.pending.email)
@@ -200,8 +200,8 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
       const now = typeof answer?.email === 'string' && answer.email ? answer.email : step.pending.email
       setStep({ kind: 'idle' }); setCode(''); setEmail(''); setResendNote(null)
       setNotice(ownUnverified(now) ? 'Your email address is verified.'
-        : `Your email address is now ${maskEmail(now)}. Use it to sign in and to reset your password.`
-          + (profile.email ? ' We told your previous address.' : ''))
+        : `Your email is now ${maskEmail(now)}. Use it to sign in and reset your password.`
+          + (profile.email ? ' We told your old address.' : ''))
       await onChanged()
       announce()
       focusAfter(() => document.getElementById('contact-change-email'))
@@ -214,7 +214,7 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
     if (busy) return
     const number = internationalPhone(phone, phoneCountry)
     if (number === null) {
-      setError({ message: 'Enter a valid phone number for the country chosen, like 0801 234 5678 for Nigeria, or start it with + and the country code.',
+      setError({ message: 'Enter a valid phone number for the country you chose, like 0801 234 5678 for Nigeria.',
         field: 'value', alert: fromField })
       stepFocus.focus(); return
     }
@@ -224,8 +224,8 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
     try {
       const answer = await api.changePhone(number, password)
       setStep({ kind: 'idle' }); setPassword(''); setPhone('')
-      setNotice(`Your phone number is now ${maskPhone(answer.phone)}. It shows as not verified, because Health ID can’t send it a text yet.`
-        + (phoneNoticeByEmail ? ' We emailed your verified address about the change.' : ''))
+      setNotice(`Your phone number is now ${maskPhone(answer.phone)}. It shows as not verified because we can’t text it yet.`
+        + (phoneNoticeByEmail ? ' We emailed you about the change.' : ''))
       await onChanged()
       announce()
       focusAfter(() => document.getElementById('contact-change-phone'))
@@ -237,7 +237,7 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
     <PasswordInput appearance="plain" id="contact-password" ref={fieldRef('password')} autoComplete="current-password" value={password}
       onChange={event => { setPassword(event.target.value); if (error?.field === 'password') setError(null) }}
       aria-invalid={invalid('password')} aria-describedby={describedBy('contact-password-hint', errorFor('password'))} />
-    <p id="contact-password-hint" className="patient-field-hint">The password you sign in to Health ID with, to confirm it is you.</p></div>
+    <p id="contact-password-hint" className="patient-field-hint">The password you use to sign in.</p></div>
 
   return <div id="contact-details" aria-busy={busy || undefined}>
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
@@ -256,7 +256,7 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
         {step.kind === 'idle' && <dd><button id="contact-change-phone" type="button" className="patient-secondary-button" disabled={busy}
           onClick={() => open('phone')}>{profile.phone ? 'Change' : 'Add'} <ItemName>phone number</ItemName></button></dd>}</div>
     </dl>
-    <p className="patient-field-hint">You sign in and reset your password with these. Shown in part, for privacy.</p>
+    <p className="patient-field-hint">You use these to sign in and reset your password. Part is hidden for privacy.</p>
 
     {step.kind === 'email' && <form className="patient-form patient-contact-form" onSubmit={event => void startEmail(event)} noValidate>
       <h3>{verifying ? 'Verify your email address' : 'New email address'}</h3>
@@ -264,8 +264,8 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
       <label>{verifying ? 'Email address' : 'New email address'}<input ref={fieldRef('value')} type="email" autoComplete="email" maxLength={254}
         value={email} onChange={event => { setEmail(oneLine(event.target.value)); if (error?.field === 'value') setError(null) }}
         aria-invalid={invalid('value')} aria-describedby={describedBy('contact-email-hint', errorFor('value'))} /></label>
-      <p id="contact-email-hint" className="patient-field-hint">We will send a 6-digit code to this address. {verifying
-        ? 'It shows as verified once you enter it.' : 'Your email changes once you enter it.'}</p>
+      <p id="contact-email-hint" className="patient-field-hint">We’ll send a 6-digit code here. {verifying
+        ? 'Enter it to verify this email.' : 'Your email changes when you enter it.'}</p>
       {passwordField}
       <div className="patient-decision-actions">
         <button type="submit" className="patient-primary-button" disabled={busy}>{busy ? 'Sending…' : 'Send code'}</button>
@@ -302,11 +302,10 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
           onChange={event => { setPhone(event.target.value.replace(/[^\d+\s().-]/g, '')); if (error?.field === 'value') setError(null) }}
           aria-invalid={invalid('value')} aria-describedby={describedBy('contact-phone-hint', errorFor('value'))} /></label>
       </div>
-      <p id="contact-phone-hint" className="patient-field-hint">Choose your country, then enter your number. Health ID can’t text it
-        yet, so it will show as not verified{phoneNoticeByEmail ? '; we email your verified address to say it changed' : ''}.</p>
+      <p id="contact-phone-hint" className="patient-field-hint">Choose your country, then enter your number.</p>
       {passwordField}
       <div className="patient-decision-actions">
-        <button type="submit" className="patient-primary-button" disabled={busy}>{busy ? 'Saving…' : 'Change phone number'}</button>
+        <button type="submit" className="patient-primary-button" disabled={busy}>{busy ? 'Saving…' : 'Save phone number'}</button>
         <button type="button" className="patient-secondary-button" disabled={busy} onClick={() => close('phone')}>Cancel</button>
       </div>
     </form>}

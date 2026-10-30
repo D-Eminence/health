@@ -16,7 +16,7 @@ export const COMPLETION_ITEMS = [
   { key: 'state', label: 'Your state', href: '/profile#bio-data' },
   { key: 'photo', label: 'A photo on your card', href: '/profile?photo=add' },
   { key: 'hospital', label: 'The hospital you use', href: '/profile#coverage' },
-  { key: 'hmo', label: 'Your HMO', href: '/profile#coverage' },
+  { key: 'hmo', label: 'Your HMO (health insurance)', href: '/profile#coverage' },
   { key: 'bloodGroup', label: 'Your blood group', href: '/profile#health-information' },
   { key: 'genotype', label: 'Your genotype', href: '/profile#health-information' },
   { key: 'nin', label: 'A verified NIN', href: '/profile#nin-verification' },

@@ -22,8 +22,8 @@ import { shareProblem } from './ShareRecords'
  */
 const STATUS_WORDS: Readonly<Record<ShareInvitationStatus, string>> = {
   pending: 'Waiting for them to accept',
-  accepted: 'Accepted: waiting for you to confirm',
-  confirmed: 'Confirmed: your records are shared',
+  accepted: 'Accepted · waiting for you to confirm',
+  confirmed: 'Confirmed · your records are shared',
   cancelled: 'Cancelled',
   expired: 'Expired',
 }
@@ -65,7 +65,7 @@ export function ShareInvitationsCard({ onShared }: { onShared?: () => Promise<un
     try {
       if (action === 'confirm') {
         const shared = await api.confirmShareInvitation(item.invitationId)
-        setNotice(`${shared.clinicianName ?? 'The provider'} at ${shared.facilityName} can see your records ${shareUntil(shared.duration, shared.expiresAt)}.`)
+        setNotice(`${shared.clinicianName ?? 'The health worker'} at ${shared.facilityName} can see your records ${shareUntil(shared.duration, shared.expiresAt)}.`)
         await Promise.all([invitations.reload(), onShared?.()])
       } else {
         await api.cancelShareInvitation(item.invitationId)
@@ -74,8 +74,8 @@ export function ShareInvitationsCard({ onShared }: { onShared?: () => Promise<un
       }
       focusAfter(() => heading.current)
     } catch (cause) {
-      setError(shareProblem(cause, action === 'confirm' ? 'Your records could not be shared. Please try again.'
-        : 'The invitation could not be updated. Please try again.'))
+      setError(shareProblem(cause, action === 'confirm' ? 'Couldn’t share your records. Try again.'
+        : 'Couldn’t update the invitation. Try again.'))
       focusAfter(() => document.getElementById(`${action}-invitation-${item.invitationId}`))
     } finally { setWorking(null) }
   }
@@ -84,21 +84,21 @@ export function ShareInvitationsCard({ onShared }: { onShared?: () => Promise<un
   const busy = !!working || invitations.loading
   return <div className="patient-card" aria-busy={(invitations.loading && list !== null) || undefined}>
     <h2 ref={heading} tabIndex={-1}>Invitations to share</h2>
-    <p className="patient-field-hint">Providers you invited by email. Nothing is shared until they accept in Health ID and you confirm.</p>
+    <p className="patient-field-hint">Nothing is shared until they accept and you confirm.</p>
     {invitations.error && <div role="alert"><p>{invitations.error}</p>
       <button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(invitations.reload)}>Try again</button></div>}
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
-    {list && !invitations.error && (list.items.length === 0 ? <p className="patient-empty">You have not invited anyone.</p>
+    {list && !invitations.error && (list.items.length === 0 ? <p className="patient-empty">No invitations yet.</p>
       : <ul className="patient-list">{list.items.map(item => <li key={item.invitationId} className="patient-access-item"><div>
         <strong>{invitee(item)}</strong>
         <span>{[shareLevelLabel(item.level), shareDurationLabel(item.duration)].filter(Boolean).join(' · ')}</span>
         <span>Sent {sentAt(item.createdAt)}{item.status === 'pending' || item.status === 'accepted' ? ` · Ends ${shareDay(item.expiresAt)}` : ''}</span>
-        <span>{STATUS_WORDS[item.status]}{item.status === 'pending' && item.deliveryOutcome === 'not_confirmed' ? ' · Delivery not confirmed' : ''}</span>
+        <span>{STATUS_WORDS[item.status]}{item.status === 'pending' && item.deliveryOutcome === 'not_confirmed' ? ' · We aren’t sure the email arrived' : ''}</span>
         {item.status === 'accepted' && item.offer && <p>
-          {item.offer.clinicianName ?? 'A provider'}, {SHARE_ROLE_LABELS[item.offer.role]} at {[item.offer.facilityName, item.offer.organizationName].filter(Boolean).join(', ')}
+          {item.offer.clinicianName ?? 'A health worker'}, {SHARE_ROLE_LABELS[item.offer.role]} at {[item.offer.facilityName, item.offer.organizationName].filter(Boolean).join(', ')}
           {item.offer.newOnHealthId && <> <span className="patient-status-tag">New on Health ID</span></>}
-          . Confirm to share your records with them.</p>}
+          .</p>}
       </div>
       {item.status === 'pending' && <div className="patient-decision-actions">
         <button id={`cancel-invitation-${item.invitationId}`} type="button" className="patient-secondary-button" disabled={busy}
@@ -110,6 +110,6 @@ export function ShareInvitationsCard({ onShared }: { onShared?: () => Promise<un
           onClick={() => void act(item, 'decline')}>Decline <ItemName>the invitation to {item.inviteeEmail}</ItemName></button></div>}
     </li>)}</ul>)}
     {list?.limits && <p className="patient-field-hint">You can send {list.limits.remainingToday} more {list.limits.remainingToday === 1 ? 'invitation' : 'invitations'} today.</p>}
-    <Link to="/access/share?by=email">Invite a provider by email →</Link>
+    <Link to="/access/share?by=email">Invite a health worker by email →</Link>
   </div>
 }

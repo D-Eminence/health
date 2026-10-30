@@ -12,24 +12,24 @@ import { ProfileSection } from './ProfileSection'
  * the account or the service, not the number typed, except where marked.
  */
 export const NIN_REFUSALS: Readonly<Record<string, string>> = {
-  QOREID_PATIENT_NIN_BINDING_DISABLED: 'Verifying a NIN from your account is not available yet. Try again later.',
-  PATIENT_NIN_BINDING_CONFLICT: 'This NIN needs an identity review before it can be verified on your account. Contact Health ID support.',
-  PATIENT_NIN_DETAILS_MISMATCH: 'This NIN does not match the name and date of birth given. Check them and try again.',
-  PATIENT_IDENTITY_PROFILE_INCOMPLETE: 'Your profile is missing details needed to check a NIN, such as your date of birth. Contact Health ID support.',
-  PATIENT_NIN_BINDING_UNAVAILABLE: 'NIN verification is temporarily unavailable. Try again later.',
-  VERIFICATION_EVIDENCE_UNAVAILABLE: 'NIN verification is temporarily unavailable. Try again later.',
-  QOREID_DISABLED: 'NIN verification is not available right now. Try again later.',
-  QOREID_PROVIDER_RESPONSE_INVALID: 'We could not confirm your NIN with the national identity service. Try again later.',
+  QOREID_PATIENT_NIN_BINDING_DISABLED: 'You can’t verify your NIN here yet. Try again later.',
+  PATIENT_NIN_BINDING_CONFLICT: 'This NIN needs a review before it can be added to your account. Contact Health ID support.',
+  PATIENT_NIN_DETAILS_MISMATCH: 'This NIN doesn’t match your name and date of birth. Check them and try again.',
+  PATIENT_IDENTITY_PROFILE_INCOMPLETE: 'Your profile is missing details we need, like your date of birth. Contact Health ID support.',
+  PATIENT_NIN_BINDING_UNAVAILABLE: 'We can’t check NINs right now. Try again later.',
+  VERIFICATION_EVIDENCE_UNAVAILABLE: 'We can’t check NINs right now. Try again later.',
+  QOREID_DISABLED: 'We can’t check NINs right now. Try again later.',
+  QOREID_PROVIDER_RESPONSE_INVALID: 'We couldn’t check your NIN with the national ID service. Try again later.',
 }
 /** A check that ran and did not verify (200 with another state). */
 export const NIN_STATES: Readonly<Record<Exclude<PatientNinVerification['state'], 'verified'>, string>> = {
-  not_verified: 'We could not match this NIN to the name and date of birth on your profile. Check the number and try again.',
-  incomplete: 'The national identity service could not finish checking this NIN. Try again later.',
-  provider_error: 'NIN verification is temporarily unavailable. Try again later.',
-  disabled: 'NIN verification is not available right now. Try again later.',
+  not_verified: 'This NIN doesn’t match the name and date of birth on your profile. Check the number and try again.',
+  incomplete: 'We couldn’t finish checking this NIN. Try again later.',
+  provider_error: 'We can’t check NINs right now. Try again later.',
+  disabled: 'We can’t check NINs right now. Try again later.',
 }
 const NIN_RULE = 'Enter the 11 digits of your NIN.'
-const NIN_FAILED = 'We could not verify your NIN just now. Try again later.'
+const NIN_FAILED = 'We couldn’t check your NIN. Try again later.'
 
 /**
  * Whether the account's NIN is verified: Identity's `ninVerified` when it sends
@@ -96,13 +96,13 @@ export function NinVerificationCard({ profile, onVerified }: {
     </ProfileSection>
   }
   return <ProfileSection id="nin-verification" title="Verify your NIN" headingRef={heading}>
-    <p id="nin-verify-hint" className="patient-field-hint">Optional: your 11-digit NIN verifies your identity. Your Health ID works without it.</p>
+    <p id="nin-verify-hint" className="patient-field-hint">Optional. Your Health ID works without it.</p>
     {error && <p id="nin-verify-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
     <form onSubmit={event => void submit(event)} className="patient-form patient-inline-form">
-      <label>National Identification Number<input ref={fieldFocus.target} required inputMode="numeric" autoComplete="off" pattern="[0-9]{11}" maxLength={11}
+      <label>NIN (11 digits)<input ref={fieldFocus.target} required inputMode="numeric" autoComplete="off" pattern="[0-9]{11}" maxLength={11}
         value={nin} onChange={event => { setNin(event.target.value.replace(/\D/g, '').slice(0, 11)); setFieldError(false) }}
         aria-invalid={fieldError || undefined} aria-describedby={describedBy('nin-verify-hint', fieldError && 'nin-verify-error')} /></label>
-      <label>Date of birth, as on your NIN record<input type="date" required autoComplete="bday" value={dateOfBirth}
+      <label>Date of birth, as on your NIN<input type="date" required autoComplete="bday" value={dateOfBirth}
         max={new Date().toISOString().slice(0, 10)} onChange={event => setDateOfBirth(event.target.value)} /></label>
       <button type="submit" className="patient-primary-button" disabled={busy || nin.length !== 11 || !dateOfBirth}>{busy ? 'Verifying…' : 'Verify NIN'}</button>
     </form>

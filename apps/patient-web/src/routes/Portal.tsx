@@ -99,7 +99,7 @@ function LoadState({ loading, error, retry, hasData, focusTarget }: {
   loading: boolean; error: string | null; retry: () => Promise<unknown>; hasData: boolean; focusTarget: RefObject<HTMLElement | null>
 }) {
   const retryFocus = useRetryFocus(focusTarget)
-  if (loading && !hasData) return <div className="patient-card patient-loading" role="status">Loading your information…</div>
+  if (loading && !hasData) return <div className="patient-card patient-loading" role="status">Loading…</div>
   if (error) return <div className="patient-card" role="alert"><p>{error}</p>
     <button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(retry)}>Try again</button></div>
   return null
@@ -183,7 +183,7 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
 
 const HEALTH_LABELS: Readonly<Record<ImportedHealthField, string>> = {
   blood_group: 'Blood group', genotype: 'Genotype', allergies: 'Allergies', current_medications: 'Current medications',
-  chronic_conditions: 'Chronic conditions', medical_notes: 'Medical notes',
+  chronic_conditions: 'Long-term conditions', medical_notes: 'Medical notes',
 }
 
 /** hid-system main sends no hid-1.0 health details with the records, so the profile reads none there. */
@@ -191,9 +191,9 @@ const noRecords = async (): Promise<PatientRecords | null> => null
 
 /** A migrated patient's hid-1.0 health details, as they were: read-only, and only the ones they filled in. */
 function ImportedHealthCard({ profile }: { profile: ImportedHealthProfile }) {
-  return <ProfileSection id="hid1-health-details" title="From your hid-1.0 account">
-    <p className="patient-field-hint">Carried over from hid-1.0{profile.updatedAt
-      ? `, last updated on ${date(profile.updatedAt)}` : ''}. They can't be changed here.</p>
+  return <ProfileSection id="hid1-health-details" title="From your old Health ID account">
+    <p className="patient-field-hint">{profile.updatedAt
+      ? `Last updated ${date(profile.updatedAt)}. ` : ''}You can’t change these here.</p>
     <dl className="patient-details">{IMPORTED_HEALTH_FIELDS.filter(field => profile.content[field]).map(field =>
       <div key={field}><dt>{HEALTH_LABELS[field]}</dt><dd className="patient-multiline">{profile.content[field]}</dd></div>)}</dl>
   </ProfileSection>
@@ -281,14 +281,14 @@ export function ProfilePage() {
 
 /** What each record section holds, as the page names it. */
 const SECTION_NAMES: Readonly<Record<RecordSection, string>> = {
-  encounters: 'completed encounters', notes: 'signed clinical notes', vitals: 'vitals', diagnoses: 'diagnoses',
-  prescriptions: 'prescriptions', labRequests: 'laboratory requests', documents: 'uploaded clinical documents',
+  encounters: 'visits', notes: 'doctor’s notes', vitals: 'vital signs', diagnoses: 'diagnoses',
+  prescriptions: 'prescriptions', labRequests: 'lab tests', documents: 'documents',
 }
-const ALL_SECTIONS = 'Everything your providers have signed, newest first.'
-const WITHHELD = 'Not yet shared with patients in Health ID.'
+const ALL_SECTIONS = 'Everything your doctors and hospitals have signed, newest first.'
+const WITHHELD = 'Not shared with you yet.'
 
 /** The opening line until the record is read: what it holds is not known yet. */
-const RECORD_UNREAD = 'Your health record, as it is shared with patients in Health ID.'
+const RECORD_UNREAD = 'What your doctors and hospitals have shared with you.'
 
 /**
  * The page's opening line. An EHR with hid-system #52 names what it released to
@@ -297,12 +297,12 @@ const RECORD_UNREAD = 'Your health record, as it is shared with patients in Heal
  */
 function recordsIntro(data: PatientRecords | null) {
   if (!data) return RECORD_UNREAD
-  if (usesNovuBackend()) return 'Your completed encounters, signed clinical notes and imported medical history.'
+  if (usesNovuBackend()) return 'Your visits, doctor’s notes and older records.'
   if (!data.released) return ALL_SECTIONS
   const names = data.released.filter(section => section in SECTION_NAMES).map(section => SECTION_NAMES[section])
-  if (names.length === 0) return 'No part of your record is shared with patients in Health ID yet.'
+  if (names.length === 0) return 'Nothing in your record is shared with you yet.'
   const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
-  return `Your ${listed}.${data.withheld?.length ? ' Other parts of your record are not yet shared with patients in Health ID.' : ''}`
+  return `Your ${listed}.${data.withheld?.length ? ' Other parts aren’t shared with you yet.' : ''}`
 }
 
 /** An empty section's line: a withheld one was not released to the patient, which is not "none". */
@@ -777,7 +777,7 @@ function ImportedNotificationsCard() {
       void settle()
       focusAfter(() => heading.current)
     } catch (cause) {
-      setError(isHidApiError(cause) ? cause.message : 'Notification could not be updated.')
+      setError(isHidApiError(cause) ? cause.message : 'Couldn’t mark it as read. Try again.')
       focusAfter(() => document.getElementById(`mark-imported-read-${id}`))
     } finally { setWorking(null) }
   }
@@ -788,21 +788,21 @@ function ImportedNotificationsCard() {
       setOlder(current => [...current, ...page])
       if (page.length < IMPORTED_NOTIFICATIONS_PAGE) setOlderEnd(true)
     } catch (cause) {
-      setError(isHidApiError(cause) ? cause.message : 'Older notifications could not be loaded.')
+      setError(isHidApiError(cause) ? cause.message : 'Couldn’t load older notifications. Try again.')
     } finally { setWorking(null); focusAfter(() => document.getElementById('imported-notifications-older') ?? heading.current) }
   }
 
-  return <div className="patient-card"><h2 ref={heading} tabIndex={-1}>From your hid-1.0 account</h2>
-    <p className="patient-field-hint">Notifications you had in hid-1.0, carried over with your account.</p>
+  return <div className="patient-card"><h2 ref={heading} tabIndex={-1}>Old notifications</h2>
+    <p className="patient-field-hint">From your old Health ID account.</p>
     {first.error && <div role="alert"><p>{first.error}</p>
       <button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(first.reload)}>Try again</button></div>}
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
     {items.length > 0 && <ul className="patient-list">{items.map(item => <li key={item.id}><div>
-      <strong>{item.title || 'A notification from hid-1.0'}</strong>
+      <strong>{item.title || 'A notification from your old account'}</strong>
       {item.message && <p className="patient-multiline">{item.message}</p>}
       <span>{[dateTime(item.createdAt), item.readAt ? 'Read' : 'Unread'].join(' · ')}</span></div>
       {!item.readAt && <button id={`mark-imported-read-${item.id}`} type="button" disabled={working !== null} onClick={() => void markRead(item.id)}>
-        Mark as read<ItemName>: {item.title || 'a notification from hid-1.0'}, {dateTime(item.createdAt)}</ItemName></button>}</li>)}</ul>}
+        Mark as read<ItemName>: {item.title || 'a notification from your old account'}, {dateTime(item.createdAt)}</ItemName></button>}</li>)}</ul>}
     {more && <button id="imported-notifications-older" type="button" className="patient-secondary-button" disabled={working !== null}
       onClick={() => void showOlder()}>{working === 'older' ? 'Loading…' : 'Show older'}</button>}
   </div>
@@ -816,7 +816,7 @@ function ImportedNotificationsCard() {
 function pinProblem(cause: unknown, fallback: string) {
   if (!isHidApiError(cause)) return fallback
   return cause.code === 'PATIENT_RECENT_AUTH_REQUIRED'
-    ? 'For your security, sign out, sign in again, and return here within 10 minutes to change your Access PIN.' : cause.message
+    ? 'For your safety, sign in again first, then come back within 10 minutes.' : cause.message
 }
 
 /**
@@ -844,19 +844,19 @@ function AccessPinSettings({ profile, loading, onChanged }: {
     event.preventDefault(); if (busy || !/^\d{4,8}$/.test(pin)) return
     const fromField = pinFocus.onTarget()
     setBusy(true); setError(null); setNotice(null); setPinFieldError(false); setErrorAlert(true)
-    try { await api.setAccessPin(pin); setPin(''); setNotice('Access PIN configured.'); await onChanged() }
+    try { await api.setAccessPin(pin); setPin(''); setNotice('Access PIN saved.'); await onChanged() }
     catch (cause) {
       const aboutField = isFieldProblem(cause)
-      setError(pinProblem(cause, 'Access PIN could not be updated.'))
+      setError(pinProblem(cause, 'Couldn’t save your PIN. Try again.'))
       setPinFieldError(aboutField); setErrorAlert(!aboutField || fromField)
     } finally { setBusy(false); pinFocus.focus() }
   }
   const revokePin = async () => {
     if (busy) return
     setBusy(true); setError(null); setNotice(null); setPinFieldError(false); setErrorAlert(true)
-    try { await api.revokeAccessPin(); setNotice('Access PIN revoked.'); await onChanged(); focusAfter(() => pinHeading.current) }
+    try { await api.revokeAccessPin(); setNotice('Access PIN removed.'); await onChanged(); focusAfter(() => pinHeading.current) }
     catch (cause) {
-      setError(pinProblem(cause, 'Access PIN could not be revoked.'))
+      setError(pinProblem(cause, 'Couldn’t remove your PIN. Try again.'))
       focusAfter(() => revokePinButton.current)
     } finally { setBusy(false) }
   }
@@ -865,12 +865,12 @@ function AccessPinSettings({ profile, loading, onChanged }: {
     <h3 ref={pinHeading} tabIndex={-1}>Access PIN</h3>
     {error && <p id="access-pin-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
-    <p id="access-pin-hint" className="patient-field-hint">4 to 8 digits. You must have signed in within the last 10 minutes to change it.</p>
-    <p aria-busy={loading || undefined}>Status: <strong>{profile.accessPinConfigured ? 'Configured' : 'Not configured'}</strong></p>
-    <form onSubmit={event => void configurePin(event)} className="patient-form patient-inline-form"><label>{profile.accessPinConfigured ? 'Replace PIN' : 'Set PIN'}<input ref={pinFocus.target} required type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
+    <p id="access-pin-hint" className="patient-field-hint">4 to 8 digits. To change it, you need to have signed in within the last 10 minutes.</p>
+    <p aria-busy={loading || undefined}>Status: <strong>{profile.accessPinConfigured ? 'Set' : 'Not set'}</strong></p>
+    <form onSubmit={event => void configurePin(event)} className="patient-form patient-inline-form"><label>{profile.accessPinConfigured ? 'New PIN' : 'Set PIN'}<input ref={pinFocus.target} required type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
       aria-invalid={pinFieldError || undefined} aria-describedby={describedBy('access-pin-hint', pinFieldError && 'access-pin-error')} /></label>
       <button type="submit" className="patient-primary-button" disabled={busy || !/^\d{4,8}$/.test(pin)}>Save PIN</button></form>
-    {profile.accessPinConfigured && <button ref={revokePinButton} type="button" className="patient-secondary-button" disabled={busy || loading} onClick={() => void revokePin()}>Revoke Access PIN</button>}
+    {profile.accessPinConfigured && <button ref={revokePinButton} type="button" className="patient-secondary-button" disabled={busy || loading} onClick={() => void revokePin()}>Remove Access PIN</button>}
   </div>
 }
 

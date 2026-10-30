@@ -15,7 +15,7 @@ export function ProfileCompletionCard({ completion, compact = false }: { complet
     return <div className="patient-completion patient-completion-compact">
       <p><strong>{percent}%</strong> of your profile is complete</p>
       {bar}
-      {missing.length > 0 && <Link to="/profile#profile-completion">See what is missing <ItemName>from your profile</ItemName></Link>}
+      {missing.length > 0 && <Link to="/profile#profile-completion">See what’s missing <ItemName>from your profile</ItemName></Link>}
     </div>
   }
   return <section className="overflow-hidden rounded-2xl bg-surface shadow-[var(--shadow-card)] ring-1 ring-line" id="profile-completion" aria-labelledby="profile-completion-title">

@@ -46,24 +46,24 @@ function stateOf(server: WebPushState, device: DeviceReading): SectionState {
   return match?.thisSignIn && match.keyCurrent ? 'on' : 'off'
 }
 
-const WHAT_IT_SAYS = 'showing only "You have a new notification."'
+const WHAT_IT_SAYS = 'It only says "You have a new notification."'
 
 function stateText(state: SectionState): string {
   switch (state) {
     case 'unsupported': return 'This browser can\'t show Health ID notifications.'
-    case 'ios-install-needed': return 'On iPhone and iPad, add Health ID to your Home Screen (Share, then Add to Home Screen) and turn this on there.'
-    case 'denied': return `Notifications are blocked: allow them for ${location.host} in this browser's site settings.`
-    case 'on': return `On: this device gets an alert for each new notification, ${WHAT_IT_SAYS}`
-    case 'off': return `Get an alert on this device for each new notification, ${WHAT_IT_SAYS}`
+    case 'ios-install-needed': return 'On iPhone or iPad, first add Health ID to your Home Screen (tap Share, then Add to Home Screen). Then turn this on there.'
+    case 'denied': return `Notifications are blocked. To allow them, open this browser's settings for ${location.host}.`
+    case 'on': return `On. You get an alert here for each new notification. ${WHAT_IT_SAYS}`
+    case 'off': return `Get an alert here for each new notification. ${WHAT_IT_SAYS}`
   }
 }
 
 const TURNED_ON = 'Notifications are on for this device.'
 const NOT_TURNED_ON = 'Notifications were not turned on.'
-const TURN_ON_FAILED = 'Notifications could not be turned on. Try again.'
-const TURN_OFF_FAILED = 'Notifications could not be turned off. Try again.'
+const TURN_ON_FAILED = 'Couldn’t turn on notifications. Try again.'
+const TURN_OFF_FAILED = 'Couldn’t turn off notifications. Try again.'
 const TURNED_OFF = 'Notifications are off for this device.'
-const TURNED_OFF_LATE = 'Notifications are off for this device. This device won\'t get them; Health ID will stop trying within a day.'
+const TURNED_OFF_LATE = TURNED_OFF
 
 type TurnOnOutcome = 'on' | 'denied' | 'dismissed'
 

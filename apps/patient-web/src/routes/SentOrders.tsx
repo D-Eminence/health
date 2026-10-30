@@ -68,7 +68,7 @@ function whatWasSent(route: PatientOrderRoute): string {
  * couldn't complete (D18, `receiving_unable`) says so, and only "ended at" it once it has since reported the wrong person.
  */
 export function patientRouteState(route: PatientOrderRoute): string {
-  const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the other facility')
+  const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the lab or pharmacy')
   // The receiving facility reports it accepted it for someone who was not the patient (item 3, §9.4): said as its report.
   if (route.endedKind === 'wrong_patient' && (route.effectiveState === 'cancelled' || route.effectiveState === 'completed')) {
     return `ended: ${receiving} reports it accepted it for someone who was not you`
@@ -79,10 +79,10 @@ export function patientRouteState(route: PatientOrderRoute): string {
 }
 
 function stateWords(route: PatientOrderRoute, receiving: string): string {
-  const ordering = named(route.orderingFacilityName, 'your clinician’s facility')
+  const ordering = named(route.orderingFacilityName, 'your doctor’s clinic')
   switch (route.effectiveState) {
     case 'sent': return route.acceptLocked
-      ? `${receiving} could not confirm it was you, so it can’t take it. Ask your clinician to send it again`
+      ? `${receiving} couldn’t confirm it was you, so it can’t take it. Ask your doctor to send it again`
       : `waiting for ${receiving} to accept it`
     case 'accepted': return `accepted by ${receiving}`
     case 'completed': {
@@ -90,18 +90,18 @@ function stateWords(route: PatientOrderRoute, receiving: string): string {
       // A completed order whose access ended another way no longer reads as a plain return (item 3, §8.3).
       switch (route.endedKind) {
         case 'support': return `${returned}; Health ID support has since closed it`
-        case 'entered_in_error': return `${returned}; your clinician has since marked the order as entered in error`
+        case 'entered_in_error': return `${returned}; your doctor has since marked the order as a mistake`
         case 'receiving_released': return `${returned}; ${receiving} is no longer on Health ID`
         case 'ordering_released': return `${returned}; ${ordering} is no longer on Health ID`
         default: return returned
       }
     }
-    case 'declined': return `${receiving} could not take it`
+    case 'declined': return `${receiving} couldn’t take it`
     case 'withdrawn':
       switch (route.endedKind) {
         case 'patient': return 'you stopped it'
         case 'orderer': return `withdrawn by ${ordering}`
-        case 'order_changed': case 'entered_in_error': return 'withdrawn because your clinician changed the order'
+        case 'order_changed': case 'entered_in_error': return 'withdrawn because your doctor changed the order'
         case 'support': return 'withdrawn by Health ID support'
         case 'receiving_released': return `withdrawn: ${receiving} is no longer on Health ID`
         case 'ordering_released': return `withdrawn: ${ordering} is no longer on Health ID`
@@ -127,13 +127,13 @@ export function sentFields(route: PatientOrderRoute): Array<[label: string, valu
   const fields: Array<[string, string | null]> = route.kind === 'lab_request' ? [
     ['Test', [text(content.testDisplay), [text(content.testCodeSystem), text(content.testCode)].filter(Boolean).join(' ')].filter(Boolean).join(', ') || null],
     ['Priority', text(content.priority)],
-    ['Specimen type', text(content.specimenTypeCode)],
-    ['What your clinician wrote about it', text(content.clinicalInformation)],
+    ['Sample type', text(content.specimenTypeCode)],
+    ['Your doctor’s note', text(content.clinicalInformation)],
     ['Requested on', content.requestedAt ? day(String(content.requestedAt)) : null],
   ] : [
     ['Medicine', [text(content.medicationDisplay), [text(content.medicationCodeSystem), text(content.medicationCode)].filter(Boolean).join(' ')].filter(Boolean).join(', ') || null],
     ['Dose', [text(content.doseQuantity), text(content.doseUnit)].filter(Boolean).join(' ') || null],
-    ['How it is taken', text(content.routeCode)],
+    ['How to take it', text(content.routeCode)],
     ['How often', text(content.frequency)],
     ['Instructions', text(content.instructions)],
     ['Starts', calendarDay(content.startsOn)],
@@ -151,7 +151,7 @@ function attestation(route: PatientOrderRoute, patient: string): string | null {
   if (!route.attestationText) return null
   return route.attestationText.replaceAll('{patient}', patient)
     .replaceAll('{orderingFacility}', named(route.orderingFacilityName, 'the facility'))
-    .replaceAll('{receivingFacility}', named(route.receivingFacilityName ?? route.receivingFacility.name, 'the other facility'))
+    .replaceAll('{receivingFacility}', named(route.receivingFacilityName ?? route.receivingFacility.name, 'the lab or pharmacy'))
 }
 
 /**
@@ -164,8 +164,8 @@ function attestation(route: PatientOrderRoute, patient: string): string | null {
  * Health ID support to whom to tell (CL4).
  */
 export function wrongPatientParagraph(route: PatientOrderRoute, full = true, served = false): string[] {
-  const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the other facility')
-  const ordering = named(route.orderingFacilityName, 'your clinician’s facility')
+  const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the lab or pharmacy')
+  const ordering = named(route.orderingFacilityName, 'your doctor’s clinic')
   const lab = route.kind === 'lab_request'
   const report = wrongPatientReportOf(route)
   const thing = lab ? 'test request' : 'prescription'
@@ -177,13 +177,13 @@ export function wrongPatientParagraph(route: PatientOrderRoute, full = true, ser
       + `${day(route.endedAt)}. ${received} It can no longer see them through this order.`
   const withdrawn = route.completedAt ? lab
     ? 'A result it recorded on this order belongs to that other person. It is marked as not yours and no longer shows in your '
-      + 'health record; the facilities keep it, marked, in their own records.'
-    : 'It recorded the medicine as given on this order to that other person: that record has been cancelled.' : null
+      + 'health record. Both places keep it, marked, in their own records.'
+    : 'It recorded the medicine as given to that other person. That record has been cancelled.' : null
   const tell = served ? `${ordering} and Health ID support` : ordering
   const dispute = lab
     ? `If you did give a sample at ${receiving} for this test, tell ${tell}.`
     : `If you did collect this medicine at ${receiving}, or someone collected it for you, tell ${tell} before you get another prescription.`
-  const again = `If you still need this ${lab ? 'test' : 'medicine'}, contact ${ordering}: your clinician can send a new order.`
+  const again = `If you still need this ${lab ? 'test' : 'medicine'}, contact ${ordering}. Your doctor can send a new order.`
   if (!full) return report && withdrawn ? [first, withdrawn, dispute, again] : [first]
   return [first, ...(withdrawn ? [withdrawn] : []), dispute, again,
     'If you didn’t give anyone your Health ID or date of birth and think someone used them, contact Health ID support.']
@@ -196,8 +196,8 @@ export function wrongPatientParagraph(route: PatientOrderRoute, full = true, ser
  * may still work on the order (`stoppable`). Null when nothing is to be said.
  */
 export function haventBeenLine(route: PatientOrderRoute, stoppable: boolean): string | null {
-  const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the other facility')
-  const ordering = named(route.orderingFacilityName, 'your clinician’s facility')
+  const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the lab or pharmacy')
+  const ordering = named(route.orderingFacilityName, 'your doctor’s clinic')
   const lab = route.kind === 'lab_request'
   // Once the receiving facility was released from Health ID it can no longer correct it (D17-3): as past its date.
   const until = receivingDeadlineOf(route)
@@ -212,19 +212,19 @@ export function haventBeenLine(route: PatientOrderRoute, stoppable: boolean): st
   const reference = route.reference ? `, with the reference ${route.reference}` : ''
   return lab
     ? `If you haven’t been to ${receiving} for this test, tell ${receiving}, ${ordering} or Health ID support straight away`
-      + `${reference}: ${receiving} can correct it until ${moment(until)}.`
+      + `${reference}. ${receiving} can correct it until ${moment(until)}.`
     : `If you haven’t been to ${receiving} for this medicine, and no one collected it for you, tell ${receiving}, ${ordering} or `
-      + `Health ID support straight away${reference}: ${receiving} can correct it until ${moment(until)}.`
+      + `Health ID support straight away${reference}. ${receiving} can correct it until ${moment(until)}.`
 }
 
 /** What a refused Stop means. */
 function stopProblem(error: unknown, receiving: string): { text: string; reload: boolean } {
   if (isHidApiError(error) && (error.code === 'ORDER_ROUTE_NOT_PENDING' || error.status === 404 || error.status === 412)) {
-    return { reload: true, text: `It can no longer be stopped here: ${receiving} has accepted it, or it has already ended. The list has been refreshed.` }
+    return { reload: true, text: `It can’t be stopped now. ${receiving} has accepted it, or it has already ended. The list below is up to date.` }
   }
   if (!isHidApiError(error) || error.status === 0 || error.status >= 500) return { reload: true,
-    text: 'Health ID did not answer, so it may or may not have been stopped. The list has been refreshed: check it.' }
-  return { reload: false, text: error.message || 'It could not be stopped. Try again.' }
+    text: 'We didn’t get an answer, so it may not have stopped. Check the list below.' }
+  return { reload: false, text: error.message || 'Couldn’t stop it. Try again.' }
 }
 
 export function SentOrdersCard() {
@@ -256,11 +256,11 @@ export function SentOrdersCard() {
 
   const stop = async (route: PatientOrderRoute) => {
     if (working) return
-    const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the other facility')
+    const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the lab or pharmacy')
     setWorking(route.id); setError(null); setNotice(null)
     try {
       await api.stopOrderRoute(route)
-      setNotice(`Stopped. ${receiving} can no longer accept it, and ${named(route.orderingFacilityName, 'your clinician’s facility')} is told.`)
+      setNotice(`Stopped. ${receiving} can no longer accept it, and ${named(route.orderingFacilityName, 'your doctor’s clinic')} has been told.`)
       await routes.reload()
       focusAfter(() => heading.current)
     } catch (cause) {
@@ -272,17 +272,16 @@ export function SentOrdersCard() {
   }
 
   return <div className="patient-card" aria-busy={(routes.loading && routes.data !== null) || undefined}>
-    <h2 ref={heading} tabIndex={-1}>Orders sent to other facilities</h2>
-    <p className="patient-field-hint">Test requests and prescriptions your clinician sent to a laboratory or pharmacy at another
-      facility, and exactly what that facility receives.</p>
+    <h2 ref={heading} tabIndex={-1}>Tests and prescriptions sent elsewhere</h2>
+    <p className="patient-field-hint">What your doctor sent to another lab or pharmacy, and exactly what they get.</p>
     {routes.loading && routes.data === null && <p role="status">Loading your orders…</p>}
     {routes.error && <p role="alert">{routes.error}</p>}
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
-    {routes.data && !routes.error && (items.length === 0 ? <p className="patient-empty">No test request or prescription has been sent to another facility.</p>
+    {routes.data && !routes.error && (items.length === 0 ? <p className="patient-empty">Nothing has been sent to another lab or pharmacy.</p>
       : <ul className="patient-list">{items.map(route => {
-        const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the other facility')
-        const ordering = named(route.orderingFacilityName, 'your clinician’s facility')
+        const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the lab or pharmacy')
+        const ordering = named(route.orderingFacilityName, 'your doctor’s clinic')
         const inError = route.enteredInError === true
         const confirmed = inError ? null : attestation(route, patient)
         const canStop = !inError && route.actions.includes('withdraw') && route.effectiveState === 'sent'
@@ -300,11 +299,11 @@ export function SentOrdersCard() {
           {route.receivingRegisteredAddress && <span>{receiving}’s registered office: {route.receivingRegisteredAddress}</span>}
           <span>Sent on {day(route.createdAt)}{route.reference ? ` · Reference ${route.reference}` : ''}</span>
           {confirmed && <>
-            <p>{named(route.attestedByName, 'Your clinician')} at {ordering} confirmed that you agreed:</p>
+            <p>{named(route.attestedByName, 'Your doctor')} at {ordering} confirmed that you agreed:</p>
             <blockquote className="patient-quote">{confirmed}</blockquote>
           </>}
           {inError ? <>
-            <p>{ordering} marked this order as entered in error, so what it contained is no longer shown here.</p>
+            <p>{ordering} marked this order as a mistake, so its details are no longer shown.</p>
             {wrongPatient ? wrongPatientParagraph(route, false, served).map((line, index) => <p key={index}>{line}</p>)
               : route.acceptedAt && <p>{receiving} had accepted it, so it received your name, sex, date of birth and the last
                 4 characters of your Health ID.</p>}
@@ -314,11 +313,10 @@ export function SentOrdersCard() {
             <p><strong>{received ? `What ${receiving} received` : `What ${receiving} will receive`}</strong></p>
             <dl className="patient-details">{sentFields(route).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
             {wrongPatient && wrongPatientParagraph(route, true, served).map((line, index) => <p key={index}>{line}</p>)}
-            {canStop && <p>If you did not agree to this, stop it now: {receiving} has not accepted it yet.</p>}
-            {stoppable && route.effectiveState === 'accepted' && <p>{receiving} has accepted it. To stop it, contact {ordering}, who
-              can cancel the order.</p>}
-            {notCompleted && <p>If you still need this {route.kind === 'lab_request' ? 'test' : 'medicine'}, contact {ordering}: your
-              clinician can send a new order.</p>}
+            {canStop && <p>If you didn’t agree to this, stop it now, before {receiving} accepts it.</p>}
+            {stoppable && route.effectiveState === 'accepted' && <p>{receiving} has accepted it. To stop it, contact {ordering}.</p>}
+            {notCompleted && <p>If you still need this {route.kind === 'lab_request' ? 'test' : 'medicine'}, contact {ordering}. Your
+              doctor can send a new order.</p>}
             {haventBeen && <p>{haventBeen}</p>}
           </>}
         </div>

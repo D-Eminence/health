@@ -17,8 +17,8 @@ export interface ProfileResource<T> {
   replace: (value: T) => void
 }
 
-const CONFLICT = 'Your coverage details were changed somewhere else (in another window, perhaps), so these were not saved. '
-  + 'The latest details are shown now: make your change again.'
+const CONFLICT = 'These details were changed somewhere else, so yours weren’t saved. '
+  + 'The latest is shown now. Make your change again.'
 
 /**
  * "Coverage" on the profile (hid-1.0 parity B3): the hospital the patient uses now, with the sign-up's hospital
@@ -72,7 +72,7 @@ function CoverageForm({ resource }: { resource: ProfileResource<ProfileDetails |
         hospitalCurrentlyUsing: sentText(hospital), hmoName: sentText(hmo), expectedVersion: saved.rowVersion,
       })
       resource.replace(answer)
-      setNotice('Your coverage details were saved.')
+      setNotice('Saved.')
       focusAfter(() => document.getElementById('coverage-heading'))
     } catch (cause) {
       if (isHidApiError(cause) && cause.code === 'VERSION_CONFLICT') {
@@ -81,7 +81,7 @@ function CoverageForm({ resource }: { resource: ProfileResource<ProfileDetails |
         focusAfter(() => document.getElementById('coverage-heading'))
         return
       }
-      setError(isHidApiError(cause) ? cause.message : 'Your coverage details could not be saved. Try again.')
+      setError(isHidApiError(cause) ? cause.message : 'Couldn’t save. Try again.')
       focusAfter(() => document.getElementById('coverage-hospital'))
     } finally { setBusy(false) }
   }
@@ -89,21 +89,21 @@ function CoverageForm({ resource }: { resource: ProfileResource<ProfileDetails |
   // A read that failed is said in the heading too: the card's alert is not seen while it is closed.
   return <ProfileSection id="coverage" title="Coverage" state={resource.error ? 'Could not load' : null} busy={resource.loading}
     headingRef={heading} headingId="coverage-heading">
-    <p className="patient-field-hint">Your hospital and HMO, for the people caring for you.</p>
+    <p className="patient-field-hint">Your hospital and your health insurance (HMO).</p>
     {resource.error && <div role="alert"><p>{resource.error}</p>
       <button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(resource.reload)}>Try again <ItemName>loading your coverage details</ItemName></button></div>}
     {error && <p id="coverage-error" role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
     {saved && <form className="patient-form" onSubmit={event => void save(event)}>
-      <div className="patient-field"><label htmlFor="coverage-hospital">Hospital you currently use</label>
+      <div className="patient-field"><label htmlFor="coverage-hospital">Hospital you use now</label>
         <HospitalPicker id="coverage-hospital" value={hospital} maxLength={COVERAGE_TEXT_LIMIT}
           onChange={value => { setHospital(oneLine(value).slice(0, COVERAGE_TEXT_LIMIT)); setNotice(null) }}
           describedBy={describedBy('coverage-hospital-hint', error && 'coverage-error')} /></div>
-      <p id="coverage-hospital-hint" className="patient-field-hint">Start typing to choose from Nigeria’s health facilities, or type its name.</p>
+      <p id="coverage-hospital-hint" className="patient-field-hint">Start typing, then pick it from the list or type the full name.</p>
       <label>HMO name<input id="coverage-hmo" autoComplete="off" maxLength={COVERAGE_TEXT_LIMIT} value={hmo}
         onChange={event => { setHmo(oneLine(event.target.value).slice(0, COVERAGE_TEXT_LIMIT)); setNotice(null) }}
         aria-describedby={describedBy('coverage-hmo-hint', error && 'coverage-error')} /></label>
-      <p id="coverage-hmo-hint" className="patient-field-hint">Your health insurance, if any. Leave a field empty to clear it.</p>
+      <p id="coverage-hmo-hint" className="patient-field-hint">Leave empty if you have none.</p>
       <button type="submit" className="patient-primary-button" disabled={busy || !changed}>{busy ? 'Saving…' : 'Save coverage'}</button>
     </form>}
   </ProfileSection>
