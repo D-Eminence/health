@@ -114,6 +114,28 @@ function versioned<I extends InVisit & { body: { expectedRowVersion: number } }>
   }
 }
 
+/**
+ * Sending a lab request to Lab keeps no client key on the server (A10.7: C1 answers `unknown` for it), so a replay after
+ * a lost success can come back 412. It counts as applied when Lab already holds a work item for this request at the
+ * version sent: the re-read asks Lab for the request's work item (`/lab/ehr-orders/:id/released-results`, direct care)
+ * and reports the version it accepted as `handedOffAtVersion`, beside the request itself for the review drawer. A read
+ * Lab refuses (no work item: 404) reports nothing handed off, so the change goes to review as before.
+ */
+const toLab: OpDefinition<ToLabInput> = {
+  ...versioned<ToLabInput>('ehr.lab-request.to-lab', 'labRequest', 'lab-requests', 'lab-work-item', 'lab-work-item'),
+  intent: i => ({ handedOffAtVersion: i.body.expectedRowVersion }),
+  reread: async (i, resolved) => {
+    const encounterId = serverId(i.encounter, resolved, 'encounterId')
+    const requestId = serverId(i.labRequest, resolved, 'targetId')
+    const [record, held] = await Promise.all([
+      findRecord(i.facilityId, i.patientId, encounterId, 'lab-requests', requestId).catch(() => null),
+      staffApi.labReleasedResultsForOrder(i.facilityId, requestId, 'direct-care').catch(() => null),
+    ])
+    const handedOff = held && held.sourceEhrOrderId === requestId ? Number(held.sourceEhrOrderVersion) : null
+    return { ...(record ?? {}), handedOffAtVersion: handedOff }
+  },
+}
+
 const encounterCreate: OpDefinition<EncounterCreateInput> = {
   op: 'ehr.encounter.create', opVersion: 1, method: 'POST', keyed: true,
   lane: i => ({ patientId: i.patientId, visit: { local: i.localId } }),
@@ -192,7 +214,7 @@ export const STAFF_OFFLINE_REGISTRY: readonly OpDefinition<never>[] = [
   versioned<NoteReviseInput>('ehr.note.revise', 'note', 'clinical-notes', 'revisions', 'note-revision'),
   versioned<VitalCorrectInput>('ehr.vital.correct', 'vital', 'vitals', 'corrections', 'vital-correction'),
   versioned<ToPharmacyInput>('ehr.prescription.to-pharmacy', 'prescription', 'prescriptions', 'pharmacy-work-item', 'pharmacy-work-item'),
-  versioned<ToLabInput>('ehr.lab-request.to-lab', 'labRequest', 'lab-requests', 'lab-work-item', 'lab-work-item'),
+  toLab,
   encounterUpdate,
   noteUpdate,
   diagnosisUpdate,
