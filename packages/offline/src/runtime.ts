@@ -604,6 +604,12 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     if (!email) return { ok: false, reason: 'no-vault' }
     const session = attachedSession
     if (session && !unlocked) {
+      // The online-reload path trusts the attached session in place of the lease, so only while that session was
+      // verified within the lease window. Otherwise (a tab locked long after its sign-in, perhaps offline for days) the
+      // tab's own vault goes through the offline rules: lease, clock and a readable copy; a stale reload signs in again.
+      if (clock.now() - attachedAt >= LIMITS.leaseMs) {
+        return lastVaultId ? unlockWith(email, password, lastVaultId) : { ok: false, reason: 'lease-expired' }
+      }
       // Online reload: open the vault for the attached session's facility.
       const s = await storeIfExists()
       if (!s) return { ok: false, reason: 'no-vault' }

@@ -17,6 +17,8 @@ export type Fault = { status: number | null; code?: string; problem?: boolean; n
  */
 export function createServer() {
   const calls: ServerCall[] = []
+  /** Every write body the server applied (first application only, as with the idempotency table). */
+  const applied: string[] = []
   const keys = new Map<string, { status: number; body: unknown; operationPath: string }>()
   const faults: Fault[] = []
   const rules: { when: (spec: SendSpec, bodyText: string) => boolean; faults: Fault[] }[] = []
@@ -115,6 +117,7 @@ export function createServer() {
       ? { document: { id }, upload: { method: 'PUT', url: `https://storage.example/${id}?sig=${n}`, requiredHeaders: { 'Content-Type': 'application/pdf' }, expiresInSeconds: 300 } }
       : { id, rowVersion: 1 }
     if (key) keys.set(key, { status: 201, body, operationPath: spec.path })
+    applied.push(bodyText)
     if (state.hangNextAnswer) {
       state.hangNextAnswer = false
       return new Promise<SendResult>(() => undefined)
@@ -127,7 +130,7 @@ export function createServer() {
   }
 
   return {
-    transport, calls, keys, audit, state,
+    transport, calls, keys, audit, state, applied,
     fail(...f: Fault[]) { faults.push(...f) },
     /** Faults for the requests whose body contains `text`, in order. */
     failWhenBody(text: string, ...f: Fault[]) { rules.push({ when: (_s, b) => b.includes(text), faults: f }) },

@@ -4,7 +4,7 @@ import type { Json, OpDefinition } from '../contracts'
 import { createMemoryLocks } from '../testing'
 import { SaveRefused } from '../types'
 import { PATIENT, SESSION, encounterUpdate } from './fixtures'
-import { createServer, makeEnv, makeRuntime, privateChannel, settle, signIn, type Server } from './harness'
+import { createServer, makeEnv, makeRuntime, privateChannel, settle, signIn, until, type Server } from './harness'
 
 async function online(server = createServer(), extra: Parameters<typeof makeRuntime>[0]['extra'] = {}) {
   const env = makeEnv()
@@ -238,7 +238,8 @@ describe('outbox: classification flows', () => {
     const [item] = await rt.review.list()
     await expect(rt.review.resolve(item!.commandId, 'send-as-is', {})).rejects.toThrow(/not available/)
     await rt.review.resolve(item!.commandId, 'discard', { reason: 'Entered on the other device' })
-    expect(rt.summary().pending).toBe(0)
+    // The summary counts the discard's own audit event until it is sent, and refreshes in the background.
+    await until(() => rt.summary().pending === 0)
     rt.setSessionReady(true)
     await settle(rt)
     await new Promise(r => setTimeout(r, 20))
