@@ -186,8 +186,8 @@ function SampleDetail({ record, onBack, onChange }: {
 
   const actions = recorded ? [
     <Fragment key="review">
-      <EhrButton variant="secondary" aria-expanded={reviewing} aria-controls={reviewing ? 'hr-review-form' : undefined}
-        onClick={() => { setReviewing(!reviewing); if (!reviewing) focus('hr-review') }}>{REVIEW_ACTION.label}</EhrButton>
+      <EhrButton id="hr-review-toggle" variant="secondary" aria-expanded={reviewing} aria-controls={reviewing ? 'hr-review-form' : undefined}
+        onClick={() => { setReviewing(!reviewing); focus(reviewing ? 'hr-review-toggle' : 'hr-review') }}>{REVIEW_ACTION.label}</EhrButton>
       {reviewing ? (
         <form id="hr-review-form" className="hid-ehr-dept-action-form" noValidate onSubmit={submitReview}>
           <EhrField label={<>{REVIEW_ACTION.field}<span aria-hidden="true"> *</span></>} error={problem}>
