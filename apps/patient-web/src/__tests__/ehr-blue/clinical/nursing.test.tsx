@@ -12,7 +12,7 @@ import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activ
 
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), encounters: vi.fn(), encounter: vi.fn(), records: vi.fn(), createRecord: vi.fn(),
-  noteRevisions: vi.fn(), addNoteRevision: vi.fn(),
+  noteRevisions: vi.fn(), addNoteRevision: vi.fn(), updateRecord: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
 
@@ -72,6 +72,11 @@ beforeEach(() => {
     notes = [{ ...NOTE, rowVersion: '3' }]
     return revision
   })
+  api.updateRecord.mockImplementation(async (_f: string, _p: string, _e: string, _k: string, _n: string, input: { status: string }) => {
+    const changed = { ...NOTE, status: input.status, rowVersion: '3' }
+    notes = [changed]
+    return changed
+  })
 })
 
 function open(rest = '') {
@@ -114,6 +119,15 @@ describe('Nursing observations list', () => {
     // A note's content is read only when it is opened, as today.
     expect(api.noteRevisions).not.toHaveBeenCalled()
     expect(window.location.href).not.toContain(PATIENT_HID)
+  })
+
+  it('names the tab after the workspace, and repeats each record’s own id under its link, not its visit’s', async () => {
+    document.title = ''
+    open()
+    const table = await screen.findByRole('table', { name: 'Nursing observations' })
+    expect(document.title).toBe('Nursing observations · Health ID EHR')
+    expect(within(table).getAllByText('c0000000').map(element => element.tagName)).toEqual(['A', 'SPAN'])
+    expect(within(table).queryByText('e0000000')).toBeNull()
   })
 
   it('opens the record quick view, and Escape closes it', async () => {
@@ -339,7 +353,9 @@ describe('Nursing observation record', () => {
     api.noteRevisions.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     let view = open(RECORD)
     expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
-    expect(screen.getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    const none = screen.getByText('No further actions for your permission and this record state.')
+    expect(none.className).toBe('hid-ehr-clinical-note')
+    expect(screen.queryByRole('button', { name: 'Mark entered in error' })).toBeNull()
     view.unmount()
     api.noteRevisions.mockImplementation(async () => revisions)
     api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
@@ -363,6 +379,166 @@ describe('Nursing observation record', () => {
     fireEvent.click(within(form).getByRole('button', { name: 'Amend observation' }))
     expect(await screen.findByText('Access to this patient ended')).toBeTruthy()
     expect(api.addNoteRevision).not.toHaveBeenCalled()
+  })
+
+  function actions() {
+    return screen.getByRole('heading', { level: 2, name: 'Available actions' }).closest('section')!
+  }
+
+  function actionNames() {
+    return within(actions()).queryAllByRole('button', { expanded: false }).map(button => button.textContent)
+  }
+
+  /** Opens one of the note's status changes and gives its reason: its form and its submit button. */
+  async function statusForm(label: string, reason = 'Charted on the wrong bed') {
+    fireEvent.click(await within(actions()).findByRole('button', { name: label, expanded: false }))
+    const submit = within(actions()).getAllByRole('button', { name: label }).find(button => button.getAttribute('type') === 'submit')!
+    const form = submit.closest('form')!
+    if (reason) type(form, 'Reason for change', reason)
+    return { form, submit }
+  }
+
+  function dialog() {
+    return screen.getByRole('alertdialog')
+  }
+
+  it('offers today’s note status changes by status, next to the amendment, once the content has been read', async () => {
+    const read = deferred<unknown[]>()
+    api.noteRevisions.mockReturnValueOnce(read.promise)
+    let view = open(RECORD)
+    expect(await screen.findByText('Loading note revisions…')).toBeTruthy()
+    expect(within(actions()).queryByRole('button', { name: 'Sign note' })).toBeNull()
+    await act(async () => read.resolve([FIRST]))
+    expect(actionNames()).toEqual(['Amend observation', 'Sign note', 'Mark entered in error'])
+    view.unmount()
+
+    for (const status of ['signed', 'amended']) {
+      notes = [{ ...NOTE, status }]
+      view = open(RECORD)
+      await screen.findByRole('button', { name: 'Mark entered in error' })
+      expect(actionNames()).toEqual(['Amend observation', 'Mark entered in error'])
+      view.unmount()
+    }
+
+    // As today: no status change for a note whose revisions hold no content, nor without note write permission.
+    notes = [NOTE]
+    revisions = []
+    view = open(RECORD)
+    await screen.findByRole('heading', { level: 1, name: 'c0000000' })
+    expect(await within(saved()).findByText('No note content is available.')).toBeTruthy()
+    expect(actionNames()).toEqual(['Amend observation'])
+    view.unmount()
+    revisions = [FIRST]
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.note.write')
+    await openRecord()
+    expect(await within(saved()).findByText('Fictional vitals observation')).toBeTruthy()
+    expect(actionNames()).toEqual([])
+    expect(within(actions()).getByText('No further actions for your permission and this record state.')).toBeTruthy()
+  })
+
+  it('signs a draft only after SIGN is typed, with a reason, after the access re-check', async () => {
+    await openRecord()
+    const { form, submit } = await statusForm('Sign note', '')
+    fireEvent.click(submit)
+    expect(within(form).getByText('Give a reason of at least 3 characters.')).toBeTruthy()
+    type(form, 'Reason for change', 'ok')
+    fireEvent.click(submit)
+    expect(within(form).getByText('Give a reason of at least 3 characters.')).toBeTruthy()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+
+    type(form, 'Reason for change', 'Reviewed with the nurse in charge')
+    fireEvent.click(submit)
+    expect(within(dialog()).getByRole('heading', { name: 'Sign note?' })).toBeTruthy()
+    expect(within(dialog()).getByText('Review the entered details before continuing. This action changes the saved record and is recorded in its history.')).toBeTruthy()
+    const confirm = within(dialog()).getByRole('button', { name: 'Sign note' }) as HTMLButtonElement
+    expect(confirm.disabled).toBe(true)
+    fireEvent.change(within(dialog()).getByLabelText('Type SIGN to confirm'), { target: { value: 'sign' } })
+    expect(confirm.disabled).toBe(true)
+    fireEvent.change(within(dialog()).getByLabelText('Type SIGN to confirm'), { target: { value: 'SIGN' } })
+    expect(confirm.disabled).toBe(false)
+    api.lookupPatient.mockClear()
+    fireEvent.click(confirm)
+
+    expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
+    expect(api.updateRecord).toHaveBeenCalledTimes(1)
+    expect(api.updateRecord.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', NOTE_ID,
+      { expectedRowVersion: 2, changeReason: 'Reviewed with the nurse in charge', status: 'signed' }])
+    expect(api.lookupPatient).toHaveBeenCalledTimes(1)
+    expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.updateRecord.mock.invocationCallOrder[0]!)
+    expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { fresh: true })
+    await waitFor(() => expect(actionNames()).toEqual(['Amend observation', 'Mark entered in error']))
+    expect(document.activeElement?.textContent).toBe('Available actions')
+    expect(within(saved()).getByText('Fictional vitals observation')).toBeTruthy()
+  })
+
+  it('marks a note entered in error after the plain decision dialog; Cancel keeps the form and its reason', async () => {
+    notes = [{ ...NOTE, status: 'signed' }]
+    await openRecord()
+    const { form, submit } = await statusForm('Mark entered in error')
+    fireEvent.click(submit)
+    expect(within(dialog()).getByRole('heading', { name: 'Mark entered in error?' })).toBeTruthy()
+    expect(within(dialog()).queryByLabelText(/to confirm/)).toBeNull()
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(api.updateRecord).not.toHaveBeenCalled()
+    expect(form.isConnected).toBe(true)
+    expect(control(form, 'Reason for change').value).toBe('Charted on the wrong bed')
+    await waitFor(() => expect(submit.getAttribute('aria-disabled')).toBeNull())
+
+    fireEvent.click(submit)
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
+    expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
+    expect(api.updateRecord.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', NOTE_ID,
+      { expectedRowVersion: 2, changeReason: 'Charted on the wrong bed', status: 'entered_in_error' }])
+    expect(await within(actions()).findByText('No further actions for your permission and this record state.')).toBeTruthy()
+    expect(screen.getAllByText('entered in error').length).toBeGreaterThan(0)
+  })
+
+  it('shows a refused status change in its form, a 412 included, as today, and reads nothing again', async () => {
+    api.updateRecord.mockRejectedValueOnce(new HidApiError(412, 'The record changed since it was read.', { code: 'ROW_VERSION_MISMATCH' }))
+    await openRecord()
+    const { form, submit } = await statusForm('Mark entered in error')
+    const reads = api.records.mock.calls.length
+    fireEvent.click(submit)
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
+    expect((await within(form).findByRole('alert')).textContent).toBe('The record changed since it was read.')
+    expect(api.records.mock.calls.length).toBe(reads)
+    expect(screen.queryByText('Clinical note status updated.')).toBeNull()
+
+    api.updateRecord.mockRejectedValueOnce('no answer')
+    fireEvent.click(submit)
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
+    await waitFor(() => expect(within(form).getByRole('alert').textContent).toBe('Status could not be changed.'))
+  })
+
+  it('asks for a reload when the note’s version cannot be sent back, and sends nothing', async () => {
+    notes = [{ ...NOTE, rowVersion: null }]
+    await openRecord()
+    const { form, submit } = await statusForm('Sign note')
+    fireEvent.click(submit)
+    expect((await within(form).findByRole('alert')).textContent).toBe('Reload the record before changing its status.')
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(api.updateRecord).not.toHaveBeenCalled()
+  })
+
+  it('closes the patient when the re-check before a status change is refused', async () => {
+    await openRecord()
+    const { submit } = await statusForm('Sign note')
+    fireEvent.click(submit)
+    fireEvent.change(within(dialog()).getByLabelText('Type SIGN to confirm'), { target: { value: 'SIGN' } })
+    api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'CONSENT_REQUIRED' }))
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Sign note' }))
+    expect(await screen.findByText('Access to this patient ended')).toBeTruthy()
+    expect(api.updateRecord).not.toHaveBeenCalled()
+    expect(staff.setActivePatient).toHaveBeenCalledWith(null)
+  })
+
+  it('offers no status change under a read-only grant', async () => {
+    api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
+    await openRecord()
+    expect(await screen.findByText(READ_ONLY)).toBeTruthy()
+    expect(within(actions()).queryByRole('button', { name: 'Sign note' })).toBeNull()
+    expect(within(actions()).queryByRole('button', { name: 'Mark entered in error' })).toBeNull()
   })
 
   it('gives an emergency patient the read-only gate', () => {

@@ -5,6 +5,7 @@ import type { EhrBluePageStatus } from '../types'
 import { NewTriage } from './NewTriage'
 import { TriageList } from './TriageList'
 import { TriageRecord } from './TriageRecord'
+import { TITLE } from './vitals'
 
 /**
  * Partial. The vitals (record, list, amend as today's appended correction, earlier values kept) run on today's Health
@@ -20,7 +21,7 @@ export const triageStatus: EhrBluePageStatus = 'partial'
  */
 export function TriageWorkspace() {
   return (
-    <Workspace path="triage">
+    <Workspace path="triage" title={TITLE}>
       <ChartProvider>
         <Routes>
           <Route index element={<TriageList />} />

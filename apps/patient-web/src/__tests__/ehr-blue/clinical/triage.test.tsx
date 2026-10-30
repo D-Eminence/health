@@ -113,6 +113,15 @@ describe('Triage & Vitals list', () => {
     expect(window.location.href).not.toContain(PATIENT_HID)
   })
 
+  it('names the tab after the workspace, and repeats each record’s own id under its link, not its visit’s', async () => {
+    document.title = ''
+    open()
+    const table = await screen.findByRole('table', { name: 'Triage & Vitals' })
+    expect(document.title).toBe('Triage & Vitals · Health ID EHR')
+    expect(within(table).getAllByText('f0000000').map(element => element.tagName)).toEqual(['A', 'SPAN'])
+    expect(within(table).queryByText('e0000000')).toBeNull()
+  })
+
   it('opens the record quick view with the current values, and Escape closes it', async () => {
     open()
     fireEvent.click(await screen.findByRole('button', { name: 'Quick view f0000000' }))
@@ -242,6 +251,51 @@ describe('New triage & vitals', () => {
     const context = screen.getByRole('region', { name: 'Patient context' })
     expect(await within(context).findByText(/Recorded allergies: Penicillin/)).toBeTruthy()
     expect(within(context).getByText(/^Triage · final · /)).toBeTruthy()
+  })
+
+  it('says "None recorded" only after a read that found no allergies; a refused, unserved or unreadable read shows nothing, as today', async () => {
+    const context = () => screen.getByRole('region', { name: 'Patient context' })
+    const settle = async () => {
+      await screen.findByRole('button', { name: 'Save record' })
+      await waitFor(() => expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.anything()))
+      await act(async () => {})
+    }
+    for (const refusal of [
+      new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' }),
+      new HidApiError(404, 'Not found', { code: 'NOT_FOUND' }),
+      new TypeError('The answer could not be read.'),
+    ]) {
+      api.reportedHealthProfile.mockClear()
+      api.reportedHealthProfile.mockRejectedValue(refusal)
+      const view = open('/new')
+      await settle()
+      expect(within(context()).getByText(PATIENT_NAME)).toBeTruthy()
+      expect(within(context()).queryByText(/Recorded allergies/)).toBeNull()
+      view.unmount()
+    }
+
+    for (const answer of [null, { allergies: null, bloodGroup: 'O+', genotype: null, currentMedications: null, chronicConditions: null, medicalNotes: null, updatedAt: null }]) {
+      api.reportedHealthProfile.mockClear()
+      api.reportedHealthProfile.mockResolvedValue(answer)
+      const view = open('/new')
+      await settle()
+      expect(within(context()).getByText('Recorded allergies: None recorded. Confirm with the patient.')).toBeTruthy()
+      view.unmount()
+    }
+
+    api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
+    const view = open('/new')
+    expect(await within(context()).findByText('Recorded allergies: what the patient entered about their health could not be loaded. Confirm with the patient.')).toBeTruthy()
+    view.unmount()
+
+    // A role without note read is not asked, and is told nothing about allergies.
+    api.reportedHealthProfile.mockClear()
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.note.read')
+    open('/new')
+    await screen.findByRole('button', { name: 'Save record' })
+    await act(async () => {})
+    expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+    expect(within(context()).queryByText(/Recorded allergies/)).toBeNull()
   })
 
   it('records the vitals for the chosen visit after the access re-check, then opens the record', async () => {
@@ -377,6 +431,25 @@ describe('Triage & Vitals record', () => {
     expect(within(history).getByRole('link', { name: 'Consultation · e0000000' }).getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
   })
 
+  it('says when the vitals were recorded, as the list does, and prints stored decimals as the design does (display only)', async () => {
+    document.title = ''
+    vitals = [{ ...VITAL, recordedAt: '2026-10-30T07:55:00.000Z', oxygenSaturationPercent: '98.00', weightKg: '68.400', temperatureC: '36.60', heightCm: '170' }]
+    await openRecord()
+    expect(document.title).toBe('Triage & Vitals · Health ID EHR')
+    expect(screen.getByText(`Saved ${new Date('2026-10-30T07:55:00.000Z').toLocaleString('en-US')}`)).toBeTruthy()
+    expect(screen.queryByText(`Saved ${new Date(VITAL.createdAt).toLocaleString('en-US')}`)).toBeNull()
+    const card = saved()
+    expect(within(card).getByText('98')).toBeTruthy()
+    expect(within(card).getByText('68.4')).toBeTruthy()
+    expect(within(card).getByText('36.6')).toBeTruthy()
+    expect(within(card).getByText('170')).toBeTruthy()
+    expect(within(card).queryByText('98.00')).toBeNull()
+    // The correction form starts from the values as stored.
+    const form = await amendForm()
+    expect(input(form, 'SpO₂ (%)').value).toBe('98.00')
+    expect(input(form, 'Weight (kg)').value).toBe('68.400')
+  })
+
   it('says the record was not found, and shows a refused read', async () => {
     const view = open(`/${ENCOUNTER_ID}~f9999999-0000-4000-8000-000000000009`)
     expect(await screen.findByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
@@ -463,7 +536,10 @@ describe('Triage & Vitals record', () => {
     const view = open(RECORD)
     expect((await screen.findByRole('alert')).textContent).toBe('These vitals were corrected, but the correction could not be loaded, so the values below are as first recorded and may not be current. EHR is unavailable.')
     expect(screen.queryByRole('button', { name: 'Amend observation' })).toBeNull()
-    expect(screen.getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    // Where the design puts it: after the empty action list, as a note.
+    const none = screen.getByText('No further actions for your permission and this record state.')
+    expect(none.className).toBe('hid-ehr-clinical-note')
+    expect(none.previousElementSibling?.className).toBe('hid-ehr-clinical-action-list')
     view.unmount()
     vitals = [{ ...VITAL, status: 'entered_in_error' }]
     open(RECORD)

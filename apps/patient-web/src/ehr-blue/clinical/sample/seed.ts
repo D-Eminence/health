@@ -95,7 +95,7 @@ export const IDS = {
   taskObs: uuid('ebb09183', 71), taskWound: uuid('bd998083', 72),
   emergency: uuid('cfa650e2', 81), maternity: uuid('dd93026d', 82), surgery: uuid('4dc12aa8', 83), dental: uuid('503fafd8', 84),
   xray: uuid('5d68702e', 91), ultrasound: uuid('bb20eba4', 92),
-  referral: uuid('f30d1e68', 101), telemedicine: uuid('9426ba71', 102),
+  referral: uuid('f30d1e68', 101), telemedicine: uuid('9426ba7f', 102),
   bloodScreened: uuid('13e56980', 111), bloodQuarantine: uuid('cd77b5a8', 112),
 } as const
 
@@ -162,9 +162,9 @@ export function seedRecords(): SampleRecord[] {
         ['2026-10-26T11:41:15.539Z', 'reviewed', 'Publish report', xrayReviewed],
       ],
     }),
-    record(IDS.ultrasound, 'radiology', 'scheduled', '2026-10-26T11:41:15.580Z', { encounter: ENCOUNTERS.taylor, modality: 'Abdominal ultrasound', indication: 'Abdominal pain follow-up', urgency: 'Routine', scheduled: '2026-11-03T11:00' }, {
-      patientId: PATIENTS.taylor, createdAt: '2026-10-26T11:41:15.560Z',
-      versions: [['2026-10-26T11:41:15.580Z', 'ordered', 'Schedule examination', { encounter: ENCOUNTERS.taylor, modality: 'Abdominal ultrasound', indication: 'Abdominal pain follow-up', urgency: 'Routine' }]],
+    record(IDS.ultrasound, 'radiology', 'scheduled', '2026-10-26T11:41:15.554Z', { encounter: ENCOUNTERS.taylor, modality: 'Abdominal ultrasound', indication: 'Abdominal pain', urgency: 'Routine', scheduled: '2026-11-03T09:30' }, {
+      patientId: PATIENTS.taylor, createdAt: '2026-10-26T11:41:15.540Z',
+      versions: [['2026-10-26T11:41:15.554Z', 'ordered', 'Schedule examination', { encounter: ENCOUNTERS.taylor, modality: 'Abdominal ultrasound', indication: 'Abdominal pain', urgency: 'Routine' }]],
     }),
 
     // Inpatient / Wards and ICU (ICU admissions also show under Inpatient)
@@ -189,30 +189,30 @@ export function seedRecords(): SampleRecord[] {
     record(IDS.taskWound, 'nursing-tasks', 'assigned', '2026-10-26T11:41:14.830Z', { admission: IDS.admitTaylor, name: 'Wound dressing check', assignedTo: NURSE, due: '2026-11-02T18:00' }, { patientId: PATIENTS.taylor }),
 
     // Emergency board, Maternity, Theatre & Procedures, Dental
-    record(IDS.emergency, 'emergency', 'assessed', '2026-10-26T11:41:14.420Z', { complaint: 'Abdominal pain (fictional)', priority: 'Urgent', team: 'Demo Doctor', assessment: 'Fictional assessment' }, {
-      patientId: PATIENTS.riley, versions: [['2026-10-26T11:41:14.420Z', 'arrived', 'Record assessment', { complaint: 'Abdominal pain (fictional)', priority: 'Urgent', team: 'Demo Doctor' }]],
+    record(IDS.emergency, 'emergency', 'assessed', '2026-10-26T11:41:14.420Z', { complaint: 'Road traffic injury (fictional)', priority: 'Emergency', team: 'Doctor + Nurse', assessment: 'Local assessment recorded' }, {
+      patientId: PATIENTS.riley, versions: [['2026-10-26T11:41:14.420Z', 'arrived', 'Record assessment', { complaint: 'Road traffic injury (fictional)', priority: 'Emergency', team: 'Doctor + Nurse' }]],
     }),
-    record(IDS.maternity, 'maternity', 'observed', '2026-10-26T11:41:14.460Z', { gestation: '28 weeks (fictional)', nextVisit: '2026-11-10T10:00', observations: 'Fictional antenatal observations' }, {
-      patientId: PATIENTS.riley, versions: [['2026-10-26T11:41:14.460Z', 'enrolled', 'Antenatal observation', { gestation: '28 weeks (fictional)', nextVisit: '2026-11-10T10:00' }]],
+    record(IDS.maternity, 'maternity', 'observed', '2026-10-26T11:41:14.490Z', { gestation: '28 weeks (fictional)', nextVisit: '2026-11-10T10:00', observations: 'Fictional antenatal observations' }, {
+      patientId: PATIENTS.riley, versions: [['2026-10-26T11:41:14.490Z', 'enrolled', 'Antenatal observation', { gestation: '28 weeks (fictional)', nextVisit: '2026-11-10T10:00' }]],
     }),
-    record(IDS.surgery, 'surgery', 'scheduled', '2026-10-26T11:41:14.500Z', { procedure: 'Appendectomy (fictional)', reason: 'Demo', scheduled: '2026-11-05T09:00', team: 'Demo team' }, {
-      patientId: PATIENTS.sam, versions: [['2026-10-26T11:41:14.500Z', 'requested', 'Schedule procedure', { procedure: 'Appendectomy (fictional)', reason: 'Demo' }]],
+    record(IDS.surgery, 'surgery', 'scheduled', '2026-10-26T11:41:14.514Z', { procedure: 'Appendectomy (fictional)', reason: 'Demo', scheduled: '2026-11-05T09:00', team: 'Demo team' }, {
+      patientId: PATIENTS.sam, versions: [['2026-10-26T11:41:14.514Z', 'requested', 'Schedule procedure', { procedure: 'Appendectomy (fictional)', reason: 'Demo' }]],
     }),
-    record(IDS.dental, 'dental', 'assessed', '2026-10-26T11:41:14.540Z', { scheduled: '2026-11-04T10:00', complaint: 'Toothache', findings: 'Fictional findings', plan: 'Fictional plan' }, {
-      patientId: PATIENTS.taylor, versions: [['2026-10-26T11:41:14.540Z', 'booked', 'Record assessment', { scheduled: '2026-11-04T10:00', complaint: 'Toothache' }]],
+    record(IDS.dental, 'dental', 'assessed', '2026-10-26T11:41:14.538Z', { scheduled: '2026-11-04T10:00', complaint: 'Toothache', findings: 'Fictional findings', plan: 'Fictional plan' }, {
+      patientId: PATIENTS.taylor, versions: [['2026-10-26T11:41:14.538Z', 'booked', 'Record assessment', { scheduled: '2026-11-04T10:00', complaint: 'Toothache' }]],
     }),
 
     // Referral Network, Telemedicine
-    record(IDS.referral, 'referrals', 'sent', '2026-10-26T11:41:14.580Z', { destination: 'Fictional Partner Clinic', reason: 'Specialist review', urgency: 'Routine', summary: 'Selected summary', scope: 'This summary only' }, {
-      patientId: PATIENTS.jordan, versions: [['2026-10-26T11:41:14.580Z', 'draft', 'Send simulated referral', { destination: 'Fictional Partner Clinic', reason: 'Specialist review', urgency: 'Routine', summary: 'Selected summary', scope: 'This summary only' }]],
+    record(IDS.referral, 'referrals', 'sent', '2026-10-26T11:41:14.585Z', { destination: 'Fictional Partner Clinic', reason: 'Specialist review', urgency: 'Routine', summary: 'Selected summary', scope: 'This summary only' }, {
+      patientId: PATIENTS.jordan, versions: [['2026-10-26T11:41:14.585Z', 'draft', 'Send simulated referral', { destination: 'Fictional Partner Clinic', reason: 'Specialist review', urgency: 'Routine', summary: 'Selected summary', scope: 'This summary only' }]],
     }),
-    record(IDS.telemedicine, 'telemedicine', 'waiting', '2026-10-26T11:41:14.620Z', { scheduled: '2026-11-06T10:00', clinician: 'Demo Doctor', reason: 'Remote follow-up' }, {
-      patientId: PATIENTS.jordan, versions: [['2026-10-26T11:41:14.620Z', 'booked', 'Enter local waiting room', { scheduled: '2026-11-06T10:00', clinician: 'Demo Doctor', reason: 'Remote follow-up' }]],
+    record(IDS.telemedicine, 'telemedicine', 'waiting', '2026-10-26T11:41:14.563Z', { scheduled: '2026-11-06T10:00', clinician: 'Demo Doctor', reason: 'Remote follow-up' }, {
+      patientId: PATIENTS.jordan, versions: [['2026-10-26T11:41:14.563Z', 'booked', 'Enter local waiting room', { scheduled: '2026-11-06T10:00', clinician: 'Demo Doctor', reason: 'Remote follow-up' }]],
     }),
 
     // Blood Bank (no patient)
-    record(IDS.bloodScreened, 'bloodbank', 'screened', '2026-10-26T11:41:15.020Z', { donor: 'Fictional donor', group: 'O+', expiry: '2030-01-01', screening: 'Local screening record' }, {
-      versions: [['2026-10-26T11:41:15.020Z', 'quarantine', 'Record screening review', { donor: 'Fictional donor', group: 'O+', expiry: '2030-01-01' }]],
+    record(IDS.bloodScreened, 'bloodbank', 'screened', '2026-10-26T11:41:15.258Z', { donor: 'Fictional donor', group: 'O+', expiry: '2030-01-01', screening: 'Local screening record' }, {
+      versions: [['2026-10-26T11:41:15.258Z', 'quarantine', 'Record screening review', { donor: 'Fictional donor', group: 'O+', expiry: '2030-01-01' }]],
     }),
     record(IDS.bloodQuarantine, 'bloodbank', 'quarantine', '2026-10-26T11:41:15.060Z', { donor: 'Fictional donor B', group: 'A-', expiry: '2030-02-01' }),
   ]

@@ -77,12 +77,12 @@ export function ReleasedResults({ facilityId, requestId }: { facilityId: string;
 
   return (
     <div className="hid-ehr-clinical-emergency-results">
-      <EhrButton variant="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>
+      <EhrButton variant="secondary" aria-expanded={open} onClick={() => setOpen(value => !value)}>
         {open ? 'Hide released results' : 'View released results'}
       </EhrButton>
       {open ? (
         <>
-          <EhrButton variant="quiet" size="sm" busy={loading} onClick={() => setRevision(value => value + 1)}>
+          <EhrButton variant="secondary" busy={loading} onClick={() => setRevision(value => value + 1)}>
             Refresh released results
           </EhrButton>
           <div role="status">{loading ? <p>Loading released results…</p> : null}</div>

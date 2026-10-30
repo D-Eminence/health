@@ -3,7 +3,7 @@ import { isHidApiError } from '@hid/http'
 import { useCallback } from 'react'
 import { usesNovuBackend } from '../../../backendContract'
 import { isAllowedPatientLookup, staffApi, type Facility } from '../../../staff/api'
-import { staffSessionGeneration } from '../../../staff/session'
+import { staffSessionGeneration, staffSessionSignal } from '../../../staff/session'
 import { selfServiceReview } from '../../../staff/staffAccess'
 import { useClinical } from '../parts/Workspace'
 
@@ -110,18 +110,30 @@ export function useOpenPatient() {
 /**
  * The Health ID handed from Patients to a record access form ("Request access", "Verify patient PIN", "Open consent"),
  * so it need not be typed again. It is held in this module's memory only (never in the URL, router state or browser
- * storage), only for the facility and staff session it was offered in, and is dropped once a form has read it.
+ * storage), only for the facility, staff session and staff period it was offered in. It is dropped once a form has
+ * read it, as its session ends, and when it is read anywhere it does not belong.
+ *
+ * `period` marks the staff period (staff/App.tsx starts one at each sign-in, sign-out and facility choice): today's
+ * `setActivePatient` is made anew for each period, so a Health ID offered before a facility switch is not read after
+ * it, even back at the same facility. Pass the one `useClinical()` gives.
  */
-let offered: { readonly hid: string; readonly facilityId: string; readonly generation: number } | null = null
+let offered: { readonly hid: string; readonly facilityId: string; readonly generation: number; readonly period: unknown } | null = null
 
-export function offerHealthId(hid: string, facilityId: string) {
-  offered = { hid, facilityId, generation: staffSessionGeneration() }
+export function offerHealthId(hid: string, facilityId: string, period: unknown) {
+  const entry = { hid, facilityId, generation: staffSessionGeneration(), period }
+  offered = entry
+  // Gone as the session ends (sign-out, expiry), whether or not a form read it.
+  staffSessionSignal().addEventListener('abort', () => { if (offered === entry) offered = null }, { once: true })
 }
 
-/** The Health ID offered for this facility in this session, if any. */
-export function offeredHealthId(facilityId: string | undefined): string {
+/** The Health ID offered for this facility in this session and period, if any. One offered elsewhere is dropped. */
+export function offeredHealthId(facilityId: string | undefined, period: unknown): string {
   const current = offered
-  if (!current || !facilityId || current.facilityId !== facilityId || current.generation !== staffSessionGeneration()) return ''
+  if (!current) return ''
+  if (!facilityId || current.facilityId !== facilityId || current.generation !== staffSessionGeneration() || current.period !== period) {
+    offered = null
+    return ''
+  }
   return current.hid
 }
 

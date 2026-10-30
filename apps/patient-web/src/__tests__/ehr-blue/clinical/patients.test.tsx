@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropOfferedHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
 import { PatientsWorkspace, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
 import {
-  ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, renderPage,
+  ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage,
 } from './harness'
 
 /**
@@ -13,11 +13,14 @@ import {
  */
 
 const api = vi.hoisted(() => ({
-  lookupPatient: vi.fn(), consentStatus: vi.fn(), closeGrant: vi.fn(), encounters: vi.fn(),
+  lookupPatient: vi.fn(), consentStatus: vi.fn(), closeGrant: vi.fn(), encounters: vi.fn(), verifyPin: vi.fn(),
   sharedWithMe: vi.fn(), staffShareInvitations: vi.fn(), acceptShareInvitation: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
-const session = vi.hoisted(() => ({ staffSessionGeneration: vi.fn(() => 5), untilStaffSessionReady: vi.fn(async (_sentIn: number) => {}) }))
+const session = vi.hoisted(() => ({
+  staffSessionGeneration: vi.fn(() => 5), untilStaffSessionReady: vi.fn(async (_sentIn: number) => {}),
+  staffSessionSignal: vi.fn(() => new AbortController().signal),
+}))
 
 vi.mock('../../../staff/api', async () => ({
   staffApi: api,
@@ -45,6 +48,7 @@ beforeEach(() => {
   api.lookupPatient.mockResolvedValue(allowedLookup)
   api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: true })
   api.closeGrant.mockResolvedValue({})
+  api.verifyPin.mockResolvedValue({ accessRequestId: 'r1', consentGrantId: 'grant-1', patientId: PATIENT_ID, status: 'active', expiresAt: '2026-10-30T12:00:00.000Z' })
   api.encounters.mockResolvedValue({ items: [{ id: ENCOUNTER_ID, patientId: PATIENT_ID, facilityId: FACILITY_ID, encounterType: 'ambulatory', status: 'in_progress', startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }], nextCursor: null })
   api.sharedWithMe.mockRejectedValue(NOT_FOUND)
   api.staffShareInvitations.mockRejectedValue(NOT_FOUND)
@@ -87,6 +91,10 @@ describe('Patients list', () => {
     expect(searchField().getAttribute('aria-invalid')).toBe('true')
     fireEvent.change(searchField(), { target: { value: 'hid-zdem' } })
     expect(searchField().value).toBe('HID-ZDEM')
+    // "Verify access", then "Clear search", on one line (one actions row).
+    const verify = screen.getByRole('button', { name: 'Verify access' })
+    expect(screen.getByRole('button', { name: 'Clear search' }).parentElement).toBe(verify.parentElement)
+    expect(verify.nextElementSibling).toBe(screen.getByRole('button', { name: 'Clear search' }))
     searchField().focus()
     fireEvent.submit(searchField().closest('form')!)
     expect(screen.getByRole('alert').textContent).toBe('Check the Health ID: it starts with HID-, then 6 to 32 letters and digits, and never uses 0, 1, I or O.')
@@ -118,13 +126,54 @@ describe('Patients list', () => {
     fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
     fireEvent.click(screen.getByRole('button', { name: 'Verify access' }))
     const banner = (await screen.findByText('No access to this patient yet')).closest('section')!
+    // In the search card, after the search: the card's rule gives it its space under "Verify access".
+    expect(banner.parentElement?.classList.contains('hid-ehr-card')).toBe(true)
+    expect(banner.previousElementSibling).not.toBeNull()
     expect(within(banner).getByText('Patient access is not authorized')).toBeTruthy()
     expect(within(banner).getByRole('button', { name: 'Verify patient PIN' })).toBeTruthy()
     expect(within(banner).getByRole('button', { name: 'Emergency break-glass access' })).toBeTruthy()
     fireEvent.click(within(banner).getByRole('button', { name: 'Request access' }))
     expect(where()).toBe('/provider/requests/new')
-    expect(offeredHealthId(FACILITY_ID)).toBe(PATIENT_HID)
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
     expect(staff.setActivePatient).not.toHaveBeenCalled()
+  })
+
+  it('verifies a refused patient’s PIN on Patients’ own page, for a role without identity.consent.write', async () => {
+    staff.permissions = ['identity.patient.read', 'identity.patient-access-pin.verify']
+    api.lookupPatient.mockRejectedValueOnce(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
+    open()
+    fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify access' }))
+    const banner = (await screen.findByText('No access to this patient yet')).closest('section')!
+    fireEvent.click(within(banner).getByRole('button', { name: 'Verify patient PIN' }))
+    // patients/pin, not External record access (requests/pin), which the frame opens only with identity.consent.write.
+    expect(where()).toBeNull()
+    expect(screen.getByRole('heading', { level: 1, name: 'Patient PIN access' })).toBeTruthy()
+    expect((screen.getByLabelText(labelled('Health ID')) as HTMLInputElement).value).toBe(PATIENT_HID)
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+    fireEvent.change(screen.getByLabelText(labelled('Patient access PIN')), { target: { value: '1234' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify PIN and open' }))
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+    expect(api.verifyPin).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, '1234')
+    expect(staff.setActivePatient).toHaveBeenCalledWith({ hid: PATIENT_HID, lookup: allowedLookup, purpose: 'direct-care' })
+  })
+
+  it('goes back to Patients from its PIN page', async () => {
+    open('/pin')
+    expect(screen.getByRole('heading', { level: 1, name: 'Patient PIN access' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Patients' })).toBeTruthy()
+  })
+
+  it('hands no Health ID to a request form the role cannot open (no identity.consent.write)', async () => {
+    staff.permissions = ['identity.patient.read']
+    api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
+    open()
+    fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify access' }))
+    fireEvent.click(within((await screen.findByText('No access to this patient yet')).closest('section')!).getByRole('button', { name: 'Request access' }))
+    expect(where()).toBe('/provider/requests/new')
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
   })
 
   it('closes any open patient on a lookup that is not allowed, and keeps an outage apart from a refusal', async () => {
@@ -178,7 +227,16 @@ describe('The open patient’s page', () => {
     expect(api.encounters).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID)
     fireEvent.click(screen.getByRole('button', { name: 'Open consent' }))
     expect(where()).toBe('/provider/requests/new')
-    expect(offeredHealthId(FACILITY_ID)).toBe(PATIENT_HID)
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
+  })
+
+  it('Open consent hands no Health ID over without identity.consent.write', () => {
+    staff.permissions = ['identity.patient.read']
+    staff.activePatient = activePatient()
+    open('/open')
+    fireEvent.click(screen.getByRole('button', { name: 'Open consent' }))
+    expect(where()).toBe('/provider/requests/new')
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
   })
 
   it.each([
@@ -227,7 +285,7 @@ describe('The open patient’s page', () => {
     expect(screen.queryByRole('button', { name: 'Open consent' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Connected hospital history' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Open the emergency summary' }))
-    expect(where()).toBe('/provider/emergency')
+    expect(where()).toBe('/provider/emergency/summary')
     expect(api.encounters).not.toHaveBeenCalled()
     expect(api.consentStatus).not.toHaveBeenCalled()
   })

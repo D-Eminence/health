@@ -7,7 +7,7 @@ import { ChartGate, useChart, type Chart } from '../parts/chart'
 import { ActionList, ConfirmAction, DetailGrid, HistoryCard, SavedRecord, Step, SubHeading } from '../parts/Detail'
 import { formatDate, formatWhen, shortId } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
-import { Banner, ErrorBox, Loading, NO_ACTIONS, RecordHeading } from '../parts/Notices'
+import { Banner, ErrorBox, Loading, NoActions, RecordHeading } from '../parts/Notices'
 import { PatientHeader, type PatientFacts } from '../parts/PatientHeader'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { CLOSE_GRANT, CLOSE_REASON, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
@@ -50,7 +50,7 @@ export function PatientPage() {
 }
 
 function PatientRecord({ chart }: { chart: Chart }) {
-  const { facility, permissions, setActivePatient } = useClinical()
+  const { facility, permissions, can, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   const [confirming, setConfirming] = useState(false)
@@ -75,8 +75,9 @@ function PatientRecord({ chart }: { chart: Chart }) {
     navigate(href(), { state: { notice: CLOSED_NOTICE } })
   }
 
+  /** External record access opens only with identity.consent.write (the frame's rule): only then is the Health ID handed over. */
   function openConsent() {
-    offerHealthId(chart.patient.hid, chart.facilityId)
+    if (can('identity.consent.write')) offerHealthId(chart.patient.hid, chart.facilityId, setActivePatient)
     navigate(href.to('consent', 'new'))
   }
 
@@ -107,10 +108,10 @@ function PatientRecord({ chart }: { chart: Chart }) {
                 </EhrButton>
               </ActionList>
             </>
-          ) : <p>{NO_ACTIONS}</p>}
+          ) : <NoActions />}
           <SubHeading>Next steps</SubHeading>
           {emergency ? (
-            <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('emergency'))}>Open the emergency summary</EhrButton></Step>
+            <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('emergency', 'summary'))}>Open the emergency summary</EhrButton></Step>
           ) : (
             <>
               <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('appointments'))}>Open appointments</EhrButton></Step>

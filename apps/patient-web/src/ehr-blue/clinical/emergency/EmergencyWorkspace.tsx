@@ -32,7 +32,7 @@ function EmergencyHome() {
  */
 export function EmergencyWorkspace() {
   return (
-    <Workspace path="emergency">
+    <Workspace path="emergency" title="Emergency">
       <Routes>
         <Route index element={<EmergencyHome />} />
         <Route path="summary" element={<ChartProvider><EmergencySummaryPage /></ChartProvider>} />

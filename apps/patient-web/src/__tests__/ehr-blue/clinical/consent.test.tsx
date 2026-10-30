@@ -1,8 +1,9 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { offerHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
+import { dropOfferedHealthId, offerHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
 import { ConsentWorkspace, consentStatus } from '../../../ehr-blue/clinical/consent/ConsentWorkspace'
+import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, deniedLookup, labelled, renderPage } from './harness'
 
 /**
@@ -14,7 +15,10 @@ const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), listAccessRequests: vi.fn(), requestAccess: vi.fn(), verifyPin: vi.fn(), closeGrant: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
-const session = vi.hoisted(() => ({ staffSessionGeneration: vi.fn(() => 3), untilStaffSessionReady: vi.fn(async (_sentIn: number) => {}) }))
+const session = vi.hoisted(() => ({
+  staffSessionGeneration: vi.fn(() => 3), untilStaffSessionReady: vi.fn(async (_sentIn: number) => {}),
+  staffSessionSignal: vi.fn(() => new AbortController().signal),
+}))
 
 vi.mock('../../../staff/api', async () => ({
   staffApi: api,
@@ -28,6 +32,7 @@ vi.mock('../../../staff/App', async () => {
 })
 vi.mock('../../../staff/session', () => session)
 
+const SENT = 'Request r0000000-0000-4000-8000-000000000001 is pending. The patient must approve before records are available.'
 const ALL = ['identity.patient.read', 'identity.consent.write', 'identity.patient-access-pin.verify', 'identity.break-glass.write', 'ehr.encounter.read', 'ehr.note.read']
 
 function request(overrides: Record<string, unknown> = {}) {
@@ -49,6 +54,7 @@ const DENIED = request({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  dropOfferedHealthId()
   staff.permissions = [...ALL]
   staff.activePatient = null
   staff.setActivePatient.mockImplementation(value => { staff.activePatient = value; return true })
@@ -98,6 +104,15 @@ describe('External record access list', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Record quick view' })).toBeNull())
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'New external record access' })).toBeTruthy()
+  })
+
+  it('puts Create record first, then Verify patient PIN, as the design orders them', () => {
+    open()
+    const create = screen.getByRole('button', { name: 'Create record' })
+    const pin = screen.getByRole('button', { name: 'Verify patient PIN' })
+    expect(create.compareDocumentPosition(pin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(pin)
+    expect(screen.getByRole('heading', { level: 1, name: 'Patient PIN access' })).toBeTruthy()
   })
 
   it('sends the status filter to the backend and names it when nothing matches; the search filters what was read', async () => {
@@ -165,15 +180,46 @@ describe('New external record access', () => {
     fireEvent.submit(screen.getByLabelText(labelled('Purpose of access')).closest('form')!)
     await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'write_records', 'Follow-up consultation', 45))
     expect(await screen.findByRole('heading', { level: 1, name: 'Follow-up consultation' })).toBeTruthy()
-    expect(screen.getByText('Request r0000000-0000-4000-8000-000000000001 is pending. The patient must approve before records are available.')).toBeTruthy()
+    expect(screen.getByText(SENT)).toBeTruthy()
     expect(screen.getByText('The patient must approve before records are available.')).toBeTruthy()
   })
 
   it('takes a Health ID offered from Patients once', async () => {
-    offerHealthId(PATIENT_HID, FACILITY_ID)
+    offerHealthId(PATIENT_HID, FACILITY_ID, staff.setActivePatient)
     open('/new')
     expect((screen.getByLabelText(labelled('Health ID')) as HTMLInputElement).value).toBe(PATIENT_HID)
-    expect(offeredHealthId(FACILITY_ID)).toBe('')
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+  })
+
+  it('takes no Health ID offered in an earlier staff period, and drops it', () => {
+    // A facility switch (even back to this facility) starts a new period: today's setActivePatient is made anew.
+    offerHealthId(PATIENT_HID, FACILITY_ID, vi.fn())
+    open('/new')
+    expect((screen.getByLabelText(labelled('Health ID')) as HTMLInputElement).value).toBe('')
+  })
+
+  it('confirms a request just sent while its page is read, and when it cannot be read', async () => {
+    let fail: (reason: unknown) => void = () => {}
+    api.listAccessRequests.mockReturnValue(new Promise((_resolve, reject) => { fail = reject }))
+    open('/new')
+    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
+    fireEvent.change(screen.getByLabelText(labelled('Purpose of access')), { target: { value: 'Follow-up consultation' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send access request' }))
+    expect(await screen.findByText('Loading requests…')).toBeTruthy()
+    expect(screen.getByText(SENT)).toBeTruthy()
+    await act(async () => { fail(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' })) })
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.getByText(SENT)).toBeTruthy()
+  })
+
+  it('confirms a request just sent that the list does not hold yet', async () => {
+    api.listAccessRequests.mockResolvedValue([ACTIVE])
+    open('/new')
+    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
+    fireEvent.change(screen.getByLabelText(labelled('Purpose of access')), { target: { value: 'Follow-up consultation' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send access request' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
+    expect(screen.getByText(SENT)).toBeTruthy()
   })
 
   it('shows a refusal from the server and keeps what was typed', async () => {
@@ -269,6 +315,12 @@ describe('An access request’s page', () => {
     expect(where()).toBe('/provider/emergency')
   })
 
+  it('shows the latest change as Saved, as the list’s Updated does', async () => {
+    open('/r0000000-0000-4000-8000-000000000003')
+    expect(await screen.findByText(`Saved ${formatWhen('2026-10-30T09:10:00.000Z')}`)).toBeTruthy()
+    expect(screen.queryByText(`Saved ${formatWhen('2026-10-30T09:00:00.000Z')}`)).toBeNull()
+  })
+
   it('shows the patient’s reason for denying', async () => {
     open('/r0000000-0000-4000-8000-000000000003')
     expect(await screen.findByRole('heading', { level: 1, name: 'Medication review' })).toBeTruthy()
@@ -323,5 +375,27 @@ describe('An access request’s page', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'External record access' })).toBeTruthy()
+  })
+})
+
+describe('The Health ID hand-off', () => {
+  it('drops a Health ID read for another facility or another session, so it is not read later either', () => {
+    offerHealthId(PATIENT_HID, FACILITY_ID, staff.setActivePatient)
+    expect(offeredHealthId('facility-other', staff.setActivePatient)).toBe('')
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+    offerHealthId(PATIENT_HID, FACILITY_ID, staff.setActivePatient)
+    session.staffSessionGeneration.mockReturnValue(4)
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+    session.staffSessionGeneration.mockReturnValue(3)
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+  })
+
+  it('drops a Health ID nobody read as its session ends', () => {
+    const ending = new AbortController()
+    session.staffSessionSignal.mockReturnValue(ending.signal)
+    offerHealthId(PATIENT_HID, FACILITY_ID, staff.setActivePatient)
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
+    ending.abort()
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
   })
 })

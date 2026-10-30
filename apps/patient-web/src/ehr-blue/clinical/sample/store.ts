@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react'
+import { staffSessionGeneration } from '../../../staff/session'
 import { keyLabel } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
+import { useClinical } from '../parts/Workspace'
 import {
   CONFIRMED_ACTIONS, HISTORY_ORDER, REF_WORKSPACES, SAMPLE_CLINICIANS, SAMPLE_DEFINITIONS, TYPED_WORD_ACTIONS,
   type SampleDefinition, type SampleHandoff, type SampleRefKind,
@@ -13,7 +15,8 @@ import {
 /**
  * The sample engine's store: fictional records in this page's memory only (a module variable read through
  * useSyncExternalStore). It never touches browser storage or the network and starts again from the seed on every
- * reload. `resetSampleStore()` starts it again in tests.
+ * reload, and whenever a page reads it in another staff session or at another facility, so nothing typed here
+ * outlives a sign-out, a sign-in or a facility switch. `resetSampleStore()` starts it again in tests.
  */
 
 export interface PendingHandoff {
@@ -38,6 +41,12 @@ function seedState(): SampleState {
 
 let state: SampleState = seedState()
 let sequence = 0
+/**
+ * The staff session and facility the records belong to (`${generation}|${facility id}`). Empty until a page first
+ * reads the store after a load or a reset; until then the store holds only the seed, since records change only from
+ * a page that has read it.
+ */
+let scope = ''
 const listeners = new Set<() => void>()
 
 function commit(next: SampleState) {
@@ -54,8 +63,26 @@ function snapshot() {
   return state
 }
 
-/** The current sample records; re-renders on every change. */
+/**
+ * Claims the store for a staff session and facility: read in another one, it starts again from the seed, silently
+ * (whatever reads it next sees the seed; nothing else is told).
+ */
+function claimScope(key: string) {
+  if (key === scope) return
+  if (scope) {
+    state = seedState()
+    sequence = 0
+  }
+  scope = key
+}
+
+/**
+ * The current sample records, for this staff session and working facility; re-renders on every change. The list,
+ * create and record pages read the store only through it.
+ */
 export function useSampleState(): SampleState {
+  const { facility } = useClinical()
+  claimScope(`${staffSessionGeneration()}|${facility?.id ?? ''}`)
   return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
 
@@ -66,6 +93,7 @@ export function sampleState(): SampleState {
 /** Back to the seed: what a reload does. */
 export function resetSampleStore() {
   sequence = 0
+  scope = ''
   commit(seedState())
 }
 

@@ -71,8 +71,11 @@ export function vitalSummary(values: VitalValues) {
   ].filter(Boolean).join(' · ')
 }
 
+/** As the design prints it: stored decimals ("98.00", "68.400") lose their trailing zeros ("98", "68.4"). Display only. */
 function shown(value: unknown): string {
-  return value == null || value === '' ? '' : String(value)
+  if (value == null || value === '') return ''
+  const text = String(value)
+  return /^-?\d+\.\d*0$/.test(text) ? text.replace(/\.?0+$/, '') : text
 }
 
 /**

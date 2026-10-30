@@ -5,12 +5,13 @@ import type { EhrBluePageStatus } from '../types'
 import { NewObservation } from './NewObservation'
 import { NursingList } from './NursingList'
 import { ObservationRecord } from './ObservationRecord'
+import { TITLE } from './observations'
 
 /**
  * Live. A nursing observation is today's clinical note (note type "Nursing observation", the design's category as
  * its title, the details and units as its content) on one of the patient's encounters, amended as today's note
- * revision. The design's "Admission" has no backend (inpatient care is sample only), so the encounter ("Visit")
- * takes its place.
+ * revision, and signed or marked entered in error as today's note status change. The design's "Admission" has no
+ * backend (inpatient care is sample only), so the encounter ("Visit") takes its place.
  */
 export const nursingStatus: EhrBluePageStatus = 'live'
 
@@ -21,7 +22,7 @@ export const nursingStatus: EhrBluePageStatus = 'live'
  */
 export function NursingWorkspace() {
   return (
-    <Workspace path="nursing">
+    <Workspace path="nursing" title={TITLE}>
       <ChartProvider>
         <Routes>
           <Route index element={<NursingList />} />

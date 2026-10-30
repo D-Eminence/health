@@ -8,12 +8,15 @@ import { ChartGate, useChart, type Chart } from '../parts/chart'
 import {
   ActionList, ConfirmAction, DetailGrid, DetailMeta, HistoryCard, SavedRecord, VersionsCard, type HistoryItem, type VersionItem,
 } from '../parts/Detail'
-import { formatWhen, statusLabel } from '../parts/format'
+import { formatWhen, shortId, statusLabel } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
-import { Banner, ErrorBox, Loading, NO_ACTIONS, RecordHeading, RecordNotFound } from '../parts/Notices'
+import { Banner, ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
 import { patientLine } from '../parts/PatientHeader'
 import { COMPLETE_FIELD, RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
+import { isObservation, noteStatus as observationStatus } from '../nursing/observations'
+import { NO_RECORD_ACCESS, recordKey } from '../triage/records'
+import { vitalStatus } from '../triage/vitals'
 import { DiagnosesCard } from './Diagnoses'
 import { DocumentsCard } from './Documents'
 import {
@@ -22,7 +25,7 @@ import {
   WRITE_NOTE_LABEL, consultationNote, diagnosisStatus, encounterClosesRecords, encounterTitle, encounterTypeLabel, field, isoNow,
   recordStatus, refusedFieldErrors, retractionNotPermitted, rowVersion, text, useLatest,
 } from './encounters'
-import { EncounterOrders } from './orders'
+import { EncounterOrders, orderPath } from './orders'
 import { useDocumentList, useRecordList, useRevisions, type RecordList } from './records'
 
 /** One encounter's page, or the chart's own state. */
@@ -260,7 +263,8 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       actions.push({ id: 'note-error', label: NOTE_EIE_LABEL, fields: [REASON_FIELD], confirm: {}, validate: reasonCheck, run: noteStatus('entered_in_error', null) })
     }
   }
-  if (writes.notes && notes.items !== null && !note) {
+  // A consultation note marked entered in error is replaced by writing a new one (today offers the note form always).
+  if (writes.notes && notes.items !== null && (!note || note.status === 'entered_in_error')) {
     actions.push({ id: 'write-note', label: WRITE_NOTE_LABEL, fields: WRITE_FIELDS, validate: (values): FieldErrors => text(values.content) ? {} : { content: COMPLETE_FIELD }, run: writeNote })
   }
   if (writes.encounter) {
@@ -278,7 +282,11 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     return chosen.run(values)
   }
 
-  const currentDiagnoses = (diagnoses.items ?? []).filter(item => item.verificationStatus !== 'entered_in_error').map(item => field(item, 'display')).filter(Boolean)
+  // A diagnosis entered in error or refuted (ruled out) is not the encounter's diagnosis; the Diagnoses card still lists it.
+  const currentDiagnoses = (diagnoses.items ?? [])
+    .filter(item => item.verificationStatus !== 'entered_in_error' && item.verificationStatus !== 'refuted')
+    .map(item => field(item, 'display')).filter(Boolean)
+  const readsNone = !Object.values(reads).some(Boolean)
   const saved: KeyValue[] = [
     { label: 'Encounter type', value: encounterTypeLabel(encounter.encounterType) },
     { label: 'Complaint', value: encounter.chiefComplaint || NO_COMPLAINT },
@@ -299,6 +307,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       <DetailMeta status={encounter.status} patient={patientLine(chart.facts)}>
         <span className="hid-ehr-clinical-meta-saved">Started {formatWhen(encounter.startedAt)}</span>
       </DetailMeta>
+      {readsNone ? <ErrorBox>{NO_RECORD_ACCESS}</ErrorBox> : null}
       <DetailGrid>
         <SavedRecord items={saved}>
           {writes.notes && note?.status === 'draft' && seen ? (
@@ -329,7 +338,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
                 </EhrButton>
               ))}
             </ActionList>
-          ) : <p>{NO_ACTIONS}</p>}
+          ) : <NoActions />}
           {action ? (
             <RecordForm
               key={`${action.id}-${String(encounter.rowVersion)}-${String(note?.rowVersion)}`}
@@ -346,7 +355,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
           <EncounterOrders chart={chart} encounter={encounter} />
         </EhrCard>
       </DetailGrid>
-      <HistoryCard items={historyItems(href, others, { notes, diagnoses, vitals, prescriptions, labs }, documents)}>
+      <HistoryCard items={historyItems(href, encounterId, others, { notes, diagnoses, vitals, prescriptions, labs }, documents)}>
         <HistoryErrors lists={[notes, diagnoses, vitals, prescriptions, labs, documents]} />
       </HistoryCard>
       <VersionsCard versions={versionItems(revisions.items)} />
@@ -385,17 +394,22 @@ function HistoryErrors({ lists }: { lists: readonly RecordList<unknown>[] }) {
 
 type Lists = { readonly [K in 'notes' | 'diagnoses' | 'vitals' | 'prescriptions' | 'labs']: RecordList<ClinicalRecord> }
 
-/** "Connected hospital history": the patient's other encounters here, then this encounter's records, each with its status. */
-function historyItems(href: ReturnType<typeof useWorkspaceHref>, others: readonly Encounter[], lists: Lists, documents: RecordList<{ id: string; fileName: string; status: string }>): HistoryItem[] {
-  const rows = (list: RecordList<ClinicalRecord>, kind: string, title: (record: ClinicalRecord) => string, status: (record: ClinicalRecord) => string) =>
-    (list.items ?? []).map(record => ({ key: `${kind}-${record.id}`, label: `${kind} · ${title(record)}`, status: status(record) }))
+/**
+ * "Connected hospital history": the patient's other encounters here, then this encounter's records, each with its status.
+ * A record with its own page links to it (nursing observations, vitals, orders), by record ids only.
+ */
+function historyItems(href: ReturnType<typeof useWorkspaceHref>, encounterId: string, others: readonly Encounter[], lists: Lists, documents: RecordList<{ id: string; fileName: string; status: string }>): HistoryItem[] {
+  const rows = (records: readonly ClinicalRecord[], kind: string, title: (record: ClinicalRecord) => string, status: (record: ClinicalRecord) => string, link?: (record: ClinicalRecord) => string) =>
+    records.map(record => ({ key: `${kind}-${record.id}`, label: `${kind} · ${title(record)}`, status: status(record), ...(link ? { href: link(record) } : {}) }))
+  const notes = lists.notes.items ?? []
   return [
     ...others.map(item => ({ key: `encounter-${item.id}`, label: `${TITLE} · ${encounterTitle(item)}`, href: href(item.id), status: item.status })),
-    ...rows(lists.notes, 'Clinical notes', record => field(record, 'title') || 'Clinical note', record => recordStatus(record, 'unknown')),
-    ...rows(lists.diagnoses, 'Diagnoses', record => field(record, 'display') || 'Diagnosis', diagnosisStatus),
-    ...rows(lists.vitals, 'Triage & Vitals', () => 'Vitals recorded', record => recordStatus(record)),
-    ...rows(lists.prescriptions, 'Pharmacy', record => field(record, 'medicationDisplay') || 'Prescription', record => recordStatus(record)),
-    ...rows(lists.labs, 'Laboratory', record => field(record, 'testDisplay') || 'Lab request', record => recordStatus(record)),
+    ...rows(notes.filter(note => !isObservation(note)), 'Clinical notes', record => field(record, 'title') || 'Clinical note', record => recordStatus(record, 'unknown')),
+    ...rows(notes.filter(isObservation), 'Nursing observations', record => shortId(record.id), observationStatus, record => href.to('nursing', recordKey(encounterId, record.id))),
+    ...rows(lists.diagnoses.items ?? [], 'Diagnoses', record => field(record, 'display') || 'Diagnosis', diagnosisStatus),
+    ...rows(lists.vitals.items ?? [], 'Triage & Vitals', record => shortId(record.id), vitalStatus, record => href.to('triage', recordKey(encounterId, record.id))),
+    ...rows(lists.prescriptions.items ?? [], 'Pharmacy', record => field(record, 'medicationDisplay') || 'Prescription', record => recordStatus(record), record => href(orderPath(encounterId, 'pharmacy', record.id))),
+    ...rows(lists.labs.items ?? [], 'Laboratory', record => field(record, 'testDisplay') || 'Lab request', record => recordStatus(record), record => href(orderPath(encounterId, 'laboratory', record.id))),
     ...(documents.items ?? []).map(item => ({ key: `document-${item.id}`, label: `Documents · ${item.fileName}`, status: item.status || 'uploaded' })),
   ]
 }

@@ -111,6 +111,17 @@ describe('the Emergency page', () => {
     expect(card().compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
+  it('names the tab “Emergency · Health ID EHR” on every page of the workspace, never the patient', () => {
+    staff.activePatient = activePatient('emergency')
+    for (const rest of ['', '/new', '/cfa650e2', '/summary']) {
+      document.title = ''
+      const view = open(rest)
+      expect(document.title).toBe('Emergency · Health ID EHR')
+      for (const value of [PATIENT_NAME, PATIENT_HID, PATIENT_ID]) expect(document.title).not.toContain(value)
+      view.unmount()
+    }
+  })
+
   it('opens the sample board’s create page from Create record', () => {
     open()
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
@@ -148,7 +159,10 @@ describe('the Emergency page', () => {
     const current = screen.getByRole('heading', { level: 2, name: 'Current emergency summary' }).closest<HTMLElement>('section')!
     expect(within(current).getByText(PATIENT_NAME)).toBeTruthy()
     expect(within(current).getByText('Emergency access')).toBeTruthy()
-    fireEvent.click(within(current).getByRole('link', { name: 'Open read-only emergency summary →' }))
+    const link = within(current).getByRole('link', { name: 'Open read-only emergency summary →' })
+    // Straight to the summary, as today's link goes.
+    expect(link.getAttribute('href')).toBe('/provider/emergency/summary')
+    fireEvent.click(link)
     expect(await screen.findByRole('heading', { level: 1, name: 'Emergency summary' })).toBeTruthy()
   })
 

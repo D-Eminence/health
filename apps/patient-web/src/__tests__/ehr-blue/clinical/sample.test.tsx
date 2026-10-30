@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONFIRM_BODY } from '../../../ehr-blue/clinical/parts/Detail'
@@ -9,16 +9,20 @@ import { FILE_TOO_LARGE } from '../../../ehr-blue/clinical/sample/SampleDetail'
 import { IDS } from '../../../ehr-blue/clinical/sample/seed'
 import { createSampleRecord, sampleState } from '../../../ehr-blue/clinical/sample/store'
 import { SampleCreate, SampleDetail, SampleList, SampleWorkspace, resetSampleStore, sampleStatus } from '../../../ehr-blue/clinical/sample/SampleWorkspace'
-import { BASE, labelled, renderPage } from './harness'
+import { BASE, FACILITY_ID, labelled, renderPage } from './harness'
 
 /**
  * The sample engine: 14 sample-only workspaces (and the emergency board) drawn from one definition each, with
  * fictional records in memory only. Nothing here may reach today's API: the staff/api mock records whether anything
- * even imports it, and its staffApi throws when touched.
+ * even imports it, and its staffApi throws when touched. The staff session's generation and the working facility
+ * are set per test, so the store can be seen starting again in another session or at another facility.
  */
 
 const touched = vi.hoisted(() => ({ api: false }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn(() => true) }))
+const staff = vi.hoisted(() => ({
+  permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn(() => true), facilityId: null as string | null,
+}))
+const session = vi.hoisted(() => ({ generation: 1 }))
 
 vi.mock('../../../staff/api', () => {
   touched.api = true
@@ -29,13 +33,24 @@ vi.mock('../../../staff/api', () => {
 })
 vi.mock('../../../staff/App', async () => {
   const harness = await import('./harness')
-  return { useStaff: () => harness.staffValue(staff as never) }
+  return {
+    useStaff: () => {
+      const value = harness.staffValue(staff as never)
+      if (!staff.facilityId) return value
+      const { actor } = value.state.session
+      return { ...value, state: { ...value.state, session: { actor: { ...actor, facility: { ...actor.facility, id: staff.facilityId } } } } }
+    },
+  }
 })
+vi.mock('../../../staff/session', () => ({ staffSessionGeneration: () => session.generation }))
 
 const network = vi.fn()
 
 beforeEach(() => {
   resetSampleStore()
+  session.generation = 1
+  staff.facilityId = null
+  document.title = 'Health ID'
   vi.stubGlobal('fetch', network)
 })
 
@@ -359,6 +374,41 @@ describe('sample engine', () => {
     expect(within(saved).getByText('5f459730')).toBeTruthy()
   })
 
+  /** A "Saved record" value by its label. */
+  function savedValue(label: string) {
+    const saved = screen.getByRole('heading', { name: 'Saved record' }).closest('section')!
+    const term = Array.from(saved.querySelectorAll('dt')).find(item => item.textContent === label)
+    return term?.nextElementSibling?.textContent
+  }
+
+  it.each([
+    ['telemedicine', IDS.telemedicine, '2026-10-26T11:41:14.563Z · booked · Enter local waiting room'],
+    ['maternity', IDS.maternity, '2026-10-26T11:41:14.490Z · enrolled · Antenatal observation'],
+    ['surgery', IDS.surgery, '2026-10-26T11:41:14.514Z · requested · Schedule procedure'],
+    ['dental', IDS.dental, '2026-10-26T11:41:14.538Z · booked · Record assessment'],
+    ['referrals', IDS.referral, '2026-10-26T11:41:14.585Z · draft · Send simulated referral'],
+    ['bloodbank', IDS.bloodScreened, '2026-10-26T11:41:15.258Z · quarantine · Record screening review'],
+    ['radiology', IDS.ultrasound, '2026-10-26T11:41:15.554Z · ordered · Schedule examination'],
+  ])('shows the design’s version time on the %s record', (id, recordId, summary) => {
+    open(id, `/${recordId}`)
+    const versions = screen.getByRole('heading', { name: 'Preserved versions & amendments' }).closest('section')!
+    expect(Array.from(versions.querySelectorAll('summary')).map(item => item.textContent)).toEqual([summary])
+  })
+
+  it('shows the design’s telemedicine id and Abdominal ultrasound values', () => {
+    const view = open('telemedicine')
+    const row = within(screen.getByRole('table')).getAllByRole('row')[1]!
+    expect(within(row).getByRole('link', { name: 'Open Remote follow-up' }).getAttribute('href')).toBe(`${BASE}/telemedicine/${IDS.telemedicine}`)
+    expect(row.textContent).toContain('9426ba7f')
+    view.unmount()
+
+    open('radiology', `/${IDS.ultrasound}`)
+    expect(heading()).toBe('Abdominal ultrasound')
+    expect(savedValue('Indication')).toBe('Abdominal pain')
+    expect(savedValue('Scheduled')).toBe('2026-11-03T09:30')
+    expect(savedValue('Urgency')).toBe('Routine')
+  })
+
   it('attaches a study by choosing a file it never reads, refusing a large one', async () => {
     open('radiology', `/${IDS.ultrasound}`)
     fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Record examination' }))
@@ -413,6 +463,83 @@ describe('sample engine', () => {
     expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(3)
   })
 
+  /** "Temporary ward", saved through the create page; its list then has 3 rows below the header. */
+  async function saveTemporaryWard() {
+    const view = open('ward-config', '/new')
+    fireEvent.change(field('Ward name'), { target: { value: 'Temporary ward' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Save record' }).closest('form')!)
+    await waitFor(() => expect(heading()).toBe('Temporary ward'))
+    view.unmount()
+  }
+
+  function wardNames() {
+    return within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => within(row).getByRole('link', { name: /^(?!Open)/ }).textContent)
+  }
+
+  it('keeps what was saved across its pages in the same staff session and facility', async () => {
+    await saveTemporaryWard()
+    open('ward-config')
+    expect(wardNames()).toEqual(['Example ward', 'Female Medical Ward', 'Temporary ward'])
+  })
+
+  it('starts again from the seed when a page reads it in another staff session', async () => {
+    await saveTemporaryWard()
+    session.generation = 2
+    open('ward-config')
+    expect(wardNames()).toEqual(['Example ward', 'Female Medical Ward'])
+    expect(sampleState().records.some(record => record.data.name === 'Temporary ward')).toBe(false)
+  })
+
+  it('starts again from the seed at another facility, typed newborn names and hand-offs included', async () => {
+    const view = open('maternity', `/${IDS.maternity}`)
+    fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Record delivery' }))
+    fireEvent.change(field('Delivery record', actionsCard()), { target: { value: 'Fictional delivery' } })
+    fireEvent.change(field('Newborn name (creates provisional identity)', actionsCard()), { target: { value: 'Baby Demo' } })
+    fireEvent.submit(field('Delivery record', actionsCard()).closest('form')!)
+    await waitFor(() => expect(screen.getByText('delivered')).toBeTruthy())
+    view.unmount()
+    const other = openMany(`${BASE}/inpatient/${IDS.admitTaylor}`, ['inpatient'])
+    fireEvent.click(screen.getByRole('button', { name: 'Create nursing tasks' }))
+    expect(sampleState().handoff?.workspace).toBe('nursing-tasks')
+    other.unmount()
+
+    staff.facilityId = 'facility-demo-laboratory'
+    open('nursing-tasks', '/new')
+    const patient = field('Patient') as unknown as HTMLSelectElement
+    expect(patient.value).toBe('')
+    expect(Array.from(patient.options).map(option => option.textContent).some(text => text?.startsWith('Baby Demo'))).toBe(false)
+    expect(sampleState().patients.some(person => person.name === 'Baby Demo')).toBe(false)
+    expect(sampleState().records.find(record => record.id === IDS.maternity)!.status).toBe('observed')
+    expect(sampleState().handoff).toBeNull()
+
+    // Back at the first facility, it is still the seed: nothing comes back.
+    cleanup()
+    staff.facilityId = FACILITY_ID
+    open('maternity', `/${IDS.maternity}`)
+    expect(screen.getByText('observed')).toBeTruthy()
+  })
+
+  it('names the tab after the workspace on its list, new and record pages, never the record or patient', async () => {
+    open('appointments')
+    expect(document.title).toBe('Appointments · Health ID EHR')
+    fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
+    await waitFor(() => expect(heading()).toBe('New appointments'))
+    expect(document.title).toBe('Appointments · Health ID EHR')
+    cleanup()
+    document.title = 'Health ID'
+    open('appointments', `/${IDS.apptTaylor}`)
+    expect(heading()).toBe('Review of results')
+    expect(document.title).toBe('Appointments · Health ID EHR')
+  })
+
+  it('puts "No further actions…" after the empty action list, as the design does', () => {
+    open('ward-config', `/${IDS.wardExample}`)
+    const sentence = within(actionsCard()).getByText('No further actions for your permission and this record state.')
+    const list = sentence.previousElementSibling as HTMLElement
+    expect(list.className).toBe('hid-ehr-clinical-action-list')
+    expect(list.childElementCount).toBe(0)
+  })
+
   it('uses real controls only, so Tab follows the page and Enter submits', () => {
     open('surgery', `/${IDS.surgery}`)
     const controls = Array.from(document.querySelectorAll<HTMLElement>('a, button, input, select, textarea, summary'))
@@ -444,6 +571,17 @@ describe('the emergency board inside another workspace', () => {
     board()
     expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
     expect(within(screen.getByRole('table', { name: 'Emergency' })).getByRole('link', { name: 'cfa650e2' })).toBeTruthy()
+  })
+
+  it('shows the design’s assessed record', () => {
+    board(`/${IDS.emergency}`)
+    const saved = screen.getByRole('heading', { name: 'Saved record' }).closest('section')!
+    const pairs = Array.from(saved.querySelectorAll('dt')).map(term => [term.textContent, term.nextElementSibling?.textContent])
+    expect(pairs).toEqual([
+      ['Complaint', 'Road traffic injury (fictional)'], ['Priority', 'Emergency'], ['Team', 'Doctor + Nurse'], ['Assessment', 'Local assessment recorded'],
+    ])
+    expect(screen.getByText('assessed')).toBeTruthy()
+    expect(screen.getByText('Riley Demo · LOCAL-7554909a')).toBeTruthy()
   })
 
   it('records an arrival, its assessment and disposition', async () => {

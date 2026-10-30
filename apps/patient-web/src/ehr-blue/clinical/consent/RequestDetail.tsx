@@ -5,10 +5,10 @@ import { staffApi, type AccessRequest } from '../../../staff/api'
 import { outcome } from '../../../staff/routes/AccessRequests'
 import { ACCESS_ENDED } from '../parts/chart'
 import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord, Step, SubHeading } from '../parts/Detail'
-import { Banner, ErrorBox, Loading, NO_ACTIONS, RecordHeading, RecordNotFound } from '../parts/Notices'
+import { Banner, ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { ACCESS_CLOSED, CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf } from './access'
-import { closable, closeError, methodLabel, patientContext, requestDetails, useAccessRequests } from './requests'
+import { closable, closeError, latest, methodLabel, patientContext, requestDetails, useAccessRequests } from './requests'
 
 /** What each outcome means for the clinician, in today's words where today has them. */
 function StateBanner({ request }: { request: AccessRequest }) {
@@ -89,23 +89,27 @@ export function RequestDetail() {
     </div>
   )
 
+  // A request just sent is confirmed ("Request … is pending.") even while the list is read, cannot be read, or lacks it.
   if (!request) {
     if (list.error) {
       return (
         <>
           <RecordHeading title="External record access" backHref={href()} />
+          {statusRegion}
           <ErrorBox>{list.error}</ErrorBox>
         </>
       )
     }
-    if (list.requests === null) return <><RecordHeading title="External record access" backHref={href()} /><Loading label="Loading requests…" /></>
-    return <RecordNotFound backHref={href()} />
+    if (list.requests === null) {
+      return <><RecordHeading title="External record access" backHref={href()} />{statusRegion}<Loading label="Loading requests…" /></>
+    }
+    return <><RecordNotFound backHref={href()} />{statusRegion}</>
   }
 
   return (
     <>
       <RecordHeading title={request.reason} backHref={href()} />
-      <DetailMeta status={outcome(request).label} note={methodLabel(request) || undefined} patient={patientContext(request)} saved={request.requestedAt} />
+      <DetailMeta status={outcome(request).label} note={methodLabel(request) || undefined} patient={patientContext(request)} saved={latest(request)} />
       {ended ? (
         <Banner tone="critical" title="Access to this patient ended" actions={<Link className="hid-ehr-clinical-link" to={href.to('patients')}>Go to patient access →</Link>}>
           {ACCESS_ENDED}
@@ -132,7 +136,7 @@ export function RequestDetail() {
                 </EhrButton>
               </ActionList>
             </>
-          ) : <p>{NO_ACTIONS}</p>}
+          ) : <NoActions />}
           {emergencyUnavailable === null ? (
             <>
               <SubHeading>Next steps</SubHeading>

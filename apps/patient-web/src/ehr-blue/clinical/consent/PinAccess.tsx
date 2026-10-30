@@ -19,11 +19,12 @@ export const PIN_PROBLEM = 'Enter the patient’s 4 to 8 digit access PIN.'
  * lookup does.
  */
 export function PinAccess() {
-  const { facility, permissions } = useClinical()
+  const { facility, permissions, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   const openPatient = useOpenPatient()
-  const [hid, setHid] = useState(() => offeredHealthId(facility?.id))
+  // A Health ID handed over from Patients, read once.
+  const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient))
   useEffect(() => { dropOfferedHealthId() }, [])
   const [pin, setPin] = useState('')
   const [problem, setProblem] = useState<{ field: 'hid' | 'pin'; message: string; alert: boolean } | null>(null)

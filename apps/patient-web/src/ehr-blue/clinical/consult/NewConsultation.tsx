@@ -31,6 +31,8 @@ export function NewConsultation() {
 const NOTE_LIMIT = 100_000
 const NOTE_TOO_LONG = 'The clinical note is too long: History, Examination, Clinical note and Follow-up together must be at most 100,000 characters.'
 const DIAGNOSIS_KEYS = ['diagnosis', 'diagnosisCodeSystem', 'diagnosisCode'] as const
+/** Said after a partial save, once the draft note is in: its fields are gone, and it is changed from the encounter's page. */
+const NOTE_SAVED = 'The draft clinical note was saved; change it from the encounter’s page.'
 
 const ENCOUNTER_FIELDS: readonly FieldDef[] = [
   { key: 'encounterType', label: 'Encounter type', required: true, choices: ENCOUNTER_TYPES },
@@ -70,23 +72,25 @@ function NewConsultationForm({ chart }: { chart: Chart }) {
   const navigate = useNavigate()
   const attempt = useRef<Attempt>({})
   const [started, setStarted] = useState<Encounter | null>(null)
+  // Once the draft note is saved it is never sent again, so its fields go (as the encounter's do once it is started).
+  const [noteSaved, setNoteSaved] = useState(false)
   const writesNote = chart.can('ehr.note.write')
   const writesDiagnosis = chart.can('ehr.diagnosis.write')
   const canStart = chart.canWrite && chart.can('ehr.encounter.write')
 
   const fields = useMemo(() => [
     ...(started ? [] : ENCOUNTER_FIELDS),
-    ...(writesNote ? NOTE_FIELDS : []),
+    ...(writesNote && !noteSaved ? NOTE_FIELDS : []),
     ...(writesDiagnosis ? DIAGNOSIS_FIELDS : []),
-    ...(writesNote ? NOTE_TAIL_FIELDS : []),
-  ], [started, writesDiagnosis, writesNote])
+    ...(writesNote && !noteSaved ? NOTE_TAIL_FIELDS : []),
+  ], [noteSaved, started, writesDiagnosis, writesNote])
 
   const validate = (values: FormValues): FieldErrors => {
     const errors: Record<string, string> = {}
     if (writesDiagnosis && DIAGNOSIS_KEYS.some(key => text(values[key]))) {
       for (const key of DIAGNOSIS_KEYS) if (!text(values[key])) errors[key] = COMPLETE_FIELD
     }
-    if (writesNote && noteContent(values).length > NOTE_LIMIT) errors.note = NOTE_TOO_LONG
+    if (writesNote && !noteSaved && noteContent(values).length > NOTE_LIMIT) errors.note = NOTE_TOO_LONG
     return errors
   }
 
@@ -109,29 +113,27 @@ function NewConsultationForm({ chart }: { chart: Chart }) {
         setStarted(created)
       }
       const encounterId = current.encounter.id
-      if (writesNote) {
+      // A saved step is never sent again, whatever its fields now hold: a second create would be a second record.
+      if (writesNote && !current.note?.done) {
         map = { content: 'note' }
         const body = { noteType: 'Consultation', title: 'Consultation note', status: 'draft', content: noteContent(values) }
         current.note = step(current.note, JSON.stringify(body))
-        if (!current.note.done) {
-          await chart.verify()
-          await staffApi.createRecord(chart.facilityId, chart.patientId, encounterId, 'clinical-notes', body, current.note.key)
-          current.note.done = true
-        }
+        await chart.verify()
+        await staffApi.createRecord(chart.facilityId, chart.patientId, encounterId, 'clinical-notes', body, current.note.key)
+        current.note.done = true
+        setNoteSaved(true)
       }
       const display = text(values.diagnosis)
-      if (writesDiagnosis && display) {
+      if (writesDiagnosis && display && !current.diagnosis?.done) {
         map = { display: 'diagnosis', codeSystem: 'diagnosisCodeSystem', code: 'diagnosisCode', clinicalStatus: 'diagnosisClinicalStatus', verificationStatus: 'diagnosisVerification' }
         const body = {
           codeSystem: text(values.diagnosisCodeSystem), code: text(values.diagnosisCode), display,
           clinicalStatus: text(values.diagnosisClinicalStatus) || 'active', verificationStatus: text(values.diagnosisVerification) || 'unconfirmed',
         }
         current.diagnosis = step(current.diagnosis, JSON.stringify(body))
-        if (!current.diagnosis.done) {
-          await chart.verify()
-          await staffApi.createRecord(chart.facilityId, chart.patientId, encounterId, 'diagnoses', body, current.diagnosis.key)
-          current.diagnosis.done = true
-        }
+        await chart.verify()
+        await staffApi.createRecord(chart.facilityId, chart.patientId, encounterId, 'diagnoses', body, current.diagnosis.key)
+        current.diagnosis.done = true
       }
       attempt.current = {}
       navigate(href(encounterId), { state: { created: true } })
@@ -156,7 +158,7 @@ function NewConsultationForm({ chart }: { chart: Chart }) {
           <RecordForm fields={fields} initial={INITIAL} submitLabel="Save record" validate={validate} onSubmit={submit}>
             {started ? (
               <p className="hid-ehr-clinical-note" role="status">
-                {`${ENCOUNTER_CREATED} ${encounterTypeLabel(started.encounterType)} · ${started.chiefComplaint ?? ''}. Saving again adds the rest to this encounter.`}
+                {`${ENCOUNTER_CREATED} ${encounterTypeLabel(started.encounterType)} · ${started.chiefComplaint ?? ''}.${noteSaved ? ` ${NOTE_SAVED}` : ''} Saving again adds the rest to this encounter.`}
               </p>
             ) : null}
             {writesNote ? <p className="hid-ehr-clinical-note">{NOTES_ARE_DRAFTS}</p> : null}
@@ -176,16 +178,18 @@ function noteContent(values: FormValues): string {
   ])
 }
 
-type Reported = { readonly state: 'loading' | 'none' | 'failed' } | { readonly state: 'shown'; readonly allergies: string }
+type Reported = { readonly state: 'loading' | 'hidden' | 'none' | 'failed' } | { readonly state: 'shown'; readonly allergies: string }
 
 /**
  * The design's "Patient context": the patient and their allergies. Today's only allergy record is what the patient
- * reported in their Health ID portal (read for direct care, with ehr.note.read), so it is labelled as such.
+ * reported in their Health ID portal (read for direct care, with ehr.note.read), so it is labelled as such. As today's
+ * "Reported by the patient" (staff/routes/PatientReportedHealth.tsx): nothing is said while it loads, without
+ * ehr.note.read, or when EHR refuses (403) or does not serve it (404); "None recorded" only after a read that answered.
  */
 function PatientContext({ chart }: { chart: Chart }) {
   const { facilityId, patientId } = chart
   const reads = chart.can('ehr.note.read')
-  const [reported, setReported] = useState<Reported>({ state: reads ? 'loading' : 'none' })
+  const [reported, setReported] = useState<Reported>({ state: reads ? 'loading' : 'hidden' })
 
   useEffect(() => {
     if (!reads) return
@@ -195,7 +199,7 @@ function PatientContext({ chart }: { chart: Chart }) {
       caught => {
         if (controller.signal.aborted) return
         const hidden = !isHidApiError(caught) || caught.status === 403 || caught.status === 404
-        setReported({ state: hidden ? 'none' : 'failed' })
+        setReported({ state: hidden ? 'hidden' : 'failed' })
       },
     )
     return () => controller.abort()
@@ -205,7 +209,7 @@ function PatientContext({ chart }: { chart: Chart }) {
     <section className="hid-ehr-clinical-context-block" aria-labelledby="consult-patient-context">
       <h2 id="consult-patient-context">Patient context</h2>
       <p>{chart.facts.name}</p>
-      {reported.state === 'loading' ? null : (
+      {reported.state === 'loading' || reported.state === 'hidden' ? null : (
         <p>
           {reported.state === 'shown'
             ? `Recorded allergies: ${reported.allergies} (patient-reported: entered by the patient in their Health ID portal, not clinically verified).`

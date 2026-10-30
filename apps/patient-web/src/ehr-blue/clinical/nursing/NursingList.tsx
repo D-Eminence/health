@@ -49,6 +49,7 @@ function ObservationsTable({ chart }: { chart: Chart }) {
   const rows: RecordRow[] = (list.records ?? []).map(({ encounter, record }) => ({
     id: recordKey(encounter.id, record.id),
     name: shortId(record.id),
+    reference: shortId(record.id),
     context: chart.facts.name,
     status: noteStatus(record),
     updated: field(record, 'updatedAt') || record.createdAt,

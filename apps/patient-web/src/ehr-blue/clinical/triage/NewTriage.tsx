@@ -130,7 +130,12 @@ function SampleTriage() {
   )
 }
 
-type Reported = { readonly state: 'loading' | 'none' | 'failed' } | { readonly state: 'shown'; readonly allergies: string }
+/**
+ * As today's "Reported by the patient" (staff/routes/PatientReportedHealth.tsx): nothing shows while it is read, nor
+ * when EHR refuses it (403), does not serve it (404) or its answer cannot be read ('hidden'). "None recorded" is said
+ * only after a read that answered with no allergies.
+ */
+type Reported = { readonly state: 'loading' | 'hidden' | 'none' | 'failed' } | { readonly state: 'shown'; readonly allergies: string }
 
 /**
  * The design's "Patient context": the patient, their allergies and their earlier triage. Today's only allergy record
@@ -140,7 +145,7 @@ type Reported = { readonly state: 'loading' | 'none' | 'failed' } | { readonly s
 function PatientContext({ chart, prior }: { chart: Chart; prior: readonly VisitRecord[] | null }) {
   const { facilityId, patientId } = chart
   const reads = chart.can('ehr.note.read')
-  const [reported, setReported] = useState<Reported>({ state: reads ? 'loading' : 'none' })
+  const [reported, setReported] = useState<Reported>({ state: reads ? 'loading' : 'hidden' })
   const corrections = useCorrections(chart, prior?.map(item => ({ encounterId: item.encounter.id, vital: item.record })) ?? null)
 
   useEffect(() => {
@@ -151,7 +156,7 @@ function PatientContext({ chart, prior }: { chart: Chart; prior: readonly VisitR
       caught => {
         if (controller.signal.aborted) return
         const hidden = !isHidApiError(caught) || caught.status === 403 || caught.status === 404
-        setReported({ state: hidden ? 'none' : 'failed' })
+        setReported({ state: hidden ? 'hidden' : 'failed' })
       },
     )
     return () => controller.abort()
@@ -161,7 +166,7 @@ function PatientContext({ chart, prior }: { chart: Chart; prior: readonly VisitR
     <section className="hid-ehr-clinical-context-block" aria-labelledby="triage-patient-context">
       <h2 id="triage-patient-context">Patient context</h2>
       <p>{chart.facts.name}</p>
-      {reported.state === 'loading' ? null : (
+      {!reads || reported.state === 'loading' || reported.state === 'hidden' ? null : (
         <p>
           {reported.state === 'shown'
             ? `Recorded allergies: ${reported.allergies} (patient-reported: entered by the patient in their Health ID portal, not clinically verified).`

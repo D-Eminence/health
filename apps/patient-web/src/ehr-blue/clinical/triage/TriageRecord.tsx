@@ -8,12 +8,13 @@ import { ChartGate, useChart, type Chart } from '../parts/chart'
 import { ActionList, DetailGrid, DetailMeta, HistoryCard, SavedRecord, VersionsCard, type HistoryItem, type VersionItem } from '../parts/Detail'
 import { formatWhen, shortId, statusLabel } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
-import { Banner, ErrorBox, Loading, NO_ACTIONS, RecordHeading, RecordNotFound } from '../parts/Notices'
+import { Banner, ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
 import { patientLine } from '../parts/PatientHeader'
 import type { SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
 import {
-  NO_COMPLAINT, NO_RECORD_ACCESS, RECORD_SAVED, RELOAD_FAILED, recordKey, refusedFieldErrors, rowVersion, useFocusAfterChange, useLatest, useVisitRecord,
+  NO_COMPLAINT, NO_RECORD_ACCESS, RECORD_SAVED, RELOAD_FAILED, recordKey, recordedAt, refusedFieldErrors, rowVersion, useFocusAfterChange, useLatest,
+  useVisitRecord,
 } from './records'
 import {
   AMEND_LABEL, CHANGED_SINCE, CORRECTION_FAILED, CORRECTION_HINT, CORRECTION_SAVED, CORRECTION_UNREAD, LOADING_CORRECTION, RELOAD_FIRST,
@@ -179,7 +180,7 @@ function VitalRecord({ chart, encounter, vital, siblings, reload }: {
         status={vitalStatus(vital)}
         note={number > 0 ? `Corrected (correction ${number})` : undefined}
         patient={patientLine(chart.facts)}
-        saved={latest?.createdAt ?? vital.createdAt}
+        saved={latest?.createdAt ?? recordedAt(vital)}
       />
       {retracted ? <Banner tone="warning" title="Entered in error">{RETRACTED_TEXT}</Banner> : null}
       <DetailGrid>
@@ -192,7 +193,7 @@ function VitalRecord({ chart, encounter, vital, siblings, reload }: {
             <ActionList>
               <EhrButton variant="secondary" aria-expanded={open} onClick={() => setOpen(value => !value)}>{AMEND_LABEL}</EhrButton>
             </ActionList>
-          ) : <p>{NO_ACTIONS}</p>}
+          ) : <NoActions />}
           {canAmend && open && current ? (
             <VitalsForm
               key={`${vital.id}-${String(vital.rowVersion)}`}

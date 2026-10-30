@@ -47,11 +47,11 @@ export function requestProblems(values: FormValues): FieldErrors {
  * not expose the record; the page goes to the new request, which waits for the patient.
  */
 export function RequestAccess() {
-  const { facility, permissions } = useClinical()
+  const { facility, permissions, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   // A Health ID handed over from Patients, read once.
-  const [hid] = useState(() => offeredHealthId(facility?.id))
+  const [hid] = useState(() => offeredHealthId(facility?.id, setActivePatient))
   useEffect(() => { dropOfferedHealthId() }, [])
   const unavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administratorOf(facility, permissions))
 

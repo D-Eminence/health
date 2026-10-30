@@ -66,6 +66,7 @@ function VitalsTable({ chart }: { chart: Chart }) {
     return {
       id: recordKey(encounter.id, record.id),
       name: shortId(record.id),
+      reference: shortId(record.id),
       context: chart.facts.name,
       status: vitalStatus(record),
       statusNote: number > 0 ? `Corrected (correction ${number})` : undefined,

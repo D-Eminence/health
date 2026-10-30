@@ -27,6 +27,7 @@ vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ name: 'test' }) 
 vi.mock('../../../ehr-blue/clinical/consult/orders', () => ({
   EncounterOrders: ({ encounter }: { encounter: { id: string } }) => <p>Connected orders for {encounter.id}</p>,
   EncounterOrderPages: () => <p>Order pages part</p>,
+  orderPath: (encounterId: string, kind: string, orderId: string) => `${encounterId}/orders/${kind}/${orderId}`,
 }))
 
 const ALL = [
@@ -130,15 +131,82 @@ describe('Consultation record', () => {
     expect(api.noteRevisions).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'note-1')
   })
 
-  it('lists the connected hospital history, each with its status', async () => {
+  it('lists the connected hospital history, each with its status, linking records that have their own page by ids only', async () => {
+    staff.permissions = [...ALL, 'ehr.prescription.read', 'ehr.lab-request.read']
+    const observation = { ...NOTE, id: 'b1c6ef36-0000-4000-8000-000000000001', noteType: 'Nursing observation', title: 'Vitals', status: 'signed' }
+    records['clinical-notes'] = [NOTE, observation]
+    records.prescriptions = [{ id: 'rx-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, medicationDisplay: 'Amoxicillin (fictional)', status: 'active' }]
+    records['lab-requests'] = [{ id: 'lab-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, testDisplay: 'Malaria smear (fictional)', status: 'draft' }]
     await openEncounter()
     const history = within(card('Connected hospital history'))
     expect(history.getByText('Only records available to your current permissions are listed.')).toBeTruthy()
-    expect(history.getByRole('link', { name: 'Consultation · e2222222' }).getAttribute('href')).toBe(`/provider/clinical/${OTHER.id}`)
-    for (const label of ['Clinical notes · Consultation note', 'Diagnoses · Malaria (fictional)', 'Triage & Vitals · Vitals recorded', 'Documents · referral-letter.pdf']) {
-      expect(history.getByText(label)).toBeTruthy()
+    const row = (name: string) => history.getByText(name).closest('li') as HTMLElement
+    const link = (name: string) => history.getByRole('link', { name }).getAttribute('href')
+    expect(link('Consultation · e2222222')).toBe(`/provider/clinical/${OTHER.id}`)
+    for (const label of ['Clinical notes · Consultation note', 'Diagnoses · Malaria (fictional)', 'Documents · referral-letter.pdf']) {
+      expect(history.getByText(label).tagName).toBe('SPAN')
     }
-    expect(history.getByText('final')).toBeTruthy()
+    expect(within(row('Clinical notes · Consultation note')).getByText('draft')).toBeTruthy()
+    // A nursing observation is not a clinical note row: it links to its own page, as the nursing pages name it.
+    expect(history.queryByText('Clinical notes · Vitals')).toBeNull()
+    expect(link('Nursing observations · b1c6ef36')).toBe(`/provider/nursing/${ENCOUNTER_ID}~${observation.id}`)
+    expect(within(row('Nursing observations · b1c6ef36')).getByText('signed')).toBeTruthy()
+    expect(link('Triage & Vitals · vital-1')).toBe(`/provider/triage/${ENCOUNTER_ID}~vital-1`)
+    expect(within(row('Triage & Vitals · vital-1')).getByText('final')).toBeTruthy()
+    expect(link('Pharmacy · Amoxicillin (fictional)')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/pharmacy/rx-1`)
+    expect(link('Laboratory · Malaria smear (fictional)')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/laboratory/lab-1`)
+    for (const href of history.getAllByRole('link').map(item => item.getAttribute('href') ?? '')) {
+      expect(href).not.toContain(PATIENT_HID)
+      expect(href).not.toContain(PATIENT_ID)
+    }
+  })
+
+  it('offers "Write clinical note" again once the consultation note is entered in error', async () => {
+    records['clinical-notes'] = [{ ...NOTE, status: 'entered_in_error' }]
+    api.createRecord.mockResolvedValue({ id: 'note-2', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T09:00:00.000Z' })
+    await openEncounter()
+    expect(actions().queryByRole('button', { name: 'Sign encounter' })).toBeNull()
+    expect(actions().queryByRole('button', { name: 'Mark note entered in error' })).toBeNull()
+    fireEvent.click(actions().getByRole('button', { name: 'Write clinical note' }))
+    fireEvent.change(actions().getByLabelText(labelled('Clinical note')), { target: { value: 'History\nCough for three days, correct patient.' } })
+    const checks = api.lookupPatient.mock.calls.length
+    fireEvent.click(actions().getAllByRole('button', { name: 'Write clinical note' }).find(button => button.getAttribute('type') === 'submit')!)
+    expect(await screen.findByText('Clinical record saved by the backend.')).toBeTruthy()
+    expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', {
+      noteType: 'Consultation', title: 'Consultation note', status: 'draft', content: 'History\nCough for three days, correct patient.',
+    }, expect.any(String))
+    expect(api.lookupPatient.mock.calls.length).toBe(checks + 1)
+  })
+
+  it('leaves a refuted diagnosis out of the encounter’s Diagnosis, and badges it refuted', async () => {
+    records.diagnoses = [
+      { ...DIAGNOSIS, verificationStatus: 'refuted' },
+      { ...DIAGNOSIS, id: 'dx-2', code: 'R50.9', display: 'Fever (fictional)', verificationStatus: 'confirmed' },
+    ]
+    await openEncounter()
+    const saved = within(card('Saved record'))
+    const values = Object.fromEntries(saved.getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent]))
+    expect(values.Diagnosis).toBe('Fever (fictional)')
+    const history = within(card('Connected hospital history'))
+    expect(within(history.getByText('Diagnoses · Malaria (fictional)').closest('li') as HTMLElement).getByText('refuted')).toBeTruthy()
+    expect(within(history.getByText('Diagnoses · Fever (fictional)').closest('li') as HTMLElement).getByText('active')).toBeTruthy()
+    expect(within(card('Diagnoses')).getByText('ICD-10 · B54 · active · refuted')).toBeTruthy()
+  })
+
+  it('says the role grants no access to encounter records when it holds none of the record reads', async () => {
+    staff.permissions = ['ehr.encounter.read', 'ehr.encounter.write']
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    expect(await screen.findByRole('heading', { level: 1, name: 'e0000000' })).toBeTruthy()
+    expect(screen.getByText('Your current facility role does not grant access to encounter records.')).toBeTruthy()
+    expect(api.records).not.toHaveBeenCalled()
+    expect(api.documents).not.toHaveBeenCalled()
+  })
+
+  it('does not say so when the role holds one record read', async () => {
+    staff.permissions = ['ehr.encounter.read', 'ehr.vital.read']
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    expect(await screen.findByRole('link', { name: 'Triage & Vitals · vital-1' })).toBeTruthy()
+    expect(screen.queryByText('Your current facility role does not grant access to encounter records.')).toBeNull()
   })
 
   it('signs the encounter’s note only after SIGN is typed, after the access re-check', async () => {

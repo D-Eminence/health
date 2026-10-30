@@ -27,6 +27,7 @@ vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ name: 'test' }) 
 vi.mock('../../../ehr-blue/clinical/consult/orders', () => ({
   EncounterOrders: () => <p>Connected orders part</p>,
   EncounterOrderPages: () => <p>Order pages part</p>,
+  orderPath: (encounterId: string, kind: string, orderId: string) => `${encounterId}/orders/${kind}/${orderId}`,
 }))
 
 const ALL = [
@@ -177,7 +178,11 @@ describe('Consultation list', () => {
 
   it('offers "Create record" as a real button only when the grant allows changes', async () => {
     open()
-    fireEvent.click(await screen.findByRole('button', { name: 'Create record' }))
+    const create = await screen.findByRole('button', { name: 'Create record' })
+    // The design's heading order: "Create record", then "Refresh encounters".
+    const heading = screen.getByRole('heading', { level: 1, name: 'Consultation' }).parentElement!.parentElement!
+    expect(within(heading).getAllByRole('button').map(button => button.textContent)).toEqual(['Create record', 'Refresh encounters'])
+    fireEvent.click(create)
     expect(await screen.findByRole('heading', { level: 1, name: 'New consultation' })).toBeTruthy()
   })
 
@@ -252,6 +257,40 @@ describe('New consultation', () => {
   it('says no allergies are recorded when the patient reported none', async () => {
     await openNew()
     expect(await screen.findByText('Recorded allergies: None recorded. Confirm with the patient.')).toBeTruthy()
+  })
+
+  it('says nothing about allergies when the read is refused, not served or unreadable, as today', async () => {
+    for (const failure of [
+      new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' }),
+      new HidApiError(404, 'Not found', { code: 'NOT_FOUND' }),
+      new TypeError('The answer could not be read.'),
+    ]) {
+      api.reportedHealthProfile.mockRejectedValueOnce(failure)
+      const view = open('/new')
+      expect(await screen.findByRole('button', { name: 'Save record' })).toBeTruthy()
+      await waitFor(() => expect(api.reportedHealthProfile).toHaveBeenCalled())
+      await act(async () => {})
+      const context = screen.getByRole('region', { name: 'Patient context' })
+      expect(within(context).getByText(PATIENT_NAME)).toBeTruthy()
+      expect(within(context).queryByText(/Recorded allergies/)).toBeNull()
+      view.unmount()
+      api.reportedHealthProfile.mockClear()
+    }
+  })
+
+  it('says the allergies could not be loaded when the service fails to answer', async () => {
+    api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
+    await openNew()
+    expect(await screen.findByText('Recorded allergies: what the patient entered about their health could not be loaded. Confirm with the patient.')).toBeTruthy()
+    expect(screen.queryByText(/None recorded/)).toBeNull()
+  })
+
+  it('reads no allergies and says nothing about them without ehr.note.read', async () => {
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.note.read')
+    await openNew()
+    await act(async () => {})
+    expect(within(screen.getByRole('region', { name: 'Patient context' })).queryByText(/Recorded allergies/)).toBeNull()
+    expect(api.reportedHealthProfile).not.toHaveBeenCalled()
   })
 
   it('checks required fields on submit and moves focus to the first, calling nothing', async () => {
@@ -331,6 +370,41 @@ describe('New consultation', () => {
     expect(api.createEncounter).toHaveBeenCalledTimes(1)
     expect(api.createRecord).toHaveBeenCalledTimes(2)
     expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
+  })
+
+  it('never writes the note twice: once saved, its fields go and a retry sends only what is left', async () => {
+    api.createRecord.mockImplementation(async (_f: string, _p: string, encounterId: string, kind: string) => {
+      if (kind === 'diagnoses' && api.createRecord.mock.calls.filter(call => call[3] === 'diagnoses').length === 1) {
+        throw new HidApiError(400, 'One or more request fields are invalid.', {
+          code: 'VALIDATION_FAILED', details: [{ field: 'code', messages: ['code must be shorter than or equal to 100 characters'] }],
+        })
+      }
+      return { id: `${kind}-1`, patientId: PATIENT_ID, encounterId, createdAt: '2026-10-30T09:00:00.000Z' }
+    })
+    const save = await openNew()
+    fill('Presenting complaint', 'Cough')
+    fill('History', 'H')
+    fill('Examination', 'E')
+    fill('Diagnosis / assessment', 'Upper respiratory infection')
+    fill('Diagnosis code system', 'ICD-10')
+    fill('Diagnosis code', 'J06.9X')
+    fill('Clinical note', 'N')
+    fireEvent.click(save)
+
+    expect((await screen.findByRole('alert')).textContent).toBe('One or more request fields are invalid. Code must be shorter than or equal to 100 characters.')
+    expect(screen.getByLabelText(labelled('Diagnosis code')).getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByText('Encounter created by the backend. Outpatient · Cough. The draft clinical note was saved; change it from the encounter’s page. Saving again adds the rest to this encounter.')).toBeTruthy()
+    // The saved note's fields are gone, so nothing typed there can be lost or sent as a second note.
+    for (const label of ['History', 'Examination', 'Clinical note', 'Follow-up']) expect(screen.queryByLabelText(labelled(label))).toBeNull()
+
+    fill('Diagnosis code', 'J06.9')
+    fireEvent.click(screen.getByRole('button', { name: 'Save record' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'e1111111' })).toBeTruthy()
+    expect(api.createEncounter).toHaveBeenCalledTimes(1)
+    expect(api.createRecord.mock.calls.filter(call => call[3] === 'clinical-notes')).toHaveLength(1)
+    const diagnoses = api.createRecord.mock.calls.filter(call => call[3] === 'diagnoses')
+    expect(diagnoses).toHaveLength(2)
+    expect(diagnoses[1]![4]).toMatchObject({ code: 'J06.9' })
   })
 
   it('shows a refused encounter at its field with today’s sentences', async () => {

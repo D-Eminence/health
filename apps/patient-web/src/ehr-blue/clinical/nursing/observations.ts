@@ -32,6 +32,20 @@ export const RELOAD_NOTE = 'Reload the note before recording a revision.'
 export const CONTENT_FAILED = 'Note content could not be loaded.'
 export const NO_CONTENT = 'No note content is available.'
 export const LOADING_REVISIONS = 'Loading note revisions…'
+export const NOTE_STATUS_UPDATED = 'Clinical note status updated.'
+export const STATUS_FAILED = 'Status could not be changed.'
+export const RELOAD_RECORD = 'Reload the record before changing its status.'
+export const SIGN_LABEL = 'Sign note'
+export const ERROR_LABEL = 'Mark entered in error'
+
+export type NoteStatusChange = 'signed' | 'entered_in_error'
+
+/** Today's note status changes (Clinical.tsx noteTransitions), by the note's status. */
+export const NOTE_TRANSITIONS: Readonly<Record<string, readonly { readonly status: NoteStatusChange; readonly label: string }[]>> = {
+  draft: [{ status: 'signed', label: SIGN_LABEL }, { status: 'entered_in_error', label: ERROR_LABEL }],
+  signed: [{ status: 'entered_in_error', label: ERROR_LABEL }],
+  amended: [{ status: 'entered_in_error', label: ERROR_LABEL }],
+}
 
 export function composeObservation(details: string, units: string): string {
   return units ? `${details}\n\n${UNITS}${units}` : details

@@ -67,7 +67,8 @@ export function requestDetails(request: AccessRequest): KeyValue[] {
   return items
 }
 
-function latest(request: AccessRequest): string {
+/** The request's latest change (asked, approved or denied): the list's Updated and the page's Saved. */
+export function latest(request: AccessRequest): string {
   return [request.deniedAt, request.approvedAt, request.requestedAt]
     .filter((value): value is string => !!value)
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? request.requestedAt

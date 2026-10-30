@@ -130,9 +130,10 @@ export function refusedFieldErrors(caught: unknown, map: Readonly<Record<string,
   return errors
 }
 
-/** A diagnosis's status as its row shows it: entered in error first, then the clinical status. */
+/** A diagnosis's status as its row shows it: entered in error first, then refuted (ruled out), then the clinical status. */
 export function diagnosisStatus(record: ClinicalRecord): string {
   if (record.verificationStatus === 'entered_in_error') return 'entered_in_error'
+  if (record.verificationStatus === 'refuted') return 'refuted'
   return typeof record.clinicalStatus === 'string' && record.clinicalStatus ? record.clinicalStatus : 'recorded'
 }
 

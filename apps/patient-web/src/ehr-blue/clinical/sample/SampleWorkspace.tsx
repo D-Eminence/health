@@ -19,10 +19,13 @@ export { resetSampleStore } from './store'
  */
 export const sampleStatus: EhrBluePageStatus = 'sample'
 
-/** A whole sample workspace: the list (`index`), `new` and `:recordId`, under the sample notice. */
+/**
+ * A whole sample workspace: the list (`index`), `new` and `:recordId`, under the sample notice. The tab reads
+ * "{title} · Health ID EHR" on each of them (the workspace's label, never a record or patient).
+ */
 export function SampleWorkspace({ id }: { id: string }) {
   return (
-    <Workspace path={id} sample>
+    <Workspace path={id} title={sampleDefinition(id)?.title} sample>
       <InsideSampleWorkspace.Provider value>
         <Routes>
           <Route index element={<SampleHome id={id} />} />

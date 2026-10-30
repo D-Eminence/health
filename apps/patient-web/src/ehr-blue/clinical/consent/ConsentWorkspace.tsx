@@ -52,11 +52,16 @@ function RequestList() {
 
   return (
     <>
+      {/* The design's order: "Create record", then the secondary "Verify patient PIN", in one slot. */}
       <EhrPageHeading
         title={TITLE}
-        secondaryActions={can('identity.patient-access-pin.verify')
-          ? <EhrButton variant="secondary" onClick={() => navigate(href('pin'))}>Verify patient PIN</EhrButton> : undefined}
-        primaryAction={can('identity.consent.write') ? <EhrButton onClick={() => navigate(href('new'))}>Create record</EhrButton> : undefined}
+        primaryAction={can('identity.consent.write') || can('identity.patient-access-pin.verify') ? (
+          <>
+            {can('identity.consent.write') ? <EhrButton onClick={() => navigate(href('new'))}>Create record</EhrButton> : null}
+            {can('identity.patient-access-pin.verify')
+              ? <EhrButton variant="secondary" onClick={() => navigate(href('pin'))}>Verify patient PIN</EhrButton> : null}
+          </>
+        ) : undefined}
       />
       <EhrCard>
         <SearchField label={`Search ${TITLE}`} value={search} onChange={setSearch} />

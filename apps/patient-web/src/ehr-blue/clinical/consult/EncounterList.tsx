@@ -99,8 +99,13 @@ function Encounters({ chart }: { chart: Chart }) {
     <>
       <EhrPageHeading
         title={TITLE}
-        secondaryActions={<EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void load({ fresh: true }) }}>Refresh encounters</EhrButton>}
-        primaryAction={canCreate ? <EhrButton onClick={() => navigate(href('new'))}>Create record</EhrButton> : undefined}
+        // The design's order: "Create record" first, then "Refresh encounters" (the heading draws its secondary actions first).
+        secondaryActions={(
+          <>
+            {canCreate ? <EhrButton onClick={() => navigate(href('new'))}>Create record</EhrButton> : null}
+            <EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void load({ fresh: true }) }}>Refresh encounters</EhrButton>
+          </>
+        )}
       />
       {chart.writeNotice ? <Banner tone="warning" title="Changes are unavailable">{chart.writeNotice}</Banner> : null}
       <EhrCard>

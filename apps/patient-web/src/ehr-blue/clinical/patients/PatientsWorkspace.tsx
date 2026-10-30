@@ -13,6 +13,7 @@ import {
   ACCESS_CLOSED, HID_FORMAT, OPEN_SHARED, actionUnavailable, administratorOf, healthIdInput, healthIdProblem, isRefusedLookup,
   offerHealthId, useOpenPatient,
 } from '../consent/access'
+import { PinAccess } from '../consent/PinAccess'
 import { CLOSED_NOTICE, PatientPage, accessLabel, patientDetails } from './PatientPage'
 import { ShareInvitationsForMe, SharedWithYou } from './SharingCards'
 
@@ -20,8 +21,10 @@ import { ShareInvitationsForMe, SharedWithYou } from './SharingCards'
 export const patientsStatus: EhrBluePageStatus = 'live'
 
 /**
- * Patients: search by Health ID (today's governed access), the patient open now, and that patient's page at
- * `patients/open`. There is no list of every patient: Health ID shows a patient only once this facility may see them.
+ * Patients: search by Health ID (today's governed access), the patient open now, that patient's page at
+ * `patients/open`, and the patient PIN at `patients/pin` (as on today's Patients page, it needs no
+ * identity.consent.write, which the frame asks for External record access). There is no list of every patient:
+ * Health ID shows a patient only once this facility may see them.
  */
 export function PatientsWorkspace() {
   return (
@@ -30,6 +33,7 @@ export function PatientsWorkspace() {
         <Routes>
           <Route index element={<PatientList />} />
           <Route path="open" element={<PatientPage />} />
+          <Route path="pin" element={<PinAccess />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </ChartProvider>
@@ -47,7 +51,7 @@ function noticeOf(state: unknown): string {
 }
 
 function PatientList() {
-  const { facility, permissions, can, activePatient } = useClinical()
+  const { facility, permissions, can, activePatient, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   const location = useLocation()
@@ -104,10 +108,19 @@ function PatientList() {
     void open(sharedHid)
   }
 
+  /**
+   * The PIN is a Patients page; a request is External record access, which the frame opens only with
+   * identity.consent.write. The Health ID is handed over only where the form can open and read it.
+   */
   function obtain(target: 'new' | 'pin') {
     if (!refused || !facility) return
-    offerHealthId(refused.hid, facility.id)
-    navigate(href.to('consent', target))
+    if (target === 'pin') {
+      offerHealthId(refused.hid, facility.id, setActivePatient)
+      navigate(href('pin'))
+      return
+    }
+    if (can('identity.consent.write')) offerHealthId(refused.hid, facility.id, setActivePatient)
+    navigate(href.to('consent', 'new'))
   }
 
   const rows = useMemo<RecordRow[]>(() => {

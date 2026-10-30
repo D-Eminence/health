@@ -2,7 +2,7 @@ import { EhrButton, EhrCard, EhrField, EhrInput } from '@hid/ui/ehr'
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ActionList, ConfirmAction, DetailGrid, DetailMeta, HistoryCard, SavedRecord, SubHeading, VersionsCard } from '../parts/Detail'
-import { ErrorBox, NO_ACTIONS, RecordHeading, RecordNotFound } from '../parts/Notices'
+import { ErrorBox, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
 import { COMPLETE_FIELD, RecordForm, type FormValues } from '../parts/RecordForm'
 import { SampleBanner } from '../parts/SampleBanner'
 import { useWorkspaceHref } from '../parts/Workspace'
@@ -84,7 +84,7 @@ function RecordPage({ definition, record, current }: { definition: SampleDefinit
                   <EhrButton key={item.id} variant="secondary" aria-expanded={item.id === selected} onClick={() => setSelected(item.id)}>{item.label}</EhrButton>
                 ))}
               </ActionList>
-            ) : <p className="hid-ehr-clinical-note">{NO_ACTIONS}</p>}
+            ) : <NoActions />}
             {action ? (
               <ActionForm
                 key={action.id}

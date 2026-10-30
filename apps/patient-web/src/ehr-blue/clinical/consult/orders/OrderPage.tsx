@@ -14,7 +14,7 @@ import type { Chart } from '../../parts/chart'
 import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord } from '../../parts/Detail'
 import { formatWhen, shortId } from '../../parts/format'
 import type { KeyValue } from '../../parts/KeyValueList'
-import { Banner, ErrorBox, Loading, NO_ACTIONS, RecordNotFound } from '../../parts/Notices'
+import { Banner, ErrorBox, Loading, NoActions, RecordNotFound } from '../../parts/Notices'
 import { patientLine } from '../../parts/PatientHeader'
 import { RecordForm, type FieldErrors, type FormValues, type SubmitOutcome } from '../../parts/RecordForm'
 import { useWorkspaceHref } from '../../parts/Workspace'
@@ -407,7 +407,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
                 ))}
               </ActionList>
             </div>
-          ) : <p>{NO_ACTIONS}</p>}
+          ) : <NoActions />}
           {form}
           {labNotes.map(note => <p key={note} className="hid-ehr-clinical-orders-muted hid-ehr-clinical-orders-gap">{note}</p>)}
         </EhrCard>
