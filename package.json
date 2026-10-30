@@ -12,6 +12,7 @@
     "apps/*"
   ],
   "scripts": {
+    "dev:mock": "node dev/mock-gateway/server.mjs",
     "typecheck": "tsc --build --force",
     "test": "vitest run",
     "test:watch": "vitest",
