@@ -138,6 +138,8 @@ export interface EhrAppShellProps {
   readonly children: ReactNode
   readonly skipLinkLabel?: string
   readonly className?: string
+  /** Hides the main content, as an app does while something else stands in for its page (a session check). */
+  readonly mainHidden?: boolean
 }
 
 export function EhrAppShell({
@@ -146,6 +148,7 @@ export function EhrAppShell({
   children,
   skipLinkLabel = 'Skip to main content',
   className,
+  mainHidden = false,
 }: EhrAppShellProps) {
   const workspaceRef = useRef<HTMLDivElement>(null)
   const [stack] = useState(() => createOverlayStack(workspaceRef))
@@ -169,7 +172,7 @@ export function EhrAppShell({
           {sidebar}
           <div className="hid-ehr-shell-body">
             {topBar}
-            <main id="main-content" tabIndex={-1} className="hid-ehr-main">
+            <main id="main-content" tabIndex={-1} className="hid-ehr-main" hidden={mainHidden}>
               <div className="hid-ehr-main-inner">{children}</div>
             </main>
           </div>

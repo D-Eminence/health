@@ -43,10 +43,12 @@ export function BlueHome() {
   // Home reads the access requests each time it opens, as today's Overview does.
   const reloadRequests = useReloadAccessRequests()
   useEffect(() => { reloadRequests() }, [reloadRequests])
-  if (role.viewing) return <RoleDashboard role={role.viewing} />
+  // A sample dashboard is the demo's alone, even when chosen there before a switch to a clinic.
+  if (role.viewing && isDemoFacility(facility?.id)) return <RoleDashboard role={role.viewing} />
   if (!session) return null
   const name = session.actor.displayName ?? 'colleague'
-  const candidates = pages.filter(page => page.path !== '' && !page.group.startsWith('Design') && pageAllowed(page, session))
+  const candidates = pages.filter(page => page.path !== '' && !page.group.startsWith('Design') && pageAllowed(page, session)
+    && (page.listed?.(session) ?? true))
   const shortcuts = chosen
     ? candidates.filter(page => chosen.includes(page.path))
     : candidates.filter(page => page.status === 'live').slice(0, MAX_SHORTCUTS)
