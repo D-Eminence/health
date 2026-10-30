@@ -58,19 +58,33 @@ describe('the page entry', () => {
 })
 
 describe('at a governed facility', () => {
-  it('leaves Staff & access out of the sidebar and search, and its address reads no staff', async () => {
+  it('leaves Staff & access out of the sidebar and search, and its address says today\'s sentence, reading no staff', async () => {
     const demo = governed()
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp('/provider/staff')
     const nav = await screen.findByRole('navigation', { name: 'Main navigation' })
     expect(within(nav).queryByRole('link', { name: 'Staff & access' })).toBeNull()
-    // The frame refuses the address; nothing of the staff list shows and nothing asks for it.
+    // The address gives today's words, not the frame's "not open to you here"; nothing asks for the staff.
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Staff & access')
+    expect(screen.getByText('Health ID support manages who works at Demo Hospital. Contact Health ID support to add or remove staff.'))
+      .toBeDefined()
+    expect(screen.queryByText(/is not open to you here/)).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Hospital memberships' })).toBeNull()
     fireEvent.keyDown(document, { key: 'k', ctrlKey: true })
     const search = await screen.findByRole('dialog', { name: 'Search Health ID' })
     fireEvent.change(within(search).getByRole('searchbox', { name: 'Search work areas' }), { target: { value: 'Staff' } })
     expect(within(search).queryByRole('link', { name: /Staff & access/ })).toBeNull()
+    expect(sent.filter(request => request.route === STAFF)).toHaveLength(0)
+  })
+})
+
+describe('without staff management', () => {
+  it('says only the administrator manages staff, reading no staff', async () => {
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['ehr.encounter.read'])
+    const sent = serve({ [SESSION]: [sessionAt(demo, [demo])] })
+    await openStaffApp('/provider/staff')
+    await screen.findByRole('navigation', { name: 'Main navigation' })
+    expect(screen.getByText('Only Demo Hospital’s administrator can manage its staff.')).toBeDefined()
     expect(sent.filter(request => request.route === STAFF)).toHaveLength(0)
   })
 })
