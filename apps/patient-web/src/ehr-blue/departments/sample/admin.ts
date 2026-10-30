@@ -1,4 +1,4 @@
-import { recordOptions, type SampleDefinition, type SampleRecord, type SampleValues } from '../parts/sample/model'
+import { recordOptions, type SampleApplied, type SampleDefinition, type SampleRecord, type SampleValues } from '../parts/sample/model'
 
 /*
  * Sample definitions: Service catalogue, Quality & Safety, Shifts & Roster, Dispatch and Vehicle configuration.
@@ -96,7 +96,12 @@ export const shiftsSample: SampleDefinition = {
     { id: 'clockin', label: 'Simulated clock-in', from: ['assigned'], to: 'on-duty' },
     { id: 'clockout', label: 'Simulated clock-out', from: ['on-duty'], to: 'completed', fields: [{ key: 'handover', label: 'Handover notes', type: 'textarea' }] },
   ],
-  apply: ({ action, at }) => action.id === 'clockin' ? { values: { clockinAt: at } } : action.id === 'clockout' ? { values: { clockoutAt: at } } : {},
+  // When the simulated clock-in and clock-out happened, as the design records them.
+  apply: ({ action, at }): SampleApplied => {
+    if (action.id === 'clockin') return { values: { clockinAt: at } }
+    if (action.id === 'clockout') return { values: { clockoutAt: at } }
+    return {}
+  },
   records: [
     row('c4a2d06b-9c0d-4e1f-9a2b-1e0f3a4b5c11', 'on-duty', { ...nurseShift, clockinAt: '2026-10-26T11:41:16.657Z' }, '2026-10-26T11:41:16.657Z', [
       { at: '2026-10-26T11:41:16.657Z', status: 'assigned', reason: 'Simulated clock-in', values: nurseShift },
