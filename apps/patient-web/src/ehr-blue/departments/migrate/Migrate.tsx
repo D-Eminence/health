@@ -64,8 +64,10 @@ function ViewTitle({ children }: { readonly children: ReactNode }) {
 export function Migrate() {
   const { facilityId, permissions, actorId } = useDeptAccess()
   const { lock } = useStaff()
+  // OCR's parts need OCR job read; Patient documents needs document read, as the clinical record's Documents tab does.
   const canRead = permissions.includes('ocr.job.read')
-  const canWrite = permissions.includes('ocr.job.write')
+  const canWrite = canRead && permissions.includes('ocr.job.write')
+  const canDocuments = permissions.includes('ehr.document.read')
   // A clinical document's "Extract with OCR" link hands over its IDs in router state, never in the URL. The history
   // entry holding them outlives the session and the facility that made it (Back, Forward and a reload bring it back),
   // so they count only for that account and facility, and only once.
@@ -264,11 +266,11 @@ export function Migrate() {
     else focus('ocr-document')
   }
 
-  if (!facilityId || !canRead) return <DeptPage title="Migrate">
-    <DeptNotice tone="critical" role="alert">Permission denied. This membership or branch cannot open this module: it needs OCR job read permission.</DeptNotice>
+  if (!facilityId || (!canRead && !canDocuments)) return <DeptPage title="Migrate">
+    <DeptNotice tone="critical" role="alert">Permission denied. This membership or branch cannot open this module: it needs OCR job read or document read permission.</DeptNotice>
   </DeptPage>
 
-  const detail = view === 'detail' && visibleJob ? visibleJob : null
+  const detail = view === 'detail' && canRead && visibleJob ? visibleJob : null
   const creating = view === 'new' && canWrite
   const title = detail ? jobName(detail) : creating ? 'New document job' : 'Migrate'
   // Mounted throughout, in the same place in every view, so a message put in it is announced.
@@ -277,6 +279,11 @@ export function Migrate() {
     primaryAction={!detail && !creating && canWrite ? <EhrButton onClick={() => startNew()}>Create record</EhrButton> : undefined}>
     {status}
     {detail ? <Fragment key="detail">{jobRecord(detail)}</Fragment> : creating ? <Fragment key="new">{newJob()}</Fragment> : <Fragment key="list">{jobList()}</Fragment>}
+    {/* Mounted in every view and hidden outside the list, so going back to the list does not read the patient, the
+        consent, the encounters and the documents again (each read is audited), and keeps the encounter and page chosen. */}
+    <div key="capture" hidden={Boolean(detail || creating)}>
+      <DocumentCapture facilityId={facilityId} permissions={permissions} onExtract={extract} />
+    </div>
     <EhrDrawer open={quick !== null} title="Record quick view" onClose={() => setQuick(null)}>
       {quick && <div className="hid-ehr-dept-migrate-quick">
         <h3>{jobName(quick.job)}</h3>
@@ -292,6 +299,9 @@ export function Migrate() {
     const shown = rows.filter(row => matchesSearch(search, [row.job.documentId, shortId(row.job.documentId), row.job.id,
       statusWords(row.job.status), row.job.provider, row.job.patientId]))
     const nothingFound = searched && !visibleJob && currentDocument !== ''
+    if (!canRead) return <DeptSection title="Document OCR">
+      <DeptNotice tone="critical">Permission denied. Finding, creating and reviewing OCR jobs needs OCR job read permission.</DeptNotice>
+    </DeptSection>
     return <>
       <DeptNotice title="Project migration is not available yet">
         <p>This Health ID deployment runs document OCR jobs for authorized clinical documents. Project setup, bulk import, record matching and a migration index need backend support before they can be offered.</p>
@@ -325,15 +335,17 @@ export function Migrate() {
           </MigrateField>
           <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-find-submit" type="submit" busy={busy}>{busy ? 'Checking…' : 'Find job'}</EhrButton></div>
         </form>
-        {nothingFound && <div className="hid-ehr-empty-state hid-ehr-dept-migrate-none">
-          <p className="hid-ehr-state-title">No OCR job for this document</p>
-          <p className="hid-ehr-state-message">{canWrite ? `Document ${shortId(currentDocument)} has no extraction job yet. Create one for a verified patient document.`
-            : `Document ${shortId(currentDocument)} has no extraction job yet.`}</p>
-          {canWrite && <div className="hid-ehr-state-action"><EhrButton variant="secondary" id="ocr-create-start" onClick={() => startNew(currentDocument)}>Create record</EhrButton></div>}
-        </div>}
+        <div className={nothingFound ? 'hid-ehr-empty-state hid-ehr-dept-migrate-none' : undefined}>
+          {/* Mounted with the form, so the answer that a document has no job is announced; Create record stays outside it. */}
+          <div id="ocr-find-result" role="status">{nothingFound && <>
+            <p className="hid-ehr-state-title">No OCR job for this document</p>
+            <p className="hid-ehr-state-message">{canWrite ? `Document ${shortId(currentDocument)} has no extraction job yet. Create one for a verified patient document.`
+              : `Document ${shortId(currentDocument)} has no extraction job yet.`}</p>
+          </>}</div>
+          {nothingFound && canWrite && <div className="hid-ehr-state-action"><EhrButton variant="secondary" id="ocr-create-start" onClick={() => startNew(currentDocument)}>Create record</EhrButton></div>}
+        </div>
         {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
       </DeptSection>
-      <DocumentCapture facilityId={facilityId!} permissions={permissions} onExtract={extract} />
     </>
   }
 

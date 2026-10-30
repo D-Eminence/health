@@ -132,7 +132,8 @@ function PatientDocuments({ facilityId, permissions, onExtract, onAccessEnded }:
 
   if (!activePatient || !patientId) return null
   const patientName = activePatient.lookup.patient.fullName ?? activePatient.hid
-  const items = encounters?.items ?? []
+  // Only encounters of the patient open, at the working facility, as the clinical record lists them.
+  const items = (encounters?.items ?? []).filter(item => item.patientId === patientId && item.facilityId === facilityId)
   const selected = items.find(item => item.id === chosen) ?? items[0]
   const canWrite = writeAccess?.allowed === true && permissions.includes('ehr.document.write')
   const cursors = encounters?.cursors ?? FIRST_PAGE

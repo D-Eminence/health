@@ -141,6 +141,27 @@ describe('Patient documents: an encounter\'s documents', () => {
     expect(within(card()).getByRole('button', { name: 'Next page' }).getAttribute('aria-disabled')).toBe('true')
   })
 
+  it('lists only encounters of the patient open at the working facility', async () => {
+    api.encounters.mockResolvedValue({ items: [
+      { ...encounter, id: 'e0000000-0000-4000-8000-0000000000a1', patientId: 'a0000000-0000-4000-8000-0000000000ff', encounterType: 'inpatient' },
+      { ...encounter, id: 'e0000000-0000-4000-8000-0000000000a2', facilityId: '98d00002-0000-4000-8000-000000000002', encounterType: 'maternity' },
+      secondEncounter,
+    ], nextCursor: null })
+    renderDept(<Migrate />)
+    await waitFor(() => expect(api.documents).toHaveBeenCalled())
+    const select = within(card()).getByLabelText('Encounter') as HTMLSelectElement
+    expect([...select.options].map(option => option.value)).toEqual([secondEncounter.id])
+    expect(api.documents).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, PATIENT, secondEncounter.id)
+    expect(api.documents).toHaveBeenCalledTimes(1)
+  })
+
+  it('says there is no encounter when none listed is the open patient\'s here', async () => {
+    api.encounters.mockResolvedValue({ items: [{ ...encounter, facilityId: '98d00002-0000-4000-8000-000000000002' }], nextCursor: null })
+    renderDept(<Migrate />)
+    expect(await within(card()).findByText('No encounters yet')).toBeTruthy()
+    expect(api.documents).not.toHaveBeenCalled()
+  })
+
   it('says when the patient has no encounter to keep documents on', async () => {
     api.encounters.mockResolvedValue({ items: [], nextCursor: null })
     renderDept(<Migrate />)
@@ -271,6 +292,26 @@ describe('Patient documents: opening and extracting', () => {
     await press(screen.getByRole('button', { name: 'Save record' }))
     await screen.findByRole('heading', { name: 'Saved record' })
     expect(api.createOcrJob).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, DOCUMENT, PATIENT)
+  })
+
+  it('going to a job and back keeps the encounter and page chosen, and reads nothing again', async () => {
+    api.encounters.mockResolvedValueOnce({ items: [encounter, secondEncounter], nextCursor: 'cursor-demo-2' })
+    await openDocuments()
+    api.encounters.mockResolvedValueOnce({ items: [secondEncounter, { ...secondEncounter, id: 'e0000000-0000-4000-8000-000000000003' }], nextCursor: null })
+    await press(within(card()).getByRole('button', { name: 'Next page' }))
+    await waitFor(() => expect(within(card()).getByText('Page 2')).toBeTruthy())
+    fireEvent.change(within(card()).getByLabelText('Encounter'), { target: { value: 'e0000000-0000-4000-8000-000000000003' } })
+    await screen.findByText('discharge-summary.pdf')
+    const reads = () => [api.lookupPatient, api.consentStatus, api.encounters, api.documents].map(fn => fn.mock.calls.length)
+    const before = reads()
+    await press(within(screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement).getByRole('button', { name: 'Extract with OCR' }))
+    expect(screen.getByRole('heading', { level: 1, name: 'New document job' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Patient documents' })).toBeNull()
+    await press(screen.getByRole('button', { name: 'Back to list' }))
+    expect(screen.getByRole('heading', { name: 'Patient documents' })).toBeTruthy()
+    expect((within(card()).getByLabelText('Encounter') as HTMLSelectElement).value).toBe('e0000000-0000-4000-8000-000000000003')
+    expect(within(card()).getByText('Page 2')).toBeTruthy()
+    expect(reads()).toEqual(before)
   })
 
   it('without OCR job write, Extract with OCR fills in Find document job and takes focus there', async () => {

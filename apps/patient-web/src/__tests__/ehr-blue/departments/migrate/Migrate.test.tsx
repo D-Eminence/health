@@ -102,17 +102,40 @@ function onlyCalled(...names: Array<keyof typeof api>) {
 }
 
 describe('Migrate page entry', () => {
-  it('is listed under Operations as Migrate, for OCR job read, live', () => {
-    expect(migratePage).toMatchObject({ path: 'migrate', group: 'Operations', label: 'Migrate', permission: 'ocr.job.read', status: 'live' })
+  it('is listed under Operations as Migrate, for document read (capture), live', () => {
+    expect(migratePage).toMatchObject({ path: 'migrate', group: 'Operations', label: 'Migrate', permission: 'ehr.document.read', status: 'live' })
   })
 
-  it('refuses a membership without OCR job read permission, and reads nothing', () => {
-    session.permissions = ['ehr.document.read']
+  it('refuses a membership with neither OCR job read nor document read, once, naming both, and reads nothing', () => {
+    session.permissions = ['ocr.job.write', 'ehr.document.write']
     renderMigrate()
     expect(screen.getByRole('heading', { level: 1, name: 'Migrate' })).toBeTruthy()
-    expect(screen.getByRole('alert').textContent).toBe('Permission denied. This membership or branch cannot open this module: it needs OCR job read permission.')
+    expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([
+      'Permission denied. This membership or branch cannot open this module: it needs OCR job read or document read permission.'])
     expect(screen.queryByRole('button', { name: 'Find job' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Patient documents' })).toBeNull()
     onlyCalled()
+  })
+
+  it('a membership with document read only reaches Patient documents, and sees the OCR refusal in place of OCR', () => {
+    session.permissions = ['ehr.document.read', 'ehr.document.write', 'ocr.job.write']
+    renderMigrate()
+    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Migrate'])
+    expect(screen.getByText('Permission denied. Finding, creating and reviewing OCR jobs needs OCR job read permission.')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Patient documents' })).toBeTruthy()
+    expect(screen.getByText('No patient open')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Find job' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(screen.queryByRole('searchbox', { name: 'Search Migrate' })).toBeNull()
+    expect(screen.queryByText('Project migration is not available yet')).toBeNull()
+    onlyCalled()
+  })
+
+  it('a membership with OCR job read only has no Patient documents', () => {
+    session.permissions = ['ocr.job.read']
+    renderMigrate()
+    expect(button('Find job')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Patient documents' })).toBeNull()
   })
 })
 
@@ -155,6 +178,20 @@ describe('Migrate list view', () => {
     await waitFor(() => expect(focused()).toBe(field))
     expect(document.getElementById(field.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Enter a valid document ID (a UUID).')
     expect(api.findOcrJob).not.toHaveBeenCalled()
+  })
+
+  it('announces that a document has no job in a region mounted before the answer, with Create record outside it', async () => {
+    api.findOcrJob.mockResolvedValue({ job: null })
+    renderMigrate()
+    const region = document.getElementById('ocr-find-result')!
+    expect(region.getAttribute('role')).toBe('status')
+    expect(region.textContent).toBe('')
+    fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
+    await press(button('Find job'))
+    await waitFor(() => expect(region.textContent).toBe('No OCR job for this documentDocument ••••000001 has no extraction job yet. Create one for a verified patient document.'))
+    expect(region.isConnected).toBe(true)
+    expect(within(region).queryByRole('button')).toBeNull()
+    expect(document.getElementById('ocr-create-start')).toBeTruthy()
   })
 
   it('says when a document has no job, keeps focus on Find job, and offers to create one', async () => {

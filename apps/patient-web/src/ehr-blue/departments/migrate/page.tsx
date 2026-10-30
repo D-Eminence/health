@@ -6,7 +6,7 @@ export const migratePage: EhrBluePage = {
   path: 'migrate',
   group: 'Operations',
   label: 'Migrate',
-  permission: 'ocr.job.read',
+  permission: 'ehr.document.read',
   status: 'live',
   icon: <UploadIcon />,
   element: <Migrate />,
