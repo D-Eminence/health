@@ -1,0 +1,89 @@
+/* Migrate: the few rules beyond departments.css. Every rule sits under .hid-ehr. */
+
+.hid-ehr .hid-ehr-dept-migrate-title:focus {
+  outline: none;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-title:focus-visible {
+  outline: 3px solid var(--ehr-brand);
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-status:empty {
+  display: none;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-find {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  margin: 16px 0 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-none {
+  margin: 20px 0 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-clear {
+  margin: 0 0 18px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-after {
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-text {
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-review {
+  align-items: flex-start;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-publication,
+.hid-ehr .hid-ehr-dept-migrate-evidence {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-encounter {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 18px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-upload {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-dept-migrate-upload h3 {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-quick {
+  display: grid;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-quick h3 {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-dept-migrate-find {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

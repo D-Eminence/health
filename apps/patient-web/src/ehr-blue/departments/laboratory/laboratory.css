@@ -1,0 +1,72 @@
+/*
+ * The blue Laboratory page (departments/laboratory). Scoped under .hid-ehr; values from the --ehr-* tokens.
+ */
+
+/* What a step recorded, said in a status region. */
+.hid-ehr .hid-ehr-dept-laboratory-success {
+  margin: 0 0 10px;
+  color: var(--ehr-success-600);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* A list row's patient and where the work came from. */
+.hid-ehr .hid-ehr-dept-laboratory-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-dept-laboratory .hid-ehr-dept-routed-from {
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-laboratory-cell .hid-ehr-dept-notice {
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-laboratory-routed {
+  margin: 0 0 20px;
+}
+
+.hid-ehr .hid-ehr-dept-laboratory-routed .hid-ehr-dept-routed-from {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+/* Today's order parts reused in the blue look: nothing when they show nothing. */
+.hid-ehr .hid-ehr-dept-laboratory-embedded:empty {
+  display: none;
+}
+
+.hid-ehr .hid-ehr-dept-laboratory-endings {
+  margin: 0;
+}
+
+/* One execution's facts under its sample. */
+.hid-ehr .hid-ehr-dept-laboratory-execution {
+  padding: 12px 0;
+  border-top: 1px solid var(--ehr-line);
+}
+
+/* The quick view drawer's record. */
+.hid-ehr .hid-ehr-dept-laboratory-quick {
+  display: grid;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-laboratory-quick h3 {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-laboratory-quick p {
+  margin: 0;
+}

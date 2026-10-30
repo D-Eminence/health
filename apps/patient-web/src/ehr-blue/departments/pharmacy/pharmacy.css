@@ -1,0 +1,82 @@
+/*
+ * Pharmacy: the few looks the design has that departments.css does not yet: its error box (ErrorBox, `.error`), the
+ * small lines under a list cell, and a form's footer. Scoped under .hid-ehr.
+ */
+
+/* The design's error box: a refusal after an action, or a list that could not be read. */
+.hid-ehr .hid-ehr-dept-pharmacy-error {
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  border: 1px solid #e9bcb9;
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-danger-50);
+  color: var(--ehr-danger-text);
+  font-size: 14px;
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-page-error {
+  margin: 0 0 20px;
+}
+
+/* What a list row's ending form said, and how a routed order ended, under the record or its status. */
+.hid-ehr .hid-ehr-dept-pharmacy-said,
+.hid-ehr .hid-ehr-dept-pharmacy-alert {
+  display: block;
+  max-width: 36ch;
+  margin: 4px 0 0;
+  color: var(--ehr-danger-text);
+  font-size: 11px;
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-said:focus-visible {
+  outline: 3px solid var(--ehr-brand);
+  outline-offset: 2px;
+}
+
+/* The design's form footer: the submit button, then why it was refused. */
+.hid-ehr .hid-ehr-dept-pharmacy-footer {
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-footnote {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-success {
+  margin: 16px 0 0;
+  color: var(--ehr-success-600);
+  font-size: 13px;
+}
+
+/* The route lines under "Saved record", and the order's ending actions under "Available actions". */
+.hid-ehr .hid-ehr-dept-pharmacy-route {
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-endings {
+  margin: 8px 0 0;
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-clear {
+  margin: 0 0 18px;
+}
+
+/* The quick view: the record's name, when it was accepted, its fields, then Open full record. */
+.hid-ehr .hid-ehr-dept-pharmacy-quick h3 {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-quick > p {
+  margin: 0 0 12px;
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-quick > .hid-ehr-button {
+  margin-top: 12px;
+}

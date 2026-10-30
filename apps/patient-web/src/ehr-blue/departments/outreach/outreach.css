@@ -1,0 +1,66 @@
+/*
+ * Outreach: the few looks departments.css does not have yet, from the target's
+ * application.css (.error, .form-footer, small) and workflows.tsx (record pages).
+ */
+
+/* The design's ErrorBox. */
+.hid-ehr .hid-ehr-dept-outreach-error {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--ehr-danger-300);
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-danger-50);
+  color: var(--ehr-danger-text);
+  font-size: 14px;
+}
+
+/* A form's submit, and what it says beside it. */
+.hid-ehr .hid-ehr-dept-outreach-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-note {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+/* "Clear search" and the record pages, between the search and the table. */
+.hid-ehr .hid-ehr-dept-outreach-list-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The quick view's record name and time, over its fields. */
+.hid-ehr .hid-ehr-dept-outreach-quick {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 16px;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-quick h3 {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-quick p {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-quick-open {
+  margin-top: 12px;
+}
