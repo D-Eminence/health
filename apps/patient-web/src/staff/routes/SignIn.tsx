@@ -17,7 +17,7 @@ import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE, StaffMfaSteps, type S
 import { ClinicianSignUpEntry, PageLink } from '../clinician/ClinicianSignUpEntry'
 import { servesClinicianApplications, usesNovuBackend } from '../../backendContract'
 import { capturedStaffInvitation } from '../invitationCapture'
-import { currentOfflineRuntime } from '../offline/holder'
+import { currentOfflineRuntime, forgetRefusedSignIn } from '../offline/holder'
 
 /**
  * Said when Identity ended the sign-in for want of an authenticator
@@ -149,6 +149,8 @@ export function SignIn() {
       else finish(answer.session)
     }
     catch (caught) {
+      // The key derived from a refused password is dropped before anything else (D2).
+      forgetRefusedSignIn()
       setError(passwordRefusal(caught))
       setNoFacility(isHidApiError(caught) && caught.code === 'NO_ACTIVE_FACILITY_MEMBERSHIP')
     }

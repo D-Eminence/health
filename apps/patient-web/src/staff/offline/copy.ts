@@ -96,6 +96,7 @@ export const PANEL = {
   lastSync: 'Last sent',
   never: 'Not yet',
   pending: 'Waiting to send',
+  auditProblem: 'Health ID did not accept some records of what was opened offline. Tell your facility administrator.',
   attention: 'Needs attention',
   accessUntil: 'Offline access until',
   syncNow: 'Send now',

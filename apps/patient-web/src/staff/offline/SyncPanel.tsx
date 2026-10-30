@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from 'react'
 import type { OfflineRuntime } from '@hid/offline'
 import { Button } from '@hid/ui'
 import { attentionText, CONNECTIVITY, PANEL, pendingCountText, POLICY_REASONS } from './copy'
-import { useOfflineSummary } from './runtime'
+import { useOfflineAuditProblem, useOfflineSummary } from './runtime'
 import { dayTime } from './time'
 
 /**
@@ -12,6 +12,7 @@ import { dayTime } from './time'
  */
 export function SyncPanel({ runtime, onReview, onClose }: { runtime: OfflineRuntime; onReview: () => void; onClose: () => void }) {
   const summary = useOfflineSummary(runtime)
+  const auditProblem = useOfflineAuditProblem()
   const heading = useRef<HTMLHeadingElement>(null)
   useLayoutEffect(() => { heading.current?.focus() }, [])
   if (!summary) return null
@@ -32,6 +33,7 @@ export function SyncPanel({ runtime, onReview, onClose }: { runtime: OfflineRunt
     </dl>
     {!policy.enabled && policy.reason && <p className="staff-notice">{POLICY_REASONS[policy.reason]}</p>}
     {summary.clock === 'suspect' && <p className="staff-notice">{PANEL.clockSuspect}</p>}
+    {auditProblem && <p className="staff-notice">{PANEL.auditProblem}</p>}
     <div className="staff-row">
       <Button size="sm" onClick={() => runtime.commands.syncNow()} disabled={offline || summary.pending === 0}>{PANEL.syncNow}</Button>
       {summary.attention > 0 && <Button size="sm" tone="secondary" onClick={onReview}>{PANEL.review}</Button>}

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import * as offlinePackage from '@hid/offline'
-import { createOfflineRuntime, transportFromApiClient, type MediaUploader, type OfflineCore, type OfflineEnv, type OfflineRuntime, type Receipt,
+import { createOfflineRuntime, transportFromApiClient, type MediaUploader, type OfflineCore, type OfflineEnv, type OfflineReport, type OfflineRuntime, type Receipt,
   type StaffSessionSnapshot, type SyncSummary } from '@hid/offline'
 import { uploadPresignedObject } from '@hid/http'
 import { staffTransport, type StaffSession } from '../api'
@@ -41,10 +41,29 @@ function packagedDatabaseExists(): Promise<boolean> {
   return typeof found === 'function' ? (found as () => Promise<boolean>)() : Promise.resolve(false)
 }
 
+/**
+ * What the runtime reported (codes and counts only, never content): kept for the sync panel, so offline audit events
+ * Health ID refused or rejected reach the person instead of being dropped silently.
+ */
+let auditProblem = false
+const reportListeners = new Set<() => void>()
+export function reportOffline(report: OfflineReport): void {
+  if (report.kind !== 'audit-rejected' && (report.kind as string) !== 'audit-refused') return
+  auditProblem = true
+  for (const listener of [...reportListeners]) listener()
+}
+/** Whether offline audit events were refused or rejected since this page loaded. */
+export function useOfflineAuditProblem(): boolean {
+  return useSyncExternalStore(listener => { reportListeners.add(listener); return () => { reportListeners.delete(listener) } },
+    () => auditProblem, () => auditProblem)
+}
+/** Tests only. */
+export function forgetOfflineReports(): void { auditProblem = false; for (const listener of [...reportListeners]) listener() }
+
 const DEFAULT_DEPS: OfflineRuntimeDeps = {
   exists: packagedDatabaseExists,
   create: ({ appHost, env }) => createOfflineRuntime({ appHost, env, transport: transportFromApiClient(staffTransport), upload,
-    safety: staffSafetyProbe }),
+    safety: staffSafetyProbe, report: reportOffline }),
 }
 let deps: OfflineRuntimeDeps = DEFAULT_DEPS
 

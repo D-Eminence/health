@@ -147,6 +147,23 @@ describe('the one-time choice at a pilot facility (amendment A5)', () => {
   })
 })
 
+describe('a password Identity refused (D2)', () => {
+  it('forgets the key it derived before saying the password was refused', async () => {
+    serve(route => route === 'POST /api/v1/auth/login' ? json({ code: 'INVALID_CREDENTIALS', detail: 'Incorrect email or password.' }, 401)
+      : route === 'GET /api/v1/auth/session' || route === 'POST /api/v1/auth/refresh' ? json({ code: 'AUTHENTICATION_REQUIRED' }, 401) : json([]))
+    const { runtime } = fakeOffline()
+    const forgetSignIn = vi.fn()
+    Object.assign(runtime, { forgetSignIn })
+    const prepare = vi.spyOn(runtime, 'prepareFromSignIn')
+    await open(runtime, { mode: 'pilot', facilities: [PILOT] }, '/provider/sign-in')
+    await signIn()
+    await screen.findByRole('alert')
+    expect(prepare).toHaveBeenCalledTimes(1)
+    expect(forgetSignIn).toHaveBeenCalledTimes(1)
+    expect(forgetSignIn.mock.invocationCallOrder[0]).toBeGreaterThan(prepare.mock.invocationCallOrder[0]!)
+  }, 15000)
+})
+
 describe('idle lock', () => {
   it('locks after 5 minutes without use, keeps the form text beneath, and reopens with the password', async () => {
     serve(signingIn(staffSession()))

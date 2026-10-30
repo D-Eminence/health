@@ -13,3 +13,12 @@ export function provideOfflineRuntime(source: () => OfflineCore | null): void {
 export function currentOfflineRuntime(): OfflineCore | null {
   return provide?.() ?? null
 }
+
+/**
+ * Forgets the key a sign-in derived when Identity refused the password (D2): it must never key a session another tab
+ * readies later. Calls the runtime's `forgetSignIn()` (#39); a runtime without it has nothing to forget yet.
+ */
+export function forgetRefusedSignIn(): void {
+  const runtime = currentOfflineRuntime() as (OfflineCore & { forgetSignIn?: () => void }) | null
+  runtime?.forgetSignIn?.()
+}
