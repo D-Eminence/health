@@ -91,11 +91,14 @@ function StaffAccessPage() {
     const text = staffProblemText(caught, { facility: facility.name })
     return (
       <DeptPage eyebrow={EYEBROW} title={TITLE}>
-        <div className="hid-ehr-error-state">
-          <p className="hid-ehr-state-title">Staff couldn’t be loaded</p>
-          <p className="hid-ehr-state-message">{isUnavailable(caught) ? text : `${facility.name}’s staff couldn’t be loaded. ${text}`}</p>
+        {/* An alert, so a refusal is said when it appears, also after "Try again" (focus then returns to the button,
+            which the message describes). */}
+        <div className="hid-ehr-error-state" role="alert">
+          <p id={IDS.failedTitle} className="hid-ehr-state-title">Staff couldn’t be loaded</p>
+          <p id={IDS.failedMessage} className="hid-ehr-state-message">{isUnavailable(caught) ? text : `${facility.name}’s staff couldn’t be loaded. ${text}`}</p>
           <div className="hid-ehr-state-action">
-            <EhrButton id={IDS.retry} variant="secondary" onClick={() => { retrying.current = true; reload() }}>Try again</EhrButton>
+            <EhrButton id={IDS.retry} variant="secondary" aria-describedby={`${IDS.failedTitle} ${IDS.failedMessage}`}
+              onClick={() => { retrying.current = true; reload() }}>Try again</EhrButton>
           </div>
         </div>
       </DeptPage>

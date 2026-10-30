@@ -114,9 +114,16 @@ describe('loading', () => {
       .mockRejectedValueOnce(new HidApiError(503, 'Unavailable', { code: 'UPSTREAM_UNAVAILABLE' }))
       .mockResolvedValue(staff())
     openPage()
-    fireEvent.click(await screen.findByRole('button', { name: 'Try again' }))
+    const message = 'Staff management is temporarily unavailable. Please try again in a few minutes.'
+    // The refusal is an alert, and the button that retries is described by it.
+    expect((await screen.findByRole('alert')).textContent).toBe(`Staff couldn’t be loaded${message}Try again`)
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     const again = await screen.findByRole('button', { name: 'Try again' })
     await waitFor(() => expect(document.activeElement).toBe(again))
+    // Refused again: said again as an alert, and the focused button carries the message.
+    expect(screen.getByRole('alert').contains(again)).toBe(true)
+    expect(again.getAttribute('aria-describedby')!.split(' ').map(id => document.getElementById(id)?.textContent))
+      .toEqual(['Staff couldn’t be loaded', message])
     fireEvent.click(again)
     const heading = await screen.findByRole('heading', { name: 'Memberships' })
     await waitFor(() => expect(document.activeElement).toBe(heading))

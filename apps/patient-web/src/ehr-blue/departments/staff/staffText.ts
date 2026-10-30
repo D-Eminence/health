@@ -16,6 +16,8 @@ export const IDS = {
   members: 'ehr-staff-members-title',
   invitations: 'ehr-staff-invitations-title',
   retry: 'ehr-staff-retry',
+  failedTitle: 'ehr-staff-failed-title',
+  failedMessage: 'ehr-staff-failed-message',
 } as const
 
 /** The target form's word for an empty required field. */
