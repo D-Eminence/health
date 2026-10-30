@@ -1,16 +1,15 @@
 import { isValidElement, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { EhrAppShell, EhrModuleTabs, type EhrNavGroup, type EhrNavItem } from '@hid/ui/ehr'
-import { Activity, Check, History, Hospital, House, Search, ShieldCheck, UserPlus, UserRound } from 'lucide-react'
+import { Activity, Check, Hospital, House, Search, ShieldCheck, UserPlus, UserRound } from 'lucide-react'
 import { AppShell, type NavGroup, type NavItem } from '../../kasuwa/AppShell'
 import { Badge, cx, type Icon } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
-import { visibleNavigation } from '../../staff/navigation'
 import { ReviewBanner } from '../../staff/routes/ReviewBanner'
 import { BillingBanner } from '../../staff/routes/Billing'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
-import { chooseClassicEhr, isDemoFacility } from '../blueFacilities'
+import { isDemoFacility } from '../blueFacilities'
 import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
@@ -18,7 +17,6 @@ import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage, UnknownPage } from './LivePages'
 import { BluePageProvider, BluePagesProvider, OpenPagesProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
-import { TODAY_PATHS } from './pages'
 import { AccountMenu, AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
 import type { EhrBluePage } from './types'
 
@@ -41,6 +39,9 @@ function iconOf(element: ReactNode): Icon {
   if (element && typeof element === 'object') iconCache.set(element, Wrapped)
   return Wrapped
 }
+
+/** Design tools for the team, not places staff work: reachable by address, never listed. */
+const INTERNAL_GROUPS: ReadonlySet<string> = new Set(['Design review', 'Design tour'])
 
 /** The heading a page is listed under in the sidebar. */
 export function sidebarGroupOf(page: Pick<EhrBluePage, 'path' | 'group'>): string {
@@ -83,7 +84,10 @@ export function BlueFrame() {
   const permissions = useMemo(() => facility?.permissions ?? [], [facility])
   const allowed = useMemo(() => BLUE_PAGES.filter(page => pageAllowed(page, session)), [session])
   // What the sidebar and search offer: the allowed pages this session lists.
-  const listed = useMemo(() => allowed.filter(page => !session || (page.listed?.(session) ?? true)), [allowed, session])
+  // Only working screens are offered (the owner's decision of 2026-10-31): sample modules with fictional figures stay in
+  // the code for demos but are not listed in the sidebar or search. Home is always listed.
+  const listed = useMemo(() => allowed.filter(page => (page.status !== 'sample' || page.path === '') && !INTERNAL_GROUPS.has(page.group)
+    && (!session || (page.listed?.(session) ?? true))), [allowed, session])
   const match = matchBluePage(BLUE_PAGES, location.pathname)
   const tabs = match ? pageTabs(allowed, match.page) : []
   const shownTitle = match ? match.page.label : liveOnlyTitle(location.pathname) ?? 'Page not found'
@@ -101,16 +105,6 @@ export function BlueFrame() {
     navigate(item.href)
   }
 
-  const classicEhr = () => {
-    // Today's workspace serves its own pages at the same address, and only at that exact address: a record or a sample
-    // under one (/provider/appointments/5a020001) is not one of today's, so it opens on today's Overview.
-    // So does a page today's sidebar lists for this facility: Staff, at a facility that signed itself up (Novu).
-    const path = location.pathname.replace(/\/+$/, '').toLowerCase()
-    const today = [...TODAY_PATHS].some(base => path === `/provider/${base}`) || isLiveOnlyPath(path)
-      || visibleNavigation(facility).some(item => item.to === path)
-    if (!today) navigate('/provider')
-    chooseClassicEhr()
-  }
 
   // Today's page refuses in its own words ("Laboratory unavailable"), and reads nothing without the permission.
   const todayRefuses = match !== null && match.page.status === 'live' && isValidElement(match.page.element)
@@ -153,7 +147,6 @@ export function BlueFrame() {
                 {session.actor.facilities.map(f => <li key={f.id}><button type="button" onClick={() => { close(); if (f.id !== facility?.id) navigate('/provider/institutions') }}
                   className="flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink hover:bg-hover">
                   <span className="min-w-0 flex-1 truncate">{f.name}</span>{f.id === facility?.id && <Check className="size-4 text-brand" aria-hidden />}</button></li>)}
-                <li><button type="button" onClick={() => { close(); classicEhr() }} className="mt-1 flex w-full cursor-pointer items-center gap-2 rounded-md border-0 border-t border-line bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><History className="size-4" aria-hidden />Use the classic EHR</button></li>
                 <li><button type="button" onClick={() => { close(); setSamplePanel('profile') }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><UserRound className="size-4" aria-hidden />My profile</button></li>
               </ul>,
             }}
@@ -164,7 +157,7 @@ export function BlueFrame() {
               <a href="/provider" onClick={event => { event.preventDefault(); navigate('/provider') }} className="inline-flex no-underline lg:hidden" aria-label="Health ID EHR home"><BrandLogo className="h-7 w-auto" /></a>
               <span className="hidden min-w-0 items-center gap-2 text-sm text-ink-3 lg:inline-flex"><Hospital className="size-4" aria-hidden /><span className="truncate font-medium text-ink">{facility?.name}</span>{isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} /> : null}</span>
             </>}
-            headerActions={<div className="hid-ehr-host-actions flex items-center gap-2"><WorkspaceSearch pages={listed} /><NotificationsButton /><AccountMenu onSample={setSamplePanel} onClassic={classicEhr} /></div>}
+            headerActions={<div className="hid-ehr-host-actions flex items-center gap-2"><WorkspaceSearch pages={listed} /><NotificationsButton /><AccountMenu onSample={setSamplePanel} /></div>}
             tabs={[home, tab('patients', 'Patients', home), tab('clinical', 'Consult', home)]}
             create={{ label: 'Start', items: [
               ...(tabsFor('patients') ? [{ to: '/provider/patients', label: 'Find a patient', hint: 'By Health ID, with their approval', icon: Search, main: true }] : []),
@@ -185,7 +178,7 @@ export function BlueFrame() {
                 />
               ) : null}
               {/* A page that fails would take the frame with it, and the account menu's way back to the classic EHR. */}
-              <BluePageBoundary key={location.pathname} onClassic={classicEhr}>{content}</BluePageBoundary>
+              <BluePageBoundary key={location.pathname}>{content}</BluePageBoundary>
             </div>
             {/* Fictional figures: only where the page itself is a sample. */}
             {match?.page.status === 'sample' ? <ConnectionStatus /> : null}
