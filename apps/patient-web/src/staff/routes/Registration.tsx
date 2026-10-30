@@ -220,7 +220,7 @@ export function Registration() {
   const registration = registrationCase
   const done = registration ? completed.has(registration.status) : false
   const hid = registration?.patient?.hid
-  return <div className="flex flex-col gap-6">
+  return <div className="flex flex-col gap-6" data-layout="split">
     <PageHeader title="Register a patient" description="Check their NIN, then give them a Health ID or link them to the one they already have." />
     {/* Only when NIN checks are not working: a working service needs no card. */}
     {capabilityError ? <Alert intent="error" title="Can’t check NINs right now" action={<KButton size="sm" aria-disabled={capabilityLoading || undefined} className={UNAVAILABLE} onClick={() => { if (!capabilityLoading) void refreshCapabilities() }}>{capabilityLoading ? 'Checking…' : 'Try again'}</KButton>}>{capabilityError}</Alert>

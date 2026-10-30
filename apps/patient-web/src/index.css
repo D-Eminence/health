@@ -628,11 +628,11 @@
 :where(.staff-form, .patient-form, .hid-ehr-clinical-form, .hid-ehr-dept-form, .hid-ehr-dept-staff-form, .hid-ehr-blue-record-form, .hid-ehr-blue-form-grid) {
   max-width: 44rem;
 }
-:where(.staff-card, .hid-ehr-card, .patient-card):has(> :is(form.staff-form, form.hid-ehr-clinical-form, form.hid-ehr-blue-record-form, form.hid-ehr-dept-form, form.patient-form)),
-:where(.staff-card, .hid-ehr-card):has(> h2 + p + form.staff-form, > h2 + form.staff-form) {
+/* A page that is a form (no table on it) is one centred column: its heading and its form share one edge. Pages that
+   lay themselves out (data-layout) are left alone. */
+.hid-ehr-blue-page:has(form:is(.staff-form, .hid-ehr-clinical-form, .hid-ehr-blue-record-form, .hid-ehr-dept-form)):not(:has(table, [data-layout])) {
   max-width: 48rem;
   margin-inline: auto;
-  width: 100%;
 }
 :where(.staff-form, .hid-ehr-clinical-form, .hid-ehr-dept-form, .hid-ehr-blue-record-form) > :is(button, .hid-ui-button, .ui-button) { justify-self: start; width: auto; }
 
