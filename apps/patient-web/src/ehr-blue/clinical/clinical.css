@@ -1,0 +1,562 @@
+/* =============================================================================
+   Blue Health ID Hospital EHR: clinical workspaces.
+
+   Values from the design (design/ehr-target, public/*.css as they resolve
+   under body.emr-green, checked against screens/workspaces/*.png at
+   1440 x 1000). --ehr-* tokens come from @hid/ui/ehr.css; a literal is used
+   only where the foundation has no token. Everything sits under .hid-ehr.
+   ========================================================================== */
+
+/* ---- Page root ------------------------------------------------------------ */
+
+.hid-ehr .hid-ehr-clinical-page {
+  min-width: 0;
+}
+
+/* Cards stack 20px apart (design .panel margin-bottom). */
+.hid-ehr .hid-ehr-clinical-page .hid-ehr-card {
+  margin-bottom: 20px;
+}
+
+/* Paragraphs placed straight in a card (design .panel > p). */
+.hid-ehr .hid-ehr-clinical-page .hid-ehr-card > p {
+  margin: 12px 0;
+}
+
+/* Buttons inside cards are 12px in the design (.hid-card .hid-button). */
+.hid-ehr .hid-ehr-clinical-page .hid-ehr-card .hid-ehr-button {
+  font-size: 12px;
+}
+
+/* Page and card titles are body grey in the design. */
+.hid-ehr .hid-ehr-clinical-page .hid-ehr-page-title,
+.hid-ehr .hid-ehr-clinical-page .hid-ehr-card-title {
+  color: var(--ehr-text);
+}
+
+.hid-ehr .hid-ehr-clinical-page .hid-ehr-card-title {
+  line-height: 21px;
+}
+
+/* Empty state title is bold in the design. */
+.hid-ehr .hid-ehr-clinical-page .hid-ehr-empty-state .hid-ehr-state-title {
+  font-weight: 700;
+}
+
+/* Every link in a clinical page or its overlays. */
+.hid-ehr .hid-ehr-clinical-link {
+  color: var(--ehr-brand-dark);
+  text-decoration: none;
+}
+
+.hid-ehr .hid-ehr-clinical-link:hover {
+  text-decoration: underline;
+}
+
+.hid-ehr .hid-ehr-clinical-link:focus-visible,
+.hid-ehr .hid-ehr-clinical-version > summary:focus-visible,
+.hid-ehr .hid-ehr-clinical-checkbox input:focus-visible,
+.hid-ehr .hid-ehr-clinical-choice input:focus-visible {
+  outline: var(--ehr-focus-ring-width) solid var(--ehr-focus-ring-color);
+  outline-offset: var(--ehr-focus-ring-offset);
+}
+
+.hid-ehr .hid-ehr-clinical-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+/* Design badge: weight 400 on the inherited 21px line, so 27px tall; one tone. */
+.hid-ehr .hid-ehr-badge.hid-ehr-clinical-badge {
+  font-weight: 400;
+  line-height: 21px;
+}
+
+/* ---- Notices --------------------------------------------------------------- */
+
+/* "Sample only: not connected to Health ID yet. Nothing you do here is saved."
+   Above the page heading, where the design puts its banners, in the design's
+   warning banner tone. */
+.hid-ehr .hid-ehr-clinical-sample-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 16px 20px;
+  border-left: 4px solid var(--ehr-warning-banner-text);
+  border-radius: 10px;
+  background: var(--ehr-warning-banner-surface);
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-clinical-sample-banner > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--ehr-warning-banner-text);
+}
+
+.hid-ehr .hid-ehr-clinical-sample-banner > p {
+  margin: 0;
+}
+
+/* Design Banner: strong title on its own line, then the message. */
+.hid-ehr .hid-ehr-clinical-banner {
+  margin: 0 0 18px;
+  padding: 16px 20px;
+  border-left: 4px solid var(--ehr-brand);
+  border-radius: 10px;
+  background: var(--ehr-tint);
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-clinical-banner.hid-ehr-clinical-banner-warning {
+  border-left-color: var(--ehr-warning-banner-text);
+  background: var(--ehr-warning-banner-surface);
+}
+
+.hid-ehr .hid-ehr-clinical-banner.hid-ehr-clinical-banner-critical {
+  border-left-color: var(--ehr-critical);
+  background: #fff0ee;
+}
+
+.hid-ehr .hid-ehr-clinical-banner-title {
+  display: block;
+  font-weight: 700;
+}
+
+.hid-ehr .hid-ehr-clinical-banner p {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-clinical-banner p + p,
+.hid-ehr .hid-ehr-clinical-banner p + .hid-ehr-clinical-banner-actions {
+  margin-top: 8px;
+}
+
+.hid-ehr .hid-ehr-clinical-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Operation failure box (design .error, role="alert"). */
+.hid-ehr .hid-ehr-clinical-alert {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid #e9bcb9;
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-danger-50);
+  color: var(--ehr-danger-text);
+}
+
+.hid-ehr .hid-ehr-clinical-alert > p {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-clinical-alert > p + p {
+  margin-top: 6px;
+}
+
+/* A quiet status line after an action ("Saved.", "Access request sent."). */
+.hid-ehr .hid-ehr-clinical-status {
+  margin: 12px 0;
+  color: var(--ehr-text);
+}
+
+/* ---- List page ------------------------------------------------------------- */
+
+.hid-ehr .hid-ehr-clinical-search {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* "Clear search" sits straight under the field (design: no margin). */
+.hid-ehr .hid-ehr-clinical-search-clear {
+  align-self: flex-start;
+  margin: 0;
+}
+
+/* Previous page | Page n of m | Next page. */
+.hid-ehr .hid-ehr-clinical-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+/* The table region (or its empty state) under the search field. */
+.hid-ehr .hid-ehr-clinical-list-table {
+  margin-top: 18px;
+}
+
+/* Record cell: link, then the short id on its own line. */
+.hid-ehr .hid-ehr-clinical-record-id,
+.hid-ehr .hid-ehr-clinical-cell-sub {
+  display: block;
+  font-size: smaller;
+  color: var(--ehr-muted);
+}
+
+/* Status cell: badge then a short note, touching, as in the design. */
+.hid-ehr .hid-ehr-clinical-sync-note {
+  font-size: smaller;
+  color: var(--ehr-muted);
+}
+
+/* Last cell: Quick view button then "Open →", touching. */
+.hid-ehr .hid-ehr-clinical-row-actions {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+/* Footnote under a list card. */
+.hid-ehr .hid-ehr-clinical-list-note {
+  margin: 0 0 20px;
+  line-height: 1.6;
+}
+
+/* ---- Detail page ----------------------------------------------------------- */
+
+/* Status badge, short note, patient line, saved time. */
+.hid-ehr .hid-ehr-clinical-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin: 0 0 20px;
+}
+
+.hid-ehr .hid-ehr-clinical-meta-saved {
+  font-size: smaller;
+  color: var(--ehr-muted);
+}
+
+/* "Saved record" (1.25fr) beside "Available actions" (1fr). */
+.hid-ehr .hid-ehr-clinical-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  margin-bottom: 24px;
+}
+
+/* Key and value list (design dl.details). */
+.hid-ehr .hid-ehr-clinical-kv {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr);
+  gap: 12px 18px;
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-clinical-kv > dt {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ehr-muted);
+}
+
+.hid-ehr .hid-ehr-clinical-kv > dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.hid-ehr .hid-ehr-clinical-kv a {
+  word-break: break-all;
+}
+
+/* Full-width outline action buttons, 8px apart. */
+.hid-ehr .hid-ehr-clinical-action-list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-clinical-action-list > .hid-ehr-button {
+  width: 100%;
+}
+
+/* "Connected orders", "Next steps", "Continue care". */
+.hid-ehr .hid-ehr-clinical-subheading {
+  margin: 18px 0 10px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 21px;
+  color: var(--ehr-text);
+}
+
+/* One outline button per line, natural width, 12px apart. */
+.hid-ehr .hid-ehr-clinical-step {
+  margin: 12px 0;
+}
+
+/* Continue care: buttons side by side, touching (design). */
+.hid-ehr .hid-ehr-clinical-step-row {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.hid-ehr .hid-ehr-clinical-note {
+  margin: 12px 0;
+}
+
+/* "Connected hospital history" rows: link left, badge right. */
+.hid-ehr .hid-ehr-clinical-history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-clinical-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid #f0f0f0;
+  overflow-wrap: anywhere;
+}
+
+/* "Preserved versions & amendments" disclosure rows. */
+.hid-ehr .hid-ehr-clinical-version {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-clinical-version > summary {
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-clinical-version > p {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-clinical-version > .hid-ehr-clinical-kv {
+  margin-top: 12px;
+}
+
+/* ---- Patient header -------------------------------------------------------- */
+
+/* Name, Health ID, age, sex and flags, in the design's meta-row style. */
+.hid-ehr .hid-ehr-clinical-patient {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0 0 20px;
+}
+
+.hid-ehr .hid-ehr-clinical-patient-name {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 21px;
+  color: var(--ehr-text);
+}
+
+.hid-ehr .hid-ehr-clinical-patient-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-clinical-patient-facts > li {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-clinical-patient-fact-label {
+  font-size: 12px;
+  color: var(--ehr-muted);
+}
+
+.hid-ehr .hid-ehr-clinical-patient-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---- Create form and inline action form ------------------------------------ */
+
+.hid-ehr .hid-ehr-clinical-form {
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-clinical-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.hid-ehr .hid-ehr-clinical-form-grid > .hid-ehr-clinical-form-full {
+  grid-column: 1 / -1;
+}
+
+/* Design textarea: three rows (85px). */
+.hid-ehr .hid-ehr-clinical-form .hid-ehr-control.hid-ehr-textarea {
+  min-height: 85px;
+}
+
+.hid-ehr .hid-ehr-clinical-form select[multiple].hid-ehr-control {
+  min-height: 110px;
+}
+
+/* Label text, then the 16px box (design order). */
+.hid-ehr .hid-ehr-clinical-checkbox {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ehr-ink);
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-clinical-checkbox input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 8px;
+  accent-color: var(--ehr-brand);
+}
+
+/* A group of radio choices (record access duration and the like). */
+.hid-ehr .hid-ehr-clinical-choices {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-clinical-choices > legend {
+  margin-bottom: 6px;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-clinical-choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-clinical-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-surface);
+  color: var(--ehr-ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-clinical-choice:has(input:checked) {
+  border-color: var(--ehr-brand);
+  background: var(--ehr-tint);
+}
+
+.hid-ehr .hid-ehr-clinical-choice input {
+  margin: 0;
+  accent-color: var(--ehr-brand);
+}
+
+.hid-ehr .hid-ehr-clinical-field-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ehr-critical);
+}
+
+.hid-ehr .hid-ehr-clinical-form-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.hid-ehr .hid-ehr-clinical-form-status {
+  font-size: smaller;
+  color: var(--ehr-muted);
+}
+
+/* "Patient context" block under the patient select (consult, triage). */
+.hid-ehr .hid-ehr-clinical-context-block {
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.hid-ehr .hid-ehr-clinical-context-block > h2 {
+  margin: 0 0 16px;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 21px;
+  color: var(--ehr-text);
+}
+
+.hid-ehr .hid-ehr-clinical-context-block > p {
+  margin: 0;
+}
+
+/* ---- Quick view drawer content --------------------------------------------- */
+
+.hid-ehr .hid-ehr-clinical-quick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-clinical-quick > .hid-ehr-clinical-kv {
+  align-self: stretch;
+}
+
+.hid-ehr .hid-ehr-clinical-quick-title {
+  margin: 0;
+  font-size: 1.17em;
+  font-weight: 700;
+  line-height: 21px;
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-clinical-quick-updated {
+  margin: 0;
+}
+
+/* ---- Widths ------------------------------------------------------------------ */
+
+@media (max-width: 1000px) {
+  .hid-ehr .hid-ehr-clinical-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-clinical-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hid-ehr .hid-ehr-clinical-kv {
+    grid-template-columns: 100px minmax(0, 1fr);
+  }
+
+  .hid-ehr .hid-ehr-clinical-history-row {
+    flex-wrap: wrap;
+  }
+
+  .hid-ehr .hid-ehr-clinical-meta {
+    align-items: flex-start;
+  }
+}
+
+/* ---- Screen-specific rules ---------------------------------------------------- */
