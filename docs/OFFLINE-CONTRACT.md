@@ -47,6 +47,40 @@ Code references use two prefixes: `health:` is this repository; `hid:` is D-Emin
    - Every other expired record is deleted one at a time, never by deleting its whole vault.
    - The vault's membership-ended marker is cleared by a server-verified sign-in, or an online-reload unlock, at the vault's own facility.
 
+**A10. Server endpoints after the review of hid-system#131.**
+
+1. **C2 patient events.** An event that names a patient is accepted only if the caller's account, membership and facility once held a consent grant for that patient.
+   - Qualifying grant: scope `read_records` or `write_records`, not break-glass, no migration hold, started.
+   - Whether the grant is still open is ignored: expired or revoked grants still count. This keeps late-synced reads accepted, so the ingest is still never gated on current consent.
+   - A missing patient and an unrelated patient both answer `rejected: PATIENT_NOT_FOUND`.
+   - The check is the security-definer function `ehr.offline_audit_patient_allowed(uuid)`, added by migration **0099**.
+   - Until 0099 is applied, any C2 request containing a patient event answers **503 `OFFLINE_AUDIT_UNAVAILABLE`** and writes nothing. The client keeps the events and retries.
+   - Session events (unlock, wipe) never need it.
+2. **C2 limits.**
+   - `seq` is an integer from 1 to 2147483647.
+   - A bad envelope answers 400 `VALIDATION_FAILED`. The client reports a 4xx envelope refusal instead of retrying it silently.
+   - The client never adds keys to `details` beyond those listed in §2.10. In particular, there is no `reasonTruncated`: the server rejects unknown keys.
+   - The conflict clause is `ON CONFLICT DO NOTHING` without a target, because `event_id` is the only unique key a caller can set.
+3. **C1.** A `failed` receipt state means "not applied". The client treats it as `unknown`.
+4. **C3.**
+   - Timestamps that do not exist on the calendar (31 September, hour 24) are ignored as invalid.
+   - When `capturedAt` is clamped, the raw valid header value is also kept as `details.offline.deviceCapturedAt`.
+5. **C4.**
+   - A recovery request sends the `keyVersion` stored with that vault's escrow wrap. `null` means the newest version and is only for new wraps.
+   - The 30-per-hour limit is counted per running task.
+   - Before D6 switches escrow on, C4 should require a recent sign-in. Today it would hand ESC to any live session cookie.
+6. **Responses.**
+   - `Cache-Control: private, no-store` satisfies `no-store`.
+   - 423 `PLATFORM_PORTAL_DISABLED` (the §2.3 emergency lever) is transient in the §2.8 table, not invalid.
+   - A document `/complete` refused because the document was entered in error answers 409 `INVALID_DOCUMENT_TRANSITION`, which classifies as state (CC3).
+7. **Handoffs.**
+   - The `pharmacy-work-item` and `lab-work-item` handoffs do not use `ehr.idempotency_keys`, so C1 answers `unknown` for them.
+   - Their operation definitions use intent plus reread. A 412 after a lost success then resolves as applied via `reread`, not as a CC2 review.
+8. **§2.11 gap query.**
+   - It groups by `(actor_account_id, details->>'vaultId')`, because `vaultId` is chosen by the client.
+   - It casts `seq` to `bigint`.
+9. **Migration numbers.** 0098 is the sealed demo tenant and 0099 is `offline_audit_patient_allowed`. The rows of the "Later work" table move up by two: 0100 `offline_platform_control`, 0101 `offline_parked_commands`, 0102 `pharmacy_offline_claims`, 0103 `consent_at_capture`.
+
 **A3. Approved owner decisions.** D1 to D15 below were approved by the owner on 29 October 2026 ("Yes to D1-D15"). The pilot facility for testing is Demo Hospital; the first real pilot facility is named by the owner before it is switched on.
 
 ## Owner decisions (approved 29 October 2026)
@@ -522,9 +556,9 @@ Server-side parking of the losing version needs a migration (§2.14).
 - **Replayed writes** get the normal create or update audit plus `details.offline` (C3). The record keeps both clinical time (`recordedAt`/`startedAt` from the device) and server `created_at`.
 - **Gap detection:** per `details.vaultId`, the `seq` values must be contiguous. The coordinator's daily pilot query (staging and production read access as today):
 ```sql
-select details->>'vaultId' vault, min((details->>'seq')::int), max((details->>'seq')::int), count(*)
+select actor_account_id, details->>'vaultId' vault, min((details->>'seq')::bigint), max((details->>'seq')::bigint), count(*)
 from audit.events where source_system = 'health-id-offline' and recorded_at > now() - interval '1 day'
-group by 1 having max((details->>'seq')::int) - min((details->>'seq')::int) + 1 <> count(*);
+group by 1, 2 having max((details->>'seq')::bigint) - min((details->>'seq')::bigint) + 1 <> count(*);
 ```
   Plus counts of `clamped` and `clock='suspect'` per facility, and `ehr.offline.command.discarded` reasons.
 - **Residual risk:** offline re-opens on a device that never comes back are lost. The underlying online reads are still in the log.
