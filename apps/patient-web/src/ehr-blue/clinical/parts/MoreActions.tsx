@@ -12,18 +12,21 @@ export interface MoreActionItem {
  * outside closes it. Choosing an item closes the menu, returns focus to the button and calls `onSelect`, which opens
  * the same form as before.
  */
-export function MoreActions({ items, selected, onSelect, label = 'More actions' }: {
+export function MoreActions({ items, selected, onSelect, label = 'More actions', id }: {
   items: readonly MoreActionItem[]
   /** The item whose form is open, if any, so the button can say so. */
   selected?: string | null
   onSelect: (id: string) => void
   label?: string
+  /** The button's id, so the page can give it focus back once the chosen form closes. */
+  id?: string
 }) {
   const [open, setOpen] = useState(false)
   // Which item has focus while the menu is open; -1 asks for the last one.
   const [focusIndex, setFocusIndex] = useState(0)
   const menuId = useId()
-  const buttonId = useId()
+  const ownId = useId()
+  const buttonId = id ?? ownId
   const rootRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -75,7 +78,9 @@ export function MoreActions({ items, selected, onSelect, label = 'More actions' 
       close(true)
       return
     } else if (event.key === 'Tab') {
-      close(false)
+      // Focus goes back to the button first, so Tab (or Shift+Tab) moves on from there in every browser rather than
+      // from the item the menu's closing removes.
+      close(true)
       return
     }
     if (next === null) return
@@ -86,7 +91,13 @@ export function MoreActions({ items, selected, onSelect, label = 'More actions' 
 
   const chosen = items.find(item => item.id === selected)
   return (
-    <div ref={rootRef} className="hid-ehr-clinical-more">
+    <div
+      ref={rootRef}
+      className="hid-ehr-clinical-more"
+      // Focus moved to another control (a screen reader's move, say) closes the menu. A blur to nowhere (Safari's click
+      // on a button, which does not focus it) does not, so the click still reaches the item.
+      onBlur={event => { if (open && event.relatedTarget instanceof Node && !rootRef.current?.contains(event.relatedTarget)) close(false) }}
+    >
       <button
         ref={buttonRef}
         id={buttonId}

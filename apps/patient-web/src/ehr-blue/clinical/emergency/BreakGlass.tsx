@@ -6,7 +6,7 @@ import { usesNovuBackend } from '../../../backendContract'
 import { isAllowedPatientLookup, staffApi } from '../../../staff/api'
 import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/session'
 import { selfServiceReview } from '../../../staff/staffAccess'
-import { ErrorBox } from '../parts/Notices'
+import { ErrorBox, RecordHeading } from '../parts/Notices'
 import { patientFacts } from '../parts/PatientHeader'
 import { COMPLETE_FIELD } from '../parts/RecordForm'
 import { StatusBadge } from '../parts/StatusBadge'
@@ -47,12 +47,29 @@ export function CurrentEmergency() {
 }
 
 /**
- * "Emergency break-glass access": the design's form (Emergency reason, Clinical justification, the acknowledgement,
- * "Record emergency access") with the Health ID today's request needs. It runs today's flow: break-glass, then, once
- * the session that asked is ready, an emergency lookup; the record opens only when that lookup allows it and the
- * session still accepts it, and then the read-only summary shows.
+ * "Emergency break-glass access": the design's own page for the form (audit 7), reached from the Emergency list's empty
+ * state at a real facility and from Patients' refused lookup, with Back to list to the Emergency list.
  */
-export function BreakGlassCard() {
+export function BreakGlassPage() {
+  const href = useWorkspaceHref()
+  return (
+    <>
+      <RecordHeading title="Emergency break-glass access" backHref={href()} />
+      <EhrCard>
+        <BreakGlassForm />
+      </EhrCard>
+    </>
+  )
+}
+
+/**
+ * The design's break-glass form (Emergency reason, Clinical justification, the acknowledgement, "Record emergency
+ * access") with the Health ID today's request needs, after today's emergency notice. It runs today's flow:
+ * break-glass, then, once the session that asked is ready, an emergency lookup; the record opens only when that lookup
+ * allows it and the session still accepts it, and then the read-only summary shows (the Emergency workspace's, from
+ * wherever the form is: its own page, or inline on an access request's page). No card of its own: the caller's holds it.
+ */
+export function BreakGlassForm() {
   const { facility, permissions, setActivePatient } = useClinical()
   const navigate = useNavigate()
   const href = useWorkspaceHref()
@@ -148,7 +165,7 @@ export function BreakGlassCard() {
         throw new Error(NOT_GRANTED)
       }
       // A lookup answered after the session or facility changed opens nothing.
-      if (setActivePatient({ hid: normalized, lookup, purpose: 'emergency' })) navigate(href('summary'))
+      if (setActivePatient({ hid: normalized, lookup, purpose: 'emergency' })) navigate(href.to('emergency', 'summary'))
     } catch (caught) {
       setError(caught instanceof Error && caught.message ? caught.message : COMMAND_FAILED)
     } finally {
@@ -161,7 +178,7 @@ export function BreakGlassCard() {
   const ackErrorId = `${id}-ack-error`
 
   return (
-    <EhrCard title="Emergency break-glass access">
+    <>
       {/* Today's emergency notice, as the design's critical banner (no title: today's notice has none). */}
       <div className="hid-ehr-clinical-banner hid-ehr-clinical-banner-critical hid-ehr-clinical-emergency-notice">
         <p>{emergencyNotice(usesNovuBackend())}</p>
@@ -227,6 +244,6 @@ export function BreakGlassCard() {
           </EhrButton>
         </div>
       </form>
-    </EhrCard>
+    </>
   )
 }

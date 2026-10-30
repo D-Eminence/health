@@ -90,7 +90,6 @@ export function RequestAccess() {
     <>
       <RecordHeading title="New external record access" backHref={href()} />
       <EhrCard>
-        <p>Ask the patient to approve access. A pending request does not expose their record.</p>
         <div ref={form} onChangeCapture={normalizeHealthId}>
           <RecordForm
             fields={FIELDS}

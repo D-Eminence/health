@@ -3,6 +3,8 @@ import { HidApiError } from '@hid/http'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropOfferedHealthId, offerHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
 import { ConsentWorkspace, consentStatus } from '../../../ehr-blue/clinical/consent/ConsentWorkspace'
+import { CROSS_INSTITUTION } from '../../../ehr-blue/clinical/consent/RequestDetail'
+import { ACKNOWLEDGE } from '../../../ehr-blue/clinical/emergency/BreakGlass'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, deniedLookup, labelled, renderPage } from './harness'
 
@@ -13,6 +15,7 @@ import { FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, den
 
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), listAccessRequests: vi.fn(), requestAccess: vi.fn(), verifyPin: vi.fn(), closeGrant: vi.fn(),
+  breakGlass: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
 const session = vi.hoisted(() => ({
@@ -65,6 +68,7 @@ beforeEach(() => {
   api.verifyPin.mockResolvedValue({ accessRequestId: 'r1', consentGrantId: 'grant-1', patientId: PATIENT_ID, status: 'active', expiresAt: '2026-10-30T12:00:00.000Z' })
   api.lookupPatient.mockResolvedValue(allowedLookup)
   api.closeGrant.mockResolvedValue({})
+  api.breakGlass.mockResolvedValue({ accessRequestId: 'request-9', consentGrantId: 'grant-9', patientId: PATIENT_ID, status: 'active', expiresAt: '2026-10-30T12:00:00.000Z' })
   api.consentStatus.mockResolvedValue({ writeAllowed: true })
 })
 
@@ -106,37 +110,51 @@ describe('External record access list', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'New external record access' })).toBeTruthy()
   })
 
-  it('puts Create record first, then Verify patient PIN, as the design orders them', () => {
+  it('audit 5: the heading’s only action is Create record, with identity.consent.write; no PIN button, Status select or Refresh', async () => {
     open()
-    const create = screen.getByRole('button', { name: 'Create record' })
-    const pin = screen.getByRole('button', { name: 'Verify patient PIN' })
-    expect(create.compareDocumentPosition(pin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    fireEvent.click(pin)
+    await screen.findByRole('table', { name: 'Access requests' })
+    const heading = screen.getByRole('heading', { level: 1, name: 'External record access' }).closest<HTMLElement>('.hid-ehr-page-heading')!
+    expect(within(heading).getAllByRole('button').map(button => button.textContent)).toEqual(['Create record'])
+    expect(screen.queryByRole('button', { name: 'Verify patient PIN' })).toBeNull()
+    expect(screen.queryByLabelText('Status')).toBeNull()
+    expect(screen.queryByRole('combobox')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull()
+  })
+
+  it('audit 5: offers no Create record without identity.consent.write, and still lists the requests', async () => {
+    staff.permissions = ALL.filter(permission => permission !== 'identity.consent.write')
+    open()
+    expect(await screen.findByRole('table', { name: 'Access requests' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+  })
+
+  it('audit 5: the patient PIN page is still served at its own address', () => {
+    open('/pin')
     expect(screen.getByRole('heading', { level: 1, name: 'Patient PIN access' })).toBeTruthy()
   })
 
-  it('sends the status filter to the backend and names it when nothing matches; the search filters what was read', async () => {
+  it('audit 5: reads every status once, with no status filter, and the search matches a request’s status as well as its words', async () => {
     open()
     await screen.findByRole('table', { name: 'Access requests' })
-    fireEvent.change(screen.getByLabelText('Search External record access'), { target: { value: 'medication' } })
+    expect(api.listAccessRequests).toHaveBeenCalledTimes(1)
+    expect(api.listAccessRequests).toHaveBeenCalledWith(FACILITY_ID, undefined)
+    const search = () => screen.getByLabelText('Search External record access')
+    fireEvent.change(search(), { target: { value: 'medication' } })
     expect(screen.queryByRole('link', { name: 'Follow-up consultation' })).toBeNull()
     expect(screen.getByRole('link', { name: 'Medication review' })).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Search External record access'), { target: { value: 'nothing like it' } })
+    // The status a filter used to choose is found by searching for it.
+    fireEvent.change(search(), { target: { value: 'waiting for the patient' } })
+    expect(screen.getByRole('link', { name: 'Follow-up consultation' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Review of results' })).toBeNull()
+    fireEvent.change(search(), { target: { value: 'access active' } })
+    expect(screen.getByRole('link', { name: 'Review of results' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Medication review' })).toBeNull()
+    fireEvent.change(search(), { target: { value: 'nothing like it' } })
     expect(screen.getByText('No matching records')).toBeTruthy()
+    expect(screen.getByText('Change your search.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
-    api.listAccessRequests.mockResolvedValue([])
-    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'approved' } })
-    expect(await screen.findByText('No access requests: approved (any outcome)')).toBeTruthy()
-    expect(screen.getByText('Requests you send for this facility will appear here.')).toBeTruthy()
-    expect(api.listAccessRequests).toHaveBeenLastCalledWith(FACILITY_ID, 'approved')
-  })
-
-  it('offers the outcome filters only once the backend reports outcomes', async () => {
-    api.listAccessRequests.mockResolvedValue([request()])
-    open()
-    await screen.findByRole('table', { name: 'Access requests' })
-    const options = () => Array.from((screen.getByLabelText('Status') as HTMLSelectElement).options, option => option.textContent)
-    expect(options()).toEqual(['Any status', 'Waiting for the patient', 'Approved (any outcome)', 'Denied', 'Revoked', 'Expired'])
+    expect(screen.getAllByText('Patient ••••0001')).toHaveLength(3)
+    expect(api.listAccessRequests).toHaveBeenCalledTimes(1)
   })
 
   it('says why the list could not be read, in today’s words', async () => {
@@ -145,16 +163,38 @@ describe('External record access list', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('Your role at this facility cannot list access requests. Ask an administrator to review your assignment.')
   })
 
-  it('shows today’s empty state and reads again on Refresh', async () => {
+  it('shows today’s empty state', async () => {
     api.listAccessRequests.mockResolvedValue([])
     open()
     expect(await screen.findByText('No access requests')).toBeTruthy()
+    expect(screen.getByText('Requests you send for this facility will appear here.')).toBeTruthy()
+  })
+
+  it('audit 5: keeps today’s Refresh only where the list could not be read, and reads again with it', async () => {
+    api.listAccessRequests.mockRejectedValueOnce(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    open()
+    await screen.findByRole('alert')
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
-    await waitFor(() => expect(api.listAccessRequests).toHaveBeenCalledTimes(2))
+    expect(await screen.findByRole('table', { name: 'Access requests' })).toBeTruthy()
+    expect(api.listAccessRequests).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull()
+  })
+
+  it('audit 5: still says the list shows the 100 most recent requests when it holds 100', async () => {
+    api.listAccessRequests.mockResolvedValue(Array.from({ length: 100 }, (_, index) => request({ accessRequestId: `r-${index}` })))
+    open()
+    expect(await screen.findByText('Showing the 100 most recent requests.')).toBeTruthy()
   })
 })
 
 describe('New external record access', () => {
+  it('audit 18: the form card opens with the form, not an introductory sentence', () => {
+    open('/new')
+    expect(screen.queryByText('Ask the patient to approve access. A pending request does not expose their record.')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Send access request' })).toBeTruthy()
+  })
+
   it('checks the Health ID, reason and duration at their fields before sending anything', async () => {
     open('/new')
     const form = screen.getByRole('button', { name: 'Send access request' }).closest('form')!
@@ -352,15 +392,154 @@ describe('Patient PIN access', () => {
   })
 })
 
+const cardOf = (title: string) => screen.getByRole('heading', { level: 2, name: title }).closest<HTMLElement>('section')!
+
 describe('An access request’s page', () => {
-  it('shows a pending request as waiting, with no actions, and the emergency step as navigation', async () => {
+  it('audit 6: shows a pending request as waiting, with no actions, and no Next steps or break-glass in Available actions', async () => {
     open('/r0000000-0000-4000-8000-000000000001')
     expect(await screen.findByRole('heading', { level: 1, name: 'Follow-up consultation' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Saved record' })).toBeTruthy()
-    expect(screen.getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    expect(screen.getByText('The patient must approve before records are available.')).toBeTruthy()
+    const actions = cardOf('Available actions')
+    expect(within(actions).getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    expect(within(actions).queryAllByRole('button')).toHaveLength(0)
+    expect(screen.queryByRole('heading', { name: 'Next steps' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Close access' })).toBeNull()
+  })
+
+  it('audit 6: puts the design’s Cross-institution history card after Saved record and Available actions, with its words', async () => {
+    open('/r0000000-0000-4000-8000-000000000001')
+    await screen.findByRole('heading', { level: 1, name: 'Follow-up consultation' })
+    const cross = cardOf('Cross-institution history')
+    expect(within(cross).getByText(CROSS_INSTITUTION)).toBeTruthy()
+    expect(CROSS_INSTITUTION).toBe('Local hospital care does not require an external access grant. External content is removed immediately on expiry or revocation.')
+    expect(cardOf('Available actions').compareDocumentPosition(cross) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // A pending request has no category to view yet: only the emergency step.
+    expect(within(cross).queryByRole('button', { name: 'View authorized category' })).toBeNull()
+    expect(within(cross).getAllByRole('button').map(button => button.textContent)).toEqual(['Emergency break-glass access'])
+  })
+
+  it('audit 6: an active or approved request offers View authorized category, which opens Patients; the banner keeps its words without a link', async () => {
+    const approved = request({ accessRequestId: 'r0000000-0000-4000-8000-000000000004', reason: 'Approved review', status: 'approved', approvedAt: '2026-10-30T09:20:00.000Z' })
+    api.listAccessRequests.mockResolvedValue([request(), ACTIVE, DENIED, approved])
+    const first = open('/r0000000-0000-4000-8000-000000000004')
+    await screen.findByRole('heading', { level: 1, name: 'Approved review' })
+    expect(within(cardOf('Cross-institution history')).getByRole('button', { name: 'View authorized category' })).toBeTruthy()
+    first.unmount()
+    open('/r0000000-0000-4000-8000-000000000002')
+    await screen.findByRole('heading', { level: 1, name: 'Review of results' })
+    const banner = screen.getByText('Already approved? Verify with the server before opening the chart.').closest<HTMLElement>('section')!
+    expect(within(banner).queryByRole('link')).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Verify access on Patients →' })).toBeNull()
+    const cross = cardOf('Cross-institution history')
+    const buttons = within(cross).getAllByRole('button')
+    expect(buttons.map(button => button.textContent)).toEqual(['View authorized category', 'Emergency break-glass access'])
+    expect(buttons[0]!.className).not.toContain('secondary')
+    fireEvent.click(buttons[0]!)
+    expect(where()).toBe('/provider/patients')
+  })
+
+  it('audit 6: offers no View authorized category for a denied, expired, closed or revoked request', async () => {
+    const ended = ['expired', 'closed', 'revoked'].map((effectiveStatus, index) => request({
+      accessRequestId: `r0000000-0000-4000-8000-00000000001${index}`, reason: `Ended ${effectiveStatus}`, status: 'approved', effectiveStatus,
+      approvedAt: '2026-10-30T09:05:00.000Z', consentGrantId: `grant-${index}`,
+    }))
+    api.listAccessRequests.mockResolvedValue([DENIED, ...ended])
+    for (const id of ['r0000000-0000-4000-8000-000000000003', ...ended.map(item => item.accessRequestId)]) {
+      const view = open(`/${id}`)
+      await screen.findByRole('heading', { name: 'Cross-institution history' })
+      expect(screen.queryByRole('button', { name: 'View authorized category' })).toBeNull()
+      view.unmount()
+    }
+  })
+
+  it('audit 6: Emergency break-glass access opens today’s break-glass form inside the card, and closes it again', async () => {
+    open('/r0000000-0000-4000-8000-000000000001')
+    await screen.findByRole('heading', { level: 1, name: 'Follow-up consultation' })
+    const cross = cardOf('Cross-institution history')
+    const toggle = within(cross).getByRole('button', { name: 'Emergency break-glass access' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByRole('button', { name: 'Record emergency access' })).toBeNull()
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    const form = within(cross).getByRole('button', { name: 'Record emergency access' }).closest('form')!
+    expect(document.getElementById(toggle.getAttribute('aria-controls')!)!.contains(form)).toBe(true)
+    expect((within(cross).getByRole('textbox', { name: labelled('Health ID') }) as HTMLInputElement).value).toBe('HID-')
+    expect(within(cross).getByRole('textbox', { name: labelled('Emergency reason') })).toBeTruthy()
+    expect(within(cross).getByRole('textbox', { name: labelled('Clinical justification') })).toBeTruthy()
+    expect(within(cross).getByRole('checkbox', { name: labelled(ACKNOWLEDGE) })).toBeTruthy()
+    expect(cross.querySelector('.hid-ehr-clinical-emergency-notice')!.textContent).toContain('Use emergency access only when the patient cannot consent and care cannot wait.')
+    // The form is the card's: the page has no second "Emergency break-glass access" card.
+    expect(screen.queryByRole('heading', { name: 'Emergency break-glass access' })).toBeNull()
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByRole('button', { name: 'Record emergency access' })).toBeNull()
+    expect(where()).toBeNull()
+  })
+
+  it('audit 6: the inline form runs today’s break-glass flow and opens the Emergency workspace’s read-only summary', async () => {
+    open('/r0000000-0000-4000-8000-000000000001')
+    await screen.findByRole('heading', { level: 1, name: 'Follow-up consultation' })
     fireEvent.click(screen.getByRole('button', { name: 'Emergency break-glass access' }))
-    expect(where()).toBe('/provider/emergency')
+    const cross = cardOf('Cross-institution history')
+    fireEvent.click(within(cross).getByRole('button', { name: 'Record emergency access' }))
+    // Checked at its fields first, as on the Emergency page: nothing is sent.
+    expect(await within(cross).findByText('Enter the patient’s Health ID.')).toBeTruthy()
+    expect(api.breakGlass).not.toHaveBeenCalled()
+    fireEvent.change(within(cross).getByRole('textbox', { name: labelled('Health ID') }), { target: { value: 'hid-zdemaaa2' } })
+    fireEvent.change(within(cross).getByRole('textbox', { name: labelled('Emergency reason') }), { target: { value: 'Unconscious on arrival' } })
+    fireEvent.change(within(cross).getByRole('textbox', { name: labelled('Clinical justification') }), { target: { value: 'Needs medication history' } })
+    fireEvent.click(within(cross).getByRole('checkbox', { name: labelled(ACKNOWLEDGE) }))
+    await act(async () => { fireEvent.click(within(cross).getByRole('button', { name: 'Record emergency access' })) })
+    await waitFor(() => expect(where()).toBe('/provider/emergency/summary'))
+    expect(api.breakGlass).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'Unconscious on arrival\nClinical justification: Needs medication history')
+    expect(session.untilStaffSessionReady).toHaveBeenCalledWith(3)
+    expect(api.lookupPatient).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'emergency')
+    expect(staff.setActivePatient).toHaveBeenCalledWith({ hid: PATIENT_HID, lookup: allowedLookup, purpose: 'emergency' })
+  })
+
+  it('audit 6: the inline form shows a break-glass refusal in today’s words and opens nothing', async () => {
+    api.breakGlass.mockRejectedValue(new HidApiError(423, 'Disabled', { code: 'BREAK_GLASS_DISABLED' }))
+    open('/r0000000-0000-4000-8000-000000000001')
+    await screen.findByRole('heading', { level: 1, name: 'Follow-up consultation' })
+    fireEvent.click(screen.getByRole('button', { name: 'Emergency break-glass access' }))
+    const cross = cardOf('Cross-institution history')
+    fireEvent.change(within(cross).getByRole('textbox', { name: labelled('Health ID') }), { target: { value: PATIENT_HID } })
+    fireEvent.change(within(cross).getByRole('textbox', { name: labelled('Emergency reason') }), { target: { value: 'Unconscious on arrival' } })
+    fireEvent.change(within(cross).getByRole('textbox', { name: labelled('Clinical justification') }), { target: { value: 'Needs medication history' } })
+    fireEvent.click(within(cross).getByRole('checkbox', { name: labelled(ACKNOWLEDGE) }))
+    await act(async () => { fireEvent.click(within(cross).getByRole('button', { name: 'Record emergency access' })) })
+    expect((await within(cross).findByRole('alert')).textContent).toBe('Emergency access is switched off for Health ID right now, so the record was not opened. Ask your Health ID administrator.')
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+    expect(staff.setActivePatient).not.toHaveBeenCalled()
+    expect(where()).toBeNull()
+  })
+
+  it('audit 6: a role that may not use emergency access is not offered it on the request’s page', async () => {
+    staff.permissions = ALL.filter(permission => permission !== 'identity.break-glass.write')
+    const first = open('/r0000000-0000-4000-8000-000000000002')
+    await screen.findByRole('heading', { level: 1, name: 'Review of results' })
+    expect(screen.queryByRole('button', { name: 'Emergency break-glass access' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Record emergency access' })).toBeNull()
+    expect(within(cardOf('Cross-institution history')).getAllByRole('button').map(button => button.textContent)).toEqual(['View authorized category'])
+    first.unmount()
+    // A pending request then has nothing to offer in the card but its words.
+    open('/r0000000-0000-4000-8000-000000000001')
+    await screen.findByRole('heading', { level: 1, name: 'Follow-up consultation' })
+    const cross = cardOf('Cross-institution history')
+    expect(within(cross).getByText(CROSS_INSTITUTION)).toBeTruthy()
+    expect(within(cross).queryAllByRole('button')).toHaveLength(0)
+  })
+
+  it('audit 19: Saved record names the reason and the duration as the design does ("Reason", "Duration")', async () => {
+    open('/r0000000-0000-4000-8000-000000000001')
+    await screen.findByRole('heading', { name: 'Saved record' })
+    const saved = cardOf('Saved record')
+    expect(within(saved).getByText('Reason')).toBeTruthy()
+    expect(within(saved).getByText('Follow-up consultation')).toBeTruthy()
+    expect(within(saved).getByText('Duration')).toBeTruthy()
+    expect(within(saved).queryByText('Purpose of access')).toBeNull()
+    expect(within(saved).queryByText('Duration (minutes)')).toBeNull()
   })
 
   it('shows the latest change as Saved, as the list’s Updated does', async () => {

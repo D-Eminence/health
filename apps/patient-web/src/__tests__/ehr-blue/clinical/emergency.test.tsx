@@ -9,9 +9,10 @@ import { DEMO_HOSPITAL_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, 
 
 /**
  * The Emergency workspace's live part: the design's "Emergency break-glass access" form running today's break-glass
- * flow (staff/routes/Patients.tsx), and its routes. The emergency-department board is the sample engine's; here it is
- * replaced by markers, so only where it is placed is tested. The board shows only at the four demo facilities: at a
- * real facility (the harness's FACILITY_ID, the default) this live page never leads into it.
+ * flow (staff/routes/Patients.tsx), on its own page (emergency/break-glass), and the workspace's routes. The
+ * emergency-department board is the sample engine's; here it is replaced by markers, so only where it is placed is
+ * tested. The board shows only at the four demo facilities: at a real facility (the harness's FACILITY_ID, the default)
+ * this live page never leads into it.
  */
 
 const api = vi.hoisted(() => ({
@@ -44,6 +45,8 @@ const AFTER = ' It opens a read-only summary from this facility: completed encou
 const CONTACTS_TOLD = ' While emergency-contact alerts are on, each verified emergency contact the patient has chosen to notify '
   + 'is told that the patient’s record was opened for emergency care, with your name, this facility and the time, but never '
   + 'the reason you type or any medical details.'
+/** The design's empty list title (workflows.tsx, emergency-1-list.png's list card), at a real facility's Emergency list. */
+const NO_MATCHING = 'No matching records'
 const emergencyLookup = { ...allowedLookup, authorization: { ...allowedLookup.authorization, breakGlass: true } }
 
 beforeEach(() => {
@@ -65,7 +68,13 @@ function open(rest = '') {
   return renderPage(<EmergencyWorkspace />, 'emergency', rest)
 }
 
-const card = () => screen.getByRole('heading', { level: 2, name: 'Emergency break-glass access' }).closest<HTMLElement>('section')!
+/** The break-glass form's own page. */
+function openForm() {
+  return open('/break-glass')
+}
+
+/** The card that holds the break-glass form. */
+const card = () => submitButton().closest<HTMLElement>('section')!
 const hidField = () => screen.getByRole('textbox', { name: labelled('Health ID') }) as HTMLInputElement
 const reasonField = () => screen.getByRole('textbox', { name: labelled('Emergency reason') }) as HTMLInputElement
 const justificationField = () => screen.getByRole('textbox', { name: labelled('Clinical justification') }) as HTMLTextAreaElement
@@ -96,10 +105,25 @@ describe('the Emergency page', () => {
     expect(emergencyStatus).toBe('partial')
   })
 
-  it('shows the heading, the live break-glass card with the design’s form, then the sample board', () => {
+  it('audit 7: at a demo facility, is the heading and the sample board only, with no break-glass card above it', () => {
     staff.facilityId = DEMO_HOSPITAL_ID
     open()
-    expect(screen.getByRole('heading', { level: 1, name: 'Emergency' })).toBeTruthy()
+    const heading = screen.getByRole('heading', { level: 1, name: 'Emergency' })
+    expect(screen.queryByRole('heading', { name: 'Emergency break-glass access' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Record emergency access' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: labelled('Health ID') })).toBeNull()
+    const board = screen.getByTestId('sample-list')
+    expect(board.textContent).toBe('emergency')
+    expect(heading.compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // The board's own list is the only card: no live empty state beside it.
+    expect(screen.queryByText(NO_MATCHING)).toBeNull()
+    expect(screen.queryByText(BEFORE)).toBeNull()
+    expect(document.querySelectorAll('.hid-ehr-card')).toHaveLength(0)
+  })
+
+  it('audit 7: the break-glass page has its own heading and Back to list, with the design’s form', () => {
+    openForm()
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency break-glass access' })).toBeTruthy()
     expect(within(card()).getByRole('textbox', { name: labelled('Health ID') })).toBeTruthy()
     expect(hidField().value).toBe('HID-')
     expect(card().textContent).toContain(HID_FORMAT)
@@ -110,15 +134,27 @@ describe('the Emergency page', () => {
     // The design says 15 minutes; today's grant runs 30, and the acknowledgement names the real one.
     expect(document.body.textContent).not.toMatch(/15-minute/)
     expect(document.body.textContent).toContain(ACKNOWLEDGE)
-    // The sample board sits below the live card.
-    const board = screen.getByTestId('sample-list')
-    expect(board.textContent).toBe('emergency')
-    expect(card().compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // One card, under the page's heading: the card repeats no title.
+    expect(card().querySelector('h2')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Record emergency access' })).toBeNull()
+  })
+
+  it('audit 7: the break-glass page is served at a demo facility too, never the sample board', () => {
+    staff.facilityId = DEMO_HOSPITAL_ID
+    openForm()
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency break-glass access' })).toBeTruthy()
+    expect(submitButton().type).toBe('submit')
+    expect(screen.queryByTestId('sample-detail')).toBeNull()
+    expect(vi.mocked(SampleDetail)).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    expect(screen.getByTestId('sample-list').textContent).toBe('emergency')
   })
 
   it('names the tab “Emergency · Health ID EHR” on every page of the workspace, never the patient', () => {
     staff.activePatient = activePatient('emergency')
-    for (const rest of ['', '/new', '/cfa650e2', '/summary']) {
+    for (const rest of ['', '/new', '/cfa650e2', '/summary', '/break-glass']) {
       document.title = ''
       const view = open(rest)
       expect(document.title).toBe('Emergency · Health ID EHR')
@@ -148,14 +184,23 @@ describe('the Emergency page', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Emergency summary' })).toBeTruthy()
   })
 
-  it('at a real facility, shows the heading without Create record and the live break-glass card, but no sample board', () => {
+  it('audit 7: at a real facility, is the heading without Create record and one list card, whose empty state opens the break-glass page', () => {
     open()
     expect(screen.getByRole('heading', { level: 1, name: 'Emergency' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
-    expect(within(card()).getByRole('textbox', { name: labelled('Health ID') })).toBeTruthy()
-    expect(submitButton().type).toBe('submit')
+    expect(screen.queryByRole('button', { name: 'Record emergency access' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Emergency break-glass access' })).toBeNull()
+    const cards = document.querySelectorAll<HTMLElement>('.hid-ehr-card')
+    expect(cards).toHaveLength(1)
+    // The design's empty list title, and today's words for when emergency access is used.
+    expect(within(cards[0]!).getByText(NO_MATCHING)).toBeTruthy()
+    expect(within(cards[0]!).getByText(BEFORE)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/No emergency records/)
     expect(screen.queryByTestId('sample-list')).toBeNull()
     expect(document.body.textContent).not.toContain(SAMPLE_NOTICE)
+    fireEvent.click(within(cards[0]!).getByRole('button', { name: 'Emergency break-glass access' }))
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency break-glass access' })).toBeTruthy()
+    expect(submitButton().type).toBe('submit')
     for (const part of [SampleList, SampleCreate, SampleDetail]) expect(vi.mocked(part)).not.toHaveBeenCalled()
   })
 
@@ -179,20 +224,21 @@ describe('the Emergency page', () => {
     open('/new')
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
     expect(screen.getByRole('heading', { level: 1, name: 'Emergency' })).toBeTruthy()
-    expect(card()).toBeTruthy()
+    expect(screen.getByText(NO_MATCHING)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Emergency break-glass access' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
     for (const part of [SampleList, SampleCreate, SampleDetail]) expect(vi.mocked(part)).not.toHaveBeenCalled()
   })
 
   it('on main, keeps today’s emergency notice word for word', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'main-v1')
-    open()
+    openForm()
     expect(card().querySelector('.hid-ehr-clinical-emergency-notice')!.textContent).toBe(BEFORE + AFTER)
   })
 
   it('on Novu, says verified emergency contacts are told, with the staff member’s name, and never the reason', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
-    open()
+    openForm()
     expect(card().querySelector('.hid-ehr-clinical-emergency-notice')!.textContent).toBe(BEFORE + CONTACTS_TOLD + AFTER)
   })
 
@@ -209,6 +255,31 @@ describe('the Emergency page', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Emergency summary' })).toBeTruthy()
   })
 
+  it('audit 7: at a real facility, an open emergency patient’s summary card comes first, and the list card under it never says there is no emergency access', async () => {
+    staff.activePatient = activePatient('emergency')
+    open()
+    const current = screen.getByRole('heading', { level: 2, name: 'Current emergency summary' }).closest<HTMLElement>('section')!
+    const cards = [...document.querySelectorAll<HTMLElement>('.hid-ehr-card')]
+    expect(cards).toHaveLength(2)
+    expect(cards[0]).toBe(current)
+    const list = cards[1]!
+    expect(list.classList.contains('hid-ehr-clinical-emergency-list')).toBe(true)
+    expect(within(current).getByText(PATIENT_NAME)).toBeTruthy()
+    expect(within(current).getByRole('link', { name: 'Open read-only emergency summary →' })).toBeTruthy()
+    // The list card has the design's empty title and today's words, and claims nothing about emergency records.
+    expect(within(list).getByText(NO_MATCHING)).toBeTruthy()
+    expect(within(list).getByText(BEFORE)).toBeTruthy()
+    expect(list.textContent).not.toMatch(/no emergency/i)
+    expect(document.body.textContent).not.toMatch(/No emergency records/)
+    // Nothing identifying the open patient in the list card.
+    for (const value of [PATIENT_NAME, PATIENT_HID, PATIENT_ID]) expect(list.textContent).not.toContain(value)
+    expect(within(list).getByRole('button', { name: 'Emergency break-glass access' })).toBeTruthy()
+    // The list reads nothing about the open patient.
+    await act(async () => {})
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+    expect(api.emergencyRecords).not.toHaveBeenCalled()
+  })
+
   it('shows no current emergency card for a patient open in direct care', async () => {
     staff.activePatient = activePatient('direct-care')
     api.consentStatus.mockResolvedValue({ writeAllowed: true })
@@ -223,13 +294,13 @@ describe('the Emergency page', () => {
 
 describe('the break-glass form checks what it sends', () => {
   it('normalizes the Health ID as it is typed', () => {
-    open()
+    openForm()
     fireEvent.change(hidField(), { target: { value: 'hid-zdemaaa2' } })
     expect(hidField().value).toBe(PATIENT_HID)
   })
 
   it('refuses an empty form at each field, moves focus to the first, and sends nothing', async () => {
-    open()
+    openForm()
     await record()
     expect(errorOf(hidField())).toBe('Enter the patient’s Health ID.')
     expect(errorOf(reasonField())).toBe('Document the emergency reason in at least 8 characters.')
@@ -242,7 +313,7 @@ describe('the break-glass form checks what it sends', () => {
   })
 
   it('refuses a malformed Health ID and a reason under 8 characters with today’s words', async () => {
-    open()
+    openForm()
     fill({ hid: 'HID-AB', reason: 'Fall' })
     await record()
     expect(errorOf(hidField())).toBe('Check the Health ID: it starts with HID-, then 6 to 32 letters and digits, and never uses 0, 1, I or O.')
@@ -253,7 +324,7 @@ describe('the break-glass form checks what it sends', () => {
   })
 
   it('refuses a reason of spaces only', async () => {
-    open()
+    openForm()
     fill({ reason: '           ' })
     await record()
     expect(errorOf(reasonField())).toBe('Document the emergency reason in at least 8 characters.')
@@ -261,7 +332,7 @@ describe('the break-glass form checks what it sends', () => {
   })
 
   it('announces a refusal made with Enter in the refused field, and keeps focus there', async () => {
-    open()
+    openForm()
     fill({ reason: 'Short' })
     reasonField().focus()
     await act(async () => { fireEvent.submit(reasonField().form!) })
@@ -271,7 +342,7 @@ describe('the break-glass form checks what it sends', () => {
   })
 
   it('clears a field’s problem as it changes', async () => {
-    open()
+    openForm()
     await record()
     fireEvent.change(justificationField(), { target: { value: JUSTIFICATION } })
     expect(errorOf(justificationField())).toBe('')
@@ -280,14 +351,14 @@ describe('the break-glass form checks what it sends', () => {
   })
 
   it('limits the reason and justification so both fit today’s 500-character reason', () => {
-    open()
+    openForm()
     expect(reasonField().maxLength + justificationField().maxLength + '\nClinical justification: '.length).toBeLessThanOrEqual(500)
   })
 })
 
 describe('recording emergency access', () => {
   it('sends today’s break-glass request, waits for the session, opens the patient for emergency care and shows the summary', async () => {
-    open()
+    openForm()
     fill()
     await record()
     expect(await screen.findByRole('heading', { level: 1, name: 'Emergency summary' })).toBeTruthy()
@@ -303,7 +374,7 @@ describe('recording emergency access', () => {
   })
 
   it('sends from the form itself, as Enter in a field does', async () => {
-    open()
+    openForm()
     fill()
     await act(async () => { fireEvent.submit(hidField().form!) })
     expect(await screen.findByRole('heading', { level: 1, name: 'Emergency summary' })).toBeTruthy()
@@ -312,17 +383,17 @@ describe('recording emergency access', () => {
 
   it('opens nothing when the session no longer accepts the patient', async () => {
     staff.setActivePatient.mockImplementation(() => false)
-    open()
+    openForm()
     fill()
     await record()
     await waitFor(() => expect(api.lookupPatient).toHaveBeenCalled())
-    expect(screen.getByRole('heading', { level: 1, name: 'Emergency' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency break-glass access' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Emergency summary' })).toBeNull()
   })
 
   it('closes the patient and says so when the lookup does not allow the record', async () => {
     api.lookupPatient.mockResolvedValue(deniedLookup)
-    open()
+    openForm()
     fill()
     await record()
     expect((await screen.findByRole('alert')).textContent).toBe('The backend has not granted access to this patient. Request approval, verify their PIN, or use documented emergency access when justified.')
@@ -331,7 +402,7 @@ describe('recording emergency access', () => {
 
   it('shows a refused lookup as it is', async () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
-    open()
+    openForm()
     fill()
     await record()
     expect((await screen.findByRole('alert')).textContent).toBe('Patient access is not authorized')
@@ -340,7 +411,7 @@ describe('recording emergency access', () => {
 
   it('opens nothing once the session that asked has ended', async () => {
     session.untilStaffSessionReady.mockRejectedValue(new HidApiError(0, 'Stopped because the session it belonged to ended.', { code: 'REQUEST_CANCELLED', retryable: false }))
-    open()
+    openForm()
     fill()
     await record()
     expect((await screen.findByRole('alert')).textContent).toBe('Stopped because the session it belonged to ended.')
@@ -359,7 +430,7 @@ describe('recording emergency access', () => {
       'Break-glass access is not authorized'],
   ])('says what a %s means, and looks nothing up', async (_name, refusal, said) => {
     api.breakGlass.mockRejectedValue(refusal)
-    open()
+    openForm()
     fill()
     await record()
     expect((await screen.findByRole('alert')).textContent).toBe(said)
@@ -373,7 +444,7 @@ describe('recording emergency access', () => {
 
   it('says the access command failed when the refusal has no words', async () => {
     api.breakGlass.mockRejectedValue('offline')
-    open()
+    openForm()
     fill()
     await record()
     expect((await screen.findByRole('alert')).textContent).toBe('The access command failed.')
@@ -382,7 +453,7 @@ describe('recording emergency access', () => {
   it('keeps the button focusable and busy while it runs, and sends once', async () => {
     let answer: (value: unknown) => void = () => {}
     api.breakGlass.mockReturnValue(new Promise(resolve => { answer = resolve }))
-    open()
+    openForm()
     fill()
     const button = submitButton()
     button.focus()
@@ -404,7 +475,7 @@ describe('a role that cannot activate emergency access', () => {
 
   it('is not offered the button, and is told exactly what it lacks', async () => {
     staff.permissions = ['identity.patient.read', 'identity.break-glass.write']
-    open()
+    openForm()
     expect(submitButton().disabled).toBe(true)
     expect(reason()).toBe('Your role at this facility cannot activate emergency access: it also needs identity.consent.write, and '
       + 'ehr.encounter.read and ehr.note.read to read the emergency summary. Ask your organization administrator.')
@@ -420,7 +491,7 @@ describe('a role that cannot activate emergency access', () => {
     ['ehr.note.read', 'ehr.note.read to read the emergency summary'],
   ])('without %s, names it', (missing, named) => {
     staff.permissions = EMERGENCY_PERMISSIONS.filter(permission => permission !== missing)
-    open()
+    openForm()
     expect(submitButton().disabled).toBe(true)
     expect(reason()).toContain(`also needs ${named}.`)
   })
@@ -428,7 +499,7 @@ describe('a role that cannot activate emergency access', () => {
   it('at a self-signed-up facility, tells its administrator who gives clinical access', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     staff.permissions = ['workforce.manage', 'audit.read']
-    open()
+    openForm()
     // The harness facility carries no self-service review, so the administrator is asked as usual.
     expect(reason().endsWith('Ask your organization administrator.')).toBe(true)
   })
@@ -443,7 +514,7 @@ describe('a role that cannot activate emergency access', () => {
   })
 
   it('offers the button with every permission', () => {
-    open()
+    openForm()
     expect(submitButton().disabled).toBe(false)
     expect(submitButton().getAttribute('aria-describedby')).toBeNull()
   })

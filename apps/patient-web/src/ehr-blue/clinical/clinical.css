@@ -76,6 +76,26 @@
   outline-offset: var(--ehr-focus-ring-offset);
 }
 
+/* An action drawn as the design's link (a shared patient's name and "Open →", the Allergies retry): no button chrome. */
+.hid-ehr .hid-ehr-clinical-link-button {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  line-height: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-clinical-link-button:disabled,
+.hid-ehr .hid-ehr-clinical-link-button[aria-disabled="true"] {
+  color: var(--ehr-muted);
+  text-decoration: none;
+  cursor: not-allowed;
+}
+
 .hid-ehr .hid-ehr-clinical-icon {
   display: block;
   flex-shrink: 0;
@@ -368,6 +388,28 @@
   overflow-wrap: anywhere;
 }
 
+/* A history row that opens by an action (a document's file): its button is drawn as the row's link. */
+.hid-ehr .hid-ehr-clinical-history-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-clinical-history-open:disabled {
+  color: var(--ehr-muted);
+  text-decoration: none;
+  cursor: not-allowed;
+}
+
+/* While its file is being opened (aria-busy, presses ignored): a visible busy cue. */
+.hid-ehr .hid-ehr-clinical-history-open[aria-busy='true'] {
+  color: var(--ehr-muted);
+  cursor: progress;
+}
+
 /* "Preserved versions & amendments" disclosure rows. */
 .hid-ehr .hid-ehr-clinical-version {
   padding: 12px 0;
@@ -599,6 +641,11 @@
   margin: 0;
 }
 
+/* A paragraph in the quick view (a share's or an invitation's explanation, why a record cannot be opened): the column's 12px gap spaces it. */
+.hid-ehr .hid-ehr-clinical-quick-text {
+  margin: 0;
+}
+
 /* ---- Widths ------------------------------------------------------------------ */
 
 @media (max-width: 1000px) {
@@ -633,35 +680,20 @@
   align-self: flex-start;
 }
 
-/* "Shared with you" and "Invitations", side by side when both are served. */
-.hid-ehr .hid-ehr-clinical-patients-sharing {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 0 20px;
-  align-items: start;
+/* Under the Patients list in its card (audit 2): how a patient is opened while only sharing rows are listed, what the sharing lists said, and what Accept did. */
+.hid-ehr .hid-ehr-clinical-patients-sharing-notes > .hid-ehr-clinical-note {
+  margin: 12px 0 0;
 }
 
-/* A sharing row's level badge and its button, at the row's end. */
-.hid-ehr .hid-ehr-clinical-patients-share-actions {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+.hid-ehr .hid-ehr-clinical-patients-sharing-notes .hid-ehr-clinical-status {
+  margin: 12px 0 0;
 }
 
 /* ---- External record access ---------------------------------------------------- */
 
-.hid-ehr .hid-ehr-clinical-consent-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 12px;
+/* The break-glass form opened in "Cross-institution history": 18px under the action row. */
+.hid-ehr .hid-ehr-clinical-consent-break-glass {
   margin-top: 18px;
-}
-
-.hid-ehr .hid-ehr-clinical-consent-toolbar > .hid-ehr-field {
-  min-width: 220px;
 }
 
 /* The always-mounted status region on a request's page takes focus only when a close removed its button. */
@@ -993,10 +1025,6 @@
   margin: 4px 0 0;
 }
 
-.hid-ehr .hid-ehr-clinical-orders-connected .hid-ehr-clinical-history-list {
-  margin-top: 4px;
-}
-
 /* Connected orders: a list's "Record pages" sits just under its caption ("Pharmacy", "Laboratory"). */
 .hid-ehr .hid-ehr-clinical-orders-pages > .hid-ehr-clinical-pager {
   margin-top: 6px;
@@ -1039,6 +1067,11 @@
 }
 
 /* ---- Emergency ----------------------------------------------------------------- */
+
+/* A real facility's Emergency list holds only its empty state (no search field above it), so it starts at the card's padding. */
+.hid-ehr .hid-ehr-clinical-emergency-list .hid-ehr-clinical-list-table {
+  margin-top: 0;
+}
 
 /* "Current emergency summary": name, badge and link on one line. */
 .hid-ehr .hid-ehr-clinical-emergency-current {

@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef } from 'react'
 import { usesNovuBackend } from '../../../backendContract'
 import type { ClinicalRecord, Encounter, Page } from '../../../staff/api'
 import { refusedFields, refusalSentences } from '../../../staff/fieldProblem'
-import type { FieldDef, FieldErrors, FormValues } from '../parts/RecordForm'
+import { COMPLETE_FIELD, type FieldDef, type FieldErrors, type FormValues } from '../parts/RecordForm'
 import { shortId } from '../parts/format'
 import { NOTE_TYPE as NURSING_NOTE_TYPE } from '../nursing/observations'
 
@@ -199,6 +199,85 @@ export function consultationNote(notes: readonly ClinicalRecord[] | null): Clini
  */
 export function composeNote(sections: readonly (readonly [string, string])[]): string {
   return sections.filter(([, value]) => value).map(([label, value]) => `${label}\n${value}`).join('\n\n')
+}
+
+/**
+ * New consultation's diagnosis fields, also offered (optional) in "Edit unsigned draft" and "Amend signed note": with
+ * a code system and code, the assessment is saved as this encounter's diagnosis, as New consultation saves it.
+ */
+export const NEW_DIAGNOSIS_FIELDS: readonly FieldDef[] = [
+  { key: 'diagnosis', label: 'Diagnosis / assessment', maxLength: 500, hint: 'Optional. With a code system and code, it is saved as this encounter’s diagnosis.' },
+  { key: 'diagnosisCodeSystem', label: 'Diagnosis code system', placeholder: 'ICD-10', maxLength: 255 },
+  { key: 'diagnosisCode', label: 'Diagnosis code', maxLength: 100 },
+  { key: 'diagnosisClinicalStatus', label: 'Clinical status', choices: DIAGNOSIS_CLINICAL_STATUSES },
+  { key: 'diagnosisVerification', label: 'Verification', choices: DIAGNOSIS_VERIFICATION_STATUSES },
+]
+export const NEW_DIAGNOSIS_INITIAL: FormValues = { diagnosisClinicalStatus: 'active', diagnosisVerification: 'unconfirmed' }
+const NEW_DIAGNOSIS_KEYS = ['diagnosis', 'diagnosisCodeSystem', 'diagnosisCode'] as const
+/** A refused diagnosis create's DTO fields, named by the form's keys, so each refusal shows at its field. */
+export const NEW_DIAGNOSIS_REFUSED: Readonly<Record<string, string>> = {
+  display: 'diagnosis', codeSystem: 'diagnosisCodeSystem', code: 'diagnosisCode', clinicalStatus: 'diagnosisClinicalStatus', verificationStatus: 'diagnosisVerification',
+}
+
+/** Once any of the assessment, its code system or its code is typed, all three are needed (New consultation's check). */
+export function newDiagnosisCheck(values: FormValues): FieldErrors {
+  const errors: Record<string, string> = {}
+  if (NEW_DIAGNOSIS_KEYS.some(key => text(values[key]))) {
+    for (const key of NEW_DIAGNOSIS_KEYS) if (!text(values[key])) errors[key] = COMPLETE_FIELD
+  }
+  return errors
+}
+
+/** The diagnosis to create from those fields (today's `createRecord(…, 'diagnoses', …)` body), or null when none was typed. */
+export function newDiagnosisBody(values: FormValues) {
+  const display = text(values.diagnosis)
+  if (!display) return null
+  return {
+    codeSystem: text(values.diagnosisCodeSystem), code: text(values.diagnosisCode), display,
+    clinicalStatus: text(values.diagnosisClinicalStatus) || 'active', verificationStatus: text(values.diagnosisVerification) || 'unconfirmed',
+  }
+}
+
+/** The sections New consultation composes a note from (composeNote), in its order. */
+const NOTE_SECTIONS = [['history', 'History'], ['examination', 'Examination'], ['note', 'Clinical note'], ['followup', 'Follow-up']] as const
+
+export interface NoteSections {
+  /** The content was composed from sections; otherwise it is one note, whole. */
+  readonly sectioned: boolean
+  readonly history: string
+  readonly examination: string
+  readonly note: string
+  readonly followup: string
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * A consultation note's content split back into the sections New consultation composed it from: each section's label
+ * on its own line ("History", or "History:"), then its text, sections a blank line apart and in composeNote's order.
+ * Content that does not start with one of them is not sectioned: it is the whole note.
+ */
+export function splitNote(content: string): NoteSections {
+  const found: { key: typeof NOTE_SECTIONS[number][0]; start: number; body: number }[] = []
+  let from = 0
+  for (const [key, label] of NOTE_SECTIONS) {
+    const heading = new RegExp(`(^|\\n\\n)${escapeRegExp(label)}:?[ \\t]*\\n`, 'g')
+    heading.lastIndex = from
+    const match = heading.exec(content)
+    // The first section starts the content; each later one follows the one before.
+    if (!match || (found.length === 0 && match.index !== 0)) continue
+    found.push({ key, start: match.index, body: match.index + match[0].length })
+    from = match.index + match[0].length
+  }
+  const sections = { history: '', examination: '', note: '', followup: '' }
+  if (found.length === 0) return { sectioned: false, ...sections, note: content }
+  found.forEach((section, index) => {
+    const end = found[index + 1]?.start ?? content.length
+    sections[section.key] = content.slice(section.body, end).trim()
+  })
+  return { sectioned: true, ...sections }
 }
 
 /** The latest value, read from callbacks and effects without making them re-run (the chart's verify changes often). */

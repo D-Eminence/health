@@ -53,9 +53,9 @@ export function statusNote(request: AccessRequest): string {
 /** The request as the design's key and value list prints it. */
 export function requestDetails(request: AccessRequest): KeyValue[] {
   const items: KeyValue[] = [
-    { label: 'Purpose of access', value: request.reason },
+    { label: 'Reason', value: request.reason },
     { label: 'Access scope', value: SCOPE_LABELS[request.scope] ?? request.scope },
-    { label: 'Duration (minutes)', value: String(request.requestedDurationMinutes) },
+    { label: 'Duration', value: String(request.requestedDurationMinutes) },
     { label: 'Patient', value: patientContext(request) },
     { label: 'Requested', value: formatWhen(request.requestedAt) },
   ]

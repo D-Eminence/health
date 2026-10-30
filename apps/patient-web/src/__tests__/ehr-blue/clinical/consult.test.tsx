@@ -159,6 +159,23 @@ describe('Consultation list', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
   })
 
+  it('audit 8: a failed read keeps today’s "Refresh encounters" beside its alert, out of the heading, reading the list afresh after the access re-check', async () => {
+    api.encounters.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
+    open()
+    expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    const refresh = screen.getByRole('button', { name: 'Refresh encounters' })
+    const heading = screen.getByRole('heading', { level: 1, name: 'Consultation' }).parentElement!.parentElement!
+    expect(heading.contains(refresh)).toBe(false)
+    const checks = api.lookupPatient.mock.calls.length
+    fireEvent.click(refresh)
+    expect(await screen.findByRole('table', { name: 'Encounters' })).toBeTruthy()
+    expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: undefined, fresh: true })
+    expect(api.lookupPatient.mock.calls.length).toBe(checks + 1)
+    // Read: the alert and the retry go.
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Refresh encounters' })).toBeNull()
+  })
+
   it('pages with the backend cursor, re-checking access each time, and restarts on a cursor EHR no longer accepts', async () => {
     api.encounters.mockImplementation(async (_f: string, _p: string, page: { cursor?: string }) => {
       if (page.cursor === 'cursor-2') return { items: [SECOND], nextCursor: null }
@@ -180,15 +197,17 @@ describe('Consultation list', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('The page could not be loaded. EHR is unavailable.')
     expect(within(pager).getByText('Page 2')).toBeTruthy()
 
-    // Refresh re-reads the page shown; a stale cursor starts again from the newest.
+    // A cursor EHR no longer accepts starts the list again from the newest, with today's notice.
+    fireEvent.click(within(pager).getByRole('button', { name: 'Previous page' }))
+    expect(await within(pager).findByText('Page 1')).toBeTruthy()
     api.encounters.mockImplementation(async (_f: string, _p: string, page: { cursor?: string }) => {
       if (page.cursor === 'cursor-2') throw new HidApiError(400, 'The cursor is invalid.', { code: 'INVALID_CURSOR' })
       return { items: [ENCOUNTER], nextCursor: 'cursor-2' }
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh encounters' }))
+    fireEvent.click(within(pager).getByRole('button', { name: 'Next page' }))
     expect(await screen.findByText('This list changed since it was opened, so it shows the newest entries again.')).toBeTruthy()
     expect(within(screen.getByRole('navigation', { name: 'Record pages' })).getByText('Page 1')).toBeTruthy()
-    expect(api.encounters).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { cursor: 'cursor-2', fresh: true })
+    expect(api.encounters).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { cursor: 'cursor-2', fresh: false })
     expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: undefined, fresh: true })
   })
 
@@ -198,12 +217,13 @@ describe('Consultation list', () => {
     expect(screen.queryByRole('navigation', { name: 'Record pages' })).toBeNull()
   })
 
-  it('offers "Create record" as a real button only when the grant allows changes', async () => {
+  it('audit 8: offers "Create record" as the heading’s one primary action, a real button, only when the grant allows changes; no "Refresh encounters"', async () => {
     open()
     const create = await screen.findByRole('button', { name: 'Create record' })
-    // The design's heading order: "Create record", then "Refresh encounters".
     const heading = screen.getByRole('heading', { level: 1, name: 'Consultation' }).parentElement!.parentElement!
-    expect(within(heading).getAllByRole('button').map(button => button.textContent)).toEqual(['Create record', 'Refresh encounters'])
+    expect(within(heading).getAllByRole('button').map(button => button.textContent)).toEqual(['Create record'])
+    expect(screen.queryByRole('button', { name: 'Refresh encounters' })).toBeNull()
+    expect(create.className).not.toContain('secondary')
     fireEvent.click(create)
     expect(await screen.findByRole('heading', { level: 1, name: 'New consultation' })).toBeTruthy()
   })

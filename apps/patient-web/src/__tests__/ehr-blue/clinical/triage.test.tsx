@@ -7,7 +7,8 @@ import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, P
 /**
  * Triage & Vitals: the open patient's vitals (today's records of kind "vitals", per encounter) in the design's list,
  * "New triage & vitals" with today's measurements and refusals, and the design's record page, where "Amend
- * observation" is today's appended correction with full replacement values. Everything is fictional.
+ * observation" is today's appended correction with full replacement values and the history lists the encounter's
+ * records in the other workspaces. Everything is fictional.
  */
 
 const api = vi.hoisted(() => ({
@@ -40,8 +41,20 @@ const CORRECTIONS = [
 ]
 const READ_ONLY = 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'
 const RECORD = `/${ENCOUNTER_ID}~${VITAL_ID}`
+const OBSERVATION_ID = 'c0000000-0000-4000-8000-000000000001'
+const LAB_ID = 'b0000000-0000-4000-8000-000000000001'
+const PRESCRIPTION_ID = 'd0000000-0000-4000-8000-000000000001'
+const OBSERVATION = {
+  id: OBSERVATION_ID, patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, facilityId: FACILITY_ID, createdAt: '2026-10-30T09:00:00.000Z',
+  noteType: 'Nursing observation', title: 'Vitals', status: 'draft', rowVersion: '1',
+}
+const CONSULTATION_NOTE = { ...OBSERVATION, id: 'c2222222-0000-4000-8000-000000000003', noteType: 'Consultation', title: 'Consultation note' }
+const LAB = { id: LAB_ID, patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:30:00.000Z', testDisplay: 'Full blood count', status: 'completed' }
+const PRESCRIPTION = { id: PRESCRIPTION_ID, patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T08:40:00.000Z', medicationDisplay: '', status: 'active' }
 
 let vitals: unknown[]
+/** The encounter's records in the other workspaces, by record kind; none unless a test gives some. */
+let others: Record<string, unknown[]>
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -56,11 +69,12 @@ beforeEach(() => {
   staff.activePatient = activePatient()
   staff.setActivePatient.mockImplementation(value => { staff.activePatient = value; return true })
   vitals = [VITAL]
+  others = {}
   api.lookupPatient.mockResolvedValue(allowedLookup)
   api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: true })
   api.encounters.mockResolvedValue({ items: [ENCOUNTER], nextCursor: null })
   api.encounter.mockImplementation(async (_f: string, _p: string, id: string) => ({ ...ENCOUNTER, id }))
-  api.records.mockImplementation(async () => ({ items: vitals, nextCursor: null }))
+  api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) => ({ items: kind === 'vitals' ? vitals : others[kind] ?? [], nextCursor: null }))
   api.vitalCorrections.mockResolvedValue([])
   api.reportedHealthProfile.mockResolvedValue(null)
   api.correctVital.mockResolvedValue({ id: 'correction-9', vitalId: VITAL_ID, correctionNo: 1 })
@@ -597,6 +611,162 @@ describe('Triage & Vitals record', () => {
     expect(ended.closest('[role="alert"]')?.textContent).toContain('Patient access has ended. Reopen the record through governed access.')
     expect(api.correctVital).not.toHaveBeenCalled()
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
+  })
+
+  function actions() {
+    return screen.getByRole('heading', { level: 2, name: 'Available actions' }).closest('section')!
+  }
+
+  function history() {
+    return screen.getByRole('heading', { level: 2, name: 'Connected hospital history' }).closest('section')!
+  }
+
+  function historyRows() {
+    return within(history()).getAllByRole('listitem').map(row => {
+      const link = within(row).queryByRole('link')
+      return [link?.textContent ?? row.firstElementChild?.textContent, link?.getAttribute('href') ?? null]
+    })
+  }
+
+  function labels(scope: HTMLElement) {
+    return Array.from(scope.querySelectorAll('dt')).map(term => term.textContent)
+  }
+
+  it('audit 11: vitals have no live action beyond the design’s "Amend observation", so there is no More actions menu', async () => {
+    await openRecord()
+    await screen.findByRole('button', { name: 'Amend observation' })
+    expect(within(actions()).getAllByRole('button').map(button => button.textContent)).toEqual(['Amend observation'])
+    expect(actions().querySelector('[aria-haspopup]')).toBeNull()
+    expect(within(actions()).queryByRole('button', { name: 'More actions' })).toBeNull()
+  })
+
+  it('audit 15: the history lists the visit first, then the encounter’s Laboratory, Pharmacy and Nursing observations, each a link; never other vitals', async () => {
+    staff.permissions = [...ALL, 'ehr.lab-request.read', 'ehr.prescription.read']
+    vitals = [VITAL, { ...VITAL, id: 'f2222222-0000-4000-8000-000000000003', createdAt: '2026-10-30T08:15:00.000Z' }]
+    others = {
+      // Only nursing observations from the notes; a record of another encounter is never listed here.
+      'clinical-notes': [OBSERVATION, CONSULTATION_NOTE, { ...OBSERVATION, id: 'c9999999-0000-4000-8000-000000000009', encounterId: 'e9999999-0000-4000-8000-000000000009' }],
+      'lab-requests': [LAB],
+      prescriptions: [PRESCRIPTION],
+    }
+    await openRecord()
+    await waitFor(() => expect(within(history()).queryByText('Loading records…')).toBeNull())
+    expect(historyRows()).toEqual([
+      ['Consultation · e0000000', `/provider/clinical/${ENCOUNTER_ID}`],
+      ['Laboratory · Full blood count', `/provider/clinical/${ENCOUNTER_ID}/orders/laboratory/${LAB_ID}`],
+      // Today's word for an order with no name.
+      ['Pharmacy · Prescription', `/provider/clinical/${ENCOUNTER_ID}/orders/pharmacy/${PRESCRIPTION_ID}`],
+      ['Nursing observations · c0000000', `/provider/nursing/${ENCOUNTER_ID}~${OBSERVATION_ID}`],
+    ])
+    expect(within(history()).getAllByRole('listitem').map(row => row.lastElementChild?.textContent)).toEqual(['in progress', 'completed', 'active', 'draft'])
+    expect(within(history()).queryByText(/f2222222|c2222222|c9999999/)).toBeNull()
+    // The record's own read is the only vitals read; each other kind is read once, as the encounter page reads it.
+    expect(api.records.mock.calls.filter(call => call[3] === 'vitals')).toHaveLength(1)
+    for (const kind of ['clinical-notes', 'lab-requests', 'prescriptions']) {
+      expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, kind)
+    }
+    expect(window.location.href).not.toContain(PATIENT_HID)
+  })
+
+  it('audit 15: each kind is read only by a role that may read it; a read in progress or refused says so in the history', async () => {
+    others = { 'clinical-notes': [OBSERVATION], 'lab-requests': [LAB], prescriptions: [PRESCRIPTION] }
+    staff.permissions = ['ehr.vital.read', 'ehr.vital.write']
+    let view = open(RECORD)
+    await screen.findByRole('heading', { level: 1, name: 'f0000000' })
+    await act(async () => {})
+    // Without encounter read the visit is named, not linked; without note, lab or prescription read nothing else is read.
+    expect(historyRows()).toEqual([['Consultation · e0000000', null]])
+    expect(api.records.mock.calls.map(call => call[3])).toEqual(['vitals'])
+    view.unmount()
+
+    staff.permissions = [...ALL, 'ehr.lab-request.read', 'ehr.prescription.read']
+    const notesRead = deferred<{ items: unknown[]; nextCursor: null }>()
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) => {
+      if (kind === 'clinical-notes') return notesRead.promise
+      if (kind === 'prescriptions') throw new HidApiError(403, 'This role may not read prescriptions.', { code: 'FORBIDDEN' })
+      return { items: kind === 'vitals' ? vitals : others[kind] ?? [], nextCursor: null }
+    })
+    view = open(RECORD)
+    await screen.findByRole('heading', { level: 1, name: 'f0000000' })
+    expect(await within(history()).findByText('Loading records…')).toBeTruthy()
+    await act(async () => notesRead.resolve({ items: [OBSERVATION], nextCursor: null }))
+    expect(within(history()).queryByText('Loading records…')).toBeNull()
+    expect(within(history()).getByRole('alert').textContent).toBe('This role may not read prescriptions.')
+    // The other rows still show, and the record itself is unaffected.
+    expect(historyRows().map(row => row[0])).toEqual(['Consultation · e0000000', 'Laboratory · Full blood count', 'Nursing observations · c0000000'])
+    expect(within(saved()).getByText('120/80')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Amend observation' })).toBeTruthy()
+    view.unmount()
+  })
+
+  it('audit 15: a kind past its first page shows today’s "Record pages" in the history; a later page is reached there, and a failed move says so', async () => {
+    let refuseFirst = false
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string, page?: { cursor?: string; fresh?: boolean }) => {
+      if (kind !== 'clinical-notes') return { items: kind === 'vitals' ? vitals : others[kind] ?? [], nextCursor: null }
+      // Newer consultation notes fill the first notes page; the observation is on the next.
+      if (page?.cursor === 'notes-2') return { items: [OBSERVATION], nextCursor: null }
+      if (page && refuseFirst) throw new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })
+      return { items: [CONSULTATION_NOTE], nextCursor: 'notes-2' }
+    })
+    await openRecord()
+    const pages = await within(history()).findByRole('group', { name: 'Nursing observations' })
+    expect(within(pages).getByRole('navigation', { name: 'Record pages' })).toBeTruthy()
+    expect(within(pages).getByText('Page 1')).toBeTruthy()
+    expect(historyRows()).toEqual([['Consultation · e0000000', `/provider/clinical/${ENCOUNTER_ID}`]])
+
+    fireEvent.click(within(pages).getByRole('button', { name: 'Next page' }))
+    expect(await within(history()).findByText('Nursing observations · c0000000')).toBeTruthy()
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: 'notes-2', fresh: false })
+    expect(within(pages).getByText('Page 2')).toBeTruthy()
+    expect(historyRows()).toContainEqual(['Nursing observations · c0000000', `/provider/nursing/${ENCOUNTER_ID}~${OBSERVATION_ID}`])
+
+    // A failed move keeps the page shown and says so beside its pager.
+    refuseFirst = true
+    fireEvent.click(within(pages).getByRole('button', { name: 'Previous page' }))
+    const failed = await within(pages).findByRole('alert')
+    expect(failed.textContent).toContain('The page could not be loaded.')
+    expect(within(history()).getByText('Nursing observations · c0000000')).toBeTruthy()
+    expect(within(pages).getByText('Page 2')).toBeTruthy()
+    // The record itself is unaffected, and no cursor reaches the address.
+    expect(within(saved()).getByText('120/80')).toBeTruthy()
+    expect(window.location.href).not.toContain('notes-2')
+  })
+
+  it('audit 15: Laboratory and Pharmacy rows link only for a role that may open Consultation (encounter read)', async () => {
+    staff.permissions = ['ehr.vital.read', 'ehr.vital.write', 'ehr.lab-request.read', 'ehr.prescription.read']
+    others = { 'lab-requests': [LAB], prescriptions: [PRESCRIPTION] }
+    open(RECORD)
+    await screen.findByRole('heading', { level: 1, name: 'f0000000' })
+    await waitFor(() => expect(within(history()).queryByText('Loading records…')).toBeNull())
+    // Named, not linked: Consultation (where the visit and its orders open) needs encounter read.
+    expect(historyRows()).toEqual([
+      ['Consultation · e0000000', null],
+      ['Laboratory · Full blood count', null],
+      ['Pharmacy · Prescription', null],
+    ])
+    expect(within(history()).queryByRole('link')).toBeNull()
+  })
+
+  it('decision 4: the saved record, the versions and the quick view write the measurement labels properly', async () => {
+    const all = { systolicMmhg: 120, diastolicMmhg: 80, pulseBpm: 72, temperatureC: '36.6', oxygenSaturationPercent: '98', respiratoryRate: 16, weightKg: '68.4', heightCm: '170' }
+    vitals = [{ ...VITAL, ...all, currentCorrectionNo: 1, rowVersion: '2' }]
+    api.vitalCorrections.mockResolvedValue([{ ...CORRECTIONS[0]!, replacementValues: { ...all, pulseBpm: 76 } }])
+    const proper = ['Blood pressure', 'Pulse', 'Temperature', 'SpO2', 'Respiratory rate', 'Weight', 'Height']
+    const view = open(RECORD)
+    await screen.findByRole('heading', { level: 1, name: 'f0000000' })
+    expect(await within(saved()).findByText('Cuff too small')).toBeTruthy()
+    expect(labels(saved())).toEqual(['Visit', 'Complaint', ...proper, 'Reason', 'Corrected at'])
+    const versions = screen.getByRole('heading', { level: 2, name: 'Preserved versions & amendments' }).closest('section')!
+    expect(labels(versions)).toEqual(['Version', ...proper])
+    for (const raw of ['Bp', 'Spo2', 'Respiratory Rate']) expect(screen.queryByText(raw)).toBeNull()
+    view.unmount()
+
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: 'Quick view f0000000' }))
+    const drawer = await screen.findByRole('dialog', { name: 'Record quick view' })
+    await within(drawer).findByText('76')
+    expect(labels(drawer)).toEqual(expect.arrayContaining(proper))
+    for (const raw of ['Bp', 'Spo2', 'Respiratory Rate']) expect(within(drawer).queryByText(raw)).toBeNull()
   })
 
   it('uses real buttons and links: Back to list, the action and its submit', async () => {

@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { Route, Routes, useParams } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
 import { CONNECTED_ORDERS_NOTE, EncounterOrderPages, EncounterOrders, orderPath } from '../../../ehr-blue/clinical/consult/orders'
 import { ACCESS_ENDED, ChartProvider, READ_ONLY, useChart } from '../../../ehr-blue/clinical/parts/chart'
 import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
@@ -16,7 +17,7 @@ import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_ID,
  */
 
 const api = vi.hoisted(() => ({
-  lookupPatient: vi.fn(), consentStatus: vi.fn(), records: vi.fn(), createRecord: vi.fn(), updateRecord: vi.fn(),
+  lookupPatient: vi.fn(), consentStatus: vi.fn(), encounter: vi.fn(), records: vi.fn(), createRecord: vi.fn(), updateRecord: vi.fn(),
   acceptPrescription: vi.fn(), sendLabRequestToLab: vi.fn(), labReleasedResultsForOrder: vi.fn(), reportedHealthProfile: vi.fn(),
 }))
 const routes = vi.hoisted(() => ({ destinations: vi.fn(), attestation: vi.fn(), send: vi.fn(), routes: vi.fn(), withdraw: vi.fn() }))
@@ -89,6 +90,10 @@ beforeEach(() => {
   api.createRecord.mockResolvedValue(prescription())
   api.updateRecord.mockResolvedValue(prescription())
   api.reportedHealthProfile.mockResolvedValue(null)
+  api.encounter.mockResolvedValue({
+    id: ENCOUNTER_ID, patientId: PATIENT_ID, facilityId: FACILITY_ID, encounterType: 'ambulatory', status: 'in_progress',
+    startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: 'Fever for two days', rowVersion: 1,
+  })
   routes.attestation.mockImplementation(async (_facility: string, kind: string) => kind === 'lab_request'
     ? { kind, version: 'order-route-lab-attestation-v1', text: 'I confirm that {patient} agreed that {orderingFacility} sends this test request to {receivingFacility}.' }
     : { kind, version: 'order-route-prescription-attestation-v1', text: 'I confirm that {patient} agreed that {orderingFacility} sends this prescription to {receivingFacility}.' })
@@ -132,6 +137,16 @@ function open(rest: string) {
   return renderPage(<Consult />, 'consult', `/${rest}`)
 }
 
+/** The real encounter page (the consultation workspace), whose Connected hospital history lists the orders. */
+async function openEncounterPage() {
+  renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+  await screen.findByRole('heading', { level: 2, name: 'Connected hospital history' })
+}
+
+function history() {
+  return within(screen.getByRole('heading', { level: 2, name: 'Connected hospital history' }).closest('section') as HTMLElement)
+}
+
 function where() {
   return screen.queryByTestId('elsewhere')?.textContent ?? null
 }
@@ -150,23 +165,39 @@ async function openOrder(kind: 'pharmacy' | 'laboratory', id: string) {
 }
 
 describe('Connected orders', () => {
-  it('shows the design’s create steps, its note and this encounter’s orders, read as today’s page reads them', async () => {
+  it('audit 12: shows the design’s create steps and its note, and no list of this encounter’s orders', async () => {
     // Radiology and referrals are samples, offered only at a demo facility.
     staff.facilityId = DEMO_HOSPITAL_ID
     open(ENCOUNTER_ID)
     expect(await screen.findByRole('heading', { level: 3, name: 'Connected orders' })).toBeTruthy()
+    const steps = []
     for (const name of ['Create pharmacy record', 'Create laboratory record', 'Create radiology record', 'Create referral network record']) {
-      expect((await screen.findByRole('button', { name })).tagName).toBe('BUTTON')
+      const button = await screen.findByRole('button', { name })
+      expect(button.tagName).toBe('BUTTON')
+      steps.push(button)
     }
-    expect(screen.getByText(CONNECTED_ORDERS_NOTE)).toBeTruthy()
-    const list = await screen.findByRole('list', { name: 'Orders from this encounter' })
-    const rx = within(list).getByRole('link', { name: 'Pharmacy · Amoxicillin' })
-    expect(rx.getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/pharmacy/${RX}`)
-    expect(within(list).getByRole('link', { name: 'Laboratory · Haemoglobin' }).getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/laboratory/${LAB}`)
-    expect(within(list).getAllByText('draft')).toHaveLength(2)
-    expect(api.records).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
-    expect(api.records).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests')
+    // The card ends with the four steps and the design's note.
+    const note = screen.getByText(CONNECTED_ORDERS_NOTE)
+    expect(steps.at(-1)!.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(note.nextElementSibling).toBeNull()
+    expect(screen.queryByRole('list', { name: 'Orders from this encounter' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Pharmacy · Amoxicillin' })).toBeNull()
+    // The orders are listed (and read) by the encounter's Connected hospital history instead.
+    expect(api.records).not.toHaveBeenCalled()
     expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
+  it('audit 12: lists this encounter’s orders in Connected hospital history, each linking to its page, read as today’s page reads them', async () => {
+    await openEncounterPage()
+    const rx = await history().findByRole('link', { name: 'Pharmacy · Amoxicillin' })
+    expect(rx.getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/pharmacy/${RX}`)
+    expect(history().getByRole('link', { name: 'Laboratory · Haemoglobin' }).getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/laboratory/${LAB}`)
+    expect(history().getAllByText('draft')).toHaveLength(2)
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests')
+    // None of them in Available actions.
+    const available = within(screen.getByRole('heading', { level: 2, name: 'Available actions' }).closest('section') as HTMLElement)
+    expect(available.queryByRole('link', { name: 'Pharmacy · Amoxicillin' })).toBeNull()
   })
 
   it('offers no sample radiology or referral step at a real facility, only today’s pharmacy and laboratory', async () => {
@@ -175,7 +206,6 @@ describe('Connected orders', () => {
     for (const name of ['Create pharmacy record', 'Create laboratory record']) {
       expect((await screen.findByRole('button', { name })).tagName).toBe('BUTTON')
     }
-    await screen.findByRole('list', { name: 'Orders from this encounter' })
     expect(screen.queryByRole('button', { name: 'Create radiology record' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Create referral network record' })).toBeNull()
     for (const link of screen.queryAllByRole('link')) {
@@ -206,10 +236,12 @@ describe('Connected orders', () => {
     expect(where()).toBe('/provider/referrals/new')
   })
 
-  it('offers no create step under read-only access, and still lists the orders', async () => {
+  it('offers no create step under read-only access, and the history still lists the orders', async () => {
     api.consentStatus.mockResolvedValue({ writeAllowed: false })
-    open(ENCOUNTER_ID)
-    await screen.findByRole('link', { name: 'Pharmacy · Amoxicillin' })
+    await openEncounterPage()
+    await history().findByRole('link', { name: 'Pharmacy · Amoxicillin' })
+    expect(await screen.findByText('Changes are unavailable')).toBeTruthy()
+    expect(screen.getByText(CONNECTED_ORDERS_NOTE)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /^Create / })).toBeNull()
   })
 
@@ -220,17 +252,18 @@ describe('Connected orders', () => {
     expect(screen.queryByRole('button', { name: 'Create pharmacy record' })).toBeNull()
   })
 
-  it('says today’s empty sentences, and a refused read', async () => {
+  it('audit 12: says none of the orders lists’ empty lines in Available actions', async () => {
     setLists([], [])
-    open(ENCOUNTER_ID)
-    expect(await screen.findByText('No prescriptions for this encounter.')).toBeTruthy()
-    expect(screen.getByText('No lab requests for this encounter.')).toBeTruthy()
+    await openEncounterPage()
+    expect(await history().findByText('No other records for this patient yet.')).toBeTruthy()
+    expect(screen.queryByText('No prescriptions for this encounter.')).toBeNull()
+    expect(screen.queryByText('No lab requests for this encounter.')).toBeNull()
   })
 
-  it('shows a refused read in the design’s error box', async () => {
+  it('shows a refused orders read in the history’s error box', async () => {
     api.records.mockRejectedValue(new HidApiError(503, 'Records are unavailable'))
-    open(ENCOUNTER_ID)
-    expect((await screen.findAllByRole('alert'))[0]!.textContent).toBe('Records are unavailable')
+    await openEncounterPage()
+    expect((await history().findByRole('alert')).textContent).toBe('Records are unavailable')
   })
 
   it('shows nothing of orders for an emergency patient, and the order pages show the read-only notice', async () => {
@@ -279,28 +312,27 @@ function pageButton(pager: HTMLElement, name: 'Previous page' | 'Next page') {
   return within(pager).getByRole('button', { name }) as HTMLButtonElement
 }
 
-describe('Connected orders past 50 (review item 6: pagers past 50)', () => {
+describe('Connected orders past 50 (review item 6, in Connected hospital history: audit 12)', () => {
   it('item 6: pages more than 50 prescriptions with Next and Previous, sending today’s cursor', async () => {
     pagedLists({ prescriptions: RX_PAGES, 'lab-requests': { first: { items: [labRequest()], nextCursor: null } } })
-    open(ENCOUNTER_ID)
+    await openEncounterPage()
     const { pager } = await pagerOf('Pharmacy')
+    const checks = api.lookupPatient.mock.calls.length
     // The lab requests fit on one page: only the prescriptions are paged.
     expect(screen.getAllByRole('navigation', { name: 'Record pages' })).toHaveLength(1)
     expect(within(pager).getByText('Page 1')).toBeTruthy()
     expect(pageButton(pager, 'Previous page').disabled).toBe(true)
-    const list = screen.getByRole('list', { name: 'Orders from this encounter' })
-    expect(within(list).getAllByRole('link', { name: /^Pharmacy · / })).toHaveLength(50)
-    expect(within(list).queryByRole('link', { name: 'Pharmacy · Test medicine 51' })).toBeNull()
+    expect(history().getAllByRole('link', { name: /^Pharmacy · / })).toHaveLength(50)
+    expect(history().queryByRole('link', { name: 'Pharmacy · Test medicine 51' })).toBeNull()
     // Today's first read takes no page argument.
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
 
     fireEvent.click(pageButton(pager, 'Next page'))
     expect(await within(pager).findByText('Page 2')).toBeTruthy()
     expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: 'rx-page-2', fresh: false })
-    const second = screen.getByRole('list', { name: 'Orders from this encounter' })
-    expect(within(second).getAllByRole('link', { name: /^Pharmacy · / }).map(link => link.textContent))
+    expect(history().getAllByRole('link', { name: /^Pharmacy · / }).map(link => link.textContent))
       .toEqual(['Pharmacy · Test medicine 51', 'Pharmacy · Test medicine 52', 'Pharmacy · Test medicine 53'])
-    expect(within(second).getByRole('link', { name: 'Laboratory · Haemoglobin' })).toBeTruthy()
+    expect(history().getByRole('link', { name: 'Laboratory · Haemoglobin' })).toBeTruthy()
     expect(pageButton(pager, 'Next page').disabled).toBe(true)
     expect(pageButton(pager, 'Previous page').disabled).toBe(false)
 
@@ -309,26 +341,25 @@ describe('Connected orders past 50 (review item 6: pagers past 50)', () => {
     expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: undefined, fresh: false })
     expect(screen.getByRole('link', { name: 'Pharmacy · Test medicine 1' })).toBeTruthy()
     // As today, moving between record pages re-checks no access.
-    expect(api.lookupPatient).not.toHaveBeenCalled()
+    expect(api.lookupPatient.mock.calls.length).toBe(checks)
   })
 
   it('item 6: pages more than 50 lab requests with Next and Previous on their own pager, sending today’s cursor', async () => {
     pagedLists({ prescriptions: RX_PAGES, 'lab-requests': LAB_PAGES })
-    open(ENCOUNTER_ID)
+    await openEncounterPage()
     const lab = await pagerOf('Laboratory')
     const rx = await pagerOf('Pharmacy')
     expect(screen.getAllByRole('navigation', { name: 'Record pages' })).toHaveLength(2)
-    expect(within(screen.getByRole('list', { name: 'Orders from this encounter' })).getAllByRole('link', { name: /^Laboratory · / })).toHaveLength(50)
+    expect(history().getAllByRole('link', { name: /^Laboratory · / })).toHaveLength(50)
 
     fireEvent.click(pageButton(lab.pager, 'Next page'))
     expect(await within(lab.pager).findByText('Page 2')).toBeTruthy()
     expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests', { cursor: 'lab-page-2', fresh: false })
-    const list = screen.getByRole('list', { name: 'Orders from this encounter' })
-    expect(within(list).getAllByRole('link', { name: /^Laboratory · / }).map(link => link.textContent))
+    expect(history().getAllByRole('link', { name: /^Laboratory · / }).map(link => link.textContent))
       .toEqual(['Laboratory · Test 51', 'Laboratory · Test 52'])
     // The prescriptions stay on their own first page.
     expect(within(rx.pager).getByText('Page 1')).toBeTruthy()
-    expect(within(list).getAllByRole('link', { name: /^Pharmacy · / })).toHaveLength(50)
+    expect(history().getAllByRole('link', { name: /^Pharmacy · / })).toHaveLength(50)
     expect(pageButton(lab.pager, 'Next page').disabled).toBe(true)
 
     fireEvent.click(pageButton(lab.pager, 'Previous page'))
@@ -340,7 +371,7 @@ describe('Connected orders past 50 (review item 6: pagers past 50)', () => {
   it('item 6: starts a list again from the newest, with today’s notice, when EHR no longer accepts its cursor', async () => {
     // EHR refuses the second page's cursor (400 INVALID_CURSOR): the list is read again from the newest, afresh.
     pagedLists({ prescriptions: { first: RX_PAGES.first }, 'lab-requests': { first: { items: [labRequest()], nextCursor: null } } })
-    open(ENCOUNTER_ID)
+    await openEncounterPage()
     const { group, pager } = await pagerOf('Pharmacy')
     fireEvent.click(pageButton(pager, 'Next page'))
     const notice = await within(group).findByRole('status')
@@ -355,7 +386,7 @@ describe('Connected orders past 50 (review item 6: pagers past 50)', () => {
 
   it('item 6: says a page that could not be loaded beside its pager, in today’s words, and keeps the page shown', async () => {
     pagedLists({ prescriptions: RX_PAGES, 'lab-requests': { first: { items: [labRequest()], nextCursor: null } } })
-    open(ENCOUNTER_ID)
+    await openEncounterPage()
     const { group, pager } = await pagerOf('Pharmacy')
     api.records.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     fireEvent.click(pageButton(pager, 'Next page'))
@@ -369,15 +400,15 @@ describe('Connected orders past 50 (review item 6: pagers past 50)', () => {
   })
 
   it('item 6: shows no pager while each list fits on one page', async () => {
-    open(ENCOUNTER_ID)
-    await screen.findByRole('list', { name: 'Orders from this encounter' })
+    await openEncounterPage()
+    await history().findByRole('link', { name: 'Pharmacy · Amoxicillin' })
     expect(screen.queryByRole('navigation', { name: 'Record pages' })).toBeNull()
     expect(screen.queryByRole('group', { name: 'Pharmacy' })).toBeNull()
   })
 
   it('item 6: opens a prescription past the first 50 from its page, found by the order page’s own search across pages', async () => {
     pagedLists({ prescriptions: RX_PAGES, 'lab-requests': { first: { items: [labRequest()], nextCursor: null } } })
-    open(ENCOUNTER_ID)
+    await openEncounterPage()
     const { pager } = await pagerOf('Pharmacy')
     fireEvent.click(pageButton(pager, 'Next page'))
     const link = await screen.findByRole('link', { name: 'Pharmacy · Test medicine 52' })
