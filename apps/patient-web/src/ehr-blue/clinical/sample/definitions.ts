@@ -53,7 +53,10 @@ export interface SampleDefinition {
   readonly actions: readonly SampleAction[]
   /** Other workspaces whose records this list also shows (the design lists ICU admissions under Inpatient). */
   readonly alsoLists?: readonly string[]
-  /** "Continue care" on the record page. */
+  /**
+   * "Continue care" on the record page: the design draws its heading on every visit and admission record, with a
+   * button for each hand-off (none may be left: a visit's are live workspaces).
+   */
   readonly continueCare?: readonly SampleHandoff[]
   /** A paragraph under the list card. */
   readonly listNote?: string
@@ -104,7 +107,9 @@ export const SAMPLE_DEFINITIONS: Readonly<Record<string, SampleDefinition>> = {
       action('complete', 'Complete visit', ['waiting', 'triaged', 'consulting'], 'completed', [f('disposition', 'Disposition')]),
       action('cancel', 'Cancel visit', ['waiting', 'triaged'], 'cancelled', [reason]),
     ],
-    // The design's hand-offs from a visit (Triage & Vitals, Consultation) are live workspaces: a visit has none.
+    // The design's hand-offs from a visit (Triage & Vitals, Consultation) are live workspaces: a visit has none, so
+    // its "Continue care" is the design's bare heading (as its capture for a role that may create neither).
+    continueCare: [],
     listNote: 'Journey stages are derived from visits, triage, encounters, investigations, prescriptions and invoices. Pending activities can run in parallel.',
     historyFromRecord: true,
   },

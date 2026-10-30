@@ -99,23 +99,26 @@ function RecordPage({ definition, record, current }: { definition: SampleDefinit
                 onDone={() => { setSelected(null); setSettled(count => count + 1) }}
               />
             ) : null}
-            {handoffs.length > 0 ? (
+            {/* The design draws the heading on every visit and admission, with or without a hand-off to offer. */}
+            {definition.continueCare ? (
               <>
                 <SubHeading>Continue care</SubHeading>
-                <div className="hid-ehr-clinical-step-row">
-                  {handoffs.map(handoff => (
-                    <EhrButton
-                      key={handoff.workspace}
-                      variant="secondary"
-                      onClick={() => {
-                        setSampleHandoff(handoff, record)
-                        navigate(href.to(handoff.workspace, 'new'))
-                      }}
-                    >
-                      {`Create ${handoff.title.toLowerCase()}`}
-                    </EhrButton>
-                  ))}
-                </div>
+                {handoffs.length > 0 ? (
+                  <div className="hid-ehr-clinical-step-row">
+                    {handoffs.map(handoff => (
+                      <EhrButton
+                        key={handoff.workspace}
+                        variant="secondary"
+                        onClick={() => {
+                          setSampleHandoff(handoff, record)
+                          navigate(href.to(handoff.workspace, 'new'))
+                        }}
+                      >
+                        {`Create ${handoff.title.toLowerCase()}`}
+                      </EhrButton>
+                    ))}
+                  </div>
+                ) : null}
               </>
             ) : null}
           </div>

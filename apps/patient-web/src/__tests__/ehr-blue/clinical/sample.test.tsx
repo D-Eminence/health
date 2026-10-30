@@ -349,13 +349,61 @@ describe('sample engine', () => {
     expect(within(history).getByRole('link', { name: 'Appointments · Review of results' }).getAttribute('href')).toBe(`${BASE}/appointments/${IDS.apptTaylor}`)
   })
 
+  it('hand-off 09: the visit page as the design draws it, with the bare "Continue care" (its live hand-offs are not offered)', () => {
+    open('journey', `/${IDS.visitTaylor}`)
+    expect(heading()).toBe('b57e94c9')
+    expect(screen.getByText('consulting')).toBeTruthy()
+    expect(screen.getByText('Taylor Fiction · LOCAL-aeac58e6')).toBeTruthy()
+    const saved = screen.getByRole('heading', { name: 'Saved record' }).closest('section')!
+    expect(Array.from(saved.querySelectorAll('dt')).map(term => term.textContent)).toEqual(['Complaint', 'Department', 'Clinician'])
+    expect(within(saved).getByText('Persistent fever and headache')).toBeTruthy()
+    const actions = actionsCard()
+    expect(within(actions).getAllByRole('button').map(button => button.textContent)).toEqual(['Assign / transfer queue', 'Complete visit'])
+    expect(within(actions).getByRole('heading', { level: 3, name: 'Continue care' })).toBeTruthy()
+    expect(within(actions).queryByRole('button', { name: 'Create triage & vitals' })).toBeNull()
+    expect(within(actions).queryByRole('button', { name: 'Create consultation' })).toBeNull()
+    expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
+  })
+
+  it('hand-off 02: New patient visits carries no patient in (a live patient never enters a sample); its fields appear once a fictional one is chosen', async () => {
+    open('journey', '/new')
+    expect(heading()).toBe('New patient visits')
+    const patient = field('Patient') as unknown as HTMLSelectElement
+    expect(patient.value).toBe('')
+    expect(patient.options[0]!.textContent).toBe('Select registered patient')
+    expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
+    fireEvent.change(patient, { target: { value: sampleState().patients[1]!.id } })
+    expect(patient.selectedOptions[0]!.textContent).toBe('Taylor Fiction · LOCAL-aeac58e6')
+    const form = screen.getByRole('button', { name: 'Save record' }).closest('form')!
+    expect(Array.from(form.querySelectorAll('label')).map(label => label.textContent)).toEqual(['Presenting complaint *', 'Department *', 'Clinician'])
+    fireEvent.submit(form)
+    expect(screen.getAllByText('Complete this field.')).toHaveLength(2)
+    expect(document.activeElement).toBe(field('Presenting complaint'))
+    fireEvent.change(field('Presenting complaint'), { target: { value: 'Fictional cough' } })
+    const department = field('Department') as unknown as HTMLSelectElement
+    fireEvent.change(department, { target: { value: department.options[1]!.value } })
+    fireEvent.submit(form)
+    await waitFor(() => expect(screen.getByText('waiting')).toBeTruthy())
+    expect(screen.getByRole('heading', { level: 3, name: 'Continue care' })).toBeTruthy()
+    expect(screen.getByText('Taylor Fiction · LOCAL-aeac58e6')).toBeTruthy()
+  })
+
   it('shows a visit’s history only from records it started, and the journey footnote under the list', () => {
     const view = open('journey')
     expect(screen.getByText(/^Journey stages are derived from visits/)).toBeTruthy()
     view.unmount()
-    open('journey', `/${IDS.visitTaylor}`)
+    // Hand-off 09: Taylor's visit b57e94c9 lists the one sample record started from it, the ultrasound (scheduled);
+    // its triage, consultation, lab and pharmacy rows are live records, never mixed into a sample.
+    const visit = open('journey', `/${IDS.visitTaylor}`)
     const history = screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section')!
-    expect(within(history).queryAllByRole('link')).toHaveLength(0)
+    expect(within(history).getAllByRole('link').map(link => link.textContent)).toEqual(['Radiology · Abdominal ultrasound'])
+    expect(within(history).getByRole('link', { name: 'Radiology · Abdominal ultrasound' }).getAttribute('href')).toBe(`${BASE}/radiology/${IDS.ultrasound}`)
+    expect(within(history).getByText('scheduled')).toBeTruthy()
+    visit.unmount()
+    // Another visit of the same patient started nothing.
+    open('journey', `/${IDS.visitCheckedIn}`)
+    const other = screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section')!
+    expect(within(other).queryAllByRole('link')).toHaveLength(0)
   })
 
   it('keeps every earlier version, each with its author and values', () => {
