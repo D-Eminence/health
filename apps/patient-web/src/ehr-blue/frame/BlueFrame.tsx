@@ -91,7 +91,7 @@ export function BlueFrame() {
   const content = match
     ? pageAllowed(match.page, session) || todayRefuses
       ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
-      : <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'} />
+      : match.page.refusal ?? <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'} />
     : isLiveOnlyPath(location.pathname) ? <LivePage /> : <UnknownPage />
 
   return (

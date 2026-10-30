@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { parse } from '../../cssRules'
+import type { EhrBluePage } from '../../../ehr-blue/frame/types'
 import {
   DEMO_HOSPITAL, LAB_WORK, REAL_FACILITY, REQUESTS, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, where,
   withFramePages,
@@ -215,5 +217,61 @@ describe('6. cosmetic', () => {
     await waitFor(() => expect(where()).toBe(`/provider/procurement/${record.id}`))
     await screen.findByRole('navigation', { name: 'Main navigation' })
     expect(screen.queryByRole('heading', { level: 1, name: 'Record not found' })).toBeNull()
+  })
+})
+
+describe('7. a page\'s own refusal', () => {
+  const STAFF_READ = 'GET /api/v1/workforce/staff'
+
+  /** The page itself: it reads its staff as soon as it shows. */
+  function StaffList() {
+    useEffect(() => { void fetch('https://gateway.example.test/api/v1/workforce/staff') }, [])
+    return <p>Fictional staff list</p>
+  }
+
+  const SUPPORT = 'Health ID support manages who works at Demo Hospital. Contact Health ID support to add or remove staff.'
+  const refusal = <><h1 className="hid-ehr-page-title">Staff & access</h1><p>{SUPPORT}</p></>
+  const staffPage = (entry: Partial<EhrBluePage>): EhrBluePage =>
+    ({ path: 'people', group: 'People', label: 'Staff & access', status: 'live', element: <StaffList />, ...entry })
+
+  it('shows the page\'s own words where visible() turns it down, and reads nothing', async () => {
+    withFramePages(() => [staffPage({ visible: () => false, refusal })])
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['workforce.manage'])
+    const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [STAFF_READ]: many(() => json([])) })
+    await openStaffApp('/provider/people')
+    expect(await screen.findByText(SUPPORT)).toBeDefined()
+    expect(screen.getByRole('heading', { level: 1, name: 'Staff & access' })).toBeDefined()
+    expect(screen.queryByText('Fictional staff list')).toBeNull()
+    expect(screen.queryByText(/is not open to you here$/)).toBeNull()
+    // Only the session was asked for: the refusal makes no request, and the page that would is not shown.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(sent.map(call => call.route)).toEqual([SESSION])
+  })
+
+  it('shows them where the permission is missing too', async () => {
+    withFramePages(() => [staffPage({ permission: 'workforce.manage', refusal })])
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
+    const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [STAFF_READ]: many(() => json([])) })
+    await openStaffApp('/provider/people')
+    expect(await screen.findByText(SUPPORT)).toBeDefined()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(sent.map(call => call.route)).toEqual([SESSION])
+  })
+
+  it('leaves the frame\'s refusal for a page that gives none', async () => {
+    withFramePages(() => [staffPage({ visible: () => false })])
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
+    serve({ [SESSION]: [sessionAt(demo, [demo])] })
+    await openStaffApp('/provider/people')
+    expect(await screen.findByText('Staff & access is not open to you here')).toBeDefined()
+  })
+
+  it('shows the page itself where it is allowed', async () => {
+    withFramePages(() => [staffPage({ permission: 'workforce.manage', refusal })])
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['workforce.manage'])
+    serve({ [SESSION]: [sessionAt(demo, [demo])], [STAFF_READ]: many(() => json([])) })
+    await openStaffApp('/provider/people')
+    expect(await screen.findByText('Fictional staff list')).toBeDefined()
+    expect(screen.queryByText(SUPPORT)).toBeNull()
   })
 })
