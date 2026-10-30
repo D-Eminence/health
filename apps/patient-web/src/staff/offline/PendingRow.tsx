@@ -18,7 +18,7 @@ function summary(view: PendingView): string {
 export function PendingRow({ view }: { view: PendingView }) {
   const attention = view.state === 'review' || view.state.startsWith('held_')
   const line = summary(view)
-  return <div className="staff-list-item staff-stack offline-pending" data-command-id={view.commandId}>
+  return <div className="staff-list-item staff-stack offline-pending" data-testid="pending-row" data-command-id={view.commandId}>
     <div className="staff-row"><strong>{OP_LABELS[view.op] ?? view.label}</strong>
       <Badge tone={attention ? 'warning' : 'information'}>{attention ? 'Needs attention' : 'Not sent yet'}</Badge></div>
     {line && <p>{line}</p>}

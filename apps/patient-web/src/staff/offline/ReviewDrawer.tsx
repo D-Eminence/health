@@ -166,7 +166,7 @@ function ReviewEntry({ runtime, item, onDone }: { runtime: OfflineRuntime; item:
     finally { setBusy(false) }
   }
 
-  return <li className="staff-list-item staff-stack offline-review-item">
+  return <li className="staff-list-item staff-stack offline-review-item" data-testid="review-entry" data-command-id={item.commandId}>
     <h3 id={`${id}-title`}>{OP_LABELS[item.op]}: {text.title}</h3>
     <p>{text.body}</p>
     {item.laneBlocked > 0 && <p className="staff-muted">{REVIEW.blocked(item.laneBlocked)}</p>}
@@ -179,7 +179,7 @@ function ReviewEntry({ runtime, item, onDone }: { runtime: OfflineRuntime; item:
       <fieldset disabled={busy}>
         <legend>What to do</legend>
         {actions.map(choice => <label key={choice} className="staff-choice">
-          <input id={`${id}-${choice}`} type="radio" name={`${id}-action`} value={choice} checked={action === choice}
+          <input id={`${id}-${choice}`} data-testid={`review-entry-action-${choice}`} type="radio" name={`${id}-action`} value={choice} checked={action === choice}
             onChange={() => { setAction(choice); setProblem('') }} /> {ACTIONS[choice]}
         </label>)}
       </fieldset>

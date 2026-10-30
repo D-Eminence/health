@@ -55,14 +55,14 @@ export function UnlockScreen({ runtime, reason, onUnlocked, onSignOut, onCancel 
 
   const why = reason === 'unconfirmed' ? UNLOCK.unconfirmed : reason === 'hidden' ? UNLOCK.hidden : reason === 'manual' ? UNLOCK.paused : UNLOCK.idle
   return <main className="staff-centered"><BrandLogo className="staff-state-logo" />
-    <section className="staff-session-ended" aria-labelledby="offline-unlock-title">
+    <section className="staff-session-ended" aria-labelledby="offline-unlock-title" data-testid="lock-overlay">
       <h1 id="offline-unlock-title" ref={heading} tabIndex={-1}>{UNLOCK.title}</h1>
       <p>{why}</p>
       <form className="staff-form" onSubmit={event => void submit(event)}>
-        <Field label={UNLOCK.password} htmlFor="offline-unlock-password" required><PasswordInput id="offline-unlock-password"
+        <Field label={UNLOCK.password} htmlFor="offline-unlock-password" required><PasswordInput id="offline-unlock-password" data-testid="lock-overlay-password"
           autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></Field>
         {error && <p role="alert" className="staff-error">{error}</p>}
-        <Button type="submit" aria-disabled={busy || undefined}>{busy ? UNLOCK.working : UNLOCK.submit}</Button>
+        <Button type="submit" data-testid="lock-overlay-unlock" aria-disabled={busy || undefined}>{busy ? UNLOCK.working : UNLOCK.submit}</Button>
       </form>
       {onCancel && <Button tone="quiet" onClick={onCancel}>{UNLOCK.notNow}</Button>}
       <Button tone="quiet" onClick={() => void leave()}>{UNLOCK.signOut}</Button>

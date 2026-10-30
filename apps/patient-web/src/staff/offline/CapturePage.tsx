@@ -125,10 +125,10 @@ export function CapturePage({ runtime, facilityId }: { runtime: OfflineRuntime; 
             {visits.map(visit => <option key={visit.id} value={visit.id}>{visit.encounterType.replace('_', ' ')} · {new Date(visit.startedAt).toLocaleDateString()}</option>)}
           </Select></Field>}
         <Field label={CAPTURE.file} htmlFor="capture-file" hint={CAPTURE.fileHint}>
-          <input id="capture-file" type="file" accept={ACCEPT} aria-describedby="capture-file-hint"
+          <input id="capture-file" data-testid="capture-input" type="file" accept={ACCEPT} aria-describedby="capture-file-hint"
             onChange={event => choose(event.target.files?.[0] ?? null)} /></Field>
         <label className="staff-choice">{CAPTURE.camera}
-          <input type="file" accept="image/jpeg,image/png" capture="environment" onChange={event => choose(event.target.files?.[0] ?? null)} /></label>
+          <input data-testid="capture-camera" type="file" accept="image/jpeg,image/png" capture="environment" onChange={event => choose(event.target.files?.[0] ?? null)} /></label>
         {error && <p role="alert" className="staff-error">{error}</p>}
         <Button type="submit" aria-disabled={busy || writable !== true || undefined}>{busy ? CAPTURE.working : CAPTURE.submit}</Button>
       </form></Card>
@@ -136,7 +136,7 @@ export function CapturePage({ runtime, facilityId }: { runtime: OfflineRuntime; 
         <h2 id="capture-queue-title">{CAPTURE.queue}</h2>
         <div role="status">{said && <p className="staff-success">{said}</p>}</div>
         {uploads.length === 0 ? <p>{CAPTURE.queueEmpty}</p>
-          : <ul className="staff-list">{uploads.map(item => <li key={item.id} className="staff-list-item staff-row">
+          : <ul className="staff-list" data-testid="capture-uploads">{uploads.map(item => <li key={item.id} className="staff-list-item staff-row" data-testid="capture-upload">
             <span>{item.fileName}</span><Badge tone={item.state === 'ready' ? 'success' : 'information'}>{CAPTURE.states[item.state]}</Badge></li>)}</ul>}
       </section></Card>
     </div>

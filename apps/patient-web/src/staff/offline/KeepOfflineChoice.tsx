@@ -18,13 +18,13 @@ export function KeepOfflineChoice({ onKeep, onDecline }: { onKeep: () => Promise
     catch { setError(CHOICE.failed) }
     finally { setBusy(false) }
   }
-  return <Card className="staff-card offline-choice"><section aria-labelledby="offline-choice-title">
+  return <Card className="staff-card offline-choice"><section aria-labelledby="offline-choice-title" data-testid="offline-choice">
     <h2 id="offline-choice-title" ref={heading} tabIndex={-1}>{CHOICE.title}</h2>
     <p>{CHOICE.body}</p>
     {error && <p role="alert" className="staff-error">{error}</p>}
     <div className="staff-row">
-      <Button size="sm" onClick={() => void keep()} aria-disabled={busy || undefined}>{busy ? CHOICE.working : CHOICE.keep}</Button>
-      <Button size="sm" tone="quiet" onClick={onDecline} disabled={busy}>{CHOICE.decline}</Button>
+      <Button size="sm" data-testid="offline-choice-keep" onClick={() => void keep()} aria-disabled={busy || undefined}>{busy ? CHOICE.working : CHOICE.keep}</Button>
+      <Button size="sm" tone="quiet" data-testid="offline-choice-decline" onClick={onDecline} disabled={busy}>{CHOICE.decline}</Button>
     </div>
   </section></Card>
 }

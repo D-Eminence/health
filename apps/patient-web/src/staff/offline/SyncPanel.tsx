@@ -18,7 +18,7 @@ export function SyncPanel({ runtime, onReview, onClose }: { runtime: OfflineRunt
   if (!summary) return null
   const policy = runtime.policy()
   const offline = summary.connectivity === 'offline'
-  return <section className="staff-card offline-panel" aria-labelledby="offline-panel-title"
+  return <section className="staff-card offline-panel" aria-labelledby="offline-panel-title" data-testid="sync-panel"
     onKeyDown={event => { if (event.key === 'Escape') onClose() }}>
     <div className="staff-row offline-panel-head">
       <h2 id="offline-panel-title" ref={heading} tabIndex={-1}>{PANEL.title}</h2>
@@ -27,8 +27,8 @@ export function SyncPanel({ runtime, onReview, onClose }: { runtime: OfflineRunt
     <dl className="offline-facts">
       <div><dt>Status</dt><dd>{CONNECTIVITY[summary.connectivity]}</dd></div>
       <div><dt>{PANEL.lastSync}</dt><dd>{summary.lastSyncAt ? dayTime(summary.lastSyncAt) : PANEL.never}</dd></div>
-      <div><dt>{PANEL.pending}</dt><dd>{pendingCountText(summary.pending)}</dd></div>
-      {summary.attention > 0 && <div><dt>{PANEL.attention}</dt><dd>{attentionText(summary.attention)}</dd></div>}
+      <div><dt>{PANEL.pending}</dt><dd data-testid="sync-panel-pending" data-count={summary.pending}>{pendingCountText(summary.pending)}</dd></div>
+      {summary.attention > 0 && <div><dt>{PANEL.attention}</dt><dd data-testid="sync-panel-attention" data-count={summary.attention}>{attentionText(summary.attention)}</dd></div>}
       {summary.leaseUntil && <div><dt>{PANEL.accessUntil}</dt><dd>{dayTime(summary.leaseUntil)}</dd></div>}
     </dl>
     {!policy.enabled && policy.reason && <p className="staff-notice">{POLICY_REASONS[policy.reason]}</p>}

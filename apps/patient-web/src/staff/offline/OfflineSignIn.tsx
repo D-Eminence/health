@@ -45,13 +45,13 @@ export function OfflineSignIn({ runtime, onRestored, onRetry }: {
     <section className="staff-session-ended offline-sign-in" aria-labelledby="offline-sign-in-title">
       <h1 id="offline-sign-in-title" ref={heading} tabIndex={-1}>{SIGN_IN.title}</h1>
       <p>{SIGN_IN.lede}</p>
-      <form className="staff-form" onSubmit={event => void submit(event)}>
+      <form className="staff-form" data-testid="offline-signin" onSubmit={event => void submit(event)}>
         <Field label={SIGN_IN.email} htmlFor="offline-email" required><Input id="offline-email" type="email" autoComplete="username" value={email}
           onChange={event => setEmail(event.target.value)} required /></Field>
         <Field label={SIGN_IN.password} htmlFor="offline-password" required><PasswordInput id="offline-password" autoComplete="current-password"
           value={password} onChange={event => setPassword(event.target.value)} required /></Field>
         {error && <p role="alert" className="staff-error">{error}</p>}
-        <Button type="submit" aria-disabled={busy || undefined}>{busy ? SIGN_IN.working : SIGN_IN.submit}</Button>
+        <Button type="submit" data-testid="offline-signin-submit" aria-disabled={busy || undefined}>{busy ? SIGN_IN.working : SIGN_IN.submit}</Button>
       </form>
       <Button tone="quiet" onClick={onRetry}>{SIGN_IN.retry}</Button>
     </section>
