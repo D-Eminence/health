@@ -1,7 +1,7 @@
 /**
- * A status pill. The default tone is the target's single badge: tint fill,
- * brand-dark text. The other tones come from text and fill pairs of 4.5:1 or
- * more, and every badge carries a text label: colour never speaks alone.
+ * A status pill, drawn as the design draws every badge: tint fill, brand-dark text, 5px radius, 11px. Its words carry
+ * the status: colour never speaks alone. `tone` names what the status means (data-tone, for tests and assistive
+ * styling later) without changing the colour, since the screenshots show one badge colour (owner decision).
  */
 
 import { cx } from '../primitives'
@@ -16,7 +16,5 @@ export interface EhrBadgeProps {
 }
 
 export function EhrBadge({ children, tone = 'brand', className }: EhrBadgeProps) {
-  return (
-    <span className={cx('hid-ehr-badge', tone !== 'brand' && `hid-ehr-badge-${tone}`, className)}>{children}</span>
-  )
+  return <span className={cx('hid-ehr-badge', className)} data-tone={tone}>{children}</span>
 }

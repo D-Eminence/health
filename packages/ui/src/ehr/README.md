@@ -22,4 +22,6 @@ import { EhrAppShell, EhrSidebar, EhrTopBar, EhrPageHeading } from '@hid/ui/ehr'
   the top bar's menu button opens the same navigation as a modal panel.
 - **Toasts** keep the live `ToastProvider` and its look; the shell isolates its
   stacking context so the live toast region paints above it.
-- **Fonts** are self-hosted in `fonts/` with their SIL Open Font License texts.
+- **Fonts** are self-hosted in `fonts/`: the upstream google/fonts files, converted
+  losslessly to WOFF2, with their SIL Open Font License texts and their source
+  commit and sha256 in `fonts/README.md`.

@@ -10,12 +10,10 @@
  * shell's overlay layer, so no script ever asks the viewport its width.
  */
 
-import { useId, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
-import ArrowDown01Icon from '@hugeicons/core-free-icons/ArrowDown01Icon'
 import ArrowLeftDoubleIcon from '@hugeicons/core-free-icons/ArrowLeftDoubleIcon'
 import ArrowRightDoubleIcon from '@hugeicons/core-free-icons/ArrowRightDoubleIcon'
-import ArrowUp01Icon from '@hugeicons/core-free-icons/ArrowUp01Icon'
 import Cancel01Icon from '@hugeicons/core-free-icons/Cancel01Icon'
 import { cx } from '../primitives'
 import { EhrModal, useEhrShell } from './EhrAppShell'
@@ -180,9 +178,17 @@ interface SidebarNavigationProps {
 
 function SidebarNavigation({ groups, currentId, label, collapsed, closed, toggleGroup, onNavigate }: SidebarNavigationProps) {
   const idPrefix = useId()
+  const nav = useRef<HTMLElement>(null)
+
+  // A page opened from elsewhere (search, a link, the address bar) brings its entry into view in a long sidebar.
+  // 'nearest' leaves an entry already in view where it is. jsdom has no scrollIntoView.
+  useEffect(() => {
+    const current = nav.current?.querySelector<HTMLElement>('[aria-current="page"]')
+    if (typeof current?.scrollIntoView === 'function') current.scrollIntoView({ block: 'nearest' })
+  }, [currentId])
 
   return (
-    <nav className="hid-ehr-nav" aria-label={label}>
+    <nav ref={nav} className="hid-ehr-nav" aria-label={label}>
       {groups.map(group => {
         const listId = `${idPrefix}-${group.id}`
         // The collapsed rail shows every link, without group headings.
@@ -199,7 +205,7 @@ function SidebarNavigation({ groups, currentId, label, collapsed, closed, toggle
                 onClick={() => toggleGroup(group.id)}
               >
                 {group.label}
-                <HugeiconsIcon icon={open ? ArrowUp01Icon : ArrowDown01Icon} size={14} strokeWidth={1.65} aria-hidden />
+                <span className="hid-ehr-nav-group-sign" aria-hidden="true">{open ? '−' : '+'}</span>
               </button>
             ) : null}
             <ul id={listId} className="hid-ehr-nav-list" hidden={!open}>

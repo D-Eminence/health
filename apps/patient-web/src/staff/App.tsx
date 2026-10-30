@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { NavLink, Navigate, Outlet, Route, Routes, useHref, useLinkClickHandler, useLocation, useNavigate } from 'react-router-dom'
 import { BrandLogo } from '../BrandLogo'
 import { Badge, Button, ButtonLink, Card, EmptyState, Select } from '@hid/ui'
@@ -34,7 +34,12 @@ import { resolveStaffProductHostname, STAFF_JOIN_PATH } from '../productHostname
 import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
+import { resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
 import './style.css'
+
+// The blue Hospital EHR (ehr-blue/blueFacilities.ts says for whom): loaded on demand, so no other facility downloads
+// it. "Use the classic EHR" brings this tab back to today's workspace until it reloads.
+const EhrBlueApp = lazy(() => import('../ehr-blue/EhrBlueApp'))
 
 /** `reason`: why Identity ended the session, when it said (see StaffSessionEndReason). */
 type SessionState =
@@ -386,6 +391,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     away.current = null
     setState({ status: 'signed-out', session: null })
     setLock(null)
+    // "Use the classic EHR" was this person's choice: the next one starts on the blue EHR.
+    resetClassicEhr()
     announceStaffSessionChange()
   }
 
@@ -656,7 +663,11 @@ function Shell() {
     setChoice(null)
     setFacilityError('')
   }, [choiceNeeded])
+  const classic = useClassicEhrChosen()
   if (state.status !== 'ready') return null
+  if (!classic && showsBlueEhr(state.session.actor, choiceNeeded !== null)) {
+    return <Suspense fallback={<main className="staff-centered"><p role="status">Opening Health ID EHR…</p></main>}><EhrBlueApp /></Suspense>
+  }
   const { actor } = state.session
   const currentFacility = actor.facility
   const visible = visibleNavigation(currentFacility)

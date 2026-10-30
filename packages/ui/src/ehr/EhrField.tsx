@@ -3,7 +3,8 @@
 /**
  * An EHR form field: a visible label tied to its control, and a hint and an
  * error tied to it by aria-describedby. An error marks the control
- * aria-invalid and is written out as text beside an icon, never colour alone.
+ * aria-invalid and is written out as text below the control (the design's
+ * plain red line, no icon), never colour alone.
  *
  * Put one EhrInput, EhrSelect or EhrTextarea inside an EhrField; the control
  * takes its id and descriptions from the field.
@@ -19,8 +20,6 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react'
-import { HugeiconsIcon } from '@hugeicons/react'
-import Alert02Icon from '@hugeicons/core-free-icons/Alert02Icon'
 import { cx } from '../primitives'
 
 interface EhrFieldContextValue {
@@ -38,11 +37,16 @@ export interface EhrFieldProps {
   readonly error?: ReactNode
   readonly children: ReactNode
   readonly className?: string
+  /**
+   * The control's id, when the page needs to know it (to point at it from elsewhere). The field gives it to its
+   * control, so the label always names the control; a control's own id inside a field is ignored.
+   */
+  readonly controlId?: string
 }
 
-export function EhrField({ label, hint, error, children, className }: EhrFieldProps) {
+export function EhrField({ label, hint, error, children, className, controlId: givenControlId }: EhrFieldProps) {
   const id = useId()
-  const controlId = `${id}-control`
+  const controlId = givenControlId ?? `${id}-control`
   const hintId = hint !== undefined ? `${id}-hint` : undefined
   const errorId = error !== undefined ? `${id}-error` : undefined
   const describedBy = [errorId, hintId].filter(Boolean).join(' ') || undefined
@@ -54,12 +58,7 @@ export function EhrField({ label, hint, error, children, className }: EhrFieldPr
         {children}
         {hint !== undefined ? <p id={hintId} className="hid-ehr-hint">{hint}</p> : null}
         {error !== undefined ? (
-          <p id={errorId} className="hid-ehr-error">
-            <span className="hid-ehr-error-icon" aria-hidden="true">
-              <HugeiconsIcon icon={Alert02Icon} size={14} strokeWidth={1.65} aria-hidden />
-            </span>
-            <span>{error}</span>
-          </p>
+          <p id={errorId} className="hid-ehr-error">{error}</p>
         ) : null}
       </div>
     </EhrFieldContext.Provider>
@@ -72,12 +71,15 @@ interface ControlAttributes {
   readonly 'aria-invalid'?: InputHTMLAttributes<HTMLInputElement>['aria-invalid']
 }
 
-/** The id, descriptions and validity a control takes from its field, joined with its own. */
+/**
+ * The id, descriptions and validity a control takes from its field, joined with its own. Inside a field the field's id
+ * wins, so its label always points at the control (give the field a controlId to choose the id).
+ */
 function useFieldControl({ id, 'aria-describedby': ownDescribedBy, 'aria-invalid': ownInvalid }: ControlAttributes) {
   const field = useContext(EhrFieldContext)
   const describedBy = [field?.describedBy, ownDescribedBy].filter(Boolean).join(' ') || undefined
   return {
-    id: id ?? field?.controlId,
+    id: field ? field.controlId : id,
     'aria-describedby': describedBy,
     'aria-invalid': ownInvalid ?? (field?.invalid ? true : undefined),
   }

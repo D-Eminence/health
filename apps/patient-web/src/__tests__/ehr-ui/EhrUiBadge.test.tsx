@@ -15,11 +15,11 @@ describe('EhrBadge', () => {
     ['caution', 'Awaiting review'],
     ['critical', 'Overdue'],
     ['neutral', 'Draft'],
-  ])('%s tone keeps its text label', (tone, label) => {
+  ])('%s tone keeps its text label and the design\'s one badge colour', (tone, label) => {
     render(<EhrBadge tone={tone}>{label}</EhrBadge>)
     const badge = screen.getByText(label)
-    expect(badge.classList.contains('hid-ehr-badge')).toBe(true)
-    expect(badge.classList.contains(`hid-ehr-badge-${tone}`)).toBe(true)
+    expect(badge.className).toBe('hid-ehr-badge')
+    expect(badge.getAttribute('data-tone')).toBe(tone)
     expect(badge.textContent).toBe(label)
   })
 })

@@ -56,11 +56,11 @@ export const ehrTokens = {
   tabCurrentBorder: '#006fe6',
   tabRule: '#dce4ed',
 
-  // Accessible substitutions, pending owner decisions 55, 56, 58 and 60.
-  /** A control's boundary: 3:1 or more on surface, surface-tint, surface-sunk and tint. */
-  controlBorder: '#8a8a8e',
-  /** Sidebar group headings: 4.51:1 on surface-tint. */
-  navGroupText: '#627389',
+  // The design's exact values (owner decision): both are below WCAG contrast, by design.
+  /** A control's border, as the design draws it: 1.70:1 on white (WCAG 1.4.11 asks 3:1). */
+  controlBorder: '#c6c6cc',
+  /** Sidebar group headings, as the design draws them: 4.39:1 on surface-tint (WCAG 1.4.3 asks 4.5:1). */
+  navGroupText: '#63758b',
 
   // Shape and depth.
   radiusMd: '6px',
