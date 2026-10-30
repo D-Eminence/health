@@ -11,7 +11,7 @@ import {
 /**
  * The design's sign-in pages (screens/2-sign-in, 3-forgot-password, 4-staff-invitation): the form on the left, under
  * the logo, and the Hospital EHR's story on the right. The design's photograph is left out until its licence is known;
- * the story panel is drawn in the brand's blues. Not wired in yet (README.md).
+ * the story panel is drawn in the brand's blues. Shown only once the clinic switch is on (README.md).
  */
 export interface BlueAuthLayoutProps {
   readonly title: ReactNode

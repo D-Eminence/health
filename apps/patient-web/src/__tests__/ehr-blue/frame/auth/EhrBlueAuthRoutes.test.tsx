@@ -4,7 +4,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom'
 
 /**
  * Where the blue sign-in, recovery and invitation pages open: in place of today's at the same addresses, only once the
- * clinic switch is on (blueForAll). Until then today's pages serve them, and the blue ones are never downloaded.
+ * clinic switch is on (BLUE_FOR_ALL). Until then today's pages serve them, and the blue ones are never downloaded.
  * Every account and facility here is fictional.
  */
 const local = { name: 'local', apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }

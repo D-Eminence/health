@@ -14,7 +14,8 @@ type Step = 'start' | 'code' | 'password' | 'complete'
  * Staff password recovery as the design draws it (screens/3-forgot-password), working as today's does
  * (routes/PrincipalRecovery.tsx, audience 'staff'): the work email with Turnstile, a neutral answer whether or not the
  * account exists, the six-digit code, then a new password of at least 12 characters. The challenge and its token live
- * in component memory only. On a site where staff do not reset, it points to the main site. Not wired in yet.
+ * in component memory only. On a site where staff do not reset, it points to the main site. App.tsx opens it at
+ * /provider/recover in place of today's page once the clinic switch is on (BLUE_FOR_ALL).
  */
 export function BlueRecovery() {
   const api = useMemo(() => createPrincipalRecoveryApi('staff'), [])

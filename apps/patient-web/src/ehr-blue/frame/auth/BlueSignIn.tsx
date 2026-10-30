@@ -28,7 +28,7 @@ const BLUE_MFA_LOOK: StaffMfaLook = {
  * Staff sign-in as the design draws it (screens/2-sign-in/01-signin.png), working as today's does
  * (staff/routes/SignIn.tsx): work email and password with Turnstile, then the authenticator or its set-up, recovery
  * codes, today's refusals and landing. On a site where staff do not sign in, it points to the one where they do.
- * Not wired in yet (README.md).
+ * staff/App.tsx opens it at /provider/sign-in in place of today's page once the clinic switch is on (README.md).
  */
 export function BlueSignIn() {
   const { state, login, verifyMfa, sendEnrollmentCode, startEnrollment, activateEnrollment, completeSignIn } = useStaff()

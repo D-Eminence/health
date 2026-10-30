@@ -19,7 +19,8 @@ import { BlueAuthLayout, BluePasswordInput } from './BlueAuthLayout'
  * (staff/routes/StaffInvitation.tsx): the link from the email, or the email address and 6-digit code, proven with
  * Turnstile (action staff-invitation); who invited whom to what; a password for a new or dormant account; signed-in
  * acceptance on the person's own site for existing staff; and today's refusals. The page's private helpers are copied
- * below, word for word, until both pages share them (README.md). Not wired in yet.
+ * below, word for word, until both pages share them (README.md). App.tsx opens it at /provider/invitation in place of
+ * today's page once the clinic switch is on (BLUE_FOR_ALL).
  */
 
 /** Where the page keeps the link once it has taken it out of the address: the browser's history entry, as today's does. */
