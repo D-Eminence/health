@@ -185,6 +185,7 @@ export type OfflineReport =
   | { kind: 'defect'; op: string; status: number | null; code: string | null }
   | { kind: 'engine-error'; op: string; message: string }
   | { kind: 'audit-rejected'; dropped: number; code: string }
+  | { kind: 'audit-refused'; status: number; code: string; events: number }
   | { kind: 'wipe'; reason: string }
   | { kind: 'storage'; message: string }
 

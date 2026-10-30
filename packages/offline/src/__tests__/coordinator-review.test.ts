@@ -292,7 +292,9 @@ describe('10. offline audit batches stay under 8000 bytes', () => {
     const first = fitAuditBatch('vault-1', [big, small])
     expect(first).toHaveLength(1)
     expect(JSON.stringify({ vaultId: 'vault-1', events: first }).length).toBeLessThanOrEqual(LIMITS.maxBodyBytes)
-    expect(first[0]!.details).toMatchObject({ reasonTruncated: true })
+    // Cut to fit, with no marker key: the server rejects details keys beyond §2.10 (A10.2).
+    expect(Object.keys(first[0]!.details as object).sort()).toEqual(['op', 'reason'])
+    expect(((first[0]!.details as { reason: string }).reason.length)).toBeLessThan(9000)
     expect(fitAuditBatch('vault-1', [small])).toEqual([small])
   })
 })

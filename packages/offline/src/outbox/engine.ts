@@ -905,7 +905,8 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       await this.applied(v, it, cmd, def, 200, null, 'lookup', guard)
       return
     }
-    if (cls === 'version' && def.method === 'PATCH' && sentBefore && def.reread && cmd.intent) {
+    // Any op that declares intent and reread (a PATCH, or a handoff such as to-lab, A10.7), whatever its method.
+    if (cls === 'version' && sentBefore && def.reread && cmd.intent) {
       // 412 on a PATCH sent before: if the record already shows our change, it was applied.
       try {
         const resolved = resolveRefs(cmd.refs, this.lookupRef)

@@ -390,7 +390,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
         return null
       }
     }
-    if (cls === 'version' && def.method === 'PATCH' && def.reread && def.intent) {
+    if (cls === 'version' && def.reread && def.intent) {
       const resolved = resolveRefs(def.refs(c.input), lookupById)
       const current = resolved ? await def.reread(c.input, resolved.ids) : null
       const intent = def.intent(c.input)
