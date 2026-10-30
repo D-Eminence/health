@@ -10,7 +10,8 @@ import {
  * Every account, facility and patient here is fictional.
  */
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
-beforeEach(() => { withFramePages() })
+// The clinic switch as it ships, unless a test turns it on (switchedOn): a vi.doMock outlives the test that made it.
+beforeEach(() => { withFramePages(); vi.doMock('../../../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: false })) })
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); vi.resetModules() })
 
 const LOGOUT = 'POST /api/v1/auth/logout'
