@@ -260,6 +260,18 @@ describe('Migrate record view', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('Quick view closes with Escape, giving focus back to the button that opened it', async () => {
+    await findJob(validated)
+    await press(button('Back to list'))
+    const quickView = within(screen.getByRole('button', { name: 'Document ••••000001' }).closest('tr') as HTMLElement).getByRole('button', { name: 'Quick view' })
+    await press(quickView)
+    const drawer = await screen.findByRole('dialog', { name: 'Record quick view' })
+    await act(async () => { fireEvent.keyDown(drawer, { key: 'Escape' }) })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(focused()).toBe(quickView))
+    expect(api.findOcrJob).toHaveBeenCalledTimes(1)
+  })
+
   it('Open reads the job again, and a search filters the jobs listed', async () => {
     await findJob(validated)
     await press(button('Back to list'))
@@ -370,6 +382,19 @@ describe('Migrate: creating a job (New document job)', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('The document is not virus scan clean')
     expect(screen.getByText('Correct the issue or retry using the same button. No success is reported until saved.')).toBeTruthy()
     await waitFor(() => expect(focused()).toBe(button('Save record')))
+  })
+
+  it('keeps one status region mounted across the list, new and record views, so what it says is announced', async () => {
+    await openNew()
+    const region = statusRegion()
+    api.findOcrJob.mockResolvedValue({ job: null })
+    api.createOcrJob.mockResolvedValue(queued)
+    fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
+    fireEvent.change(screen.getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
+    await press(button('Save record'))
+    await waitFor(() => expect(region.textContent).toBe('Extraction job created.'))
+    expect(statusRegion()).toBe(region)
+    expect(region.isConnected).toBe(true)
   })
 
   it('Create record from a document with no job carries its ID into the form', async () => {

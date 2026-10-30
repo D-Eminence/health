@@ -10,10 +10,6 @@
   border-radius: 2px;
 }
 
-.hid-ehr .hid-ehr-dept-migrate-status:empty {
-  display: none;
-}
-
 .hid-ehr .hid-ehr-dept-migrate-find {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;

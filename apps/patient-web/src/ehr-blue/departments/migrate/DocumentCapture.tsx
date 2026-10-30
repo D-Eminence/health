@@ -49,20 +49,27 @@ export function DocumentCapture({ facilityId, permissions, onExtract }: {
   readonly onExtract: (documentId: string, patientId: string) => void
 }) {
   const { state, activePatient } = useStaff()
+  // Whether this page closed the patient because access had ended: said until another patient is opened.
+  const [ended, setEnded] = useState(false)
+  useEffect(() => { if (activePatient) setEnded(false) }, [activePatient])
+  const accessEnded = useCallback(() => setEnded(true), [])
   if (!permissions.includes('ehr.document.read')) return null
   const actorId = state.status === 'ready' ? state.session.actor.id : ''
   return <DeptSection title="Patient documents" headingId="migrate-documents-title" className="hid-ehr-dept-migrate-capture">
-    {!activePatient ? <EhrEmptyState title="No patient open"
-      message="Open a patient through an approved request or patient PIN to capture their documents here." />
+    {!activePatient ? <>
+      {ended && <DeptNotice tone="critical" role="alert">{ACCESS_ENDED}</DeptNotice>}
+      <EhrEmptyState title="No patient open" message="Open a patient through an approved request or patient PIN to capture their documents here." />
+    </>
       : activePatient.purpose === 'emergency'
         ? <DeptNotice tone="caution">Emergency access is read-only, so documents cannot be captured for this patient.</DeptNotice>
         : <PatientDocuments key={JSON.stringify([actorId, facilityId, activePatient.lookup.patient.patientId, activePatient.purpose, permissions])}
-          facilityId={facilityId} permissions={permissions} onExtract={onExtract} />}
+          facilityId={facilityId} permissions={permissions} onExtract={onExtract} onAccessEnded={accessEnded} />}
   </DeptSection>
 }
 
-function PatientDocuments({ facilityId, permissions, onExtract }: {
+function PatientDocuments({ facilityId, permissions, onExtract, onAccessEnded }: {
   readonly facilityId: string; readonly permissions: readonly string[]; readonly onExtract: (documentId: string, patientId: string) => void
+  readonly onAccessEnded: () => void
 }) {
   const { activePatient, setActivePatient } = useStaff()
   const patientId = activePatient?.lookup.patient.patientId
@@ -74,16 +81,16 @@ function PatientDocuments({ facilityId, permissions, onExtract }: {
     } catch (caught) {
       // The backend refuses a lookup once access has ended (403) or the patient is unavailable (404); the record closes.
       if (isHidApiError(caught) && (caught.status === 403 || caught.status === 404)) {
-        setActivePatient(null)
+        onAccessEnded(); setActivePatient(null)
         throw new Error(ACCESS_ENDED)
       }
       throw caught
     }
     if (!isAllowedPatientLookup(result) || result.patient.patientId !== patientId) {
-      setActivePatient(null)
+      onAccessEnded(); setActivePatient(null)
       throw new Error(ACCESS_ENDED)
     }
-  }, [facilityId, activePatient, patientId, setActivePatient])
+  }, [facilityId, activePatient, patientId, setActivePatient, onAccessEnded])
 
   // What the current grant permits, from the server: changes stay hidden until it reports write access, and whenever the check fails.
   const [writeAccess, setWriteAccess] = useState<{ allowed: boolean; failed: boolean } | null>(null)
@@ -190,10 +197,12 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
     if (busy) return
     setUploadError(''); setNotice(''); setProblem(null)
     const formElement = event.currentTarget
-    const file = new FormData(formElement).get('document')
-    const refused = !(file instanceof File) || !file.size ? 'Choose a file first.'
+    // The file chosen in the field: what the form would send as `document`.
+    const control = formElement.elements.namedItem('document')
+    const file = control instanceof HTMLInputElement ? control.files?.[0] : undefined
+    const refused = !file || !file.size ? 'Choose a file first.'
       : !['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'].includes(file.type) || file.size > 52_428_800 ? 'Choose a PDF, JPEG, PNG or TIFF file of 50 MiB or less.' : ''
-    if (refused || !(file instanceof File)) {
+    if (refused || !file) {
       setProblem(refusal({ field: 'migrate-document-file', message: refused || 'Choose a file first.' })); focus('migrate-document-file'); return
     }
     setBusy(true)

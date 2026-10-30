@@ -296,23 +296,6 @@ export function Migrate() {
       <DeptNotice title="Project migration is not available yet">
         <p>This Health ID deployment runs document OCR jobs for authorized clinical documents. Project setup, bulk import, record matching and a migration index need backend support before they can be offered.</p>
       </DeptNotice>
-      <DeptSection title="Find document job" headingId="ocr-find-title">
-        <p className="hid-ehr-dept-muted">Use the document ID from an authorized clinical record. The document must be available and virus scan clean before extraction can begin.</p>
-        <form className="hid-ehr-dept-form hid-ehr-dept-migrate-find" noValidate aria-labelledby="ocr-find-title" onSubmit={event => void find(event)}>
-          <MigrateField id="ocr-document" label="Document ID" required problem={problem}>
-            <EhrInput value={findDocument} placeholder="Document UUID" required autoComplete="off" {...controlProps(problem, 'ocr-document')}
-              onChange={event => { setFindDocument(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} />
-          </MigrateField>
-          <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-find-submit" type="submit" busy={busy}>{busy ? 'Checking…' : 'Find job'}</EhrButton></div>
-        </form>
-        {nothingFound && <div className="hid-ehr-empty-state hid-ehr-dept-migrate-none">
-          <p className="hid-ehr-state-title">No OCR job for this document</p>
-          <p className="hid-ehr-state-message">{canWrite ? `Document ${shortId(currentDocument)} has no extraction job yet. Create one for a verified patient document.`
-            : `Document ${shortId(currentDocument)} has no extraction job yet.`}</p>
-          {canWrite && <div className="hid-ehr-state-action"><EhrButton variant="secondary" id="ocr-create-start" onClick={() => startNew(currentDocument)}>Create record</EhrButton></div>}
-        </div>}
-        {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
-      </DeptSection>
       <DeptSearch label="Search Migrate" value={search} onChange={setSearch}
         hint="OCR has no facility-wide job list: jobs you find or create here are listed until you leave this page."
         filters={search ? <div className="hid-ehr-dept-migrate-clear"><EhrButton variant="secondary" onClick={() => setSearch('')}>Clear search</EhrButton></div> : undefined}>
@@ -333,6 +316,23 @@ export function Migrate() {
             </div> },
           ]} />
       </DeptSearch>
+      <DeptSection title="Find document job" headingId="ocr-find-title">
+        <p className="hid-ehr-dept-muted">Use the document ID from an authorized clinical record. The document must be available and virus scan clean before extraction can begin.</p>
+        <form className="hid-ehr-dept-form hid-ehr-dept-migrate-find" noValidate aria-labelledby="ocr-find-title" onSubmit={event => void find(event)}>
+          <MigrateField id="ocr-document" label="Document ID" required problem={problem}>
+            <EhrInput value={findDocument} placeholder="Document UUID" required autoComplete="off" {...controlProps(problem, 'ocr-document')}
+              onChange={event => { setFindDocument(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} />
+          </MigrateField>
+          <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-find-submit" type="submit" busy={busy}>{busy ? 'Checking…' : 'Find job'}</EhrButton></div>
+        </form>
+        {nothingFound && <div className="hid-ehr-empty-state hid-ehr-dept-migrate-none">
+          <p className="hid-ehr-state-title">No OCR job for this document</p>
+          <p className="hid-ehr-state-message">{canWrite ? `Document ${shortId(currentDocument)} has no extraction job yet. Create one for a verified patient document.`
+            : `Document ${shortId(currentDocument)} has no extraction job yet.`}</p>
+          {canWrite && <div className="hid-ehr-state-action"><EhrButton variant="secondary" id="ocr-create-start" onClick={() => startNew(currentDocument)}>Create record</EhrButton></div>}
+        </div>}
+        {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
+      </DeptSection>
       <DocumentCapture facilityId={facilityId!} permissions={permissions} onExtract={extract} />
     </>
   }
