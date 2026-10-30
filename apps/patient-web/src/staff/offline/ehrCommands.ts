@@ -208,14 +208,19 @@ export const CLOSE_RESAVED = 'Close access as the clinician asked'
 
 /**
  * A close waits for the patient's changes; one of them discarded leaves it in review (CC3), never to be sent. It is
- * saved again as it was, so access still closes as the clinician asked (A12.6). Returns how many were saved again.
+ * saved again as it was, once nothing else of the patient's is waiting, so access still closes as the clinician asked
+ * (A12.6). Returns how many were saved again.
  */
 export async function resaveGrantCloses(runtime: OfflineCore): Promise<number> {
   const stuck = (await runtime.review.list()).filter(item => item.op === 'identity.grant.close' && item.class === 'CC3')
   let saved = 0
   for (const item of stuck) {
-    const view = (await runtime.commands.pendingFor(item.patientId)).find(entry => entry.commandId === item.commandId)
+    const pending = await runtime.commands.pendingFor(item.patientId)
+    const view = pending.find(entry => entry.commandId === item.commandId)
     if (!view) continue
+    // It still waits for the patient's other unfinished work, held and in review included; it is looked at again on the
+    // next change (A12.6).
+    if (pending.some(entry => entry.op !== 'identity.grant.close')) continue
     try { await runtime.review.resolve(item.commandId, 'edit-as-new', { input: view.input, reason: CLOSE_RESAVED }); saved += 1 }
     catch { /* Another tab saved it again first, or it no longer needs review. */ }
   }

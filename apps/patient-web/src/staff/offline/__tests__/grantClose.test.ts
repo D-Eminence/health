@@ -90,4 +90,42 @@ describe('closing access waits for the patient’s work (A12.6)', () => {
     expect(CLOSE_RESAVED.length).toBeGreaterThanOrEqual(8)
     runtime.dispose()
   })
+
+  it('saved again after a discard, still waits for a prescription held for review on another visit (re-review 2)', async () => {
+    const { server, runtime } = await setUp()
+    server.state.answer = spec => {
+      if (isNote(spec)) throw new TransportError({ status: 409, code: 'ENCOUNTER_CLOSED', problem: true, networkError: false })
+      return isClose(spec) ? { status: 200, body: { id: 'grant-1' }, date: null } : null
+    }
+    server.state.offline = true
+    for (let i = 0; i < 3; i += 1) runtime.onResponseMeta(meta(null))
+    await runtime.commands.save('ehr.note.create', note as unknown as Json, { awaitMs: 0 })
+    // Saved offline with no safety probe here: held for review before it is sent (CC4, A8.3).
+    await runtime.commands.save('ehr.prescription.create', { ...note, encounter: { server: 'enc-2' }, body: { medicationDisplay: 'Amoxicillin 500 mg',
+      frequency: 'twice a day', instructions: 'With food', status: 'draft' } } as unknown as Json, { awaitMs: 0 })
+    await ehrCommands.closeGrant(PILOT, PATIENT, 'grant-1', 'Care handed over')
+    server.state.offline = false
+    for (let i = 0; i < 3; i += 1) runtime.onResponseMeta(meta(200))
+    runtime.commands.syncNow()
+    for (let i = 0; i < 4; i += 1) await runtime.settle()
+    const review = await runtime.review.list()
+    const held = review.find(item => item.op === 'ehr.note.create')!
+    expect(review.find(item => item.op === 'ehr.prescription.create')?.class).toBe('CC4')
+
+    await runtime.review.resolve(held.commandId, 'discard', { reason: 'Entered on the wrong visit' })
+    for (let i = 0; i < 3; i += 1) await runtime.settle()
+    // The prescription is still waiting for review: the close is not saved again, and not sent.
+    expect(await resaveGrantCloses(runtime)).toBe(0)
+    for (let i = 0; i < 3; i += 1) await runtime.settle()
+    expect(server.sent.filter(isClose)).toEqual([])
+
+    // Once nothing else of the patient's is waiting, it is saved again and sent.
+    const prescription = (await runtime.review.list()).find(item => item.op === 'ehr.prescription.create')!
+    await runtime.review.resolve(prescription.commandId, 'discard', { reason: 'Prescribed on paper instead' })
+    for (let i = 0; i < 3; i += 1) await runtime.settle()
+    expect(await resaveGrantCloses(runtime)).toBe(1)
+    for (let i = 0; i < 4; i += 1) await runtime.settle()
+    expect(server.sent.filter(isClose)).toHaveLength(1)
+    runtime.dispose()
+  })
 })

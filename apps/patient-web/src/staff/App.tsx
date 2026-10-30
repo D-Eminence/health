@@ -525,11 +525,15 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!runtime) return
     let running = false
-    return runtime.subscribe(() => {
-      if (running || runtime.summary().attention === 0 || runtime.summary().vault !== 'unlocked') return
+    let again = false
+    const look = () => {
+      if (running) { again = true; return }
+      if (runtime.summary().attention === 0 || runtime.summary().vault !== 'unlocked') return
       running = true
-      void resaveGrantCloses(runtime).catch(() => 0).finally(() => { running = false })
-    })
+      // A change heard during a run is looked at once the run ends.
+      void resaveGrantCloses(runtime).catch(() => 0).finally(() => { running = false; if (again) { again = false; look() } })
+    }
+    return runtime.subscribe(look)
   }, [runtime])
 
   useEffect(() => { void refresh() }, [refresh])
