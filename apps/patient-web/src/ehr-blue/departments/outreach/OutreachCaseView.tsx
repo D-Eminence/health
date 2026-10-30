@@ -9,7 +9,7 @@ import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import {
   caseFacts, caseName, COMPLETE_FIELD, controlProps, ErrorBox, LINK_FAILED, NO_ACTIONS, OutreachField, PENDING, reference,
-  REASON_LENGTH, RETRY_NOTE, statusWords, type FieldErrors,
+  LINK_RETRY_NOTE, REASON_LENGTH, statusWords, type FieldErrors,
 } from './outreachParts'
 
 type LinkField = 'patient' | 'reason'
@@ -79,6 +79,8 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
       onFocusHeading()
     } catch (caught) {
       setError(errorText(caught, LINK_FAILED))
+      // Read the case again, so a retry is checked against its latest version, not the one refused.
+      await onChanged()
     } finally {
       setBusy(false)
     }
@@ -87,7 +89,11 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
   const field = (key: LinkField) => ({ error: problems.errors[key], alert: problems.alert === key, seq: problems.seq })
 
   return (
-    <DeptPage title={caseName(item)} onBack={onBack}>
+    <DeptPage title={caseName(item)} primaryAction={(
+      // Unavailable while the link is sent, so its answer is not lost.
+      <EhrButton variant="secondary" className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined}
+        onClick={() => { if (!busy) onBack() }}>Back to list</EhrButton>
+    )}>
       <DeptContextLine status={statusWords(item.status)} items={[`${caseName(item)} · ${reference(item.id)}`, `Created ${dateText(item.createdAt)}`]} />
       <ErrorBox message={listError} />
       {/* Mounted throughout, so what was recorded is announced. */}
@@ -96,9 +102,13 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
           <DeptNotice title="Patient linked">This registration case is now linked to the verified Health ID patient.</DeptNotice>
         )}
       </div>
-      {pending && !linked && (created
-        ? <DeptNotice title="Registration case created">It stays pending until it is linked to a verified Health ID patient.</DeptNotice>
-        : <DeptNotice title="Identity resolution pending">This is a temporary registration. It stays pending until it is linked to a verified Health ID patient.</DeptNotice>)}
+      {/* A refusal whose form is gone (the case, read again, no longer offers the link) is said here instead. */}
+      {error && !(offered && open) ? <><ErrorBox message={error} /><p className="hid-ehr-dept-outreach-note">{LINK_RETRY_NOTE}</p></> : null}
+      {created && !linked
+        ? <DeptNotice title="Registration case created">{pending ? 'It stays pending until it is linked to a verified Health ID patient.' : `Its status is ${statusWords(item.status)}.`}</DeptNotice>
+        : pending && !linked
+          ? <DeptNotice title="Identity resolution pending">This is a temporary registration. It stays pending until it is linked to a verified Health ID patient.</DeptNotice>
+          : null}
       <DeptRecordLayout
         main={<DeptSection title="Saved record"><DeptFacts facts={caseFacts(item, campaign)} /></DeptSection>}
         aside={(
@@ -120,7 +130,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
                 <ErrorBox message={error} />
                 <div className="hid-ehr-dept-outreach-footer">
                   <EhrButton type="submit" busy={busy}>{busy ? 'Saving…' : 'Link existing patient'}</EhrButton>
-                  {error ? <small className="hid-ehr-dept-outreach-note">{RETRY_NOTE}</small> : null}
+                  {error ? <small className="hid-ehr-dept-outreach-note">{LINK_RETRY_NOTE}</small> : null}
                 </div>
               </form>
             )}

@@ -28,7 +28,7 @@ const FIELD_ID: Record<CaseField, string> = {
  * request: the same fields, the same checks before sending (CreateRegistrationCaseDto), and
  * the same command for the same case.
  */
-export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBack, onCreated }: {
+export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBack, onSending, onCreated }: {
   readonly facilityId: string
   /** Whether the membership reads campaigns, so a case may name one. */
   readonly showCampaign: boolean
@@ -36,6 +36,8 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBa
   readonly campaigns: readonly OutreachCampaign[]
   readonly attempt: MutableRefObject<CaseAttempt>
   readonly onBack: () => void
+  /** A case is being sent: what the last one said no longer applies. */
+  readonly onSending: () => void
   readonly onCreated: (created: OutreachCase) => void
 }) {
   const [busy, setBusy] = useState(false)
@@ -78,6 +80,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBa
     if (attempt.current?.signature !== signature) {
       attempt.current = { signature, command: { localCommandId: crypto.randomUUID(), temporaryPatientId: `tmp_${crypto.randomUUID()}` } }
     }
+    onSending()
     setBusy(true)
     try {
       const created = await staffApi.createOutreachCase(facilityId, input, attempt.current.command)
@@ -95,7 +98,11 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBa
   const field = (key: CaseField) => ({ error: fieldError(key), alert: problems.alert === key, seq: problems.seq })
 
   return (
-    <DeptPage title="New outreach" onBack={onBack}>
+    <DeptPage title="New outreach" primaryAction={(
+      // Unavailable while the case is sent, so its answer (a refusal to correct, or the case made) is not lost.
+      <EhrButton variant="secondary" className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined}
+        onClick={() => { if (!busy) onBack() }}>Back to list</EhrButton>
+    )}>
       <DeptSection>
         <form className="hid-ehr-dept-form" noValidate onSubmit={event => void createCase(event)}>
           <div className="hid-ehr-dept-form-grid">

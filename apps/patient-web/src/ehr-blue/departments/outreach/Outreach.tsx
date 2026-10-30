@@ -15,7 +15,7 @@ import { OutreachCaseView } from './OutreachCaseView'
 import { OutreachNew, type CaseAttempt } from './OutreachNew'
 import {
   ageText, campaignFacts, campaignSearchText, CAMPAIGNS_NOT_LOADED, CAMPAIGNS_READ_ONLY, CAMPAIGNS_READ_ONLY_TITLE, caseFacts, caseName,
-  CASES_NOT_LOADED, caseSearchText, ErrorBox, reference, sexText, statusWords, type MembersRead,
+  CASES_NOT_LOADED, caseSearchText, ErrorBox, NO_FACILITY, NO_READ_PERMISSION, PENDING, reference, sexText, statusWords, type MembersRead,
 } from './outreachParts'
 
 /** The design's list shows this many records a page. */
@@ -102,17 +102,29 @@ export function Outreach() {
   const backToList = useCallback((from?: string) => show({ kind: 'list' }, from), [show])
   const focusHeadingIfLost = useCallback(() => setFocusRequest({ ifLost: true }), [])
 
+  // What the last create said, for the facility it was made at: written into a status region that stays mounted
+  // across the views, so it is announced whatever view shows next. Cleared as the next case is sent.
+  const [createdNote, setCreatedNote] = useState<{ facilityId: string; text: string } | null>(null)
+  const clearCreatedNote = useCallback(() => setCreatedNote(null), [])
   const refreshCases = cases.refresh
   const onCreated = useCallback((created: OutreachCase) => {
+    if (facilityId) setCreatedNote({ facilityId, text: createdText(created) })
     void refreshCases()
-    // Open the case made, as the design opens a saved record, unless the user has gone elsewhere meanwhile.
+    // Open the case made, as the design opens a saved record. The form keeps the user on it until the answer comes.
     if (viewRef.current.kind === 'new' && created?.id) show({ kind: 'case', id: created.id, snapshot: created, created: true })
-  }, [refreshCases, show])
+  }, [facilityId, refreshCases, show])
 
-  if (!facilityId || (!canReadCases && !canReadCampaigns)) {
+  if (!facilityId) {
     return (
       <DeptPage title="Outreach">
-        <ErrorBox message="Permission denied. This membership or branch cannot open this module." />
+        <ErrorBox message={NO_FACILITY} />
+      </DeptPage>
+    )
+  }
+  if (!canReadCases && !canReadCampaigns) {
+    return (
+      <DeptPage title="Outreach">
+        <ErrorBox message={NO_READ_PERMISSION} />
       </DeptPage>
     )
   }
@@ -130,7 +142,7 @@ export function Outreach() {
   let content: ReactNode
   if (view.kind === 'new' && canWrite) {
     content = <OutreachNew facilityId={facilityId} showCampaign={canReadCampaigns} campaigns={caseCampaigns} attempt={caseAttempt}
-      onBack={() => backToList()} onCreated={onCreated} />
+      onBack={() => backToList()} onSending={clearCreatedNote} onCreated={onCreated} />
   } else if (view.kind === 'case' && (canReadCases || view.created)) {
     const listed = cases.value?.find(item => item.id === view.id)
     // A record the list no longer holds is not shown from memory, unless the list cannot say (not read, being read,
@@ -159,7 +171,24 @@ export function Outreach() {
     )
   }
 
-  return <div ref={root}>{readers}{content}</div>
+  return (
+    <div ref={root}>
+      {readers}
+      {content}
+      {/* Mounted throughout, so what was created is announced; the created case's view shows it as a banner. */}
+      <div id="outreach-status" role="status" className="hid-ehr-sr-only">
+        {createdNote?.facilityId === facilityId ? createdNote.text : null}
+      </div>
+    </div>
+  )
+}
+
+/** What the create form's answer said: the case made, and where its identity stands. */
+function createdText(created: OutreachCase | undefined) {
+  if (!created?.status) return 'Registration case created.'
+  return created.status === PENDING
+    ? 'Registration case created. It stays pending until it is linked to a verified Health ID patient.'
+    : `Registration case created. Its status is ${statusWords(created.status)}.`
 }
 
 /** The design's view of a record the list no longer holds. */
@@ -283,30 +312,43 @@ function RecordList<T>({ label, caption, pagesLabel, read, columns, rowKey, sear
 }) {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
+  // "Clear search" removes itself, so focus goes back to the search it cleared, in the commit that removes it.
+  const card = useRef<HTMLDivElement>(null)
+  const [cleared, setCleared] = useState(0)
+  useLayoutEffect(() => {
+    if (cleared) card.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus()
+  }, [cleared])
   const all = read.value ?? []
   const rows = all.filter(row => matchesSearch(search, searchText(row)))
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
   const shownPage = Math.min(page, pages - 1)
+  const first = shownPage === 0
+  const last = shownPage + 1 >= pages
   return (
-    <DeptSearch label={label} value={search} onChange={value => { setSearch(value); setPage(0) }}>
-      {search || rows.length > PAGE_SIZE ? (
-        <div className="hid-ehr-dept-outreach-list-tools">
-          {search ? <EhrButton variant="secondary" onClick={() => { setSearch(''); setPage(0) }}>Clear search</EhrButton> : null}
-          {rows.length > PAGE_SIZE ? (
-            <nav className="hid-ehr-dept-outreach-pages" aria-label={pagesLabel}>
-              <EhrButton variant="secondary" disabled={shownPage === 0} onClick={() => setPage(shownPage - 1)}>Previous page</EhrButton>
-              <span>Page {shownPage + 1} of {pages}</span>
-              <EhrButton variant="secondary" disabled={shownPage + 1 >= pages} onClick={() => setPage(shownPage + 1)}>Next page</EhrButton>
-            </nav>
-          ) : null}
-        </div>
-      ) : null}
-      <ErrorBox message={read.error} />
-      {read.value === null
-        ? (read.loading ? <EhrSkeleton label={loadingLabel} /> : null)
-        : rows.length === 0
-          ? <EhrEmptyState title="No matching records" message={all.length ? 'Change your search.' : emptyMessage} />
-          : <EhrDataTable caption={caption} captionHidden columns={columns} rows={rows.slice(shownPage * PAGE_SIZE, (shownPage + 1) * PAGE_SIZE)} rowKey={rowKey} />}
-    </DeptSearch>
+    <div ref={card}>
+      <DeptSearch label={label} value={search} onChange={value => { setSearch(value); setPage(0) }}>
+        {search || rows.length > PAGE_SIZE ? (
+          <div className="hid-ehr-dept-outreach-list-tools">
+            {search ? <EhrButton variant="secondary" onClick={() => { setSearch(''); setPage(0); setCleared(count => count + 1) }}>Clear search</EhrButton> : null}
+            {rows.length > PAGE_SIZE ? (
+              <nav className="hid-ehr-dept-outreach-pages" aria-label={pagesLabel}>
+                {/* Unavailable at the first and last page, not disabled: a disabled button would lose the focus it has. */}
+                <EhrButton variant="secondary" className="hid-ehr-dept-outreach-unavailable" aria-disabled={first || undefined}
+                  onClick={() => { if (!first) setPage(shownPage - 1) }}>Previous page</EhrButton>
+                <span>Page {shownPage + 1} of {pages}</span>
+                <EhrButton variant="secondary" className="hid-ehr-dept-outreach-unavailable" aria-disabled={last || undefined}
+                  onClick={() => { if (!last) setPage(shownPage + 1) }}>Next page</EhrButton>
+              </nav>
+            ) : null}
+          </div>
+        ) : null}
+        <ErrorBox message={read.error} />
+        {read.value === null
+          ? (read.loading ? <EhrSkeleton label={loadingLabel} /> : null)
+          : rows.length === 0
+            ? <EhrEmptyState title="No matching records" message={all.length ? 'Change your search.' : emptyMessage} />
+            : <EhrDataTable caption={caption} captionHidden columns={columns} rows={rows.slice(shownPage * PAGE_SIZE, (shownPage + 1) * PAGE_SIZE)} rowKey={rowKey} />}
+      </DeptSearch>
+    </div>
   )
 }

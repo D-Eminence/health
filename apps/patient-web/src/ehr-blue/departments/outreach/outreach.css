@@ -43,6 +43,12 @@
   gap: 8px;
 }
 
+/* A button that keeps its focus while it cannot be used (aria-disabled), dimmed as a disabled one. */
+.hid-ehr .hid-ehr-dept-outreach-unavailable[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* The quick view's record name and time, over its fields. */
 .hid-ehr .hid-ehr-dept-outreach-quick {
   display: grid;

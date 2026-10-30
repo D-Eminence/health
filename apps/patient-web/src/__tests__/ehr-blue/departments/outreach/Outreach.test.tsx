@@ -102,7 +102,8 @@ describe('who can open Outreach', () => {
     session.permissions = ['outreach.registration.write', 'outreach.campaign.write']
     renderPage()
     expect(heading().textContent).toBe('Outreach')
-    expect(screen.getByRole('alert').textContent).toBe('Permission denied. This membership or branch cannot open this module.')
+    expect(screen.getByRole('alert').textContent)
+      .toBe('Permission denied. This membership or branch cannot open this module: it needs outreach campaign or registration read permission.')
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
     expect(api.outreachCases).not.toHaveBeenCalled()
     expect(api.outreachCampaigns).not.toHaveBeenCalled()
@@ -111,7 +112,7 @@ describe('who can open Outreach', () => {
   it('refuses when no facility is being worked at', () => {
     session.facility = 'none'
     renderPage()
-    expect(screen.getByRole('alert').textContent).toBe('Permission denied. This membership or branch cannot open this module.')
+    expect(screen.getByRole('alert').textContent).toBe('No facility is selected. Choose the facility you are working at to open Outreach.')
     expect(api.outreachCases).not.toHaveBeenCalled()
   })
 
@@ -206,6 +207,8 @@ describe('the list', () => {
     expect(screen.getByText('Change your search.')).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Clear search' }))
     expect((search as HTMLInputElement).value).toBe('')
+    // The button removed itself: focus is back on the search.
+    expect(document.activeElement).toBe(search)
     expect(within(await casesTable()).getByRole('button', { name: 'Patient One' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull()
     expect(api.outreachCases).toHaveBeenCalledTimes(reads)
@@ -219,10 +222,22 @@ describe('the list', () => {
     const pages = await screen.findByRole('navigation', { name: 'Registration case pages' })
     expect(within(await casesTable()).getAllByRole('row')).toHaveLength(51)
     expect(within(pages).getByText('Page 1 of 2')).toBeTruthy()
-    expect((within(pages).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement).disabled).toBe(true)
-    await press(within(pages).getByRole('button', { name: 'Next page' }))
+    const previous = within(pages).getByRole('button', { name: 'Previous page' })
+    const next = within(pages).getByRole('button', { name: 'Next page' })
+    // Unavailable at the ends, but never disabled, so a button keeps the focus it has.
+    expect(previous.getAttribute('aria-disabled')).toBe('true')
+    expect(next.getAttribute('aria-disabled')).toBeNull()
+    await press(previous)
+    expect(within(pages).getByText('Page 1 of 2')).toBeTruthy()
+    await press(next)
     expect(within(pages).getByText('Page 2 of 2')).toBeTruthy()
     expect(within(await casesTable()).getByRole('button', { name: 'Patient 51' })).toBeTruthy()
+    expect(next.getAttribute('aria-disabled')).toBe('true')
+    expect((next as HTMLButtonElement).disabled).toBe(false)
+    expect(document.activeElement).toBe(next)
+    await press(next)
+    expect(within(pages).getByText('Page 2 of 2')).toBeTruthy()
+    expect(previous.getAttribute('aria-disabled')).toBeNull()
   })
 
   it('reads both lists again on Refresh', async () => {
@@ -387,9 +402,62 @@ describe('creating a registration case', () => {
     expect(commands()[0]!.temporaryPatientId).toMatch(/^tmp_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
     await waitFor(() => expect(heading().textContent).toBe('Patient One'))
     expect(document.activeElement).toBe(heading())
+    // Said in the page's status region, mounted throughout, and shown as the design's banner.
+    const status = document.getElementById('outreach-status')!
+    expect(status.getAttribute('role')).toBe('status')
+    expect(status.textContent).toBe('Registration case created. It stays pending until it is linked to a verified Health ID patient.')
     expect(screen.getByText('Registration case created')).toBeTruthy()
     expect(screen.getByText('It stays pending until it is linked to a verified Health ID patient.')).toBeTruthy()
     await waitFor(() => expect(api.outreachCases).toHaveBeenCalledTimes(2))
+  })
+
+  it('keeps one status region mounted through the views, and says a created case whatever its status', async () => {
+    api.createOutreachCase.mockResolvedValue({ ...createdCase, status: 'identity_resolved' })
+    renderPage()
+    await casesTable()
+    const status = document.getElementById('outreach-status')!
+    expect(status.getAttribute('role')).toBe('status')
+    expect(status.textContent).toBe('')
+    await press(fill(await openNew(), { fullName: 'Patient One', age: '34' }))
+    await waitFor(() => expect(heading().textContent).toBe('Patient One'))
+    expect(document.getElementById('outreach-status')).toBe(status)
+    expect(within(status).getByText('Registration case created. Its status is identity resolved.')).toBeTruthy()
+    expect(screen.getByText('Registration case created')).toBeTruthy()
+    expect(screen.getByText('Its status is identity resolved.')).toBeTruthy()
+    // Sending the next case clears what the last one said.
+    api.createOutreachCase.mockReturnValue(new Promise(() => {}))
+    await press(screen.getByRole('button', { name: 'Back to list' }))
+    expect(document.getElementById('outreach-status')).toBe(status)
+    await press(fill(await openNew(), { fullName: 'Patient Two', age: '51' }))
+    await waitFor(() => expect(status.textContent).toBe(''))
+  })
+
+  it('keeps the user on the form while the case is sent, so its answer is not lost', async () => {
+    let answer: (value: unknown) => void = () => {}
+    api.createOutreachCase.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    renderPage()
+    await press(fill(await openNew(), { fullName: 'Patient One', age: '34' }))
+    const back = screen.getByRole('button', { name: 'Back to list' })
+    expect(back.getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Saving…' }).getAttribute('aria-busy')).toBe('true')
+    await press(back)
+    expect(heading().textContent).toBe('New outreach')
+    expect(document.activeElement).toBe(back)
+    await act(async () => { answer(createdCase) })
+    await waitFor(() => expect(heading().textContent).toBe('Patient One'))
+    expect(document.getElementById('outreach-status')!.textContent).toContain('Registration case created.')
+  })
+
+  it('keeps the user on the form while a refused case is sent, and says the refusal there', async () => {
+    let refuse: (reason: unknown) => void = () => {}
+    api.createOutreachCase.mockReturnValue(new Promise((_resolve, reject) => { refuse = reject }))
+    renderPage()
+    await press(fill(await openNew(), { fullName: 'Patient One', age: '34' }))
+    await press(screen.getByRole('button', { name: 'Back to list' }))
+    await act(async () => { refuse(new HidApiError(503, 'Outreach is unavailable.', { code: 'SERVICE_UNAVAILABLE' })) })
+    expect((await screen.findByRole('alert')).textContent).toBe('Outreach is unavailable.')
+    expect(heading().textContent).toBe('New outreach')
+    expect(screen.getByRole('button', { name: 'Back to list' }).getAttribute('aria-disabled')).toBeNull()
   })
 
   it('sends nothing but a campaign it is offered: no campaign by default', async () => {
@@ -609,7 +677,7 @@ describe('a registration case', () => {
     ['a patient this membership may not open', new HidApiError(403, 'You do not have access to this patient.', { code: 'FORBIDDEN' }),
       'You do not have access to this patient.'],
     ['an unknown failure', 'offline', 'The patient could not be linked. Check your access to this patient, then refresh the case.'],
-  ])('says %s, keeps the form, and reads nothing again', async (_name, error, message) => {
+  ])('says %s, keeps the form, and reads the case again for the next attempt', async (_name, error, message) => {
     api.linkExistingOutreachCase.mockRejectedValue(error)
     renderPage()
     await openCase()
@@ -619,9 +687,66 @@ describe('a registration case', () => {
     fireEvent.change(within(form).getByLabelText(/^Reason for linking/), { target: { value: 'Same name and phone as the record' } })
     await press(within(form).getByRole('button', { name: 'Link existing patient' }))
     expect((await within(form).findByRole('alert')).textContent).toBe(message)
-    expect(within(form).getByText('Correct the issue or retry using the same button. No success is reported until saved.')).toBeTruthy()
+    expect(within(form).getByText('The case has been read again, so a retry uses its latest version. Check the details, then retry using the same button. No success is reported until saved.')).toBeTruthy()
     expect(screen.queryByText('Patient linked')).toBeNull()
-    expect(api.outreachCases).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(api.outreachCases).toHaveBeenCalledTimes(2))
+    // The form keeps what was entered.
+    expect((within(form).getByLabelText(/^Patient ID/) as HTMLInputElement).value).toBe(PATIENT)
+  })
+
+  it('retries a link refused for a stale version with the version read since', async () => {
+    api.outreachCases.mockResolvedValueOnce([pendingCase, resolvedCase]).mockResolvedValue([{ ...pendingCase, rowVersion: 4 }, resolvedCase])
+    api.linkExistingOutreachCase.mockRejectedValueOnce(new HidApiError(409, 'This registration case has changed. Refresh it and try again.', { code: 'VERSION_CONFLICT' }))
+    api.linkExistingOutreachCase.mockResolvedValueOnce({ ...pendingCase, status: 'identity_resolved', rowVersion: 5 })
+    renderPage()
+    await openCase()
+    await press(linkToggle())
+    const form = screen.getByRole('form', { name: 'Link existing patient' })
+    fireEvent.change(within(form).getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
+    fireEvent.change(within(form).getByLabelText(/^Reason for linking/), { target: { value: 'Same name and phone as the record' } })
+    const submit = within(form).getByRole('button', { name: 'Link existing patient' })
+    await press(submit)
+    await within(form).findByRole('alert')
+    await waitFor(() => expect(api.outreachCases).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(submit.getAttribute('aria-busy')).toBeNull())
+    await press(submit)
+    await waitFor(() => expect(api.linkExistingOutreachCase).toHaveBeenCalledTimes(2))
+    expect((api.linkExistingOutreachCase.mock.calls[0]![1] as { rowVersion: number }).rowVersion).toBe(3)
+    expect((api.linkExistingOutreachCase.mock.calls[1]![1] as { rowVersion: number }).rowVersion).toBe(4)
+  })
+
+  it('still says a refusal once the case, read again, no longer offers the link', async () => {
+    api.outreachCases.mockResolvedValueOnce([pendingCase, resolvedCase]).mockResolvedValue([{ ...pendingCase, status: 'identity_resolved', rowVersion: 4 }, resolvedCase])
+    api.linkExistingOutreachCase.mockRejectedValue(new HidApiError(409, 'This registration case has already been resolved.', { code: 'VERSION_CONFLICT' }))
+    renderPage()
+    await openCase()
+    await press(linkToggle())
+    const form = screen.getByRole('form', { name: 'Link existing patient' })
+    fireEvent.change(within(form).getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
+    fireEvent.change(within(form).getByLabelText(/^Reason for linking/), { target: { value: 'Same name and phone as the record' } })
+    await press(within(form).getByRole('button', { name: 'Link existing patient' }))
+    await waitFor(() => expect(screen.queryByRole('form', { name: 'Link existing patient' })).toBeNull())
+    expect(screen.getByRole('alert').textContent).toBe('This registration case has already been resolved.')
+    expect(screen.getByText('No further actions for your permission and this record state.')).toBeTruthy()
+  })
+
+  it('keeps the user on the case while a link is sent', async () => {
+    let answer: (value: unknown) => void = () => {}
+    api.linkExistingOutreachCase.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    renderPage()
+    await openCase()
+    await press(linkToggle())
+    const form = screen.getByRole('form', { name: 'Link existing patient' })
+    fireEvent.change(within(form).getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
+    fireEvent.change(within(form).getByLabelText(/^Reason for linking/), { target: { value: 'Same name and phone as the record' } })
+    await press(within(form).getByRole('button', { name: 'Link existing patient' }))
+    const back = screen.getByRole('button', { name: 'Back to list' })
+    expect(back.getAttribute('aria-disabled')).toBe('true')
+    await press(back)
+    expect(heading().textContent).toBe('Patient One')
+    await act(async () => { answer({ ...pendingCase, status: 'identity_resolved', rowVersion: 4 }) })
+    await waitFor(() => expect(screen.getByText('Patient linked')).toBeTruthy())
+    expect(back.getAttribute('aria-disabled')).toBeNull()
   })
 
   it('offers no link without registration write permission', async () => {
