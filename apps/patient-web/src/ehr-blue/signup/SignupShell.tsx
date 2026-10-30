@@ -49,7 +49,7 @@ export function SignupShell({ children, centered = false, onMainSite = true }: {
         <div className="hid-ehr-signup-story">
           <p className="hid-ehr-signup-story-eyebrow">Health ID — Hospital EHR</p>
           <p className="hid-ehr-signup-story-title">More connected care.<br />More time for people.</p>
-          <p className="hid-ehr-signup-story-text">Your hospital, patients and team in one connected workspace.</p>
+          <p className="hid-ehr-signup-story-text">Your facility, patients and team in one connected workspace.</p>
         </div>
       </div>
     </div>

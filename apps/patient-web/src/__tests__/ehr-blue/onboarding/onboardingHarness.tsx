@@ -78,5 +78,5 @@ export const stepper = () => screen.getByRole('navigation', { name: 'Onboarding 
 export const stepButton = (name: string) => within(stepper()).getByRole('button', { name: new RegExp(`^\\d\\. ${name}$`) })
 /** The eyebrow the design draws over the heading ("Step 3 of 9 · Departments"). */
 export const eyebrow = () => document.querySelector('.hid-ehr-onboarding .hid-ehr-page-eyebrow')?.textContent ?? ''
-export const heading = () => screen.getByRole('heading', { level: 1, name: /Set up your hospital$/ })
+export const heading = () => screen.getByRole('heading', { level: 1, name: /Set up your facility$/ })
 

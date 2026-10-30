@@ -12,7 +12,7 @@ export type StepName = (typeof STEPS)[number]
 export const PAGE_LABEL = 'Facility setup'
 
 /** The wizard's h1 (src/admin.tsx:488-489). */
-export const SETUP_TITLE = 'Set up your hospital'
+export const SETUP_TITLE = 'Set up your facility'
 
 /** "Step 3 of 9 · Departments" (src/admin.tsx:490). */
 export function stepEyebrow(index: number): string {
@@ -46,7 +46,7 @@ export function facilityCheckDone(facility: string): string {
   return `Health ID support has checked ${facility}, and it now has full access.`
 }
 
-/** Said, as a status, when "Launch hospital" opens Home: there is nothing to launch on Health ID. */
+/** Said, as a status, when "Launch facility" opens Home: there is nothing to launch on Health ID. */
 export const NO_LAUNCH_STEP = 'Health ID has no launch step yet. Your EHR is already open.'
 
 /** The design's facility types (src/model.ts:366-375). */
