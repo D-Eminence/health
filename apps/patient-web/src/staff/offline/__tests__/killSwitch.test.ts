@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
 import { createOfflineRuntime, DB_NAME, TransportError, type Json, type OfflineEnv, type SendSpec } from '@hid/offline'
-import { PASSWORD, PILOT, snapshotOf } from './offlineFixture'
+import { PASSWORD, PILOT, readyFor, snapshotOf } from './offlineFixture'
 
 /**
  * The kill switch in an `off` build (§2.3, A8.5, A11.1), with the real core on an in-memory IndexedDB: the staff app
@@ -77,7 +77,7 @@ describe('kill switch in an off build (A11.1)', () => {
     runtime.prepareFromSignIn('ada@example.test', PASSWORD)
     expect(await attachOnlineSession(runtime, staffSession)).toMatchObject({ result: 'none' })
     expect(runtime.policy()).toMatchObject({ enabled: false, reason: 'mode-off' })
-    runtime.setSessionReady(true)
+    readyFor(runtime, staffSession.actor.id)
     await runtime.settle()
     await runtime.settle()
 

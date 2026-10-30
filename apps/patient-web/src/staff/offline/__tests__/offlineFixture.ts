@@ -58,12 +58,20 @@ export function realRuntime(idb: IDBFactory, transport: (spec: SendSpec) => Prom
   return runtime
 }
 
+/**
+ * Tells the real core the session is ready for `accountId`, as the workspace does (A12.3). The core after #39 sends
+ * only for the confirmed account; the one before it takes `ready` alone and ignores the account.
+ */
+export function readyFor(runtime: { setSessionReady(ready: boolean): void }, accountId: string): void {
+  (runtime.setSessionReady as (ready: boolean, accountId?: string) => void).call(runtime, true, accountId)
+}
+
 /** A real runtime with an open vault for `snapshot` (signed in online, "Keep an offline copy" chosen). */
 export async function realVault(idb: IDBFactory, transport: (spec: SendSpec) => Promise<SendResult>, snapshot: StaffSessionSnapshot = snapshotOf(),
   extra: RealExtra = {}) {
   const runtime = realRuntime(idb, transport, undefined, undefined, extra)
   runtime.prepareFromSignIn(snapshot.email, PASSWORD)
   await runtime.attachSession(snapshot, { optIn: true, online: true })
-  runtime.setSessionReady(true)
+  readyFor(runtime, snapshot.accountId)
   return runtime
 }
