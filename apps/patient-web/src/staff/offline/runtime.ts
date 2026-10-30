@@ -109,6 +109,23 @@ export function offlineActive<R extends OfflineRuntime = OfflineCore>(runtime: R
   return runtime.policy().enabled && runtime.summary().vault === 'unlocked'
 }
 
+/**
+ * Tells the runtime whether the session is ready, and for which account Health ID confirmed it (A12.3): it sends,
+ * audits and extends the lease only while the open vault belongs to that account. The account is passed to the
+ * runtime's `setSessionReady(ready, accountId)` (#39); a runtime that takes only `ready` ignores it.
+ */
+export function markSessionReady(runtime: OfflineCore | null, ready: boolean, accountId: string | null | undefined): void {
+  if (!runtime) return
+  const setReady = runtime.setSessionReady as (ready: boolean, accountId?: string) => void
+  setReady.call(runtime, ready, ready && accountId ? accountId : undefined)
+}
+
+/** Locks the open vault when it belongs to another account than `accountId` (A12.3): a different account signed in. */
+export function lockOtherAccount(runtime: OfflineRuntime | null, accountId: string): void {
+  const open = runtime?.restoreSession()
+  if (runtime && open && open.accountId !== accountId) runtime.lock('session')
+}
+
 /** The session as the vault keeps it (sealed in its header). */
 export function staffSnapshot(session: StaffSession): StaffSessionSnapshot | null {
   const { actor } = session

@@ -35,7 +35,7 @@ import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { LIMITS, type LockReason, type OfflineCore, type StaffSessionSnapshot } from '@hid/offline'
-import { offlineActive, offlineRuntime, offlineRuntimeMayFollow, resolveOfflineRuntime, restoredStaffSession, useOfflineActive, useOfflineSummary } from './offline/runtime'
+import { lockOtherAccount, markSessionReady, offlineActive, offlineRuntime, offlineRuntimeMayFollow, resolveOfflineRuntime, restoredStaffSession, useOfflineActive, useOfflineSummary } from './offline/runtime'
 import { attachOnlineSession, healthIdUnreachable, keepsVaultFacility, offersOfflineSignIn, syncShell } from './offline/session'
 import { OfflineSignIn } from './offline/OfflineSignIn'
 import { UnlockScreen } from './offline/UnlockScreen'
@@ -179,11 +179,12 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   const [offlineChoice, setOfflineChoice] = useState<StaffSessionSnapshot | null>(null)
   const [offlinePaused, setOfflinePaused] = useState(false)
   const [lock, setLockState] = useState<SessionLock>(null)
-  // Readiness for protected requests, told to the offline engine too: it sends only while the session is ready and
-  // the workspace is not locked (§2.8, "Eligible").
+  // Readiness for protected requests, told to the offline engine too: it sends only while the session is ready, the
+  // workspace is not locked (§2.8, "Eligible"), and Health ID confirmed the account. A session opened offline is not
+  // confirmed: sending waits for the background read that confirms it (A12.3).
   const markReady = useCallback((ready: boolean) => {
     setStaffSessionReady(ready)
-    offlineRuntime()?.setSessionReady(ready)
+    markSessionReady(offlineRuntime(), ready && !offlineMode.current, currentSession.current?.actor.id)
   }, [])
   const lockRef = useRef<SessionLock>(null)
   // Where focus was when the workspace locked, given back when it opens again.
@@ -280,6 +281,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       if (asking.current === question) asking.current = null
       if (status.current !== 'ready' || sentIn !== staffSessionGeneration()) return
       if (answer === 'ended') {
+        // The vault closes with the session: no other account's work is sent from it (A12.3).
+        runtime?.lock('session')
         startStaffSessionGeneration()
         startPeriod()
         away.current = null
@@ -454,6 +457,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       }
       if (!current()) return
       if (session.actor.kind === 'patient') throw new Error('This account does not have a staff session.')
+      lockOtherAccount(runtimeRef.current, session.actor.id)
       checkVaultFacility(session)
       setState({ status: 'ready', session })
       askIfHeardWhileOpening()
@@ -461,6 +465,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       if (!current()) return
       if (endsStaffSession(error)) {
+        runtimeRef.current?.lock('session')
         setState({ status: 'signed-out', session: null, reason: staffSessionEndReason(sentIn) })
         return
       }
@@ -493,7 +498,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     if (!runtime) return
     let reading = false
     return runtime.subscribe(() => {
-      if (!offlineMode.current || reading || runtime.summary().connectivity !== 'online') return
+      if (!offlineMode.current || reading || runtime.summary().connectivity === 'offline') return
       reading = true
       const sentIn = staffSessionGeneration()
       const actorId = currentSession.current?.actor.id
@@ -537,6 +542,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
 
   function completeSignIn(session: StaffSession) {
     if (session.actor.kind === 'patient') throw new Error('A staff account is required for this portal.')
+    // Another account signed in on this tab: the vault left open is locked first (A12.3).
+    lockOtherAccount(runtime, session.actor.id)
     startStaffSessionGeneration()
     startPeriod()
     away.current = null

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { OfflineCore } from '@hid/offline'
-import { fakeOffline, PASSWORD, PILOT, snapshotOf } from './offlineFixture'
+import { fakeOffline, openVault, PASSWORD, PILOT, snapshotOf } from './offlineFixture'
 
 /**
  * The real staff App with Stream A's in-memory offline runtime (`@hid/offline/testing`) and the network replaced:
@@ -319,4 +319,80 @@ describe('a sign-out made offline reaches Health ID (A12.2)', () => {
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Open a patient record.' })).toBeTruthy()
   }, 20000)
+})
+
+describe('sending is bound to the account Health ID confirmed (A12.3)', () => {
+  const bola = () => {
+    const session = staffSession()
+    return { ...session, actor: { ...session.actor, id: 'staff-2', email: 'bola@example.test', displayName: 'Bola Clinician' } }
+  }
+
+  it('after an offline cold start, sends nothing until Health ID confirms the same account', async () => {
+    let online = false
+    serve(route => {
+      if (!online) throw new TypeError('Failed to fetch')
+      return route === 'GET /api/v1/auth/session' ? json(staffSession()) : json([])
+    })
+    const { runtime, controls } = fakeOffline({ connectivity: 'offline' })
+    controls.seedVault(snapshotOf(PILOT, staffSession(), PERMISSIONS), PASSWORD)
+    const ready = vi.spyOn(runtime, 'setSessionReady')
+    await open(runtime, { mode: 'pilot', facilities: [PILOT] })
+    fireEvent.change(await screen.findByRole('textbox', { name: /Work email/ }, { timeout: 8000 }), { target: { value: 'ada@example.test' } })
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: PASSWORD } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open offline copy' }))
+    await screen.findByRole('heading', { level: 1, name: /Good to see you, Ada/ })
+    // The workspace is open offline, but the account is not confirmed: sending stays closed.
+    expect(ready.mock.calls.every(([open]) => open === false)).toBe(true)
+
+    online = true
+    await act(async () => { controls.setConnectivity('online') })
+    await waitFor(() => expect(ready).toHaveBeenLastCalledWith(true, 'staff-1'))
+    expect(calls).toContain('GET /api/v1/auth/session')
+  }, 20000)
+
+  it('a different account answering the background read locks the vault and sends nothing', async () => {
+    let online = false
+    serve(route => {
+      if (!online) throw new TypeError('Failed to fetch')
+      return route === 'GET /api/v1/auth/session' ? json(bola()) : json([])
+    })
+    const { runtime, controls } = fakeOffline({ connectivity: 'offline' })
+    controls.seedVault(snapshotOf(PILOT, staffSession(), PERMISSIONS), PASSWORD)
+    const ready = vi.spyOn(runtime, 'setSessionReady')
+    await open(runtime, { mode: 'pilot', facilities: [PILOT] })
+    fireEvent.change(await screen.findByRole('textbox', { name: /Work email/ }, { timeout: 8000 }), { target: { value: 'ada@example.test' } })
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: PASSWORD } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open offline copy' }))
+    await screen.findByRole('heading', { level: 1, name: /Good to see you, Ada/ })
+    online = true
+    await act(async () => { controls.setConnectivity('online') })
+    await waitFor(() => expect(runtime.summary().vault).not.toBe('unlocked'))
+    expect(ready.mock.calls.some(([open]) => open === true)).toBe(false)
+  }, 20000)
+
+  it('another account signing in on the tab locks the vault left open before attaching its own', async () => {
+    serve(signingIn(bola()))
+    const { runtime } = await openVaultFor()
+    const lock = vi.spyOn(runtime, 'lock')
+    const attach = vi.spyOn(runtime, 'attachSession')
+    await open(runtime, { mode: 'pilot', facilities: [PILOT] }, '/provider/sign-in')
+    await signIn()
+    await screen.findByRole('heading', { level: 1, name: /Good to see you, Bola/ })
+    expect(lock).toHaveBeenCalledWith('session')
+    if (attach.mock.calls.length > 0) expect(lock.mock.invocationCallOrder[0]).toBeLessThan(attach.mock.invocationCallOrder[0]!)
+    expect(runtime.restoreSession()?.accountId).not.toBe('staff-1')
+  }, 20000)
+
+  it('a session Health ID says has ended locks the vault', async () => {
+    serve(route => route === 'GET /api/v1/auth/session' || route === 'POST /api/v1/auth/refresh'
+      ? json({ code: 'AUTHENTICATION_REQUIRED' }, 401) : json([]))
+    const { runtime } = await openVaultFor()
+    const lock = vi.spyOn(runtime, 'lock')
+    await open(runtime, { mode: 'pilot', facilities: [PILOT] })
+    await screen.findByRole('heading', { name: 'Welcome back.' }, { timeout: 8000 })
+    expect(lock).toHaveBeenCalledWith('session')
+  }, 20000)
+
+  /** Ada's vault, open on this tab as after her online sign-in with a copy kept. */
+  function openVaultFor() { return openVault(snapshotOf(PILOT, staffSession(), PERMISSIONS)) }
 })
