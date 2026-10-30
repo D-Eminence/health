@@ -1,0 +1,710 @@
+/*
+ * The blue EHR frame, home and sample pages: plain CSS, every rule under .hid-ehr and named hid-ehr-blue-*. Values
+ * are the design's (design/ehr-target public/redesign.css, application.css and feedback.css).
+ */
+
+.hid-ehr .hid-ehr-blue-logo {
+  display: block;
+  width: 112px;
+  height: auto;
+}
+
+.hid-ehr .hid-ehr-sidebar-collapsed .hid-ehr-blue-logo {
+  width: 32px;
+  object-fit: cover;
+  object-position: left center;
+}
+
+.hid-ehr .hid-ehr-blue-facility {
+  overflow: hidden;
+  color: var(--ehr-ink);
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hid-ehr .hid-ehr-blue-count {
+  display: inline-block;
+  min-width: 20px;
+  padding: 2px 5px;
+  border-radius: 20px;
+  background: #006fe6;
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.hid-ehr .hid-ehr-button.hid-ehr-blue-chip {
+  min-height: 32px;
+  padding: 6px 12px;
+  border-color: var(--ehr-tab-rule);
+  border-radius: 30px;
+  background: var(--ehr-surface);
+  color: var(--ehr-ink);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-button.hid-ehr-popover-trigger:has(.hid-ehr-blue-avatar) {
+  width: 44px;
+  min-height: 44px;
+  padding: 4px;
+}
+
+.hid-ehr .hid-ehr-blue-avatar {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--ehr-tint);
+  color: var(--ehr-brand-dark);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-presence {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--ehr-surface);
+  border-radius: 50%;
+  background: #17834b;
+}
+
+.hid-ehr .hid-ehr-blue-record-id {
+  display: block;
+  margin-top: 4px;
+  color: var(--ehr-muted);
+  font-size: 10px;
+}
+
+.hid-ehr .hid-ehr-blue-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hid-ehr .hid-ehr-blue-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-blue-menu .hid-ehr-button {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.hid-ehr .hid-ehr-blue-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  padding: 8px 0;
+  overflow: auto;
+  border-top: 1px solid var(--ehr-line);
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-blue-menu-name {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-muted {
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-topbar-error {
+  position: absolute;
+  top: 100%;
+  right: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-link {
+  color: var(--ehr-brand-dark);
+  text-decoration: none;
+}
+
+.hid-ehr .hid-ehr-blue-link:hover {
+  text-decoration: underline;
+}
+
+.hid-ehr .hid-ehr-blue-worklink {
+  color: var(--ehr-ink);
+  text-decoration: none;
+}
+
+.hid-ehr .hid-ehr-blue-worklink:hover {
+  color: var(--ehr-brand);
+}
+
+.hid-ehr .hid-ehr-blue-worklink:focus-visible,
+.hid-ehr .hid-ehr-blue-link:focus-visible,
+.hid-ehr .hid-ehr-blue-result:focus-visible,
+.hid-ehr .hid-ehr-blue-check-input:focus-visible {
+  outline: var(--ehr-focus-ring-width) solid var(--ehr-focus-ring-color);
+  outline-offset: var(--ehr-focus-ring-offset);
+}
+
+/* ---- Pages ---------------------------------------------------------------- */
+
+.hid-ehr .hid-ehr-blue-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.hid-ehr .hid-ehr-blue-page > .hid-ehr-page-heading {
+  margin-bottom: 0;
+}
+
+.hid-ehr .hid-ehr-blue-page > .hid-ehr-sample-banner {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-blue-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.hid-ehr .hid-ehr-blue-column {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-blue-grid .hid-ehr-card,
+.hid-ehr .hid-ehr-blue-column .hid-ehr-card {
+  padding: 24px;
+  border: 1px solid var(--ehr-tab-rule);
+  border-radius: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-section-title {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.hid-ehr .hid-ehr-blue-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-blue-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 0;
+}
+
+.hid-ehr .hid-ehr-blue-list-item + .hid-ehr-blue-list-item {
+  border-top: 1px solid var(--ehr-tab-rule);
+}
+
+.hid-ehr .hid-ehr-blue-list-item p {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-blue-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-blue-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-narrow {
+  max-width: 240px;
+}
+
+.hid-ehr .hid-ehr-blue-gap {
+  height: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-facts {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr);
+  gap: 12px 18px;
+  margin: 0 0 20px;
+}
+
+.hid-ehr .hid-ehr-blue-fact {
+  display: contents;
+}
+
+.hid-ehr .hid-ehr-blue-facts dt {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-blue-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.hid-ehr .hid-ehr-blue-full {
+  grid-column: 1 / -1;
+}
+
+.hid-ehr .hid-ehr-blue-form-actions {
+  margin-top: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ehr-ink);
+}
+
+/* ---- Sample record pages (screens/workspaces/*-2-new and *-3-detail) -------- */
+
+.hid-ehr .hid-ehr-blue-record {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-context-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-context-line small {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-context-line:focus-visible,
+.hid-ehr .hid-ehr-blue-version summary:focus-visible {
+  outline: var(--ehr-focus-ring-width) solid var(--ehr-focus-ring-color);
+  outline-offset: var(--ehr-focus-ring-offset);
+}
+
+.hid-ehr .hid-ehr-blue-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.hid-ehr .hid-ehr-blue-details {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr);
+  gap: 12px 18px;
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-blue-details dt {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.hid-ehr .hid-ehr-blue-actions-vertical {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-blue-record-form {
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-form-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-check-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hid-ehr .hid-ehr-blue-record-block {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-blue-record-block p {
+  margin: 0 0 8px;
+}
+
+.hid-ehr .hid-ehr-blue-block-title {
+  margin: 20px 0 12px;
+  color: var(--ehr-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-card-lead {
+  margin-bottom: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--ehr-line);
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-blue-version {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-blue-version summary {
+  color: var(--ehr-ink);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-blue-version > p {
+  margin: 12px 0;
+}
+
+.hid-ehr .hid-ehr-blue-flush {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-blue-subtitle {
+  margin: 0 0 16px;
+  color: var(--ehr-ink);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.hid-ehr .hid-ehr-blue-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-blue-step {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-result {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-md);
+  color: var(--ehr-ink);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.hid-ehr .hid-ehr-blue-result:hover {
+  background: var(--ehr-surface-tint);
+}
+
+.hid-ehr .hid-ehr-blue-notice-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-blue-notice-item p {
+  margin: 0;
+}
+
+/* ---- Design tour ---------------------------------------------------------- */
+
+.hid-ehr .hid-ehr-blue-tour {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.hid-ehr .hid-ehr-blue-tour-steps {
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-blue-tour-steps .hid-ehr-blue-link[aria-current='step'] {
+  color: var(--ehr-ink);
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-tour .hid-ehr-overlay-title:focus {
+  outline: none;
+}
+
+@media (max-width: 1000px) {
+  .hid-ehr .hid-ehr-blue-tour {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- Home (screens/roles) ------------------------------------------------- */
+
+.hid-ehr .hid-ehr-blue-period {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-period .hid-ehr-field {
+  max-width: 240px;
+}
+
+.hid-ehr .hid-ehr-blue-period-note {
+  padding-bottom: 12px;
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-activity {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-activity-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-activity-figure strong {
+  color: var(--ehr-ink);
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-activity-figure small {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+/* ---- Status bar (connection-tools in the design) ------------------------- */
+
+.hid-ehr .hid-ehr-main {
+  padding-bottom: 104px;
+}
+
+/* The sidebar ends above the status bar, as in the design. */
+.hid-ehr .hid-ehr-sidebar {
+  height: calc(100vh - 56px);
+}
+
+.hid-ehr .hid-ehr-blue-statusbar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--ehr-z-chrome);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 56px;
+  padding: 8px 20px;
+  border-top: 1px solid var(--ehr-tab-rule);
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-button.hid-ehr-blue-status-chip {
+  min-height: 36px;
+  padding: 6px 16px;
+  border-color: #b9d6ef;
+  border-radius: 24px;
+  background: var(--ehr-surface);
+  color: var(--ehr-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.hid-ehr .hid-ehr-blue-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ehr-muted);
+}
+
+.hid-ehr .hid-ehr-blue-statusbar .hid-ehr-popover-panel {
+  width: min(340px, calc(100vw - 32px));
+}
+
+.hid-ehr .hid-ehr-blue-statusbar .hid-ehr-popover-panel p {
+  margin: 0 0 4px;
+}
+
+.hid-ehr .hid-ehr-blue-sync-item p,
+.hid-ehr .hid-ehr-blue-drawer-section {
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-notification {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ---- Choose your workspace (screens/admin/institutions.png) --------------- */
+
+.hid-ehr.hid-ehr-blue-standalone {
+  min-height: 100vh;
+  background: var(--ehr-surface);
+}
+
+.hid-ehr .hid-ehr-blue-standalone-main {
+  box-sizing: border-box;
+  padding: 48px 16px;
+}
+
+.hid-ehr .hid-ehr-blue-standalone-main:focus {
+  outline: none;
+}
+
+.hid-ehr .hid-ehr-blue-chooser {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.hid-ehr .hid-ehr-blue-chooser .hid-ehr-page-title {
+  padding-bottom: 20px;
+  border-bottom: 1px solid #ececec;
+}
+
+.hid-ehr .hid-ehr-blue-eyebrow {
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.hid-ehr .hid-ehr-blue-chooser-why {
+  margin: 0;
+  color: var(--ehr-text);
+}
+
+.hid-ehr .hid-ehr-blue-chooser-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-blue-facility-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  border: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-blue-facility-card .hid-ehr-card-title {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-blue-live {
+  min-width: 0;
+}
+
+@media (max-width: 1000px) {
+  .hid-ehr .hid-ehr-blue-grid,
+  .hid-ehr .hid-ehr-blue-two-col {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-blue-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hid-ehr .hid-ehr-blue-facility {
+    white-space: normal;
+  }
+
+  .hid-ehr .hid-ehr-topbar-end .hid-ehr-button:not(.hid-ehr-popover-trigger):not(.hid-ehr-blue-chip) {
+    padding: 8px;
+    font-size: 11px;
+  }
+
+  .hid-ehr .hid-ehr-blue-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .hid-ehr .hid-ehr-blue-details {
+    grid-template-columns: 100px minmax(0, 1fr);
+  }
+
+  .hid-ehr .hid-ehr-blue-list-row {
+    flex-wrap: wrap;
+  }
+
+  .hid-ehr .hid-ehr-blue-context-line {
+    align-items: flex-start;
+  }
+}

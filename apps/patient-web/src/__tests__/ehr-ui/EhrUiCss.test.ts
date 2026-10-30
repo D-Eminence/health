@@ -92,7 +92,7 @@ describe('ehr.css scope', () => {
     expect(faces).toHaveLength(2)
     for (const face of faces) {
       expect(declarations(face.body, 'font-display')).toEqual(['swap'])
-      expect(declarations(face.body, 'src')[0]).toMatch(/^url\('\.\/fonts\/[\w-]+\.woff2'\) format\('woff2'\)$/)
+      expect(declarations(face.body, 'src')[0]).toMatch(/^url\('\.\/fonts\/[\w-]+\.(woff2?)'\) format\('\1'\)$/)
     }
   })
 })
@@ -154,13 +154,16 @@ describe('ehr.css behaviour', () => {
     }
   })
 
-  it('sizes the chrome: sidebar 247px (60px collapsed), top bar 76px, 64px on phones', () => {
+  it('sizes the chrome: sidebar 247px (60px collapsed), top bar 76px, at least 64px on phones and wrapping there', () => {
     expect(resolved('.hid-ehr .hid-ehr-sidebar', 'width', DESKTOP)).toBe('247px')
     expect(resolved('.hid-ehr .hid-ehr-sidebar.hid-ehr-sidebar-collapsed', 'width', DESKTOP)).toBe('60px')
     expect(resolved('.hid-ehr .hid-ehr-topbar', 'height', DESKTOP)).toBe('76px')
-    expect(resolved('.hid-ehr .hid-ehr-topbar', 'height', PHONE)).toBe('64px')
-    expect(resolved('.hid-ehr .hid-ehr-topbar', 'height', 768)).toBe('64px')
     expect(resolved('.hid-ehr .hid-ehr-topbar', 'height', 769)).toBe('76px')
+    for (const width of [PHONE, 768]) {
+      expect(resolved('.hid-ehr .hid-ehr-topbar', 'height', width)).toBe('auto')
+      expect(resolved('.hid-ehr .hid-ehr-topbar', 'min-height', width)).toBe('64px')
+      expect(valueAt(ehrCss, '.hid-ehr .hid-ehr-topbar', 'flex-wrap', width)).toBe('wrap')
+    }
   })
 
   it('hides the rail and shows the menu button on phones only', () => {
@@ -193,8 +196,8 @@ describe('ehr.css behaviour', () => {
     expect(resolved(title, 'font-size', PHONE)).toBe('24px')
   })
 
-  it('gives controls the substituted border and a not-allowed cursor when disabled', () => {
-    expect(resolved('.hid-ehr .hid-ehr-control', 'border', DESKTOP)).toBe('1px solid #8a8a8e')
+  it('gives controls the design\'s border and a not-allowed cursor when disabled', () => {
+    expect(resolved('.hid-ehr .hid-ehr-control', 'border', DESKTOP)).toBe('1px solid #c6c6cc')
     expect(valueAt(ehrCss, '.hid-ehr .hid-ehr-control:disabled', 'cursor', DESKTOP)).toBe('not-allowed')
     expect(valueAt(ehrCss, '.hid-ehr .hid-ehr-button:disabled', 'cursor', DESKTOP)).toBe('not-allowed')
   })

@@ -3,6 +3,7 @@
 @source '../../../packages/ui/src';
 @source not '../../../packages/ui/src/ehr';
 @source not './__tests__/ehr-ui';
+@source not './ehr-blue';
 
 /*
  * The patient application does not make a third-party font request. These

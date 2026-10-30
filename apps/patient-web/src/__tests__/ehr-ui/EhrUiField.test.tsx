@@ -21,6 +21,23 @@ describe('EhrField', () => {
     expect(input.getAttribute('aria-invalid')).toBeNull()
   })
 
+  it('names its control by the label when the field chooses the id, and when the control brings its own', () => {
+    render(
+      <>
+        <EhrField label="Ward code" controlId="ward-code"><EhrInput /></EhrField>
+        <EhrField label="Ward phone"><EhrInput id="ward-phone-own" /></EhrField>
+        <EhrInput id="ward-search" aria-label="Search wards" />
+      </>,
+    )
+    expect(screen.getByLabelText('Ward code').id).toBe('ward-code')
+    // The field's id wins over the control's own, so the label never points at nothing.
+    const phone = screen.getByLabelText('Ward phone')
+    expect(phone.tagName).toBe('INPUT')
+    expect(screen.getByText('Ward phone').getAttribute('for')).toBe(phone.id)
+    // A control outside a field keeps its own id.
+    expect(screen.getByRole('textbox', { name: 'Search wards' }).id).toBe('ward-search')
+  })
+
   it('describes its control by the hint', () => {
     render(<EhrField label="Bed count" hint="Count only beds in use."><EhrInput inputMode="numeric" /></EhrField>)
     const input = screen.getByRole('textbox', { name: 'Bed count' })
@@ -34,9 +51,9 @@ describe('EhrField', () => {
     expect(input.getAttribute('aria-invalid')).toBe('true')
     expect(described(input)).toBe('Enter a number from 1 to 400. | Count only beds in use.')
     const error = screen.getByText('Enter a number from 1 to 400.')
-    expect(error.closest('.hid-ehr-error')).not.toBeNull()
-    // An icon beside the words, hidden from assistive technology: not colour alone.
-    expect(error.closest('.hid-ehr-error')!.querySelector('[aria-hidden="true"] svg')).not.toBeNull()
+    // The design's plain line under the control: the words say it, not colour alone, and no icon.
+    expect(error.classList.contains('hid-ehr-error')).toBe(true)
+    expect(error.querySelector('svg')).toBeNull()
   })
 
   it('works the same for a select and a textarea', () => {
