@@ -84,7 +84,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return <ToastContext.Provider value={api}>
     {children}
     {/* Phones: across the top; larger screens: the top-right corner. Newest first. */}
-    <div className="pointer-events-none fixed inset-x-0 top-[max(12px,env(safe-area-inset-top))] z-[60] flex flex-col-reverse items-center gap-2 px-3 sm:top-5 sm:right-5 sm:left-auto sm:w-[400px] sm:items-end sm:px-0">
+    <div className="pointer-events-none fixed inset-x-0 top-[max(12px,env(safe-area-inset-top))] z-[var(--z-toast)] flex flex-col-reverse items-center gap-2 px-3 sm:top-5 sm:right-5 sm:left-auto sm:w-[400px] sm:items-end sm:px-0">
       {toasts.map(t => { const it = LOOK[t.intent]
         return <div key={t.id} role={it.role} aria-live={it.role === 'alert' ? 'assertive' : 'polite'}
           onMouseEnter={() => clear(t.id)} onMouseLeave={() => arm(t.id, t.intent, t.duration)}
@@ -98,7 +98,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               className="mt-2 cursor-pointer rounded-md border-0 bg-transparent p-0 text-[13px] font-semibold text-brand-ink hover:underline">{t.action.label}</button>}
           </div>
           {t.intent !== 'loading' && <button type="button" onClick={() => dismiss(t.id)} aria-label="Dismiss"
-            className="-mr-1 inline-flex cursor-pointer rounded-md border-0 bg-transparent p-1 text-notice-body hover:text-ink"><X className="size-4" /></button>}
+            className="-mr-2 -my-1 inline-flex size-10 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-notice-body hover:text-ink"><X className="size-4" /></button>}
         </div> })}
     </div>
   </ToastContext.Provider>

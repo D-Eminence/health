@@ -720,7 +720,7 @@ export function NotificationsPage() {
       : <Card aria-busy={notifications.loading || undefined}><ul className="m-0 list-none divide-y divide-line p-0">
         {items.map(item => <li key={item.id} className={cx('flex items-start gap-3 px-5 py-4', !item.readAt && 'bg-brand-soft/40')}>
           <span className="relative mt-0.5"><IconChip size="sm" icon={item.resourceType?.includes('request') ? ShieldCheck : item.resourceType?.includes('record') ? FolderHeart : Bell} tone={item.readAt ? 'neutral' : 'brand'} />
-            {!item.readAt && <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-brand ring-2 ring-surface" aria-hidden />}</span>
+            {!item.readAt && <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-brand-fill ring-2 ring-surface" aria-hidden />}</span>
           <div className="min-w-0 flex-1">
             <p className={cx('m-0 text-sm [overflow-wrap:anywhere] text-ink', !item.readAt && 'font-semibold')}>{notificationTitle(item)}</p>
             <p className="m-0 mt-0.5 text-[13px] text-ink-3">{[item.resourceType && NOTIFICATION_SUBJECTS[item.resourceType], timeAgo(item.createdAt)].filter(Boolean).join(' · ')}<span className="sr-only">{item.readAt ? ', read' : ', unread'}</span></p>

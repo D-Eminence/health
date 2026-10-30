@@ -1,7 +1,8 @@
-import { useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { EmptyState, Field, Input, Select } from '@hid/ui'
 import { CircleCheck, RotateCcw, ShieldCheck } from 'lucide-react'
-import { Alert, Button as KButton, Card as KCard, PageHeader } from '../../kasuwa/ui'
+import { Alert, Button as KButton, Card as KCard } from '../../kasuwa/ui'
+import { FormPage, Step } from '../../kasuwa/parts'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type AssistedDocumentType, type AssistedVerificationInput } from '../api'
 import { useStaff } from '../App'
@@ -265,9 +266,7 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
 
   // One column: the heading, each step and the button share one edge (alignment), and the steps are three short groups
   // (chunking). The method is fixed (a government photo ID seen in person), so it is said, not offered as a choice.
-  return <div className="mx-auto flex w-full max-w-2xl flex-col gap-6" data-layout="column">
-    <PageHeader title="Check a patient in person"
-      description="For someone signing up on their phone who can’t get the code on their NIN phone number. Look at their photo ID; Health ID checks it against their NIN." />
+  return <FormPage title="Check a patient in person" description="For patients who can’t get the code on their NIN phone number. You check their photo ID.">
 
     {stage.kind === 'verified' && <KCard>
       <div className="flex flex-col items-center gap-3 px-5 py-8 text-center">
@@ -290,7 +289,7 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
     {stage.kind === 'form' && <form noValidate onSubmit={event => void check(event)} className="flex flex-col gap-4" aria-labelledby="in-person-form-title">
       <h2 id="in-person-form-title" tabIndex={-1} className="sr-only">Check a patient</h2>
 
-      <Step n={1} title="The code on their phone">
+      <Step bodyClassName="staff-form" n={1} title="The code on their phone">
         <Field label="Code" htmlFor="in-person-desk-code" required error={problems.error('in-person-desk-code')} hint="10 letters and numbers. Spaces and dashes don’t matter.">
           <Input {...problems.control('in-person-desk-code')} id="in-person-desk-code" name="deskCode" value={values.deskCode} placeholder="ABCD-EFGH-JK"
             onChange={event => change({ deskCode: event.target.value })} autoComplete="off" autoCapitalize="characters"
@@ -298,7 +297,7 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
         </Field>
       </Step>
 
-      <Step n={2} title="Their photo ID" hint="The original, not a copy or a photo of it.">
+      <Step bodyClassName="staff-form" n={2} title="Their photo ID" hint="The original, not a copy or a photo of it.">
         <Field label="Which ID?" htmlFor="in-person-document-type" required error={problems.error('in-person-document-type')}>
           <Select {...problems.control('in-person-document-type')} id="in-person-document-type" name="documentType" value={values.documentType}
             onChange={event => change({ documentType: event.target.value as AssistedDocumentType | '' })} required>
@@ -325,7 +324,7 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
         </fieldset>
       </Step>
 
-      <Step n={3} title="Confirm">
+      <Step bodyClassName="staff-form" n={3} title="Confirm">
         <fieldset name="attestations" {...problems.group('in-person-attestations')} className="m-0 flex flex-col gap-1.5 border-0 p-0">
           <legend className="sr-only">Confirm each statement</legend>
           {ATTESTATIONS.map(([key, label]) => <label key={key} className="flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 text-sm text-ink ring-1 ring-line has-[:checked]:bg-brand-soft has-[:checked]:ring-brand-line">
@@ -350,16 +349,5 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
       {/* Kept enabled while it runs, so focus stays on it; a second press does nothing. */}
       <div><KButton type="submit" variant="primary" icon={ShieldCheck} aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Checking…' : retrying ? 'Check again' : 'Check details'}</KButton></div>
     </form>}
-  </div>
-}
-
-/** One numbered step of the check: its own card, its number and title, then its fields. */
-function Step({ n, title, hint, children }: { n: number; title: string; hint?: string; children: ReactNode }) {
-  return <KCard>
-    <div className="flex items-center gap-3 border-b border-line px-5 py-3.5">
-      <span aria-hidden="true" className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-brand text-[13px] font-semibold text-white">{n}</span>
-      <div className="min-w-0"><h3 className="m-0 text-title-3 text-ink">{title}</h3>{hint ? <p className="m-0 text-[12px] text-ink-3">{hint}</p> : null}</div>
-    </div>
-    <div className="staff-form flex flex-col gap-4 p-5">{children}</div>
-  </KCard>
+  </FormPage>
 }

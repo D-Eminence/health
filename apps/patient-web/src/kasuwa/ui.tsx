@@ -14,7 +14,7 @@ export type Icon = ComponentType<SVGProps<SVGSVGElement> & { size?: number | str
 export type Tone = 'neutral' | 'brand' | 'success' | 'warn' | 'info' | 'violet' | 'danger'
 
 export const TONE_SOFT: Record<Tone, string> = {
-  neutral: 'bg-tray text-ink-2 ring-line-strong/60',
+  neutral: 'bg-tray text-ink-2 ring-line-control/60',
   brand: 'bg-brand-soft text-brand-ink ring-brand-line/70',
   success: 'bg-success-soft text-success-ink ring-success/25',
   warn: 'bg-warn-soft text-warn-ink ring-warn/30',
@@ -23,7 +23,7 @@ export const TONE_SOFT: Record<Tone, string> = {
   danger: 'bg-danger-soft text-danger-ink ring-danger/25',
 }
 export const TONE_OUTLINE: Record<Tone, string> = {
-  neutral: 'ring-line-strong/80 text-ink-2',
+  neutral: 'ring-line-control/80 text-ink-2',
   brand: 'ring-brand-line text-brand-ink',
   success: 'ring-success/30 text-success-ink',
   warn: 'ring-warn/35 text-warn-ink',
@@ -35,12 +35,26 @@ export const TONE_ICON: Record<Tone, string> = {
   neutral: 'text-ink-3', brand: 'text-brand', success: 'text-success', warn: 'text-warn',
   info: 'text-info', violet: 'text-violet', danger: 'text-danger',
 }
+/**
+ * One meaning per status word, everywhere (similarity; never colour alone: the word is always shown too).
+ * statusTone('active') → 'success'. Unknown words are neutral.
+ */
+const STATUS_TONES: Readonly<Record<string, Tone>> = {
+  active: 'success', approved: 'success', accepted: 'success', healthy: 'success', completed: 'success', verified: 'success', linked: 'success',
+  dispensed: 'success', resulted: 'success', signed: 'success', live: 'success', enabled: 'success', set: 'success', confirmed: 'success',
+  pending: 'warn', waiting: 'warn', review: 'warn', paused: 'warn', draft: 'warn', in_progress: 'brand', open: 'brand', requested: 'brand',
+  denied: 'danger', revoked: 'danger', rejected: 'danger', failed: 'danger', suspended: 'danger', disabled: 'danger', cancelled: 'neutral',
+  expired: 'neutral', closed: 'neutral', ended: 'neutral', withdrawn: 'neutral', unknown: 'neutral',
+}
+export const statusTone = (status: string | null | undefined): Tone =>
+  STATUS_TONES[(status ?? '').toLowerCase().replace(/[\s-]+/g, '_')] ?? 'neutral'
+
 export const TONE_DOT: Record<Tone, string> = {
-  neutral: 'bg-ink-3', brand: 'bg-brand', success: 'bg-success', warn: 'bg-warn',
+  neutral: 'bg-ink-3', brand: 'bg-brand-fill', success: 'bg-success', warn: 'bg-warn',
   info: 'bg-info', violet: 'bg-violet', danger: 'bg-danger',
 }
 
-const BUTTON_BASE = 'inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background,color,box-shadow] select-none disabled:opacity-45 disabled:pointer-events-none aria-disabled:opacity-45 aria-disabled:pointer-events-none focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] no-underline'
+const BUTTON_BASE = 'inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background,color,box-shadow] select-none disabled:opacity-45 disabled:pointer-events-none aria-disabled:opacity-45 aria-disabled:pointer-events-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring-color)] no-underline'
 const BUTTON_VARIANT = {
   primary: 'bg-primary-gradient text-white',
   dark: 'bg-contrast text-white hover:bg-contrast-hover',
@@ -51,7 +65,8 @@ const BUTTON_VARIANT = {
   destructive: 'bg-danger text-white shadow-[var(--shadow-xs)] hover:bg-danger-ink',
   link: 'text-brand-ink hover:underline underline-offset-4 !h-auto !px-0',
 } as const
-const BUTTON_SIZE = { sm: 'h-8 px-3 text-[13px] rounded-sm', md: 'h-10 px-4 text-sm rounded-md', lg: 'h-12 px-5 text-[15px] rounded-lg' } as const
+// 44px on phones (Fitts, WCAG 2.5.5), a little tighter where a pointer is precise.
+const BUTTON_SIZE = { sm: 'h-9 sm:h-8 px-3 text-[13px] rounded-sm', md: 'h-11 sm:h-10 px-4 text-sm rounded-md', lg: 'h-12 px-5 text-[15px] rounded-lg' } as const
 const ICON_SIZE = { sm: 'size-3.5', md: 'size-4', lg: 'size-[18px]' } as const
 export type ButtonVariant = keyof typeof BUTTON_VARIANT
 export type ButtonSize = keyof typeof BUTTON_SIZE
@@ -205,7 +220,7 @@ export function Alert({ intent = 'info', title, children, icon, action, variant 
 }
 
 /* ---- Forms ---- */
-const CONTROL = 'w-full rounded-md bg-surface text-sm text-ink ring-1 ring-inset ring-line-strong shadow-[var(--shadow-xs)] placeholder:text-ink-3 transition-shadow focus:outline-none focus:ring-brand focus:shadow-[var(--shadow-focus)] aria-[invalid=true]:ring-danger disabled:bg-subtle disabled:text-ink-3 border-0'
+const CONTROL = 'w-full rounded-md bg-surface text-sm text-ink ring-1 ring-inset ring-line-control shadow-[var(--shadow-xs)] placeholder:text-ink-3 transition-shadow focus:outline-none focus:ring-brand focus:shadow-[var(--shadow-focus)] aria-[invalid=true]:ring-danger disabled:bg-subtle disabled:text-ink-3 border-0'
 
 export function Field({ label, hint, error, children, className, htmlFor, optional, hintId, errorId }: {
   label?: ReactNode; hint?: ReactNode; error?: ReactNode; children: ReactNode; className?: string; htmlFor?: string; optional?: boolean; hintId?: string; errorId?: string
@@ -303,7 +318,7 @@ export function FilterTabs<T extends string>({ value, onChange, options, label }
 }) {
   return <nav className="inline-flex max-w-full items-center gap-0.5 self-start overflow-x-auto rounded-lg bg-tray p-1 no-scrollbar" aria-label={label}>
     {options.map(o => <button key={o.value} type="button" aria-pressed={value === o.value} onClick={() => onChange(o.value)}
-      className={cx('inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border-0 px-3 text-[13px] font-medium whitespace-nowrap',
+      className={cx('inline-flex h-10 sm:h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border-0 px-3 text-[13px] font-medium whitespace-nowrap',
         value === o.value ? 'bg-surface text-ink shadow-[var(--shadow-xs)] ring-1 ring-line' : 'bg-transparent text-ink-3 hover:text-ink')}>
       {o.label}{o.count != null && <span className={cx('tabular', o.tone === 'danger' && o.count ? 'text-danger-ink' : 'text-ink-3')}>{o.count}</span>}
     </button>)}
@@ -315,7 +330,7 @@ export function Timeline({ items, empty }: { items: ReadonlyArray<{ id: string; 
   if (items.length === 0) return <p className="m-0 px-5 py-6 text-[13px] text-ink-3">{empty}</p>
   return <ol className="m-0 list-none space-y-4 px-5 py-4">
     {items.map(a => <li key={a.id} className="flex gap-3 text-[13px]">
-      <span className={cx('mt-1.5 size-2 shrink-0 rounded-full', a.tone ? TONE_DOT[a.tone] : 'bg-brand/60')} />
+      <span className={cx('mt-1.5 size-2 shrink-0 rounded-full', a.tone ? TONE_DOT[a.tone] : 'bg-brand-fill/60')} />
       <span className="min-w-0">
         <span className="text-ink">{a.who && <strong className="font-medium">{a.who} </strong>}{a.to ? <Link to={a.to} className="text-ink no-underline hover:underline">{a.text}</Link> : a.text}</span>
         <span className="block text-xs text-ink-3">{a.when}</span>

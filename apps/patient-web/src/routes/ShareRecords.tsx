@@ -329,14 +329,14 @@ function ShareFlow() {
   return frame('lost', <Button onClick={() => startAgain('search')}>Start again</Button>)
 }
 
-const FIELD = 'h-10 w-full rounded-[10px] border-0 bg-surface px-3 text-sm text-ink shadow-[var(--shadow-xs)] ring-1 ring-inset ring-line-strong outline-none placeholder:text-ink-3 focus:ring-2 focus:ring-brand'
+const FIELD = 'h-10 w-full rounded-[10px] border-0 bg-surface px-3 text-sm text-ink shadow-[var(--shadow-xs)] ring-1 ring-inset ring-line-control outline-none placeholder:text-ink-3 focus:ring-2 focus:ring-brand'
 const TILE = 'flex cursor-pointer items-center gap-3 rounded-xl p-3 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand'
 const TILE_ON = 'bg-brand-soft ring-[1.5px] ring-brand'
 const TILE_OFF = 'bg-surface ring-1 ring-line hover:bg-subtle'
 const initials = (name: string) => name.replace(/^(Dr|Nurse|Mr|Mrs|Ms)\.?\s+/i, '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase()).join('')
 
 function Radio({ on }: { on: boolean }) {
-  return <span aria-hidden="true" className={cx('inline-flex size-5 shrink-0 items-center justify-center rounded-full ring-1', on ? 'bg-brand ring-brand' : 'bg-surface ring-line-strong')}>
+  return <span aria-hidden="true" className={cx('inline-flex size-5 shrink-0 items-center justify-center rounded-full ring-1', on ? 'bg-brand-fill ring-brand' : 'bg-surface ring-line-control')}>
     {on && <span className="size-2 rounded-full bg-white" />}</span>
 }
 
@@ -346,7 +346,7 @@ function Stepper({ at }: { at: number }) {
   return <ol aria-label={`Step ${at} of ${steps.length}`} className="m-0 flex list-none items-center gap-2 border-b border-line bg-subtle px-5 py-3">
     {steps.map((label, i) => { const n = i + 1, done = n < at, now = n === at
       return <li key={label} aria-current={now ? 'step' : undefined} className="flex min-w-0 flex-1 items-center gap-2">
-        <span className={cx('inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold', done ? 'bg-success text-white' : now ? 'bg-brand text-white' : 'bg-surface text-ink-3 ring-1 ring-line-strong')}>
+        <span className={cx('inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold', done ? 'bg-success text-white' : now ? 'bg-brand-fill text-white' : 'bg-surface text-ink-3 ring-1 ring-line-control')}>
           {done ? <Check className="size-3.5" aria-hidden /> : n}</span>
         <span className={cx('truncate text-[13px]', now ? 'font-semibold text-ink' : 'text-ink-3')}>{label}</span>
         {n < steps.length && <span aria-hidden="true" className={cx('h-px flex-1', done ? 'bg-success' : 'bg-line-strong')} />}
@@ -363,7 +363,7 @@ function LevelChoice({ name, value, onChange }: { name: string; value: ShareLeve
       return <label key={option.value} className={cx(TILE, '!items-start', on ? TILE_ON : TILE_OFF)}>
         <input type="radio" name={name} value={option.value} checked={on} onChange={() => onChange(option.value)} className="sr-only"
           aria-describedby={`${name}-${option.value}-hint`} />
-        <span className={cx('inline-flex size-9 shrink-0 items-center justify-center rounded-lg', on ? 'bg-brand text-white' : 'bg-subtle text-ink-2')}><I className="size-[18px]" aria-hidden /></span>
+        <span className={cx('inline-flex size-9 shrink-0 items-center justify-center rounded-lg', on ? 'bg-brand-fill text-white' : 'bg-subtle text-ink-2')}><I className="size-[18px]" aria-hidden /></span>
         <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-ink">{option.label}</span>
           <span id={`${name}-${option.value}-hint`} className="block text-[13px] text-ink-3">{option.description}{option.value === 'clinical_collaboration' && ` ${COLLABORATION_WARNING}`}</span></span>
         <Radio on={on} />

@@ -151,7 +151,7 @@ export function BlueFrame() {
             switcher={{
               name: facility?.name ?? `Health ID ${info.name}`,
               subtitle: `${roles}${isDemoFacility(facility?.id) ? ' · Demo facility' : ''}`,
-              avatar: <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand text-white"><info.icon className="size-5" /></span>,
+              avatar: <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-fill text-white"><info.icon className="size-5" /></span>,
               menu: close => <ul className="m-0 list-none p-0">
                 {session.actor.facilities.map(f => <li key={f.id}><button type="button" onClick={() => { close(); if (f.id !== facility?.id) navigate('/provider/institutions') }}
                   className="flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink hover:bg-hover">

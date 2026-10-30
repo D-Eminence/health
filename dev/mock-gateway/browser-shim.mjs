@@ -92,7 +92,7 @@ function renderBar() {
     bar.setAttribute('aria-label', 'Preview workspaces')
     const style = document.createElement('style')
     style.textContent = `
-      [data-mock-bar]{position:fixed;z-index:2147483647;right:12px;bottom:12px;display:flex;gap:4px;align-items:center;
+      [data-mock-bar]{position:fixed;z-index:45;right:12px;bottom:12px;display:flex;gap:4px;align-items:center;
         padding:4px;border-radius:999px;background:#111827;color:#f9fafb;font:500 12px/1 system-ui,sans-serif;
         box-shadow:0 4px 16px rgba(0,0,0,.25)}
       [data-mock-bar] span{padding:0 8px 0 10px;opacity:.7}

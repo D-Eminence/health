@@ -185,7 +185,7 @@ export function Overview() {
 
         {checklist.length > 0 && completion && <Card>
           <CardHeader title="Finish your Health ID" description={`${completion.percent}% done · ${completion.missing.length} to go`} icon={IdCard} iconTone="brand" />
-          <div className="h-1 bg-tray" role="progressbar" aria-label="Health ID completion" aria-valuenow={completion.percent} aria-valuemin={0} aria-valuemax={100}><div className="h-full bg-brand" style={{ width: `${completion.percent}%` }} /></div>
+          <div className="h-1 bg-tray" role="progressbar" aria-label="Health ID completion" aria-valuenow={completion.percent} aria-valuemin={0} aria-valuemax={100}><div className="h-full bg-brand-fill" style={{ width: `${completion.percent}%` }} /></div>
           <ul className="m-0 grid list-none gap-1.5 bg-tray p-1.5 sm:grid-cols-2">
             {/* Only what is left: done steps are the progress bar's, not a list to read past. */}
             {checklist.filter(c => !completion.done.some(d => d.key === c.key)).map(c =>

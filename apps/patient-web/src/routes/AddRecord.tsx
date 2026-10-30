@@ -169,7 +169,7 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
   </Drawer>
 }
 
-const FIELD = 'h-10 w-full rounded-[10px] border-0 bg-surface px-3 text-sm text-ink shadow-[var(--shadow-xs)] ring-1 ring-inset ring-line-strong outline-none placeholder:text-ink-3 focus:ring-2 focus:ring-brand'
+const FIELD = 'h-10 w-full rounded-[10px] border-0 bg-surface px-3 text-sm text-ink shadow-[var(--shadow-xs)] ring-1 ring-inset ring-line-control outline-none placeholder:text-ink-3 focus:ring-2 focus:ring-brand'
 
 function Labelled({ label, hint, htmlFor, optional, children }: { label: string; hint?: string; htmlFor: string; optional?: boolean; children: React.ReactNode }) {
   return <div className="flex min-w-0 flex-col gap-1.5">

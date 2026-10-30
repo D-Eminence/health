@@ -48,7 +48,7 @@ export function ShareEmailPreview({ card, to, level, duration, expiresAt }: { ca
       <div className="w-full max-w-[340px]"><Face card={card} still /></div>
       <p className="m-0 max-w-[340px] text-center text-[13px] text-ink-2">{first} shared their records with you: <strong className="font-semibold text-ink">{shareLevelLabel(level) ?? level}</strong>,
         {expiresAt ? ` until ${until(expiresAt)}` : ` ${(shareDurationLabel(duration) ?? duration).toLowerCase()}`}.</p>
-      <span className="inline-flex h-10 items-center rounded-[10px] bg-brand px-5 text-sm font-semibold text-white">Open records</span>
+      <span className="inline-flex h-10 items-center rounded-[10px] bg-brand-fill px-5 text-sm font-semibold text-white">Open records</span>
       <p className="m-0 max-w-[340px] text-center text-[11px] text-ink-3">This link is for {to} only. Every time it’s opened, {first} is told. It stops working when the share ends.</p>
     </div>
   </figure>
