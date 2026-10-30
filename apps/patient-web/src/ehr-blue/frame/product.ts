@@ -1,0 +1,53 @@
+import type { LucideIcon } from 'lucide-react'
+import { FlaskConical, Hospital, Pill, ScanText, Users } from 'lucide-react'
+import { resolveStaffProductHostname } from '../../productHostname'
+import { basePath } from './pageHref'
+
+/**
+ * Which Health ID product this workspace is (the owner's decision of 2026-10-31). A hospital may run everything: the
+ * EHR with its laboratory, pharmacy and outreach inside it. A pharmacy, a laboratory or an outreach team may run only
+ * its own product. Then it gets a focused workspace: its own name, its queue as home, and none of the hospital's
+ * clinical places.
+ *
+ * Decided from what the backend already gives:
+ *  - The product's own address (lab., pharmacy., outreach., migrate.: productHostname.ts) is that product.
+ *  - On the EHR's address, a facility whose staff hold only one product's permissions, and no clinical one, is that
+ *    product.
+ *  - Anything else is the EHR.
+ * The preview can pretend with ?product= (read by its in-page mock, never by a real deployment).
+ */
+export type Product = 'ehr' | 'lab' | 'pharmacy' | 'outreach' | 'migrate'
+
+interface ProductInfo { name: string; icon: LucideIcon; home: string; prefix: string }
+export const PRODUCTS: Readonly<Record<Product, ProductInfo>> = {
+  ehr: { name: 'EHR', icon: Hospital, home: '', prefix: 'ehr.' },
+  lab: { name: 'Lab', icon: FlaskConical, home: 'laboratory', prefix: 'lab.' },
+  pharmacy: { name: 'Pharmacy', icon: Pill, home: 'pharmacy', prefix: 'pharmacy.' },
+  outreach: { name: 'Outreach', icon: Users, home: 'outreach', prefix: 'outreach.' },
+  migrate: { name: 'Migrate', icon: ScanText, home: 'ocr', prefix: 'ocr.' },
+}
+
+/** Pages every product keeps: running the facility itself (its people, its audit trail, its profile). */
+const SHARED: ReadonlySet<string> = new Set(['staff', 'audit', 'facility', 'hr', 'institutions'])
+
+const SINGLE: readonly Exclude<Product, 'ehr'>[] = ['lab', 'pharmacy', 'outreach', 'migrate']
+
+declare global { interface Window { __HID_PREVIEW_PRODUCT__?: string } }
+
+export function productOf(hostname: string, permissions: readonly string[]): Product {
+  const pretend = typeof window !== 'undefined' ? window.__HID_PREVIEW_PRODUCT__ : undefined
+  if (pretend && pretend in PRODUCTS) return pretend as Product
+  const host = resolveStaffProductHostname(hostname)?.key
+  if (host) return host
+  const clinical = permissions.some(p => p.startsWith('ehr.') || p === 'identity.patient.read')
+  if (clinical) return 'ehr'
+  const held = SINGLE.filter(product => permissions.some(p => p.startsWith(PRODUCTS[product].prefix)))
+  return held.length === 1 ? held[0]! : 'ehr'
+}
+
+/** Whether a page belongs in this product's workspace. The EHR has them all. */
+export function inProduct(product: Product, path: string): boolean {
+  if (product === 'ehr') return true
+  const base = basePath(path)
+  return base === PRODUCTS[product].home || SHARED.has(base)
+}

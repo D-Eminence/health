@@ -621,3 +621,53 @@
 @keyframes hid-card-idle { 0%, 100% { transform: rotate(0deg) translateY(0); } 25% { transform: rotate(-.5deg) translateY(-1px); } 75% { transform: rotate(.5deg) translateY(-2px); } }
 @keyframes hid-card-sheen { 0%, 62% { transform: translateX(0); } 86%, 100% { transform: translateX(400%); } }
 @media (prefers-reduced-motion: reduce) { .hid-card { transition: none; transform: none; } }
+
+/* ── Forms on wide screens (owner's rule, 2026-10-31): a field or a button is not a layout. Forms keep a reading
+   width (44rem), a card that is mostly a form centres in the page instead of stretching across it, and buttons
+   keep their own width. Phones are unaffected (they are narrower than the cap). ─────────────────────────────── */
+:where(.staff-form, .patient-form, .hid-ehr-clinical-form, .hid-ehr-dept-form, .hid-ehr-dept-staff-form, .hid-ehr-blue-record-form, .hid-ehr-blue-form-grid) {
+  max-width: 44rem;
+}
+:where(.staff-card, .hid-ehr-card, .patient-card):has(> :is(form.staff-form, form.hid-ehr-clinical-form, form.hid-ehr-blue-record-form, form.hid-ehr-dept-form, form.patient-form)),
+:where(.staff-card, .hid-ehr-card):has(> h2 + p + form.staff-form, > h2 + form.staff-form) {
+  max-width: 48rem;
+  margin-inline: auto;
+  width: 100%;
+}
+:where(.staff-form, .hid-ehr-clinical-form, .hid-ehr-dept-form, .hid-ehr-blue-record-form) > :is(button, .hid-ui-button, .ui-button) { justify-self: start; width: auto; }
+
+/* ── Dark mode for the older EHR styles (@hid/ui/ehr, ehr-blue): the same Kasuwa dark surfaces, through their own
+   variables, so every page that still uses them follows the device and the toggle. ─────────────────────────── */
+:root[data-theme='dark'] .hid-ehr, :root[data-theme='dark'] .hid-ehr-host, :root[data-theme='dark'].hid-ehr {
+  --ehr-tint: #102a56;
+  --ehr-ink: #f5f5f6;
+  --ehr-text: #cecfd2;
+  --ehr-muted: #94969c;
+  --ehr-faint: #85888e;
+  --ehr-surface: #161b26;
+  --ehr-surface-sunk: #0c111d;
+  --ehr-surface-tint: #13161b;
+  --ehr-line: #1f242f;
+  --ehr-line-strong: #333741;
+  --ehr-control-border: #333741;
+  --ehr-nav-group-text: #94969c;
+  --ehr-positive: #47cd89;
+  --ehr-caution: #fdb022;
+  --ehr-critical: #f97066;
+  --ehr-danger-text: #f97066;
+  --ehr-danger-50: #2b1210;
+  --ehr-success-50: #0b2a1c;
+  --ehr-warning-50: #2a1f08;
+  --ehr-warning-600: #fdb022;
+  --ehr-warning-banner-surface: #2a1f08;
+  --ehr-warning-banner-text: #fdb022;
+  --ehr-tab-current-surface: #102a56;
+  --ehr-tab-current-text: #84adff;
+  --ehr-tab-rule: #1f242f;
+  --ehr-primary-50: #102a56;
+  --ehr-primary-100: #133466;
+  --ehr-scrim: #000000a6;
+  color-scheme: dark;
+}
+:root[data-theme='dark'] :is(.hid-ehr-attention, [class*='hid-ehr-'][class*='warn']) { background-color: #2a1f08; }
+:root[data-theme='dark'] :is([class*='hid-ehr-'][class*='critical'], [class*='hid-ehr-'][class*='danger']) { background-color: #2b1210; }

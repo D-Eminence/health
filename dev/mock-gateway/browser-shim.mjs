@@ -8,6 +8,10 @@ import { CSRF, EXPECTED_404, configure, notServed, respond, workspaceFor } from 
 
 const params = new URLSearchParams(window.location.search)
 configure({ facility: params.get('facility') === 'classic' ? 'classic' : 'blue' })
+// ?product=lab|pharmacy|outreach shows the provider workspace as that product alone (ehr-blue/frame/product.ts).
+const PRODUCTS = ['ehr', 'lab', 'pharmacy', 'outreach']
+const product = PRODUCTS.includes(params.get('product') ?? '') ? params.get('product') : 'ehr'
+if (product !== 'ehr') window.__HID_PREVIEW_PRODUCT__ = product
 
 // A static host serves only the page itself: there is no /provider or /admin
 // file to load. So the page opens at its own address and the workspace comes
@@ -115,6 +119,20 @@ function renderBar() {
     if (ws.path === current) b.setAttribute('aria-current', 'page')
     b.addEventListener('click', () => go(ws.key))
     bar.appendChild(b)
+  }
+  // On the provider workspace: which product it is (a hospital's EHR, or a lab, pharmacy or outreach on its own).
+  if (current === '/provider') {
+    const sel = document.createElement('select')
+    sel.setAttribute('aria-label', 'Product')
+    sel.style.cssText = 'all:unset;cursor:pointer;padding:6px 10px;border-radius:999px;background:#374151'
+    for (const key of PRODUCTS) {
+      const o = document.createElement('option')
+      o.value = key; o.textContent = { ehr: 'Hospital', lab: 'Lab only', pharmacy: 'Pharmacy only', outreach: 'Outreach only' }[key]
+      if (key === product) o.selected = true
+      sel.appendChild(o)
+    }
+    sel.addEventListener('change', () => { const next = new URLSearchParams(rest); next.set('ws', 'provider'); next.set('product', sel.value); window.location.assign(`${ENTRY}?${next}`) })
+    bar.appendChild(sel)
   }
   if (unserved.size) {
     const needs = document.createElement('em')

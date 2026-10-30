@@ -10,6 +10,7 @@ import { BillingBanner } from '../../staff/routes/Billing'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { isDemoFacility } from '../blueFacilities'
+import { PRODUCTS, inProduct, productOf } from './product'
 import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
@@ -86,18 +87,24 @@ export function BlueFrame() {
   // What the sidebar and search offer: the allowed pages this session lists.
   // Only working screens are offered (the owner's decision of 2026-10-31): sample modules with fictional figures stay in
   // the code for demos but are not listed in the sidebar or search. Home is always listed.
+  // A lab, pharmacy or outreach on its own sees only its product (product.ts); a hospital's EHR has them all.
+  const product = productOf(window.location.hostname, permissions)
+  const info = PRODUCTS[product]
   const listed = useMemo(() => allowed.filter(page => (page.status !== 'sample' || page.path === '') && !INTERNAL_GROUPS.has(page.group)
-    && (!session || (page.listed?.(session) ?? true))), [allowed, session])
+    && inProduct(product, page.path) && (product === 'ehr' || page.path !== '')
+    && (!session || (page.listed?.(session) ?? true))), [allowed, session, product])
   const match = matchBluePage(BLUE_PAGES, location.pathname)
   const tabs = match ? pageTabs(allowed, match.page) : []
   const shownTitle = match ? match.page.label : liveOnlyTitle(location.pathname) ?? 'Page not found'
   // Today's tab title names today's pages only: the blue page names itself once the workspace is open.
   useEffect(() => {
-    if (lock === null && session) document.title = `${shownTitle} · Health ID EHR`
-  }, [shownTitle, lock, session])
+    if (lock === null && session) document.title = `${shownTitle} · Health ID ${info.name}`
+  }, [shownTitle, lock, session, info.name])
   if (!session) return null
   const moved = movedAddress(location.pathname)
   if (moved) return <Navigate replace to={{ pathname: moved, search: location.search, hash: location.hash }} />
+  // A single product's home is its own queue.
+  if (product !== 'ehr' && /^\/provider\/?$/.test(location.pathname)) return <Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} />
 
   const follow = (item: { href: string }, event: MouseEvent<HTMLAnchorElement>) => {
     if (event.button !== 0 || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return
@@ -128,7 +135,9 @@ export function BlueFrame() {
   }))
   const tabsFor = (path: string) => listed.find(page => page.path === path || page.path === `${path}/*`)
   const tab = (path: string, label: string, fallback: NavItem) => { const page = tabsFor(path); return page ? { to: pageHrefOf(page), label, icon: iconOf(page.icon) } : fallback }
-  const home: NavItem = { to: '/provider', label: 'Home', icon: House, end: true }
+  const home: NavItem = product === 'ehr' ? { to: '/provider', label: 'Home', icon: House, end: true }
+    : { to: `/provider/${info.home}`, label: info.name, icon: info.icon }
+  const facilityTab: NavItem = { to: '/provider/institutions', label: 'Facility', icon: Hospital }
 
   return (
     <BluePagesProvider value={BLUE_PAGES}><OpenPagesProvider value={allowed}>
@@ -137,12 +146,12 @@ export function BlueFrame() {
           <AppShell
             mainAs="div"
             wide
-            brand={<a href="/provider" onClick={event => { event.preventDefault(); navigate('/provider') }} className="inline-flex items-center gap-2.5 no-underline" aria-label="Health ID EHR home">
-              <BrandLogo className="h-7 w-auto" /><Badge tone="brand" size="sm">EHR</Badge></a>}
+            brand={<a href="/provider" onClick={event => { event.preventDefault(); navigate('/provider') }} className="inline-flex items-center gap-2.5 no-underline" aria-label={`Health ID ${info.name} home`}>
+              <BrandLogo className="h-7 w-auto" /><Badge tone="brand" size="sm">{info.name}</Badge></a>}
             switcher={{
-              name: facility?.name ?? 'Health ID EHR',
+              name: facility?.name ?? `Health ID ${info.name}`,
               subtitle: `${roles}${isDemoFacility(facility?.id) ? ' · Demo facility' : ''}`,
-              avatar: <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand text-white"><Hospital className="size-5" /></span>,
+              avatar: <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand text-white"><info.icon className="size-5" /></span>,
               menu: close => <ul className="m-0 list-none p-0">
                 {session.actor.facilities.map(f => <li key={f.id}><button type="button" onClick={() => { close(); if (f.id !== facility?.id) navigate('/provider/institutions') }}
                   className="flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink hover:bg-hover">
@@ -154,12 +163,13 @@ export function BlueFrame() {
             person={{ name, detail: session.actor.email ?? roles }}
             onSignOut={() => { void signOut().catch(() => undefined) }}
             headerStart={<>
-              <a href="/provider" onClick={event => { event.preventDefault(); navigate('/provider') }} className="inline-flex no-underline lg:hidden" aria-label="Health ID EHR home"><BrandLogo className="h-7 w-auto" /></a>
+              <a href="/provider" onClick={event => { event.preventDefault(); navigate('/provider') }} className="inline-flex no-underline lg:hidden" aria-label={`Health ID ${info.name} home`}><BrandLogo className="h-7 w-auto" /></a>
               <span className="hidden min-w-0 items-center gap-2 text-sm text-ink-3 lg:inline-flex"><Hospital className="size-4" aria-hidden /><span className="truncate font-medium text-ink">{facility?.name}</span>{isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} /> : null}</span>
             </>}
             headerActions={<div className="hid-ehr-host-actions flex items-center gap-2"><WorkspaceSearch pages={listed} /><NotificationsButton /></div>}
-            tabs={[home, tab('patients', 'Patients', home), tab('clinical', 'Consult', home)]}
-            create={{ label: 'Start', items: [
+            tabs={product === 'ehr' ? [home, tab('patients', 'Patients', home), tab('clinical', 'Consult', home)]
+              : [home, tab('staff', 'Staff', facilityTab), tab('audit', 'Audit', facilityTab)]}
+            create={product !== 'ehr' ? undefined : { label: 'Start', items: [
               ...(tabsFor('patients') ? [{ to: '/provider/patients', label: 'Find a patient', hint: 'By Health ID, with their approval', icon: Search, main: true }] : []),
               ...(tabsFor('registration') ? [{ to: '/provider/registration', label: 'Register a patient', hint: 'New Health ID at the front desk', icon: UserPlus }] : []),
               ...(tabsFor('triage/*') || tabsFor('triage') ? [{ to: '/provider/triage', label: 'Record vitals', hint: 'Triage and observations', icon: Activity }] : []),
