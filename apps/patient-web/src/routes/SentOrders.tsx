@@ -244,9 +244,10 @@ export function SentOrdersCard() {
   const [notice, setNotice] = useState<string | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const focusAfter = useActionFocus()
-  // A list whose orders carry their deadline comes from a backend that serves the late correction (D17, SPEC-FINAL §9.0).
-  const served = useLateCorrectionServed() === true
+  // A list whose orders carry their deadline comes from a backend that serves the late correction (D17, SPEC-FINAL §9.0):
+  // it says so from that list's first paint, and the page learns it for its other screens.
   const listed = routes.data?.items
+  const served = useLateCorrectionServed() === true || carriesCorrectableUntil(listed)
   useEffect(() => { if (carriesCorrectableUntil(listed)) learnLateCorrectionServed(true) }, [listed])
 
   if (routes.data === null && !routes.loading && !routes.error) return null
