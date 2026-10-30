@@ -61,7 +61,7 @@ export function RoleDashboard({ role }: { readonly role: DemoRole }) {
         <EhrCard title="Needs attention">
           <ul className="hid-ehr-blue-list">{attention.map(({ module, record }) => (
             <li key={record.id} className="hid-ehr-blue-list-item">
-              <Link className="hid-ehr-blue-link" to={`${modulePath(module.id)}/${record.id}`}>{sampleTitle(module, record)}</Link>
+              <Link className="hid-ehr-blue-link" to={`${modulePath(module.id)}/${record.id}`}>{sampleTitle(record)}</Link>
               <span className="hid-ehr-blue-muted">{module.title} · {statusWords(record.status)}</span>
             </li>
           ))}</ul>
@@ -69,7 +69,7 @@ export function RoleDashboard({ role }: { readonly role: DemoRole }) {
         <EhrCard title="Today">
           <ul className="hid-ehr-blue-list">{today.map(({ module, record }) => (
             <li key={record.id} className="hid-ehr-blue-list-item">
-              <strong>{sampleTitle(module, record)}</strong>
+              <strong>{sampleTitle(record)}</strong>
               <span className="hid-ehr-blue-muted">{module.title} · {statusWords(record.status)}</span>
             </li>
           ))}</ul>

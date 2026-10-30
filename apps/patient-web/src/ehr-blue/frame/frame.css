@@ -286,10 +286,130 @@
   color: var(--ehr-ink);
 }
 
-.hid-ehr .hid-ehr-blue-action-form {
+/* ---- Sample record pages (screens/workspaces/*-2-new and *-3-detail) -------- */
+
+.hid-ehr .hid-ehr-blue-record {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-context-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-context-line small {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-context-line:focus-visible,
+.hid-ehr .hid-ehr-blue-version summary:focus-visible {
+  outline: var(--ehr-focus-ring-width) solid var(--ehr-focus-ring-color);
+  outline-offset: var(--ehr-focus-ring-offset);
+}
+
+.hid-ehr .hid-ehr-blue-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.hid-ehr .hid-ehr-blue-details {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr);
+  gap: 12px 18px;
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-blue-details dt {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.hid-ehr .hid-ehr-blue-actions-vertical {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-blue-record-form {
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-form-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
   margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-blue-check-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hid-ehr .hid-ehr-blue-record-block {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-blue-record-block p {
+  margin: 0 0 8px;
+}
+
+.hid-ehr .hid-ehr-blue-block-title {
+  margin: 20px 0 12px;
+  color: var(--ehr-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-blue-card-lead {
+  margin-bottom: 12px;
+}
+
+.hid-ehr .hid-ehr-blue-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--ehr-line);
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-blue-version {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-blue-version summary {
+  color: var(--ehr-ink);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-blue-version > p {
+  margin: 12px 0;
+}
+
+.hid-ehr .hid-ehr-blue-flush {
+  margin: 0;
 }
 
 .hid-ehr .hid-ehr-blue-subtitle {
@@ -552,7 +672,8 @@
 }
 
 @media (max-width: 1000px) {
-  .hid-ehr .hid-ehr-blue-grid {
+  .hid-ehr .hid-ehr-blue-grid,
+  .hid-ehr .hid-ehr-blue-two-col {
     grid-template-columns: 1fr;
   }
 }
@@ -562,6 +683,10 @@
     grid-template-columns: 1fr;
   }
 
+  .hid-ehr .hid-ehr-blue-facility {
+    white-space: normal;
+  }
+
   .hid-ehr .hid-ehr-topbar-end .hid-ehr-button:not(.hid-ehr-popover-trigger):not(.hid-ehr-blue-chip) {
     padding: 8px;
     font-size: 11px;
@@ -569,5 +694,17 @@
 
   .hid-ehr .hid-ehr-blue-facts {
     grid-template-columns: 1fr;
+  }
+
+  .hid-ehr .hid-ehr-blue-details {
+    grid-template-columns: 100px minmax(0, 1fr);
+  }
+
+  .hid-ehr .hid-ehr-blue-list-row {
+    flex-wrap: wrap;
+  }
+
+  .hid-ehr .hid-ehr-blue-context-line {
+    align-items: flex-start;
   }
 }

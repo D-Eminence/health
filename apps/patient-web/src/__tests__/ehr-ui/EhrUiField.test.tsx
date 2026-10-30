@@ -34,9 +34,9 @@ describe('EhrField', () => {
     expect(input.getAttribute('aria-invalid')).toBe('true')
     expect(described(input)).toBe('Enter a number from 1 to 400. | Count only beds in use.')
     const error = screen.getByText('Enter a number from 1 to 400.')
-    expect(error.closest('.hid-ehr-error')).not.toBeNull()
-    // An icon beside the words, hidden from assistive technology: not colour alone.
-    expect(error.closest('.hid-ehr-error')!.querySelector('[aria-hidden="true"] svg')).not.toBeNull()
+    // The design's plain line under the control: the words say it, not colour alone, and no icon.
+    expect(error.classList.contains('hid-ehr-error')).toBe(true)
+    expect(error.querySelector('svg')).toBeNull()
   })
 
   it('works the same for a select and a textarea', () => {

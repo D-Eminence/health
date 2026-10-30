@@ -615,18 +615,9 @@
 }
 
 .hid-ehr .hid-ehr-error {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
   margin: 0;
   font-size: 12px;
   color: var(--ehr-critical);
-}
-
-.hid-ehr .hid-ehr-error-icon {
-  display: inline-flex;
-  flex-shrink: 0;
-  margin-top: 2px;
 }
 
 /* ---- Cards ---------------------------------------------------------------- */
@@ -638,6 +629,11 @@
   border: 0.5px solid #e7e7e7;
   border-radius: var(--ehr-radius-xl);
   background: var(--ehr-surface);
+}
+
+/* The design sets every button inside a card at 12px (redesign.css: .hid-card .hid-button). */
+.hid-ehr .hid-ehr-card .hid-ehr-button {
+  font-size: 12px;
 }
 
 .hid-ehr .hid-ehr-card-header {
@@ -718,6 +714,7 @@
 /* ---- Data table ----------------------------------------------------------- */
 
 .hid-ehr .hid-ehr-table-scroll {
+  position: relative;
   overflow-x: auto;
 }
 
@@ -930,17 +927,24 @@
   outline: none;
 }
 
+/* The design's dialog: a bold title (the browser's h2), the question straight under it, buttons from the left. */
+.hid-ehr .hid-ehr-dialog .hid-ehr-overlay-title {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: normal;
+}
+
 .hid-ehr .hid-ehr-dialog-description {
-  margin: 12px 0 0;
-  color: var(--ehr-text);
+  margin: 0;
+  color: var(--ehr-ink);
 }
 
 .hid-ehr .hid-ehr-dialog-confirm-word {
-  margin-top: 18px;
+  margin-top: 12px;
 }
 
 .hid-ehr .hid-ehr-dialog-actions {
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin-top: 20px;
 }
 
@@ -1112,10 +1116,24 @@
     grid-column: 1 / -1;
   }
 
+  /*
+   * On phones the bar wraps as the design's does (screens/panels/15-mobile-patients-list.png): the menu, the name and
+   * the first actions on one row, the rest below, never wider than the screen.
+   */
   .hid-ehr .hid-ehr-topbar {
+    flex-wrap: wrap;
     gap: 8px;
-    height: var(--ehr-topbar-height-phone);
-    padding: 0 16px;
+    height: auto;
+    min-height: var(--ehr-topbar-height-phone);
+    padding: 8px 16px;
+  }
+
+  .hid-ehr .hid-ehr-topbar-start {
+    flex: 1 1 140px;
+  }
+
+  .hid-ehr .hid-ehr-topbar-end {
+    display: contents;
   }
 
   .hid-ehr .hid-ehr-button.hid-ehr-topbar-menu {

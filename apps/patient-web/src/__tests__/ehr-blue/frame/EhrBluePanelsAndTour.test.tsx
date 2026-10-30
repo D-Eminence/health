@@ -72,8 +72,9 @@ describe('the frame\'s sample panels', () => {
   it('opens a sample record\'s quick view from its list', async () => {
     await openDemo('/provider/radiology')
     fireEvent.click(screen.getAllByRole('button', { name: 'Quick view' })[0]!)
-    const drawer = screen.getByRole('dialog')
+    const drawer = screen.getByRole('dialog', { name: 'Record quick view' })
     expect(within(drawer).getByText(SAMPLE_NOTICE)).toBeDefined()
-    expect(within(drawer).getByRole('button', { name: 'Open record' })).toBeDefined()
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Open full record' }))
+    await waitFor(() => expect(where()).toBe('/provider/radiology/S-0701'))
   })
 })

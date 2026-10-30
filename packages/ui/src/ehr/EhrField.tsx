@@ -3,7 +3,8 @@
 /**
  * An EHR form field: a visible label tied to its control, and a hint and an
  * error tied to it by aria-describedby. An error marks the control
- * aria-invalid and is written out as text beside an icon, never colour alone.
+ * aria-invalid and is written out as text below the control (the design's
+ * plain red line, no icon), never colour alone.
  *
  * Put one EhrInput, EhrSelect or EhrTextarea inside an EhrField; the control
  * takes its id and descriptions from the field.
@@ -19,8 +20,6 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react'
-import { HugeiconsIcon } from '@hugeicons/react'
-import Alert02Icon from '@hugeicons/core-free-icons/Alert02Icon'
 import { cx } from '../primitives'
 
 interface EhrFieldContextValue {
@@ -54,12 +53,7 @@ export function EhrField({ label, hint, error, children, className }: EhrFieldPr
         {children}
         {hint !== undefined ? <p id={hintId} className="hid-ehr-hint">{hint}</p> : null}
         {error !== undefined ? (
-          <p id={errorId} className="hid-ehr-error">
-            <span className="hid-ehr-error-icon" aria-hidden="true">
-              <HugeiconsIcon icon={Alert02Icon} size={14} strokeWidth={1.65} aria-hidden />
-            </span>
-            <span>{error}</span>
-          </p>
+          <p id={errorId} className="hid-ehr-error">{error}</p>
         ) : null}
       </div>
     </EhrFieldContext.Provider>
