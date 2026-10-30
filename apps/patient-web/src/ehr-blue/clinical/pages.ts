@@ -1,10 +1,13 @@
+import { EhrIcon } from '@hid/ui/ehr'
 import { createElement } from 'react'
 import { ConsentWorkspace, consentStatus } from './consent/ConsentWorkspace'
 import { ConsultWorkspace, consultStatus } from './consult/ConsultWorkspace'
 import { EmergencyWorkspace, emergencyStatus } from './emergency/EmergencyWorkspace'
+import { InPersonCheckWorkspace, inPersonCheckStatus } from './in-person-check/InPersonCheckWorkspace'
 import { NursingWorkspace, nursingStatus } from './nursing/NursingWorkspace'
 import { ClinicalIcon, type ClinicalIconName } from './parts/icons'
 import { PatientsWorkspace, patientsStatus } from './patients/PatientsWorkspace'
+import { RegistrationWorkspace, registrationStatus } from './registration/RegistrationWorkspace'
 import { SampleWorkspace } from './sample/SampleWorkspace'
 import { TriageWorkspace, triageStatus } from './triage/TriageWorkspace'
 import type { EhrBluePage } from './types'
@@ -21,6 +24,9 @@ const sample = (id: string) => createElement(SampleWorkspace, { id })
  */
 export const pages: EhrBluePage[] = [
   { path: 'patients/*', group: 'Clinical', label: 'Patients', icon: icon('user'), permission: 'identity.patient.read', status: patientsStatus, element: createElement(PatientsWorkspace) },
+  // Today's pages at today's addresses and permissions, drawn in the design; the frame's icons for them.
+  { path: 'registration/*', group: 'Clinical', label: 'Patient registration', icon: createElement(EhrIcon, { name: 'registration' }), permission: 'identity.registration.write', status: registrationStatus, element: createElement(RegistrationWorkspace) },
+  { path: 'in-person-check/*', group: 'Clinical', label: 'In-person check', icon: createElement(EhrIcon, { name: 'badge' }), permission: 'identity.patient.assisted_registration', status: inPersonCheckStatus, element: createElement(InPersonCheckWorkspace) },
   { path: 'appointments/*', group: 'Clinical', label: 'Appointments', icon: icon('calendar'), status: 'sample', element: sample('appointments') },
   { path: 'journey/*', group: 'Clinical', label: 'Patient visits', icon: icon('route'), status: 'sample', element: sample('journey') },
   { path: 'triage/*', group: 'Clinical', label: 'Triage & Vitals', icon: icon('activity'), permission: 'ehr.vital.read', status: triageStatus, element: createElement(TriageWorkspace) },
