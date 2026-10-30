@@ -12,6 +12,8 @@ vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: '
 // The frame's own registry and Home, with this page joining it as departments/pages.ts does. Registered per test: a
 // vi.mock factory's module outlives vi.resetModules.
 beforeEach(() => {
+  // HR & Credentials shows where today's sidebar lists Staff, which is on Novu.
+  vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
   vi.doMock('../../../../ehr-blue/routes', async importOriginal => {
     const actual = await importOriginal<typeof BlueRoutes>()
     const frame = await import('../../../../ehr-blue/frame/pages')
@@ -23,7 +25,7 @@ beforeEach(() => {
     }
   })
 })
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
 const STAFF = 'GET /api/v1/identity/facility-staff'
 
@@ -52,5 +54,20 @@ describe('a record link from Home or the Notifications drawer', () => {
     expect(await screen.findByRole('button', { name: 'No licence on record' })).toBeDefined()
     expect(screen.getByRole('region', { name: 'Search sample records' })).toBeDefined()
     expect(sent.filter(request => request.route === STAFF)).toHaveLength(1)
+  })
+})
+
+describe('at a governed facility', () => {
+  it('leaves HR & Credentials out of the sidebar, and its address says today\'s sentence, reading no staff', async () => {
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['workforce.manage'], ['org_admin'])
+    const sent = serve({ [SESSION]: [sessionAt(demo, [demo])] })
+    await openStaffApp('/provider/hr')
+    const nav = await screen.findByRole('navigation', { name: 'Main navigation' })
+    expect(within(nav).queryByRole('link', { name: 'HR & Credentials' })).toBeNull()
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('HR & Credentials')
+    expect(screen.getByText('Health ID support manages who works at Demo Hospital. Contact Health ID support to add or remove staff.'))
+      .toBeDefined()
+    expect(screen.queryByText(/is not open to you here/)).toBeNull()
+    expect(sent.filter(request => request.route === STAFF)).toHaveLength(0)
   })
 })

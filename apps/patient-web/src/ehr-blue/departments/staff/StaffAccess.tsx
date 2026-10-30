@@ -42,18 +42,19 @@ function managedBySupport(facility: string): string {
 }
 
 /**
- * What /provider/staff says where the frame turns the page down (visible(): a governed facility, or a service without
- * staff management; or no workforce.manage): the page's own words, from the session alone. It reads no staff.
+ * What a staff page's address says where the frame turns it down (visible(): a governed facility, or a service without
+ * staff management; or no workforce.manage): the page's own words, from the session alone. It reads no staff. Staff &
+ * access and HR & Credentials both give it, each under its own title.
  */
-export function StaffRefusal() {
+export function StaffRefusal({ title = TITLE }: { readonly title?: string }) {
   const { state } = useStaff()
   const facility = state.status === 'ready' ? state.session.actor.facility : undefined
-  if (!usesNovuBackend()) return <DeptUnavailable title={TITLE} message="Staff & access isn’t available on this Health ID service." />
-  if (!facility) return <DeptUnavailable title={TITLE} message="Choose the facility you are working at first." />
+  if (!usesNovuBackend()) return <DeptUnavailable title={title} message={`${title} isn’t available on this Health ID service.`} />
+  if (!facility) return <DeptUnavailable title={title} message="Choose the facility you are working at first." />
   if (!facility.permissions.includes('workforce.manage')) {
-    return <DeptUnavailable title={TITLE} message={`Only ${facility.name}’s administrator can manage its staff.`} />
+    return <DeptUnavailable title={title} message={`Only ${facility.name}’s administrator can manage its staff.`} />
   }
-  return <DeptUnavailable title={TITLE} message={managedBySupport(facility.name)} />
+  return <DeptUnavailable title={title} message={managedBySupport(facility.name)} />
 }
 
 type Loaded =
