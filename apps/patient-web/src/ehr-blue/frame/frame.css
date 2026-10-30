@@ -119,6 +119,10 @@
   border-bottom: 1px solid var(--ehr-line);
 }
 
+.hid-ehr .hid-ehr-blue-profile-heading ~ .hid-ehr-card + .hid-ehr-card {
+  margin-top: 20px;
+}
+
 .hid-ehr .hid-ehr-blue-profile-picture {
   display: flex;
   align-items: center;
