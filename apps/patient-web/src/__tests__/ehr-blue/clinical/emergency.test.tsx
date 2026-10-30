@@ -3,19 +3,22 @@ import { HidApiError } from '@hid/http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EMERGENCY_ACCESS, actionUnavailable } from '../../../ehr-blue/clinical/emergency/access'
 import { EmergencyWorkspace, emergencyStatus } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
-import { FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage } from './harness'
+import { SAMPLE_NOTICE } from '../../../ehr-blue/clinical/parts/SampleBanner'
+import { SampleCreate, SampleDetail, SampleList } from '../../../ehr-blue/clinical/sample/SampleWorkspace'
+import { DEMO_HOSPITAL_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage } from './harness'
 
 /**
  * The Emergency workspace's live part: the design's "Emergency break-glass access" form running today's break-glass
  * flow (staff/routes/Patients.tsx), and its routes. The emergency-department board is the sample engine's; here it is
- * replaced by markers, so only where it is placed is tested.
+ * replaced by markers, so only where it is placed is tested. The board shows only at the four demo facilities: at a
+ * real facility (the harness's FACILITY_ID, the default) this live page never leads into it.
  */
 
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), breakGlass: vi.fn(), closeGrant: vi.fn(), emergencyRecords: vi.fn(),
   labReleasedResultsForOrder: vi.fn(),
 }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
+const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined }))
 const session = vi.hoisted(() => ({ staffSessionGeneration: vi.fn(() => 7), untilStaffSessionReady: vi.fn(async (_sentIn: number) => {}) }))
 
 vi.mock('../../../staff/api', async () => ({ staffApi: api, isAllowedPatientLookup: (await import('./harness')).isAllowedPatientLookup }))
@@ -25,9 +28,9 @@ vi.mock('../../../staff/App', async () => {
 })
 vi.mock('../../../staff/session', () => session)
 vi.mock('../../../ehr-blue/clinical/sample/SampleWorkspace', () => ({
-  SampleList: ({ id }: { id: string }) => <section data-testid="sample-list">{id}</section>,
-  SampleCreate: ({ id }: { id: string }) => <section data-testid="sample-create">{id}</section>,
-  SampleDetail: ({ id }: { id: string }) => <section data-testid="sample-detail">{id}</section>,
+  SampleList: vi.fn(({ id }: { id: string }) => <section data-testid="sample-list">{id}</section>),
+  SampleCreate: vi.fn(({ id }: { id: string }) => <section data-testid="sample-create">{id}</section>),
+  SampleDetail: vi.fn(({ id }: { id: string }) => <section data-testid="sample-detail">{id}</section>),
 }))
 
 const EMERGENCY_PERMISSIONS = ['identity.patient.read', 'identity.consent.write', 'identity.break-glass.write', 'ehr.encounter.read', 'ehr.note.read']
@@ -45,6 +48,7 @@ const emergencyLookup = { ...allowedLookup, authorization: { ...allowedLookup.au
 
 beforeEach(() => {
   vi.clearAllMocks()
+  staff.facilityId = undefined
   staff.permissions = [...EMERGENCY_PERMISSIONS]
   staff.activePatient = null
   staff.setActivePatient.mockImplementation(value => { staff.activePatient = value; return true })
@@ -93,6 +97,7 @@ describe('the Emergency page', () => {
   })
 
   it('shows the heading, the live break-glass card with the design’s form, then the sample board', () => {
+    staff.facilityId = DEMO_HOSPITAL_ID
     open()
     expect(screen.getByRole('heading', { level: 1, name: 'Emergency' })).toBeTruthy()
     expect(within(card()).getByRole('textbox', { name: labelled('Health ID') })).toBeTruthy()
@@ -123,6 +128,7 @@ describe('the Emergency page', () => {
   })
 
   it('opens the sample board’s create page from Create record', () => {
+    staff.facilityId = DEMO_HOSPITAL_ID
     open()
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
     expect(screen.getByTestId('sample-create').textContent).toBe('emergency')
@@ -130,6 +136,7 @@ describe('the Emergency page', () => {
   })
 
   it('routes new and a record id to the sample board, and summary to the live summary', () => {
+    staff.facilityId = DEMO_HOSPITAL_ID
     const first = open('/new')
     expect(screen.getByTestId('sample-create').textContent).toBe('emergency')
     first.unmount()
@@ -139,6 +146,42 @@ describe('the Emergency page', () => {
     open('/summary')
     expect(screen.queryByTestId('sample-detail')).toBeNull()
     expect(screen.getByRole('heading', { level: 1, name: 'Emergency summary' })).toBeTruthy()
+  })
+
+  it('at a real facility, shows the heading without Create record and the live break-glass card, but no sample board', () => {
+    open()
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(within(card()).getByRole('textbox', { name: labelled('Health ID') })).toBeTruthy()
+    expect(submitButton().type).toBe('submit')
+    expect(screen.queryByTestId('sample-list')).toBeNull()
+    expect(document.body.textContent).not.toContain(SAMPLE_NOTICE)
+    for (const part of [SampleList, SampleCreate, SampleDetail]) expect(vi.mocked(part)).not.toHaveBeenCalled()
+  })
+
+  it('at a real facility, answers new and a record id with Record not found, and still opens the live summary', () => {
+    for (const rest of ['/new', '/cfa650e2']) {
+      const view = open(rest)
+      expect(screen.getByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
+      expect(screen.getByText('The record is missing or outside your authorized hospital / branch.')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Back to list' })).toBeTruthy()
+      expect(screen.queryByRole('heading', { name: 'Emergency break-glass access' })).toBeNull()
+      expect(document.body.textContent).not.toContain(SAMPLE_NOTICE)
+      view.unmount()
+    }
+    open('/summary')
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency summary' })).toBeTruthy()
+    expect(document.body.textContent).not.toContain(SAMPLE_NOTICE)
+    for (const part of [SampleList, SampleCreate, SampleDetail]) expect(vi.mocked(part)).not.toHaveBeenCalled()
+  })
+
+  it('at a real facility, takes Back to list on Record not found to the live Emergency page', () => {
+    open('/new')
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency' })).toBeTruthy()
+    expect(card()).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    for (const part of [SampleList, SampleCreate, SampleDetail]) expect(vi.mocked(part)).not.toHaveBeenCalled()
   })
 
   it('on main, keeps today’s emergency notice word for word', () => {

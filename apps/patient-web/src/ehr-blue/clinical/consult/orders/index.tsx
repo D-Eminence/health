@@ -10,6 +10,7 @@ import { useWorkspaceHref } from '../../parts/Workspace'
 import { CreateOrder } from './CreateOrder'
 import { OrderPage } from './OrderPage'
 import { FlashContext, KINDS, learnFrom, orderTitle, text, type Flash, type OrderKind } from './orders'
+import { isDemoFacility } from '../../../blueFacilities'
 
 export type { OrderKind } from './orders'
 
@@ -107,7 +108,9 @@ export function EncounterOrders({ chart, encounter }: { chart: Chart; encounter:
       <SubHeading>Connected orders</SubHeading>
       {createRx ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'pharmacy'))}>Create pharmacy record</EhrButton></Step> : null}
       {createLab ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'laboratory'))}>Create laboratory record</EhrButton></Step> : null}
-      {chart.canWrite ? (
+      {/* Radiology and referrals are samples: offered only at the demo facilities, so a live page at a real facility
+          never leads into a sample. */}
+      {chart.canWrite && isDemoFacility(chart.facilityId) ? (
         <>
           <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('radiology', 'new'))}>Create radiology record</EhrButton></Step>
           <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('referrals', 'new'))}>Create referral network record</EhrButton></Step>

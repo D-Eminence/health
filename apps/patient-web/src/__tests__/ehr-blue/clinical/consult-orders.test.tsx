@@ -7,7 +7,7 @@ import { ACCESS_ENDED, ChartProvider, READ_ONLY, useChart } from '../../../ehr-b
 import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
 import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
 import { forgetWrongPatientServed } from '../../../wrongPatientServed'
-import { ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_ID, activePatient, allowedLookup, deniedLookup, labelled, renderPage } from './harness'
+import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_ID, activePatient, allowedLookup, deniedLookup, labelled, renderPage } from './harness'
 
 /**
  * Orders raised from a consultation (prescriptions and lab requests): the design's "Connected orders", create and
@@ -20,7 +20,7 @@ const api = vi.hoisted(() => ({
   acceptPrescription: vi.fn(), sendLabRequestToLab: vi.fn(), labReleasedResultsForOrder: vi.fn(),
 }))
 const routes = vi.hoisted(() => ({ destinations: vi.fn(), attestation: vi.fn(), send: vi.fn(), routes: vi.fn(), withdraw: vi.fn() }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
+const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined }))
 
 vi.mock('../../../staff/api', async () => ({
   staffApi: api,
@@ -73,6 +73,7 @@ function setLists(prescriptions: unknown[], labs: unknown[], extra: Record<strin
 }
 
 beforeEach(() => {
+  staff.facilityId = undefined
   vi.clearAllMocks()
   forgetWrongPatientServed()
   forgetLateCorrectionServed()
@@ -107,7 +108,7 @@ function EncounterStub() {
   if (!chart) return <p>No patient open</p>
   return (
     <section aria-label="Available actions">
-      <EncounterOrders chart={chart} encounter={{ id: recordId, patientId: PATIENT_ID, facilityId: FACILITY_ID, encounterType: 'ambulatory', status: 'in_progress', startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }} />
+      <EncounterOrders chart={chart} encounter={{ id: recordId, patientId: PATIENT_ID, facilityId: staff.facilityId ?? FACILITY_ID, encounterType: 'ambulatory', status: 'in_progress', startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }} />
     </section>
   )
 }
@@ -149,6 +150,8 @@ async function openOrder(kind: 'pharmacy' | 'laboratory', id: string) {
 
 describe('Connected orders', () => {
   it('shows the design’s create steps, its note and this encounter’s orders, read as today’s page reads them', async () => {
+    // Radiology and referrals are samples, offered only at a demo facility.
+    staff.facilityId = DEMO_HOSPITAL_ID
     open(ENCOUNTER_ID)
     expect(await screen.findByRole('heading', { level: 3, name: 'Connected orders' })).toBeTruthy()
     for (const name of ['Create pharmacy record', 'Create laboratory record', 'Create radiology record', 'Create referral network record']) {
@@ -160,9 +163,23 @@ describe('Connected orders', () => {
     expect(rx.getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/pharmacy/${RX}`)
     expect(within(list).getByRole('link', { name: 'Laboratory · Haemoglobin' }).getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/laboratory/${LAB}`)
     expect(within(list).getAllByText('draft')).toHaveLength(2)
-    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
-    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests')
+    expect(api.records).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
+    expect(api.records).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests')
     expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
+  it('offers no sample radiology or referral step at a real facility, only today’s pharmacy and laboratory', async () => {
+    open(ENCOUNTER_ID)
+    expect(await screen.findByRole('heading', { level: 3, name: 'Connected orders' })).toBeTruthy()
+    for (const name of ['Create pharmacy record', 'Create laboratory record']) {
+      expect((await screen.findByRole('button', { name })).tagName).toBe('BUTTON')
+    }
+    await screen.findByRole('list', { name: 'Orders from this encounter' })
+    expect(screen.queryByRole('button', { name: 'Create radiology record' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Create referral network record' })).toBeNull()
+    for (const link of screen.queryAllByRole('link')) {
+      expect(link.getAttribute('href') ?? '').not.toMatch(/^\/provider\/(radiology|referrals)(\/|$)/)
+    }
   })
 
   it('opens the pharmacy and laboratory create pages', async () => {
@@ -175,12 +192,14 @@ describe('Connected orders', () => {
   })
 
   it('links radiology and referrals to their sample workspaces with no record of this patient in the address', async () => {
+    staff.facilityId = DEMO_HOSPITAL_ID
     open(ENCOUNTER_ID)
     fireEvent.click(await screen.findByRole('button', { name: 'Create radiology record' }))
     expect(where()).toBe('/provider/radiology/new')
   })
 
   it('links referrals to the sample Referral Network workspace', async () => {
+    staff.facilityId = DEMO_HOSPITAL_ID
     open(ENCOUNTER_ID)
     fireEvent.click(await screen.findByRole('button', { name: 'Create referral network record' }))
     expect(where()).toBe('/provider/referrals/new')

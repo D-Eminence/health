@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropOfferedHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
 import { PatientsWorkspace, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
 import {
-  ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage,
+  DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage,
 } from './harness'
 
 /**
@@ -16,7 +16,7 @@ const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), closeGrant: vi.fn(), encounters: vi.fn(), verifyPin: vi.fn(),
   sharedWithMe: vi.fn(), staffShareInvitations: vi.fn(), acceptShareInvitation: vi.fn(),
 }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
+const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined }))
 const session = vi.hoisted(() => ({
   staffSessionGeneration: vi.fn(() => 5), untilStaffSessionReady: vi.fn(async (_sentIn: number) => {}),
   staffSessionSignal: vi.fn(() => new AbortController().signal),
@@ -37,19 +37,22 @@ vi.mock('../../../staff/session', () => session)
 const ALL = ['identity.patient.read', 'identity.consent.write', 'identity.consent.read', 'ehr.encounter.read', 'ehr.note.read']
 const NOT_FOUND = new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' })
 const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health IDs never use 0, 1, I or O.'
+const CONSENT = { patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: true }
+const ENCOUNTER = { id: ENCOUNTER_ID, patientId: PATIENT_ID, facilityId: FACILITY_ID, encounterType: 'ambulatory', status: 'in_progress', startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   dropOfferedHealthId()
   staff.permissions = [...ALL]
   staff.activePatient = null
+  staff.facilityId = undefined
   staff.setActivePatient.mockImplementation(value => { staff.activePatient = value; return true })
   session.staffSessionGeneration.mockReturnValue(5)
   api.lookupPatient.mockResolvedValue(allowedLookup)
-  api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: true })
+  api.consentStatus.mockResolvedValue(CONSENT)
   api.closeGrant.mockResolvedValue({})
   api.verifyPin.mockResolvedValue({ accessRequestId: 'r1', consentGrantId: 'grant-1', patientId: PATIENT_ID, status: 'active', expiresAt: '2026-10-30T12:00:00.000Z' })
-  api.encounters.mockResolvedValue({ items: [{ id: ENCOUNTER_ID, patientId: PATIENT_ID, facilityId: FACILITY_ID, encounterType: 'ambulatory', status: 'in_progress', startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }], nextCursor: null })
+  api.encounters.mockResolvedValue({ items: [ENCOUNTER], nextCursor: null })
   api.sharedWithMe.mockRejectedValue(NOT_FOUND)
   api.staffShareInvitations.mockRejectedValue(NOT_FOUND)
 })
@@ -60,6 +63,21 @@ function open(rest = '') {
 
 function where() {
   return screen.queryByTestId('elsewhere')?.textContent ?? null
+}
+
+/**
+ * Work at Demo Hospital, one of the four demo facilities (the harness's FACILITY_ID is a real one), with this file's
+ * facility-scoped fixtures there too: pages list only the working facility's encounters.
+ */
+function atDemoHospital() {
+  staff.facilityId = DEMO_HOSPITAL_ID
+  api.consentStatus.mockResolvedValue({ ...CONSENT, facilityId: DEMO_HOSPITAL_ID })
+  api.encounters.mockResolvedValue({ items: [{ ...ENCOUNTER, facilityId: DEMO_HOSPITAL_ID }], nextCursor: null })
+}
+
+/** The patient page's Next steps, in order: one button per step. */
+function nextSteps() {
+  return Array.from(document.querySelectorAll('.hid-ehr-clinical-step button'), button => button.textContent)
 }
 
 function searchField() {
@@ -239,15 +257,33 @@ describe('The open patient’s page', () => {
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
   })
 
+  // Appointments and patient visits are sample workspaces: their steps show only at the four demo facilities.
   it.each([
     ['Open appointments', '/provider/appointments'],
     ['Register walk-in visit', '/provider/journey/new'],
-    ['Open clinical record', '/provider/clinical'],
-  ])('%s goes to %s', (label, path) => {
+  ])('%s goes to %s at a demo facility', (label, path) => {
+    atDemoHospital()
     staff.activePatient = activePatient()
     open('/open')
+    expect(nextSteps()).toEqual(['Open appointments', 'Register walk-in visit', 'Open consent', 'Open clinical record'])
     fireEvent.click(screen.getByRole('button', { name: label }))
     expect(where()).toBe(path)
+  })
+
+  it('leads into no sample at a real facility: no appointments or walk-in visit, while consent and the clinical record work', () => {
+    staff.activePatient = activePatient()
+    const first = open('/open')
+    expect(screen.getByRole('heading', { name: 'Next steps' })).toBeTruthy()
+    expect(nextSteps()).toEqual(['Open consent', 'Open clinical record'])
+    expect(screen.queryByRole('button', { name: 'Open appointments' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Register walk-in visit' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Open clinical record' }))
+    expect(where()).toBe('/provider/clinical')
+    first.unmount()
+    open('/open')
+    fireEvent.click(screen.getByRole('button', { name: 'Open consent' }))
+    expect(where()).toBe('/provider/requests/new')
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
   })
 
   it('shows the history loading, then a failure to read it in today’s words', async () => {
@@ -278,9 +314,12 @@ describe('The open patient’s page', () => {
   })
 
   it('keeps an emergency patient read-only: no visit, consent or chart steps, and no encounters read', async () => {
+    // At a demo facility, where the visit step would otherwise show: emergency access alone hides it.
+    atDemoHospital()
     staff.activePatient = activePatient('emergency')
     open('/open')
     expect(screen.getByText('Emergency access is read-only')).toBeTruthy()
+    expect(nextSteps()).toEqual(['Open the emergency summary'])
     expect(screen.queryByRole('button', { name: 'Register walk-in visit' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Open consent' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Connected hospital history' })).toBeNull()

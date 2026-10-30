@@ -10,6 +10,7 @@ import type { KeyValue } from '../parts/KeyValueList'
 import { Banner, ErrorBox, Loading, NoActions, RecordHeading } from '../parts/Notices'
 import { PatientHeader, type PatientFacts } from '../parts/PatientHeader'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
+import { isDemoFacility } from '../../blueFacilities'
 import { CLOSE_GRANT, CLOSE_REASON, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
 import type { ActivePatient } from '../../../staff/App'
 
@@ -111,8 +112,14 @@ function PatientRecord({ chart }: { chart: Chart }) {
             <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('emergency', 'summary'))}>Open the emergency summary</EhrButton></Step>
           ) : (
             <>
-              <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('appointments'))}>Open appointments</EhrButton></Step>
-              <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('journey', 'new'))}>Register walk-in visit</EhrButton></Step>
+              {/* Appointments and patient visits are samples: offered only at the demo facilities. Today's Patients
+                  page offers no registration, so a real facility gets neither step. */}
+              {isDemoFacility(chart.facilityId) ? (
+                <>
+                  <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('appointments'))}>Open appointments</EhrButton></Step>
+                  <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('journey', 'new'))}>Register walk-in visit</EhrButton></Step>
+                </>
+              ) : null}
               <Step><EhrButton variant="secondary" onClick={openConsent}>Open consent</EhrButton></Step>
               <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('consult'))}>Open clinical record</EhrButton></Step>
             </>
