@@ -91,6 +91,25 @@ Code references use two prefixes: `health:` is this repository; `hid:` is D-Emin
    - The host comes from the app's own identity (`ehr` or `ocr`), not from `VITE_HID_OFFLINE_HOSTS`.
 2. **Refusal details.** `transportFromApiClient` passes the refusal's `details` (including field errors) in the `TransportError` body, so a first-attempt 400 `VALIDATION_FAILED` marks the refused fields as the online path does.
 
+**A12. After the review of PR #35 (screens).**
+1. **Cached reads are per patient.** Every cached chart read includes the patient ID in its key arguments. The core also refuses a cached record whose patient tag differs from the patient asked for.
+2. **Offline sign-out reaches the server.**
+   - Before reading any session, a page load sends `POST /auth/logout` while `logoutPending()` is true, then calls `logoutSent()`.
+   - If Health ID is unreachable, nothing is read online and the flag stays set.
+   - A sign-out whose logout request cannot reach Health ID, on a device with a vault, signs out offline (`signOut({online:false})`) instead of failing.
+3. **Sending is bound to the account.** `setSessionReady(ready, accountId)` records which account Health ID confirmed. Sending, audit and lease extension happen only while the unlocked vault belongs to that account.
+   - An offline cold start opens sending only after Health ID confirms the same account.
+   - A session that ends, or a different account signing in on the tab, locks the vault.
+4. **Prescriptions.** The staff app supplies the A8.3 `SafetyProbe`. Until it does, a prescription created while online for a visit already on Health ID goes online as today; only offline or local-visit prescriptions are held.
+   - "Send as is (I have checked)" is offered only after the current allergies and medications were actually read. When nothing is reported, the screen says so.
+5. **Active lab requests stay online.** `ehr.lab-request.create` goes through the device for drafts only. An active create needs a connection and a visit already on Health ID, because EHR saves the request and then Lab may refuse it (409 `LAB_HANDOFF_REFUSED`).
+6. **Closing access waits for the patient's work.** An offline `identity.grant.close` depends on every unfinished command for that patient, held and review states included. If a dependency is discarded, the close is re-saved so it is still sent.
+7. **Facility switch.** Switching facility drops the open vault's keys before the new facility attaches. Unlock then opens only the new facility's own vault.
+8. **Locked after an offline cold start.** `unlockLocked` reopens the vault last opened in the tab (its email is kept until sign-out). Unlock refusals show their own reasons, not one message for all.
+9. **Applied offline visits.** The core offers `receiptFor(commandId)`. A screen showing a `local:` visit replaces it with the server visit as soon as its command is applied.
+10. **Online files.** A file the device cannot keep (size, quota) still uploads online as today. Only offline is it refused with the device message.
+11. **Route grants.** The staff portal's route grants (`packages/contracts`) include the four `OFFLINE_PATHS` routes.
+
 **A3. Approved owner decisions.** D1 to D15 below were approved by the owner on 29 October 2026 ("Yes to D1-D15"). The pilot facility for testing is Demo Hospital; the first real pilot facility is named by the owner before it is switched on.
 
 ## Owner decisions (approved 29 October 2026)
