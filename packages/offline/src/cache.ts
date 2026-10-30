@@ -100,9 +100,10 @@ export class ReadCache implements CachedReads {
   private async cached<T>(patientId: string, logical: string): Promise<CachedResult<T> | null> {
     const v = this.host.vault()
     if (!v || !(await this.readable(patientId))) return null
-    const { tag } = await this.tags(v.keys, patientId, logical)
+    const { tag, pt } = await this.tags(v.keys, patientId, logical)
     const rec = await this.host.store.read(['cache'], tx => tx.get('cache', [v.vaultId, tag]))
-    if (!rec || rec.v !== 1) return null
+    // A12.1: never another patient's copy, even when the caller left the patient out of the read's arguments.
+    if (!rec || rec.v !== 1 || rec.pt !== pt) return null
     const value = await open<T>(v.keys.dk, recordAad(v.vaultId, 'cache', [v.vaultId, tag]), rec.value)
     void this.host.store.write(['cache'], async tx => {
       const cur = await tx.get('cache', [v.vaultId, tag])
