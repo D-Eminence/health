@@ -561,7 +561,9 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
         {canRead && !loading && !error && items?.length === 0 && !canStart && <p className="hid-ehr-dept-muted">No processing has started for this sample.</p>}
         {canStart && !canRead && !loading && !error && !items && <p className="hid-ehr-dept-muted">Start processing once this sample is ready.</p>}
       </SpecimenCard>}
-      aside={<LabActions none={!offerStart && actions.length === 0}
+      // "No further actions" only once the read has settled and access is confirmed: while it loads, or once the results
+      // are hidden (which always sets `error`), the status region and the alert say what is happening instead.
+      aside={<LabActions none={!loading && !error && !offerStart && actions.length === 0}
         title={<>{'Available actions '}<span className="hid-ehr-sr-only">for sample {specimen.specimenIdentifier}</span></>}>
         {offerStart && <LabActionButton id={`lab-start-${specimen.id}`} open={shown === 'start'} onToggle={() => toggle('start')}>Start processing</LabActionButton>}
         {actions.map(entry => <LabActionButton key={entry.key} open={shown !== 'start' && shown?.key === entry.key} onToggle={() => toggle(entry.key)}>

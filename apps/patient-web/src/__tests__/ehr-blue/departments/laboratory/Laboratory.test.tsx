@@ -636,6 +636,25 @@ describe('processing and results', () => {
     await openAccession(PROCESSING, accession([specimen('received')]))
     expect(await screen.findByText(DENIED)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Start processing' })).toBeNull()
+    // Hidden results are not "nothing to do".
+    expect(within(cardOf(/^Available actions for sample/)).queryByText('No further actions for your permission and this record state.')).toBeNull()
+  })
+
+  it('does not say there is nothing to do while processing is still loading, and offers the action once it has loaded', async () => {
+    const pending = deferred<{ items: LabExecution[] }>()
+    api.labExecutions.mockReturnValue(pending.promise)
+    await openAccession(PROCESSING, accession([specimen('received')]))
+    expect(await screen.findByText('Loading processing…')).toBeTruthy()
+    const actions = cardOf(/^Available actions for sample/)
+    expect(within(actions).queryByText('No further actions for your permission and this record state.')).toBeNull()
+    await act(async () => { pending.resolve({ items: [] }) })
+    expect(await within(actions).findByRole('button', { name: 'Start processing' })).toBeTruthy()
+  })
+
+  it('says there is nothing to do once processing has loaded and the member may only read', async () => {
+    await openAccession([...ACCESSION, 'lab.execution.read'], accession([specimen('received')]))
+    expect(await screen.findByText('No processing has started for this sample.')).toBeTruthy()
+    expect(within(cardOf(/^Available actions for sample/)).getByText('No further actions for your permission and this record state.')).toBeTruthy()
   })
 
   it('hides the values when a refused verification is followed by a refused re-check', async () => {
