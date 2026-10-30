@@ -118,7 +118,7 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
 
   const face = photo.url
     ? <img src={photo.url} alt="" width={PHOTO_SIDE} height={PHOTO_SIDE} className="size-full object-cover" />
-    : <span className="text-[7cqw] font-semibold tracking-wide text-white/90" aria-hidden="true">{initialsOf(profile)}</span>
+    : <span className="text-[5.4cqw] font-light tracking-[.12em] text-white/85" aria-hidden="true">{initialsOf(profile)}</span>
   const allergy = allergies && allergies.length > 16 ? `${allergies.slice(0, 15).trimEnd()}…` : allergies
   const facts = [bloodGroup && ['Blood', bloodGroup], genotype && ['Genotype', genotype], allergy && ['Allergy', allergy]].filter((f): f is [string, string] => Array.isArray(f))
 
@@ -136,8 +136,8 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
       <span aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-white/15 ring-inset" />
 
       {/* The top: the logo and what the card is. */}
-      <img src={logoSrc} alt="Health ID" width={890} height={264} className="absolute top-[7cqw] left-[7.5cqw] h-[6.6cqw] w-auto brightness-0 invert" />
-      <span className="absolute top-[8cqw] right-[7.5cqw] text-[2.3cqw] font-semibold tracking-[.24em] text-white/60 uppercase">Patient card</span>
+      <img src={logoSrc} alt="Health ID" width={890} height={264} className="absolute top-[7.2cqw] left-[7.5cqw] h-[5.6cqw] w-auto brightness-0 invert" />
+      <span className="absolute top-[8.6cqw] right-[7.5cqw] text-[1.8cqw] font-medium tracking-[.3em] text-white/55 uppercase">Patient card</span>
 
       {/* The chip and the contactless mark, where a card has them. */}
       <span aria-hidden="true" className="absolute top-[19.5cqw] left-[7.5cqw] h-[8.6cqw] w-[11.2cqw] overflow-hidden rounded-[1.6cqw] [background:linear-gradient(135deg,#eef2f6_0%,#b9c2cc_40%,#e6ebf0_62%,#a7b0bb_100%)] shadow-[inset_0_0_0_1px_rgba(40,50,60,.35),0_1px_2px_rgba(0,0,0,.4)]">
@@ -160,19 +160,19 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
       </div>
 
       {/* What an emergency team needs first, printed under the chip. */}
-      {facts.length > 0 && <dl className="absolute top-[32cqw] left-[7.5cqw] m-0 flex max-w-[56cqw] gap-[4.5cqw]">
+      {facts.length > 0 && <dl className="absolute top-[32cqw] left-[7.5cqw] m-0 flex max-w-[56cqw] gap-[5.5cqw]">
         {facts.map(([label, value]) => <div key={label} className="min-w-0">
-          <dt className="text-[2.2cqw] font-semibold tracking-[.2em] text-white/55 uppercase">{label}</dt>
-          <dd className="m-0 mt-[1cqw] truncate text-[3.8cqw] leading-none font-semibold">{value}</dd></div>)}
+          <dt className="text-[1.7cqw] font-medium tracking-[.28em] text-white/50 uppercase">{label}</dt>
+          <dd className="m-0 mt-[1.1cqw] truncate text-[3cqw] leading-none font-medium tracking-[.04em] text-white/95">{value}</dd></div>)}
       </dl>}
 
       {/* The holder: name, NIN and the ID. */}
       <div className="absolute right-[7.5cqw] bottom-[6.5cqw] left-[7.5cqw] flex items-end justify-between gap-[4cqw]">
         <div className="min-w-0">
-          <p className="m-0 flex items-center gap-[1.2cqw] truncate text-[3.6cqw] leading-none font-medium tracking-[.06em] text-white/90 uppercase">{profile.fullName}
-            {verified !== null && (verified ? <BadgeCheck className="size-[3.6cqw] shrink-0 text-[#8ee6c1]" aria-label="NIN verified" />
-              : <CircleAlert className="size-[3.6cqw] shrink-0 text-amber-200" aria-label="NIN not verified" />)}</p>
-          <div className="mt-[2cqw] [&_.patient-hid]:gap-0 [&_.patient-hid-code]:p-0 [&_.patient-hid-code]:text-[6.2cqw] [&_.patient-hid-code]:leading-none [&_.patient-hid-code]:font-semibold [&_.patient-hid-code]:tracking-[.09em] [&_.patient-hid-code]:whitespace-nowrap [&_.patient-hid-code]:text-[#eef3fb] [&_.patient-hid-code]:[filter:drop-shadow(0_1px_0_rgba(0,0,0,.45))] [&_.patient-hid-note]:text-[2.4cqw] [&_.patient-hid-note]:text-white/70"><HealthIdCode code={profile.hid} /></div>
+          <p className="m-0 flex items-center gap-[1.2cqw] truncate text-[2.7cqw] leading-none font-medium tracking-[.2em] text-white/80 uppercase">{profile.fullName}
+            {verified !== null && (verified ? <BadgeCheck className="size-[2.9cqw] shrink-0 text-[#8ee6c1]" aria-label="NIN verified" />
+              : <CircleAlert className="size-[2.9cqw] shrink-0 text-amber-200" aria-label="NIN not verified" />)}</p>
+          <div className="mt-[1.8cqw] [&_.patient-hid]:gap-0 [&_.patient-hid-code]:p-0 [&_.patient-hid-code]:text-[4.9cqw] [&_.patient-hid-code]:leading-none [&_.patient-hid-code]:font-medium [&_.patient-hid-code]:tracking-[.16em] [&_.patient-hid-code]:whitespace-nowrap [&_.patient-hid-code]:text-[#eef3fb] [&_.patient-hid-code]:[filter:drop-shadow(0_1px_0_rgba(0,0,0,.45))] [&_.patient-hid-note]:text-[1.9cqw] [&_.patient-hid-note]:text-white/70"><HealthIdCode code={profile.hid} /></div>
         </div>
       </div>
     </section>
