@@ -85,6 +85,33 @@ export interface RequestSpec {
    * retried when its error says it is not retryable.
    */
   readonly beforeAttempt?: () => Promise<void>
+  /**
+   * Called once per attempt, success or failure, after the client-level
+   * `onResponseMeta`. The offline outbox reads the exact status, `Date` and
+   * problem flag of the request it sent from here.
+   */
+  readonly onResponseMeta?: (meta: ResponseMeta) => void
+}
+
+/**
+ * What one attempt's answer looked like, without its body (§2.6, §2.8 of the
+ * offline contract). Mirrors `ResponseMeta` in @hid/offline's contracts.
+ */
+export interface ResponseMeta {
+  readonly method: string
+  /** The request path as the caller gave it (route identifiers included; never log it raw). */
+  readonly path: string
+  /** null when no response arrived (network error, timeout, cancellation). */
+  readonly status: number | null
+  /** The response `Date` header, when present and readable. */
+  readonly date: string | null
+  /** The content type starts with `application/problem+json`. */
+  readonly problem: boolean
+  /** The problem's code, for a failure; null otherwise. */
+  readonly code: string | null
+  readonly networkError: boolean
+  /** The request carried the session (its auth requirement was not `none`). */
+  readonly authenticated: boolean
 }
 
 /** A successful `download` response. Headers are those the browser may read. */
@@ -137,6 +164,13 @@ export interface ApiClientOptions {
   /** Injected in tests to make backoff deterministic. */
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>
   readonly random?: () => number
+  /**
+   * Called once per attempt, success or failure, with the status, `Date`
+   * header and problem flag (never the body). The offline runtime feeds its
+   * trusted clock, lease and connectivity from it. A throwing callback is
+   * ignored: it must never change the outcome of a request.
+   */
+  readonly onResponseMeta?: (meta: ResponseMeta) => void
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000
@@ -343,6 +377,17 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     const headers = await resolveHeaders(spec, url, requestId)
     const timeoutMs = spec.timeoutMs ?? defaultTimeoutMs
     const attemptSignal = createAttemptSignal(timeoutMs, spec.signal)
+    const authenticated = (spec.auth ?? 'required') !== 'none'
+    const report = (meta: Omit<ResponseMeta, 'method' | 'path' | 'authenticated'>) => {
+      const full: ResponseMeta = { method: spec.method, path: spec.path, authenticated, ...meta }
+      for (const listener of [options.onResponseMeta, spec.onResponseMeta]) {
+        try {
+          listener?.(full)
+        } catch {
+          // A diagnostics hook never changes a request's outcome.
+        }
+      }
+    }
 
     let response: Response
     try {
@@ -358,6 +403,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         redirect: 'error',
       })
     } catch (error) {
+      report({ status: null, date: null, problem: false, code: null, networkError: true })
       if (spec.signal?.aborted) {
         throw new HidApiError(0, 'The request was cancelled.', {
           code: 'REQUEST_CANCELLED',
@@ -387,6 +433,9 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     const headerRequestId = response.headers.get('X-Correlation-ID')
       ?? response.headers.get('X-Request-ID')
     if (cookieMode) responseCsrfToken = response.headers.get('X-CSRF-Token') ?? responseCsrfToken
+    const problem = (response.headers.get('Content-Type') ?? '').trim().toLowerCase().startsWith('application/problem+json')
+    const date = response.headers.get('Date')
+    if (response.ok) report({ status: response.status, date, problem, code: null, networkError: false })
     if (response.ok && spec.responseType === 'download') {
       const download: DownloadResult = { blob: await response.blob(), headers: response.headers }
       return download as T
@@ -416,6 +465,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
 
       // Attach transport hints the retry loop needs without widening HidApiError.
       retryAfterByError.set(error, parseRetryAfter(response.headers.get('Retry-After')))
+      report({ status: response.status, date, problem, code: envelope.code ?? null, networkError: false })
 
       logger?.warn('api request failed', {
         method: spec.method,

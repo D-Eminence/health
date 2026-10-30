@@ -1,5 +1,6 @@
 import type { Json, OpDefinition, StaffSessionSnapshot } from '../contracts'
 import { DEMO_HOSPITAL_FACILITY_ID } from '../testing'
+import type { StagedMedia } from '../types'
 
 // Fictional test identities only.
 export const SESSION: StaffSessionSnapshot = {
@@ -54,3 +55,17 @@ export const prescriptionCreate: OpDefinition<In> = {
   path: (i, r) => `${E(i)}/${r.encounterId}/prescriptions`,
 }
 export const ALL_DEFS = [encounterCreate, noteCreate, encounterUpdate, prescriptionCreate] as unknown as OpDefinition<Json>[]
+
+type DocIn = { patientId: string; encounterId: string; media: StagedMedia }
+export const documentUpload: OpDefinition<DocIn> = {
+  op: 'ehr.document.upload', opVersion: 1, method: 'POST', keyed: true,
+  lane: i => ({ patientId: i.patientId, visit: 'media' }),
+  refs: i => ({ encounterId: { server: i.encounterId } }),
+  path: () => '/api/v1/ehr/documents/upload-intents',
+  body: (i, r) => ({
+    patientId: i.patientId, encounterId: r.encounterId!, fileName: i.media.fileName, mediaType: i.media.mediaType,
+    sizeBytes: i.media.sizeBytes, sha256Hex: i.media.sha256Hex, classification: 'phi', retentionClass: 'clinical-10y',
+  }),
+  receipt: b => ({ resourceType: 'document', resourceId: (b as { document: { id: string } }).document.id }),
+}
+
