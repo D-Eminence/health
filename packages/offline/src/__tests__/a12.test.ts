@@ -1,8 +1,10 @@
 // Contract A12 (after the review of PR #35): the core seams the screens need.
+import { IDBFactory } from 'fake-indexeddb'
 import { describe, expect, it } from 'vitest'
 import { OFFLINE_PATHS, type GrantState } from '../contracts'
+import { createFakeOfflineRuntime } from '../testing'
 import { TransportError } from '../types'
-import { PATIENT, SESSION } from './fixtures'
+import { ALL_DEFS, PASSWORD, PATIENT, SESSION } from './fixtures'
 import { createServer, makeEnv, makeRuntime, settle, signIn, type Env } from './harness'
 
 const PATIENT_B = '66666666-6666-4666-8666-666666666666'
@@ -21,6 +23,14 @@ const contact = (rt: Rt) => rt.onResponseMeta({
 async function storedContact(rt: Rt): Promise<number> {
   const d = await (await rt.storeForDiagnostics())!.dump()
   return (d.vaults as { lease: { lastServerContactAt: number } }[])[0]!.lease.lastServerContactAt
+}
+
+async function fakeSignedIn() {
+  const fake = createFakeOfflineRuntime()
+  fake.runtime.commands.register(ALL_DEFS)
+  fake.runtime.prepareFromSignIn(SESSION.email, PASSWORD)
+  await fake.runtime.attachSession(SESSION, { optIn: true, online: true })
+  return fake
 }
 
 describe('A12.1: a cached read is only ever the asked patient\'s', () => {
@@ -79,5 +89,36 @@ describe('A12.3: sending is bound to the account Health ID confirmed', () => {
     rt.lock('manual')
     await settle(rt)
     expect(await storedContact(rt)).toBe(env.wall)
+  })
+})
+
+describe('A12.8: unlock after an offline cold start', () => {
+  async function coldStart() {
+    const server = createServer()
+    const env = makeEnv()
+    const idb = new IDBFactory()
+    await signIn(makeRuntime({ server, env, idb }), { server })
+    const rt = makeRuntime({ server, env, idb })
+    expect(await rt.unlockOffline(SESSION.email, PASSWORD)).toMatchObject({ ok: true })
+    rt.lock('idle')
+    return rt
+  }
+
+  it('unlockOffline, lock(idle), then unlockLocked with the password opens it again', async () => {
+    const rt = await coldStart()
+    expect(await rt.unlockLocked(PASSWORD)).toMatchObject({ ok: true })
+    expect(rt.restoreSession()).not.toBeNull()
+  })
+
+  it('a wrong password after the lock is wrong-credentials, not no-vault', async () => {
+    const rt = await coldStart()
+    expect(await rt.unlockLocked('not the password')).toEqual({ ok: false, reason: 'wrong-credentials' })
+  })
+
+  it('the fake refuses unlockLocked with no email, as the real runtime does', async () => {
+    const { runtime } = await fakeSignedIn()
+    await runtime.signOut({ online: false })
+    expect(await runtime.hasVaults()).toBe(true)
+    expect(await runtime.unlockLocked(PASSWORD)).toEqual({ ok: false, reason: 'no-vault' })
   })
 })

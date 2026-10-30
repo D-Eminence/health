@@ -146,6 +146,8 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
   let sessionReady = false
   /** The account Health ID confirmed for this tab's session (A12.3): only that account's vault sends or extends its lease. */
   let readyAccount: string | null = null
+  /** The email of the vault last opened in this tab, kept until sign-out so the lock overlay can reopen it (A12.8). */
+  let lastEmail: string | null = null
   let policy: OfflinePolicy = evaluatePolicy(config, { appHost, supported })
   let lastActivity = mono()
   let hiddenSince: number | null = null
@@ -379,6 +381,7 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     unlocked = { open, kek, session, sendOnly }
     lastVaultId = open.record.vaultId
     lastVaultFor = session
+    lastEmail = session.email
     status = 'unlocked'
     lastActivity = mono()
     clock.restore({ offsetMs: open.record.lease.serverOffsetMs, lastWallSeen: open.record.lease.lastWallSeen })
@@ -604,7 +607,9 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
   }
 
   async function unlockLockedNow(password: string): Promise<UnlockResult> {
-    const email = unlocked?.session.email ?? attachedSession?.email ?? null
+    // After an offline cold start there is no attached session: reopen the vault last opened here (A12.8), through
+    // unlockWith below, with its usual counting, lease and clock checks.
+    const email = unlocked?.session.email ?? attachedSession?.email ?? lastEmail
     if (!email) return { ok: false, reason: 'no-vault' }
     const session = attachedSession
     if (session && !unlocked) {
@@ -911,6 +916,7 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       }
       attachedSession = null
       prepared = null
+      lastEmail = null
       status = (await runtime.hasVaults()) ? 'locked' : 'none'
       await refreshSummary()
     },
