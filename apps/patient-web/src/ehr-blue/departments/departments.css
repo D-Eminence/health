@@ -523,6 +523,55 @@
   border-radius: var(--ehr-radius-md);
 }
 
+/*
+ * Their buttons in the design's shapes. The live buttons' Tailwind utilities sit in a cascade layer, so these
+ * unlayered rules take precedence inside this wrapper only.
+ */
+.hid-ehr .hid-ehr-dept-embedded button[class~='inline-flex'] {
+  min-height: 40px;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-family: var(--ehr-font-body);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.hid-ehr .hid-ehr-dept-embedded button[class~='bg-brand'] {
+  border: 1px solid var(--ehr-brand);
+  background: var(--ehr-brand);
+  color: #ffffff;
+}
+
+.hid-ehr .hid-ehr-dept-embedded button[class~='bg-surface'] {
+  border: 1px solid var(--ehr-line-strong);
+  background: var(--ehr-surface);
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-dept-embedded button[class~='bg-surface']:hover:not([aria-disabled='true']) {
+  border-color: var(--ehr-line-strong);
+  background: var(--ehr-surface-tint);
+  color: var(--ehr-ink);
+}
+
+/* In a record's "Available actions", the ending actions stack full width like the design's action buttons. */
+.hid-ehr .hid-ehr-card .hid-ehr-dept-embedded > .staff-row {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+
+.hid-ehr .hid-ehr-card .hid-ehr-dept-embedded > .staff-row > button {
+  width: 100%;
+}
+
+/* Where work from another facility came from, under its patient. */
+.hid-ehr .hid-ehr-dept-routed-from {
+  margin: 4px 0 0;
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
 @media (max-width: 1000px) {
   .hid-ehr .hid-ehr-dept-two-col {
     grid-template-columns: minmax(0, 1fr);
