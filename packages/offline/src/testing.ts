@@ -517,6 +517,8 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
   const runtime: OfflineCore = {
     policy: () => lastPolicy,
 
+    forgetSignIn() { prepared = null },
+
     prepareFromSignIn(email, password) {
       if (config.mode === 'off') { prepared = null; return }
       prepared = { email: email.trim().toLowerCase(), passwordProof: proof(email, password), passwordOk: passwordLongEnough(password) }
@@ -540,7 +542,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
       attachedEmail = s.email
       if (reason || !key) {
         // A facility switch (A12.7): the old facility's vault is closed before the new one attaches.
-        if (open && open.session.facilityId.toLowerCase() !== s.facilityId.toLowerCase()) {
+        if (open && (open.session.accountId !== s.accountId || open.session.facilityId.toLowerCase() !== s.facilityId.toLowerCase())) {
           open = null
           if (status === 'unlocked') status = 'locked'
         }

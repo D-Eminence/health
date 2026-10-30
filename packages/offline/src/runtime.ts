@@ -100,6 +100,11 @@ const TICK_MS = 15_000
 const WALL_NOTE_MS = 60_000
 const LEASE_WRITE_MS = 60_000
 
+/** The same account at the same facility. */
+function sameOwner(a: StaffSessionSnapshot, b: StaffSessionSnapshot): boolean {
+  return a.accountId === b.accountId && a.facilityId.toLowerCase() === b.facilityId.toLowerCase()
+}
+
 function defaultLocks(): LockManagerLike | null {
   const nav = (globalThis as { navigator?: { locks?: LockManagerLike } }).navigator
   return nav?.locks ?? null
@@ -280,13 +285,14 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       && connectivity.current() !== 'offline'
   }
 
+  const locks = o.locks === undefined ? defaultLocks() : o.locks
   const engine = new OutboxEngine({
     store: lazyStore,
     transport: o.transport,
     ...(o.upload ? { upload: o.upload } : {}),
     ...(o.safety ? { safety: o.safety } : {}),
     ...(o.report ? { report: o.report } : {}),
-    locks: o.locks === undefined ? defaultLocks() : o.locks,
+    locks,
     vault: () => {
       const v = queueVault()
       if (!v || !unlocked) return null
@@ -596,12 +602,14 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
   }
 
   /**
-   * One unlock attempt at a time in this tab. A double submit of the right password would otherwise hold a second
-   * reservation, which after four failures is refused and wipes every readable copy (D2 allows five).
+   * One unlock attempt at a time in this origin (queued in this tab, and a Web Lock across tabs). A double submit of the
+   * right password, in one tab or two, would otherwise hold a second reservation, which after four failures is refused
+   * and wipes every readable copy (D2 allows five).
    */
   let unlockQueue: Promise<unknown> = Promise.resolve()
   function oneAtATime(attempt: () => Promise<UnlockResult>): Promise<UnlockResult> {
-    const run = unlockQueue.then(attempt, attempt)
+    const guarded = () => (locks ? locks.request('health-id-offline:unlock', {}, attempt) : attempt())
+    const run = unlockQueue.then(guarded, guarded)
     unlockQueue = run.catch(() => undefined)
     return run
   }
@@ -617,7 +625,10 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       // verified within the lease window. Otherwise (a tab locked long after its sign-in, perhaps offline for days) the
       // tab's own vault goes through the offline rules: lease, clock and a readable copy; a stale reload signs in again.
       if (clock.now() - attachedAt >= LIMITS.leaseMs) {
-        return lastVaultId ? unlockWith(email, password, lastVaultId) : { ok: false, reason: 'lease-expired' }
+        // Only the tab's own vault for this session: after a facility switch it is not this session's (P1).
+        return lastVaultId && lastVaultFor && sameOwner(lastVaultFor, session)
+          ? unlockWith(email, password, lastVaultId)
+          : { ok: false, reason: 'lease-expired' }
       }
       // Online reload: open the vault for the attached session's facility.
       const s = await storeIfExists()
@@ -716,6 +727,10 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
   const runtime: OfflineRuntimeHandle = {
     policy: () => policy,
 
+    forgetSignIn() {
+      prepared = null
+    },
+
     prepareFromSignIn(email, password) {
       prepared = null
       if (!supported) return
@@ -758,6 +773,12 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       await startup
       attachedSession = s
       attachedAt = clock.serverNow() ?? clock.now()
+      // Another account or facility (a facility switch, A12.7): the open vault is not this session's, so its keys go
+      // before anything attaches. Unlock then opens only this session's own vault.
+      if (unlocked && !sameOwner(unlocked.session, s)) {
+        void persistLease()
+        dropKeys('locked')
+      }
       // Only the password typed for this account: a sign-in left unfinished by someone else never keys this session.
       const p = preparedFor(s)
       prepared = null
@@ -766,11 +787,6 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
         // Online reload: no password in this tab. Vaults stay sealed until the person unlocks.
         if (reason) setPolicy(evaluatePolicy(config, { appHost, facilityId: s.facilityId, supported }))
         else setPolicy(evaluatePolicy(config, { appHost, facilityId: s.facilityId, optedIn: null, supported }))
-        // A facility switch (A12.7): the open vault is the old facility's, so its keys go before the new one attaches.
-        if (unlocked && !unlocked.sendOnly && unlocked.session.facilityId.toLowerCase() !== s.facilityId.toLowerCase()) {
-          void persistLease()
-          dropKeys('locked')
-        }
         status = (await runtime.hasVaults()) ? 'locked' : 'none'
         await refreshSummary()
         return summaryCache
@@ -879,9 +895,12 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       const now = clock.now()
       const lease = { ...match.record.lease, signedInAt: now, lastServerContactAt: now, leaseUntil: leaseUntil(now, now) }
       match = await v.writeHeader(match, s, lease)
-      if (!match.record.wraps.qkEsc) {
+      // A missing wrap is added, and an older one moves to the newest key version, so a password change after a
+      // rotation can still recover the queue (P4).
+      {
         const escrow = await fetchEscrow(match.record.vaultId, s.facilityId)
-        if (escrow) match = await v.addEscrow(kek, match, escrow)
+        const stored = match.record.wraps.qkEsc?.keyVersion
+        if (escrow && (stored === undefined || escrow.keyVersion > stored)) match = await v.addEscrow(kek, match, escrow)
       }
       // A placeholder keeps asking at later sign-ins until the recovery itself ran with escrow answering (it is skipped
       // while the placeholder holds unsent work), not merely until its own wrap was added.
@@ -922,6 +941,7 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       attachedSession = null
       prepared = null
       lastEmail = null
+      lastVaultFor = null
       status = (await runtime.hasVaults()) ? 'locked' : 'none'
       await refreshSummary()
     },
@@ -941,12 +961,13 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
           if (unlocked) dropKeys(reason === 'kill-switch' ? 'none' : 'locked')
           break
         case 'membership': {
-          // Only the vault of the person whose membership ended at that facility: the last vault this tab opened may
-          // belong to someone else (a shared device) or to another facility (a switch, or a sign-in that declined).
+          // Only the vault of the person whose membership ended: the last vault this tab opened may belong to someone
+          // else (a shared device). After a facility switch the ended session may name the new facility while the open
+          // or last vault is the old one, which the app judged ended (P7), so only the account is compared. A signed-out
+          // vault is never marked: sign-out forgets the owner.
           const owner = unlocked?.session ?? lastVaultFor
           const ended = attachedSession ?? owner
           const mine = current !== null && owner !== null && ended !== null && owner.accountId === ended.accountId
-            && owner.facilityId.toLowerCase() === ended.facilityId.toLowerCase()
           if (mine) {
             // CC8 (D9): unsent work stays sealed 30 days, then is deleted.
             if (unlocked) await engine.holdMembership()

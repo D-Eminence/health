@@ -228,6 +228,7 @@ export async function runSequence(seed: number, steps: number): Promise<void> {
       await t.rt.signOut({ online })
       if (who) noReadable.add(key(who.acc, who.fac))
       t.open = null
+      t.lastOwner = null
       t.attached = null
       if (!online) await t.rt.logoutSent()
       return `signOut tab${tabs.indexOf(t)} online=${online}`
@@ -267,7 +268,7 @@ export async function runSequence(seed: number, steps: number): Promise<void> {
       await t.rt.wipe(reason)
       if (reason === 'failed-unlocks' || reason === 'kill-switch') allGone()
       else if (who && reason !== 'membership') noReadable.add(key(who.acc, who.fac))
-      if (reason === 'membership' && owner && ended && owner.acc === ended.acc && owner.fac === ended.fac) {
+      if (reason === 'membership' && owner && ended && owner.acc === ended.acc) {
         // D9: this person's queued work at that facility may be deleted 30 days later.
         for (const tok of tokens.values()) if (tok.acc === owner.acc && tok.fac === owner.fac && tok.status === 'pending') tok.status = 'exempt'
         membershipEnded.set(key(owner.acc, owner.fac), stepNo)

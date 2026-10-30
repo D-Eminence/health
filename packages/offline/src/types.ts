@@ -110,6 +110,11 @@ export type OfflineOffer =
 
 /** The runtime as the app sees it: the frozen contract plus the wiring seams. */
 export interface OfflineCore extends OfflineRuntime {
+  /**
+   * Identity refused the sign-in (or it was abandoned): forget the password prepared by `prepareFromSignIn`, so it never
+   * keys a session that becomes ready later in this tab. Call it from the sign-in form's error path.
+   */
+  forgetSignIn(): void
   /** What to show after sign-in (A5). Never writes anything. */
   offer(session: StaffSessionSnapshot): Promise<OfflineOffer>
   /** Wire into `ApiClientOptions.onResponseMeta`: feeds the clock, lease and connectivity. */

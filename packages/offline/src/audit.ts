@@ -13,6 +13,7 @@ import { LIMITS, OFFLINE_PATHS, type ClockState, type Json, type OfflineAudit, t
 import { open, randomUuid, recordAad, seal, type VaultKeys } from './crypto'
 import { vaultRange, type AuditRecord, type OfflineStore } from './store'
 import { isTransportError, type OfflineReport, type OfflineTransport } from './types'
+import { classify } from './outbox/classify'
 import { recountPending } from './vault'
 
 export const AUDIT_SECTIONS: ReadonlySet<string> = new Set([
@@ -144,7 +145,8 @@ export class AuditQueue implements OfflineAudit {
         // refusal of the envelope (400 VALIDATION_FAILED) will not change on a retry: it is reported, and the batch
         // is marked rejected (kept 7 days, then dropped with a report) instead of being retried silently (A10.2).
         const e = isTransportError(error) ? error : null
-        if (e && e.status !== null && e.status >= 400 && e.status < 500 && ![401, 403, 408, 425, 429].includes(e.status)) {
+        // Only a refusal classified invalid: 423 (the §2.3 lever), 404 and 409 are retried and delivered later.
+        if (e && e.status !== null && classify({ status: e.status, code: e.code, problem: e.problem, networkError: e.networkError }) === 'invalid') {
           this.host.report?.({ kind: 'audit-refused', status: e.status, code: e.code ?? 'UNKNOWN', events: batch.length })
           await this.host.store.write(['vaults', 'outbox', 'audit', 'media'], async tx => {
             for (const r of batch) await tx.put('audit', { ...r, state: 'rejected', rejectedAt: now })

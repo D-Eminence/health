@@ -109,7 +109,7 @@ describe('2. wipe(membership) marks only the vault of the person whose membershi
     expect((await dump(after)).outbox).toHaveLength(1)
   })
 
-  it('(c) after a facility switch without a password, the X vault is not marked', async () => {
+  it('(c) after a facility switch without a password, the X vault is marked (the app judged X ended; P7)', async () => {
     const server = createServer()
     const env = clockedEnv()
     const idb = new IDBFactory()
@@ -117,7 +117,7 @@ describe('2. wipe(membership) marks only the vault of the person whose membershi
     await signIn(rt, { server })
     await rt.attachSession(AT_Y, { optIn: false, online: true })
     await rt.wipe('membership')
-    expect(await markers(rt)).toEqual([null])
+    expect((await markers(rt))[0]).not.toBeNull()
   })
 })
 
