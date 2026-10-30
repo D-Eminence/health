@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { EhrAppShell, EhrSidebar, EhrTopBar, type EhrNavGroup, type EhrNavItem } from '@hid/ui/ehr'
+import { EhrAppShell, EhrModuleTabs, EhrSidebar, EhrTopBar, type EhrNavGroup, type EhrNavItem } from '@hid/ui/ehr'
 import { useStaff } from '../../staff/App'
 import { ReviewBanner } from '../../staff/routes/ReviewBanner'
 import { BillingBanner } from '../../staff/routes/Billing'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { chooseClassicEhr, isDemoFacility } from '../blueFacilities'
-import { BLUE_PAGES, isLiveOnlyPath, matchBluePage, pageAllowed } from '../routes'
+import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, pageAllowed, pageTabs } from '../routes'
 import { AttentionProvider } from './attention'
+import { BluePageBoundary } from './BluePageBoundary'
 import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage, UnknownPage } from './LivePages'
 import { BluePageProvider, BluePagesProvider } from './pageContext'
@@ -50,9 +51,12 @@ export function BlueFrame() {
   const session = state.status === 'ready' ? state.session : null
   const facility = session?.actor.facility
   const permissions = useMemo(() => facility?.permissions ?? [], [facility])
-  const allowed = useMemo(() => BLUE_PAGES.filter(page => pageAllowed(page, permissions)), [permissions])
+  const allowed = useMemo(() => BLUE_PAGES.filter(page => pageAllowed(page, session)), [session])
   const match = matchBluePage(BLUE_PAGES, location.pathname)
-  const shownTitle = match ? match.page.label : 'Page not found'
+  const tabs = match ? pageTabs(allowed, match.page) : []
+  // A tab has no sidebar entry: the page it joins is the current one.
+  const current = match?.page.tabOf ? allowed.find(page => basePath(page.path) === match.page.tabOf) ?? match.page : match?.page
+  const shownTitle = match ? match.page.label : liveOnlyTitle(location.pathname) ?? 'Page not found'
   // Today's tab title names today's pages only: the blue page names itself once the workspace is open.
   useEffect(() => {
     if (lock === null && session) document.title = `${shownTitle} · Health ID EHR`
@@ -65,8 +69,16 @@ export function BlueFrame() {
     navigate(item.href)
   }
 
+  const classicEhr = () => {
+    // Today's workspace serves its own pages at the same address, and only at that exact address: a record or a sample
+    // under one (/provider/appointments/5a020001) is not one of today's, so it opens on today's Overview.
+    const path = location.pathname.replace(/\/+$/, '').toLowerCase()
+    if (![...TODAY_PATHS].some(today => path === `/provider/${today}`) && !isLiveOnlyPath(path)) navigate('/provider')
+    chooseClassicEhr()
+  }
+
   const content = match
-    ? pageAllowed(match.page, permissions)
+    ? pageAllowed(match.page, session)
       ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
       : <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'} />
     : isLiveOnlyPath(location.pathname) ? <LivePage /> : <UnknownPage />
@@ -77,8 +89,8 @@ export function BlueFrame() {
         <EhrAppShell
           sidebar={(
             <EhrSidebar
-              groups={navigationGroups(allowed)}
-              currentId={match?.page.path}
+              groups={navigationGroups(allowed.filter(page => !page.tabOf))}
+              currentId={current?.path}
               brand={<BrandLogo className="hid-ehr-blue-logo" />}
               product="Hospital EHR"
               onNavigate={follow}
@@ -91,11 +103,7 @@ export function BlueFrame() {
                 <WorkspaceSearch pages={allowed} />
                 {isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} /> : null}
                 <NotificationsButton />
-                <AccountMenu onSample={setSamplePanel} onClassic={() => {
-                  // Today's workspace serves its own pages at the same address; anything else opens on its Overview.
-                  if (!(match && TODAY_PATHS.has(basePath(match.page.path))) && !isLiveOnlyPath(location.pathname)) navigate('/provider')
-                  chooseClassicEhr()
-                }} />
+                <AccountMenu onSample={setSamplePanel} onClassic={classicEhr} />
               </>}
             />
           )}
@@ -103,9 +111,19 @@ export function BlueFrame() {
           <div ref={pageRef} className="hid-ehr-blue-page">
             <ReviewBanner />
             <BillingBanner />
-            {content}
+            {tabs.length > 0 ? (
+              <EhrModuleTabs
+                label={tabs[0]!.label}
+                currentId={basePath(match!.page.path)}
+                tabs={tabs.map((tab, index) => ({ id: basePath(tab.path), label: index === 0 ? tab.tabLabel ?? tab.label : tab.label, href: pageHrefOf(tab) }))}
+                onNavigate={follow}
+              />
+            ) : null}
+            {/* A page that fails would take the frame with it, and the account menu's way back to the classic EHR. */}
+            <BluePageBoundary key={location.pathname} onClassic={classicEhr}>{content}</BluePageBoundary>
           </div>
-          <ConnectionStatus />
+          {/* Fictional figures: only where the page itself is a sample. */}
+          {match?.page.status === 'sample' ? <ConnectionStatus /> : null}
           <AccountSamplePanel panel={samplePanel} onClose={() => setSamplePanel(null)} />
         </EhrAppShell>
       </AttentionProvider>

@@ -98,4 +98,29 @@ describe('EhrSidebar', () => {
     expect(onNavigate).toHaveBeenCalledTimes(1)
     expect(onNavigate.mock.calls[0]![0]).toMatchObject({ id: 'staff', href: '/ehr/staff' })
   })
+
+  it('brings the current entry into view, nearest, each time the current page changes', () => {
+    // jsdom has no scrollIntoView: the sidebar checks for it, and this stands one in.
+    const scrolled: { name: string | null; options: unknown }[] = []
+    const scrollIntoView = vi.fn(function (this: HTMLElement, options?: unknown) { scrolled.push({ name: this.textContent, options }) })
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+    try {
+      const { rerender } = render(<EhrSidebar groups={NAV_GROUPS} currentId="appointments" />)
+      expect(scrolled).toEqual([{ name: 'Appointments', options: { block: 'nearest' } }])
+      rerender(<EhrSidebar groups={NAV_GROUPS} currentId="appointments" />)
+      expect(scrolled).toHaveLength(1)
+      rerender(<EhrSidebar groups={NAV_GROUPS} currentId="settings" />)
+      expect(scrolled).toEqual([
+        { name: 'Appointments', options: { block: 'nearest' } },
+        { name: 'Facility settings', options: { block: 'nearest' } },
+      ])
+    } finally {
+      delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView
+    }
+  })
+
+  it('does without scrollIntoView where the browser has none', () => {
+    expect('scrollIntoView' in HTMLElement.prototype).toBe(false)
+    expect(() => render(<EhrSidebar groups={NAV_GROUPS} currentId="staff" />)).not.toThrow()
+  })
 })

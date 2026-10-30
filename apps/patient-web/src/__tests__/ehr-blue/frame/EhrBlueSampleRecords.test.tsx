@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { DEMO_HOSPITAL, REQUESTS, SESSION, facility, json, openStaffApp, serve, sessionAt, where } from './blueHarness'
+import { DEMO_HOSPITAL, REQUESTS, SESSION, facility, json, openStaffApp, serve, sessionAt, where, withFramePages } from './blueHarness'
 
 /** A sample record's page and create form, as the design's screens/workspaces/*-2-new and *-3-detail draw them. */
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
+// These test the frame's own sample workspaces, whichever other folders' pages have joined.
+beforeEach(() => { withFramePages() })
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
 async function openDemo(path: string) {
@@ -18,7 +20,7 @@ const card = (title: string) => screen.getByRole('heading', { level: 2, name: ti
 
 describe('a sample record\'s page', () => {
   it('shows the saved record, its actions and its patient as the design does', async () => {
-    const sent = await openDemo('/provider/appointments/S-0201')
+    const sent = await openDemo('/provider/appointments/5a020001')
     const before = sent.length
     expect(screen.getByRole('heading', { level: 1, name: 'Review of results' })).toBeDefined()
     expect(screen.getByRole('button', { name: 'Back to list' })).toBeDefined()
@@ -46,7 +48,7 @@ describe('a sample record\'s page', () => {
   })
 
   it('asks to confirm an action the design confirms, and to type the word for a refund', async () => {
-    await openDemo('/provider/patient-billing/S-1701')
+    await openDemo('/provider/patient-billing/5a110001')
     expect(screen.getByRole('heading', { level: 1, name: 'DEMO-1' })).toBeDefined()
     expect(within(card('Saved record')).getByText('Total').nextElementSibling?.textContent).toBe('1000000')
     fireEvent.click(screen.getByRole('button', { name: 'Issue invoice' }))
@@ -80,21 +82,21 @@ describe('a sample record\'s page', () => {
   })
 
   it('carries the patient and the visit into the next record (Continue care)', async () => {
-    await openDemo('/provider/journey/S-0301')
+    await openDemo('/provider/journey/5a030001')
     expect(screen.getByRole('heading', { level: 3, name: 'Continue care' })).toBeDefined()
     // Consultation is live, so a sample visit hands over only to the samples.
     expect(screen.queryByRole('button', { name: 'Create consultation' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Create triage & vitals' }))
     await waitFor(() => expect(where()).toBe('/provider/triage/new'))
     expect((screen.getByRole('combobox', { name: 'Patient' }) as HTMLSelectElement).value).toBe('Alex Example')
-    expect((screen.getByRole('combobox', { name: 'Visit' }) as HTMLSelectElement).value).toBe('S-0301')
+    expect((screen.getByRole('combobox', { name: 'Visit' }) as HTMLSelectElement).value).toBe('5a030001')
     expect(screen.getByRole('heading', { level: 2, name: 'Patient context' })).toBeDefined()
     expect(screen.getByText('Recorded allergies: Fictional Med A')).toBeDefined()
     expect((screen.getByRole('combobox', { name: 'Priority' }) as HTMLSelectElement).value).toBe('Routine')
   })
 
   it('keeps a stock item\'s batches, with the tabs above the heading', async () => {
-    await openDemo('/provider/supply/S-1901')
+    await openDemo('/provider/supply/5a130001')
     const tabs = screen.getByRole('navigation', { name: 'Supply' })
     const heading = screen.getByRole('heading', { level: 1, name: 'Fictional Med A' })
     expect(tabs.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -109,7 +111,7 @@ describe('a sample record\'s page', () => {
   })
 
   it('says when a record is not there', async () => {
-    await openDemo('/provider/appointments/S-0299')
+    await openDemo('/provider/appointments/5a020063')
     expect(screen.getByRole('heading', { level: 1, name: 'Record not found' })).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
     await waitFor(() => expect(where()).toBe('/provider/appointments'))

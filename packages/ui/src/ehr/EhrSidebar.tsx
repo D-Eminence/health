@@ -10,7 +10,7 @@
  * shell's overlay layer, so no script ever asks the viewport its width.
  */
 
-import { useId, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { HugeiconsIcon } from '@hugeicons/react'
 import ArrowLeftDoubleIcon from '@hugeicons/core-free-icons/ArrowLeftDoubleIcon'
 import ArrowRightDoubleIcon from '@hugeicons/core-free-icons/ArrowRightDoubleIcon'
@@ -178,9 +178,17 @@ interface SidebarNavigationProps {
 
 function SidebarNavigation({ groups, currentId, label, collapsed, closed, toggleGroup, onNavigate }: SidebarNavigationProps) {
   const idPrefix = useId()
+  const nav = useRef<HTMLElement>(null)
+
+  // A page opened from elsewhere (search, a link, the address bar) brings its entry into view in a long sidebar.
+  // 'nearest' leaves an entry already in view where it is. jsdom has no scrollIntoView.
+  useEffect(() => {
+    const current = nav.current?.querySelector<HTMLElement>('[aria-current="page"]')
+    if (typeof current?.scrollIntoView === 'function') current.scrollIntoView({ block: 'nearest' })
+  }, [currentId])
 
   return (
-    <nav className="hid-ehr-nav" aria-label={label}>
+    <nav ref={nav} className="hid-ehr-nav" aria-label={label}>
       {groups.map(group => {
         const listId = `${idPrefix}-${group.id}`
         // The collapsed rail shows every link, without group headings.

@@ -262,3 +262,20 @@ export function TodayCard({ facilityId, lab, pharmacy }: { readonly facilityId: 
     </EhrCard>
   )
 }
+
+/**
+ * Today, away from the demo facilities: links to the work pages the member may open, and no read. Today's Overview
+ * reads no laboratory or pharmacy work, and each such read is audited, so Home makes none either.
+ */
+export function TodayLinks({ lab, pharmacy }: { readonly lab: boolean; readonly pharmacy: boolean }) {
+  return (
+    <EhrCard title="Today">
+      {lab || pharmacy ? (
+        <ul className="hid-ehr-blue-list">
+          {lab ? <li className="hid-ehr-blue-list-item"><Link className="hid-ehr-blue-link" to="/provider/laboratory">Laboratory</Link></li> : null}
+          {pharmacy ? <li className="hid-ehr-blue-list-item"><Link className="hid-ehr-blue-link" to="/provider/pharmacy">Pharmacy</Link></li> : null}
+        </ul>
+      ) : <p className="hid-ehr-blue-muted">Nothing scheduled for you</p>}
+    </EhrCard>
+  )
+}

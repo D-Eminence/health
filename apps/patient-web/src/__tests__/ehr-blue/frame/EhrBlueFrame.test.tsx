@@ -1,14 +1,29 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { BLUE_PAGES, collectPages, matchBluePage, pageAllowed } from '../../../ehr-blue/routes'
+import { BLUE_PAGES, basePath, collectPages, matchBluePage, pageAllowed, pageTabs } from '../../../ehr-blue/routes'
 import { navigationGroups } from '../../../ehr-blue/frame/BlueFrame'
+import { pages as framePages } from '../../../ehr-blue/frame/pages'
+import { pages as homePages } from '../../../ehr-blue/home/pages'
 import type { EhrBluePage } from '../../../ehr-blue/frame/types'
+import type { StaffSession } from '../../../staff/api'
 import {
   DEMO_HOSPITAL, DEMO_LABORATORY, FACILITY, LAB_WORK, REQUESTS, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, where,
+  withFramePages,
 } from './blueHarness'
 
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
+// These test the frame and its stand-ins, whichever other folders' pages have joined.
+beforeEach(() => { withFramePages() })
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
+
+/** The frame's own registry: the design's, before any other folder's page takes a stand-in's place. */
+const FRAME_REGISTRY = collectPages({ './frame/pages.ts': { pages: framePages }, './home/pages.ts': { pages: homePages } })
+
+function sessionWith(permissions: readonly string[], name = 'Demo Hospital'): StaffSession {
+  const current = facility(DEMO_HOSPITAL, name, permissions)
+  return { actor: { id: 'staff-demo-1', email: 'demo.clinician@example.test', displayName: 'Demo Clinician', roles: ['clinician'], permissions: [],
+    facilities: [current], facility: current }, expiresAt: '2026-11-30T12:00:00.000Z' } as unknown as StaffSession
+}
 
 const SAMPLE_NOTICE = 'Sample only: not connected to Health ID yet. Nothing you do here is saved.'
 const DESIGN_GROUPS = ['Clinical', 'Diagnostics', 'Finance', 'Network & Services', 'People', 'Administration', 'Settings', 'Supply', 'Insight']
@@ -30,14 +45,26 @@ async function openDemo(path: string, permissions: readonly string[] = ['identit
 
 describe('the page registry', () => {
   it('holds every workspace of the design, in the design\'s groups and order, each with a status', () => {
-    const labels = BLUE_PAGES.map(page => page.label)
+    const labels = FRAME_REGISTRY.map(page => page.label)
     for (const workspace of DESIGN_WORKSPACES) expect(labels).toContain(workspace)
-    const groups = [...new Set(BLUE_PAGES.map(page => page.group).filter(group => group && group !== 'Design review' && group !== 'Design tour'))]
+    const groups = [...new Set(FRAME_REGISTRY.map(page => page.group).filter(group => group && group !== 'Design review' && group !== 'Design tour'))]
     expect(groups).toEqual(DESIGN_GROUPS)
-    for (const page of BLUE_PAGES) expect(['live', 'partial', 'sample']).toContain(page.status)
     expect(labels.slice(0, 1)).toEqual(['Home'])
     expect(labels).toEqual(expect.arrayContaining(['Facility review', 'Staff & access', 'Facility profile', 'Facility settings',
       'Facility subscription', 'Reports & Analytics', 'Audit & Compliance', 'What’s left', 'Choose workspace']))
+  })
+
+  it('keeps every page, from every folder, well formed: a status, one address each, and tabs that join a page', () => {
+    expect(BLUE_PAGES[0]?.label).toBe('Home')
+    const paths = BLUE_PAGES.map(page => basePath(page.path))
+    expect(new Set(paths).size).toBe(paths.length)
+    for (const page of BLUE_PAGES) {
+      expect(['live', 'partial', 'sample']).toContain(page.status)
+      if (!page.tabOf) continue
+      const owner = BLUE_PAGES.find(candidate => basePath(candidate.path) === page.tabOf)
+      expect(owner, `${page.label} joins ${page.tabOf}`).toBeDefined()
+      expect(owner?.tabOf, `${page.tabOf} is a page of its own`).toBeUndefined()
+    }
   })
 
   it('lets another folder replace a stand-in in place, and adds new paths at the end of their group', () => {
@@ -51,22 +78,51 @@ describe('the page registry', () => {
   })
 
   it('hides a live or partial page without its permission, never a sample page', () => {
-    const live = BLUE_PAGES.find(page => page.label === 'Pharmacy')!
-    const sample = BLUE_PAGES.find(page => page.label === 'Radiology')!
+    const live = FRAME_REGISTRY.find(page => page.label === 'Pharmacy')!
+    const sample = FRAME_REGISTRY.find(page => page.label === 'Radiology')!
     expect(live.status).toBe('live')
-    expect(pageAllowed(live, [])).toBe(false)
-    expect(pageAllowed(live, ['pharmacy.work-item.read'])).toBe(true)
+    expect(pageAllowed(live, sessionWith([]))).toBe(false)
+    expect(pageAllowed(live, sessionWith(['pharmacy.work-item.read']))).toBe(true)
     expect(sample.status).toBe('sample')
-    expect(pageAllowed(sample, [])).toBe(true)
+    expect(pageAllowed(sample, sessionWith([]))).toBe(true)
+    expect(pageAllowed(sample, null)).toBe(false)
+  })
+
+  it('hides any page its visible() turns down for the session, sample or live', () => {
+    const onlyAt = (name: string) => (session: StaffSession) => session.actor.facility?.name === name
+    const sample: EhrBluePage = { path: 'x', group: 'People', label: 'X', status: 'sample', element: <p>X</p>, visible: onlyAt('Demo Hospital') }
+    const live: EhrBluePage = { path: 'y', group: 'People', label: 'Y', status: 'live', permission: 'workforce.manage', element: <p>Y</p>,
+      visible: onlyAt('Demo Hospital') }
+    expect(pageAllowed(sample, sessionWith([]))).toBe(true)
+    expect(pageAllowed(sample, sessionWith([], 'Riverside Teaching Hospital (fictional)'))).toBe(false)
+    // visible() comes first, and the permission still counts.
+    expect(pageAllowed(live, sessionWith(['workforce.manage'], 'Riverside Teaching Hospital (fictional)'))).toBe(false)
+    expect(pageAllowed(live, sessionWith([]))).toBe(false)
+    expect(pageAllowed(live, sessionWith(['workforce.manage']))).toBe(true)
   })
 
   it('matches an address to its page, and a sample page\'s sub-address to the rest', () => {
-    expect(matchBluePage(BLUE_PAGES, '/provider')?.page.label).toBe('Home')
-    expect(matchBluePage(BLUE_PAGES, '/provider/laboratory')?.page.label).toBe('Laboratory')
-    expect(matchBluePage(BLUE_PAGES, '/provider/appointments/new')).toMatchObject({ rest: 'new' })
-    expect(matchBluePage(BLUE_PAGES, '/provider/not-a-page')).toBeNull()
-    const groups = navigationGroups(BLUE_PAGES.filter(page => page.status === 'sample' || page.label === 'Supply'))
-    expect(groups.find(group => group.id === 'Supply')?.label).toBeUndefined()
+    expect(matchBluePage(FRAME_REGISTRY, '/provider')?.page.label).toBe('Home')
+    expect(matchBluePage(FRAME_REGISTRY, '/provider/laboratory')?.page.label).toBe('Laboratory')
+    expect(matchBluePage(FRAME_REGISTRY, '/provider/appointments/new')).toMatchObject({ rest: 'new' })
+    expect(matchBluePage(FRAME_REGISTRY, '/provider/policies/5a200001')).toMatchObject({ rest: '5a200001' })
+    expect(matchBluePage(FRAME_REGISTRY, '/provider/not-a-page')).toBeNull()
+  })
+
+  it('groups tabs as the design does: Claims | Policies and Stock | Procurement, each under one sidebar entry', () => {
+    const tabs = (label: string) => pageTabs(FRAME_REGISTRY, FRAME_REGISTRY.find(page => page.label === label)!)
+      .map((tab, index) => index === 0 ? tab.tabLabel ?? tab.label : tab.label)
+    expect(tabs('Insurance & Claims')).toEqual(['Claims', 'Policies'])
+    expect(tabs('Policies')).toEqual(['Claims', 'Policies'])
+    expect(tabs('Supply')).toEqual(['Stock', 'Procurement'])
+    expect(tabs('Procurement')).toEqual(['Stock', 'Procurement'])
+    expect(tabs('Radiology')).toEqual([])
+    const groups = navigationGroups(FRAME_REGISTRY.filter(page => !page.tabOf))
+    expect(groups.find(group => group.id === 'Finance')?.items.map(item => item.label)).toEqual(['Patient billing', 'Insurance & Claims'])
+    // Supply is one entry with no heading, as in the design.
+    const supply = groups.find(group => group.id === 'Supply')
+    expect(supply?.label).toBeUndefined()
+    expect(supply?.items.map(item => item.label)).toEqual(['Supply'])
   })
 })
 
@@ -87,7 +143,7 @@ describe('the blue frame', () => {
     await openDemo('/provider/whats-left')
     expect(screen.getByRole('heading', { level: 1, name: 'What’s left' })).toBeDefined()
     const table = screen.getByRole('table', { name: 'Pages and their status' })
-    expect(within(table).getAllByRole('row')).toHaveLength(BLUE_PAGES.length + 1)
+    expect(within(table).getAllByRole('row')).toHaveLength(FRAME_REGISTRY.length + 1)
     const radiology = within(table).getByRole('link', { name: 'Radiology' }).closest('tr')!
     expect(within(radiology).getByText('Sample')).toBeDefined()
     const lab = within(table).getByRole('link', { name: 'Laboratory' }).closest('tr')!
@@ -120,7 +176,7 @@ describe('the blue frame', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Department' }), { target: { value: 'General Outpatient' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Reason' }), { target: { value: 'Review (fictional)' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save record' }))
-    await waitFor(() => expect(where()).toBe('/provider/appointments/S-0204'))
+    await waitFor(() => expect(where()).toBe('/provider/appointments/5a020004'))
     expect(screen.getByRole('heading', { level: 1, name: 'Review (fictional)' })).toBeDefined()
     expect(screen.getByText('Taylor Fiction · HID-DEMO-002')).toBeDefined()
     expect(screen.getByRole('button', { name: 'Check in' })).toBeDefined()
@@ -196,12 +252,15 @@ describe('the blue frame', () => {
     await waitFor(() => expect(where()).toBe('/provider/bloodbank'))
   })
 
-  it('counts pending access requests on the bell, from today\'s read', async () => {
-    await openDemo('/provider/whats-left')
-    const bell = await screen.findByRole('button', { name: 'Notifications, 1 pending' })
-    fireEvent.click(bell)
+  it('counts pending access requests on the bell once they are read: on opening its drawer, or Home', async () => {
+    const sent = await openDemo('/provider/whats-left')
+    // Away from Home nothing reads them, as today: only Overview and Requests do.
+    expect(sent.some(call => call.route === REQUESTS)).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }))
     const drawer = screen.getByRole('dialog', { name: 'Notifications' })
-    expect(within(drawer).getByText('1 pending access request')).toBeDefined()
+    expect(await within(drawer).findByText('1 pending access request')).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Notifications, 1 pending' })).toBeDefined()
+    expect(sent.filter(call => call.route === REQUESTS)).toHaveLength(1)
   })
 })
 

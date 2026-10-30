@@ -1,8 +1,8 @@
 import { useState, useSyncExternalStore } from 'react'
 import { Link } from 'react-router-dom'
 import { EhrButton, EhrCard, EhrField, EhrPageHeading, EhrSampleBanner, EhrSelect, EhrStatCard } from '@hid/ui/ehr'
+import { useSampleHref } from '../frame/pageContext'
 import { useRoleView, type DemoRole } from '../frame/roleView'
-import { modulePath } from '../frame/sample/paths'
 import { sampleModule, sampleRecords, sampleTitle, sampleVersion, statusWords, subscribeSamples } from '../frame/sample/store'
 
 /**
@@ -32,9 +32,13 @@ const ROLE_MODULES: Record<DemoRole, readonly string[]> = {
 export function RoleDashboard({ role }: { readonly role: DemoRole }) {
   useSyncExternalStore(subscribeSamples, sampleVersion, sampleVersion)
   const { view } = useRoleView()
+  // Sample records link only into sample pages: a live page with the module's address would not find them.
+  const hrefOf = useSampleHref()
+  const review = hrefOf('platform')
   const [period, setPeriod] = useState('7')
   const modules = ROLE_MODULES[role].map(id => sampleModule(id)).filter(module => module !== undefined)
-  const attention = modules.flatMap(module => sampleRecords(module.id).slice(0, 1).map(record => ({ module, record }))).slice(0, 7)
+  const attention = modules.flatMap(module => sampleRecords(module.id).slice(0, 1)
+    .map(record => ({ module, record, href: hrefOf(module.id) }))).slice(0, 7)
   const today = modules.slice(0, 2).flatMap(module => sampleRecords(module.id).map(record => ({ module, record }))).slice(0, 6)
   return <>
     <EhrPageHeading title={`Welcome, Demo ${role}`} description={`The ${role} dashboard, as the design shows it.`}
@@ -48,7 +52,7 @@ export function RoleDashboard({ role }: { readonly role: DemoRole }) {
     </EhrField>
     {role === 'Platform Super Admin' ? (
       <EhrCard title="Facility review"><p>Facilities waiting for Health ID to check them.</p>
-        <Link className="hid-ehr-blue-link" to="/provider/platform">Open Facility review →</Link></EhrCard>
+        {review ? <Link className="hid-ehr-blue-link" to={review}>Open Facility review →</Link> : null}</EhrCard>
     ) : (
       <div className="hid-ehr-blue-grid">
         <EhrCard title="Activity in period">
@@ -59,9 +63,9 @@ export function RoleDashboard({ role }: { readonly role: DemoRole }) {
           </div>
         </EhrCard>
         <EhrCard title="Needs attention">
-          <ul className="hid-ehr-blue-list">{attention.map(({ module, record }) => (
+          <ul className="hid-ehr-blue-list">{attention.map(({ module, record, href }) => (
             <li key={record.id} className="hid-ehr-blue-list-item">
-              <Link className="hid-ehr-blue-link" to={`${modulePath(module.id)}/${record.id}`}>{sampleTitle(record)}</Link>
+              {href ? <Link className="hid-ehr-blue-link" to={`${href}/${record.id}`}>{sampleTitle(record)}</Link> : <strong>{sampleTitle(record)}</strong>}
               <span className="hid-ehr-blue-muted">{module.title} · {statusWords(record.status)}</span>
             </li>
           ))}</ul>
@@ -78,9 +82,11 @@ export function RoleDashboard({ role }: { readonly role: DemoRole }) {
     )}
     <h2 className="hid-ehr-blue-section-title">Pinned shortcuts</h2>
     <ul className="hid-ehr-blue-shortcuts">
-      {modules.slice(0, 4).map(module => (
-        <li key={module.id}><Link className="hid-ehr-button hid-ehr-button-secondary" to={modulePath(module.id)}>{module.title}</Link></li>
-      ))}
+      {modules.slice(0, 4).map(module => {
+        const href = hrefOf(module.id)
+        return <li key={module.id}>{href ? <Link className="hid-ehr-button hid-ehr-button-secondary" to={href}>{module.title}</Link>
+          : <span className="hid-ehr-blue-shortcut-text">{module.title}</span>}</li>
+      })}
     </ul>
   </>
 }
