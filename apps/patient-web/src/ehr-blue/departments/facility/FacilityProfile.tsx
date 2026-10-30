@@ -8,7 +8,6 @@ import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptFacts } from '../parts/DeptRecord'
 import { countText } from '../parts/format'
-import './facility.css'
 
 /*
  * Facility profile (target admin/facility.png), read-only: the working facility as today's staff session reports it

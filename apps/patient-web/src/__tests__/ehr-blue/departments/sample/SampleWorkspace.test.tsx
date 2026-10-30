@@ -86,6 +86,8 @@ describe('the list', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
     expect((search as HTMLInputElement).value).toBe('')
+    // The button goes as it is pressed: focus goes to the field it cleared.
+    expect(document.activeElement).toBe(search)
     expect(screen.getAllByRole('row')).toHaveLength(4)
     expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull()
   })
@@ -160,7 +162,14 @@ describe('the list', () => {
       expect(lines).toHaveLength(2)
       expect(lines[1]).toBe('DEMO-2,c0eaed9b,Patient Two,issued,2026-10-26T11:41:16.100Z,General consultation,1,SERVICE-002')
       await waitFor(() => expect(revoked).toEqual(['blob:sample/1']))
-      expect(screen.getByRole('status').textContent).toBe('Exported 1 record.')
+      const status = screen.getByRole('status')
+      expect(status.textContent).toBe('Exported 1 record.')
+      // The same result again is a new node in the live region, so it is announced again.
+      const said = status.firstElementChild
+      fireEvent.click(screen.getByRole('button', { name: 'Export filtered records' }))
+      expect(status.textContent).toBe('Exported 1 record.')
+      expect(status.firstElementChild).not.toBe(said)
+      expect(said?.isConnected).toBe(false)
     })
 
     it('never lets a value start a spreadsheet formula', async () => {
@@ -425,6 +434,123 @@ describe('the record view', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
     expect(where()).toBe('/ehr/billing')
+  })
+})
+
+describe('the design\'s refusals', () => {
+  function refusal() {
+    return within(document.querySelector('form') as HTMLElement).getByRole('alert').textContent
+  }
+  /** Presses the open form's submit button, named `label`. */
+  function save(label = 'Save record') {
+    const submits = [...document.querySelectorAll<HTMLButtonElement>('form button[type="submit"]')]
+    expect(submits.map(button => button.textContent)).toEqual([label])
+    fireEvent.click(submits[0]!)
+  }
+
+  it('refuses an invoice for no quantity or for a service event already charged, keeping the form', () => {
+    renderSample('billing')
+    fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
+    choose('Patient', 'sample-patient-2')
+    choose('Service charge', 'General consultation')
+    type('Service quantity', '0', 'spinbutton')
+    type('Unique charge reference (order / service ID)', 'SERVICE-002')
+    save()
+    expect(refusal()).toBe('Quantity must be greater than zero.')
+    expect(screen.getByText('Correct the issue or retry using the same button. No success is reported until saved.')).toBeDefined()
+    expect(heading().textContent).toBe('New patient billing')
+
+    type('Service quantity', '1', 'spinbutton')
+    save()
+    expect(refusal()).toBe('This service event has already been charged.')
+    type('Unique charge reference (order / service ID)', 'SERVICE-010')
+    save()
+    expect(heading().textContent).toBe('DEMO-4')
+  })
+
+  it('refuses a shift that ends before it starts, or overlaps the same person\'s shift', () => {
+    renderSample('shifts')
+    fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
+    choose('Staff member', 'Demo Nurse A')
+    fireEvent.change(screen.getByLabelText(/^Shift start/), { target: { value: '2026-11-02T12:00' } })
+    fireEvent.change(screen.getByLabelText(/^Shift end/), { target: { value: '2026-11-02T10:00' } })
+    choose('Department', 'Emergency')
+    save()
+    expect(refusal()).toBe('Shift end must follow its start.')
+    fireEvent.change(screen.getByLabelText(/^Shift end/), { target: { value: '2026-11-02T18:00' } })
+    save()
+    expect(refusal()).toBe('Staff roster conflict.')
+    choose('Staff member', 'Demo Porter D')
+    save()
+    expect(screen.getByRole('heading', { name: 'Saved record' })).toBeDefined()
+  })
+
+  it('refuses a stock item with no pack size, and an edit to a negative price, keeping the record', () => {
+    const stock = renderSample('inventory')
+    fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
+    type('Item name', 'Fictional Bandage')
+    choose('Category', 'Consumable')
+    type('Base unit', 'roll')
+    type('Units per pack', '0', 'spinbutton')
+    type('Reorder threshold', '5', 'spinbutton')
+    save()
+    expect(refusal()).toBe('Pack size must be positive and reorder threshold cannot be negative.')
+    stock.unmount()
+
+    renderSample('services')
+    openRecord('Malaria test')
+    fireEvent.click(screen.getByRole('button', { name: 'Edit record' }))
+    type('Price', '-1', 'spinbutton')
+    save('Save changes')
+    expect(refusal()).toBe('Service price cannot be negative.')
+    expect(screen.getByRole('button', { name: 'Cancel editing' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel editing' }))
+    expect(savedFacts()).toEqual({ Name: 'Malaria test', Price: '1500' })
+    expect(screen.queryByRole('heading', { name: 'Preserved versions & amendments' })).toBeNull()
+  })
+
+  it('refuses an approval over the invoice total and a settlement over the approval', () => {
+    renderSample('insurance')
+    openRecord('2a6f15aa')
+    fireEvent.click(screen.getByRole('button', { name: 'Record payer decision' }))
+    type('Approved amount', '6000', 'spinbutton')
+    type('Local fixture decision', 'Approved (fictional)')
+    save('Record payer decision')
+    expect(refusal()).toBe('Approval exceeds invoice total.')
+    type('Approved amount', '5000', 'spinbutton')
+    save('Record payer decision')
+    expect(statusBadge()).toBe('approved')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    openRecord('9d41c7b3')
+    fireEvent.click(screen.getByRole('button', { name: 'Record simulated settlement' }))
+    type('Received amount', '4500', 'spinbutton')
+    type('Unique settlement reference', 'SET-1')
+    save('Record simulated settlement')
+    expect(refusal()).toBe('Settlement exceeds approval or outstanding invoice balance.')
+    type('Received amount', '4000', 'spinbutton')
+    save('Record simulated settlement')
+    expect(statusBadge()).toBe('settled')
+  })
+
+  it('refuses to dispatch a vehicle that is not available or already out', () => {
+    renderSample('ambulance')
+    openRecord('57e5e7d4')
+    fireEvent.click(screen.getByRole('button', { name: 'Dispatch vehicle' }))
+    save('Dispatch vehicle')
+    expect(statusBadge()).toBe('dispatched')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
+    choose('Vehicle', 'AMB-02')
+    type('Pickup location', 'Example G')
+    type('Destination', 'Example H')
+    type('Assigned crew', 'Demo crew 2')
+    save()
+    fireEvent.click(screen.getByRole('button', { name: 'Dispatch vehicle' }))
+    save('Dispatch vehicle')
+    expect(refusal()).toBe('Vehicle is unavailable.')
+    expect(statusBadge()).toBe('requested')
   })
 })
 

@@ -15,7 +15,6 @@ import { dateText, matchesSearch, shortId } from '../parts/format'
 import { DocumentCapture } from './DocumentCapture'
 import { FormRefusal, MigrateField, controlProps } from './MigrateField'
 import { ConfirmForm, ReviewForm, ReviewPublication, UUID_V4, statusTone, statusWords, type PublicationAttempt } from './ocrSteps'
-import './migrate.css'
 
 /*
  * Health ID Migrate: document capture and OCR, on today's API. The OCR flow is today's Document OCR page

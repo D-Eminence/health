@@ -24,7 +24,6 @@ import {
 } from '../parts/routedWork'
 import { PharmacyRecord, recordFacts } from './PharmacyRecord'
 import { doseLine, matchesItem, routeAlert, statusOf, statusTone } from './pharmacyText'
-import './pharmacy.css'
 
 const LOAD_FAILED = 'Prescriptions could not be loaded. Please retry.'
 /** The design's list shows 50 records a page. */

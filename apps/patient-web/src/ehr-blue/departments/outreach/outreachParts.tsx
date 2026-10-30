@@ -2,7 +2,6 @@ import type { ReactNode } from 'react'
 import type { OutreachCampaign, OutreachCampaignMember, OutreachCase } from '../../../staff/api'
 import type { DeptFact } from '../parts/DeptRecord'
 import { dateText } from '../parts/format'
-import './outreach.css'
 
 /*
  * Words and small parts the Outreach views share, in the design's voice (the target's

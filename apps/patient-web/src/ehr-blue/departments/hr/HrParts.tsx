@@ -5,7 +5,6 @@ import { DeptSearch } from '../parts/DeptSearch'
 import { DeptFacts, DeptLinkButton, DeptRecordName, type DeptFact } from '../parts/DeptRecord'
 import { dateText } from '../parts/format'
 import { SAMPLE_FIELDS, SAMPLE_STAFF, sampleProblems, type SampleFieldKey, type SampleValues } from './sampleCredentials'
-import './hr.css'
 
 /** The h1 text of every view: focus moves here when a view opens. */
 export const TITLE_ID = 'hr-title'

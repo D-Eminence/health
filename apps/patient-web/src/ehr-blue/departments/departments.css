@@ -589,3 +589,749 @@
     gap: 2px;
   }
 }
+
+/* ---- Laboratory ---------------------------------------------------------- */
+
+/*
+ * The blue Laboratory page (departments/laboratory). Scoped under .hid-ehr; values from the --ehr-* tokens.
+ */
+
+/* What a step recorded, said in a status region. */
+.hid-ehr .hid-ehr-dept-laboratory-success {
+  margin: 0 0 10px;
+  color: var(--ehr-success-600);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* A list row's patient and where the work came from. */
+.hid-ehr .hid-ehr-dept-laboratory-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-dept-laboratory .hid-ehr-dept-routed-from {
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-laboratory-cell .hid-ehr-dept-notice {
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-laboratory-routed {
+  margin: 0 0 20px;
+}
+
+.hid-ehr .hid-ehr-dept-laboratory-routed .hid-ehr-dept-routed-from {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+/* Today's order parts reused in the blue look: nothing when they show nothing. */
+.hid-ehr .hid-ehr-dept-laboratory-embedded:empty {
+  display: none;
+}
+
+.hid-ehr .hid-ehr-dept-laboratory-endings {
+  margin: 0;
+}
+
+/* One execution's facts under its sample. */
+.hid-ehr .hid-ehr-dept-laboratory-execution {
+  padding: 12px 0;
+  border-top: 1px solid var(--ehr-line);
+}
+
+/* The quick view drawer's record. */
+.hid-ehr .hid-ehr-dept-laboratory-quick {
+  display: grid;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-laboratory-quick h3 {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-laboratory-quick p {
+  margin: 0;
+}
+
+/* ---- Pharmacy ---------------------------------------------------------- */
+
+/*
+ * Pharmacy: the few looks the design has that departments.css does not yet: its error box (ErrorBox, `.error`), the
+ * small lines under a list cell, and a form's footer. Scoped under .hid-ehr.
+ */
+
+/* The design's error box: a refusal after an action, or a list that could not be read. */
+.hid-ehr .hid-ehr-dept-pharmacy-error {
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  border: 1px solid #e9bcb9;
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-danger-50);
+  color: var(--ehr-danger-text);
+  font-size: 14px;
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-page-error {
+  margin: 0 0 20px;
+}
+
+/* What a list row's ending form said, and how a routed order ended, under the record or its status. */
+.hid-ehr .hid-ehr-dept-pharmacy-said,
+.hid-ehr .hid-ehr-dept-pharmacy-alert {
+  display: block;
+  max-width: 36ch;
+  margin: 4px 0 0;
+  color: var(--ehr-danger-text);
+  font-size: 11px;
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-said:focus-visible {
+  outline: 3px solid var(--ehr-brand);
+  outline-offset: 2px;
+}
+
+/* The design's form footer: the submit button, then why it was refused. */
+.hid-ehr .hid-ehr-dept-pharmacy-footer {
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-footnote {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-success {
+  margin: 16px 0 0;
+  color: var(--ehr-success-600);
+  font-size: 13px;
+}
+
+/* The route lines under "Saved record", and the order's ending actions under "Available actions". */
+.hid-ehr .hid-ehr-dept-pharmacy-route {
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-endings {
+  margin: 8px 0 0;
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-clear {
+  margin: 0 0 18px;
+}
+
+/* The quick view: the record's name, when it was accepted, its fields, then Open full record. */
+.hid-ehr .hid-ehr-dept-pharmacy-quick h3 {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-quick > p {
+  margin: 0 0 12px;
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-quick > .hid-ehr-button {
+  margin-top: 12px;
+}
+
+/* ---- Migrate ---------------------------------------------------------- */
+
+/* Migrate: the few rules beyond departments.css. Every rule sits under .hid-ehr. */
+
+.hid-ehr .hid-ehr-dept-migrate-title:focus {
+  outline: none;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-title:focus-visible {
+  outline: 3px solid var(--ehr-brand);
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-find {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  margin: 16px 0 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-none {
+  margin: 20px 0 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-clear {
+  margin: 0 0 18px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-after {
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-text {
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-review {
+  align-items: flex-start;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-publication,
+.hid-ehr .hid-ehr-dept-migrate-evidence {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-encounter {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 18px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-upload {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-dept-migrate-upload h3 {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-quick {
+  display: grid;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-migrate-quick h3 {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-dept-migrate-find {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- Outreach ---------------------------------------------------------- */
+
+/*
+ * Outreach: the few looks departments.css does not have yet, from the target's
+ * application.css (.error, .form-footer, small) and workflows.tsx (record pages).
+ */
+
+/* The design's ErrorBox. */
+.hid-ehr .hid-ehr-dept-outreach-error {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--ehr-danger-300);
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-danger-50);
+  color: var(--ehr-danger-text);
+  font-size: 14px;
+}
+
+/* A form's submit, and what it says beside it. */
+.hid-ehr .hid-ehr-dept-outreach-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-note {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+/* "Clear search" and the record pages, between the search and the table. */
+.hid-ehr .hid-ehr-dept-outreach-list-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* A button that keeps its focus while it cannot be used (aria-disabled), dimmed as a disabled one. */
+.hid-ehr .hid-ehr-dept-outreach-unavailable[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* The quick view's record name and time, over its fields. */
+.hid-ehr .hid-ehr-dept-outreach-quick {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 16px;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-quick h3 {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-quick p {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-outreach-quick-open {
+  margin-top: 12px;
+}
+
+/* ---- Staff & access ---------------------------------------------------------- */
+
+/*
+ * Staff & access (admin/staff.png): the target's membership rows (record-block over list-row), invitation rows,
+ * bulk bar, ErrorBox, form footer and password eye, in the blue tokens. Scoped under .hid-ehr.
+ */
+
+/* Memberships: each row a record block holding a list row, as on the target (two rules per row). */
+.hid-ehr .hid-ehr-dept-staff-members,
+.hid-ehr .hid-ehr-dept-staff-invitations {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-staff-member {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-dept-staff-row,
+.hid-ehr .hid-ehr-dept-staff-invitation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--ehr-line);
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-staff-row-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.hid-ehr .hid-ehr-dept-section .hid-ehr-dept-staff-row-main p {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-staff-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-dept-staff-name strong,
+.hid-ehr .hid-ehr-dept-staff-invitation strong {
+  color: var(--ehr-ink);
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-staff-sub {
+  color: var(--ehr-text);
+  font-size: 14px;
+}
+
+.hid-ehr .hid-ehr-dept-staff-select {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 8px;
+  accent-color: var(--ehr-brand);
+}
+
+.hid-ehr .hid-ehr-dept-staff-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* The target's bulk bar. */
+.hid-ehr .hid-ehr-dept-staff-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--ehr-tint);
+}
+
+/* The target's ErrorBox. */
+.hid-ehr .hid-ehr-dept-staff-error {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid #e9bcb9;
+  border-radius: 6px;
+  background: var(--ehr-danger-50);
+  color: var(--ehr-danger-text);
+}
+
+.hid-ehr .hid-ehr-dept-staff-error:focus-visible {
+  outline: 3px solid var(--ehr-brand);
+  outline-offset: 3px;
+}
+
+/* The target's record form and its footer. */
+.hid-ehr .hid-ehr-dept-staff-form {
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-staff-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.hid-ehr .hid-ehr-dept-staff-note {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-staff-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--ehr-ink);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-staff-check input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--ehr-brand);
+}
+
+/* The target's password field: the eye inside the control. */
+.hid-ehr .hid-ehr-dept-staff-password {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+}
+
+.hid-ehr .hid-ehr-dept-staff-password > .hid-ehr-control {
+  grid-area: 1 / 1;
+  padding-right: 56px;
+}
+
+.hid-ehr .hid-ehr-dept-staff-password-toggle {
+  display: grid;
+  grid-area: 1 / 1;
+  justify-self: end;
+  place-items: center;
+  width: 44px;
+  height: 38px;
+  margin-right: 1px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ehr-muted);
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-dept-staff-password-toggle:hover {
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-dept-staff-password-toggle:focus-visible {
+  outline: 3px solid var(--ehr-brand);
+  outline-offset: -3px;
+}
+
+/* A drawer's record: the name, its line, then the facts and form. */
+.hid-ehr .hid-ehr-dept-staff-drawer h3 {
+  margin: 0 0 4px;
+  color: var(--ehr-ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-staff-drawer > p {
+  margin: 0 0 12px;
+}
+
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-dept-staff-row,
+  .hid-ehr .hid-ehr-dept-staff-invitation {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+}
+
+/* ---- Audit & Compliance ---------------------------------------------------------- */
+
+/*
+ * Audit & Compliance (admin/audit.png): the line under the heading, and each event
+ * as the target's list row: the action in bold, then its facts in small muted lines.
+ */
+.hid-ehr .hid-ehr-dept-audit-intro {
+  margin: 0 0 20px;
+  color: var(--ehr-ink);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-audit-card:focus-visible {
+  outline: var(--ehr-focus-ring-width, 3px) solid var(--ehr-brand);
+  outline-offset: 3px;
+}
+
+.hid-ehr .hid-ehr-dept-audit-event {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-dept-audit-action {
+  color: var(--ehr-ink);
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-audit-meta {
+  display: block;
+  color: var(--ehr-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-audit-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-dept-audit-pager-note {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+/* ---- Facility profile ---------------------------------------------------------- */
+
+/*
+ * Facility profile (admin/facility.png), read-only: the target's form fields drawn as
+ * labelled values in its two-column grid, the presence-policy box, the picture row.
+ */
+.hid-ehr .hid-ehr-dept-facility .hid-ehr-page-heading {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.hid-ehr .hid-ehr-dept-facility-intro {
+  margin: 0 0 20px;
+  color: var(--ehr-muted);
+  font-size: 13px;
+}
+
+.hid-ehr .hid-ehr-dept-section .hid-ehr-dept-facility-inner {
+  margin: 0 0 24px;
+  padding: 20px;
+  border: 0.5px solid #e7e7e7;
+  border-radius: var(--ehr-radius-xl);
+}
+
+.hid-ehr .hid-ehr-dept-section .hid-ehr-dept-facility-inner h3 {
+  margin: 0 0 16px;
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.hid-ehr .hid-ehr-dept-facility-fields {
+  margin: 0 0 18px;
+}
+
+.hid-ehr .hid-ehr-dept-facility-fields dt {
+  display: block;
+}
+
+.hid-ehr .hid-ehr-dept-facility-value {
+  box-sizing: border-box;
+  min-height: 42px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ehr-line-strong);
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-surface-tint);
+  color: var(--ehr-ink);
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-dept-facility-tall {
+  min-height: 84px;
+}
+
+.hid-ehr .hid-ehr-dept-facility-missing {
+  color: var(--ehr-muted);
+}
+
+.hid-ehr .hid-ehr-dept-facility-picture {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  margin: 0 0 24px;
+}
+
+.hid-ehr .hid-ehr-dept-facility-picture > dl {
+  flex: 1 1 260px;
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-facility-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: var(--ehr-tint);
+  color: var(--ehr-brand-dark);
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-facility-codes {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hid-ehr .hid-ehr-dept-facility-permissions summary {
+  cursor: pointer;
+}
+
+/* ---- HR & Credentials ---------------------------------------------------------- */
+
+/*
+ * HR & Credentials: the design's "Record quick view" drawer content (a title, when it was last updated, the record's
+ * fields and "Open full record"). Everything else uses departments.css.
+ */
+.hid-ehr .hid-ehr-dept-hr-quick {
+  display: grid;
+  gap: 16px;
+  justify-items: start;
+}
+
+.hid-ehr .hid-ehr-dept-hr-quick > h3 {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-hr-quick > .hid-ehr-dept-facts {
+  justify-self: stretch;
+}
+
+/* ---- Sample workspaces ---------------------------------------------------------- */
+
+/*
+ * The sample-only workspaces (parts/sample): the few rules departments.css does not
+ * already have. Every rule sits under .hid-ehr and names hid-ehr-dept-sample-* classes.
+ */
+
+/* The create form: the patient first, the record's fields under it. */
+.hid-ehr .hid-ehr-dept-sample-patient {
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-dept-sample-patient + .hid-ehr-dept-form {
+  margin-top: 18px;
+}
+
+.hid-ehr .hid-ehr-dept-sample-footer {
+  align-items: center;
+}
+
+.hid-ehr .hid-ehr-dept-sample-footer .hid-ehr-dept-muted {
+  margin: 0;
+}
+
+/* "Clear search", under the search field. */
+.hid-ehr .hid-ehr-dept-sample-clear {
+  margin: 0 0 18px;
+}
+
+/* Record quick view: the name, when it changed, its values, "Open full record". */
+.hid-ehr .hid-ehr-dept-sample-quick h3 {
+  margin: 0;
+  color: var(--ehr-ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-sample-quick > p {
+  margin: 0 0 6px;
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-dept-sample-quick > .hid-ehr-button {
+  margin-top: 12px;
+}
+
+/* An invoice's totals and its download and print buttons. */
+.hid-ehr .hid-ehr-dept-sample-totals {
+  margin-top: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-sample-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+}
+
+/* "Connected hospital history": each record a link and its status. */
+.hid-ehr .hid-ehr-dept-sample-connected .hid-ehr-dept-link {
+  font-size: 15px;
+}

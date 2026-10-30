@@ -26,7 +26,6 @@ import {
 } from '../parts/routedWork'
 import { AccessionForm, AccessionView } from './accession'
 import { LabActionButton, LabActions, statusWord } from './labParts'
-import './laboratory.css'
 
 /*
  * Laboratory in the blue Hospital EHR: the target's list (search, a table of lab work with Quick view and Open) and

@@ -8,7 +8,6 @@ import { DeptPage } from '../parts/DeptPage'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptSearch } from '../parts/DeptSearch'
 import { errorText } from '../parts/errors'
-import './audit.css'
 
 /*
  * Audit & Compliance (target admin/audit.png): the working facility's audit events, newest first, as the target lists

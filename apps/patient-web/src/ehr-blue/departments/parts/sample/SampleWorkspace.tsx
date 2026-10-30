@@ -8,7 +8,6 @@ import { useSampleFocus, useSiblingPages } from './navigation'
 import {
   downloadFile, EDIT_REASON, givenValues, recordName, sampleCsv, sampleId, type SampleAction, type SampleDefinition, type SampleRecord, type SampleValues,
 } from './model'
-import './sample.css'
 
 type View = { readonly kind: 'list' } | { readonly kind: 'new' } | { readonly kind: 'record'; readonly id: string }
 

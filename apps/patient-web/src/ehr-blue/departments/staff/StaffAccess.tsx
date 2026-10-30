@@ -15,7 +15,6 @@ import { Memberships } from './Memberships'
 import type { StaffShared } from './shared'
 import { ErrorBox } from './StaffFields'
 import { cannotInvite, IDS, type StaffNotice } from './staffText'
-import './staff.css'
 
 /**
  * Staff & access (admin/staff.png): a self-signed-up facility's memberships and invitations (Novu, P4b SPEC 8.1), on

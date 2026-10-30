@@ -91,12 +91,14 @@ describe('the sample pages', () => {
       const patient = screen.queryByRole('combobox', { name: 'Patient' })
       if (patient) fireEvent.change(patient, { target: { value: 'sample-patient-2' } })
       const form = document.querySelector('form')!
+      // Each later time is later: a shift ends after it starts.
+      let hour = 8
       for (const control of form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input, select, textarea')) {
         if (control.value) continue
         const value = control instanceof HTMLSelectElement ? control.options[1]?.value ?? ''
           : control.type === 'number' ? '3'
             : control.type === 'date' ? '2030-01-01'
-              : control.type === 'datetime-local' ? '2026-11-05T08:00'
+              : control.type === 'datetime-local' ? `2026-11-05T${String(hour++).padStart(2, '0')}:00`
                 : 'Sample text (fictional)'
         fireEvent.change(control, { target: { value } })
       }
