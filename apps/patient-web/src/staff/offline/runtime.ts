@@ -1,41 +1,19 @@
 import { useSyncExternalStore } from 'react'
-import * as offlinePackage from '@hid/offline'
-import type { OfflineCore, OfflineEnv, OfflineRuntime, StaffSessionSnapshot, SyncSummary } from '@hid/offline'
-import type { ApiClient } from '@hid/http'
+import { createOfflineRuntime, transportFromApiClient, type MediaUploader, type OfflineCore, type OfflineRuntime, type StaffSessionSnapshot,
+  type SyncSummary } from '@hid/offline'
+import { uploadPresignedObject } from '@hid/http'
 import { staffTransport, type StaffSession } from '../api'
-import { staffSessionGeneration, staffSessionReadyFor, untilStaffSessionReady } from '../session'
+import { getEnvironment } from '../env'
 import { offlineAppHost, offlineEnv, offlineHostAllowed } from './environment'
 import { STAFF_OFFLINE_REGISTRY } from './registry'
 import { provideOfflineRuntime } from './holder'
 
 /**
- * What the staff portal hands @hid/offline to build its runtime: the staff
- * transport (so `NO_RAW_FETCH` holds and every request waits for its session),
- * the build's offline configuration, and the session's readiness, which the
- * engine checks before each send (OFFLINE-CONTRACT §2.8, "Eligible").
+ * The storage PUT of an offline upload (§2.8 `ehr.document.upload`), as the online upload makes it. The engine sends
+ * only while the staff session is ready (setSessionReady), as every other change.
  */
-export interface StaffOfflineOptions {
-  /** The staff client; Stream A's `transportFromApiClient` adapts it to the core's OfflineTransport. */
-  readonly transport: ApiClient
-  /** The config app key this page is (`ehr` or `ocr`). */
-  readonly appHost: string
-  /** The raw VITE_HID_OFFLINE_* values. */
-  readonly env: OfflineEnv
-  readonly session: {
-    generation(): number
-    readyFor(generation: number): boolean
-    untilReady(generation: number): Promise<void>
-  }
-}
-
-export type OfflineRuntimeFactory = (options: StaffOfflineOptions) => OfflineCore
-
-// Stream A's public entry exports the factory once its runtime lands; until then there is none, and the portal
-// works online exactly as before.
-function packagedFactory(): OfflineRuntimeFactory | null {
-  const found = (offlinePackage as unknown as Record<string, unknown>).createOfflineRuntime
-  return typeof found === 'function' ? found as OfflineRuntimeFactory : null
-}
+const upload: MediaUploader = ({ url, body, requiredHeaders }) =>
+  uploadPresignedObject({ url, body, requiredHeaders, allowLocalHttp: getEnvironment().name === 'local' })
 
 let built: OfflineCore | null | undefined
 let testRuntime: OfflineCore | null | undefined
@@ -47,19 +25,18 @@ export function setOfflineRuntimeForTests(runtime: OfflineCore | null | undefine
 }
 
 /**
- * The offline runtime for this page, or null when the build's mode is off, the host is not one built for offline,
- * or @hid/offline has no runtime yet. Null means every screen behaves exactly as it does today.
+ * The offline runtime for this page, or null when the build's mode is off or the host is not one built for offline
+ * (config `hosts`, A7). Null means every screen behaves exactly as it does today. The runtime sends through the staff
+ * client (`transportFromApiClient`), so `NO_RAW_FETCH` holds and every request waits for its session.
  */
 export function offlineRuntime(): OfflineCore | null {
   if (testRuntime !== undefined) return testRuntime
   if (!offlineHostAllowed()) return null
   if (built !== undefined) return built
-  const create = packagedFactory()
-  built = create ? create({
-    transport: staffTransport, appHost: offlineAppHost() ?? '', env: offlineEnv(),
-    session: { generation: staffSessionGeneration, readyFor: staffSessionReadyFor, untilReady: untilStaffSessionReady },
-  }) : null
-  built?.commands.register(STAFF_OFFLINE_REGISTRY)
+  const appHost = offlineAppHost()
+  if (!appHost) return built = null
+  built = createOfflineRuntime({ appHost, env: offlineEnv(), transport: transportFromApiClient(staffTransport), upload })
+  built.commands.register(STAFF_OFFLINE_REGISTRY)
   return built
 }
 

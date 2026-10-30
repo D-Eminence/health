@@ -100,8 +100,9 @@ export function CapturePage({ runtime, facilityId }: { runtime: OfflineRuntime; 
         ...(outcome.kind === 'saved' ? { commandId: outcome.commandId, state: 'saved' as const }
           : { documentId: typeof outcome.value === 'string' ? outcome.value : outcome.receipt.resourceId, state: 'uploaded' as const }) }
       setUploads(items => [upload, ...items])
-      setSaid(outcome.kind === 'saved' ? 'Saved on this device. It uploads when Health ID can be reached.' : 'Uploaded. Health ID is scanning it.')
+      // The file is cleared first: clearing it also clears what the page last said.
       choose(null)
+      setSaid(outcome.kind === 'saved' ? 'Saved on this device. It uploads when Health ID can be reached.' : 'Uploaded. Health ID is scanning it.')
     } catch (caught) { setError(refusalText(caught, 'This document could not be saved.')) }
     finally { setBusy(false) }
   }

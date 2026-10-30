@@ -35,7 +35,8 @@ export function appliedOnline<V>(value: V, resourceType: string): CommandOutcome
 /** The server's refusal the core passes back, as the HidApiError the forms read (useFieldProblems, refusalText). */
 function fromTransport(cause: TransportError): HidApiError {
   const body = (cause.body && typeof cause.body === 'object' ? cause.body : {}) as Record<string, unknown>
-  const message = typeof body.detail === 'string' ? body.detail : typeof body.title === 'string' ? body.title : 'Health ID refused this change.'
+  const message = typeof body.detail === 'string' ? body.detail : typeof body.title === 'string' ? body.title
+    : cause.message && !/^(status \d+|network error)$/.test(cause.message) ? cause.message : 'Health ID refused this change.'
   return new HidApiError(cause.status ?? 0, message, { code: cause.code ?? undefined, details: body.errors ?? body.details ?? undefined,
     retryable: false, cause })
 }

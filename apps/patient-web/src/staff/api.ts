@@ -17,6 +17,7 @@ import {
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { heldByOtherPortal } from '../sessionChange'
 import { staffLoginAction } from '../productHostname'
+import { currentOfflineRuntime } from './offline/holder'
 
 export interface Facility {
   id: string
@@ -1125,6 +1126,9 @@ const transport = createApiClient({
   baseUrl: getEnvironment().apiBaseUrl,
   clientId: 'staff-web',
   sessionMode: 'cookie',
+  // Every answer's status and Date feed the offline runtime's trusted clock, lease and connectivity (§2.6). Without
+  // an offline runtime (offline off, or a host not built for it) this does nothing.
+  onResponseMeta: meta => currentOfflineRuntime()?.onResponseMeta(meta),
   refreshSession: async () => {
     const sentIn = staffSessionGeneration()
     reportStaffSessionRead(await restoreStaffSession(), sentIn)

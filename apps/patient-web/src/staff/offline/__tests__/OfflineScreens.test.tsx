@@ -101,6 +101,38 @@ describe('Migrate capture', () => {
     expect(screen.queryByRole('combobox', { name: 'Visit' })).toBeNull()
   })
 
+  it('stages a page on the device and queues its upload, offline', async () => {
+    const fake = await openVault(snapshotOf(FACILITY_ID))
+    await keep(fake, PATIENTS)
+    setOfflineRuntimeForTests(fake.runtime)
+    const stage = vi.spyOn(fake.runtime, 'stageMedia')
+    api.consentStatus.mockResolvedValue({ patientId: 'p-1', facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: true })
+    api.encounters.mockResolvedValue({ items: [{ id: 'enc-1', patientId: 'p-1', facilityId: FACILITY_ID, encounterType: 'ambulatory',
+      status: 'in_progress', startedAt: '2026-10-29T08:00:00.000Z', chiefComplaint: 'Cough', rowVersion: 1 }], nextCursor: null })
+    render(<MemoryRouter><CapturePage runtime={fake.runtime} facilityId={FACILITY_ID} /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByRole('option', { name: /Chidi Okafor/ })).toBeTruthy())
+    fireEvent.change(screen.getByRole('combobox', { name: /Patient/ }), { target: { value: 'p-1' } })
+    const visit = await screen.findByRole('combobox', { name: 'Visit' })
+    await waitFor(() => expect(screen.getByRole('option', { name: /ambulatory/ })).toBeTruthy())
+    fireEvent.change(visit, { target: { value: 'enc-1' } })
+    fake.controls.setConnectivity('offline')
+    const file = new File([new Uint8Array([37, 80, 68, 70])], 'Chidi-Okafor-referral.pdf', { type: 'application/pdf' })
+    fireEvent.change(screen.getByLabelText(/Page or document/), { target: { files: [file] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save to upload' }))
+
+    expect(await screen.findByText('Saved on this device. It uploads when Health ID can be reached.')).toBeTruthy()
+    expect(screen.getByText('Saved')).toBeTruthy()
+    expect(stage).toHaveBeenCalledWith(file, { index: expect.any(Number) })
+    const [command] = fake.controls.commands()
+    expect(command).toMatchObject({ op: 'ehr.document.upload', state: 'queued', patientId: 'p-1' })
+    const input = command!.input as { media: { blobId: string; fileName: string }; body: { fileName: string; encounterId: string } }
+    // The file goes up under the staged safe name, never the name it had (which here holds the patient's name).
+    expect(input.body.fileName).toBe(input.media.fileName)
+    expect(input.body.fileName).not.toMatch(/Chidi|Okafor/)
+    expect(input.body.encounterId).toBe('enc-1')
+    expect(api.uploadDocument).not.toHaveBeenCalled()
+  })
+
   it('offers only patients whose access has not ended', async () => {
     const fake = await openVault(snapshotOf(FACILITY_ID))
     await keep(fake, [...PATIENTS, { patientId: 'p-3', displayName: 'Ended Access', hidCode: 'HID-ZXCVBN67', expiresAt: '2026-10-29T08:00:00.000Z' }])

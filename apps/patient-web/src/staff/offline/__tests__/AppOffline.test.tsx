@@ -87,6 +87,9 @@ describe('offline cold start', () => {
     expect(screen.getByRole('heading', { level: 1, name: /Good to see you, Ada/ })).toBeTruthy()
     expect(runtime.summary().vault).toBe('unlocked')
     expect(runtime.restoreSession()?.facilityId).toBe(PILOT)
+    // Offline is in use: the top bar says so, as a polite status.
+    expect(await screen.findByText('Offline and sync')).toBeTruthy()
+    expect(screen.getAllByRole('status').some(node => node.textContent === 'Offline')).toBe(true)
   }, 15000)
 
   it('says so, and opens nothing, for a wrong password', async () => {
