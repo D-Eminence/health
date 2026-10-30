@@ -21,9 +21,19 @@ describe('unlock refusals', () => {
   it.each(Object.keys(SAID) as Refusal[])('%s says its own reason', async reason => {
     const { runtime } = fakeOffline()
     vi.spyOn(runtime, 'unlockLocked').mockResolvedValue({ ok: false, reason })
-    render(<UnlockScreen runtime={runtime} reason="idle" onUnlocked={vi.fn()} onSignOut={vi.fn()} />)
+    render(<UnlockScreen runtime={runtime} reason="idle" onUnlocked={vi.fn()} onSignOut={vi.fn(async () => undefined)} />)
     fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'a long enough password' } })
     fireEvent.click(screen.getByRole('button', { name: 'Unlock' }))
     expect((await screen.findByRole('alert')).textContent).toMatch(SAID[reason])
+  })
+})
+
+describe('sign out from the unlock screen', () => {
+  it('says why a sign-out failed instead of leaving the screen silently', async () => {
+    const { runtime } = fakeOffline()
+    render(<UnlockScreen runtime={runtime} reason="idle" onUnlocked={vi.fn()}
+      onSignOut={() => Promise.reject(new Error('Sign-out could not be completed. Try again.'))} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('Sign-out could not be completed. Try again.')
   })
 })

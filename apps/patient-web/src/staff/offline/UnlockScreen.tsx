@@ -23,7 +23,8 @@ export function UnlockScreen({ runtime, reason, onUnlocked, onSignOut, onCancel 
   /** Why it locked; 'unconfirmed' when Health ID could not confirm the session while offline. */
   reason: LockReason | 'unconfirmed'
   onUnlocked: () => void
-  onSignOut: () => void
+  /** Signs out; a failure is said here (A12.2). */
+  onSignOut: () => Promise<void>
   /** Offered when the person opened the unlock themselves (offline paused on this tab). */
   onCancel?: () => void
 }) {
@@ -46,6 +47,12 @@ export function UnlockScreen({ runtime, reason, onUnlocked, onSignOut, onCancel 
     finally { setBusy(false) }
   }
 
+  async function leave() {
+    setError('')
+    try { await onSignOut() }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Sign-out could not be completed.') }
+  }
+
   const why = reason === 'unconfirmed' ? UNLOCK.unconfirmed : reason === 'hidden' ? UNLOCK.hidden : reason === 'manual' ? UNLOCK.paused : UNLOCK.idle
   return <main className="staff-centered"><BrandLogo className="staff-state-logo" />
     <section className="staff-session-ended" aria-labelledby="offline-unlock-title">
@@ -58,7 +65,7 @@ export function UnlockScreen({ runtime, reason, onUnlocked, onSignOut, onCancel 
         <Button type="submit" aria-disabled={busy || undefined}>{busy ? UNLOCK.working : UNLOCK.submit}</Button>
       </form>
       {onCancel && <Button tone="quiet" onClick={onCancel}>{UNLOCK.notNow}</Button>}
-      <Button tone="quiet" onClick={onSignOut}>{UNLOCK.signOut}</Button>
+      <Button tone="quiet" onClick={() => void leave()}>{UNLOCK.signOut}</Button>
     </section>
   </main>
 }

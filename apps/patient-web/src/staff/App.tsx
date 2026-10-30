@@ -35,7 +35,7 @@ import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { LIMITS, type LockReason, type OfflineCore, type StaffSessionSnapshot } from '@hid/offline'
-import { offlineActive, offlineRuntime, resolveOfflineRuntime, restoredStaffSession, useOfflineActive, useOfflineSummary } from './offline/runtime'
+import { offlineActive, offlineRuntime, offlineRuntimeMayFollow, resolveOfflineRuntime, restoredStaffSession, useOfflineActive, useOfflineSummary } from './offline/runtime'
 import { attachOnlineSession, healthIdUnreachable, keepsVaultFacility, offersOfflineSignIn, syncShell } from './offline/session'
 import { OfflineSignIn } from './offline/OfflineSignIn'
 import { UnlockScreen } from './offline/UnlockScreen'
@@ -160,6 +160,9 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   const facilityLost = useRef(false)
   // The offline runtime, when the build has one for this host (null otherwise: nothing below changes then).
   const [runtime, setRuntime] = useState(() => offlineRuntime())
+  // The runtime as of now, for the session read at load, which must not run again when a runtime is found later.
+  const runtimeRef = useRef(runtime)
+  runtimeRef.current = runtime
   // An `off` build makes the runtime only if this origin already keeps an offline database (kill switch, A11.1):
   // it then sends what is pending after the next sign-in and deletes each vault once empty.
   useEffect(() => {
@@ -247,10 +250,11 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   }, [runtime, setLock])
   // A session read that no longer lists the vault's facility: the membership ended (§2.6, D9).
   const checkVaultFacility = useCallback((session: StaffSession) => {
-    if (!runtime || keepsVaultFacility(session, vaultFacility.current)) return
+    const rt = runtimeRef.current
+    if (!rt || keepsVaultFacility(session, vaultFacility.current)) return
     vaultFacility.current = null
-    void runtime.wipe('membership').catch(() => undefined)
-  }, [runtime])
+    void rt.wipe('membership').catch(() => undefined)
+  }, [])
 
   // A protected request in the current session was refused with 401. That alone
   // does not prove the session ended, so the server is asked; but the refusal is
@@ -429,6 +433,18 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     // time a late answer arrives: that answer is about the browser's earlier session.
     const current = () => staffSessionGeneration() === sentIn
     try {
+      // A sign-out made offline reaches Health ID before any session is read (§2.6, A12.2): no session read may open
+      // the workspace of the account that signed out. If Health ID cannot be reached, nothing is read and the flag stays.
+      const rt = runtimeRef.current ?? (offlineRuntimeMayFollow() ? await resolveOfflineRuntime() : null)
+      if (rt && await rt.logoutPending().catch(() => false)) {
+        await staffApi.sendPendingSignOut()
+        await rt.logoutSent()
+        if (!current()) return
+        setState({ status: 'signed-out', session: null })
+        announceStaffSessionChange()
+        return
+      }
+      if (!current()) return
       let session: StaffSession
       try { session = await staffApi.session() }
       catch (error) {
@@ -449,14 +465,14 @@ export function StaffProvider({ children }: { children: ReactNode }) {
         return
       }
       // Health ID out of reach, and this device keeps an offline copy: offer it (§2.6, "Offline cold start").
-      if (healthIdUnreachable(error) && await offersOfflineSignIn(runtime)) {
+      if (healthIdUnreachable(error) && await offersOfflineSignIn(runtimeRef.current ?? offlineRuntime())) {
         if (current()) setState({ status: 'offline-sign-in', session: null })
         return
       }
       if (!current()) return
       setState({ status: 'error', session: null, error: error instanceof Error ? error.message : 'Session could not be verified.' })
     }
-  }, [setState, setLock, startPeriod, askIfHeardWhileOpening, runtime, checkVaultFacility])
+  }, [setState, setLock, startPeriod, askIfHeardWhileOpening, checkVaultFacility])
 
   // After an online sign-in or facility switch, the runtime opens this account's vault for the facility, or the
   // one-time "Keep an offline copy" question is asked (amendment A5). Without a runtime nothing happens.
@@ -552,8 +568,18 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     // Offline, the sign-out is noted on the device and sent first on the next online load (§2.6, "Wipe triggers").
     if (runtime && offlineMode.current) await runtime.signOut({ online: false })
     else {
-      await staffApi.logout(lockRef.current === 'checking' || lockRef.current === 'unconfirmed')
-      if (runtime) await runtime.signOut({ online: true }).catch(() => undefined)
+      // A logout that cannot reach Health ID, on a device keeping an offline copy, signs out offline instead of
+      // failing (A12.2): the copy closes now, and the logout is sent first on the next online load.
+      let reached = true
+      try { await staffApi.logout(lockRef.current === 'checking' || lockRef.current === 'unconfirmed') }
+      catch (error) {
+        if (!(runtime && healthIdUnreachable(error) && await runtime.hasVaults().catch(() => false))) throw error
+        reached = false
+      }
+      if (runtime) {
+        if (reached) await runtime.signOut({ online: true }).catch(() => undefined)
+        else await runtime.signOut({ online: false })
+      }
     }
     vaultFacility.current = null
     setOfflineChoice(null); setOfflineLockReason(null); setOfflinePaused(false)
@@ -690,7 +716,7 @@ function Gate({ children }: { children: ReactNode }) {
   // Locked for offline use, the password reopens it; the forms beneath keep what was typed.
   const unlock = lock === 'offline' && offline
     ? <UnlockScreen runtime={offline.runtime} reason={offline.lockReason ?? 'idle'} onUnlocked={offline.unlocked}
-      onSignOut={() => void signOut().catch(() => undefined)} onCancel={offline.lockReason === 'manual' ? offline.unlocked : undefined} />
+      onSignOut={signOut} onCancel={offline.lockReason === 'manual' ? offline.unlocked : undefined} />
     : null
   return <>{unlock ?? (lock && <SessionCheck unconfirmed={lock === 'unconfirmed'} />)}<div hidden={lock !== null} inert={lock !== null}>{children}</div></>
 }

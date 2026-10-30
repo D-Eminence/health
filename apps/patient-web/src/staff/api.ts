@@ -1351,6 +1351,26 @@ async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
 }
 
 /**
+ * A sign-out made offline, sent on the next page load before any session is read (OFFLINE-CONTRACT §2.6, A12.2).
+ * It ends whatever session the browser holds: the account that signed out offline is the one this browser last
+ * signed in, and no session read may open its workspace first. A 401 restores the session once and sends it again; a
+ * refresh refused, or a browser holding a patient's sign-in, means no staff session is left to end. Sign-in waits for
+ * it, as for any sign-out in progress.
+ */
+function sendPendingSignOut(): Promise<void> {
+  const signingOut = (async () => {
+    for (let attempt = 1; ; attempt += 1) {
+      try { await signOutInTurn(async () => true, () => client.post<null>('/api/v1/auth/logout')); return }
+      catch (error) { if (heldByOtherPortal(error)) return; if (!endsStaffSession(error)) throw error }
+      if (attempt === SIGN_OUT_ATTEMPTS) throw new Error('Sign-out could not be completed. Try again.')
+      try { await refreshStaffSession() } catch (refused) { if (endsStaffSession(refused)) return; throw refused }
+    }
+  })()
+  leaving = signingOut.catch(() => undefined)
+  return signingOut
+}
+
+/**
  * Whether the browser still holds this account's session. A refused question
  * (a 401 also comes from a server that could not check) is thrown, and handled
  * as a refused sign-out: the session is restored, and its account confirmed,
@@ -1725,6 +1745,7 @@ export const staffApi = {
   session: () => client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional' }),
   refresh: () => refreshStaffSession(),
   logout: signOut,
+  sendPendingSignOut,
   checkSession: checkStaffSession,
   // The second steps of staff sign-in need no Turnstile token, CSRF token or session: the challenge
   // cookie is their credential. Under /api/v1/auth/ with auth 'none', a 401 there (a wrong code, a

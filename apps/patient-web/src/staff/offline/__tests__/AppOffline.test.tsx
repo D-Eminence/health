@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { OfflineCore } from '@hid/offline'
 import { fakeOffline, PASSWORD, PILOT, snapshotOf } from './offlineFixture'
@@ -210,4 +210,113 @@ describe('a facility that is not in the pilot', () => {
     expect(screen.queryByText('Offline and sync')).toBeNull()
     expect(screen.queryByLabelText('Access for')).toBeNull()
   })
+})
+
+describe('a sign-out made offline reaches Health ID (A12.2)', () => {
+  const LOGOUT = 'POST /api/v1/auth/logout'
+  const SESSION = 'GET /api/v1/auth/session'
+  const signedOut = () => new Response(null, { status: 204 })
+
+  /** Signed in offline from the cold start, then Sign out pressed: the copy closes and the sign-out is noted. */
+  async function signOutOffline() {
+    serve(() => { throw new TypeError('Failed to fetch') })
+    const fake = fakeOffline({ connectivity: 'offline' })
+    fake.controls.seedVault(snapshotOf(PILOT, staffSession(), PERMISSIONS), PASSWORD)
+    await open(fake.runtime, { mode: 'pilot', facilities: [PILOT] })
+    fireEvent.change(await screen.findByRole('textbox', { name: /Work email/ }, { timeout: 8000 }), { target: { value: 'ada@example.test' } })
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: PASSWORD } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open offline copy' }))
+    await screen.findByRole('heading', { level: 1, name: /Good to see you, Ada/ })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await waitFor(() => expect(fake.controls.logoutPending()).toBe(true))
+    expect(calls).not.toContain(LOGOUT)
+    return fake
+  }
+
+  /** The page loaded again, with `answer` for the network. */
+  async function reload(runtime: OfflineCore, answer: (route: string) => Response | Promise<Response>) {
+    cleanup()
+    vi.resetModules()
+    serve(answer)
+    await open(runtime, { mode: 'pilot', facilities: [PILOT] })
+  }
+
+  it('sends the logout first on the next online load, before any session is read', async () => {
+    const { runtime, controls } = await signOutOffline()
+    controls.setConnectivity('online')
+    await reload(runtime, route => route === LOGOUT ? signedOut() : json(staffSession()))
+    expect(await screen.findByRole('heading', { name: 'Welcome back.' }, { timeout: 8000 })).toBeTruthy()
+    expect(calls[0]).toBe(LOGOUT)
+    expect(calls).not.toContain(SESSION)
+    expect(controls.logoutPending()).toBe(false)
+  }, 20000)
+
+  it('restores the session once when the first logout is refused with 401, and sends it again', async () => {
+    const { runtime, controls } = await signOutOffline()
+    controls.setConnectivity('online')
+    let logouts = 0
+    await reload(runtime, route => {
+      if (route === LOGOUT) { logouts += 1; return logouts === 1 ? json({ code: 'AUTHENTICATION_REQUIRED' }, 401) : signedOut() }
+      return route === 'POST /api/v1/auth/refresh' ? json(staffSession()) : json(staffSession())
+    })
+    expect(await screen.findByRole('heading', { name: 'Welcome back.' }, { timeout: 8000 })).toBeTruthy()
+    expect(calls.slice(0, 3)).toEqual([LOGOUT, 'POST /api/v1/auth/refresh', LOGOUT])
+    expect(calls).not.toContain(SESSION)
+    expect(controls.logoutPending()).toBe(false)
+  }, 20000)
+
+  it('still sends the logout when another window holds the session turn', async () => {
+    const { runtime, controls } = await signOutOffline()
+    controls.setConnectivity('online')
+    // Another window is refreshing: the turn is not free at first, then given.
+    const request = vi.fn(async (_name: string, ...rest: unknown[]) => {
+      const task = rest[rest.length - 1] as (lock: unknown) => Promise<unknown>
+      const options = rest.length > 1 ? rest[0] as { ifAvailable?: boolean } : {}
+      return task(options.ifAvailable ? null : { name: _name })
+    })
+    vi.stubGlobal('navigator', { ...navigator, locks: { request } })
+    await reload(runtime, route => route === LOGOUT ? signedOut() : json(staffSession()))
+    expect(await screen.findByRole('heading', { name: 'Welcome back.' }, { timeout: 8000 })).toBeTruthy()
+    expect(request).toHaveBeenCalled()
+    expect(calls[0]).toBe(LOGOUT)
+    expect(controls.logoutPending()).toBe(false)
+  }, 20000)
+
+  it('a load while still offline reads no session and keeps the sign-out noted', async () => {
+    const { runtime, controls } = await signOutOffline()
+    await reload(runtime, () => { throw new TypeError('Failed to fetch') })
+    expect(await screen.findByRole('heading', { name: 'Health ID can’t be reached' }, { timeout: 8000 })).toBeTruthy()
+    expect(calls).not.toContain(SESSION)
+    expect(controls.logoutPending()).toBe(true)
+  }, 20000)
+
+  it('online, then the connection drops: Sign out closes the copy and notes the sign-out instead of failing', async () => {
+    // The client keeps the fetch it was made with: the dropped connection is a switch in the one network.
+    let down = false
+    const online = signingIn(staffSession())
+    serve(route => { if (down) throw new TypeError('Failed to fetch'); return online(route) })
+    const { runtime, controls } = fakeOffline()
+    const signOut = vi.spyOn(runtime, 'signOut')
+    await open(runtime, { mode: 'pilot', facilities: [PILOT] }, '/provider/sign-in')
+    await signIn()
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep an offline copy' }))
+    await screen.findByText('Offline and sync')
+    down = true
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await waitFor(() => expect(signOut).toHaveBeenCalledWith({ online: false }))
+    expect(runtime.summary().vault).not.toBe('unlocked')
+    expect(runtime.restoreSession()).toBeNull()
+    expect(controls.logoutPending()).toBe(true)
+  }, 20000)
+
+  it('with no offline copy, a dropped connection still says the sign-out failed', async () => {
+    let down = false
+    serve(route => { if (down) throw new TypeError('Failed to fetch'); return route === SESSION ? json(staffSession(REAL, 'Lagos General')) : json([]) })
+    await open(fakeOffline().runtime, { mode: 'pilot', facilities: [PILOT] }, '/provider/patients')
+    await screen.findByRole('heading', { name: 'Open a patient record.' })
+    down = true
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Open a patient record.' })).toBeTruthy()
+  }, 20000)
 })

@@ -74,6 +74,16 @@ export function offlineRuntime(): OfflineCore | null {
 }
 
 /**
+ * Whether this page could still find a runtime after load: an `off` build on the EHR or Migrate host, where one exists
+ * only if an offline database does (A11.1). Answered at once, so every other build keeps today's timing.
+ */
+export function offlineRuntimeMayFollow(): boolean {
+  if (testRuntime !== undefined || built !== undefined) return false
+  const appHost = offlineAppHost()
+  return offlineConfig().mode === 'off' && (appHost === 'ehr' || appHost === 'ocr')
+}
+
+/**
  * The runtime, after the kill-switch check (§2.3, A8.5, A11.1). In an `off` build on the EHR or Migrate host (the app's
  * own identity, never VITE_HID_OFFLINE_HOSTS), the runtime is made only when this origin already keeps an offline
  * database: it then runs send-only, sending pending work after the next sign-in and deleting each vault once empty.
