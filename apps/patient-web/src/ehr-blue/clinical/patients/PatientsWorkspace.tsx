@@ -1,9 +1,9 @@
 import { normalizeHealthIdInput } from '@hid/contracts'
-import { ArrowRight, IdCard, KeyRound, Lock, Search, Send, Siren, UserPlus, UserRound } from 'lucide-react'
+import { ArrowRight, IdCard, KeyRound, Lock, Search, Send, Siren, UserPlus } from 'lucide-react'
 import { useRef, useState } from 'react'
-import { Alert, Badge, Button, Card, EmptyState, IconChip, Input, PageHeader, SectionHeader, cx, type Icon } from '../../../kasuwa/ui'
+import { Alert, Badge, Button, Card, IconChip, Input, PageHeader, SectionHeader, cx, type Icon } from '../../../kasuwa/ui'
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { ACCESS_ENDED, ChartProvider, NO_AUTHORIZED_PATIENT, OPEN_PATIENT_HOW, useAccessEnded } from '../parts/chart'
+import { ACCESS_ENDED, ChartProvider, useAccessEnded } from '../parts/chart'
 import { formatWhen } from '../parts/format'
 import { RecordNotFound } from '../parts/Notices'
 import { patientFacts } from '../parts/PatientHeader'
@@ -176,10 +176,10 @@ function PatientList() {
             <Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'} size="sm">{accessLabel(activePatient)}</Badge>
             <Button to={href('open')} variant="primary" iconRight={ArrowRight}>Open chart</Button>
           </div>
-        </Card> : <EmptyState compact icon={UserRound} title={NO_AUTHORIZED_PATIENT} description={OPEN_PATIENT_HOW} />}
+        </Card> : <p className="m-0 rounded-xl border border-dashed border-line-strong px-4 py-3 text-[13px] text-ink-3">No patient open. Find one by their Health ID above.</p>}
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-2 [&_.hid-ehr-card]:h-full">
+      <div className="grid gap-6 empty:hidden lg:grid-cols-2">
         <SharedWithYou facilityId={facility?.id} permissions={permissions} openUnavailable={openSharedUnavailable} busy={busy} onOpen={openShared} />
         <ShareInvitationsForMe facilityId={facility?.id} permissions={permissions} />
       </div>
