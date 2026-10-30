@@ -751,6 +751,15 @@
   gap: 20px;
 }
 
+.hid-ehr .hid-ehr-blue-stack > .hid-ehr-button {
+  align-self: flex-start;
+}
+
+.hid-ehr .hid-ehr-blue-stack > .hid-ehr-blue-facts,
+.hid-ehr .hid-ehr-blue-stack > .hid-ehr-blue-department-grid {
+  margin-bottom: 0;
+}
+
 .hid-ehr .hid-ehr-blue-half {
   max-width: calc(50% - 9px);
 }
@@ -804,7 +813,7 @@
 .hid-ehr .hid-ehr-blue-stepper {
   display: flex;
   gap: 6px;
-  margin: 0 0 24px;
+  margin: 0;
   padding-bottom: 6px;
   overflow-x: auto;
 }
@@ -825,10 +834,16 @@
 .hid-ehr .hid-ehr-blue-department {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
+  align-items: start;
   gap: 4px 8px;
   padding: 12px;
   border: 1px solid var(--ehr-line);
   border-radius: 10px;
+}
+
+.hid-ehr .hid-ehr-blue-department .hid-ehr-blue-check-input {
+  margin: 3px 0 0;
 }
 
 .hid-ehr .hid-ehr-blue-department small {

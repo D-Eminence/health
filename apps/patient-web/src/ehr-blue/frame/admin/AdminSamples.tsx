@@ -217,6 +217,11 @@ export function FacilityProfileSample() {
   </>
 }
 
+/** A card whose parts sit the design's 20 px apart (its paragraphs, forms and buttons). */
+function SpacedCard({ title, children }: { readonly title?: string; readonly children: ReactNode }) {
+  return <EhrCard title={title}><div className="hid-ehr-blue-stack">{children}</div></EhrCard>
+}
+
 // --- Facility settings (screens/admin/setup.png: the setup steps, open at Launch) -------------------------------------
 
 const SETUP_STEPS = ['Facility', 'Type', 'Departments', 'Branches', 'Staff', 'Roles', 'Billing', 'Review', 'Launch'] as const
@@ -252,7 +257,7 @@ export function FacilitySetupSample() {
   )
   const steps: Record<typeof SETUP_STEPS[number], ReactNode> = {
     Facility: (
-      <EhrCard>
+      <SpacedCard>
         <form noValidate onSubmit={continueWith} aria-label="Facility" className="hid-ehr-blue-form-grid">
           {text('name', 'Hospital name')}
           {text('phone', 'Main phone', 'tel')}
@@ -264,10 +269,10 @@ export function FacilitySetupSample() {
           <div className="hid-ehr-blue-full"><EhrButton type="submit">Save and continue</EhrButton></div>
         </form>
         <p className="hid-ehr-blue-flush">Hospital review: not submitted. Entering a registration number does not verify a hospital.</p>
-      </EhrCard>
+      </SpacedCard>
     ),
     Type: (
-      <EhrCard>
+      <SpacedCard>
         <form noValidate onSubmit={continueWith} aria-label="Type" className="hid-ehr-blue-stack">
           <EhrField label={required('Facility type')} className="hid-ehr-blue-half">
             <EhrSelect value={type} required onChange={event => setType(event.target.value)}>
@@ -278,10 +283,10 @@ export function FacilitySetupSample() {
         </form>
         <p className="hid-ehr-blue-flush">Types suggest defaults. Clinical specialties share the appointments, triage and consultation infrastructure.
           Multi-Branch Hospital requires at least two configured branches.</p>
-      </EhrCard>
+      </SpacedCard>
     ),
     Departments: (
-      <EhrCard title="Enabled departments">
+      <SpacedCard title="Enabled departments">
         <div className="hid-ehr-blue-department-grid">
           {SAMPLE_DEPARTMENTS.map(department => (
             <label key={department} className="hid-ehr-blue-department">
@@ -294,30 +299,30 @@ export function FacilitySetupSample() {
         </div>
         {problem ? <p role="alert" className="hid-ehr-error">{problem}</p> : null}
         <EhrButton onClick={() => departments.length === 0 ? setProblem('Select at least one department.') : next()}>Save and continue</EhrButton>
-      </EhrCard>
+      </SpacedCard>
     ),
     Branches: (
-      <EhrCard title="Branches">
+      <SpacedCard title="Branches">
         <p className="hid-ehr-blue-flush">Main branch · {facility.address} · {departments.join(', ')}</p>
         <EhrButton onClick={next}>Continue to staff</EhrButton>
-      </EhrCard>
+      </SpacedCard>
     ),
     Staff: (
-      <EhrCard title="Staff">
+      <SpacedCard title="Staff">
         <p className="hid-ehr-blue-flush">Reporting hierarchies are optional. Shifts can be configured now or after launch.</p>
         <EhrButton onClick={next}>Continue to roles</EhrButton>
-      </EhrCard>
+      </SpacedCard>
     ),
     Roles: (
-      <EhrCard title="Role templates and permission scopes">
+      <SpacedCard title="Role templates and permission scopes">
         <p className="hid-ehr-blue-flush">Administrative ownership never grants clinical signing, prescribing or dispensing rights. Branch access and
           restrictions are editable in Staff & access.</p>
         <ul className="hid-ehr-blue-tags">{SETUP_ROLES.map(role => <li key={role}>{role}</li>)}</ul>
         <EhrButton onClick={next}>Continue to billing</EhrButton>
-      </EhrCard>
+      </SpacedCard>
     ),
     Billing: (
-      <EhrCard>
+      <SpacedCard>
         <form noValidate onSubmit={continueWith} aria-label="Billing" className="hid-ehr-blue-form-grid">
           <EhrField label="Currency"><EhrInput value={billing.currency} onChange={event => setBilling({ ...billing, currency: event.target.value })} /></EhrField>
           <EhrField label="Invoice numbering prefix"><EhrInput value={billing.prefix} onChange={event => setBilling({ ...billing, prefix: event.target.value })} /></EhrField>
@@ -336,10 +341,10 @@ export function FacilitySetupSample() {
           <div className="hid-ehr-blue-full"><EhrButton type="submit">Save and continue</EhrButton></div>
         </form>
         <p className="hid-ehr-blue-flush">This configures patient service billing, not a platform subscription. Service pricing is optional before launch.</p>
-      </EhrCard>
+      </SpacedCard>
     ),
     Review: (
-      <EhrCard title="Review your configuration">
+      <SpacedCard title="Review your configuration">
         <Facts facts={[
           ['Name', facility.name], ['Type', type], ['Phone', facility.phone], ['Email', facility.email], ['Address', facility.address],
           ['City', facility.city], ['State', facility.state], ['Departments', departments.join(', ')], ['Currency', billing.currency],
@@ -348,14 +353,14 @@ export function FacilitySetupSample() {
         <p className="hid-ehr-blue-flush">Optional after launch: staff invitations, service pricing, wards and beds, inventory and professional credential
           records.</p>
         <EhrButton onClick={next}>Review launch requirements</EhrButton>
-      </EhrCard>
+      </SpacedCard>
     ),
     Launch: (
-      <EhrCard title="Hospital is launched">
+      <SpacedCard title="Hospital is launched">
         <p className="hid-ehr-blue-flush">A new hospital starts with no patients, stock or transactions. Sample loading is a separate explicit development
           action.</p>
         <div><Link className="hid-ehr-button" to="/provider">Open dashboard</Link></div>
-      </EhrCard>
+      </SpacedCard>
     ),
   }
   const current = SETUP_STEPS[step]!
@@ -393,7 +398,7 @@ export function ReportsSample() {
   return <>
     <EhrPageHeading title="Reports & Analytics" />
     <EhrSampleBanner />
-    <EhrCard>
+    <SpacedCard>
       <div className="hid-ehr-blue-form-grid">
         <EhrField label="Created from"><EhrInput type="date" value={from} onChange={event => setFrom(event.target.value)} /></EhrField>
         <EhrField label="Created through"><EhrInput type="date" value={to} onChange={event => setTo(event.target.value)} /></EhrField>
@@ -407,6 +412,6 @@ export function ReportsSample() {
           ['Mean Open Queue Minutes', selected ? '7' : '0'],
         ]} />
       ) : <p role="alert" className="hid-ehr-error">Start date must precede end date.</p>}
-    </EhrCard>
+    </SpacedCard>
   </>
 }
