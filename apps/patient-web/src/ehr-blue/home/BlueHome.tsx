@@ -1,6 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { Link } from 'react-router-dom'
-import { EhrButton, EhrCard, EhrDrawer, EhrField, EhrPageHeading, EhrSampleBanner, EhrSelect } from '@hid/ui/ehr'
+import { EhrButton, EhrCard, EhrPageHeading, EhrSampleBanner } from '@hid/ui/ehr'
 import { useStaff } from '../../staff/App'
 import { holdsClinicalModule } from '../../staff/routes/Dashboard'
 import { FacilityCheckCard } from '../../staff/routes/ReviewBanner'
@@ -12,11 +11,11 @@ import { pageHrefOf } from '../frame/pageHref'
 import { pageAllowed } from '../frame/pageAccess'
 import { useRoleView } from '../frame/roleView'
 import { sampleModule, sampleRecords, sampleVersion, subscribeSamples } from '../frame/sample/store'
+import { CustomizeShortcuts, Figure, LivePeopleCard, MAX_SHORTCUTS, PatientBillingCard, PinnedShortcuts, ReportingPeriod } from './dashboardCards'
 import { AttentionLines, IncomingOrdersCard, TodayCard, TodayLinks, useIncomingServices, WrongPatientOrdersCard } from './liveCards'
 import { RoleDashboard } from './RoleDashboard'
 
 const ACTIVITY = ['patients', 'appointments', 'journey', 'triage'] as const
-const MAX_SHORTCUTS = 6
 
 /**
  * Home, as the design draws it (screens/roles/*-dashboard.png): the welcome heading with Customize shortcuts, the
@@ -44,7 +43,7 @@ export function BlueHome() {
   const reloadRequests = useReloadAccessRequests()
   useEffect(() => { reloadRequests() }, [reloadRequests])
   // A sample dashboard is the demo's alone, even when chosen there before a switch to a clinic.
-  if (role.viewing && isDemoFacility(facility?.id)) return <RoleDashboard role={role.viewing} />
+  if (role.viewing && isDemoFacility(facility?.id)) return <RoleDashboard key={role.viewing} role={role.viewing} />
   if (!session) return null
   const name = session.actor.displayName ?? 'colleague'
   const candidates = pages.filter(page => page.path !== '' && !page.group.startsWith('Design') && pageAllowed(page, session)
@@ -58,28 +57,18 @@ export function BlueHome() {
   return <>
     <EhrPageHeading title={`Welcome, ${name}`}
       primaryAction={<EhrButton variant="secondary" onClick={() => setCustomizing(true)}>Customize shortcuts</EhrButton>} />
-    <div className="hid-ehr-blue-period">
-      <EhrField label="Reporting period">
-        <EhrSelect value={period} onChange={event => setPeriod(event.target.value)}>
-          <option value="7">Last 7 days</option>
-          <option value="30">Last 30 days</option>
-        </EhrSelect>
-      </EhrField>
-      <span className="hid-ehr-blue-period-note">Record creation dates · local time</span>
-    </div>
+    <ReportingPeriod period={period} onChange={setPeriod} />
     <div className="hid-ehr-blue-grid">
-      <EhrCard title="Activity in period">
-        <EhrSampleBanner />
-        <div className="hid-ehr-blue-activity">
-          {ACTIVITY.map(id => (
-            <div key={id} className="hid-ehr-blue-activity-figure">
-              <span>{sampleModule(id)?.title} created</span>
-              <strong>{sampleRecords(id).length}</strong>
-              <small>No comparison yet</small>
-            </div>
-          ))}
-        </div>
-      </EhrCard>
+      {/* A facility administrator's Home shows Patient billing where a clinician's shows Activity in period. */}
+      {facility?.roles.includes('org_admin') ? <PatientBillingCard notice /> : (
+        <EhrCard title="Activity in period">
+          <EhrSampleBanner />
+          <div className="hid-ehr-blue-activity">
+            {ACTIVITY.map(id => <Figure key={id} label={`${sampleModule(id)?.title} created`} value={sampleRecords(id).length} detail="No comparison yet" />)}
+          </div>
+        </EhrCard>
+      )}
+      {facility && permissions.includes('workforce.manage') ? <LivePeopleCard facility={facility} /> : null}
       <EhrCard title="Needs attention">
         <ul className="hid-ehr-blue-list">
           <AttentionLines activePatient={activePatient} />
@@ -97,34 +86,12 @@ export function BlueHome() {
       {facility && usesNovuBackend() && permissions.includes('ehr.order-route.send')
         ? <WrongPatientOrdersCard key={facility.id} facilityId={facility.id} facilityName={facility.name} /> : null}
     </div>
-    <section aria-labelledby="hid-ehr-blue-shortcuts">
-      <h2 id="hid-ehr-blue-shortcuts" className="hid-ehr-blue-section-title">Pinned shortcuts</h2>
-      <ul className="hid-ehr-blue-shortcuts">
-        {shortcuts.map(page => <li key={page.path}><Link className="hid-ehr-button hid-ehr-button-secondary" to={pageHrefOf(page)}>{page.label}</Link></li>)}
-      </ul>
-      {/* Today's Overview rule: none of the six clinical modules' permissions held (an administrator's audit and billing are not). */}
-      {facility && !holdsClinicalModule(permissions) ? (
+    <PinnedShortcuts pages={shortcuts.map(page => ({ href: pageHrefOf(page), label: page.label }))} after={
+      // Today's Overview rule: none of the six clinical modules' permissions held (an administrator's audit and billing are not).
+      facility && !holdsClinicalModule(permissions) ? (
         <p className="hid-ehr-blue-muted">Your active facility has no clinical module permissions. Ask an administrator to review your assignment.</p>
-      ) : null}
-    </section>
-    <EhrDrawer open={customizing} title="Customize shortcuts" onClose={() => setCustomizing(false)}>
-      <EhrSampleBanner />
-      <fieldset className="hid-ehr-blue-steps">
-        <legend className="hid-ehr-blue-muted">Choose up to {MAX_SHORTCUTS} shortcuts for Home.</legend>
-        {candidates.map(page => {
-          const picked = (chosen ?? shortcuts.map(shortcut => shortcut.path)).includes(page.path)
-          const current = chosen ?? shortcuts.map(shortcut => shortcut.path)
-          return (
-            <label key={page.path} className="hid-ehr-blue-check">
-              <input type="checkbox" className="hid-ehr-blue-check-input" checked={picked}
-                disabled={!picked && current.length >= MAX_SHORTCUTS}
-                onChange={event => setChosen(event.target.checked ? [...current, page.path] : current.filter(path => path !== page.path))} />
-              {page.label}
-            </label>
-          )
-        })}
-      </fieldset>
-      <EhrButton onClick={() => setCustomizing(false)}>Done</EhrButton>
-    </EhrDrawer>
+      ) : null} />
+    <CustomizeShortcuts open={customizing} onClose={() => setCustomizing(false)} candidates={candidates}
+      current={chosen ?? shortcuts.map(shortcut => shortcut.path)} onChange={setChosen} />
   </>
 }

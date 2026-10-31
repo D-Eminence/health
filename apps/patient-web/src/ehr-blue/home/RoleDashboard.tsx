@@ -1,20 +1,26 @@
-import { useState, useSyncExternalStore } from 'react'
-import { Link } from 'react-router-dom'
-import { EhrButton, EhrCard, EhrField, EhrPageHeading, EhrSampleBanner, EhrSelect, EhrStatCard } from '@hid/ui/ehr'
-import { useSampleHref } from '../frame/pageContext'
-import { useRoleView, type DemoRole } from '../frame/roleView'
-import { sampleModule, sampleRecords, sampleTitle, sampleVersion, statusWords, subscribeSamples } from '../frame/sample/store'
+import { useState, useSyncExternalStore, type ReactElement } from 'react'
+import { EhrButton, EhrCard, EhrPageHeading, EhrSampleBanner } from '@hid/ui/ehr'
+import { useBluePages, useOpenPages } from '../frame/pageContext'
+import { basePath, pageHrefOf } from '../frame/pageHref'
+import type { DemoRole } from '../frame/roleView'
+import { sampleModule, sampleRecords, sampleVersion, subscribeSamples } from '../frame/sample/store'
+import {
+  CustomizeShortcuts, FacilityReviewCard, Figure, NO_ATTENTION, NOTHING_TODAY, PatientBillingCard, PeopleCard, PinnedShortcuts,
+  ReportingPeriod, SAMPLE_STAFF_COUNT, SampleWorklist, type WorklistRow,
+} from './dashboardCards'
 
 /**
- * Each demo role's dashboard (design: screens/roles), as a sample: the workspaces the design gives the role
- * (design/ehr-target src/catalog.ts permissions()), counted and listed from the in-memory sample records, so creating a
- * sample record shows here. Nothing is read from Health ID.
+ * Each demo role's dashboard (design: screens/roles, src/dashboard.tsx), as a sample: the cards the design gives the
+ * role, counted and listed from the in-memory sample records, so creating a sample record shows here. Nothing is read
+ * from Health ID. The way back to the person's own Home is "My own dashboard", with the demo's other controls.
  */
+
+/** The workspaces each role's Needs attention and Today draw from (the design's permissions(role)). */
 const ROLE_MODULES: Record<DemoRole, readonly string[]> = {
   'Platform Super Admin': [],
   'Hospital Owner': ['billing', 'insurance', 'ambulance', 'shifts', 'hr', 'quality', 'procurement'],
   'Medical Director': ['patients', 'appointments', 'journey', 'consult', 'lab', 'radiology', 'referrals', 'quality'],
-  'Hospital Admin': ['shifts', 'hr', 'quality', 'services', 'ward-config', 'inventory', 'procurement'],
+  'Hospital Admin': ['insurance', 'ambulance', 'shifts', 'hr', 'quality', 'services', 'ward-config', 'inventory', 'procurement'],
   Consultant: ['patients', 'appointments', 'journey', 'triage', 'consult', 'lab', 'referrals'],
   Doctor: ['patients', 'appointments', 'journey', 'triage', 'consult', 'lab', 'referrals'],
   Nurse: ['patients', 'triage', 'nursing', 'nursing-tasks', 'inpatient', 'wards'],
@@ -29,64 +35,87 @@ const ROLE_MODULES: Record<DemoRole, readonly string[]> = {
   'Radiology Reporter': ['radiology'],
 }
 
+/** Activity in period's workspaces, for a role without Patient billing. */
+const CLINICAL_ACTIVITY = ['patients', 'appointments', 'journey', 'triage']
+const ACTIVITY: Partial<Record<DemoRole, readonly string[]>> = {
+  Doctor: CLINICAL_ACTIVITY, Consultant: CLINICAL_ACTIVITY, 'Medical Director': CLINICAL_ACTIVITY, Nurse: CLINICAL_ACTIVITY,
+  Receptionist: ['patients', 'appointments', 'journey'],
+  'Records Officer': ['patients'],
+  'Lab Manager': ['lab', 'inventory', 'procurement', 'bloodbank'],
+  'Lab Scientist': ['lab', 'inventory', 'bloodbank'],
+  'Pharmacy Manager': ['pharmacy', 'inventory', 'procurement'],
+  Pharmacist: ['pharmacy', 'inventory'],
+  'Radiology Reporter': ['radiology'],
+}
+
+const BILLING_ROLES: readonly DemoRole[] = ['Hospital Owner', 'Hospital Admin', 'Billing Officer', 'Cashier']
+const PEOPLE_ROLES: readonly DemoRole[] = ['Platform Super Admin', 'Hospital Owner', 'Hospital Admin', 'Medical Director']
+
+/** Each role's pinned shortcuts, by the frame's address of the page (the design's dashboard defaults). */
+const CARE_SHORTCUTS = ['patients', 'appointments', 'journey', 'triage']
+const SHORTCUTS: Record<DemoRole, readonly string[]> = {
+  'Platform Super Admin': ['platform', 'staff', 'audit', 'setup'],
+  'Hospital Owner': ['patient-billing', 'insurance', 'ambulance', 'shifts'],
+  'Hospital Admin': ['patient-billing', 'insurance', 'ambulance', 'shifts'],
+  'Medical Director': CARE_SHORTCUTS, Consultant: CARE_SHORTCUTS, Doctor: CARE_SHORTCUTS, Nurse: CARE_SHORTCUTS,
+  Receptionist: ['patients', 'appointments', 'journey'],
+  'Records Officer': ['patients', 'reports', 'audit'],
+  'Lab Manager': ['laboratory', 'bloodbank', 'supply'],
+  'Lab Scientist': ['laboratory', 'bloodbank', 'supply'],
+  'Pharmacy Manager': ['pharmacy', 'supply'],
+  Pharmacist: ['pharmacy', 'supply'],
+  'Billing Officer': ['patient-billing', 'insurance', 'reports', 'billing'],
+  Cashier: ['patient-billing', 'insurance', 'reports'],
+  'Radiology Reporter': ['radiology'],
+}
+
+const titleOf = (moduleId: string) => sampleModule(moduleId)?.title ?? moduleId
+
 export function RoleDashboard({ role }: { readonly role: DemoRole }) {
   useSyncExternalStore(subscribeSamples, sampleVersion, sampleVersion)
-  const { view } = useRoleView()
-  // Sample records link only into sample pages: a live page with the module's address would not find them.
-  const hrefOf = useSampleHref()
-  const review = hrefOf('platform')
+  const pages = useBluePages()
+  // Shortcuts to pages this session may open: the design checks each one every time it is shown.
+  const open = useOpenPages()
   const [period, setPeriod] = useState('7')
-  const modules = ROLE_MODULES[role].map(id => sampleModule(id)).filter(module => module !== undefined)
-  const attention = modules.flatMap(module => sampleRecords(module.id).slice(0, 1)
-    .map(record => ({ module, record, href: hrefOf(module.id) }))).slice(0, 7)
-  const today = modules.slice(0, 2).flatMap(module => sampleRecords(module.id).map(record => ({ module, record }))).slice(0, 6)
+  const [customizing, setCustomizing] = useState(false)
+  const pathOf = (base: string) => open.find(page => basePath(page.path) === base)?.path
+  const [chosen, setChosen] = useState<readonly string[]>(() => SHORTCUTS[role].flatMap(base => pathOf(base) ?? []))
+  const modules = ROLE_MODULES[role].filter(id => sampleModule(id) !== undefined)
+  // Records are not the patient register's work: Needs attention leaves Patients out (a Records Officer's is empty).
+  const attention: WorklistRow[] = modules.filter(id => id !== 'patients')
+    .flatMap(id => sampleRecords(id).slice(0, 1).map(record => ({ record, title: titleOf(id) }))).slice(0, 7)
+  const today: WorklistRow[] = modules.slice(0, 2)
+    .flatMap(id => sampleRecords(id).map(record => ({ record, title: titleOf(id) }))).slice(0, 6)
+  const activity = (ACTIVITY[role] ?? []).filter(id => sampleModule(id) !== undefined)
+
+  // The design's cards in its order; the sample notice sits in the first of them.
+  const cards: ((notice: boolean) => ReactElement)[] = [
+    ...(BILLING_ROLES.includes(role) ? [(notice: boolean) => <PatientBillingCard key="billing" notice={notice} />]
+      : activity.length ? [(notice: boolean) => <EhrCard key="activity" title="Activity in period">
+        {notice ? <EhrSampleBanner /> : null}
+        <div className="hid-ehr-blue-activity">
+          {activity.map(id => <Figure key={id} label={`${titleOf(id)} created`} value={sampleRecords(id).length} detail="No comparison yet" />)}
+        </div>
+      </EhrCard>] : []),
+    ...(PEOPLE_ROLES.includes(role) ? [(notice: boolean) => <PeopleCard key="people" count={SAMPLE_STAFF_COUNT} notice={notice} />] : []),
+    ...(role === 'Platform Super Admin' ? [(notice: boolean) => <FacilityReviewCard key="review" notice={notice} />] : []),
+    (notice: boolean) => <EhrCard key="attention" title="Needs attention">
+      {notice ? <EhrSampleBanner /> : null}<SampleWorklist rows={attention} empty={NO_ATTENTION} /></EhrCard>,
+    (notice: boolean) => <EhrCard key="today" title="Today">
+      {notice ? <EhrSampleBanner /> : null}<SampleWorklist rows={today} empty={NOTHING_TODAY} /></EhrCard>,
+  ]
+  const candidates = open.filter(page => page.path !== '' && !page.group.startsWith('Design') && !page.tabOf)
+  const pinned = chosen.flatMap(path => {
+    const page = pages.find(candidate => candidate.path === path)
+    return page && open.includes(page) ? [{ href: pageHrefOf(page), label: page.label }] : []
+  })
+
   return <>
-    <EhrPageHeading title={`Welcome, Demo ${role}`} description={`The ${role} dashboard, as the design shows it.`}
-      primaryAction={<EhrButton variant="secondary" onClick={() => view(null)}>Back to my dashboard</EhrButton>} />
-    <EhrSampleBanner />
-    <EhrField label="Reporting period" hint="Record creation dates · local time" className="hid-ehr-blue-narrow">
-      <EhrSelect value={period} onChange={event => setPeriod(event.target.value)}>
-        <option value="7">Last 7 days</option>
-        <option value="30">Last 30 days</option>
-      </EhrSelect>
-    </EhrField>
-    {role === 'Platform Super Admin' ? (
-      <EhrCard title="Facility review"><p>Facilities waiting for Health ID to check them.</p>
-        {review ? <Link className="hid-ehr-blue-link" to={review}>Open Facility review →</Link> : null}</EhrCard>
-    ) : (
-      <div className="hid-ehr-blue-grid">
-        <EhrCard title="Activity in period">
-          <div className="hid-ehr-blue-stats">
-            {modules.slice(0, 4).map(module => (
-              <EhrStatCard key={module.id} label={`${module.title} created`} value={sampleRecords(module.id).length} detail="No comparison yet" />
-            ))}
-          </div>
-        </EhrCard>
-        <EhrCard title="Needs attention">
-          <ul className="hid-ehr-blue-list">{attention.map(({ module, record, href }) => (
-            <li key={record.id} className="hid-ehr-blue-list-item">
-              {href ? <Link className="hid-ehr-blue-link" to={`${href}/${record.id}`}>{sampleTitle(record)}</Link> : <strong>{sampleTitle(record)}</strong>}
-              <span className="hid-ehr-blue-muted">{module.title} · {statusWords(record.status)}</span>
-            </li>
-          ))}</ul>
-        </EhrCard>
-        <EhrCard title="Today">
-          <ul className="hid-ehr-blue-list">{today.map(({ module, record }) => (
-            <li key={record.id} className="hid-ehr-blue-list-item">
-              <strong>{sampleTitle(record)}</strong>
-              <span className="hid-ehr-blue-muted">{module.title} · {statusWords(record.status)}</span>
-            </li>
-          ))}</ul>
-        </EhrCard>
-      </div>
-    )}
-    <h2 className="hid-ehr-blue-section-title">Pinned shortcuts</h2>
-    <ul className="hid-ehr-blue-shortcuts">
-      {modules.slice(0, 4).map(module => {
-        const href = hrefOf(module.id)
-        return <li key={module.id}>{href ? <Link className="hid-ehr-button hid-ehr-button-secondary" to={href}>{module.title}</Link>
-          : <span className="hid-ehr-blue-shortcut-text">{module.title}</span>}</li>
-      })}
-    </ul>
+    <EhrPageHeading title={`Welcome, Demo ${role}`}
+      primaryAction={<EhrButton variant="secondary" onClick={() => setCustomizing(true)}>Customize shortcuts</EhrButton>} />
+    <ReportingPeriod period={period} onChange={setPeriod} />
+    <div className="hid-ehr-blue-grid">{cards.map((card, index) => card(index === 0))}</div>
+    <PinnedShortcuts pages={pinned} />
+    <CustomizeShortcuts open={customizing} onClose={() => setCustomizing(false)} candidates={candidates} current={chosen} onChange={setChosen} />
   </>
 }

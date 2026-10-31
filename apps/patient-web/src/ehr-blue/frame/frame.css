@@ -113,6 +113,54 @@
   border-bottom: 1px solid var(--ehr-line);
 }
 
+/* My profile (screens/admin/profile.png): the page's heading inside the drawer, then the picture and the details. */
+.hid-ehr .hid-ehr-blue-profile-heading {
+  margin: 8px 0 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-blue-profile-heading ~ .hid-ehr-card + .hid-ehr-card {
+  margin-top: 20px;
+}
+
+.hid-ehr .hid-ehr-blue-profile-picture {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.hid-ehr .hid-ehr-blue-avatar.hid-ehr-blue-avatar-large {
+  flex: none;
+  width: 96px;
+  height: 96px;
+  font-size: 28px;
+}
+
+.hid-ehr .hid-ehr-blue-avatar-large .hid-ehr-blue-presence {
+  right: 4px;
+  bottom: 4px;
+  width: 11px;
+  height: 11px;
+}
+
+.hid-ehr .hid-ehr-blue-profile-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 18px;
+  margin-top: 16px;
+}
+
+.hid-ehr .hid-ehr-blue-profile-wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 700px) {
+  .hid-ehr .hid-ehr-blue-profile-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
 .hid-ehr .hid-ehr-blue-menu-name {
   margin: 0;
   color: var(--ehr-ink);
@@ -573,6 +621,21 @@
 .hid-ehr .hid-ehr-blue-activity-figure small {
   color: var(--ehr-muted);
   font-size: 12px;
+}
+
+/* People's figure, and the link under a card's figures (the design's .dashboard-metrics margin). */
+.hid-ehr .hid-ehr-blue-stat-value {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ehr-ink);
+  font-size: 36px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.hid-ehr .hid-ehr-blue-activity + .hid-ehr-blue-link {
+  display: inline-block;
+  margin-top: 24px;
 }
 
 /* ---- Status bar (connection-tools in the design) ------------------------- */

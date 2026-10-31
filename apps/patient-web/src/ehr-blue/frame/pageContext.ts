@@ -30,6 +30,12 @@ export function useBluePages(): readonly EhrBluePage[] {
   return useContext(BluePagesContext)
 }
 
+/** The pages the working session may open, in sidebar order: every page outside the frame (tests of a page alone). */
+export function useOpenPages(): readonly EhrBluePage[] {
+  const all = useBluePages()
+  return useContext(OpenPagesContext) ?? all
+}
+
 /**
  * The address of a design workspace when it opens as a sample here; null when a live page has its address (or no page
  * does). A sample record links only where this says: a live page knows nothing of samples, and would not find one.
