@@ -943,8 +943,9 @@ describe('Consultation record: documents (audit 9 and 13)', () => {
     const opened = vi.spyOn(window, 'open').mockReturnValue(null)
     await openEncounter()
     const open = await history().findByRole('button', { name: 'Documents · referral-letter.pdf' })
-    expect(history().getByText('application/pdf · 20 KiB · scan: clean')).toBeTruthy()
-    expect(open.getAttribute('aria-describedby')).toBe(history().getByText('application/pdf · 20 KiB · scan: clean').id)
+    // A clean document is the design's one-line row: its link and badge, with no type, size or scan line.
+    expect(history().queryByText('application/pdf · 20 KiB · scan: clean')).toBeNull()
+    expect(open.getAttribute('aria-describedby')).toBeNull()
     const checks = api.lookupPatient.mock.calls.length
     fireEvent.click(open)
     await waitFor(() => expect(opened).toHaveBeenCalledWith('https://storage.example.test/doc-1?signature=x', '_blank', 'noopener,noreferrer'))
@@ -958,6 +959,14 @@ describe('Consultation record: documents (audit 9 and 13)', () => {
     expect((await history().findByRole('button', { name: 'Documents · referral-letter.pdf' }) as HTMLButtonElement).disabled).toBe(true)
     expect(history().getByText('Upload not completed; only the person who started it can finish it. Upload the file again.')).toBeTruthy()
     expect(history().queryByText(/scan:/)).toBeNull()
+  })
+
+  it('audit 13: a document whose scan is not clean keeps its type, size and scan line, which describes its disabled row', async () => {
+    api.documents.mockResolvedValue({ items: [{ ...DOCUMENT, scanStatus: 'pending' }], nextCursor: null })
+    await openEncounter()
+    const open = await history().findByRole('button', { name: 'Documents · referral-letter.pdf' }) as HTMLButtonElement
+    expect(open.disabled).toBe(true)
+    expect(open.getAttribute('aria-describedby')).toBe(history().getByText('application/pdf · 20 KiB · scan: pending').id)
   })
 
   it('audit 13: refuses a link that is not a signed https link', async () => {

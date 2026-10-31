@@ -618,11 +618,12 @@
 
 /* ---- Quick view drawer content --------------------------------------------- */
 
+/* Title, "Last updated", the rows and "Open full record" stack with no gap (record-quick-view.png). */
 .hid-ehr .hid-ehr-clinical-quick {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
+  gap: 0;
 }
 
 .hid-ehr .hid-ehr-clinical-quick > .hid-ehr-clinical-kv {
@@ -641,9 +642,14 @@
   margin: 0;
 }
 
-/* A paragraph in the quick view (a share's or an invitation's explanation, why a record cannot be opened): the column's 12px gap spaces it. */
+/* A paragraph in the quick view (a share's or an invitation's explanation, why a record cannot be opened), which the design does not have: 12px above and below it, so it does not sit flush on the rows or the button. */
 .hid-ehr .hid-ehr-clinical-quick-text {
-  margin: 0;
+  margin: 12px 0;
+}
+
+/* Two in a row (a share's explanation, then why it cannot be opened): 12px between them, not 24px. */
+.hid-ehr .hid-ehr-clinical-quick-text + .hid-ehr-clinical-quick-text {
+  margin-top: 0;
 }
 
 /* ---- Widths ------------------------------------------------------------------ */
@@ -691,9 +697,14 @@
 
 /* ---- External record access ---------------------------------------------------- */
 
-/* The break-glass form opened in "Cross-institution history": 18px under the action row. */
+/* The break-glass form opened in "Cross-institution history": 16px under the action row (design .record-form). */
 .hid-ehr .hid-ehr-clinical-consent-break-glass {
-  margin-top: 18px;
+  margin-top: 16px;
+}
+
+/* New external record access: the Health ID field takes the place of the design's Patient select, so it starts at the card's 20px padding (consent-2-new.png: label 26px under the card's top border). */
+.hid-ehr .hid-ehr-clinical-consent-request-form {
+  margin-top: 0;
 }
 
 /* The always-mounted status region on a request's page takes focus only when a close removed its button. */

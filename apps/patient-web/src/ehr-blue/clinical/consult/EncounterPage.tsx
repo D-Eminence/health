@@ -418,7 +418,8 @@ function EncounterRecord({ chart, initial }: { chart: Chart; initial: Encounter 
     key: `document-${item.id}`,
     label: documentLabel(item),
     status: item.status || 'uploaded',
-    detail: documentDetail(item),
+    // A clean document is the design's one-line link and badge; one that cannot be opened says why under its name.
+    detail: canOpenDocument(item) ? undefined : documentDetail(item),
     open: { onOpen: () => { void opener.open(item) }, disabled: !canOpenDocument(item), busy: opener.opening === item.id },
     extra: chart.can('ocr.job.read') && canOpenDocument(item) ? <OcrLink chart={chart} document={item} /> : undefined,
   })

@@ -130,8 +130,9 @@ export function usePatientSharing({ facilityId, permissions, openUnavailable, bu
     const sharedRows = (sharedItems ?? []).map((item): RecordRow => ({
       id: `shared-${item.consentGrantId}`,
       name: item.fullName,
-      reference: item.hid,
-      context: 'Shared with you',
+      reference: 'Shared with you',
+      context: item.fullName,
+      contextSub: item.hid,
       status: levelText(item.level),
       statusNote: `until ${shareDay(item.expiresAt)}`,
       details: [

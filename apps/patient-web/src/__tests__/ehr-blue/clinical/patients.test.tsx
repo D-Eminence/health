@@ -584,14 +584,18 @@ describe('Design audit', () => {
     expect(staff.setActivePatient).not.toHaveBeenCalled()
   })
 
-  it('audit 2: a share is a row after the open patient: name and Health ID, the level badge, until its day, opened by the lookup', async () => {
+  it('audit 2: a share is a row after the open patient: name over Health ID in Patient / context, the level badge, until its day, opened by the lookup', async () => {
     staff.activePatient = activePatient()
     api.sharedWithMe.mockResolvedValue([{ ...SHARE, consentGrantId: 'grant-8', hid: 'HID-ZDEMBBB3', fullName: 'Patient Two' }])
     api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [INVITATION] })
     open()
     await waitFor(() => expect(tableRows()).toHaveLength(3))
     expect(tableRows().map(row => row.querySelector('td')?.textContent)).toEqual([
-      `${PATIENT_NAME}Direct care`, 'Patient TwoHID-ZDEMBBB3', 'Invitation AB1224 hours · sent 29 Oct 2026',
+      `${PATIENT_NAME}Direct care`, 'Patient TwoShared with you', 'Invitation AB1224 hours · sent 29 Oct 2026',
+    ])
+    // Patient / context holds the name over the Health ID, as on the open patient's row and in the design.
+    expect(tableRows().map(row => row.querySelectorAll('td')[1]?.textContent)).toEqual([
+      `${PATIENT_NAME}${PATIENT_HID}`, 'Patient TwoHID-ZDEMBBB3', 'Clinical Review',
     ])
     // The two cards are gone: their rows are in the one list.
     expect(screen.queryByRole('heading', { name: 'Shared with you' })).toBeNull()
@@ -616,6 +620,7 @@ describe('Design audit', () => {
     fireEvent.click(within(await waitFor(() => rowOf(PATIENT_NAME))).getByRole('button', { name: `Quick view ${PATIENT_NAME}` }))
     expect(within(quickView()).getByText(PATIENT_HID)).toBeTruthy()
     expect(within(quickView()).getByText('View Only')).toBeTruthy()
+    expect(within(quickView()).getByText('5 Nov 2026')).toBeTruthy()
     fireEvent.click(within(quickView()).getByRole('button', { name: 'Open full record' }))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()

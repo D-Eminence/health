@@ -92,6 +92,7 @@ export function RequestAccess() {
       <EhrCard>
         <div ref={form} onChangeCapture={normalizeHealthId}>
           <RecordForm
+            className="hid-ehr-clinical-consent-request-form"
             fields={FIELDS}
             initial={{ hid, scope: 'read_records', duration: DEFAULT_MINUTES }}
             submitLabel="Send access request"
