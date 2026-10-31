@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { useNavigate } from 'react-router-dom'
 import { staffApi } from '../../../staff/api'
 import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/session'
+import { isDemoFacility } from '../../blueFacilities'
 import { ErrorBox, RecordHeading } from '../parts/Notices'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import {
@@ -12,6 +13,9 @@ import {
 } from './access'
 
 export const PIN_PROBLEM = 'Enter the patient’s 4 to 8 digit access PIN.'
+
+/** At the demo facilities only: which demo patients a PIN opens, and how wrong PINs pause the check. */
+export const DEMO_PIN_NOTE = 'Demo patients Three to Ten have no PIN. Five wrong PINs in 15 minutes pause PIN checks for this demo login here for 15 minutes.'
 
 /**
  * Patient PIN access (today's "Patient PIN" method), drawn as the design's create page. The PIN is checked on the
@@ -80,6 +84,7 @@ export function PinAccess() {
       <RecordHeading title="Patient PIN access" backHref={href()} />
       <EhrCard>
         <p>Only the patient should share their access PIN. Verification and grant creation happen on the server.</p>
+        {isDemoFacility(facility?.id) ? <p className="hid-ehr-clinical-note">{DEMO_PIN_NOTE}</p> : null}
         <form className="hid-ehr-clinical-form" noValidate onSubmit={event => void submit(event)}>
           <div className="hid-ehr-clinical-form-grid">
             <EhrField label={<>Health ID<span aria-hidden="true"> *</span></>} hint={HID_FORMAT} error={shown('hid')}>

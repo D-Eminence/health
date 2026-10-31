@@ -110,13 +110,16 @@ describe('the Emergency page', () => {
     expect(emergencyStatus).toBe('partial')
   })
 
-  it('audit 7: at a demo facility, is the heading and the sample board only, with no break-glass card above it', () => {
+  it('audit 7: at a demo facility, is the heading, with Emergency break-glass access beside Create record, and the sample board, with no break-glass card above it', async () => {
     staff.facilityId = DEMO_HOSPITAL_ID
     open()
     const heading = screen.getByRole('heading', { level: 1, name: 'Emergency' })
     expect(screen.queryByRole('heading', { name: 'Emergency break-glass access' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Record emergency access' })).toBeNull()
     expect(screen.queryByRole('textbox', { name: labelled('Health ID') })).toBeNull()
+    // Owner, 31 October: the live break-glass page opens from the demo Emergency page too, as it does at a real facility.
+    const actions = heading.closest<HTMLElement>('.hid-ehr-page-heading')!
+    expect(within(actions).getAllByRole('button').map(button => button.textContent)).toEqual(['Emergency break-glass access', 'Create record'])
     const board = screen.getByTestId('sample-list')
     expect(board.textContent).toBe('emergency')
     expect(heading.compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -124,6 +127,16 @@ describe('the Emergency page', () => {
     expect(screen.queryByText(NO_MATCHING)).toBeNull()
     expect(screen.queryByText(BEFORE)).toBeNull()
     expect(document.querySelectorAll('.hid-ehr-card')).toHaveLength(0)
+    // The button only opens the page: nothing is read or sent for it.
+    await act(async () => {})
+    for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled()
+    fireEvent.click(within(actions).getByRole('button', { name: 'Emergency break-glass access' }))
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency break-glass access' })).toBeTruthy()
+    expect(submitButton().type).toBe('submit')
+    expect(hidField().value).toBe('HID-')
+    for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    expect(screen.getByTestId('sample-list').textContent).toBe('emergency')
   })
 
   it('audit 7: the break-glass page has its own heading and Back to list, with the design’s form', () => {

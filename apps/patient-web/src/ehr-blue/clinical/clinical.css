@@ -686,6 +686,13 @@
   align-self: flex-start;
 }
 
+/* "Other ways to get access", under the search: its two outline buttons on one line, wrapping on a phone. */
+.hid-ehr .hid-ehr-clinical-patients-other-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 /* Under the Patients list in its card (audit 2): how a patient is opened while only sharing rows are listed, what the sharing lists said, and what Accept did. */
 .hid-ehr .hid-ehr-clinical-patients-sharing-notes > .hid-ehr-clinical-note {
   margin: 12px 0 0;

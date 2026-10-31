@@ -25,10 +25,11 @@ function useDemoFacility() {
 
 /**
  * emergency: the design's list page, the heading and one list card (audit 7). At a demo facility the card is the sample
- * board; at a real facility it is an empty list whose one action opens the break-glass page. Its empty state says what
- * the design's empty list says ("No matching records"), never that there is no emergency access, since an open
- * emergency patient's way back to their summary shows above it (as today's Patients page shows it), and today's words
- * for when emergency access is used.
+ * board, and the heading keeps "Emergency break-glass access" beside its Create record, so the live break-glass page
+ * opens from here there too; at a real facility the card is an empty list whose one action opens that page. Its empty
+ * state says what the design's empty list says ("No matching records"), never that there is no emergency access, since
+ * an open emergency patient's way back to their summary shows above it (as today's Patients page shows it), and today's
+ * words for when emergency access is used.
  */
 function EmergencyHome() {
   const href = useWorkspaceHref()
@@ -36,7 +37,11 @@ function EmergencyHome() {
   const demo = useDemoFacility()
   return (
     <>
-      <ListHeading title="Emergency" createHref={demo ? href('new') : undefined} />
+      <ListHeading
+        title="Emergency"
+        createHref={demo ? href('new') : undefined}
+        actions={demo ? <EhrButton variant="secondary" onClick={() => navigate(href('break-glass'))}>Emergency break-glass access</EhrButton> : undefined}
+      />
       <CurrentEmergency />
       {demo ? <SampleList id="emergency" /> : (
         <EhrCard className="hid-ehr-clinical-emergency-list">

@@ -10,8 +10,8 @@ import { RecordTable, SearchField, type RecordRow } from '../parts/RecordTable'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import type { EhrBluePageStatus } from '../types'
 import {
-  ACCESS_CLOSED, HID_FORMAT, METHOD_ROUTES, OPEN_SHARED, actionUnavailable, administratorOf, healthIdProblem, isRefusedLookup,
-  offerHealthId, useOpenPatient,
+  ACCESS_CLOSED, HID_FORMAT, METHOD_ROUTES, OPEN_SHARED, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem,
+  isRefusedLookup, offerHealthId, useOpenPatient,
 } from '../consent/access'
 import { PinAccess } from '../consent/PinAccess'
 import { CLOSED_NOTICE, PatientPage, accessLabel, patientDetails } from './PatientPage'
@@ -23,10 +23,13 @@ export const patientsStatus: EhrBluePageStatus = 'live'
 /**
  * Patients: search by Health ID (today's governed access), the patient open now, that patient's page at
  * `patients/open`, and the patient PIN at `patients/pin` (as on today's Patients page, it needs no
- * identity.consent.write, which the frame asks for External record access). There is no list of every patient:
- * Health ID shows a patient only once this facility may see them. The list also holds the patients shared with this
- * clinician and the invitations sent to them (today's sharing cards, audit 2). "Create record" is today's Patient
- * registration page (/provider/registration, audit 1), which keeps its own checks; nothing of a patient goes with it.
+ * identity.consent.write, which the frame asks for External record access). Under the search, "Other ways to get
+ * access" always offers the patient PIN and emergency break-glass access, as today's "Obtain access" card does, so a
+ * patient Verify access opens at once (the demo patients' seeded share) can still be opened by PIN or for an emergency.
+ * There is no list of every patient: Health ID shows a patient only once this facility may see them. The list also
+ * holds the patients shared with this clinician and the invitations sent to them (today's sharing cards, audit 2).
+ * "Create record" is today's Patient registration page (/provider/registration, audit 1), which keeps its own checks;
+ * nothing of a patient goes with it.
  */
 export function PatientsWorkspace() {
   return (
@@ -74,6 +77,8 @@ function PatientList() {
   // A refused patient's access steps the role cannot take are not offered, and today's reason is given with them.
   const requestUnavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administrator)
   const emergencyUnavailable = actionUnavailable(METHOD_ROUTES.emergency, permissions, administrator)
+  // "Other ways to get access" gives today's reason with each step the role cannot take, as today's "Obtain access" does.
+  const pinUnavailable = actionUnavailable(METHOD_ROUTES.pin, permissions, administrator)
 
   function clearFeedback() { setNotice(''); setError(''); setRefused(null) }
 
@@ -143,6 +148,19 @@ function PatientList() {
     navigate(href.to('consent', 'new'))
   }
 
+  /**
+   * "Other ways to get access", with or without a lookup: a complete Health ID in the search is handed over as the
+   * refused banner hands its own (in memory, never in the URL); otherwise the step opens with its field empty, and a
+   * Health ID offered earlier is not read there.
+   */
+  function otherWay(target: 'pin' | 'emergency') {
+    if (!facility || (target === 'pin' ? pinUnavailable : emergencyUnavailable)) return
+    const normalized = normalizeHealthIdInput(hid)
+    if (healthIdProblem(normalized) === null) offerHealthId(normalized, facility.id, setActivePatient)
+    else dropOfferedHealthId()
+    navigate(target === 'pin' ? href('pin') : href.to('emergency', 'break-glass'))
+  }
+
   // The patient open now first (its link is their page), then those shared with this clinician and the invitations.
   const openRow = useMemo<RecordRow | null>(() => {
     if (!activePatient) return null
@@ -185,6 +203,29 @@ function PatientList() {
           >
             <EhrButton type="submit" className="hid-ehr-clinical-patients-verify" busy={busy} disabled={!canLook}>Verify access</EhrButton>
           </SearchField>
+        </div>
+        <div role="group" aria-labelledby="patients-other-access">
+          <h2 id="patients-other-access" className="hid-ehr-clinical-subheading">Other ways to get access</h2>
+          <div className="hid-ehr-clinical-patients-other-actions">
+            <EhrButton
+              variant="secondary"
+              disabled={pinUnavailable !== null}
+              aria-describedby={pinUnavailable ? 'other-pin-unavailable' : undefined}
+              onClick={() => otherWay('pin')}
+            >
+              Verify patient PIN
+            </EhrButton>
+            <EhrButton
+              variant="secondary"
+              disabled={emergencyUnavailable !== null}
+              aria-describedby={emergencyUnavailable ? 'other-emergency-unavailable' : undefined}
+              onClick={() => otherWay('emergency')}
+            >
+              Emergency break-glass access
+            </EhrButton>
+          </div>
+          {pinUnavailable ? <p id="other-pin-unavailable" className="hid-ehr-clinical-note">{pinUnavailable}</p> : null}
+          {emergencyUnavailable ? <p id="other-emergency-unavailable" className="hid-ehr-clinical-note">{emergencyUnavailable}</p> : null}
         </div>
         {refused ? (
           <Banner

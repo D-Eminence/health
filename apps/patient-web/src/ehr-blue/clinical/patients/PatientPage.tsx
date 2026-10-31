@@ -13,7 +13,7 @@ import type { PatientFacts } from '../parts/PatientHeader'
 import { StatusBadge } from '../parts/StatusBadge'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isDemoFacility } from '../../blueFacilities'
-import { CLOSE_GRANT, CLOSE_REASON, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
+import { CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
 import type { ActivePatient } from '../../../staff/App'
 
 export const CLOSED_NOTICE = 'closed'
@@ -117,7 +117,12 @@ function PatientRecord({ chart }: { chart: Chart }) {
   const [error, setError] = useState('')
   const emergency = chart.purpose === 'emergency'
   const grantId = chart.patient.lookup.authorization.consentGrantId ?? null
-  const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administratorOf(facility, permissions))
+  const administrator = administratorOf(facility, permissions)
+  const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administrator)
+  // The access steps today's Patients page offers (its METHOD_ROUTES), each with today's reason when the role cannot take it.
+  const pinUnavailable = actionUnavailable(METHOD_ROUTES.pin, permissions, administrator)
+  const requestUnavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administrator)
+  const emergencyUnavailable = actionUnavailable(METHOD_ROUTES.emergency, permissions, administrator)
   const allergies = useReportedAllergies(chart)
 
   async function closeGrant() {
@@ -135,7 +140,9 @@ function PatientRecord({ chart }: { chart: Chart }) {
 
   /**
    * As the design's Next steps, a step shows only to a role that may take it: External record access opens only with
-   * identity.consent.write (the frame's rule, the permission its request form needs).
+   * identity.consent.write (the frame's rule, the permission its request form needs). The two steps that move an
+   * emergency patient to direct care are the exception: a role that cannot take one sees it disabled with today's reason,
+   * as on Patients.
    */
   const mayOpenConsent = can('identity.consent.write')
 
@@ -144,6 +151,21 @@ function PatientRecord({ chart }: { chart: Chart }) {
     if (!mayOpenConsent) return
     offerHealthId(chart.patient.hid, chart.facilityId, setActivePatient)
     navigate(href.to('consent', 'new'))
+  }
+
+  /**
+   * The access steps, as the refused banner on Patients takes them: under direct care, emergency break-glass access
+   * (Emergency's own page, which needs identity.break-glass.write); under emergency access, the patient's PIN (Patients'
+   * own page) or a request (External record access), which move the patient to direct care. Each hands the Health ID
+   * over in memory, never in the URL, and only to a step the role may take.
+   */
+  function accessStep(target: 'pin' | 'request' | 'emergency') {
+    const unavailable = target === 'pin' ? pinUnavailable : target === 'request' ? requestUnavailable : emergencyUnavailable
+    if (unavailable) return
+    offerHealthId(chart.patient.hid, chart.facilityId, setActivePatient)
+    if (target === 'pin') navigate(href('pin'))
+    else if (target === 'request') navigate(href.to('consent', 'new'))
+    else navigate(href.to('emergency', 'break-glass'))
   }
 
   return (
@@ -178,7 +200,32 @@ function PatientRecord({ chart }: { chart: Chart }) {
           ) : <NoActions />}
           <SubHeading>Next steps</SubHeading>
           {emergency ? (
-            <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('emergency', 'summary'))}>Open the emergency summary</EhrButton></Step>
+            <>
+              <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('emergency', 'summary'))}>Open the emergency summary</EhrButton></Step>
+              {/* Emergency access is read-only: the PIN or the patient's approval moves the patient to direct care. */}
+              <Step>
+                <EhrButton
+                  variant="secondary"
+                  disabled={pinUnavailable !== null}
+                  aria-describedby={pinUnavailable ? 'pin-step-unavailable' : undefined}
+                  onClick={() => accessStep('pin')}
+                >
+                  Verify patient PIN
+                </EhrButton>
+              </Step>
+              {pinUnavailable ? <p id="pin-step-unavailable" className="hid-ehr-clinical-note">{pinUnavailable}</p> : null}
+              <Step>
+                <EhrButton
+                  variant="secondary"
+                  disabled={requestUnavailable !== null}
+                  aria-describedby={requestUnavailable ? 'request-step-unavailable' : undefined}
+                  onClick={() => accessStep('request')}
+                >
+                  Request access
+                </EhrButton>
+              </Step>
+              {requestUnavailable ? <p id="request-step-unavailable" className="hid-ehr-clinical-note">{requestUnavailable}</p> : null}
+            </>
           ) : (
             <>
               {/* Appointments and patient visits are samples: offered only at the demo facilities. Today's Patients
@@ -192,6 +239,10 @@ function PatientRecord({ chart }: { chart: Chart }) {
               ) : null}
               {/* The design's three steps only (audit 4): each encounter opens from Connected hospital history below. */}
               {mayOpenConsent ? <Step><EhrButton variant="secondary" onClick={openConsent}>Open consent</EhrButton></Step> : null}
+              {/* Shown, as the card's steps are, only to a role that may take it. */}
+              {emergencyUnavailable === null ? (
+                <Step><EhrButton variant="secondary" onClick={() => accessStep('emergency')}>Emergency break-glass access</EhrButton></Step>
+              ) : null}
             </>
           )}
         </EhrCard>

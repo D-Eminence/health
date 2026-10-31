@@ -36,13 +36,19 @@ export function Loading({ label }: { label: string }) {
   return <EhrSkeleton label={label} />
 }
 
-/** A list page's heading: the workspace title and, when allowed, "Create record". */
-export function ListHeading({ title, createHref, createLabel = 'Create record' }: { title: string; createHref?: string; createLabel?: string }) {
+/** A list page's heading: the workspace title, any other action of the page and, when allowed, "Create record". */
+export function ListHeading({ title, createHref, createLabel = 'Create record', actions }: {
+  title: string
+  createHref?: string
+  createLabel?: string
+  actions?: ReactNode
+}) {
   const navigate = useNavigate()
   return (
     <EhrPageHeading
       title={title}
       primaryAction={createHref ? <EhrButton onClick={() => navigate(createHref)}>{createLabel}</EhrButton> : undefined}
+      secondaryActions={actions}
     />
   )
 }
