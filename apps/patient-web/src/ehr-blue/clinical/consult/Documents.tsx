@@ -1,6 +1,7 @@
 import { assertSignedStorageUrl } from '@hid/http'
 import { EhrButton, EhrCard, EhrField, EhrInput } from '@hid/ui/ehr'
 import { useRef, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { staffApi, type DocumentRecord } from '../../../staff/api'
 import { getEnvironment } from '../../../staff/env'
 import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/session'
@@ -8,15 +9,27 @@ import type { Chart } from '../parts/chart'
 import { SubHeading } from '../parts/Detail'
 import { ErrorBox, Loading } from '../parts/Notices'
 import { StatusBadge } from '../parts/StatusBadge'
-import { fileSize } from './encounters'
+import { useClinical } from '../parts/Workspace'
+import { RELOAD_FAILED, fileSize } from './encounters'
+import { ListPaging } from './Notes'
 import type { RecordList } from './records'
 
 const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff']
 const MAX_BYTES = 52_428_800
+/**
+ * Today's OCR page, where today's link goes (staff/routes/Clinical.tsx Documents). It is today's provider route, not a
+ * blue workspace, so it is named as today names it rather than below this page's base.
+ */
+const OCR_PATH = '/provider/ocr'
+const OCR_LABEL = 'Extract with OCR'
+/** Said when EHR holds more documents than today's read answers (it takes no cursor). */
+const DOCUMENTS_TRUNCATED = 'Not every document of this encounter is listed here.'
 
 /**
- * The encounter's documents (today's Documents tab): each with its type, size and scan result, "Open file" only once
- * the virus scan is clean, and "Upload a document". Opening and uploading re-check access first, as today.
+ * The encounter's documents (today's Documents tab), 50 to a page: each with its type, size and scan result, "Open
+ * file" only once the virus scan is clean, today's "Extract with OCR" for a clean one when the role may read OCR jobs
+ * (the ids go in router state, never in the address, as today), and "Upload a document". Opening and uploading
+ * re-check access first, as today.
  */
 export function DocumentsCard({ chart, encounterId, list, canWrite }: {
   chart: Chart
@@ -25,6 +38,10 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
   canWrite: boolean
 }) {
   const { facilityId, patientId } = chart
+  const { state } = useClinical()
+  // Today's OCR handoff names who made it and where, since the history entry holding it outlives both.
+  const actorId = state.status === 'ready' ? state.session.actor.id : undefined
+  const canOcr = chart.can('ocr.job.read')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [fileError, setFileError] = useState<string | undefined>(undefined)
@@ -66,9 +83,10 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
     try {
       await chart.verify()
       await staffApi.uploadDocument(facilityId, patientId, encounterId, file)
-      await list.reload()
+      const failure = await list.reload(true)
       form.reset()
       setNotice('Document uploaded. It can be opened once its virus scan is clean.')
+      if (failure !== null) setError(`${RELOAD_FAILED} ${failure}`.trim())
     } catch (caught) {
       setError(caught instanceof Error && caught.message ? caught.message : 'Document could not be uploaded.')
     } finally {
@@ -80,6 +98,8 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
   return (
     <EhrCard title="Documents">
       {list.error ? <ErrorBox>{list.error}</ErrorBox> : null}
+      <ListPaging list={list} />
+      {list.truncated ? <p className="hid-ehr-clinical-note">{DOCUMENTS_TRUNCATED}</p> : null}
       {list.items === null ? (list.loading ? <Loading label="Loading documents…" /> : null) : list.items.length === 0 ? (
         <p>No documents for this encounter.</p>
       ) : (
@@ -101,6 +121,11 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
                   aria-label={`Open file ${document.fileName}`} onClick={() => open(document)}>
                   Open file
                 </EhrButton>
+                {canOcr && document.scanStatus === 'clean' ? (
+                  <Link className="hid-ehr-clinical-link" to={OCR_PATH} state={{ ocrDocumentId: document.id, ocrPatientId: patientId, actorId, facilityId }}>
+                    {OCR_LABEL}
+                  </Link>
+                ) : null}
               </span>
             </li>
           ))}

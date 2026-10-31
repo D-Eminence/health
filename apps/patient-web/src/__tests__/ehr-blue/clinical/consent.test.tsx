@@ -196,7 +196,31 @@ describe('New external record access', () => {
     // A facility switch (even back to this facility) starts a new period: today's setActivePatient is made anew.
     offerHealthId(PATIENT_HID, FACILITY_ID, vi.fn())
     open('/new')
-    expect((screen.getByLabelText(labelled('Health ID')) as HTMLInputElement).value).toBe('')
+    expect((screen.getByLabelText(labelled('Health ID')) as HTMLInputElement).value).toBe('HID-')
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+  })
+
+  it('review item 10: the request’s Health ID starts at HID-, is normalized as typed, and HID- alone is empty', async () => {
+    open('/new')
+    const field = () => screen.getByLabelText(labelled('Health ID')) as HTMLInputElement
+    expect(field().value).toBe('HID-')
+    fireEvent.change(screen.getByLabelText(labelled('Purpose of access')), { target: { value: 'Follow-up consultation' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send access request' }))
+    // Today's sentence for an empty Health ID, not the form's "Complete this field.".
+    expect(await screen.findByText('Enter the patient’s Health ID.')).toBeTruthy()
+    expect(screen.queryByText('Complete this field.')).toBeNull()
+    expect(document.activeElement).toBe(field())
+    expect(api.requestAccess).not.toHaveBeenCalled()
+    fireEvent.change(field(), { target: { value: ' hid-zdem aaa2 ' } })
+    expect(field().value).toBe(PATIENT_HID)
+    fireEvent.change(field(), { target: { value: '' } })
+    expect(field().value).toBe('HID-')
+    fireEvent.change(field(), { target: { value: 'HID-HID-zdemaaa2' } })
+    expect(field().value).toBe(PATIENT_HID)
+    // Only the Health ID is normalized: the purpose keeps what was typed.
+    expect((screen.getByLabelText(labelled('Purpose of access')) as HTMLInputElement).value).toBe('Follow-up consultation')
+    fireEvent.click(screen.getByRole('button', { name: 'Send access request' }))
+    await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'read_records', 'Follow-up consultation', 60))
   })
 
   it('confirms a request just sent while its page is read, and when it cannot be read', async () => {
@@ -297,6 +321,29 @@ describe('Patient PIN access', () => {
     expect(api.lookupPatient).not.toHaveBeenCalled()
   })
 
+  it('review item 10: the PIN form’s Health ID starts at HID-, is normalized as typed, and HID- alone is empty', async () => {
+    open('/pin')
+    const field = () => screen.getByLabelText(labelled('Health ID')) as HTMLInputElement
+    expect(field().value).toBe('HID-')
+    fireEvent.change(screen.getByLabelText(labelled('Patient access PIN')), { target: { value: '1234' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify PIN and open' }))
+    expect(await screen.findByText('Enter the patient’s Health ID.')).toBeTruthy()
+    expect(document.activeElement).toBe(field())
+    expect(field().getAttribute('aria-invalid')).toBe('true')
+    expect(api.verifyPin).not.toHaveBeenCalled()
+    fireEvent.change(field(), { target: { value: '' } })
+    expect(field().value).toBe('HID-')
+    fireEvent.change(field(), { target: { value: ' hid zdemaaa2' } })
+    expect(field().value).toBe(PATIENT_HID)
+  })
+
+  it('review item 10: the PIN form starts at a Health ID offered from Patients, read once', () => {
+    offerHealthId(PATIENT_HID, FACILITY_ID, staff.setActivePatient)
+    open('/pin')
+    expect((screen.getByLabelText(labelled('Health ID')) as HTMLInputElement).value).toBe(PATIENT_HID)
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+  })
+
   it('names what a role lacks to verify a PIN', () => {
     staff.permissions = ['identity.patient-access-pin.verify']
     open('/pin')
@@ -329,13 +376,12 @@ describe('An access request’s page', () => {
     expect(screen.getAllByText('Denied by the patient').length).toBeGreaterThan(0)
   })
 
-  it('closes an active grant after the design’s confirmation, and ends the open patient it opened', async () => {
+  it('review item 9: Close access closes an active grant at once, with no confirmation, and ends the open patient it opened', async () => {
     staff.activePatient = activePatient()
     open('/r0000000-0000-4000-8000-000000000002')
-    fireEvent.click(await screen.findByRole('button', { name: 'Close access' }))
-    const dialog = screen.getByRole('alertdialog', { name: 'Close access?' })
     api.listAccessRequests.mockResolvedValue([{ ...ACTIVE, effectiveStatus: 'closed' }])
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Close access' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Close access' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(await screen.findByText('Access was closed by the backend.')).toBeTruthy()
     expect(api.closeGrant).toHaveBeenCalledWith(FACILITY_ID, 'grant-1', 'Clinician closed completed patient access')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
@@ -344,22 +390,30 @@ describe('An access request’s page', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull()
   })
 
+  it('review item 9: Close access sends one close even on a double press, while the first is on its way', async () => {
+    let finish: (value: unknown) => void = () => {}
+    api.closeGrant.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    open('/r0000000-0000-4000-8000-000000000002')
+    const button = await screen.findByRole('button', { name: 'Close access' })
+    fireEvent.click(button)
+    fireEvent.click(button)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    api.listAccessRequests.mockResolvedValue([{ ...ACTIVE, effectiveStatus: 'closed' }])
+    await act(async () => { finish({}) })
+    expect(await screen.findByText('Access was closed by the backend.')).toBeTruthy()
+    expect(api.closeGrant).toHaveBeenCalledTimes(1)
+  })
+
   it('says an access that had already ended was refreshed', async () => {
     api.closeGrant.mockRejectedValue(new HidApiError(409, 'Conflict', { code: 'CONSENT_COMMAND_CONFLICT' }))
     open('/r0000000-0000-4000-8000-000000000002')
     fireEvent.click(await screen.findByRole('button', { name: 'Close access' }))
-    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Close access' }))
     expect((await screen.findByRole('alert')).textContent).toBe('This access had already ended. The list has been refreshed.')
     expect(api.listAccessRequests).toHaveBeenCalledTimes(2)
     expect(staff.setActivePatient).not.toHaveBeenCalled()
-  })
-
-  it('cancelling the confirmation closes nothing', async () => {
-    open('/r0000000-0000-4000-8000-000000000002')
-    fireEvent.click(await screen.findByRole('button', { name: 'Close access' }))
-    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Cancel' }))
-    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
-    expect(api.closeGrant).not.toHaveBeenCalled()
+    // The grant is still listed as active: Close access is offered again, and closes at once.
+    expect(screen.getByRole('button', { name: 'Close access' })).toBeTruthy()
   })
 
   it('shows the request loading, and a list refusal in today’s words', async () => {

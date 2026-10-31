@@ -15,7 +15,7 @@ export function FacilityStep({ facility, onNext }: { readonly facility: Facility
     <EhrCard>
       <div className="hid-ehr-onboarding-stack">
         <form noValidate aria-label="Facility" className="hid-ehr-onboarding-grid" onSubmit={event => { event.preventDefault(); onNext() }}>
-          <EhrField label={required('Hospital name')} hint="As Health ID has it.">
+          <EhrField label={required('Facility name')} hint="As Health ID has it.">
             <EhrInput readOnly value={facility.name} />
           </EhrField>
           <NotCollectedField label="Main phone" type="tel" />
@@ -24,8 +24,8 @@ export function FacilityStep({ facility, onNext }: { readonly facility: Facility
           <NotCollectedField label="City" />
           <NotCollectedField label="State" />
           <NotCollectedField label="Optional registration number" />
-          <NotCollectedField label="Optional hospital logo" type="file" />
-          <div className="hid-ehr-onboarding-full"><EhrButton type="submit">Save and continue</EhrButton></div>
+          <NotCollectedField label="Optional facility logo" type="file" />
+          <div className="hid-ehr-onboarding-full"><EhrButton type="submit">Continue</EhrButton></div>
         </form>
         {review === 'pending' ? <p className="hid-ehr-onboarding-text">{facilityCheckPending(facility.name)}</p> : null}
         {review === 'reviewed' ? <p className="hid-ehr-onboarding-text">{facilityCheckDone(facility.name)}</p> : null}

@@ -1,4 +1,4 @@
-import { findEndpoint, isBlankHealthIdInput, isCompleteHealthId, normalizeHealthIdInput, type EndpointMethod } from '@hid/contracts'
+import { findEndpoint, isBlankHealthIdInput, isCompleteHealthId, type EndpointMethod } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
 import { useCallback } from 'react'
 import { usesNovuBackend } from '../../../backendContract'
@@ -71,16 +71,14 @@ export function administratorOf(facility: Facility | undefined, permissions: rea
   return usesNovuBackend() && permissions.includes('workforce.manage') ? selfServiceReview(facility) : null
 }
 
-/** Why `normalized` is not a Health ID, or null when it is one (today's healthIdProblem). */
+/**
+ * Why `normalized` is not a Health ID, or null when it is one (today's healthIdProblem). Every Health ID field starts
+ * at HID- (HEALTH_ID_PREFIX) and is normalized as it changes, as today's are: with nothing after the prefix, it is empty.
+ */
 export function healthIdProblem(normalized: string): string | null {
   if (isBlankHealthIdInput(normalized)) return 'Enter the patient’s Health ID.'
   return isCompleteHealthId(normalized) ? null
     : 'Check the Health ID: it starts with HID-, then 6 to 32 letters and digits, and never uses 0, 1, I or O.'
-}
-
-/** What a Health ID field holds after a change: empty stays empty (the design's empty field), anything else is normalized. */
-export function healthIdInput(value: string): string {
-  return value.trim() === '' ? '' : normalizeHealthIdInput(value)
 }
 
 /** Whether a failed lookup is the patient refusing or being unknown to this facility (403, 404), not an outage. */

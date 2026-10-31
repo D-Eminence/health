@@ -1,4 +1,4 @@
-import { normalizeHealthIdInput } from '@hid/contracts'
+import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
 import { EhrButton, EhrCard, EhrField, EhrInput } from '@hid/ui/ehr'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -7,8 +7,8 @@ import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/s
 import { ErrorBox, RecordHeading } from '../parts/Notices'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import {
-  HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdInput, healthIdProblem,
-  offeredHealthId, useOpenPatient,
+  HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem, offeredHealthId,
+  useOpenPatient,
 } from './access'
 
 export const PIN_PROBLEM = 'Enter the patient’s 4 to 8 digit access PIN.'
@@ -23,8 +23,8 @@ export function PinAccess() {
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   const openPatient = useOpenPatient()
-  // A Health ID handed over from Patients, read once.
-  const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient))
+  // A Health ID handed over from Patients, read once; otherwise the field starts at HID-, as today's does.
+  const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient) || HEALTH_ID_PREFIX)
   useEffect(() => { dropOfferedHealthId() }, [])
   const [pin, setPin] = useState('')
   const [problem, setProblem] = useState<{ field: 'hid' | 'pin'; message: string; alert: boolean } | null>(null)
@@ -89,7 +89,7 @@ export function PinAccess() {
                 spellCheck={false}
                 required
                 value={hid}
-                onChange={event => { setHid(healthIdInput(event.target.value)); if (problem?.field === 'hid') setProblem(null) }}
+                onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); if (problem?.field === 'hid') setProblem(null) }}
               />
             </EhrField>
             <EhrField label={<>Patient access PIN<span aria-hidden="true"> *</span></>} hint="4 to 8 digits." error={shown('pin')}>
