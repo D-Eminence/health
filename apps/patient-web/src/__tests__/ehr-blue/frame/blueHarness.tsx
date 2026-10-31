@@ -9,7 +9,7 @@ import type { EhrBluePage } from '../../../ehr-blue/frame/types'
  * is a 418 the test would see). Every account, facility and patient here is fictional.
  */
 export type Answer = () => Response | Promise<Response>
-export interface Sent { route: string; body: unknown }
+export interface Sent { route: string; body: unknown; headers: Headers }
 
 export const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 export const problem = (status: number, code: string, detail: string) =>
@@ -42,7 +42,7 @@ export function serve(routes: Record<string, Answer[]>) {
   const sent: Sent[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const route = `${String(init?.method ?? 'GET')} ${new URL(String(url)).pathname}`
-    sent.push({ route, body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined })
+    sent.push({ route, body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined, headers: new Headers(init?.headers) })
     const next = routes[route]?.shift()
     return next ? next() : json({ code: 'UNEXPECTED_REQUEST', detail: route }, 418)
   }))

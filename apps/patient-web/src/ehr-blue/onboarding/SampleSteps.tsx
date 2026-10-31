@@ -38,7 +38,7 @@ export function TypeStep({ type, departments, onSave }: {
               {FACILITY_TYPES.map(option => <option key={option}>{option}</option>)}
             </EhrSelect>
           </EhrField>
-          <div><EhrButton type="submit">Save and continue</EhrButton></div>
+          <div><EhrButton type="submit">Next (sample)</EhrButton></div>
         </form>
         <p className="hid-ehr-onboarding-text">Types suggest defaults. Clinical specialties share the appointments, triage and consultation
           infrastructure. Multi-Branch Hospital requires at least two configured branches.</p>
@@ -80,7 +80,7 @@ export function DepartmentsStep({ departments, onSave }: {
         {problem ? <p role="alert" className="hid-ehr-onboarding-problem">{problem}</p> : null}
         <div>
           <EhrButton onClick={() => (selected.length === 0 ? setProblem('Select at least one department.') : onSave(selected))}>
-            Save and continue</EhrButton>
+            Next (sample)</EhrButton>
         </div>
       </div>
     </EhrCard>
@@ -161,7 +161,7 @@ export function BranchesStep({ departments, branches, onSaveBranch }: {
             </EhrField>
           ))}
           {problem ? <p role="alert" className="hid-ehr-onboarding-problem hid-ehr-onboarding-full">{problem}</p> : null}
-          <div className="hid-ehr-onboarding-full"><EhrButton type="submit">Save branch</EhrButton></div>
+          <div className="hid-ehr-onboarding-full"><EhrButton type="submit">Add branch (sample)</EhrButton></div>
         </form>
         <p role="status" className="hid-ehr-onboarding-text hid-ehr-onboarding-status">{saved}</p>
       </div>
@@ -207,7 +207,7 @@ export function BillingStep({ billing, serviceCatalogue, onSave }: {
           <div className="hid-ehr-onboarding-full">
             <Check label="Enable insurance support" labelFirst checked={form.insurance} onChange={insurance => setForm({ ...form, insurance })} />
           </div>
-          <div className="hid-ehr-onboarding-full"><EhrButton type="submit">Save and continue</EhrButton></div>
+          <div className="hid-ehr-onboarding-full"><EhrButton type="submit">Next (sample)</EhrButton></div>
         </form>
         <p className="hid-ehr-onboarding-text">This configures patient service billing, not a platform subscription. Service pricing is
           optional before launch.</p>

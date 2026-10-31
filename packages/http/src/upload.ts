@@ -49,6 +49,20 @@ export interface PresignedUploadOptions {
   readonly fetchImpl?: typeof fetch
 }
 
+/**
+ * The required headers, less any the signer already put in the link's query: the AWS SDK's presigner moves
+ * x-amz-checksum-* and x-amz-meta-* there and signs them as query parameters. S3 refuses an x-amz-* header that the
+ * signature does not cover, so sending one of those again as a header would fail the upload.
+ */
+function uploadHeaders(url: URL, requiredHeaders: Readonly<Record<string, string>>): Headers {
+  const inQuery = new Set([...url.searchParams.keys()].map(name => name.toLowerCase()))
+  const headers = new Headers()
+  for (const [name, value] of Object.entries(requiredHeaders)) {
+    if (!inQuery.has(name.toLowerCase())) headers.set(name, value)
+  }
+  return headers
+}
+
 /** Sends bytes directly to the exact signed storage URL, without HID cookies. */
 export async function uploadPresignedObject(options: PresignedUploadOptions): Promise<void> {
   const url = assertSignedStorageUrl(options.url, {
@@ -60,7 +74,7 @@ export async function uploadPresignedObject(options: PresignedUploadOptions): Pr
     response = await (options.fetchImpl ?? globalThis.fetch)(url.toString(), {
       method: 'PUT',
       body: options.body,
-      headers: new Headers(options.requiredHeaders),
+      headers: uploadHeaders(url, options.requiredHeaders),
       credentials: 'omit',
       cache: 'no-store',
       redirect: 'error',

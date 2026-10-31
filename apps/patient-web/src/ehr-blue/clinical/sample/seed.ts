@@ -23,7 +23,7 @@ export interface SampleRecord {
   /** The sample workspace (definition id) the record belongs to. */
   readonly workspace: string
   readonly patientId?: string
-  /** The record this one was started from (a visit's appointment). */
+  /** The record this one was started from (a visit's appointment, an order's visit). */
   readonly parentId?: string
   readonly status: string
   readonly createdAt: string
@@ -163,7 +163,8 @@ export function seedRecords(): SampleRecord[] {
       ],
     }),
     record(IDS.ultrasound, 'radiology', 'scheduled', '2026-10-26T11:41:15.554Z', { encounter: ENCOUNTERS.taylor, modality: 'Abdominal ultrasound', indication: 'Abdominal pain', urgency: 'Routine', scheduled: '2026-11-03T09:30' }, {
-      patientId: PATIENTS.taylor, createdAt: '2026-10-26T11:41:15.540Z',
+      // Ordered during Taylor's visit b57e94c9, whose Connected hospital history lists it (the design's 09).
+      patientId: PATIENTS.taylor, parentId: IDS.visitTaylor, createdAt: '2026-10-26T11:41:15.540Z',
       versions: [['2026-10-26T11:41:15.554Z', 'ordered', 'Schedule examination', { encounter: ENCOUNTERS.taylor, modality: 'Abdominal ultrasound', indication: 'Abdominal pain', urgency: 'Routine' }]],
     }),
 

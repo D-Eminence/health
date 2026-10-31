@@ -9,18 +9,22 @@ import { CAC_STEP, REGISTRATION_STEPS, REVIEW_STEP, type Enrollment } from './us
 /** What every design field Health ID does not take says: shown, disabled, never sent or kept. */
 export const NOT_COLLECTED = 'Not collected by Health ID yet'
 
-/** The design's four agreements (facility-fields.ts step 5), required before submitting. Health ID does not record them yet. */
+/**
+ * The design's agreements (facility-fields.ts step 5), required before submitting. Health ID records no acceptance, so
+ * the boxes say what the applicant has read; there is no Data Processing Agreement, so it has no box.
+ */
 export const AGREEMENTS = [
-  ['terms', 'I accept the Terms of Service'],
-  ['dpa', 'I accept the Data Processing Agreement'],
+  ['terms', 'I have read the Terms of Service'],
+  ['privacy', 'I have read the Privacy Policy'],
   ['ndpa', 'I acknowledge data protection and patient consent responsibilities'],
   ['authorised', 'I am authorised to register this facility'],
 ] as const
 export type Agreement = (typeof AGREEMENTS)[number][0]
 export type Agreements = Readonly<Record<Agreement, boolean>>
-export const NO_AGREEMENTS: Agreements = { terms: false, dpa: false, ndpa: false, authorised: false }
+export const NO_AGREEMENTS: Agreements = { terms: false, privacy: false, ndpa: false, authorised: false }
 
-// The public site's legal pages, as the patient sign-up links them (routes/enrollment/Signup.tsx:92-93).
+// The public site's legal pages, as the patient sign-up links them (routes/enrollment/Signup.tsx:92-93). Absolute: a
+// relative /terms on the portal's own origin opens the patient sign-in, not the legal page.
 const TERMS_URL = 'https://healthidentitydirectory.com/terms'
 const PRIVACY_URL = 'https://healthidentitydirectory.com/privacy'
 
@@ -291,9 +295,9 @@ export function Registration({ e, agreed, onAgree }: {
             registration.</p>
         </div>
 
-        <EhrDialog open={confirming} title="Submit the facility agreements?"
-          description="Confirm that you are authorized to accept the agreements selected above and submit this registration for review."
-          confirmLabel="Accept agreements and submit"
+        <EhrDialog open={confirming} title="Submit this registration?"
+          description="Check the details above, then submit. Health ID checks your CAC registration number and emails you a six digit code."
+          confirmLabel="Confirm and submit"
           onCancel={() => setConfirming(false)}
           onConfirm={() => { setConfirming(false); void e.start() }} />
       </>}
@@ -343,9 +347,8 @@ function Review({ e, agreed, onAgree, onEdit }: {
         <summary>Read the agreements</summary>
         <p><strong>Terms of Service:</strong> read the <a className="hid-ehr-signup-link" href={TERMS_URL} target="_blank"
           rel="noopener">Health ID Terms of Service</a> (opens in a new tab).</p>
-        <p><strong>Data Processing Agreement:</strong> how Health ID handles personal data is set out in the <a
-          className="hid-ehr-signup-link" href={PRIVACY_URL} target="_blank" rel="noopener">Health ID Privacy Policy</a> (opens
-          in a new tab).</p>
+        <p><strong>Privacy Policy:</strong> read the <a className="hid-ehr-signup-link" href={PRIVACY_URL} target="_blank"
+          rel="noopener">Health ID Privacy Policy</a> (opens in a new tab).</p>
         <p><strong>Data protection and patient consent:</strong> Facility users acknowledge responsibility for appropriate
           data protection and patient consent.</p>
       </details>

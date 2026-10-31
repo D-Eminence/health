@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
+// Today's workspace at every facility, as real clinics have it until the clinic switch (ehr-blue/clinicSwitch.ts):
+// these tests cover the classic portal whatever BLUE_FOR_ALL is. The blue one is EhrBlueAtClinics.test.tsx's.
+vi.mock('../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: false }))
+
 /**
  * PEHR-11 (WCAG 2.4.3 Focus Order). A step that opens another page removed the
  * control that ran it, and focus fell to the document: opening a patient from

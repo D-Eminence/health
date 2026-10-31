@@ -28,7 +28,7 @@ export interface RecordRow {
  * The design's record table: Record, Patient / context, Status, Updated, then "Quick view" and "Open →". The quick
  * view is the design's "Record quick view" drawer.
  */
-export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitle = 'No matching records', emptyMessage, emptyAction }: {
+export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitle = 'No matching records', emptyMessage, emptyAction, notice }: {
   caption: string
   rows: readonly RecordRow[]
   hrefFor: (row: RecordRow) => string
@@ -36,6 +36,8 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
   emptyTitle?: ReactNode
   emptyMessage: ReactNode
   emptyAction?: ReactNode
+  /** Shown first inside the quick view, such as the sample notice on a sample workspace's records. */
+  notice?: ReactNode
 }) {
   // By id, so the quick view shows the row as it is now if the rows change while it is open.
   const [viewingId, setViewingId] = useState<string | null>(null)
@@ -102,6 +104,7 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
       <EhrDrawer open={viewing !== null} title="Record quick view" onClose={() => setViewingId(null)}>
         {viewing ? (
           <div className="hid-ehr-clinical-quick">
+            {notice}
             <h3 className="hid-ehr-clinical-quick-title">{viewing.name}</h3>
             {viewing.updated ? <p className="hid-ehr-clinical-quick-updated">Last updated {formatWhen(viewing.updated)}</p> : null}
             <KeyValueList items={viewing.details} />
@@ -115,9 +118,11 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
 
 /**
  * The design's list search: "Search {workspace}" over "Search saved records…", and "Clear search" while it holds
- * text. Clearing moves focus back to the field, since the button disappears.
+ * text. Clearing moves focus back to the field, since the button disappears. `blankValue` is what the field holds when
+ * nothing has been typed (the "HID-" a Health ID field starts with): it shows no "Clear search", and clearing returns
+ * to it.
  */
-export function SearchField({ label, value, onChange, placeholder = 'Search saved records…', hint, error, type = 'search', onSubmit, children }: {
+export function SearchField({ label, value, onChange, placeholder = 'Search saved records…', hint, error, type = 'search', onSubmit, blankValue = '', children }: {
   label: string
   value: string
   onChange: (value: string) => void
@@ -127,6 +132,7 @@ export function SearchField({ label, value, onChange, placeholder = 'Search save
   type?: 'search' | 'text'
   /** When set, the field is a form: Enter (or a submit button in `children`) calls it. */
   onSubmit?: () => void
+  blankValue?: string
   children?: ReactNode
 }) {
   const input = useRef<HTMLInputElement>(null)
@@ -135,8 +141,8 @@ export function SearchField({ label, value, onChange, placeholder = 'Search save
       <EhrInput ref={input} type={type} value={value} placeholder={placeholder} autoComplete="off" spellCheck={false} onChange={event => onChange(event.target.value)} />
     </EhrField>
   )
-  const clear = value ? (
-    <EhrButton variant="secondary" className="hid-ehr-clinical-search-clear" onClick={() => { onChange(''); input.current?.focus() }}>Clear search</EhrButton>
+  const clear = value && value !== blankValue ? (
+    <EhrButton variant="secondary" className="hid-ehr-clinical-search-clear" onClick={() => { onChange(blankValue); input.current?.focus() }}>Clear search</EhrButton>
   ) : null
 
   if (!onSubmit) return <div className="hid-ehr-clinical-search">{field}{clear}{children}</div>

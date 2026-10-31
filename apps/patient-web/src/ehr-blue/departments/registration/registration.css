@@ -1,0 +1,143 @@
+/*
+ * Patient registration in the blue Hospital EHR (departments/registration). Every rule sits under .hid-ehr and names
+ * hid-ehr-dept-registration-* classes; the shared department rules (departments.css) do the rest. Values come from the
+ * --ehr-* tokens that @hid/ui/ehr declares on .hid-ehr.
+ */
+
+/*
+ * A case's heading is its ID: it breaks anywhere rather than run past a phone's edge, and its figures are lining ones
+ * (the display face's old-style zeros read as the letter o, so "c0000000" looked like "cooooooo").
+ */
+.hid-ehr .hid-ehr-dept-registration-page .hid-ehr-page-title {
+  overflow-wrap: anywhere;
+  font-variant-numeric: lining-nums;
+}
+
+/* The design's ErrorBox. */
+.hid-ehr .hid-ehr-dept-registration-error {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--ehr-danger-300);
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-danger-50);
+  color: var(--ehr-danger-text);
+  font-size: 14px;
+}
+
+/* A button that keeps its focus while it cannot be used (aria-disabled), dimmed as a disabled one. */
+.hid-ehr .hid-ehr-dept-registration-unavailable[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Verification availability: what it says, and Check again beside it. */
+.hid-ehr .hid-ehr-dept-registration-availability-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-top: 4px;
+}
+
+.hid-ehr .hid-ehr-dept-registration-availability-row p {
+  margin: 0;
+}
+
+/* Find registration case: the case ID and Load case on one line, as the design's search field spans its card. */
+.hid-ehr .hid-ehr-dept-registration-find {
+  margin: 16px 0 18px;
+}
+
+.hid-ehr .hid-ehr-dept-registration-find-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+/* The create form: no fieldset frame, and the design's line above its submit. */
+.hid-ehr .hid-ehr-dept-registration-fieldset {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.hid-ehr .hid-ehr-dept-registration-lead {
+  margin: 0;
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-dept-registration-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+/* The design's checkbox, after its label, in line with the field beside it. */
+.hid-ehr .hid-ehr-dept-registration-check {
+  justify-content: center;
+}
+
+.hid-ehr .hid-ehr-dept-registration-check .hid-ehr-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-dept-registration-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--ehr-brand);
+}
+
+/* A design action Health ID cannot do: disabled, its reason under it. */
+.hid-ehr .hid-ehr-dept-registration-off {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  margin-top: 18px;
+}
+
+.hid-ehr .hid-ehr-dept-registration-off-wide {
+  justify-items: stretch;
+  margin-top: 0;
+}
+
+.hid-ehr .hid-ehr-dept-registration-reason {
+  margin: 0;
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+/* A capability check that failed (or its check again, reading), with Check again under it. */
+.hid-ehr .hid-ehr-dept-registration-retry {
+  display: grid;
+}
+
+.hid-ehr .hid-ehr-dept-registration-retry > .hid-ehr-button {
+  justify-self: start;
+}
+
+/* The case's possible existing patients, under its facts. */
+.hid-ehr .hid-ehr-dept-registration-candidates {
+  margin-top: 16px;
+  border-top: 1px solid var(--ehr-line);
+}
+
+/* Next steps: the design's secondary buttons, each on its own line. */
+.hid-ehr .hid-ehr-dept-registration-next h3 {
+  margin: 10px 0 12px;
+  color: var(--ehr-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-registration-next p {
+  margin: 0 0 12px;
+}

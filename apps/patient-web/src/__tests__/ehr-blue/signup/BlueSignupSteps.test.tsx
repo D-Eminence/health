@@ -293,6 +293,11 @@ describe('step 5, Agreements', () => {
       .toBe('https://healthidentitydirectory.com/privacy')
     // Nothing on the page says that the ticks are recorded: Health ID does not record them yet.
     expect(document.body.textContent).not.toMatch(/record(ed)? (your|the) (agreement|acceptance)|we keep a record/i)
+    // Health ID has no Data Processing Agreement: no box and no paragraph name one.
+    expect(document.body.textContent).not.toMatch(/Data Processing Agreement/)
+    expect(screen.getAllByRole('checkbox').map(box => box.closest('label')?.textContent?.replace('*', '')))
+      .toEqual(['I have read the Terms of Service', 'I have read the Privacy Policy',
+        'I acknowledge data protection and patient consent responsibilities', 'I am authorised to register this facility'])
     expect(submitButton().disabled).toBe(true)
     for (const name of AGREEMENT_LABELS.slice(0, 3)) fireEvent.click(screen.getByRole('checkbox', { name }))
     expect(submitButton().disabled).toBe(true)
@@ -318,9 +323,12 @@ describe('submitting', () => {
     await toReview()
     agreeToAll()
     fireEvent.click(submitButton())
-    const dialog = await screen.findByRole('alertdialog', { name: 'Submit the facility agreements?' })
-    expect(dialog.textContent).toContain('Confirm that you are authorized to accept the agreements selected above and submit '
-      + 'this registration for review.')
+    const dialog = await screen.findByRole('alertdialog', { name: 'Submit this registration?' })
+    // Health ID records no acceptance: the dialog asks to confirm the details, not to accept anything.
+    expect(dialog.textContent).toContain('Check the details above, then submit. Health ID checks your CAC registration number '
+      + 'and emails you a six digit code.')
+    expect(dialog.textContent).not.toMatch(/accept/i)
+    expect(within(dialog).getByRole('button', { name: 'Confirm and submit' })).toBeDefined()
     expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Cancel' }))
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('alertdialog')).toBeNull()

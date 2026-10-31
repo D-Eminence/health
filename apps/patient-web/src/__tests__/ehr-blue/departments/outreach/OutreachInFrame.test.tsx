@@ -86,8 +86,8 @@ describe('a membership with neither', () => {
     await openStaffApp('/provider/outreach')
     const nav = await screen.findByRole('navigation', { name: 'Main navigation' })
     expect(within(nav).queryByRole('link', { name: 'Outreach' })).toBeNull()
-    expect(screen.getByText('Permission denied. This membership or branch cannot open this module: it needs outreach campaign or '
-      + 'registration read permission.')).toBeDefined()
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Outreach unavailable')
+    expect(screen.getByText('This facility membership needs outreach campaign or registration read permission.')).toBeDefined()
     expect(screen.queryByText(/is not open to you here/)).toBeNull()
     expect(sent.filter(request => request.route === CAMPAIGNS || request.route === CASES)).toHaveLength(0)
   })

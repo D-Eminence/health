@@ -14,10 +14,9 @@ import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } f
 import { HugeiconsIcon } from '@hugeicons/react'
 import ArrowLeftDoubleIcon from '@hugeicons/core-free-icons/ArrowLeftDoubleIcon'
 import ArrowRightDoubleIcon from '@hugeicons/core-free-icons/ArrowRightDoubleIcon'
-import Cancel01Icon from '@hugeicons/core-free-icons/Cancel01Icon'
 import { cx } from '../primitives'
 import { EhrModal, useEhrShell } from './EhrAppShell'
-import { EhrIconButton } from './EhrButton'
+import { EhrButton } from './EhrButton'
 
 export interface EhrNavItem {
   readonly id: string
@@ -98,7 +97,6 @@ export function EhrSidebar({
   const [closed, setClosed] = useControllable(closedProp, defaultClosedGroups, onClosedGroupsChange)
   const toggleGroup = (id: string) => setClosed(closed.includes(id) ? closed.filter(group => group !== id) : [...closed, id])
   const menuTitleId = useId()
-  const closeMenuRef = useRef<HTMLButtonElement>(null)
   const navigation = { groups, currentId, label, closed, toggleGroup, onNavigate }
 
   return (
@@ -127,11 +125,13 @@ export function EhrSidebar({
       </aside>
       {menu?.open ? (
         <EhrModal
-          scrimClassName="hid-ehr-scrim-start"
+          scrimClassName="hid-ehr-scrim-start hid-ehr-scrim-menu"
           onEscape={() => menu.setOpen(false)}
-          initialFocusRef={closeMenuRef}
+          onScrimPress={() => menu.setOpen(false)}
           returnFocusRef={menu.buttonRef}
         >
+          {/* Below the top bar, as the design opens it: the list starts with Home, and the Menu button, Escape or a press
+              outside the panel close it. The title names the dialog; Close is for whoever reaches it by Tab. */}
           <div
             id={menu.panelId}
             className="hid-ehr-phone-menu"
@@ -140,16 +140,7 @@ export function EhrSidebar({
             aria-labelledby={menuTitleId}
             tabIndex={-1}
           >
-            <div className="hid-ehr-phone-menu-header">
-              <h2 id={menuTitleId} className="hid-ehr-overlay-title">{menuTitle}</h2>
-              <EhrIconButton
-                ref={closeMenuRef}
-                variant="quiet"
-                aria-label="Close menu"
-                icon={<HugeiconsIcon icon={Cancel01Icon} size={18} strokeWidth={1.65} aria-hidden />}
-                onClick={() => menu.setOpen(false)}
-              />
-            </div>
+            <h2 id={menuTitleId} className="hid-ehr-sr-only">{menuTitle}</h2>
             <SidebarNavigation
               {...navigation}
               collapsed={false}
@@ -159,6 +150,9 @@ export function EhrSidebar({
               }}
             />
             {footer}
+            <EhrButton variant="secondary" className="hid-ehr-phone-menu-close" onClick={() => menu.setOpen(false)}>
+              Close menu
+            </EhrButton>
           </div>
         </EhrModal>
       ) : null}

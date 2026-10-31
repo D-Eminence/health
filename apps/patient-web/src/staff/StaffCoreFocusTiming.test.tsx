@@ -7,6 +7,10 @@ import { focusWhenShown } from '../__tests__/focusWhenShown'
 import { EmailCode } from './clinician/EmailCode'
 import { ErrorSummary, type Problem } from './clinician/ui'
 
+// Today's workspace at every facility, as real clinics have it until the clinic switch (ehr-blue/clinicSwitch.ts):
+// these tests cover the classic portal whatever BLUE_FOR_ALL is. The blue one is EhrBlueAtClinics.test.tsx's.
+vi.mock('../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: false }))
+
 /**
  * The provider workspace's own screens and the clinician pages' shared steps move focus in the commit that shows where
  * it goes. From an effect, focus moved a task after a render that followed a request, and a check made as soon as the
