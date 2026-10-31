@@ -107,15 +107,15 @@ export function IconChip({ icon: I, tone = 'neutral', size = 'md', className }: 
 export function CardHeader({ title, description, icon, iconTone = 'neutral', actions, className, titleId, as: H = 'h3' }: {
   title: ReactNode; description?: ReactNode; icon?: Icon; iconTone?: Tone; actions?: ReactNode; className?: string; titleId?: string; as?: 'h2' | 'h3'
 }) {
-  return <div className={cx('flex items-center justify-between gap-3 border-b border-line px-5 py-4', className)}>
-    <div className="flex min-w-0 flex-1 items-center gap-3">
+  return <div className={cx('flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line px-5 py-4', className)}>
+    <div className="flex min-w-0 flex-[1_1_14rem] items-center gap-3">
       {icon && <IconChip icon={icon} tone={iconTone} size="sm" />}
       <div className="min-w-0">
-        <H id={titleId} className="m-0 text-title-3 text-ink">{title}</H>
-        {description && <p className="m-0 mt-0.5 text-[13px] text-ink-3">{description}</p>}
+        <H id={titleId} className="m-0 text-title-3 break-words text-ink">{title}</H>
+        {description && <p className="m-0 mt-0.5 text-[13px] break-words text-ink-3">{description}</p>}
       </div>
     </div>
-    {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+    {actions && <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div>}
   </div>
 }
 
@@ -132,22 +132,22 @@ export function PageHeader({ title, description, actions, eyebrow, titleRef, bac
   /** Where Back goes, and its name: "Back to patients". Drawn as an arrow before the title. */
   back?: { to: string; label: string }
 }) {
-  return <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-    <div className="min-w-0">
+  return <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+    <div className="min-w-0 flex-[1_1_20rem]">
       {eyebrow && <div className={cx('mb-2', back && 'pl-[38px]')}>{eyebrow}</div>}
       <div className="flex items-center gap-1">
         {back ? <BackButton to={back.to} label={back.label} /> : null}
-        <h1 ref={titleRef} tabIndex={-1} className="m-0 min-w-0 text-title-1 text-ink outline-none">{title}</h1>
+        <h1 ref={titleRef} tabIndex={-1} className="m-0 min-w-0 text-title-1 break-words text-ink outline-none">{title}</h1>
       </div>
       {description && <p className={cx('m-0 mt-1 max-w-2xl text-sm text-ink-2', back && 'pl-[38px]')}>{description}</p>}
     </div>
-    {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    {actions && <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div>}
   </div>
 }
 
 export function SectionHeader({ title, count, description, action, id }: { title: ReactNode; count?: number | null; description?: ReactNode; action?: ReactNode; id?: string }) {
-  return <div className="flex items-center justify-between gap-3 rounded-lg bg-tray px-4 py-2.5">
-    <div className="flex min-w-0 items-baseline gap-2">
+  return <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg bg-tray px-4 py-2.5">
+    <div className="flex min-w-0 flex-1 items-baseline gap-2">
       <h2 id={id} className="m-0 text-[14px] font-semibold text-ink">{title}</h2>
       {count != null && <span className="text-[13px] text-ink-3 tabular">({count})</span>}
       {description && <span className="hidden truncate text-[13px] text-ink-3 sm:inline">· {description}</span>}
@@ -162,10 +162,10 @@ export function StatCard({ label, value, hint, icon, tone = 'neutral', trend, cl
   const body = <>
     {icon && <IconChip icon={icon} tone={tone} />}
     <div className={cx('flex flex-wrap items-center gap-2', icon && 'mt-3 sm:mt-5')}>
-      <span className="truncate text-[20px] leading-8 font-semibold tracking-[-0.02em] text-ink tabular sm:text-[26px] sm:leading-9">{value}</span>
+      <span className="min-w-0 [overflow-wrap:anywhere] text-[20px] leading-8 font-semibold tracking-[-0.02em] text-ink tabular sm:text-[26px] sm:leading-9">{value}</span>
       {trend && <TrendPill value={trend.value} direction={trend.direction} />}
     </div>
-    <span className="mt-0.5 text-[13px] text-ink-2 sm:text-sm">{label}</span>
+    <span className="mt-0.5 text-[13px] break-words text-ink-2 sm:text-sm">{label}</span>
     {hint && <span className="mt-1 text-xs text-ink-3">{hint}</span>}
   </>
   const cls = cx('flex min-w-0 flex-col rounded-xl bg-surface p-4 sm:p-5 shadow-[var(--shadow-card)] ring-1 ring-line', to && 'no-underline transition-shadow hover:shadow-[var(--shadow-pop)]', className)
@@ -173,7 +173,10 @@ export function StatCard({ label, value, hint, icon, tone = 'neutral', trend, cl
 }
 
 export function StatGroup({ children, cols = 4, className, label }: { children: ReactNode; cols?: 2 | 3 | 4; className?: string; label?: string }) {
-  return <div role={label ? 'group' : undefined} aria-label={label} className={cx('grid gap-1.5 rounded-2xl bg-tray p-1.5', cols === 2 && 'grid-cols-2', cols === 3 && 'grid-cols-2 sm:grid-cols-3', cols === 4 && 'grid-cols-2 xl:grid-cols-4', className)}>
+  return <div role={label ? 'group' : undefined} aria-label={label} className={cx('grid gap-1.5 rounded-2xl bg-tray p-1.5',
+      cols === 2 && 'grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))]',
+      cols === 3 && 'grid-cols-[repeat(auto-fit,minmax(min(100%,10rem),1fr))]',
+      cols === 4 && 'hid-stat-grid-4', className)}>
     {children}
   </div>
 }
@@ -185,7 +188,7 @@ export function TrendPill({ value, direction = 'up' }: { value: string; directio
 }
 
 export function Badge({ tone = 'neutral', icon: I, children, className, solid, size = 'md' }: { tone?: Tone; icon?: Icon; children: ReactNode; className?: string; solid?: boolean; size?: 'sm' | 'md' }) {
-  return <span className={cx('inline-flex items-center gap-1.5 rounded-sm font-medium whitespace-nowrap ring-1 ring-inset',
+  return <span className={cx('inline-flex max-w-full shrink-0 items-center gap-1.5 rounded-sm font-medium whitespace-nowrap ring-1 ring-inset',
     size === 'sm' ? 'h-6 px-2 text-[11px]' : 'h-7 px-2.5 text-xs',
     solid ? TONE_SOFT[tone] : cx('bg-surface', TONE_OUTLINE[tone]), className)}>
     {I && <I className={cx(size === 'sm' ? 'size-3' : 'size-3.5', 'shrink-0', !solid && TONE_ICON[tone])} aria-hidden />}
@@ -217,8 +220,8 @@ export function EmptyState({ icon, illustration, title, description, action, com
 }) {
   return <div className={cx('flex flex-col items-center justify-center text-center', compact ? 'gap-3 px-4 py-8' : 'gap-4 px-6 py-14')}>
     <Illustration name={illustration ?? illustrationFor(icon)} className={compact ? 'h-20 w-[100px]' : undefined} />
-    <div>
-      <p className="m-0 text-title-3 text-ink">{title}</p>
+    <div className="min-w-0 max-w-full">
+      <p className="m-0 text-title-3 break-words text-ink">{title}</p>
       {description && <p className="m-0 mx-auto mt-1 max-w-sm text-[13px] text-ink-3">{description}</p>}
     </div>
     {action ? <div className="mt-1 flex flex-wrap justify-center gap-2">{action}</div> : null}
@@ -240,16 +243,16 @@ export function Alert({ intent = 'info', title, children, icon, action, size = '
   const it = INTENTS[intent]
   const I = icon ?? it.icon
   const sm = size === 'sm'
-  return <div id={id} role={live ? it.role : 'note'} data-intent={intent} className={cx('flex w-full gap-3 rounded-lg border border-notice-line bg-notice text-left',
+  return <div id={id} role={live ? it.role : 'note'} data-intent={intent} className={cx('flex w-full flex-wrap gap-x-3 gap-y-2 rounded-lg border border-notice-line bg-notice text-left',
     sm ? 'px-3 py-2.5' : 'px-4 py-3.5', className)}>
     <I className={cx('shrink-0', sm ? 'mt-px size-4' : 'mt-0.5 size-[18px]', it.text)} strokeWidth={2} aria-hidden />
-    <div className="min-w-0 flex-1">
+    <div className="min-w-0 flex-[1_1_10rem] break-words">
       <span className="sr-only">{it.label}: </span>
       {title && <p className={cx('m-0 font-medium leading-snug', sm ? 'text-[13px]' : 'text-sm', it.text)}>{title}</p>}
       {children && <div className={cx('leading-snug [&_a]:font-medium [&_a]:text-ink [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-medium [&_strong]:text-ink',
         sm ? 'text-[12.5px]' : 'text-[13.5px]', title ? 'mt-1 text-notice-body' : 'text-ink')}>{children}</div>}
     </div>
-    {action && <div className="shrink-0 self-center">{action}</div>}
+    {action && <div className="ml-auto max-w-full shrink-0 self-center">{action}</div>}
   </div>
 }
 
@@ -294,13 +297,13 @@ export function ListRow({ to, leading, title, subtitle, trailing, className, onC
 }) {
   const inner = <>
     {leading}
-    <div className="min-w-0 flex-1">
-      <div className="truncate text-sm font-medium text-ink">{title}</div>
-      {subtitle && <div className="mt-0.5 truncate text-[13px] text-ink-3">{subtitle}</div>}
+    <div className="min-w-0 flex-[1_1_10rem]">
+      <div className="text-sm font-medium break-words text-ink">{title}</div>
+      {subtitle && <div className="mt-0.5 text-[13px] break-words text-ink-3">{subtitle}</div>}
     </div>
-    {trailing && <div className="flex shrink-0 items-center gap-3">{trailing}</div>}
+    {trailing && <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1">{trailing}</div>}
   </>
-  const cls = cx('flex items-center gap-3 px-5 py-3.5', (to || onClick) && 'no-underline transition-colors hover:bg-subtle', className)
+  const cls = cx('flex min-h-11 flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3.5', (to || onClick) && 'no-underline transition-colors hover:bg-subtle', className)
   if (to) return <Link to={to} className={cls}>{inner}</Link>
   if (onClick) return <button type="button" onClick={onClick} className={cx(cls, 'w-full border-0 bg-transparent text-left')}>{inner}</button>
   return <div className={cls}>{inner}</div>
@@ -317,9 +320,9 @@ export function Avatar({ name = '', src, size = 'md', color }: { name?: string; 
 export function DescriptionList({ items, className }: { items: Array<[ReactNode, ReactNode] | false | null | undefined>; className?: string }) {
   return <dl className={cx('m-0 divide-y divide-line', className)}>
     {items.filter((x): x is [ReactNode, ReactNode] => Boolean(x)).map(([term, value], i) => (
-      <div key={i} className="flex items-start justify-between gap-6 px-5 py-3 text-sm">
-        <dt className="shrink-0 text-ink-3">{term}</dt>
-        <dd className="m-0 min-w-0 text-right font-medium break-words text-ink">{value}</dd>
+      <div key={i} className="flex flex-wrap items-start justify-between gap-x-6 gap-y-0.5 px-5 py-3 text-sm">
+        <dt className="max-w-full text-ink-3">{term}</dt>
+        <dd className="m-0 ml-auto min-w-0 max-w-full flex-[0_1_auto] text-right font-medium break-words text-ink">{value}</dd>
       </div>
     ))}
   </dl>
@@ -335,7 +338,7 @@ export function PageSkeleton({ rows = 6, stats = true }: { rows?: number; stats?
   return <div className="flex flex-col gap-8" aria-busy="true" role="status">
     <span className="sr-only">Loading…</span>
     <div className="flex flex-col gap-2"><div className={`${bar} h-8 w-56`} /><div className={`${bar} h-4 w-80 max-w-full`} /></div>
-    {stats && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    {stats && <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,13rem),1fr))] gap-3">
       {[0, 1, 2, 3].map(i => <div key={i} className="h-[104px] rounded-xl bg-surface p-5 ring-1 ring-line"><div className={`${bar} h-3 w-24`} /><div className={`${bar} mt-4 h-7 w-32`} /></div>)}
     </div>}
     <div className="rounded-xl bg-surface ring-1 ring-line">
@@ -350,7 +353,7 @@ export function PageSkeleton({ rows = 6, stats = true }: { rows?: number; stats?
 export function FilterTabs<T extends string>({ value, onChange, options, label }: {
   value: T; onChange: (value: T) => void; options: ReadonlyArray<{ value: T; label: string; count?: number; tone?: 'danger' }>; label: string
 }) {
-  return <nav className="inline-flex max-w-full items-center gap-0.5 self-start overflow-x-auto rounded-lg bg-tray p-1 no-scrollbar" aria-label={label}>
+  return <nav className="inline-flex max-w-full flex-wrap items-center gap-0.5 self-start rounded-lg bg-tray p-1" aria-label={label}>
     {options.map(o => <button key={o.value} type="button" aria-pressed={value === o.value} onClick={() => onChange(o.value)}
       className={cx('inline-flex h-10 sm:h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border-0 px-3 text-[13px] font-medium whitespace-nowrap',
         value === o.value ? 'bg-surface text-ink shadow-[var(--shadow-xs)] ring-1 ring-line' : 'bg-transparent text-ink-3 hover:text-ink')}>
@@ -365,7 +368,7 @@ export function Timeline({ items, empty }: { items: ReadonlyArray<{ id: string; 
   return <ol className="m-0 list-none space-y-4 px-5 py-4">
     {items.map(a => <li key={a.id} className="flex gap-3 text-[13px]">
       <span className={cx('mt-1.5 size-2 shrink-0 rounded-full', a.tone ? TONE_DOT[a.tone] : 'bg-brand-fill/60')} />
-      <span className="min-w-0">
+      <span className="min-w-0 break-words">
         <span className="text-ink">{a.who && <strong className="font-medium">{a.who} </strong>}{a.to ? <Link to={a.to} className="text-ink no-underline hover:underline">{a.text}</Link> : a.text}</span>
         <span className="block text-xs text-ink-3">{a.when}</span>
       </span>

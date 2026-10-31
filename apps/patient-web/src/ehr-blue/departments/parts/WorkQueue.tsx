@@ -67,7 +67,7 @@ export function QueuePatient({ patient, fallback }: {
   </span>
 }
 
-const GRID = 'sm:grid sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)_7rem_minmax(0,1.2fr)_9.5rem_1rem] sm:items-center sm:gap-4'
+const GRID = '@3xl:grid @3xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)_7rem_minmax(0,1.2fr)_9.5rem_1rem] @3xl:items-center @3xl:gap-4'
 
 export function WorkQueue({ label, titleHeader, rows, priority = true }: {
   /** The list's accessible name: "Lab work". */
@@ -89,7 +89,7 @@ export function WorkQueue({ label, titleHeader, rows, priority = true }: {
             <button type="button" id={row.buttonId} onClick={row.onOpen}
               className={cx('flex w-full cursor-pointer flex-col gap-1.5 border-0 bg-transparent px-5 py-3.5 text-left text-sm text-ink transition-colors hover:bg-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]', GRID)}>
               <span className="flex min-w-0 flex-col">
-                <span className="font-semibold text-ink [overflow-wrap:anywhere]">{row.title}</span>
+                <span className="font-semibold text-ink break-words">{row.title}</span>
                 {row.detail ? <span className="text-[13px] text-ink-3">{row.detail}</span> : null}
               </span>
               <QueueCell label="Patient">{row.patient}</QueueCell>
@@ -99,7 +99,7 @@ export function WorkQueue({ label, titleHeader, rows, priority = true }: {
                 {row.flag}
               </span>
               <span className="text-[13px] text-ink-2 tabular">{row.when}</span>
-              <ChevronRight className="hidden size-4 text-ink-3 sm:block" aria-hidden />
+              <ChevronRight className="hidden size-4 text-ink-3 @3xl:block" aria-hidden />
             </button>
             {row.below ? <div className="flex flex-col gap-2 px-5 pb-3.5">{row.below}</div> : null}
           </li>
@@ -111,6 +111,6 @@ export function WorkQueue({ label, titleHeader, rows, priority = true }: {
 
 /** A cell that names itself on a phone, where there is no header row above it. */
 function QueueCell({ label, children }: { readonly label: string; readonly children: ReactNode }) {
-  if (children === null || children === undefined) return <span className="hidden sm:block" />
-  return <span className="flex min-w-0 items-baseline gap-2"><span className="text-[12px] text-ink-3 sm:hidden">{label}</span>{children}</span>
+  if (children === null || children === undefined) return <span className="hidden @3xl:block" />
+  return <span className="flex min-w-0 items-baseline gap-2"><span className="text-[12px] text-ink-3 @3xl:hidden">{label}</span>{children}</span>
 }

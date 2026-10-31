@@ -236,13 +236,13 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   </div> : null
 
   // The drug, large, as the picking view and the done state lead with it.
-  const drug = <div className="flex items-start gap-4">
+  const drug = <div className="@container"><div className="flex flex-col items-start gap-4 @xs:flex-row">
     <DrugTile form={form} size="lg" />
     <div className="flex min-w-0 flex-col gap-1">
       <Badge size="sm" tone={queueTone(status)} className="self-start">{statusWord(status)}</Badge>
       {/* The page's heading names the medicine as prescribed; this says what to look for on the shelf. */}
       <p className="m-0 text-[13px] font-medium text-ink-3">Pick</p>
-      <p className="m-0 text-[20px] font-semibold leading-tight text-ink [overflow-wrap:break-word]"><Breakable text={drugName} /></p>
+      <p className="m-0 text-[20px] font-semibold leading-tight text-ink break-words"><Breakable text={drugName} /></p>
       <p className="m-0 text-[16px] font-medium text-ink-2">{[strength, FORM_WORD[form], item.routeCode].filter(Boolean).join(' · ')}</p>
       <p className="m-0 text-[13px] text-ink-3">Accepted {dateText(item.acceptedAt)}</p>
       {stock || (bill !== undefined && !waitsForPayment) ? <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -250,7 +250,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
         {bill !== undefined && !waitsForPayment ? <BillBadge bill={bill} /> : null}
       </div> : null}
     </div>
-  </div>
+  </div></div>
 
   const doneCard = done && <Card className="ring-success/40">
     <div className="flex flex-col items-center gap-3 px-5 py-8 text-center">
@@ -291,7 +291,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
 
   const pick = canDispense && !done && !waitsForPayment && !outOfStock && <Card>
     <CardHeader as="h2" title="Pick and hand over" description="Tick each step as you do it." />
-    <form id={`pharmacy-dispense-${item.id}`} aria-label="Dispense" noValidate onSubmit={event => void submit(event)} className="flex flex-col gap-5 p-5">
+    <form id={`pharmacy-dispense-${item.id}`} aria-label="Dispense" noValidate onSubmit={event => void submit(event)} className="@container flex flex-col gap-5 p-5">
       {cleared ? <PaidLine summary={cleared} /> : null}
       <fieldset id={checklistId} className="m-0 flex flex-col gap-2 border-0 p-0" aria-describedby={problems.error(checklistId) !== undefined ? `${checklistId}-error` : undefined}>
         <legend className="mb-2 p-0 text-[13px] font-medium text-ink-2">Checklist</legend>
@@ -302,7 +302,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
               on ? 'bg-success-soft ring-success/40' : 'bg-surface ring-line-strong hover:bg-subtle')}>
             <input id={`${checklistId}-${step.key}`} type="checkbox" checked={on} onChange={event => tick(step.key, event.target.checked)}
               className="m-0 size-6 shrink-0 cursor-pointer accent-[var(--color-success)]" />
-            <span className="min-w-0 text-[15px] text-ink [overflow-wrap:anywhere]">{step.text}</span>
+            <span className="min-w-0 text-[15px] text-ink break-words">{step.text}</span>
           </label>
         })}
         {problems.error(checklistId) !== undefined ? <p id={`${checklistId}-error`} className="hid-ehr-error m-0">{problems.error(checklistId)}</p> : null}
@@ -311,12 +311,12 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
       <div className="rounded-lg bg-subtle px-4 py-3">
         <p className="m-0 text-[12px] font-semibold tracking-[.06em] text-ink-3 uppercase">On the label</p>
         {label
-          ? <p className="m-0 mt-1 text-[17px] font-medium leading-snug text-ink [overflow-wrap:anywhere]">{label}</p>
+          ? <p className="m-0 mt-1 text-[17px] font-medium leading-snug text-ink break-words">{label}</p>
           : <p className="m-0 mt-1 inline-flex items-start gap-1.5 text-[15px] font-medium text-warn-ink"><TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
             {DOSE_MISSING}. Ask the prescriber for the dose with its unit and how often before you hand it over.</p>}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid gap-3 @md:grid-cols-2">
         <ActionField id={`pharmacy-quantity-${item.id}`} label="Quantity to hand over" error={problems.error(`pharmacy-quantity-${item.id}`)}
           hint="The whole amount. Part of a dispensing can’t be recorded.">
           <EhrInput name="quantity" type="number" inputMode="decimal" min="0.0001" step="any" required {...control(`pharmacy-quantity-${item.id}`, true)} />
@@ -336,7 +336,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
       {/* The one main action, at the bottom where the thumb is, full width on a phone. */}
       <FormActions sticky={false}>
         <Button type="submit" variant="primary" size="lg" icon={busy ? undefined : Check} aria-busy={busy || undefined} aria-disabled={busy || undefined}
-          className="hid-ehr-dept-pharmacy-busy sm:min-w-56">{busy ? 'Saving…' : 'Dispense'}</Button>
+          className="hid-ehr-dept-pharmacy-busy @sm:min-w-56">{busy ? 'Saving…' : 'Dispense'}</Button>
       </FormActions>
     </form>
   </Card>
@@ -393,7 +393,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
     {banner}
     {said && route && <DeptNotice id={`pharmacy-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{said}</DeptNotice>}
     <RoutedWorkPaused items={[item]} crossFacilityWork={crossFacilityWork} receives={holds} />
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-start">
+    <div className="grid gap-4 @4xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] @4xl:items-start">
       <div className="flex min-w-0 flex-col gap-4">
         {doneCard}
         {!done && <Card className="p-5">{drug}</Card>}

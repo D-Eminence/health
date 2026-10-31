@@ -196,7 +196,7 @@ export function NewHealthIdForm({ idBase, facilityId, place, otcFallback, onMade
     'aria-describedby': errors[field] ? `${id(field)}-error` : hint ? `${id(field)}-hint` : undefined,
   })
   return <form className="flex flex-col gap-4" noValidate onSubmit={event => void create(event)}>
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid gap-4 @md:grid-cols-2">
       <Field label="First name" htmlFor={id('firstName')} error={errors.firstName} errorId={`${id('firstName')}-error`}>
         <Input {...control('firstName')} value={draft.firstName} maxLength={100} autoComplete="off" className="h-11" readOnly={busy} onChange={event => set({ firstName: event.target.value })} />
       </Field>

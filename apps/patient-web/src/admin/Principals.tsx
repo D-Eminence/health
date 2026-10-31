@@ -79,11 +79,11 @@ export function PrincipalsPage({ actor }: { actor: AdminActor }) {
     description="Find an account by name or email. You see account details only, never health records."
     action={<div className="flex flex-wrap gap-2">{has(actor, 'platform.principal.export') && <ExportPanel query={query} />}
       {query ? <Refresh onClick={reload} disabled={loading} /> : null}</div>}>
-    <form className="flex flex-col gap-3 rounded-xl bg-surface p-4 ring-1 ring-line sm:flex-row sm:items-end" onSubmit={submitSearch} role="search" aria-label="User search">
-      <Field label="Name or email" htmlFor="admin-principal-query" className="min-w-0 flex-1">
+    <form className="flex flex-wrap items-end gap-3 rounded-xl bg-surface p-4 ring-1 ring-line" onSubmit={submitSearch} role="search" aria-label="User search">
+      <Field label="Name or email" htmlFor="admin-principal-query" className="min-w-0 flex-[2_1_16rem]">
         <Input id="admin-principal-query" type="search" minLength={2} value={input} icon={Search}
           onChange={event => setInput(event.target.value)} placeholder="At least 2 characters" /></Field>
-      <Field label="Status" htmlFor="admin-principal-status" className="sm:w-44">
+      <Field label="Status" htmlFor="admin-principal-status" className="min-w-0 flex-[1_1_11rem] @xl:max-w-44">
         <Select id="admin-principal-status" value={filters.status} onChange={event => setFilters({ status: event.target.value, page: '' })}>
           <option value="">Any status</option>
           {ACCOUNT_STATUSES.map(value => <option key={value} value={value}>{label(value)}</option>)}
@@ -176,7 +176,7 @@ function RoleAction({ principal, reload }: { principal: Principal; reload: () =>
           { roleCode: role, action, reason }, { version: principal.version, idempotencyKey })
         reload()
       }}>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,12rem),1fr))] gap-3">
         <Field label="Change" htmlFor="admin-role-action"><Select id="admin-role-action" value={action} onChange={event => changeAction(event.target.value as 'grant' | 'revoke')}>
           <option value="grant">Give a role</option><option value="revoke">Remove a role</option>
         </Select></Field>

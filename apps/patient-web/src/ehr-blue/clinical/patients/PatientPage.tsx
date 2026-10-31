@@ -104,8 +104,8 @@ function PatientRecord({ chart }: { chart: Chart }) {
 
   const initials = facts.name.split(/\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase()
   return (
-    <div className="grid items-start gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
-      <div className="flex flex-col gap-3 lg:sticky lg:top-24">
+    <div className="grid items-start gap-6 @3xl:grid-cols-[minmax(16rem,20rem)_minmax(0,1fr)] @5xl:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="flex min-w-0 flex-col gap-3 @3xl:sticky @3xl:top-24">
         <CardFace name={facts.name} hid={facts.hid} verified={null} facts={[]} allergies={[]} label="Patient"
           face={<span className="text-[5.4cqw] font-light tracking-[.12em] text-white/85" aria-hidden="true">{initials}</span>} />
         <Card>

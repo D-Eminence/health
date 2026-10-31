@@ -165,7 +165,7 @@ function TakePaymentDrawer({ bill: given, onPaid, onClose }: {
                       : <>
                         <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
                           <legend className="mb-2 text-[13px] font-medium text-ink-2">How are they paying?</legend>
-                          <div role="radiogroup" aria-label="How are they paying?" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                          <div role="radiogroup" aria-label="How are they paying?" className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,9rem),1fr))] gap-2">
                             {allowed.map(option => {
                               const I = METHOD_ICON[option]
                               const on = option === method

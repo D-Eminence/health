@@ -303,7 +303,7 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
 
     {step.kind === 'phone' && <form className={STEP_BOX} onSubmit={event => void changePhone(event)} noValidate>
       <h3 className="m-0 text-title-3 text-ink">New phone number</h3>
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,180px)_minmax(0,1fr)]">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))] gap-3">
         <KField label="Country" htmlFor="contact-phone-country">
           <Select id="contact-phone-country" autoComplete="tel-country-code" value={phoneCountry} onChange={event => setPhoneCountry(event.target.value)}>
             {PHONE_COUNTRIES.map(country => <option key={country.iso} value={country.iso}>{country.name} (+{country.code})</option>)}

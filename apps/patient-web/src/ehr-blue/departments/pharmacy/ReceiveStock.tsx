@@ -109,7 +109,7 @@ function ReceiveForm({ facilityId }: { readonly facilityId: string }) {
 
   return <FormPage title="Receive stock" back={BACK} wide description="A delivery, line by line, as written on the packs and the invoice.">
     <Step n={1} title="Delivery" hint="Optional, but helps find it later.">
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 @md:grid-cols-2">
         <Field label="Supplier" htmlFor="receive-supplier" optional>
           <Input id="receive-supplier" value={supplier} maxLength={200} autoComplete="off" className="h-11" onChange={event => setSupplier(event.target.value)} />
         </Field>
@@ -149,7 +149,7 @@ function ReceiveLine({ n, facilityId, line, errors, today, onChange, onRemove }:
       {onRemove ? <Button variant="danger" size="sm" icon={Trash2} aria-label={`Remove item ${n}`} onClick={onRemove}>Remove</Button> : null}
     </div>
     <ItemChooser id={id} facilityId={facilityId} item={line.item} error={errors.item} onChoose={item => onChange({ item })} />
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className="grid gap-3 @md:grid-cols-2">
       <Field label="Batch number" htmlFor={`${id}-batch`} error={errors.batch} errorId={`${id}-batch-error`}>
         <Input id={`${id}-batch`} {...described('batch')} value={line.batch} maxLength={80} autoComplete="off" className="h-11" onChange={event => onChange({ batch: event.target.value })} />
       </Field>
@@ -174,10 +174,10 @@ function ItemChooser({ id, facilityId, item, error, onChoose }: {
 }) {
   const [query, setQuery] = useState('')
   const search = useCatalogueSearch(facilityId, 'drug', item ? '' : query, false)
-  if (item) return <div className="flex items-center gap-3">
+  if (item) return <div className="flex flex-wrap items-center gap-3">
     <ItemCover imageUrl={item.imageUrl} form={drugFormFromCatalogue(item.form)} />
-    <div className="min-w-0 flex-1">
-      <p className="m-0 text-[16px] font-semibold text-ink">{item.name}</p>
+    <div className="min-w-0 flex-[1_1_8rem]">
+      <p className="m-0 text-[16px] font-semibold text-ink break-words">{item.name}</p>
       {item.strength || item.packSize ? <p className="m-0 text-[13px] text-ink-2">{[item.strength, item.packSize].filter(Boolean).join(' · ')}</p> : null}
     </div>
     <Button variant="ghost" aria-label={`Change item: ${item.name}`} onClick={() => onChoose(null)}>Change</Button>
@@ -193,7 +193,7 @@ function ItemChooser({ id, facilityId, item, error, onChoose }: {
       {search.list.slice(0, 6).map(({ item: option }) => <li key={option.id}>
         <button type="button" onClick={() => onChoose(option)}
           className="flex min-h-11 w-full cursor-pointer items-center justify-between gap-3 rounded-md border-0 bg-transparent px-3 py-2 text-left text-[15px] text-ink ring-1 ring-inset ring-line hover:bg-subtle">
-          <span className="min-w-0">{option.name}{option.strength ? <span className="text-ink-2"> · {option.strength}</span> : null}</span>
+          <span className="min-w-0 break-words">{option.name}{option.strength ? <span className="text-ink-2"> · {option.strength}</span> : null}</span>
           <Plus className="size-4 shrink-0 text-ink-3" aria-hidden />
         </button>
       </li>)}

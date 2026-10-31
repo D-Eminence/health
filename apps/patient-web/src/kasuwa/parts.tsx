@@ -30,11 +30,11 @@ export function FormPage({ title, description, back, actions, children, titleRef
 
 export function Step({ n, title, hint, children, done, bodyClassName }: { n: number; title: string; hint?: string; children: ReactNode; done?: boolean; bodyClassName?: string }) {
   return <Card>
-    <div className="flex items-center gap-3 border-b border-line px-5 py-3.5">
+    <div className="flex items-center gap-3 border-b border-line px-4 py-3.5 sm:px-5">
       <span aria-hidden="true" className={cx('inline-flex size-7 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold text-white', done ? 'bg-success' : 'bg-brand-fill')}>{n}</span>
-      <div className="min-w-0"><h3 className="m-0 text-title-3 text-ink">{title}</h3>{hint ? <p className="m-0 text-caption text-ink-3">{hint}</p> : null}</div>
+      <div className="min-w-0"><h3 className="m-0 text-title-3 break-words text-ink">{title}</h3>{hint ? <p className="m-0 text-caption text-ink-3">{hint}</p> : null}</div>
     </div>
-    <div className={cx('flex flex-col gap-4 p-5', bodyClassName)}>{children}</div>
+    <div className={cx('flex min-w-0 flex-col gap-4 p-4 sm:p-5', bodyClassName)}>{children}</div>
   </Card>
 }
 
@@ -50,7 +50,7 @@ export function FormActions({ children, sticky = true, className, align = 'end' 
 }) {
   return <div data-form-actions="" className={cx('flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center',
     align === 'end' ? 'sm:justify-end' : 'sm:justify-start',
-    '[&>*]:w-full sm:[&>*]:w-auto',
+    '[&>*]:w-full sm:[&>*]:w-auto sm:[&>*]:max-w-full',
     sticky && 'max-sm:sticky max-sm:bottom-[calc(64px+env(safe-area-inset-bottom))] max-sm:z-[var(--z-sticky)] max-sm:-mx-4 max-sm:border-t max-sm:border-line max-sm:bg-surface max-sm:px-4 max-sm:py-3',
     className)}>
     {children}
@@ -126,10 +126,10 @@ export function PatientBanner({ name, hid, dateOfBirth, sex, status, sticky = fa
 }) {
   const age = ageOf(dateOfBirth)
   const initials = name.split(/\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase()
-  return <section aria-label={`Patient: ${name}`} className={cx('flex items-center gap-3 rounded-2xl bg-surface ring-1 ring-line',
+  return <section aria-label={`Patient: ${name}`} className={cx('flex flex-wrap items-center gap-3 rounded-2xl bg-surface ring-1 ring-line',
     compact ? 'px-3 py-2' : 'px-4 py-3', sticky && 'sticky top-16 z-[var(--z-sticky)] lg:top-20')}>
     <span aria-hidden="true" className={cx('inline-flex shrink-0 items-center justify-center rounded-full bg-brand-soft font-semibold text-brand-ink', compact ? 'size-8 text-[12px]' : 'size-10 text-sm')}>{initials}</span>
-    <div className="min-w-0 flex-1">
+    <div className="min-w-0 flex-[1_1_12rem]">
       <p className="m-0 truncate text-title-3 text-ink">{name}</p>
       <p className="m-0 text-caption text-ink-2">
         <span className="font-medium tracking-[.04em] text-ink">{hid}</span>

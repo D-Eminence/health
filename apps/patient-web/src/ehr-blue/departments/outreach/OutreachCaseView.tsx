@@ -184,7 +184,7 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
         {created && !linked
           ? <Alert intent="success" title="Registration saved">{pending ? 'They have a temporary record. Link it to their Health ID when you find it.' : `Its status is ${statusLabel(item.status).toLowerCase()}.`}</Alert>
           : null}
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:items-start">
+        <div className="grid gap-4 @3xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] @3xl:items-start">
           <div className="flex min-w-0 flex-col gap-4">{nextStep}</div>
           <div className="flex min-w-0 flex-col gap-4">
             <Card>

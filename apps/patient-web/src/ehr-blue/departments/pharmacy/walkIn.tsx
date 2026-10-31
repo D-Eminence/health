@@ -6,6 +6,7 @@ import { commerce, type CatalogueItem, type CatalogueKind, type StockLine as Sto
 import { naira } from '../commerce/money'
 import { useCommerceRead } from '../commerce/useCommerceRead'
 import { ItemCover } from './pointOfCare'
+import { Breakable } from './PharmacyQueue'
 import { drugFormFromCatalogue } from './pocFields'
 import type { OrderPhotoUpload, UploadedPhoto } from '../commerce/orderPhoto'
 
@@ -83,12 +84,13 @@ export function OutsideFields({ idBase, outside, errors, contact, paper, photoUp
 }) {
   const set = (patch: Partial<OutsideDraft>) => onChange({ ...outside, ...patch })
   const today = new Date().toISOString().slice(0, 10)
-  return <div className="flex flex-col gap-4">
+  // Its own container: two fields side by side by the room it has (in a dialog too), not by the window.
+  return <div className="@container flex flex-col gap-4">
     <Field label={contact ? 'Doctor’s name' : 'Prescriber’s name'} htmlFor={`${idBase}-prescriber`} error={errors.prescriberName} errorId={`${idBase}-prescriber-error`}>
       <Input {...fieldProps(`${idBase}-prescriber`, errors.prescriberName)} value={outside.prescriberName} maxLength={200} autoComplete="off" className="h-11"
         placeholder="Dr Funmi Adeyemi" onChange={event => set({ prescriberName: event.target.value })} />
     </Field>
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid gap-4 @md:grid-cols-2">
       <Field label="Hospital or clinic" htmlFor={`${idBase}-facility`} optional>
         <Input id={`${idBase}-facility`} value={outside.facilityName} maxLength={200} autoComplete="off" className="h-11" onChange={event => set({ facilityName: event.target.value })} />
       </Field>
@@ -97,7 +99,7 @@ export function OutsideFields({ idBase, outside, errors, contact, paper, photoUp
           onChange={event => set({ writtenOn: event.target.value })} />
       </Field>
     </div>
-    {contact ? <div className="grid gap-4 sm:grid-cols-2">
+    {contact ? <div className="grid gap-4 @md:grid-cols-2">
       <Field label="Doctor’s email" htmlFor={`${idBase}-email`} optional error={errors.email} errorId={`${idBase}-email-error`}
         hint="To send the result when it is ready." hintId={`${idBase}-email-hint`}>
         <Input {...fieldProps(`${idBase}-email`, errors.email, true)} type="email" inputMode="email" value={outside.email} maxLength={254} autoComplete="off" className="h-11"
@@ -110,7 +112,7 @@ export function OutsideFields({ idBase, outside, errors, contact, paper, photoUp
     <div className="flex flex-col gap-2">
       <span className="text-[13px] font-medium text-ink-2">Photo of the {paper} <span className="font-normal text-ink-3">(optional)</span></span>
       {outside.photo
-        ? <div className="flex items-start gap-3">
+        ? <div className="flex flex-wrap items-start gap-3">
           <img src={outside.photo.preview} alt={`The ${paper}, as photographed`} className="max-h-48 max-w-[60%] rounded-lg object-contain ring-1 ring-line" />
           <Button icon={X} onClick={() => { photoUpload.release(outside.photo); onPhoto(null) }}>Remove photo</Button>
         </div>
@@ -157,27 +159,27 @@ export function PickCard({ entry, chosen, blockedWhy, onPick }: {
   const out = stock !== null && stock.onHand <= 0
   const why = blockedWhy ?? (out ? 'Out of stock' : null)
   const label = `${item.name}${item.strength ? ` ${item.strength}` : ''}`
-  return <li className="min-w-0">
+  return <li className="@container min-w-0">
     <button type="button" onClick={onPick} aria-disabled={why ? true : undefined}
       aria-label={`${chosen ? (item.kind === 'drug' ? 'Add one more' : 'Remove') : 'Add'}: ${label}, ${naira(item.prices.cashKobo)}${why ? `. ${why}` : ''}`}
-      className={cx('flex min-h-24 w-full cursor-pointer items-start gap-3 rounded-2xl border-0 bg-surface p-3 text-left ring-1 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]',
-        chosen ? 'ring-2 ring-brand' : 'ring-line hover:bg-subtle', why && 'cursor-not-allowed opacity-70 hover:bg-surface')}>
+      className={cx('relative flex min-h-24 w-full cursor-pointer flex-col items-start gap-3 rounded-2xl border-0 bg-surface p-3 text-left ring-1 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]',
+        chosen ? 'ring-2 ring-brand' : 'ring-line hover:bg-subtle', why && 'cursor-not-allowed opacity-70 hover:bg-surface', '@[15rem]:flex-row')}>
       {item.kind === 'lab_test'
         ? <span aria-hidden="true" className="flex size-[72px] shrink-0 items-center justify-center rounded-xl bg-subtle text-ink-3 ring-1 ring-inset ring-line"><FlaskConical className="size-8" strokeWidth={1.6} /></span>
         : <ItemCover imageUrl={item.imageUrl} form={drugFormFromCatalogue(item.form)} />}
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-[16px] font-semibold leading-snug text-ink [overflow-wrap:anywhere]">{item.name}</span>
+      <span className="flex w-full min-w-0 flex-1 flex-col gap-0.5 pr-7">
+        <span className="text-[16px] font-semibold leading-snug text-ink break-words"><Breakable text={item.name} /></span>
         {item.strength || item.packSize ? <span className="text-[13px] text-ink-2">{[item.strength, item.packSize].filter(Boolean).join(' · ')}</span> : null}
         <span className="mt-1 text-[17px] font-semibold text-ink tabular">{naira(item.prices.cashKobo)}</span>
         <span className="flex flex-wrap items-center gap-1.5">
-          {item.kind === 'drug' && item.prescriptionOnly ? <Badge size="sm" tone="violet">Prescription only</Badge> : null}
+          {item.kind === 'drug' && item.prescriptionOnly ? <Badge size="sm" tone="violet" className="max-w-full">Prescription only</Badge> : null}
           {stock ? <span className={cx('text-[13px] font-medium tabular', out ? 'text-danger-ink' : stock.onHand <= stock.reorderLevel ? 'text-warn-ink' : 'text-ink-3')}>
             {out ? 'Out of stock' : `${stock.onHand} ${stock.unit} in stock${stock.onHand <= stock.reorderLevel ? ', running low' : ''}`}</span> : null}
           {chosen ? <Badge size="sm" tone="brand" icon={Check}>{item.kind === 'drug' ? `${chosen} added` : 'Added'}</Badge> : null}
         </span>
         {blockedWhy ? <span className="text-[13px] font-medium text-warn-ink">{blockedWhy}</span> : null}
       </span>
-      <Plus className="mt-1 size-5 shrink-0 text-ink-3" aria-hidden />
+      <Plus className="absolute top-4 right-3 size-5 shrink-0 text-ink-3" aria-hidden />
     </button>
   </li>
 }
@@ -206,7 +208,7 @@ export function CataloguePicker({ facilityId, kind, searchId, withStock, chosen,
     {search.status === 'loading' && search.list.length === 0 ? <p className="m-0 text-[14px] text-ink-3">Loading the price list…</p> : null}
     {search.status === 'ready' && search.list.length === 0
       ? <p className="m-0 text-[14px] text-ink-2">{query.trim() ? `No ${emptyWord} match “${query.trim()}”. Check the spelling.` : `No ${emptyWord} on the price list yet.`}</p> : null}
-    {search.list.length > 0 ? <ul aria-label="Price list" className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2">
+    {search.list.length > 0 ? <ul aria-label="Price list" className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-3 p-0">
       {search.list.map(entry => <PickCard key={entry.item.id} entry={entry} chosen={chosen(entry.item.id)} blockedWhy={blockedWhy(entry.item)}
         onPick={() => { if (!blockedWhy(entry.item) && !(entry.stock && entry.stock.onHand <= 0)) onPick(entry) }} />)}
     </ul> : null}

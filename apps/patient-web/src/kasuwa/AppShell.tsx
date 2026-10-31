@@ -228,8 +228,8 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
         <div className="flex items-center gap-2">{headerActions}</div>
       </header>
       {mainAs === 'main'
-        ? <main id="main" tabIndex={-1} className="mx-auto w-full max-w-[1200px] px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8 max-lg:pb-28">{menu ? menuPage : children}</main>
-        : <div className={cx('mx-auto w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-8 max-lg:pb-28', wide ? 'max-w-[1440px]' : 'max-w-[1200px]')}>{menu ? menuPage : children}</div>}
+        ? <main id="main" tabIndex={-1} className="@container mx-auto w-full max-w-[1200px] px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8 max-lg:pb-28">{menu ? menuPage : children}</main>
+        : <div className={cx('@container mx-auto w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-8 max-lg:pb-28', wide ? 'max-w-[1440px]' : 'max-w-[1200px]')}>{menu ? menuPage : children}</div>}
     </div>
     <nav aria-label="Quick" className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden print:hidden">
       {/* Four places when there is nothing to start; with ➕ in the middle when there is. */}

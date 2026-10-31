@@ -420,6 +420,7 @@
 
 .hid-ehr .hid-ehr-page-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
@@ -429,6 +430,7 @@
 }
 
 .hid-ehr .hid-ehr-page-heading-text {
+  flex: 1 1 18rem;
   min-width: 0;
 }
 
@@ -813,24 +815,27 @@
 }
 
 /*
- * Rows as cards where the screen is narrow (owner, 2026-10-31): no sideways scrolling. The header row is kept for
+ * Rows as cards where the page's content area (the nearest size container: the EHR page, a drawer, a dialog) is
+ * narrower than the table needs (owner, 2026-10-31): no sideways scrolling, whatever the sidebar takes. The header row is kept for
  * assistive technology only; each value shows under its column's name (data-label); each row is one card.
  */
-@media (max-width: 639px) {
+@container (max-width: 640px) {
   .hid-ehr .hid-ehr-table-stack-sm { overflow: visible; }
   .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table { min-width: 0; }
   .hid-ehr .hid-ehr-table-stack-sm :is(.hid-ehr-table, .hid-ehr-table-body, .hid-ehr-table-row, .hid-ehr-table-cell) { display: block; }
   .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-head :is(tr, th) { display: block; }
   .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-body { display: grid; gap: 8px; }
   .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-row { padding: 6px 0; border: 1px solid var(--ehr-line); border-radius: var(--ehr-radius-lg); background: var(--ehr-surface); }
   .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-cell { padding: 6px 14px; border: 0; text-align: left; font-size: 13px; }
   .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-cell[data-label]:not(:first-child)::before { content: attr(data-label); display: block; color: var(--ehr-muted); font-size: 11px; font-weight: 500; }
 }
-@media (max-width: 1023px) {
+@container (max-width: 820px) {
   .hid-ehr .hid-ehr-table-stack-lg { overflow: visible; }
   .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table { min-width: 0; }
   .hid-ehr .hid-ehr-table-stack-lg :is(.hid-ehr-table, .hid-ehr-table-body, .hid-ehr-table-row, .hid-ehr-table-cell) { display: block; }
   .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-head :is(tr, th) { display: block; }
   .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-body { display: grid; gap: 8px; }
   .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-row { padding: 6px 0; border: 1px solid var(--ehr-line); border-radius: var(--ehr-radius-lg); background: var(--ehr-surface); }
   .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-cell { padding: 6px 14px; border: 0; text-align: left; font-size: 13px; }
@@ -863,11 +868,12 @@
   margin-bottom: 24px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--ehr-tab-rule);
-  overflow-x: auto;
 }
 
+/* Tabs wrap to a second line rather than run off the side: every tab stays in view at every width. */
 .hid-ehr .hid-ehr-module-tab-list {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 0;
   padding: 0;
@@ -944,6 +950,7 @@
 
 .hid-ehr .hid-ehr-drawer {
   box-sizing: border-box;
+  container-type: inline-size;
   width: var(--ehr-drawer-width);
   height: 100%;
   padding: 24px;
@@ -1002,6 +1009,7 @@
 
 .hid-ehr .hid-ehr-dialog {
   box-sizing: border-box;
+  container-type: inline-size;
   width: min(460px, calc(100vw - 32px));
   max-height: 90%;
   padding: 28px;
@@ -1218,13 +1226,15 @@
   .hid-ehr .hid-ehr-topbar {
     padding: 0 24px;
   }
+}
 
+@container (min-width: 641px) and (max-width: 900px) {
   .hid-ehr .hid-ehr-stat-card {
     padding: 16px;
   }
 }
 
-@media (max-width: 1000px) {
+@container (max-width: 760px) {
   .hid-ehr .hid-ehr-page-title {
     font-size: 34px;
   }
@@ -1271,10 +1281,18 @@
     left: 16px;
   }
 
+}
+
+/* The page's own content, by the room the page gives it (the content area is a size container), not by the window. */
+@container (max-width: 640px) {
   .hid-ehr .hid-ehr-page-heading {
     flex-direction: column;
     align-items: flex-start;
     gap: 18px;
+  }
+
+  .hid-ehr .hid-ehr-page-heading-text {
+    flex: none;
   }
 
   .hid-ehr .hid-ehr-page-title {

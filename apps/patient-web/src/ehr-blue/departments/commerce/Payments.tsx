@@ -74,7 +74,7 @@ export function Payments() {
     <div className="flex flex-col gap-5">
       <PageHeader title="Payments" description="Bills waiting to be paid." />
       <>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 @3xl:flex-row @3xl:items-center @3xl:justify-between">
           <FilterTabs<View> label="Bills" value={view} onChange={setView} options={[
             { value: 'to_pay', label: 'To pay', count: counts.to_pay },
             { value: 'checking', label: 'Waiting for check', count: counts.checking },
@@ -82,7 +82,7 @@ export function Payments() {
             { value: 'paid', label: 'Paid', count: counts.paid },
           ]} />
           <Input icon={Search} type="search" aria-label="Search by name or bill number" placeholder="Name or bill number"
-            value={query} onChange={event => setQuery(event.target.value)} className="sm:w-72" />
+            value={query} onChange={event => setQuery(event.target.value)} className="@3xl:w-72" />
         </div>
         <PageState loading={bills.status === 'loading'} error={bills.status === 'error' ? bills.error : null} hasData={bills.data !== null}
           onRetry={bills.reload} what="bills" rows={4}
@@ -91,7 +91,7 @@ export function Payments() {
             title: query ? 'No bill matches that' : view === 'to_pay' ? 'Nothing to pay right now' : view === 'checking' ? 'No transfers waiting' : view === 'follows' ? 'No bills to follow' : 'No paid bills yet',
             description: query ? 'Try the bill number, as on the slip (B-000412), or part of the name.' : view === 'to_pay' ? 'Bills from the pharmacy and the lab show here as they are made.' : undefined,
           } : null}>
-          <ul className="m-0 grid list-none gap-3 p-0 md:grid-cols-2 2xl:grid-cols-3">
+          <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
             {shown.map(bill => (
               <BillCard key={bill.id} bill={bill}
                 action={view === 'checking' && canConfirm ? () => { const payment = pendingTransfer(bill); if (payment) setConfirming({ bill, payment }) } : null}
@@ -128,21 +128,21 @@ function BillCard({ bill, onPay, onView, action, actionLabel }: {
   const what = bill.lines.map(line => line.quantity > 1 ? `${line.name} × ${line.quantity}` : line.name).join(', ')
   const waiting = pendingTransfer(bill)
   return (
-    <Card as="li" className="flex flex-col">
+    <Card as="li" className="flex min-w-0 flex-col">
       <div className="flex flex-1 flex-col gap-3 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="m-0 truncate text-title-3 text-ink">{bill.patient?.displayName ?? 'Walk-in (no name)'}</p>
+        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
+          <div className="min-w-0 flex-[1_1_10rem]">
+            <p className="m-0 text-title-3 text-ink break-words">{bill.patient?.displayName ?? 'Walk-in (no name)'}</p>
             <p className="m-0 text-caption text-ink-3">
               <span className="tabular">{bill.number}</span>
-              {bill.patient?.healthId ? <> · <span className="tracking-[.04em]">{bill.patient.healthId}</span></> : null}
+              {bill.patient?.healthId ? <> · <span className="whitespace-nowrap tracking-[.04em]">{bill.patient.healthId}</span></> : null}
               {' · '}{timeAgo(bill.createdAt)}
             </p>
           </div>
-          <Badge size="sm" tone="neutral">{SOURCE_LABEL[bill.source]}</Badge>
+          <Badge size="sm" tone="neutral" className="max-w-full">{SOURCE_LABEL[bill.source]}</Badge>
         </div>
         <p className="m-0 line-clamp-2 text-[13px] text-ink-2">{what || 'No items'}</p>
-        <div className="mt-auto flex items-end justify-between gap-3">
+        <div className="mt-auto flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="m-0 text-caption text-ink-3">{bill.status === 'paid' ? 'Paid' : bill.status === 'deferred' ? 'To follow' : 'Due'}</p>
             <p className="m-0 text-[22px] leading-8 font-semibold tracking-[-0.01em] text-ink tabular">{naira(bill.status === 'paid' ? bill.paidKobo : bill.dueKobo)}</p>
@@ -151,7 +151,7 @@ function BillCard({ bill, onPay, onView, action, actionLabel }: {
             : <BillBadge bill={{ billId: bill.id, status: bill.status, dueKobo: bill.dueKobo, receiptNumber: bill.receiptNumber ?? null }} />}
         </div>
       </div>
-      <div className="flex gap-2 border-t border-line px-4 py-3 [&>*]:flex-1">
+      <div className="flex flex-wrap gap-2 border-t border-line px-4 py-3 [&>*]:flex-[1_1_auto] [&>*]:whitespace-nowrap">
         <Button onClick={onView}>{bill.receiptNumber ? 'Receipt' : 'View bill'}</Button>
         {action && actionLabel ? <Button variant="soft" onClick={action}>{actionLabel}</Button>
           : onPay ? <Button variant="soft" icon={Wallet} onClick={onPay}>Take payment</Button> : null}

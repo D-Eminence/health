@@ -94,7 +94,7 @@ function CashierDays({ canManage }: { readonly canManage: boolean }) {
         : all.status === 'error' && all.data === null ? <Alert intent="error" title="Couldn’t load the cashiers" action={<Button size="sm" onClick={all.reload}>Try again</Button>}>{all.error}</Alert>
           : all.data === null ? <LoadingRows rows={2} label="Loading the cashiers" />
             : all.data.items.length === 0 ? <p className="m-0 text-sm text-ink-3">No one has opened a day yet today.</p>
-              : <ul className="m-0 grid list-none gap-3 p-0 sm:grid-cols-2">
+              : <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-3 p-0">
                 {all.data.items.map(day => <DayCard key={day.id} title={day.cashierName ?? day.openedBy} shift={day} />)}
               </ul>}
     </section> : null}
@@ -117,7 +117,7 @@ function TillDays({ tills }: { readonly tills: readonly Till[] }) {
       <SectionHeader id="eod-tills" title="Which till?" count={tills.length} />
       {open.status === 'error' && open.data === null ? <Alert intent="error" size="sm" title="Couldn’t check which tills are open"
         action={<Button size="sm" onClick={open.reload}>Try again</Button>}>{open.error}</Alert> : null}
-      <div role="radiogroup" aria-labelledby="eod-tills" className="grid gap-2 sm:grid-cols-2">
+      <div role="radiogroup" aria-labelledby="eod-tills" className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-2">
         {tills.map(entry => {
           const day = openBy.get(entry.id)
           const on = entry.id === picked
@@ -125,7 +125,7 @@ function TillDays({ tills }: { readonly tills: readonly Till[] }) {
             className={cx('flex min-h-[44px] cursor-pointer items-start justify-between gap-3 rounded-xl border-0 bg-surface px-4 py-3 text-left ring-1 ring-inset',
               on ? 'ring-2 ring-brand' : 'ring-line hover:ring-line-strong')}>
             <span className="min-w-0">
-              <span className="block text-[15px] font-semibold text-ink">{entry.name}</span>
+              <span className="block text-[15px] font-semibold text-ink break-words">{entry.name}</span>
               <span className="block text-[13px] text-ink-3">{day ? <>Opened {clock(day.openedAt)} by {day.openedBy} · <span className="tabular">{naira(takenOf(day))}</span> taken</>
                 : open.data ? 'Not open' : 'Checking…'}</span>
             </span>
@@ -233,7 +233,7 @@ function OpenDay({ of, shift, onClosed }: { readonly of: DayOf; readonly shift: 
           hint={`${total.count} ${total.count === 1 ? 'payment' : 'payments'}`} />
       ))}
     </StatGroup>
-    <div className="grid gap-3 md:grid-cols-3">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3">
       <SummaryLine label="Recorded today" value={naira(taken)} />
       <SummaryLine label="Still unpaid" value={naira(shift.unpaidBills.amountKobo)} hint={`${shift.unpaidBills.count} ${shift.unpaidBills.count === 1 ? 'bill' : 'bills'}`} />
       <SummaryLine label="Bill follows" value={naira(shift.deferredBills.amountKobo)} hint={`${shift.deferredBills.count} ${shift.deferredBills.count === 1 ? 'bill' : 'bills'} (emergency, inpatient)`} />

@@ -67,21 +67,21 @@ export function Results() {
       <PageHeader title={<span id="lab-results-title" tabIndex={-1} className="outline-none">Results</span>}
         actions={<Button icon={RotateCcw} loading={read.loading && read.value !== null} onClick={() => void read.refresh()}>Refresh</Button>} />
       <Input icon={Search} type="search" aria-label="Search results" placeholder="Name, phone, test or number" value={search}
-        onChange={event => setSearch(event.target.value)} className="sm:max-w-md" />
+        onChange={event => setSearch(event.target.value)} className="@3xl:max-w-md" />
       <PageState loading={read.loading} error={read.error || null} hasData={read.value !== null} onRetry={() => void read.refresh()} what="results" rows={4}
         empty={shown.length === 0 ? { icon: FileText, title: search.trim() ? 'Nothing matches' : 'No results released yet',
           description: search.trim() ? 'Check the spelling.' : 'Results show here once they are checked and released.' } : null}>
-        <ul aria-label="Released results" className="m-0 grid list-none gap-3 p-0 md:grid-cols-2">
+        <ul aria-label="Released results" className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
           {shown.map(item => {
             const person = personOf(item)
             const released = releasedAtOf(item)
-            return <li key={item.id}>
+            return <li key={item.id} className="min-w-0">
               <Link id={`lab-result-${item.id}`} to={`${RESULTS_HREF}/${encodeURIComponent(item.id)}`}
                 className="flex min-h-11 items-center gap-3 rounded-xl bg-surface p-4 text-ink no-underline shadow-[var(--shadow-card)] ring-1 ring-line hover:bg-subtle">
                 <span className="min-w-0 flex-1">
-                  <span className="block text-title-3 text-ink [overflow-wrap:anywhere]">{person.name}</span>
+                  <span className="block text-title-3 text-ink break-words">{person.name}</span>
                   <span className="block text-caption text-ink-2">{[ageSex(person), person.phone].filter(Boolean).join(' · ')}</span>
-                  <span className="mt-1 block text-[15px] font-medium text-ink">{item.testName ?? 'Lab test'}</span>
+                  <span className="mt-1 block text-[15px] font-medium text-ink break-words">{item.testName ?? 'Lab test'}</span>
                   {released ? <span className="block text-caption text-ink-3">Released {stampText(released)}</span> : null}
                 </span>
                 <ChevronRight className="size-5 shrink-0 text-ink-3" aria-hidden />

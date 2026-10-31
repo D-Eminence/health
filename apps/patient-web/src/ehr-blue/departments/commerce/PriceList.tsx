@@ -78,19 +78,19 @@ export function PriceList({ kinds = ALL_KINDS, title = 'Price list', description
         actions={canManage ? <Button variant="primary" icon={Plus} onClick={() => setEditing('new')}>Add item</Button> : undefined} />
       {/* A price list that answers 404 shows the normal empty state; Add item says so if it can't save. */}
       <>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 @3xl:flex-row @3xl:items-center @3xl:justify-between">
           <FilterTabs<Kind> label="Kind of item" value={kind} onChange={setKind} options={[
             { value: 'all', label: 'All', count: count('all') },
             ...KIND_TABS.filter(tab => kinds.includes(tab.value)).map(tab => ({ ...tab, count: count(tab.value) })),
           ]} />
           <Input icon={Search} type="search" aria-label="Search the price list" placeholder="Search by name" value={query}
-            onChange={event => setQuery(event.target.value)} className="sm:w-72" />
+            onChange={event => setQuery(event.target.value)} className="@3xl:w-72" />
         </div>
         <PageState loading={items.status === 'loading'} error={items.status === 'error' ? items.error : null} hasData={items.data !== null}
           onRetry={items.reload} what="the price list" rows={4}
           empty={shown.length === 0 ? { icon: Tag, title: query ? 'Nothing matches that name' : 'No prices yet',
             description: query ? 'Try fewer letters, or the generic name.' : canManage ? 'Add the drugs and tests you charge for.' : undefined } : null}>
-          <ul className="m-0 grid list-none gap-3 p-0 md:grid-cols-2 2xl:grid-cols-3">
+          <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
             {shown.map(item => <ItemCard key={item.id} item={item} hmos={hmos} onEdit={canManage ? () => setEditing(item) : null} />)}
           </ul>
         </PageState>
@@ -107,21 +107,21 @@ export function PriceList({ kinds = ALL_KINDS, title = 'Price list', description
 function ItemCard({ item, hmos, onEdit }: { readonly item: CatalogueItem; readonly hmos: readonly Hmo[]; readonly onEdit: (() => void) | null }) {
   const hmoPrices = (item.prices.hmo ?? []).map(price => ({ ...price, name: hmos.find(hmo => hmo.id === price.hmoId)?.name ?? 'HMO' }))
   return (
-    <Card as="li" className={cx('flex gap-4 p-4', !item.active && 'opacity-70')}>
+    <Card as="li" className={cx('@container flex min-w-0 flex-col gap-4 p-4 @[19rem]:flex-row', !item.active && 'opacity-70')}>
       <ItemTile item={item} />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="m-0 text-title-3 text-ink">{item.name}{item.strength ? <span className="font-normal text-ink-2"> {item.strength}</span> : null}</p>
+          <div className="min-w-0 flex-1">
+            <p className="m-0 text-title-3 text-ink break-words">{item.name}{item.strength ? <span className="font-normal text-ink-2"> {item.strength}</span> : null}</p>
             <p className="m-0 text-caption text-ink-3">{KIND_WORD[item.kind]}{item.packSize ? ` · ${item.packSize}` : ''}</p>
           </div>
           {onEdit ? <Button variant="ghost" size="sm" icon={Pencil} onClick={onEdit} aria-label={`Edit ${item.name}`} className="max-sm:size-11 max-sm:px-0" /> : null}
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {item.kind === 'drug' ? <Badge size="sm" tone={item.prescriptionOnly ? 'neutral' : 'info'}>{item.prescriptionOnly ? 'Prescription only' : 'Over the counter'}</Badge> : null}
+          {item.kind === 'drug' ? <Badge size="sm" tone={item.prescriptionOnly ? 'neutral' : 'info'} className="max-w-full">{item.prescriptionOnly ? 'Prescription only' : 'Over the counter'}</Badge> : null}
           {!item.active ? <Badge size="sm" tone="warn">Not offered now</Badge> : null}
         </div>
-        <dl className="m-0 mt-auto grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-[13px]">
+        <dl className="m-0 mt-auto grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 text-[13px]">
           <dt className="text-ink-2">Cash</dt><dd className="m-0 text-right text-title-3 text-ink tabular">{naira(item.prices.cashKobo)}</dd>
           {hmoPrices.map(price => <HmoPrice key={price.hmoId} name={price.name} kobo={price.amountKobo} />)}
         </dl>
@@ -131,7 +131,7 @@ function ItemCard({ item, hmos, onEdit }: { readonly item: CatalogueItem; readon
 }
 
 function HmoPrice({ name, kobo }: { readonly name: string; readonly kobo: number }) {
-  return <><dt className="truncate text-ink-3">{name}</dt><dd className="m-0 text-right text-ink-2 tabular">{naira(kobo)}</dd></>
+  return <><dt className="min-w-0 break-words text-ink-3">{name}</dt><dd className="m-0 text-right text-ink-2 tabular">{naira(kobo)}</dd></>
 }
 
 const kobo = (value: number | undefined) => value === undefined ? '' : (value / 100).toFixed(2)
@@ -212,7 +212,7 @@ function ItemDrawer({ item, hmos, kinds = ALL_KINDS, onClose, onSaved }: {
         <Button variant="primary" loading={busy} onClick={() => { void save() }}>{item ? 'Save' : 'Add item'}</Button>
       </>}>
       {off ? <NotSwitchedOn message={NOT_SET_UP_UNSAVED} /> : (
-        <form className="flex flex-col gap-4" onSubmit={event => { event.preventDefault(); void save() }}>
+        <form className="@container flex flex-col gap-4" onSubmit={event => { event.preventDefault(); void save() }}>
           {!item && kinds.length > 1 ? (
             <div className="flex flex-col gap-1.5">
               <span className="text-[13px] font-medium text-ink-2" id={`${ids}-kind`}>What is it?</span>
@@ -221,7 +221,7 @@ function ItemDrawer({ item, hmos, kinds = ALL_KINDS, onClose, onSaved }: {
             </div>
           ) : null}
 
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <ItemTile item={{ kind, form: form || null, imageUrl: picture?.preview ?? item?.imageUrl ?? null, name }} size="lg" />
             <div className="flex min-w-0 flex-col gap-1.5">
               <label htmlFor={`${ids}-image`} className={cx('inline-flex h-11 items-center gap-2 self-start rounded-md bg-surface px-4 text-sm font-medium text-ink ring-1 ring-inset ring-line-strong focus-within:shadow-[var(--shadow-focus)] sm:h-10',
@@ -246,7 +246,7 @@ function ItemDrawer({ item, hmos, kinds = ALL_KINDS, onClose, onSaved }: {
           </Field>
 
           {kind === 'drug' ? <>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 @md:grid-cols-2">
               <Field label="Strength" optional htmlFor={`${ids}-strength`}>
                 <Input id={`${ids}-strength`} autoComplete="off" value={strength} onChange={event => setStrength(event.target.value)} placeholder="500 mg" />
               </Field>
@@ -277,8 +277,8 @@ function ItemDrawer({ item, hmos, kinds = ALL_KINDS, onClose, onSaved }: {
             <fieldset className="m-0 flex flex-col gap-3 border-0 p-0">
               <legend className="mb-1 text-[13px] font-medium text-ink-2">HMO prices <span className="font-normal text-ink-3">(optional; empty means the cash price)</span></legend>
               {hmos.map(hmo => (
-                <div key={hmo.id} className="grid grid-cols-[1fr_9rem] items-center gap-3">
-                  <label htmlFor={`${ids}-hmo-${hmo.id}`} className="truncate text-sm text-ink">{hmo.name}</label>
+                <div key={hmo.id} className="grid grid-cols-[minmax(0,1fr)_9rem] items-center gap-3">
+                  <label htmlFor={`${ids}-hmo-${hmo.id}`} className="min-w-0 break-words text-sm text-ink">{hmo.name}</label>
                   <Input id={`${ids}-hmo-${hmo.id}`} prefix="₦" inputMode="decimal" autoComplete="off" value={hmoText[hmo.id] ?? ''}
                     onChange={event => setHmoText(previous => ({ ...previous, [hmo.id]: event.target.value }))} />
                 </div>

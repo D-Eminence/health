@@ -95,8 +95,8 @@ export function SharedCardView({ card, sharedBy, recipient, level, expiresAt, re
       </div>
     </header>
     {banner}
-    <main className="mx-auto grid max-w-5xl gap-6 px-4 py-6 lg:grid-cols-[380px_minmax(0,1fr)] lg:items-start">
-      <div className="flex flex-col gap-4 lg:sticky lg:top-20">
+    <main className="mx-auto grid max-w-5xl grid-cols-[minmax(0,1fr)] gap-6 px-4 py-6 lg:grid-cols-[380px_minmax(0,1fr)] lg:items-start">
+      <div className="mx-auto flex w-full max-w-[480px] min-w-0 flex-col gap-4 lg:sticky lg:top-20 lg:max-w-none">
         <Face card={card} />
         <dl className="m-0 grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-line ring-1 ring-line">
           {[['Shared by', sharedBy, Mail], ['Access', shareLevelLabel(level) ?? words(level), Eye], ['Until', expiresAt ? until(expiresAt) : 'Until ended', Clock], ['Every view', 'Recorded', Lock]].map(([label, value, I]) => {

@@ -239,9 +239,9 @@ export function ProfilePage() {
     <PageHeader titleRef={heading} title="Profile" description="What a hospital sees when you share your records." />
     <PageState what="your profile" loading={profile.loading} error={profile.error} hasData={profile.data !== null}
       onRetry={() => retryFocus.retry(profile.reload)}>{null}</PageState>
-    {shown && <div className="grid items-start gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
+    {shown && <div className="grid items-start gap-6 @3xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
       {/* The card first, as on Home: on a phone it is the top of the page; on a computer it stays in view beside the sections. */}
-      <div className="flex flex-col gap-6 lg:sticky lg:top-24">
+      <div className="mx-auto flex w-full max-w-[460px] min-w-0 flex-col gap-6 @3xl:sticky @3xl:top-24 @3xl:max-w-none">
         <HealthIdCard profile={shown} onChanged={profile.reload} verified={typeof shown.ninVerified === 'boolean' ? ninVerifiedOf(shown) : null}
           bloodGroup={health.error ? null : health.data?.bloodGroup} genotype={health.error ? null : health.data?.genotype}
           allergies={health.error ? null : health.data?.allergies} shareTo="/access" links={[]} />
@@ -457,8 +457,8 @@ export function RecordsPage() {
     <PageState what="your records" loading={records.loading} error={records.error} hasData={data !== null}
       onRetry={() => recordsRetry.retry(records.reload)}>{null}</PageState>
     {/* hid-1.0's "Search by date, title, or keyword": over the records on this page; nothing is sent. */}
-    {ready && <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-      <div role="search" className="w-full lg:max-w-sm">
+    {ready && <div className="flex flex-wrap items-start justify-between gap-3">
+      <div role="search" className="min-w-0 max-w-sm flex-[1_1_16rem]">
         <Input type="search" icon={Search} autoComplete="off" maxLength={200} value={query} onChange={event => setQuery(event.target.value)}
           placeholder="Search by date, type or words" aria-label="Search your records" aria-describedby="record-search-status" />
         {/* Mounted with the field, so each new count is announced. */}
@@ -617,14 +617,14 @@ export function AccessPage() {
         {requestList.map(item => { const pending = item.status.toLowerCase() === 'pending'
           return <li key={item.accessRequestId}>
             <button type="button" id={`review-${item.accessRequestId}`} onClick={() => openReview(item.accessRequestId)}
-              className={cx('flex w-full cursor-pointer items-center gap-3 border-0 px-5 py-4 text-left font-[inherit] hover:bg-subtle', pending ? 'bg-warn-soft/40' : 'bg-transparent')}>
+              className={cx('flex w-full cursor-pointer flex-wrap items-center gap-3 border-0 px-4 py-4 text-left font-[inherit] hover:bg-subtle sm:px-5', pending ? 'bg-warn-soft/40' : 'bg-transparent')}>
               <IconChip icon={Building2} tone={pending ? 'warn' : 'neutral'} />
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold [overflow-wrap:anywhere] text-ink">{item.facilityName}</span>
+              <span className="min-w-0 flex-[1_1_10rem]">
+                <span className="block text-sm font-semibold break-words text-ink">{item.facilityName}</span>
                 {/* The status is said once: the Review button while it waits, the badge after. */}
                 <span className="block text-[13px] text-ink-3">{pending ? `Wants to see your records${forHowLong(item.requestedDurationMinutes)} · ` : ''}{timeAgo(item.requestedAt)}</span>
               </span>
-              {pending ? <span className={buttonClass({ variant: 'primary', size: 'sm' })}>Review</span>
+              {pending ? <span className={buttonClass({ variant: 'primary', size: 'sm', className: 'ml-auto' })}>Review</span>
                 : <Badge tone={statusTone(item.status)} size="sm">{plainCode(item.status)}</Badge>}
               <ItemName>the request from {item.facilityName}, {dateTime(item.requestedAt)}</ItemName>
             </button>
@@ -769,14 +769,14 @@ export function NotificationsPage() {
     {items && (items.length === 0
       ? <EmptyState icon={Bell} title="No notifications" description="You'll hear here when a facility asks for, opens or is given access to your records." />
       : <Card aria-busy={notifications.loading || undefined}><ul className="m-0 list-none divide-y divide-line p-0">
-        {items.map(item => <li key={item.id} className={cx('flex items-start gap-3 px-5 py-4', !item.readAt && 'bg-brand-soft/40')}>
+        {items.map(item => <li key={item.id} className={cx('flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-4 sm:px-5', !item.readAt && 'bg-brand-soft/40')}>
           <span className="relative mt-0.5"><IconChip size="sm" icon={item.resourceType?.includes('request') ? ShieldCheck : item.resourceType?.includes('record') ? FolderHeart : Bell} tone={item.readAt ? 'neutral' : 'brand'} />
             {!item.readAt && <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-brand-fill ring-2 ring-surface" aria-hidden />}</span>
-          <div className="min-w-0 flex-1">
-            <p className={cx('m-0 text-sm [overflow-wrap:anywhere] text-ink', !item.readAt && 'font-semibold')}>{notificationTitle(item)}</p>
+          <div className="min-w-0 flex-[1_1_12rem]">
+            <p className={cx('m-0 text-sm break-words text-ink', !item.readAt && 'font-semibold')}>{notificationTitle(item)}</p>
             <p className="m-0 mt-0.5 text-[13px] text-ink-3">{[item.resourceType && NOTIFICATION_SUBJECTS[item.resourceType], timeAgo(item.createdAt)].filter(Boolean).join(' · ')}<span className="sr-only">{item.readAt ? ', read' : ', unread'}</span></p>
           </div>
-          {!item.readAt && <Button id={`mark-read-${item.id}`} size="sm" variant="ghost" disabled={working === item.id || notifications.loading} onClick={() => void markRead(item.id)}>Mark as read<ItemName>: {notificationTitle(item)}, {dateTime(item.createdAt)}</ItemName></Button>}
+          {!item.readAt && <Button id={`mark-read-${item.id}`} size="sm" variant="ghost" className="ml-auto" disabled={working === item.id || notifications.loading} onClick={() => void markRead(item.id)}>Mark as read<ItemName>: {notificationTitle(item)}, {dateTime(item.createdAt)}</ItemName></Button>}
         </li>)}
       </ul></Card>)}
     <ImportedNotificationsCard />
@@ -845,13 +845,13 @@ function ImportedNotificationsCard() {
     </div>
     {first.error && <div className="p-5"><LoadProblem what="old notifications" error={first.error} buttonRef={retryFocus.button} onRetry={() => retryFocus.retry(first.reload)} /></div>}
     {error && <div className="px-5 pt-4"><Problem>{error}</Problem></div>}
-    {items.length > 0 && <ul className="m-0 list-none divide-y divide-line p-0">{items.map(item => <li key={item.id} className={cx('flex items-start gap-3 px-5 py-4', !item.readAt && 'bg-brand-soft/40')}>
-      <div className="min-w-0 flex-1">
+    {items.length > 0 && <ul className="m-0 list-none divide-y divide-line p-0">{items.map(item => <li key={item.id} className={cx('flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-4 sm:px-5', !item.readAt && 'bg-brand-soft/40')}>
+      <div className="min-w-0 flex-[1_1_12rem]">
         <p className={cx('m-0 text-sm [overflow-wrap:anywhere] text-ink', !item.readAt && 'font-semibold')}>{item.title || 'A notification from your old account'}</p>
         {item.message && <p className="m-0 mt-1 text-[13px] whitespace-pre-wrap [overflow-wrap:anywhere] text-ink-2">{item.message}</p>}
         <p className="m-0 mt-0.5 text-[13px] text-ink-3">{dateTime(item.createdAt)}<span className="sr-only">{item.readAt ? ', read' : ', unread'}</span></p>
       </div>
-      {!item.readAt && <Button id={`mark-imported-read-${item.id}`} size="sm" variant="ghost" disabled={working !== null} onClick={() => void markRead(item.id)}>
+      {!item.readAt && <Button id={`mark-imported-read-${item.id}`} size="sm" variant="ghost" className="ml-auto" disabled={working !== null} onClick={() => void markRead(item.id)}>
         Mark as read<ItemName>: {item.title || 'a notification from your old account'}, {dateTime(item.createdAt)}</ItemName></Button>}</li>)}</ul>}
     {more && <div className="border-t border-line px-5 py-3"><Button id="imported-notifications-older" size="sm" loading={working === 'older'} disabled={working !== null}
       onClick={() => void showOlder()}>{working === 'older' ? 'Loading…' : 'Show older'}</Button></div>}

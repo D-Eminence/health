@@ -193,7 +193,7 @@ export function CardFace({ name, hid, verified, facts, allergies, onAllergies, m
     <span className="truncate text-[3.2cqw] leading-none font-medium tracking-[.02em]">{firstAllergy}</span>
     {allergies.length > 1 && <span className="shrink-0 rounded-full bg-white/20 px-[1.2cqw] py-[.5cqw] text-[3cqw] leading-none font-semibold">+{allergies.length - 1}</span>}
     <span className="sr-only">, all allergies: {allergies.join(', ')}.{onAllergies ? ' Open the list.' : ''}</span></>
-  return <div className={cx('@container [perspective:1100px]', !still && 'motion-safe:animate-[hid-card-idle_7s_ease-in-out_infinite] motion-safe:hover:[animation-play-state:paused]')}>
+  return <div className={cx('@container mx-auto w-full max-w-[480px] [perspective:1100px]', !still && 'motion-safe:animate-[hid-card-idle_7s_ease-in-out_infinite] motion-safe:hover:[animation-play-state:paused]')}>
     <section ref={card} aria-label={`${name}’s Health ID card`} onPointerMove={tilt} onPointerLeave={untilt}
       className="hid-card relative isolate aspect-[1.586/1] w-full overflow-hidden rounded-[4.6cqw] text-white select-none [background:linear-gradient(135deg,#1570ef_0%,#0d3f99_36%,#071a3d_68%,#02050b_100%)] shadow-[0_28px_50px_-26px_rgba(2,5,11,.85),0_2px_6px_rgba(16,24,40,.14)]">
       <CardPrint />

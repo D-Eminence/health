@@ -64,11 +64,11 @@ function RequestList() {
           {can('identity.patient-access-pin.verify') ? <Button to={href('pin')} icon={KeyRound}>Use an Access PIN</Button> : null}
           {can('identity.consent.write') ? <Button to={href('new')} variant="primary" icon={Send}>Ask a patient</Button> : null}
         </> : undefined} />
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+      <div className="flex flex-col gap-3 @xl:flex-row @xl:items-end">
         <Field label="Search" htmlFor="consent-search" className="min-w-0 flex-1">
           <Input id="consent-search" type="search" icon={Search} autoComplete="off" value={search} onChange={event => setSearch(event.target.value)} />
         </Field>
-        <Field label="Status" htmlFor="consent-status" className="sm:w-60">
+        <Field label="Status" htmlFor="consent-status" className="@xl:w-60">
           <Select id="consent-status" value={status} onChange={event => setStatus(event.target.value as AccessRequestStatus | '')}>
             <option value="">Any status</option>
             {filters.map(value => <option key={value} value={value}>{FILTER_LABELS[value]}</option>)}

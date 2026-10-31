@@ -97,7 +97,7 @@ export function AuditPage() {
   return <Page eyebrow="Security" title="Audit" description="What happened on the platform and in facilities, newest first. Each search is recorded."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
     <form className="flex flex-col gap-4 rounded-xl bg-surface p-4 ring-1 ring-line" onSubmit={apply} role="search" aria-label="Filter audit events">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3">
         <Field label="Who" htmlFor="audit-actor"><Input id="audit-actor" {...field('actor')} placeholder="Their exact ID" /></Field>
         <Field label="What happened" htmlFor="audit-action"><Input id="audit-action" {...field('action')} placeholder="For example admin.account.status" /></Field>
         <Field label="Result" htmlFor="audit-outcome"><Select id="audit-outcome" {...field('outcome')}><option value="">Any result</option>
@@ -105,7 +105,7 @@ export function AuditPage() {
       </div>
       <details className="group" open={extra > 0 || invalidFacility || invalidTarget}>
         <summary className="cursor-pointer text-sm font-medium text-brand-ink">More filters{extra ? ` (${extra} on)` : ''}</summary>
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <div className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3">
           <Field label="From" htmlFor="audit-from"><Input id="audit-from" type="datetime-local" {...field('from')} /></Field>
           <Field label="To" htmlFor="audit-to"><Input id="audit-to" type="datetime-local" {...field('to')} /></Field>
           <Field label="Facility ID" htmlFor="audit-facility" error={invalidFacility ? 'Enter a full facility ID.' : undefined}>

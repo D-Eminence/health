@@ -125,7 +125,7 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
     <FormPage title="Payment setup" description="How this facility takes payment.">
       <form className="flex flex-col gap-4" noValidate onSubmit={event => { event.preventDefault(); void save() }}>
         <Step n={1} title="Where people pay">
-          <div role="radiogroup" aria-label="Where people pay" className="grid gap-2 sm:grid-cols-3">
+          <div role="radiogroup" aria-label="Where people pay" className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))] gap-2">
             {WHERE.map(option => {
               const on = option.value === wherePaid
               return (
@@ -177,7 +177,7 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
             <ul className="m-0 flex list-none flex-col divide-y divide-line rounded-lg p-0 ring-1 ring-line">
               {hmos.map(hmo => (
                 <li key={hmo.id} className="flex items-center justify-between gap-3 py-1 pr-1 pl-3.5">
-                  <span className="text-sm text-ink">{hmo.name}</span>
+                  <span className="min-w-0 break-words text-sm text-ink">{hmo.name}</span>
                   <Button variant="ghost" size="sm" icon={X} aria-label={`Remove ${hmo.name}`} className="size-11 px-0 sm:size-9"
                     onClick={() => setHmos(previous => previous.filter(entry => entry.id !== hmo.id))} />
                 </li>
@@ -196,7 +196,7 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
         </Step>
 
         <Step n={6} title="Closing the day" hint="Who counts the cash and closes the day.">
-          <div role="radiogroup" aria-label="Closing the day" className="grid gap-2 sm:grid-cols-3">
+          <div role="radiogroup" aria-label="Closing the day" className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))] gap-2">
             {CLOSE_BY.map(option => {
               const on = option.value === closeBy
               return (
@@ -215,7 +215,7 @@ function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; re
               <ul className="m-0 flex list-none flex-col divide-y divide-line rounded-lg p-0 ring-1 ring-line">
                 {tills.map(till => (
                   <li key={till.id} className="flex items-center justify-between gap-3 py-1 pr-1 pl-3.5">
-                    <span className="text-sm text-ink">{till.name}</span>
+                    <span className="min-w-0 break-words text-sm text-ink">{till.name}</span>
                     <Button variant="ghost" size="sm" icon={X} aria-label={`Remove ${till.name}`} className="size-11 px-0 sm:size-9"
                       onClick={() => setTills(previous => previous.filter(entry => entry.id !== till.id))} />
                   </li>

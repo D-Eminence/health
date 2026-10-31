@@ -673,3 +673,9 @@
 :root[data-theme='dark'] :is([class*='hid-ehr-'][class*='critical'], [class*='hid-ehr-'][class*='danger']) { background-color: #2b1210; }
 /* Links in the older EHR styles keep 4.5:1 on dark surfaces (their brand-dark is also a fill colour, so only links change). */
 :root[data-theme='dark'] .hid-ehr :is(a:not([class]), .hid-ehr-clinical-link) { color: #84adff; }
+
+/* StatGroup of four (kasuwa/ui.tsx): two by two until its own width holds four tiles of ~12rem, then one row of four;
+   never three and an orphan. Sized by the group's width, so the sidebar and side columns are accounted for. */
+.hid-stat-grid-4 {
+  grid-template-columns: repeat(auto-fill, minmax(max(calc((100% - 1.125rem) / 4), min(calc((100% - .375rem) / 2), (50rem - 100%) * 999)), 1fr));
+}

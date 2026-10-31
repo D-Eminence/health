@@ -46,7 +46,7 @@ function StageTrack({ stage }: { readonly stage: LabStage }) {
   return <ol aria-label="Progress" className="m-0 grid list-none grid-cols-5 gap-1 p-0">
     {STAGES.map((step, index) => <li key={step} aria-current={index === at ? 'step' : undefined} className="flex min-w-0 flex-col gap-1.5">
       <span aria-hidden="true" className={cx('h-1 rounded-full', index < at || stage === 'done' ? 'bg-success' : index === at ? 'bg-brand-fill' : 'bg-line-strong')} />
-      <span className={cx('truncate text-[12px] font-medium', index === at ? 'text-ink' : 'text-ink-3')}>
+      <span className={cx('break-words text-[12px] leading-tight font-medium', index === at ? 'text-ink' : 'text-ink-3')}>
         {index < at || stage === 'done' ? <Check className="mr-0.5 inline size-3" aria-hidden /> : null}{STAGE_LABEL[step]}
         <span className="sr-only">{index < at || stage === 'done' ? ', done' : index === at ? ', now' : ''}</span>
       </span>
@@ -173,14 +173,14 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
           {released.length > 0 ? <ul className="m-0 flex list-none flex-col divide-y divide-line p-0">
             {released.map(execution => <li key={execution.id} className="flex flex-col gap-3 py-3 first:pt-0">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0"><p className="m-0 text-title-3 text-ink">{execution.test.name}</p><ResultValue result={execution.result!} /></div>
+                <div className="min-w-0 flex-[1_1_12rem]"><p className="m-0 text-title-3 text-ink break-words">{execution.test.name}</p><ResultValue result={execution.result!} /></div>
                 {canCorrect(execution) && correcting !== execution.id ? <Button variant="ghost" icon={Pencil} onClick={() => setCorrecting(execution.id)}>Correct<span className="sr-only">: {execution.test.name}</span></Button> : null}
               </div>
               {correcting === execution.id ? <ResultForm {...step} execution={execution} result={execution.result} onCancel={() => setCorrecting(null)}
                 onDone={message => { setCorrecting(null); done(message) }} /> : null}
             </li>)}
           </ul> : null}
-          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <div className="flex flex-col gap-2 @md:flex-row @md:justify-end">
             <Button variant="primary" size="lg" iconRight={ArrowRight} to={`/provider/laboratory/results/${encodeURIComponent(item.id)}`}>Give result</Button>
           </div>
         </> : null}

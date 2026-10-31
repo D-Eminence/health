@@ -234,9 +234,9 @@ export function Registration() {
         </KCard>}
 
         {registration && <KCard>
-          <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
-            <h2 id="registration-case-title" tabIndex={-1} className="m-0 text-title-3 text-ink outline-none">{done ? '3. Done' : '2. Check the result'}</h2>
-            <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+            <h2 id="registration-case-title" tabIndex={-1} className="m-0 min-w-0 text-title-3 text-ink outline-none">{done ? '3. Done' : '2. Check the result'}</h2>
+            <div className="flex flex-wrap items-center gap-2">
               <KBadge size="sm" tone={done ? 'success' : registration.status === 'rejected' || registration.status === 'cancelled' ? 'danger' : 'warn'}>{statusLabel(registration.status)}</KBadge>
               <KButton size="sm" variant="ghost" icon={RotateCcw} aria-disabled={caseLoading || busy || undefined} className={UNAVAILABLE} onClick={() => { if (!caseLoading && !busy) void loadCase(registration.caseId) }}>{caseLoading ? 'Refreshing…' : 'Refresh'}</KButton>
             </div>

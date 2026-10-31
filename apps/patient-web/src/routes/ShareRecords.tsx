@@ -375,7 +375,7 @@ function LevelChoice({ name, value, onChange }: { name: string; value: ShareLeve
 function DurationChoice({ name, value, onChange }: { name: string; value: ShareDuration; onChange: (value: ShareDuration) => void }) {
   return <fieldset className="m-0 border-0 p-0">
     <legend className="mb-2 p-0 text-[13px] font-medium text-ink-2">How long</legend>
-    <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-tray p-1.5 sm:grid-cols-4">
+    <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-tray p-1.5 @lg:grid-cols-4">
       {SHARE_DURATIONS.map(option => { const on = value === option.value
         return <label key={option.value} className={cx('flex min-h-11 cursor-pointer items-center justify-center rounded-xl px-2 py-2 text-center text-[13px] font-medium has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand',
           on ? 'bg-surface text-brand-ink shadow-[var(--shadow-xs)] ring-[1.5px] ring-brand' : 'text-ink-2 hover:bg-surface/70')}>

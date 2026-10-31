@@ -76,9 +76,9 @@ function SalesList({ when, onWhen, query, onQuery }: {
   return <div className="flex flex-col gap-5">
     <PageHeader title="Sales & receipts" description={when === 'today' && read.status === 'ready'
       ? <><span className="tabular">{bills.length}</span> {bills.length === 1 ? 'sale' : 'sales'} today · <span className="font-medium text-ink tabular">{naira(taken)}</span> taken</> : undefined} />
-    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 @3xl:flex-row @3xl:flex-wrap @3xl:items-center @3xl:justify-between">
       <FilterTabs<When> label="Which sales" value={when} onChange={onWhen} options={[{ value: 'today', label: 'Today' }, { value: 'all', label: 'All' }]} />
-      <div className="relative min-w-0 sm:w-80">
+      <div className="relative min-w-0 @3xl:w-80">
         <label htmlFor="sales-search" className="sr-only">Search sales</label>
         <Search className="pointer-events-none absolute top-1/2 left-3.5 size-[18px] -translate-y-1/2 text-ink-3" aria-hidden />
         <Input id="sales-search" type="search" value={query} autoComplete="off" placeholder="Name, bill or receipt number" className="h-11"
@@ -91,7 +91,7 @@ function SalesList({ when, onWhen, query, onQuery }: {
       what="sales" rows={4} empty={read.status !== 'loading' && bills.length === 0 ? (q
         ? { icon: Search, title: 'No sale matches that', description: 'Try the bill number as on the slip (B-000412), or part of the name.' }
         : { icon: ReceiptText, title: when === 'today' ? 'No sales yet today' : 'No sales yet', description: 'Sales from the counter and prescriptions show here.' }) : null}>
-      <ul aria-label="Sales" className="m-0 grid list-none grid-cols-1 gap-3 p-0 md:grid-cols-2 2xl:grid-cols-3">
+      <ul aria-label="Sales" className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
         {bills.map(bill => <SaleCard key={bill.id} bill={bill} today={when === 'today'} />)}
       </ul>
     </PageState>
@@ -105,12 +105,12 @@ function SaleCard({ bill, today }: { readonly bill: Bill; readonly today: boolea
     <Link to={`${LIST}/${encodeURIComponent(bill.id)}`}
       className="flex w-full items-start gap-3 rounded-2xl bg-surface p-4 text-left text-ink no-underline shadow-[var(--shadow-card)] ring-1 ring-line transition-colors hover:bg-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]">
       <span className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <span className="flex items-start justify-between gap-3">
-          <span className="min-w-0">
-            <span className="block truncate text-[17px] font-semibold text-ink">{bill.patient?.displayName ?? 'Walk-in'}</span>
+        <span className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+          <span className="min-w-0 flex-[1_1_10rem]">
+            <span className="block text-[17px] font-semibold text-ink break-words">{bill.patient?.displayName ?? 'Walk-in'}</span>
             <span className="block text-[13px] font-normal text-ink-3">
               <span className="tabular">{bill.receiptNumber ?? bill.number}</span> · {today ? clock(bill.createdAt) : timeAgo(bill.createdAt)}
-              {bill.patient?.healthId ? <> · <span className="tracking-[.04em]">{bill.patient.healthId}</span></> : null}
+              {bill.patient?.healthId ? <> · <span className="whitespace-nowrap tracking-[.04em]">{bill.patient.healthId}</span></> : null}
             </span>
           </span>
           <span className="shrink-0 text-[19px] font-semibold text-ink tabular">{naira(bill.totalKobo)}</span>

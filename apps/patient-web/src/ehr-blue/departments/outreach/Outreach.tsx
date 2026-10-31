@@ -258,13 +258,13 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
         {canReadCases ? (
           <section aria-labelledby="outreach-cases-heading" className="flex flex-col gap-3">
             <h2 id="outreach-cases-heading" className="m-0 text-title-2 text-ink">Registrations</h2>
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 @xl:flex-row @xl:flex-wrap @xl:items-center @xl:justify-between">
               <FilterTabs label="Show registrations" value={tab} onChange={value => { setTab(value); setPage(0) }} options={[
                 { value: 'waiting', label: 'Waiting to link', count: waiting.length },
                 { value: 'done', label: 'Linked', count: all.length - waiting.length },
                 { value: 'all', label: 'All', count: all.length },
               ]} />
-              <div className="flex min-w-0 items-center gap-2 sm:w-80">
+              <div className="flex min-w-0 items-center gap-2 @xl:w-80">
                 <label htmlFor="outreach-search" className="sr-only">Search Outreach</label>
                 <Input id="outreach-search" type="search" icon={Search} className="min-w-0 flex-1" value={search} autoComplete="off"
                   placeholder="Search by name" onChange={event => { setSearch(event.target.value); setPage(0) }} />
@@ -274,7 +274,7 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
             {cases.error && listed ? <Alert intent="error" title="Couldn’t refresh registrations">{cases.error}</Alert> : null}
             <PageState loading={cases.loading} error={listed ? null : cases.error || null} hasData={listed} onRetry={() => void cases.refresh()}
               what="registrations" empty={empty}>
-              <ul aria-label="Registrations" className="m-0 grid list-none grid-cols-1 gap-3 p-0 md:grid-cols-2 2xl:grid-cols-3">
+              <ul aria-label="Registrations" className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
                 {rows.slice(shownPage * PAGE_SIZE, (shownPage + 1) * PAGE_SIZE).map(item => (
                   <CaseCard key={item.id} item={item} campaign={campaignOf(item.campaignId)} canLink={canWrite} onOpen={() => onOpenCase(item)} />
                 ))}
@@ -304,9 +304,9 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
                   {(campaigns.value ?? []).map(campaign => (
                     <li key={campaign.id}>
                       <button type="button" id={`outreach-campaign-${campaign.id}-open`} onClick={() => onOpenCampaign(campaign)}
-                        className="flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent px-5 py-3.5 text-left text-ink hover:bg-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]">
-                        <span className="flex min-w-0 flex-1 flex-col">
-                          <span className="font-semibold [overflow-wrap:anywhere]">{campaign.name}</span>
+                        className="flex w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1.5 border-0 bg-transparent px-5 py-3.5 text-left text-ink hover:bg-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]">
+                        <span className="flex min-w-0 flex-[1_1_12rem] flex-col">
+                          <span className="font-semibold break-words">{campaign.name}</span>
                           <span className="text-[13px] text-ink-3">{campaign.services.length ? campaign.services.join(', ') : 'No services listed'} · starts {dateText(campaign.startsAt)}</span>
                         </span>
                         <Badge size="sm" tone={campaign.status === 'active' ? 'success' : 'neutral'}>{statusWords(campaign.status)}</Badge>
@@ -336,8 +336,8 @@ function CaseCard({ item, campaign, canLink, onOpen }: {
     <li className="flex min-w-0 overflow-hidden rounded-2xl bg-surface shadow-[var(--shadow-card)] ring-1 ring-line">
       <button type="button" id={`outreach-case-${item.id}-open`} onClick={onOpen}
         className="flex w-full cursor-pointer flex-col gap-1.5 border-0 bg-transparent p-4 text-left text-ink transition-colors hover:bg-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)] sm:p-5">
-        <span className="flex items-start justify-between gap-3">
-          <span className="min-w-0 text-[18px] font-semibold leading-tight [overflow-wrap:anywhere]">{caseName(item)}</span>
+        <span className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+          <span className="min-w-0 flex-[1_1_10rem] text-[18px] font-semibold leading-tight break-words">{caseName(item)}</span>
           <Badge size="sm" tone={caseTone(item.status)}>{statusLabel(item.status)}</Badge>
         </span>
         <span className="text-[14px] text-ink-2">{ageText(item)} · {sexText(item)}{campaign ? ` · ${campaign.name}` : ''}</span>

@@ -101,7 +101,7 @@ export function CollectStep({ facilityId, permissions, subject, routed, onDone, 
     } finally { setBusy(false) }
   }
 
-  return <form className="flex flex-col gap-4" noValidate onSubmit={check}>
+  return <form className="@container flex flex-col gap-4" noValidate onSubmit={check}>
     {routed && item.patient ? <Alert intent="warning" size="sm">{sampleCheckText(item.patient.fullName)}</Alert> : null}
     {needsAccession ? <>
       <Field label="Sample" htmlFor="lab-collect-type" error={errors.type} errorId="lab-collect-type-error">
@@ -207,8 +207,8 @@ function StartForm({ facilityId, permissions, routed, onDone, onRefused, specime
     catch (caught) { setProblem(errorText(caught, 'The test could not be started. Refresh the sample first.', routed)); onRefused(caught) }
     finally { setBusy(false) }
   }
-  return <form className="flex flex-col gap-4" noValidate onSubmit={event => void start(event)}>
-    <div className="grid gap-4 sm:grid-cols-2">
+  return <form className="@container flex flex-col gap-4" noValidate onSubmit={event => void start(event)}>
+    <div className="grid gap-4 @md:grid-cols-2">
       <Field label="Method" htmlFor={`lab-method-${id}`} optional>
         <Input id={`lab-method-${id}`} value={method} maxLength={240} autoComplete="off" className="h-11" placeholder="Analyser, microscopy…" onChange={event => setMethod(event.target.value)} />
       </Field>
@@ -308,13 +308,13 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
     id: `lab-${field}-${id}`, 'aria-invalid': errors[field] ? true : undefined,
     'aria-describedby': errors[field] ? `lab-${field}-${id}-error` : undefined,
   })
-  return <form className="flex flex-col gap-4" noValidate onSubmit={check} aria-label={`${result ? 'Correct' : 'Enter'} result: ${execution.test.name}`}>
+  return <form className="@container flex flex-col gap-4" noValidate onSubmit={check} aria-label={`${result ? 'Correct' : 'Enter'} result: ${execution.test.name}`}>
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <p className="m-0 text-title-3 text-ink">{execution.test.name}</p>
+      <p className="m-0 min-w-0 text-title-3 text-ink break-words">{execution.test.name}</p>
       <Segmented ariaLabel="Kind of result" value={kind} onChange={next => { setKind(next); setErrors({}) }}
         options={[{ value: 'numeric', label: 'Number' }, { value: 'text', label: 'Text' }]} />
     </div>
-    {kind === 'numeric' ? <div className="grid gap-4 sm:grid-cols-3">
+    {kind === 'numeric' ? <div className="grid gap-4 @md:grid-cols-2 @xl:grid-cols-3">
       <Field label="Result" htmlFor={`lab-value-${id}`} error={errors.value} errorId={`lab-value-${id}-error`}>
         <Input {...control('value')} type="number" step="any" inputMode="decimal" value={value} className="h-12 text-[17px] font-semibold tabular"
           onChange={event => { setValue(event.target.value); setErrors({}); follow(event.target.value, range) }} />
@@ -330,7 +330,7 @@ export function ResultForm({ facilityId, subject, routed, onDone, onRefused, exe
       <Field label="Result" htmlFor={`lab-value-${id}`} error={errors.value} errorId={`lab-value-${id}-error`}>
         <Textarea {...control('value')} rows={3} maxLength={4000} value={value} onChange={event => { setValue(event.target.value); setErrors({}) }} />
       </Field>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 @md:grid-cols-2">
         <Field label="Unit" htmlFor={`lab-unit-${id}`} optional>
           <Input id={`lab-unit-${id}`} value={unit} maxLength={80} autoComplete="off" className="h-11" onChange={event => setUnit(event.target.value)} />
         </Field>

@@ -267,7 +267,7 @@ export function ControlsPage({ actor }: { actor: AdminActor }) {
   const resource = useResource(adminApi.controls, 'Platform controls could not be loaded.')
   return <Page eyebrow="Operations" title="Platform controls" description="Switches that change the platform for everyone. Each change is recorded."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <ResourceView resource={resource} emptyTitle="No controls" empty={controls => controls.length === 0}>{controls => <div className="grid gap-4 md:grid-cols-2">
+    <ResourceView resource={resource} emptyTitle="No controls" empty={controls => controls.length === 0}>{controls => <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-4">
       {controls.map(control => <Card as="article" className="flex flex-col gap-3 p-5" key={control.controlKey}>
         <div className="flex items-start justify-between gap-3"><h2 className="m-0 text-title-3 text-ink">{controlName(control.controlKey)}</h2>
           <Status value={control.enabled ? 'on' : 'off'} text={control.enabled ? 'On' : 'Off'} /></div>

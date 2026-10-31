@@ -135,7 +135,7 @@ function PaperForm({ facilityId, withStock }: { readonly facilityId: string; rea
         </Field>
         <Button variant="link" className="self-start" onClick={() => { setByHealthId(false); setHealthId(''); setHidError(''); focus('paper-name') }}>Use a name instead</Button>
       </> : <>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 @md:grid-cols-2">
           <Field label="Name" htmlFor="paper-name">
             <Input id="paper-name" value={name} maxLength={120} autoComplete="off" className="h-11" onChange={event => setName(event.target.value)} />
           </Field>
@@ -169,14 +169,14 @@ function PaperLine({ line, error, onChange, onRemove }: {
     <div className="flex items-start gap-3">
       <ItemCover imageUrl={line.item.imageUrl} form={drugFormFromCatalogue(line.item.form)} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="m-0 text-[16px] font-semibold text-ink [overflow-wrap:anywhere]">{name}</p>
+        <p className="m-0 text-[16px] font-semibold text-ink break-words">{name}</p>
         <p className="m-0 text-[14px] text-ink-2 tabular">{naira(line.item.prices.cashKobo)} each · <strong className="text-ink">{naira(line.item.prices.cashKobo * line.quantity)}</strong></p>
         {line.item.prescriptionOnly ? <Badge size="sm" tone="violet" className="self-start">Prescription only</Badge> : null}
       </div>
       <Button variant="ghost" icon={Trash2} aria-label={`Remove ${name}`} className="!w-11 !px-0 text-ink-3" onClick={onRemove} />
     </div>
     <Stepper id={`${id}-qty`} label={name} value={line.quantity} max={line.onHand ?? undefined} onChange={quantity => onChange({ quantity })} />
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className="grid gap-3 @md:grid-cols-2">
       <Field label="Dose" htmlFor={`${id}-dose`} error={doseError} errorId={`${id}-dose-error`}>
         <Input id={`${id}-dose`} value={line.dose} maxLength={80} autoComplete="off" placeholder="1 tablet" className="h-11"
           aria-invalid={doseError ? true : undefined} aria-describedby={doseError ? `${id}-dose-error` : undefined} onChange={event => onChange({ dose: event.target.value })} />

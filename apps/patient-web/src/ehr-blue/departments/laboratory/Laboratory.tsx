@@ -176,16 +176,16 @@ export function Laboratory() {
       <WorkListCap count={list.items?.length ?? 0}>{cannotServed === true && lateCorrection ? <DeptNotice>{CAP_CANNOT_COMPLETE}</DeptNotice> : null}</WorkListCap>
       <SaidAboveList id="lab-said" text={said.listSaid} />
 
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-col gap-3 @4xl:flex-row @4xl:items-center @4xl:justify-between">
         <FilterTabs<LabStage> label="Stage" value={stage} onChange={pick}
           options={STAGES.map(value => ({ value, label: STAGE_LABEL[value], count: count(value) }))} />
         <Input icon={Search} type="search" aria-label="Search the work list" placeholder="Name, phone, test or number" value={search}
-          onChange={event => setSearch(event.target.value)} className="lg:w-80" />
+          onChange={event => setSearch(event.target.value)} className="@4xl:w-80" />
       </div>
       <PageState loading={list.loading} error={list.error || null} hasData={list.items !== null} onRetry={() => void list.refresh()} what="the work list" rows={4}
         empty={shown.length === 0 ? { icon: FlaskConical, title: search.trim() ? 'Nothing matches' : stage === 'done' ? 'Nothing done yet today' : `Nothing in ${STAGE_LABEL[stage]}`,
           description: search.trim() ? 'Check the spelling, or try another stage.' : stage === 'collect' ? 'New requests show here.' : undefined } : null}>
-        <ul aria-label={STAGE_LABEL[stage]} className="m-0 grid list-none gap-3 p-0 md:grid-cols-2">
+        <ul aria-label={STAGE_LABEL[stage]} className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
           {shown.map(group => <RequestCard key={group.key} group={group} settings={settings} onOpen={open}
             below={group.items.map(item => {
               const rowSaid = chosen ? null : said.rowSaid(item.orderRoute?.id)
@@ -212,23 +212,23 @@ function RequestCard({ group, settings, onOpen, below }: {
   const action = nextAction(group.stage, factsOfItem(first), owing)
   const waited = waitedText(first.acceptedAt)
   const details = [ageSex(person), person.healthId ?? (person.hidText === 'No Health ID' ? null : person.hidText)].filter(Boolean).join(' · ')
-  return <Card as="li" className="flex flex-col gap-3 p-4">
-    <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0">
-        <p className="m-0 text-title-3 text-ink [overflow-wrap:anywhere]">{person.name}</p>
+  return <Card as="li" className="@container flex min-w-0 flex-col gap-3 p-4">
+    <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+      <div className="min-w-0 flex-[1_1_10rem]">
+        <p className="m-0 text-title-3 text-ink break-words">{person.name}</p>
         {details ? <p className="m-0 text-caption text-ink-2">{details}</p> : null}
       </div>
-      <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+      <div className="flex max-w-full flex-wrap gap-1.5">
         {urgent ? <Badge size="sm" tone="danger">Urgent</Badge> : null}
         {bill !== undefined ? <BillBadge bill={bill} /> : null}
       </div>
     </div>
-    <p className="m-0 text-[15px] font-medium text-ink [overflow-wrap:anywhere]">{group.items.map(item => item.testName ?? 'Lab test').join(' · ')}</p>
+    <p className="m-0 text-[15px] font-medium text-ink break-words">{group.items.map(item => item.testName ?? 'Lab test').join(' · ')}</p>
     <div className="flex flex-wrap items-center justify-between gap-3">
       <span className="inline-flex items-center gap-1.5 text-caption text-ink-3 tabular">
         <Clock className="size-3.5" aria-hidden />{waited ? `Waiting ${waited}` : 'Just in'}{requestOf(first) ? ` · ${requestOf(first)!.number}` : ''}
       </span>
-      <Button id={`lab-${first.id}-record`} variant="soft" onClick={() => onOpen(first)} className="max-sm:w-full">
+      <Button id={`lab-${first.id}-record`} variant="soft" onClick={() => onOpen(first)} className="whitespace-nowrap @max-xs:w-full">
         {action}<span className="sr-only">: {person.name}, {group.items.map(item => item.testName ?? 'Lab test').join(', ')}</span>
       </Button>
     </div>

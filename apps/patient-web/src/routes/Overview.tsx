@@ -170,13 +170,13 @@ export function Overview() {
     <PageHeader titleRef={heading} eyebrow={today} title={`${greeting()}${firstName ? `, ${firstName}` : ''}`} />
 
     {/* The Health ID card is first on a phone (it is what a front desk asks for), and heads the side column on a computer. */}
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_1fr]">
-      <HealthIdCard className="self-start lg:col-start-2 lg:row-start-1" profile={shown} onChanged={profile.reload}
+    <div className="grid gap-6 @3xl:grid-cols-[minmax(0,1fr)_minmax(300px,360px)] @3xl:grid-rows-[auto_1fr]">
+      <HealthIdCard className="w-full max-w-[460px] self-start justify-self-center @3xl:max-w-none @3xl:col-start-2 @3xl:row-start-1" profile={shown} onChanged={profile.reload}
         verified={typeof shown.ninVerified === 'boolean' ? ninVerifiedOf(shown) : null} shareTo={shareTo} sharePrimary={pending.length === 0}
         allergies={cardFact(savedHealth?.allergies, fromHid1?.content.allergies, savedHealth)}
         bloodGroup={cardFact(savedHealth?.bloodGroup, fromHid1?.content.blood_group, savedHealth)} genotype={cardFact(savedHealth?.genotype, fromHid1?.content.genotype, savedHealth)} />
 
-      <div className="flex min-w-0 flex-col gap-6 lg:col-start-1 lg:row-span-2 lg:row-start-1">
+      <div className="flex min-w-0 flex-col gap-6 @3xl:col-start-1 @3xl:row-span-2 @3xl:row-start-1">
         {/* Each decision waiting for the patient, in words they act on (inverted pyramid). */}
         {/* One primary on the page: the first request's Review; the card's Share steps back while any waits. */}
         {pending.map((item, index) => <Alert key={item.accessRequestId} intent="warning" icon={ShieldAlert}
@@ -189,13 +189,13 @@ export function Overview() {
         {checklist.length > 0 && completion && <Card>
           <CardHeader title="Finish your Health ID" description={`${completion.percent}% done · ${completion.missing.length} to go`} icon={IdCard} iconTone="brand" />
           <div className="h-1 bg-tray" role="progressbar" aria-label="Health ID completion" aria-valuenow={completion.percent} aria-valuemin={0} aria-valuemax={100}><div className="h-full bg-brand-fill" style={{ width: `${completion.percent}%` }} /></div>
-          <ul className={cx('m-0 grid list-none gap-1.5 bg-tray p-1.5', left.length > 1 && 'sm:grid-cols-2')}>
+          <ul className={cx('m-0 grid list-none gap-1.5 bg-tray p-1.5', left.length > 1 && 'grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))]')}>
             {/* Only what is left: done steps are the progress bar's, not a list to read past. */}
             {left.map(c =>
               <li key={c.key}><Link to={c.to} className="flex h-full min-h-12 items-center gap-3 rounded-xl bg-surface px-4 py-3 no-underline ring-1 ring-line transition-shadow hover:shadow-[var(--shadow-card)]">
                 <CircleDashed className="size-5 shrink-0 text-ink-3" aria-hidden />
-                <span className="flex-1 text-[13px] font-medium text-ink">{c.label}</span>
-                <ChevronRight className="size-4 text-ink-3" aria-hidden />
+                <span className="min-w-0 flex-1 text-[13px] font-medium break-words text-ink">{c.label}</span>
+                <ChevronRight className="size-4 shrink-0 text-ink-3" aria-hidden />
               </Link></li>)}
           </ul>
         </Card>}
@@ -220,7 +220,7 @@ export function Overview() {
         </Card>
       </div>
 
-      <Card className="self-start lg:col-start-2 lg:row-start-2" aria-labelledby="overview-activity" aria-busy={(notifications.loading && notifications.data !== null) || undefined}>
+      <Card className="min-w-0 self-start @3xl:col-start-2 @3xl:row-start-2" aria-labelledby="overview-activity" aria-busy={(notifications.loading && notifications.data !== null) || undefined}>
         <CardHeader as="h2" titleId="overview-activity" title="Activity" icon={History} actions={<Button to="/notifications" size="sm" variant="ghost" iconRight={ArrowRight}>All</Button>} />
         {notifications.error ? <div className="p-5"><Alert intent="error" title="Couldn't load activity" action={<Button size="sm" onClick={() => void notifications.reload()}>Try again <ItemName>loading recent activity</ItemName></Button>}>{notifications.error}</Alert></div>
           : <Timeline items={activity.map(row => ({ id: row.id, text: row.text, when: timeAgo(row.at), to: row.to, tone: row.to === '/access' ? 'success' : undefined }))}

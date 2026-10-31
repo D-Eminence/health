@@ -187,7 +187,7 @@ export function BlueFrame() {
               ...(tabsFor('requests/*') || tabsFor('requests') ? [{ to: '/provider/requests', label: 'Request record access', hint: 'From another facility', icon: ShieldCheck }] : []),
             ] }}
           >
-            <div ref={pageRef} className="hid-ehr-blue-page">
+            <div ref={pageRef} className="hid-ehr-blue-page @container">
               <ReviewBanner />
               <BillingBanner />
               {tabs.length > 0 ? (

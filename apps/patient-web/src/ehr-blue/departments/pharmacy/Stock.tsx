@@ -68,11 +68,11 @@ function StockList() {
       actions={canManage ? <Button variant="primary" icon={PackagePlus} to="/provider/pharmacy/stock/receive">Receive stock</Button> : undefined} />
     {/* Stock that answers 404 shows the normal empty state. */}
     <>
-      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 @3xl:flex-row @3xl:flex-wrap @3xl:items-center @3xl:justify-between">
         <FilterTabs label="Show stock" value={tab} onChange={setTab} options={[
           { value: 'all', label: 'All' }, { value: 'low', label: 'Low' }, { value: 'expiring', label: 'Expiring' },
         ]} />
-        <div className="relative min-w-0 sm:w-80">
+        <div className="relative min-w-0 @3xl:w-80">
           <label htmlFor="stock-search" className="sr-only">Search stock</label>
           <Search className="pointer-events-none absolute top-1/2 left-3.5 size-[18px] -translate-y-1/2 text-ink-3" aria-hidden />
           <Input id="stock-search" type="search" value={query} autoComplete="off" placeholder="Search by name" className="h-11"
@@ -87,7 +87,7 @@ function StockList() {
           : tab === 'low' ? { icon: PackagePlus, title: 'Nothing is running low', description: 'Items at or below their reorder level show here.' }
             : tab === 'expiring' ? { icon: CalendarClock, title: 'Nothing expiring soon', description: `Batches expiring in the next ${SOON_DAYS} days show here.` }
               : { icon: PackagePlus, title: 'No stock yet', description: 'Receive a delivery to start counting what is on the shelf.' }) : null}>
-        <ul aria-label="Stock" className="m-0 grid list-none grid-cols-1 gap-3 p-0 md:grid-cols-2 2xl:grid-cols-3">
+        <ul aria-label="Stock" className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3 p-0">
           {lines.map(line => <StockCard key={line.catalogueItemId} line={line} onOpen={() => setOpenId(line.catalogueItemId)} />)}
         </ul>
       </PageState>
@@ -106,9 +106,9 @@ function StockCard({ line, onOpen }: { readonly line: StockLine; readonly onOpen
         out ? 'ring-danger/50' : low || expiry ? 'ring-warn/50' : 'ring-line')}>
       <ItemCover imageUrl={line.imageUrl} form={drugFormFromCatalogue(line.form)} />
       <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="text-[17px] font-semibold leading-tight text-ink [overflow-wrap:anywhere]">{line.name}</span>
+        <span className="text-[17px] font-semibold leading-tight text-ink break-words">{line.name}</span>
         {line.strength ? <span className="text-[14px] text-ink-2">{line.strength}</span> : null}
-        <span className="mt-1 flex items-baseline gap-1.5">
+        <span className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
           <span className="text-[24px] font-semibold text-ink tabular">{line.onHand}</span>
           <span className="text-[14px] text-ink-2">{line.unit} on hand</span>
         </span>

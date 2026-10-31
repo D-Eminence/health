@@ -112,7 +112,7 @@ export function RequestAccess() {
 
           <fieldset className="m-0 flex flex-col gap-1.5 border-0 p-0">
             <legend className="mb-1.5 p-0 text-[13px] font-medium text-ink-2">What do you need?</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 @md:grid-cols-2">
               {SCOPES.map((option, index) => <label key={option.value} className={cx('flex min-h-11 cursor-pointer items-start gap-3 rounded-lg p-3 ring-1',
                 scope === option.value ? 'bg-brand-soft ring-brand-line' : 'bg-surface ring-line-control')}>
                 <input id={index === 0 ? `${id}-scope` : undefined} type="radio" name={`${id}-scope`} value={option.value} checked={scope === option.value}

@@ -112,7 +112,7 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBa
           <OutreachField id={FIELD_ID.name} label="Full name" required {...field('name')}>
             <EhrInput name="fullName" maxLength={200} required autoComplete="off" {...controlProps(FIELD_ID.name, fieldError('name'))} />
           </OutreachField>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 @md:grid-cols-2">
             <OutreachField id="outreach-case-sex" label="Sex" required>
               <EhrSelect name="sex" required {...controlProps('outreach-case-sex', undefined)}>
                 <option value="unknown">Not known</option>

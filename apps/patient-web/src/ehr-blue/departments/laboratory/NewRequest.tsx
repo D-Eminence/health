@@ -237,17 +237,17 @@ function RequestForm({ facilityId, permissions }: { readonly facilityId: string;
     <StepCard anchor="lab-new-step-4" n={4} title="Check and pay" current={step === 4 && !created} done={created !== null}
       summary={<>Request made · Bill <span className="tabular">{created?.bill.number}</span> · <strong className="tabular">{naira(created?.bill.totalKobo ?? total)}</strong></>}>
       {banner}
-      <dl className="m-0 grid gap-x-4 gap-y-2 text-[15px] sm:grid-cols-[9rem_minmax(0,1fr)]">
+      <dl className="m-0 grid gap-x-4 gap-y-2 text-[15px] @md:grid-cols-[9rem_minmax(0,1fr)]">
         <dt className="text-ink-3">Phone</dt><dd className="m-0 text-ink tabular">{patient.phone}</dd>
-        <dt className="text-ink-3">Referred by</dt><dd className="m-0 text-ink">{doctorUsed(doctor) ? [doctor.name, doctor.facility].filter(Boolean).join(', ') : 'Asked for by the patient'}</dd>
+        <dt className="text-ink-3">Referred by</dt><dd className="m-0 text-ink break-words">{doctorUsed(doctor) ? [doctor.name, doctor.facility].filter(Boolean).join(', ') : 'Asked for by the patient'}</dd>
         <dt className="text-ink-3">Priority</dt><dd className="m-0 text-ink">{priority === 'urgent' ? 'Urgent' : 'Routine'}</dd>
       </dl>
       <ul className="m-0 flex list-none flex-col divide-y divide-line p-0">
-        {tests.map(test => <li key={test.id} className="flex items-center justify-between gap-3 py-2.5">
-          <span className="text-[15px] font-medium text-ink">{test.name}</span><span className="text-[15px] text-ink tabular">{naira(test.prices.cashKobo)}</span>
+        {tests.map(test => <li key={test.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2.5">
+          <span className="min-w-0 text-[15px] font-medium text-ink break-words">{test.name}</span><span className="text-[15px] text-ink tabular">{naira(test.prices.cashKobo)}</span>
         </li>)}
       </ul>
-      <div className="flex items-baseline justify-between gap-3 border-t border-line pt-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-3 border-t border-line pt-3">
         <span className="text-[15px] font-medium text-ink">Total</span>
         <span className="text-[28px] font-semibold text-ink tabular">{naira(total)}</span>
       </div>
@@ -310,17 +310,17 @@ function TestPicker({ facilityId, chosen, onToggle }: {
     {read.status === 'loading' && list.length === 0 ? <p className="m-0 text-[14px] text-ink-3">Loading the tests…</p> : null}
     {(read.status === 'ready' || read.status === 'off') && list.length === 0
       ? <p className="m-0 text-[14px] text-ink-2">{query.trim() ? `No tests match “${query.trim()}”. Check the spelling.` : 'No tests on the price list yet. Add them under Tests & prices.'}</p> : null}
-    {list.length > 0 ? <ul aria-label="Lab tests" className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2">
+    {list.length > 0 ? <ul aria-label="Lab tests" className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-3 p-0">
       {list.map(item => {
         const added = chosen.some(test => test.id === item.id)
         return <li key={item.id} className="min-w-0">
           <button type="button" onClick={() => onToggle(item)} aria-pressed={added}
             aria-label={`${added ? 'Remove' : 'Add'}: ${item.name}, ${naira(item.prices.cashKobo)}`}
-            className={cx('flex min-h-20 w-full cursor-pointer items-start gap-3 rounded-2xl border-0 bg-surface p-3 text-left ring-1 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]',
+            className={cx('flex min-h-20 w-full cursor-pointer flex-wrap items-start gap-3 rounded-2xl border-0 bg-surface p-3 text-left ring-1 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]',
               added ? 'ring-2 ring-brand' : 'ring-line hover:bg-subtle')}>
             <span aria-hidden="true" className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-subtle text-ink-3 ring-1 ring-inset ring-line"><FlaskConical className="size-6" strokeWidth={1.6} /></span>
-            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="text-[16px] font-semibold leading-snug text-ink [overflow-wrap:anywhere]">{item.name}</span>
+            <span className="flex min-w-0 flex-[1_1_8rem] flex-col gap-0.5">
+              <span className="text-[16px] font-semibold leading-snug text-ink break-words">{item.name}</span>
               {item.packSize ? <span className="text-[13px] text-ink-2">{item.packSize}</span> : null}
               <span className="mt-0.5 text-[16px] font-semibold text-ink tabular">{naira(item.prices.cashKobo)}</span>
             </span>
@@ -342,7 +342,7 @@ function BasicsFields({ basics, errors, onChange }: { readonly basics: Basics; r
       <Input {...fieldProps('lab-new-name', errors.name)} value={basics.name} maxLength={200} autoComplete="off" className="h-12 text-base"
         onChange={event => set({ name: event.target.value })} />
     </Field>
-    <div className="grid gap-4 sm:grid-cols-[8rem_minmax(0,1fr)]">
+    <div className="grid gap-4 @md:grid-cols-[8rem_minmax(0,1fr)]">
       <Field label="Age (years)" htmlFor="lab-new-age" error={errors.age} errorId="lab-new-age-error">
         <Input {...fieldProps('lab-new-age', errors.age)} type="number" inputMode="numeric" min={0} max={130} value={basics.age} className="h-12 text-base tabular"
           onChange={event => set({ age: event.target.value })} />
@@ -412,8 +412,8 @@ function FindByHealthId({ facilityId, canLook, linked, onFound, onUnlink }: {
     } finally { setBusy(false) }
   }
   return <div className="flex flex-col gap-2 rounded-lg p-3 ring-1 ring-inset ring-line">
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-      <Field label="Health ID" htmlFor="lab-new-hid" error={error} errorId="lab-new-hid-error" className="flex-1">
+    <div className="flex flex-wrap items-end gap-2">
+      <Field label="Health ID" htmlFor="lab-new-hid" error={error} errorId="lab-new-hid-error" className="min-w-0 flex-[1_1_12rem]">
         <Input {...fieldProps('lab-new-hid', error)} value={hid} autoComplete="off" autoCapitalize="characters" spellCheck={false} placeholder="HID-ADA2345"
           className="h-11 tracking-[.04em]" onChange={event => { setHid(event.target.value); setError('') }}
           onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void find() } }} />
@@ -431,7 +431,7 @@ function DoctorFields({ doctor, emailError, nameMissing, photoUpload, onChange }
 }) {
   const set = (patch: Partial<Doctor>) => onChange({ ...doctor, ...patch })
   return <div className="flex flex-col gap-4">
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid gap-4 @md:grid-cols-2">
       <Field label="Doctor’s name" htmlFor="lab-new-dr-name" hint={nameMissing ? 'Add the doctor’s name, or clear the doctor’s details.' : undefined} hintId="lab-new-dr-name-hint">
         <Input id="lab-new-dr-name" value={doctor.name} maxLength={200} autoComplete="off" className="h-11" placeholder="Dr Funmi Adeyemi"
           aria-describedby={nameMissing ? 'lab-new-dr-name-hint' : undefined} onChange={event => set({ name: event.target.value })} />

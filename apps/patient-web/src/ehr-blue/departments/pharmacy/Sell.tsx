@@ -13,6 +13,7 @@ import { BillSummary, TakePayment } from '../commerce/TakePayment'
 import { useCommerceRead } from '../commerce/useCommerceRead'
 import { useDeptAccess } from '../parts/access'
 import { ItemCover, PaymentStep, usePaymentSettings } from './pointOfCare'
+import { Breakable } from './PharmacyQueue'
 import { drugFormFromCatalogue, paysFirst, summaryOf } from './pocFields'
 import { canGiveHealthId, GiveHealthId } from './saleAfter'
 import {
@@ -201,12 +202,12 @@ function Counter({ facilityId, permissions }: { readonly facilityId: string; rea
     onSale={setSale} onNext={startAgain} />
 
   const primary = (where: 'side' | 'bar') => <Button variant="primary" size="lg" icon={Wallet} block={where === 'side'}
-    aria-busy={sending || undefined} aria-disabled={sending || undefined} className={where === 'bar' ? 'min-w-0 flex-1' : undefined}
+    aria-busy={sending || undefined} aria-disabled={sending || undefined} className={where === 'bar' ? 'min-w-[12rem] flex-1 whitespace-nowrap' : undefined}
     onClick={() => void makeSale()}>{sending ? 'Making the sale…' : <>{payWord} <span className="tabular">{naira(total)}</span></>}</Button>
 
   return <div className="flex flex-col gap-4">
     <PageHeader title="Sell" />
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_23rem] lg:items-start xl:grid-cols-[minmax(0,1fr)_26rem]">
+    <div className="grid gap-5 @4xl:grid-cols-[minmax(0,1fr)_21rem] @4xl:items-start @6xl:grid-cols-[minmax(0,1fr)_24rem]">
       <section aria-label="Find items" className="flex min-w-0 flex-col gap-3">
         <label htmlFor={SEARCH_ID} className="sr-only">Search drugs and items</label>
         <div className="relative">
@@ -221,14 +222,14 @@ function Counter({ facilityId, permissions }: { readonly facilityId: string; rea
           empty={search.status !== 'loading' && search.list.length === 0 ? (search.q
             ? { icon: Search, title: `Nothing called “${search.q}”`, description: 'Check the spelling, or try the generic name.' }
             : { icon: ShoppingBag, title: 'Nothing on the price list yet', description: 'Add drugs and prices in Products & prices.' }) : null}>
-          <ul aria-label="Results" className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 2xl:grid-cols-3">
+          <ul aria-label="Results" className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-3 p-0">
             {search.list.map(entry => <PickCard key={entry.item.id} entry={entry} blockedWhy={null}
               chosen={lines.find(line => line.item.id === entry.item.id)?.quantity ?? 0} onPick={() => pick(entry)} />)}
           </ul>
         </PageState>
       </section>
 
-      <aside aria-labelledby={BASKET_ID} className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-20">
+      <aside aria-labelledby={BASKET_ID} className="flex min-w-0 flex-col gap-3 @4xl:sticky @4xl:top-20">
         <Card>
           <CardHeader as="h2" titleId={BASKET_ID} title="Basket" icon={ShoppingBag}
             actions={lines.length ? <span className="text-[13px] text-ink-3 tabular">{count} {count === 1 ? 'item' : 'items'}</span> : undefined} />
@@ -252,18 +253,19 @@ function Counter({ facilityId, permissions }: { readonly facilityId: string; rea
           {off || sendError ? <div className="px-5 pb-4">
             {off ? <NotSwitchedOn message={NOT_SET_UP_UNSAVED} /> : <Alert intent="error" size="sm" title="The sale wasn’t made">{sendError} Try again: it won’t be made twice.</Alert>}
           </div> : null}
-          <div className="hidden px-5 pb-5 lg:block">{primary('side')}</div>
+          <div className="hidden px-5 pb-5 @4xl:block">{primary('side')}</div>
         </Card>
       </aside>
     </div>
 
-    {/* Phones: the total and the one main action stay at the bottom, in thumb reach. */}
-    <div className="sticky bottom-[calc(64px+env(safe-area-inset-bottom))] z-[var(--z-sticky)] -mx-4 flex items-center gap-3 border-t border-line bg-surface px-4 py-3 lg:hidden">
+    {/* Until there is room for the basket beside the results: the total and the one main action stay at the bottom, in thumb
+        reach (above the phone's quick menu), and "See basket" goes to the full basket. */}
+    {count > 0 ? <div className="sticky bottom-[calc(64px+env(safe-area-inset-bottom))] z-[var(--z-sticky)] flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-surface px-3 py-2.5 shadow-[var(--shadow-dialog)] ring-1 ring-line lg:bottom-4 @4xl:hidden">
       <a href={`#${BASKET_ID}`} onClick={event => { event.preventDefault(); document.getElementById(BASKET_ID)?.scrollIntoView({ block: 'start' }) }}
         className="inline-flex min-h-11 shrink-0 flex-col justify-center text-[13px] text-ink-2 no-underline">
-        <span className="font-semibold text-ink tabular">{count} {count === 1 ? 'item' : 'items'}</span>See basket</a>
+        <span className="font-semibold text-ink tabular">{count} {count === 1 ? 'item' : 'items'}</span><span className="underline">See basket</span></a>
       {primary('bar')}
-    </div>
+    </div> : null}
 
     <PrescriptionSheet open={asking !== null} drug={asking?.entry ? label(asking.entry.item) : null}
       start={prescription ?? EMPTY_OUTSIDE} photoUpload={photoUpload}
@@ -285,20 +287,20 @@ function BasketLine({ line, onChange, onRemove }: { readonly line: Line; readonl
   return <li className="flex flex-col gap-2 px-5 py-3">
     <div className="flex items-start gap-3">
       <div className="min-w-0 flex-1">
-        <p className="m-0 text-[15px] font-semibold leading-snug text-ink [overflow-wrap:anywhere]">{name}</p>
+        <p className="m-0 text-[15px] font-semibold leading-snug text-ink break-words"><Breakable text={name} /></p>
         <p className="m-0 text-[13px] text-ink-3 tabular">{naira(line.item.prices.cashKobo)} each{line.onHand !== null ? ` · ${line.onHand} ${line.unit ?? ''} in stock` : ''}</p>
         {line.item.prescriptionOnly ? <Badge size="sm" tone="violet" className="mt-1">Prescription</Badge> : null}
       </div>
       <span className="shrink-0 text-[16px] font-semibold text-ink tabular">{naira(line.item.prices.cashKobo * line.quantity)}</span>
     </div>
-    <div className="flex items-center justify-between gap-2">
+    <div className="flex flex-wrap items-center justify-between gap-2">
       <Stepper id={`${id}-qty`} label={name} value={line.quantity} max={line.onHand ?? undefined} onChange={quantity => onChange({ quantity })} />
       <div className="flex items-center gap-1">
         {line.item.prescriptionOnly && !directions ? <Button variant="ghost" size="sm" className="max-sm:h-11" onClick={() => setDirections(true)}>Directions</Button> : null}
         <Button variant="ghost" icon={Trash2} aria-label={`Remove ${name}`} className="!w-11 !px-0 text-ink-3" onClick={onRemove} />
       </div>
     </div>
-    {directions ? <div className="grid grid-cols-2 gap-2">
+    {directions ? <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))] gap-2">
       <Field label="Dose" htmlFor={`${id}-dose`} optional>
         <Input id={`${id}-dose`} value={line.dose} maxLength={80} autoComplete="off" placeholder="1 tablet" className="h-11" onChange={event => onChange({ dose: event.target.value })} />
       </Field>
@@ -434,7 +436,7 @@ function HandOverStage({ facilityId, sale, lines, permissions, onHandedOver }: {
           return <li key={billLine.id} className="flex items-center gap-4 px-5 py-4">
             {line ? <ItemCover imageUrl={line.item.imageUrl} form={drugFormFromCatalogue(line.item.form)} /> : null}
             <div className="min-w-0 flex-1">
-              <p className="m-0 text-[17px] font-semibold text-ink [overflow-wrap:anywhere]"><span className="tabular">{billLine.quantity} ×</span> {billLine.name}</p>
+              <p className="m-0 text-[17px] font-semibold text-ink break-words"><span className="tabular">{billLine.quantity} ×</span> {billLine.name}</p>
               {line && (line.dose.trim() || line.frequency.trim()) ? <p className="m-0 text-[14px] text-ink-2">{[line.dose.trim(), line.frequency.trim()].filter(Boolean).join(' · ')}</p> : null}
             </div>
           </li>

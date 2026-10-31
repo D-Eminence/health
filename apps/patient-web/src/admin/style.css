@@ -57,15 +57,24 @@
 .admin-table td small { display: block; }
 .admin-table td strong { color: var(--color-ink); font-weight: 600; }
 .admin-table td small { margin-top: 3px; color: var(--color-ink-3); font-size: 12px; }
-/* Phones: each row is a card, every value under its column's name (data-label, set by Table). No sideways scrolling. */
-@media (max-width: 639px) {
+/* Narrow content (a phone, or a tablet/laptop once the sidebar takes its share): each row is a card, every value under
+   its column's name (data-label, set by Table). Measured on the content width (the scroll box is a size container, and
+   .admin-main is one too), not the window, so the 264px sidebar is accounted for. No sideways scrolling. */
+.admin-table-scroll { container: admin-table / inline-size; }
+@container (max-width: 55.99rem) {
   .admin-table-scroll { overflow: visible; border: 0; background: none; box-shadow: none; }
+}
+@container admin-table (max-width: 55.99rem) {
   .admin-table, .admin-table tbody, .admin-table tr, .admin-table td { display: block; }
-  .admin-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .admin-table tbody { display: grid; gap: 8px; }
-  .admin-table tbody tr { padding: 6px 0; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-surface); }
+  .admin-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  .admin-table thead tr, .admin-table thead th { display: block; width: 1px; padding: 0; overflow: hidden; }
+  .admin-table tbody { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); gap: 8px; }
+  .admin-table tbody tr { min-width: 0; padding: 6px 0; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-surface); box-shadow: var(--shadow-card); }
   .admin-table td, .admin-table tr:last-child td { max-width: none; padding: 6px 16px; border: 0; }
   .admin-table td[data-label]:not(:first-child)::before { content: attr(data-label); display: block; margin-bottom: 2px; color: var(--color-ink-3); font-size: 12px; font-weight: 500; }
+  .admin-table td:empty { display: none; }
+  .admin-table tr[data-flagged] td:first-child { box-shadow: none; }
+  .admin-table tr[data-flagged] { box-shadow: inset 3px 0 0 var(--color-warn), var(--shadow-card); }
 }
 /* Words wrap at their breaks; only long identifiers (codes, ids) may break anywhere. */
 .admin-table td :is(code, small) { overflow-wrap: anywhere; }
@@ -234,7 +243,9 @@
 .admin-flag-text { display: block; margin-top: 3px; color: var(--color-warn-ink); font-size: 11px; }
 .admin-note-content { white-space: pre-wrap; overflow-wrap: anywhere; }
 
-@media (max-width: 600px) {
+@container (max-width: 37.5rem) {
   .admin-search > div { display: grid; }
   .admin-search .admin-primary { justify-self: start; }
 }
+/* Long words in admin content wrap at breaks; never letter by letter. */
+.admin-page :is(p, li, dd, h2, h3, strong) { overflow-wrap: break-word; }

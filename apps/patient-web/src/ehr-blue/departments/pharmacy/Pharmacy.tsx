@@ -216,16 +216,16 @@ function PrescriptionQueue() {
           dispensed, but it stays listed and counts toward these {WORK_LIST_CAP}.</DeptNotice>
           {cannotServed === true && lateCorrection && <DeptNotice>{CAP_CANNOT_COMPLETE}</DeptNotice>}</WorkListCap>
         <SaidAboveList id="pharmacy-said" text={said.listSaid} />
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 @3xl:flex-row @3xl:flex-wrap @3xl:items-center @3xl:justify-between">
           <FilterTabs label="Show prescriptions" value={tab} onChange={value => { setTab(value); setPage(0) }} options={[
             { value: 'todo', label: 'To dispense', count: counts.todo },
             ...(billed || tab === 'payment' ? [{ value: 'payment' as const, label: 'Waiting for payment', count: counts.payment }] : []),
             { value: 'dispensed', label: 'Dispensed', count: counts.dispensed },
             { value: 'all', label: 'All', count: counts.all },
           ]} />
-          <div className="flex min-w-0 items-center gap-2 sm:w-80">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 @3xl:w-80 @3xl:flex-nowrap">
             <label htmlFor="pharmacy-search" className="sr-only">Search Pharmacy</label>
-            <Input id="pharmacy-search" type="search" icon={Search} className="min-w-0 flex-1" value={search} autoComplete="off"
+            <Input id="pharmacy-search" type="search" icon={Search} className="min-w-[10rem] flex-1" value={search} autoComplete="off"
               placeholder="Search by drug or patient" onChange={event => { setSearch(event.target.value); setPage(0) }} />
             {search ? <EhrButton variant="secondary" onClick={() => { setSearch(''); setPage(0); focus('pharmacy-search') }}>Clear search</EhrButton> : null}
           </div>

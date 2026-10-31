@@ -275,7 +275,7 @@
 
 .hid-ehr .hid-ehr-blue-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   gap: 16px;
 }
 
@@ -305,7 +305,7 @@
 
 .hid-ehr .hid-ehr-blue-facts dd {
   margin: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .hid-ehr .hid-ehr-blue-form-grid {
@@ -379,7 +379,7 @@
 
 .hid-ehr .hid-ehr-blue-details dd {
   margin: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   white-space: pre-wrap;
 }
 
@@ -430,12 +430,13 @@
 
 .hid-ehr .hid-ehr-blue-list-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 14px 0;
   border-bottom: 1px solid var(--ehr-line);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .hid-ehr .hid-ehr-blue-version {
@@ -512,7 +513,7 @@
   outline: none;
 }
 
-@media (max-width: 1000px) {
+@container (max-width: 760px) {
   .hid-ehr .hid-ehr-blue-tour {
     grid-template-columns: 1fr;
   }
@@ -689,7 +690,8 @@
   min-width: 0;
 }
 
-@media (max-width: 1000px) {
+/* By the room the page gives its content (a size container), not the window: the sidebar takes 264px from 1024px. */
+@container (max-width: 760px) {
   .hid-ehr .hid-ehr-blue-grid,
   .hid-ehr .hid-ehr-blue-two-col {
     grid-template-columns: 1fr;
@@ -697,10 +699,6 @@
 }
 
 @media (max-width: 768px) {
-  .hid-ehr .hid-ehr-blue-form-grid {
-    grid-template-columns: 1fr;
-  }
-
   .hid-ehr .hid-ehr-blue-facility {
     white-space: normal;
   }
@@ -708,6 +706,12 @@
   .hid-ehr .hid-ehr-topbar-end .hid-ehr-button:not(.hid-ehr-popover-trigger):not(.hid-ehr-blue-chip) {
     padding: 8px;
     font-size: 11px;
+  }
+}
+
+@container (max-width: 600px) {
+  .hid-ehr .hid-ehr-blue-form-grid {
+    grid-template-columns: 1fr;
   }
 
   .hid-ehr .hid-ehr-blue-facts {
@@ -810,7 +814,7 @@
 
 .hid-ehr .hid-ehr-blue-department-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
   gap: 12px;
   margin-bottom: 20px;
 }
@@ -852,13 +856,9 @@
   font-size: 12px;
 }
 
-@media (max-width: 768px) {
+@container (max-width: 600px) {
   .hid-ehr .hid-ehr-blue-half {
     max-width: none;
-  }
-
-  .hid-ehr .hid-ehr-blue-department-grid {
-    grid-template-columns: 1fr;
   }
 
   .hid-ehr .hid-ehr-blue-picture {

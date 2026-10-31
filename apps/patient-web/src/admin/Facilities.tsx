@@ -148,8 +148,8 @@ export function FacilitiesPage({ actor }: { actor: AdminActor }) {
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
     <FilterTabs label="Facility status" value={filters.status} onChange={value => setFilters({ status: value, page: '' })}
       options={[{ value: '', label: 'All' }, ...FACILITY_STATUSES.map(value => ({ value, label: label(value) }))]} />
-    <form className="flex flex-col gap-3 sm:flex-row sm:items-end" onSubmit={search} role="search" aria-label="Filter facilities">
-      <Field label="Name or code" htmlFor="admin-facility-query" className="min-w-0 flex-1 sm:max-w-md">
+    <form className="flex flex-wrap items-end gap-3" onSubmit={search} role="search" aria-label="Filter facilities">
+      <Field label="Name or code" htmlFor="admin-facility-query" className="min-w-0 flex-[1_1_16rem] @xl:max-w-md">
         <Input id="admin-facility-query" type="search" icon={Search} value={input} minLength={2} placeholder="At least 2 characters"
           onChange={event => setInput(event.target.value)} /></Field>
       <Button type="submit" disabled={input.trim().length === 1}>Search</Button>

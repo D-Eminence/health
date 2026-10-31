@@ -99,7 +99,7 @@ export function BlueHome() {
 
     {stats.length > 0 ? <StatGroup label="Today at a glance" cols={stats.length >= 3 ? 3 : 2}>{stats}</StatGroup> : null}
 
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="grid gap-6 @3xl:grid-cols-[minmax(0,1fr)_minmax(17rem,22.5rem)]">
       <div className="flex min-w-0 flex-col gap-6">
         {/* The three-second rule: what waits for a decision is the first section, each thing in it once. */}
         <section className="flex flex-col gap-3" aria-labelledby="ehr-home-attention">

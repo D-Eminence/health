@@ -171,7 +171,7 @@ function PatientList() {
             <div className="min-w-0"><p className="m-0 text-title-3 text-ink">You don’t have access to {refused.hid} yet</p>
               <p className="m-0 mt-0.5 text-[13px] text-ink-3">{refused.message === NOT_GRANTED ? 'Choose how to get it.' : refused.message}</p></div>
           </div>
-          <ul className="m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 sm:grid-cols-3">
+          <ul className="m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 @xl:grid-cols-3">
             <AccessWay icon={Send} title="Ask the patient" hint="They approve on their phone. You’re told the moment they do." primary onClick={() => obtain('new')} />
             <AccessWay icon={KeyRound} title="Use their Access PIN" hint="If they’re with you and have set one." onClick={() => obtain('pin')} />
             <AccessWay icon={Siren} title="Emergency access" hint="Only if they can’t consent. Time-limited and reviewed." danger onClick={() => obtain('emergency')} />
