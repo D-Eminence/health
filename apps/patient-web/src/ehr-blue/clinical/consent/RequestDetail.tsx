@@ -1,6 +1,6 @@
 import { EhrButton, EhrCard } from '@hid/ui/ehr'
 import { useId, useLayoutEffect, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { staffApi, type AccessRequest } from '../../../staff/api'
 import { outcome } from '../../../staff/routes/AccessRequests'
 import { BreakGlassForm } from '../emergency/BreakGlass'
@@ -9,7 +9,7 @@ import { ActionList, DetailGrid, DetailMeta, SavedRecord } from '../parts/Detail
 import { Banner, ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { ACCESS_CLOSED, CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf } from './access'
-import { closable, closeError, latest, methodLabel, patientContext, requestDetails, useAccessRequests } from './requests'
+import { closable, closeError, latest, methodLabel, patientContext, requestDetails, statusFilter, useAccessRequests } from './requests'
 
 /** The design's words for the card under the request (design src/workflows.tsx ExternalView). */
 export const CROSS_INSTITUTION = 'Local hospital care does not require an external access grant. External content is removed immediately on expiry or revocation.'
@@ -47,7 +47,11 @@ export function RequestDetail() {
   const navigate = useNavigate()
   const location = useLocation()
   const { facility, permissions, activePatient, setActivePatient } = useClinical()
-  const list = useAccessRequests('')
+  // Read with the list's Status filter when the request was found through it (one older than the 100 newest is read
+  // only so). An active grant's request is approved: it is read as approved, so closing it leaves it on this page.
+  const [params] = useSearchParams()
+  const filter = statusFilter(params.get('status'))
+  const list = useAccessRequests(filter === 'active' ? 'approved' : filter)
   const [notice, setNotice] = useState(() => {
     const state: unknown = location.state
     return state && typeof state === 'object' && 'notice' in state && typeof state.notice === 'string' ? state.notice : ''

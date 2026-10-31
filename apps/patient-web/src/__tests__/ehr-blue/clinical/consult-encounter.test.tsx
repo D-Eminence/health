@@ -651,13 +651,43 @@ describe('Consultation record', () => {
     ])
     await openEncounter('Cough for four days.')
     const versions = card('Preserved versions & amendments')
+    // Each revision is named by the status it was saved under: a draft before signing, an amendment after.
     expect(Array.from(versions.querySelectorAll('summary')).map(summary => summary.textContent)).toEqual([
-      '2026-10-30T08:10:00.000Z · amended · Initial draft',
+      '2026-10-30T08:10:00.000Z · draft · Initial draft',
       '2026-10-30T08:40:00.000Z · draft · Sign note',
       '2026-10-30T09:00:00.000Z · amended · Duration corrected',
     ])
     const signed = Array.from(versions.querySelectorAll('details'))[1]!
     expect(within(signed).getByText('History\nCough for three days.', { normalizer: value => value })).toBeTruthy()
+  })
+
+  it('audit 14: names a signed note’s draft edits "draft", not by the status the note has now', async () => {
+    records['clinical-notes'] = [{ ...NOTE, status: 'signed', signedAt: '2026-10-30T09:40:00.000Z' }]
+    api.noteRevisions.mockResolvedValue([
+      { ...REVISION, createdAt: '2026-10-30T09:31:00.000Z', changeReason: 'Initial note' },
+      { ...REVISION, id: 'rev-2', revisionNo: 2, content: 'History\nCough for four days.', changeReason: 'Added plan', createdAt: '2026-10-30T09:35:00.000Z' },
+    ])
+    await openEncounter('Cough for four days.')
+    expect(Array.from(card('Preserved versions & amendments').querySelectorAll('summary')).map(summary => summary.textContent)).toEqual([
+      '2026-10-30T09:31:00.000Z · draft · Initial note',
+      '2026-10-30T09:35:00.000Z · draft · Added plan',
+      '2026-10-30T09:40:00.000Z · draft · Sign note',
+    ])
+  })
+
+  it('audit 14: names a never-signed note’s revisions "draft" once it is marked entered in error', async () => {
+    records['clinical-notes'] = [{ ...NOTE, status: 'entered_in_error' }]
+    api.noteRevisions.mockResolvedValue([
+      { ...REVISION, createdAt: '2026-10-29T09:31:00.000Z', changeReason: 'Initial note' },
+      { ...REVISION, id: 'rev-2', revisionNo: 2, content: 'History\nCough for four days.', changeReason: 'Added plan', createdAt: '2026-10-29T09:35:00.000Z' },
+    ])
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    const versions = await screen.findByRole('heading', { level: 2, name: 'Preserved versions & amendments' })
+    // Both were saved while the note was a draft; only the note itself is now entered in error.
+    expect(Array.from(versions.closest('section')!.querySelectorAll('summary')).map(summary => summary.textContent)).toEqual([
+      '2026-10-29T09:31:00.000Z · draft · Initial note',
+      '2026-10-29T09:35:00.000Z · draft · Added plan',
+    ])
   })
 
   it('audit 14: shows no card for a draft with one revision', async () => {
@@ -1106,5 +1136,27 @@ describe('Consultation record: documents (audit 9 and 13)', () => {
     await openEncounter()
     await act(async () => {})
     expect(history().getByRole('alert').textContent).toBe('Documents are unavailable.')
+  })
+
+  it('shows each history list’s own failure, so a refused document list is not hidden by a failed vitals read', async () => {
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) => {
+      if (kind === 'vitals') throw new HidApiError(503, 'Vitals are unavailable.', { code: 'UNAVAILABLE' })
+      return { items: records[kind] ?? [], nextCursor: null }
+    })
+    api.documents.mockRejectedValue(new HidApiError(403, 'Your role cannot read documents for this patient.', { code: 'PERMISSION_DENIED' }))
+    await openEncounter()
+    await waitFor(() => expect(history().getAllByRole('alert')).toHaveLength(2))
+    expect(history().getAllByRole('alert').map(alert => alert.textContent)).toEqual(['Vitals are unavailable.', 'Your role cannot read documents for this patient.'])
+  })
+
+  it('says a failure two history lists share once', async () => {
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) => {
+      if (kind === 'vitals') throw UNAVAILABLE()
+      return { items: records[kind] ?? [], nextCursor: null }
+    })
+    api.documents.mockRejectedValue(UNAVAILABLE())
+    await openEncounter()
+    await waitFor(() => expect(history().getByRole('alert').textContent).toBe('EHR is unavailable.'))
+    expect(history().getAllByRole('alert')).toHaveLength(1)
   })
 })

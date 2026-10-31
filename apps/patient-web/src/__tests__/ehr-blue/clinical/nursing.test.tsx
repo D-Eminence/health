@@ -534,6 +534,23 @@ describe('Nursing observation record', () => {
     expect(screen.getAllByText('entered in error').length).toBeGreaterThan(0)
   })
 
+  it('"Cancel" closes the "Mark entered in error" form More actions opened, changing nothing, with focus back on the menu button', async () => {
+    notes = [{ ...NOTE, status: 'signed' }]
+    await openRecord()
+    const { form } = await statusForm('Mark entered in error')
+    const cancel = within(form).getByRole('button', { name: 'Cancel' })
+    expect(cancel.getAttribute('type')).toBe('button')
+    act(() => { cancel.focus() })
+    fireEvent.click(cancel)
+    expect(form.isConnected).toBe(false)
+    expect(within(actions()).queryByLabelText(labelled('Reason for change'))).toBeNull()
+    expect(document.activeElement).toBe(moreButton())
+    expect(api.updateRecord).not.toHaveBeenCalled()
+    // "Amend observation", the design's own action, toggles with its button and carries no "Cancel".
+    fireEvent.click(within(actions()).getByRole('button', { name: 'Amend observation', expanded: false }))
+    expect(within(actions()).queryByRole('button', { name: 'Cancel' })).toBeNull()
+  })
+
   it('shows a refused status change in its form, a 412 included, as today, and reads nothing again', async () => {
     api.updateRecord.mockRejectedValueOnce(new HidApiError(412, 'The record changed since it was read.', { code: 'ROW_VERSION_MISMATCH' }))
     await openRecord()

@@ -110,7 +110,7 @@ describe('External record access list', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'New external record access' })).toBeTruthy()
   })
 
-  it('audit 5: the heading’s only action is Create record, with identity.consent.write; no PIN button, Status select or Refresh', async () => {
+  it('audit 5: the heading’s only action is Create record, with identity.consent.write; no PIN button, and below 100 requests no Status select or Refresh', async () => {
     open()
     await screen.findByRole('table', { name: 'Access requests' })
     const heading = screen.getByRole('heading', { level: 1, name: 'External record access' }).closest<HTMLElement>('.hid-ehr-page-heading')!
@@ -149,6 +149,11 @@ describe('External record access list', () => {
     fireEvent.change(search(), { target: { value: 'access active' } })
     expect(screen.getByRole('link', { name: 'Review of results' })).toBeTruthy()
     expect(screen.queryByRole('link', { name: 'Medication review' })).toBeNull()
+    // Today's "Approved (any outcome)": an approved request is found whatever came of it.
+    fireEvent.change(search(), { target: { value: 'approved' } })
+    expect(screen.getByRole('link', { name: 'Review of results' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Follow-up consultation' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Medication review' })).toBeNull()
     fireEvent.change(search(), { target: { value: 'nothing like it' } })
     expect(screen.getByText('No matching records')).toBeTruthy()
     expect(screen.getByText('Change your search.')).toBeTruthy()
@@ -185,6 +190,56 @@ describe('External record access list', () => {
     api.listAccessRequests.mockResolvedValue(Array.from({ length: 100 }, (_, index) => request({ accessRequestId: `r-${index}` })))
     open()
     expect(await screen.findByText('Showing the 100 most recent requests.')).toBeTruthy()
+  })
+
+  it('reaches a request older than the 100 most recent with today’s Status select, offered once the list holds 100, and closes its access', async () => {
+    const OLD = request({
+      accessRequestId: 'r0000000-0000-4000-8000-000000000009', reason: 'Old active grant', status: 'approved', effectiveStatus: 'active',
+      requestedAt: '2026-10-01T09:00:00.000Z', approvedAt: '2026-10-01T09:05:00.000Z', consentGrantId: 'grant-old',
+      grantExpiresAt: '2026-10-30T10:05:00.000Z', authorizationMethod: 'patient_approval',
+    })
+    const NEWEST = Array.from({ length: 100 }, (_, index) => request({ accessRequestId: `r-${index}`, reason: `Request ${index}`, effectiveStatus: 'pending' }))
+    // The backend answers the 100 newest of the status asked for, and has no paging.
+    api.listAccessRequests.mockImplementation(async (_facilityId: string, status?: string) => {
+      if (status === 'active' || status === 'approved') return [OLD]
+      return status ? [] : NEWEST
+    })
+    open()
+    expect(await screen.findByText('Showing the 100 most recent requests.')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Old active grant' })).toBeNull()
+    const select = () => screen.getByLabelText('Status') as HTMLSelectElement
+    expect(Array.from(select().options).map(option => option.textContent)).toEqual([
+      'Any status', 'Waiting for the patient', 'Approved (any outcome)', 'Denied', 'Revoked', 'Expired', 'Access active', 'Closed by you',
+    ])
+    fireEvent.change(select(), { target: { value: 'closed' } })
+    expect(await screen.findByText('No access requests: closed by you')).toBeTruthy()
+    fireEvent.change(select(), { target: { value: 'active' } })
+    const link = await screen.findByRole('link', { name: 'Old active grant' })
+    expect(api.listAccessRequests).toHaveBeenLastCalledWith(FACILITY_ID, 'active')
+    // The request's page reads with the status that found it: the address carries that filter, and no patient data.
+    expect(link.getAttribute('href')).toBe('/provider/requests/r0000000-0000-4000-8000-000000000009?status=active')
+    fireEvent.click(link)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Old active grant' })).toBeTruthy()
+    // An active grant's request is approved: it is read as approved, so closing it leaves it on its page.
+    expect(api.listAccessRequests).toHaveBeenLastCalledWith(FACILITY_ID, 'approved')
+    api.listAccessRequests.mockImplementation(async (_facilityId: string, status?: string) => status === 'approved' ? [{ ...OLD, effectiveStatus: 'closed' }] : NEWEST)
+    fireEvent.click(screen.getByRole('button', { name: 'Close access' }))
+    expect(await screen.findByText('Access was closed by the backend.')).toBeTruthy()
+    expect(api.closeGrant).toHaveBeenCalledWith(FACILITY_ID, 'grant-old', 'Clinician closed completed patient access')
+    expect(screen.getAllByText('Closed by you').length).toBeGreaterThan(0)
+  })
+
+  it('keeps the Status select while the page is open once offered, so a filter can be set back to any status', async () => {
+    const NEWEST = Array.from({ length: 100 }, (_, index) => request({ accessRequestId: `r-${index}`, reason: `Request ${index}` }))
+    api.listAccessRequests.mockImplementation(async (_facilityId: string, status?: string) => status ? [DENIED] : NEWEST)
+    open()
+    fireEvent.change(await screen.findByLabelText('Status'), { target: { value: 'denied' } })
+    expect(await screen.findByRole('link', { name: 'Medication review' })).toBeTruthy()
+    expect(screen.queryByText('Showing the 100 most recent requests.')).toBeNull()
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: '' } })
+    expect(await screen.findByText('Showing the 100 most recent requests.')).toBeTruthy()
+    expect(api.listAccessRequests).toHaveBeenLastCalledWith(FACILITY_ID, undefined)
+    expect(screen.getByLabelText('Status')).toBeTruthy()
   })
 })
 
@@ -264,17 +319,18 @@ describe('New external record access', () => {
   })
 
   it('confirms a request just sent while its page is read, and when it cannot be read', async () => {
-    let fail: (reason: unknown) => void = () => {}
-    api.listAccessRequests.mockReturnValue(new Promise((_resolve, reject) => { fail = reject }))
+    // Each read gets its own promise, made when the page asks for it, so none is refused before the page holds it.
+    const fails: Array<(reason: unknown) => void> = []
+    api.listAccessRequests.mockImplementation(() => new Promise((_resolve, reject) => { fails.push(reject) }))
     open('/new')
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
     fireEvent.change(screen.getByLabelText(labelled('Purpose of access')), { target: { value: 'Follow-up consultation' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send access request' }))
     expect(await screen.findByText('Loading requests…')).toBeTruthy()
     expect(screen.getByText(SENT)).toBeTruthy()
-    // The page shows "Loading requests…" before its read is asked for: fail the read only once it has been.
-    await waitFor(() => expect(api.listAccessRequests).toHaveBeenCalled())
-    await act(async () => { fail(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' })) })
+    // The page shows "Loading requests…" before its read is asked for: fail the reads only once one has been.
+    await waitFor(() => expect(fails.length).toBeGreaterThan(0))
+    await act(async () => { for (const fail of fails) fail(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' })) })
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(screen.getByText(SENT)).toBeTruthy()
   })
@@ -598,12 +654,25 @@ describe('An access request’s page', () => {
   })
 
   it('shows the request loading, and a list refusal in today’s words', async () => {
-    let fail: (reason: unknown) => void = () => {}
-    api.listAccessRequests.mockReturnValue(new Promise((_resolve, reject) => { fail = reject }))
+    // Each read gets its own promise, made when the page asks for it, so none is refused before the page holds it.
+    const fails: Array<(reason: unknown) => void> = []
+    api.listAccessRequests.mockImplementation(() => new Promise((_resolve, reject) => { fails.push(reject) }))
     open('/r0000000-0000-4000-8000-000000000001')
     expect(screen.getByText('Loading requests…')).toBeTruthy()
-    await act(async () => { fail(new HidApiError(403, 'Forbidden', { code: 'FACILITY_ACCESS_DENIED' })) })
+    await waitFor(() => expect(fails.length).toBeGreaterThan(0))
+    await act(async () => { for (const fail of fails) fail(new HidApiError(403, 'Forbidden', { code: 'FACILITY_ACCESS_DENIED' })) })
     expect((await screen.findByRole('alert')).textContent).toBe('Select a facility where you are an active member to see your access requests.')
+  })
+
+  it('reads with a status from its address only when it is one of today’s filters', async () => {
+    const first = open('/r0000000-0000-4000-8000-000000000003?status=denied')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Medication review' })).toBeTruthy()
+    expect(api.listAccessRequests).toHaveBeenCalledWith(FACILITY_ID, 'denied')
+    first.unmount()
+    api.listAccessRequests.mockClear()
+    open('/r0000000-0000-4000-8000-000000000003?status=everything')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Medication review' })).toBeTruthy()
+    expect(api.listAccessRequests.mock.calls).toEqual([[FACILITY_ID, undefined]])
   })
 
   it('names a request it cannot find', async () => {

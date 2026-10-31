@@ -697,6 +697,19 @@
 
 /* ---- External record access ---------------------------------------------------- */
 
+/* Today's Status select, offered under the search once the list holds the 100 newest requests. */
+.hid-ehr .hid-ehr-clinical-consent-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.hid-ehr .hid-ehr-clinical-consent-toolbar > .hid-ehr-field {
+  min-width: 220px;
+}
+
 /* The break-glass form opened in "Cross-institution history": 16px under the action row (design .record-form). */
 .hid-ehr .hid-ehr-clinical-consent-break-glass {
   margin-top: 16px;
