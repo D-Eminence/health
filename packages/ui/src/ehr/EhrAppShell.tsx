@@ -239,6 +239,8 @@ export interface EhrModalProps {
   readonly initialFocusRef?: RefObject<HTMLElement | null>
   /** Focused on close; the element that had focus when the overlay opened when absent. */
   readonly returnFocusRef?: RefObject<HTMLElement | null>
+  /** A press on the scrim itself, outside the panel: the phone menu closes on it. Left out, the press does nothing. */
+  readonly onScrimPress?: () => void
 }
 
 /**
@@ -247,7 +249,7 @@ export interface EhrModalProps {
  * outside one it renders in place, inside its own `.hid-ehr` wrapper, with the
  * same focus trap and no inert. Render it only while the overlay is open.
  */
-export function EhrModal({ children, scrimClassName, onEscape, initialFocusRef, returnFocusRef }: EhrModalProps) {
+export function EhrModal({ children, scrimClassName, onEscape, initialFocusRef, returnFocusRef, onScrimPress }: EhrModalProps) {
   const shell = useEhrShell()
   const stack = shell ? shell.stack : standaloneStack
   const ready = shell === null || shell.layer !== null
@@ -330,7 +332,8 @@ export function EhrModal({ children, scrimClassName, onEscape, initialFocusRef, 
   }
 
   const frame = (
-    <div ref={scrimRef} className={cx('hid-ehr-scrim', scrimClassName)} onKeyDown={onKeyDown} onMouseDown={onMouseDown}>
+    <div ref={scrimRef} className={cx('hid-ehr-scrim', scrimClassName)} onKeyDown={onKeyDown} onMouseDown={onMouseDown}
+      onClick={onScrimPress ? event => { if (event.target === event.currentTarget) onScrimPress() } : undefined}>
       <span className="hid-ehr-focus-guard" tabIndex={0} data-ehr-focus-guard="" onFocus={() => wrapTo('last')} />
       {children}
       <span className="hid-ehr-focus-guard" tabIndex={0} data-ehr-focus-guard="" onFocus={() => wrapTo('first')} />
