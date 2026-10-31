@@ -23,9 +23,10 @@ export const patientsStatus: EhrBluePageStatus = 'live'
 /**
  * Patients: search by Health ID (today's governed access), the patient open now, that patient's page at
  * `patients/open`, and the patient PIN at `patients/pin` (as on today's Patients page, it needs no
- * identity.consent.write, which the frame asks for External record access). Under the search, "Other ways to get
- * access" always offers the patient PIN and emergency break-glass access, as today's "Obtain access" card does, so a
- * patient Verify access opens at once (the demo patients' seeded share) can still be opened by PIN or for an emergency.
+ * identity.consent.write, which the frame asks for External record access). Under the search, "Obtain access" always
+ * offers the patient PIN and emergency break-glass access, as today's "Obtain access" card does, so a patient Verify
+ * access opens at once (the demo patients' seeded share) can still be opened by PIN or for an emergency. A refused
+ * lookup's banner adds only Request access: the PIN and break-glass stay in the one group, for the Health ID in the field.
  * There is no list of every patient: Health ID shows a patient only once this facility may see them. The list also
  * holds the patients shared with this clinician and the invitations sent to them (today's sharing cards, audit 2).
  * "Create record" is today's Patient registration page (/provider/registration, audit 1), which keeps its own checks;
@@ -74,11 +75,11 @@ function PatientList() {
   const canLook = !!facility && can('identity.patient.read')
   const administrator = administratorOf(facility, permissions)
   const openSharedUnavailable = actionUnavailable(OPEN_SHARED, permissions, administrator)
-  // A refused patient's access steps the role cannot take are not offered, and today's reason is given with them.
+  // A refused patient's Request access is not offered to a role that cannot send one, and today's reason is given with it.
   const requestUnavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administrator)
-  const emergencyUnavailable = actionUnavailable(METHOD_ROUTES.emergency, permissions, administrator)
-  // "Other ways to get access" gives today's reason with each step the role cannot take, as today's "Obtain access" does.
+  // "Obtain access" gives today's reason with each step the role cannot take, as today's "Obtain access" card does.
   const pinUnavailable = actionUnavailable(METHOD_ROUTES.pin, permissions, administrator)
+  const emergencyUnavailable = actionUnavailable(METHOD_ROUTES.emergency, permissions, administrator)
 
   function clearFeedback() { setNotice(''); setError(''); setRefused(null) }
 
@@ -89,8 +90,12 @@ function PatientList() {
       if (await openPatient(candidate, 'direct-care')) navigate(href('open'))
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Patient access could not be verified.'
-      if (isRefusedLookup(caught)) setRefused({ hid: candidate, message })
-      else setError(message)
+      // The refused Health ID goes in the field (a refused share's too), so "Obtain access" hands over the patient the
+      // banner names.
+      if (isRefusedLookup(caught)) {
+        setHid(candidate)
+        setRefused({ hid: candidate, message })
+      } else setError(message)
     } finally {
       setBusy(false)
     }
@@ -125,36 +130,24 @@ function PatientList() {
   })
 
   /**
-   * The PIN is a Patients page; a request is External record access, which the frame opens only with
-   * identity.consent.write, the permission sending a request needs, and break-glass is Emergency's own page, which
-   * needs identity.break-glass.write: a role without the permission is not offered the step, so the Health ID is handed
-   * over only where the form can open and read it.
+   * The refused banner's Request access: External record access, which the frame opens only with identity.consent.write,
+   * the permission sending a request needs. A role without it is not offered the step, so the Health ID is handed over
+   * only where the form can open and read it.
    */
-  function obtain(target: 'new' | 'pin' | 'emergency') {
-    if (!refused || !facility) return
-    if (target === 'pin') {
-      offerHealthId(refused.hid, facility.id, setActivePatient)
-      navigate(href('pin'))
-      return
-    }
-    if (target === 'emergency') {
-      if (emergencyUnavailable) return
-      offerHealthId(refused.hid, facility.id, setActivePatient)
-      navigate(href.to('emergency', 'break-glass'))
-      return
-    }
-    if (requestUnavailable) return
+  function obtain() {
+    if (!refused || !facility || requestUnavailable) return
     offerHealthId(refused.hid, facility.id, setActivePatient)
     navigate(href.to('consent', 'new'))
   }
 
   /**
-   * "Other ways to get access", with or without a lookup: a complete Health ID in the search is handed over as the
-   * refused banner hands its own (in memory, never in the URL); otherwise the step opens with its field empty, and a
-   * Health ID offered earlier is not read there.
+   * "Obtain access", with or without a lookup: a complete Health ID in the search is handed over in memory, never in the
+   * URL, as Request access hands its own; otherwise the step opens with its field empty, and a Health ID offered earlier
+   * is not read there. While a lookup runs, a press does nothing, as today's Obtain access ignores one while busy: the
+   * lookup's answer, not this step, decides where the user goes.
    */
   function otherWay(target: 'pin' | 'emergency') {
-    if (!facility || (target === 'pin' ? pinUnavailable : emergencyUnavailable)) return
+    if (busy || !facility || (target === 'pin' ? pinUnavailable : emergencyUnavailable)) return
     const normalized = normalizeHealthIdInput(hid)
     if (healthIdProblem(normalized) === null) offerHealthId(normalized, facility.id, setActivePatient)
     else dropOfferedHealthId()
@@ -197,7 +190,7 @@ function PatientList() {
             placeholder="Enter a Health ID…"
             hint={HID_FORMAT}
             error={hidError}
-            onChange={value => { setHid(normalizeHealthIdInput(value)); setProblem(null) }}
+            onChange={value => { setHid(normalizeHealthIdInput(value)); setProblem(null); setRefused(null) }}
             onSubmit={search}
             blankValue={HEALTH_ID_PREFIX}
           >
@@ -205,11 +198,12 @@ function PatientList() {
           </SearchField>
         </div>
         <div role="group" aria-labelledby="patients-other-access">
-          <h2 id="patients-other-access" className="hid-ehr-clinical-subheading">Other ways to get access</h2>
+          <h2 id="patients-other-access" className="hid-ehr-clinical-subheading">Obtain access</h2>
           <div className="hid-ehr-clinical-patients-other-actions">
             <EhrButton
               variant="secondary"
               disabled={pinUnavailable !== null}
+              aria-disabled={busy || undefined}
               aria-describedby={pinUnavailable ? 'other-pin-unavailable' : undefined}
               onClick={() => otherWay('pin')}
             >
@@ -218,6 +212,7 @@ function PatientList() {
             <EhrButton
               variant="secondary"
               disabled={emergencyUnavailable !== null}
+              aria-disabled={busy || undefined}
               aria-describedby={emergencyUnavailable ? 'other-emergency-unavailable' : undefined}
               onClick={() => otherWay('emergency')}
             >
@@ -232,30 +227,18 @@ function PatientList() {
             tone="warning"
             title="No access to this patient yet"
             actions={(
-              <>
-                <EhrButton
-                  variant="secondary"
-                  disabled={requestUnavailable !== null}
-                  aria-describedby={requestUnavailable ? 'request-access-unavailable' : undefined}
-                  onClick={() => obtain('new')}
-                >
-                  Request access
-                </EhrButton>
-                <EhrButton variant="secondary" onClick={() => obtain('pin')}>Verify patient PIN</EhrButton>
-                <EhrButton
-                  variant="secondary"
-                  disabled={emergencyUnavailable !== null}
-                  aria-describedby={emergencyUnavailable ? 'emergency-access-unavailable' : undefined}
-                  onClick={() => obtain('emergency')}
-                >
-                  Emergency break-glass access
-                </EhrButton>
-              </>
+              <EhrButton
+                variant="secondary"
+                disabled={requestUnavailable !== null}
+                aria-describedby={requestUnavailable ? 'request-access-unavailable' : undefined}
+                onClick={() => obtain()}
+              >
+                Request access
+              </EhrButton>
             )}
           >
             <p>{refused.message}</p>
             {requestUnavailable ? <p id="request-access-unavailable" className="hid-ehr-clinical-note">{requestUnavailable}</p> : null}
-            {emergencyUnavailable ? <p id="emergency-access-unavailable" className="hid-ehr-clinical-note">{emergencyUnavailable}</p> : null}
           </Banner>
         ) : null}
         {error ? <ErrorBox>{error}</ErrorBox> : null}

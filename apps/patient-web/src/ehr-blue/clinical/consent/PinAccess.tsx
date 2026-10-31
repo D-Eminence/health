@@ -14,8 +14,11 @@ import {
 
 export const PIN_PROBLEM = 'Enter the patient’s 4 to 8 digit access PIN.'
 
-/** At the demo facilities only: which demo patients a PIN opens, and how wrong PINs pause the check. */
-export const DEMO_PIN_NOTE = 'Demo patients Three to Ten have no PIN. Five wrong PINs in 15 minutes pause PIN checks for this demo login here for 15 minutes.'
+/**
+ * At the demo facilities only: that the seed gives no demo patient a PIN, how Patient One or Two sets one, and how wrong
+ * PINs pause the check.
+ */
+export const DEMO_PIN_NOTE = 'No demo patient has a PIN yet. Demo Patient One or Two can set an Access PIN in the Health ID app, but not within 24 hours of a password reset. Patients Three to Ten have no login, so they never have one. Five wrong PINs in 15 minutes pause PIN checks for this demo login here for 15 minutes.'
 
 /**
  * Patient PIN access (today's "Patient PIN" method), drawn as the design's create page. The PIN is checked on the

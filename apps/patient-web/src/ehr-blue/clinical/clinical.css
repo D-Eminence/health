@@ -686,7 +686,7 @@
   align-self: flex-start;
 }
 
-/* "Other ways to get access", under the search: its two outline buttons on one line, wrapping on a phone. */
+/* "Obtain access", under the search: its two outline buttons on one line, wrapping on a phone. */
 .hid-ehr .hid-ehr-clinical-patients-other-actions {
   display: flex;
   flex-wrap: wrap;

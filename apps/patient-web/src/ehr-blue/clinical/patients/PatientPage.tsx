@@ -154,10 +154,11 @@ function PatientRecord({ chart }: { chart: Chart }) {
   }
 
   /**
-   * The access steps, as the refused banner on Patients takes them: under direct care, emergency break-glass access
-   * (Emergency's own page, which needs identity.break-glass.write); under emergency access, the patient's PIN (Patients'
-   * own page) or a request (External record access), which move the patient to direct care. Each hands the Health ID
-   * over in memory, never in the URL, and only to a step the role may take.
+   * The access steps, as Patients takes them: under direct care at the demo facilities only, emergency break-glass access
+   * (Emergency's own page, which needs identity.break-glass.write; today's portal offers it only from Patients' Obtain
+   * access, never on an open record); under emergency access, the patient's PIN (Patients' own page) or a request
+   * (External record access), which move the patient to direct care. Each hands the Health ID over in memory, never in
+   * the URL, and only to a step the role may take.
    */
   function accessStep(target: 'pin' | 'request' | 'emergency') {
     const unavailable = target === 'pin' ? pinUnavailable : target === 'request' ? requestUnavailable : emergencyUnavailable
@@ -239,8 +240,10 @@ function PatientRecord({ chart }: { chart: Chart }) {
               ) : null}
               {/* The design's three steps only (audit 4): each encounter opens from Connected hospital history below. */}
               {mayOpenConsent ? <Step><EhrButton variant="secondary" onClick={openConsent}>Open consent</EhrButton></Step> : null}
-              {/* Shown, as the card's steps are, only to a role that may take it. */}
-              {emergencyUnavailable === null ? (
+              {/* At the demo facilities only, like the sample steps: today's portal never offers break-glass on an open
+                  record, so a real facility keeps it on Patients' Obtain access. Shown, as the card's steps are, only to
+                  a role that may take it. */}
+              {isDemoFacility(chart.facilityId) && emergencyUnavailable === null ? (
                 <Step><EhrButton variant="secondary" onClick={() => accessStep('emergency')}>Emergency break-glass access</EhrButton></Step>
               ) : null}
             </>
