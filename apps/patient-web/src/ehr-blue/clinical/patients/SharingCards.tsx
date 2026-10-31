@@ -1,22 +1,25 @@
 import { isHidApiError } from '@hid/http'
-import { EhrButton, EhrCard } from '@hid/ui/ehr'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { EhrButton } from '@hid/ui/ehr'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { focusLost } from '../../../pageFocus'
 import { staffApi } from '../../../staff/api'
 import {
   shareDay, shareLevelLabel, type ShareDuration, type SharedPatient, type StaffShareInvitation, type StaffShareInvitationList,
 } from '../../../shareRecords'
-import { StatusBadge } from '../parts/StatusBadge'
+import type { RecordRow } from '../parts/RecordTable'
 import { roleMay } from '../consent/access'
 
 /**
- * Patient sharing on Patients (today's SharedPatients.tsx), in the design's card and list-row style. Each card is
- * hidden while it loads, for a role the route would refuse, and when the backend does not serve it (404). What they
- * read is held in component memory only.
+ * Patient sharing on Patients (today's SharedPatients.tsx), as rows of the Patients list (audit 2): each patient shared
+ * with this clinician opens through the same Health ID lookup as a search, and each invitation's quick view holds its
+ * Accept. Each list is left out while it loads, for a role the route would refuse, and when the backend does not serve
+ * it (404). What the lists said (a failure, an empty list, an ineligible role) and what Accept did are shown under the
+ * table, in today's words. What they read is held in component memory only.
  */
 
 type Load<T> = { readonly state: 'hidden' } | { readonly state: 'failed'; readonly message: string } | { readonly state: 'ready'; readonly value: T }
 
-function useCardLoad<T>(facilityId: string | undefined, allowed: boolean, read: (facilityId: string, signal: AbortSignal) => Promise<T>, fallback: string) {
+function useListLoad<T>(facilityId: string | undefined, allowed: boolean, read: (facilityId: string, signal: AbortSignal) => Promise<T>, fallback: string) {
   const [load, setLoad] = useState<Load<T>>({ state: 'hidden' })
   const reader = useRef({ read, fallback })
   useEffect(() => {
@@ -24,6 +27,7 @@ function useCardLoad<T>(facilityId: string | undefined, allowed: boolean, read: 
     if (!facilityId || !allowed) return
     const controller = new AbortController()
     const { read: readNow, fallback: fallbackNow } = reader.current
+    // Run as a promise, so that a read that throws at once is a failure of this list, never of the page.
     void Promise.resolve().then(() => readNow(facilityId, controller.signal)).then(
       value => { if (!controller.signal.aborted) setLoad({ state: 'ready', value }) },
       (caught: unknown) => {
@@ -43,54 +47,6 @@ const DURATION_LABELS: Readonly<Record<ShareDuration, string>> = {
 const readShared = (facilityId: string, signal: AbortSignal) => staffApi.sharedWithMe(facilityId, signal)
 const readInvitations = (facilityId: string, signal: AbortSignal) => staffApi.staffShareInvitations(facilityId, signal)
 
-/** "Shared with you": opening one is the same Health ID lookup as a search. */
-export function SharedWithYou({ facilityId, permissions, openUnavailable, busy, onOpen }: {
-  facilityId: string | undefined
-  permissions: readonly string[]
-  openUnavailable: string | null
-  busy: boolean
-  onOpen: (hid: string) => void
-}) {
-  const [load] = useCardLoad<SharedPatient[]>(facilityId, roleMay('identity.sharedWithMe', 'GET', permissions), readShared,
-    'The patients shared with you could not be loaded.')
-  if (load.state === 'hidden') return null
-  return (
-    <EhrCard title="Shared with you">
-      <p>Patients who chose to share their record with you at this facility. Opening one checks access with the server.</p>
-      {load.state === 'failed' ? <p>{load.message}</p>
-        : load.value.length === 0 ? <p>No patient has shared their record with you here.</p>
-          : (
-            <>
-              {openUnavailable ? <p id="shared-open-unavailable" className="hid-ehr-clinical-note">{openUnavailable}</p> : null}
-              <ul className="hid-ehr-clinical-history-list">
-                {load.value.map(item => (
-                  <li key={item.consentGrantId} className="hid-ehr-clinical-history-row">
-                    <span>
-                      {item.fullName}
-                      <span className="hid-ehr-clinical-cell-sub">{`${item.hid} · Until ${shareDay(item.expiresAt)}`}</span>
-                    </span>
-                    <span className="hid-ehr-clinical-patients-share-actions">
-                      <StatusBadge status={shareLevelLabel(item.level) ?? item.level} />
-                      <EhrButton
-                        variant="secondary"
-                        disabled={openUnavailable !== null}
-                        aria-disabled={busy || undefined}
-                        aria-label={`Open ${item.fullName}’s record`}
-                        aria-describedby={openUnavailable ? 'shared-open-unavailable' : undefined}
-                        onClick={() => { if (!busy) onOpen(item.hid) }}
-                      >
-                        Open record
-                      </EhrButton>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-    </EhrCard>
-  )
-}
-
 function acceptProblem(caught: unknown): string {
   if (isHidApiError(caught)) {
     if (caught.code === 'SHARE_INVITATION_NOT_FOUND') return 'This invitation is not available.'
@@ -103,9 +59,23 @@ function acceptProblem(caught: unknown): string {
   return 'The invitation could not be accepted. Please try again.'
 }
 
-/** "Invitations": invitations sent to this clinician's sign-in email, with Accept; no patient is named. */
-export function ShareInvitationsForMe({ facilityId, permissions }: { facilityId: string | undefined; permissions: readonly string[] }) {
-  const [load, setLoad] = useCardLoad<StaffShareInvitationList>(facilityId,
+const levelText = (level: string) => shareLevelLabel(level) ?? level
+const SHARED_OPEN_UNAVAILABLE_ID = 'shared-open-unavailable'
+
+/**
+ * The sharing rows for the Patients list ("Shared with you" first, then "Invitations") and what to show under it.
+ * `onOpen` is the page's own Health ID lookup; `openUnavailable` is why the role cannot run it; `busy` while one runs.
+ */
+export function usePatientSharing({ facilityId, permissions, openUnavailable, busy, onOpen }: {
+  facilityId: string | undefined
+  permissions: readonly string[]
+  openUnavailable: string | null
+  busy: boolean
+  onOpen: (hid: string) => void
+}): { rows: RecordRow[]; notes: ReactNode } {
+  const [shared] = useListLoad<SharedPatient[]>(facilityId, roleMay('identity.sharedWithMe', 'GET', permissions), readShared,
+    'The patients shared with you could not be loaded.')
+  const [invitations, setInvitations] = useListLoad<StaffShareInvitationList>(facilityId,
     roleMay('identity.staffShareInvitations', 'GET', permissions), readInvitations, 'Your invitations could not be loaded.')
   const acceptAllowed = roleMay('identity.staffShareInvitationAccept', 'POST', permissions)
   const [accepting, setAccepting] = useState<string | null>(null)
@@ -115,18 +85,22 @@ export function ShareInvitationsForMe({ facilityId, permissions }: { facilityId:
   const errorRef = useRef<HTMLDivElement>(null)
   const resultRef = useRef<HTMLParagraphElement>(null)
 
+  // Another facility's list is another list: what was said about this one goes.
   useEffect(() => { setError(''); setAccepted('') }, [facilityId])
-  // Accept takes its row away: focus goes to what happened, or to the refusal.
+  // Accept takes its row (and its quick view) away: focus goes to the refusal, or to what happened, as today: the latter
+  // only if focus was lost (useFocusById's ifLost), so a user who closed the quick view and moved on while it ran keeps
+  // focus where they put it.
   useLayoutEffect(() => {
     if (!moved) return
-    if (accepted) resultRef.current?.focus()
-    else errorRef.current?.focus()
+    if (!accepted) errorRef.current?.focus()
+    else if (focusLost() || document.activeElement === resultRef.current) resultRef.current?.focus()
   }, [moved, accepted])
 
-  const withdraw = (invitationId: string) => setLoad(current => current.state !== 'ready' ? current
+  const withdraw = (invitationId: string) => setInvitations(current => current.state !== 'ready' ? current
     : { state: 'ready', value: { ...current.value, items: current.value.items.filter(item => item.invitationId !== invitationId) } })
 
-  async function accept(item: StaffShareInvitation) {
+  /** Today's Accept. The quick view it was pressed in closes as it ends, with what happened, so focus can go there. */
+  async function accept(item: StaffShareInvitation, close: () => void) {
     if (!facilityId || accepting || !acceptAllowed) return
     setAccepting(item.invitationId); setError(''); setAccepted('')
     try {
@@ -135,47 +109,103 @@ export function ShareInvitationsForMe({ facilityId, permissions }: { facilityId:
       setAccepted(`You accepted invitation ${item.reference || 'to share'}. The patient must now confirm before you can open their `
         + 'record. Once they do, they appear under Shared with you.')
     } catch (caught) {
+      // One that is gone or no longer waiting cannot be accepted again here.
       if (isHidApiError(caught) && ['SHARE_INVITATION_NOT_FOUND', 'SHARE_INVITATION_NOT_PENDING'].includes(caught.code)) withdraw(item.invitationId)
       setError(acceptProblem(caught))
     } finally {
       setAccepting(null)
       setMoved(value => value + 1)
+      close()
     }
   }
+  // Read through a ref, so the rows below need not change with every render.
+  const acceptRef = useRef(accept)
+  useLayoutEffect(() => { acceptRef.current = accept })
 
-  if (load.state === 'hidden') return null
-  return (
-    <EhrCard title="Invitations">
-      <p>Patients can invite you by email to see their record. Accept here, signed in with that email; the patient then confirms, and is not named until they do.</p>
-      {load.state === 'failed' ? <p>{load.message}</p>
-        : !load.value.eligible ? <p>Only a doctor, clinician or nurse at a facility Health ID has checked can accept invitations. Your role here cannot, so invitations sent to your email are not shown. Switch to such a facility to see them.</p>
-          : load.value.items.length === 0 ? <p>No invitations are waiting for your sign-in email.</p>
-            : (
-              <ul className="hid-ehr-clinical-history-list">
-                {load.value.items.map(item => (
-                  <li key={item.invitationId} className="hid-ehr-clinical-history-row">
-                    <span>
-                      {item.reference ? `Invitation ${item.reference}` : 'Invitation'}
-                      {item.inviteeName ? <span className="hid-ehr-clinical-cell-sub">{`To ${item.inviteeName}`}</span> : null}
-                      <span className="hid-ehr-clinical-cell-sub">{`${DURATION_LABELS[item.duration]} · sent ${shareDay(item.createdAt)} · open until ${shareDay(item.expiresAt)}`}</span>
-                    </span>
-                    <span className="hid-ehr-clinical-patients-share-actions">
-                      <StatusBadge status={shareLevelLabel(item.level) ?? item.level} />
-                      <EhrButton
-                        disabled={!acceptAllowed || (accepting !== null && accepting !== item.invitationId)}
-                        busy={accepting === item.invitationId}
-                        aria-label={item.reference ? `Accept invitation ${item.reference}` : 'Accept invitation'}
-                        onClick={() => void accept(item)}
-                      >
-                        {accepting === item.invitationId ? 'Accepting…' : 'Accept'}
-                      </EhrButton>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
+  const sharedItems = shared.state === 'ready' ? shared.value : null
+  const invitationItems = invitations.state === 'ready' && invitations.value.eligible ? invitations.value.items : null
+
+  const rows = useMemo<RecordRow[]>(() => {
+    const unavailable = openUnavailable ? { id: SHARED_OPEN_UNAVAILABLE_ID, reason: openUnavailable } : null
+    const sharedRows = (sharedItems ?? []).map((item): RecordRow => ({
+      id: `shared-${item.consentGrantId}`,
+      name: item.fullName,
+      reference: 'Shared with you',
+      context: item.fullName,
+      contextSub: item.hid,
+      status: levelText(item.level),
+      statusNote: `until ${shareDay(item.expiresAt)}`,
+      // Updated: when the share began.
+      updated: item.startsAt,
+      details: [
+        { label: 'Name', value: item.fullName },
+        { label: 'Health ID', value: item.hid },
+        { label: 'Access', value: levelText(item.level) },
+        { label: 'Access until', value: shareDay(item.expiresAt) },
+      ],
+      open: { onOpen: () => onOpen(item.hid), busy, unavailable },
+      // Today's "Shared with you" intro, which says why opening one can still be refused.
+      quickView: () => <p className="hid-ehr-clinical-quick-text">Patients who chose to share their record with you at this facility. Opening one checks access with the server.</p>,
+    }))
+    const invitationRows = (invitationItems ?? []).map((item): RecordRow => ({
+      id: `invitation-${item.invitationId}`,
+      name: item.reference ? `Invitation ${item.reference}` : 'Invitation',
+      reference: `${DURATION_LABELS[item.duration]} · sent ${shareDay(item.createdAt)}`,
+      context: levelText(item.level),
+      contextSub: item.inviteeName ? `To ${item.inviteeName}` : undefined,
+      status: 'invited',
+      statusNote: `open until ${shareDay(item.expiresAt)}`,
+      // Updated: when the invitation was sent.
+      updated: item.createdAt,
+      details: [
+        ...(item.inviteeName ? [{ label: 'To', value: item.inviteeName }] : []),
+        { label: 'Access', value: levelText(item.level) },
+        { label: 'Duration', value: DURATION_LABELS[item.duration] },
+        { label: 'Sent', value: shareDay(item.createdAt) },
+        { label: 'Open until', value: shareDay(item.expiresAt) },
+      ],
+      // An invitation names no patient and opens nothing: its quick view holds Accept.
+      open: null,
+      quickView: close => (
+        <>
+          <p className="hid-ehr-clinical-quick-text">Patients can invite you by email to see their record. Accept here, signed in with that email; the patient then confirms, and is not named until they do.</p>
+          <EhrButton
+            disabled={!acceptAllowed || (accepting !== null && accepting !== item.invitationId)}
+            busy={accepting === item.invitationId}
+            aria-label={item.reference ? `Accept invitation ${item.reference}` : 'Accept invitation'}
+            onClick={() => void acceptRef.current(item, close)}
+          >
+            {accepting === item.invitationId ? 'Accepting…' : 'Accept'}
+          </EhrButton>
+        </>
+      ),
+    }))
+    return [...sharedRows, ...invitationRows]
+  }, [sharedItems, invitationItems, openUnavailable, busy, onOpen, acceptAllowed, accepting])
+
+  let sharedNote: ReactNode = null
+  if (shared.state === 'failed') sharedNote = <p className="hid-ehr-clinical-note">{shared.message}</p>
+  else if (shared.state === 'ready' && shared.value.length === 0) sharedNote = <p className="hid-ehr-clinical-note">No patient has shared their record with you here.</p>
+  else if (shared.state === 'ready' && openUnavailable) sharedNote = <p id={SHARED_OPEN_UNAVAILABLE_ID} className="hid-ehr-clinical-note">{openUnavailable}</p>
+
+  let invitationNote: ReactNode = null
+  if (invitations.state === 'failed') invitationNote = <p className="hid-ehr-clinical-note">{invitations.message}</p>
+  else if (invitations.state === 'ready' && !invitations.value.eligible) {
+    invitationNote = <p className="hid-ehr-clinical-note">Only a doctor, clinician or nurse at a facility Health ID has checked can accept invitations. Your role here cannot, so invitations sent to your email are not shown. Switch to such a facility to see them.</p>
+  } else if (invitations.state === 'ready' && invitations.value.items.length === 0) {
+    invitationNote = <p className="hid-ehr-clinical-note">No invitations are waiting for your sign-in email.</p>
+  }
+
+  // The page places these under its list (in its own notes region).
+  const notes = (
+    <>
+      {sharedNote}
+      {invitationNote}
       {error ? <div ref={errorRef} tabIndex={-1}><div className="hid-ehr-clinical-alert" role="alert"><p>{error}</p></div></div> : null}
+      {/* Mounted throughout, so what Accept did is announced. */}
       <div role="status">{accepted ? <p ref={resultRef} tabIndex={-1} className="hid-ehr-clinical-status">{accepted}</p> : null}</div>
-    </EhrCard>
+    </>
   )
+
+  return { rows, notes }
 }

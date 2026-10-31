@@ -99,6 +99,61 @@ export const IDS = {
   bloodScreened: uuid('13e56980', 111), bloodQuarantine: uuid('cd77b5a8', 112),
 } as const
 
+/**
+ * A fictional, history-only row of a workspace the sample engine does not hold (Triage & Vitals, Consultation,
+ * Laboratory, Pharmacy and Nursing observations are live workspaces): the design draws these in a sample record's
+ * "Connected hospital history" (screens/workspaces/dental-3-detail.png, inpatient-3-detail1.png,
+ * nursing-tasks-3-detail.png, referrals-3-detail.png, telemedicine-3-detail.png; the visit's in
+ * 5-clinical-handoffs/09-visit-continue-care.png). It is not a record: no list, picker, search or page holds it, its
+ * link opens the workspace's list (no such record exists live), it is never sent anywhere and only a sample record
+ * page shows it.
+ */
+export interface SampleConnectedRow {
+  readonly id: string
+  /** The frame's address segment of the workspace (triage, clinical, laboratory, pharmacy, nursing). */
+  readonly workspace: string
+  /** The workspace's sidebar label. */
+  readonly title: string
+  /** The design's record title: a test's name, else the first eight characters of its id. */
+  readonly name: string
+  readonly status: string
+  readonly patientId: string
+  /** The visit it was started from: Taylor's visit b57e94c9 lists its own (hand-off 09). */
+  readonly parentId?: string
+}
+
+const CONNECTED_TITLES = {
+  triage: 'Triage & Vitals',
+  clinical: 'Consultation',
+  laboratory: 'Laboratory',
+  pharmacy: 'Pharmacy',
+  nursing: 'Nursing observations',
+} as const
+
+function connected(n: number, workspace: keyof typeof CONNECTED_TITLES, name: string, status: string, patientId: string, parentId?: string): SampleConnectedRow {
+  return { id: uuid('c0aa0000', n), workspace, title: CONNECTED_TITLES[workspace], name, status, patientId, parentId }
+}
+
+/**
+ * The rows the design's screenshots draw: audit item 17's for Taylor (with visit b57e94c9) and Jordan, and Sam's two
+ * on surgery-3-detail.png (Triage & Vitals · 8f2c2b76 and Consultation · 4fe5735c, both draft), which the audit left out.
+ */
+export const SEED_CONNECTED: readonly SampleConnectedRow[] = [
+  connected(1, 'triage', '329417b6', 'completed', PATIENTS.taylor, IDS.visitTaylor),
+  connected(2, 'clinical', ENCOUNTERS.taylor.slice(0, 8), 'signed', PATIENTS.taylor, IDS.visitTaylor),
+  connected(3, 'laboratory', 'Malaria parasite test', 'published', PATIENTS.taylor, IDS.visitTaylor),
+  connected(4, 'laboratory', 'Blood culture', 'ordered', PATIENTS.taylor, IDS.visitTaylor),
+  connected(5, 'pharmacy', 'fe7be2ce', 'partial', PATIENTS.taylor, IDS.visitTaylor),
+  connected(6, 'nursing', '637d9f70', 'recorded', PATIENTS.taylor),
+  connected(7, 'nursing', '76354f18', 'recorded', PATIENTS.taylor),
+  connected(8, 'triage', 'cbcf4b88', 'completed', PATIENTS.jordan),
+  connected(9, 'clinical', ENCOUNTERS.jordan.slice(0, 8), 'signed', PATIENTS.jordan),
+  connected(10, 'laboratory', 'Full blood count', 'processing', PATIENTS.jordan),
+  connected(11, 'pharmacy', '71785d4b', 'reviewed', PATIENTS.jordan),
+  connected(12, 'triage', '8f2c2b76', 'draft', PATIENTS.sam),
+  connected(13, 'clinical', ENCOUNTERS.sam.slice(0, 8), 'draft', PATIENTS.sam),
+]
+
 type Change = readonly [at: string, status: string, reason: string, data: SampleData]
 
 function record(id: string, workspace: string, status: string, updatedAt: string, data: SampleData, options: {

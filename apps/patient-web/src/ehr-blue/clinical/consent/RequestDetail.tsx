@@ -1,36 +1,45 @@
 import { EhrButton, EhrCard } from '@hid/ui/ehr'
-import { useLayoutEffect, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useId, useLayoutEffect, useRef, useState } from 'react'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { staffApi, type AccessRequest } from '../../../staff/api'
 import { outcome } from '../../../staff/routes/AccessRequests'
+import { BreakGlassForm } from '../emergency/BreakGlass'
 import { ACCESS_ENDED } from '../parts/chart'
-import { ActionList, DetailGrid, DetailMeta, SavedRecord, Step, SubHeading } from '../parts/Detail'
+import { ActionList, DetailGrid, DetailMeta, SavedRecord } from '../parts/Detail'
 import { Banner, ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { ACCESS_CLOSED, CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf } from './access'
-import { closable, closeError, latest, methodLabel, patientContext, requestDetails, useAccessRequests } from './requests'
+import { closable, closeError, latest, methodLabel, patientContext, requestDetails, statusFilter, useAccessRequests } from './requests'
 
-/** What each outcome means for the clinician, in today's words where today has them. */
+/** The design's words for the card under the request (design src/workflows.tsx ExternalView). */
+export const CROSS_INSTITUTION = 'Local hospital care does not require an external access grant. External content is removed immediately on expiry or revocation.'
+
+/** Whether the request was approved and its grant has not ended: only then is there a category to view. */
+function granted(request: AccessRequest): boolean {
+  const key = request.effectiveStatus ?? request.status
+  return key === 'active' || key === 'approved'
+}
+
+/**
+ * What each outcome means for the clinician, in today's words where today has them. The way to Patients is the
+ * Cross-institution history card's "View authorized category" (audit 6), not a link here.
+ */
 function StateBanner({ request }: { request: AccessRequest }) {
-  const href = useWorkspaceHref()
   const key = request.effectiveStatus ?? request.status
   const { label } = outcome(request)
   if (key === 'pending') return <Banner title={label}>The patient must approve before records are available.</Banner>
-  if (key === 'active' || key === 'approved') {
-    return (
-      <Banner title={label} actions={<Link className="hid-ehr-clinical-link" to={href.to('patients')}>Verify access on Patients →</Link>}>
-        Already approved? Verify with the server before opening the chart.
-      </Banner>
-    )
-  }
+  if (granted(request)) return <Banner title={label}>Already approved? Verify with the server before opening the chart.</Banner>
   if (key === 'denied') return <Banner tone="warning" title={label}>{request.deniedReason || undefined}</Banner>
   if (key === 'closed') return <Banner title={label} />
   return <Banner tone="warning" title={label} />
 }
 
 /**
- * One access request: the design's record page, with Close access for an active grant. Close access closes at once,
- * as today's Access requests does (and Patients and Emergency here): nothing stands between a clinician and ending access.
+ * One access request: the design's record page, with Close access for an active grant, then the design's
+ * "Cross-institution history" (audit 6): "View authorized category" (to Patients, where the grant opens the chart once
+ * the server verifies it) and "Emergency break-glass access", whose form opens in that card. Close access closes at
+ * once, as today's Access requests does (and Patients and Emergency here): nothing stands between a clinician and
+ * ending access.
  */
 export function RequestDetail() {
   const { recordId = '' } = useParams()
@@ -38,7 +47,11 @@ export function RequestDetail() {
   const navigate = useNavigate()
   const location = useLocation()
   const { facility, permissions, activePatient, setActivePatient } = useClinical()
-  const list = useAccessRequests('')
+  // Read with the list's Status filter when the request was found through it (one older than the 100 newest is read
+  // only so). An active grant's request is approved: it is read as approved, so closing it leaves it on this page.
+  const [params] = useSearchParams()
+  const filter = statusFilter(params.get('status'))
+  const list = useAccessRequests(filter === 'active' ? 'approved' : filter)
   const [notice, setNotice] = useState(() => {
     const state: unknown = location.state
     return state && typeof state === 'object' && 'notice' in state && typeof state.notice === 'string' ? state.notice : ''
@@ -47,6 +60,8 @@ export function RequestDetail() {
   const [ended, setEnded] = useState(false)
   const [closing, setClosing] = useState(false)
   const [settled, setSettled] = useState(0)
+  const [emergency, setEmergency] = useState(false)
+  const emergencyFormId = useId()
   // A close already on its way is not sent again by a second press.
   const sending = useRef(false)
   const status = useRef<HTMLDivElement>(null)
@@ -149,16 +164,31 @@ export function RequestDetail() {
               </ActionList>
             </>
           ) : <NoActions />}
-          {emergencyUnavailable === null ? (
-            <>
-              <SubHeading>Next steps</SubHeading>
-              <Step>
-                <EhrButton variant="secondary" onClick={() => navigate(href.to('emergency'))}>Emergency break-glass access</EhrButton>
-              </Step>
-            </>
-          ) : null}
         </EhrCard>
       </DetailGrid>
+      <EhrCard title="Cross-institution history">
+        <p>{CROSS_INSTITUTION}</p>
+        {granted(request) || emergencyUnavailable === null ? (
+          <div className="hid-ehr-clinical-step-row">
+            {granted(request) ? <EhrButton onClick={() => navigate(href.to('patients'))}>View authorized category</EhrButton> : null}
+            {emergencyUnavailable === null ? (
+              <EhrButton
+                variant="secondary"
+                aria-expanded={emergency}
+                aria-controls={emergency ? emergencyFormId : undefined}
+                onClick={() => setEmergency(value => !value)}
+              >
+                Emergency break-glass access
+              </EhrButton>
+            ) : null}
+          </div>
+        ) : null}
+        {emergency && emergencyUnavailable === null ? (
+          <div id={emergencyFormId} className="hid-ehr-clinical-consent-break-glass">
+            <BreakGlassForm />
+          </div>
+        ) : null}
+      </EhrCard>
     </>
   )
 }
