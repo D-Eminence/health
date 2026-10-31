@@ -6,11 +6,11 @@ import { staffApi, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
 import { RecordHeading } from '../parts/Notices'
-import { COMPLETE_FIELD, RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
+import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
 import {
-  DIAGNOSIS_CLINICAL_STATUSES, DIAGNOSIS_VERIFICATION_STATUSES, ENCOUNTER_CREATED, ENCOUNTER_TYPES, NEW_TITLE, NOTES_ARE_DRAFTS,
-  composeNote, encounterTypeLabel, isoNow, refusedFieldErrors, text,
+  ENCOUNTER_CREATED, ENCOUNTER_TYPES, NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NEW_TITLE, NOTES_ARE_DRAFTS,
+  composeNote, encounterTypeLabel, isoNow, newDiagnosisBody, newDiagnosisCheck, refusedFieldErrors, text,
 } from './encounters'
 
 /** "New consultation": the design's create page for the open patient, or the chart's own state. */
@@ -29,7 +29,6 @@ export function NewConsultation() {
 /** Today's note limits (RecordForm, clinical-notes): the composed note is one `content` of at most 100,000 characters. */
 const NOTE_LIMIT = 100_000
 const NOTE_TOO_LONG = 'The note is too long. History, Examination, Clinical note and Follow-up together can be up to 100,000 characters.'
-const DIAGNOSIS_KEYS = ['diagnosis', 'diagnosisCodeSystem', 'diagnosisCode'] as const
 /** Said after a partial save, once the draft note is in: its fields are gone, and it is changed from the encounter's page. */
 const NOTE_SAVED = 'The draft note is saved; change it from the consultation’s page.'
 
@@ -43,18 +42,11 @@ const NOTE_FIELDS: readonly FieldDef[] = [
   { key: 'history', label: 'History', type: 'textarea', maxLength: NOTE_LIMIT },
   { key: 'examination', label: 'Examination', type: 'textarea', maxLength: NOTE_LIMIT },
 ]
-const DIAGNOSIS_FIELDS: readonly FieldDef[] = [
-  { key: 'diagnosis', label: 'Diagnosis', maxLength: 500, hint: 'Optional. Add its code to save it as this consultation’s diagnosis.' },
-  { key: 'diagnosisCodeSystem', label: 'Code system', placeholder: 'ICD-10', maxLength: 255, row: 'code' },
-  { key: 'diagnosisCode', label: 'Code', maxLength: 100, row: 'code' },
-  { key: 'diagnosisClinicalStatus', label: 'Clinical status', choices: DIAGNOSIS_CLINICAL_STATUSES },
-  { key: 'diagnosisVerification', label: 'Verification', choices: DIAGNOSIS_VERIFICATION_STATUSES },
-]
 const NOTE_TAIL_FIELDS: readonly FieldDef[] = [
   { key: 'note', label: 'Clinical note', type: 'textarea', maxLength: NOTE_LIMIT },
   { key: 'followup', label: 'Follow-up', maxLength: 4000 },
 ]
-const INITIAL: FormValues = { encounterType: 'ambulatory', diagnosisClinicalStatus: 'active', diagnosisVerification: 'unconfirmed' }
+const INITIAL: FormValues = { encounterType: 'ambulatory', ...NEW_DIAGNOSIS_INITIAL }
 
 /** One save in progress: each step keeps its idempotency key while its input is unchanged, and is not sent twice. */
 interface Attempt {
@@ -82,15 +74,12 @@ function NewConsultationForm({ chart }: { chart: Chart }) {
   const fields = useMemo(() => [
     ...(started ? [] : ENCOUNTER_FIELDS),
     ...(writesNote && !noteSaved ? NOTE_FIELDS : []),
-    ...(writesDiagnosis ? DIAGNOSIS_FIELDS : []),
+    ...(writesDiagnosis ? NEW_DIAGNOSIS_FIELDS : []),
     ...(writesNote && !noteSaved ? NOTE_TAIL_FIELDS : []),
   ], [noteSaved, started, writesDiagnosis, writesNote])
 
   const validate = (values: FormValues): FieldErrors => {
-    const errors: Record<string, string> = {}
-    if (writesDiagnosis && DIAGNOSIS_KEYS.some(key => text(values[key]))) {
-      for (const key of DIAGNOSIS_KEYS) if (!text(values[key])) errors[key] = COMPLETE_FIELD
-    }
+    const errors: Record<string, string> = writesDiagnosis ? { ...newDiagnosisCheck(values) } : {}
     if (writesNote && !noteSaved && noteContent(values).length > NOTE_LIMIT) errors.note = NOTE_TOO_LONG
     return errors
   }
@@ -126,16 +115,12 @@ function NewConsultationForm({ chart }: { chart: Chart }) {
         current.note.done = true
         setNoteSaved(true)
       }
-      const display = text(values.diagnosis)
-      if (writesDiagnosis && display && !current.diagnosis?.done) {
-        map = { display: 'diagnosis', codeSystem: 'diagnosisCodeSystem', code: 'diagnosisCode', clinicalStatus: 'diagnosisClinicalStatus', verificationStatus: 'diagnosisVerification' }
-        const body = {
-          codeSystem: text(values.diagnosisCodeSystem), code: text(values.diagnosisCode), display,
-          clinicalStatus: text(values.diagnosisClinicalStatus) || 'active', verificationStatus: text(values.diagnosisVerification) || 'unconfirmed',
-        }
-        current.diagnosis = step(current.diagnosis, JSON.stringify(body))
+      const diagnosis = newDiagnosisBody(values)
+      if (writesDiagnosis && diagnosis && !current.diagnosis?.done) {
+        map = { ...NEW_DIAGNOSIS_REFUSED }
+        current.diagnosis = step(current.diagnosis, JSON.stringify(diagnosis))
         await chart.verify()
-        await staffApi.createRecord(chart.facilityId, chart.patientId, encounterId, 'diagnoses', body, current.diagnosis.key)
+        await staffApi.createRecord(chart.facilityId, chart.patientId, encounterId, 'diagnoses', diagnosis, current.diagnosis.key)
         current.diagnosis.done = true
       }
       attempt.current = {}

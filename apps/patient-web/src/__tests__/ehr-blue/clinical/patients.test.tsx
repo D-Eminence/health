@@ -1,10 +1,12 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import type * as Contracts from '@hid/contracts'
 import { HidApiError } from '@hid/http'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropOfferedHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
 import { PatientsWorkspace, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
 import {
-  DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage,
+  BASE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage,
 } from './harness'
 
 /**
@@ -14,7 +16,7 @@ import {
 
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), closeGrant: vi.fn(), encounters: vi.fn(), verifyPin: vi.fn(),
-  sharedWithMe: vi.fn(), staffShareInvitations: vi.fn(), acceptShareInvitation: vi.fn(),
+  sharedWithMe: vi.fn(), staffShareInvitations: vi.fn(), acceptShareInvitation: vi.fn(), reportedHealthProfile: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined }))
 const session = vi.hoisted(() => ({
@@ -33,6 +35,20 @@ vi.mock('../../../staff/App', async () => {
   return { useStaff: () => harness.staffValue(staff as never) }
 })
 vi.mock('../../../staff/session', () => session)
+/**
+ * The registry gives Accept the same permission as the invitation list (identity.consent.write), so a role that sees an
+ * invitation may accept it. A test can make Accept need another (fictional) permission, to see the role check hold.
+ */
+const registry = vi.hoisted(() => ({ acceptNeeds: null as string[] | null }))
+vi.mock('@hid/contracts', async importOriginal => {
+  const actual = await importOriginal<typeof Contracts>()
+  const findEndpoint: typeof actual.findEndpoint = name => {
+    const endpoint = actual.findEndpoint(name)
+    return name === 'identity.staffShareInvitationAccept' && endpoint && registry.acceptNeeds
+      ? { ...endpoint, permissions: { POST: registry.acceptNeeds } } : endpoint
+  }
+  return { ...actual, findEndpoint }
+})
 
 const ALL = ['identity.patient.read', 'identity.consent.write', 'identity.consent.read', 'ehr.encounter.read', 'ehr.note.read']
 const NOT_FOUND = new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' })
@@ -43,6 +59,7 @@ const ENCOUNTER = { id: ENCOUNTER_ID, patientId: PATIENT_ID, facilityId: FACILIT
 beforeEach(() => {
   vi.clearAllMocks()
   dropOfferedHealthId()
+  registry.acceptNeeds = null
   staff.permissions = [...ALL]
   staff.activePatient = null
   staff.facilityId = undefined
@@ -55,6 +72,8 @@ beforeEach(() => {
   api.encounters.mockResolvedValue({ items: [ENCOUNTER], nextCursor: null })
   api.sharedWithMe.mockRejectedValue(NOT_FOUND)
   api.staffShareInvitations.mockRejectedValue(NOT_FOUND)
+  // The patient has stated nothing about their health: no Allergies row.
+  api.reportedHealthProfile.mockResolvedValue(null)
 })
 
 function open(rest = '') {
@@ -113,6 +132,7 @@ function describedBy(element: Element) {
 describe('Find a patient', () => {
   it('is live, has no Create record, offers Registration, and shows nothing of a patient while none is open', async () => {
     expect(patientsStatus).toBe('live')
+    staff.permissions = [...ALL, 'identity.registration.write']
     open()
     expect(screen.getByRole('heading', { level: 1, name: 'Find a patient' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
@@ -427,6 +447,8 @@ describe('The open patient’s page', () => {
     api.encounters.mockReturnValue(new Promise((_resolve, reject) => { fail = reject }))
     open('/open')
     expect(await screen.findByRole('status', { name: 'Loading visits' })).toBeTruthy()
+    // The read starts after the access check: fail it only once it has been asked for.
+    await waitFor(() => expect(api.encounters).toHaveBeenCalled())
     await act(async () => { fail('offline') })
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('Couldn’t load visits')
@@ -562,5 +584,258 @@ describe('Patient sharing', () => {
     await act(async () => {})
     expect(api.sharedWithMe).not.toHaveBeenCalled()
     expect(api.staffShareInvitations).not.toHaveBeenCalled()
+  })
+})
+
+const SHARE = { consentGrantId: 'grant-9', patientId: PATIENT_ID, hid: PATIENT_HID, fullName: PATIENT_NAME, level: 'view_only', duration: '7d', scope: 'read_records', startsAt: '2026-10-29T08:00:00.000Z', expiresAt: '2026-11-05T08:00:00.000Z' }
+const INVITATION = { invitationId: 'inv-1', reference: 'AB12', inviteeName: null, level: 'clinical_review', duration: '24h', createdAt: '2026-10-29T08:00:00.000Z', expiresAt: '2026-11-05T08:00:00.000Z' }
+const ACCEPTED = 'Accepted. Once the patient confirms, they appear under Shared with you.'
+const ACCEPT_ANSWER = { invitationId: 'inv-1', status: 'accepted', acceptedAt: '2026-10-30T08:00:00.000Z', replayed: false }
+const OPEN_SHARED_UNAVAILABLE = 'Your role at this facility cannot open a patient’s record: it needs identity.patient.read. Ask your organization administrator.'
+const PATIENT_TWO_ID = 'a0000000-0000-4000-8000-000000000002'
+const lookupTwo = {
+  patient: { ...allowedLookup.patient, patientId: PATIENT_TWO_ID, hid: 'HID-ZDEMBBB3', fullName: 'Patient Two' },
+  authorization: { ...allowedLookup.authorization, consentGrantId: 'grant-2' },
+}
+
+/** A patient-reported profile with only `allergies` stated. */
+function profile(allergies: string | null) {
+  return { bloodGroup: null, genotype: null, allergies, currentMedications: null, chronicConditions: null, medicalNotes: null, updatedAt: null }
+}
+
+/** The patient page's patient-reported allergies (on the access card under the Health ID card), or undefined. */
+function allergies() {
+  const term = Array.from(document.querySelectorAll('dt')).find(item => item.textContent === 'Allergies')
+  return term?.nextElementSibling?.textContent ?? undefined
+}
+
+/** The Patients workspace as renderPage draws it, so a test can draw it again after the session changes. */
+function page(rest = '') {
+  return (
+    <MemoryRouter initialEntries={[`${BASE}/patients${rest}`]}>
+      <Routes><Route path={`${BASE}/patients/*`} element={<PatientsWorkspace />} /></Routes>
+    </MemoryRouter>
+  )
+}
+
+/** Lets every pending promise settle (one task later), so a test can tell "nothing shown" from "not answered yet". */
+async function settle() {
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+}
+
+describe('Registration, sharing and the patient-reported allergies (#62, in this design)', () => {
+  it('offers Register a patient only with identity.registration.write, carrying nothing of a patient', async () => {
+    const without = open()
+    expect(screen.queryByRole('link', { name: 'Register a patient' })).toBeNull()
+    without.unmount()
+    staff.permissions = [...ALL, 'identity.registration.write']
+    staff.activePatient = activePatient()
+    open()
+    fireEvent.click(screen.getByRole('link', { name: 'Register a patient' }))
+    expect(where()).toBe('/provider/registration')
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+    expect(staff.setActivePatient).not.toHaveBeenCalled()
+  })
+
+  it('a refused share shows today’s ways in, as a refused search does', async () => {
+    api.sharedWithMe.mockResolvedValue([SHARE])
+    api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: `Open ${PATIENT_NAME}’s record` }))
+    expect(await screen.findByText(`You don’t have access to ${PATIENT_HID} yet`)).toBeTruthy()
+    expect(api.lookupPatient).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'direct-care')
+    expect(where()).toBeNull()
+  })
+
+  it('while a lookup runs, a share’s Open says it is unavailable and a press does nothing', async () => {
+    api.sharedWithMe.mockResolvedValue([SHARE])
+    let answer: (value: unknown) => void = () => {}
+    api.lookupPatient.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    open()
+    const button = await screen.findByRole('button', { name: `Open ${PATIENT_NAME}’s record` })
+    fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+    fireEvent.click(findButton())
+    await waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('true'))
+    fireEvent.click(button)
+    expect(api.lookupPatient).toHaveBeenCalledTimes(1)
+    await act(async () => { answer(allowedLookup) })
+    expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+  })
+
+  it('a role that cannot look a patient up sees each share’s Open turned off with today’s reason', async () => {
+    staff.permissions = ['identity.consent.write']
+    api.sharedWithMe.mockResolvedValue([SHARE])
+    open()
+    const button = await screen.findByRole('button', { name: `Open ${PATIENT_NAME}’s record` }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(describedBy(button)).toBe(OPEN_SHARED_UNAVAILABLE)
+    fireEvent.click(button)
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
+  it('a refused Accept focuses today’s refusal and keeps a still-waiting invitation', async () => {
+    api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [INVITATION] })
+    api.acceptShareInvitation.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'SHARE_PROVIDER_NOT_ELIGIBLE' }))
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept invitation AB12' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Your role at this facility cannot receive patient records through Health ID.')
+    expect(document.activeElement?.contains(alert)).toBe(true)
+    expect(api.acceptShareInvitation).toHaveBeenCalledWith(FACILITY_ID, 'inv-1')
+    expect(screen.getByRole('button', { name: 'Accept invitation AB12' })).toBeTruthy()
+  })
+
+  it('an invitation that is gone leaves the list, with today’s words', async () => {
+    api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [INVITATION] })
+    api.acceptShareInvitation.mockRejectedValue(new HidApiError(409, 'Conflict', { code: 'SHARE_INVITATION_NOT_PENDING' }))
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept invitation AB12' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('This invitation has already been accepted, cancelled or has ended.')
+    expect(screen.queryByRole('button', { name: 'Accept invitation AB12' })).toBeNull()
+  })
+
+  it('a role the registry does not let accept sees Accept turned off, and nothing is accepted', async () => {
+    registry.acceptNeeds = ['identity.share-invitation.accept']
+    api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [INVITATION] })
+    open()
+    const accept = await screen.findByRole('button', { name: 'Accept invitation AB12' }) as HTMLButtonElement
+    expect(accept.disabled).toBe(true)
+    fireEvent.click(accept)
+    await settle()
+    expect(api.acceptShareInvitation).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('shows nothing of sharing while its lists load, and says when the shared patients could not be read', async () => {
+    api.sharedWithMe.mockReturnValue(new Promise(() => {}))
+    api.staffShareInvitations.mockReturnValue(new Promise(() => {}))
+    const loading = open()
+    await settle()
+    expect(api.sharedWithMe).toHaveBeenCalledWith(FACILITY_ID, expect.any(AbortSignal))
+    expect(api.staffShareInvitations).toHaveBeenCalledWith(FACILITY_ID, expect.any(AbortSignal))
+    expect(screen.queryByRole('heading', { name: 'Shared with you' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Invitations' })).toBeNull()
+    loading.unmount()
+    api.sharedWithMe.mockRejectedValue(new HidApiError(503, '', { code: 'SERVICE_UNAVAILABLE' }))
+    api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [] })
+    open()
+    expect(await screen.findByText('The patients shared with you could not be loaded.')).toBeTruthy()
+  })
+
+  it('another facility drops what Accept did, and what it refused, at the one before', async () => {
+    api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [INVITATION, { ...INVITATION, invitationId: 'inv-2', reference: 'CD34' }] })
+    api.acceptShareInvitation.mockResolvedValueOnce(ACCEPT_ANSWER)
+      .mockRejectedValueOnce(new HidApiError(403, 'Forbidden', { code: 'SHARE_PERMISSION_DENIED' }))
+    const view = render(page())
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept invitation AB12' }))
+    expect(await screen.findByText(ACCEPTED)).toBeTruthy()
+    staff.facilityId = DEMO_HOSPITAL_ID
+    view.rerender(page())
+    expect(screen.queryByText(ACCEPTED)).toBeNull()
+    await waitFor(() => expect(api.staffShareInvitations).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, expect.any(AbortSignal)))
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept invitation CD34' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('Sharing is not available for your account at this facility.')
+    expect(api.acceptShareInvitation).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, 'inv-2')
+    staff.facilityId = undefined
+    view.rerender(page())
+    expect(screen.queryByText('Sharing is not available for your account at this facility.')).toBeNull()
+  })
+
+  it('audit 9: lists the patient-reported allergies, read for direct care with ehr.note.read, labelled as the patient’s', async () => {
+    staff.activePatient = activePatient()
+    api.reportedHealthProfile.mockResolvedValue(profile('Fictional Med A'))
+    open('/open')
+    await waitFor(() => expect(allergies()).toBe('Fictional Med A (patient-reported)'))
+    expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
+  })
+
+  it('audit 9: a profile without allergies says Not stated, as today’s card does', async () => {
+    staff.activePatient = activePatient()
+    api.reportedHealthProfile.mockResolvedValue({ ...profile(null), bloodGroup: 'O+' })
+    open('/open')
+    await waitFor(() => expect(allergies()).toBe('Not stated (patient-reported)'))
+  })
+
+  it('audit 9: no allergies while they load, without ehr.note.read, under emergency access, or when refused (403) or not served (404)', async () => {
+    staff.activePatient = activePatient()
+    api.reportedHealthProfile.mockReturnValue(new Promise(() => {}))
+    const loading = open('/open')
+    await act(async () => {})
+    expect(allergies()).toBeUndefined()
+    loading.unmount()
+    for (const status of [403, 404]) {
+      api.reportedHealthProfile.mockRejectedValue(new HidApiError(status, 'No', { code: status === 403 ? 'FORBIDDEN' : 'NOT_FOUND' }))
+      const refused = open('/open')
+      await settle()
+      expect(allergies()).toBeUndefined()
+      expect(screen.queryByRole('alert')).toBeNull()
+      refused.unmount()
+    }
+    api.reportedHealthProfile.mockClear()
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.note.read')
+    const unpermitted = open('/open')
+    await settle()
+    expect(allergies()).toBeUndefined()
+    unpermitted.unmount()
+    staff.permissions = [...ALL]
+    staff.activePatient = activePatient('emergency')
+    open('/open')
+    await settle()
+    expect(allergies()).toBeUndefined()
+    expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+  })
+
+  it('audit 9: another failure says so in today’s words, and today’s retry reads again', async () => {
+    staff.activePatient = activePatient()
+    api.reportedHealthProfile.mockRejectedValueOnce(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    api.reportedHealthProfile.mockResolvedValueOnce(profile('Fictional Med A'))
+    open('/open')
+    await waitFor(() => expect(allergies()).toBe('What the patient entered about their health could not be loaded. Retry patient-reported health information'))
+    fireEvent.click(screen.getByRole('button', { name: 'Retry patient-reported health information' }))
+    await waitFor(() => expect(allergies()).toBe('Fictional Med A (patient-reported)'))
+    expect(api.reportedHealthProfile).toHaveBeenCalledTimes(2)
+  })
+
+  it('audit 9: a failure that is not the service’s answer (a plain Error, or a read that throws at once) shows no allergies and no retry', async () => {
+    staff.activePatient = activePatient()
+    api.reportedHealthProfile.mockRejectedValue(new Error('offline'))
+    const rejected = open('/open')
+    await settle()
+    expect(allergies()).toBeUndefined()
+    expect(screen.queryByRole('button', { name: 'Retry patient-reported health information' })).toBeNull()
+    rejected.unmount()
+    api.reportedHealthProfile.mockImplementation(() => { throw new TypeError('not a function') })
+    open('/open')
+    await settle()
+    // This row's failure, never the page's.
+    expect(screen.getByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+    expect(allergies()).toBeUndefined()
+    expect(screen.queryByRole('button', { name: 'Retry patient-reported health information' })).toBeNull()
+    expect(api.reportedHealthProfile).toHaveBeenCalledTimes(2)
+  })
+
+  it('audit 9: an answer for the patient open before is never shown for the patient open now', async () => {
+    staff.activePatient = activePatient()
+    let answerOne: (value: unknown) => void = () => {}
+    let answerTwo: (value: unknown) => void = () => {}
+    api.reportedHealthProfile
+      .mockReturnValueOnce(new Promise(resolve => { answerOne = resolve }))
+      .mockReturnValueOnce(new Promise(resolve => { answerTwo = resolve }))
+    const view = render(page('/open'))
+    // Patient One's re-check and visits are done before Patient Two opens.
+    expect(await screen.findByRole('button', { name: /^Consultation · e0000000/ })).toBeTruthy()
+    expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
+    api.lookupPatient.mockResolvedValue(lookupTwo)
+    api.consentStatus.mockResolvedValue({ ...CONSENT, patientId: PATIENT_TWO_ID })
+    staff.activePatient = { hid: 'HID-ZDEMBBB3', purpose: 'direct-care', lookup: lookupTwo }
+    view.rerender(page('/open'))
+    expect(screen.getByRole('heading', { level: 1, name: 'Patient Two' })).toBeTruthy()
+    await waitFor(() => expect(api.reportedHealthProfile).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_TWO_ID, expect.any(AbortSignal)))
+    await act(async () => { answerOne(profile('Fictional Med A')) })
+    await settle()
+    expect(allergies()).toBeUndefined()
+    expect(screen.queryByText(/Fictional Med A/)).toBeNull()
+    await act(async () => { answerTwo(profile('Fictional Med B')) })
+    await waitFor(() => expect(allergies()).toBe('Fictional Med B (patient-reported)'))
   })
 })

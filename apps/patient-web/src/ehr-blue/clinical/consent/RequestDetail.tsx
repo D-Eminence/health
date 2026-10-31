@@ -1,6 +1,6 @@
 import { Siren } from 'lucide-react'
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { FormPage, LoadingRows } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Card, CardHeader, DescriptionList, type Tone } from '../../../kasuwa/ui'
 import { staffApi, type AccessRequest } from '../../../staff/api'
@@ -9,7 +9,7 @@ import { ACCESS_ENDED } from '../parts/chart'
 import { RecordNotFound } from '../parts/Notices'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { ACCESS_CLOSED, CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf } from './access'
-import { closable, closeError, latest, patientContext, requestDetails, useAccessRequests } from './requests'
+import { closable, closeError, latest, patientContext, requestDetails, statusFilter, useAccessRequests } from './requests'
 import { formatWhen } from '../parts/format'
 
 const TONES: Readonly<Record<string, Tone>> = { success: 'success', warning: 'warn', danger: 'danger', neutral: 'neutral' }
@@ -44,7 +44,11 @@ export function RequestDetail() {
   const navigate = useNavigate()
   const location = useLocation()
   const { facility, permissions, activePatient, setActivePatient } = useClinical()
-  const list = useAccessRequests('')
+  // Read with the list's Status filter when the request was found through it (one older than the 100 newest is read
+  // only so). An active grant's request is approved: it is read as approved, so closing it leaves it on this page.
+  const [params] = useSearchParams()
+  const filter = statusFilter(params.get('status'))
+  const list = useAccessRequests(filter === 'active' ? 'approved' : filter)
   const [notice, setNotice] = useState(() => {
     const state: unknown = location.state
     return state && typeof state === 'object' && 'notice' in state && typeof state.notice === 'string' ? state.notice : ''

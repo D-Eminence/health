@@ -230,8 +230,6 @@ export type Loaded<T> =
 export interface VisitRecordState {
   readonly encounter: Encounter
   readonly record: ClinicalRecord
-  /** The visit's other records of the same kind. */
-  readonly siblings: readonly ClinicalRecord[]
 }
 
 /**
@@ -264,7 +262,7 @@ export function useVisitRecord(chart: Chart, key: string, kind: RecordKind, keep
         if (!current) return
         const record = items.find(item => item.id === recordId)
         if (!record) return setLoaded({ phase: 'missing' })
-        setLoaded({ phase: 'ready', encounter, record, siblings: items.filter(item => item.id !== recordId) })
+        setLoaded({ phase: 'ready', encounter, record })
       } catch (caught) {
         if (!current) return
         if (isHidApiError(caught) && caught.status === 404) return setLoaded({ phase: 'missing' })
@@ -285,7 +283,7 @@ export function useVisitRecord(chart: Chart, key: string, kind: RecordKind, keep
     setLoaded(state => {
       if (state.phase !== 'ready') return state
       const record = items.find(item => item.id === recordId)
-      return record ? { ...state, record, siblings: items.filter(item => item.id !== recordId) } : state
+      return record ? { ...state, record } : state
     })
     return { items }
   }, [encounterId, facilityId, keeps, kind, patientId, recordId])

@@ -88,7 +88,8 @@ afterEach(() => { vi.restoreAllMocks() })
 async function openEncounter() {
   renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
   expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
-  await screen.findByText('Cough for three days.', { exact: false })
+  // The note's content, once read (in the Note card, and in an earlier version too).
+  expect((await screen.findAllByText('Cough for three days.', { exact: false })).length).toBeGreaterThan(0)
 }
 
 function card(title: string) {
@@ -111,6 +112,38 @@ function dialog() {
 /** The open action's submit button (the action's own button toggles its form). */
 function submitOf(name: string) {
   return actions().getAllByRole('button', { name }).find(button => button.getAttribute('type') === 'submit')!
+}
+
+const UNAVAILABLE = () => new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })
+/** The live actions behind More actions for an in-progress consultation with a draft note read (owner decision 1). */
+const MENU = ['Complete consultation', 'Put on hold', 'Cancel consultation', 'Mark as entered in error', 'Mark note entered in error']
+
+function history() {
+  return within(card('History'))
+}
+
+/** The "More actions" menu button at the end of Actions. */
+function moreButton() {
+  return actions().getByRole('button', { name: /^More actions/ })
+}
+
+/** What More actions offers (the menu is opened, read and closed again). */
+function menuLabels() {
+  fireEvent.click(moreButton())
+  const labels = within(screen.getByRole('menu')).getAllByRole('menuitem').map(item => item.textContent)
+  fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+  return labels
+}
+
+/** Chooses one of More actions' items, which opens its form in Actions. */
+function chooseMore(label: string) {
+  fireEvent.click(moreButton())
+  fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: label }))
+}
+
+/** The Earlier versions card's summaries. */
+function versionSummaries() {
+  return Array.from(card('Earlier versions').querySelectorAll('summary')).map(summary => summary.textContent)
 }
 
 /** Opens "Sign note" in Available actions and gives today's reason. */
@@ -156,9 +189,10 @@ describe('Consultation record', () => {
       'Type of visit': 'Outpatient', Complaint: 'Fever for two days', Diagnosis: 'Malaria (fictional)', 'Note status': 'draft',
       Note: 'History\nCough for three days.',
     })
-    expect(actions().getAllByRole('button').map(button => button.textContent)).toEqual([
-      'Sign note', 'Write note', 'Complete consultation', 'Put on hold', 'Cancel consultation', 'Mark as entered in error',
-    ])
+    // The note's actions; every other live action is behind one More actions menu at the card's end.
+    expect(actions().getAllByRole('button').map(button => button.textContent?.replace('▾', ''))).toEqual(['Sign note', 'Write note', 'More actions'])
+    expect(moreButton().getAttribute('aria-haspopup')).toBe('menu')
+    expect(menuLabels()).toEqual(MENU)
     // The orders are a card of their own now, after the diagnoses.
     expect(within(card('Orders')).getByText(`Connected orders for ${ENCOUNTER_ID}`)).toBeTruthy()
     expect(saved.getByRole('button', { name: 'Edit draft' })).toBeTruthy()
@@ -295,7 +329,8 @@ describe('Consultation record', () => {
     expect(api.lookupPatient.mock.calls.length).toBe(checks + 1)
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: undefined, fresh: true })
     await waitFor(() => expect(actions().queryByRole('button', { name: 'Sign note' })).toBeNull())
-    expect(actions().getByRole('button', { name: 'Amend signed note' })).toBeTruthy()
+    // "Amend signed note" needs the signed note's content, read again once its version changed.
+    expect(await actions().findByRole('button', { name: 'Amend signed note' })).toBeTruthy()
   })
 
   it('keeps the draft when the sign dialog is cancelled, or closed with Escape', async () => {
@@ -392,9 +427,10 @@ describe('Consultation record', () => {
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     const versions = await screen.findByRole('heading', { level: 2, name: 'Earlier versions' })
     const summaries = Array.from(versions.closest('section')!.querySelectorAll('summary')).map(summary => summary.textContent)
+    // Each named by the status it was saved under: a never-signed note's are drafts.
     expect(summaries).toEqual([
-      `${formatWhen('2026-10-30T08:10:00.000Z')} · Version 1 · Initial draft`,
-      `${formatWhen('2026-10-30T09:00:00.000Z')} · Version 2 · Duration corrected`,
+      `${formatWhen('2026-10-30T08:10:00.000Z')} · Version 1 · Draft · Initial draft`,
+      `${formatWhen('2026-10-30T09:00:00.000Z')} · Version 2 · Draft · Duration corrected`,
     ])
     // The latest revision is the note shown.
     expect(within(card('Note')).getByText('History\nCough for four days.', { normalizer: value => value })).toBeTruthy()
@@ -402,7 +438,7 @@ describe('Consultation record', () => {
 
   it('completes the encounter with a reason, re-checking access first', async () => {
     await openEncounter()
-    fireEvent.click(actions().getByRole('button', { name: 'Complete consultation' }))
+    chooseMore('Complete consultation')
     expect(actions().getByText(/^Cancelling also cancels its open prescriptions and lab requests\./)).toBeTruthy()
     fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: '  ' } })
     const save = () => actions().getAllByRole('button', { name: 'Complete consultation' }).find(button => button.getAttribute('type') === 'submit')!
@@ -416,12 +452,13 @@ describe('Consultation record', () => {
       { expectedRowVersion: 3, changeReason: 'Seen and treated', status: 'completed', endedAt: expect.any(String) })
     expect(within(meta()).getByText('Completed')).toBeTruthy()
     expect(actions().queryByRole('button', { name: 'Complete consultation' })).toBeNull()
+    expect(menuLabels()).not.toContain('Complete consultation')
   })
 
   it('asks before cancelling the encounter (no typed word), and says when the role may not', async () => {
     api.updateEncounter.mockRejectedValueOnce(new HidApiError(403, 'Forbidden', { code: 'ENCOUNTER_RETRACTION_NOT_PERMITTED' }))
     await openEncounter()
-    fireEvent.click(actions().getByRole('button', { name: 'Cancel consultation' }))
+    chooseMore('Cancel consultation')
     fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Booked in error' } })
     fireEvent.click(actions().getAllByRole('button', { name: 'Cancel consultation' }).find(button => button.getAttribute('type') === 'submit')!)
     expect(within(dialog()).getByRole('heading', { name: 'Cancel consultation?' })).toBeTruthy()
@@ -434,13 +471,15 @@ describe('Consultation record', () => {
     api.updateEncounter.mockRejectedValueOnce(STALE)
     await openEncounter()
     api.encounter.mockResolvedValue({ ...ENCOUNTER, status: 'on_hold', rowVersion: 5 })
-    fireEvent.click(actions().getByRole('button', { name: 'Complete consultation' }))
+    chooseMore('Complete consultation')
     fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Seen and treated' } })
-    fireEvent.click(actions().getAllByRole('button', { name: 'Complete consultation' }).find(button => button.getAttribute('type') === 'submit')!)
+    // A pressed button takes focus (as in a browser); the change removes it with its form.
+    act(() => { submitOf('Complete consultation').focus() })
+    fireEvent.click(submitOf('Complete consultation'))
     expect((await screen.findByRole('alert')).textContent).toBe('Someone changed this consultation while you had it open. It now shows its current status; choose the change again if it’s still needed.')
     expect(within(meta()).getByText('On hold')).toBeTruthy()
-    expect(actions().getByRole('button', { name: 'Resume consultation' })).toBeTruthy()
     expect(document.activeElement?.textContent).toBe('Actions')
+    expect(menuLabels()).toContain('Resume consultation')
   })
 
   it('shows today’s read-only sentence and no changes under a read-only grant', async () => {
@@ -632,5 +671,239 @@ describe('Consultation record: documents', () => {
     await openEncounter()
     await act(async () => {})
     expect(within(card('Documents')).getByRole('alert').textContent).toBe('Documents are unavailable.')
+  })
+})
+
+describe('Consultation record: More actions, diagnoses with a note change, and versions (#62)', () => {
+  it('offers a signed note’s "Amend signed note" with the menu, and "Resume consultation" for one on hold', async () => {
+    records['clinical-notes'] = [{ ...NOTE, status: 'signed', signedAt: '2026-10-30T08:40:00.000Z' }]
+    api.encounter.mockResolvedValue({ ...ENCOUNTER, status: 'on_hold' })
+    await openEncounter()
+    expect(actions().getAllByRole('button').map(button => button.textContent?.replace('▾', ''))).toEqual(['Amend signed note', 'Write note', 'More actions'])
+    expect(menuLabels()).toEqual(['Resume consultation', 'Cancel consultation', 'Mark as entered in error', 'Mark note entered in error'])
+  })
+
+  it('marks the consultation note entered in error from More actions, under a typed reason, with a plain confirm', async () => {
+    await openEncounter()
+    chooseMore('Mark note entered in error')
+    expect(document.activeElement).toBe(moreButton())
+    expect(moreButton().textContent).toContain('Mark note entered in error open')
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'ok' } })
+    fireEvent.click(submitOf('Mark note entered in error'))
+    expect(actions().getByText('Give a reason of at least 3 characters.')).toBeTruthy()
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Wrong patient' } })
+    fireEvent.click(submitOf('Mark note entered in error'))
+    expect(within(dialog()).getByRole('heading', { name: 'Mark note entered in error?' })).toBeTruthy()
+    expect(within(dialog()).queryByLabelText(/Type .* to confirm/)).toBeNull()
+    const checks = api.lookupPatient.mock.calls.length
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark note entered in error' }))
+    expect(await screen.findByText('Note updated.')).toBeTruthy()
+    expect(api.updateRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', 'note-1',
+      { expectedRowVersion: 2, changeReason: 'Wrong patient', status: 'entered_in_error' })
+    expect(api.lookupPatient.mock.calls.length).toBe(checks + 1)
+  })
+
+  it('"Cancel" closes a status change More actions opened, changing nothing, with focus back on the menu button', async () => {
+    await openEncounter()
+    chooseMore('Cancel consultation')
+    expect(actions().getByText(/^Cancelling also cancels/)).toBeTruthy()
+    const cancel = actions().getByRole('button', { name: 'Cancel' })
+    expect(cancel.getAttribute('type')).toBe('button')
+    act(() => { cancel.focus() })
+    fireEvent.click(cancel)
+    expect(actions().queryByText(/^Cancelling also cancels/)).toBeNull()
+    expect(actions().queryByLabelText(labelled('Reason for change'))).toBeNull()
+    expect(document.activeElement).toBe(moreButton())
+    expect(moreButton().textContent).not.toContain('open')
+    expect(api.updateEncounter).not.toHaveBeenCalled()
+  })
+
+  it('the note’s own actions toggle with their button and carry no "Cancel"', async () => {
+    await openEncounter()
+    fireEvent.click(actions().getByRole('button', { name: 'Write note' }))
+    expect(actions().queryByRole('button', { name: 'Cancel' })).toBeNull()
+    fireEvent.click(actions().getAllByRole('button', { name: 'Write note' })[0]!)
+    expect(actions().queryByRole('button', { name: 'Save draft' })).toBeNull()
+  })
+
+  it('offers no "Write note" to a role that may write notes but not read them', async () => {
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.note.read')
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
+    await screen.findByRole('heading', { level: 2, name: 'Actions' })
+    expect(actions().queryByRole('button', { name: 'Write note' })).toBeNull()
+  })
+
+  it('"Edit draft" takes New consultation’s diagnosis fields; the diagnosis is saved after the revision, a retry sending only it, under the same key', async () => {
+    await openEncounter()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit draft' }))
+    const saved = within(card('Note'))
+    expect(saved.getByText('Optional. Add its code to save it as this consultation’s diagnosis.')).toBeTruthy()
+    expect((saved.getByLabelText(labelled('Code system')) as HTMLInputElement).placeholder).toBe('ICD-10')
+    expect((saved.getByLabelText(labelled('Clinical status')) as HTMLSelectElement).value).toBe('active')
+    expect((saved.getByLabelText(labelled('Verification')) as HTMLSelectElement).value).toBe('unconfirmed')
+    fireEvent.change(saved.getByLabelText(labelled('Diagnosis')), { target: { value: 'Malaria (fictional)' } })
+    fireEvent.change(saved.getByLabelText(labelled('Reason for revision')), { target: { value: 'Assessment added' } })
+    const save = () => saved.getByRole('button', { name: 'Save draft' })
+    fireEvent.click(save())
+    // New consultation's check: with a diagnosis, its code system and code are needed too.
+    expect(saved.getAllByText('Complete this field.')).toHaveLength(2)
+    expect(api.addNoteRevision).not.toHaveBeenCalled()
+    fireEvent.change(saved.getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
+    fireEvent.change(saved.getByLabelText(labelled('Code')), { target: { value: 'B54' } })
+    api.createRecord.mockRejectedValueOnce(UNAVAILABLE())
+    const checks = api.lookupPatient.mock.calls.length
+    fireEvent.click(save())
+    expect((await saved.findByRole('alert')).textContent).toContain('EHR is unavailable.')
+    // The revision is in, and the page says so; each save re-checked access first.
+    expect(screen.getByText('Note changes saved.')).toBeTruthy()
+    expect(api.addNoteRevision).toHaveBeenCalledTimes(1)
+    expect(api.lookupPatient.mock.calls.length).toBe(checks + 2)
+    expect(api.lookupPatient.mock.invocationCallOrder.at(-1)!).toBeLessThan(api.createRecord.mock.invocationCallOrder[0]!)
+    expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses', {
+      codeSystem: 'ICD-10', code: 'B54', display: 'Malaria (fictional)', clinicalStatus: 'active', verificationStatus: 'unconfirmed',
+    }, expect.any(String))
+
+    fireEvent.click(save())
+    expect(await screen.findByText('Note changes saved. Saved.')).toBeTruthy()
+    expect(api.addNoteRevision).toHaveBeenCalledTimes(1)
+    expect(api.createRecord).toHaveBeenCalledTimes(2)
+    expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
+    // Today's create read: the diagnoses' first page, fresh.
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses', { cursor: undefined, fresh: true })
+  })
+
+  it('a draft form left after its revision was saved and its diagnosis refused reads the note again', async () => {
+    await openEncounter()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit draft' }))
+    const saved = within(card('Note'))
+    fireEvent.change(saved.getByLabelText(labelled('Diagnosis')), { target: { value: 'Malaria (fictional)' } })
+    fireEvent.change(saved.getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
+    fireEvent.change(saved.getByLabelText(labelled('Code')), { target: { value: 'B54' } })
+    fireEvent.change(saved.getByLabelText(labelled('Reason for revision')), { target: { value: 'Assessment added' } })
+    api.createRecord.mockRejectedValueOnce(UNAVAILABLE())
+    fireEvent.click(saved.getByRole('button', { name: 'Save draft' }))
+    expect((await saved.findByRole('alert')).textContent).toContain('EHR is unavailable.')
+    expect(api.records).not.toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: undefined, fresh: true })
+    records['clinical-notes'] = [{ ...NOTE, rowVersion: 3 }]
+    fireEvent.click(saved.getByRole('button', { name: 'Cancel editing' }))
+    await waitFor(() => expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: undefined, fresh: true }))
+    // The revision was sent once, and nothing more is sent.
+    expect(api.addNoteRevision).toHaveBeenCalledTimes(1)
+    expect(api.createRecord).toHaveBeenCalledTimes(1)
+  })
+
+  it('"Amend signed note" takes the diagnosis fields too, and shows a refused diagnosis field at its control', async () => {
+    records['clinical-notes'] = [{ ...NOTE, status: 'signed' }]
+    await openEncounter()
+    fireEvent.click(actions().getByRole('button', { name: 'Amend signed note' }))
+    fireEvent.change(actions().getByLabelText(labelled('Amendment')), { target: { value: 'Smear positive (fictional).' } })
+    fireEvent.change(actions().getByLabelText(labelled('Diagnosis')), { target: { value: 'Malaria (fictional)' } })
+    fireEvent.change(actions().getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
+    fireEvent.change(actions().getByLabelText(labelled('Code')), { target: { value: 'B54' } })
+    fireEvent.change(actions().getByLabelText(labelled('Verification')), { target: { value: 'confirmed' } })
+    fireEvent.change(actions().getByLabelText(labelled('Reason')), { target: { value: 'Result back' } })
+    api.createRecord.mockRejectedValueOnce(new HidApiError(400, 'One or more request fields are invalid.', {
+      code: 'VALIDATION_FAILED', details: [{ field: 'code', messages: ['code must be shorter than or equal to 100 characters'] }],
+    }))
+    fireEvent.click(submitOf('Amend signed note'))
+    expect(await actions().findByRole('alert')).toBeTruthy()
+    expect(actions().getByLabelText(labelled('Code')).getAttribute('aria-invalid')).toBe('true')
+    fireEvent.click(submitOf('Amend signed note'))
+    expect(await screen.findByText('Note changes saved. Saved.')).toBeTruthy()
+    expect(api.addNoteRevision).toHaveBeenCalledTimes(1)
+    expect(api.createRecord).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses', {
+      codeSystem: 'ICD-10', code: 'B54', display: 'Malaria (fictional)', clinicalStatus: 'active', verificationStatus: 'confirmed',
+    }, expect.any(String))
+  })
+
+  it('offers no diagnosis fields with a note change without ehr.diagnosis.write', async () => {
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.diagnosis.write')
+    await openEncounter()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit draft' }))
+    expect(within(card('Note')).queryByLabelText(labelled('Code system'))).toBeNull()
+    expect(within(card('Note')).getByLabelText(labelled('Clinical note'))).toBeTruthy()
+  })
+
+  it('shows a signed note’s versions with one revision: the version it was signed as', async () => {
+    records['clinical-notes'] = [{ ...NOTE, status: 'signed', signedAt: '2026-10-30T08:40:00.000Z' }]
+    await openEncounter()
+    expect(versionSummaries()).toEqual([`${formatWhen('2026-10-30T08:40:00.000Z')} · Version 1 · Draft · Sign note`])
+    expect(within(card('Earlier versions')).getByText('History\nCough for three days.', { normalizer: value => value })).toBeTruthy()
+  })
+
+  it('places the signed version among an amended note’s revisions, with the content signed', async () => {
+    records['clinical-notes'] = [{ ...NOTE, status: 'amended', signedAt: '2026-10-30T08:40:00.000Z' }]
+    api.noteRevisions.mockResolvedValue([
+      REVISION,
+      { ...REVISION, id: 'rev-2', revisionNo: 2, content: 'History\nCough for four days.', changeReason: 'Duration corrected', createdAt: '2026-10-30T09:00:00.000Z' },
+    ])
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    await screen.findByRole('heading', { level: 2, name: 'Earlier versions' })
+    // Each revision is named by the status it was saved under: a draft before signing, an amendment after.
+    expect(versionSummaries()).toEqual([
+      `${formatWhen('2026-10-30T08:10:00.000Z')} · Version 1 · Draft · Initial draft`,
+      `${formatWhen('2026-10-30T08:40:00.000Z')} · Version 1 · Draft · Sign note`,
+      `${formatWhen('2026-10-30T09:00:00.000Z')} · Version 2 · Amended · Duration corrected`,
+    ])
+    const signed = Array.from(card('Earlier versions').querySelectorAll('details'))[1]!
+    expect(within(signed).getByText('History\nCough for three days.', { normalizer: value => value })).toBeTruthy()
+  })
+
+  it('names a signed note’s draft edits "Draft", not by the status the note has now', async () => {
+    records['clinical-notes'] = [{ ...NOTE, status: 'signed', signedAt: '2026-10-30T09:40:00.000Z' }]
+    api.noteRevisions.mockResolvedValue([
+      { ...REVISION, createdAt: '2026-10-30T09:31:00.000Z', changeReason: 'Initial note' },
+      { ...REVISION, id: 'rev-2', revisionNo: 2, content: 'History\nCough for four days.', changeReason: 'Added plan', createdAt: '2026-10-30T09:35:00.000Z' },
+    ])
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    await screen.findByRole('heading', { level: 2, name: 'Earlier versions' })
+    expect(versionSummaries()).toEqual([
+      `${formatWhen('2026-10-30T09:31:00.000Z')} · Version 1 · Draft · Initial note`,
+      `${formatWhen('2026-10-30T09:35:00.000Z')} · Version 2 · Draft · Added plan`,
+      `${formatWhen('2026-10-30T09:40:00.000Z')} · Version 2 · Draft · Sign note`,
+    ])
+  })
+
+  it('names a never-signed note’s revisions "Draft" once it is marked entered in error', async () => {
+    records['clinical-notes'] = [{ ...NOTE, status: 'entered_in_error' }]
+    api.noteRevisions.mockResolvedValue([
+      { ...REVISION, createdAt: '2026-10-29T09:31:00.000Z', changeReason: 'Initial note' },
+      { ...REVISION, id: 'rev-2', revisionNo: 2, content: 'History\nCough for four days.', changeReason: 'Added plan', createdAt: '2026-10-29T09:35:00.000Z' },
+    ])
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    await screen.findByRole('heading', { level: 2, name: 'Earlier versions' })
+    // Both were saved while the note was a draft; only the note itself is now entered in error.
+    expect(versionSummaries()).toEqual([
+      `${formatWhen('2026-10-29T09:31:00.000Z')} · Version 1 · Draft · Initial note`,
+      `${formatWhen('2026-10-29T09:35:00.000Z')} · Version 2 · Draft · Added plan`,
+    ])
+  })
+
+  it('shows no versions card for a draft with one revision', async () => {
+    await openEncounter()
+    expect(screen.queryByRole('heading', { level: 2, name: 'Earlier versions' })).toBeNull()
+  })
+
+  it('shows each history list’s own failure, so a refused document list is not hidden by a failed vitals read', async () => {
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) => {
+      if (kind === 'vitals') throw new HidApiError(503, 'Vitals are unavailable.', { code: 'UNAVAILABLE' })
+      return { items: records[kind] ?? [], nextCursor: null }
+    })
+    api.documents.mockRejectedValue(new HidApiError(403, 'Your role cannot read documents for this patient.', { code: 'PERMISSION_DENIED' }))
+    await openEncounter()
+    await waitFor(() => expect(history().getAllByRole('alert')).toHaveLength(2))
+    expect(history().getAllByRole('alert').map(alert => alert.textContent)).toEqual(['Vitals are unavailable.', 'Your role cannot read documents for this patient.'])
+  })
+
+  it('says a failure two history lists share once', async () => {
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) => {
+      if (kind === 'vitals') throw UNAVAILABLE()
+      return { items: records[kind] ?? [], nextCursor: null }
+    })
+    api.documents.mockRejectedValue(UNAVAILABLE())
+    await openEncounter()
+    await waitFor(() => expect(history().getByRole('alert').textContent).toBe('EHR is unavailable.'))
+    expect(history().getAllByRole('alert')).toHaveLength(1)
   })
 })

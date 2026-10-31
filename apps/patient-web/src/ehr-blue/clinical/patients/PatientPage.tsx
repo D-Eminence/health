@@ -1,6 +1,7 @@
 import { Activity, ChevronRight, FolderOpen, History, ListChecks, LogOut, Send, ShieldCheck, Siren, Stethoscope, UserPlus } from 'lucide-react'
 import { Alert, Badge, Button, Card, CardHeader, IconChip, ListRow, PageHeader } from '../../../kasuwa/ui'
 import { CardFace } from '../../../routes/HealthIdCard'
+import { isHidApiError } from '@hid/http'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter } from '../../../staff/api'
@@ -37,6 +38,64 @@ export function patientDetails(patient: ActivePatient, facts: PatientFacts): Key
     { label: 'Access', value: patient.purpose === 'emergency' ? 'Emergency (read-only)' : 'Direct care' },
     { label: 'Access until', value: formatWhen(patient.lookup.authorization.expiresAt) },
   ]
+}
+
+type Reported =
+  | { readonly scope: string; readonly status: 'hidden' }
+  | { readonly scope: string; readonly status: 'failed' }
+  | { readonly scope: string; readonly status: 'shown'; readonly allergies: string | null }
+
+/**
+ * The patient-reported allergies, shown on the access card under the patient's Health ID card: what the patient entered in their Health ID portal, as
+ * today's "Reported by the patient" reads it (staff/routes/PatientReportedHealth.tsx) and under the same conditions:
+ * direct care only, with ehr.note.read, read afresh for each actor, facility, patient, purpose and permission set (today's
+ * key), so nothing of another patient's shows. No row while it loads, when EHR refuses it (403) or does not serve it
+ * (404), or when the patient has stated nothing; another failure says so in today's words, with today's retry. It is
+ * what the patient says, not a clinical finding, and is labelled so.
+ */
+function useReportedAllergies(chart: Chart): KeyValue | null {
+  const { state, permissions } = useClinical()
+  const { facilityId, patientId, purpose } = chart
+  const reads = purpose === 'direct-care' && permissions.includes('ehr.note.read')
+  const actorId = state.status === 'ready' ? state.session.actor.id : ''
+  const [revision, setRevision] = useState(0)
+  const scope = JSON.stringify([actorId, facilityId, patientId, purpose, permissions, revision])
+  const [reported, setReported] = useState<Reported | null>(null)
+
+  useEffect(() => {
+    if (!reads) return
+    const controller = new AbortController()
+    // Run as a promise, as today's component does, so that a read that throws at once is this row's failure, never the page's.
+    void Promise.resolve().then(() => staffApi.reportedHealthProfile(facilityId, patientId, controller.signal)).then(
+      profile => {
+        if (!controller.signal.aborted) setReported(profile ? { scope, status: 'shown', allergies: profile.allergies } : { scope, status: 'hidden' })
+      },
+      (caught: unknown) => {
+        if (controller.signal.aborted) return
+        // Refused or not served: nothing is shown. Only the service failing to answer says so, with a retry.
+        setReported({ scope, status: isHidApiError(caught) && caught.status !== 403 && caught.status !== 404 ? 'failed' : 'hidden' })
+      },
+    )
+    return () => controller.abort()
+  }, [reads, scope, facilityId, patientId])
+
+  // An answer for an earlier scope (or retry) is never shown: until this one answers, there is no row.
+  const current = reads && reported?.scope === scope ? reported : null
+  if (!current || current.status === 'hidden') return null
+  if (current.status === 'failed') {
+    return {
+      label: 'Allergies',
+      value: (
+        <>
+          <span>What the patient entered about their health could not be loaded.</span>{' '}
+          <button type="button" className="cursor-pointer border-0 bg-transparent p-0 text-[13px] font-medium text-brand-ink underline underline-offset-2" onClick={() => setRevision(value => value + 1)}>
+            Retry patient-reported health information
+          </button>
+        </>
+      ),
+    }
+  }
+  return { label: 'Allergies', value: `${current.allergies ?? 'Not stated'} (patient-reported)` }
 }
 
 /** Age in whole years from an ISO date of birth; empty when unknown. */
@@ -77,6 +136,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
   const expires = chart.patient.lookup.authorization.expiresAt
   const facts = chart.facts
   const about = [ageOf(facts.dateOfBirth), sexText(facts.sex), facts.dateOfBirth ? `born ${formatDate(facts.dateOfBirth)}` : ''].filter(Boolean).join(' · ')
+  const allergies = useReportedAllergies(chart)
 
   async function closeGrant() {
     if (!grantId || closeUnavailable || ending) return
@@ -96,8 +156,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
 
   /**
    * As the design's Next steps, a step shows only to a role that may take it: External record access opens only with
-   * identity.consent.write (the frame's rule, the permission its request form needs), the encounters list only with
-   * ehr.encounter.read (Consultation's).
+   * identity.consent.write (the frame's rule, the permission its request form needs).
    */
   const mayOpenConsent = can('identity.consent.write')
   const mayOpenChart = chart.can('ehr.encounter.read')
@@ -127,6 +186,11 @@ function PatientRecord({ chart }: { chart: Chart }) {
               {expires ? <p className="m-0 text-[12px] text-ink-3">Until {formatWhen(expires)}</p> : null}
             </div>
           </div>
+          {/* What the patient entered in their Health ID portal: labelled as theirs, not a clinical finding. */}
+          {allergies ? <dl className="m-0 border-t border-line px-4 py-2.5">
+            <dt className="text-[12px] text-ink-3">{allergies.label}</dt>
+            <dd className="m-0 text-sm text-ink">{allergies.value}</dd>
+          </dl> : null}
           {grantId ? <div className="border-t border-line px-4 py-2.5">
             {closeUnavailable ? <p id="close-grant-unavailable" className="m-0 mb-1.5 text-[12px] text-ink-3">{closeUnavailable}</p> : null}
             <Button variant="danger" size="sm" icon={LogOut} disabled={closeUnavailable !== null} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}

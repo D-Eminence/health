@@ -38,8 +38,8 @@ export function ConsentWorkspace() {
 function RequestList() {
   const { facility, can } = useClinical()
   const href = useWorkspaceHref()
-  const [status, setStatus] = useState<AccessRequestStatus | ''>('')
   const [search, setSearch] = useState('')
+  const [status, setStatus] = useState<AccessRequestStatus | ''>('')
   const { requests, loading, error, outcomesReported, load } = useAccessRequests(status)
 
   const filters: readonly AccessRequestStatus[] = outcomesReported || (ACCESS_OUTCOME_FILTERS as readonly string[]).includes(status)
@@ -48,8 +48,10 @@ function RequestList() {
     const words = search.trim().toLowerCase()
     const all = requests ?? []
     if (!words) return all
-    return all.filter(request => [request.reason, patientContext(request), SCOPE_LABELS[request.scope], outcome(request).label, statusNote(request)]
-      .join(' ').toLowerCase().includes(words))
+    // A request is also found by its own status in today's filter words, so "approved" finds every approved request,
+    // whatever came of it (today's "Approved (any outcome)").
+    return all.filter(request => [request.reason, patientContext(request), SCOPE_LABELS[request.scope], outcome(request).label, statusNote(request),
+      FILTER_LABELS[request.status as AccessRequestStatus]].join(' ').toLowerCase().includes(words))
   }, [requests, search])
   const empty = !requests || shown.length > 0 ? null
     : requests.length === 0
@@ -81,7 +83,8 @@ function RequestList() {
         <Card>
           <ul className="m-0 list-none divide-y divide-line p-0" aria-label="Access requests">
             {shown.map(request => <li key={request.accessRequestId}>
-              <ListRow to={href(request.accessRequestId)} title={request.reason}
+              {/* A request found through a filter is read with it on its page too: the address names the filter, not the patient. */}
+              <ListRow to={status ? `${href(request.accessRequestId)}?status=${status}` : href(request.accessRequestId)} title={request.reason}
                 subtitle={[patientContext(request), SCOPE_LABELS[request.scope] ?? request.scope, `updated ${formatWhen(latest(request))}`].join(' · ')}
                 trailing={<><OutcomeBadge request={request} /><ChevronRight className="size-4 text-ink-3" aria-hidden /></>} />
             </li>)}

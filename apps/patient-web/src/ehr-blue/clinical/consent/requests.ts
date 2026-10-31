@@ -1,6 +1,6 @@
 import { isHidApiError } from '@hid/http'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { staffApi, type AccessRequest, type AccessRequestStatus } from '../../../staff/api'
+import { ACCESS_OUTCOME_FILTERS, ACCESS_REQUEST_STATUSES, staffApi, type AccessRequest, type AccessRequestStatus } from '../../../staff/api'
 import { accessRequestsError, outcome } from '../../../staff/routes/AccessRequests'
 import { formatWhen } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
@@ -11,6 +11,12 @@ import { useClinical } from '../parts/Workspace'
 export const FILTER_LABELS: Readonly<Record<AccessRequestStatus, string>> = {
   pending: 'Waiting for the patient', approved: 'Approved (any outcome)', denied: 'Denied',
   active: 'Access active', expired: 'Expired', closed: 'Closed by you', revoked: 'Ended by the patient',
+}
+
+/** A Status filter from a request page's address, used only if it is one of today's. */
+export function statusFilter(value: string | null): AccessRequestStatus | '' {
+  const filters: readonly string[] = [...ACCESS_REQUEST_STATUSES, ...ACCESS_OUTCOME_FILTERS]
+  return value !== null && filters.includes(value) ? value as AccessRequestStatus : ''
 }
 
 export const SCOPE_LABELS: Readonly<Record<AccessRequest['scope'], string>> = {

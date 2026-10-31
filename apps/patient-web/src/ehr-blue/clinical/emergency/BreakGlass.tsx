@@ -130,7 +130,7 @@ export function BreakGlassCard() {
         throw new Error(NOT_GRANTED)
       }
       // A lookup answered after the session or facility changed opens nothing.
-      if (setActivePatient({ hid: normalized, lookup, purpose: 'emergency' })) navigate(href('summary'))
+      if (setActivePatient({ hid: normalized, lookup, purpose: 'emergency' })) navigate(href.to('emergency', 'summary'))
     } catch (caught) {
       setError(caught instanceof Error && caught.message ? caught.message : COMMAND_FAILED)
     } finally {

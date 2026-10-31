@@ -52,6 +52,8 @@ function useLinkedOrder(chart: Chart | null): string | null {
   const { patientId, encounterId, kind, orderId } = value as Record<string, unknown>
   if (patientId !== chart.patientId || !isRecordId(encounterId) || !isRecordId(orderId)) return null
   if (kind !== 'lab_request' && kind !== 'prescription') return null
+  // Only a role that may read that kind of order is sent to its page.
+  if (!chart.can(kind === 'lab_request' ? 'ehr.lab-request.read' : 'ehr.prescription.read')) return null
   return href(orderPath(encounterId, LINKED_KINDS[kind], orderId))
 }
 
@@ -80,15 +82,14 @@ function Encounters({ chart }: { chart: Chart }) {
   const [notice, setNotice] = useState<Notice | null>(null)
   const [search, setSearch] = useState('')
   const sequence = useRef(0)
-  const shown = useLatest(position.cursors)
 
-  const load = useCallback(async (request: { cursors?: Cursors; fresh?: boolean; paging?: boolean } = {}) => {
+  const load = useCallback(async (request: { cursors: Cursors; fresh?: boolean; paging?: boolean }) => {
     const run = ++sequence.current
     setLoading(true)
     if (request.paging) setNotice(null)
     try {
       await verify.current()
-      const result = await readPage((cursor, fresh) => staffApi.encounters(facilityId, patientId, { cursor, fresh }), request.cursors ?? shown.current, request.fresh ?? false)
+      const result = await readPage((cursor, fresh) => staffApi.encounters(facilityId, patientId, { cursor, fresh }), request.cursors, request.fresh ?? false)
       if (run !== sequence.current) return
       setRows(result.page.items.filter(item => item.patientId === patientId && item.facilityId === facilityId))
       setPosition({ cursors: result.cursors, next: result.page.nextCursor ?? null })
@@ -101,7 +102,7 @@ function Encounters({ chart }: { chart: Chart }) {
     } finally {
       if (run === sequence.current) setLoading(false)
     }
-  }, [facilityId, patientId, shown, verify])
+  }, [facilityId, patientId, verify])
 
   useEffect(() => {
     void load({ cursors: FIRST_PAGE })
@@ -141,7 +142,7 @@ function Encounters({ chart }: { chart: Chart }) {
         title={TITLE}
         // One primary: "New consultation" (only when changes are allowed; read-only offers no dead end). Refresh is secondary.
         primaryAction={canCreate ? <EhrButton onClick={() => navigate(href('new'))}>{NEW_TITLE}</EhrButton> : undefined}
-        secondaryActions={<EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void load({ fresh: true }) }}>Refresh</EhrButton>}
+        secondaryActions={<EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void load({ cursors, fresh: true }) }}>Refresh</EhrButton>}
       />
       <EhrCard>
         <SearchField label={`Search ${TITLE}`} value={search} onChange={setSearch} />

@@ -163,6 +163,18 @@ describe('Consultation list', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
   })
 
+  it('after a failed read, Refresh reads the list afresh after the access re-check, and the alert goes', async () => {
+    api.encounters.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
+    open()
+    expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    const checks = api.lookupPatient.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await screen.findByRole('table', { name: 'Consultations' })).toBeTruthy()
+    expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: undefined, fresh: true })
+    expect(api.lookupPatient.mock.calls.length).toBe(checks + 1)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('pages with the backend cursor, re-checking access each time, and restarts on a cursor EHR no longer accepts', async () => {
     api.encounters.mockImplementation(async (_f: string, _p: string, page: { cursor?: string }) => {
       if (page.cursor === 'cursor-2') return { items: [SECOND], nextCursor: null }
@@ -202,12 +214,13 @@ describe('Consultation list', () => {
     expect(screen.queryByRole('navigation', { name: 'Record pages' })).toBeNull()
   })
 
-  it('offers "Create record" as a real button only when the grant allows changes', async () => {
+  it('offers "New consultation" as the heading’s one primary action, a real button, only when the grant allows changes', async () => {
     open()
     const create = await screen.findByRole('button', { name: 'New consultation' })
     // The heading's actions: Refresh (secondary), then the one primary, "New consultation".
     const heading = screen.getByRole('heading', { level: 1, name: 'Consultation' }).parentElement!.parentElement!
     expect(within(heading).getAllByRole('button').map(button => button.textContent)).toEqual(['Refresh', 'New consultation'])
+    expect(create.className).not.toContain('secondary')
     fireEvent.click(create)
     expect(await screen.findByRole('heading', { level: 1, name: 'New consultation' })).toBeTruthy()
   })
@@ -249,6 +262,7 @@ describe('Consultation list', () => {
   })
 
   it('item 4: opens the order Home links to (accepted for the wrong person) for the open patient, replacing the address with record ids only', async () => {
+    staff.permissions = [...ALL, 'ehr.lab-request.read', 'ehr.prescription.read']
     for (const [kind, ours, orderId] of [['lab_request', 'laboratory', 'lab-1'], ['prescription', 'pharmacy', 'rx-1']] as const) {
       const view = openFromHome({ patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, kind, orderId })
       expect(await screen.findByText('Order pages part')).toBeTruthy()
@@ -257,6 +271,17 @@ describe('Consultation list', () => {
       expect(address()).not.toContain(PATIENT_HID)
       // The list is not read on the way.
       expect(api.encounters).not.toHaveBeenCalled()
+      view.unmount()
+    }
+  })
+
+  it('item 4: ignores a linked order of a kind the role may not read, and shows the encounters', async () => {
+    for (const [kind, orderId, other] of [['lab_request', 'lab-1', 'ehr.prescription.read'], ['prescription', 'rx-1', 'ehr.lab-request.read']] as const) {
+      staff.permissions = [...ALL, other]
+      const view = openFromHome({ patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, kind, orderId })
+      expect(await screen.findByRole('table', { name: 'Consultations' })).toBeTruthy()
+      expect(screen.queryByText('Order pages part')).toBeNull()
+      expect(address()).toMatch(/^POP \/provider\/clinical /)
       view.unmount()
     }
   })

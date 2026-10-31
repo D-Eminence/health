@@ -1187,7 +1187,8 @@ describe('Hand-off 06: the open patient and this consultation carry in on New la
     await screen.findByRole('button', { name: 'Save prescription' })
     expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
     expect(screen.queryByText(/^Recorded allergies/)).toBeNull()
-    expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
+    // The read starts in an effect after the form is drawn: wait for it to be asked for before answering it.
+    await waitFor(() => expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal)))
     await act(async () => { answer({ allergies: 'Penicillin', bloodGroup: null, genotype: null, currentMedications: null, chronicConditions: null, medicalNotes: null, updatedAt: null }) })
     const allergies = screen.getByText(ALLERGIES)
     // Between the patient banner and the form.

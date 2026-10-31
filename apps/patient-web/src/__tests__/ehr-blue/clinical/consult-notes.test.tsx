@@ -314,6 +314,65 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     expect(pager().getByText('Page 1')).toBeTruthy()
   })
 
+  it('follow-up 1: History keeps the first page’s nursing observations while the Notes card shows another page', async () => {
+    const first = [NOTE, OBSERVATION, ...many('note-p1', 48, index => ({ noteType: 'Progress', title: `Progress note ${index}`, status: 'signed', rowVersion: 1 }))]
+    const second = many('note-p2', 2, index => ({ noteType: 'Progress', title: `Older progress note ${index}`, status: 'signed', rowVersion: 1 }))
+    pages['clinical-notes'] = { '': { items: first, nextCursor: 'notes-cursor-2' }, 'notes-cursor-2': { items: second, nextCursor: null } }
+    await openEncounter()
+    const history = () => within(card('History'))
+    expect(history().getByRole('link', { name: 'Nursing observations · b1c6ef36' })).toBeTruthy()
+    const notes = () => within(card('Clinical notes'))
+    fireEvent.click(within(notes().getByRole('navigation', { name: 'Record pages' })).getByRole('button', { name: 'Next page' }))
+    expect(await notes().findByText('Older progress note 1')).toBeTruthy()
+    expect(history().getByRole('link', { name: 'Nursing observations · b1c6ef36' })).toBeTruthy()
+    expect(savedValues()).toMatchObject({ 'Note status': 'draft', Note: 'History\nCough for three days.' })
+  })
+
+  it('follow-up 2: a saved draft edit whose revisions cannot be read again shows neither the old content nor "Sign note"', async () => {
+    await openEncounter()
+    expect(within(card('Actions')).getByRole('button', { name: 'Sign note' })).toBeTruthy()
+    api.noteRevisions.mockRejectedValue(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit draft' }))
+    const saved = within(card('Note'))
+    fireEvent.change(saved.getByLabelText(labelled('Clinical note')), { target: { value: 'History\nCough for four days.' } })
+    fireEvent.change(saved.getByLabelText(labelled('Reason for revision')), { target: { value: 'Duration corrected' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    expect(await screen.findByText('Note changes saved.', { exact: false })).toBeTruthy()
+    await waitFor(() => expect(within(card('Note')).queryByText('Cough for three days.', { exact: false })).toBeNull())
+    expect(within(card('Actions')).queryByRole('button', { name: 'Sign note' })).toBeNull()
+    expect(within(card('Note')).getAllByRole('alert').length).toBeGreaterThan(0)
+  })
+
+  it('follow-up 3: offers no "Write clinical note" to a role that may write notes but not read them', async () => {
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.note.read')
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
+    await within(card('Documents')).findByText('referral-letter.pdf')
+    expect(within(card('Actions')).queryByRole('button', { name: 'Write clinical note' })).toBeNull()
+    expect(api.noteRevisions).not.toHaveBeenCalled()
+  })
+
+  it('pages the Diagnoses card past 50 under "Record pages" for a reader without write access, offering no change', async () => {
+    api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
+    const first = many('dx-p1', 50, index => ({ codeSystem: 'ICD-10', code: `R${index}`, display: `Finding ${index} (fictional)`, clinicalStatus: 'active', verificationStatus: 'provisional', rowVersion: 1 }))
+    pages.diagnoses = { '': { items: first, nextCursor: 'dx-cursor-2' }, 'dx-cursor-2': { items: [DIAGNOSIS], nextCursor: null } }
+    await openEncounter()
+    const view = () => within(card('Diagnoses'))
+    expect(view().getAllByRole('listitem')).toHaveLength(50)
+    const pager = () => within(view().getByRole('navigation', { name: 'Record pages' }))
+    expect(pager().getByText('Page 1')).toBeTruthy()
+    fireEvent.click(pager().getByRole('button', { name: 'Next page' }))
+    expect(await view().findByText('Malaria (fictional)')).toBeTruthy()
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses', { cursor: 'dx-cursor-2', fresh: false })
+    expect(view().getAllByRole('listitem')).toHaveLength(1)
+    expect(view().getByText('ICD-10 · B54 · active · provisional')).toBeTruthy()
+    expect(pager().getByText('Page 2')).toBeTruthy()
+    // A read only: nothing to change, add or update.
+    expect(view().queryByRole('button', { name: 'Change this diagnosis' })).toBeNull()
+    expect(view().queryByRole('button', { name: 'Update diagnosis' })).toBeNull()
+    expect(view().queryByRole('button', { name: 'Add diagnosis' })).toBeNull()
+  })
+
   it('item 6: pages the Diagnoses card past 50 under "Record pages", a change re-reading the page shown', async () => {
     const first = many('dx-p1', 50, index => ({ codeSystem: 'ICD-10', code: `R${index}`, display: `Finding ${index} (fictional)`, clinicalStatus: 'active', verificationStatus: 'provisional', rowVersion: 1 }))
     const second = [DIAGNOSIS]
@@ -334,6 +393,8 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     fireEvent.change(diagnoses().getByLabelText(labelled('Reason for change')), { target: { value: 'Smear positive' } })
     fireEvent.click(diagnoses().getByRole('button', { name: 'Update diagnosis' }))
     expect(await screen.findByText('Diagnosis updated.')).toBeTruthy()
+    expect(api.updateDiagnosis).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'dx-1',
+      { expectedRowVersion: 1, changeReason: 'Smear positive', verificationStatus: 'confirmed' })
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses', { cursor: 'dx-cursor-2', fresh: true })
   })
 

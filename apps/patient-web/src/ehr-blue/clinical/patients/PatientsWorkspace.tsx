@@ -25,7 +25,8 @@ export const patientsStatus: EhrBluePageStatus = 'live'
  * Patients: search by Health ID (today's access rules), the patient open now, that patient's page at
  * `patients/open`, and the patient PIN at `patients/pin` (as on today's Patients page, it needs no
  * identity.consent.write, which the frame asks for External record access). There is no list of every patient:
- * Health ID shows a patient only once this facility may see them.
+ * Health ID shows a patient only once this facility may see them. "Register a patient" is today's Patient registration
+ * page (/provider/registration), offered only with identity.registration.write; nothing of a patient goes with it.
  */
 export function PatientsWorkspace() {
   return (
@@ -156,7 +157,7 @@ function PatientList() {
 
   return (
     <FormPage title="Find a patient" description="Search by Health ID to open their record, or to get access if you don’t have it yet."
-      actions={<Button to="/provider/registration" icon={UserPlus}>Register a patient</Button>}>
+      actions={can('identity.registration.write') ? <Button to="/provider/registration" icon={UserPlus}>Register a patient</Button> : undefined}>
       {ended && !activePatient ? <Alert intent="error" title="Access to this patient ended">Open the patient again to keep working.</Alert> : null}
 
       <Card>
