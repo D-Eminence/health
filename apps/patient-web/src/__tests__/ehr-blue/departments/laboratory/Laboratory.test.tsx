@@ -318,7 +318,7 @@ describe('quick view', () => {
     const drawer = screen.getByRole('dialog', { name: 'Record quick view' })
     expect(within(drawer).getByRole('heading', { name: 'Haemoglobin' })).toBeTruthy()
     expect(within(drawer).getByText('Patient').nextSibling?.textContent).toBe(MASKED)
-    expect(within(drawer).getByText('Priority').nextSibling?.textContent).toBe('urgent')
+    expect(within(drawer).getByText('Urgency').nextSibling?.textContent).toBe('Urgent')
     expect(within(drawer).getByText('Accession').nextSibling?.textContent).toBe('Not created yet')
     fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }))
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -337,7 +337,9 @@ describe('the record view', () => {
     const record = await openRecord()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(document.activeElement?.id).toBe('lab-record-title')
-    expect(within(record).getAllByText(MASKED)).toHaveLength(2)
+    // The Saved record's patient, and the context line's patient with the record's reference after it (the design's).
+    expect(within(record).getAllByText(MASKED)).toHaveLength(1)
+    expect(within(record).getAllByText(text => text.startsWith(`${MASKED} · `))).toHaveLength(1)
     expect(within(record).getAllByText('accepted')).toHaveLength(2)
     // Nothing about the record goes in the address.
     expect(window.location.href).not.toMatch(/work-item-1/)
@@ -397,7 +399,7 @@ describe('the record view', () => {
     renderDept(<Laboratory />)
     await openRecord()
     const saved = cardOf('Saved record')
-    expect([...saved.querySelectorAll('dt')].map(term => term.textContent)).toEqual(['Test', 'Patient', 'Priority', 'Accepted', 'Accession', 'Status'])
+    expect([...saved.querySelectorAll('dt')].map(term => term.textContent)).toEqual(['Test', 'Patient', 'Urgency', 'Accepted', 'Accession', 'Status'])
     expect(within(cardOf('Available actions')).getByText('No further actions for your permission and this record state.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Create accession' })).toBeNull()
   })

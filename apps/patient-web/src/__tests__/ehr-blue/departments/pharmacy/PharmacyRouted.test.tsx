@@ -102,7 +102,7 @@ describe('a prescription from another facility', () => {
 
   it('shows the order on the record, and asks to check the person before handing anything over', async () => {
     await openRouted()
-    expect(within(contextLine()).getByText(PATIENT_CARD)).toBeTruthy()
+    expect(within(contextLine()).getByText(text => text.startsWith(`${PATIENT_CARD} · `))).toBeTruthy()
     expect(within(savedRecord()).getByText('From Demo Hospital · Ref 9C1B2D3E · Ordered by Dr Demo Prescriber')).toBeTruthy()
     fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Dispense quantity', expanded: false }))
     const form = screen.getByRole('form', { name: 'Dispense quantity' })

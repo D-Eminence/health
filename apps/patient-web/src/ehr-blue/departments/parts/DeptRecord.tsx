@@ -60,7 +60,7 @@ export function DeptActions({ title = 'Available actions', children, empty = 'No
   return (
     <section className="hid-ehr-card hid-ehr-dept-section hid-ehr-dept-actions-card">
       <h2 className="hid-ehr-card-title">{title}</h2>
-      {has ? <div className="hid-ehr-dept-action-stack">{children}</div> : <p className="hid-ehr-dept-muted">{empty}</p>}
+      {has ? <div className="hid-ehr-dept-action-stack">{children}</div> : <p className="hid-ehr-dept-actions-empty">{empty}</p>}
     </section>
   )
 }
@@ -80,7 +80,7 @@ export function DeptHistory({ title = 'Preserved versions & amendments', entries
 }) {
   if (entries.length === 0 && !empty) return null
   return (
-    <section className="hid-ehr-card hid-ehr-dept-section">
+    <section className="hid-ehr-card hid-ehr-dept-section hid-ehr-dept-history-card">
       <h2 className="hid-ehr-card-title">{title}</h2>
       {entries.length === 0 ? <p className="hid-ehr-dept-muted">{empty}</p> : entries.map(entry => (
         <details key={entry.key} className="hid-ehr-dept-history">

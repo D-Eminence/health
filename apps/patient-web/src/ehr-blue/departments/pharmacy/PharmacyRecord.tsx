@@ -240,7 +240,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const connected = items.filter(other => other.id !== item.id && sameShownPatient(other, item))
 
   return <>
-    <DeptContextLine status={status} tone={statusTone(status)} items={[patientLabel(item), `Accepted ${dateText(item.acceptedAt)}`]} />
+    <DeptContextLine status={status} tone={statusTone(status)} items={[`${patientLabel(item)} · ${item.id.slice(0, 8)}`, `Accepted ${dateText(item.acceptedAt)}`]} />
     {said && route && <DeptNotice id={`pharmacy-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{said}</DeptNotice>}
     <RoutedWorkPaused items={[item]} crossFacilityWork={crossFacilityWork} receives={holds} />
     <DeptRecordLayout

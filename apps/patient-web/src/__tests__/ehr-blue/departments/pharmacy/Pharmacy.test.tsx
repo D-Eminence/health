@@ -105,7 +105,7 @@ describe('the list', () => {
     expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
     expect(screen.getByRole('searchbox', { name: 'Search Pharmacy' }).getAttribute('placeholder')).toBe('Search saved records…')
     const table = screen.getByRole('table', { name: 'Prescriptions' })
-    expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Record', 'Patient / context', 'Status', 'Accepted', 'Actions'])
+    expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Record', 'Patient / context', 'Status', 'Updated', 'Actions'])
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
     expect(api.pharmacyWorkItems).toHaveBeenCalledWith(DEMO_PHARMACY_ID)
   })
@@ -383,7 +383,7 @@ describe('the record', () => {
     expect(screen.queryByRole('searchbox')).toBeNull()
     expect(screen.queryByRole('table')).toBeNull()
     expect([...contextLine().children].map(part => part.textContent))
-      .toEqual(['accepted', 'Patient ••••6f8a10', `Accepted ${new Date(accepted.acceptedAt).toLocaleString()}`])
+      .toEqual(['accepted', `Patient ••••6f8a10 · ${accepted.id.slice(0, 8)}`, `Accepted ${new Date(accepted.acceptedAt).toLocaleString()}`])
     const facts = Object.fromEntries([...savedRecord().querySelectorAll('dt')].map(term => [term.textContent, term.nextElementSibling?.textContent]))
     expect(facts).toEqual({ Item: AMOXICILLIN, Dose: '1 capsule', Frequency: 'Three times daily', Route: 'oral',
       Instructions: 'Take with food.\nFinish the course.', Dispensed: 'No', Accepted: new Date(accepted.acceptedAt).toLocaleString() })

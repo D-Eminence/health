@@ -63,7 +63,7 @@ function workFacts(item: LabWorkItem, accessionShown = false): DeptFact[] {
   return [
     { label: 'Test', value: workTitle(item) },
     { label: 'Patient', value: patientLabel(item) },
-    ...(item.priority ? [{ label: 'Priority', value: statusWord(item.priority) }] : []),
+    ...(item.priority ? [{ label: 'Urgency', value: (word => word.charAt(0).toUpperCase() + word.slice(1))(statusWord(item.priority)) }] : []),
     { label: 'Accepted', value: dateText(item.acceptedAt) },
     ...(route ? [{ label: 'Ordering facility', value: route.orderingFacilityName ?? 'Not available' }] : []),
     ...(route?.reference ? [{ label: 'Reference', value: route.reference }] : []),
@@ -263,7 +263,7 @@ function WorkRecord({ facilityId, item, accessionId, accessionNumber, created, p
   const [accessionOffer, setAccessionOffer] = useState<LabOffer>('unsettled')
   const shownAccessionId = accessionId && permissions.includes('lab.accession.read') ? accessionId : null
   return <DeptPage title={<span id="lab-record-title" tabIndex={-1}>{title}</span>} onBack={onBack}>
-    <DeptContextLine status={workStatus(item)} items={[patientLabel(item), `Accepted ${dateText(item.acceptedAt)}`]} />
+    <DeptContextLine status={workStatus(item)} items={[`${patientLabel(item)} · ${item.accessionNumber ?? item.id.slice(0, 8)}`, `Accepted ${dateText(item.acceptedAt)}`]} />
     {said && route && <DeptNotice id={`lab-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{said}</DeptNotice>}
     {route && <div className="hid-ehr-dept-laboratory-routed"><RoutedWorkLines route={route} /></div>}
     <LabSlots.Provider value={slots}>
