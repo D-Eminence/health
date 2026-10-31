@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now, after four backend releases since ef81b4f: backend-40944746728-1-af283acb04b5abf5 (D-Eminence/hid-system#134 at 61fb36b, Node 22.23.4 security fix, all twelve services), backend-40981383492-1-e81fc1538b1028ac (#131 at 8749271, ehr-api), backend-41019669602-1-4c6216ab762aaf4c (#132 at 24b976d, migration 0098, identity-api and ehr-api) and backend-41025269743-1-c5c90b301b8da2d9 (#135 at f2d2d55, migration 0099, ehr-api). So identity-api pins to 24b976d, ehr-api to f2d2d55 and every other service to 61fb36b. Browser-facing changes since the previous pins: new EHR offline routes (ping, receipt lookup, audit ingest, escrow key; this frontend does not call them yet) and the sealed demo tenant's guards in identity-api (demo facilities refuse sharing with real ones). Nothing this frontend calls changed shape. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-30 (\"Approve\", in reply to the request to re-pin the website so the blue EHR can release).",
+  "review_reference": "The services as deployed now, after backend release backend-41191658905-1-12d98e3f095d7031 (D-Eminence/hid-system#136 at 82f52b9). That release rebuilt and deployed every service at 82f52b9, because the runtime assessment it updates (CVE-2026-84243) is a build input, so every service pins to 82f52b9. Browser-facing changes since the previous pins: ehr-api's document upload link now carries the checksum and declared-sha256 as signed headers, which this frontend already sends from requiredHeaders (health#60), so uploads can complete; ocr-api publishes validated OCR evidence by default. gateway, lab-api, pharmacy-api, outreach-api, support-api and notification-api have no code change since 61fb36b. Nothing else this frontend calls changed shape. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-31 (\"approve re-pin\" and \"Approve both\", for re-pinning the website after the upload fix and OCR publishing release).",
   "backend_commits": {
-    "gateway": "61fb36b123703f7cd13cd9d55f4c86a3d36c4527",
-    "identity-api": "24b976d8a19cb324a04b11e3833bf14040b48b39",
-    "ehr-api": "f2d2d554918cf65c89b3db91b56b88ad7eaf33cf",
-    "lab-api": "61fb36b123703f7cd13cd9d55f4c86a3d36c4527",
-    "pharmacy-api": "61fb36b123703f7cd13cd9d55f4c86a3d36c4527",
-    "ocr-api": "61fb36b123703f7cd13cd9d55f4c86a3d36c4527",
-    "outreach-api": "61fb36b123703f7cd13cd9d55f4c86a3d36c4527",
-    "support-api": "61fb36b123703f7cd13cd9d55f4c86a3d36c4527",
-    "notification-api": "61fb36b123703f7cd13cd9d55f4c86a3d36c4527"
+    "gateway": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
+    "identity-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
+    "ehr-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
+    "lab-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
+    "pharmacy-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
+    "ocr-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
+    "outreach-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
+    "support-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
+    "notification-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be"
   }
 }
