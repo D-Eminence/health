@@ -23,9 +23,10 @@ export type Agreement = (typeof AGREEMENTS)[number][0]
 export type Agreements = Readonly<Record<Agreement, boolean>>
 export const NO_AGREEMENTS: Agreements = { terms: false, privacy: false, ndpa: false, authorised: false }
 
-// The public site's legal pages, as the patient sign-up links them (routes/enrollment/Signup.tsx:92-93).
-const TERMS_URL = '/terms'
-const PRIVACY_URL = '/privacy'
+// The public site's legal pages, as the patient sign-up links them (routes/enrollment/Signup.tsx:92-93). Absolute: a
+// relative /terms on the portal's own origin opens the patient sign-in, not the legal page.
+const TERMS_URL = 'https://healthidentitydirectory.com/terms'
+const PRIVACY_URL = 'https://healthidentitydirectory.com/privacy'
 
 // The design's own options for fields Health ID does not take (facility-fields.ts, model.ts:349-365).
 const ROLES = ['Owner', 'Medical Director', 'Administrator', 'Other authorised representative']

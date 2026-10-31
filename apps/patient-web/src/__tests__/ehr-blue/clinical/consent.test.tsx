@@ -224,15 +224,17 @@ describe('New external record access', () => {
   })
 
   it('confirms a request just sent while its page is read, and when it cannot be read', async () => {
-    let fail: (reason: unknown) => void = () => {}
-    api.listAccessRequests.mockReturnValue(new Promise((_resolve, reject) => { fail = reject }))
+    // Each read gets its own promise, made when the page asks for it, so none is refused before the page holds it.
+    const fails: Array<(reason: unknown) => void> = []
+    api.listAccessRequests.mockImplementation(() => new Promise((_resolve, reject) => { fails.push(reject) }))
     open('/new')
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
     fireEvent.change(screen.getByLabelText(labelled('Purpose of access')), { target: { value: 'Follow-up consultation' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send access request' }))
     expect(await screen.findByText('Loading requests…')).toBeTruthy()
     expect(screen.getByText(SENT)).toBeTruthy()
-    await act(async () => { fail(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' })) })
+    await waitFor(() => expect(fails.length).toBeGreaterThan(0))
+    await act(async () => { for (const fail of fails) fail(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' })) })
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(screen.getByText(SENT)).toBeTruthy()
   })
@@ -417,11 +419,13 @@ describe('An access request’s page', () => {
   })
 
   it('shows the request loading, and a list refusal in today’s words', async () => {
-    let fail: (reason: unknown) => void = () => {}
-    api.listAccessRequests.mockReturnValue(new Promise((_resolve, reject) => { fail = reject }))
+    // Each read gets its own promise, made when the page asks for it, so none is refused before the page holds it.
+    const fails: Array<(reason: unknown) => void> = []
+    api.listAccessRequests.mockImplementation(() => new Promise((_resolve, reject) => { fails.push(reject) }))
     open('/r0000000-0000-4000-8000-000000000001')
     expect(screen.getByText('Loading requests…')).toBeTruthy()
-    await act(async () => { fail(new HidApiError(403, 'Forbidden', { code: 'FACILITY_ACCESS_DENIED' })) })
+    await waitFor(() => expect(fails.length).toBeGreaterThan(0))
+    await act(async () => { for (const fail of fails) fail(new HidApiError(403, 'Forbidden', { code: 'FACILITY_ACCESS_DENIED' })) })
     expect((await screen.findByRole('alert')).textContent).toBe('Select a facility where you are an active member to see your access requests.')
   })
 
