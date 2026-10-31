@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { PATIENT_ROUTE } from '@hid/auth'
 import { RequireAccess } from './RequireAccess'
@@ -16,6 +16,8 @@ import { PrincipalRecovery } from './routes/PrincipalRecovery'
 import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, SettingsRedirect } from './routes/Portal'
 import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE, STAFF_RECOVERY_PATH } from './productHostname'
 import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_INVITATION_PATH } from './productHostname'
+import { rightSiteHref } from './productSites'
+import { openSite } from './openSite'
 import { usesNovuBackend } from './backendContract'
 import { LEGACY_PATIENT_PATHS } from './legacyPaths'
 import { ShareRecords } from './routes/ShareRecords'
@@ -68,6 +70,18 @@ function PatientRoutes() {
   )
 }
 
+/**
+ * A page another Health ID site serves (productSites.ts): it opens there, in place of this address. Until the browser
+ * leaves, and if it does not, the page says where it went and links there.
+ */
+function OnAnotherSite({ href }: { href: string }) {
+  const hostname = new URL(href).hostname
+  useDocumentTitle('Opening another Health ID site · Health ID')
+  useEffect(() => { openSite(href) }, [href])
+  return <main><p role="status">This page is on {hostname}. Opening it there…</p>
+    <p><a href={href}>Continue to {hostname}</a></p></main>
+}
+
 function ProductHostnameGate({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const hostname = window.location.hostname
@@ -80,6 +94,11 @@ function ProductHostnameGate({ children }: { children: React.ReactNode }) {
   if (product && location.pathname === '/') {
     return <Navigate to={product.route} replace />
   }
+
+  // Each product on its own site (owner, 2026-10-31): an address another site serves, typed or followed from a link,
+  // opens there.
+  const elsewhere = rightSiteHref(location, hostname)
+  if (elsewhere) return <OnAnotherSite href={elsewhere} />
 
   return <>{children}</>
 }

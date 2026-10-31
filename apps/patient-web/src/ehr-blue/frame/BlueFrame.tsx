@@ -1,13 +1,15 @@
-import { isValidElement, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { EhrAppShell, EhrModuleTabs, EhrSidebar, EhrTopBar, type EhrNavGroup, type EhrNavItem } from '@hid/ui/ehr'
+import { createElement, isValidElement, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { EhrAppShell, EhrEmptyState, EhrIcon, EhrModuleTabs, EhrPageHeading, EhrSidebar, EhrTopBar, type EhrNavGroup,
+  type EhrNavItem } from '@hid/ui/ehr'
 import { useStaff } from '../../staff/App'
 import { visibleNavigation } from '../../staff/navigation'
 import { ReviewBanner } from '../../staff/routes/ReviewBanner'
 import { BillingBanner } from '../../staff/routes/Billing'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
-import { chooseClassicEhr, isDemoFacility } from '../blueFacilities'
+import { otherStaffSites, servedHere, siteElsewhere, siteHref, siteOf, SITE_NAMES, type Site } from '../../productSites'
+import { chooseClassicEhr, demoFacilitySite, isDemoFacility } from '../blueFacilities'
 import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
@@ -38,6 +40,36 @@ export function navigationGroups(pages: readonly EhrBluePage[]): EhrNavGroup[] {
 }
 
 /**
+ * The sidebar's links to the other Health ID sites that serve pages the facility may open (productSites.ts): each
+ * product is on its own site. Sample pages are the hospital EHR's design, not a reason to link to it.
+ */
+export function otherSitesGroup(pages: readonly EhrBluePage[]): EhrNavGroup | null {
+  const sites = otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf))
+  return sites.length === 0 ? null : {
+    id: 'other-sites',
+    label: 'Other Health ID sites',
+    items: sites.map(site => ({ id: `site:${site.key}`, label: SITE_NAMES[site.key], href: siteHref(site),
+      icon: createElement(EhrIcon, { name: 'share' }) })),
+  }
+}
+
+/**
+ * A demo facility opened on another staff site than its own: it works on its own site, where the person signs in again
+ * (each site keeps its own sign-in). Nothing opens here; Choose workspace switches to another facility.
+ */
+function FacilityOnAnotherSite({ facility, site, choosing }: { facility: string; site: Site; choosing: boolean }) {
+  return <>
+    <EhrPageHeading title={`${facility} works on ${SITE_NAMES[site.key]}`} />
+    <EhrEmptyState title={`${facility} is on ${site.hostname}`}
+      message={`You sign in there separately.${choosing ? ' To work at another facility here, choose it.' : ''}`}
+      action={<>
+        <a className="hid-ehr-button" href={siteHref(site)}>Open {SITE_NAMES[site.key]}</a>
+        {choosing ? <Link className="hid-ehr-button hid-ehr-button-secondary" to="/provider/institutions">Choose workspace</Link> : null}
+      </>} />
+  </>
+}
+
+/**
  * Today's pages that send a request before they refuse (Access requests reads the requests; Clinical record looks up
  * the patient, consent and encounters): without the permission, the frame refuses for them instead.
  */
@@ -59,8 +91,12 @@ export function BlueFrame() {
   const facility = session?.actor.facility
   const permissions = useMemo(() => facility?.permissions ?? [], [facility])
   const allowed = useMemo(() => BLUE_PAGES.filter(page => pageAllowed(page, session)), [session])
-  // What the sidebar and search offer: the allowed pages this session lists.
-  const listed = useMemo(() => allowed.filter(page => !session || (page.listed?.(session) ?? true)), [allowed, session])
+  // What the sidebar and search offer: the allowed pages this session lists, on this site (productSites.ts).
+  const listed = useMemo(() => allowed.filter(page => (!session || (page.listed?.(session) ?? true))
+    && servedHere(pageHrefOf(page))), [allowed, session])
+  const otherSites = useMemo(() => otherSitesGroup(allowed), [allowed])
+  const demoSite = demoFacilitySite(facility?.id)
+  const facilitySite = demoSite ? siteElsewhere(demoSite) : null
   const match = matchBluePage(BLUE_PAGES, location.pathname)
   const tabs = match ? pageTabs(allowed, match.page) : []
   // A tab has no sidebar entry: the page it joins is the current one.
@@ -75,6 +111,8 @@ export function BlueFrame() {
   if (moved) return <Navigate replace to={{ pathname: moved, search: location.search, hash: location.hash }} />
 
   const follow = (item: { href: string }, event: MouseEvent<HTMLAnchorElement>) => {
+    // Another site's address is the browser's to open.
+    if (/^https:/.test(item.href)) return
     if (event.button !== 0 || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return
     event.preventDefault()
     navigate(item.href)
@@ -95,7 +133,9 @@ export function BlueFrame() {
   const shownHere = match === null || (match.page.visible?.(session) ?? true)
   const todayRefuses = match !== null && match.page.status === 'live' && isValidElement(match.page.element)
     && match.page.element.type === LivePage && shownHere && !READS_BEFORE_REFUSING.has(basePath(match.page.path))
-  const content = match
+  const content = facilitySite
+    ? <FacilityOnAnotherSite facility={facility?.name ?? 'This facility'} site={facilitySite} choosing={session.actor.facilities.length > 1} />
+    : match
     ? pageAllowed(match.page, session) || todayRefuses
       ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
       : match.page.refusal ?? <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'}
@@ -110,10 +150,10 @@ export function BlueFrame() {
           mainHidden={lock !== null}
           sidebar={(
             <EhrSidebar
-              groups={navigationGroups(listed.filter(page => !page.tabOf))}
+              groups={[...navigationGroups(listed.filter(page => !page.tabOf)), ...(otherSites ? [otherSites] : [])]}
               currentId={current?.path}
               brand={<BrandLogo className="hid-ehr-blue-logo" />}
-              product="Hospital EHR"
+              product={SITE_NAMES[siteOf(window.location.hostname)?.key ?? 'ehr']}
               onNavigate={follow}
             />
           )}

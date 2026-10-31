@@ -10,7 +10,7 @@ import {
 import { facilityChoiceNeeded, type FacilityChoiceReason } from './facilitySelection'
 import {
   announceStaffSessionChange, endsStaffSession, onOtherTabSessionChange, onStaffSessionEnded, onStaffSessionRead, setStaffSessionActor,
-  setStaffSessionFacilities, setStaffSessionReady, staffSessionEndReason, staffSessionGeneration, staffSignInPath, startStaffSessionGeneration,
+  setStaffSessionFacilities, setStaffSessionReady, staffReturnPath, staffSessionEndReason, staffSessionGeneration, staffSignInPath, startStaffSessionGeneration,
   type StaffSessionEndReason,
 } from './session'
 import { SignIn, STAFF_MFA_NOTICE } from './routes/SignIn'
@@ -34,7 +34,8 @@ import { resolveStaffProductHostname, STAFF_JOIN_PATH } from '../productHostname
 import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
-import { resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
+import { demoFacilitySite, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
+import { otherStaffSites, servedHere, siteElsewhere, siteHref, SITE_NAMES, type Site } from '../productSites'
 import './style.css'
 
 // The blue Hospital EHR (ehr-blue/blueFacilities.ts says for whom): loaded on demand, so no other facility downloads
@@ -474,8 +475,12 @@ function Gate({ children }: { children: ReactNode }) {
   if (state.status === 'signed-out') {
     // Signed out on the join page (an invitation's link, Novu, P4b), the sign-in comes back to it; the link itself
     // waits in this page's memory (invitationCapture.ts), never in the return address.
-    const joining = usesNovuBackend() && pathname.replace(/\/+$/, '').toLowerCase() === STAFF_JOIN_PATH
-    const productRoute = joining ? STAFF_JOIN_PATH : resolveStaffProductHostname(window.location.hostname)?.route
+    const asked = pathname.replace(/\/+$/, '').toLowerCase()
+    const joining = usesNovuBackend() && asked === STAFF_JOIN_PATH
+    // On a product site, the sign-in comes back to the page asked for when it may (each site signs in on its own, so a
+    // link from another product lands here), else to the site's own page.
+    const product = resolveStaffProductHostname(window.location.hostname)?.route
+    const productRoute = joining ? STAFF_JOIN_PATH : product && (staffReturnPath(asked) ?? product)
     const signInPath = productRoute ? `/provider/sign-in?returnTo=${encodeURIComponent(productRoute)}` : '/provider/sign-in'
     return <Navigate to={signInPath} replace />
   }
@@ -621,6 +626,16 @@ function ProviderTitle() {
   return null
 }
 
+/**
+ * A demo facility opened on another staff site than its own: it works on its own site, where the person signs in
+ * again (each site keeps its own sign-in). Nothing opens here; another facility can be chosen under “Working at”.
+ */
+function FacilityOnAnotherSite({ facility, site }: { facility: string; site: Site }) {
+  return <EmptyState titleAs="h1" title={`${facility} works on ${SITE_NAMES[site.key]}`}
+    description={`${facility} is on ${site.hostname}, where you sign in separately. To work at another facility here, choose it under “Working at”.`}
+    action={<a className="staff-text-link" href={siteHref(site)}>Open {SITE_NAMES[site.key]} →</a>} />
+}
+
 function Shell() {
   const { state, selectFacility, signOut, activePatient, lock } = useStaff()
   const [facilityError, setFacilityError] = useState('')
@@ -672,7 +687,13 @@ function Shell() {
   }
   const { actor } = state.session
   const currentFacility = actor.facility
-  const visible = visibleNavigation(currentFacility)
+  // Each product on its own site (productSites.ts): the sidebar lists this site's pages, and links to the other sites
+  // that serve the rest the facility may open. A demo facility works on its own site.
+  const permitted = visibleNavigation(currentFacility)
+  const visible = permitted.filter(item => servedHere(item.to))
+  const otherSites = otherStaffSites(permitted.map(item => item.to))
+  const demoSite = demoFacilitySite(currentFacility?.id)
+  const facilitySite = demoSite ? siteElsewhere(demoSite) : null
   const choosingFrom = `${actor.id}|${currentFacility?.id ?? ''}`
   const chosenId = choice?.from === choosingFrom ? choice.to : currentFacility?.id ?? ''
   const chosen = chosenId !== (currentFacility?.id ?? '') ? actor.facilities.find(facility => facility.id === chosenId) : undefined
@@ -738,12 +759,18 @@ function Shell() {
           {facilityError && <p role="alert" className="staff-error">{facilityError}</p>}
         </div>
         <nav className="staff-nav" onFocus={revealFocusedLink}>{visible.map(item => <NavLink key={item.to} to={item.to} end={item.to === '/provider'} className={({ isActive }) => `staff-nav-link${isActive ? ' active' : ''}`}>{item.label}{item.to === '/provider/clinical' && !activePatient && <span className="staff-nav-meta">Select patient</span>}</NavLink>)}</nav>
+        {otherSites.length > 0 && <nav className="staff-nav staff-nav-sites" aria-labelledby="staff-nav-sites-title" onFocus={revealFocusedLink}>
+          <p id="staff-nav-sites-title" className="staff-nav-sites-title">Other Health ID sites</p>
+          {otherSites.map(site => <a key={site.key} className="staff-nav-link" href={siteHref(site)}>{SITE_NAMES[site.key]}<span className="staff-nav-meta">{site.hostname}</span></a>)}
+        </nav>}
         <div className="staff-sidebar-footer"><Badge tone="information">{(usesNovuBackend() ? roleLabels(actor.roles) : actor.roles.join(', ')) || 'Staff'}</Badge><p>Access is limited to your active facility and server permissions.</p></div>
       </aside>}
       {/* Hidden itself while the workspace is locked: only the session check's main is exposed then. */}
       <main ref={main} className="staff-main" hidden={lock !== null}>{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}
         {/* Asked again for another reason (an answer to the choice that reports another facility), it starts afresh. */}
-        {choiceNeeded ? <FacilityChoice key={choiceNeeded} reason={choiceNeeded} onChosen={() => setFocusHeading(true)} /> : <><ReviewBanner /><BillingBanner /><Outlet /></>}</main>
+        {choiceNeeded ? <FacilityChoice key={choiceNeeded} reason={choiceNeeded} onChosen={() => setFocusHeading(true)} />
+          : facilitySite ? <FacilityOnAnotherSite facility={currentFacility?.name ?? 'This facility'} site={facilitySite} />
+            : <><ReviewBanner /><BillingBanner /><Outlet /></>}</main>
     </div>
   </div>
 }
