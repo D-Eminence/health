@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { expect, type Mock } from 'vitest'
-import { facility, json, openStaffApp, problem, serve, sessionAt } from '../ehr-blue/frame/blueHarness'
+import { facility, json, openStaffApp, problem, REQUESTS, serve, sessionAt, type Sent } from '../ehr-blue/frame/blueHarness'
 
 /**
  * Each product on its own site (productSites.ts): the portal as each Health ID host serves it. jsdom's page address
@@ -64,13 +64,19 @@ export async function expectOpenedElsewhere(opened: Mock, href: string) {
   expect(opened).toHaveBeenCalledWith(href)
 }
 
-/** Today's workspace at a fictional clinic holding every permission, on `hostname`. */
-export async function openClassicOn(hostname: string, path = '/provider') {
+/** Today's workspace at a fictional clinic holding every permission, on `hostname`; what it sent is in `sent`. */
+export async function openClassicOn(hostname: string, path = '/provider', sent: Sent[] = []) {
   const clinic = facility(REAL_CLINIC, 'Fictional Clinic', EVERY_PERMISSION)
-  serve({ [SESSION]: [sessionAt(clinic, [clinic])] })
+  sent.push(...serve({ [SESSION]: [sessionAt(clinic, [clinic])], [REQUESTS]: [() => json([])] }))
   onSite(hostname, path)
   await openStaffApp(path)
   return screen.findByRole('complementary', { name: 'Provider navigation' })
+}
+
+/** The Overview's workspaces, by name. */
+export function overviewWorkspaces(): string[] {
+  const section = screen.getByRole('heading', { level: 2, name: 'Workspaces' }).parentElement!
+  return within(section).queryAllByRole('link').map(link => link.querySelector('strong')?.textContent ?? '')
 }
 
 /** The classic sidebar's own pages, by name. */

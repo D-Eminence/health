@@ -4,8 +4,9 @@ import { servedHere, rightSiteHref } from '../../productSites'
 import { DEMO_HOSPITAL, DEMO_LABORATORY, facility } from '../ehr-blue/frame/blueHarness'
 import {
   address, backToTestSite, bluePages, classicPages, EVERY_PERMISSION, expectOpenedElsewhere, openBlueOn, openClassicOn, openPortalOn,
-  signInActionOn, siteLinks,
+  overviewWorkspaces, signInActionOn, siteLinks,
 } from './siteHarness'
+import type { Sent } from '../ehr-blue/frame/blueHarness'
 
 /** lab.: the Laboratory product, with the pages every staff site serves. Everything else opens on its own site. */
 vi.mock('../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
@@ -85,6 +86,17 @@ describe(LAB, () => {
       ['Migrate', 'https://migrate.healthidentitydirectory.com/'],
       ['Outreach', 'https://outreach.healthidentitydirectory.com/'],
     ])
+  })
+
+  it('offers the laboratory’s own workspace on the Overview, and reads nothing for the Hospital EHR’s', async () => {
+    const sent: Sent[] = []
+    await openClassicOn(LAB, '/provider', sent)
+    expect(await screen.findByRole('heading', { level: 2, name: 'Workspaces' })).toBeTruthy()
+    expect(overviewWorkspaces()).toEqual(['Laboratory'])
+    expect(screen.getByText('Your other workspaces are on other Health ID sites, linked in the sidebar.')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Access requests' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Health ID Migrate' })).toBeNull()
+    expect(sent.map(request => request.route)).not.toContain('GET /api/v1/identity/access-requests')
   })
 
   it('opens the blue EHR at Demo Laboratory as the Laboratory, with this site’s pages only', async () => {

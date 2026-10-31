@@ -4,7 +4,7 @@ import { rightSiteHref, servedHere } from '../../productSites'
 import { DEMO_HOSPITAL, DEMO_LABORATORY, facility } from '../ehr-blue/frame/blueHarness'
 import {
   address, backToTestSite, bluePages, classicPages, EVERY_CLASSIC_PAGE, EVERY_PERMISSION, expectOpenedElsewhere, openBlueOn,
-  openClassicOn, openPortalOn, signInActionOn, siteLinks,
+  openClassicOn, openPortalOn, overviewWorkspaces, signInActionOn, siteLinks,
 } from './siteHarness'
 
 /**
@@ -75,6 +75,14 @@ describe(EHR, () => {
     expect(classicPages(sidebar)).toEqual(EVERY_CLASSIC_PAGE)
     expect(siteLinks(sidebar)).toEqual([])
     expect(screen.queryByRole('navigation', { name: 'Other Health ID sites' })).toBeNull()
+  })
+
+  it('offers every workspace on the Overview, with the access requests', async () => {
+    await openClassicOn(EHR)
+    expect(await screen.findByRole('heading', { level: 2, name: 'Workspaces' })).toBeTruthy()
+    expect(overviewWorkspaces()).toEqual(['Patient access', 'Clinical record', 'Laboratory', 'Pharmacy', 'Document OCR', 'Outreach'])
+    expect(screen.queryByText(/Your other workspaces are on other Health ID sites/)).toBeNull()
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
   })
 
   it('opens the blue EHR at Demo Hospital as the Hospital EHR, with its own laboratory, pharmacy, OCR and outreach', async () => {

@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { PATIENT_ROUTE } from '@hid/auth'
 import { RequireAccess } from './RequireAccess'
+import { BrandLogo } from './BrandLogo'
 import { useDocumentTitle } from './authSteps'
 import { SessionProvider } from './session'
 import { PatientSupport } from './PatientSupport'
@@ -78,8 +79,14 @@ function OnAnotherSite({ href }: { href: string }) {
   const hostname = new URL(href).hostname
   useDocumentTitle('Opening another Health ID site · Health ID')
   useEffect(() => { openSite(href) }, [href])
-  return <main><p role="status">This page is on {hostname}. Opening it there…</p>
-    <p><a href={href}>Continue to {hostname}</a></p></main>
+  return <main className="patient-page">
+    <BrandLogo className="patient-state-logo" />
+    <div className="patient-access-state">
+      <h1>Opening another Health ID site</h1>
+      <p role="status">This page is on {hostname}. Opening it there…</p>
+      <div className="patient-state-actions"><a className="patient-primary-button" href={href}>Continue to {hostname}</a></div>
+    </div>
+  </main>
 }
 
 function ProductHostnameGate({ children }: { children: React.ReactNode }) {
