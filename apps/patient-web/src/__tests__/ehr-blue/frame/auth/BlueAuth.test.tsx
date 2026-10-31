@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { valueAt } from '../../../cssRules'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -97,6 +98,10 @@ describe('BlueSignIn', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Verify it’s you' })).toBeDefined()
     expect(screen.queryByLabelText('Password')).toBeNull()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    // The step's heading and code field take the blue page's look (auth.css): its classes, inside the blue root.
+    const heading = screen.getByRole('heading', { level: 1, name: 'Verify it’s you' })
+    expect(heading.classList.contains('hid-mfa-heading')).toBe(true)
+    expect(heading.closest('.hid-ehr.hid-ehr-blue-auth')).not.toBeNull()
   })
 })
 
@@ -137,6 +142,20 @@ describe('BlueRecovery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
     expect(await screen.findByText('The code is invalid or has expired.')).toBeDefined()
     expect(screen.getByRole('textbox', { name: 'Recovery code' }).getAttribute('aria-invalid')).toBe('true')
+    // Boxed as the design's refusal by its own class, whether or not it is announced (role=alert is not on every path).
+    expect(screen.getByText('The code is invalid or has expired.').classList.contains('hid-ehr-blue-auth-error')).toBe(true)
+  })
+
+  it('boxes a refused code the same when the form is sent with Enter', async () => {
+    recovery.start.mockResolvedValue({ accepted: true, challengeId: 'challenge-1', deliveryChannels: ['email', 'sms'], expiresInSeconds: 600, resendAfterSeconds: 60 })
+    recovery.verify.mockRejectedValue(new HidApiError(400, 'The code is invalid or has expired.', { code: 'OTP_INVALID_OR_EXPIRED' }))
+    open('/provider/recover', <BlueRecovery />)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: 'demo.nurse@example.test' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Send recovery code' }))
+    const code = await screen.findByRole('textbox', { name: 'Recovery code' })
+    fireEvent.change(code, { target: { value: '000000' } })
+    fireEvent.submit(code.closest('form')!)
+    expect((await screen.findByText('The code is invalid or has expired.')).classList.contains('hid-ehr-blue-auth-error')).toBe(true)
   })
 })
 
@@ -185,6 +204,25 @@ describe('auth.css', () => {
     // The root carries both classes, so the rule must not look for one inside the other.
     expect(css).toMatch(/\.hid-ehr\.hid-ehr-blue-auth a \{\s*color: var\(--ehr-brand-dark\);/)
     expect(css).not.toMatch(/\.hid-ehr \.hid-ehr-blue-auth a/)
+  })
+
+  const css = () => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../../ehr-blue/frame/auth/auth.css'), 'utf8')
+  const at = (selector: string, property: string) => valueAt(css(), selector, property, 1280)
+
+  it('gives the authenticator steps the design\'s step title and grey 48px field (screens/2-sign-in/03-verify-mfa)', () => {
+    expect(at('.hid-ehr.hid-ehr-blue-auth .hid-mfa-heading', 'font-size')).toBe('18px')
+    expect(at('.hid-ehr.hid-ehr-blue-auth .hid-mfa-heading', 'font-weight')).toBe('600')
+    const field = '.hid-ehr.hid-ehr-blue-auth .hid-ehr-blue-auth-form input:not([type="checkbox"])'
+    expect(at(field, 'min-height')).toBe('48px')
+    expect(at(field, 'background')).toBe('var(--ehr-surface-tint)')
+    expect(at(field, 'font-family')).toBe('var(--ehr-font-body)')
+  })
+
+  it('boxes a page refusal by its class as well as by role=alert', () => {
+    for (const selector of ['.hid-ehr.hid-ehr-blue-auth p.hid-ehr-error[role="alert"]', '.hid-ehr.hid-ehr-blue-auth p.hid-ehr-blue-auth-error']) {
+      expect(at(selector, 'border')).toBe('1px solid #e9bcb9')
+      expect(at(selector, 'background')).toBe('var(--ehr-danger-50)')
+    }
   })
 })
 

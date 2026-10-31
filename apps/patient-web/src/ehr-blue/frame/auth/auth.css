@@ -88,6 +88,20 @@
   font-weight: 600;
 }
 
+/* The authenticator steps (StaffMfaSteps, given the blue look): their heading is the step's title, and their code field
+   is the design's grey 48px field in the EHR's type, as the blue sign-in's own fields are (screens/2-sign-in/03). */
+.hid-ehr.hid-ehr-blue-auth .hid-mfa-heading {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.hid-ehr.hid-ehr-blue-auth .hid-ehr-blue-auth-form input:not([type="checkbox"]) {
+  min-height: 48px;
+  background: var(--ehr-surface-tint);
+  font-family: var(--ehr-font-body);
+}
+
 .hid-ehr .hid-ehr-blue-auth-wide {
   justify-content: center;
   width: 100%;
@@ -234,8 +248,10 @@
   }
 }
 
-/* A refusal for the whole form, boxed as the design's .error (application.css): Identity's words, unchanged. */
-.hid-ehr.hid-ehr-blue-auth p.hid-ehr-error[role="alert"] {
+/* A refusal for the whole form, boxed as the design's .error (application.css): Identity's words, unchanged. Boxed
+   whether or not it is announced (role=alert), as the recovery page's refusal is not on every path. */
+.hid-ehr.hid-ehr-blue-auth p.hid-ehr-error[role="alert"],
+.hid-ehr.hid-ehr-blue-auth p.hid-ehr-blue-auth-error {
   margin: 0;
   padding: 12px 16px;
   border: 1px solid #e9bcb9;

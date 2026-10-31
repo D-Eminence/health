@@ -126,7 +126,7 @@ export function BlueRecovery() {
 
   return (
     <BlueAuthLayout title="Recover account access" lede="Health ID — Hospital EHR">
-      {error ? <p id="blue-recovery-error" role={errorAlert ? 'alert' : undefined} className="hid-ehr-error">{error}</p> : null}
+      {error ? <p id="blue-recovery-error" role={errorAlert ? 'alert' : undefined} className="hid-ehr-error hid-ehr-blue-auth-error">{error}</p> : null}
       {step === 'start' ? (
         <form onSubmit={start} className="hid-ehr-blue-auth-form">
           <p id="blue-recovery-start-hint" className="hid-ehr-blue-auth-note">Enter your work email. If an eligible account exists, we will send a code to its verified contact.</p>
