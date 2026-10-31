@@ -55,7 +55,8 @@ export const APP_BOUNDARIES = {
   'staff-web': {
     app: 'staff-web',
     purpose: 'Provider workflows: care, laboratory, pharmacy, OCR and outreach.',
-    services: ['auth', 'enrollment', 'identity', 'ehr', 'access', 'files', 'lab', 'pharmacy', 'ocr', 'outreach', 'commercial'],
+    services: ['auth', 'enrollment', 'identity', 'ehr', 'access', 'files', 'lab', 'pharmacy', 'ocr', 'outreach', 'commercial',
+      'support'],
     handlesPhi: true,
   },
   'ehr-web': {
@@ -152,6 +153,8 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.myHealthProfile'],
   },
   'staff-web': {
+    // The anonymous support assistant, from the blue EHR's Help (behind its own privacy guard). Nothing else of support.
+    support: ['support.chat'],
     // Staff sign-in is two steps since hid-system #71: the password, then an
     // authenticator code, or a first enrolment. Google sign-in is for patients only.
     auth: ['auth.staffLogin', 'auth.staffMfaVerify', 'auth.staffMfaEnrollEmailCode', 'auth.staffMfaEnrollStart',

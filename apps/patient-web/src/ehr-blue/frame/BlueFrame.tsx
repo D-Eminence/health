@@ -17,6 +17,7 @@ import { BluePageProvider, BluePagesProvider, OpenPagesProvider } from './pageCo
 import { basePath, pageHrefOf } from './pageHref'
 import { TODAY_PATHS } from './pages'
 import { AccountMenu, AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
+import { SupportChatDrawer, supportChatOffered } from './support/BlueSupportChat'
 import type { EhrBluePage } from './types'
 
 /** The sidebar: the pages the facility may open, by group, in order; a lone page named as its group gets no heading. */
@@ -145,7 +146,9 @@ export function BlueFrame() {
           </div>
           {/* Fictional figures: only where the page itself is a sample. */}
           {match?.page.status === 'sample' ? <ConnectionStatus /> : null}
-          <AccountSamplePanel panel={samplePanel} onClose={() => setSamplePanel(null)} />
+          {/* Help is the support assistant where this build offers it (the ehr build), and a sample elsewhere. */}
+          <AccountSamplePanel panel={samplePanel === 'help' && supportChatOffered() ? null : samplePanel} onClose={() => setSamplePanel(null)} />
+          <SupportChatDrawer open={samplePanel === 'help' && supportChatOffered()} onClose={() => setSamplePanel(null)} />
         </EhrAppShell>
       </AttentionProvider>
     </OpenPagesProvider></BluePagesProvider>
