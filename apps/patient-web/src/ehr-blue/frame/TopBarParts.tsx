@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { isValidElement, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   EhrButton, EhrDrawer, EhrEmptyState, EhrField, EhrIcon, EhrInput, EhrPopover, EhrSampleBanner, EhrSkeleton,
@@ -10,7 +10,8 @@ import { isDemoFacility } from '../blueFacilities'
 import { useAccessRequests, useReloadAccessRequests } from './attention'
 import { DEMO_ROLES, useRoleView } from './roleView'
 import { sampleModule, sampleRecords } from './sample/store'
-import { useSampleHref } from './pageContext'
+import { useBluePages, useSampleHref } from './pageContext'
+import { SampleWorkspace } from './sample/SampleWorkspace'
 import { pageHrefOf } from './pageHref'
 import type { EhrBluePage } from './types'
 
@@ -72,6 +73,18 @@ export function NotificationsButton() {
   // Sample activity links only into a sample this session may open: a workspace closed to the role would send them
   // Home, and a live page at the module's address would not find a sample record.
   const hrefOf = useSampleHref()
+  // The frame's sample records are found only by the frame's own sample page: a clinical or department sample at the
+  // same address keeps records of its own, so its row opens that workspace's list instead.
+  const pages = useBluePages()
+  const ownsRecords = (href: string, moduleId: string) => pages.some(page => pageHrefOf(page) === href
+    && isValidElement<{ moduleId?: string }>(page.element) && page.element.type === SampleWorkspace
+    && page.element.props.moduleId === moduleId)
+  const activity = SAMPLE_ACTIVITY.flatMap(moduleId => {
+    const module = sampleModule(moduleId)
+    const record = sampleRecords(moduleId)[0]
+    const href = hrefOf(moduleId)
+    return module && record && href !== null ? [{ moduleId, module, href: ownsRecords(href, moduleId) ? `${href}/${record.id}` : null, list: href }] : []
+  })
   const pending = read.state === 'ready' ? read.pending : 0
   return <>
     <EhrButton variant="secondary" icon={<EhrIcon name="bell" />} onClick={() => { setOpen(true); reload() }}
@@ -89,21 +102,18 @@ export function NotificationsButton() {
                 <EhrButton variant="secondary" onClick={() => { setOpen(false); navigate('/provider/requests') }}>Review requests</EhrButton>
               </div>
             )}
-      <h3 className="hid-ehr-blue-subtitle hid-ehr-blue-drawer-section">Recent activity</h3>
-      <EhrSampleBanner />
-      <ul className="hid-ehr-blue-list">
-        {SAMPLE_ACTIVITY.map(moduleId => {
-          const module = sampleModule(moduleId)
-          const record = sampleRecords(moduleId)[0]
-          const href = hrefOf(moduleId)
-          if (!module || !record || href === null) return null
-          return <li key={moduleId} className="hid-ehr-blue-list-item hid-ehr-blue-notification">
+      {/* No sample workspace open to this role: no Recent activity at all, rather than an empty list. */}
+      {activity.length > 0 ? <>
+        <h3 className="hid-ehr-blue-subtitle hid-ehr-blue-drawer-section">Recent activity</h3>
+        <EhrSampleBanner />
+        <ul className="hid-ehr-blue-list">
+          {activity.map(({ moduleId, module, href, list }) => <li key={moduleId} className="hid-ehr-blue-list-item hid-ehr-blue-notification">
             <span>{module.title} record created</span>
-            <EhrButton variant="secondary" size="sm" aria-label={`Open ${module.title} record`}
-              onClick={() => { setOpen(false); navigate(`${href}/${record.id}`) }}>Open record</EhrButton>
-          </li>
-        })}
-      </ul>
+            <EhrButton variant="secondary" size="sm" aria-label={href ? `Open ${module.title} record` : `Open ${module.title}`}
+              onClick={() => { setOpen(false); navigate(href ?? list) }}>{href ? 'Open record' : 'Open list'}</EhrButton>
+          </li>)}
+        </ul>
+      </> : null}
     </EhrDrawer>
   </>
 }
