@@ -149,6 +149,12 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
    * back a cancelled entry, or an older copy of one just written), so it reads again instead of replacing them.
    */
   private generation = 0
+  /**
+   * Bumped when the store changes under this tab (another tab's change, or a write that bypasses `items`). A load whose
+   * read started before it is not marked current, so the next caller reads again; it is not restarted, so a busy other
+   * tab cannot starve the loads.
+   */
+  private storeEpoch = 0
   private sender = false
   private releaseLock: (() => void) | null = null
   private lockAbort: AbortController | null = null
@@ -233,6 +239,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
 
   /** Another tab changed the outbox. */
   external(): void {
+    this.storeEpoch += 1
     this.loadedFor = null
     this.wake()
     this.kick()
@@ -249,6 +256,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     if (!v) { this.items = []; this.receipts.clear(); this.loadedFor = null; return }
     if (!force && this.loadedFor === v.vaultId) return
     const started = this.generation
+    const epoch = this.storeEpoch
     const { outbox, receipts } = await this.host.store.read(['outbox', 'receipts'], async tx => ({
       outbox: await tx.all('outbox', vaultRange(v.vaultId)),
       receipts: await tx.all('receipts', vaultRange(v.vaultId)),
@@ -269,8 +277,13 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     if (started !== this.generation) return this.load(true)
     this.items = items.sort((a, b) => a.seq - b.seq)
     this.receipts = map
-    this.loadedFor = v.vaultId
+    this.loadedFor = epoch === this.storeEpoch ? v.vaultId : null
     this.generation += 1
+  }
+
+  /** The attempt's vault is still the one open here. An answer for another vault never touches this tab's memory. */
+  private isOpen(v: OpenVaultRef): boolean {
+    return this.host.vault()?.vaultId === v.vaultId
   }
 
   private async plaintext(v: OpenVaultRef, seq: number, cmd: Command, expiresAt: number | null): Promise<OutboxRecord> {
@@ -314,11 +327,14 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     if (ok) {
       item.rec = rec
       item.cmd = cmd
-      const at = this.items.findIndex(i => i.seq === item.seq)
-      if (at >= 0) this.items[at] = item
-      else this.items.push(item)
-      if (cmd.receipt && cmd.state === 'applied') this.receipts.set(cmd.id, cmd.receipt)
-      this.generation += 1
+      // The disk write above is guarded by the vault record; memory only for the vault still open (round 5 item 3).
+      if (this.isOpen(v)) {
+        const at = this.items.findIndex(i => i.seq === item.seq)
+        if (at >= 0) this.items[at] = item
+        else this.items.push(item)
+        if (cmd.receipt && cmd.state === 'applied') this.receipts.set(cmd.id, cmd.receipt)
+        this.generation += 1
+      }
       this.host.broadcast(v.vaultId)
       this.host.changed()
       this.wake()
@@ -433,8 +449,10 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
           return true
         })
         if (removed) {
-          this.items = this.items.filter(i => i.seq !== item.seq)
-          this.generation += 1
+          if (this.isOpen(v)) {
+            this.items = this.items.filter(i => i.seq !== item.seq)
+            this.generation += 1
+          }
           this.host.broadcast(v.vaultId)
           this.host.changed()
           const p = c.lastProblem
@@ -473,8 +491,10 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
         return true
       })
       if (!ok) throw new Error('This entry has already been sent. Save a change as a new entry.')
-      this.items = this.items.filter(i => i !== item)
-      this.generation += 1
+      if (this.isOpen(v)) {
+        this.items = this.items.filter(i => i.seq !== item.seq)
+        this.generation += 1
+      }
       this.host.broadcast(v.vaultId)
       this.host.changed()
       return
@@ -547,6 +567,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
         }
       }
     })
+    this.storeEpoch += 1
     this.loadedFor = null
   }
 
@@ -693,8 +714,11 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       if (expired.length > 0) await recountPending(tx, v.vaultId)
     })
     if (expired.length > 0) {
-      this.items = this.items.filter(i => !expired.includes(i))
-      this.generation += 1
+      if (this.isOpen(v)) {
+        const gone = new Set(expired.map(i => i.seq))
+        this.items = this.items.filter(i => !gone.has(i.seq))
+        this.generation += 1
+      }
       this.host.changed()
     }
   }
