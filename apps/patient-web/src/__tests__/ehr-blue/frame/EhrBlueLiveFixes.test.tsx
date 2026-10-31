@@ -53,7 +53,7 @@ describe('1. samples belong to one person at one facility', () => {
     expect(screen.getAllByText('Author: Demo Clinician').length).toBeGreaterThan(0)
 
     // Back to today's workspace, then sign out there.
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
     fireEvent.click(screen.getByRole('button', { name: 'Use the classic EHR' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }))
     await waitFor(() => expect(where()).toBe('/provider/sign-in'))

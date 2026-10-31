@@ -35,34 +35,14 @@ export function StaffAccessPage() {
   </>
 }
 
-/** An address inside the EHR that is no page of it. */
-export function UnknownPage() {
-  return <>
-    <EhrPageHeading title="Page not found" />
-    <EhrEmptyState title="This page is not part of Health ID EHR" message="Check the address, or go back to Home."
-      action={<Link className="hid-ehr-button hid-ehr-button-secondary" to="/provider">Go to Home</Link>} />
-  </>
-}
-
-/** A live or partial page the working facility's permissions do not open. Nothing of it is read. */
 /**
- * A page this session may not open, by its address. Its permission missing, an administrator can grant it; a page
- * visible() turns down here (one of the demo's) no role can open, and the words say so.
+ * A page visible() turns down here (one of the demo's): no role can open it at this facility, and the words say so.
+ * A page this session's role may not open sends it Home instead (BlueFrame).
  */
-export function DeniedPage({ label, facility, reason = 'permission' }: {
-  readonly label: string
-  readonly facility: string
-  readonly reason?: 'permission' | 'not-here'
-}) {
+export function DeniedPage({ label, facility }: { readonly label: string; readonly facility: string }) {
   return <>
     <EhrPageHeading title={label} />
-    {reason === 'permission' ? (
-      <EhrEmptyState title={`${label} is not open to you here`}
-        message={`Your role at ${facility} does not include ${label}. Ask your facility administrator to review your access.`}
-        action={<Link className="hid-ehr-button hid-ehr-button-secondary" to="/provider">Go to Home</Link>} />
-    ) : (
-      <EhrEmptyState title={`${label} is part of the Health ID demo only`} message={`It is not available at ${facility}.`}
-        action={<Link className="hid-ehr-button hid-ehr-button-secondary" to="/provider">Go to Home</Link>} />
-    )}
+    <EhrEmptyState title={`${label} is part of the Health ID demo only`} message={`It is not available at ${facility}.`}
+      action={<Link className="hid-ehr-button hid-ehr-button-secondary" to="/provider">Go to Home</Link>} />
   </>
 }

@@ -23,7 +23,7 @@ const frameRule = (selector: string) =>
   parse(readFileSync(resolve(here, '../../../ehr-blue/frame/frame.css'), 'utf8')).find(rule => rule.selectors.includes(selector))?.body
 
 async function chooseClassic() {
-  fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
   fireEvent.click(screen.getByRole('button', { name: 'Use the classic EHR' }))
   expect(await screen.findByRole('complementary', { name: 'Provider navigation' })).toBeDefined()
 }

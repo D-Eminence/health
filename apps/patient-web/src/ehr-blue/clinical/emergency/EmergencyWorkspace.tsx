@@ -1,11 +1,15 @@
-import { Route, Routes } from 'react-router-dom'
+import { EhrButton, EhrCard } from '@hid/ui/ehr'
+import { Route, Routes, useNavigate } from 'react-router-dom'
 import type { EhrBluePageStatus } from '../types'
 import { ChartProvider } from '../parts/chart'
 import { isDemoFacility } from '../../blueFacilities'
 import { ListHeading, RecordNotFound } from '../parts/Notices'
+import { RecordTable } from '../parts/RecordTable'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
+import { useSampleAccess } from '../sample/access'
 import { SampleCreate, SampleDetail, SampleList } from '../sample/SampleWorkspace'
-import { BreakGlassCard, CurrentEmergency } from './BreakGlass'
+import { NOTICE_BEFORE } from './access'
+import { BreakGlassPage, CurrentEmergency } from './BreakGlass'
 import { EmergencySummaryPage } from './EmergencySummary'
 
 /**
@@ -20,16 +24,34 @@ function useDemoFacility() {
   return isDemoFacility(useClinical().facility?.id)
 }
 
-/** emergency: the design's list heading, the live break-glass card, then (at a demo facility) the sample board. */
+/**
+ * emergency: the design's list page, the heading and one list card (audit 7). At a demo facility the card is the sample
+ * board; at a real facility it is an empty list whose one action opens the break-glass page. Its empty state says what
+ * the design's empty list says ("No matching records"), never that there is no emergency access, since an open
+ * emergency patient's way back to their summary shows above it (as today's Patients page shows it), and today's words
+ * for when emergency access is used. The board's "Create record" makes a sample record, so it follows the design's role
+ * mapping (audit item 16); the page itself keeps its live permission.
+ */
 function EmergencyHome() {
   const href = useWorkspaceHref()
+  const navigate = useNavigate()
   const demo = useDemoFacility()
+  const can = useSampleAccess()
   return (
     <>
-      <ListHeading title="Emergency" createHref={demo ? href('new') : undefined} />
+      <ListHeading title="Emergency" createHref={demo && can('emergency', 'create') ? href('new') : undefined} />
       <CurrentEmergency />
-      <BreakGlassCard />
-      {demo ? <SampleList id="emergency" /> : null}
+      {demo ? <SampleList id="emergency" /> : (
+        <EhrCard className="hid-ehr-clinical-emergency-list">
+          <RecordTable
+            caption="Emergency"
+            rows={[]}
+            hrefFor={() => href()}
+            emptyMessage={NOTICE_BEFORE}
+            emptyAction={<EhrButton onClick={() => navigate(href('break-glass'))}>Emergency break-glass access</EhrButton>}
+          />
+        </EhrCard>
+      )}
     </>
   )
 }
@@ -42,14 +64,16 @@ function BoardPage({ create }: { create: boolean }) {
 }
 
 /**
- * The Emergency workspace: `emergency` (break-glass access and, at a demo facility, the sample board),
- * `emergency/summary` (the open emergency patient's read-only summary), and the sample board's `new` and `:recordId`.
+ * The Emergency workspace: `emergency` (the list: at a demo facility, the sample board), `emergency/break-glass` (the
+ * live break-glass form as its own page, at every facility), `emergency/summary` (the open emergency patient's
+ * read-only summary), and the sample board's `new` and `:recordId`.
  */
 export function EmergencyWorkspace() {
   return (
     <Workspace path="emergency" title="Emergency">
       <Routes>
         <Route index element={<EmergencyHome />} />
+        <Route path="break-glass" element={<BreakGlassPage />} />
         <Route path="summary" element={<ChartProvider><EmergencySummaryPage /></ChartProvider>} />
         <Route path="new" element={<BoardPage create />} />
         <Route path=":recordId" element={<BoardPage create={false} />} />

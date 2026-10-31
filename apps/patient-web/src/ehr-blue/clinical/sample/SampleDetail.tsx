@@ -6,8 +6,9 @@ import { ErrorBox, NoActions, RecordHeading, RecordNotFound } from '../parts/Not
 import { COMPLETE_FIELD, RecordForm, type FormValues } from '../parts/RecordForm'
 import { SampleBanner } from '../parts/SampleBanner'
 import { useWorkspaceHref } from '../parts/Workspace'
+import { useSampleAccess } from './access'
 import { useStandaloneSample } from './context'
-import { isSampleWorkspace, type SampleAction, type SampleDefinition, type SampleField } from './definitions'
+import { DEFAULT_ACTION_PERMISSION, isSampleWorkspace, type SampleAction, type SampleDefinition, type SampleField } from './definitions'
 import { formFields, toData } from './fields'
 import { UNKNOWN_SAMPLE } from './SampleList'
 import type { SampleRecord } from './seed'
@@ -23,7 +24,8 @@ const MAX_FILE = 2 * 1024 * 1024
  * The design's record page: heading and "Back to list", the status line, "Saved record" beside "Available actions"
  * (each action opens its inline form; cancel asks first; delete, sign and refund ask for the typed word),
  * "Continue care" (into another sample workspace only), "Connected hospital history" and "Preserved versions &
- * amendments".
+ * amendments". What it offers follows the design's role mapping (audit item 16): an action needs its permission in the
+ * workspace's module, a hand-off "create" in its target's, and a history row "view" in its workspace's.
  */
 export function SampleDetail({ id }: { id: string }) {
   const { recordId } = useParams()
@@ -58,12 +60,15 @@ function RecordPage({ definition, record, current }: { definition: SampleDefinit
     if (settled > 0) actionsRef.current?.focus()
   }, [settled])
 
+  const can = useSampleAccess()
   const patient = patientOf(current, record.patientId)
-  const available = definition.actions.filter(action => action.from.includes(record.status))
+  // The design's `a.from.includes(status) && can(module, a.permission || "edit")` (src/workflows.tsx:486-491).
+  const available = definition.actions.filter(item => item.from.includes(record.status) && can(definition.id, item.permission ?? DEFAULT_ACTION_PERMISSION))
   const action = available.find(item => item.id === selected)
-  const history = historyFor(current, definition, record)
-  // Only ever another sample workspace's create page, never a live one (whose form would open on the chart's patient).
-  const handoffs = (definition.continueCare ?? []).filter(handoff => isSampleWorkspace(handoff.workspace))
+  const history = historyFor(current, definition, record, workspace => can(workspace))
+  // Only ever another sample workspace's create page, never a live one (whose form would open on the chart's patient),
+  // and only one the viewer may create in (src/workflows.tsx:574).
+  const handoffs = (definition.continueCare ?? []).filter(handoff => isSampleWorkspace(handoff.workspace) && can(handoff.workspace, 'create'))
 
   const ask = (label: string, word: string | undefined) => new Promise<boolean>(resolve => {
     setAsking({ label, word, answer: resolve })
@@ -99,7 +104,7 @@ function RecordPage({ definition, record, current }: { definition: SampleDefinit
                 onDone={() => { setSelected(null); setSettled(count => count + 1) }}
               />
             ) : null}
-            {/* The design draws the heading on every visit and admission, with or without a hand-off to offer. */}
+            {/* The design draws the heading on every visit and admission, with or without a hand-off the role may create. */}
             {definition.continueCare ? (
               <>
                 <SubHeading>Continue care</SubHeading>
@@ -129,10 +134,11 @@ function RecordPage({ definition, record, current }: { definition: SampleDefinit
           <HistoryCard
             empty=""
             items={history.map(entry => ({
-              key: `${entry.workspace.id}-${entry.record.id}`,
-              label: `${entry.workspace.title} · ${recordName(entry.record)}`,
-              href: href.to(entry.workspace.id, entry.record.id),
-              status: entry.record.status,
+              key: entry.key,
+              label: `${entry.title} · ${entry.name}`,
+              // A fictional connected row exists nowhere live: it opens its workspace's list, carrying nothing.
+              href: entry.recordId ? href.to(entry.workspace, entry.recordId) : href.to(entry.workspace),
+              status: entry.status,
             }))}
           />
         </div>

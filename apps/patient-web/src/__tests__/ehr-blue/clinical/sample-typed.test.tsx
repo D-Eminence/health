@@ -10,7 +10,8 @@ import { labelled, renderPage } from './harness'
 /**
  * The engine's decision dialog for the design's typed words: sign, delete and refund ask for SIGN, DELETE and
  * REFUND; void and revoke ask plainly. None of today's 14 sample workspaces has such an action, so this file adds
- * one fictional definition next to the real ones.
+ * one fictional definition next to the real ones. It is no module of the design's, which grants it nothing (audit item
+ * 16), so this file lets every action through: it tests the typed words only.
  */
 
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn(() => true) }))
@@ -20,6 +21,7 @@ vi.mock('../../../staff/App', async () => {
   const harness = await import('./harness')
   return { useStaff: () => harness.staffValue(staff as never) }
 })
+vi.mock('../../../ehr-blue/clinical/sample/access', () => ({ useSampleAccess: () => () => true }))
 vi.mock('../../../ehr-blue/clinical/sample/definitions', async importOriginal => {
   const real = await importOriginal<typeof Definitions>()
   const note = { key: 'note', label: 'Signing note', required: true }

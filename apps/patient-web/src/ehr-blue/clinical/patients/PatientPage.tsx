@@ -1,14 +1,16 @@
+import { isHidApiError } from '@hid/http'
 import { EhrButton, EhrCard } from '@hid/ui/ehr'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
-import { ActionList, DetailGrid, HistoryCard, SavedRecord, Step, SubHeading } from '../parts/Detail'
+import { ActionList, DetailGrid, DetailMeta, HistoryCard, SavedRecord, Step, SubHeading } from '../parts/Detail'
 import { formatDate, formatWhen, shortId } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import { Banner, ErrorBox, Loading, NoActions, RecordHeading } from '../parts/Notices'
-import { PatientHeader, type PatientFacts } from '../parts/PatientHeader'
+import type { PatientFacts } from '../parts/PatientHeader'
+import { StatusBadge } from '../parts/StatusBadge'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isDemoFacility } from '../../blueFacilities'
 import { CLOSE_GRANT, CLOSE_REASON, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
@@ -38,6 +40,64 @@ export function patientDetails(patient: ActivePatient, facts: PatientFacts): Key
   ]
 }
 
+type Reported =
+  | { readonly scope: string; readonly status: 'hidden' }
+  | { readonly scope: string; readonly status: 'failed' }
+  | { readonly scope: string; readonly status: 'shown'; readonly allergies: string | null }
+
+/**
+ * The "Allergies" row of the patient's Saved record (audit 9): what the patient entered in their Health ID portal, as
+ * today's "Reported by the patient" reads it (staff/routes/PatientReportedHealth.tsx) and under the same conditions:
+ * direct care only, with ehr.note.read, read afresh for each actor, facility, patient, purpose and permission set (today's
+ * key), so nothing of another patient's shows. No row while it loads, when EHR refuses it (403) or does not serve it
+ * (404), or when the patient has stated nothing; another failure says so in today's words, with today's retry. It is
+ * what the patient says, not a clinical finding, and is labelled so.
+ */
+function useReportedAllergies(chart: Chart): KeyValue | null {
+  const { state, permissions } = useClinical()
+  const { facilityId, patientId, purpose } = chart
+  const reads = purpose === 'direct-care' && permissions.includes('ehr.note.read')
+  const actorId = state.status === 'ready' ? state.session.actor.id : ''
+  const [revision, setRevision] = useState(0)
+  const scope = JSON.stringify([actorId, facilityId, patientId, purpose, permissions, revision])
+  const [reported, setReported] = useState<Reported | null>(null)
+
+  useEffect(() => {
+    if (!reads) return
+    const controller = new AbortController()
+    // Run as a promise, as today's component does, so that a read that throws at once is this row's failure, never the page's.
+    void Promise.resolve().then(() => staffApi.reportedHealthProfile(facilityId, patientId, controller.signal)).then(
+      profile => {
+        if (!controller.signal.aborted) setReported(profile ? { scope, status: 'shown', allergies: profile.allergies } : { scope, status: 'hidden' })
+      },
+      (caught: unknown) => {
+        if (controller.signal.aborted) return
+        // Refused or not served: nothing is shown. Only the service failing to answer says so, with a retry.
+        setReported({ scope, status: isHidApiError(caught) && caught.status !== 403 && caught.status !== 404 ? 'failed' : 'hidden' })
+      },
+    )
+    return () => controller.abort()
+  }, [reads, scope, facilityId, patientId])
+
+  // An answer for an earlier scope (or retry) is never shown: until this one answers, there is no row.
+  const current = reads && reported?.scope === scope ? reported : null
+  if (!current || current.status === 'hidden') return null
+  if (current.status === 'failed') {
+    return {
+      label: 'Allergies',
+      value: (
+        <>
+          <span>What the patient entered about their health could not be loaded.</span>{' '}
+          <button type="button" className="hid-ehr-clinical-link hid-ehr-clinical-link-button" onClick={() => setRevision(value => value + 1)}>
+            Retry patient-reported health information
+          </button>
+        </>
+      ),
+    }
+  }
+  return { label: 'Allergies', value: `${current.allergies ?? 'Not stated'} (patient-reported)` }
+}
+
 /** The open patient's page (`patients/open`: the URL names no patient). */
 export function PatientPage() {
   const chart = useChart()
@@ -58,7 +118,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
   const emergency = chart.purpose === 'emergency'
   const grantId = chart.patient.lookup.authorization.consentGrantId ?? null
   const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administratorOf(facility, permissions))
-  const flags = [accessLabel(chart.patient), ...(chart.writeNotice === null ? [] : ['Read only'])]
+  const allergies = useReportedAllergies(chart)
 
   async function closeGrant() {
     if (!grantId || closeUnavailable) return
@@ -75,11 +135,9 @@ function PatientRecord({ chart }: { chart: Chart }) {
 
   /**
    * As the design's Next steps, a step shows only to a role that may take it: External record access opens only with
-   * identity.consent.write (the frame's rule, the permission its request form needs), the encounters list only with
-   * ehr.encounter.read (Consultation's).
+   * identity.consent.write (the frame's rule, the permission its request form needs).
    */
   const mayOpenConsent = can('identity.consent.write')
-  const mayOpenChart = chart.can('ehr.encounter.read')
 
   /** The Health ID is handed over in memory only, and only where the request form can open and read it. */
   function openConsent() {
@@ -90,7 +148,9 @@ function PatientRecord({ chart }: { chart: Chart }) {
 
   return (
     <>
-      <PatientHeader facts={chart.facts} flags={flags} />
+      {/* The design's "[status] Saved …" line (audit 3): the access the patient is open under, and "Read only" when the
+          grant allows no changes. Name, date of birth, sex and Health ID are in Saved record. */}
+      <DetailMeta status={accessLabel(chart.patient)}>{chart.writeNotice !== null ? <StatusBadge status="Read only" /> : null}</DetailMeta>
       {emergency ? (
         <Banner tone="warning" title="Emergency access is read-only">
           {`${chart.facts.name} is open under emergency access. Emergency access shows the read-only emergency summary only; nothing can be added or changed.`}
@@ -99,7 +159,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
       {chart.writeNotice ? <Banner title="Read only">{chart.writeNotice}</Banner> : null}
       {error ? <ErrorBox>{error}</ErrorBox> : null}
       <DetailGrid>
-        <SavedRecord items={patientDetails(chart.patient, chart.facts)} />
+        <SavedRecord items={allergies ? [...patientDetails(chart.patient, chart.facts), allergies] : patientDetails(chart.patient, chart.facts)} />
         <EhrCard title="Available actions">
           {grantId ? (
             <>
@@ -130,8 +190,8 @@ function PatientRecord({ chart }: { chart: Chart }) {
                   <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('journey', 'new'))}>Register walk-in visit</EhrButton></Step>
                 </>
               ) : null}
+              {/* The design's three steps only (audit 4): each encounter opens from Connected hospital history below. */}
               {mayOpenConsent ? <Step><EhrButton variant="secondary" onClick={openConsent}>Open consent</EhrButton></Step> : null}
-              {mayOpenChart ? <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('consult'))}>Open clinical record</EhrButton></Step> : null}
             </>
           )}
         </EhrCard>

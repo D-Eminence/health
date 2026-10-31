@@ -102,6 +102,12 @@
   width: 100%;
 }
 
+/* The design's Status: Online is as wide as its words. */
+.hid-ehr .hid-ehr-blue-menu .hid-ehr-button.hid-ehr-blue-menu-status {
+  align-self: flex-start;
+  width: auto;
+}
+
 .hid-ehr .hid-ehr-blue-roles {
   display: flex;
   flex-direction: column;
@@ -171,6 +177,32 @@
 
 .hid-ehr .hid-ehr-blue-page > .hid-ehr-sample-banner {
   margin: 0;
+}
+
+/* Why the frame sent someone to Home (the design's .info): above the page, until dismissed. */
+.hid-ehr .hid-ehr-blue-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 16px;
+  border-radius: 6px;
+  background: var(--ehr-tint);
+  color: var(--ehr-text);
+  font-size: 14px;
+}
+
+.hid-ehr .hid-ehr-blue-notice > p {
+  flex: 1;
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-blue-notice > button {
+  border: 0;
+  padding: 0 4px;
+  background: transparent;
+  color: var(--ehr-ink);
+  font: inherit;
+  cursor: pointer;
 }
 
 /* The page's own gap sets the tabs apart from the heading, as the design spaces them. */

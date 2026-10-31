@@ -8,7 +8,7 @@ import {
   type SampleDefinition, type SampleHandoff, type SampleRefKind,
 } from './definitions'
 import {
-  SAMPLE_USER, SEED_ENCOUNTERS, SEED_PATIENTS, seedRecords,
+  SAMPLE_USER, SEED_CONNECTED, SEED_ENCOUNTERS, SEED_PATIENTS, seedRecords,
   type SampleData, type SampleEncounter, type SamplePatient, type SampleRecord, type SampleValue,
 } from './seed'
 
@@ -168,8 +168,28 @@ export function displayValue(current: SampleState, value: SampleValue | undefine
   return value
 }
 
+/** Saved values whose key alone would print a raw label ("Followup"), or one that misnames the value shown. */
+const WRITTEN_LABELS: Readonly<Record<string, string>> = {
+  followup: 'Follow-up',
+  // Shown as the provisional newborn's name (displayValue), not an id.
+  newbornId: 'Newborn identity',
+}
+
+/**
+ * A saved value's label, written properly (owner decision 4): the key's words in sentence case, "ID" in capitals
+ * ("assignedTo" is "Assigned to", "publishedAt" "Published at"), never a raw key ("Assigned To", "Followup").
+ */
+export function sampleLabel(key: string): string {
+  if (Object.prototype.hasOwnProperty.call(WRITTEN_LABELS, key)) return WRITTEN_LABELS[key]!
+  const words = keyLabel(key).split(' ').map((word, index) => {
+    if (word.toLowerCase() === 'id') return 'ID'
+    return index === 0 ? word : word.toLowerCase()
+  })
+  return words.join(' ')
+}
+
 export function displayItems(current: SampleState, data: SampleData): KeyValue[] {
-  return Object.entries(data).map(([key, value]) => ({ label: keyLabel(key), value: displayValue(current, value) }))
+  return Object.entries(data).map(([key, value]) => ({ label: sampleLabel(key), value: displayValue(current, value) }))
 }
 
 /** A record picker's choices: "{title} · {status} · {id start}", the patient's own records (or ones with none). */
@@ -187,24 +207,41 @@ export function refChoices(current: SampleState, kind: SampleRefKind, patientId:
 }
 
 export interface HistoryEntry {
-  readonly workspace: SampleDefinition
-  readonly record: SampleRecord
+  readonly key: string
+  /** The workspace the row links into. */
+  readonly workspace: string
+  /** "{title} · {name}" is the row's link. */
+  readonly title: string
+  readonly name: string
+  readonly status: string
+  /** The sample record the row opens; none on a fictional connected row, which opens its workspace's list. */
+  readonly recordId?: string
 }
 
 /**
- * "Connected hospital history": the same patient's records in the other sample workspaces, in the design's module
- * order. A visit lists only the records started from it.
+ * "Connected hospital history": the same patient's records in the other workspaces, in the design's module order: a
+ * sample workspace's records, and for a workspace with no sample definition (a live one) the seed's fictional
+ * history-only rows (audit item 17), which only this sample page shows. A visit lists only the rows started from it.
+ * Only workspaces `canOpen` allows are listed (audit item 16: the design lists the modules the role may view), the
+ * live ones' fictional rows included, since they are sample content on a sample page.
  */
-export function historyFor(current: SampleState, definition: SampleDefinition, record: SampleRecord): HistoryEntry[] {
-  if (!record.patientId) return []
+export function historyFor(current: SampleState, definition: SampleDefinition, record: SampleRecord, canOpen: (workspace: string) => boolean): HistoryEntry[] {
+  const patientId = record.patientId
+  if (!patientId) return []
+  const included = (item: { readonly patientId?: string; readonly parentId?: string }) =>
+    item.patientId === patientId && (!definition.historyFromRecord || item.parentId === record.id)
   const entries: HistoryEntry[] = []
   for (const id of HISTORY_ORDER) {
+    if (id === definition.id || !canOpen(id)) continue
     const other = sampleDefinition(id)
-    if (!other || other.id === definition.id) continue
-    for (const item of listedRecords(current, other)) {
-      if (item.patientId !== record.patientId) continue
-      if (definition.historyFromRecord && item.parentId !== record.id) continue
-      entries.push({ workspace: other, record: item })
+    if (other) {
+      for (const item of listedRecords(current, other).filter(included)) {
+        entries.push({ key: `${other.id}-${item.id}`, workspace: other.id, title: other.title, name: recordName(item), status: item.status, recordId: item.id })
+      }
+      continue
+    }
+    for (const row of SEED_CONNECTED.filter(item => item.workspace === id && included(item))) {
+      entries.push({ key: `${row.workspace}-${row.id}`, workspace: row.workspace, title: row.title, name: row.name, status: row.status })
     }
   }
   return entries
