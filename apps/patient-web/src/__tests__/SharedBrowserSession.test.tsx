@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { SessionProvider, useSession } from '../session'
+import { shownText } from './portalHarness'
 
 // Today's workspace at every facility, as real clinics have it until the clinic switch (ehr-blue/clinicSwitch.ts):
 // these tests cover the classic portal whatever BLUE_FOR_ALL is. The blue one is EhrBlueAtClinics.test.tsx's.
@@ -545,8 +546,8 @@ describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', ()
     identity.signOutElsewhere()
     await anotherTab()
 
-    expect((await screen.findByRole('alert')).textContent)
-      .toBe('You were signed out because this browser\'s Health ID sign-in changed in another tab or window. Sign in again to continue.')
+    expect(shownText(await screen.findByRole('alert')))
+      .toBe('You were signed out because this browser\'s Health ID sign-in changed in another tab. Sign in again to continue.')
     expect(screen.getByRole('heading', { level: 1, name: 'Welcome back.' })).toBeTruthy()
     expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()
   })
@@ -558,7 +559,7 @@ describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', ()
     identity.signIn('staff')
     const { App } = await import('../App')
     render(<MemoryRouter initialEntries={['/sign-in']}><App /></MemoryRouter>)
-    const note = 'A provider sign-in is active in this browser. Signing in here as a patient replaces it.'
+    const note = /^A provider sign-in is active in this browser\. Signing in here replaces it\./
     expect(await screen.findByText(note)).toBeTruthy()
 
     identity.signOutElsewhere()
@@ -582,7 +583,7 @@ describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', ()
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back.' })).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
-    expect(screen.queryByText(/another tab or window/)).toBeNull()
+    expect(screen.queryByText(/changed in another tab/)).toBeNull()
     expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()
   })
 

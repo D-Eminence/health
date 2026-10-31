@@ -10,7 +10,7 @@
  * - PatientBanner: name, Health ID, date of birth, age and sex on every clinical screen (wrong-patient prevention).
  * - Value / Flag: a measurement always with its unit, and an abnormal one said in words with an icon, not colour alone.
  */
-import type { ReactNode } from 'react'
+import type { ComponentProps, ReactNode, Ref } from 'react'
 import { ArrowDown, ArrowUp, CircleAlert, RotateCcw, TriangleAlert } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, PageHeader, cx, type Icon, type Tone } from './ui'
 import { Modal } from './interactive'
@@ -59,7 +59,9 @@ export function FormActions({ children, sticky = true, className, align = 'end' 
 
 /** Rows that look like the list they stand in for, while it loads. */
 export function LoadingRows({ rows = 3, label = 'Loading' }: { rows?: number; label?: string }) {
+  // The label is also the region's text: a live region is announced by what it says, not by its name.
   return <div role="status" aria-label={label} className="divide-y divide-line">
+    <span className="sr-only">{label}…</span>
     {Array.from({ length: rows }, (_, i) => <div key={i} className="flex items-center gap-4 px-5 py-4">
       <div className="size-9 animate-pulse rounded-full bg-hover" />
       <div className="flex-1 space-y-2"><div className="h-3.5 w-1/3 animate-pulse rounded-md bg-hover" /><div className="h-3 w-1/4 animate-pulse rounded-md bg-hover" /></div>
@@ -71,15 +73,20 @@ export function LoadingRows({ rows = 3, label = 'Loading' }: { rows?: number; la
  * The states of anything that is read: still loading (and nothing to show yet), failed (what failed, and Retry), empty
  * (one line on what will appear), else the content. Content already shown stays while it reloads.
  */
-export function PageState({ loading, error, hasData, onRetry, retryLabel = 'Try again', what, empty, children, rows }: {
+/** The Button, typed to take a ref (React 19 passes it as a prop, and Button spreads it onto its <button>). */
+const RefButton = Button as (props: ComponentProps<typeof Button> & { ref?: Ref<HTMLButtonElement> }) => ReactNode
+
+export function PageState({ loading, error, hasData, onRetry, retryLabel = 'Try again', retryRef, what, empty, children, rows }: {
   loading: boolean; error: string | null | undefined; hasData: boolean; onRetry?: () => void; retryLabel?: string
+  /** The Retry button, for a page that moves focus to it when the read fails again (useRetryFocus's `button`). */
+  retryRef?: Ref<HTMLButtonElement>
   /** What is being read, for the error title: "your records". */
   what: string
   empty?: { icon?: Icon; illustration?: IllustrationName; title: string; description?: ReactNode; action?: ReactNode } | null
   children: ReactNode; rows?: number
 }) {
   if (loading && !hasData) return <LoadingRows rows={rows} label={`Loading ${what}`} />
-  if (error) return <Alert intent="error" title={`Couldn’t load ${what}`} action={onRetry ? <Button size="sm" icon={RotateCcw} onClick={onRetry}>{retryLabel}</Button> : undefined}>{error}</Alert>
+  if (error) return <Alert intent="error" title={`Couldn’t load ${what}`} action={onRetry ? <RefButton ref={retryRef} size="sm" icon={RotateCcw} onClick={onRetry}>{retryLabel}</RefButton> : undefined}>{error}</Alert>
   if (empty) return <EmptyState compact icon={empty.icon} illustration={empty.illustration} title={empty.title} description={empty.description} action={empty.action} />
   return <>{children}</>
 }

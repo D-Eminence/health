@@ -93,7 +93,7 @@ describe('loading', () => {
   })
 
   it.each([
-    [new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }), 'Adding staff isn’t available on Health ID yet. Please check again later.', false],
+    [new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }), 'Adding staff isn’t set up for your facility. Contact support.', false],
     [new HidApiError(403, 'Not available', { code: 'STAFF_MANAGEMENT_NOT_AVAILABLE' }), 'Health ID support manages who works at '
       + 'Demo Hospital. Contact Health ID support to add or remove staff.', false],
     [new HidApiError(503, 'Unavailable', { code: 'UPSTREAM_UNAVAILABLE' }), 'Staff management is temporarily unavailable. Please try '

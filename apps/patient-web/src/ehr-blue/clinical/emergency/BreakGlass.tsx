@@ -172,7 +172,10 @@ export function BreakGlassCard() {
         {error ? <Alert intent="error" title="Couldn’t open emergency access">{error}</Alert> : null}
         {unavailable ? <p id={unavailableId} className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
         <FormActions sticky={false}>
-          <Button type="submit" variant="destructive" icon={Siren} loading={busy} disabled={!facility || unavailable !== null}
+          {/* Busy, it stays focusable (aria-disabled, not disabled): focus is not lost while the request runs, and a second
+              press sends nothing (submit returns while one is on its way). */}
+          <Button type="submit" variant="destructive" icon={Siren} disabled={!facility || unavailable !== null}
+            aria-disabled={busy || undefined}
             aria-describedby={unavailable ? unavailableId : undefined}>{busy ? 'Opening…' : 'Open emergency access'}</Button>
         </FormActions>
       </form>

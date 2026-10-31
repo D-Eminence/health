@@ -48,7 +48,7 @@ body { margin: 0; }
 .staff-toolbar { margin-bottom: 18px; }
 .staff-list { display: grid; gap: 9px; }
 .staff-list-item { border: 1px solid var(--color-line); border-radius: var(--radius-card); padding: 12px 14px; background: var(--color-surface); }
-.staff-list-item strong { color: var(--color-ink); font-size: 13px; overflow-wrap: break-word; }
+.staff-list-item strong { color: var(--color-ink); font-size: 13px; overflow-wrap: anywhere; }
 .staff-list-item p { color: var(--color-muted); margin: 4px 0 0; font-size: 12px; }
 .staff-detail { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-top: 6px; font-size: 12px; }
 .staff-detail span { color: var(--color-muted); }
@@ -62,7 +62,8 @@ body { margin: 0; }
 .staff-module { display: grid; align-content: start; gap: 6px; padding: 18px 20px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-card); background: var(--color-surface); color: var(--color-muted); font-size: 13px; line-height: 1.5; text-decoration: none; }
 .staff-module strong { color: var(--color-ink); font-size: 15px; font-weight: 650; }
 .staff-module small { margin-top: 4px; color: var(--color-brand); font-size: 13px; font-weight: 600; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
-.staff-module:hover { border-color: var(--color-brand-border); background: var(--color-brand-tint); }
+/* The card stays white on hover (its border and shadow say it): brand text on the brand tint is 4.2:1, under 4.5:1. */
+.staff-module:hover { border-color: var(--color-brand-border); background: var(--color-surface); box-shadow: var(--shadow-card); }
 .staff-error { color: var(--color-critical) !important; font-size: 12px !important; margin: 0; }
 .staff-success { color: var(--color-positive-ink) !important; font-size: 12px !important; margin: 0; }
 .staff-notice { border: 1px solid var(--color-line); border-radius: var(--radius-control); padding: 9px 12px; background: var(--color-brand-tint); color: var(--color-ink); font-size: 13px; line-height: 1.45; }
@@ -101,7 +102,7 @@ body { margin: 0; }
 .staff-facility-choice p { overflow-wrap: break-word; }
 .staff-facility-choice fieldset { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
 .staff-facility-choice legend { margin-bottom: 6px; font-weight: 650; }
-.staff-choice { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border: 1px solid var(--color-line); border-radius: 8px; overflow-wrap: break-word; cursor: pointer; }
+.staff-choice { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border: 1px solid var(--color-line); border-radius: 8px; overflow-wrap: anywhere; cursor: pointer; }
 .staff-choice input { flex: 0 0 auto; width: 18px; height: 18px; margin: 0; }
 .staff-facility-choice fieldset:disabled .staff-choice { cursor: not-allowed; color: var(--color-muted); background: var(--color-surface-tint); }
 /* The steps' own text only: a Field's error (or hint) is a paragraph inside the Field, and keeps its own colour and size. */

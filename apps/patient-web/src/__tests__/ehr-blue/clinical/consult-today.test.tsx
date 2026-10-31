@@ -2,7 +2,7 @@ import { act, fireEvent, screen, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
-import { ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, activePatient, allowedLookup, renderPage } from './harness'
+import { ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, activePatient, allowedLookup, patientBanner, renderPage } from './harness'
 
 /**
  * Today's chart sections on the Consultation encounter page: staff imported history, the patient assistant,
@@ -147,7 +147,10 @@ describe('Consultation record: today’s chart sections', () => {
     builds.importedRecords = true
     renderPage(<ConsultWorkspace />, 'consult')
     expect(await screen.findByText('No consultations for this patient here yet.')).toBeTruthy()
-    expect(await screen.findByText('Changes are unavailable')).toBeTruthy()
+    // The read-only grant is said once, under the patient banner, whose access says "Read only".
+    expect(await screen.findByText('You can view this, but not change it. To add or change records, ask the patient to approve access that includes changes.')).toBeTruthy()
+    expect(within(patientBanner()).getByText('Read only')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'New consultation' })).toBeNull()
     const card = (await screen.findByRole('heading', { level: 2, name: 'Reported by the patient' })).closest('section')!
     expect(sections()?.contains(card)).toBe(true)
     expect(within(card).getByText('Penicillin (fictional)')).toBeTruthy()

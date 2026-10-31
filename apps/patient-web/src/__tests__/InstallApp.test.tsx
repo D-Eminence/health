@@ -5,7 +5,8 @@ import { forgetInstallPrompt, listenForInstallPrompt } from '../installPrompt'
 import { json, press, problem, profile, renderPortal } from './portalHarness'
 
 /**
- * "Install the Health ID app" on the Notifications page (B6, contract b6-contract.md §11.5): a button where the browser has offered
+ * "Install the Health ID app", in the profile's Settings since the redesign moved it there from the Notifications page
+ * (B6, contract b6-contract.md §11.5): a button where the browser has offered
  * installing (`beforeinstallprompt`, kept from the moment the page loads), the Home Screen steps in an iPhone or iPad
  * browser, and nothing in the installed app, in an app's built-in web view, or in a browser that offers neither.
  */
@@ -41,17 +42,18 @@ function offer(outcome: 'accepted' | 'dismissed' = 'accepted') {
   return { event, choose }
 }
 
-const LIST_READY = 'You have no notifications.'
-const page = () => renderPortal(<NotificationsPage />, path => path === '/identity/me/notifications' ? json([]) : problem(404, 'NOT_FOUND', 'Not served'))
+/** The profile has been read and its sections are shown. */
+const ready = () => screen.findByRole('heading', { name: 'About you' })
+const page = () => renderPortal(<ProfilePage />, path => path === '/identity/me' ? json(profile) : problem(404, 'NOT_FOUND', 'Not served'))
 
 describe('Install the Health ID app', () => {
   it('is not shown in a browser that has offered nothing', async () => {
     page()
-    expect(await screen.findByText(LIST_READY)).toBeTruthy()
+    expect(await ready()).toBeTruthy()
     expect(screen.queryByRole('heading', { name: HEADING })).toBeNull()
   })
 
-  it('keeps the browser\'s offer from before Notifications opened, and shows it only when the patient asks', async () => {
+  it('keeps the browser\'s offer from before the profile opened, and shows it only when the patient asks', async () => {
     const { event, choose } = offer()
     // The browser's own mini-infobar is held back.
     expect(event.defaultPrevented).toBe(true)
@@ -63,13 +65,13 @@ describe('Install the Health ID app', () => {
     expect(event.prompt).toHaveBeenCalledTimes(1)
     await act(async () => { choose() })
     await waitFor(() => expect(screen.queryByRole('heading', { name: HEADING })).toBeNull())
-    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: 'Notifications' }))
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: 'Profile' }))
   })
 
-  it('is not on the profile', async () => {
+  it('is not on the Notifications page any more', async () => {
     offer()
-    renderPortal(<ProfilePage />, path => path === '/identity/me' ? json(profile) : problem(404, 'NOT_FOUND', 'Not served'))
-    expect(await screen.findByRole('heading', { name: /About you/ })).toBeTruthy()
+    renderPortal(<NotificationsPage />, path => path === '/identity/me/notifications' ? json([]) : problem(404, 'NOT_FOUND', 'Not served'))
+    expect(await screen.findByText('No notifications')).toBeTruthy()
     expect(screen.queryByRole('heading', { name: HEADING })).toBeNull()
   })
 
@@ -111,7 +113,7 @@ describe('Install the Health ID app', () => {
   it('is not shown in an app\'s built-in web view on iPhone, which has no Add to Home Screen', async () => {
     define(navigator, 'userAgent', INSTAGRAM_IPHONE)
     page()
-    expect(await screen.findByText(LIST_READY)).toBeTruthy()
+    expect(await ready()).toBeTruthy()
     expect(screen.queryByRole('heading', { name: HEADING })).toBeNull()
     expect(screen.queryByText('Tap the Share button, then Add to Home Screen.')).toBeNull()
   })
@@ -123,7 +125,7 @@ describe('Install the Health ID app', () => {
     setUp()
     offer()
     page()
-    expect(await screen.findByText(LIST_READY)).toBeTruthy()
+    expect(await ready()).toBeTruthy()
     expect(screen.queryByRole('heading', { name: HEADING })).toBeNull()
   })
 })

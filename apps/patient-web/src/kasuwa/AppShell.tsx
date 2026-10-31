@@ -75,6 +75,9 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
   const [switching, setSwitching] = useState(false)
   const [creating, setCreating] = useState(false)
   const [personMenu, setPersonMenu] = useState(false)
+  // The ⋯ button that opens the person menu: Sign out closes the menu, so focus goes back to it (a failed sign-out
+  // leaves the person where they were, not on the page).
+  const personButton = useRef<HTMLButtonElement>(null)
   const [rail, setRailState] = useState(railed)
   const setRail = (next: boolean) => { railed = next; setRailState(next) }
   // Menu is a page of its own, at #menu: the Back button closes it, as people expect.
@@ -163,13 +166,13 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
               <span className="block truncate text-xs text-ink-3">{person.detail}</span>
             </span>
           </>}
-          <button type="button" onClick={() => setPersonMenu(v => !v)} aria-expanded={personMenu} aria-label={`${person.name}: account`} title={rail ? person.name : 'Account'}
+          <button ref={personButton} type="button" onClick={() => setPersonMenu(v => !v)} aria-expanded={personMenu} aria-label={`${person.name}: account`} title={rail ? person.name : 'Account'}
             className={cx('inline-flex shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-ink-3 hover:bg-hover hover:text-ink', rail ? 'size-11' : 'size-9')}>
             {rail ? (person.avatar ?? <Avatar name={person.name} size="sm" />) : <MoreHorizontal className="size-[18px]" aria-hidden />}</button>
         </div>
         {personMenu && <div className={cx('absolute bottom-full z-[var(--z-dropdown)] mb-2 w-56 animate-rise rounded-xl bg-surface p-1.5 shadow-[var(--shadow-pop)] ring-1 ring-line', rail ? 'left-0' : 'right-0')}>
           {person.profileTo ? <Link to={person.profileTo} onClick={() => setPersonMenu(false)} className="flex h-10 items-center gap-2.5 rounded-md px-2.5 text-sm text-ink no-underline hover:bg-hover"><UserRound className="size-4 text-ink-3" aria-hidden />Your profile</Link> : null}
-          <button type="button" onClick={() => { setPersonMenu(false); onSignOut() }} disabled={signingOut}
+          <button type="button" onClick={() => { setPersonMenu(false); personButton.current?.focus(); onSignOut() }} disabled={signingOut}
             className="flex h-10 w-full cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-2.5 text-left text-sm text-danger-ink hover:bg-danger-soft disabled:opacity-50"><LogOut className="size-4" aria-hidden />{signingOut ? 'Signing out…' : 'Sign out'}</button>
         </div>}
       </div>

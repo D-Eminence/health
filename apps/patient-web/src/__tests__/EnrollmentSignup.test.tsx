@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { googleProfileOf } from '../routes/enrollment/googleProfile'
-import { described, json, press, problem, renderPortal, type Handler } from './portalHarness'
+import { described, json, press, problem, renderPortal, type Handler, shownText } from './portalHarness'
 import { enterCode } from './codeBoxes'
 
 vi.mock('../Turnstile', () => ({
@@ -50,16 +50,17 @@ async function fillDetails({ email = 'ada@example.com', phone = '0801 234 5678' 
   await screen.findByRole('heading', { name: 'Your details' })
   type('First name', 'Ada'); type('Last name', 'Obi'); type('Email address', email); type('Phone number', phone)
   fireEvent.change(field('Gender'), { target: { value: 'female' } })
-  type('Hospital you currently use (optional)', 'Lagos General')
+  type('Hospital you use (optional)', 'Lagos General')
   fireEvent.click(screen.getByRole('checkbox', { name: 'I agree to the Terms of Service and Privacy Policy' }))
 }
 async function toPassword() {
   await fillDetails()
   await press(screen.getByRole('button', { name: 'Continue' }))
-  await screen.findByRole('heading', { name: 'Create a secure password' })
+  await screen.findByRole('heading', { name: 'Create a password' })
 }
-async function sendPassword(password = PASSWORD, confirm = password) {
-  type('Password', password); type('Confirm password', confirm)
+/** The password is typed once, with Show to check it (the review of 2026-10-31: no second field to match). */
+async function sendPassword(password = PASSWORD) {
+  type('Password', password)
   fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
   await press(screen.getByRole('button', { name: 'Create account' }))
 }
@@ -75,14 +76,14 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     const { sent, headers } = renderPortal(<Enrollment />, gateway(happy), anonymous)
 
     expect(await screen.findByRole('list', { name: 'Sign-up steps' })).toBeTruthy()
-    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
-    expect(screen.getByRole('link', { name: 'Terms of Service' }).getAttribute('href')).toBe('https://healthidentitydirectory.com/terms')
+    expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Terms' }).getAttribute('href')).toBe('https://healthidentitydirectory.com/terms')
     expect(screen.getByRole('link', { name: 'Privacy Policy' }).getAttribute('href')).toBe('https://healthidentitydirectory.com/privacy')
     await toPassword()
     expect(document.activeElement).toBe(field('Password'))
     await sendPassword()
 
-    const codeField = await screen.findByLabelText('Verification code')
+    const codeField = await screen.findByLabelText('Code')
     expect(document.activeElement).toBe(codeField)
     expect(described(codeField)).toContain('We sent a 6-digit code to a•••@example.com.')
     const signup = sent.find(request => request.path === `${BASE}/signup`)
@@ -93,10 +94,10 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
 
     await enterCode(codeField, '123456')
 
-    const ready = await screen.findByRole('heading', { name: 'Your Health ID is ready.' })
+    const ready = await screen.findByRole('heading', { name: 'Your Health ID is ready' })
     await waitFor(() => expect(document.activeElement).toBe(ready))
     expect(screen.getByText('HID-NEW234')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Sign in to continue' }).getAttribute('href')).toBe('/sign-in')
+    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
     expect(sent.find(request => request.path === `${BASE}/contact/verify`)?.body).toEqual({ challengeId: 'challenge-1', code: '123456' })
     expect(sent.find(request => request.path === `${BASE}/activate`)?.body).toEqual({ password: PASSWORD })
     expect(screen.queryByRole('list', { name: 'Sign-up steps' })).toBeNull()
@@ -118,8 +119,8 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     expect(described(field('Phone number'))).toContain('Enter a valid phone number')
     expect(described(field('Gender'))).toBe('Select your gender.')
     expect(described(screen.getByRole('checkbox', { name: 'I agree to the Terms of Service and Privacy Policy' })))
-      .toBe('Agree to the Terms of Service and Privacy Policy to create an account.')
-    expect(screen.queryByRole('heading', { name: 'Create a secure password' })).toBeNull()
+      .toBe('Read the Terms and the Privacy Policy (new tab). | Agree to the Terms of Service and Privacy Policy to create an account.')
+    expect(screen.queryByRole('heading', { name: 'Create a password' })).toBeNull()
     expect(sent.filter(request => request.method === 'POST')).toEqual([])
 
     // A field's mark goes once it is changed.
@@ -127,23 +128,20 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     expect(field('Last name').getAttribute('aria-invalid')).toBeNull()
   })
 
-  it('needs a password of at least 12 characters, typed twice, and the security check', async () => {
+  it('needs a password of at least 12 characters, typed once, and the security check', async () => {
     const { sent } = renderPortal(<Enrollment />, gateway(happy), anonymous)
     await toPassword()
     expect((screen.getByRole('button', { name: 'Create account' }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.getByText('Complete the security check to continue.')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    type('Password', 'too short'); type('Confirm password', 'too short')
+    expect(screen.queryByLabelText('Confirm password')).toBeNull()
+    type('Password', 'too short')
     await press(screen.getByRole('button', { name: 'Create account' }))
     expect(document.activeElement).toBe(field('Password'))
     expect(described(field('Password'))).toContain('Choose a password of at least 12 characters.')
     expect(field('Password').getAttribute('aria-invalid')).toBe('true')
 
-    type('Password', PASSWORD); type('Confirm password', `${PASSWORD}!`)
-    await press(screen.getByRole('button', { name: 'Create account' }))
-    expect(document.activeElement).toBe(field('Confirm password'))
-    expect(described(field('Confirm password'))).toBe('Type the same password again.')
     expect(sent.filter(request => request.method === 'POST')).toEqual([])
 
     // Back keeps what was typed.
@@ -158,9 +156,9 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     expect([...gender.options].map(option => [option.value, option.textContent])).toEqual([['', 'Select…'], ['female', 'Female'], ['male', 'Male'], ['other', 'Other']])
     fireEvent.change(gender, { target: { value: 'other' } })
     await press(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findByRole('heading', { name: 'Create a secure password' })
+    await screen.findByRole('heading', { name: 'Create a password' })
     await sendPassword()
-    await screen.findByLabelText('Verification code')
+    await screen.findByLabelText('Code')
     expect(sent.find(request => request.path === `${BASE}/signup`)?.body).toMatchObject({ gender: 'other' })
   })
 
@@ -169,7 +167,7 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     const { sent } = renderPortal(<Enrollment />, gateway((path, method, body) => path === `${BASE}/contact/verify` ? verify() : happy(path, method, body)), anonymous)
     await toPassword()
     await sendPassword()
-    const codeField = await screen.findByLabelText('Verification code')
+    const codeField = await screen.findByLabelText('Code')
 
     await press(screen.getByRole('button', { name: 'Send code again' }))
     expect(sent.find(request => request.path === `${BASE}/contact`)?.body).toEqual({ channel: 'email', contact: 'ada@example.com' })
@@ -194,10 +192,10 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
       ? json({ ...PROGRESS, resendAfterSeconds: 60 }) : happy(path, method, body)), anonymous)
     await toPassword()
     await sendPassword()
-    await screen.findByLabelText('Verification code')
+    await screen.findByLabelText('Code')
     const again = screen.getByRole('button', { name: 'Send code again' }) as HTMLButtonElement
     expect(again.disabled).toBe(true)
-    expect(described(again)).toBe('A new code can be sent 60 seconds after the last one.')
+    expect(described(again)).toBe('You can ask for a new code in 60 seconds.')
   })
 
   it('says an email already registered at its field, with a way to sign in, back on the details', async () => {
@@ -245,7 +243,7 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
       ? problem(403, 'TURNSTILE_FAILED', 'The security check failed. Try again.') : happy(path, method, body)), anonymous)
     await toPassword()
     await sendPassword()
-    expect((await screen.findByRole('alert')).textContent).toBe('The security check failed. Try again.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('The security check failed. Try again.')
     expect((screen.getByRole('button', { name: 'Create account' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
@@ -332,14 +330,14 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
 
   it('shows the NIN-first enrollment, as before, while availability does not say signup: true', async () => {
     renderPortal(<Enrollment />, gateway(happy, { open: true, online: true, facility: false }), anonymous)
-    expect(await screen.findByLabelText('National Identification Number')).toBeTruthy()
+    expect(await screen.findByLabelText('National Identification Number (NIN)')).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Your details' })).toBeNull()
     expect(screen.getByRole('list', { name: 'Enrollment steps' })).toBeTruthy()
   })
 
   it('says registration is not open, as before, when availability is closed even with signup: true', async () => {
     renderPortal(<Enrollment />, gateway(happy, { open: false, signup: true }), anonymous)
-    expect(await screen.findByRole('region', { name: 'Registration is not open yet' })).toBeTruthy()
+    expect(await screen.findByRole('region', { name: 'Sign-ups aren’t open yet' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Your details' })).toBeNull()
   })
 })
@@ -364,27 +362,27 @@ describe('the sign-up phone number', () => {
   async function signUpWith(phone: string, country?: string) {
     const view = renderPortal(<Enrollment />, gateway(happy), anonymous)
     await fillDetails({ phone })
-    if (country) fireEvent.change(field('Country code'), { target: { value: country } })
+    if (country) fireEvent.change(field('Country'), { target: { value: country } })
     await press(screen.getByRole('button', { name: 'Continue' }))
     return view
   }
   const sentPhone = async (sent: ReturnType<typeof renderPortal>['sent']) => {
-    await screen.findByRole('heading', { name: 'Create a secure password' })
+    await screen.findByRole('heading', { name: 'Create a password' })
     await sendPassword()
-    await screen.findByLabelText('Verification code')
+    await screen.findByLabelText('Code')
     return (sent.find(request => request.path === `${BASE}/signup`)?.body as { phone?: string } | undefined)?.phone
   }
 
   it('starts at Nigeria, offers every country with its code, and says how to write the number', async () => {
     renderPortal(<Enrollment />, gateway(happy), anonymous)
     await screen.findByRole('heading', { name: 'Your details' })
-    const picker = field('Country code') as HTMLSelectElement
+    const picker = field('Country') as HTMLSelectElement
     expect(picker.value).toBe('NG')
     expect(picker.selectedOptions[0]?.textContent).toBe('Nigeria (+234)')
     expect(within(picker).getByRole('option', { name: 'United Kingdom (+44)' })).toBeTruthy()
     expect(within(picker).getByRole('option', { name: 'Ghana (+233)' })).toBeTruthy()
     expect(picker.options.length).toBeGreaterThan(190)
-    expect(described(field('Phone number'))).toContain('Choose your country, then enter your number.')
+    expect(described(field('Phone number'))).toContain('Like 0803 123 4567.')
   })
 
   it.each([
@@ -412,7 +410,7 @@ describe('the sign-up phone number', () => {
   it('drops the phone number\'s mark once its country is changed', async () => {
     await signUpWith('07700 900', undefined)
     expect(field('Phone number').getAttribute('aria-invalid')).toBe('true')
-    fireEvent.change(field('Country code'), { target: { value: 'GB' } })
+    fireEvent.change(field('Country'), { target: { value: 'GB' } })
     expect(field('Phone number').getAttribute('aria-invalid')).toBeNull()
   })
 })

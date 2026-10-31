@@ -12,6 +12,7 @@ import { PHOTO_SIDE, PhotoProblem, base64Of, reencodePhoto } from '../photoImage
 import { useAnnounceProfileChange } from '../profileChange'
 import { useSession } from '../session'
 import { HealthIdCode } from './HealthIdCode'
+import { useActionFocus } from './actionFocus'
 import { initialsOf, useObjectUrl, usePatientPhoto } from './ProfilePhoto'
 
 /**
@@ -51,6 +52,7 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
   const { api } = useSession()
   const toast = useToast()
   const announce = useAnnounceProfileChange()
+  const focusAfter = useActionFocus()
   // "Add a profile photo" (the checklist, the profile's completion) links to ?photo=add: the card's photo takes focus,
   // ringed, one tap from the picker. The address is cleared after.
   const [params, setParams] = useSearchParams()
@@ -93,6 +95,8 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
       await api.removePhoto(); photo.forget()
       await onChanged?.(); announce()
       setOpen(false); setPrepared(null)
+      // "Remove photo" goes with the photo: focus goes to the photo control, which now adds one.
+      focusAfter(() => picker.current)
     } catch (cause) {
       toast.error({ title: 'Couldn’t remove your photo', message: isHidApiError(cause) ? cause.message : 'Please try again.' })
     } finally { setBusy(null) }
@@ -117,6 +121,10 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
           aria-label={photo.url ? 'Change the photo on your card' : 'Add a photo to your card'} onChange={event => void choose(event)} />
       </label> : undefined} face={face} />
 
+    {/* The photo is changed on the card; removing it is one step away, under it, and asked again in the drawer. */}
+    {editable && photo.url && <Button size="sm" variant="ghost" icon={Trash2} className="self-center" disabled={busy !== null}
+      onClick={() => { setPrepared(null); setOpen(true) }}>Remove photo</Button>}
+
     {links.length > 0 && <div className="flex gap-2">
       {links.includes('share') && <Button to={shareTo} variant={sharePrimary ? 'primary' : 'secondary'} icon={Share2} className="flex-1">Share records</Button>}
       {links.includes('profile') && <Button to="/profile" icon={UserRound} className="flex-1">View profile</Button>}
@@ -140,6 +148,7 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
       <div className="flex flex-col items-center gap-4 py-2">
         <div className="relative size-44 overflow-hidden rounded-2xl bg-tray ring-1 ring-line">
           {preview ? <img src={preview} alt="Your new photo, cropped to a square" width={PHOTO_SIDE} height={PHOTO_SIDE} className="size-full object-cover" />
+            : busy !== 'preparing' && photo.url ? <img src={photo.url} alt="Your photo" width={PHOTO_SIDE} height={PHOTO_SIDE} className="size-full object-cover" />
             : <span role="status" className="absolute inset-0 flex items-center justify-center text-[13px] text-ink-3">{busy === 'preparing' ? 'Preparing your photo…' : 'No photo chosen'}</span>}
         </div>
         <p className="m-0 max-w-xs text-center text-[13px] text-ink-3">A clear photo of your face, like a passport photo. It’s cropped to a square, and nothing else from the file is sent.</p>

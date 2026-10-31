@@ -166,7 +166,9 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
             <Head>{item.medicationDisplay}<OrderStatus status={item.status} /></Head>
             {item.status === 'entered_in_error' ? <span className="font-medium text-danger-ink">Recorded in error: not a prescription for this patient.</span> : null}
             <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
-              <Value label="Dose" value={item.doseQuantity == null || item.doseQuantity === '' ? null : Number(item.doseQuantity)} unit={item.doseUnit} />
+              {/* A dose not recorded says so by name: "Not recorded" alone would not say what is missing. */}
+              {item.doseQuantity == null || item.doseQuantity === '' ? <span className="text-ink-3">Dose not recorded</span>
+                : <Value label="Dose" value={Number(item.doseQuantity)} unit={item.doseUnit} />}
               <span>· {item.routeCode ? `route ${item.routeCode}` : 'route not recorded'} · {item.frequency}</span>
             </span>
             {item.instructions ? <Text>{item.instructions}</Text> : null}
@@ -215,6 +217,7 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
   const [error, setError] = useState('')
   const [revision, setRevision] = useState(0)
   const [closeError, setCloseError] = useState('')
+  const [ending, setEnding] = useState(false)
   // A close already on its way is not sent again by a second press.
   const closing = useRef(false)
   // The latest re-check, so a new function identity does not read the summary again.
@@ -244,6 +247,7 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
   async function closeGrant() {
     if (!grantId || closeUnavailable || closing.current) return
     closing.current = true
+    setEnding(true)
     setCloseError('')
     try {
       await staffApi.closeGrant(facilityId, grantId, CLOSE_REASON)
@@ -252,6 +256,7 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
       return
     } finally {
       closing.current = false
+      setEnding(false)
     }
     setActivePatient(null)
     onClosed()
@@ -265,10 +270,12 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
         <div className="flex flex-col gap-3 p-5">
           <p className="m-0 text-sm text-ink-2">{SUMMARY_LEDE}{expires ? ` Access ends at ${expires}.` : ''}</p>
           <div className="flex flex-wrap gap-2">
-            <Button icon={RotateCcw} loading={loading} onClick={() => setRevision(value => value + 1)}>Refresh</Button>
+            {/* Busy, it stays focusable (aria-disabled, not disabled), so focus stays on it; a press while it reads does nothing. */}
+            <Button icon={RotateCcw} aria-disabled={loading || undefined}
+              onClick={() => { if (!loading) setRevision(value => value + 1) }}>Refresh</Button>
             {/* At once, as today: nothing may stand between a clinician and ending emergency access. */}
             {grantId ? <Button variant="danger" disabled={closeUnavailable !== null} aria-describedby={closeUnavailable ? closeUnavailableId : undefined}
-              onClick={closeGrant}>End emergency access</Button> : null}
+              aria-disabled={ending || undefined} onClick={closeGrant}>End emergency access</Button> : null}
             <Button variant="ghost" icon={UserSearch} to={href.to('patients')}>Find another patient</Button>
           </div>
           {grantId && closeUnavailable ? <p id={closeUnavailableId} className="m-0 text-[13px] text-ink-3">{closeUnavailable}</p> : null}

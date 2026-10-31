@@ -133,7 +133,8 @@ describe('Profile completion, on the profile', () => {
     const shown = await card()
     expect(shown.getByText('75%')).toBeTruthy()
     const links = shown.getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')])
-    expect(links).toEqual([['Your state', '/profile#bio-data'], ['A profile photo', '/profile#bio-data'],
+    // The photo is added on the card at the top of the profile (?photo=add takes focus to its picker).
+    expect(links).toEqual([['Your state', '/profile#bio-data'], ['A photo on your card', '/profile?photo=add'],
       ['An emergency contact', '/profile#emergency-contacts']])
   })
 
@@ -143,7 +144,8 @@ describe('Profile completion, on the profile', () => {
     expect(shown.id).toBe('profile-completion')
     expect(within(shown).queryByRole('button')).toBeNull()
     expect(shown.querySelector('[hidden]')).toBeNull()
-    expect(shown.querySelector('.patient-completion-bar')).not.toBeNull()
+    // The bar shows the same figure.
+    expect(shown.querySelector('[style*="width: 75%"]')).not.toBeNull()
     expect(shown.compareDocumentPosition(sectionToggle('About you')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(sectionToggle('About you').getAttribute('aria-expanded')).toBe('false')
   })
@@ -169,7 +171,7 @@ describe('Profile completion, on the profile', () => {
     await waitFor(() => expect(document.activeElement).toBe(sectionToggle('Health information')))
     expect(sectionToggle('Health information').getAttribute('aria-expanded')).toBe('true')
     // Another item of the same list, from the same page again.
-    await press(shown.getByRole('link', { name: 'Your HMO' }))
+    await press(shown.getByRole('link', { name: 'Your HMO (health insurance)' }))
     await waitFor(() => expect(document.activeElement).toBe(sectionToggle('Insurance & hospital')))
     expect(sectionToggle('Insurance & hospital').getAttribute('aria-expanded')).toBe('true')
   })
@@ -192,7 +194,8 @@ describe('Profile completion, on the profile', () => {
     }), {}, { parityB3: true })
     const shown = await card()
     expect(shown.getByText('100%')).toBeTruthy()
-    expect(shown.getByText('Your profile is complete.')).toBeTruthy()
+    expect(shown.getByRole('heading', { name: 'Profile complete' })).toBeTruthy()
+    expect(shown.getByText(/nothing left to add/)).toBeTruthy()
     expect(shown.queryAllByRole('link')).toHaveLength(0)
   })
 
@@ -209,8 +212,9 @@ describe('Profile completion, on the profile', () => {
     const { sent } = renderPortal(<ProfilePage />, (path, method) => path === '/identity/me' && method === 'GET' ? json(profile)
       : problem(404, 'NOT_FOUND', path))
     expect(await screen.findByRole('heading', { name: 'About you' })).toBeTruthy()
-    await screen.findByText('Ada Example')
-    expect(screen.queryByRole('heading', { name: 'Profile completion' })).toBeNull()
+    await waitFor(() => expect(document.querySelector('#bio-data dd')?.textContent).toBe('Ada Example'))
+    expect(screen.queryByRole('heading', { name: /^(Finish your profile|Profile complete)$/ })).toBeNull()
+    expect(document.getElementById('profile-completion')).toBeNull()
     // Only the profile, and what the parts moved from Settings read for themselves (the emergency contacts in Health
     // information, Delete account): nothing for the completion.
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
@@ -220,8 +224,8 @@ describe('Profile completion, on the profile', () => {
 
 describe('a link to a section', () => {
   it.each([
-    ['the profile', '/profile#%E0%A4%A', 'Your profile', 'Bio-data'],
-    ['the old settings', '/settings#%', 'Your profile', 'Bio-data'],
+    ['the profile', '/profile#%E0%A4%A', 'Profile', 'About you'],
+    ['the old settings', '/settings#%', 'Profile', 'About you'],
   ])('to %s with a # that does not decode names no section, and the page is shown', async (_label, at, title, card) => {
     renderPortal(<Routes><Route path="/profile" element={<ProfilePage />} /><Route path="/settings" element={<SettingsRedirect />} /></Routes>,
       gateway({}), {}, { parityB3: true, at })

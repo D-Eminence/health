@@ -11,7 +11,7 @@ afterEach(() => { novu.on = true })
 /**
  * A migrated patient's hid-1.0 health details: Novu's GET ehr/me/records carries them as importedHealthProfile
  * (hid-system patient-records.service.ts read, imported-records.query.ts readImportedHealthProfile), null for anyone
- * else. The profile shows them read-only, as "From your hid-1.0 account", only when there is something to show.
+ * else. The profile shows them read-only, as "From your old Health ID account" (once "From your hid-1.0 account"), only when there is something to show.
  */
 const HEALTH = {
   content: {
@@ -28,7 +28,7 @@ function gateway(recordsAnswer: () => Response): Handler {
     return problem(500, 'UNEXPECTED', `${method} ${path}`)
   }
 }
-const card = () => openSection('From your hid-1.0 account')
+const card = () => openSection('From your old Health ID account')
 
 describe('your hid-1.0 health details, on the profile', () => {
   it('shows the details the patient kept, read-only, and only those with something in them', async () => {
@@ -37,10 +37,10 @@ describe('your hid-1.0 health details, on the profile', () => {
     const rows = shown.getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent])
     expect(rows).toEqual([['Blood group', 'O+'], ['Genotype', 'AS'], ['Allergies', 'Penicillin\nShellfish'],
       ['Current medications', 'Amlodipine 5mg daily']])
-    expect(shown.getByText(/Carried over from hid-1.0, last updated on/).textContent).toMatch(/They can't be changed here\.$/)
+    expect(shown.getByText(/^Last updated /).textContent).toMatch(/You can view this, but not change it\.$/)
     expect(shown.queryByRole('textbox')).toBeNull()
     // Its one button opens and closes it.
-    expect(shown.getAllByRole('button')).toEqual([sectionToggle('From your hid-1.0 account')])
+    expect(shown.getAllByRole('button')).toEqual([sectionToggle('From your old Health ID account')])
     // The bio-data is still first.
     expect(screen.getByRole('heading', { name: 'About you' })).toBeTruthy()
   })
@@ -48,14 +48,14 @@ describe('your hid-1.0 health details, on the profile', () => {
   it('is not shown for a patient with no hid-1.0 details', async () => {
     renderPortal(<ProfilePage />, gateway(() => json(records(null))))
     expect(await screen.findByRole('heading', { name: 'About you' })).toBeTruthy()
-    await screen.findByText('Ada Example')
-    expect(screen.queryByRole('heading', { name: 'From your hid-1.0 account' })).toBeNull()
+    await screen.findAllByText('Ada Example')
+    expect(screen.queryByRole('heading', { name: 'From your old Health ID account' })).toBeNull()
   })
 
   it('is not shown when the records cannot be read, and the profile stays', async () => {
     renderPortal(<ProfilePage />, gateway(() => problem(503, 'EHR_UNAVAILABLE', 'Records are unavailable.')))
-    expect(await screen.findByText('Ada Example')).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: 'From your hid-1.0 account' })).toBeNull()
+    expect(await screen.findAllByText('Ada Example')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'From your old Health ID account' })).toBeNull()
     // Counting the alerts in the sections that are closed, too.
     expect(screen.queryByRole('alert', { hidden: true })).toBeNull()
   })
@@ -63,10 +63,10 @@ describe('your hid-1.0 health details, on the profile', () => {
   it('reads no records from hid-system main, which sends no such details', async () => {
     novu.on = false
     const { sent } = renderPortal(<ProfilePage />, gateway(() => json(records(HEALTH))))
-    expect(await screen.findByText('Ada Example')).toBeTruthy()
+    expect(await screen.findAllByText('Ada Example')).toBeTruthy()
     expect(sent[0]?.path).toBe('/identity/me')
     expect(sent.some(request => request.path.startsWith('/ehr/'))).toBe(false)
-    expect(screen.queryByRole('heading', { name: 'From your hid-1.0 account' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'From your old Health ID account' })).toBeNull()
   })
 })
 

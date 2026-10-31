@@ -570,10 +570,11 @@
   .patient-form, .patient-deny-form { gap: 14px; margin-top: 16px; }
   .patient-form label, .patient-deny-form label { gap: 6px; color: var(--color-ink-2); font-size: 13px; font-weight: 500; }
   .patient-form input, .patient-form select, .patient-deny-form input, .patient-form textarea {
-    min-height: 40px; padding: 8px 12px; border: 0; border-radius: var(--radius-md, 10px); background: var(--color-surface); color: var(--color-ink);
-    font-size: 14px; font-weight: 400; box-shadow: var(--shadow-xs), inset 0 0 0 1px var(--color-line-strong); outline: none;
+    /* The control's only boundary: line-control is 3:1 on every light surface (WCAG 1.4.11); line-strong was 1.5:1. */
+    min-height: 40px; padding: 8px 12px; border: 1px solid var(--color-line-control); border-radius: var(--radius-md, 10px); background: var(--color-surface); color: var(--color-ink);
+    font-size: 14px; font-weight: 400; box-shadow: var(--shadow-xs); outline: none;
   }
-  .patient-form input:focus, .patient-form select:focus, .patient-deny-form input:focus, .patient-form textarea:focus { box-shadow: inset 0 0 0 1px var(--color-brand), 0 0 0 4px color-mix(in srgb, var(--color-brand) 16%, transparent); }
+  .patient-form input:focus, .patient-form select:focus, .patient-deny-form input:focus, .patient-form textarea:focus { border-color: var(--color-brand); box-shadow: inset 0 0 0 1px var(--color-brand), 0 0 0 4px color-mix(in srgb, var(--color-brand) 16%, transparent); }
   .patient-share-option { border: 0; border-radius: var(--radius-lg, 12px); padding: 14px; box-shadow: inset 0 0 0 1px var(--color-line); cursor: pointer; }
   .patient-share-option:has(input:checked) { background: var(--color-brand-soft); box-shadow: inset 0 0 0 1.5px var(--color-brand); }
 

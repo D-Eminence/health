@@ -46,7 +46,7 @@ function open(id: string, rest = '') {
 }
 
 function actionsCard() {
-  return screen.getByRole('heading', { name: 'Actions' }).closest('section') as HTMLElement
+  return screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
 }
 
 describe.each(ALL)('%s', id => {
@@ -68,11 +68,11 @@ describe.each(ALL)('%s', id => {
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(`New ${definition.title.toLowerCase()}`)
     if (definition.patient) {
       const patient = screen.getByLabelText(labelled('Patient')) as HTMLSelectElement
-      expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
       fireEvent.change(patient, { target: { value: PATIENTS.taylor } })
     }
     for (const field of definition.fields) expect(screen.getByLabelText(labelled(field.label))).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Save record' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy()
   })
 
   it('renders its first record with saved values, its actions (each opening its form), history and versions', () => {

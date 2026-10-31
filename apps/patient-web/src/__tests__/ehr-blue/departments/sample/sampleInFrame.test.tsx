@@ -66,7 +66,9 @@ describe('a record link from Home or the Notifications drawer', () => {
 })
 
 describe('the frame\'s tabs', () => {
-  it('draws Claims | Policies once, above the heading, with no sidebar entry for Policies', async () => {
+  // The frame lists no sample workspace in the sidebar (BlueFrame: only live work is listed); they open by address,
+  // and their tabs are drawn as before.
+  it('draws Claims | Policies once, above the heading, with no sidebar entry for either', async () => {
     const nav = await openDemo('/provider/policies')
     expect(screen.getAllByRole('navigation', { name: 'Insurance & Claims' })).toHaveLength(1)
     const tabs = screen.getByRole('navigation', { name: 'Insurance & Claims' })
@@ -77,7 +79,7 @@ describe('the frame\'s tabs', () => {
     expectNoticeUnderHeading()
     expect(screen.getByRole('button', { name: 'POL-DEMO' })).toBeDefined()
     expect(within(nav).queryByRole('link', { name: 'Policies' })).toBeNull()
-    expect(within(nav).getByRole('link', { name: 'Insurance & Claims' }).getAttribute('aria-current')).toBe('page')
+    expect(within(nav).queryByRole('link', { name: 'Insurance & Claims' })).toBeNull()
 
     fireEvent.click(within(tabs).getByRole('link', { name: 'Claims' }))
     await waitFor(() => expect(where()).toBe('/provider/insurance'))
@@ -85,8 +87,8 @@ describe('the frame\'s tabs', () => {
     expect(screen.getByRole('button', { name: '2a6f15aa' })).toBeDefined()
   })
 
-  it('keeps Claims | Policies on every view, and the page\'s own tab or sidebar entry goes back to its list', async () => {
-    const nav = await openDemo('/provider/insurance')
+  it('keeps Claims | Policies on every view, and the page\'s own tab goes back to its list', async () => {
+    await openDemo('/provider/insurance')
     const tabs = () => screen.getByRole('navigation', { name: 'Insurance & Claims' })
     fireEvent.click(screen.getByRole('button', { name: '2a6f15aa' }))
     expect(heading().textContent).toBe('2a6f15aa')
@@ -103,16 +105,16 @@ describe('the frame\'s tabs', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
     expect(heading().textContent).toBe('New insurance & claims')
     expect(within(tabs()).getAllByRole('link').map(link => link.textContent)).toEqual(['Claims', 'Policies'])
-    fireEvent.click(within(nav).getByRole('link', { name: 'Insurance & Claims' }))
+    fireEvent.click(within(tabs()).getByRole('link', { name: 'Claims' }))
     expect(heading().textContent).toBe('Insurance & Claims')
     expect(document.activeElement).toBe(heading())
     expectNoticeUnderHeading()
     expect(where()).toBe('/provider/insurance')
   })
 
-  it('shows Supply in the sidebar, with Stock and Procurement as its tabs', async () => {
+  it('shows Supply with Stock and Procurement as its tabs, and none of them in the sidebar', async () => {
     const nav = await openDemo('/provider/supply')
-    expect(within(nav).getByRole('link', { name: 'Supply' }).getAttribute('aria-current')).toBe('page')
+    expect(within(nav).queryByRole('link', { name: 'Supply' })).toBeNull()
     expect(within(nav).queryByRole('link', { name: 'Procurement' })).toBeNull()
     expect(within(nav).queryByRole('link', { name: 'Stock' })).toBeNull()
     expect(screen.getAllByRole('navigation', { name: 'Supply' })).toHaveLength(1)
@@ -130,7 +132,7 @@ describe('the frame\'s tabs', () => {
     expect(screen.getByRole('button', { name: 'Stock request' })).toBeDefined()
     const after = screen.getByRole('navigation', { name: 'Supply' })
     expect(within(after).getAllByRole('link').map(link => link.getAttribute('aria-current'))).toEqual([null, 'page'])
-    expect(within(nav).getByRole('link', { name: 'Supply' }).getAttribute('aria-current')).toBe('page')
+    expect(within(nav).queryByRole('link', { name: 'Supply' })).toBeNull()
   })
 })
 

@@ -113,12 +113,15 @@ function PrescriptionQueue() {
     show(null, true)
     focus(HEADING, true)
   }, [gone, focus, show])
-  // Leaving a record (its Back, or the browser's) puts focus back on its row, once the list shows again.
+  // Focus follows the address, in the commit that shows the new view (the router's update can come a render after the
+  // press): a record opened (from its card, or Next prescription) puts it on the record's title; leaving a record (its
+  // Back, the browser's, or the record leaving the list) puts it back on its row, else the list's heading.
   const lastOpened = useRef(openedId)
   useLayoutEffect(() => {
     const was = lastOpened.current
     lastOpened.current = openedId
     if (was && !openedId) focus([`pharmacy-${was}-name`, HEADING], true)
+    else if (openedId && openedId !== was && openedId !== 'paper') focus(`pharmacy-${openedId}-title`)
   }, [openedId, focus])
   useEffect(() => {
     if (!items) return
@@ -193,7 +196,7 @@ function PrescriptionQueue() {
   return (
     <DeptPage title={selected ? <span id={`pharmacy-${selected.id}-title`} tabIndex={-1}>{selected.medication.display}</span>
       : <span id={HEADING} tabIndex={-1}>Prescriptions</span>}
-      onBack={selected ? back : undefined} backLabel="Back to prescriptions"
+      onBack={selected ? back : undefined} backLabel="Back to prescriptions" backUnavailable={selected ? recording : undefined}
       primaryAction={!selected && permissions.includes('pharmacy.walk-in.create')
         ? <Button variant="primary" icon={FileText} to={`${PRESCRIPTIONS}/paper`}>Paper prescription</Button> : undefined}
       secondaryActions={selected ? undefined : refresh}>

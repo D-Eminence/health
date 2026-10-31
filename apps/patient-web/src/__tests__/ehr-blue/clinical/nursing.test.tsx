@@ -2,7 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NursingWorkspace, nursingStatus } from '../../../ehr-blue/clinical/nursing/NursingWorkspace'
-import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, renderPage } from './harness'
+import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 
 /**
  * Nursing observations: today's clinical notes of type "Nursing observation" (the design's category as the title,
@@ -112,8 +112,10 @@ describe('Nursing observations list', () => {
     const links = within(table).getAllByRole('link', { name: /^c/ })
     expect(links.map(link => link.textContent)).toEqual(['c0000000'])
     expect(links[0]!.getAttribute('href')).toBe(`/provider/nursing/${ENCOUNTER_ID}~${NOTE_ID}`)
-    expect(within(table).getByText(PATIENT_NAME)).toBeTruthy()
-    expect(within(table).getByText('draft')).toBeTruthy()
+    // One patient's chart: the patient is named once, in the banner, not on each row.
+    expect(within(table).queryByText(PATIENT_NAME)).toBeNull()
+    expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
+    expect(within(table).getByText('Draft')).toBeTruthy()
     expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.encounters.mock.invocationCallOrder[0]!)
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes')
     // A note's content is read only when it is opened, as today.
@@ -144,11 +146,11 @@ describe('Nursing observations list', () => {
   it('has the empty states and shows refused reads', async () => {
     notes = [CONSULTATION]
     let view = open()
-    expect(await screen.findByText('Create the first record when you have the appropriate permission.')).toBeTruthy()
+    expect(await screen.findByText('Nothing recorded yet.')).toBeTruthy()
     view.unmount()
     api.encounters.mockResolvedValue({ items: [], nextCursor: null })
     view = open()
-    expect(await screen.findByText('No consultations for this patient here yet.')).toBeTruthy()
+    expect(await screen.findByText('No consultations for this patient here yet. Start one first.')).toBeTruthy()
     view.unmount()
     api.encounters.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     view = open()
@@ -166,14 +168,14 @@ describe('Nursing observations list', () => {
     expect(screen.getByText('Your role here can’t see these records.')).toBeTruthy()
     await act(async () => {})
     expect(api.encounters).not.toHaveBeenCalled()
-    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'New observation' })).toBeNull()
   })
 
   it('shows the read-only notice and nothing to create when the grant does not allow changes', async () => {
     api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
     open()
     expect(await screen.findByText(READ_ONLY)).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'New observation' })).toBeNull()
   })
 
   it('closes the patient when the access re-check is refused (404)', async () => {
@@ -181,7 +183,7 @@ describe('Nursing observations list', () => {
     open()
     const ended = await screen.findByRole('alert')
     expect(ended.textContent).toContain('Access to this patient ended')
-    expect(ended.textContent).toContain('Your access to this patient has ended. Open the patient again to keep working.')
+    expect(ended.textContent).toContain('Open the patient again to keep working.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
   })
 
@@ -189,7 +191,7 @@ describe('Nursing observations list', () => {
     staff.activePatient = activePatient('emergency')
     const view = open()
     expect(screen.getByText('Emergency access shows the emergency summary only')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'New observation' })).toBeNull()
     expect(api.records).not.toHaveBeenCalled()
     view.unmount()
     staff.activePatient = null
@@ -197,9 +199,9 @@ describe('Nursing observations list', () => {
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()
   })
 
-  it('opens "New nursing observations" from Create record', async () => {
+  it('opens "New nursing observations" from New observation', async () => {
     open()
-    fireEvent.click(await screen.findByRole('button', { name: 'Create record' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'New observation' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'New nursing observations' })).toBeTruthy()
   })
 })
@@ -207,7 +209,7 @@ describe('Nursing observations list', () => {
 describe('New nursing observations', () => {
   async function openNew() {
     open('/new')
-    const save = await screen.findByRole('button', { name: 'Save record' })
+    const save = await screen.findByRole('button', { name: 'Save observation' })
     return save.closest('form')!
   }
 
@@ -216,13 +218,15 @@ describe('New nursing observations', () => {
     // Only the encounters are read for the "Visit"; no notes.
     expect(api.encounters).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { cursor: undefined, fresh: false })
     expect(api.records).not.toHaveBeenCalled()
-    expect((screen.getByLabelText(labelled('Patient')) as HTMLSelectElement).selectedOptions[0]!.textContent).toBe(`${PATIENT_NAME} · ${PATIENT_HID}`)
-    const category = control(form, 'Observation category') as unknown as HTMLSelectElement
+    // The open patient is the banner (the one-option Patient select is gone).
+    expect(screen.queryByLabelText(labelled('Patient'))).toBeNull()
+    expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
+    const category = control(form, 'Category') as unknown as HTMLSelectElement
     expect(Array.from(category.options).map(option => option.textContent)).toEqual(['Select…', 'Vitals', 'Medication administration', 'Handover', 'Care task'])
     type(form, 'Visit', ENCOUNTER_ID)
-    type(form, 'Observation category', 'Medication administration')
-    type(form, 'Observation / administration details', 'Gave paracetamol by mouth')
-    type(form, 'Units / dose if applicable', '500 mg')
+    type(form, 'Category', 'Medication administration')
+    type(form, 'What you observed or gave', 'Gave paracetamol by mouth')
+    type(form, 'Dose and unit, if you gave something', '500 mg')
     // Enter in a field submits the form: the button is its submit button.
     fireEvent.submit(form)
 
@@ -239,7 +243,7 @@ describe('New nursing observations', () => {
 
   it('checks the required fields, and shows a server refusal at its field; a retry reuses the key', async () => {
     const form = await openNew()
-    fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
+    fireEvent.click(within(form).getByRole('button', { name: 'Save observation' }))
     expect(within(form).getAllByText('Complete this field.')).toHaveLength(3)
     expect(document.activeElement).toBe(control(form, 'Visit'))
     expect(api.createRecord).not.toHaveBeenCalled()
@@ -248,13 +252,13 @@ describe('New nursing observations', () => {
       code: 'VALIDATION_FAILED', details: [{ field: 'title', messages: ['title must be shorter than or equal to 240 characters'] }],
     }))
     type(form, 'Visit', ENCOUNTER_ID)
-    type(form, 'Observation category', 'Handover')
-    type(form, 'Observation / administration details', 'Settled overnight')
-    fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
+    type(form, 'Category', 'Handover')
+    type(form, 'What you observed or gave', 'Settled overnight')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save observation' }))
     expect((await within(form).findByRole('alert')).textContent).toBe('One or more request fields are invalid. Title must be shorter than or equal to 240 characters.')
-    expect(described(control(form, 'Observation category'))).toContain('Title must be shorter than or equal to 240 characters.')
-    type(form, 'Observation category', 'Handover')
-    fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
+    expect(described(control(form, 'Category'))).toContain('Title must be shorter than or equal to 240 characters.')
+    type(form, 'Category', 'Handover')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save observation' }))
     await screen.findByText('Saved.')
     expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
   })
@@ -263,13 +267,13 @@ describe('New nursing observations', () => {
     api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
     const view = open('/new')
     expect(await screen.findByText(READ_ONLY)).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save observation' })).toBeNull()
     view.unmount()
     api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: true })
     staff.permissions = ['ehr.vital.read', 'ehr.note.read']
     open('/new')
-    expect(await screen.findByText('You do not have permission to create this record.')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
+    expect((await screen.findByRole('alert')).textContent).toBe('Your role can’t add this record.')
+    expect(screen.queryByRole('button', { name: 'Save observation' })).toBeNull()
   })
 })
 
@@ -301,7 +305,8 @@ describe('Nursing observation record', () => {
     expect(within(card).getByText('demo')).toBeTruthy()
     expect(api.noteRevisions).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, NOTE_ID)
     expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.encounter.mock.invocationCallOrder[0]!)
-    expect(screen.getByText(`${PATIENT_NAME} · ${PATIENT_HID}`)).toBeTruthy()
+    expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
+    expect(within(patientBanner()).getByText(new RegExp(PATIENT_HID))).toBeTruthy()
   })
 
   it('says a consultation note is not found here', async () => {
@@ -318,7 +323,7 @@ describe('Nursing observation record', () => {
     api.lookupPatient.mockClear()
     fireEvent.submit(form)
 
-    expect(await screen.findByText('Note changes saved.')).toBeTruthy()
+    expect(await screen.findByText('A new note revision was recorded.')).toBeTruthy()
     expect(api.addNoteRevision).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, NOTE_ID, {
       expectedRowVersion: 2, changeReason: 'Wrong patient bed', content: 'Corrected vitals observation\n\nUnits / dose: demo',
     }, expect.any(String))
@@ -326,9 +331,9 @@ describe('Nursing observation record', () => {
     expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { fresh: true })
     expect(await within(saved()).findByText('Corrected vitals observation')).toBeTruthy()
     const versions = screen.getByRole('heading', { level: 2, name: 'Earlier versions' }).closest('section')!
-    expect(within(versions).getByText('2026-10-30T10:00:00.000Z · draft · Wrong patient bed')).toBeTruthy()
+    expect(within(versions).getByText(/^30 Oct 2026, \d\d:\d\d · draft · Wrong patient bed$/)).toBeTruthy()
     expect(within(versions).getByText('Fictional vitals observation')).toBeTruthy()
-    expect(document.activeElement?.textContent).toBe('Actions')
+    expect(document.activeElement?.textContent).toBe('Available actions')
   })
 
   it('refuses as today: revised content and a reason of three characters; a refusal shows in the form and a retry reuses the key', async () => {
@@ -345,7 +350,7 @@ describe('Nursing observation record', () => {
     fireEvent.click(within(form).getByRole('button', { name: 'Amend observation' }))
     expect((await within(form).findByRole('alert')).textContent).toBe('The note changed since it was loaded.')
     fireEvent.click(within(form).getByRole('button', { name: 'Amend observation' }))
-    await screen.findByText('Note changes saved.')
+    await screen.findByText('A new note revision was recorded.')
     expect(api.addNoteRevision.mock.calls[1]![5]).toBe(api.addNoteRevision.mock.calls[0]![5])
   })
 
@@ -366,7 +371,7 @@ describe('Nursing observation record', () => {
     api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: true })
     notes = [{ ...NOTE, status: 'entered_in_error' }]
     open(RECORD)
-    expect(await screen.findByText('entered in error')).toBeTruthy()
+    expect(await screen.findByText('Entered in error')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Amend observation' })).toBeNull()
   })
 
@@ -382,7 +387,7 @@ describe('Nursing observation record', () => {
   })
 
   function actions() {
-    return screen.getByRole('heading', { level: 2, name: 'Actions' }).closest('section')!
+    return screen.getByRole('heading', { level: 2, name: 'Available actions' }).closest('section')!
   }
 
   function actionNames() {
@@ -459,7 +464,7 @@ describe('Nursing observation record', () => {
     api.lookupPatient.mockClear()
     fireEvent.click(confirm)
 
-    expect(await screen.findByText('Note updated.')).toBeTruthy()
+    expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
     expect(api.updateRecord).toHaveBeenCalledTimes(1)
     expect(api.updateRecord.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', NOTE_ID,
       { expectedRowVersion: 2, changeReason: 'Reviewed with the nurse in charge', status: 'signed' }])
@@ -467,7 +472,7 @@ describe('Nursing observation record', () => {
     expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.updateRecord.mock.invocationCallOrder[0]!)
     expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { fresh: true })
     await waitFor(() => expect(actionNames()).toEqual(['Amend observation', 'Mark entered in error']))
-    expect(document.activeElement?.textContent).toBe('Actions')
+    expect(document.activeElement?.textContent).toBe('Available actions')
     expect(within(saved()).getByText('Fictional vitals observation')).toBeTruthy()
   })
 
@@ -487,11 +492,11 @@ describe('Nursing observation record', () => {
 
     fireEvent.click(submit)
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
-    expect(await screen.findByText('Note updated.')).toBeTruthy()
+    expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
     expect(api.updateRecord.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', NOTE_ID,
       { expectedRowVersion: 2, changeReason: 'Charted on the wrong bed', status: 'entered_in_error' }])
     expect(await within(actions()).findByText('Nothing more to do here.')).toBeTruthy()
-    expect(screen.getAllByText('entered in error').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Entered in error').length).toBeGreaterThan(0)
   })
 
   it('shows a refused status change in its form, a 412 included, as today, and reads nothing again', async () => {
@@ -503,7 +508,7 @@ describe('Nursing observation record', () => {
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
     expect((await within(form).findByRole('alert')).textContent).toBe('The record changed since it was read.')
     expect(api.records.mock.calls.length).toBe(reads)
-    expect(screen.queryByText('Note updated.')).toBeNull()
+    expect(screen.queryByText('Clinical note status updated.')).toBeNull()
 
     api.updateRecord.mockRejectedValueOnce('no answer')
     fireEvent.click(submit)

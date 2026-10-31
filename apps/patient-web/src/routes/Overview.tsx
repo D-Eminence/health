@@ -23,6 +23,7 @@ import { ninVerifiedOf } from './NinVerificationCard'
 import { neverSaved } from './HealthInformation'
 import { useOnNotificationChange } from '../notificationBadge'
 import { useShareProbe } from './ShareRecords'
+import { ButtonR } from './profileParts'
 
 /**
  * The home dashboard as hid-1.0 had it (HomeDashboard.tsx; hid-1.0 parity B3, contract D): the profile card with the
@@ -155,16 +156,19 @@ export function Overview() {
   const active = history.data && !history.error ? activeAccesses(history.data) : null
   const counts = records.data && !records.error ? recordCounts(records.data) : null
 
-  if (profile.loading && !profile.data) return <PageSkeleton />
+  const today = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Lagos' }).format(new Date())
+  // The heading is there while the profile is read, as the page's own: a link that opened Home takes focus to it
+  // (pageFocus.ts), and it keeps focus as the greeting gains the patient's name.
+  if (profile.loading && !profile.data) return <div className="flex flex-col gap-6">
+    <PageHeader titleRef={heading} eyebrow={today} title={greeting()} /><PageSkeleton stats={false} /></div>
   if (profile.error) return <div className="flex flex-col gap-6"><PageHeader title="Overview" titleRef={heading} />
-    <Alert intent="error" title="We couldn't load your Health ID" action={<Button size="sm" variant="primary" onClick={() => retryFocus.retry(profile.reload)}>Try again</Button>}>{profile.error}</Alert></div>
+    <Alert intent="error" title="We couldn't load your Health ID" action={<ButtonR ref={retryFocus.button} size="sm" variant="primary" onClick={() => retryFocus.retry(profile.reload)}>Try again</ButtonR>}>{profile.error}</Alert></div>
   if (!shown) return <div className="flex flex-col gap-6"><PageHeader title="Overview" titleRef={heading} />
     <EmptyState icon={IdCard} title="No profile was returned" description="Your Health ID could not be read. Sign out and in again, or contact support." /></div>
 
   // One place for each thing: requests as alerts (the decision), profile gaps in the checklist, anything else as a note.
   const notes = checklist.length > 0 ? others.filter(item => !checklist.some(c => ATTENTION_KEY[item.id] === c.key)) : others
   const left = checklist.filter(c => !completion?.done.some(d => d.key === c.key))
-  const today = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Lagos' }).format(new Date())
 
   return <div className="flex flex-col gap-6">
     <PageHeader titleRef={heading} eyebrow={today} title={`${greeting()}${firstName ? `, ${firstName}` : ''}`} />

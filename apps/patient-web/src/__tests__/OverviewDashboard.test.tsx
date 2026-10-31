@@ -7,7 +7,7 @@ import {
   Overview, RECENT_ROWS, activeAccesses, attentionItems, pendingRequests, providerContributions, recentActivity,
 } from '../routes/Overview'
 import { ProfilePage } from '../routes/Portal'
-import { json, openSection, press, problem, profile, renderPortal, sectionToggle, type Handler } from './portalHarness'
+import { json, press, problem, profile, renderPortal, sectionCard, sectionToggle, shownText, type Handler } from './portalHarness'
 import { forgetShareServed } from '../shareServed'
 
 const novu = vi.hoisted(() => ({ on: true }))
@@ -65,71 +65,88 @@ function gateway(overrides: Partial<Record<string, () => Response>> = {}): Handl
   }
 }
 const parity = { parityB2: true, parityB3: true }
-const region = async (name: string) => within((await screen.findByRole('heading', { name })).closest('.patient-card') as HTMLElement)
-const tiles = () => within(screen.getByRole('list', { name: 'Health summary' })).getAllByRole('listitem')
-  .map(tile => [tile.querySelector('.patient-tile-label')?.textContent, tile.querySelector('.patient-tile-value')?.textContent])
+/** One of the page's cards, by its heading (a kasuwa Card labelled by it). */
+const region = async (name: string) => within(await screen.findByRole('region', { name }))
+const CARD = 'Ada Example’s Health ID card'
+/** What the Health ID card prints under its chip: each label and its value, as the eye reads it. */
+const facts = () => Array.from(screen.getByRole('region', { name: CARD }).querySelectorAll('dt'))
+  .map(term => [term.textContent, shownText(term.nextElementSibling as HTMLElement)])
+/** Home's four tiles: what the record holds, each a link to where it is. */
+const tiles = () => within(screen.getByRole('group', { name: 'Your record at a glance' })).getAllByRole('link')
+  .map(tile => [tile.textContent, tile.getAttribute('href')])
+/** The decisions waiting for the patient: one warning per pending request. */
+const requestAlerts = () => screen.queryAllByRole('alert').filter(alert => alert.textContent?.includes('wants to see your records'))
 
 describe('the overview with patient parity served', () => {
-  it('shows the black Health ID card: name, the Health ID as plain text, the NIN badge, the completion and the two buttons', async () => {
+  it('shows the Health ID card: name, the Health ID as plain text, the NIN badge, the completion, and Share records and View profile', async () => {
     renderPortal(<Overview />, gateway(), {}, parity)
-    const card = await region('Ada Example')
-    expect((await screen.findByRole('heading', { name: 'Ada Example' })).closest('.patient-identity-card')).toBeTruthy()
+    const card = await region(CARD)
+    expect(card.getByText('Ada Example')).toBeTruthy()
     expect(card.getByText('HID-ABC234').className).toContain('patient-hid-plain')
     expect(card.queryByRole('button', { name: 'Copy HID' })).toBeNull()
-    expect(card.getByText('NIN not verified')).toBeTruthy()
+    expect(card.getByLabelText('NIN not verified')).toBeTruthy()
     expect(card.getByText('AE')).toBeTruthy()
     // No photo, HMO, verified NIN or emergency contact: 8 of 12 is 67%.
-    expect(await card.findByText('67%')).toBeTruthy()
-    expect(card.getByRole('link', { name: 'Share Records' }).getAttribute('href')).toBe('/access')
-    expect(card.getByRole('link', { name: 'Add Health Information' }).getAttribute('href')).toBe('/profile#health-information')
-    expect(card.getByRole('link', { name: 'See what is missing from your profile' }).getAttribute('href')).toBe('/profile#profile-completion')
+    expect(await screen.findByText('67% done · 4 to go')).toBeTruthy()
+    expect(screen.getByRole('progressbar', { name: 'Health ID completion' }).getAttribute('aria-valuenow')).toBe('67')
+    expect(screen.getByRole('link', { name: 'Share records' }).getAttribute('href')).toBe('/access')
+    expect(screen.getByRole('link', { name: 'View profile' }).getAttribute('href')).toBe('/profile')
   })
 
-  it('shows the Health ID on the profile bio-data as plain text, with no Copy HID button', async () => {
+  it('shows the Health ID on the profile\'s card as plain text, with no Copy HID button', async () => {
     renderPortal(<ProfilePage />, gateway(), {}, parity)
-    // Opened first: role queries skip a closed section's content.
-    const bio = within(await openSection('About you'))
-    expect(bio.getByRole('button', { name: 'HID-ABC234' }).className).toContain('patient-hid-plain')
-    expect(bio.queryByRole('button', { name: 'Copy HID' })).toBeNull()
+    const card = await region(CARD)
+    expect(card.getByRole('button', { name: 'HID-ABC234' }).className).toContain('patient-hid-plain')
+    expect(card.queryByRole('button', { name: 'Copy HID' })).toBeNull()
   })
 
-  it('shows the health summary tiles from what the patient entered, and the active accesses', async () => {
+  it('prints on the card what the patient entered, and shows the four tiles with the active accesses', async () => {
     renderPortal(<Overview />, gateway(), {}, parity)
-    await waitFor(() => expect(tiles()).toEqual([['Blood group', 'B+'], ['Genotype', 'AA'], ['Allergies', 'Shellfish'], ['Active accesses', '1']]))
+    await waitFor(() => expect(facts()).toEqual([['Blood', 'B+'], ['Genotype', 'AA'], ['Allergy', 'Shellfish']]))
+    await waitFor(() => expect(tiles()).toEqual([['2Records', '/records'], ['0Documents', '/records?tab=documents'],
+      ['1Facility with access', '/access'], ['0Medicines', '/records?tab=prescriptions']]))
   })
 
-  it('shows what the patient kept in hid-1.0 while they have entered nothing', async () => {
+  it('prints what the patient kept in hid-1.0 while they have entered nothing', async () => {
     renderPortal(<Overview />, gateway({ '/ehr/me/health-profile': () => json(emptyHealth) }), {}, parity)
-    await waitFor(() => expect(tiles().slice(0, 3)).toEqual([['Blood group', 'O+'], ['Genotype', 'AS'], ['Allergies', 'Penicillin']]))
+    await waitFor(() => expect(facts()).toEqual([['Blood', 'O+'], ['Genotype', 'AS'], ['Allergy', 'Penicillin']]))
   })
 
-  it('shows nothing from hid-1.0 once the patient has saved their own, even with every field cleared', async () => {
+  it('prints nothing from hid-1.0 once the patient has saved their own, even with every field cleared', async () => {
     renderPortal(<Overview />, gateway({ '/ehr/me/health-profile': () => json({ ...emptyHealth, rowVersion: 3, updatedAt: at(1) }) }), {}, parity)
     // The records, with the hid-1.0 details, are read: they are not shown as the patient's current health.
     await screen.findByText('Malaria review')
-    await waitFor(() => expect(tiles().slice(0, 3)).toEqual([['Blood group', 'Not added'], ['Genotype', 'Not added'], ['Allergies', 'Not added']]))
+    await waitFor(() => expect(facts()).toEqual([]))
+    expect(screen.queryByText('O+')).toBeNull()
+    expect(screen.queryByText('Penicillin')).toBeNull()
   })
 
-  it('lists what needs attention, each a link to where it is done', async () => {
+  it('lists what needs attention, each a link to where it is done: the requests to decide, then what the profile lacks', async () => {
     renderPortal(<Overview />, gateway(), {}, parity)
-    const card = await region('Attention required')
-    await waitFor(() => expect(card.getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')])).toEqual([
-      ['2 access requests are waiting for your decision →', '/access'],
-      ['Your NIN is not verified yet →', '/profile#nin-verification'],
-      ['Your profile is 67% complete →', '/profile#profile-completion'],
-      ['You have no emergency contact →', '/profile#emergency-contacts'],
+    await waitFor(() => expect(requestAlerts()).toHaveLength(2))
+    for (const alert of requestAlerts()) {
+      expect(alert.textContent).toContain('Nothing is shared until you approve.')
+      expect(within(alert).getByRole('link', { name: 'Review' }).getAttribute('href')).toBe('/access')
+    }
+    const checklist = within((await screen.findByRole('heading', { name: 'Finish your Health ID' })).closest('section') as HTMLElement)
+    await waitFor(() => expect(checklist.getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')])).toEqual([
+      ['Verify your NIN', '/profile#nin-verification'],
+      ['Add an emergency contact', '/profile#emergency-contacts'],
+      ['Add a photo to your card', '/?photo=add'],
+      ['Add your HMO', '/profile#coverage'],
     ]))
   })
 
   it('shows the newest activity from the access log and the notifications, and the latest provider contributions without their content', async () => {
     renderPortal(<Overview />, gateway(), {}, parity)
-    const activity = await region('Recent activity')
-    await waitFor(() => expect(activity.getAllByRole('link').map(link => link.textContent)).toEqual([
-      'A facility asked to access your health information', 'Dr Bello at Lagos General: viewed your record',
-      'Ikeja Clinic: was given access to your record', 'Your Health ID password was changed']))
-    const contributions = await region('Recent provider contributions')
+    const activity = await region('Activity')
+    await waitFor(() => expect(activity.getAllByRole('link').filter(link => link.getAttribute('href') !== '/notifications' || link.textContent !== 'All')
+      .map(link => link.textContent)).toEqual([
+      'A hospital or clinic asked to see your health records', 'Dr Bello at Lagos General: viewed your record',
+      'Ikeja Clinic: got access to your record', 'Your Health ID password was changed']))
+    const contributions = await region('Latest from your providers')
     await waitFor(() => expect(contributions.getByText('Malaria review')).toBeTruthy())
-    expect(contributions.getByText('outpatient visit')).toBeTruthy()
+    expect(contributions.getByText('Outpatient visit')).toBeTruthy()
     expect(contributions.queryByText('Private clinical text')).toBeNull()
     expect(screen.queryByText('Private clinical text')).toBeNull()
   })
@@ -137,23 +154,26 @@ describe('the overview with patient parity served', () => {
   it('says a card could not be read, with its own Try again, and keeps the rest', async () => {
     let failed = true
     renderPortal(<Overview />, gateway({ '/ehr/me/records': () => failed ? problem(503, 'UPSTREAM_UNAVAILABLE', 'Records are unavailable.') : json(records) }), {}, parity)
-    const contributions = await region('Recent provider contributions')
+    const contributions = await region('Latest from your providers')
     expect((await contributions.findByRole('alert')).textContent).toContain('Records are unavailable.')
-    expect(screen.getByRole('heading', { name: 'Recent activity' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Activity' })).toBeTruthy()
     failed = false
     await press(contributions.getByRole('button', { name: 'Try again loading recent provider contributions' }))
     expect(await contributions.findByText('Malaria review')).toBeTruthy()
   })
 
-  it('takes Add Health Information to the profile\'s health information, opened, with focus on it', async () => {
-    renderPortal(<Routes><Route path="/" element={<Overview />} /><Route path="/profile" element={<ProfilePage />} /></Routes>, gateway(), {}, parity)
-    await press(await screen.findByRole('link', { name: 'Add Health Information' }))
+  it('takes "Add your blood group" to the profile\'s health information, opened, with focus on it', async () => {
+    renderPortal(<Routes><Route path="/" element={<Overview />} /><Route path="/profile" element={<ProfilePage />} /></Routes>,
+      gateway({ '/ehr/me/health-profile': () => json(emptyHealth) }), {}, parity)
+    const link = await screen.findByRole('link', { name: 'Add your blood group' })
+    expect(link.getAttribute('href')).toBe('/profile#health-information')
+    await press(link)
     await screen.findByRole('heading', { name: 'Health information' })
     // On the button in the section's heading, which says it is open; the form is shown.
     const toggle = sectionToggle('Health information')
     await waitFor(() => expect(document.activeElement).toBe(toggle))
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
-    expect(await within(toggle.closest('.patient-card') as HTMLElement).findByRole('button', { name: 'Save health information' })).toBeTruthy()
+    expect(await within(sectionCard('Health information')).findByRole('button', { name: 'Save health information' })).toBeTruthy()
   })
 })
 
@@ -161,39 +181,44 @@ describe('Share Records (hid-1.0 parity B4, hid-system 0095)', () => {
   it('opens the share flow once the backend serves sharing (its probe answers 200)', async () => {
     const { sent } = renderPortal(<Overview />, gateway({ '/identity/me/share-invitations': () => json({ items: [],
       limits: { maxOpen: 20, maxNewPerDay: 5, remainingToday: 5 } }) }), {}, { ...parity, parityB4: true })
-    await waitFor(() => expect(screen.getByRole('link', { name: 'Share Records' }).getAttribute('href')).toBe('/access/share'))
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Share records' }).getAttribute('href')).toBe('/access/share'))
     expect(sent.filter(item => item.path === '/identity/me/share-invitations')).toHaveLength(1)
   })
 
   it('opens Access and consent where sharing is not served (404), and says nothing', async () => {
-    renderPortal(<Overview />, gateway({ '/identity/me/share-invitations': () => problem(404, 'NOT_FOUND', 'Cannot GET') }), {},
-      { ...parity, parityB4: true })
-    expect((await screen.findByRole('link', { name: 'Share Records' })).getAttribute('href')).toBe('/access')
+    renderPortal(<Overview />, gateway({ '/identity/me/share-invitations': () => problem(404, 'NOT_FOUND', 'Cannot GET'),
+      '/identity/me/access-requests': () => json([]) }), {}, { ...parity, parityB4: true })
+    expect((await screen.findByRole('link', { name: 'Share records' })).getAttribute('href')).toBe('/access')
+    await screen.findByText('Malaria review')
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
   })
 })
 
 describe('the overview on today\'s backend', () => {
-  it('shows no completion, health tiles, Add Health Information or NIN badge where none is served, and asks nothing more', async () => {
+  it('shows no completion, health facts, health-information link or NIN badge where none is served, and asks nothing more', async () => {
     const { sent } = renderPortal(<Overview />, gateway({ '/identity/me': () => json(profile) }))
     await screen.findByText('HID-ABC234')
-    await waitFor(() => expect(tiles()).toEqual([['Active accesses', '1']]))
-    expect(screen.queryByText(/% of your profile is complete/)).toBeNull()
-    expect(screen.queryByRole('link', { name: 'Add Health Information' })).toBeNull()
-    expect(screen.getByRole('link', { name: 'Share Records' })).toBeTruthy()
-    expect(screen.queryByText(/NIN (not )?verified/)).toBeNull()
+    await waitFor(() => expect(tiles()[2]).toEqual(['1Facility with access', '/access']))
+    expect(facts()).toEqual([])
+    expect(screen.queryByRole('progressbar')).toBeNull()
+    expect(screen.queryByText(/% done/)).toBeNull()
+    expect(document.querySelector('a[href="/profile#health-information"]')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Share records' })).toBeTruthy()
+    expect(screen.queryByLabelText(/NIN (not )?verified/)).toBeNull()
     // Only the pending requests need attention here.
-    const attention = await region('Attention required')
-    expect(attention.getAllByRole('link').map(link => link.textContent)).toEqual(['2 access requests are waiting for your decision →'])
+    await waitFor(() => expect(requestAlerts()).toHaveLength(2))
+    expect(screen.queryAllByRole('alert')).toHaveLength(2)
     expect(sent.some(item => item.path.startsWith('/identity/me/emergency-contacts'))).toBe(false)
     expect(sent.some(item => item.path === '/identity/me/photo')).toBe(false)
   })
 
-  it('shows no attention card when nothing needs it', async () => {
+  it('shows nothing needing attention when nothing needs it', async () => {
     renderPortal(<Overview />, gateway({ '/identity/me': () => json(profile), '/identity/me/access-requests': () => json([]) }))
     await screen.findByText('HID-ABC234')
-    await screen.findByRole('heading', { name: 'Recent activity' })
-    expect(screen.queryByRole('heading', { name: 'Attention required' })).toBeNull()
+    await screen.findByRole('heading', { name: 'Activity' })
+    await screen.findByText('Malaria review')
+    expect(screen.queryAllByRole('alert')).toHaveLength(0)
+    expect(screen.queryByRole('heading', { name: 'Finish your Health ID' })).toBeNull()
   })
 })
 

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { createApiClient } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { createPatientApi } from '../api'
@@ -16,12 +17,12 @@ describe('patient imported-record API integration', () => {
       { headers: { 'content-type': 'application/json' } }))
     const api = createPatientApi(createRegisteredBrowserClient(createApiClient({ baseUrl: 'https://gateway.test',
       clientId: 'patient-web', sessionMode: 'cookie', fetchImpl: fetchImpl as typeof fetch }), 'patient-web'))
-    render(<SessionContext.Provider value={createTestSessionValue({ kind: 'patient', subjectId: 'synthetic-patient', appRole: 'patient', assuranceLevel: 'aal1' }, api)}>
-      <RecordsPage /></SessionContext.Provider>)
-    expect(await screen.findByRole('heading', { name: 'Imported medical history' })).toBeTruthy()
+    render(<MemoryRouter><SessionContext.Provider value={createTestSessionValue({ kind: 'patient', subjectId: 'synthetic-patient', appRole: 'patient', assuranceLevel: 'aal1' }, api)}>
+      <RecordsPage /></SessionContext.Provider></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: 'Older health records' })).toBeTruthy()
     expect(screen.getByText('Preserved report')).toBeTruthy()
     expect(fetchImpl.mock.calls.map(([url]) => new URL(String(url)).pathname)).toContain('/api/v1/ehr/me/records')
     // An older backend does not serve main's imported-history route: the new section stays silent, and shows no second heading.
-    expect(screen.getAllByRole('heading', { name: 'Imported medical history' })).toHaveLength(1)
+    expect(screen.getAllByRole('heading', { name: 'Older health records' })).toHaveLength(1)
   })
 })

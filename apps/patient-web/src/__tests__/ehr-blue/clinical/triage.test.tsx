@@ -1,8 +1,9 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { TriageWorkspace, triageStatus } from '../../../ehr-blue/clinical/triage/TriageWorkspace'
-import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, renderPage } from './harness'
+import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 
 /**
  * Triage & Vitals: the open patient's vitals (today's records of kind "vitals", per encounter) in the design's list,
@@ -101,16 +102,19 @@ describe('Triage & Vitals list', () => {
     await act(async () => page.resolve({ items: [ENCOUNTER], nextCursor: null }))
 
     const table = await screen.findByRole('table', { name: 'Triage & Vitals' })
-    expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Record', 'Patient / context', 'Status', 'Updated', 'Actions'])
+    // One patient's chart: the second column holds the readings, with their units; the patient is the banner.
+    expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Record', 'Readings', 'Status', 'Updated', 'Actions'])
     const link = within(table).getByRole('link', { name: 'f0000000' })
     expect(link.getAttribute('href')).toBe(`/provider/triage/${ENCOUNTER_ID}~${VITAL_ID}`)
-    expect(within(table).getByText(PATIENT_NAME)).toBeTruthy()
-    expect(within(table).getByText('final')).toBeTruthy()
+    expect(within(table).queryByText(PATIENT_NAME)).toBeNull()
+    expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
+    expect(link.closest('tr')!.textContent).toMatch(/BP\s*120\/80\s*mmHg.*Pulse\s*72\s*bpm.*Temperature\s*36\.6\s*°C/)
+    expect(within(table).getByText('Final')).toBeTruthy()
     expect(api.lookupPatient).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'direct-care')
     expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.encounters.mock.invocationCallOrder[0]!)
     expect(api.encounters).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { cursor: undefined, fresh: false })
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals')
-    expect(screen.getByRole('button', { name: 'Create record' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Record vitals' })).toBeTruthy()
     expect(window.location.href).not.toContain(PATIENT_HID)
   })
 
@@ -118,7 +122,7 @@ describe('Triage & Vitals list', () => {
     document.title = ''
     open()
     const table = await screen.findByRole('table', { name: 'Triage & Vitals' })
-    expect(document.title).toBe('Vitals · Health ID EHR')
+    expect(document.title).toBe('Triage & Vitals · Health ID EHR')
     expect(within(table).getAllByText('f0000000').map(element => element.tagName)).toEqual(['A', 'SPAN'])
     expect(within(table).queryByText('e0000000')).toBeNull()
   })
@@ -168,12 +172,12 @@ describe('Triage & Vitals list', () => {
   it('has today’s empty states: no encounters, and encounters with no vitals', async () => {
     api.encounters.mockResolvedValue({ items: [], nextCursor: null })
     const view = open()
-    expect(await screen.findByText('No consultations for this patient here yet.')).toBeTruthy()
+    expect(await screen.findByText('No consultations for this patient here yet. Start one first.')).toBeTruthy()
     view.unmount()
     api.encounters.mockResolvedValue({ items: [ENCOUNTER], nextCursor: null })
     vitals = []
     open()
-    expect(await screen.findByText('Create the first record when you have the appropriate permission.')).toBeTruthy()
+    expect(await screen.findByText('Nothing recorded yet.')).toBeTruthy()
   })
 
   it('shows a refused encounter read, and a refused vitals read', async () => {
@@ -206,7 +210,7 @@ describe('Triage & Vitals list', () => {
     open()
     expect(await screen.findByText(READ_ONLY)).toBeTruthy()
     await screen.findByRole('table', { name: 'Triage & Vitals' })
-    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Record vitals' })).toBeNull()
   })
 
   it('closes the patient when the access re-check is refused (403)', async () => {
@@ -214,7 +218,7 @@ describe('Triage & Vitals list', () => {
     open()
     const ended = await screen.findByRole('alert')
     expect(ended.textContent).toContain('Access to this patient ended')
-    expect(ended.textContent).toContain('Your access to this patient has ended. Open the patient again to keep working.')
+    expect(ended.textContent).toContain('Open the patient again to keep working.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.encounters).not.toHaveBeenCalled()
   })
@@ -223,7 +227,7 @@ describe('Triage & Vitals list', () => {
     staff.activePatient = null
     open()
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Go to patient access →' }).getAttribute('href')).toBe('/provider/patients')
+    expect(screen.getByRole('link', { name: 'Find a patient' }).getAttribute('href')).toBe('/provider/patients')
     expect(api.encounters).not.toHaveBeenCalled()
   })
 
@@ -231,7 +235,7 @@ describe('Triage & Vitals list', () => {
     staff.activePatient = activePatient('emergency')
     open()
     expect(screen.getByText('Emergency access shows the emergency summary only')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Record vitals' })).toBeNull()
     expect(api.encounters).not.toHaveBeenCalled()
     expect(api.records).not.toHaveBeenCalled()
   })
@@ -241,23 +245,25 @@ describe('New triage & vitals', () => {
   async function openNew() {
     open('/new')
     expect(screen.getByRole('heading', { level: 1, name: 'New triage & vitals' })).toBeTruthy()
-    const save = await screen.findByRole('button', { name: 'Save record' })
+    const save = await screen.findByRole('button', { name: 'Save vitals' })
     return save.closest('form')!
   }
 
   it('shows the open patient, the patient context and the earlier triage', async () => {
     api.reportedHealthProfile.mockResolvedValue({ allergies: 'Penicillin', bloodGroup: null, genotype: null, currentMedications: null, chronicConditions: null, medicalNotes: null, updatedAt: null })
     await openNew()
-    expect((screen.getByLabelText(labelled('Patient')) as HTMLSelectElement).selectedOptions[0]!.textContent).toBe(`${PATIENT_NAME} · ${PATIENT_HID}`)
-    const context = screen.getByRole('region', { name: 'Patient context' })
-    expect(await within(context).findByText(/Recorded allergies: Penicillin/)).toBeTruthy()
-    expect(within(context).getByText(/^Triage · final · /)).toBeTruthy()
+    // The open patient is the banner (the one-option Patient select is gone).
+    expect(screen.queryByLabelText(labelled('Patient'))).toBeNull()
+    expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
+    const context = screen.getByRole('region', { name: 'Allergies and earlier vitals' })
+    expect(await within(context).findByText('Allergies: Penicillin (told us by the patient, not checked by a clinician).')).toBeTruthy()
+    expect(within(context).getByText(/^Vitals · Final · /)).toBeTruthy()
   })
 
   it('says "None recorded" only after a read that found no allergies; a refused, unserved or unreadable read shows nothing, as today', async () => {
-    const context = () => screen.getByRole('region', { name: 'Patient context' })
+    const context = () => screen.getByRole('region', { name: 'Allergies and earlier vitals' })
     const settle = async () => {
-      await screen.findByRole('button', { name: 'Save record' })
+      await screen.findByRole('button', { name: 'Save vitals' })
       await waitFor(() => expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.anything()))
       await act(async () => {})
     }
@@ -270,8 +276,8 @@ describe('New triage & vitals', () => {
       api.reportedHealthProfile.mockRejectedValue(refusal)
       const view = open('/new')
       await settle()
-      expect(within(context()).getByText(PATIENT_NAME)).toBeTruthy()
-      expect(within(context()).queryByText(/Recorded allergies/)).toBeNull()
+      expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
+      expect(within(context()).queryByText(/^Allergies:/)).toBeNull()
       view.unmount()
     }
 
@@ -280,23 +286,23 @@ describe('New triage & vitals', () => {
       api.reportedHealthProfile.mockResolvedValue(answer)
       const view = open('/new')
       await settle()
-      expect(within(context()).getByText('Recorded allergies: None recorded. Confirm with the patient.')).toBeTruthy()
+      expect(within(context()).getByText('Allergies: none recorded. Confirm with the patient.')).toBeTruthy()
       view.unmount()
     }
 
     api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     const view = open('/new')
-    expect(await within(context()).findByText('Recorded allergies: what the patient entered about their health could not be loaded. Confirm with the patient.')).toBeTruthy()
+    expect(await within(context()).findByText('Allergies: what the patient told us couldn’t be loaded. Confirm with the patient.')).toBeTruthy()
     view.unmount()
 
     // A role without note read is not asked, and is told nothing about allergies.
     api.reportedHealthProfile.mockClear()
     staff.permissions = ALL.filter(permission => permission !== 'ehr.note.read')
     open('/new')
-    await screen.findByRole('button', { name: 'Save record' })
+    await screen.findByRole('button', { name: 'Save vitals' })
     await act(async () => {})
     expect(api.reportedHealthProfile).not.toHaveBeenCalled()
-    expect(within(context()).queryByText(/Recorded allergies/)).toBeNull()
+    expect(within(context()).queryByText(/^Allergies:/)).toBeNull()
   })
 
   it('records the vitals for the chosen visit after the access re-check, then opens the record', async () => {
@@ -305,8 +311,8 @@ describe('New triage & vitals', () => {
     expect(Array.from(visit.options).map(option => option.textContent)).toEqual(['Select…', expect.stringMatching(/^e0000000 · in progress · /)])
     fireEvent.change(visit, { target: { value: ENCOUNTER_ID } })
     expect(screen.getByText('Presenting complaint: Fever, headache')).toBeTruthy()
-    type(form, 'Systolic BP (mmHg)', '120')
-    type(form, 'Diastolic BP (mmHg)', '80')
+    type(form, 'BP systolic (mmHg)', '120')
+    type(form, 'BP diastolic (mmHg)', '80')
     type(form, 'Temperature (°C)', '37.2')
     // Enter in a field submits the form: the button is its submit button.
     fireEvent.submit(form)
@@ -344,31 +350,31 @@ describe('New triage & vitals', () => {
 
   it('refuses as today: a visit, at least one measurement, both blood pressure readings, and the ranges', async () => {
     const form = await openNew()
-    fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
+    fireEvent.click(within(form).getByRole('button', { name: 'Save vitals' }))
     expect(within(form).getByText('Complete this field.')).toBeTruthy()
     expect(document.activeElement).toBe(input(form, 'Visit'))
 
     fireEvent.change(input(form, 'Visit'), { target: { value: ENCOUNTER_ID } })
-    fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
+    fireEvent.click(within(form).getByRole('button', { name: 'Save vitals' }))
     const group = within(form).getByRole('group', { name: 'Vital measurements' })
     expect(described(group)).toBe('Enter at least one vital measurement.')
-    expect(document.activeElement).toBe(input(form, 'Systolic BP (mmHg)'))
-    expect(described(input(form, 'Systolic BP (mmHg)'))).toContain('Enter at least one vital measurement.')
+    expect(document.activeElement).toBe(input(form, 'BP systolic (mmHg)'))
+    expect(described(input(form, 'BP systolic (mmHg)'))).toContain('Enter at least one vital measurement.')
 
-    type(form, 'Systolic BP (mmHg)', '120')
-    fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
-    const diastolic = input(form, 'Diastolic BP (mmHg)')
+    type(form, 'BP systolic (mmHg)', '120')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save vitals' }))
+    const diastolic = input(form, 'BP diastolic (mmHg)')
     expect(diastolic.getAttribute('aria-invalid')).toBe('true')
     expect(described(diastolic)).toContain('Enter both systolic and diastolic blood pressure, or leave both blank.')
     expect(document.activeElement).toBe(diastolic)
 
-    type(form, 'Systolic BP (mmHg)', '20')
-    type(form, 'Diastolic BP (mmHg)', '80')
-    fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
-    expect(described(input(form, 'Systolic BP (mmHg)'))).toContain('Enter a value from 30 to 350.')
-    type(form, 'Systolic BP (mmHg)', '120')
+    type(form, 'BP systolic (mmHg)', '20')
+    type(form, 'BP diastolic (mmHg)', '80')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save vitals' }))
+    expect(described(input(form, 'BP systolic (mmHg)'))).toContain('Enter a value from 30 to 350.')
+    type(form, 'BP systolic (mmHg)', '120')
     type(form, 'Temperature (°C)', '36.65')
-    fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
+    fireEvent.click(within(form).getByRole('button', { name: 'Save vitals' }))
     expect(described(input(form, 'Temperature (°C)'))).toContain('Enter a value with at most 1 decimal place.')
     expect(api.createRecord).not.toHaveBeenCalled()
   })
@@ -380,11 +386,11 @@ describe('New triage & vitals', () => {
     const form = await openNew()
     fireEvent.change(input(form, 'Visit'), { target: { value: ENCOUNTER_ID } })
     type(form, 'Pulse (bpm)', '90')
-    fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
+    fireEvent.click(within(form).getByRole('button', { name: 'Save vitals' }))
     const alert = await within(form).findByRole('alert')
     expect(alert.textContent).toBe('One or more request fields are invalid. Pulse bpm must not be greater than 350.')
     expect(described(input(form, 'Pulse (bpm)'))).toContain('Pulse bpm must not be greater than 350.')
-    fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
+    fireEvent.click(within(form).getByRole('button', { name: 'Save vitals' }))
     await screen.findByText('Saved.')
     expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
   })
@@ -393,19 +399,19 @@ describe('New triage & vitals', () => {
     api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
     const view = open('/new')
     expect(await screen.findByText(READ_ONLY)).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save vitals' })).toBeNull()
     view.unmount()
     staff.activePatient = activePatient('emergency')
     open('/new')
     expect(screen.getByText('Emergency access shows the emergency summary only')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save vitals' })).toBeNull()
   })
 
   it('says so when the role may not record vitals', async () => {
     staff.permissions = ALL.filter(permission => permission !== 'ehr.vital.write')
     open('/new')
-    expect(await screen.findByText('You do not have permission to create this record.')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
+    expect((await screen.findByRole('alert')).textContent).toBe('Your role can’t add this record.')
+    expect(screen.queryByRole('button', { name: 'Save vitals' })).toBeNull()
   })
 })
 
@@ -436,7 +442,7 @@ describe('Triage & Vitals record', () => {
     expect(within(card).getByText('Fever, headache')).toBeTruthy()
     expect(within(card).getByText('120/80')).toBeTruthy()
     expect(within(card).getByText('72')).toBeTruthy()
-    expect(screen.getByText(`${PATIENT_NAME} · ${PATIENT_HID}`)).toBeTruthy()
+    expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
     expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.encounter.mock.invocationCallOrder[0]!)
     expect(api.encounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID)
     const history = screen.getByRole('heading', { level: 2, name: 'History' }).closest('section')!
@@ -447,9 +453,10 @@ describe('Triage & Vitals record', () => {
     document.title = ''
     vitals = [{ ...VITAL, recordedAt: '2026-10-30T07:55:00.000Z', oxygenSaturationPercent: '98.00', weightKg: '68.400', temperatureC: '36.60', heightCm: '170' }]
     await openRecord()
-    expect(document.title).toBe('Vitals · Health ID EHR')
-    expect(screen.getByText(`Saved ${new Date('2026-10-30T07:55:00.000Z').toLocaleString('en-US')}`)).toBeTruthy()
-    expect(screen.queryByText(`Saved ${new Date(VITAL.createdAt).toLocaleString('en-US')}`)).toBeNull()
+    expect(document.title).toBe('Triage & Vitals · Health ID EHR')
+    // When the vitals were recorded, not when the row was created (the page's own day-and-time format).
+    expect(screen.getByText(`Saved ${formatWhen('2026-10-30T07:55:00.000Z')}`)).toBeTruthy()
+    expect(screen.queryByText(`Saved ${formatWhen(VITAL.createdAt)}`)).toBeNull()
     const card = saved()
     expect(within(card).getByText('98')).toBeTruthy()
     expect(within(card).getByText('68.4')).toBeTruthy()
@@ -475,7 +482,7 @@ describe('Triage & Vitals record', () => {
     await openRecord()
     const form = await amendForm()
     expect(within(form).getByText('The values below become the current vitals; what was recorded is kept. A measurement left blank is not part of the corrected vitals.')).toBeTruthy()
-    expect(input(form, 'Systolic BP (mmHg)').value).toBe('120')
+    expect(input(form, 'BP systolic (mmHg)').value).toBe('120')
     type(form, 'Pulse (bpm)', '78')
     type(form, 'Reason', 'Repeat reading')
     api.lookupPatient.mockClear()
@@ -491,7 +498,7 @@ describe('Triage & Vitals record', () => {
     expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { fresh: true })
     expect(await screen.findByText('Corrected (correction 1)')).toBeTruthy()
     expect(within(saved()).getByText('78')).toBeTruthy()
-    expect(document.activeElement?.textContent).toBe('Actions')
+    expect(document.activeElement?.textContent).toBe('Available actions')
   })
 
   it('refuses an unchanged correction and a short reason, as today', async () => {
@@ -503,10 +510,10 @@ describe('Triage & Vitals record', () => {
     type(form, 'Reason', 'ok')
     fireEvent.click(within(form).getByRole('button', { name: 'Amend observation' }))
     expect(described(input(form, 'Reason'))).toContain('Give a reason of at least 3 characters.')
-    type(form, 'Diastolic BP (mmHg)', '')
+    type(form, 'BP diastolic (mmHg)', '')
     type(form, 'Reason', 'Repeat reading')
     fireEvent.click(within(form).getByRole('button', { name: 'Amend observation' }))
-    expect(described(input(form, 'Diastolic BP (mmHg)'))).toContain('Enter both systolic and diastolic blood pressure, or leave both blank.')
+    expect(described(input(form, 'BP diastolic (mmHg)'))).toContain('Enter both systolic and diastolic blood pressure, or leave both blank.')
     expect(api.correctVital).not.toHaveBeenCalled()
   })
 
@@ -533,12 +540,12 @@ describe('Triage & Vitals record', () => {
     expect(within(card).getByText('Repeat reading')).toBeTruthy()
     expect(within(card).queryByText('120/80')).toBeNull()
     const versions = screen.getByRole('heading', { level: 2, name: 'Earlier versions' }).closest('section')!
-    expect(within(versions).getByText('2026-10-30T08:10:00.000Z · final · Cuff too small')).toBeTruthy()
+    expect(within(versions).getByText(/^30 Oct 2026, \d\d:\d\d · final · Cuff too small$/)).toBeTruthy()
     expect(within(versions).getByText('Originally recorded')).toBeTruthy()
     expect(within(versions).getByText('120/80')).toBeTruthy()
     expect(within(versions).getByText('Corrected (correction 1)')).toBeTruthy()
     const form = await amendForm()
-    expect(input(form, 'Systolic BP (mmHg)').value).toBe('118')
+    expect(input(form, 'BP systolic (mmHg)').value).toBe('118')
     expect(input(form, 'Temperature (°C)').value).toBe('')
   })
 
@@ -556,7 +563,7 @@ describe('Triage & Vitals record', () => {
     vitals = [{ ...VITAL, status: 'entered_in_error' }]
     open(RECORD)
     expect(await screen.findByText('Recorded in error: do not use these values. They can no longer be corrected.')).toBeTruthy()
-    expect(screen.getByText('Entered in error')).toBeTruthy()
+    expect(screen.getAllByText('Entered in error').length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: 'Amend observation' })).toBeNull()
   })
 
@@ -594,7 +601,7 @@ describe('Triage & Vitals record', () => {
     api.lookupPatient.mockResolvedValue({ authorization: { decision: 'deny' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Amend observation' }))
     const ended = await screen.findByText('Access to this patient ended')
-    expect(ended.closest('[role="alert"]')?.textContent).toContain('Your access to this patient has ended. Open the patient again to keep working.')
+    expect(ended.closest('[role="alert"]')?.textContent).toContain('Open the patient again to keep working.')
     expect(api.correctVital).not.toHaveBeenCalled()
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
   })

@@ -59,9 +59,10 @@ describe('the notification bell', () => {
     const link = await screen.findByRole('link', { name: 'Notifications, 3 unread' })
     expect(link.getAttribute('href')).toBe('/notifications')
     expect(link.textContent).toBe('3')
-    // In the header, beside Sign out, and the side navigation's Notifications link stays as it was.
+    // In the header. The redesign's side navigation has no Notifications link (the Overview's Activity links to the
+    // page), so the bell is the one way there from every page while something is unread.
     expect(screen.getByRole('banner').contains(link)).toBe(true)
-    expect(screen.getByRole('link', { name: 'Notifications' })).toBeTruthy()
+    expect(within(screen.getByRole('navigation', { name: 'Main navigation' })).queryByRole('link', { name: /Notifications/ })).toBeNull()
   })
 
   it('shows no bell while nothing is unread, and 99+ past 99', async () => {
@@ -124,7 +125,8 @@ describe('the notification bell', () => {
     await minute(); await minute()
     expect(reads(sent)).toBe(1)
     expect(signOut).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
+    // Still in the portal: the person's menu (which holds Sign out) is there.
+    expect(screen.getByRole('button', { name: /: account$/ })).toBeTruthy()
     answer = () => json({ unread: 4 })
     showPage('hidden'); showPage('visible')
     expect(await screen.findByRole('link', { name: 'Notifications, 4 unread' })).toBeTruthy()
@@ -229,7 +231,8 @@ describe('a new notification while the portal is open', () => {
     await screen.findByRole('link', { name: 'Notifications, 1 unread' })
     // The count read as the portal opens is not new.
     expect(screen.queryByText('You have a new notification')).toBeNull()
-    const signOut = screen.getByRole('button', { name: 'Sign out' })
+    // Focus somewhere in the shell: the person's menu button.
+    const signOut = screen.getByRole('button', { name: /: account$/ })
     signOut.focus()
 
     unread = 2
@@ -297,7 +300,10 @@ describe('a new notification while the portal is open', () => {
     let unread = 0
     const { sent } = portal(() => json({ unread }), path => path === '/identity/me/access-history' ? json({ items: [] })
       : path === '/identity/me/access-log' ? json({ events: [], nextBefore: null }) : json([]), <AccessPage />)
-    expect(await screen.findByText('There are no access requests.')).toBeTruthy()
+    expect(await screen.findByText('Nothing waiting for you')).toBeTruthy()
+    // The access log is on its own tab since the redesign; the requests and who has access are read for the page.
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Activity' })) })
+    await waitFor(() => expect(reads(sent, '/identity/me/access-log')).toBe(1))
     const requests = reads(sent, '/identity/me/access-requests'), history = reads(sent, '/identity/me/access-history')
     const log = reads(sent, '/identity/me/access-log')
     unread = 1
@@ -319,6 +325,7 @@ describe('a new notification while the portal is open', () => {
       return json(showingMore ? { events: [ev(1)], nextBefore: null } : newest)
     }, <AccessPage />)
     let showingMore = false
+    await act(async () => { fireEvent.click(await screen.findByRole('button', { name: 'Activity' })) })
     await screen.findByText('Dr Number 3 at Lagos General')
     showingMore = true
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Show more' })) })
@@ -353,6 +360,7 @@ describe('a new notification while the portal is open', () => {
       if (path !== '/identity/me/access-log') return json([])
       return json(showingMore ? { events: [entry('c', '2026-10-28T08:00:00Z', 'Dr C')], nextBefore: null } : newest)
     }, <AccessPage />)
+    await act(async () => { fireEvent.click(await screen.findByRole('button', { name: 'Activity' })) })
     await screen.findByText('Dr A at Lagos General')
     showingMore = true
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Show more' })) })
@@ -364,8 +372,8 @@ describe('a new notification while the portal is open', () => {
     unread = 1
     await minute()
     await screen.findByText('Access to your record ended')
-    const card = screen.getByRole('heading', { name: 'Who viewed or changed your record' }).closest('.patient-card') as HTMLElement
-    const rows = within(card).getAllByRole('listitem').map(row => [row.querySelector('strong')?.textContent, row.querySelector('time')?.getAttribute('dateTime')])
+    const card = screen.getByRole('heading', { name: 'Who viewed or changed your records' }).closest('section') as HTMLElement
+    const rows = within(card).getAllByRole('listitem').map(row => [row.querySelector('p')?.textContent, row.querySelector('time')?.getAttribute('dateTime')])
     expect(rows).toEqual([
       ['Dr A at Lagos General', '2026-10-28T10:06:00Z'], ['Dr A at Lagos General', '2026-10-28T10:05:00Z'],
       ['Dr B at Lagos General', '2026-10-28T09:00:00Z'], ['Dr C at Lagos General', '2026-10-28T08:00:00Z'],

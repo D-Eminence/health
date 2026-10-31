@@ -106,12 +106,15 @@ export function Laboratory() {
   // The card each work item is reached from: focus goes back there from its record.
   const cardOf = new Map(groupsOf(items).flatMap(group => group.items.map(item => [item.id, `lab-${group.items[0]!.id}-record`] as const)))
 
-  // Leaving a record (its Back, or the browser's) puts focus back on its card, once the list shows again.
+  // Focus follows the address, in the commit that shows the new view (the router's update can come a render after the
+  // press): a request opened (from its card, or another test on it) puts it on the request's title; leaving one (its
+  // Back, or the browser's) puts it back on its card, once the list shows again.
   const lastWork = useRef(workId)
   useLayoutEffect(() => {
     const was = lastWork.current
     lastWork.current = workId
     if (was && !workId) focus([cardOf.get(was) ?? `lab-${was}-record`, 'lab-work-title'], true)
+    else if (workId && workId !== was) focus('lab-record-title')
   }, [workId, focus, cardOf])
   // A request named in the address that the list no longer holds (it ended, or the address is old): back to the list.
   const stale = Boolean(workId && list.items !== null && !chosen)
@@ -159,7 +162,9 @@ export function Laboratory() {
     <div hidden={Boolean(chosen)} className="flex flex-col gap-5">
       <PageHeader title={<span id="lab-work-title" tabIndex={-1} className="outline-none">Work list</span>}
         actions={<>
-          <Button icon={RotateCcw} loading={list.loading && list.items !== null} onClick={() => void list.refresh()}>Refresh</Button>
+          {/* Busy while the list is read, but never disabled: a disabled button would lose the focus it has. */}
+          <Button icon={RotateCcw} aria-busy={list.loading || undefined} aria-disabled={list.loading || undefined}
+            onClick={() => { if (!list.loading) void list.refresh() }}>Refresh</Button>
           {permissions.includes('lab.walk-in.create') ? <Button variant="primary" icon={Plus} to="/provider/laboratory/new">New request</Button> : null}
         </>} />
       <StandaloneWorkNote facility={facility} kind="laboratory" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />

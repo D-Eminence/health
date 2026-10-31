@@ -49,7 +49,7 @@ beforeEach(() => {
 })
 
 function actionsCard() {
-  return screen.getByRole('heading', { name: 'Actions' }).closest('section') as HTMLElement
+  return screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
 }
 
 function submitFor(label: string) {

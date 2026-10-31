@@ -283,6 +283,9 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
   /** What saving does, said before it is done: send to this Lab, send to another laboratory, or keep as a draft. */
   const confirmLab = (values: FormValues) => {
     const test = value(values, 'testDisplay')
+    // Sending elsewhere without a laboratory chosen or the patient's agreement ticked: nothing is asked (nor sent); the
+    // save stops at the missing choice, said at its field. Never "Save … as a draft?" for a send that can't go yet.
+    if (handling === 'route' && routable && choiceProblem(choice, 'lab_request')) return Promise.resolve(true)
     if (handling === 'route' && routable && choice.destination) return confirm(`Send this lab request (${test}) for ${chart.facts.name} to ${choice.destination.facilityName}?`, 'Send lab request')
     if (handling === 'active' && canSendToLab) return confirm(`Send this lab request (${test}) for ${chart.facts.name}?`, 'Send lab request')
     return confirm(`Save this lab request (${test}) for ${chart.facts.name} as a draft?`, 'Save draft')

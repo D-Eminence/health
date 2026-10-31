@@ -105,7 +105,7 @@ describe('review item 8: a sample hand-off never opens a live create form', () =
     expect(visits.length).toBeGreaterThan(0)
     for (const visit of visits) {
       const view = open('journey', `/${visit.id}`)
-      const actions = screen.getByRole('heading', { name: 'Actions' }).closest('section')!
+      const actions = screen.getByRole('heading', { name: 'Available actions' }).closest('section')!
       expect(within(actions).queryByRole('button', { name: 'Create triage & vitals' })).toBeNull()
       expect(within(actions).queryByRole('button', { name: 'Create consultation' })).toBeNull()
       // The design draws "Continue care" on every visit, as its capture for a role that may create neither does.

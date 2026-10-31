@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { EmergencyContact } from '../api'
 import { AccessPage, ProfilePage } from '../routes/Portal'
 import { EmergencyContactsCard } from '../routes/AccountSafety'
@@ -49,6 +49,18 @@ describe('Access PIN', () => {
   })
 })
 
+/** Opens the pending request, then Deny, then "Other…", as the patient does. */
+async function denyWithOwnWords() {
+  await press(await screen.findByRole('button', { name: / Review the request from Lagos General/ }))
+  await press(screen.getByRole('button', { name: /^Deny the request/ }))
+  await act(async () => { fireEvent.click(screen.getByRole('radio', { name: 'Other…' })) })
+}
+/** Opens Who has access, then End access on the grant, as the patient does. */
+async function endAccess() {
+  await press(await screen.findByRole('button', { name: /^Who has access/ }))
+  await press(await screen.findByRole('button', { name: /^End access for Ikeja Clinic/ }))
+}
+
 describe('reasons and contacts', () => {
   it('says a denial or revocation needs a reason of at least 3 characters', async () => {
     renderPortal(<AccessPage />, path => path === '/identity/me/access-requests'
@@ -56,10 +68,11 @@ describe('reasons and contacts', () => {
         reason: 'Follow-up', status: 'pending', requestedDurationMinutes: 60, requestedAt: '2026-10-08T10:00:00Z', approvedAt: null, deniedAt: null, deniedReason: null }])
       : json({ items: [{ consentGrantId: '60000000-0000-4000-8000-000000000001', scope: 'read_records', purpose: 'direct-care', status: 'active',
         startsAt: '2026-10-08T10:00:00Z', expiresAt: '2026-10-08T11:00:00Z', reason: 'Follow-up', facilityName: 'Ikeja Clinic', breakGlass: false, patientRevocable: true }] }))
-    fireEvent.click(await screen.findByRole('button', { name: /^Deny/ }))
-    expect(described(screen.getByRole('textbox', { name: 'Reason for denial' }))).toContain('At least 3 characters.')
-    fireEvent.click(screen.getByRole('button', { name: /^Revoke access/ }))
-    expect(described(screen.getByRole('textbox', { name: 'Reason for revocation' }))).toContain('At least 3 characters.')
+    // The redesign: Deny is in the request's drawer, with one-tap reasons; "Other" takes the patient's own words.
+    await denyWithOwnWords()
+    expect(described(screen.getByRole('textbox', { name: 'Your reason' }))).toContain('At least 3 characters.')
+    await endAccess()
+    expect(described(screen.getByRole('textbox', { name: 'Why are you ending it?' }))).toContain('At least 3 characters.')
   })
 
   // Revoking a grant leaves the Access PIN valid (hid-system, as main), so a facility that knows it can use it again.
@@ -69,11 +82,13 @@ describe('reasons and contacts', () => {
         reason: 'Follow-up', status: 'pending', requestedDurationMinutes: 60, requestedAt: '2026-10-08T10:00:00Z', approvedAt: null, deniedAt: null, deniedReason: null }])
       : json({ items: [{ consentGrantId: '60000000-0000-4000-8000-000000000001', scope: 'read_records', purpose: 'direct-care', status: 'active',
         startsAt: '2026-10-08T10:00:00Z', expiresAt: '2026-10-08T11:00:00Z', reason: 'Follow-up', facilityName: 'Ikeja Clinic', breakGlass: false, patientRevocable: true }] }))
-    fireEvent.click(await screen.findByRole('button', { name: /^Revoke access/ }))
-    expect(described(screen.getByRole('textbox', { name: 'Reason for revocation' }))).toBe('At least 3 characters. If this facility has your '
-      + 'Access PIN, it can use it to get access again. To stop that, change or remove your PIN in your profile’s Bio-data.')
-    fireEvent.click(screen.getByRole('button', { name: /^Deny/ }))
-    expect(described(screen.getByRole('textbox', { name: 'Reason for denial' }))).toBe('At least 3 characters.')
+    await endAccess()
+    expect(described(screen.getByRole('textbox', { name: 'Why are you ending it?' }))).toBe('At least 3 characters. | If they have your '
+      + 'Access PIN, they can use it to get access again. Change it in your profile too.')
+    await press(screen.getByRole('button', { name: 'Cancel' }))
+    await press(screen.getByRole('button', { name: /^Requests/ }))
+    await denyWithOwnWords()
+    expect(described(screen.getByRole('textbox', { name: 'Your reason' }))).toBe('At least 3 characters.')
   })
 
   it('says a contact name needs at least 2 characters, and that five contacts is the limit', async () => {
@@ -93,6 +108,6 @@ describe('reasons and contacts', () => {
   it('says a new contact name needs at least 2 characters', async () => {
     renderPortal(<EmergencyContactsCard />, () => json([]))
     fireEvent.click(await screen.findByRole('button', { name: 'Add emergency contact' }))
-    expect(described(screen.getByRole('textbox', { name: 'Contact name' }))).toContain('At least 2 characters.')
+    expect(described(screen.getByRole('textbox', { name: 'Name' }))).toContain('At least 2 characters.')
   })
 })

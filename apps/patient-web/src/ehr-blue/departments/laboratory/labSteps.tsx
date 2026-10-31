@@ -1,13 +1,16 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
-import { CheckCheck, Droplet, FlaskConical, PackageCheck, Play, Save, Square, X } from 'lucide-react'
+import { useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { isHidApiError } from '@hid/http'
+import { CheckCheck, Droplet, FlaskConical, History, PackageCheck, Play, RotateCcw, Save, Square, X } from 'lucide-react'
 import { Segmented } from '../../../kasuwa/interactive'
 import { ConfirmSheet, FormActions, Value } from '../../../kasuwa/parts'
-import { Alert, Badge, Button, Field, Input, Select, Textarea, cx } from '../../../kasuwa/ui'
+import { Alert, Badge, Button, Card, CardHeader, DescriptionList, Field, Input, Select, Textarea, cx } from '../../../kasuwa/ui'
 import {
-  staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultValue, type LabSpecimen, type LabWorkItem,
+  staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabSpecimen,
+  type LabWorkItem,
 } from '../../../staff/api'
 import { sampleCheckText } from '../../../staff/orderRoutes'
 import { errorText } from '../parts/errors'
+import { dateText } from '../parts/format'
 import { ABNORMAL_FLAGS, FLAG_WORDS, flagFromRange, flagLevel, revisionText } from './labText'
 
 /*
@@ -429,4 +432,74 @@ export function CheckStep({ facilityId, permissions, subject, routed, onDone, on
       </Field>
     </ConfirmSheet>
   </div>
+}
+
+const RELEASE_WORDS: Readonly<Record<LabResultRevision['releaseStatus'], string>> = {
+  not_released: 'not released', verified_not_released: 'checked, not released', released: 'released',
+}
+const CHECK_WORDS: Readonly<Record<LabResultRevision['verificationStatus'], string>> = {
+  unverified: 'Not checked', verified: 'Checked', entered_in_error: 'Entered in error',
+}
+
+/**
+ * "Preserved versions & amendments": every version of a result, kept by Lab, read only when asked (today's Laboratory
+ * page's history). A refusal of the read says something about access, so the record is read again (`onRefused`); a
+ * result never released answers 404 to someone who reads only released results, which is not a refusal.
+ */
+export function ResultHistory({ facilityId, execution, onRefused }: {
+  readonly facilityId: string; readonly execution: LabExecution; readonly onRefused: (caught: unknown) => void
+}) {
+  const result = execution.result!
+  const [open, setOpen] = useState(false)
+  const [history, setHistory] = useState<LabResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  // The read in flight: an answer to one replaced (closed, or read again) is dropped.
+  const reading = useRef(0)
+  const unreleased = result.currentReleasedVersion == null
+  const panel = `lab-history-${execution.id}`
+  async function load() {
+    const mine = ++reading.current
+    setLoading(true); setError('')
+    try {
+      const value = await staffApi.labResultHistory(facilityId, result.id)
+      if (reading.current === mine) setHistory(value)
+    } catch (caught) {
+      if (reading.current === mine) setError(errorText(caught, 'The result history could not be loaded.'))
+      // Even after the history was closed, a refusal says something about read access.
+      if (!(unreleased && isHidApiError(caught) && caught.status === 404)) onRefused(caught)
+    } finally { if (reading.current === mine) setLoading(false) }
+  }
+  function toggle() {
+    if (open) { reading.current += 1; setOpen(false); setLoading(false); return }
+    setOpen(true)
+    void load()
+  }
+  return <Card>
+    <CardHeader as="h2" icon={History} title={<>Preserved versions & amendments<span className="sr-only">: {execution.test.name}</span></>}
+      actions={<>
+        {open ? <Button size="sm" icon={RotateCcw} aria-busy={loading || undefined} aria-disabled={loading || undefined}
+          onClick={() => { if (!loading) void load() }}>Refresh history</Button> : null}
+        <Button size="sm" aria-expanded={open} aria-controls={open ? panel : undefined} onClick={toggle}>{open ? 'Hide result history' : 'View result history'}</Button>
+      </>} />
+    <div id={panel} className="flex flex-col gap-3 p-5">
+      {!open ? <p className="m-0 text-[14px] text-ink-2">Every version of this result is kept. View the history to read them.</p> : null}
+      {open && loading ? <p role="status" className="m-0 text-[14px] text-ink-3">Loading result history…</p> : null}
+      {open && error ? <Alert intent="error" size="sm">{error}</Alert> : null}
+      {open && !loading && !error && history ? <ul className="m-0 flex list-none flex-col gap-2 p-0">
+        {history.revisions.map(entry => <li key={entry.version}><details className="rounded-lg ring-1 ring-inset ring-line">
+          <summary className="cursor-pointer px-4 py-3 text-[14px] font-medium text-ink">Version {entry.version} · {RELEASE_WORDS[entry.releaseStatus]}
+            {entry.verificationStatus === 'entered_in_error' ? ' · entered in error' : ''}{entry.correctionReason ? ` · ${entry.correctionReason}` : ''}</summary>
+          <div className="px-4 pb-3"><DescriptionList items={[
+            ['Value', `${revisionText(entry)}${entry.unit ? ` ${entry.unit}` : ''} · ${FLAG_WORDS[entry.abnormalFlag]}`],
+            ['Entered', dateText(entry.enteredAt)],
+            ['Checked', CHECK_WORDS[entry.verificationStatus]],
+            entry.releasedAt ? ['Released', dateText(entry.releasedAt)] : null,
+            entry.referenceRange ? ['Normal range', entry.referenceRange] : null,
+            entry.correctionReason ? ['Reason', entry.correctionReason] : null,
+          ]} /></div>
+        </details></li>)}
+      </ul> : null}
+    </div>
+  </Card>
 }

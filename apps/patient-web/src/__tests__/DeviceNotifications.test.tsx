@@ -7,7 +7,8 @@ import type { WebPushSubscriptionItem } from '../webPush'
 import { described, json, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
 
 /**
- * "Notifications on this device" on the Notifications page (B6, contract b6-contract.md §11.4): hidden, saying nothing, wherever
+ * "Notifications on this device", in the profile's Settings since the redesign moved it there from the Notifications
+ * page (B6, contract b6-contract.md §11.4): hidden, saying nothing, wherever
  * Identity's GET identity/me/web-push does not answer 200 (today's backend answers 404); otherwise each of the five
  * states with its copy, the permission asked only from the switch, and turning on and off with Identity.
  *
@@ -42,8 +43,10 @@ const OTHER_DIGEST = 'cd'.repeat(32)
 const KEYS = { p256dh: `B${'C'.repeat(86)}`, auth: 'D'.repeat(22) }
 const HEADING = 'Notifications on this device'
 const SIGN_OUT_TEXT = 'Signing out turns this off.'
-const OFF_TEXT = 'Get an alert on this device for each new notification, showing only "You have a new notification."'
-const ON_TEXT = 'On: this device gets an alert for each new notification, showing only "You have a new notification."'
+// Each still says the alert shows nothing but "You have a new notification." (the payload-free promise, contract §11.4).
+const OFF_TEXT = 'Get an alert here for each new notification. It only says "You have a new notification."'
+const ON_TEXT = 'On. You get an alert here for each new notification. It only says "You have a new notification."'
+const TURN_ON_FAILED = 'Couldn’t turn on notifications. Try again.'
 
 const item = (over: Partial<WebPushSubscriptionItem> = {}): WebPushSubscriptionItem => ({
   id: '6a1e0c4e-0000-4000-8000-000000000001', endpointDigest: DIGEST, pushService: 'fcm', thisSignIn: true, keyCurrent: true,
@@ -60,13 +63,16 @@ const pushRequests = (sent: Sent[]) => sent.filter(request => request.path.start
 const settled = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
 const theSwitch = () => screen.getByRole('switch', { name: HEADING })
 
-const LIST_READY = 'You have no notifications.'
-/** Notifications (an empty list), with Identity's push routes as `push` answers; every other read is not served. */
+/** The profile has been read and its sections are shown. */
+const ready = () => screen.findByRole('heading', { name: 'About you' })
+/** The profile, with Identity's push routes as `push` answers; every other read but the profile is not served. */
 function page(push: Handler) {
-  return renderPortal(<NotificationsPage />, (path, method, body) => path === '/identity/me/notifications' ? json([])
+  return renderPortal(<ProfilePage />, (path, method, body) => path === '/identity/me' ? json(profile)
     : path.startsWith('/identity/me/web-push') ? push(path, method, body) : problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`),
   {}, { webPush: true })
 }
+/** The text of the alert that says `text`. */
+const alertSaying = async (text: string) => (await screen.findByText(text)).closest('[role="alert"]')
 
 let consoleSpies: ReturnType<typeof vi.spyOn>[] = []
 beforeEach(() => {
@@ -82,7 +88,7 @@ afterEach(() => {
 describe('Notifications on this device, where Identity does not offer it', () => {
   it('shows nothing, says nothing and loads nothing where Identity answers 404, as today\'s backend does', async () => {
     const { sent } = page(() => problem(404, 'NOT_FOUND', 'Cannot GET /api/v1/identity/me/web-push'))
-    expect(await screen.findByText(LIST_READY)).toBeTruthy()
+    expect(await ready()).toBeTruthy()
     await waitFor(() => expect(webPushServed()).toBe(false))
     await settled()
     expect(pushRequests(sent)).toEqual(['GET /identity/me/web-push'])
@@ -93,9 +99,9 @@ describe('Notifications on this device, where Identity does not offer it', () =>
     expect(fake.calls).toEqual([])
   })
 
-  it('is hidden, and Notifications works as before, with the test gateway of every earlier wave (404 by default)', async () => {
-    renderPortal(<NotificationsPage />, path => path === '/identity/me/notifications' ? json([]) : problem(404, 'NOT_FOUND', 'Not served'))
-    expect(await screen.findByText(LIST_READY)).toBeTruthy()
+  it('is hidden, and the profile works as before, with the test gateway of every earlier wave (404 by default)', async () => {
+    renderPortal(<ProfilePage />, path => path === '/identity/me' ? json(profile) : problem(404, 'NOT_FOUND', 'Not served'))
+    expect(await ready()).toBeTruthy()
     await settled()
     expect(screen.queryByRole('heading', { name: HEADING })).toBeNull()
     expect(fake.calls).toEqual([])
@@ -107,7 +113,7 @@ describe('Notifications on this device, where Identity does not offer it', () =>
     ['an item that is not the contract\'s', () => json(pushState([{ ...item(), pushService: 'pigeon' } as unknown as WebPushSubscriptionItem]))],
   ])('is hidden, with no error, after %s', async (_name, answer) => {
     page(answer)
-    expect(await screen.findByText(LIST_READY)).toBeTruthy()
+    expect(await ready()).toBeTruthy()
     await settled()
     expect(screen.queryByRole('heading', { name: HEADING })).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
@@ -116,19 +122,19 @@ describe('Notifications on this device, where Identity does not offer it', () =>
 })
 
 describe('Where the device sections are', () => {
-  it('are on Notifications, under its heading and before the list, and not on Settings', async () => {
+  it('are on the profile, under its Settings heading after the profile\'s sections', async () => {
     page(() => json(pushState()))
-    const section = (await screen.findByRole('switch', { name: HEADING })).closest('.patient-card')
-    const title = screen.getByRole('heading', { level: 1, name: 'Notifications' })
-    const list = screen.getByText(LIST_READY)
-    expect(title.compareDocumentPosition(section!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(section!.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const section = (await screen.findByRole('switch', { name: HEADING })).closest('section')
+    const settings = screen.getByRole('heading', { level: 2, name: 'Settings' })
+    const about = screen.getByRole('heading', { name: 'About you' })
+    expect(about.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(settings.compareDocumentPosition(section!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('are not on the profile, which does not ask Identity about push', async () => {
-    const { sent } = renderPortal(<ProfilePage />, (path, method) => path === '/identity/me' ? json(profile)
+  it('are not on Notifications, which does not ask Identity about push', async () => {
+    const { sent } = renderPortal(<NotificationsPage />, (path, method) => path === '/identity/me/notifications' ? json([])
       : path.startsWith('/identity/me/web-push') ? json(pushState()) : problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`), {}, { webPush: true })
-    expect(await screen.findByRole('heading', { name: /About you/ })).toBeTruthy()
+    expect(await screen.findByText('No notifications')).toBeTruthy()
     await settled()
     expect(pushRequests(sent)).toEqual([])
     expect(screen.queryByRole('heading', { name: HEADING })).toBeNull()
@@ -152,7 +158,7 @@ describe('Notifications on this device, where Identity offers it', () => {
 
   it.each([
     ['unsupported', 'This browser can\'t show Health ID notifications.'],
-    ['ios-install-needed', 'On iPhone and iPad, add Health ID to your Home Screen (Share, then Add to Home Screen) and turn this on there.'],
+    ['ios-install-needed', 'On iPhone or iPad, first add Health ID to your Home Screen (tap Share, then Add to Home Screen). Then turn this on there.'],
   ] as const)('says what to do, with no switch, where this browser is %s', async (support, text) => {
     fake.support = support
     page(() => json(pushState([item()])))
@@ -169,7 +175,7 @@ describe('Notifications on this device, where Identity offers it', () => {
     const control = await screen.findByRole('switch', { name: HEADING })
     expect(control.getAttribute('aria-checked')).toBe('false')
     expect((control as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByText(`Notifications are blocked: allow them for ${location.host} in this browser's site settings.`)).toBeTruthy()
+    expect(screen.getByText(`Notifications are blocked. To allow them, open this browser's settings for ${location.host}.`)).toBeTruthy()
   })
 
   it('is on only for this browser\'s subscription, bound to this sign-in with the current key', async () => {
@@ -213,7 +219,7 @@ describe('Notifications on this device, where Identity offers it', () => {
     fake.turnOn = async () => { fake.permission = 'denied'; return { outcome: 'denied' } }
     const { sent } = page(() => json(pushState()))
     await press(await screen.findByRole('switch', { name: HEADING }))
-    expect(await screen.findByText(/^Notifications are blocked: allow them/)).toBeTruthy()
+    expect(await screen.findByText(/^Notifications are blocked\. To allow them/)).toBeTruthy()
     expect((theSwitch() as HTMLButtonElement).disabled).toBe(true)
     expect(document.activeElement).toBe(screen.getByRole('heading', { name: HEADING }))
     expect(pushRequests(sent)).toEqual(['GET /identity/me/web-push'])
@@ -253,7 +259,7 @@ describe('Notifications on this device, where Identity offers it', () => {
     fake.turnOn = async ({ keyId }) => { fake.permission = 'granted'; fake.subscription = { endpoint: ENDPOINT, endpointDigest: DIGEST, keyId }; return subscribed(keyId) }
     page((path, method) => method === 'PUT' ? refusal() : json(pushState()))
     await press(await screen.findByRole('switch', { name: HEADING }))
-    expect((await screen.findByText('Notifications could not be turned on. Try again.')).getAttribute('role')).toBe('alert')
+    expect(await alertSaying(TURN_ON_FAILED)).not.toBeNull()
     expect(fake.calls).toContain('turnOffBrowser')
     expect(theSwitch().getAttribute('aria-checked')).toBe('false')
     expect(document.activeElement).toBe(theSwitch())
@@ -265,7 +271,7 @@ describe('Notifications on this device, where Identity offers it', () => {
     fake.turnOn = async () => subscribed(KEY_ID, false)
     page((path, method) => method === 'PUT' ? problem(400, 'WEB_PUSH_SUBSCRIPTION_INVALID', 'Invalid') : json(pushState()))
     await press(await screen.findByRole('switch', { name: HEADING }))
-    expect(await screen.findByText('Notifications could not be turned on. Try again.')).toBeTruthy()
+    expect(await screen.findByText(TURN_ON_FAILED)).toBeTruthy()
     expect(fake.calls).not.toContain('turnOffBrowser')
   })
 
@@ -273,7 +279,7 @@ describe('Notifications on this device, where Identity offers it', () => {
     fake.turnOn = async () => { throw new DOMException('Registration failed - push service error', 'AbortError') }
     const { sent } = page(() => json(pushState()))
     await press(await screen.findByRole('switch', { name: HEADING }))
-    expect((await screen.findByText('Notifications could not be turned on. Try again.')).getAttribute('role')).toBe('alert')
+    expect(await alertSaying(TURN_ON_FAILED)).not.toBeNull()
     expect(pushRequests(sent)).toEqual(['GET /identity/me/web-push'])
   })
 
@@ -291,12 +297,14 @@ describe('Notifications on this device, where Identity offers it', () => {
     expect(document.activeElement).toBe(theSwitch())
   })
 
-  it('still turns this browser off when Identity cannot be told, and says when Health ID stops trying', async () => {
+  // The redesign says the same as a turn-off Identity was told of (owner's plain wording): this browser stops either way.
+  it('still turns this browser off when Identity cannot be told, and says it is off', async () => {
     fake.permission = 'granted'
     fake.subscription = { endpoint: ENDPOINT, endpointDigest: DIGEST, keyId: KEY_ID }
     page((path, method) => method === 'POST' ? problem(403, 'PATIENT_SESSION_REQUIRED', 'Patient session required') : json(pushState([item()])))
     await press(await screen.findByRole('switch', { name: HEADING }))
-    expect(await screen.findByText('Notifications are off for this device. This device won\'t get them; Health ID will stop trying within a day.')).toBeTruthy()
+    expect(await screen.findByText('Notifications are off for this device.')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
     expect(fake.calls).toContain('turnOffBrowser')
     expect(theSwitch().getAttribute('aria-checked')).toBe('false')
   })

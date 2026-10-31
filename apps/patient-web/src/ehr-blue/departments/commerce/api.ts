@@ -187,12 +187,16 @@ export type CommerceResult<T> =
   | { ok: false; notAvailable?: false; error: string; code?: string; status?: number }
 
 // ----------------------------------------------------------------- client --
-const transport = createApiClient({
-  baseUrl: getEnvironment().apiBaseUrl,
-  clientId: 'staff-web',
-  sessionMode: 'cookie',
-})
-const client = createRegisteredBrowserClient(transport, 'staff-web')
+/** Made on first use, so importing this module reads no configuration. */
+let registered: ReturnType<typeof createRegisteredBrowserClient> | null = null
+function client(): ReturnType<typeof createRegisteredBrowserClient> {
+  registered ??= createRegisteredBrowserClient(createApiClient({
+    baseUrl: getEnvironment().apiBaseUrl,
+    clientId: 'staff-web',
+    sessionMode: 'cookie',
+  }), 'staff-web')
+  return registered
+}
 
 type Query = Record<string, QueryValue>
 
@@ -203,7 +207,7 @@ async function call<T>(method: HttpMethod, path: string, facilityId: string,
   const write = method !== 'GET'
   const query = options.query ? Object.fromEntries(Object.entries(options.query).filter(([, value]) => value !== undefined && value !== null && value !== '')) : undefined
   try {
-    const data = await client.request<T>({
+    const data = await client().request<T>({
       method, path,
       ...(query && Object.keys(query).length > 0 ? { query } : {}),
       ...(options.body !== undefined ? { body: options.body } : {}),

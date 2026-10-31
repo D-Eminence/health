@@ -121,7 +121,7 @@ export function ImportedHistory({ records, limit, download, allowLocalHttp = fal
       {record.files.length > 0 && <div><Inner>Files</Inner><ul>{record.files.map(file => <li key={file.id}>
         <span>{file.fileName || 'File'}</span>{file.accessStatus === 'available'
           ? download ? <Button size="sm" icon={Download} loading={busy === file.id} disabled={busy !== null} onClick={() => void openFile(file.id)}>
-            {busy === file.id ? 'Opening…' : <>Download<span className="sr-only"> {file.fileName || 'file'}</span></>}</Button> : <span>You can’t open this file here.</span>
+            {busy === file.id ? 'Opening…' : <>Download{' '}<span className="sr-only">{file.fileName || 'file'}</span></>}</Button> : <span>You can’t open this file here.</span>
           : <span>{file.accessStatus === 'rejected' ? 'This file can’t be opened. It failed our safety check.' : 'This file is still being checked for safety.'}</span>}
       </li>)}</ul></div>}
     </article>

@@ -36,10 +36,10 @@ afterEach(() => { vi.clearAllMocks() })
 
 async function startEnrollment() {
   render(<MemoryRouter><Enrollment /></MemoryRouter>)
-  fireEvent.change(await screen.findByLabelText('National Identification Number'), { target: { value: NIN } })
+  fireEvent.change(await screen.findByLabelText('National Identification Number (NIN)'), { target: { value: NIN } })
   fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Continue' })) })
-  return screen.findByLabelText('Verification code')
+  return screen.findByLabelText('Code')
 }
 
 /**
@@ -58,9 +58,9 @@ describe('an enrollment that ended on this device', () => {
     api.enrollmentVerify.mockRejectedValue(notFound())
     await enterCode(code, '123456')
 
-    const nin = await screen.findByLabelText('National Identification Number')
+    const nin = await screen.findByLabelText('National Identification Number (NIN)')
     expect(screen.getByText(ENDED).textContent).toMatch(/Enter your NIN to start again\.$/)
-    expect(screen.queryByLabelText('Verification code')).toBeNull()
+    expect(screen.queryByLabelText('Code')).toBeNull()
     expect(screen.queryByText(/sent to a\*\*\*@example\.com/)).toBeNull()
 
     fireEvent.change(nin, { target: { value: NIN } })
@@ -68,7 +68,7 @@ describe('an enrollment that ended on this device', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Continue' })) })
     await waitFor(() => expect(api.enrollmentStart).toHaveBeenCalledTimes(2))
     expect(api.enrollmentStart.mock.calls[1]![2]).toBe(api.enrollmentStart.mock.calls[0]![2])
-    expect(await screen.findByLabelText('Verification code')).toBeTruthy()
+    expect(await screen.findByLabelText('Code')).toBeTruthy()
   })
 
   it('goes back to the NIN step when a check made after signing out finds no enrollment', async () => {
@@ -80,9 +80,9 @@ describe('an enrollment that ended on this device', () => {
 
     // They signed out, which ended the enrollment here too.
     await act(async () => { fireEvent.click(check) })
-    expect(await screen.findByLabelText('National Identification Number')).toBeTruthy()
+    expect(await screen.findByLabelText('National Identification Number (NIN)')).toBeTruthy()
     expect(screen.getByText(ENDED)).toBeTruthy()
-    expect(screen.queryByLabelText('Verification code')).toBeNull()
+    expect(screen.queryByLabelText('Code')).toBeNull()
   })
 
   it('says, where it asks for a sign-out, that signing out ends an enrollment in progress here', async () => {

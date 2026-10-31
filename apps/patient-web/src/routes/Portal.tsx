@@ -44,6 +44,7 @@ import { usePatientPhoto } from './ProfilePhoto'
 import { CoverageCard } from './ProfileCoverage'
 import { HealthInformationCard } from './HealthInformation'
 import { ShareInvitationsCard } from './ShareInvitations'
+import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 
@@ -234,11 +235,21 @@ export function ProfilePage() {
   const completion = completionOf(profile.error ? null : profile.data, { details, health, contacts })
   const shown = profile.data && !profile.error ? profile.data : null
   const deletion = useAccountDeletionServed()
+  // "Verify your NIN" is for doing it: not shown once the profile says it is verified (the card's badge says so), but
+  // kept for the rest of the visit once shown, so a NIN verified here is said in its section, which keeps focus.
+  const [ninOffered, setNinOffered] = useState(false)
+  if (shown && !ninVerifiedOf(shown) && !ninOffered) setNinOffered(true)
+  // "More" holds Delete account: a link to it (/profile#account-deletion) opens it, in the render that begins the visit,
+  // so the card's heading can take focus (useFocusSectionFromHash); a closed <details> hides what is in it.
+  const { hash, key } = useLocation()
+  const [moreOpen, setMoreOpen] = useState(hash === '#account-deletion')
+  const [moreVisit, setMoreVisit] = useState(key)
+  if (moreVisit !== key) { setMoreVisit(key); if (hash === '#account-deletion') setMoreOpen(true) }
 
   return <div className="flex flex-col gap-6">
     <PageHeader titleRef={heading} title="Profile" description="What a hospital sees when you share your records." />
     <PageState what="your profile" loading={profile.loading} error={profile.error} hasData={profile.data !== null}
-      onRetry={() => retryFocus.retry(profile.reload)}>{null}</PageState>
+      onRetry={() => retryFocus.retry(profile.reload)} retryRef={retryFocus.button}>{null}</PageState>
     {shown && <div className="grid items-start gap-6 @3xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
       {/* The card first, as on Home: on a phone it is the top of the page; on a computer it stays in view beside the sections. */}
       <div className="mx-auto flex w-full max-w-[460px] min-w-0 flex-col gap-6 @3xl:sticky @3xl:top-24 @3xl:max-w-none">
@@ -268,7 +279,7 @@ export function ProfilePage() {
           <HealthInformationCard resource={health} fromHid1={imported} contacts={alone => <EmergencyContactsCard alone={alone} />} />
           {imported && <ImportedHealthCard profile={imported} />}
           {/* Once verified, the card's badge says so; the section is only for doing it. */}
-          {!ninVerifiedOf(shown) && <NinVerificationCard profile={shown} onVerified={profile.reload} />}
+          {(ninOffered || !ninVerifiedOf(shown)) && <NinVerificationCard profile={shown} onVerified={profile.reload} />}
         </OpenSectionsContext.Provider>
         {/* This device's settings (moved here from Notifications). Shown only when one of them has something to offer. */}
         <section aria-labelledby="profile-settings" className="flex flex-col gap-3 [&:not(:has([data-setting]))]:hidden">
@@ -279,7 +290,7 @@ export function ProfilePage() {
           <InstallAppCard afterward={heading} />
         </section>
         {/* Delete account, out of the way under More (both backends: main's 0064, Novu's 0096; a 404 shows nothing). */}
-        <details className="group" hidden={deletion === false}>
+        <details className="group" hidden={deletion === false} open={moreOpen} onToggle={event => setMoreOpen(event.currentTarget.open)}>
           <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 self-start rounded-md px-1 text-sm font-medium text-ink-2 hover:text-ink [&::-webkit-details-marker]:hidden">
             More<ChevronDown className="size-4 transition-transform group-open:rotate-180" aria-hidden /></summary>
           <div className="mt-3"><AccountDeletionCard /></div>
@@ -455,7 +466,7 @@ export function RecordsPage() {
     <PageHeader titleRef={heading} title="Records" description={recordsIntro(records.error ? null : data)}
       actions={<Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />
     <PageState what="your records" loading={records.loading} error={records.error} hasData={data !== null}
-      onRetry={() => recordsRetry.retry(records.reload)}>{null}</PageState>
+      onRetry={() => recordsRetry.retry(records.reload)} retryRef={recordsRetry.button}>{null}</PageState>
     {/* hid-1.0's "Search by date, title, or keyword": over the records on this page; nothing is sent. */}
     {ready && <div className="flex flex-wrap items-start justify-between gap-3">
       <div role="search" className="min-w-0 max-w-sm flex-[1_1_16rem]">
@@ -517,8 +528,9 @@ export function AccessPage() {
   const toast = useToast()
   const requests = usePatientResource(api.accessRequests)
   const history = usePatientResource(api.accessHistory)
-  // Sharing (hid-system 0095): offered once the invitations card's read says it is served; hidden before (404).
-  const shareServed = useShareServed()
+  // Sharing (hid-system 0095): offered once its probe says it is served; hidden before (404). Probed here, as on Home:
+  // the invitations card that also learns it is on another tab.
+  const shareServed = useShareProbe().served
   const [working, setWorking] = useState<string | null>(null)
   // The request open in the drawer, and whether its denial reason is showing.
   const [reviewing, setReviewing] = useState<string | null>(null)
@@ -610,7 +622,7 @@ export function AccessPage() {
         title={pendingCount ? `${pendingCount === 1 ? '1 request needs' : `${pendingCount} requests need`} your decision` : 'Nothing waiting for you'}
         hint={pendingCount ? 'Nothing is shared until you approve.' : undefined} />
       <div className="px-5 pb-4 empty:hidden"><PageState what="requests" loading={requests.loading} error={requests.error} hasData={requests.data !== null}
-        onRetry={() => requestsRetry.retry(requests.reload)}>{null}</PageState></div>
+        onRetry={() => requestsRetry.retry(requests.reload)} retryRef={requestsRetry.button}>{null}</PageState></div>
       {requestList && (requestList.length === 0
         ? <p className="m-0 border-t border-line px-5 py-6 text-[13px] text-ink-3">When a facility asks to see your records, you decide here.</p>
         : <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
@@ -620,12 +632,12 @@ export function AccessPage() {
               className={cx('flex w-full cursor-pointer flex-wrap items-center gap-3 border-0 px-4 py-4 text-left font-[inherit] hover:bg-subtle sm:px-5', pending ? 'bg-warn-soft/40' : 'bg-transparent')}>
               <IconChip icon={Building2} tone={pending ? 'warn' : 'neutral'} />
               <span className="min-w-0 flex-[1_1_10rem]">
-                <span className="block text-sm font-semibold break-words text-ink">{item.facilityName}</span>
+                <span className="block text-sm font-semibold break-words text-ink">{item.facilityName}</span>{' '}
                 {/* The status is said once: the Review button while it waits, the badge after. */}
                 <span className="block text-[13px] text-ink-3">{pending ? `Wants to see your records${forHowLong(item.requestedDurationMinutes)} · ` : ''}{timeAgo(item.requestedAt)}</span>
-              </span>
+              </span>{' '}
               {pending ? <span className={buttonClass({ variant: 'primary', size: 'sm', className: 'ml-auto' })}>Review</span>
-                : <Badge tone={statusTone(item.status)} size="sm">{plainCode(item.status)}</Badge>}
+                : <Badge tone={statusTone(item.status)} size="sm">{plainCode(item.status)}</Badge>}{' '}
               <ItemName>the request from {item.facilityName}, {dateTime(item.requestedAt)}</ItemName>
             </button>
           </li> })}
@@ -640,7 +652,7 @@ export function AccessPage() {
           title={activeCount ? `${activeCount === 1 ? '1 facility has' : `${activeCount} facilities have`} access now` : 'No one has access now'}
           hint={activeCount ? undefined : 'Past access stays listed, with when it ended.'} />
         <div className="px-5 pb-4 empty:hidden"><PageState what="who has access" loading={history.loading} error={history.error} hasData={history.data !== null}
-          onRetry={() => historyRetry.retry(history.reload)}>{null}</PageState></div>
+          onRetry={() => historyRetry.retry(history.reload)} retryRef={historyRetry.button}>{null}</PageState></div>
         {history.data && !history.error && (history.data.items.length === 0
           ? <p className="m-0 border-t border-line px-5 py-6 text-[13px] text-ink-3">Facilities you approve or share with appear here, with when their access ends.</p>
           : <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">
@@ -648,7 +660,7 @@ export function AccessPage() {
             <IconChip icon={item.breakGlass ? Siren : Building2} tone={item.breakGlass ? 'danger' : item.status === 'active' ? 'success' : 'neutral'} />
             <div className="min-w-0 flex-1">
               <p className="m-0 text-sm font-semibold [overflow-wrap:anywhere] text-ink">{grantee(item)}</p>
-              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{item.breakGlass ? WORDS.emergencyAccess : plainCode(item.scope)} · until {date(item.expiresAt)}</p>
+              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? plainCode(item.scope)} · until {date(item.expiresAt)}</p>
               {item.breakGlass && <p className="m-0 mt-2 text-[13px] text-ink-2">Used in an emergency. It ends by itself, and you can’t end it here.</p>}
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
@@ -693,10 +705,10 @@ export function AccessPage() {
               {key === 'other' ? 'Other…' : QUICK_REASONS[key]}</label>)}
           </fieldset>
           {quick === 'other' && <Field label="Your reason" htmlFor={`deny-reason-${open.accessRequestId}`} errorId={`deny-reason-problem-${open.accessRequestId}`}
-            error={reasonProblem ? 'Say why in a few words.' : undefined}>
+            error={reasonProblem ? 'Say why in a few words.' : undefined} hintId={`deny-reason-hint-${open.accessRequestId}`} hint="At least 3 characters.">
             <TextareaR id={`deny-reason-${open.accessRequestId}`} autoFocus rows={3} maxLength={500} value={reason}
               onChange={event => { setReason(event.target.value); setReasonProblem(false) }}
-              aria-invalid={reasonProblem || undefined} aria-describedby={reasonProblem ? `deny-reason-problem-${open.accessRequestId}` : undefined} />
+              aria-invalid={reasonProblem || undefined} aria-describedby={reasonProblem ? `deny-reason-problem-${open.accessRequestId}` : `deny-reason-hint-${open.accessRequestId}`} />
           </Field>}
         </form>}
       </div>}
@@ -716,11 +728,13 @@ export function AccessPage() {
           {sharedAs(ending) && <div className="col-span-2"><dt className="text-ink-3">How</dt><dd className="m-0 mt-0.5 font-medium text-ink">{sharedAs(ending)}</dd></div>}
         </dl>
         <form id="revoke-form" className="flex flex-col gap-2" onSubmit={event => { event.preventDefault(); void revoke(ending.consentGrantId) }}>
+          {/* data-autofocus: the drawer gives it focus as it opens (React's autoFocus would be taken back by the drawer). */}
           <Field label="Why are you ending it?" htmlFor={`revoke-reason-${ending.consentGrantId}`} hintId={`revoke-reason-hint-${ending.consentGrantId}`} hint="At least 3 characters.">
-            <TextareaR id={`revoke-reason-${ending.consentGrantId}`} autoFocus required minLength={3} maxLength={500} rows={3} value={revokeReason} onChange={event => setRevokeReason(event.target.value)}
-              aria-describedby={`revoke-reason-hint-${ending.consentGrantId}`} />
+            <TextareaR id={`revoke-reason-${ending.consentGrantId}`} data-autofocus required minLength={3} maxLength={500} rows={3} value={revokeReason} onChange={event => setRevokeReason(event.target.value)}
+              aria-describedby={`revoke-reason-hint-${ending.consentGrantId} revoke-pin-${ending.consentGrantId}`} />
           </Field>
-          <Hint>If they have your Access PIN, change it in your profile too.</Hint>
+          {/* Ending access leaves the Access PIN as it is: read with the field, so it is heard before the reason is sent. */}
+          <Hint id={`revoke-pin-${ending.consentGrantId}`}>If they have your Access PIN, they can use it to get access again. Change it in your profile too.</Hint>
         </form>
       </div>}
     </Drawer>
@@ -765,7 +779,7 @@ export function NotificationsPage() {
   return <div className="flex flex-col gap-6">
     <PageHeader titleRef={heading} title="Notifications" description={items ? (unreadCount ? `${unreadCount} unread` : 'You’re all caught up.') : undefined} />
     <PageState what="your notifications" loading={notifications.loading} error={notifications.error} hasData={notifications.data !== null}
-      onRetry={() => noticesRetry.retry(notifications.reload)}>{null}</PageState>
+      onRetry={() => noticesRetry.retry(notifications.reload)} retryRef={noticesRetry.button}>{null}</PageState>
     {items && (items.length === 0
       ? <EmptyState icon={Bell} title="No notifications" description="You'll hear here when a facility asks for, opens or is given access to your records." />
       : <Card aria-busy={notifications.loading || undefined}><ul className="m-0 list-none divide-y divide-line p-0">

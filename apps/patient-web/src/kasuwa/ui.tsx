@@ -90,7 +90,7 @@ export function Button({ variant = 'secondary', size = 'md', icon: IconL, iconRi
   </>
   if (to !== undefined) return <Link to={to} className={classes} {...rest}>{content}</Link>
   if (href !== undefined) return <a href={href} target="_blank" rel="noopener noreferrer" className={classes} {...rest}>{content}</a>
-  return <button type={type} {...rest} disabled={disabled || loading} aria-busy={loading || undefined} className={classes}>{content}</button>
+  return <button type={type} {...rest} disabled={disabled || loading} aria-busy={loading || rest['aria-busy'] || undefined} className={classes}>{content}</button>
 }
 
 export function Card({ className, children, as: Tag = 'section', ...rest }: { className?: string; children?: ReactNode; as?: 'section' | 'div' | 'article' | 'li' } & HTMLAttributes<HTMLElement>) {

@@ -5,6 +5,7 @@ import type { FacilityStaff } from '../../../../staff/api'
 import { HrCredentials } from '../../../../ehr-blue/departments/hr/HrCredentials'
 import { SAMPLE_NOTICE } from '../../../../ehr-blue/departments/parts/SampleBanner'
 import { DEMO_HOSPITAL_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { dateText } from '../../../../ehr-blue/departments/parts/format'
 
 /**
  * HR & Credentials, its sample half: the design's credential records (create, edit while recorded, the credential review),
@@ -35,7 +36,7 @@ const staff: FacilityStaff = {
   invitations: [],
 }
 
-const SEEDED_AT = new Date('2026-10-26T11:41:16.706Z').toLocaleString()
+const SEEDED_AT = dateText('2026-10-26T11:41:16.706Z')
 
 /** The sample list: the list card under the sample notice. */
 const sampleList = () => screen.getByRole('region', { name: 'Search sample records' })

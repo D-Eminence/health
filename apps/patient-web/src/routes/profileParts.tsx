@@ -38,7 +38,7 @@ export function LoadProblem({ what, error, onRetry, buttonRef, name }: {
 }) {
   return <Alert intent="error" size="sm" title={`Couldn’t load ${what}`}
     action={<button ref={buttonRef} type="button" onClick={onRetry} className={buttonClass({ size: 'sm' })}>
-      <RotateCcw className="size-3.5" aria-hidden />Try again{name}</button>}>{error}</Alert>
+      <RotateCcw className="size-3.5" aria-hidden />Try again{name ? <> {name}</> : null}</button>}>{error}</Alert>
 }
 
 /** Buttons in a row that wraps on a phone. */

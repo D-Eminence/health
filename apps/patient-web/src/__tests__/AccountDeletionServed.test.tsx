@@ -5,7 +5,7 @@ import { AccountDeletionCard } from '../routes/AccountSafety'
 import { ProfilePage } from '../routes/Portal'
 import { NOTIFICATION_SUBJECTS, notificationTitle } from '../routes/notificationTitles'
 import { accountDeletionServed, forgetAccountDeletionServed } from '../accountDeletionServed'
-import { json, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
+import { json, press, problem, profile, renderPortal, shownText, type Handler, type Sent } from './portalHarness'
 
 const backend = vi.hoisted(() => ({ novu: true }))
 vi.mock('../backendContract', async importOriginal => ({
@@ -73,25 +73,26 @@ describe('account deletion on Novu', () => {
     })
 
     // The status is read before its words show: wait for them, not the heading, which can show first.
-    expect(await screen.findByText('Deleting your account signs you out everywhere and withdraws provider access and your Access PIN, sharing invitations and emergency contacts; your Health ID and medical records are kept, and after 14 days it can’t be undone.')).toBeTruthy()
+    expect(await screen.findByText('This signs you out everywhere and removes your Access PIN, share invites, emergency contacts and the access you gave. Your Health ID and medical records are kept. You have 14 days to change your mind; after that, it can’t be undone.')).toBeTruthy()
     const title = screen.getByRole('heading', { name: 'Delete account' })
     expect(accountDeletionServed()).toBe(true)
-    // The profile's last section, opened by the link to it; what it does in one short sentence.
-    expect(title.closest('.patient-card')?.id).toBe('account-deletion')
-    expect(screen.getByText('You must have signed in within the last 10 minutes.')).toBeTruthy()
+    // The profile's last section, under More, which the link to it opens; what it needs first, in one short sentence.
+    expect(title.closest('section')?.id).toBe('account-deletion')
+    expect(title.closest('details')?.open).toBe(true)
+    expect(screen.getByText('For your safety, sign out, sign in again, then come back within 10 minutes.')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('checkbox', { name: /I understand/ }))
     await press(screen.getByRole('button', { name: 'Continue to delete account' }))
     const phrase = await screen.findByRole('textbox', { name: /Type DELETE MY ACCOUNT/ })
-    expect(screen.getByText('This confirmation expires at 28 Oct 2026, 11:10 WAT.')).toBeTruthy()
+    expect(screen.getByText('Finish before 28 Oct 2026, 11:10 WAT.')).toBeTruthy()
     fireEvent.change(phrase, { target: { value: ' delete my account ' } })
     await press(screen.getByRole('button', { name: 'Delete my account' }))
 
     expect(await screen.findByText('11 Nov 2026, 11:00 WAT')).toBeTruthy()
-    expect(screen.getByText('Until then you can cancel. After that it can’t be undone. Your Health ID and medical records are kept.')).toBeTruthy()
+    expect(screen.getByText('11 Nov 2026, 11:00 WAT').parentElement?.textContent).toBe('Your account will be deleted on 11 Nov 2026, 11:00 WAT. You can cancel until then.')
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Delete account' })))
     await press(screen.getByRole('button', { name: 'Cancel deletion' }))
-    expect(await screen.findByText('Account deletion cancelled. Your account stays open.')).toBeTruthy()
+    expect(await screen.findByText('Deletion cancelled. Your account stays open.')).toBeTruthy()
 
     // No body on the request: it needs only a recent sign-in (contract §3.1).
     expect(sent.filter(request => request.path.includes('account-deletion') && request.method === 'POST')).toEqual([
@@ -107,8 +108,8 @@ describe('account deletion on Novu', () => {
     fireEvent.click(await screen.findByRole('checkbox', { name: /I understand/ }))
     const proceed = screen.getByRole('button', { name: 'Continue to delete account' })
     await press(proceed)
-    expect((await screen.findByRole('alert')).textContent)
-      .toBe('For your security, account deletion is not available for 24 hours after you recover your account.')
+    expect(shownText(await screen.findByRole('alert')))
+      .toBe('For your safety, you can’t delete your account for 24 hours after you recover it.')
     expect(screen.queryByRole('textbox', { name: /Type DELETE MY ACCOUNT/ })).toBeNull()
     await waitFor(() => expect(document.activeElement).toBe(proceed))
   })
@@ -121,7 +122,7 @@ describe('account deletion on Novu', () => {
     await press(screen.getByRole('button', { name: 'Continue to delete account' }))
     fireEvent.change(await screen.findByRole('textbox', { name: /Type DELETE MY ACCOUNT/ }), { target: { value: 'DELETE MY ACCOUNT' } })
     await press(screen.getByRole('button', { name: 'Delete my account' }))
-    expect((await screen.findByRole('alert')).textContent).toContain('sign in again, and return here within 10 minutes')
+    expect((await screen.findByRole('alert')).textContent).toContain('sign out, sign in again, then come back within 10 minutes')
     expect(screen.queryByRole('textbox', { name: /Type DELETE MY ACCOUNT/ })).toBeNull()
   })
 
@@ -132,7 +133,7 @@ describe('account deletion on Novu', () => {
       code: 'UPSTREAM_UNAVAILABLE', detail: 'This information is unavailable right now.', retryable: false }, 503) : notFound(path))
     expect(await screen.findByRole('heading', { name: 'Delete account' })).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Try again' }))
-    expect(await screen.findByText('Deleting your account is not available here right now.')).toBeTruthy()
+    expect(await screen.findByText('You can’t delete your account here right now.')).toBeTruthy()
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Delete account' })))
     expect(screen.queryByRole('button', { name: 'Continue to delete account' })).toBeNull()
   })
@@ -143,11 +144,11 @@ describe('account deletion on hid-system main', () => {
     backend.novu = false
     const read = held()
     const first = renderPortal(<AccountDeletionCard />, () => read.promise)
-    expect(await screen.findByText('Checking your account…')).toBeTruthy()
+    expect((await screen.findByText('Checking your account…')).closest('[role="status"]')).not.toBeNull()
     await act(async () => { read.release(json(noRequest)) })
     expect(await screen.findByRole('button', { name: 'Continue to delete account' })).toBeTruthy()
-    expect(screen.getByText('Deleting your account signs you out everywhere and withdraws provider access and your Access PIN; your Health ID and medical records are kept, and after 14 days it can’t be undone.')).toBeTruthy()
-    expect(screen.queryByText(/sharing invitations/)).toBeNull()
+    expect(screen.getByText('This signs you out everywhere and removes your Access PIN and the access you gave. Your Health ID and medical records are kept. You have 14 days to change your mind; after that, it can’t be undone.')).toBeTruthy()
+    expect(screen.queryByText(/share invites/)).toBeNull()
     first.view.unmount()
 
     renderPortal(<AccountDeletionCard />, path => notFound(path))
@@ -161,12 +162,13 @@ describe('account deletion inbox notices', () => {
   const notice = (code: string, metadata: Record<string, unknown>): PatientNotification => ({ id: 'n-1',
     notificationCode: code, resourceType: 'account-deletion', resourceId: 'req-1', metadata, readAt: null, createdAt: '2026-10-28T10:00:00Z' })
 
-  it('titles each notice in the contract\'s words and files them under Account', () => {
+  // The redesign says them in the portal's plain words (copy.ts); each still names what happened and where to look.
+  it('titles each notice in plain words and files them under Account', () => {
     expect(notificationTitle(notice('ACCOUNT_DELETION_SCHEDULED', { scheduledFor: '2026-11-11T10:00:00Z' })))
-      .toBe('Your Health ID account is scheduled for deletion')
-    expect(notificationTitle(notice('ACCOUNT_DELETION_CANCELLED', {}))).toBe('Your Health ID account deletion was cancelled')
+      .toBe('Your Health ID account is set to be deleted')
+    expect(notificationTitle(notice('ACCOUNT_DELETION_CANCELLED', {}))).toBe('You cancelled deleting your Health ID account')
     expect(notificationTitle(notice('ACCOUNT_DELETION_BLOCKED', { reasonCode: 'LEGAL_HOLD' })))
-      .toBe('Your Health ID account could not be deleted: see your profile')
+      .toBe('Your Health ID account couldn’t be deleted. See your profile')
     expect(NOTIFICATION_SUBJECTS['account-deletion']).toBe('Account')
   })
 })

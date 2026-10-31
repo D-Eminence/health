@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import {
@@ -507,6 +507,13 @@ export function AccountDeletionCard() {
   const proceedButton = useRef<HTMLButtonElement>(null)
   const focusAfter = useActionFocus()
   const retryFocus = useRetryFocus(heading)
+  // On the profile it is out of the way, under "More": a deletion that is scheduled, or a status that could not be read,
+  // is not left folded away there, so the patient sees it.
+  const mustShow = Boolean(status.error) || (status.data?.request?.state === 'pending' && Boolean(status.data.request.scheduledFor))
+  useLayoutEffect(() => {
+    const more = heading.current?.closest('details')
+    if (mustShow && more && !more.open) more.open = true
+  }, [mustShow])
 
   const request = async () => {
     if (busy || !acknowledged) return

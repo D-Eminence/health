@@ -34,16 +34,14 @@ vi.mock('../../../ehr-blue/clinical/sample/SampleWorkspace', () => ({
 }))
 
 const EMERGENCY_PERMISSIONS = ['identity.patient.read', 'identity.consent.write', 'identity.break-glass.write', 'ehr.encounter.read', 'ehr.note.read']
-const ACKNOWLEDGE = 'I acknowledge patient notification, audit and 30-minute expiry'
+const ACKNOWLEDGE = 'I understand the patient is told, every view is reviewed, and access ends after 30 minutes.'
 const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health IDs never use 0, 1, I or O.'
-const REASON = 'Unconscious after a road traffic collision'
-const JUSTIFICATION = 'Needs allergy and medication history before emergency treatment'
-const BEFORE = 'Use emergency access only when the patient cannot consent and care cannot wait. The action is time limited and audited.'
-const AFTER = ' It opens a read-only summary from this facility: completed encounters and signed notes, and the diagnoses, '
-  + 'prescriptions, lab requests and documents your role may read. It shows no vital signs and opens no files.'
-const CONTACTS_TOLD = ' While emergency-contact alerts are on, each verified emergency contact the patient has chosen to notify '
-  + 'is told that the patient’s record was opened for emergency care, with your name, this facility and the time, but never '
-  + 'the reason you type or any medical details.'
+const REASON = 'Unconscious after a road traffic collision; needs allergy and medication history before treatment'
+const REASON_TOO_SHORT = 'Say why in at least 8 characters.'
+const WHEN = 'Only when the patient can’t consent and care can’t wait'
+const BEFORE = 'Emergency access lets you see the emergency summary without the patient’s approval. It ends by itself and every view is reviewed.'
+const CONTACTS_TOLD = 'The patient’s chosen emergency contacts are told your name, this facility and the time. They never see your reason or any medical details.'
+const FAILED_TITLE = 'Couldn’t open emergency access'
 const emergencyLookup = { ...allowedLookup, authorization: { ...allowedLookup.authorization, breakGlass: true } }
 
 beforeEach(() => {
@@ -65,25 +63,22 @@ function open(rest = '') {
   return renderPage(<EmergencyWorkspace />, 'emergency', rest)
 }
 
-const card = () => screen.getByRole('heading', { level: 2, name: 'Emergency break-glass access' }).closest<HTMLElement>('section')!
+/** The emergency access form, one column under the page heading. */
+const card = () => hidField().closest<HTMLElement>('form')!
 const hidField = () => screen.getByRole('textbox', { name: labelled('Health ID') }) as HTMLInputElement
-const reasonField = () => screen.getByRole('textbox', { name: labelled('Emergency reason') }) as HTMLInputElement
-const justificationField = () => screen.getByRole('textbox', { name: labelled('Clinical justification') }) as HTMLTextAreaElement
-const ackBox = () => screen.getByRole('checkbox', { name: labelled(ACKNOWLEDGE) }) as HTMLInputElement
-const submitButton = () => screen.getByRole('button', { name: 'Record emergency access' }) as HTMLButtonElement
+const reasonField = () => screen.getByRole('textbox', { name: labelled('Why do you need emergency access?') }) as HTMLTextAreaElement
+const ackBox = () => screen.getByRole('checkbox', { name: ACKNOWLEDGE }) as HTMLInputElement
+const submitButton = () => screen.getByRole('button', { name: /^(Open emergency access|Opening…)$/ }) as HTMLButtonElement
 
 /** The text of the error tied to a control by aria-describedby. */
 function errorOf(control: HTMLElement) {
-  return (control.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
-    .map(id => document.getElementById(id))
-    .filter(element => element?.className.includes('error'))
-    .map(element => element!.textContent).join(' ')
+  return (control.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(id => id.endsWith('-error'))
+    .map(id => document.getElementById(id)?.textContent ?? '').join(' ')
 }
 
-function fill({ hid = 'hid-zdemaaa2', reason = REASON, justification = JUSTIFICATION, ack = true } = {}) {
+function fill({ hid = 'hid-zdemaaa2', reason = REASON, ack = true } = {}) {
   fireEvent.change(hidField(), { target: { value: hid } })
   fireEvent.change(reasonField(), { target: { value: reason } })
-  fireEvent.change(justificationField(), { target: { value: justification } })
   if (ack) fireEvent.click(ackBox())
 }
 
@@ -96,21 +91,22 @@ describe('the Emergency page', () => {
     expect(emergencyStatus).toBe('partial')
   })
 
-  it('shows the heading, the live break-glass card with the design’s form, then the sample board', () => {
+  it('shows the heading, the live emergency access form, then the sample board', () => {
     staff.facilityId = DEMO_HOSPITAL_ID
     open()
-    expect(screen.getByRole('heading', { level: 1, name: 'Emergency' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency access' })).toBeTruthy()
     expect(within(card()).getByRole('textbox', { name: labelled('Health ID') })).toBeTruthy()
     expect(hidField().value).toBe('HID-')
     expect(card().textContent).toContain(HID_FORMAT)
-    expect(reasonField().tagName).toBe('INPUT')
-    expect(justificationField().tagName).toBe('TEXTAREA')
+    // The design asked for a reason and a justification; the request carries one reason, so the form asks once.
+    expect(reasonField().tagName).toBe('TEXTAREA')
+    expect(screen.queryByRole('textbox', { name: /justification/i })).toBeNull()
     expect(ackBox().checked).toBe(false)
     expect(submitButton().type).toBe('submit')
     // The design says 15 minutes; today's grant runs 30, and the acknowledgement names the real one.
-    expect(document.body.textContent).not.toMatch(/15-minute/)
+    expect(document.body.textContent).not.toMatch(/15[- ]minute/)
     expect(document.body.textContent).toContain(ACKNOWLEDGE)
-    // The sample board sits below the live card.
+    // The sample board sits below the live form.
     const board = screen.getByTestId('sample-list')
     expect(board.textContent).toBe('emergency')
     expect(card().compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -127,12 +123,14 @@ describe('the Emergency page', () => {
     }
   })
 
-  it('opens the sample board’s create page from Create record', () => {
+  it('opens the sample board’s create page from New board entry', () => {
     staff.facilityId = DEMO_HOSPITAL_ID
     open()
-    fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
+    const create = screen.getByRole('link', { name: 'New board entry' })
+    expect(create.getAttribute('href')).toBe('/provider/emergency/new')
+    fireEvent.click(create)
     expect(screen.getByTestId('sample-create').textContent).toBe('emergency')
-    expect(screen.queryByRole('heading', { name: 'Emergency break-glass access' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: labelled('Health ID') })).toBeNull()
   })
 
   it('routes new and a record id to the sample board, and summary to the live summary', () => {
@@ -148,10 +146,10 @@ describe('the Emergency page', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Emergency summary' })).toBeTruthy()
   })
 
-  it('at a real facility, shows the heading without Create record and the live break-glass card, but no sample board', () => {
+  it('at a real facility, shows the heading without New board entry and the live form, but no sample board', () => {
     open()
-    expect(screen.getByRole('heading', { level: 1, name: 'Emergency' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency access' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'New board entry' })).toBeNull()
     expect(within(card()).getByRole('textbox', { name: labelled('Health ID') })).toBeTruthy()
     expect(submitButton().type).toBe('submit')
     expect(screen.queryByTestId('sample-list')).toBeNull()
@@ -165,7 +163,7 @@ describe('the Emergency page', () => {
       expect(screen.getByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
       expect(screen.getByText('This record doesn’t exist, or it belongs to another facility.')).toBeTruthy()
       expect(screen.getByRole('button', { name: 'Back to list' })).toBeTruthy()
-      expect(screen.queryByRole('heading', { name: 'Emergency break-glass access' })).toBeNull()
+      expect(screen.queryByRole('textbox', { name: labelled('Health ID') })).toBeNull()
       expect(document.body.textContent).not.toContain(SAMPLE_NOTICE)
       view.unmount()
     }
@@ -178,42 +176,44 @@ describe('the Emergency page', () => {
   it('at a real facility, takes Back to list on Record not found to the live Emergency page', () => {
     open('/new')
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
-    expect(screen.getByRole('heading', { level: 1, name: 'Emergency' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency access' })).toBeTruthy()
     expect(card()).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'New board entry' })).toBeNull()
     for (const part of [SampleList, SampleCreate, SampleDetail]) expect(vi.mocked(part)).not.toHaveBeenCalled()
   })
 
-  it('on main, keeps today’s emergency notice word for word', () => {
+  it('on main, says when to use emergency access and what it does, and nothing about emergency contacts', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'main-v1')
     open()
-    expect(card().querySelector('.hid-ehr-clinical-emergency-notice')!.textContent).toBe(BEFORE + AFTER)
+    expect(within(card()).getByText(WHEN)).toBeTruthy()
+    expect(card().textContent).toContain(BEFORE)
+    expect(card().textContent).not.toContain(CONTACTS_TOLD)
   })
 
   it('on Novu, says verified emergency contacts are told, with the staff member’s name, and never the reason', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     open()
-    expect(card().querySelector('.hid-ehr-clinical-emergency-notice')!.textContent).toBe(BEFORE + CONTACTS_TOLD + AFTER)
+    expect(within(card()).getByText(WHEN)).toBeTruthy()
+    expect(card().textContent).toContain(`${BEFORE} ${CONTACTS_TOLD}`)
   })
 
   it('shows the open emergency patient, with the way back to their summary', async () => {
     staff.activePatient = activePatient('emergency')
     open()
-    const current = screen.getByRole('heading', { level: 2, name: 'Current emergency summary' }).closest<HTMLElement>('section')!
-    expect(within(current).getByText(PATIENT_NAME)).toBeTruthy()
-    expect(within(current).getByText('Emergency access')).toBeTruthy()
-    const link = within(current).getByRole('link', { name: 'Open read-only emergency summary →' })
+    expect(screen.getByText(`${PATIENT_NAME} is open with emergency access`)).toBeTruthy()
+    const link = screen.getByRole('link', { name: 'Open summary' })
     // Straight to the summary, as today's link goes.
     expect(link.getAttribute('href')).toBe('/provider/emergency/summary')
     fireEvent.click(link)
     expect(await screen.findByRole('heading', { level: 1, name: 'Emergency summary' })).toBeTruthy()
   })
 
-  it('shows no current emergency card for a patient open in direct care', async () => {
+  it('shows no current emergency notice for a patient open in direct care', async () => {
     staff.activePatient = activePatient('direct-care')
     api.consentStatus.mockResolvedValue({ writeAllowed: true })
     open()
-    expect(screen.queryByRole('heading', { name: 'Current emergency summary' })).toBeNull()
+    expect(screen.queryByText(/is open with emergency access/)).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Open summary' })).toBeNull()
     // The list reads nothing about the open patient.
     await act(async () => {})
     expect(api.consentStatus).not.toHaveBeenCalled()
@@ -232,10 +232,9 @@ describe('the break-glass form checks what it sends', () => {
     open()
     await record()
     expect(errorOf(hidField())).toBe('Enter the patient’s Health ID.')
-    expect(errorOf(reasonField())).toBe('Document the emergency reason in at least 8 characters.')
-    expect(errorOf(justificationField())).toBe('Complete this field.')
-    expect(errorOf(ackBox())).toBe('Complete this field.')
-    for (const control of [hidField(), reasonField(), justificationField(), ackBox()]) expect(control.getAttribute('aria-invalid')).toBe('true')
+    expect(errorOf(reasonField())).toBe(REASON_TOO_SHORT)
+    expect(errorOf(ackBox())).toBe('Tick the box to go on.')
+    for (const control of [hidField(), reasonField(), ackBox()]) expect(control.getAttribute('aria-invalid')).toBe('true')
     expect(document.activeElement).toBe(hidField())
     expect(api.breakGlass).not.toHaveBeenCalled()
     expect(session.staffSessionGeneration).not.toHaveBeenCalled()
@@ -246,9 +245,9 @@ describe('the break-glass form checks what it sends', () => {
     fill({ hid: 'HID-AB', reason: 'Fall' })
     await record()
     expect(errorOf(hidField())).toBe('Check the Health ID: it starts with HID-, then 6 to 32 letters and digits, and never uses 0, 1, I or O.')
-    expect(errorOf(reasonField())).toBe('Document the emergency reason in at least 8 characters.')
-    expect(errorOf(justificationField())).toBe('')
-    expect(justificationField().getAttribute('aria-invalid')).toBeNull()
+    expect(errorOf(reasonField())).toBe(REASON_TOO_SHORT)
+    expect(errorOf(ackBox())).toBe('')
+    expect(ackBox().getAttribute('aria-invalid')).toBeNull()
     expect(api.breakGlass).not.toHaveBeenCalled()
   })
 
@@ -256,7 +255,7 @@ describe('the break-glass form checks what it sends', () => {
     open()
     fill({ reason: '           ' })
     await record()
-    expect(errorOf(reasonField())).toBe('Document the emergency reason in at least 8 characters.')
+    expect(errorOf(reasonField())).toBe(REASON_TOO_SHORT)
     expect(document.activeElement).toBe(reasonField())
   })
 
@@ -265,7 +264,7 @@ describe('the break-glass form checks what it sends', () => {
     fill({ reason: 'Short' })
     reasonField().focus()
     await act(async () => { fireEvent.submit(reasonField().form!) })
-    expect(screen.getByRole('alert').textContent).toBe('Document the emergency reason in at least 8 characters.')
+    expect(screen.getByRole('alert').textContent).toBe(REASON_TOO_SHORT)
     expect(document.activeElement).toBe(reasonField())
     expect(api.breakGlass).not.toHaveBeenCalled()
   })
@@ -273,25 +272,25 @@ describe('the break-glass form checks what it sends', () => {
   it('clears a field’s problem as it changes', async () => {
     open()
     await record()
-    fireEvent.change(justificationField(), { target: { value: JUSTIFICATION } })
-    expect(errorOf(justificationField())).toBe('')
-    expect(justificationField().getAttribute('aria-invalid')).toBeNull()
+    fireEvent.change(reasonField(), { target: { value: REASON } })
+    expect(errorOf(reasonField())).toBe('')
+    expect(reasonField().getAttribute('aria-invalid')).toBeNull()
     expect(errorOf(hidField())).toBe('Enter the patient’s Health ID.')
   })
 
-  it('limits the reason and justification so both fit today’s 500-character reason', () => {
+  it('limits the reason to today’s 500-character reason', () => {
     open()
-    expect(reasonField().maxLength + justificationField().maxLength + '\nClinical justification: '.length).toBeLessThanOrEqual(500)
+    expect(reasonField().maxLength).toBe(500)
   })
 })
 
 describe('recording emergency access', () => {
   it('sends today’s break-glass request, waits for the session, opens the patient for emergency care and shows the summary', async () => {
     open()
-    fill()
+    fill({ reason: `  ${REASON}  ` })
     await record()
     expect(await screen.findByRole('heading', { level: 1, name: 'Emergency summary' })).toBeTruthy()
-    expect(api.breakGlass).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, `${REASON}\nClinical justification: ${JUSTIFICATION}`)
+    expect(api.breakGlass).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, REASON)
     expect(session.untilStaffSessionReady).toHaveBeenCalledWith(7)
     expect(api.lookupPatient).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'emergency')
     expect(staff.setActivePatient).toHaveBeenCalledWith({ hid: PATIENT_HID, lookup: emergencyLookup, purpose: 'emergency' })
@@ -299,7 +298,7 @@ describe('recording emergency access', () => {
       .map(fn => fn.mock.invocationCallOrder[0]!)
     expect([...order].sort((a, b) => a - b)).toEqual(order)
     // The summary is the patient's, read under the emergency purpose.
-    expect(screen.getByRole('region', { name: 'Patient' }).textContent).toContain(PATIENT_NAME)
+    expect(screen.getByRole('region', { name: `Patient: ${PATIENT_NAME}` })).toBeTruthy()
   })
 
   it('sends from the form itself, as Enter in a field does', async () => {
@@ -316,7 +315,7 @@ describe('recording emergency access', () => {
     fill()
     await record()
     await waitFor(() => expect(api.lookupPatient).toHaveBeenCalled())
-    expect(screen.getByRole('heading', { level: 1, name: 'Emergency' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency access' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Emergency summary' })).toBeNull()
   })
 
@@ -325,7 +324,9 @@ describe('recording emergency access', () => {
     open()
     fill()
     await record()
-    expect((await screen.findByRole('alert')).textContent).toBe('The backend has not granted access to this patient. Request approval, verify their PIN, or use documented emergency access when justified.')
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain(FAILED_TITLE)
+    expect(alert.textContent).toContain('You don’t have access to this patient yet. Ask the patient, use their Access PIN, or use emergency access if it’s justified.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
   })
 
@@ -334,7 +335,7 @@ describe('recording emergency access', () => {
     open()
     fill()
     await record()
-    expect((await screen.findByRole('alert')).textContent).toBe('Patient access is not authorized')
+    expect((await screen.findByRole('alert')).textContent).toContain('Patient access is not authorized')
     expect(staff.setActivePatient).not.toHaveBeenCalled()
   })
 
@@ -343,18 +344,18 @@ describe('recording emergency access', () => {
     open()
     fill()
     await record()
-    expect((await screen.findByRole('alert')).textContent).toBe('Stopped because the session it belonged to ended.')
+    expect((await screen.findByRole('alert')).textContent).toContain('Stopped because the session it belonged to ended.')
     expect(api.lookupPatient).not.toHaveBeenCalled()
     expect(staff.setActivePatient).not.toHaveBeenCalled()
   })
 
   it.each([
     ['423 BREAK_GLASS_DISABLED', new HidApiError(423, 'Emergency access is currently disabled by the platform administrator', { code: 'BREAK_GLASS_DISABLED' }),
-      'Emergency access is switched off for Health ID right now, so the record was not opened. Ask your Health ID administrator.'],
+      'Emergency access is switched off right now, so the record was not opened. Ask Health ID support.'],
     ['429 EMERGENCY_PROBATION_LIMITED', new HidApiError(429, 'Too many emergency activations', { code: 'EMERGENCY_PROBATION_LIMITED' }),
       `${FACILITY_NAME} is new to Health ID: emergency access is limited to 5 times a day in its first 30 days. Contact Health ID support to lift the limit.`],
     ['400 INVALID_CONSENT_COMMAND', new HidApiError(400, 'The consent command failed integrity validation', { code: 'INVALID_CONSENT_COMMAND' }),
-      'Emergency access may not be enabled for this deployment: Identity refused it (INVALID_CONSENT_COMMAND). Ask your Health ID administrator to enable it.'],
+      'Emergency access isn’t set up for your facility, so the record was not opened. Contact support.'],
     ['any other refusal, as it is', new HidApiError(403, 'Break-glass access is not authorized', { code: 'CONSENT_COMMAND_DENIED' }),
       'Break-glass access is not authorized'],
   ])('says what a %s means, and looks nothing up', async (_name, refusal, said) => {
@@ -362,8 +363,10 @@ describe('recording emergency access', () => {
     open()
     fill()
     await record()
-    expect((await screen.findByRole('alert')).textContent).toBe(said)
-    expect(screen.getByRole('alert').closest('form')).toBe(submitButton().form)
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain(FAILED_TITLE)
+    expect(alert.textContent).toContain(said)
+    expect(alert.closest('form')).toBe(submitButton().form)
     expect(session.untilStaffSessionReady).not.toHaveBeenCalled()
     expect(api.lookupPatient).not.toHaveBeenCalled()
     expect(staff.setActivePatient).not.toHaveBeenCalled()
@@ -376,7 +379,7 @@ describe('recording emergency access', () => {
     open()
     fill()
     await record()
-    expect((await screen.findByRole('alert')).textContent).toBe('The access command failed.')
+    expect((await screen.findByRole('alert')).textContent).toContain('Something went wrong. Please try again.')
   })
 
   it('keeps the button focusable and busy while it runs, and sends once', async () => {
@@ -387,7 +390,7 @@ describe('recording emergency access', () => {
     const button = submitButton()
     button.focus()
     await record()
-    expect(button.textContent).toBe('Working…')
+    expect(button.textContent).toBe('Opening…')
     expect(button.getAttribute('aria-disabled')).toBe('true')
     expect(button.disabled).toBe(false)
     expect(document.activeElement).toBe(button)

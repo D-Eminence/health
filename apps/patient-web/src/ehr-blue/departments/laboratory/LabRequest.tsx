@@ -13,12 +13,13 @@ import { commerce, type CatalogueItem, type ListPage, type PaymentSettings, type
 import { BillBadge } from '../commerce/BillBadge'
 import { useCommerceRead } from '../commerce/useCommerceRead'
 import { DeptEmbedded } from '../parts/DeptEmbedded'
+import { DeptNotice } from '../parts/DeptNotice'
 import { RoutedWorkLines } from '../parts/routedWork'
 import { PaidLine, PaymentStep } from '../pharmacy/pointOfCare'
 import { billOf, billOwing, outsideOf, paysFirst } from '../pharmacy/pocFields'
 import { useLabRecord } from './labRecord'
 import { Labels, usePrint } from './labPrint'
-import { CheckStep, CollectStep, ResultForm, ResultValue, TestingStep, type LabSubject } from './labSteps'
+import { CheckStep, CollectStep, ResultForm, ResultHistory, ResultValue, TestingStep, type LabSubject } from './labSteps'
 import { LAB_RESULTS_HIDDEN, stampText } from './labText'
 import {
   ageSex, factsOfItem, factsOfRecord, personOf, requestOf, stageFrom, STAGE_LABEL, STAGES, waitedText, walkInOf, type LabPerson, type LabStage,
@@ -140,7 +141,8 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
       .filter(Boolean).join(' · ') || undefined}>
     {personBanner(person)}
     <StageTrack stage={stage} />
-    {said && route ? <Alert intent="error" id={`lab-${item.id}-said`}>{said}</Alert> : null}
+    {/* Focusable, so focus can be put on what a refused ending said once its form is gone. */}
+    {said && route ? <DeptNotice id={`lab-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{said}</DeptNotice> : null}
     {route ? <DeptEmbedded className="hid-ehr-dept-laboratory-routed"><RoutedWorkLines route={route} /></DeptEmbedded> : null}
     {closed ? <Alert intent="warning">This order from another facility has ended, so nothing more can be recorded on it. You can still read what was recorded.</Alert> : null}
     <div role="status" aria-live="polite">{notice ? <p className="m-0 inline-flex items-center gap-2 text-[15px] font-medium text-success-ink">
@@ -162,14 +164,15 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         {stage === 'collect' && !waitsForPayment && !(accessionId && !accession) ? <CollectStep {...step} item={item} accession={accession}
           defaultType={sampleGuess} defaultReason={defaultReason} onCollected={value => setMade(value)} /> : null}
         {stage === 'collect' && waitsForPayment ? <p className="m-0 text-[15px] text-ink-2">Take payment above, then collect the sample.</p> : null}
-        {stage === 'testing' && accession ? accession.specimens.filter(specimen => specimen.status === 'collected' || specimen.status === 'received')
+        {/* Results hidden (their read was refused or could not be checked): no step is offered on what can't be seen. */}
+        {stage === 'testing' && accession && !record.hidden ? accession.specimens.filter(specimen => specimen.status === 'collected' || specimen.status === 'received')
           .map(specimen => <TestingStep key={`${specimen.id}-${specimen.version}`} {...step} specimen={specimen} accessionId={accession.id}
             executions={bySpecimen(specimen.id)} executionsRead={record.executionsRead} />) : null}
-        {stage === 'enter' ? (permissions.includes('lab.result.enter')
+        {stage === 'enter' && !record.hidden ? (permissions.includes('lab.result.enter')
           ? toEnter.map(execution => <ResultForm key={execution.id} {...step} execution={execution} result={null} />)
           : <p className="m-0 text-[15px] text-ink-2">Waiting for someone who can enter results.</p>) : null}
-        {stage === 'check' ? toCheck.map(execution => <CheckStep key={`${execution.id}-${execution.result?.currentVersion}-${execution.result?.status}`} {...step} execution={execution} />) : null}
-        {stage === 'done' ? <>
+        {stage === 'check' && !record.hidden ? toCheck.map(execution => <CheckStep key={`${execution.id}-${execution.result?.currentVersion}-${execution.result?.status}`} {...step} execution={execution} />) : null}
+        {stage === 'done' && !record.hidden ? <>
           {released.length > 0 ? <ul className="m-0 flex list-none flex-col divide-y divide-line p-0">
             {released.map(execution => <li key={execution.id} className="flex flex-col gap-3 py-3 first:pt-0">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -186,6 +189,10 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         </> : null}
       </div>
     </Card>
+
+    {/* Every version of each result is kept: read when asked, as on today's Laboratory page. */}
+    {record.executions.filter(execution => execution.result).map(execution => <ResultHistory key={execution.id} facilityId={facilityId}
+      execution={execution} onRefused={record.recheck} />)}
 
     <Card>
       <CardHeader as="h2" title="Request" actions={bill !== undefined ? <BillBadge bill={bill} /> : undefined} />

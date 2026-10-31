@@ -5,7 +5,8 @@ import type { PatientProfile } from '../api'
 import { PHOTO_SIDE, PHOTO_SIDES, base64Of, photoBody, reencodePhoto, withoutJpegMetadata } from '../photoImage'
 import { EDGE_BODY_MAX_BYTES, jsonBodyBytes } from '../profileParity'
 import { PortalShell, ProfilePage } from '../routes/Portal'
-import { json, openSection, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
+import { json, openSection, press, problem, profile, renderPortal, shownText, type Handler, type Sent } from './portalHarness'
+import { ToastProvider } from '../kasuwa/toast'
 
 vi.mock('../chatFeatures', () => ({ patientChatEnabled: () => false, patientChatHost: () => false }))
 
@@ -131,12 +132,25 @@ function gateway(start: boolean, answers: { put?: () => Response; del?: () => Re
   handler.hasPhoto = () => has
   return handler
 }
-/** The photo control, at the top of Bio-data: the avatar, whose label wraps the hidden file field. */
-const photoCard = async () => within(await openSection('About you'))
+/** The photo control, on the Health ID card at the top of the profile: the medallion, whose label wraps the hidden file field. */
+const CARD = 'Ada Example’s Health ID card'
+const photoCard = async () => within(await screen.findByRole('region', { name: CARD }))
+const ADD = 'Add a photo to your card'
+const CHANGE = 'Change the photo on your card'
 async function choose(file: File) {
-  const input = (await photoCard()).getByLabelText(/^(Add|Change) profile photo$/) as HTMLInputElement
+  const input = (await photoCard()).getByLabelText(new RegExp(`^(${ADD}|${CHANGE})$`)) as HTMLInputElement
   await act(async () => { fireEvent.change(input, { target: { files: [file] } }) })
 }
+/** The profile, with the shell's toasts, which say what went wrong. */
+const profilePage = (handler: Handler) => renderPortal(<ToastProvider><ProfilePage /></ToastProvider>, handler, {}, { parityB3: true })
+/** Saved: the drawer closes and the card shows the photo; no notice repeats it. */
+const savedAndClosed = async () => waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+/** The photo the card shows, once it shows one. */
+const cardPhoto = async () => waitFor(async () => {
+  const image = (await photoCard()).getByLabelText(CHANGE).closest('label')?.querySelector('img')
+  expect(image?.getAttribute('src')).toMatch(/^blob:/)
+  return image as HTMLImageElement
+})
 const puts = (sent: Sent[]) => sent.filter(request => request.path === '/identity/me/photo' && request.method === 'PUT')
 
 /** The JPEG the page uploaded, from the body of its PUT. */
@@ -166,7 +180,7 @@ const PORTRAIT: Readonly<Record<number, Readonly<Record<number, number>>>> = {
 
 describe('the photo the page sends', () => {
   it('is a fresh canvas JPEG of the centre square: none of the chosen file, its EXIF or GPS, is uploaded', async () => {
-    const { sent } = renderPortal(<ProfilePage />, gateway(false), {}, { parityB3: true })
+    const { sent } = profilePage(gateway(false))
     await choose(new File([CAMERA_JPEG], 'IMG_0001.jpg', { type: 'image/jpeg' }))
     expect(await screen.findByRole('img', { name: 'Your new photo, cropped to a square' })).toBeTruthy()
     // Decoded, drawn at 256 x 256 on white from the centre square (1200 x 800: 200 in, 800 across), encoded as a JPEG.
@@ -178,7 +192,7 @@ describe('the photo the page sends', () => {
     expect(puts(sent)).toEqual([])
 
     await press(screen.getByRole('button', { name: 'Save photo' }))
-    await screen.findByText('Your photo was saved.')
+    await savedAndClosed()
     const [upload] = puts(sent)
     const body = upload?.body as { mediaType: string; data: string }
     expect(body.mediaType).toBe('image/jpeg')
@@ -201,10 +215,10 @@ describe('the photo the page sends', () => {
   it('sends a typical photo at the largest side whose body fits in 8,000 bytes, which production\'s edge lets through', async () => {
     // As Safari encodes it, with its Exif and Photoshop blocks on every candidate: each is measured without them.
     const tried = encodes((side, quality) => PORTRAIT[side]?.[quality] ?? 40_000, [...WEBKIT_HEAD.slice(2)], WEBKIT_JFIF)
-    const { sent } = renderPortal(<ProfilePage />, gateway(false), {}, { parityB3: true })
+    const { sent } = profilePage(gateway(false))
     await choose(new File([CAMERA_JPEG], 'IMG_0003.jpg', { type: 'image/jpeg' }))
     await press(await screen.findByRole('button', { name: 'Save photo' }))
-    await screen.findByText('Your photo was saved.')
+    await savedAndClosed()
     // 256 and 224 px are too large at every quality; 192 px fits at 0.62.
     expect(tried).toEqual([[256, 0.86], [256, 0.75], [256, 0.62], [256, 0.5], [224, 0.86], [224, 0.75], [224, 0.62], [224, 0.5],
       [192, 0.86], [192, 0.75], [192, 0.62]])
@@ -233,10 +247,10 @@ describe('the photo the page sends', () => {
 
   it('says a picture that fits at no side can\'t be sent, and sends nothing', async () => {
     const tried = encodes(() => 5974)
-    const { sent } = renderPortal(<ProfilePage />, gateway(false), {}, { parityB3: true })
+    const { sent } = profilePage(gateway(false))
     await choose(new File([CAMERA_JPEG], 'crowd.jpg', { type: 'image/jpeg' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('This picture has too much detail to send as a profile photo. Choose another '
-      + 'one, such as a photo of your face against a plain background.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('That picture can’t be used' + 'This picture has too much detail to send as a '
+      + 'profile photo. Choose another one, such as a photo of your face against a plain background.')
     // Every side, each at every quality.
     expect(tried).toEqual(PHOTO_SIDES.flatMap(side => [0.86, 0.75, 0.62, 0.5].map(quality => [side, quality])))
     expect(screen.queryByRole('button', { name: 'Save photo' })).toBeNull()
@@ -257,10 +271,10 @@ describe('the photo the page sends', () => {
   it('drops the Exif and Photoshop blocks WebKit writes into every canvas JPEG, so Identity takes the photo from Safari and iOS', async () => {
     expect(identityJpegSize(WEBKIT_JPEG)).toBeUndefined() // as WebKit encodes it, Identity refuses it
     vi.mocked(HTMLCanvasElement.prototype.toBlob).mockImplementation((callback: BlobCallback) => callback(new Blob([WEBKIT_JPEG], { type: 'image/jpeg' })))
-    const { sent } = renderPortal(<ProfilePage />, gateway(false), {}, { parityB3: true })
+    const { sent } = profilePage(gateway(false))
     await choose(new File([CAMERA_JPEG], 'IMG_0002.jpg', { type: 'image/jpeg' }))
     await press(await screen.findByRole('button', { name: 'Save photo' }))
-    await screen.findByText('Your photo was saved.')
+    await savedAndClosed()
     const bytes = uploaded(sent)
     expect(contains(bytes, [0xff, 0xe1])).toBe(false)
     expect(contains(bytes, [0xff, 0xed])).toBe(false)
@@ -316,61 +330,68 @@ describe('choosing a photo', () => {
     ['a file over 10 MB', new File([CAMERA_JPEG, new Uint8Array(10 * 1024 * 1024)], 'huge.jpg', { type: 'image/jpeg' }),
       'This picture is too large to use. Choose one under 10 MB.'],
   ])('refuses %s, decodes nothing and sends nothing', async (_label, file, message) => {
-    const { sent } = renderPortal(<ProfilePage />, gateway(false), {}, { parityB3: true })
+    const { sent } = profilePage(gateway(false))
+    const input = (await photoCard()).getByLabelText(ADD)
+    input.focus()
     await choose(file)
-    expect((await screen.findByRole('alert')).textContent).toBe(message)
+    expect(shownText(await screen.findByRole('alert'))).toBe(`That picture can’t be used${message}`)
     expect(createImageBitmap).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: 'Save photo' })).toBeNull()
     expect(puts(sent)).toEqual([])
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Add profile photo')))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText(ADD)))
   })
 
-  it('moves focus to Save photo once the photo is prepared', async () => {
-    renderPortal(<ProfilePage />, gateway(false), {}, { parityB3: true })
-    const input = (await photoCard()).getByLabelText('Add profile photo') as HTMLInputElement
-    // Chosen from the keyboard: the chooser holds focus, and is disabled and then gone as the photo is prepared.
+  it('opens the prepared photo in a drawer, with focus on its title, and Save photo ready', async () => {
+    profilePage(gateway(false))
+    const input = (await photoCard()).getByLabelText(ADD) as HTMLInputElement
+    // Chosen from the keyboard: the chooser holds focus, and is disabled as the photo is prepared.
     input.focus()
     await act(async () => { fireEvent.change(input, { target: { files: [new File([CAMERA_JPEG], 'a.jpg', { type: 'image/jpeg' })] } }) })
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Save photo' })))
-    expect(await screen.findByRole('img', { name: 'Your new photo, cropped to a square' })).toBeTruthy()
+    const drawer = within(await screen.findByRole('dialog', { name: 'Your card photo' }))
+    expect(document.activeElement).toBe(drawer.getByRole('heading', { name: 'Your card photo' }))
+    expect(await drawer.findByRole('img', { name: 'Your new photo, cropped to a square' })).toBeTruthy()
+    await waitFor(() => expect((drawer.getByRole('button', { name: 'Save photo' }) as HTMLButtonElement).disabled).toBe(false))
   })
 
   it('says so when the picture cannot be decoded', async () => {
     vi.stubGlobal('createImageBitmap', vi.fn(async () => { throw new DOMException('bad', 'InvalidStateError') }))
-    renderPortal(<ProfilePage />, gateway(false), {}, { parityB3: true })
+    profilePage(gateway(false))
     await choose(new File([CAMERA_JPEG], 'broken.jpg', { type: 'image/jpeg' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('This picture could not be opened. Choose another JPEG or PNG picture.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('That picture can’t be usedThis picture could not be opened. Choose another JPEG or PNG picture.')
   })
 
   it('says what Identity refused, and keeps the photo to save again', async () => {
-    renderPortal(<ProfilePage />, gateway(false, { put: () => problem(400, 'PHOTO_INVALID', 'The photo is not valid.') }), {}, { parityB3: true })
+    profilePage(gateway(false, { put: () => problem(400, 'PHOTO_INVALID', 'The photo is not valid.') }))
     await choose(new File([CAMERA_JPEG], 'a.jpg', { type: 'image/jpeg' }))
     await press(await screen.findByRole('button', { name: 'Save photo' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('This picture can’t be used. Choose a JPEG or PNG photo.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('Couldn’t save your photoChoose a JPEG or PNG photo.')
     expect(screen.getByRole('button', { name: 'Save photo' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: 'Your new photo, cropped to a square' })).toBeTruthy()
   })
 
-  it('drops the prepared photo on Cancel, and revokes its preview', async () => {
-    const { sent } = renderPortal(<ProfilePage />, gateway(false), {}, { parityB3: true })
+  it('drops the prepared photo on Close, and revokes its preview', async () => {
+    const { sent } = profilePage(gateway(false))
+    ;(await photoCard()).getByLabelText(ADD).focus()
     await choose(new File([CAMERA_JPEG], 'a.jpg', { type: 'image/jpeg' }))
     const preview = (await screen.findByRole('img', { name: 'Your new photo, cropped to a square' })).getAttribute('src')!
-    await press(screen.getByRole('button', { name: 'Cancel' }))
+    await press(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }))
     expect(screen.queryByRole('img', { name: 'Your new photo, cropped to a square' })).toBeNull()
     expect(revoked).toContain(preview)
     expect(puts(sent)).toEqual([])
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Add profile photo')))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText(ADD)))
   })
 })
 
 describe('the photo control', () => {
-  it('is the avatar at the top of Bio-data, with no Photo section: a label wrapping it and the file field, from the keyboard too', async () => {
-    renderPortal(<ProfilePage />, gateway(false), {}, { parityB3: true })
-    const bio = await photoCard()
+  it('is the medallion on the Health ID card, before About you, with no Photo section: a label wrapping it and the file field', async () => {
+    profilePage(gateway(false))
+    const card = await photoCard()
     expect(screen.queryByRole('heading', { name: 'Photo' })).toBeNull()
-    const input = bio.getByLabelText('Add profile photo') as HTMLInputElement
+    const input = card.getByLabelText(ADD) as HTMLInputElement
     const control = input.closest('label') as HTMLLabelElement
-    // The initials stand for the picture while there is none; selecting it opens the picker.
-    expect(within(control).getByText('AE').className).toContain('patient-avatar-large')
+    // The initials stand for the picture while there is none, with a pill that says what it does; selecting it opens the picker.
+    expect(within(control).getByText('AE')).toBeTruthy()
+    expect(within(control).getByText('Add photo')).toBeTruthy()
     expect([input.type, input.accept, input.disabled, input.tabIndex]).toEqual(['file', 'image/jpeg,image/png', false, 0])
     input.focus()
     expect(document.activeElement).toBe(input)
@@ -378,48 +399,48 @@ describe('the photo control', () => {
     input.addEventListener('click', picked)
     fireEvent.click(within(control).getByText('AE'))
     expect(picked).toHaveBeenCalled()
-    // One short line says what it takes, and is the field's description.
-    expect(document.getElementById('profile-photo-hint')?.textContent).toBe('Select the picture to add a photo: a JPEG or PNG, cropped to a square.')
-    expect(input.getAttribute('aria-describedby')).toBe('profile-photo-hint')
-    // Before the Bio-data rows, and nothing to remove yet.
-    expect(control.compareDocumentPosition(bio.getByText('Health ID')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(bio.queryByRole('button', { name: 'Remove photo' })).toBeNull()
+    // Before the profile's sections, and nothing to remove yet.
+    expect(control.compareDocumentPosition(screen.getByRole('heading', { name: 'About you' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Remove/ })).toBeNull()
   })
 
-  it('uploads from Bio-data, then shows the photo on it, named for changing it, with focus back on it', async () => {
+  it('uploads from the card, then shows the photo on it, named for changing it, with focus back on it', async () => {
     const handler = gateway(false)
-    const { sent } = renderPortal(<ProfilePage />, handler, {}, { parityB3: true })
+    const { sent } = profilePage(handler)
+    ;(await photoCard()).getByLabelText(ADD).focus()
     await choose(new File([CAMERA_JPEG], 'a.jpg', { type: 'image/jpeg' }))
     await press(await screen.findByRole('button', { name: 'Save photo' }))
-    expect(await screen.findByText('Your photo was saved.')).toBeTruthy()
+    await savedAndClosed()
     expect(puts(sent)).toHaveLength(1)
     expect(handler.hasPhoto()).toBe(true)
-    const bio = await photoCard()
-    const input = await bio.findByLabelText('Change profile photo')
+    const input = await (await photoCard()).findByLabelText(CHANGE)
     await waitFor(() => expect(document.activeElement).toBe(input))
-    expect((await within(input.closest('label') as HTMLElement).findByRole('img', { name: 'Your photo' })).getAttribute('src')).toMatch(/^blob:/)
-    expect(bio.getByRole('button', { name: 'Remove photo' })).toBeTruthy()
+    await cardPhoto()
+    expect(screen.getByRole('button', { name: 'Remove photo' })).toBeTruthy()
   })
 
-  it('removes the photo from Bio-data, with focus back on the control', async () => {
-    const { sent } = renderPortal(<ProfilePage />, gateway(true), {}, { parityB3: true })
-    const bio = await photoCard()
-    await bio.findByRole('img', { name: 'Your photo' })
-    await press(bio.getByRole('button', { name: 'Remove photo' }))
-    expect(await screen.findByText('Your photo was removed.')).toBeTruthy()
+  it('removes the photo, asked again in the drawer, with focus back on the control', async () => {
+    const { sent } = profilePage(gateway(true))
+    await cardPhoto()
+    await press(screen.getByRole('button', { name: 'Remove photo' }))
+    const drawer = within(await screen.findByRole('dialog', { name: 'Your card photo' }))
+    expect(drawer.getByRole('img', { name: 'Your photo' })).toBeTruthy()
+    // Nothing is removed until it is confirmed.
+    expect(sent.filter(request => request.method === 'DELETE')).toEqual([])
+    await press(drawer.getByRole('button', { name: 'Remove' }))
+    await savedAndClosed()
     expect(sent.filter(request => request.method === 'DELETE')).toEqual([{ path: '/identity/me/photo', method: 'DELETE', body: null }])
-    const input = await bio.findByLabelText('Add profile photo')
+    const input = await (await photoCard()).findByLabelText(ADD)
     await waitFor(() => expect(document.activeElement).toBe(input))
-    expect(bio.queryByRole('button', { name: 'Remove photo' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Remove photo' })).toBeNull()
   })
 })
 
 describe('the photo shown', () => {
   it('is read as bytes and shown from a blob: URL, which goes when the page does; nothing is stored', async () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem')
-    const { sent, view } = renderPortal(<ProfilePage />, gateway(true), {}, { parityB3: true })
-    const shown = await (await photoCard()).findByRole('img', { name: 'Your photo' })
-    expect(shown.getAttribute('src')).toMatch(/^blob:/)
+    const { sent, view } = profilePage(gateway(true))
+    const shown = await cardPhoto()
     expect(sent.filter(request => request.path === '/identity/me/photo')).toEqual([{ path: '/identity/me/photo', method: 'GET', body: null }])
     const url = shown.getAttribute('src')!
     view.unmount()
@@ -428,41 +449,47 @@ describe('the photo shown', () => {
   })
 
   it('is removed with Remove photo, and the initials show again', async () => {
-    const { sent } = renderPortal(<ProfilePage />, gateway(true), {}, { parityB3: true })
-    const url = (await (await photoCard()).findByRole('img', { name: 'Your photo' })).getAttribute('src')!
+    const { sent } = profilePage(gateway(true))
+    const url = (await cardPhoto()).getAttribute('src')!
     await press(screen.getByRole('button', { name: 'Remove photo' }))
-    await screen.findByText('Your photo was removed.')
-    await waitFor(() => expect(screen.queryByRole('img', { name: 'Your photo' })).toBeNull())
+    await press(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Remove' }))
+    await savedAndClosed()
     expect(sent.filter(request => request.method === 'DELETE')).toEqual([{ path: '/identity/me/photo', method: 'DELETE', body: null }])
-    expect(revoked).toContain(url)
-    expect((await photoCard()).getByText('AE')).toBeTruthy()
+    await waitFor(() => expect(revoked).toContain(url))
+    const control = (await photoCard()).getByLabelText(ADD).closest('label') as HTMLElement
+    expect(control.querySelector('img')).toBeNull()
+    expect(within(control).getByText('AE')).toBeTruthy()
   })
 
   it('is not offered by an Identity that does not say whether there is one', async () => {
     renderPortal(<ProfilePage />, (path, method) => path === '/identity/me' && method === 'GET' ? json(profile) : problem(404, 'NOT_FOUND', path))
     const bio = await openSection('About you')
     expect(within(bio).getByText('Ada Example')).toBeTruthy()
-    expect(within(bio).queryByLabelText(/profile photo/)).toBeNull()
-    expect(bio.querySelector('input[type="file"]')).toBeNull()
+    expect(screen.queryByLabelText(new RegExp(`^(${ADD}|${CHANGE})$`))).toBeNull()
+    expect(document.querySelector('input[type="file"]')).toBeNull()
   })
 })
 
-describe('the header', () => {
+describe('the shell', () => {
   const shell = (handler: Handler) => renderPortal(<Routes><Route path="/" element={<PortalShell />}><Route index element={<p>Overview page</p>} />
     </Route></Routes>, handler, {}, { parityB3: true })
+  /** The sidebar's card for the patient, at its top: their photo or initials, name and Health ID. */
+  const switcher = () => screen.findByRole('button', { name: /^Ada Example ?Health ID · HID-ABC234$/ })
 
-  it('shows the patient\'s photo as a link to their profile', async () => {
+  it('shows the patient\'s photo beside their name, and their profile one step away', async () => {
     shell(gateway(true))
-    const link = await screen.findByRole('link', { name: 'Your profile' })
-    expect(link.getAttribute('href')).toBe('/profile')
-    await waitFor(() => expect(link.querySelector('img')?.getAttribute('src')).toMatch(/^blob:/))
-    expect(link.querySelector('img')?.getAttribute('alt')).toBe('')
+    const card = await switcher()
+    await waitFor(() => expect(card.querySelector('img')?.getAttribute('src')).toMatch(/^blob:/))
+    expect(card.querySelector('img')?.getAttribute('alt')).toBe('')
+    await press(card)
+    expect(screen.getAllByRole('link', { name: 'Your profile' })[0]?.getAttribute('href')).toBe('/profile')
   })
 
   it('shows the initials while there is no photo, without asking for one', async () => {
     const { sent } = shell(gateway(false))
-    const link = await screen.findByRole('link', { name: 'Your profile' })
-    await waitFor(() => expect(link.textContent).toBe('AE'))
+    const card = await switcher()
+    await waitFor(() => expect(card.textContent).toContain('AE'))
+    expect(card.querySelector('img')).toBeNull()
     expect(sent.some(request => request.path === '/identity/me/photo')).toBe(false)
   })
 })

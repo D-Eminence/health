@@ -101,6 +101,10 @@ function PatientRecord({ chart }: { chart: Chart }) {
    */
   const mayOpenConsent = can('identity.consent.write')
   const mayOpenChart = chart.can('ehr.encounter.read')
+  // Starting a consultation or recording vitals needs the grant to allow changes and the role to hold what that page
+  // writes with (Consultation's ehr.encounter.write; Triage's ehr.vital.read and ehr.vital.write): no dead-end step.
+  const mayStart = !readOnly && chart.can('ehr.encounter.write')
+  const mayRecordVitals = !readOnly && chart.can('ehr.vital.read', 'ehr.vital.write')
 
   /** The Health ID is handed over in memory only, and only where the request form can open and read it. */
   function openConsent() {
@@ -145,16 +149,14 @@ function PatientRecord({ chart }: { chart: Chart }) {
         {!emergency ? <Card>
           <CardHeader as="h2" title="Next steps" icon={ListChecks} iconTone="brand" />
           <ul className="m-0 list-none divide-y divide-line p-0">
-            {!readOnly ? <>
-              <li><ListRow onClick={() => navigate(href.to('consult', 'new'))} leading={<IconChip size="sm" icon={Stethoscope} />} title="Start a consultation" subtitle="Notes, diagnoses and orders in one place" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>
-              <li><ListRow onClick={() => navigate(href.to('triage', 'new'))} leading={<IconChip size="sm" icon={Activity} />} title="Record vitals" subtitle="Blood pressure, temperature, pulse, oxygen" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>
-            </> : null}
+            {mayStart ? <li><ListRow onClick={() => navigate(href.to('consult', 'new'))} leading={<IconChip size="sm" icon={Stethoscope} />} title="Start a consultation" subtitle="Notes, diagnoses and orders in one place" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            {mayRecordVitals ? <li><ListRow onClick={() => navigate(href.to('triage', 'new'))} leading={<IconChip size="sm" icon={Activity} />} title="Record vitals" subtitle="Blood pressure, temperature, pulse, oxygen" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
             {/* Appointments and walk-in visits are samples: offered only at the demo facilities. */}
             {isDemoFacility(chart.facilityId) ? <li><ListRow onClick={() => navigate(href.to('journey', 'new'))} leading={<IconChip size="sm" icon={UserPlus} />} title="Register a walk-in visit" subtitle="Sample at demo facilities" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
             {mayOpenConsent ? <li><ListRow onClick={openConsent} leading={<IconChip size="sm" icon={Send} />} title="Ask for more access" subtitle="More time, or the right to add records. The patient approves." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
           </ul>
         </Card> : null}
-        {!emergency && chart.can('ehr.encounter.read') ? <EncounterHistory chart={chart} canStart={!readOnly} /> : null}
+        {!emergency && chart.can('ehr.encounter.read') ? <EncounterHistory chart={chart} canStart={mayStart} /> : null}
       </div>
     </div>
   )

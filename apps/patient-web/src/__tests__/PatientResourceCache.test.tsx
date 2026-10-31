@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { createPatientResourceCache, PatientResourcesContext, type PatientResourceCache } from '../resourceCache'
 import { createTestSessionValue, SessionContext, SessionProvider, useSession } from '../session'
 import { ProfilePage } from '../routes/Portal'
-import { json, patientApi, problem, profile, type Handler } from './portalHarness'
+import { json, patientApi, problem, profile, sectionCard, type Handler } from './portalHarness'
 
 const environment = vi.hoisted(() => ({ name: 'local', apiBaseUrl: 'http://localhost:3000', turnstileSiteKey: null }))
 vi.mock('../env', () => ({ getEnvironment: () => environment }))
@@ -74,38 +74,43 @@ function openProfile({ api, cache }: { api: ReturnType<typeof patientApi>['api']
   return view
 }
 
+/** The name About you shows (the profile's first row), or null while there is none. */
+const shownName = () => document.querySelector('#bio-data dd')?.textContent ?? null
+/** The profile's loading state, said to a screen reader by its name. */
+const loading = () => screen.queryByRole('status', { name: 'Loading your profile' })
+
 describe('a page opened again', () => {
   it('shows what it showed last at once, with no loading state, and the new answer once it is in', async () => {
     const later = deferred()
     const client = portal([() => json(profile), () => later.promise])
     const first = openProfile(client)
-    expect(screen.getByRole('status').textContent).toBe('Loading your information…')
-    expect(await screen.findByText('Ada Example')).toBeTruthy()
+    expect(loading()).not.toBeNull()
+    await waitFor(() => expect(shownName()).toBe('Ada Example'))
     first.unmount()
 
     openProfile(client)
-    expect(screen.getByText('Ada Example')).toBeTruthy()
-    expect(screen.queryByText('Loading your information…')).toBeNull()
+    expect(shownName()).toBe('Ada Example')
+    expect(loading()).toBeNull()
     // It reads again meanwhile, and says the card is being brought up to date.
     // (The emergency contacts and Delete account on the profile read for themselves.)
     await waitFor(() => expect(client.sent.map(request => request.path).filter(path => path === '/identity/me')).toEqual(['/identity/me', '/identity/me']))
     // The rows, not the whole section: Bio-data also holds the PIN's and contact's notices (PR-03).
-    expect(screen.getByText('Ada Example').closest('dl')?.getAttribute('aria-busy')).toBe('true')
-    expect(screen.getByRole('heading', { name: 'About you' }).closest('.patient-card')?.getAttribute('aria-busy')).toBeNull()
+    expect(document.querySelector('#bio-data dl')?.getAttribute('aria-busy')).toBe('true')
+    expect(sectionCard('About you').getAttribute('aria-busy')).toBeNull()
 
     await act(async () => { later.resolve(json({ ...profile, fullName: 'Ada Updated' })) })
-    expect(screen.getByText('Ada Updated')).toBeTruthy()
+    expect(shownName()).toBe('Ada Updated')
     expect(screen.queryByText('Ada Example')).toBeNull()
-    expect(screen.getByText('Ada Updated').closest('dl')?.getAttribute('aria-busy')).toBeNull()
+    expect(document.querySelector('#bio-data dl')?.getAttribute('aria-busy')).toBeNull()
   })
 
   it('shows nothing it holds for another account', async () => {
     const client = portal([() => json(profile), () => new Promise<Response>(() => {})])
     const first = openProfile(client)
-    expect(await screen.findByText('Ada Example')).toBeTruthy()
+    await waitFor(() => expect(shownName()).toBe('Ada Example'))
     first.unmount()
     openProfile(client, 'subject-b')
-    expect(screen.getByRole('status').textContent).toBe('Loading your information…')
+    expect(loading()).not.toBeNull()
     expect(screen.queryByText('Ada Example')).toBeNull()
   })
 
@@ -114,10 +119,11 @@ describe('a page opened again', () => {
     const session = createTestSessionValue({ kind: 'patient', subjectId: 'subject-a', appRole: 'patient', assuranceLevel: 'aal1' }, api)
     const page = () => <MemoryRouter><SessionContext.Provider value={session}><ProfilePage /></SessionContext.Provider></MemoryRouter>
     const first = render(page())
-    expect(await screen.findByText('Ada Example')).toBeTruthy()
+    await waitFor(() => expect(shownName()).toBe('Ada Example'))
     first.unmount()
     render(page())
-    expect(screen.getByRole('status').textContent).toBe('Loading your information…')
+    expect(loading()).not.toBeNull()
+    expect(shownName()).toBeNull()
   })
 })
 
