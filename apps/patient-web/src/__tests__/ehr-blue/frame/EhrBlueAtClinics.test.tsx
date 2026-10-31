@@ -75,6 +75,13 @@ async function openPatient() {
 describe('at a clinic, with the clinic switch on', () => {
   it('opens the blue EHR on the merged registry, the clinical and department pages among its own', async () => {
     serve({ [SESSION]: [sessionAt(riverside(), [riverside()])] })
+    // The registry the frame runs on holds every clinical and department page itself, not the frame's stand-ins
+    // (imported once fetch is served, as the app is: the session client keeps the fetch it finds).
+    const [{ BLUE_PAGES }, clinical, departments] = await Promise.all([import('../../../ehr-blue/routes'),
+      import('../../../ehr-blue/clinical/pages'), import('../../../ehr-blue/departments/pages')])
+    expect(clinical.pages.length).toBeGreaterThan(0)
+    expect(departments.pages.length).toBeGreaterThan(0)
+    for (const page of [...clinical.pages, ...departments.pages]) expect(BLUE_PAGES).toContain(page)
     await openStaffApp('/provider')
     await expectBlueHome()
     const nav = screen.getByRole('navigation', { name: 'Main navigation' })
@@ -175,7 +182,7 @@ describe('at a clinic, with the clinic switch on', () => {
   })
 
   it('switches facility from the account menu, closing the open patient', async () => {
-    serve({
+    const sent = serve({
       [SESSION]: [sessionAt(riverside(), [riverside(), annex()])],
       [LOOKUP]: many(allowedLookup),
       [ENCOUNTERS]: many(() => json({ items: [] })),
@@ -183,11 +190,20 @@ describe('at a clinic, with the clinic switch on', () => {
     })
     await openStaffApp('/provider/patients')
     await openPatient()
+    // The record has opened (its encounters read): every lookup it makes is in.
+    await waitFor(() => expect(sent.some(call => call.route === ENCOUNTERS)).toBe(true))
+    const lookups = sent.filter(call => call.route === LOOKUP).length
     fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
     fireEvent.click(screen.getByRole('button', { name: 'Switch facility' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Work at Riverside Annex (fictional)' }))
     await waitFor(() => expect(within(screen.getByRole('banner')).getByText('Riverside Annex (fictional)')).toBeDefined())
     expect(document.body.textContent).not.toContain(PATIENT_NAME)
+    // Back on Patients, nothing is open: the search, and no further lookup.
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('link', { name: 'Patients' }))
+    await waitFor(() => expect(where()).toBe('/provider/patients'))
+    expect(await screen.findByRole('textbox', { name: 'Search Patients' })).toBeDefined()
+    expect(document.body.textContent).not.toContain(PATIENT_NAME)
+    expect(sent.filter(call => call.route === LOOKUP)).toHaveLength(lookups)
   })
 
   it('locks while the session is checked, and the lock screen is used by keyboard', async () => {
