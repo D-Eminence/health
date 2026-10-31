@@ -1,7 +1,7 @@
 import { Siren } from 'lucide-react'
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ConfirmSheet, FormPage, LoadingRows } from '../../../kasuwa/parts'
+import { FormPage, LoadingRows } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Card, CardHeader, DescriptionList, type Tone } from '../../../kasuwa/ui'
 import { staffApi, type AccessRequest } from '../../../staff/api'
 import { outcome } from '../../../staff/routes/AccessRequests'
@@ -33,7 +33,11 @@ function StateNote({ request }: { request: AccessRequest }) {
   return null
 }
 
-/** One access request: what was asked, its outcome, and its one next step (Close access, or emergency access). */
+/**
+ * One access request: what was asked, its outcome, and its one next step (Close access, or emergency access). Close
+ * access closes at once, as today's Access requests does (and Patients and Emergency here): nothing stands between a
+ * clinician and ending access.
+ */
 export function RequestDetail() {
   const { recordId = '' } = useParams()
   const href = useWorkspaceHref()
@@ -47,9 +51,10 @@ export function RequestDetail() {
   })
   const [failure, setFailure] = useState('')
   const [ended, setEnded] = useState(false)
-  const [confirming, setConfirming] = useState(false)
   const [closing, setClosing] = useState(false)
   const [settled, setSettled] = useState(0)
+  // A close already on its way is not sent again by a second press.
+  const sending = useRef(false)
   const status = useRef<HTMLDivElement>(null)
   const administrator = administratorOf(facility, permissions)
   const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administrator)
@@ -65,8 +70,9 @@ export function RequestDetail() {
   const request = list.requests?.find(item => item.accessRequestId === recordId)
 
   async function close() {
-    if (!facility || !request?.consentGrantId || closeUnavailable || closing) return
+    if (!facility || !request?.consentGrantId || closeUnavailable || sending.current) return
     const grantId = request.consentGrantId
+    sending.current = true
     setClosing(true)
     setFailure('')
     setNotice('')
@@ -83,9 +89,12 @@ export function RequestDetail() {
       refused = closeError(caught)
     }
     // Read again either way, then say what happened.
-    await list.load()
-    setClosing(false)
-    setConfirming(false)
+    try {
+      await list.load()
+    } finally {
+      sending.current = false
+      setClosing(false)
+    }
     if (refused) setFailure(refused)
     else { setNotice(ACCESS_CLOSED); setEnded(endedOpen) }
     setSettled(value => value + 1)
@@ -130,7 +139,7 @@ export function RequestDetail() {
         <div className="flex flex-col gap-2 p-5">
           {closeUnavailable ? <p id="close-access-unavailable" className="m-0 text-[13px] text-ink-3">{closeUnavailable}</p> : null}
           <Button variant="danger" className="self-start" disabled={closeUnavailable !== null}
-            aria-describedby={closeUnavailable ? 'close-access-unavailable' : undefined} onClick={() => setConfirming(true)}>Close access</Button>
+            aria-describedby={closeUnavailable ? 'close-access-unavailable' : undefined} loading={closing} onClick={() => void close()}>Close access</Button>
         </div>
       </Card> : null}
       {offerEmergency ? <Card>
@@ -138,10 +147,6 @@ export function RequestDetail() {
           description="Only if they can’t consent and care can’t wait." />
         <div className="p-5"><Button icon={Siren} onClick={() => navigate(href.to('emergency'))}>Emergency access</Button></div>
       </Card> : null}
-      <ConfirmSheet open={confirming} onClose={() => setConfirming(false)} destructive busy={closing} confirmLabel="Close access"
-        title={`Close your access to ${who}?`}
-        effect="You won’t see their records any more. To see them again, ask the patient."
-        onConfirm={() => void close()} />
     </FormPage>
   )
 }

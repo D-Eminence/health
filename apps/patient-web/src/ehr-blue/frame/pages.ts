@@ -106,8 +106,12 @@ export const pages: EhrBluePage[] = [
   live('audit', 'Insight', 'Audit & Compliance', 'history', 'audit.read'),
 
   // Listed only at the demo facilities; everywhere, the account menu's Switch facility opens it.
-  { ...page('institutions', 'Design review', 'Choose workspace', 'building', 'live', createElement(ChooseWorkspacePage)), listed: atDemoFacility },
   demoOnly(page('whats-left', 'Design review', 'What’s left', 'checklist', 'live', createElement(WhatsLeft))),
+
+  // The live facility switch (the account menu's Switch facility), beside Home: listed for whoever has more than one
+  // facility to choose from, as Switch facility is.
+  { ...page('institutions', '', 'Choose workspace', 'building', 'live', createElement(ChooseWorkspacePage)),
+    listed: session => session.actor.facilities.length > 1 },
 
   // The design's journeys, as an interactive tour: samples, asking for no password and sending nothing.
   demoOnly(page('tour', 'Design tour', 'Design tour', 'tour', 'sample', createElement(DesignTourIndex))),

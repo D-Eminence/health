@@ -31,8 +31,10 @@ export interface EhrBluePage {
   readonly element: ReactElement
   /**
    * What the page's address shows when `visible` or the permission turns the page down: the page's own words, as
-   * today's page gives them ("Health ID support manages who works at …"). Left out, the frame's "… is not open to
-   * you here". It stands in for the page, so it makes no request of its own.
+   * today's page gives them ("Health ID support manages who works at …"). Left out, the frame's: "… is not open to
+   * you here" for a missing permission, and "… is part of the Health ID demo only" where `visible` turns the page down,
+   * so a page that uses `visible` for any other reason gives its own. It stands in for the page, so it makes no request
+   * of its own.
    */
   readonly refusal?: ReactElement
   /**

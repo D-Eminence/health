@@ -37,9 +37,11 @@ const ENCOUNTER_FIELDS: readonly FieldDef[] = [
   { key: 'encounterType', label: 'Type of visit', required: true, choices: ENCOUNTER_TYPES },
   { key: 'complaint', label: 'Presenting complaint', required: true, maxLength: 4000 },
 ]
+// The note's fields are optional, as today: type and complaint alone start the encounter, and the draft note is written
+// only when History, Examination, Clinical note or Follow-up has text.
 const NOTE_FIELDS: readonly FieldDef[] = [
-  { key: 'history', label: 'History', type: 'textarea', required: true, maxLength: NOTE_LIMIT },
-  { key: 'examination', label: 'Examination', type: 'textarea', required: true, maxLength: NOTE_LIMIT },
+  { key: 'history', label: 'History', type: 'textarea', maxLength: NOTE_LIMIT },
+  { key: 'examination', label: 'Examination', type: 'textarea', maxLength: NOTE_LIMIT },
 ]
 const DIAGNOSIS_FIELDS: readonly FieldDef[] = [
   { key: 'diagnosis', label: 'Diagnosis', maxLength: 500, hint: 'Optional. Add its code to save it as this consultation’s diagnosis.' },
@@ -49,7 +51,7 @@ const DIAGNOSIS_FIELDS: readonly FieldDef[] = [
   { key: 'diagnosisVerification', label: 'Verification', choices: DIAGNOSIS_VERIFICATION_STATUSES },
 ]
 const NOTE_TAIL_FIELDS: readonly FieldDef[] = [
-  { key: 'note', label: 'Clinical note', type: 'textarea', required: true, maxLength: NOTE_LIMIT },
+  { key: 'note', label: 'Clinical note', type: 'textarea', maxLength: NOTE_LIMIT },
   { key: 'followup', label: 'Follow-up', maxLength: 4000 },
 ]
 const INITIAL: FormValues = { encounterType: 'ambulatory', diagnosisClinicalStatus: 'active', diagnosisVerification: 'unconfirmed' }
@@ -112,10 +114,12 @@ function NewConsultationForm({ chart }: { chart: Chart }) {
         setStarted(created)
       }
       const encounterId = current.encounter.id
-      // A saved step is never sent again, whatever its fields now hold: a second create would be a second record.
-      if (writesNote && !current.note?.done) {
+      // A saved step is never sent again, whatever its fields now hold: a second create would be a second record. With
+      // nothing typed in the note's fields there is no note to write.
+      const content = noteContent(values)
+      if (writesNote && !current.note?.done && content) {
         map = { content: 'note' }
-        const body = { noteType: 'Consultation', title: 'Consultation note', status: 'draft', content: noteContent(values) }
+        const body = { noteType: 'Consultation', title: 'Consultation note', status: 'draft', content }
         current.note = step(current.note, JSON.stringify(body))
         await chart.verify()
         await staffApi.createRecord(chart.facilityId, chart.patientId, encounterId, 'clinical-notes', body, current.note.key)

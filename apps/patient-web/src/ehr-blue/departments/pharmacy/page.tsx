@@ -3,6 +3,7 @@ import { CalendarCheck, PackageOpen, ReceiptText, ShoppingBag, SlidersHorizontal
 import type { EhrBluePage } from '../types'
 import { useBluePage } from '../../frame/pageContext'
 import { productOf } from '../../frame/product'
+import { DeptUnavailable } from '../parts/DeptPage'
 import { PillIcon } from '../parts/icons'
 import { useDeptAccess } from '../parts/access'
 import { EndOfDay } from '../commerce/EndOfDay'
@@ -19,6 +20,8 @@ import { StockPage } from './Stock'
  */
 const GROUP = 'Pharmacy'
 const icon = (I: typeof ShoppingBag) => <I aria-hidden strokeWidth={1.8} />
+/** Opened by its address without the permission: today's own words (staff/routes/Operations.tsx Pharmacy), and nothing is read. */
+const pharmacyUnavailable = <DeptUnavailable title="Pharmacy unavailable" message="This facility membership needs pharmacy work-item read permission." />
 
 /**
  * The old addresses, so nothing breaks: /pharmacy opens the counter in a pharmacy and Prescriptions in a hospital (or
@@ -42,7 +45,7 @@ export const pharmacyPages: EhrBluePage[] = [
   { path: 'pharmacy/*', group: GROUP, label: 'Pharmacy', status: 'live', icon: <PillIcon />, element: <PharmacyHome />, listed: () => false },
   { path: 'pharmacy/sell', group: GROUP, label: 'Sell', permission: 'pharmacy.walk-in.create', status: 'live', icon: icon(ShoppingBag), element: <Sell /> },
   { path: 'pharmacy/prescriptions/*', group: GROUP, label: 'Prescriptions', permission: 'pharmacy.work-item.read', status: 'live', keepsState: true,
-    icon: <PillIcon />, element: <Prescriptions /> },
+    icon: <PillIcon />, element: <Prescriptions />, refusal: pharmacyUnavailable },
   { path: 'pharmacy/sales/*', group: GROUP, label: 'Sales & receipts', permission: 'billing.bill.read', status: 'live', keepsState: true,
     icon: icon(ReceiptText), element: <Sales /> },
   { path: 'pharmacy/stock/*', group: GROUP, label: 'Stock', permission: 'pharmacy.stock.read', status: 'live', icon: icon(PackageOpen), element: <StockPage /> },

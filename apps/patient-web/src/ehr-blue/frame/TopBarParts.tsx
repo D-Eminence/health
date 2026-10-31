@@ -206,14 +206,15 @@ export function AccountMenu({ onSample, onClassic }: {
             <EhrButton variant="secondary" onClick={() => { close(false); navigate('/provider/institutions') }}>Switch facility</EhrButton>
           ) : null}
           {onClassic ? <EhrButton variant="secondary" onClick={() => { close(false); onClassic() }}>Use the classic EHR</EhrButton> : null}
-          <div className="hid-ehr-blue-roles" role="group" aria-labelledby="hid-ehr-blue-roles-title">
+          {/* The 16 sample dashboards are part of the demo: only at the demo facilities. */}
+          {isDemoFacility(facility?.id) ? <div className="hid-ehr-blue-roles" role="group" aria-labelledby="hid-ehr-blue-roles-title">
             <p id="hid-ehr-blue-roles-title" className="hid-ehr-blue-muted">View Home as a demo role (sample)</p>
             {role.viewing ? <EhrButton variant="quiet" size="sm" onClick={() => { close(); role.view(null); navigate('/provider') }}>My own dashboard</EhrButton> : null}
             {DEMO_ROLES.map(demo => (
               <EhrButton key={demo} variant="quiet" size="sm" aria-pressed={role.viewing === demo}
                 onClick={() => { close(); role.view(demo); navigate('/provider') }}>{demo}</EhrButton>
             ))}
-          </div>
+          </div> : null}
           <EhrButton variant="secondary" icon={<EhrIcon name="signOut" />} busy={signingOut} onClick={leave}>
             {signingOut ? 'Signing out…' : 'Sign out'}
           </EhrButton>

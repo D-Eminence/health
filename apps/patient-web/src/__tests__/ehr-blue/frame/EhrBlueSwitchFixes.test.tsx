@@ -39,7 +39,8 @@ async function chooseClassic() {
 }
 
 describe('1. design-only entries are only at the demo facilities', () => {
-  const DESIGN = ['Choose workspace', 'What’s left', 'Design tour', 'Facility review']
+  // Choose workspace is the live facility switch, not one of these (EhrBlueSwitchReview.test.tsx).
+  const DESIGN = ['What’s left', 'Design tour', 'Facility review']
 
   it('leaves the design review, the tour and Facility review out of a clinic\'s sidebar and search', async () => {
     switchedOn()
@@ -54,32 +55,33 @@ describe('1. design-only entries are only at the demo facilities', () => {
 
     fireEvent.keyDown(document, { key: 'k', ctrlKey: true })
     const search = await screen.findByRole('dialog', { name: 'Search Health ID' })
-    for (const term of ['Design', 'What’s left', 'Facility review', 'Choose workspace']) {
+    for (const term of ['Design', 'What’s left', 'Facility review']) {
       fireEvent.change(within(search).getByRole('searchbox', { name: 'Search work areas' }), { target: { value: term } })
       expect(within(search).queryAllByRole('link')).toEqual([])
     }
     fireEvent.keyDown(document, { key: 'Escape' })
 
-    // A sample dashboard does not lead there either.
+    // No sample dashboard leads there either: a clinic is offered none (EhrBlueSwitchReview.test.tsx).
     fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Platform Super Admin' }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Platform Super Admin' })).toBeDefined()
-    expect(screen.queryByRole('link', { name: 'Open Facility review →' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Platform Super Admin' })).toBeNull()
 
     // Switch facility still opens Choose your workspace.
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
     fireEvent.click(screen.getByRole('button', { name: 'Switch facility' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Choose your workspace' })).toBeDefined()
   })
 
-  it.each(['/provider/whats-left', '/provider/tour', '/provider/tour/sign-in/1', '/provider/platform'])(
-    'refuses %s at a clinic', async path => {
-      switchedOn()
-      const riverside = facility(REAL_FACILITY, 'Riverside Teaching Hospital (fictional)', [])
-      serve({ [SESSION]: [sessionAt(riverside, [riverside])] })
-      await openStaffApp(path)
-      expect(await screen.findByText(/is not open to you here$/)).toBeDefined()
-    })
+  it.each([
+    ['/provider/whats-left', 'What’s left'], ['/provider/tour', 'Design tour'],
+    ['/provider/tour/sign-in/1', 'Sign in with a sign-in code'], ['/provider/platform', 'Facility review'],
+  ])('refuses %s at a clinic, saying it is the demo\'s, not asking for an administrator no role has', async (path, label) => {
+    switchedOn()
+    const riverside = facility(REAL_FACILITY, 'Riverside Teaching Hospital (fictional)', [])
+    serve({ [SESSION]: [sessionAt(riverside, [riverside])] })
+    await openStaffApp(path)
+    expect(await screen.findByText(`${label} is part of the Health ID demo only`)).toBeDefined()
+    expect(screen.getByText('It is not available at Riverside Teaching Hospital (fictional).')).toBeDefined()
+    expect(screen.queryByText(/Ask your facility administrator/)).toBeNull()
+  })
 
   it('keeps them at a demo facility', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
@@ -263,7 +265,7 @@ describe('7. a page\'s own refusal', () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp('/provider/people')
-    expect(await screen.findByText('Staff & access is not open to you here')).toBeDefined()
+    expect(await screen.findByText('Staff & access is part of the Health ID demo only')).toBeDefined()
   })
 
   it('shows the page itself where it is allowed', async () => {

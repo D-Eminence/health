@@ -1,4 +1,4 @@
-import { normalizeHealthIdInput } from '@hid/contracts'
+import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
 import { Siren } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -10,7 +10,7 @@ import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/s
 import { selfServiceReview } from '../../../staff/staffAccess'
 import { patientFacts } from '../parts/PatientHeader'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
-import { offeredHealthId, dropOfferedHealthId, healthIdInput } from '../consent/access'
+import { offeredHealthId, dropOfferedHealthId } from '../consent/access'
 import {
   COMMAND_FAILED, EMERGENCY_ACCESS, EMERGENCY_CONTACTS_TOLD, EMERGENCY_MINUTES, HID_FORMAT, NOTICE_BEFORE, NOTICE_WHEN, NOT_GRANTED, REASON_MAX,
   REASON_MIN, REASON_TOO_SHORT, actionUnavailable, breakGlassRefusal, healthIdProblem,
@@ -44,8 +44,8 @@ export function BreakGlassCard() {
   const navigate = useNavigate()
   const href = useWorkspaceHref()
   const id = useId()
-  // A Health ID handed over from Find a patient, if any, read once.
-  const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient))
+  // A Health ID handed over from Find a patient, if any, read once; otherwise the field starts at HID-, as today's does.
+  const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient) || HEALTH_ID_PREFIX)
   useEffect(() => { dropOfferedHealthId() }, [])
   const [reason, setReason] = useState('')
   const [ack, setAck] = useState(false)
@@ -152,7 +152,7 @@ export function BreakGlassCard() {
         <Field label="Health ID" htmlFor={controlId('hid')} hint={HID_FORMAT} hintId={`${controlId('hid')}-hint`} error={errorFor('hid')} errorId={`${controlId('hid')}-error`}>
           <Input id={controlId('hid')} required autoComplete="off" spellCheck={false} value={hid} placeholder="HID-ADA2345"
             className="font-medium tracking-[.06em] uppercase" aria-invalid={problems.hid ? true : undefined} aria-describedby={describe('hid', true)}
-            onChange={event => { setHid(healthIdInput(event.target.value)); changed('hid') }} />
+            onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); changed('hid') }} />
         </Field>
         <Field label="Why do you need emergency access?" htmlFor={controlId('reason')} hint="What is happening, and why care can’t wait. It’s kept with the review."
           hintId={`${controlId('reason')}-hint`} error={errorFor('reason')} errorId={`${controlId('reason')}-error`}>

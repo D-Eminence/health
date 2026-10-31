@@ -73,7 +73,9 @@ describe('blueFacilities', () => {
 
   it('switches on for every facility only once the clinic switch is set, whatever pages are merged', async () => {
     expect(blueForAll([...TODAY, CLINICAL, DEPARTMENTS], false)).toBe(false)
-    // As it ships: off.
+    // As it ships: off. The switch over changes two lines on purpose, clinicSwitch.ts and this one, so an accidental
+    // flip fails here instead of releasing the blue EHR to every clinic (EhrBlueAtClinics.test.tsx runs it at a clinic
+    // with the switch mocked on; the staff-portal tests pin today's workspace with it off).
     const { BLUE_FOR_ALL } = await vi.importActual<typeof ClinicSwitch>('../../../ehr-blue/clinicSwitch')
     expect(BLUE_FOR_ALL).toBe(false)
     pageSets.files = [...TODAY, CLINICAL, DEPARTMENTS]

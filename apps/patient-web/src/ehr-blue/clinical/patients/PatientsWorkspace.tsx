@@ -1,4 +1,4 @@
-import { normalizeHealthIdInput } from '@hid/contracts'
+import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
 import { ArrowRight, IdCard, KeyRound, Lock, Search, Send, Siren, UserPlus } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { Alert, Badge, Button, Card, IconChip, Input, SectionHeader, cx, type Icon } from '../../../kasuwa/ui'
@@ -11,7 +11,7 @@ import { patientFacts } from '../parts/PatientHeader'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import type { EhrBluePageStatus } from '../types'
 import {
-  ACCESS_CLOSED, HID_FORMAT, NOT_GRANTED, OPEN_SHARED, actionUnavailable, administratorOf, healthIdInput, healthIdProblem, isRefusedLookup,
+  ACCESS_CLOSED, HID_FORMAT, METHOD_ROUTES, NOT_GRANTED, OPEN_SHARED, actionUnavailable, administratorOf, healthIdProblem, isRefusedLookup,
   offerHealthId, useOpenPatient,
 } from '../consent/access'
 import { PinAccess } from '../consent/PinAccess'
@@ -68,8 +68,9 @@ function PatientList() {
   const location = useLocation()
   const ended = useAccessEnded()
   const openPatient = useOpenPatient()
-  // Registration hands over the new Health ID (location state), so the next step is one press of Find.
-  const [hid, setHid] = useState(() => { const handed = (location.state as { hid?: unknown } | null)?.hid; return typeof handed === 'string' ? handed : '' })
+  // Registration hands over the new Health ID (location state), so the next step is one press of Find; otherwise
+  // today's field starts at HID- and is normalized as it changes.
+  const [hid, setHid] = useState(() => { const handed = (location.state as { hid?: unknown } | null)?.hid; return typeof handed === 'string' ? handed : HEALTH_ID_PREFIX })
   const [problem, setProblem] = useState<{ message: string; alert: boolean } | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -78,7 +79,11 @@ function PatientList() {
   const [notice, setNotice] = useState(() => noticeOf(location.state))
   const searchBox = useRef<HTMLFormElement>(null)
   const canLook = !!facility && can('identity.patient.read')
-  const openSharedUnavailable = actionUnavailable(OPEN_SHARED, permissions, administratorOf(facility, permissions))
+  const administrator = administratorOf(facility, permissions)
+  const openSharedUnavailable = actionUnavailable(OPEN_SHARED, permissions, administrator)
+  // A refused patient's access steps the role cannot take are not offered, and today's reason is given with them.
+  const requestUnavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administrator)
+  const emergencyUnavailable = actionUnavailable(METHOD_ROUTES.emergency, permissions, administrator)
 
   function clearFeedback() { setNotice(''); setError(''); setRefused(null) }
 
@@ -122,11 +127,13 @@ function PatientList() {
 
   /**
    * The PIN is a Patients page; a request is External record access, which the frame opens only with
-   * identity.consent.write. The Health ID is handed over only where the form can open and read it.
+   * identity.consent.write, the permission sending a request needs: a role without it is not offered the step, so the
+   * Health ID is handed over only where the form can open and read it.
    */
   function obtain(target: 'new' | 'pin' | 'emergency') {
     if (!refused || !facility) return
     if (target === 'emergency') {
+      if (emergencyUnavailable) return
       // The emergency form reads it too (the frame opens it only with identity.break-glass.write), so the Health ID
       // just searched is not typed again.
       if (can('identity.break-glass.write')) offerHealthId(refused.hid, facility.id, setActivePatient)
@@ -138,7 +145,8 @@ function PatientList() {
       navigate(href('pin'))
       return
     }
-    if (can('identity.consent.write')) offerHealthId(refused.hid, facility.id, setActivePatient)
+    if (requestUnavailable) return
+    offerHealthId(refused.hid, facility.id, setActivePatient)
     navigate(href.to('consent', 'new'))
   }
 
@@ -157,7 +165,7 @@ function PatientList() {
           <div className="flex gap-2">
             <div className="min-w-0 flex-1"><Input id="patient-hid" icon={IdCard} value={hid} placeholder="HID-ADA2345" autoComplete="off" spellCheck={false}
               aria-invalid={problem ? true : undefined} aria-describedby={problem ? 'patient-hid-hint patient-hid-problem' : 'patient-hid-hint'}
-              onChange={event => { setHid(healthIdInput(event.target.value)); setProblem(null) }} className="h-11 font-medium tracking-[.06em] uppercase" /></div>
+              onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); setProblem(null) }} className="h-11 font-medium tracking-[.06em] uppercase" /></div>
             <Button type="submit" variant="primary" icon={Search} loading={busy} disabled={!canLook} className="h-11">Find</Button>
           </div>
           <p id="patient-hid-hint" className="m-0 text-[12px] text-ink-3">It’s on the patient’s Health ID card. {HID_FORMAT}</p>
@@ -171,10 +179,15 @@ function PatientList() {
             <div className="min-w-0"><p className="m-0 text-title-3 text-ink">You don’t have access to {refused.hid} yet</p>
               <p className="m-0 mt-0.5 text-[13px] text-ink-3">{refused.message === NOT_GRANTED ? 'Choose how to get it.' : refused.message}</p></div>
           </div>
+          {/* A way the role cannot take is not offered as a dead end: it is turned off, with today's reason. */}
+          {requestUnavailable ? <p id="request-access-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{requestUnavailable}</p> : null}
+          {emergencyUnavailable ? <p id="emergency-access-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{emergencyUnavailable}</p> : null}
           <ul className="m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 @xl:grid-cols-3">
-            <AccessWay icon={Send} title="Ask the patient" hint="They approve on their phone. You’re told the moment they do." primary onClick={() => obtain('new')} />
+            <AccessWay icon={Send} title="Ask the patient" hint="They approve on their phone. You’re told the moment they do." primary
+              unavailableId={requestUnavailable ? 'request-access-unavailable' : undefined} onClick={() => obtain('new')} />
             <AccessWay icon={KeyRound} title="Use their Access PIN" hint="If they’re with you and have set one." onClick={() => obtain('pin')} />
-            <AccessWay icon={Siren} title="Emergency access" hint="Only if they can’t consent. Time-limited and reviewed." danger onClick={() => obtain('emergency')} />
+            <AccessWay icon={Siren} title="Emergency access" hint="Only if they can’t consent. Time-limited and reviewed." danger
+              unavailableId={emergencyUnavailable ? 'emergency-access-unavailable' : undefined} onClick={() => obtain('emergency')} />
           </ul>
         </div> : null}
         {error ? <div className="border-t border-line p-5"><Alert intent="error" title="Couldn’t check access">{error}</Alert></div> : null}
@@ -206,10 +219,15 @@ function PatientList() {
   )
 }
 
-/** One way to get access, as a tile: what it is and when to use it. */
-function AccessWay({ icon, title, hint, onClick, primary, danger }: { icon: Icon; title: string; hint: string; onClick: () => void; primary?: boolean; danger?: boolean }) {
-  return <li><button type="button" onClick={onClick}
-    className={cx('flex h-full w-full cursor-pointer flex-col items-start gap-2 rounded-xl border-0 p-4 text-left font-[inherit] ring-1 transition-shadow hover:shadow-[var(--shadow-card)]',
+/**
+ * One way to get access, as a tile: what it is and when to use it. `unavailableId` names the reason the role cannot take
+ * it; the tile is then turned off and points to that reason.
+ */
+function AccessWay({ icon, title, hint, onClick, primary, danger, unavailableId }: {
+  icon: Icon; title: string; hint: string; onClick: () => void; primary?: boolean; danger?: boolean; unavailableId?: string
+}) {
+  return <li><button type="button" onClick={onClick} disabled={unavailableId !== undefined} aria-describedby={unavailableId}
+    className={cx('flex h-full w-full cursor-pointer flex-col items-start gap-2 rounded-xl border-0 p-4 text-left font-[inherit] ring-1 transition-shadow hover:shadow-[var(--shadow-card)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:shadow-none',
       primary ? 'bg-brand-soft ring-brand-line' : 'bg-surface ring-line')}>
     <IconChip icon={icon} tone={danger ? 'danger' : primary ? 'brand' : 'neutral'} size="sm" />
     <span className="text-sm font-semibold text-ink">{title}</span>

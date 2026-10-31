@@ -8,9 +8,10 @@ import { ErrorBox, Loading } from '../parts/Notices'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { StatusBadge } from '../parts/StatusBadge'
 import {
-  DIAGNOSIS_CLINICAL_STATUSES, DIAGNOSIS_UPDATED, DIAGNOSIS_VERIFICATION_STATUSES, NO_WRITE, REASON_SHORT, RECORD_SAVED,
+  DIAGNOSIS_CLINICAL_STATUSES, DIAGNOSIS_UPDATED, DIAGNOSIS_VERIFICATION_STATUSES, NO_WRITE, REASON_SHORT, RECORD_SAVED, RELOAD_FAILED,
   diagnosisStatus, field, refusedFieldErrors, rowVersion, text,
 } from './encounters'
+import { ListPaging } from './Notes'
 import type { RecordList } from './records'
 
 const ADD_FIELDS: readonly FieldDef[] = [
@@ -35,8 +36,9 @@ function detail(record: ClinicalRecord) {
 }
 
 /**
- * The encounter's diagnoses (today's Diagnoses tab): each with its code and status, "Change this diagnosis" while it
- * is not entered in error, and "Add diagnoses". Every change re-checks access first and is kept in the history.
+ * The encounter's diagnoses (today's Diagnoses tab), on today's record pages: each with its code and status, "Change
+ * this diagnosis" while it is not entered in error, and "Add diagnoses". Every change re-checks access first and is
+ * kept in the history; a new diagnosis shows the first page again, a change the page shown (today's reads).
  */
 export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onError }: {
   chart: Chart
@@ -51,10 +53,10 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onE
   const attempt = useRef<{ signature: string; key: string } | null>(null)
   const { facilityId, patientId } = chart
 
-  const afterChange = async (message: string) => {
+  const afterChange = async (message: string, first: boolean) => {
     onSaved(message)
-    const failure = await list.reload()
-    if (failure !== null) onError(`The change was saved, but the records could not be reloaded. ${failure}`.trim())
+    const failure = await list.reload(first)
+    if (failure !== null) onError(`${RELOAD_FAILED} ${failure}`.trim())
   }
 
   const add = async (values: FormValues): Promise<SubmitOutcome> => {
@@ -79,7 +81,7 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onE
     }
     attempt.current = null
     setAdded(count => count + 1)
-    await afterChange(RECORD_SAVED)
+    await afterChange(RECORD_SAVED, true)
   }
 
   const change = (record: ClinicalRecord) => {
@@ -111,7 +113,7 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onE
         }
       }
       setChanging(null)
-      await afterChange(DIAGNOSIS_UPDATED)
+      await afterChange(DIAGNOSIS_UPDATED, false)
     }
     return { validate, submit }
   }
@@ -119,6 +121,7 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onE
   return (
     <EhrCard title="Diagnoses">
       {list.error ? <ErrorBox>{list.error}</ErrorBox> : null}
+      <ListPaging list={list} />
       {list.items === null ? (list.loading ? <Loading label="Loading records…" /> : null) : list.items.length === 0 ? (
         <p>No diagnoses yet.</p>
       ) : (
@@ -161,7 +164,6 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onE
           })}
         </ul>
       )}
-      {list.more ? <p className="hid-ehr-clinical-note">Only the 50 most recent are shown.</p> : null}
       {canWrite ? (
         <>
           <SubHeading>Add a diagnosis</SubHeading>

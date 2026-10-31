@@ -20,10 +20,12 @@ import { DiagnosesCard } from './Diagnoses'
 import { DocumentsCard } from './Documents'
 import {
   AMEND_LABEL, CLOSING_STATUSES, EDIT_DRAFT_LABEL, ENCOUNTER_CHANGED, ENCOUNTER_CREATED, ENCOUNTER_STATUS_UPDATED, ENCOUNTER_TRANSITIONS,
-  NOTE_EIE_LABEL, NOTE_STATUS_UPDATED, NO_COMPLAINT, NO_WRITE, RECORD_SAVED, REASON_SHORT, REVISION_RECORDED, SIGN_LABEL, TITLE,
-  WRITE_NOTE_LABEL, consultationNote, diagnosisStatus, encounterClosesRecords, encounterTitle, encounterTypeLabel, field, isoNow,
-  recordStatus, refusedFieldErrors, retractionNotPermitted, rowVersion, text, useLatest,
+  NOTES_ARE_DRAFTS, NOTE_STATUS_UPDATED, NO_COMPLAINT, NO_WRITE, REASON_FIELD, RECORD_NOT_SAVED, RECORD_SAVED, RELOAD_FAILED, RELOAD_NOTE,
+  RELOAD_RECORD, REVISION_FAILED, REVISION_REASON_FIELD, REVISION_RECORDED, SAVE_DRAFT, SIGN_LABEL, STATUS_FAILED, TITLE, UPDATING,
+  WRITE_NOTE_LABEL, consultationNote, contentCheck, diagnosisStatus, encounterClosesRecords, encounterTitle, encounterTypeLabel, field,
+  isoNow, reasonCheck, recordStatus, refusedFieldErrors, retractionNotPermitted, rowVersion, text, useLatest,
 } from './encounters'
+import { NotesCard } from './Notes'
 import { EncounterOrders, orderPath } from './orders'
 import { KINDS } from './orders/orders'
 import { TodaySections } from './TodaySections'
@@ -99,21 +101,33 @@ interface ActionDef {
   /** The design's decision dialog: `word` asks for it typed (SIGN). */
   readonly confirm?: { readonly word?: string }
   readonly warning?: string
+  /** A plain line under the fields (today's "Notes are saved as drafts…"). */
+  readonly hint?: string
+  /** The submit button, when it is not the action's label (today's "Save draft"), and its busy label. */
+  readonly submit?: string
+  readonly busy?: string
   readonly initial?: FormValues
   readonly validate?: (values: FormValues) => FieldErrors
   readonly run: (values: FormValues) => Promise<SubmitOutcome>
 }
 
-const REASON_FIELD: FieldDef = { key: 'reason', label: 'Reason for change', required: true, maxLength: 500 }
-const reasonCheck = (values: FormValues): FieldErrors => text(values.reason).length < 3 ? { reason: REASON_SHORT } : {}
 const AMEND_FIELDS: readonly FieldDef[] = [
   { key: 'content', label: 'Amendment', type: 'textarea', required: true, maxLength: 100_000 },
   { key: 'reason', label: 'Reason', type: 'textarea', required: true, maxLength: 500 },
 ]
-const EDIT_FIELDS: readonly FieldDef[] = [{ key: 'content', label: 'Clinical note', type: 'textarea', required: true, maxLength: 100_000 }]
-const WRITE_FIELDS: readonly FieldDef[] = [{ key: 'content', label: 'Clinical note', type: 'textarea', required: true, maxLength: 100_000 }]
-const contentCheck = (values: FormValues): FieldErrors => text(values.content) ? {} : { content: 'Enter the revised note content.' }
-const RELOAD_FAILED = 'The change was saved, but the records could not be reloaded.'
+/** The draft's content, then today's revision reason: an edit is a revision, recorded under the clinician's reason. */
+const EDIT_FIELDS: readonly FieldDef[] = [{ key: 'content', label: 'Clinical note', type: 'textarea', required: true, maxLength: 100_000 }, REVISION_REASON_FIELD]
+/** Today's "Add notes" fields and limits (Clinical.tsx RecordForm, clinical-notes). */
+const WRITE_FIELDS: readonly FieldDef[] = [
+  { key: 'noteType', label: 'Note type', required: true, placeholder: 'Consultation', maxLength: 80 },
+  { key: 'title', label: 'Title', required: true, maxLength: 240 },
+  { key: 'content', label: 'Clinical note', type: 'textarea', required: true, maxLength: 100_000 },
+]
+const writeCheck = (values: FormValues): FieldErrors => {
+  const errors: Record<string, string> = {}
+  for (const key of ['noteType', 'title', 'content']) if (!text(values[key])) errors[key] = COMPLETE_FIELD
+  return errors
+}
 
 type Asking = { readonly label: string; readonly word?: string; readonly answer: (yes: boolean) => void }
 
@@ -145,7 +159,9 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   const prescriptions = useRecordList(chart, encounterId, 'prescriptions', reads.prescriptions)
   const labs = useRecordList(chart, encounterId, 'lab-requests', reads.labs)
   const documents = useDocumentList(chart, encounterId, reads.documents)
-  const note = consultationNote(notes.items)
+  // The Saved record summarises the encounter: its consultation note is read from the first page, whichever page the
+  // Notes card shows.
+  const note = consultationNote(notes.first)
   const revisions = useRevisions(chart, encounterId, note?.id ?? null, note?.rowVersion)
   const latest = revisions.items?.at(-1) ?? null
   // Nothing is signed or amended unseen: its content must have been read (today's rule).
@@ -164,19 +180,20 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     setSuccess(message)
     setFocusRequest(count => count + 1)
   }
-  const reloaded = async (...lists: RecordList<unknown>[]) => {
-    const failures = (await Promise.all(lists.map(list => list.reload()))).filter((failure): failure is string => failure !== null)
+  const reloaded = async (...reads: Promise<string | null>[]) => {
+    const failures = (await Promise.all(reads)).filter((failure): failure is string => failure !== null)
     if (failures.length > 0) setPageError(`${RELOAD_FAILED} ${failures[0]}`.trim())
   }
   const begin = () => { setSuccess(''); setPageError('') }
   const ask = (label: string, word?: string) => new Promise<boolean>(answer => setAsking({ label, word, answer }))
 
-  const noteRevision = (reason: string | null) => async (values: FormValues): Promise<SubmitOutcome> => {
+  /** A revision of the consultation note (the design's amendment, or an edit of the draft), under the typed reason. */
+  const noteRevision = async (values: FormValues): Promise<SubmitOutcome> => {
     if (!note) return
     const expectedRowVersion = rowVersion(note.rowVersion)
-    if (expectedRowVersion === null) return { formError: 'Reload the note before recording a revision.' }
+    if (expectedRowVersion === null) return { formError: RELOAD_NOTE }
     const content = text(values.content)
-    const changeReason = reason ?? text(values.reason)
+    const changeReason = text(values.reason)
     const signature = JSON.stringify([expectedRowVersion, content, changeReason])
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
     begin()
@@ -184,31 +201,34 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       await chart.verify()
       await staffApi.addNoteRevision(facilityId, patientId, encounterId, note.id, { expectedRowVersion, changeReason, content }, attempt.current.key)
     } catch (caught) {
-      return { formError: refusalText(caught, 'Note revision could not be recorded.'), fieldErrors: refusedFieldErrors(caught, { content: 'content', changeReason: 'reason' }) }
+      return { formError: refusalText(caught, REVISION_FAILED), fieldErrors: refusedFieldErrors(caught, { content: 'content', changeReason: 'reason' }) }
     }
     attempt.current = null
     finish(REVISION_RECORDED)
-    await reloaded(notes, revisions)
+    // The consultation note is on the first page: the list shows it again, with its revisions.
+    await reloaded(notes.reload(true), revisions.reload())
   }
 
-  const noteStatus = (status: string, reason: string | null) => async (values: FormValues): Promise<SubmitOutcome> => {
+  /** Today's note status change on the consultation note, under the clinician's typed reason. */
+  const noteStatus = (status: string) => async (values: FormValues): Promise<SubmitOutcome> => {
     if (!note) return
     const expectedRowVersion = rowVersion(note.rowVersion)
-    if (expectedRowVersion === null) return { formError: 'Reload the record before changing its status.' }
+    if (expectedRowVersion === null) return { formError: RELOAD_RECORD }
     begin()
     try {
       await chart.verify()
-      await staffApi.updateRecord(facilityId, patientId, encounterId, 'clinical-notes', note.id, { expectedRowVersion, changeReason: reason ?? text(values.reason), status })
+      await staffApi.updateRecord(facilityId, patientId, encounterId, 'clinical-notes', note.id, { expectedRowVersion, changeReason: text(values.reason), status })
     } catch (caught) {
-      return { formError: refusalText(caught, 'Status could not be changed.'), fieldErrors: refusedFieldErrors(caught, { changeReason: 'reason' }) }
+      return { formError: refusalText(caught, STATUS_FAILED), fieldErrors: refusedFieldErrors(caught, { changeReason: 'reason' }) }
     }
     finish(NOTE_STATUS_UPDATED)
-    await reloaded(notes)
+    await reloaded(notes.reload(true))
   }
 
+  /** Today's "Add notes": a draft of the type and title typed; the list shows its first page again. */
   const writeNote = async (values: FormValues): Promise<SubmitOutcome> => {
     if (!chart.canWrite) return { formError: NO_WRITE }
-    const body = { noteType: 'Consultation', title: 'Consultation note', status: 'draft', content: text(values.content) }
+    const body = { noteType: text(values.noteType), title: text(values.title), status: 'draft', content: text(values.content) }
     const signature = JSON.stringify(['clinical-notes', body])
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
     begin()
@@ -216,11 +236,11 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       await chart.verify()
       await staffApi.createRecord(facilityId, patientId, encounterId, 'clinical-notes', body, attempt.current.key)
     } catch (caught) {
-      return { formError: refusalText(caught, 'Record could not be saved.'), fieldErrors: refusedFieldErrors(caught, { content: 'content' }) }
+      return { formError: refusalText(caught, RECORD_NOT_SAVED), fieldErrors: refusedFieldErrors(caught, { noteType: 'noteType', title: 'title', content: 'content' }) }
     }
     attempt.current = null
     finish(RECORD_SAVED)
-    await reloaded(notes)
+    await reloaded(notes.reload(true))
   }
 
   const encounterStatus = (status: string) => async (values: FormValues): Promise<SubmitOutcome> => {
@@ -251,22 +271,23 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     }
     if (updated?.id === encounterId) setEncounter(updated)
     finish(ENCOUNTER_STATUS_UPDATED)
-    if (CLOSING_STATUSES.has(status)) await reloaded(notes, diagnoses, vitals, prescriptions, labs, documents)
+    if (CLOSING_STATUSES.has(status)) await reloaded(...[notes, diagnoses, vitals, prescriptions, labs, documents].map(list => list.reload()))
   }
 
+  // The design's actions on the consultation note, once its content was read (today's rule): "Sign note" for a draft
+  // (the design's typed SIGN dialog) and "Amend signed note". Every note, this one included, has today's own actions
+  // in the Notes card ("Mark entered in error" among them); "Write clinical note" is today's note form, always offered.
   const actions: ActionDef[] = []
   if (writes.notes && note && seen) {
-    if (note.status === 'draft') actions.push({ id: 'sign', label: SIGN_LABEL, fields: [], confirm: { word: 'SIGN' }, run: noteStatus('signed', SIGN_LABEL) })
-    if (note.status === 'signed' || note.status === 'amended') {
-      actions.push({ id: 'amend', label: AMEND_LABEL, fields: AMEND_FIELDS, validate: values => ({ ...contentCheck(values), ...reasonCheck(values) }), run: noteRevision(null) })
+    if (note.status === 'draft') {
+      actions.push({ id: 'sign', label: SIGN_LABEL, fields: [REASON_FIELD], confirm: { word: 'SIGN' }, validate: reasonCheck, busy: UPDATING, run: noteStatus('signed') })
     }
-    if (note.status !== 'entered_in_error') {
-      actions.push({ id: 'note-error', label: NOTE_EIE_LABEL, fields: [REASON_FIELD], confirm: {}, validate: reasonCheck, run: noteStatus('entered_in_error', null) })
+    if (note.status === 'signed' || note.status === 'amended') {
+      actions.push({ id: 'amend', label: AMEND_LABEL, fields: AMEND_FIELDS, validate: values => ({ ...contentCheck(values), ...reasonCheck(values) }), run: noteRevision })
     }
   }
-  // A consultation note marked entered in error is replaced by writing a new one (today offers the note form always).
-  if (writes.notes && notes.items !== null && (!note || note.status === 'entered_in_error')) {
-    actions.push({ id: 'write-note', label: WRITE_NOTE_LABEL, fields: WRITE_FIELDS, validate: (values): FieldErrors => text(values.content) ? {} : { content: COMPLETE_FIELD }, run: writeNote })
+  if (writes.notes) {
+    actions.push({ id: 'write-note', label: WRITE_NOTE_LABEL, fields: WRITE_FIELDS, hint: NOTES_ARE_DRAFTS, submit: SAVE_DRAFT, validate: writeCheck, run: writeNote })
   }
   if (writes.encounter) {
     for (const transition of ENCOUNTER_TRANSITIONS[encounter.status] ?? []) {
@@ -284,7 +305,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   }
 
   // A diagnosis entered in error or refuted (ruled out) is not the encounter's diagnosis; the Diagnoses card still lists it.
-  const currentDiagnoses = (diagnoses.items ?? [])
+  const currentDiagnoses = (diagnoses.first ?? [])
     .filter(item => item.verificationStatus !== 'entered_in_error' && item.verificationStatus !== 'refuted')
     .map(item => field(item, 'display')).filter(Boolean)
   const readsNone = !Object.values(reads).some(Boolean)
@@ -302,7 +323,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   // The page's one primary is "Sign note"; other note actions are secondary, and changes to the consultation itself quiet.
   const variantOf = (item: ActionDef) => item.id === 'sign' ? 'primary' : item.id.startsWith('encounter-') ? 'quiet' : 'secondary'
 
-  // In the order a clinician works: the note, diagnoses, orders, documents, then history and earlier versions.
+  // In the order a clinician works: the note, every note, diagnoses, orders, documents, then history and earlier versions.
   return (
     <>
       <RecordHeading title={`${TITLE} ${encounterTitle(encounter)}`} backHref={href()} />
@@ -325,9 +346,9 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
                   fields={EDIT_FIELDS}
                   initial={{ content: latest?.content ?? '' }}
                   submitLabel="Save draft"
-                  validate={contentCheck}
+                  validate={values => ({ ...contentCheck(values), ...reasonCheck(values) })}
                   disabled={revisions.loading}
-                  onSubmit={noteRevision('Draft edited')}
+                  onSubmit={noteRevision}
                 />
               ) : null}
             </div>
@@ -348,16 +369,21 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
               key={`${action.id}-${String(encounter.rowVersion)}-${String(note?.rowVersion)}`}
               fields={action.fields}
               initial={action.initial}
-              submitLabel={action.label}
+              submitLabel={action.submit ?? action.label}
+              busyLabel={action.busy}
               validate={action.validate}
               disabled={action.id === 'sign' && revisions.loading}
               onSubmit={submitAction(action)}
             >
+              {action.hint ? <p className="hid-ehr-clinical-note">{action.hint}</p> : null}
               {action.warning ? <p className="hid-ehr-clinical-consult-warning">{action.warning}</p> : null}
             </RecordForm>
           ) : null}
         </EhrCard>
       </DetailGrid>
+      {reads.notes ? (
+        <NotesCard chart={chart} encounterId={encounterId} list={notes} canWrite={writes.notes} onSaved={setSuccess} onError={setPageError} />
+      ) : null}
       {reads.diagnoses ? (
         <DiagnosesCard chart={chart} encounterId={encounterId} list={diagnoses} canWrite={writes.diagnoses} onSaved={setSuccess} onError={setPageError} />
       ) : null}
@@ -384,7 +410,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
 }
 
 function noteValue(notes: RecordList<ClinicalRecord>, note: ClinicalRecord | null, revisions: RecordList<NoteRevision>, latest: NoteRevision | null): ReactNode {
-  if (notes.items === null) {
+  if (notes.first === null) {
     if (notes.loading) return <span role="status">Loading records…</span>
     return notes.error ? <span role="alert">{notes.error}</span> : ''
   }

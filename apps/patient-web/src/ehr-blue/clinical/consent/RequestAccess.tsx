@@ -1,4 +1,4 @@
-import { normalizeHealthIdInput } from '@hid/contracts'
+import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
 import { Send } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -9,7 +9,7 @@ import { failureText } from '../parts/chart'
 import type { FieldErrors, FormValues } from '../parts/RecordForm'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import {
-  HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdInput, healthIdProblem, offeredHealthId,
+  HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem, offeredHealthId,
 } from './access'
 
 /** Today always asks for 60 minutes, so 60 is the default; the person may choose less (the design's 1 to 60). */
@@ -22,7 +22,10 @@ function text(values: FormValues, key: string): string {
   return typeof value === 'string' ? value : ''
 }
 
-/** Today's checks for an access request; the design's 1 to 60 minutes for the duration. */
+/**
+ * Today's checks for an access request; the design's 1 to 60 minutes for the duration. A Health ID of HID- alone (the
+ * field's start) is empty: "Enter the patient’s Health ID.".
+ */
 export function requestProblems(values: FormValues): FieldErrors {
   const errors: Record<string, string> = {}
   const hidProblem = healthIdProblem(normalizeHealthIdInput(text(values, 'hid')))
@@ -51,8 +54,8 @@ export function RequestAccess() {
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   const id = useId()
-  // A Health ID handed over from Patients, read once.
-  const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient))
+  // A Health ID handed over from Patients, read once; otherwise the field starts at HID-, as today's does.
+  const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient) || HEALTH_ID_PREFIX)
   useEffect(() => { dropOfferedHealthId() }, [])
   const [scope, setScope] = useState<Scope>('read_records')
   const [duration, setDuration] = useState(DEFAULT_MINUTES)
@@ -107,7 +110,7 @@ export function RequestAccess() {
           <Field label="Health ID" htmlFor={`${id}-hid`} hint={HID_FORMAT} hintId={`${id}-hid-hint`} error={errors.hid} errorId={`${id}-hid-error`}>
             <Input id={`${id}-hid`} value={hid} placeholder="HID-ADA2345" autoComplete="off" spellCheck={false}
               className="font-medium tracking-[.06em] uppercase" aria-invalid={errors.hid ? true : undefined} aria-describedby={describe('hid', true)}
-              onChange={event => { setHid(healthIdInput(event.target.value)); clear('hid') }} />
+              onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); clear('hid') }} />
           </Field>
 
           <fieldset className="m-0 flex flex-col gap-1.5 border-0 p-0">

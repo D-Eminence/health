@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, READ_ONLY, type Chart } from '../parts/chart'
-import { ConfirmSheet, LoadingRows, PatientBanner } from '../../../kasuwa/parts'
+import { LoadingRows } from '../../../kasuwa/parts'
 import { formatDate, formatWhen, shortId } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import type { PatientFacts } from '../parts/PatientHeader'
@@ -68,7 +68,6 @@ function PatientRecord({ chart }: { chart: Chart }) {
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   const [error, setError] = useState('')
-  const [confirming, setConfirming] = useState(false)
   const [ending, setEnding] = useState(false)
   const emergency = chart.purpose === 'emergency'
   // Read only (emergency, or a grant without changes): write actions are hidden, not offered as a dead end.
@@ -87,7 +86,6 @@ function PatientRecord({ chart }: { chart: Chart }) {
       await staffApi.closeGrant(chart.facilityId, grantId, CLOSE_REASON)
     } catch (caught) {
       setError(caught instanceof Error && caught.message ? caught.message : 'Couldn’t end your access. Please try again.')
-      setConfirming(false)
       return
     } finally {
       setEnding(false)
@@ -96,9 +94,18 @@ function PatientRecord({ chart }: { chart: Chart }) {
     navigate(href(), { state: { notice: CLOSED_NOTICE } })
   }
 
-  /** External record access opens only with identity.consent.write (the frame's rule): only then is the Health ID handed over. */
+  /**
+   * As the design's Next steps, a step shows only to a role that may take it: External record access opens only with
+   * identity.consent.write (the frame's rule, the permission its request form needs), the encounters list only with
+   * ehr.encounter.read (Consultation's).
+   */
+  const mayOpenConsent = can('identity.consent.write')
+  const mayOpenChart = chart.can('ehr.encounter.read')
+
+  /** The Health ID is handed over in memory only, and only where the request form can open and read it. */
   function openConsent() {
-    if (can('identity.consent.write')) offerHealthId(chart.patient.hid, chart.facilityId, setActivePatient)
+    if (!mayOpenConsent) return
+    offerHealthId(chart.patient.hid, chart.facilityId, setActivePatient)
     navigate(href.to('consent', 'new'))
   }
 
@@ -119,7 +126,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
           {grantId ? <div className="border-t border-line px-4 py-2.5">
             {closeUnavailable ? <p id="close-grant-unavailable" className="m-0 mb-1.5 text-[12px] text-ink-3">{closeUnavailable}</p> : null}
             <Button variant="danger" size="sm" icon={LogOut} disabled={closeUnavailable !== null} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}
-              onClick={() => setConfirming(true)}>End my access</Button>
+              loading={ending} onClick={() => void closeGrant()}>End my access</Button>
           </div> : null}
         </Card>
       </div>
@@ -127,7 +134,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
       <div className="flex min-w-0 flex-col gap-5">
         <PageHeader title={facts.name} description={about || undefined} back={{ to: href(), label: 'Back to find a patient' }}
           actions={emergency ? <Button variant="primary" icon={Siren} onClick={() => navigate(href.to('emergency', 'summary'))}>Open emergency summary</Button>
-            : <Button variant="primary" icon={FolderOpen} onClick={() => navigate(href.to('consult'))}>Open chart</Button>} />
+            : mayOpenChart ? <Button variant="primary" icon={FolderOpen} onClick={() => navigate(href.to('consult'))}>Open chart</Button> : undefined} />
         {/* Read only, said once. */}
         {emergency ? <Alert intent="warning" title="View only">{`Emergency access shows the emergency summary only. Nothing can be added or changed for ${facts.name}.`}</Alert>
           : chart.writeNotice ? <Alert intent="info" title="View only">{chart.writeNotice === READ_ONLY
@@ -144,16 +151,11 @@ function PatientRecord({ chart }: { chart: Chart }) {
             </> : null}
             {/* Appointments and walk-in visits are samples: offered only at the demo facilities. */}
             {isDemoFacility(chart.facilityId) ? <li><ListRow onClick={() => navigate(href.to('journey', 'new'))} leading={<IconChip size="sm" icon={UserPlus} />} title="Register a walk-in visit" subtitle="Sample at demo facilities" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
-            <li><ListRow onClick={openConsent} leading={<IconChip size="sm" icon={Send} />} title="Ask for more access" subtitle="More time, or the right to add records. The patient approves." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>
+            {mayOpenConsent ? <li><ListRow onClick={openConsent} leading={<IconChip size="sm" icon={Send} />} title="Ask for more access" subtitle="More time, or the right to add records. The patient approves." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
           </ul>
         </Card> : null}
         {!emergency && chart.can('ehr.encounter.read') ? <EncounterHistory chart={chart} canStart={!readOnly} /> : null}
       </div>
-      <ConfirmSheet open={confirming} onClose={() => setConfirming(false)} destructive busy={ending} confirmLabel="End my access"
-        title={`End your access to ${facts.name}?`}
-        subject={<PatientBanner name={facts.name} hid={facts.hid} dateOfBirth={facts.dateOfBirth} sex={facts.sex} compact />}
-        effect="You’ll need the patient’s approval to open their record again."
-        onConfirm={() => void closeGrant()} />
     </div>
   )
 }

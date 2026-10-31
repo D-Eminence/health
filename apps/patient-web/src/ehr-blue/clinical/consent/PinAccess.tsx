@@ -1,4 +1,4 @@
-import { normalizeHealthIdInput } from '@hid/contracts'
+import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
 import { KeyRound } from 'lucide-react'
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import { FormActions, FormPage } from '../../../kasuwa/parts'
@@ -8,8 +8,8 @@ import { staffApi } from '../../../staff/api'
 import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/session'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import {
-  HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdInput, healthIdProblem,
-  offeredHealthId, useOpenPatient,
+  HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem, offeredHealthId,
+  useOpenPatient,
 } from './access'
 
 export const PIN_PROBLEM = 'Enter the patient’s 4 to 8 digit access PIN.'
@@ -25,8 +25,8 @@ export function PinAccess() {
   const navigate = useNavigate()
   const id = useId()
   const openPatient = useOpenPatient()
-  // A Health ID handed over from Patients, read once.
-  const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient))
+  // A Health ID handed over from Patients, read once; otherwise the field starts at HID-, as today's does.
+  const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient) || HEALTH_ID_PREFIX)
   useEffect(() => { dropOfferedHealthId() }, [])
   const [pin, setPin] = useState('')
   const [problem, setProblem] = useState<{ field: 'hid' | 'pin'; message: string; alert: boolean } | null>(null)
@@ -86,7 +86,7 @@ export function PinAccess() {
             <Input id={hidId} autoComplete="off" spellCheck={false} required value={hid} placeholder="HID-ADA2345"
               className="font-medium tracking-[.06em] uppercase"
               aria-invalid={problem?.field === 'hid' ? true : undefined} aria-describedby={problem?.field === 'hid' ? `${hidId}-error` : `${hidId}-hint`}
-              onChange={event => { setHid(healthIdInput(event.target.value)); if (problem?.field === 'hid') setProblem(null) }} />
+              onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); if (problem?.field === 'hid') setProblem(null) }} />
           </Field>
           <Field label="Access PIN" htmlFor={pinId} hint="4 to 8 digits." hintId={`${pinId}-hint`} error={shown('pin')} errorId={`${pinId}-error`}>
             <Input id={pinId} type="password" inputMode="numeric" autoComplete="off" pattern="\s*(\d\s*){4,8}" maxLength={16} required

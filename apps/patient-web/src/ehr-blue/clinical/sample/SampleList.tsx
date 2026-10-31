@@ -57,6 +57,7 @@ export function SampleList({ id }: { id: string }) {
           rows={rows}
           hrefFor={row => href(row.id)}
           emptyMessage={all.length > 0 ? 'Change your search.' : 'Create the first record when you have the appropriate permission.'}
+          notice={<SampleBanner />}
         />
       </EhrCard>
       {definition.listNote ? <p className="hid-ehr-clinical-list-note">{definition.listNote}</p> : null}

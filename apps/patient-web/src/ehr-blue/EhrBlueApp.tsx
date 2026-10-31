@@ -15,7 +15,7 @@ import { resetSamples } from './frame/sample/store'
  * around it), sign-out and facility switch: only the look and the pages are new.
  */
 export default function EhrBlueApp() {
-  const { state } = useStaff()
+  const { state, lock } = useStaff()
   // Sample records are this person's at this facility: they go when either changes, and on sign-out.
   const owner = state.status === 'ready' ? `${state.session.actor.id}|${state.session.actor.facility?.id ?? ''}` : ''
   useLayoutEffect(() => () => resetSamples(), [owner])
@@ -24,7 +24,7 @@ export default function EhrBlueApp() {
   if (question) {
     return (
       <div className="hid-ehr hid-ehr-blue-standalone">
-        <main id="main-content" tabIndex={-1} className="hid-ehr-blue-standalone-main">
+        <main id="main-content" tabIndex={-1} className="hid-ehr-blue-standalone-main" hidden={lock !== null}>
           <ChooseWorkspace key={question} reason={question} />
         </main>
       </div>

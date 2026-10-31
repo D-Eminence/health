@@ -18,7 +18,7 @@
 
 .hid-ehr .hid-ehr-blue-facility {
   overflow: hidden;
-  color: var(--ehr-ink);
+  color: var(--ehr-text);
   font-size: 14px;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -68,11 +68,12 @@
 
 .hid-ehr .hid-ehr-blue-presence {
   position: absolute;
-  right: -1px;
-  bottom: -1px;
-  width: 8px;
-  height: 8px;
-  border: 2px solid var(--ehr-surface);
+  right: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  width: 11px;
+  height: 11px;
+  border: 2px solid #fff;
   border-radius: 50%;
   background: #17834b;
 }
@@ -570,6 +571,13 @@
 /* The sidebar ends above the status bar, as in the design. */
 .hid-ehr .hid-ehr-sidebar {
   height: calc(100vh - 56px);
+}
+
+/* A drawer's scrim leaves the status bar undimmed, as the design's does: only where the page has the bar. */
+@media (min-width: 701px) {
+  .hid-ehr.hid-ehr-shell:has(.hid-ehr-blue-statusbar) .hid-ehr-scrim.hid-ehr-scrim-drawer {
+    bottom: 56px;
+  }
 }
 
 .hid-ehr .hid-ehr-blue-statusbar {

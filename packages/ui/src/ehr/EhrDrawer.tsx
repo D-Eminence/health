@@ -12,8 +12,6 @@
  */
 
 import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
-import { HugeiconsIcon } from '@hugeicons/react'
-import Cancel01Icon from '@hugeicons/core-free-icons/Cancel01Icon'
 import { EhrModal } from './EhrAppShell'
 import { EhrButton } from './EhrButton'
 
@@ -76,15 +74,7 @@ function DrawerPanel({ title, onClose, dirty = false, children, returnFocusRef }
       <section className="hid-ehr-drawer" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
         <header className="hid-ehr-drawer-header">
           <h2 id={titleId} className="hid-ehr-overlay-title">{title}</h2>
-          <EhrButton
-            ref={closeRef}
-            variant="secondary"
-            size="sm"
-            icon={<HugeiconsIcon icon={Cancel01Icon} size={15} strokeWidth={1.65} aria-hidden />}
-            onClick={requestClose}
-          >
-            Close
-          </EhrButton>
+          <EhrButton ref={closeRef} variant="secondary" onClick={requestClose}>Close</EhrButton>
         </header>
         {choosing ? (
           <div className="hid-ehr-drawer-discard" role="group" aria-labelledby={choiceTitleId}>

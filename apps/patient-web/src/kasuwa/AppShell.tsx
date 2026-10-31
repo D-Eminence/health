@@ -134,7 +134,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
         {switcher.menu(() => setSwitching(false))}
       </div>}
     </div>
-    <nav className={cx('flex-1 overflow-y-auto pb-4 scroll-thin', rail ? 'px-2' : 'px-3')} aria-label="Main">
+    <nav className={cx('flex-1 overflow-y-auto pb-4 scroll-thin', rail ? 'px-2' : 'px-3')} aria-label="Main navigation">
       {nav.map((group, i) => { const open = rail || isOpen(group)
         // Groups are told apart by a thin divider (common region without boxes); a title names them when open.
         return <div key={group.title ?? i} className={cx(i > 0 && 'mt-2 border-t border-line pt-2')}>

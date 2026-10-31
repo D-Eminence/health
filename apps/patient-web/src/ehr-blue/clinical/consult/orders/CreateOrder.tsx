@@ -84,8 +84,8 @@ function refused(caught: unknown, fields: readonly FieldDef[]): SubmitOutcome {
 
 /**
  * The design's create page ("New pharmacy", "New laboratory") for a prescription or a lab request on this encounter,
- * with today's fields, limits, checks, calls and refusals. The patient and encounter carry in; "Save record" opens the
- * saved order.
+ * with today's fields, limits, checks, calls and refusals. The patient (in the banner, confirmed before saving) and
+ * encounter carry in; a new prescription also shows the patient's recorded allergies. Saving opens the saved order.
  */
 export function CreateOrder({ kind, chart, encounterId }: { kind: OrderKind; chart: Chart; encounterId: string }) {
   const href = useWorkspaceHref()
@@ -118,6 +118,46 @@ function usePatientCheck(chart: Chart) {
   const { ask, sheet } = useConfirm()
   const confirm = (effect: string, confirmLabel: string) => ask({ subject: <ChartBanner chart={chart} compact />, effect, confirmLabel })
   return { confirm, sheet }
+}
+
+type Reported = { readonly state: 'loading' | 'hidden' | 'none' | 'failed' } | { readonly state: 'shown'; readonly allergies: string }
+
+/**
+ * The patient's recorded allergies on a new prescription (the patient is named in the banner above). Restated word for word from NewConsultation.tsx and NewTriage.tsx, which keep theirs private. Today's only
+ * allergy record is what the patient reported in their Health ID portal, which today's chart page reads beside the
+ * prescription form (staff/routes/PatientReportedHealth.tsx, direct care with ehr.note.read): nothing is said while it
+ * loads, without ehr.note.read, or when EHR refuses (403) or does not serve it (404); "None recorded" only after a read
+ * that answered.
+ */
+function RecordedAllergies({ chart }: { chart: Chart }) {
+  const { facilityId, patientId } = chart
+  const reads = chart.can('ehr.note.read')
+  const [reported, setReported] = useState<Reported>({ state: reads ? 'loading' : 'hidden' })
+
+  useEffect(() => {
+    if (!reads) return
+    const controller = new AbortController()
+    staffApi.reportedHealthProfile(facilityId, patientId, controller.signal).then(
+      profile => controller.signal.aborted ? undefined : setReported(profile?.allergies ? { state: 'shown', allergies: profile.allergies } : { state: 'none' }),
+      caught => {
+        if (controller.signal.aborted) return
+        const hidden = !isHidApiError(caught) || caught.status === 403 || caught.status === 404
+        setReported({ state: hidden ? 'hidden' : 'failed' })
+      },
+    )
+    return () => controller.abort()
+  }, [facilityId, patientId, reads])
+
+  if (reported.state === 'loading' || reported.state === 'hidden') return null
+  return (
+    <p className="hid-ehr-clinical-note">
+      {reported.state === 'shown'
+        ? `Recorded allergies: ${reported.allergies} (patient-reported: entered by the patient in their Health ID portal, not clinically verified).`
+        : reported.state === 'failed'
+          ? 'Recorded allergies: what the patient entered about their health could not be loaded. Confirm with the patient.'
+          : 'Recorded allergies: None recorded. Confirm with the patient.'}
+    </p>
+  )
 }
 
 /** One Idempotency-Key per attempt: the same values sent again are the same create. */
@@ -185,6 +225,7 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
   return (
     <EhrCard>
       <OrderContext encounterId={encounterId} />
+      <RecordedAllergies chart={chart} />
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
       <RecordForm key={form} fields={PRESCRIPTION_FIELDS} validate={validate} onSubmit={submit} submitLabel="Save prescription"
         confirm={values => confirm(`Save this prescription of ${value(values, 'medicationDisplay')} for ${chart.facts.name}?`, 'Save prescription')}>

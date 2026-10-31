@@ -53,10 +53,12 @@ export function BlueHome() {
   const demo = isDemoFacility(facility?.id)
   const labRead = useWork<LabWorkItem>(facility?.id ?? '', demo && permissions.includes('lab.work-item.read'), loadLab)
   const rxRead = useWork<PharmacyWorkItem>(facility?.id ?? '', demo && permissions.includes('pharmacy.work-item.read'), loadPharmacy)
-  if (role.viewing) return <RoleDashboard role={role.viewing} />
+  // A sample dashboard is the demo's alone, even when chosen there before a switch to a clinic.
+  if (role.viewing && demo) return <RoleDashboard role={role.viewing} />
   if (!session) return null
   const name = session.actor.displayName ?? 'colleague'
-  const candidates = pages.filter(page => page.path !== '' && !page.group.startsWith('Design') && pageAllowed(page, session))
+  const candidates = pages.filter(page => page.path !== '' && !page.group.startsWith('Design') && pageAllowed(page, session)
+    && (page.listed?.(session) ?? true))
   const shortcuts = candidates.filter(page => (chosen ?? []).includes(page.path))
   const lab = permissions.includes('lab.work-item.read')
   const pharmacy = permissions.includes('pharmacy.work-item.read')
