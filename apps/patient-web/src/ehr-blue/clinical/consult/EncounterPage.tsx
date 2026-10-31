@@ -8,7 +8,7 @@ import { ChartGate, useChart, type Chart } from '../parts/chart'
 import {
   ActionList, ConfirmAction, DetailGrid, DetailMeta, HistoryCard, SavedRecord, VersionsCard, type HistoryItem, type VersionItem,
 } from '../parts/Detail'
-import { formatWhen, shortId, statusLabel } from '../parts/format'
+import { formatWhen, shortId } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import { MoreActions, type MoreActionItem } from '../parts/MoreActions'
 import { Banner, ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
@@ -653,12 +653,12 @@ function timeOf(value: string): number {
  */
 function versionItems(note: ClinicalRecord | null, revisions: readonly NoteRevision[] | null): VersionItem[] {
   if (!note || !revisions || revisions.length === 0) return []
-  const status = statusLabel(recordStatus(note, 'unknown'))
   const signedAt = field(note, 'signedAt')
   const signed = timeOf(signedAt)
   // A revision saved before signing was a draft's; one after it amends the signed note (EHR then marks it amended). A
-  // note with no signing time has only its own status to go by.
-  const savedAs = (revision: NoteRevision) => !signedAt ? status : timeOf(revision.createdAt) <= signed ? 'draft' : 'amended'
+  // note never signed was a draft at every revision, whatever it is now: EHR takes no revision of a note entered in
+  // error, so marking it so later does not change what its versions were saved as.
+  const savedAs = (revision: NoteRevision) => signedAt && timeOf(revision.createdAt) > signed ? 'amended' : 'draft'
   const entries: { at: string; item: VersionItem }[] = revisions.length < 2 ? [] : revisions.map(revision => ({
     at: revision.createdAt,
     item: {

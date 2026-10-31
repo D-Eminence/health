@@ -675,6 +675,21 @@ describe('Consultation record', () => {
     ])
   })
 
+  it('audit 14: names a never-signed note’s revisions "draft" once it is marked entered in error', async () => {
+    records['clinical-notes'] = [{ ...NOTE, status: 'entered_in_error' }]
+    api.noteRevisions.mockResolvedValue([
+      { ...REVISION, createdAt: '2026-10-29T09:31:00.000Z', changeReason: 'Initial note' },
+      { ...REVISION, id: 'rev-2', revisionNo: 2, content: 'History\nCough for four days.', changeReason: 'Added plan', createdAt: '2026-10-29T09:35:00.000Z' },
+    ])
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    const versions = await screen.findByRole('heading', { level: 2, name: 'Preserved versions & amendments' })
+    // Both were saved while the note was a draft; only the note itself is now entered in error.
+    expect(Array.from(versions.closest('section')!.querySelectorAll('summary')).map(summary => summary.textContent)).toEqual([
+      '2026-10-29T09:31:00.000Z · draft · Initial note',
+      '2026-10-29T09:35:00.000Z · draft · Added plan',
+    ])
+  })
+
   it('audit 14: shows no card for a draft with one revision', async () => {
     await openEncounter()
     expect(screen.queryByRole('heading', { level: 2, name: 'Preserved versions & amendments' })).toBeNull()
