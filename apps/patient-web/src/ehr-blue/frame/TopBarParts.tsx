@@ -9,8 +9,8 @@ import { usesNovuBackend } from '../../backendContract'
 import { isDemoFacility } from '../blueFacilities'
 import { useAccessRequests, useReloadAccessRequests } from './attention'
 import { DEMO_ROLES, useRoleView } from './roleView'
-import { modulePath } from './sample/paths'
 import { sampleModule, sampleRecords } from './sample/store'
+import { useSampleHref } from './pageContext'
 import { pageHrefOf } from './pageHref'
 import type { EhrBluePage } from './types'
 
@@ -69,6 +69,9 @@ export function NotificationsButton() {
   const navigate = useNavigate()
   const read = useAccessRequests()
   const reload = useReloadAccessRequests()
+  // Sample activity links only into a sample this session may open: a workspace closed to the role would send them
+  // Home, and a live page at the module's address would not find a sample record.
+  const hrefOf = useSampleHref()
   const pending = read.state === 'ready' ? read.pending : 0
   return <>
     <EhrButton variant="secondary" icon={<EhrIcon name="bell" />} onClick={() => { setOpen(true); reload() }}
@@ -92,11 +95,12 @@ export function NotificationsButton() {
         {SAMPLE_ACTIVITY.map(moduleId => {
           const module = sampleModule(moduleId)
           const record = sampleRecords(moduleId)[0]
-          if (!module || !record) return null
+          const href = hrefOf(moduleId)
+          if (!module || !record || href === null) return null
           return <li key={moduleId} className="hid-ehr-blue-list-item hid-ehr-blue-notification">
             <span>{module.title} record created</span>
             <EhrButton variant="secondary" size="sm" aria-label={`Open ${module.title} record`}
-              onClick={() => { setOpen(false); navigate(`${modulePath(moduleId)}/${record.id}`) }}>Open record</EhrButton>
+              onClick={() => { setOpen(false); navigate(`${href}/${record.id}`) }}>Open record</EhrButton>
           </li>
         })}
       </ul>
@@ -107,15 +111,33 @@ export function NotificationsButton() {
 /** The workspaces the design's notification list draws from (screens/panels/notifications-drawer.png). */
 const SAMPLE_ACTIVITY = ['appointments', 'quality', 'nursing', 'icu', 'referrals'] as const
 
-export function DemoChip({ facility }: { readonly facility: string }) {
+/**
+ * The demo chip, only at the demo facilities: what is live, and the demo's own controls (the sample dashboards of the
+ * design's sixteen roles, and the way back to today's staff portal).
+ */
+export function DemoChip({ facility, onClassic }: {
+  readonly facility: string
+  /** "Use the classic EHR": back to today's staff portal in this tab, until it reloads. */
+  readonly onClassic?: () => void
+}) {
   const navigate = useNavigate()
+  const role = useRoleView()
   return (
     <EhrPopover trigger="Demo" label="About this demo" triggerClassName="hid-ehr-blue-chip">
-      {close => <>
+      {close => <div className="hid-ehr-blue-menu">
         <p><strong>{facility} is a Health ID demo facility.</strong></p>
         <p className="hid-ehr-blue-muted">Live pages use Health ID. Pages marked as samples are not connected yet: their data is fictional and is gone when you reload.</p>
         <EhrButton variant="secondary" size="sm" onClick={() => { close(false); navigate('/provider/whats-left') }}>See what’s left</EhrButton>
-      </>}
+        <div className="hid-ehr-blue-roles" role="group" aria-labelledby="hid-ehr-blue-roles-title">
+          <p id="hid-ehr-blue-roles-title" className="hid-ehr-blue-muted">View Home as a demo role (sample)</p>
+          {role.viewing ? <EhrButton variant="quiet" size="sm" onClick={() => { close(); role.view(null); navigate('/provider') }}>My own dashboard</EhrButton> : null}
+          {DEMO_ROLES.map(demo => (
+            <EhrButton key={demo} variant="quiet" size="sm" aria-pressed={role.viewing === demo}
+              onClick={() => { close(); role.view(demo); navigate('/provider') }}>{demo}</EhrButton>
+          ))}
+        </div>
+        {onClassic ? <EhrButton variant="secondary" size="sm" onClick={() => { close(false); onClassic() }}>Use the classic EHR</EhrButton> : null}
+      </div>}
     </EhrPopover>
   )
 }
@@ -125,6 +147,11 @@ function initials(name: string): string {
   return (letters.length > 1 ? letters[0]! + letters.at(-1)! : letters[0] ?? 'H').slice(0, 2)
 }
 
+/**
+ * The account menu, as the design draws it (screens/panels/account-menu.png). At a clinic it also keeps "Use the classic
+ * EHR", the way back to today's portal during the switch-over; at a demo facility that is the Demo chip's, with the
+ * demo's other controls.
+ */
 export function AccountMenu({ onSample, onClassic }: {
   readonly onSample?: (panel: 'profile' | 'preferences' | 'help') => void
   /** "Use the classic EHR": back to today's staff portal in this tab, until it reloads. */
@@ -132,7 +159,6 @@ export function AccountMenu({ onSample, onClassic }: {
 }) {
   const { state, signOut } = useStaff()
   const navigate = useNavigate()
-  const role = useRoleView()
   const [signingOut, setSigningOut] = useState(false)
   const [error, setError] = useState('')
   if (state.status !== 'ready') return null
@@ -155,27 +181,21 @@ export function AccountMenu({ onSample, onClassic }: {
       {close => (
         <div className="hid-ehr-blue-menu">
           <p className="hid-ehr-blue-menu-name">{name}</p>
-          <p className="hid-ehr-blue-muted">{roles}{facility ? ` · ${facility.name}` : ''}</p>
+          <p className="hid-ehr-blue-muted">{roles}</p>
           {onSample ? <>
             <EhrButton variant="secondary" onClick={() => { close(false); onSample('profile') }}>My profile</EhrButton>
-            <EhrButton variant="secondary" onClick={() => { close(false); onSample('profile') }}>Status: Online</EhrButton>
+            <EhrButton variant="secondary" className="hid-ehr-blue-menu-status" onClick={() => { close(false); onSample('profile') }}>
+              Status: Online
+            </EhrButton>
             <EhrButton variant="secondary" onClick={() => { close(false); onSample('preferences') }}>Preferences</EhrButton>
             <EhrButton variant="secondary" onClick={() => { close(false); onSample('help') }}>Help</EhrButton>
           </> : null}
           {actor.facilities.length > 1 ? (
             <EhrButton variant="secondary" onClick={() => { close(false); navigate('/provider/institutions') }}>Switch facility</EhrButton>
           ) : null}
-          {onClassic ? <EhrButton variant="secondary" onClick={() => { close(false); onClassic() }}>Use the classic EHR</EhrButton> : null}
-          {/* The 16 sample dashboards are part of the demo: only at the demo facilities. */}
-          {isDemoFacility(facility?.id) ? <div className="hid-ehr-blue-roles" role="group" aria-labelledby="hid-ehr-blue-roles-title">
-            <p id="hid-ehr-blue-roles-title" className="hid-ehr-blue-muted">View Home as a demo role (sample)</p>
-            {role.viewing ? <EhrButton variant="quiet" size="sm" onClick={() => { close(); role.view(null); navigate('/provider') }}>My own dashboard</EhrButton> : null}
-            {DEMO_ROLES.map(demo => (
-              <EhrButton key={demo} variant="quiet" size="sm" aria-pressed={role.viewing === demo}
-                onClick={() => { close(); role.view(demo); navigate('/provider') }}>{demo}</EhrButton>
-            ))}
-          </div> : null}
-          <EhrButton variant="secondary" icon={<EhrIcon name="signOut" />} busy={signingOut} onClick={leave}>
+          {onClassic && !isDemoFacility(facility?.id)
+            ? <EhrButton variant="secondary" onClick={() => { close(false); onClassic() }}>Use the classic EHR</EhrButton> : null}
+          <EhrButton variant="secondary" busy={signingOut} onClick={leave}>
             {signingOut ? 'Signing out…' : 'Sign out'}
           </EhrButton>
         </div>

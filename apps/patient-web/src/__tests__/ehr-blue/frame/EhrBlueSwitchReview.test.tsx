@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import {
-  DEMO_HOSPITAL, DEMO_LABORATORY, REAL_FACILITY, REQUESTS, SESSION, facility, json, openStaffApp, serve, sessionAt, withFramePages,
+  DEMO_HOSPITAL, DEMO_LABORATORY, REAL_FACILITY, REQUESTS, SESSION, facility, json, openStaffApp, serve, sessionAt, where, withFramePages,
 } from './blueHarness'
 
 /**
@@ -39,31 +39,47 @@ describe('2. the demo\'s sample dashboards, and Choose workspace as the live fac
     expect(within(panel).queryByRole('button', { name: 'Doctor' })).toBeNull()
   })
 
-  it('offers them at a demo facility', async () => {
+  it('offers them at a demo facility, under the Demo chip', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp('/provider')
     await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
-    const panel = screen.getByRole('region', { name: 'Account' })
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
+    const panel = screen.getByRole('region', { name: 'About this demo' })
     expect(within(panel).getByRole('group', { name: 'View Home as a demo role (sample)' })).toBeDefined()
     expect(within(panel).getByRole('button', { name: 'Doctor' })).toBeDefined()
   })
 
-  it('lists Choose workspace beside Home, out of the design review, for whoever has a facility to switch to', async () => {
+  it('opens Choose workspace from Switch facility as a page of its own, with no sidebar entry (admin/institutions)', async () => {
     switchedOn()
     const riverside = facility(REAL_FACILITY, 'Riverside Teaching Hospital (fictional)', [])
     const annex = facility(ANNEX, 'Riverside Annex (fictional)', [])
     serve({ [SESSION]: [sessionAt(riverside, [riverside, annex])] })
     await openStaffApp('/provider')
     await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
-    const choose = within(nav()).getByRole('link', { name: 'Choose workspace' })
-    const home = within(nav()).getByRole('link', { name: 'Home' })
-    // In the same, unheaded group as Home.
-    expect(choose.closest('ul')).toBe(home.closest('ul'))
+    expect(within(nav()).queryByRole('link', { name: 'Choose workspace' })).toBeNull()
     expect(within(nav()).queryByRole('button', { name: 'Design review' })).toBeNull()
-    fireEvent.click(choose)
+    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Switch facility' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Choose your workspace' })).toBeDefined()
+    expect(screen.getByText('Select one of your facility memberships.')).toBeDefined()
+    // Outside the frame: no sidebar and no top bar.
+    expect(screen.queryByRole('navigation', { name: 'Main navigation' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Account menu' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Home' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })).toBeDefined()
+  })
+
+  it('names the tab Choose workspace, not today\'s Page not found', async () => {
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
+    const laboratory = facility(DEMO_LABORATORY, 'Demo Laboratory', [])
+    serve({ [SESSION]: [sessionAt(demo, [demo, laboratory])] })
+    await openStaffApp('/provider')
+    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
+    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Switch facility' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Choose your workspace' })).toBeDefined()
+    await waitFor(() => expect(document.title).toBe('Choose workspace · Health ID EHR'))
   })
 
   it('does not list it for someone with one facility, and keeps only What\'s left in a demo\'s design review', async () => {
@@ -126,19 +142,22 @@ describe('3. the page is hidden under the lock screen', () => {
 })
 
 describe('5. today\'s page refuses only where it reads nothing first', () => {
+  const NOTICE = 'Your current permissions no longer allow that page. Choose an authorized workflow.'
+
   async function standIns() {
     const { TODAY_PATHS } = await import('../../../ehr-blue/frame/pages')
     return [...TODAY_PATHS]
   }
 
-  it('leaves Access requests and Clinical record to the frame: they read before refusing', async () => {
-    for (const [path, label] of [['requests', 'External record access'], ['clinical', 'Consultation']] as const) {
+  it('leaves Access requests and Clinical record to the frame, which sends Home: they read before refusing', async () => {
+    for (const path of ['requests', 'clinical']) {
       vi.resetModules()
       withFramePages()
       const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
       const sent = serve({ [SESSION]: [sessionAt(demo, [demo])] })
       const { unmount } = await openStaffApp(`/provider/${path}`)
-      expect(await screen.findByText(`${label} is not open to you here`)).toBeDefined()
+      expect(await screen.findByText(NOTICE)).toBeDefined()
+      expect(where()).toBe('/provider')
       await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
       expect(sent.map(call => call.route)).toEqual([SESSION])
       unmount()

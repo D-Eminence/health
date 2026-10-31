@@ -90,6 +90,7 @@ export const pages: EhrBluePage[] = [
   page('staff', 'People', 'Staff & access', 'users', 'partial', createElement(StaffAccessPage), 'workforce.manage'),
 
   sample('quality', 'Administration', 'Quality & Safety', 'flag'),
+  // A sample, so the design's roles decide (sampleAccess.ts): Platform Super Admin only.
   demoOnly(page('platform', 'Administration', 'Facility review', 'review', 'sample', createElement(PlatformReviewSample))),
 
   sample('services', 'Settings', 'Service catalogue', 'tag'),
@@ -108,10 +109,9 @@ export const pages: EhrBluePage[] = [
   // Listed only at the demo facilities; everywhere, the account menu's Switch facility opens it.
   demoOnly(page('whats-left', 'Design review', 'What’s left', 'checklist', 'live', createElement(WhatsLeft))),
 
-  // The live facility switch (the account menu's Switch facility), beside Home: listed for whoever has more than one
-  // facility to choose from, as Switch facility is.
-  { ...page('institutions', '', 'Choose workspace', 'building', 'live', createElement(ChooseWorkspacePage)),
-    listed: session => session.actor.facilities.length > 1 },
+  // The live facility switch: the account menu's Switch facility opens it, as a page of its own (EhrBlueApp). The
+  // design's sidebar has no entry for it.
+  { ...page('institutions', '', 'Choose workspace', 'building', 'live', createElement(ChooseWorkspacePage)), listed: () => false },
 
   // The design's journeys, as an interactive tour: samples, asking for no password and sending nothing.
   demoOnly(page('tour', 'Design tour', 'Design tour', 'tour', 'sample', createElement(DesignTourIndex))),

@@ -18,9 +18,11 @@ describe('the frame\'s audit minors', () => {
   })
 
   it('18. leaves the status bar undimmed under a drawer\'s scrim, beside the rail only', () => {
-    const selector = '.hid-ehr.hid-ehr-shell:has(.hid-ehr-blue-statusbar) .hid-ehr-scrim.hid-ehr-scrim-drawer'
-    expect(at(selector, 'bottom')).toBe(at('.hid-ehr .hid-ehr-blue-statusbar', 'height'))
-    expect(at(selector, 'bottom', 390)).toBeUndefined()
+    // The dimming stops above the bar; the clear scrim itself still covers it, so a press there keeps focus in the drawer.
+    const scrim = '.hid-ehr.hid-ehr-shell:has(.hid-ehr-blue-statusbar) .hid-ehr-scrim.hid-ehr-scrim-drawer'
+    expect(at(`${scrim}::before`, 'bottom')).toBe(at('.hid-ehr .hid-ehr-blue-statusbar', 'height'))
+    expect(at(`${scrim}::before`, 'bottom', 390)).toBeUndefined()
+    expect(at(scrim, 'bottom')).toBeUndefined()
   })
 
   it('20. draws the presence dot at the design\'s 11px, white-ringed, at the avatar\'s corner', () => {

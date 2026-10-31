@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { EhrBadge, EhrButton } from '@hid/ui/ehr'
@@ -10,13 +10,13 @@ import type { FacilityChoiceReason } from '../../staff/facilitySelection'
 /** Why the question is asked: as Identity reports the selection, 'lost' mid-session, or 'switch' from the account menu. */
 export type WorkspaceQuestion = FacilityChoiceReason | 'lost' | 'switch'
 
-// Today's words for each reason (staff/App.tsx FacilityChoice), so the blue question says what today's says.
-const WHY: Record<WorkspaceQuestion, string> = {
+// Today's words for each reason (staff/App.tsx FacilityChoice), so the blue question says what today's says. Switch
+// facility says only the design's line.
+const WHY: Record<Exclude<WorkspaceQuestion, 'switch'>, string> = {
   reselect: 'The facility you chose for this sign-in is no longer available to you.',
   unchosen: 'You work at more than one facility.',
   unconfirmed: 'The facility for this sign-in is not confirmed.',
   lost: 'The facility you were working at is no longer available to you. The page you had open was closed, along with any patient record, and anything not yet saved there was not sent.',
-  switch: 'Switching moves you to that facility’s workspace.',
 }
 
 /** A choice Identity refused, in words the person can act on (today's facilityRefusal). */
@@ -31,13 +31,19 @@ function refusal(caught: unknown, facility: string): string {
  * facility's button is pressed. Asked before any page opens (`reason`), or opened from the account menu to switch.
  */
 export function ChooseWorkspace({ reason, onChosen }: { readonly reason: WorkspaceQuestion; readonly onChosen?: () => void }) {
-  const { state, selectFacility, signOut, activePatient } = useStaff()
+  const { state, selectFacility, signOut, activePatient, lock } = useStaff()
   const navigate = useNavigate()
   const heading = useRef<HTMLHeadingElement>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [signOutError, setSignOutError] = useState('')
   useLayoutEffect(() => { heading.current?.focus() }, [])
+  // Today's ProviderTitle (staff/App.tsx) names this address "Page not found": today's portal has no such page. Switch
+  // facility is the blue EHR's own page, so it names the tab as the frame names its pages, again after the lock screen.
+  // The question asked before any page opens keeps today's "Where are you working?".
+  useEffect(() => {
+    if (reason === 'switch' && lock === null) document.title = 'Choose workspace · Health ID EHR'
+  }, [reason, lock])
   if (state.status !== 'ready') return null
   const { actor } = state.session
   const current = reason === 'switch' ? actor.facility?.id : undefined
@@ -68,7 +74,8 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
         Choose your workspace
       </h1>
       <p id="hid-ehr-blue-chooser-why" className="hid-ehr-blue-chooser-why">
-        {WHY[reason]} Select one of your facility memberships. Patient access, records and requests use the facility you choose.
+        {reason === 'switch' ? 'Select one of your facility memberships.'
+          : `${WHY[reason]} Select one of your facility memberships. Patient access, records and requests use the facility you choose.`}
         {activePatient && reason === 'switch' ? ' The open patient record will close.' : ''}
       </p>
       <ul className="hid-ehr-blue-chooser-list">
@@ -98,7 +105,7 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
   )
 }
 
-/** The account menu's Switch facility, as a page of the frame. */
+/** The account menu's Switch facility. EhrBlueApp draws it as a page of its own, outside the frame, as the design does. */
 export function ChooseWorkspacePage() {
   return <ChooseWorkspace reason="switch" />
 }
