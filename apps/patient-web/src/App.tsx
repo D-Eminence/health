@@ -32,10 +32,11 @@ const ClinicianApplicationStatus = lazy(async () => ({
   default: (await import('./staff/routes/ClinicianApplicationStatus')).ClinicianApplicationStatus }))
 const AdminApp = lazy(async () => ({ default: (await import('./admin/App')).App }))
 const StaffInvitation = lazy(async () => ({ default: (await import('./staff/routes/StaffInvitation')).StaffInvitation }))
-// The blue EHR's recovery and invitation, once the clinic switch is on (BLUE_FOR_ALL, as for sign-up above, so nothing
-// of the blue EHR reaches this bundle): today's steps and words.
-const BlueRecovery = lazy(async () => ({ default: (await import('./ehr-blue/frame/auth/BlueRecovery')).BlueRecovery }))
-const BlueStaffInvitation = lazy(async () => ({ default: (await import('./ehr-blue/frame/auth/BlueStaffInvitation')).BlueStaffInvitation }))
+// The blue EHR's recovery and invitation, once the clinic switch is on (BLUE_FOR_ALL, as for sign-up above): today's
+// steps and words. Marked pure so that, while the switch is off and nothing uses them, the build drops both calls and
+// the entry bundle names no blue chunk.
+const BlueRecovery = /* @__PURE__ */ lazy(async () => ({ default: (await import('./ehr-blue/frame/auth/BlueRecovery')).BlueRecovery }))
+const BlueStaffInvitation = /* @__PURE__ */ lazy(async () => ({ default: (await import('./ehr-blue/frame/auth/BlueStaffInvitation')).BlueStaffInvitation }))
 
 function PatientNotFound() {
   useDocumentTitle('Page not found · Health ID')

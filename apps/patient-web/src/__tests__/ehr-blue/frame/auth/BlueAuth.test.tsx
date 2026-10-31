@@ -203,5 +203,10 @@ describe('the blue sign-in pages', () => {
       const lines = readFileSync(path, 'utf8').split('\n').filter(line => /frame\/auth\//.test(line))
       for (const line of lines) expect(line).toMatch(/lazy\(async \(\) => \(\{ default: \(await import\('[^']*frame\/auth\//)
     }
+    // App.tsx is the entry bundle's own module: its lazy() calls are marked pure, so while the switch is off and the
+    // routes never use them the build drops them, and the entry names no blue chunk (React.lazy is not known pure).
+    const entry = readFileSync(join(source, 'App.tsx'), 'utf8').split('\n').filter(line => /frame\/auth\//.test(line))
+    expect(entry.length).toBeGreaterThan(0)
+    for (const line of entry) expect(line).toMatch(/= \/\* @__PURE__ \*\/ lazy\(/)
   })
 })
