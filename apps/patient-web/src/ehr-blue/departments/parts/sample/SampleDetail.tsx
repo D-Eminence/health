@@ -46,9 +46,10 @@ function confirmFor(action: SampleAction): SampleConfirm | undefined {
  * under the actions once chosen); "Connected hospital history" on a record about a patient; and "Preserved versions &
  * amendments".
  *
- * "Edit record" is the design's "Edit unsigned draft" pattern (as on HR & Credentials): a button in "Saved record"
- * while the record is still in the status it was created in, opening the fields there with "Save changes"; each edit
- * keeps the version before.
+ * "Edit record" is the design's "Edit unsigned draft" pattern (as on HR & Credentials), offered only where the
+ * definition sets `editable` (none does today: the design's sample record views have no such button): a button in
+ * "Saved record" while the record is still in the status it was created in, opening the fields there with "Save
+ * changes"; each edit keeps the version before.
  */
 export function SampleDetail({ base, definition, record, onBack, onAct, onEdit, focus, savedHeadingId }: SampleDetailProps) {
   const uid = useId()
@@ -57,7 +58,7 @@ export function SampleDetail({ base, definition, record, onBack, onAct, onEdit, 
   const editFormId = `${uid}-edit-form`
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
-  const editable = record.status === definition.initial
+  const editable = definition.editable === true && record.status === definition.initial
   const { href, follow } = useSiblingPages(base)
   const patient = samplePatient(record.patientId)
   const available = definition.actions.filter(action => action.from.includes(record.status))

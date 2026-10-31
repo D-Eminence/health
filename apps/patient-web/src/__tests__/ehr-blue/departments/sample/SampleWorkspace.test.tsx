@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Route, Routes } from 'react-router-dom'
 import { useSiblingPages } from '../../../../ehr-blue/departments/parts/sample/navigation'
+import { samplePages } from '../../../../ehr-blue/departments/sample/pages'
 import { renderDept } from '../harness'
 import {
   actionButtons, guardBrowser, heading, noticeUnderHeading, renderSample, SAMPLE_TEXT, savedFacts, statusBadge, where,
@@ -470,7 +471,8 @@ describe('the design\'s refusals', () => {
     expect(refusal()).toBe('Pack size must be positive and reorder threshold cannot be negative.')
     stock.unmount()
 
-    renderSample('services')
+    // No workspace offers "Edit record" today; the rule still holds for a definition that would.
+    renderSample('services', { editable: true })
     openRecord('Malaria test')
     fireEvent.click(screen.getByRole('button', { name: 'Edit record' }))
     type('Price', '-1', 'spinbutton')
@@ -527,13 +529,63 @@ describe('the design\'s refusals', () => {
   })
 })
 
-describe('Edit record', () => {
+describe('no Edit record on the sample records (the design has none)', () => {
+  function noEdit() {
+    expect(screen.queryByRole('button', { name: /^(Edit record|Cancel editing|Save changes)$/ })).toBeNull()
+    const saved = screen.getByRole('heading', { name: 'Saved record' }).closest('section')!
+    // An invoice's "Print" is the design's own; nothing else is a button in the card.
+    expect(within(saved).queryAllByRole('button').filter(button => button.textContent !== 'Print')).toEqual([])
+    expect(saved.querySelector('form')).toBeNull()
+  }
+
+  it.each([
+    ['patient-billing', 'DEMO-3', 'draft', ['Issue invoice', 'Void invoice']],
+    ['policies', 'POL-DEMO', 'active', []],
+    ['supply', 'Fictional Med A', 'active', ['Receive stock', 'Consume / adjust stock', 'Transfer stock']],
+    ['procurement', 'Quarterly restock', 'requested', ['Approve request']],
+    ['services', 'Fictional consultation', 'active', []],
+  ])('shows "Saved record" without it on %s %s, still in the status it was created in (%s)', (path, name, status, actions) => {
+    renderSample(path)
+    openRecord(name)
+    expect(statusBadge()).toBe(status)
+    noEdit()
+    expect(actionButtons().map(button => button.textContent)).toEqual(actions)
+  })
+
+  it('shows it on no record of any sample page, whatever its status', () => {
+    for (const page of samplePages) {
+      const view = renderSample(page.path.replace('/*', ''))
+      const count = within(screen.getByRole('table')).getAllByRole('row').length - 1
+      expect(count).toBeGreaterThan(0)
+      for (let index = 0; index < count; index += 1) {
+        const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1)
+        fireEvent.click(within(rows[index]!).getAllByRole('button')[0]!)
+        noEdit()
+        fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+      }
+      view.unmount()
+    }
+  })
+
+  it('shows it on no record just created', () => {
+    renderSample('services')
+    fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
+    type('Service name', 'Wound dressing (fictional)')
+    type('Price', '2000', 'spinbutton')
+    fireEvent.click(screen.getByRole('button', { name: 'Save record' }))
+    expect(heading().textContent).toBe('Wound dressing (fictional)')
+    expect(statusBadge()).toBe('active')
+    noEdit()
+  })
+})
+
+describe('Edit record, where a definition sets editable', () => {
   function editToggle() {
     return within(screen.getByRole('heading', { name: 'Saved record' }).closest('section')!).getByRole('button', { name: /^(Edit record|Cancel editing)$/ })
   }
 
   it('opens the fields in "Saved record", saves the edit in memory and keeps the version before', () => {
-    renderSample('patient-billing')
+    renderSample('patient-billing', { editable: true })
     openRecord('DEMO-3')
     const toggle = editToggle()
     expect(toggle.textContent).toBe('Edit record')
@@ -582,7 +634,7 @@ describe('Edit record', () => {
   })
 
   it('keeps the record as it was on Cancel editing and gives focus back to the button', () => {
-    renderSample('services')
+    renderSample('services', { editable: true })
     openRecord('Malaria test')
     fireEvent.click(editToggle())
     type('Service name', 'Changed (fictional)')
@@ -601,7 +653,7 @@ describe('Edit record', () => {
   })
 
   it('renames a record named by its fields, and is offered only while the record keeps the status it was created in', () => {
-    renderSample('quality')
+    renderSample('quality', { editable: true })
     openRecord('Near-miss labelling (fictional)')
     fireEvent.click(editToggle())
     type('Incident title', 'Near-miss labelling, ward 2 (fictional)')
