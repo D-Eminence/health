@@ -45,6 +45,12 @@ export const otherFacilityItem: PharmacyWorkItem = {
   id: 'd4e5f6a7-work-item-4', patientId: PATIENT_D, version: 2, acceptedAt: '2026-10-08T11:15:00.000Z',
   medication: { display: IBUPROFEN }, doseQuantity: 1, doseUnit: 'tablet', frequency: 'Every eight hours as needed', dispensing: null,
 }
+/** Another prescription for Patient A (the accepted item's patient), dispensed. */
+export const samePatient: PharmacyWorkItem = {
+  id: 'f7a8b9c0-work-item-5', patientId: PATIENT_A, version: 5, acceptedAt: '2026-10-05T16:20:00.000Z',
+  medication: { display: IBUPROFEN }, doseQuantity: 1, doseUnit: 'tablet', frequency: 'Every eight hours as needed',
+  dispensing: { id: 'dispensing-5', reversed: false },
+}
 /** The accepted item once its dispensing is recorded. */
 export const nowDispensed: PharmacyWorkItem = { ...accepted, version: 4, dispensing: { id: 'dispensing-9', reversed: false } }
 
@@ -99,6 +105,32 @@ export function actionsCard(): HTMLElement {
 /** The open record's "Saved record" card. */
 export function savedRecord(): HTMLElement {
   return screen.getByRole('heading', { name: 'Saved record' }).closest('section') as HTMLElement
+}
+
+/** The open record's "Connected hospital history" card. */
+export function connectedCard(): HTMLElement {
+  return screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section') as HTMLElement
+}
+
+/** The open record's "Preserved versions & amendments" card. */
+export function versionsCard(): HTMLElement {
+  return screen.getByRole('heading', { name: 'Preserved versions & amendments' }).closest('section') as HTMLElement
+}
+
+/** Each entry of "Preserved versions & amendments", by its summary line. */
+export function versions(): string[] {
+  return [...versionsCard().querySelectorAll('details > summary')].map(summary => summary.textContent ?? '')
+}
+
+/**
+ * The page's parts that are shown, in order, under its heading: cards, notices, reused staff parts and alerts (the list
+ * card as "list"), so a test can say what comes first.
+ */
+export function shownParts(): HTMLElement[] {
+  const page = document.querySelector('.hid-ehr-dept')
+  if (!page) throw new Error('No page')
+  return [...page.querySelectorAll<HTMLElement>('.hid-ehr-card, .hid-ehr-dept-notice, .hid-ehr-dept-embedded, [role="alert"]')]
+    .filter(part => !part.closest('[hidden]') && !part.parentElement?.closest('.hid-ehr-card, .hid-ehr-dept-notice, .hid-ehr-dept-embedded, [role="alert"]'))
 }
 
 /** What the record's status region says: mounted with the record, empty until something is recorded. */

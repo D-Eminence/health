@@ -1,0 +1,17 @@
+/*
+ * Pharmacy: the few rules beyond departments.css. Every rule sits under .hid-ehr with the page's prefix.
+ */
+
+/* Refresh list under a list that could not be read (the design has no Refresh list beside the heading). */
+.hid-ehr .hid-ehr-dept-pharmacy-retry {
+  margin: -8px 0 20px;
+}
+
+/* "Connected hospital history": each prescription a link at the card's text size, and its status. */
+.hid-ehr .hid-ehr-dept-pharmacy-connected {
+  margin-top: 4px;
+}
+
+.hid-ehr .hid-ehr-dept-pharmacy-connected .hid-ehr-dept-link {
+  font-size: inherit;
+}

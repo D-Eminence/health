@@ -5,8 +5,8 @@ import type { PharmacyWorkItem } from '../../../../staff/api'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
 import { DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 import {
-  accepted, actionsCard, ALL, AMOXICILLIN, contextLine, CREATE, deferred, DISPENSING_READ, dispensed, expectNoFullPatientIds,
-  METFORMIN, nowDispensed, READ, recorded, refusal, REVERSE, reversed, SALBUTAMOL,
+  accepted, actionsCard, ALL, AMOXICILLIN, connectedCard, contextLine, CREATE, deferred, DISPENSING_READ, dispensed, expectNoFullPatientIds,
+  IBUPROFEN, METFORMIN, nowDispensed, READ, recorded, refusal, REVERSE, reversed, SALBUTAMOL, samePatient,
 } from './fixtures'
 
 /**
@@ -212,8 +212,7 @@ describe('Dispense quantity', () => {
   it.each([
     [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED],
     [409, 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED', 'A full dispensing is already recorded for this work item; partial dispensing is not supported'],
-    [412, 'PHARMACY_WORK_ITEM_VERSION_CONFLICT', WORK_ITEM_VERSION_CONFLICT],
-  ])('says a %i refusal in the form’s error box, with the design’s retry line, and keeps the form', async (status, code, message) => {
+  ])('says a %i refusal in the form’s error box, with the design’s retry line, keeps the form, and reads nothing', async (status, code, message) => {
     api.dispense.mockRejectedValueOnce(new HidApiError(status, message, { code }))
     await openRecord(AMOXICILLIN)
     const form = openDispense()
@@ -226,6 +225,73 @@ describe('Dispense quantity', () => {
     expect(within(form).getByRole('button', { name: 'Dispense quantity' }).getAttribute('aria-disabled')).toBeNull()
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
     expectNoFullPatientIds()
+  })
+
+  it('says a 412 refusal in the form’s error box and keeps the form, holding it while the work is read again', async () => {
+    const reread = deferred<{ items: PharmacyWorkItem[] }>()
+    api.pharmacyWorkItems.mockResolvedValueOnce({ items: [accepted] }).mockReturnValueOnce(reread.promise)
+    api.dispense.mockRejectedValueOnce(new HidApiError(412, WORK_ITEM_VERSION_CONFLICT, { code: 'PHARMACY_WORK_ITEM_VERSION_CONFLICT' }))
+    await openRecord(AMOXICILLIN)
+    const form = openDispense()
+    fillDispensing(form, { quantity: '21', reason: REASON })
+    submitDispensing(form)
+    expect((await within(form).findByRole('alert')).textContent).toBe(WORK_ITEM_VERSION_CONFLICT)
+    expect(within(form).getByText('Correct the issue or retry using the same button. No success is reported until saved.')).toBeTruthy()
+    // The design has no Refresh list: the work is read again at once, and the form can't be sent until it has been.
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
+    expect(api.pharmacyWorkItems).toHaveBeenLastCalledWith(DEMO_PHARMACY_ID)
+    const busy = within(form).getByRole('button', { name: 'Saving…' })
+    fireEvent.click(busy)
+    expect(api.dispense).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Back to list' }).getAttribute('aria-disabled')).toBe('true')
+    await act(async () => { reread.resolve({ items: [{ ...accepted, version: 4 }] }) })
+    expect(within(form).getByRole('button', { name: 'Dispense quantity' }).getAttribute('aria-disabled')).toBeNull()
+    expect(within(form).getByRole('alert').textContent).toBe(WORK_ITEM_VERSION_CONFLICT)
+    expect((within(form).getByRole('spinbutton', { name: 'Units to dispense' }) as HTMLInputElement).value).toBe('21')
+    expect(recorded()).toBe('')
+    expect(within(contextLine()).getByText('accepted')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
+    expectNoFullPatientIds()
+  })
+
+  it('moves focus to the title when the 412 re-read finds the work dispensed elsewhere, so the form goes', async () => {
+    api.pharmacyWorkItems.mockResolvedValueOnce({ items: [accepted] }).mockResolvedValueOnce({ items: [nowDispensed] })
+    api.dispense.mockRejectedValueOnce(new HidApiError(412, WORK_ITEM_VERSION_CONFLICT, { code: 'PHARMACY_WORK_ITEM_VERSION_CONFLICT' }))
+    await openRecord(AMOXICILLIN)
+    const form = openDispense()
+    fillDispensing(form, { quantity: '21', reason: REASON })
+    const submit = within(form).getByRole('button', { name: 'Dispense quantity' })
+    submit.focus()
+    fireEvent.click(submit)
+    await waitFor(() => expect(within(contextLine()).getByText('dispensed')).toBeTruthy())
+    expect(screen.queryByRole('form', { name: 'Dispense quantity' })).toBeNull()
+    await waitFor(() => expect(document.activeElement?.id).toBe(`pharmacy-${accepted.id}-title`))
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
+    expect(api.dispense).toHaveBeenCalledTimes(1)
+    expect(recorded()).toBe('')
+  })
+
+  it('leaves focus on the form’s button when the 412 re-read keeps the form', async () => {
+    api.pharmacyWorkItems.mockResolvedValueOnce({ items: [accepted] }).mockResolvedValueOnce({ items: [{ ...accepted, version: 4 }] })
+    api.dispense.mockRejectedValueOnce(new HidApiError(412, WORK_ITEM_VERSION_CONFLICT, { code: 'PHARMACY_WORK_ITEM_VERSION_CONFLICT' }))
+    await openRecord(AMOXICILLIN)
+    const form = openDispense()
+    fillDispensing(form, { quantity: '21', reason: REASON })
+    const submit = within(form).getByRole('button', { name: 'Dispense quantity' })
+    submit.focus()
+    fireEvent.click(submit)
+    await waitFor(() => expect(within(form).getByRole('button', { name: 'Dispense quantity' }).getAttribute('aria-disabled')).toBeNull())
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
+    expect(document.activeElement).toBe(within(form).getByRole('button', { name: 'Dispense quantity' }))
+  })
+
+  it('reads nothing again after a reversal’s 412: the dispensing is read on every try', async () => {
+    working([READ, DISPENSING_READ, REVERSE])
+    api.reverseDispensing.mockRejectedValueOnce(new HidApiError(412, DISPENSING_VERSION_CONFLICT, { code: 'PHARMACY_DISPENSING_VERSION_CONFLICT' }))
+    await openRecord(METFORMIN)
+    const form = reverse('Medication returned unopened by the patient')
+    expect((await within(form).findByRole('alert')).textContent).toBe(DISPENSING_VERSION_CONFLICT)
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
   })
 
   it.each([
@@ -280,20 +346,27 @@ describe('Dispense quantity', () => {
   })
 
   it('forgets that work was not dispensable once it has left the list, as today', async () => {
+    const other: PharmacyWorkItem = { ...accepted, id: 'a9b8c7d6-work-item-6', medication: { display: 'Paracetamol 500 mg tablet' } }
     api.dispense.mockRejectedValueOnce(new HidApiError(409, 'No', { code: 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE' }))
-    api.pharmacyWorkItems.mockResolvedValueOnce({ items: [accepted, dispensed] }).mockResolvedValueOnce({ items: [dispensed] })
-      .mockResolvedValueOnce({ items: [accepted, dispensed] })
+      .mockResolvedValueOnce({ id: 'dispensing-10' })
+    // The read after the other work's dispensing lists nothing; the empty list's Refresh lists both again.
+    api.pharmacyWorkItems.mockResolvedValueOnce({ items: [accepted, other] }).mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({ items: [accepted, other] })
     await openRecord(AMOXICILLIN)
     const form = openDispense()
     fillDispensing(form, { quantity: '21', reason: REASON })
     submitDispensing(form)
     await within(actionsCard()).findByRole('alert')
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh list' }))
-    await waitFor(() => expect(screen.queryByRole('button', { name: AMOXICILLIN })).toBeNull())
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh list' }))
+    expect(within(screen.getByRole('button', { name: AMOXICILLIN }).closest('tr')!).getByText('not dispensable')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Paracetamol 500 mg tablet' }))
+    const second = openDispense()
+    fillDispensing(second, { quantity: '10', reason: REASON })
+    submitDispensing(second)
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh' }))
     const row = (await screen.findByRole('button', { name: AMOXICILLIN })).closest('tr')!
     expect(within(row).getByText('accepted')).toBeTruthy()
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(3)
   })
 
   it('dispenses against the work item as read again after a version conflict', async () => {
@@ -307,15 +380,14 @@ describe('Dispense quantity', () => {
     fillDispensing(form, { quantity: '21', reason: REASON })
     submitDispensing(form)
     expect((await within(form).findByRole('alert')).textContent).toBe(WORK_ITEM_VERSION_CONFLICT)
-    const refresh = screen.getByRole('button', { name: 'Refresh list' })
-    fireEvent.click(refresh)
-    await waitFor(() => expect(refresh.getAttribute('aria-disabled')).toBeNull())
+    // Read again without a press: the form and what was typed stay meanwhile.
+    await waitFor(() => expect(within(form).getByRole('button', { name: 'Dispense quantity' }).getAttribute('aria-disabled')).toBeNull())
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
-    // The form and what was typed stay while the record is read again.
     submitDispensing(screen.getByRole('form', { name: 'Dispense quantity' }))
     await waitFor(() => expect(recorded()).toBe('Dispensing recorded.'))
     expect(api.dispense).toHaveBeenNthCalledWith(1, DEMO_PHARMACY_ID, accepted, 21, 'capsule', REASON)
     expect(api.dispense).toHaveBeenNthCalledWith(2, DEMO_PHARMACY_ID, refreshed, 21, 'capsule', REASON)
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(3)
   })
 
   it('keeps what was recorded, and the last list, when the read after it fails', async () => {
@@ -333,15 +405,21 @@ describe('Dispense quantity', () => {
 
   it('does not let an older, slower read overwrite the list read after a dispensing', async () => {
     const slow = deferred<{ items: PharmacyWorkItem[] }>()
-    api.pharmacyWorkItems.mockResolvedValueOnce({ items: [accepted] }).mockReturnValueOnce(slow.promise)
-      .mockResolvedValueOnce({ items: [nowDispensed] })
+    // The read after a first dispensing fails; Refresh list under it starts a slow read; a second dispensing's read
+    // answers first.
+    api.pharmacyWorkItems.mockResolvedValueOnce({ items: [accepted] })
+      .mockRejectedValueOnce(new HidApiError(503, 'Pharmacy work is temporarily unavailable.', { code: 'PHARMACY_SERVICE_UNAVAILABLE' }))
+      .mockReturnValueOnce(slow.promise).mockResolvedValueOnce({ items: [nowDispensed] })
     await openRecord(AMOXICILLIN)
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh list' }))
+    const first = openDispense()
+    fillDispensing(first, { quantity: '21', reason: REASON })
+    submitDispensing(first)
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh list' }))
     const form = openDispense()
     fillDispensing(form, { quantity: '21', reason: REASON })
     submitDispensing(form)
     await waitFor(() => expect(within(contextLine()).getByText('dispensed')).toBeTruthy())
-    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(3)
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(4)
     await act(async () => { slow.resolve({ items: [accepted] }) })
     expect(within(contextLine()).getByText('dispensed')).toBeTruthy()
   })
@@ -505,6 +583,22 @@ describe('while a dispensing or reversal is sent', () => {
     expect(document.activeElement?.id).toBe(`pharmacy-${accepted.id}-title`)
     await act(async () => { reread.resolve({ items: [nowDispensed] }) })
     expect(document.activeElement?.id).toBe(`pharmacy-${accepted.id}-title`)
+  })
+
+  it('does not open a prescription from “Connected hospital history” meanwhile, so the outcome is said in the record', async () => {
+    const recording = deferred<unknown>()
+    api.dispense.mockReturnValueOnce(recording.promise)
+    api.pharmacyWorkItems.mockResolvedValue({ items: [accepted, samePatient] })
+    await openRecord(AMOXICILLIN)
+    const form = openDispense()
+    fillDispensing(form, { quantity: '21', reason: REASON })
+    submitDispensing(form)
+    fireEvent.click(within(connectedCard()).getByRole('button', { name: `Pharmacy · ${IBUPROFEN} · f7a8b9c0` }))
+    expect(screen.getByRole('heading', { level: 1, name: AMOXICILLIN })).toBeTruthy()
+    await act(async () => { recording.reject(new HidApiError(403, ACCESS_DENIED, { code: 'PHARMACY_ACCESS_DENIED' })) })
+    expect((await within(screen.getByRole('form', { name: 'Dispense quantity' })).findByRole('alert')).textContent).toBe(ACCESS_DENIED)
+    fireEvent.click(within(connectedCard()).getByRole('button', { name: `Pharmacy · ${IBUPROFEN} · f7a8b9c0` }))
+    expect(screen.getByRole('heading', { level: 1, name: IBUPROFEN })).toBeTruthy()
   })
 
   it('moves focus to the list’s heading when the record leaves the list as it is read again', async () => {

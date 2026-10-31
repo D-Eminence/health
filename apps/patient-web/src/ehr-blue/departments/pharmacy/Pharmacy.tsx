@@ -15,20 +15,25 @@ import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage } from '../parts/DeptPage'
 import { DeptFacts, DeptLinkButton, DeptRecordName } from '../parts/DeptRecord'
 import { DeptSearch } from '../parts/DeptSearch'
+import { MODULE_NOT_IN_SERVICE } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import {
-  CAP_CANNOT_COMPLETE, patientLabel, readsKept, RefreshButton, RoutedWorkPaused, SaidAboveList, SaidAboveTheList,
+  CAP_CANNOT_COMPLETE, patientLabel, readsKept, RoutedWorkPaused, SaidAboveList, SaidAboveTheList,
   StandaloneWorkNote, useLearnCannotCompleteServed, useLearnLateCorrectionServed, useLearnWrongPatientServed,
   useNotCompletedEndings, useReceiving, useRowSaid, WORK_LIST_CAP, WorkListCap, type Said,
 } from '../parts/routedWork'
 import { PharmacyRecord, recordFacts } from './PharmacyRecord'
 import { doseLine, matchesItem, routeAlert, statusOf, statusTone } from './pharmacyText'
+import './pharmacy.css'
 
 const LOAD_FAILED = 'Prescriptions could not be loaded. Please retry.'
 /** The design's list shows 50 records a page. */
 const PAGE_SIZE = 50
 const HEADING = 'pharmacy-heading'
+/** The list's own reads again, where the design has no Refresh list: after a failed read, and on the empty list. */
+const RETRY = 'pharmacy-retry'
+const EMPTY_REFRESH = 'pharmacy-empty-refresh'
 
 /**
  * Pharmacy in the blue Hospital EHR: the prescriptions accepted at the working facility (and, at a pharmacy that
@@ -100,6 +105,19 @@ export function Pharmacy() {
     setOpened({ facilityId: here, id: item.id })
     focus(`pharmacy-${item.id}-title`)
   }
+  /** A record named under "Connected hospital history": opened as from the list, but not while a dispensing or reversal is sent. */
+  function openConnected(item: PharmacyWorkItem) {
+    if (!recording) open(item)
+  }
+  /**
+   * Reads the list again from the empty list or after a failed read. Either button goes while the list is read, so focus
+   * goes back to it if it is shown again, else to the record's title or the list's heading: only if focus was lost.
+   */
+  async function reread() {
+    const title = selected ? [`pharmacy-${selected.id}-title`] : []
+    await read.refresh()
+    focus([RETRY, EMPTY_REFRESH, ...title, HEADING], true)
+  }
   function back() {
     // Focusable while a request runs, but a press does nothing: the record must stay to say how it ended.
     if (recording) return
@@ -160,29 +178,21 @@ export function Pharmacy() {
   ]
 
   const listed = rows.length > 0
-  const refresh = <RefreshButton loading={read.loading} onRefresh={read.refresh}>Refresh list</RefreshButton>
   return (
     <DeptPage title={selected ? <span id={`pharmacy-${selected.id}-title`} tabIndex={-1}>{selected.medication.display}</span>
       : <span id={HEADING} tabIndex={-1}>Pharmacy</span>}
       primaryAction={selected ? <EhrButton variant="secondary" aria-disabled={recording || undefined} onClick={back}>Back to list</EhrButton>
-        : undefined} secondaryActions={refresh}>
-      {read.error && <div className="hid-ehr-dept-pharmacy-error hid-ehr-dept-pharmacy-page-error" role="alert">{read.error}</div>}
-      <SaidAboveTheList service="pharmacy" said={ended} facilityId={here} onClose={() => setEnded(null)} />
-      {notCompleted.endings.length > 0 && <DeptEmbedded><CannotCompleteEndings service="pharmacy" endings={notCompleted.endings}
-        onClose={notCompleted.close} /></DeptEmbedded>}
+        : undefined}>
+      {read.error && <>
+        <div className="hid-ehr-dept-pharmacy-error hid-ehr-dept-pharmacy-page-error" role="alert">{read.error}</div>
+        {/* Goes while the list is read (the error does), so a second press can't reach it. Not where the words say
+          refreshing will not help (the module is off), as on Laboratory. */}
+        {read.error !== MODULE_NOT_IN_SERVICE && <div className="hid-ehr-dept-pharmacy-retry">
+          <EhrButton id={RETRY} variant="secondary" onClick={() => void reread()}>Refresh list</EhrButton></div>}
+      </>}
+      {/* The design's list card comes first under the heading (after a refusal about a row that has left it, while said);
+        the rest of what is said about the work follows it. */}
       <div hidden={selected !== null}>
-        <StandaloneWorkNote facility={facility} kind="pharmacy" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
-        {mounted && facility && <DeptEmbedded><IncomingOrders service="pharmacy" facilityId={here} facilityName={facility.name}
-          probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
-          onAccepted={() => void read.refresh()} closedRouteId={notCompleted.lastRouteId} /></DeptEmbedded>}
-        {lateCorrection && <DeptEmbedded><LateWrongPatient service="pharmacy" facilityId={here}
-          onEnded={ending => { setEnded({ facilityId: here, ending }); void read.refresh() }} onNotCompleted={notCompletedHere}
-          onCorrected={correction => { notCompleted.corrected(correction); setEnded({ facilityId: here, correction }) }} /></DeptEmbedded>}
-        <RoutedWorkPaused items={items} crossFacilityWork={read.value?.crossFacilityWork} receives={holds} />
-        {/* hid-system #48: work whose prescription changed stays listed as accepted. */}
-        <WorkListCap count={items?.length ?? 0}><DeptNotice>Work whose prescription changed after Pharmacy accepted it can’t be
-          dispensed, but it stays listed and counts toward these {WORK_LIST_CAP}.</DeptNotice>
-          {cannotServed === true && lateCorrection && <DeptNotice>{CAP_CANNOT_COMPLETE}</DeptNotice>}</WorkListCap>
         <SaidAboveList id="pharmacy-said" text={said.listSaid} />
         <DeptSearch label="Search Pharmacy" value={search} onChange={value => { setSearch(value); setPage(0) }}
           filters={search ? <div className="hid-ehr-dept-pharmacy-clear"><EhrButton variant="secondary" onClick={() => { setSearch(''); setPage(0) }}>
@@ -197,8 +207,28 @@ export function Pharmacy() {
           {read.loading && !listed ? <EhrSkeleton label="Loading prescriptions" />
             : listed && matching.length > 0 ? <EhrDataTable caption="Prescriptions" captionHidden columns={columns} rows={shownRows} rowKey={item => item.id} />
               : listed ? <EhrEmptyState title="No matching records" message="Change your search." />
-                : !read.error ? <EhrEmptyState title="No matching records" message="Prescriptions appear here once they are accepted." /> : null}
+                : !read.error ? <EhrEmptyState title="No matching records" message="Prescriptions appear here once they are accepted."
+                  action={<EhrButton id={EMPTY_REFRESH} variant="secondary" onClick={() => void reread()}>Refresh</EhrButton>} /> : null}
         </DeptSearch>
+      </div>
+      {/* Shown with the record too, as before: an ending that kept the record open is said above it. */}
+      <SaidAboveTheList service="pharmacy" said={ended} facilityId={here} onClose={() => setEnded(null)} />
+      {notCompleted.endings.length > 0 && <DeptEmbedded><CannotCompleteEndings service="pharmacy" endings={notCompleted.endings}
+        onClose={notCompleted.close} /></DeptEmbedded>}
+      {/* Mounted under a record too, so orders waiting here and a lookup in progress keep their place. */}
+      <div hidden={selected !== null}>
+        <StandaloneWorkNote facility={facility} kind="pharmacy" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
+        {mounted && facility && <DeptEmbedded><IncomingOrders service="pharmacy" facilityId={here} facilityName={facility.name}
+          probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
+          onAccepted={() => void read.refresh()} closedRouteId={notCompleted.lastRouteId} /></DeptEmbedded>}
+        {lateCorrection && <DeptEmbedded><LateWrongPatient service="pharmacy" facilityId={here}
+          onEnded={ending => { setEnded({ facilityId: here, ending }); void read.refresh() }} onNotCompleted={notCompletedHere}
+          onCorrected={correction => { notCompleted.corrected(correction); setEnded({ facilityId: here, correction }) }} /></DeptEmbedded>}
+        <RoutedWorkPaused items={items} crossFacilityWork={read.value?.crossFacilityWork} receives={holds} />
+        {/* hid-system #48: work whose prescription changed stays listed as accepted. */}
+        <WorkListCap count={items?.length ?? 0}><DeptNotice>Work whose prescription changed after Pharmacy accepted it can’t be
+          dispensed, but it stays listed and counts toward these {WORK_LIST_CAP}.</DeptNotice>
+          {cannotServed === true && lateCorrection && <DeptNotice>{CAP_CANNOT_COMPLETE}</DeptNotice>}</WorkListCap>
         <EhrDrawer open={quickItem !== null} title="Record quick view" onClose={() => setQuick(null)}>
           {quickItem && <div className="hid-ehr-dept-pharmacy-quick">
             <h3>{quickItem.medication.display}</h3>
@@ -213,7 +243,8 @@ export function Pharmacy() {
         onUndispensable={() => setUndispensable(current => ({ facilityId: here,
           ids: new Set(current.facilityId === here ? current.ids : []).add(selected.id) }))}
         said={said.rowSaid(selected.orderRoute?.id)} holds={holds} crossFacilityWork={read.value?.crossFacilityWork}
-        onChanged={read.refresh} onBusy={setRecording} onEnded={endedHere} onNotCompleted={notCompletedHere} onReread={said.reread} />}
+        onChanged={read.refresh} onBusy={setRecording} onEnded={endedHere} onNotCompleted={notCompletedHere} onReread={said.reread}
+        items={rows} statusOfItem={item => statusOf(item, notDispensable(item.id))} onOpen={openConnected} />}
     </DeptPage>
   )
 }

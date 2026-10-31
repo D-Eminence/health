@@ -10,7 +10,7 @@ import { forgetWrongPatientServed } from '../../../../wrongPatientServed'
 import { DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 import {
   accepted, actionsCard, contextLine, CREATE, DISPENSING_READ, expectNoFullPatientIds, PATIENT_CARD, READ, RECEIVE, REVERSE,
-  ROUTE_ID, routeCard, routed, row, savedRecord,
+  ROUTE_ID, routeCard, routed, row, savedRecord, shownParts,
 } from './fixtures'
 
 /**
@@ -73,6 +73,15 @@ async function renderList() {
   renderDept(<Pharmacy />)
   await screen.findByRole('button', { name: NAME })
 }
+/** The list card. */
+function listCard(): HTMLElement {
+  return screen.getByRole('searchbox', { name: 'Search Pharmacy' }).closest('section') as HTMLElement
+}
+/** Whether `later` comes after `earlier` in the page. */
+function follows(earlier: Node, later: Node): boolean {
+  return Boolean(earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING)
+}
+
 async function openRouted() {
   await renderList()
   fireEvent.click(screen.getByRole('button', { name: NAME }))
@@ -135,10 +144,12 @@ describe('a prescription from another facility', () => {
 })
 
 describe('work between facilities paused', () => {
-  it('says so above the list and on the record while such work is listed', async () => {
+  it('says so under the list and on the record while such work is listed', async () => {
     api.pharmacyWorkItems.mockResolvedValue(answer([routed()], { crossFacilityWork: false }))
     await renderList()
-    expect(screen.getByText('Work on orders from other facilities is paused by Health ID.')).toBeTruthy()
+    const paused = screen.getByText('Work on orders from other facilities is paused by Health ID.')
+    expect(shownParts()[0]).toBe(listCard())
+    expect(follows(listCard(), paused)).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: NAME }))
     expect(screen.getAllByText('Work on orders from other facilities is paused by Health ID.').filter(notice => !notice.closest('[hidden]'))).toHaveLength(1)
   })
@@ -181,7 +192,11 @@ describe('Incoming, at a pharmacy that receives prescriptions', () => {
     const incoming = (await screen.findByRole('heading', { name: 'Incoming (1)' })).closest('section') as HTMLElement
     expect(incoming.closest('.hid-ehr-dept-embedded')).toBeTruthy()
     expect(routes.incoming).toHaveBeenCalledWith(DEMO_PHARMACY_ID, 'pharmacy', undefined)
-    expect(screen.getByText(/^Prescriptions that Health ID clinicians at other facilities send Demo Pharmacy appear under Incoming/)).toBeTruthy()
+    const note = screen.getByText(/^Prescriptions that Health ID clinicians at other facilities send Demo Pharmacy appear under Incoming/)
+    // The design's list card comes first; where the work comes from, then Incoming, follow it.
+    expect(shownParts()[0]).toBe(listCard())
+    expect(follows(listCard(), note)).toBe(true)
+    expect(follows(note, incoming)).toBe(true)
     fireEvent.click(within(incoming).getByRole('button', { name: 'Accept' }))
     fireEvent.change(within(incoming).getByLabelText(/^Patient’s Health ID/), { target: { value: 'HID-ZDEMAAA2' } })
     fireEvent.change(within(incoming).getByLabelText(/^Reason for accepting/), { target: { value: 'Patient at the counter with their card' } })
@@ -234,7 +249,7 @@ describe('this isn’t the order’s patient, from the record', () => {
     expect(within(actionsCard()).queryByRole('button', { name: /isn’t the order’s patient/ })).toBeNull()
   })
 
-  it('ends the order: the record closes at once, what happened stays above the list with focus, and the row goes', async () => {
+  it('ends the order: the record closes at once, what happened is said under the list with focus, and the row goes', async () => {
     api.pharmacyWorkItems.mockResolvedValueOnce(answer([routed(), accepted])).mockResolvedValue(answer([accepted]))
     await openRouted()
     report()
@@ -246,6 +261,8 @@ describe('this isn’t the order’s patient, from the record', () => {
     await waitFor(() => expect(document.activeElement).toBe(ended))
     await waitFor(() => expect(screen.queryByRole('button', { name: NAME })).toBeNull())
     expect(screen.getByText(/^Ended: Amoxicillin 250 mg capsules/)).toBeTruthy()
+    expect(shownParts()[0]).toBe(listCard())
+    expect(follows(listCard(), ended)).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(screen.queryByText(/^Ended: Amoxicillin 250 mg capsules/)).toBeNull()
   })
@@ -307,9 +324,11 @@ describe('we can’t complete this order, once served', () => {
     const ended = await screen.findByText(/^Ended: Amoxicillin 250 mg capsules, reference 9C1B2D3E\./)
     expect(routes.cannotComplete).toHaveBeenCalledWith(DEMO_PHARMACY_ID, 'pharmacy', { id: ROUTE_ID, version: 3 },
       { reason: 'needs_prescriber_review', confirmedPatient: true }, expect.any(String))
-    // Its reads ended at once: the record closes.
+    // Its reads ended at once: the record closes. What follows is said under the list.
     expect(screen.getByRole('heading', { level: 1, name: 'Pharmacy' })).toBeTruthy()
     await waitFor(() => expect(document.activeElement).toBe(ended))
+    expect(shownParts()[0]).toBe(listCard())
+    expect(follows(listCard(), ended)).toBe(true)
     await waitFor(() => expect(screen.queryByRole('button', { name: NAME })).toBeNull())
     fireEvent.click(screen.getByRole('button', { name: `Close: ${NAME}, Ref 9C1B2D3E` }))
     expect(screen.queryByText(/^Ended: Amoxicillin 250 mg capsules/)).toBeNull()
@@ -327,8 +346,11 @@ describe('we can’t complete this order, once served', () => {
     fireEvent.click(within(form).getByRole('checkbox', { name: 'We will phone Demo Hospital about this now.' }))
     fireEvent.click(within(form).getByRole('checkbox', { name: /^The person we accepted this prescription for/ }))
     fireEvent.click(within(form).getByRole('button', { name: 'End it: we can’t complete it' }))
-    await screen.findByText(/^Ended: Amoxicillin 250 mg capsules/)
+    const ended = await screen.findByText(/^Ended: Amoxicillin 250 mg capsules/)
     expect(await within(savedRecord()).findByText(/^You ended this order: you couldn’t complete it\./)).toBeTruthy()
+    // What follows is said over the record that stays open, not hidden with the list.
+    expect(ended.closest('[hidden]')).toBeNull()
+    expect(follows(ended, savedRecord())).toBe(true)
     expect(within(actionsCard()).queryByRole('button', { name: /Dispense quantity|^We can’t|isn’t the order’s patient/ })).toBeNull()
   })
 
@@ -342,11 +364,13 @@ describe('we can’t complete this order, once served', () => {
 })
 
 describe('correct an order that has ended', () => {
-  it('is offered above the list once the backend serves it, to a member who receives', async () => {
+  it('is offered under the list once the backend serves it, to a member who receives', async () => {
     api.pharmacyWorkItems.mockResolvedValue(answer([routed()], { lateCorrection: true }))
     renderDept(<Pharmacy />)
     const summary = await screen.findByText('Correct an order that has ended', { selector: 'summary' })
     expect(summary.closest('.hid-ehr-dept-embedded')).toBeTruthy()
+    expect(shownParts()[0]).toBe(listCard())
+    expect(follows(listCard(), summary)).toBe(true)
     // A native disclosure: Enter and Space open it.
     expect(summary.closest('details')).toBeTruthy()
   })

@@ -7,8 +7,9 @@ import { pharmacyPage } from '../../../../ehr-blue/departments/pharmacy/page'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
 import { DEMO_HOSPITAL_ID, DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 import {
-  accepted, actionsCard, ALL, AMOXICILLIN, contextLine, CREATE, deferred, dispensed, expectNoFullPatientIds, IBUPROFEN, METFORMIN,
-  otherFacilityItem, READ, reversed, row, SALBUTAMOL, savedRecord,
+  accepted, actionsCard, ALL, AMOXICILLIN, connectedCard, contextLine, CREATE, deferred, dispensed, expectNoFullPatientIds, IBUPROFEN,
+  METFORMIN, nowDispensed, otherFacilityItem, READ, reversed, row, SALBUTAMOL, samePatient, savedRecord, shownParts, versions,
+  versionsCard,
 } from './fixtures'
 
 /**
@@ -99,6 +100,9 @@ describe('the list', () => {
   it('has one heading, the design’s search card and its columns', async () => {
     await renderList()
     expect(screen.getAllByRole('heading', { level: 1 }).map(heading => heading.textContent)).toEqual(['Pharmacy'])
+    // The list card is the first thing under the heading, and the heading has no Refresh list beside it (design).
+    expect(shownParts()[0]).toBe(screen.getByRole('searchbox', { name: 'Search Pharmacy' }).closest('section'))
+    expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
     expect(screen.getByRole('searchbox', { name: 'Search Pharmacy' }).getAttribute('placeholder')).toBe('Search saved records…')
     const table = screen.getByRole('table', { name: 'Prescriptions' })
     expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Record', 'Patient / context', 'Status', 'Accepted', 'Actions'])
@@ -136,82 +140,151 @@ describe('the list', () => {
     expect(document.getElementById(open.getAttribute('aria-describedby') ?? '')?.textContent).toBe(AMOXICILLIN)
   })
 
-  it('shows a loading state while the list is read, with Refresh list busy but focusable', async () => {
+  it('shows a loading state while the list is read, with nothing to press meanwhile', async () => {
     const load = deferred<{ items: PharmacyWorkItem[] }>()
     api.pharmacyWorkItems.mockReturnValueOnce(load.promise)
     renderDept(<Pharmacy />)
     expect(screen.getByRole('status').textContent).toBe('Loading prescriptions')
-    const refresh = screen.getByRole('button', { name: 'Refresh list' })
-    expect(refresh.getAttribute('aria-disabled')).toBe('true')
-    expect(refresh.hasAttribute('disabled')).toBe(false)
+    expect(screen.getByRole('status').closest('section')).toBe(screen.getByRole('searchbox', { name: 'Search Pharmacy' }).closest('section'))
+    expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.queryByText('No matching records')).toBeNull()
-    // A second press while it reads does nothing.
-    fireEvent.click(refresh)
-    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
     await act(async () => { load.resolve({ items: [accepted] }) })
     expect(await screen.findByRole('button', { name: AMOXICILLIN })).toBeTruthy()
     expect(screen.queryByText('Loading prescriptions')).toBeNull()
-    expect(refresh.getAttribute('aria-disabled')).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
   })
 
-  it('says when there are no prescriptions, and finds new ones on Refresh list', async () => {
+  it('says when there are no prescriptions, and finds new ones on the empty list’s Refresh', async () => {
     api.pharmacyWorkItems.mockResolvedValueOnce({ items: [] }).mockResolvedValueOnce({ items: [accepted] })
     renderDept(<Pharmacy />)
     expect(await screen.findByText('No matching records')).toBeTruthy()
     expect(screen.getByText('Prescriptions appear here once they are accepted.')).toBeTruthy()
     expect(screen.queryByRole('table')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh list' }))
+    expect(screen.queryByRole('button', { name: 'Refresh list' })).toBeNull()
+    const refresh = screen.getByRole('button', { name: 'Refresh' })
+    expect(refresh.closest('section')).toBe(screen.getByRole('searchbox', { name: 'Search Pharmacy' }).closest('section'))
+    refresh.focus()
+    fireEvent.click(refresh)
     expect(await screen.findByRole('button', { name: AMOXICILLIN })).toBeTruthy()
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
     expect(api.pharmacyWorkItems).toHaveBeenLastCalledWith(DEMO_PHARMACY_ID)
+    // Its button went with the empty list: focus goes to the heading, not the page.
+    await waitFor(() => expect(document.activeElement?.id).toBe('pharmacy-heading'))
   })
 
-  it('says a refused read in an error box, without any patient data, and recovers on Refresh list', async () => {
+  it('keeps Refresh on the empty list where it is when the list is still empty', async () => {
+    api.pharmacyWorkItems.mockResolvedValue({ items: [] })
+    renderDept(<Pharmacy />)
+    const refresh = await screen.findByRole('button', { name: 'Refresh' })
+    refresh.focus()
+    fireEvent.click(refresh)
+    await waitFor(() => expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Refresh' })))
+  })
+
+  it('says a refused read in an error box, without any patient data, and recovers on Refresh list under it', async () => {
     api.pharmacyWorkItems.mockRejectedValueOnce(new HidApiError(403, 'You do not have permission to do that.', { code: 'PERMISSION_DENIED' }))
       .mockResolvedValueOnce({ items: [accepted] })
     renderDept(<Pharmacy />)
-    expect((await screen.findByRole('alert')).textContent).toBe('You do not have permission to do that.')
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('You do not have permission to do that.')
     expect(screen.queryByText('No matching records')).toBeNull()
     expect(document.body.textContent).not.toContain('Patient ••••')
     expectNoFullPatientIds()
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh list' }))
+    // Today's way to retry stays, under the refusal: the design has no Refresh list beside the heading.
+    const refresh = screen.getByRole('button', { name: 'Refresh list' })
+    expect(alert.compareDocumentPosition(refresh) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(refresh.closest('.hid-ehr-page-heading, header')).toBeNull()
+    refresh.focus()
+    fireEvent.click(refresh)
     expect(await screen.findByRole('button', { name: AMOXICILLIN })).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Refresh list' })).toBeNull()
+    await waitFor(() => expect(document.activeElement?.id).toBe('pharmacy-heading'))
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
   })
 
   it.each([
-    ['a rejection with no message', { status: 0 }, 'Prescriptions could not be loaded. Please retry.'],
+    ['a rejection with no message', { status: 0 }, 'Prescriptions could not be loaded. Please retry.', true],
     ['Pharmacy switched off on this deployment', new HidApiError(404, 'Not found', { code: 'API_ROUTE_NOT_FOUND' }),
-      'This workspace is not in service on this Health ID deployment: its work cannot be loaded or changed here, and refreshing will not help.'],
+      'This workspace is not in service on this Health ID deployment: its work cannot be loaded or changed here, and refreshing will not help.', false],
     ['a fault between Health ID services', new HidApiError(503, 'Upstream', { code: 'PHARMACY_SERVICE_AUTH_UNAVAILABLE' }),
-      'A connection between Health ID services failed; retry in about 15 seconds.'],
-  ])('says %s plainly', async (_case, refusal, text) => {
+      'A connection between Health ID services failed; retry in about 15 seconds.', true],
+  ])('says %s plainly', async (_case, refusal, text, retry) => {
     api.pharmacyWorkItems.mockRejectedValueOnce(refusal)
     renderDept(<Pharmacy />)
     expect((await screen.findByRole('alert')).textContent).toBe(text)
+    // Refresh list under the refusal, except where its words say refreshing will not help (as on Laboratory).
+    expect(screen.queryByRole('button', { name: 'Refresh list' }) !== null).toBe(retry)
+  })
+
+  it('takes the empty list’s Refresh away while it reads, so a second press reads nothing more', async () => {
+    const reload = deferred<{ items: PharmacyWorkItem[] }>()
+    api.pharmacyWorkItems.mockResolvedValueOnce({ items: [] }).mockReturnValueOnce(reload.promise)
+    renderDept(<Pharmacy />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh' }))
+    expect(screen.getByRole('status').textContent).toBe('Loading prescriptions')
+    expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
+    await act(async () => { reload.resolve({ items: [accepted] }) })
+    expect(await screen.findByRole('button', { name: AMOXICILLIN })).toBeTruthy()
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
+  })
+
+  it('takes Refresh list away while it reads after a refusal, so a second press reads nothing more', async () => {
+    const reload = deferred<{ items: PharmacyWorkItem[] }>()
+    api.pharmacyWorkItems.mockRejectedValueOnce(new HidApiError(503, 'Pharmacy work is temporarily unavailable.', { code: 'PHARMACY_SERVICE_UNAVAILABLE' }))
+      .mockReturnValueOnce(reload.promise)
+    renderDept(<Pharmacy />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh list' }))
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
+    await act(async () => { reload.resolve({ items: [accepted] }) })
+    expect(await screen.findByRole('button', { name: AMOXICILLIN })).toBeTruthy()
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
   })
 
   it('keeps the list on screen while it is read again, and when that read fails', async () => {
+    working([READ, CREATE])
     const reload = deferred<{ items: PharmacyWorkItem[] }>()
-    api.pharmacyWorkItems.mockResolvedValueOnce({ items: [accepted] }).mockReturnValueOnce(reload.promise)
+    api.pharmacyWorkItems.mockResolvedValueOnce({ items: [accepted, dispensed] })
+      .mockRejectedValueOnce(new HidApiError(503, 'Pharmacy work is temporarily unavailable.', { code: 'PHARMACY_SERVICE_UNAVAILABLE' }))
+      .mockReturnValueOnce(reload.promise)
+    api.dispense.mockResolvedValueOnce({ id: 'dispensing-9' })
     await renderList()
+    // A dispensing reads the list again; that read fails, and the list read before stays.
+    fireEvent.click(screen.getByRole('button', { name: AMOXICILLIN }))
+    fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Dispense quantity' }))
+    const form = screen.getByRole('form', { name: 'Dispense quantity' })
+    fireEvent.change(within(form).getByRole('spinbutton', { name: 'Units to dispense' }), { target: { value: '21' } })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Reason' }), { target: { value: 'Full course dispensed at counter' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Dispense quantity' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('Pharmacy work is temporarily unavailable.')
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
     fireEvent.click(screen.getByRole('button', { name: 'Refresh list' }))
     expect(screen.getByRole('button', { name: AMOXICILLIN })).toBeTruthy()
     expect(screen.queryByText('Loading prescriptions')).toBeNull()
     await act(async () => { reload.reject(new HidApiError(503, 'Pharmacy work is temporarily unavailable.', { code: 'PHARMACY_SERVICE_UNAVAILABLE' })) })
     expect((await screen.findByRole('alert')).textContent).toBe('Pharmacy work is temporarily unavailable.')
     expect(screen.getByRole('button', { name: AMOXICILLIN })).toBeTruthy()
+    expect(screen.getByRole('button', { name: METFORMIN })).toBeTruthy()
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(3)
   })
 })
 
 describe('the list cut short at 200', () => {
   const many = (count: number) => Array.from({ length: count }, (_, n) => ({ ...accepted, id: `${String(n).padStart(8, '0')}-w` }))
 
-  it('says newer work can’t be reached here, and that work Pharmacy won’t dispense still counts', async () => {
+  it('says newer work can’t be reached here, and that work Pharmacy won’t dispense still counts, under the list', async () => {
     api.pharmacyWorkItems.mockResolvedValue({ items: many(200) })
     renderDept(<Pharmacy />)
-    expect(await screen.findByText(/^This list can show only the 200 oldest accepted work items\./)).toBeTruthy()
+    const cap = await screen.findByText(/^This list can show only the 200 oldest accepted work items\./)
+    const list = screen.getByRole('searchbox', { name: 'Search Pharmacy' }).closest('section') as HTMLElement
+    expect(shownParts()[0]).toBe(list)
+    expect(list.compareDocumentPosition(cap) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.getByText(/^Work whose prescription changed after Pharmacy accepted it can’t be/).textContent?.replace(/\s+/g, ' '))
       .toBe('Work whose prescription changed after Pharmacy accepted it can’t be dispensed, but it stays listed and counts toward these 200.')
   })
@@ -317,6 +390,9 @@ describe('the record', () => {
     // This member can't dispense or reverse: nothing is offered.
     expect(within(actionsCard()).getByText('No further actions for your permission and this record state.')).toBeTruthy()
     expect(within(actionsCard()).queryAllByRole('button')).toEqual([])
+    // The design's record has Back to list beside its title and no Refresh list anywhere.
+    expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
+    expect(screen.getAllByRole('button', { name: /list/i }).map(button => button.textContent)).toEqual(['Back to list'])
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
     expect(screen.getByRole('heading', { level: 1, name: 'Pharmacy' })).toBeTruthy()
@@ -348,18 +424,127 @@ describe('the record', () => {
     expectNoFullPatientIds()
   })
 
-  it('goes back to the list once the record has left it', async () => {
+  it('goes back to the list once the record has left it as the list is read again', async () => {
+    working([READ, CREATE])
+    // A version conflict reads the list again (the design has no Refresh list); the record has left it meanwhile.
     api.pharmacyWorkItems.mockResolvedValueOnce({ items: [accepted, dispensed] }).mockResolvedValueOnce({ items: [dispensed] })
+    api.dispense.mockRejectedValueOnce(new HidApiError(412, 'Dispensing must bind to the exact accepted work-item version',
+      { code: 'PHARMACY_WORK_ITEM_VERSION_CONFLICT' }))
     await renderList()
     fireEvent.click(screen.getByRole('button', { name: AMOXICILLIN }))
-    const refresh = screen.getByRole('button', { name: 'Refresh list' })
-    refresh.focus()
-    fireEvent.click(refresh)
+    fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Dispense quantity' }))
+    const form = screen.getByRole('form', { name: 'Dispense quantity' })
+    fireEvent.change(within(form).getByRole('spinbutton', { name: 'Units to dispense' }), { target: { value: '21' } })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Reason' }), { target: { value: 'Full course dispensed at counter' } })
+    const submit = within(form).getByRole('button', { name: 'Dispense quantity' })
+    submit.focus()
+    fireEvent.click(submit)
     await screen.findByRole('heading', { level: 1, name: 'Pharmacy' })
     expect(screen.queryByRole('button', { name: AMOXICILLIN })).toBeNull()
     expect(screen.getByRole('button', { name: METFORMIN })).toBeTruthy()
-    // Refresh list stays where it was, so focus stays on it.
-    expect(document.activeElement).toBe(refresh)
+    // Focus was on the record that went: it goes to the list's heading.
+    await waitFor(() => expect(document.activeElement?.id).toBe('pharmacy-heading'))
+  })
+})
+
+describe('the record’s connected hospital history', () => {
+  beforeEach(() => { api.pharmacyWorkItems.mockResolvedValue({ items: [accepted, dispensed, reversed, samePatient] }) })
+
+  it('follows the record’s cards, and names the same patient’s other prescriptions with their status', async () => {
+    await renderList()
+    fireEvent.click(screen.getByRole('button', { name: AMOXICILLIN }))
+    const card = connectedCard()
+    expect(card.querySelector('h2')?.textContent).toBe('Connected hospital history')
+    expect(card.querySelector('p')?.textContent).toBe('Only records available to your current permissions are listed.')
+    // After "Saved record" and "Available actions", before "Preserved versions & amendments".
+    expect(actionsCard().compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(savedRecord().compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(card.compareDocumentPosition(versionsCard()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Patient A's other prescription only: not this one, not other patients'.
+    const rows = within(card).getAllByRole('listitem')
+    expect(rows).toHaveLength(1)
+    const [only] = rows as [HTMLElement]
+    const link = within(only).getByRole('button', { name: `Pharmacy · ${IBUPROFEN} · f7a8b9c0` })
+    expect(link.tagName).toBe('BUTTON')
+    expect(within(only).getByText('dispensed')).toBeTruthy()
+    expect(card.textContent).not.toMatch(new RegExp(`${METFORMIN}|${SALBUTAMOL}|${AMOXICILLIN}`))
+    expectNoFullPatientIds()
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
+  })
+
+  it('says the sentence alone when the patient has no other prescription listed', async () => {
+    await renderList()
+    fireEvent.click(screen.getByRole('button', { name: METFORMIN }))
+    const card = connectedCard()
+    expect(card.textContent).toBe('Connected hospital historyOnly records available to your current permissions are listed.')
+    expect(within(card).queryByRole('list')).toBeNull()
+    expect(within(card).queryAllByRole('button')).toEqual([])
+  })
+
+  it('never matches work with no patient named to other such work', async () => {
+    api.pharmacyWorkItems.mockResolvedValue({ items: [{ ...accepted, patientId: '' }, { ...samePatient, patientId: '' }] })
+    await renderList()
+    fireEvent.click(screen.getByRole('button', { name: AMOXICILLIN }))
+    expect(within(connectedCard()).queryByRole('list')).toBeNull()
+    expect(within(connectedCard()).queryAllByRole('button')).toEqual([])
+  })
+
+  it('names work the list has not searched for, with the status the list gives it', async () => {
+    await renderList()
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search Pharmacy' }), { target: { value: 'amoxicillin' } })
+    expect(screen.queryByRole('button', { name: IBUPROFEN })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: AMOXICILLIN }))
+    expect(within(connectedCard()).getByRole('button', { name: `Pharmacy · ${IBUPROFEN} · f7a8b9c0` })).toBeTruthy()
+  })
+
+  it('opens the named prescription in this page, focus on its title, and Back to list returns to its row', async () => {
+    await renderList()
+    fireEvent.click(screen.getByRole('button', { name: AMOXICILLIN }))
+    fireEvent.click(within(connectedCard()).getByRole('button', { name: `Pharmacy · ${IBUPROFEN} · f7a8b9c0` }))
+    expect(screen.getAllByRole('heading', { level: 1 }).map(heading => heading.textContent)).toEqual([IBUPROFEN])
+    await waitFor(() => expect(document.activeElement?.id).toBe(`pharmacy-${samePatient.id}-title`))
+    expect(within(contextLine()).getByText('dispensed')).toBeTruthy()
+    // From the other side, the first prescription is named in turn.
+    expect(within(connectedCard()).getByRole('button', { name: `Pharmacy · ${AMOXICILLIN} · a1b2c3d4` })).toBeTruthy()
+    expect(within(connectedCard()).getByText('accepted')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: IBUPROFEN })))
+    expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
+    expect(window.location.hash).toBe('')
+  })
+})
+
+describe('the record’s preserved versions & amendments', () => {
+  it.each([
+    ['accepted work: when it was accepted', accepted, AMOXICILLIN, [`${new Date(accepted.acceptedAt).toLocaleString()} · accepted · Accept prescription`]],
+    ['a dispensing still in effect: then its dispensing', dispensed, METFORMIN,
+      [`${new Date(dispensed.acceptedAt).toLocaleString()} · accepted · Accept prescription`, 'dispensed · Dispense quantity']],
+    ['a reversed dispensing: then its reversal', reversed, SALBUTAMOL,
+      [`${new Date(reversed.acceptedAt).toLocaleString()} · accepted · Accept prescription`, 'reversed · Reverse dispensing']],
+  ])('lists %s', async (_case, item, name, expected) => {
+    api.pharmacyWorkItems.mockResolvedValue({ items: [item] })
+    renderDept(<Pharmacy />)
+    fireEvent.click(await screen.findByRole('button', { name }))
+    expect(versions()).toEqual(expected)
+    // Each a native disclosure, so Enter and Space open it.
+    expect(versionsCard().querySelectorAll('details')).toHaveLength(expected.length)
+    expect(versionsCard().querySelector('h2')?.textContent).toBe('Preserved versions & amendments')
+  })
+
+  it('adds the dispensing once it is recorded and the list read again', async () => {
+    working([READ, CREATE])
+    api.pharmacyWorkItems.mockResolvedValueOnce({ items: [accepted] }).mockResolvedValueOnce({ items: [nowDispensed] })
+    api.dispense.mockResolvedValueOnce({ id: 'dispensing-9' })
+    await renderList()
+    fireEvent.click(screen.getByRole('button', { name: AMOXICILLIN }))
+    expect(versions()).toHaveLength(1)
+    fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Dispense quantity' }))
+    const form = screen.getByRole('form', { name: 'Dispense quantity' })
+    fireEvent.change(within(form).getByRole('spinbutton', { name: 'Units to dispense' }), { target: { value: '21' } })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Reason' }), { target: { value: 'Full course dispensed at counter' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Dispense quantity' }))
+    await waitFor(() => expect(versions()).toEqual([`${new Date(accepted.acceptedAt).toLocaleString()} · accepted · Accept prescription`,
+      'dispensed · Dispense quantity']))
   })
 })
 
