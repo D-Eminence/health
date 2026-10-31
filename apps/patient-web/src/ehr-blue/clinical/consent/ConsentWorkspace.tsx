@@ -1,6 +1,7 @@
-import { EhrButton, EhrCard } from '@hid/ui/ehr'
-import { useMemo, useState } from 'react'
+import { EhrButton, EhrCard, EhrField, EhrSelect } from '@hid/ui/ehr'
+import { useEffect, useMemo, useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
+import { ACCESS_OUTCOME_FILTERS, ACCESS_REQUEST_STATUSES, type AccessRequestStatus } from '../../../staff/api'
 import { Step } from '../parts/Detail'
 import { ErrorBox, ListHeading, Loading } from '../parts/Notices'
 import { RecordTable, SearchField } from '../parts/RecordTable'
@@ -9,7 +10,7 @@ import type { EhrBluePageStatus } from '../types'
 import { PinAccess } from './PinAccess'
 import { RequestAccess } from './RequestAccess'
 import { RequestDetail } from './RequestDetail'
-import { requestRow, useAccessRequests } from './requests'
+import { FILTER_LABELS, requestRow, useAccessRequests } from './requests'
 
 /** Every part is on today's Health ID API: access requests, their outcomes, closing a grant and the patient PIN. */
 export const consentStatus: EhrBluePageStatus = 'live'
@@ -37,14 +38,26 @@ function RequestList() {
   const { facility, can } = useClinical()
   const href = useWorkspaceHref()
   const [search, setSearch] = useState('')
-  // Every status is read (no status filter, as the design's list has none); the search matches each row's status.
-  const { requests, loading, error, load } = useAccessRequests('')
+  const [status, setStatus] = useState<AccessRequestStatus | ''>('')
+  // Every status is read (the design's list has no status filter); the search matches each row's status. The backend
+  // sends only the 100 newest requests and has no paging, so once a read holds 100, today's Status select is offered
+  // too, the one way to reach an older request; it stays while the page is open.
+  const { requests, loading, error, outcomesReported, load } = useAccessRequests(status)
+  const capped = requests?.length === 100
+  const [filtering, setFiltering] = useState(false)
+  useEffect(() => { if (capped) setFiltering(true) }, [capped])
 
-  const rows = useMemo(() => (requests ?? []).map(requestRow), [requests])
+  const filters: readonly AccessRequestStatus[] = outcomesReported || (ACCESS_OUTCOME_FILTERS as readonly string[]).includes(status)
+    ? [...ACCESS_REQUEST_STATUSES, ...ACCESS_OUTCOME_FILTERS] : ACCESS_REQUEST_STATUSES
+  // A row is also found by its request's own status in today's filter words, so "approved" finds every approved
+  // request, whatever came of it (today's "Approved (any outcome)").
+  const rows = useMemo(() => (requests ?? []).map(request => {
+    const row = requestRow(request)
+    return { row, words: [row.name, row.context, row.contextSub, row.status, row.statusNote, FILTER_LABELS[request.status as AccessRequestStatus]].join(' ').toLowerCase() }
+  }), [requests])
   const shown = useMemo(() => {
     const words = search.trim().toLowerCase()
-    if (!words) return rows
-    return rows.filter(row => [row.name, row.context, row.contextSub, row.status, row.statusNote].join(' ').toLowerCase().includes(words))
+    return rows.filter(item => !words || item.words.includes(words)).map(item => item.row)
   }, [rows, search])
 
   return (
@@ -53,6 +66,16 @@ function RequestList() {
       <ListHeading title={TITLE} createHref={can('identity.consent.write') ? href('new') : undefined} />
       <EhrCard>
         <SearchField label={`Search ${TITLE}`} value={search} onChange={setSearch} />
+        {filtering || capped ? (
+          <div className="hid-ehr-clinical-consent-toolbar">
+            <EhrField label="Status">
+              <EhrSelect value={status} onChange={event => setStatus(event.target.value as AccessRequestStatus | '')}>
+                <option value="">Any status</option>
+                {filters.map(value => <option key={value} value={value}>{FILTER_LABELS[value]}</option>)}
+              </EhrSelect>
+            </EhrField>
+          </div>
+        ) : null}
         {error ? (
           <>
             <ErrorBox>{error}</ErrorBox>
@@ -65,12 +88,15 @@ function RequestList() {
           <RecordTable
             caption="Access requests"
             rows={shown}
-            hrefFor={row => href(row.id)}
-            emptyTitle={requests.length === 0 ? 'No access requests' : 'No matching records'}
+            // A request found through a filter is read with it on its page too: the address names the filter, not the patient.
+            hrefFor={row => status ? `${href(row.id)}?status=${status}` : href(row.id)}
+            emptyTitle={requests.length === 0
+              ? status ? `No access requests: ${FILTER_LABELS[status].toLowerCase()}` : 'No access requests'
+              : 'No matching records'}
             emptyMessage={requests.length === 0 ? 'Requests you send for this facility will appear here.' : 'Change your search.'}
           />
         ) : null}
-        {requests && requests.length === 100 ? <p className="hid-ehr-clinical-note">Showing the 100 most recent requests.</p> : null}
+        {capped ? <p className="hid-ehr-clinical-note">Showing the 100 most recent requests.</p> : null}
       </EhrCard>
     </>
   )

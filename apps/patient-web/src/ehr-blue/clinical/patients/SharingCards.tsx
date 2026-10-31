@@ -135,6 +135,8 @@ export function usePatientSharing({ facilityId, permissions, openUnavailable, bu
       contextSub: item.hid,
       status: levelText(item.level),
       statusNote: `until ${shareDay(item.expiresAt)}`,
+      // Updated: when the share began.
+      updated: item.startsAt,
       details: [
         { label: 'Name', value: item.fullName },
         { label: 'Health ID', value: item.hid },
@@ -153,6 +155,8 @@ export function usePatientSharing({ facilityId, permissions, openUnavailable, bu
       contextSub: item.inviteeName ? `To ${item.inviteeName}` : undefined,
       status: 'invited',
       statusNote: `open until ${shareDay(item.expiresAt)}`,
+      // Updated: when the invitation was sent.
+      updated: item.createdAt,
       details: [
         ...(item.inviteeName ? [{ label: 'To', value: item.inviteeName }] : []),
         { label: 'Access', value: levelText(item.level) },

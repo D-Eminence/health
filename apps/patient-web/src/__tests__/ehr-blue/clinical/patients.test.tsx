@@ -4,6 +4,7 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropOfferedHealthId, offerHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
+import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { PatientsWorkspace, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
 import {
   BASE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage,
@@ -600,7 +601,7 @@ describe('Design audit', () => {
 
   it('audit 2: a share is a row after the open patient: name over Health ID in Patient / context, the level badge, until its day, opened by the lookup', async () => {
     staff.activePatient = activePatient()
-    api.sharedWithMe.mockResolvedValue([{ ...SHARE, consentGrantId: 'grant-8', hid: 'HID-ZDEMBBB3', fullName: 'Patient Two' }])
+    api.sharedWithMe.mockResolvedValue([{ ...SHARE, consentGrantId: 'grant-8', hid: 'HID-ZDEMBBB3', fullName: 'Patient Two', startsAt: '2026-10-28T07:00:00.000Z' }])
     api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [INVITATION] })
     open()
     await waitFor(() => expect(tableRows()).toHaveLength(3))
@@ -611,6 +612,9 @@ describe('Design audit', () => {
     expect(tableRows().map(row => row.querySelectorAll('td')[1]?.textContent)).toEqual([
       `${PATIENT_NAME}${PATIENT_HID}`, 'Patient TwoHID-ZDEMBBB3', 'Clinical Review',
     ])
+    // Updated, as on every row of the design: when the share began, and when the invitation was sent.
+    expect(tableRows().slice(1).map(row => row.querySelectorAll('td')[3]?.textContent)).toEqual([formatWhen('2026-10-28T07:00:00.000Z'), formatWhen(INVITATION.createdAt)])
+    expect(formatWhen(INVITATION.createdAt)).not.toBe('')
     // The two cards are gone: their rows are in the one list.
     expect(screen.queryByRole('heading', { name: 'Shared with you' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Invitations' })).toBeNull()
