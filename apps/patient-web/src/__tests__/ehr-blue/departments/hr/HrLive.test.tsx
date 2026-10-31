@@ -3,13 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import type { FacilityStaff, FacilityStaffMember } from '../../../../staff/api'
 import { HrCredentials } from '../../../../ehr-blue/departments/hr/HrCredentials'
+import { SAMPLE_NOTICE } from '../../../../ehr-blue/departments/parts/SampleBanner'
 import { hrPage } from '../../../../ehr-blue/departments/hr/page'
 import { DEMO_HOSPITAL_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 
 /**
  * HR & Credentials, its live half: each member of the facility and the licence on record for them, from today's one
- * Staff read (facilityStaffApi.read), in the design's list and record view. Read only: nothing else is asked of Identity.
- * Fictional data only.
+ * Staff read (facilityStaffApi.read), in the design's one list (before the sample rows) and record view. Read only:
+ * nothing else is asked of Identity. Fictional data only.
  */
 const session = vi.hoisted(() => ({ facility: undefined as unknown }))
 vi.mock('../../../../staff/App', async () => {
@@ -62,6 +63,11 @@ const row = (name: string) => screen.getByRole('button', { name }).closest('tr')
 /** A "Saved record" value by its label. */
 const fact = (scope: HTMLElement, label: string) => within(scope).getByText(label, { selector: 'dt' }).nextElementSibling?.textContent
 const savedRecord = () => screen.getByRole('heading', { name: 'Saved record' }).closest('section') as HTMLElement
+/** The page's one list card. */
+const list = () => screen.getByRole('region', { name: 'Search HR & Credentials' })
+/** Each row's record name and the reference under it, in order. */
+const listed = () => within(list()).getAllByRole('row').slice(1)
+  .map(tableRow => tableRow.querySelector('.hid-ehr-dept-record-name')?.textContent)
 
 function expectOnlyTheRead(times = 1) {
   expect(api.read).toHaveBeenCalledTimes(times)
@@ -196,6 +202,65 @@ describe('the live list', () => {
   })
 })
 
+describe('one list, as the design draws it', () => {
+  it('is the one list card under the heading: the live rows, then the sample rows marked “· sample”, with no sample notice', async () => {
+    api.read.mockResolvedValue(staff())
+    open()
+    await screen.findByRole('button', { name: 'MDCN licence' })
+
+    expect(screen.getAllByRole('searchbox')).toHaveLength(1)
+    expect(screen.getAllByRole('table')).toHaveLength(1)
+    expect(document.querySelectorAll('.hid-ehr-dept-list-card')).toHaveLength(1)
+    expect(screen.queryByRole('region', { name: 'Search sample records' })).toBeNull()
+    // The first card under the page's heading, with nothing between them.
+    const heading = screen.getByRole('heading', { level: 1 }).closest('.hid-ehr-page-heading') as HTMLElement
+    expect(heading.nextElementSibling?.firstElementChild).toBe(list())
+    expect(list().nextElementSibling).toBeNull()
+    expect(heading.parentElement?.children).toHaveLength(2)
+
+    expect(listed()).toEqual([
+      `MDCN licence${ADMIN_ID.slice(0, 8)}`, `NMCN licence${NURSE_ID.slice(0, 8)}`, `No licence on record${DESK_ID.slice(0, 8)}`,
+      'Medical licence (fictional)f8f25d2e · sample', 'Nursing registration (fictional)b459b486 · sample',
+    ])
+    expect(screen.queryByRole('note')).toBeNull()
+    expect(screen.queryByText(SAMPLE_NOTICE)).toBeNull()
+    expectOnlyTheRead()
+  })
+
+  it('filters the live and sample rows with its one search, sending nothing', async () => {
+    api.read.mockResolvedValue(staff())
+    open()
+    const search = await screen.findByRole('searchbox', { name: 'Search HR & Credentials' })
+    fireEvent.change(search, { target: { value: 'demo nurse' } })
+    expect(listed()).toEqual([`NMCN licence${NURSE_ID.slice(0, 8)}`, 'Nursing registration (fictional)b459b486 · sample'])
+    fireEvent.change(search, { target: { value: 'sample' } })
+    expect(listed()).toEqual(['Medical licence (fictional)f8f25d2e · sample', 'Nursing registration (fictional)b459b486 · sample'])
+    fireEvent.change(search, { target: { value: 'MDCN' } })
+    expect(listed()).toEqual([`MDCN licence${ADMIN_ID.slice(0, 8)}`])
+    fireEvent.change(search, { target: { value: '' } })
+    expect(listed()).toHaveLength(5)
+    expectOnlyTheRead()
+  })
+
+  it('opens a live row as a live record and a sample row as a sample record, from the same list', async () => {
+    api.read.mockResolvedValue(staff())
+    open()
+    await screen.findByRole('button', { name: 'MDCN licence' })
+    fireEvent.click(within(row('MDCN licence')).getByRole('button', { name: 'Open' }))
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('MDCN licence')
+    expect(screen.queryByRole('note')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+
+    fireEvent.click(within(row('Medical licence (fictional)')).getByRole('button', { name: 'Open' }))
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Medical licence (fictional)')
+    // The sample notice stays on a sample record.
+    expect(screen.getByRole('note').textContent).toBe(SAMPLE_NOTICE)
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Medical licence (fictional)' }))
+    expectOnlyTheRead()
+  })
+})
+
 describe('a facility Health ID support has not checked yet', () => {
   beforeEach(() => setFacility(['workforce.manage'], { review: 'pending', organizationType: 'hospital' }))
 
@@ -203,8 +268,10 @@ describe('a facility Health ID support has not checked yet', () => {
     api.read.mockResolvedValue(staff({ canInvite: false, members: [administrator({ roles: ['org_admin_awaiting_review'], licence: null })],
       administratorLicence: { body: 'MDCN', numberHint: '4321', recordedAt: '2026-10-25T10:00:00.000Z' } }, { reviewState: 'pending' }))
     open()
-    expect(await screen.findByText('You can add staff once Health ID support has checked Demo Hospital.')).toBeTruthy()
+    const pending = await screen.findByText('You can add staff once Health ID support has checked Demo Hospital.')
     expect(screen.getByText('Waiting for Health ID support')).toBeTruthy()
+    // The line over the one list.
+    expect(pending.closest('.hid-ehr-dept-notice')?.nextElementSibling?.contains(list())).toBe(true)
     expect(within(row('MDCN licence')).getByText('recorded')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'MDCN licence' }))
     expect(fact(savedRecord(), 'Number')).toBe('ending 4321')
@@ -230,11 +297,14 @@ describe('a facility Health ID support has not checked yet', () => {
 })
 
 describe('where the live list does not apply', () => {
-  it('refuses a membership without workforce.manage, without asking Identity, and still offers the sample', () => {
+  it('refuses a membership without workforce.manage, without asking Identity, and still lists the sample rows', () => {
     setFacility(['ehr.encounter.read'])
     open()
-    expect(screen.getByText('Permission denied. Only Demo Hospital’s administrator can open its staff records.')).toBeTruthy()
-    expect(screen.getByText('Sample only: not connected to Health ID yet. Nothing you do here is saved.')).toBeTruthy()
+    const refusal = screen.getByText('Permission denied. Only Demo Hospital’s administrator can open its staff records.')
+    // The line over the one list, which holds the sample rows only, each marked; no sample notice on the list.
+    expect(refusal.closest('.hid-ehr-dept-notice')?.nextElementSibling?.contains(list())).toBe(true)
+    expect(listed()).toEqual(['Medical licence (fictional)f8f25d2e · sample', 'Nursing registration (fictional)b459b486 · sample'])
+    expect(screen.queryByText(SAMPLE_NOTICE)).toBeNull()
     expect(screen.getByRole('button', { name: 'Create record' })).toBeTruthy()
     expect(api.read).not.toHaveBeenCalled()
     expect(touched).toEqual([])
@@ -254,12 +324,43 @@ describe('where the live list does not apply', () => {
     expect(api.read).not.toHaveBeenCalled()
   })
 
-  it('says the list is loading while Identity answers', async () => {
+  it('says the list is loading while Identity answers, with the sample rows still listed, searchable and open', async () => {
     api.read.mockReturnValue(new Promise(() => {}))
     open()
-    expect(screen.getByText('Loading staff records…').getAttribute('role')).toBe('status')
-    expect(screen.queryByRole('table', { name: 'HR & Credentials' })).toBeNull()
-    expect(api.read).toHaveBeenCalledTimes(1)
+    const status = screen.getByText('Loading staff records…')
+    expect(status.getAttribute('role')).toBe('status')
+    // The one list card says its live rows are loading, over the table, which already lists the sample rows (as today).
+    expect(list().contains(status)).toBe(true)
+    expect(status.compareDocumentPosition(within(list()).getByRole('table')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(document.querySelectorAll('.hid-ehr-dept-list-card')).toHaveLength(1)
+    expect(screen.getAllByRole('searchbox')).toHaveLength(1)
+    expect(listed()).toEqual(['Medical licence (fictional)f8f25d2e · sample', 'Nursing registration (fictional)b459b486 · sample'])
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search HR & Credentials' }), { target: { value: 'nursing' } })
+    expect(listed()).toEqual(['Nursing registration (fictional)b459b486 · sample'])
+    fireEvent.click(within(row('Nursing registration (fictional)')).getByRole('button', { name: 'Open' }))
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Nursing registration (fictional)')
+    expect(screen.getByRole('note').textContent).toBe(SAMPLE_NOTICE)
+    expectOnlyTheRead()
+  })
+
+  it('puts the live rows above the sample rows once they are read, leaving focus where the user put it', async () => {
+    let answer: (value: FacilityStaff) => void = () => {}
+    api.read.mockReturnValue(new Promise<FacilityStaff>(resolve => { answer = resolve }))
+    open()
+    const medical = screen.getByRole('button', { name: 'Medical licence (fictional)' })
+    medical.focus()
+    answer(staff())
+
+    expect(await screen.findByRole('button', { name: 'MDCN licence' })).toBeTruthy()
+    expect(screen.queryByText('Loading staff records…')).toBeNull()
+    expect(listed()).toEqual([
+      `MDCN licence${ADMIN_ID.slice(0, 8)}`, `NMCN licence${NURSE_ID.slice(0, 8)}`, `No licence on record${DESK_ID.slice(0, 8)}`,
+      'Medical licence (fictional)f8f25d2e · sample', 'Nursing registration (fictional)b459b486 · sample',
+    ])
+    // The same element, not one drawn anew: the sample rows are keyed by their own ids.
+    expect(screen.getByRole('button', { name: 'Medical licence (fictional)' })).toBe(medical)
+    expect(document.activeElement).toBe(medical)
+    expectOnlyTheRead()
   })
 
   it.each([
@@ -282,10 +383,17 @@ describe('where the live list does not apply', () => {
   ])('answers a failed read with Try again, which reads once more: %s', async (refusal, text) => {
     api.read.mockRejectedValueOnce(refusal).mockResolvedValue(staff())
     open()
-    expect((await screen.findByRole('alert')).textContent).toBe(`${text}Try again`)
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe(`${text}Try again`)
+    // The refusal sits over the one list, which still lists the sample rows.
+    expect(alert.nextElementSibling?.contains(list())).toBe(true)
+    expect(listed()).toEqual(['Medical licence (fictional)f8f25d2e · sample', 'Nursing registration (fictional)b459b486 · sample'])
     const retry = screen.getByRole('button', { name: 'Try again' })
     retry.focus()
     fireEvent.click(retry)
+    // While it is read again, the one list says so and keeps the sample rows.
+    expect(within(list()).getByText('Loading staff records…')).toBeTruthy()
+    expect(listed()).toEqual(['Medical licence (fictional)f8f25d2e · sample', 'Nursing registration (fictional)b459b486 · sample'])
     expect(await screen.findByRole('button', { name: 'MDCN licence' })).toBeTruthy()
     await waitFor(() => expect(api.read).toHaveBeenCalledTimes(2))
     expect(screen.queryByText(text)).toBeNull()
