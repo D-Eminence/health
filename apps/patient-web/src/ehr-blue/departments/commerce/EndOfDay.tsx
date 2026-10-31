@@ -6,7 +6,7 @@ import { useToast } from '../../../kasuwa/toast'
 import { useDeptAccess } from '../parts/access'
 import { commerce, METHOD_LABEL, PAYMENT_METHODS, type DayCloseBy, type ListPage, type PaymentMethod, type PaymentSettings, type Shift, type Till } from './api'
 import { naira, parseNaira } from './money'
-import { NotSwitchedOn } from './NotSwitchedOn'
+import { NOT_SWITCHED_ON } from './NotSwitchedOn'
 import { useCommerceRead } from './useCommerceRead'
 
 const METHOD_ICON: Readonly<Record<PaymentMethod, Icon>> = {
@@ -67,13 +67,13 @@ function DayPanel({ of, onChanged }: { readonly of: DayOf; readonly onChanged?: 
   const shift = useCommerceRead<Shift | null>(facilityId ? `shift:${facilityId}:${tillId ?? of.kind}` : null,
     signal => commerce.currentShift(facilityId!, tillId ? { tillId } : {}, signal))
   const [closed, setClosed] = useState<Shift | null>(null)
-  return shift.status === 'off' ? <NotSwitchedOn />
-    : shift.status === 'loading' && shift.data === null ? <LoadingRows rows={3} label="Loading today" />
+  // A day that answers 404 reads as no day open; opening it then says so (NOT_SWITCHED_ON).
+  return shift.status === 'loading' && shift.data === null ? <LoadingRows rows={3} label="Loading today" />
       : shift.status === 'error' ? <Alert intent="error" title="Couldn’t load today" action={<Button size="sm" onClick={shift.reload}>Try again</Button>}>{shift.error}</Alert>
-        : shift.data ? <OpenDay of={of} shift={shift.data} onClosed={done => { setClosed(done); shift.replace(null); onChanged?.() }} onOff={() => shift.reload()} />
+        : shift.data ? <OpenDay of={of} shift={shift.data} onClosed={done => { setClosed(done); shift.replace(null); onChanged?.() }} />
           : <>
             {closed ? <ClosedSummary shift={closed} /> : null}
-            <OpenTheDay of={of} onOpened={opened => { setClosed(null); shift.replace(opened); onChanged?.() }} onOff={() => shift.reload()} />
+            <OpenTheDay of={of} onOpened={opened => { setClosed(null); shift.replace(opened); onChanged?.() }} />
           </>
 }
 
@@ -158,14 +158,13 @@ function DayCard({ title, shift }: { readonly title: string; readonly shift: Shi
   </li>
 }
 
-function OpenTheDay({ of, onOpened, onOff }: { readonly of: DayOf; readonly onOpened: (shift: Shift) => void; readonly onOff: () => void }) {
+function OpenTheDay({ of, onOpened }: { readonly of: DayOf; readonly onOpened: (shift: Shift) => void }) {
   const { facilityId } = useDeptAccess()
   const ids = useId()
   const [text, setText] = useState('')
   const [tried, setTried] = useState(false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
-  const [off, setOff] = useState(false)
   const [key] = useState(() => crypto.randomUUID())
   const toast = useToast()
   const opening = text.trim() === '' ? 0 : parseNaira(text)
@@ -179,11 +178,10 @@ function OpenTheDay({ of, onOpened, onOff }: { readonly of: DayOf; readonly onOp
     const result = await commerce.openShift(facilityId, opening, of.kind === 'till' ? { tillId: of.till.id } : {}, key)
     setBusy(false)
     if (result.ok) { toast.success({ title: of.kind === 'till' ? `${of.till.name} opened` : 'Day opened', message: `Opening cash ${naira(opening)}` }); onOpened(result.data); return }
-    if (result.notAvailable) { setOff(true); onOff(); return }
+    if (result.notAvailable) { setProblem(NOT_SWITCHED_ON); return }
     setProblem(result.error)
   }
 
-  if (off) return <NotSwitchedOn />
   return (
     <Card className="max-w-xl">
       <CardHeader title={title} description={`Count the cash in ${of.kind === 'till' ? 'this till' : 'the drawer'} before the first payment.`} />
@@ -199,7 +197,7 @@ function OpenTheDay({ of, onOpened, onOff }: { readonly of: DayOf; readonly onOp
   )
 }
 
-function OpenDay({ of, shift, onClosed, onOff }: { readonly of: DayOf; readonly shift: Shift; readonly onClosed: (shift: Shift) => void; readonly onOff: () => void }) {
+function OpenDay({ of, shift, onClosed }: { readonly of: DayOf; readonly shift: Shift; readonly onClosed: (shift: Shift) => void }) {
   const { facilityId } = useDeptAccess()
   const ids = useId()
   const [countedText, setCountedText] = useState('')
@@ -223,7 +221,7 @@ function OpenDay({ of, shift, onClosed, onOff }: { readonly of: DayOf; readonly 
     const result = await commerce.closeShift(facilityId, shift.id, counted, note.trim() || null, key)
     setBusy(false); setAsking(false)
     if (result.ok) { toast.success({ title: 'Day closed', message: difference !== null ? differenceText(difference) : undefined }); onClosed(result.data); return }
-    if (result.notAvailable) { onOff(); return }
+    if (result.notAvailable) { setProblem(NOT_SWITCHED_ON); return }
     setProblem(result.error)
   }
 

@@ -38,7 +38,7 @@ export function RouteChoice({ focusTarget, busy, online, onlineNote, facility, o
       {facility ? <>
         <p>For people who lost their SIM, changed their number, have no phone linked to their NIN, or can't get the code. A staff member at a participating facility checks one original photo ID in person, and your registration can be finished only after that check.</p>
         <button type="button" className={buttonClass({ variant: online ? 'secondary' : 'primary', size: 'lg', block: true })} disabled={busy} onClick={onFacility}>Register at a facility</button>
-      </> : <p>Registering at a healthcare facility isn't available yet. If you can't use the phone linked to your NIN, try again later or contact Health ID support.</p>}
+      </> : <p>Registering at a healthcare facility isn't available right now. If you can't use the phone linked to your NIN, try again later or contact Health ID support.</p>}
     </section>
     <button type="button" className={buttonClass({ variant: 'link', className: 'self-start' })} disabled={busy} onClick={onDifferentNin}>Use a different NIN</button>
   </section>

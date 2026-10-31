@@ -19,13 +19,13 @@ import '../commerce/commerce.css'
 
 interface Draft {
   firstName: string; lastName: string; dateOfBirth: string; gender: '' | NonNullable<ResolveNinInput['gender']>
-  nin: string; email: string; phone: string; consent: boolean
+  nin: string; email: string; consent: boolean
 }
-const EMPTY: Draft = { firstName: '', lastName: '', dateOfBirth: '', gender: '', nin: '', email: '', phone: '', consent: false }
+const EMPTY: Draft = { firstName: '', lastName: '', dateOfBirth: '', gender: '', nin: '', email: '', consent: false }
 type DraftErrors = Partial<Record<keyof Draft, string>>
-const ORDER: readonly (keyof Draft)[] = ['firstName', 'lastName', 'dateOfBirth', 'nin', 'email', 'phone', 'consent']
+const ORDER: readonly (keyof Draft)[] = ['firstName', 'lastName', 'dateOfBirth', 'nin', 'email', 'consent']
 const FIELD_ID: Readonly<Record<keyof Draft, string>> = {
-  firstName: 'first', lastName: 'last', dateOfBirth: 'dob', gender: 'sex', nin: 'nin', email: 'email', phone: 'phone', consent: 'consent',
+  firstName: 'first', lastName: 'last', dateOfBirth: 'dob', gender: 'sex', nin: 'nin', email: 'email', consent: 'consent',
 }
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -49,7 +49,6 @@ function check(draft: Draft, ninNeeded: boolean, ninAsked: boolean, today: strin
   const nin = draft.nin.replace(/\s/g, '')
   if (ninAsked && (ninNeeded || nin) && !/^\d{11}$/.test(nin)) errors.nin = 'Type the 11 digit NIN.'
   if (!EMAIL.test(draft.email.trim())) errors.email = draft.email.trim() ? 'Type an email like ada@example.com.' : 'Type their email: their Health ID is sent there.'
-  if (draft.phone.trim() && draft.phone.replace(/\D/g, '').length < 10) errors.phone = 'Type a phone number, like 0803 123 4567.'
   if (!draft.consent) errors.consent = 'Ask them first. They must agree to get a Health ID.'
   return errors
 }
@@ -225,12 +224,7 @@ export function NewHealthIdForm({ idBase, facilityId, place, otcFallback, onMade
       <Input {...control('email', true)} type="email" inputMode="email" maxLength={254} autoComplete="off" value={draft.email} className="h-11" readOnly={busy}
         onChange={event => set({ email: event.target.value })} />
     </Field>
-    <p className="m-0 text-[14px] text-ink-2">No email? They can’t get their Health ID by text yet.{otcFallback ? ' For over-the-counter items, pick No details.' : ''}</p>
-    <Field label="Phone" htmlFor={id('phone')} optional error={errors.phone} errorId={`${id('phone')}-error`}
-      hint="Not sent yet: Health ID can’t text them." hintId={`${id('phone')}-hint`}>
-      <Input {...control('phone', true)} type="tel" inputMode="tel" maxLength={32} autoComplete="off" value={draft.phone} className="h-11" readOnly={busy}
-        onChange={event => set({ phone: event.target.value })} />
-    </Field>
+    {otcFallback ? <p className="m-0 text-[14px] text-ink-2">No email? For over-the-counter items, pick No details.</p> : null}
     <div className="flex flex-col gap-1.5">
       <label htmlFor={id('consent')} className="flex min-h-11 cursor-pointer items-center gap-3 text-[15px] text-ink">
         <input id={id('consent')} type="checkbox" checked={draft.consent} className="size-5 shrink-0 accent-[var(--color-brand)]"

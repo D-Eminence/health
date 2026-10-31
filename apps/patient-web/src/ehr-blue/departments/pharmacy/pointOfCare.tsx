@@ -5,7 +5,7 @@ import { Alert, Button, Card, CardHeader, cx } from '../../../kasuwa/ui'
 import { commerce, type Bill, type PaymentSettings, type WorkItemBill } from '../commerce/api'
 import { BillBadge } from '../commerce/BillBadge'
 import { naira } from '../commerce/money'
-import { NotSwitchedOn } from '../commerce/NotSwitchedOn'
+import { NOT_SWITCHED_ON, NotSwitchedOn } from '../commerce/NotSwitchedOn'
 import { TakePayment } from '../commerce/TakePayment'
 import { useCommerceRead } from '../commerce/useCommerceRead'
 import { DrugTile } from './DrugTile'
@@ -97,7 +97,7 @@ export function PaymentStep({ facilityId, summary, settings, permissions, subjec
     const result = await commerce.bill(facilityId, summary.billId)
     setChecking(false)
     if (result.ok) { read.replace(result.data); cleared(result.data) }
-    else if (result.notAvailable) setSaid('Payments aren’t switched on for this facility yet.')
+    else if (result.notAvailable) setSaid(NOT_SWITCHED_ON)
     else setSaid(result.error)
   }
 
@@ -117,8 +117,7 @@ export function PaymentStep({ facilityId, summary, settings, permissions, subjec
     setDeferError(result.error)
   }
 
-  if (read.status === 'off') return <Card><div className="p-5"><NotSwitchedOn /></div></Card>
-
+  // A bill that answers 404 is shown from the work item's summary; an action then says what is wrong.
   const take = canTake ? <Button variant="primary" size="lg" icon={Wallet} onClick={() => { setSaid(''); setPaying(true) }}>Take payment</Button> : null
   const check = cashier || !canTake ? <Button variant={take ? 'secondary' : 'primary'} size={take ? 'md' : 'lg'} icon={RotateCcw}
     aria-busy={checking || undefined} aria-disabled={checking || undefined} onClick={() => void checkAgain()}>{checking ? 'Checking…' : 'Check again'}</Button> : null
@@ -143,7 +142,7 @@ export function PaymentStep({ facilityId, summary, settings, permissions, subjec
         <p className="m-0 mt-1 text-[14px] text-ink-2">Ask the patient to pay at the cashier with this bill number. Then check again.</p>
       </div> : null}
       {!counter || canTake ? null : <p className="m-0 text-[14px] text-ink-2">Your role can’t take payments. Ask a colleague who can, then check again.</p>}
-      {deferOff ? <NotSwitchedOn compact message="Bill follows isn’t switched on for this facility yet." /> : null}
+      {deferOff ? <NotSwitchedOn compact /> : null}
       <div role="status" aria-live="polite">{said ? <p className="m-0 text-[14px] font-medium text-warn-ink">{said}</p> : null}</div>
       <FormActions sticky={false}>{follows}{take ? check : null}{take ?? check}</FormActions>
     </div>

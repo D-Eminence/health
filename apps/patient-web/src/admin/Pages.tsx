@@ -53,7 +53,7 @@ export function ReviewsPage() {
 export function OperationsPage() {
   const services = useResource(adminApi.services, 'Service status could not be loaded.')
   const events = useResource(adminApi.events, 'Event delivery status could not be loaded.')
-  return <Page eyebrow="Operations" title="Service health" description="Current backend service checks and event delivery state."
+  return <Page eyebrow="Operations" title="Service health" description="Current service checks and event delivery state."
     action={<Refresh onClick={() => { services.reload(); events.reload() }} disabled={services.loading || events.loading} />}>
     <div className="admin-stack"><section className="admin-panel"><h2>Services</h2>
       <ResourceView resource={services} empty={result => result.services.length === 0}>{result => <>

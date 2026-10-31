@@ -35,10 +35,6 @@ export const MEMBERS_NOT_LOADED = 'Campaign members could not be loaded. Try aga
 export const CREATE_FAILED = 'The registration case could not be saved. Please retry.'
 export const LINK_FAILED = 'The patient could not be linked. Check your access to this patient, then refresh the case.'
 
-/** Identity does not authorize campaign writes yet, so none is offered; said where campaigns show. */
-export const CAMPAIGNS_READ_ONLY_TITLE = 'Campaigns are read only'
-export const CAMPAIGNS_READ_ONLY = 'You can view campaigns and their members here. Creating, activating or closing a campaign, and adding members, is not available yet.'
-
 export const PENDING = 'identity_resolution_pending'
 
 /** A status as the design's badges say it: lowercase words. */

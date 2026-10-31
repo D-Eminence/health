@@ -5,11 +5,11 @@ import { Step } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Field, Input, cx } from '../../../kasuwa/ui'
 import { commerce, type CatalogueItem, type CatalogueKind, type StockLine as StockRow, type WalkInPatient } from '../commerce/api'
 import { naira } from '../commerce/money'
-import { NotSwitchedOn } from '../commerce/NotSwitchedOn'
 import { useCommerceRead } from '../commerce/useCommerceRead'
 import { ItemCover } from './pointOfCare'
 import { drugFormFromCatalogue } from './pocFields'
 import { MadeHealthIdPanel, NewHealthIdForm } from './newHealthId'
+import type { OrderPhotoUpload, UploadedPhoto } from '../commerce/orderPhoto'
 
 /*
  * The parts the pharmacy's New sale and the lab's New walk-in share (POINT_OF_CARE_SPEC §4): who the patient is (their Health
@@ -114,8 +114,8 @@ export function WhoFields({ idBase, facilityId, place, who, errors, anonymous, o
 // --------------------------------------------------------- outside order --
 export interface OutsideDraft {
   prescriberName: string; facilityName: string; writtenOn: string; email: string; phone: string
-  /** Shown on this screen only: photos can't be saved yet (no upload route for walk-ins). */
-  photo: string | null
+  /** The photo of the paper, uploaded when chosen: its preview, and the file id sent as `photoFileId`. */
+  photo: UploadedPhoto | null
 }
 export const EMPTY_OUTSIDE: OutsideDraft = { prescriberName: '', facilityName: '', writtenOn: '', email: '', phone: '', photo: null }
 export type OutsideErrors = Partial<Record<'prescriberName' | 'email' | 'writtenOn', string>>
@@ -131,18 +131,22 @@ export function checkOutside(outside: OutsideDraft, used: boolean, today = new D
 
 /** Whether anything of the outside order was filled in. */
 export function outsideUsed(outside: OutsideDraft): boolean {
-  return Boolean(outside.prescriberName.trim() || outside.facilityName.trim() || outside.writtenOn || outside.email.trim() || outside.phone.trim())
+  return Boolean(outside.prescriberName.trim() || outside.facilityName.trim() || outside.writtenOn || outside.email.trim() || outside.phone.trim() || outside.photo)
 }
 
 export function outsideOrder(outside: OutsideDraft) {
   return outsideUsed(outside) ? {
     prescriberName: outside.prescriberName.trim(), facilityName: outside.facilityName.trim() || null, writtenOn: outside.writtenOn || null,
-    prescriberEmail: outside.email.trim() || null, prescriberPhone: outside.phone.trim() ? normalizePhone(outside.phone) : null, photoFileId: null,
+    prescriberEmail: outside.email.trim() || null, prescriberPhone: outside.phone.trim() ? normalizePhone(outside.phone) : null, photoFileId: outside.photo?.fileId ?? null,
   } : null
 }
 
-export function OutsideFields({ idBase, outside, errors, contact, paper, onChange }: {
+export function OutsideFields({ idBase, outside, errors, contact, paper, photoUpload, onChange, onPhoto }: {
   readonly idBase: string; readonly outside: OutsideDraft; readonly errors: OutsideErrors
+  /** The page's photo upload (useOrderPhotoUpload), so an upload outlives this step. */
+  readonly photoUpload: OrderPhotoUpload
+  /** Puts the uploaded photo (or none) in the latest draft. */
+  readonly onPhoto: (photo: UploadedPhoto | null) => void
   /** Whether to ask for the doctor's email and phone (the lab sends the result back). */
   readonly contact: boolean
   /** The paper's name: "prescription", "request form". */
@@ -179,15 +183,21 @@ export function OutsideFields({ idBase, outside, errors, contact, paper, onChang
       <span className="text-[13px] font-medium text-ink-2">Photo of the {paper} <span className="font-normal text-ink-3">(optional)</span></span>
       {outside.photo
         ? <div className="flex items-start gap-3">
-          <img src={outside.photo} alt={`The ${paper}, as photographed`} className="max-h-48 max-w-[60%] rounded-lg object-contain ring-1 ring-line" />
-          <Button icon={X} onClick={() => { if (outside.photo) URL.revokeObjectURL(outside.photo); set({ photo: null }) }}>Remove photo</Button>
+          <img src={outside.photo.preview} alt={`The ${paper}, as photographed`} className="max-h-48 max-w-[60%] rounded-lg object-contain ring-1 ring-line" />
+          <Button icon={X} onClick={() => { photoUpload.release(outside.photo); onPhoto(null) }}>Remove photo</Button>
         </div>
-        : <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 self-start rounded-md bg-surface px-4 text-sm font-medium text-ink ring-1 ring-inset ring-line-strong shadow-[var(--shadow-xs)] hover:bg-subtle focus-within:shadow-[var(--shadow-focus)]">
-          <Camera className="size-4" aria-hidden />Take or choose a photo
-          <input type="file" accept="image/*" capture="environment" className="sr-only"
-            onChange={event => { const file = event.target.files?.[0]; if (file) set({ photo: URL.createObjectURL(file) }); event.target.value = '' }} />
+        : <label className={cx('inline-flex min-h-11 items-center gap-2 self-start rounded-md bg-surface px-4 text-sm font-medium text-ink ring-1 ring-inset ring-line-strong shadow-[var(--shadow-xs)] focus-within:shadow-[var(--shadow-focus)]',
+          photoUpload.uploading ? 'cursor-progress' : 'cursor-pointer hover:bg-subtle')}>
+          <Camera className="size-4" aria-hidden />{photoUpload.uploading ? 'Uploading the photo…' : 'Take or choose a photo'}
+          <input type="file" accept="image/*" capture="environment" className="sr-only" disabled={photoUpload.uploading}
+            aria-invalid={photoUpload.error ? true : undefined} aria-describedby={photoUpload.error ? `${idBase}-photo-error` : undefined}
+            onChange={event => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              if (file) void photoUpload.upload(file).then(photo => { if (photo) onPhoto(photo) })
+            }} />
         </label>}
-      <p className="m-0 text-[13px] text-warn-ink">Photos can’t be saved yet. It shows on this screen only, so keep the paper {paper}.</p>
+      {photoUpload.error ? <p id={`${idBase}-photo-error`} role="alert" className="m-0 text-xs font-medium text-danger-ink">{photoUpload.error}</p> : null}
     </div>
   </div>
 }
@@ -197,8 +207,8 @@ export function OutsideFields({ idBase, outside, errors, contact, paper, onChang
 export interface PickItem { readonly item: CatalogueItem; readonly stock: StockRow | null }
 
 /**
- * The price list, searched as typed (kind: drugs or lab tests), with stock joined in for drugs where it is read. Answers
- * `off` when the price list isn't switched on.
+ * The price list, searched as typed (kind: drugs or lab tests), with stock joined in for drugs where it is read. A price
+ * list that answers 404 reads as an empty one.
  */
 export function useCatalogueSearch(facilityId: string, kind: CatalogueKind, query: string, withStock: boolean) {
   const [q, setQ] = useState(query)
@@ -207,7 +217,8 @@ export function useCatalogueSearch(facilityId: string, kind: CatalogueKind, quer
   const stock = useCommerceRead(withStock ? `stock:${facilityId}:${q}` : null, signal => commerce.stock(facilityId, { q }, signal))
   const byId = new Map((stock.data?.items ?? []).map(line => [line.catalogueItemId, line]))
   const list: PickItem[] = (items.data?.items ?? []).filter(item => item.active).map(item => ({ item, stock: byId.get(item.id) ?? null }))
-  return { status: items.status, error: items.error, list, reload: items.reload, searching: q !== query.trim() || items.status === 'loading' }
+  const status = items.status === 'off' ? 'ready' as const : items.status
+  return { status, error: items.error, list, reload: items.reload, searching: q !== query.trim() || items.status === 'loading' }
 }
 
 /** One result: a big card, the whole card a button that adds it (or says why it can't). */
@@ -254,7 +265,6 @@ export function CataloguePicker({ facilityId, kind, searchId, withStock, chosen,
 }) {
   const [query, setQuery] = useState('')
   const search = useCatalogueSearch(facilityId, kind, query, withStock)
-  if (search.status === 'off') return <NotSwitchedOn message="The price list isn’t switched on for this facility yet, so items can’t be picked." />
   return <div className="flex flex-col gap-3">
     <label htmlFor={searchId} className="sr-only">Search the price list</label>
     <div className="relative">

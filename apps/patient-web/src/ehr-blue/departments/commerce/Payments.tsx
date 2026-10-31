@@ -7,7 +7,7 @@ import { useDeptAccess } from '../parts/access'
 import { commerce, SOURCE_LABEL, type Bill, type ListPage, type Payment, type PaymentSettings } from './api'
 import { BillBadge } from './BillBadge'
 import { naira } from './money'
-import { NotSwitchedOn } from './NotSwitchedOn'
+import { NOT_SWITCHED_ON } from './NotSwitchedOn'
 import { Receipt } from './Receipt'
 import { TakePayment } from './TakePayment'
 import { useCommerceRead } from './useCommerceRead'
@@ -65,15 +65,15 @@ export function Payments() {
     setConfirmBusy(false)
     if (result.ok) { remember(result.data); setConfirming(null); toast.success({ title: 'Transfer confirmed', message: `Bill ${result.data.number}` }); return }
     setConfirming(null)
-    if (result.notAvailable) { toast.info({ title: 'Not switched on', message: 'Payments aren’t switched on for this facility yet.' }); return }
+    if (result.notAvailable) { toast.error({ title: 'Not confirmed', message: NOT_SWITCHED_ON }); return }
     toast.error({ title: 'Not confirmed', message: result.error })
   }
 
-  const off = bills.status === 'off'
+  // A list that answers 404 shows the normal empty state.
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="Payments" description="Bills waiting to be paid. Health ID records each payment; the money itself goes through your till, POS or bank." />
-      {off ? <NotSwitchedOn /> : <>
+      <PageHeader title="Payments" description="Bills waiting to be paid." />
+      <>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <FilterTabs<View> label="Bills" value={view} onChange={setView} options={[
             { value: 'to_pay', label: 'To pay', count: counts.to_pay },
@@ -101,7 +101,7 @@ export function Payments() {
             ))}
           </ul>
         </PageState>
-      </>}
+      </>
 
       <TakePayment open={paying !== null} bill={paying} onPaid={remember} onClose={() => setPaying(null)} />
 

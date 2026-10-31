@@ -39,7 +39,7 @@ export function NinStep({ focusTarget, busy, invalid, errorId, nin, onNin, onSub
           : 'A code by text message isn\'t available right now.'}</li>
         <li>{routes.facility
           ? 'At a participating healthcare facility: if you lost your SIM, changed your number, have no phone linked to your NIN, or can\'t get the code, a staff member checks one original photo ID in person. You start here with your NIN either way.'
-          : 'Registering at a healthcare facility isn\'t available yet.'}</li>
+          : 'Registering at a healthcare facility isn\'t available right now.'}</li>
       </ul>
       {routes.facility && <Link to={FACILITY_LIST_PATH}>See participating facilities and what to bring</Link>}
     </section>}

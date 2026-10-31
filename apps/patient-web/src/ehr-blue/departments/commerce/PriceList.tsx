@@ -9,7 +9,8 @@ import { DrugTile } from '../pharmacy/DrugTile'
 import type { DrugForm } from '../pharmacy/drugForm'
 import { commerce, type CatalogueForm, type CatalogueItem, type CatalogueItemInput, type CatalogueKind, type Hmo, type ListPage, type PaymentSettings } from './api'
 import { naira, parseNaira } from './money'
-import { NotSwitchedOn } from './NotSwitchedOn'
+import { NOT_SET_UP_UNSAVED, NotSwitchedOn } from './NotSwitchedOn'
+import { useOrderPhotoUpload, type UploadedPhoto } from './orderPhoto'
 import { useCommerceRead } from './useCommerceRead'
 
 type Kind = 'all' | CatalogueKind
@@ -67,8 +68,9 @@ export function PriceList() {
   return (
     <div className="flex flex-col gap-5">
       <PageHeader title="Price list" description="What you charge for each drug, test and service: the cash price and each HMO’s price."
-        actions={canManage && items.status !== 'off' ? <Button variant="primary" icon={Plus} onClick={() => setEditing('new')}>Add item</Button> : undefined} />
-      {items.status === 'off' ? <NotSwitchedOn /> : <>
+        actions={canManage ? <Button variant="primary" icon={Plus} onClick={() => setEditing('new')}>Add item</Button> : undefined} />
+      {/* A price list that answers 404 shows the normal empty state; Add item says so if it can't save. */}
+      <>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <FilterTabs<Kind> label="Kind of item" value={kind} onChange={setKind} options={[
             { value: 'all', label: 'All', count: count('all') }, { value: 'drug', label: 'Drugs', count: count('drug') },
@@ -85,7 +87,7 @@ export function PriceList() {
             {shown.map(item => <ItemCard key={item.id} item={item} hmos={hmos} onEdit={canManage ? () => setEditing(item) : null} />)}
           </ul>
         </PageState>
-      </>}
+      </>
       {editing !== null ? (
         <ItemDrawer key={editing === 'new' ? 'new' : `${editing.id}:${editing.version}`} item={editing === 'new' ? null : editing} hmos={hmos}
           onClose={() => setEditing(null)}
@@ -147,6 +149,9 @@ function ItemDrawer({ item, hmos, onClose, onSaved }: {
   const [problem, setProblem] = useState<string | null>(null)
   const [off, setOff] = useState(false)
   const [key] = useState(() => crypto.randomUUID())
+  // A picture chosen here is uploaded at once (POST files/order-photos) and saved with the item as { imageFileId }.
+  const pictureUpload = useOrderPhotoUpload(facilityId ?? null)
+  const [picture, setPicture] = useState<UploadedPhoto | null>(null)
 
   const cashKobo = parseNaira(cash)
   const hmoPrices = hmos.flatMap(hmo => {
@@ -162,7 +167,7 @@ function ItemDrawer({ item, hmos, onClose, onSaved }: {
 
   async function save() {
     setTried(true)
-    if (!facilityId || blocked || cashKobo === null) return
+    if (!facilityId || blocked || cashKobo === null || pictureUpload.uploading) return
     setBusy(true); setProblem(null)
     const input: CatalogueItemInput = {
       kind, name: name.trim(),
@@ -173,9 +178,19 @@ function ItemDrawer({ item, hmos, onClose, onSaved }: {
       prices: { cashKobo, hmo: hmoPrices.map(price => ({ hmoId: price.hmoId, amountKobo: price.amountKobo! })) },
       active,
     }
+    const imageFileId = picture?.fileId
     const result = item
-      ? await commerce.updateCatalogueItem(facilityId, item.id, { ...input, expectedVersion: item.version }, key)
+      ? await commerce.updateCatalogueItem(facilityId, item.id, { ...input, expectedVersion: item.version, ...(imageFileId ? { imageFileId } : {}) }, key)
       : await commerce.createCatalogueItem(facilityId, input, key)
+    if (result.ok && !item && imageFileId) {
+      // A new item takes its picture once it exists: PATCH { imageFileId } on the version just made.
+      const pictured = await commerce.updateCatalogueItem(facilityId, result.data.id, { expectedVersion: result.data.version, imageFileId }, `${key}:image`)
+      setBusy(false)
+      if (pictured.ok) { toast.success({ title: 'Item added', message: pictured.data.name }); onSaved(pictured.data); return }
+      toast.error({ title: 'Item added without its picture', message: `Edit ${result.data.name} to add the picture again.` })
+      onSaved(result.data)
+      return
+    }
     setBusy(false)
     if (result.ok) { toast.success({ title: item ? 'Price saved' : 'Item added', message: result.data.name }); onSaved(result.data); return }
     if (result.notAvailable) { setOff(true); return }
@@ -189,7 +204,7 @@ function ItemDrawer({ item, hmos, onClose, onSaved }: {
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
         <Button variant="primary" loading={busy} onClick={() => { void save() }}>{item ? 'Save' : 'Add item'}</Button>
       </>}>
-      {off ? <NotSwitchedOn /> : (
+      {off ? <NotSwitchedOn message={NOT_SET_UP_UNSAVED} /> : (
         <form className="flex flex-col gap-4" onSubmit={event => { event.preventDefault(); void save() }}>
           {!item ? (
             <div className="flex flex-col gap-1.5">
@@ -200,13 +215,20 @@ function ItemDrawer({ item, hmos, onClose, onSaved }: {
           ) : null}
 
           <div className="flex items-center gap-4">
-            <ItemTile item={{ kind, form: form || null, imageUrl: item?.imageUrl ?? null, name }} size="lg" />
+            <ItemTile item={{ kind, form: form || null, imageUrl: picture?.preview ?? item?.imageUrl ?? null, name }} size="lg" />
             <div className="flex min-w-0 flex-col gap-1.5">
-              <label htmlFor={`${ids}-image`} className="inline-flex h-11 cursor-not-allowed items-center gap-2 self-start rounded-md bg-surface px-4 text-sm font-medium text-ink-3 ring-1 ring-inset ring-line-strong sm:h-10">
-                <ImagePlus className="size-4" aria-hidden />Add a picture
+              <label htmlFor={`${ids}-image`} className={cx('inline-flex h-11 items-center gap-2 self-start rounded-md bg-surface px-4 text-sm font-medium text-ink ring-1 ring-inset ring-line-strong focus-within:shadow-[var(--shadow-focus)] sm:h-10',
+                pictureUpload.uploading ? 'cursor-progress' : 'cursor-pointer hover:bg-subtle')}>
+                <ImagePlus className="size-4" aria-hidden />{pictureUpload.uploading ? 'Uploading the picture…' : picture || item?.imageUrl ? 'Change the picture' : 'Add a picture'}
               </label>
-              <input id={`${ids}-image`} type="file" accept="image/*" disabled className="sr-only" aria-describedby={`${ids}-image-note`} />
-              <p id={`${ids}-image-note`} className="m-0 text-caption text-ink-3">Pictures can’t be saved yet. Until they can, a drawing of the form shows instead.</p>
+              <input id={`${ids}-image`} type="file" accept="image/*" className="sr-only" disabled={pictureUpload.uploading || busy}
+                aria-invalid={pictureUpload.error ? true : undefined} aria-describedby={pictureUpload.error ? `${ids}-image-error` : undefined}
+                onChange={event => {
+                  const file = event.target.files?.[0]
+                  event.target.value = ''
+                  if (file) void pictureUpload.upload(file).then(next => { if (next) { pictureUpload.release(picture); setPicture(next) } })
+                }} />
+              {pictureUpload.error ? <p id={`${ids}-image-error`} role="alert" className="m-0 text-xs font-medium text-danger-ink">{pictureUpload.error}</p> : null}
             </div>
           </div>
 

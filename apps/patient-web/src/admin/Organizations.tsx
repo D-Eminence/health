@@ -191,8 +191,7 @@ export function ApplicationsPage({ actor }: { actor: AdminActor }) {
     <FilterTabs label="Application status" value={filters.status} onChange={value => { setNotice(null); setFilters({ status: value }) }}
       options={[{ value: '', label: 'All' }, ...APPLICATION_STATUSES.map(value => ({ value: value as string, label: label(value) }))]} />
     {notice && <p role="status" className="admin-success">{notice}</p>}
-    <p className="admin-note">Approved organizations appear through their <Link to="/admin/facilities">facilities</Link>.
-      There is no separate organization directory yet.</p>
+    <p className="admin-note">Approved organizations appear through their <Link to="/admin/facilities">facilities</Link>.</p>
     {usesNovuBackend() && <p className="admin-note">{SELF_SIGN_UP_SECOND_PRODUCT}</p>}
     <ResourceView resource={resource} empty={result => result.items.length === 0}>{result => <div className="admin-stack">
       {result.items.map(application => <ApplicationCard key={`${application.applicationId}:${application.version}`}

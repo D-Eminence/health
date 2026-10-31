@@ -554,7 +554,6 @@ export function createPatientApi(sender: ApiClient) {
     // hid-system#68 (FE-4): whether a start would pass its checks made before a NIN is read.
     // Only `{ open: true }` means open (INTERFACE_CONTRACT.md, public patient enrollment).
     enrollmentAvailability: () => call<EnrollmentAvailability>('GET', 'identity/patient-enrollments/availability'),
-    // ADR-063: public, by name and place only. Empty while the facility route is off.
     /**
      * A record the patient adds themselves (a visit, a result, a medicine), with where it happened and photos or files of
      * the paper. PROPOSED: no backend serves it yet (logged in dev/mock-gateway/backend-needs and BACKEND-NEEDS.md); until
@@ -566,6 +565,7 @@ export function createPatientApi(sender: ApiClient) {
      * and the records the share allows, for as long as the share lasts. No session: the link's token is the access.
      */
     sharedCard: (token: string, signal?: AbortSignal) => call<SharedCardAnswer>('GET', `identity/shared-cards/${encodeURIComponent(token)}`, undefined, { signal }),
+    // ADR-063: public, by name and place only. Empty while the facility route is off.
     participatingFacilities: () => call<ParticipatingFacilities>('GET', 'identity/patient-enrollments/participating-facilities'),
     enrollmentStart: (nin: string, turnstileToken: string, idempotencyKey: string) =>
       call<EnrollmentProgress>('POST', 'identity/patient-enrollments', { nin, turnstileAction: 'patient-enrollment', turnstileToken },

@@ -14,7 +14,7 @@ import { Hint, InputR, Problem } from './profileParts'
  * the account or the service, not the number typed, except where marked.
  */
 export const NIN_REFUSALS: Readonly<Record<string, string>> = {
-  QOREID_PATIENT_NIN_BINDING_DISABLED: 'You can’t verify your NIN here yet. Try again later.',
+  QOREID_PATIENT_NIN_BINDING_DISABLED: 'You can’t verify your NIN here right now. Try again later.',
   PATIENT_NIN_BINDING_CONFLICT: 'This NIN needs a review before it can be added to your account. Contact Health ID support.',
   PATIENT_NIN_DETAILS_MISMATCH: 'This NIN doesn’t match your name and date of birth. Check them and try again.',
   PATIENT_IDENTITY_PROFILE_INCOMPLETE: 'Your profile is missing details we need, like your date of birth. Contact Health ID support.',

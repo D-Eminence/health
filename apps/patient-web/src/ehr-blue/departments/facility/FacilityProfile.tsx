@@ -17,7 +17,7 @@ import { countText } from '../parts/format'
  * No request is made.
  */
 
-const NOT_AVAILABLE = 'Not available in Health ID yet'
+const NOT_AVAILABLE = 'Not recorded'
 
 /** The kinds of facility that sign themselves up, as the provider sign-up names them (ProviderEnrollment.tsx). */
 const ORGANIZATION_TYPES: Readonly<Record<OrganizationType, string>> = {
@@ -97,7 +97,7 @@ export function FacilityProfile() {
   return (
     <DeptPage title="Facility profile" className="hid-ehr-dept-facility">
       <DeptSection title="Hospital details & picture">
-        <p className="hid-ehr-dept-facility-intro">This profile is read-only. Details Health ID does not hold yet show “{NOT_AVAILABLE}”.</p>
+        <p className="hid-ehr-dept-facility-intro">This profile is read-only.</p>
         <div className="hid-ehr-dept-facility-inner">
           <h3>Facility presence policy</h3>
           <Fields>

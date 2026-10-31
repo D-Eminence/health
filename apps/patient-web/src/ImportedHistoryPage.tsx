@@ -120,7 +120,7 @@ function sharingFailure(reason: unknown): string {
   if (isHidApiError(reason)) {
     if (reason.code === 'PATIENT_RECENT_AUTH_REQUIRED') return 'For your safety, sign in again first, then try again.'
     if (reason.code === 'PATIENT_RECENT_RECOVERY_HOLD') return 'You can’t turn on sharing for 24 hours after you recover your account. Try again later.'
-    if (reason.code === 'IMPORTED_HISTORY_SHARING_DISABLED') return 'Sharing older records isn’t available yet.'
+    if (reason.code === 'IMPORTED_HISTORY_SHARING_DISABLED') return 'Sharing older records isn’t available right now.'
     if (reason.status === 401) return 'Your session ended. Please sign in again.'
   }
   return 'Couldn’t save your choice. Try again.'

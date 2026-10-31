@@ -828,6 +828,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('files.uploadIntent','files','/api/v1/ehr/documents/upload-intents',P,false,one('POST','ehr.document.write')),
   r('files.complete','files','/api/v1/ehr/documents/:documentId/complete',P,false,one('POST','ehr.document.write')),
   r('files.download','files','/api/v1/ehr/documents/:documentId/download',G,false,one('GET','ehr.document.read')),
+  // Point of care (docs/POINT_OF_CARE_SPEC.md §4): photos of outside prescriptions and lab request forms (photoFileId), and
+  // price-list pictures (imageFileId). Proposed; 404 until served.
+  // Any one of pharmacy.walk-in.create, lab.walk-in.create or billing.catalogue.manage (permissions here are all-required).
+  proposed(r('files.orderPhotos','files','/api/v1/files/order-photos',P,false,undefined,
+    `${POINT_OF_CARE} Multipart, one image (field "file"), max 10 MB; answers { fileId }. Needs pharmacy.walk-in.create, `
+    + 'lab.walk-in.create or billing.catalogue.manage.')),
 
   r('lab.workItems','lab','/api/v1/lab/work-items',G,false,one('GET','lab.work-item.read'),WORK_LISTS_P4C),
   r('lab.workItem','lab','/api/v1/lab/work-items/:workItemId',G,false,one('GET','lab.work-item.read')),

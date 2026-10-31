@@ -5,7 +5,7 @@ import { ConfirmSheet, PageState } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Field, FilterTabs, Input, PageHeader, Select, Textarea, cx } from '../../../kasuwa/ui'
 import { useBluePage } from '../../frame/pageContext'
 import { commerce, type ListPage, type StockAdjustment, type StockLine, type StockMovement } from '../commerce/api'
-import { NotSwitchedOn } from '../commerce/NotSwitchedOn'
+import { NOT_SET_UP_UNSAVED, NotSwitchedOn } from '../commerce/NotSwitchedOn'
 import { useCommerceRead } from '../commerce/useCommerceRead'
 import { useDeptAccess } from '../parts/access'
 import { ItemCover } from './pointOfCare'
@@ -15,7 +15,6 @@ import { ReceiveStock } from './ReceiveStock'
 /** Batches expiring within this many days are flagged "Expiring soon". */
 const SOON_DAYS = 90
 const DAY = 86_400_000
-const STOCK_OFF = 'Stock isn’t switched on for this facility yet.'
 
 type StockTab = 'all' | 'low' | 'expiring'
 
@@ -67,8 +66,9 @@ function StockList() {
 
   return <div className="flex flex-col gap-5">
     <PageHeader title="Stock" back={back} description="What is on the shelf, by item. Tap an item for its batches."
-      actions={canManage && read.status !== 'off' ? <Button variant="primary" icon={PackagePlus} to="/provider/pharmacy/stock/receive">Receive stock</Button> : undefined} />
-    {read.status === 'off' ? <NotSwitchedOn message={STOCK_OFF} /> : <>
+      actions={canManage ? <Button variant="primary" icon={PackagePlus} to="/provider/pharmacy/stock/receive">Receive stock</Button> : undefined} />
+    {/* Stock that answers 404 shows the normal empty state. */}
+    <>
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <FilterTabs label="Show stock" value={tab} onChange={setTab} options={[
           { value: 'all', label: 'All' }, { value: 'low', label: 'Low' }, { value: 'expiring', label: 'Expiring' },
@@ -83,7 +83,7 @@ function StockList() {
       {read.status === 'error' && lines.length > 0 ? <Alert intent="error" title="Couldn’t refresh stock" size="sm"
         action={<Button size="sm" onClick={read.reload}>Try again</Button>}>{read.error} What is shown may be out of date.</Alert> : null}
       <PageState loading={read.status === 'loading'} error={lines.length ? null : read.error} hasData={lines.length > 0} onRetry={read.reload}
-        what="stock" rows={4} empty={read.status === 'ready' && lines.length === 0 ? (q
+        what="stock" rows={4} empty={(read.status === 'ready' || read.status === 'off') && lines.length === 0 ? (q
           ? { icon: Search, title: 'Nothing matches', description: 'Check the spelling, or search by another name.' }
           : tab === 'low' ? { icon: PackagePlus, title: 'Nothing is running low', description: 'Items at or below their reorder level show here.' }
             : tab === 'expiring' ? { icon: CalendarClock, title: 'Nothing expiring soon', description: `Batches expiring in the next ${SOON_DAYS} days show here.` }
@@ -92,7 +92,7 @@ function StockList() {
           {lines.map(line => <StockCard key={line.catalogueItemId} line={line} onOpen={() => setOpenId(line.catalogueItemId)} />)}
         </ul>
       </PageState>
-    </>}
+    </>
     <StockDrawer facilityId={facilityId} line={opened} canManage={canManage} onClose={() => setOpenId(null)} onChanged={read.reload} />
   </div>
 }
@@ -168,9 +168,8 @@ function StockDrawer({ facilityId, line, canManage, onClose, onChanged }: {
       </section>
       <section aria-labelledby="stock-movements" className="flex flex-col gap-2">
         <h3 id="stock-movements" className="m-0 text-title-3 text-ink">Movements</h3>
-        {movements.status === 'off' ? <NotSwitchedOn compact message="Stock movements aren’t switched on for this facility yet." />
-          : <PageState loading={movements.status === 'loading'} error={movements.error} hasData={Boolean(movements.data?.items.length)} onRetry={movements.reload}
-            what="movements" rows={2} empty={movements.status === 'ready' && !movements.data?.items.length ? { title: 'No movements yet' } : null}>
+        <PageState loading={movements.status === 'loading'} error={movements.error} hasData={Boolean(movements.data?.items.length)} onRetry={movements.reload}
+            what="movements" rows={2} empty={(movements.status === 'ready' || movements.status === 'off') && !movements.data?.items.length ? { title: 'No movements yet' } : null}>
             <ul className="m-0 flex list-none flex-col divide-y divide-line p-0">
               {movements.data?.items.map(entry => <li key={entry.id} className="flex items-start justify-between gap-3 py-2.5">
                 <span className="min-w-0">
@@ -180,7 +179,7 @@ function StockDrawer({ facilityId, line, canManage, onClose, onChanged }: {
                 <span className={cx('shrink-0 text-[15px] font-semibold tabular', entry.change < 0 ? 'text-ink' : 'text-success-ink')}>{entry.change > 0 ? `+${entry.change}` : entry.change}</span>
               </li>)}
             </ul>
-          </PageState>}
+          </PageState>
       </section>
     </div>
     <AdjustSheet facilityId={facilityId} line={line} batch={adjusting} onClose={() => setAdjusting(null)}
@@ -241,7 +240,7 @@ function AdjustSheet({ facilityId, line, batch, onClose, onDone }: {
       <Field label="Note" htmlFor="adjust-note" optional={reason !== 'count'} hint={reason === 'count' ? 'What the count found.' : undefined}>
         <Textarea id="adjust-note" rows={2} maxLength={500} value={note} onChange={event => { setNote(event.target.value); setError('') }} />
       </Field>
-      {off ? <NotSwitchedOn compact message={`${STOCK_OFF} Nothing was saved.`} /> : null}
+      {off ? <NotSwitchedOn compact message={NOT_SET_UP_UNSAVED} /> : null}
       {error ? <p role="alert" className="m-0 text-[13px] font-medium text-danger-ink">{error}</p> : null}
     </div>
   </ConfirmSheet>

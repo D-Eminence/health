@@ -42,7 +42,8 @@ const SELLS: ReadonlySet<Product> = new Set<Product>(['lab', 'pharmacy'])
 declare global { interface Window { __HID_PREVIEW_PRODUCT__?: string } }
 
 export function productOf(hostname: string, permissions: readonly string[]): Product {
-  const pretend = typeof window !== 'undefined' ? window.__HID_PREVIEW_PRODUCT__ : undefined
+  // The local preview's product picker only; a production build never reads it.
+  const pretend = import.meta.env.VITE_HID_ENVIRONMENT === 'local' && typeof window !== 'undefined' ? window.__HID_PREVIEW_PRODUCT__ : undefined
   if (pretend && pretend in PRODUCTS) return pretend as Product
   const host = resolveStaffProductHostname(hostname)?.key
   if (host) return host

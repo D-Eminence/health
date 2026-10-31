@@ -226,7 +226,7 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
     try {
       const answer = await api.changePhone(number, password)
       setStep({ kind: 'idle' }); setPassword(''); setPhone('')
-      setNotice(`Your phone number is now ${maskPhone(answer.phone)}. It shows as not verified because we can’t text it yet.`
+      setNotice(`Your phone number is now ${maskPhone(answer.phone)}. It shows as not verified.`
         + (phoneNoticeByEmail ? ' We emailed you about the change.' : ''))
       await onChanged()
       announce()

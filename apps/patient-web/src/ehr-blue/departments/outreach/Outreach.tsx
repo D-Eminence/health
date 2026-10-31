@@ -15,7 +15,7 @@ import { CampaignMembersRead, OutreachCampaignView } from './OutreachCampaignVie
 import { OutreachCaseView } from './OutreachCaseView'
 import { OutreachNew, type CaseAttempt } from './OutreachNew'
 import {
-  ageText, CAMPAIGNS_NOT_LOADED, CAMPAIGNS_READ_ONLY, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, ErrorBox,
+  ageText, CAMPAIGNS_NOT_LOADED, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, ErrorBox,
   NO_FACILITY, NO_READ_PERMISSION, nextStepText, PENDING, sexText, statusLabel, statusWords, type MembersRead,
 } from './outreachParts'
 
@@ -295,7 +295,6 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
         {canReadCampaigns ? (
           <section aria-labelledby="outreach-campaigns-heading" className="flex flex-col gap-3">
             <h2 id="outreach-campaigns-heading" className="m-0 text-title-2 text-ink">Campaigns</h2>
-            <p className="m-0 text-[13px] text-ink-3">{CAMPAIGNS_READ_ONLY}</p>
             {campaigns.error && campaigns.value ? <Alert intent="error" title="Couldn’t refresh campaigns">{campaigns.error}</Alert> : null}
             <PageState loading={campaigns.loading} error={campaigns.value ? null : campaigns.error || null} hasData={campaigns.value !== null}
               onRetry={() => void campaigns.refresh()} what="campaigns" rows={2}

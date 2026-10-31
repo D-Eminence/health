@@ -109,7 +109,7 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
       reset(); onSaved?.(); onClose()
     } catch (cause) {
       setNotSaved(isHidApiError(cause) && cause.status === 404
-        ? { title: 'Nothing was saved', message: 'Health ID can’t keep records you add yet. What you entered is still here.' }
+        ? { title: 'Couldn’t add your record', message: 'This isn’t set up for your account. Contact support. What you entered is still here.' }
         : { title: 'Couldn’t add your record', message: isHidApiError(cause) ? cause.message : SAY.tryAgain })
     } finally { setBusy(false) }
   }

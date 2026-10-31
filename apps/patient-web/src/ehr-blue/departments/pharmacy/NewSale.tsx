@@ -6,7 +6,8 @@ import { Alert, Badge, Button, Card, EmptyState, Field, Input } from '../../../k
 import { useFocusById } from '../../../staff/focus'
 import { commerce, type CatalogueItem, type WalkInAnswer, type WalkInOrder, type WorkItemBill } from '../commerce/api'
 import { naira } from '../commerce/money'
-import { NotSwitchedOn } from '../commerce/NotSwitchedOn'
+import { NOT_SET_UP_UNSAVED, NotSwitchedOn } from '../commerce/NotSwitchedOn'
+import { useOrderPhotoUpload } from '../commerce/orderPhoto'
 import { useDeptAccess } from '../parts/access'
 import { ItemCover, PaymentStep, PaidLine, usePaymentSettings } from './pointOfCare'
 import { drugFormFromCatalogue, paysFirst, summaryOf } from './pocFields'
@@ -54,6 +55,7 @@ function NewSaleForm({ facilityId, permissions }: { readonly facilityId: string;
   const [who, setWho] = useState<WhoDraft>(EMPTY_WHO)
   const [whoErrors, setWhoErrors] = useState<WhoErrors>({})
   const [outside, setOutside] = useState<OutsideDraft>(EMPTY_OUTSIDE)
+  const photoUpload = useOrderPhotoUpload(facilityId)
   const [outsideErrors, setOutsideErrors] = useState<OutsideErrors>({})
   const [cart, setCart] = useState<CartLine[]>([])
   const [cartError, setCartError] = useState('')
@@ -80,6 +82,10 @@ function NewSaleForm({ facilityId, permissions }: { readonly facilityId: string;
     go(anonymous ? 3 : 2)
   }
   function doneOutside() {
+    // The photo is sent with the order: wait for its upload to finish (the control says it is uploading).
+    if (photoUpload.uploading) return
+    // The photo is sent with the order: wait for its upload to finish (the control says it is uploading).
+    if (photoUpload.uploading) return
     const errors = checkOutside(outside, outsideUsed(outside))
     setOutsideErrors(errors)
     const first = Object.keys(errors)[0]
@@ -129,7 +135,7 @@ function NewSaleForm({ facilityId, permissions }: { readonly facilityId: string;
     setSendError(result.error)
   }
   function again() {
-    setStep(1); setWho(EMPTY_WHO); setOutside(EMPTY_OUTSIDE); setCart([]); setCreated(null); setCleared(null); setSendError(''); setOff(false)
+    setStep(1); setWho(EMPTY_WHO); photoUpload.release(outside.photo); setOutside(EMPTY_OUTSIDE); setCart([]); setCreated(null); setCleared(null); setSendError(''); setOff(false)
     focus('sale-step-1')
   }
 
@@ -151,6 +157,7 @@ function NewSaleForm({ facilityId, permissions }: { readonly facilityId: string;
       summary={<StepSummary label="Change the outside prescription" onChange={created ? undefined : () => go(2)}>
         {outsideUsed(outside) ? [outside.prescriberName, outside.facilityName, outside.writtenOn].filter(Boolean).join(' · ') : 'None'}</StepSummary>}>
       <OutsideFields idBase="sale-rx" outside={outside} errors={outsideErrors} contact={false} paper="prescription"
+        photoUpload={photoUpload} onPhoto={photo => { setOutside(current => ({ ...current, photo })); setOutsideErrors({}) }}
         onChange={next => { setOutside(next); setOutsideErrors({}) }} />
       <FormActions sticky={false}>
         {!outsideUsed(outside) ? <Button onClick={() => go(3)}>Skip</Button> : null}
@@ -201,7 +208,7 @@ function NewSaleForm({ facilityId, permissions }: { readonly facilityId: string;
         <span className="text-[28px] font-semibold text-ink tabular">{naira(created?.bill.totalKobo ?? total)}</span>
       </div>
       {off ? <div id="sale-off" tabIndex={-1} className="flex flex-col gap-2 outline-none">
-        <NotSwitchedOn message="New sales aren’t switched on for this facility yet. Nothing was saved." />
+        <NotSwitchedOn message={NOT_SET_UP_UNSAVED} />
       </div> : null}
       {sendError ? <Alert intent="error" title="The sale wasn’t made">{sendError} Check it and try again: the same sale won’t be made twice.</Alert> : null}
       {!created && !off ? <FormActions>

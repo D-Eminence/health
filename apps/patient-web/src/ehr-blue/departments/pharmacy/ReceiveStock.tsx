@@ -5,7 +5,7 @@ import { Alert, Button, Card, EmptyState, Field, Input } from '../../../kasuwa/u
 import { useFocusById } from '../../../staff/focus'
 import { commerce, type CatalogueItem, type StockReceipt } from '../commerce/api'
 import { naira, parseNaira } from '../commerce/money'
-import { NotSwitchedOn } from '../commerce/NotSwitchedOn'
+import { NOT_SET_UP_UNSAVED, NotSwitchedOn } from '../commerce/NotSwitchedOn'
 import { useDeptAccess } from '../parts/access'
 import { ItemCover } from './pointOfCare'
 import { drugFormFromCatalogue } from './pocFields'
@@ -127,7 +127,7 @@ function ReceiveForm({ facilityId }: { readonly facilityId: string }) {
       <Button id="receive-add" icon={Plus} className="self-start" onClick={addLine}>Add another item</Button>
       {totalCost > 0 ? <p className="m-0 text-[15px] text-ink-2">Delivery cost: <strong className="text-ink tabular">{naira(totalCost)}</strong></p> : null}
     </Step>
-    {off ? <div id="receive-off" tabIndex={-1} className="outline-none"><NotSwitchedOn message="Stock isn’t switched on for this facility yet. Nothing was saved." /></div> : null}
+    {off ? <div id="receive-off" tabIndex={-1} className="outline-none"><NotSwitchedOn message={NOT_SET_UP_UNSAVED} /></div> : null}
     {error ? <Alert intent="error" title="The stock wasn’t saved">{error} Check it and try again: the same delivery won’t be added twice.</Alert> : null}
     <FormActions>
       <Button to="/provider/pharmacy/stock">Cancel</Button>
@@ -182,7 +182,6 @@ function ItemChooser({ id, facilityId, item, error, onChoose }: {
     </div>
     <Button variant="ghost" aria-label={`Change item: ${item.name}`} onClick={() => onChoose(null)}>Change</Button>
   </div>
-  if (search.status === 'off') return <NotSwitchedOn compact message="The price list isn’t switched on for this facility yet." />
   return <Field label="Item" htmlFor={`${id}-search`} error={error} errorId={`${id}-item-error`}>
     <div className="relative">
       <Search className="pointer-events-none absolute top-1/2 left-3.5 size-[18px] -translate-y-1/2 text-ink-3" aria-hidden />

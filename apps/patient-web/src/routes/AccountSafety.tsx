@@ -195,9 +195,9 @@ function LastAlert({ notice }: { notice: EmergencyContact['lastNotification'] })
 function sendFailure(cause: unknown, contact: EmergencyContact) {
   const unverified = 'They stay unverified and won’t be told in an emergency.'
   switch (problemCode(cause)) {
-    case 'EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE': return `Codes can’t be sent yet. ${unverified}`
+    case 'EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE': return `Codes can’t be sent right now. ${unverified}`
     case 'EMERGENCY_CONTACT_CHANNEL_UNAVAILABLE':
-      return `Codes can’t be sent by ${CHANNEL_WORDS[contact.channel]} yet. ${unverified}`
+      return `Codes can’t be sent by ${CHANNEL_WORDS[contact.channel]} right now. ${unverified}`
     case 'EMERGENCY_CONTACT_VERIFICATION_UNDELIVERABLE': return `The code didn’t reach ${contact.destinationHint}. `
       + `${unverified} If the ${DESTINATION_LABELS[contact.channel]} is wrong, remove this contact and add it again.`
     default:
@@ -299,7 +299,7 @@ export function EmergencyContactsCard({ alone = false }: { alone?: boolean }) {
             read: 'availability' }
         case 'EMERGENCY_CONTACT_CHANNEL_UNAVAILABLE':
           setDraft(value => ({ ...value, channel: null, destination: '' }))
-          return { message: `Contacts can’t be reached by ${CHANNEL_WORDS[channel]} yet. This contact wasn’t added.`,
+          return { message: `Contacts can’t be reached by ${CHANNEL_WORDS[channel]} right now. This contact wasn’t added.`,
             focus: orHeading('contact-destination'), read: 'availability' }
         case 'EMERGENCY_CONTACT_DESTINATION_INVALID': case 'VALIDATION_FAILED':
           return { message: `Enter a valid ${DESTINATION_LABELS[channel]}.`, focus: byId('contact-destination'), field: true }

@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { EhrInput, EhrTextarea } from '@hid/ui/ehr'
-import { ArrowRight, CalendarClock, CircleCheck, Link2, UserPlus } from 'lucide-react'
+import { ArrowRight, CircleCheck, Link2, UserPlus } from 'lucide-react'
 import { FormActions } from '../../../kasuwa/parts'
 import { Alert, Badge, Button, Card, CardHeader } from '../../../kasuwa/ui'
 import { useConfirm } from '../../clinical/parts/confirm'
@@ -20,7 +20,7 @@ type LinkField = 'patient' | 'reason'
 /**
  * One registration case: who it is, its status, and one clear next step. While the case waits for identity, the next
  * step is today's one action (link a verified existing patient, for a membership that may write registrations); once
- * linked, a done state with the way on. What Outreach can't do yet (follow-up visits) is said, not faked.
+ * linked, a done state with the way on.
  */
 export function OutreachCaseView({ facilityId, item, campaign, canLink, created, listError, onBack, onNew, onChanged, onFocusHeading }: {
   readonly facilityId: string
@@ -190,11 +190,6 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
             <Card>
               <CardHeader as="h2" title="Registration" />
               <div className="p-5"><DeptFacts facts={facts} /></div>
-            </Card>
-            <Card>
-              <CardHeader as="h2" icon={CalendarClock} title="Follow-up visits" />
-              <p className="m-0 px-5 py-4 text-[13px] text-ink-3">Not available yet. Outreach can’t record visits or follow-ups for a registration yet,
-                so plan them outside Health ID for now.</p>
             </Card>
           </div>
         </div>

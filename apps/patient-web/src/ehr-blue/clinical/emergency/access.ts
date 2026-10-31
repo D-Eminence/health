@@ -57,7 +57,7 @@ export function breakGlassRefusal(caught: unknown, facilityName: string): string
       + '30 days. Contact Health ID support to lift the limit.'
   }
   if (caught.status === 400 && caught.code === 'INVALID_CONSENT_COMMAND') {
-    return 'Emergency access isn’t switched on here yet, so the record was not opened. Ask Health ID support to switch it on.'
+    return 'Emergency access isn’t set up for your facility, so the record was not opened. Contact support.'
   }
   return null
 }

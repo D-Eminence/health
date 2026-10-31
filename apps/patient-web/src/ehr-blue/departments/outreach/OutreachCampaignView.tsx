@@ -3,13 +3,12 @@ import { EhrBadge } from '@hid/ui/ehr'
 import { Users } from 'lucide-react'
 import { PageState } from '../../../kasuwa/parts'
 import { staffApi, type OutreachCampaign } from '../../../staff/api'
-import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptActions, DeptContextLine, DeptFacts, DeptRecordLayout } from '../parts/DeptRecord'
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import {
-  campaignFacts, CAMPAIGNS_READ_ONLY, CAMPAIGNS_READ_ONLY_TITLE, MEMBERS_NOT_LOADED, NO_ACTIONS, reference, statusWords,
+  campaignFacts, MEMBERS_NOT_LOADED, NO_ACTIONS, reference, statusWords,
   type MembersRead,
 } from './outreachParts'
 
@@ -55,7 +54,6 @@ export function OutreachCampaignView({ campaign, members, onBack }: {
     <DeptPage title={campaign.name} onBack={onBack}>
       <DeptContextLine status={statusWords(campaign.status)}
         items={[campaign.services.length ? campaign.services.join(', ') : 'No services listed', `Starts ${dateText(campaign.startsAt)}`]} />
-      <DeptNotice title={CAMPAIGNS_READ_ONLY_TITLE}>{CAMPAIGNS_READ_ONLY}</DeptNotice>
       <DeptRecordLayout
         main={<DeptSection title="Saved record"><DeptFacts facts={campaignFacts(campaign)} /></DeptSection>}
         aside={<DeptActions empty={NO_ACTIONS} />}

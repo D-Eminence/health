@@ -137,6 +137,9 @@ export interface StockMovement {
   reason?: string | null; at: string; by?: string | null
 }
 
+/** The largest photo or picture the upload takes (§4): 10 MB. */
+export const ORDER_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+
 export interface ResultShare { shareId: string; sentTo: string; expiresAt: string }
 
 export interface ShiftTotal { method: PaymentMethod; count: number; amountKobo: number }
@@ -274,6 +277,15 @@ export const commerce = {
     call<WalkInAnswer>('POST', '/api/v1/pharmacy/walk-in-orders', facilityId, { body: order, idempotencyKey }),
   labWalkIn: (facilityId: string, request: WalkInLabRequest, idempotencyKey?: string) =>
     call<WalkInAnswer>('POST', '/api/v1/lab/walk-in-requests', facilityId, { body: request, idempotencyKey }),
+  /**
+   * A photo of an outside prescription or lab request form (its `fileId` is the walk-in's `photoFileId`), or a price-list
+   * picture (PATCH { imageFileId }). Multipart, one image, at most 10 MB.
+   */
+  uploadOrderPhoto: (facilityId: string, image: Blob, idempotencyKey?: string) => {
+    const body = new FormData()
+    body.append('file', image)
+    return call<{ fileId: string }>('POST', '/api/v1/files/order-photos', facilityId, { body, idempotencyKey })
+  },
 
   // §5 Stock (pharmacy)
   stock: (facilityId: string, filter: { q?: string; filter?: 'low' | 'expiring'; page?: number } = {}, signal?: AbortSignal) =>

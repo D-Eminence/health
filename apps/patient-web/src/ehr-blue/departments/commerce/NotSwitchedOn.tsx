@@ -1,13 +1,15 @@
 import { Info } from 'lucide-react'
 import { cx } from '../../../kasuwa/ui'
 
-/** The one line every point-of-care screen shows when its routes answer 404: calm, and nothing pretends to save. */
-export const NOT_SWITCHED_ON = 'Payments aren’t switched on for this facility yet.'
-
 /**
- * The honest notice for a 404 from any point-of-care route (docs/POINT_OF_CARE_SPEC.md). `message` replaces the line
- * when the thing that isn't on is not payments ("Stock isn’t switched on…").
+ * What a point-of-care screen says when an action's route answers 404 (or 501): plain, and nothing pretends to save. It
+ * is said only once the staff member acts; a list that answers 404 shows its normal empty state instead.
  */
+export const NOT_SWITCHED_ON = 'This isn’t set up for your facility. Contact support.'
+/** The same, after a write: nothing was saved. */
+export const NOT_SET_UP_UNSAVED = 'This isn’t set up for your facility, so nothing was saved. Contact support.'
+
+/** The notice for a 404 from a point-of-care route (docs/POINT_OF_CARE_SPEC.md), once the staff member has acted. */
 export function NotSwitchedOn({ message = NOT_SWITCHED_ON, compact = false, className }: {
   readonly message?: string; readonly compact?: boolean; readonly className?: string
 }) {

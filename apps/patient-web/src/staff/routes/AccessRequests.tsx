@@ -93,7 +93,7 @@ export function AccessRequests() {
     // Reload either way, then report the close (the reload clears earlier messages).
     await load()
     if (failure) setError(failure)
-    else setNotice('Access was closed by the backend.')
+    else setNotice('Access was closed.')
     focus('access-requests-title', true)
   }
 

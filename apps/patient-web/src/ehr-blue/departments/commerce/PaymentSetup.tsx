@@ -6,7 +6,7 @@ import { FormActions, FormPage, LoadingRows, Step } from '../../../kasuwa/parts'
 import { useToast } from '../../../kasuwa/toast'
 import { useDeptAccess } from '../parts/access'
 import { commerce, METHOD_LABEL, PAYMENT_METHODS, type DayCloseBy, type Hmo, type PaymentMethod, type PaymentSettings, type Till } from './api'
-import { NotSwitchedOn } from './NotSwitchedOn'
+import { NOT_SWITCHED_ON } from './NotSwitchedOn'
 import { useCommerceRead } from './useCommerceRead'
 
 const WHERE: readonly { value: PaymentSettings['wherePaid']; title: string; hint: string }[] = [
@@ -40,21 +40,17 @@ const DEFAULTS: PaymentSettings = {
 export function PaymentSetup() {
   const { facilityId } = useDeptAccess()
   const settings = useCommerceRead<PaymentSettings>(facilityId ? `settings:${facilityId}` : null, signal => commerce.paymentSettings(facilityId!, signal))
-  const [off, setOff] = useState(false)
-  if (off || settings.status === 'off') return <div className="flex flex-col gap-5">
-    <PageHeader title="Payment setup" description="How this facility takes payment." />
-    <NotSwitchedOn />
-  </div>
+  // Payment setup that answers 404 opens as a new setup; saving it then says so (NOT_SWITCHED_ON).
   if (settings.status === 'loading' && settings.data === null) return <div className="flex flex-col gap-5"><PageHeader title="Payment setup" /><LoadingRows rows={4} label="Loading payment setup" /></div>
   if (settings.status === 'error' && settings.data === null) return <div className="flex flex-col gap-5">
     <PageHeader title="Payment setup" />
     <Alert intent="error" title="Couldn’t load payment setup" action={<Button size="sm" onClick={settings.reload}>Try again</Button>}>{settings.error}</Alert>
   </div>
   const initial = settings.data ?? DEFAULTS
-  return <SetupForm key={initial.version} initial={initial} onSaved={settings.replace} onOff={() => setOff(true)} />
+  return <SetupForm key={initial.version} initial={initial} onSaved={settings.replace} />
 }
 
-function SetupForm({ initial, onSaved, onOff }: { readonly initial: PaymentSettings; readonly onSaved: (settings: PaymentSettings) => void; readonly onOff: () => void }) {
+function SetupForm({ initial, onSaved }: { readonly initial: PaymentSettings; readonly onSaved: (settings: PaymentSettings) => void }) {
   const { facilityId } = useDeptAccess()
   const ids = useId()
   const toast = useToast()
@@ -121,12 +117,12 @@ function SetupForm({ initial, onSaved, onOff }: { readonly initial: PaymentSetti
     const result = await commerce.savePaymentSettings(facilityId, next, key)
     setBusy(false)
     if (result.ok) { toast.success({ title: 'Payment setup saved' }); onSaved(result.data); return }
-    if (result.notAvailable) { onOff(); return }
+    if (result.notAvailable) { setProblem(NOT_SWITCHED_ON); return }
     setProblem(result.error)
   }
 
   return (
-    <FormPage title="Payment setup" description="How this facility takes payment. Health ID records each payment; the money goes through your till, POS or bank.">
+    <FormPage title="Payment setup" description="How this facility takes payment.">
       <form className="flex flex-col gap-4" noValidate onSubmit={event => { event.preventDefault(); void save() }}>
         <Step n={1} title="Where people pay">
           <div role="radiogroup" aria-label="Where people pay" className="grid gap-2 sm:grid-cols-3">

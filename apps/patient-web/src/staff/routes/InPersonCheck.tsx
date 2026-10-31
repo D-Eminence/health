@@ -232,7 +232,7 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
       case 'ASSISTED_REGISTRATION_NOT_AUTHORIZED':
         // One answer for four causes (INTERFACE_CONTRACT.md at f9dbaf0): no sign-in confirmed with an authenticator, no
         // attested grant, an inactive membership or account, or a facility that does not take part. Each is named.
-        setError('You can’t check patients in person here yet. Ask Health ID support to set you up.')
+        setError('You can’t check patients in person here. Ask Health ID support to set you up.')
         return
       case 'PERMISSION_DENIED':
         setError('Your role here can’t check patients in person. Ask your administrator.')

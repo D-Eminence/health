@@ -7,7 +7,8 @@ import { Alert, Button, Card, EmptyState, Field, Textarea } from '../../../kasuw
 import { useFocusById } from '../../../staff/focus'
 import { commerce, type CatalogueItem, type WalkInAnswer, type WalkInLabRequest, type WorkItemBill } from '../commerce/api'
 import { naira } from '../commerce/money'
-import { NotSwitchedOn } from '../commerce/NotSwitchedOn'
+import { NOT_SET_UP_UNSAVED, NotSwitchedOn } from '../commerce/NotSwitchedOn'
+import { useOrderPhotoUpload } from '../commerce/orderPhoto'
 import { useDeptAccess } from '../parts/access'
 import { PaidLine, PaymentStep, usePaymentSettings } from '../pharmacy/pointOfCare'
 import { paysFirst, summaryOf } from '../pharmacy/pocFields'
@@ -45,6 +46,7 @@ function WalkInForm({ facilityId, permissions }: { readonly facilityId: string; 
   const [who, setWho] = useState<WhoDraft>(EMPTY_WHO)
   const [whoErrors, setWhoErrors] = useState<WhoErrors>({})
   const [outside, setOutside] = useState<OutsideDraft>(EMPTY_OUTSIDE)
+  const photoUpload = useOrderPhotoUpload(facilityId)
   const [outsideErrors, setOutsideErrors] = useState<OutsideErrors>({})
   const [tests, setTests] = useState<CatalogueItem[]>([])
   const [priority, setPriority] = useState<'routine' | 'urgent'>('routine')
@@ -70,6 +72,8 @@ function WalkInForm({ facilityId, permissions }: { readonly facilityId: string; 
     go(2)
   }
   function doneDoctor() {
+    // The photo is sent with the order: wait for its upload to finish (the control says it is uploading).
+    if (photoUpload.uploading) return
     const errors = checkOutside(outside, outsideUsed(outside))
     setOutsideErrors(errors)
     const first = Object.keys(errors)[0]
@@ -105,7 +109,7 @@ function WalkInForm({ facilityId, permissions }: { readonly facilityId: string; 
     setSendError(result.error)
   }
   function again() {
-    setStep(1); setWho(EMPTY_WHO); setOutside(EMPTY_OUTSIDE); setTests([]); setPriority('routine'); setNote('')
+    setStep(1); setWho(EMPTY_WHO); photoUpload.release(outside.photo); setOutside(EMPTY_OUTSIDE); setTests([]); setPriority('routine'); setNote('')
     setCreated(null); setCleared(null); setSendError(''); setOff(false)
     focus('walkin-step-1')
   }
@@ -127,6 +131,7 @@ function WalkInForm({ facilityId, permissions }: { readonly facilityId: string; 
       summary={<StepSummary label="Change the referring doctor" onChange={created ? undefined : () => go(2)}>
         {outsideUsed(outside) ? [outside.prescriberName, outside.facilityName, outside.email].filter(Boolean).join(' · ') : 'None'}</StepSummary>}>
       <OutsideFields idBase="walkin-dr" outside={outside} errors={outsideErrors} contact paper="request form"
+        photoUpload={photoUpload} onPhoto={photo => { setOutside(current => ({ ...current, photo })); setOutsideErrors({}) }}
         onChange={next => { setOutside(next); setOutsideErrors({}) }} />
       <FormActions sticky={false}>
         {!outsideUsed(outside) ? <Button onClick={() => go(3)}>Skip</Button> : null}
@@ -187,7 +192,7 @@ function WalkInForm({ facilityId, permissions }: { readonly facilityId: string; 
         <span className="text-[28px] font-semibold text-ink tabular">{naira(created?.bill.totalKobo ?? total)}</span>
       </div>
       {off ? <div id="walkin-off" tabIndex={-1} className="outline-none">
-        <NotSwitchedOn message="Walk-in requests aren’t switched on for this facility yet. Nothing was saved." /></div> : null}
+        <NotSwitchedOn message={NOT_SET_UP_UNSAVED} /></div> : null}
       {sendError ? <Alert intent="error" title="The request wasn’t made">{sendError} Check it and try again: the same request won’t be made twice.</Alert> : null}
       {!created && !off ? <FormActions>
         <Button onClick={() => go(3)}>Back to tests</Button>

@@ -129,8 +129,7 @@ export function AssistedRegistrationPanel({ facilityId, facilityStatus, refresh,
         shows this facility’s name and the location below.</p>
     </div></div>
     <ResourceView resource={resource}>{designation => designation === NOT_OFFERED
-      ? <p className="admin-note">Registration in person is not available on this Identity service yet. Nothing can be read or
-        changed here until it is.</p>
+      ? <p className="admin-note">Registration in person isn’t set up. Contact support.</p>
       : <>
         <Designation designation={designation} facilityStatus={facilityStatus} />
         {canManage

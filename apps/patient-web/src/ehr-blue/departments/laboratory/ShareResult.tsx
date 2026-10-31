@@ -59,7 +59,7 @@ export function ShareResult({ facilityId, accessionId, testName, email: given, d
     <span>Sent to {sent.sentTo}. The link opens this result until {dayText(sent.expiresAt)}.</span>
   </p>
   if (off) return <div id={`${base}-off`} tabIndex={-1} className="outline-none">
-    <NotSwitchedOn compact message="Sending results to doctors isn’t switched on for this facility yet. Nothing was sent." /></div>
+    <NotSwitchedOn compact message="This isn’t set up for your facility, so nothing was sent. Contact support." /></div>
   if (!open) return <Button icon={Send} className="self-start" aria-expanded={false}
     onClick={() => { setOpen(true); focus(`${base}-email`) }}>Send to doctor<span className="sr-only">: {testName}</span></Button>
   return <div className="flex flex-col gap-3 rounded-lg p-4 ring-1 ring-inset ring-line">

@@ -302,9 +302,6 @@ export function Migrate() {
       <DeptNotice tone="critical">Permission denied. Finding, creating and reviewing OCR jobs needs OCR job read permission.</DeptNotice>
     </DeptSection>
     return <>
-      <DeptNotice title="Project migration is not available yet">
-        <p>This Health ID deployment runs document OCR jobs for authorized clinical documents. Project setup, bulk import, record matching and a migration index need backend support before they can be offered.</p>
-      </DeptNotice>
       <DeptSearch label="Search Document OCR" value={search} onChange={setSearch}
         hint="OCR has no facility-wide job list: jobs you find or create here are listed until you leave this page."
         filters={search ? <div className="hid-ehr-dept-migrate-clear"><EhrButton variant="secondary" onClick={() => setSearch('')}>Clear search</EhrButton></div> : undefined}>
