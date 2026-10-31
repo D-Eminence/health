@@ -174,8 +174,11 @@ describe('Use the classic EHR', () => {
     serve({ [SESSION]: [sessionAt(demo, [demo])], [REQUESTS]: [() => json([])] })
     await openStaffApp('/provider/appointments')
     expect(await screen.findByRole('heading', { level: 1, name: 'Appointments' })).toBeDefined()
+    // At a demo facility it is the Demo chip's, with the demo's other controls, not the account menu's.
     fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Use the classic EHR' }))
+    expect(within(screen.getByRole('region', { name: 'Account' })).queryByRole('button', { name: 'Use the classic EHR' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
+    fireEvent.click(within(screen.getByRole('region', { name: 'About this demo' })).getByRole('button', { name: 'Use the classic EHR' }))
     // Appointments is a blue sample page: today's workspace opens on its Overview.
     await expectToday()
     expect(where()).toBe('/provider')
@@ -190,8 +193,10 @@ describe('Use the classic EHR', () => {
     serve({ [SESSION]: [sessionAt(riverside, [riverside])], [REQUESTS]: [() => json([]), () => json([]), () => json([])] })
     await openStaffApp('/provider/requests')
     await screen.findByRole('navigation', { name: 'Main navigation' })
+    // A clinic has no Demo chip: its way back to today's portal stays in the account menu.
+    expect(screen.queryByRole('button', { name: 'Demo' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Use the classic EHR' }))
+    fireEvent.click(within(screen.getByRole('region', { name: 'Account' })).getByRole('button', { name: 'Use the classic EHR' }))
     expect(await screen.findByRole('complementary', { name: 'Provider navigation' })).toBeDefined()
     expect(document.querySelector('.hid-ehr')).toBeNull()
     expect(where()).toBe('/provider/requests')
@@ -202,7 +207,7 @@ describe('Use the classic EHR', () => {
     serve({ [SESSION]: [sessionAt(demo, [demo])], [REQUESTS]: [() => json([])] })
     await openStaffApp('/provider/whats-left')
     await screen.findByRole('navigation', { name: 'Main navigation' })
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
     fireEvent.click(screen.getByRole('button', { name: 'Use the classic EHR' }))
     await expectToday()
     expect(where()).toBe('/provider')

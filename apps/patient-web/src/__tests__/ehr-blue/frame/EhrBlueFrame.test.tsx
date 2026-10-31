@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { BLUE_PAGES, basePath, collectPages, matchBluePage, pageAllowed, pageTabs } from '../../../ehr-blue/routes'
 import { navigationGroups } from '../../../ehr-blue/frame/BlueFrame'
 import { pages as framePages } from '../../../ehr-blue/frame/pages'
@@ -34,8 +34,9 @@ const DESIGN_WORKSPACES = ['Patients', 'Appointments', 'Patient visits', 'Triage
   'Dispatch', 'Blood Bank', 'Telemedicine', 'Shifts & Roster', 'HR & Credentials', 'Quality & Safety', 'Supply', 'Service catalogue',
   'Ward configuration', 'Vehicle configuration']
 
-async function openDemo(path: string, permissions: readonly string[] = ['identity.consent.write'], routes: Record<string, (() => Response)[]> = {}) {
-  const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', permissions)
+async function openDemo(path: string, permissions: readonly string[] = ['identity.consent.write'], routes: Record<string, (() => Response)[]> = {},
+  roles: readonly string[] = ['clinician']) {
+  const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', permissions, roles)
   const lab = facility(DEMO_LABORATORY, 'Demo Laboratory', ['lab.work-item.read'])
   const sent = serve({ [SESSION]: [sessionAt(demo, [demo, lab])], [REQUESTS]: [() => json([{ accessRequestId: 'r1', status: 'pending' }])], ...routes })
   await openStaffApp(path)
@@ -127,8 +128,9 @@ describe('the page registry', () => {
 })
 
 describe('the blue frame', () => {
-  it('shows every design workspace in the sidebar, and the live pages this facility may open', async () => {
-    await openDemo('/provider/whats-left', ['identity.consent.write', 'lab.work-item.read'])
+  it('shows the design workspaces of the person\'s roles in the sidebar, and the live pages this facility may open', async () => {
+    // A facility administrator who is also a clinician: the design's Hospital Admin and Doctor between them.
+    await openDemo('/provider/whats-left', ['identity.consent.write', 'lab.work-item.read'], {}, ['org_admin', 'clinician'])
     const nav = screen.getByRole('navigation', { name: 'Main navigation' })
     for (const group of DESIGN_GROUPS.filter(group => group !== 'Supply')) expect(within(nav).getByRole('button', { name: group })).toBeDefined()
     expect(within(nav).getByRole('link', { name: 'Radiology' })).toBeDefined()
@@ -184,12 +186,12 @@ describe('the blue frame', () => {
     expect(sent.length).toBe(before)
   })
 
-  it('says an unknown address is no page, and the sidebar still leads Home', async () => {
+  it('opens Home for an address that is no page, as the design does (admin/unknown-route)', async () => {
     await openDemo('/provider/not-a-page')
-    expect(screen.getByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
-    expect(screen.getByText('This page is not part of Health ID EHR')).toBeDefined()
-    act(() => { fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('link', { name: 'Home' })) })
     await waitFor(() => expect(where()).toBe('/provider'))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })).toBeDefined()
+    expect(screen.queryByRole('status', { name: /permissions/ })).toBeNull()
+    expect(screen.queryByText(/no longer allow that page/)).toBeNull()
   })
 
   it('leaves today\'s page to refuse a live stand-in without its permission, in today\'s words', async () => {
@@ -245,11 +247,11 @@ describe('the blue frame', () => {
     await openDemo('/provider/whats-left')
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
     const drawer = screen.getByRole('dialog', { name: 'Search Health ID' })
-    fireEvent.change(within(drawer).getByRole('searchbox', { name: 'Search work areas' }), { target: { value: 'blood' } })
+    fireEvent.change(within(drawer).getByRole('searchbox', { name: 'Search work areas' }), { target: { value: 'radio' } })
     const results = within(drawer).getByRole('navigation', { name: 'Search results' })
-    expect(within(results).getAllByRole('link').map(link => link.textContent)).toEqual(['Blood BankNetwork & Services · sample'])
+    expect(within(results).getAllByRole('link').map(link => link.textContent)).toEqual(['RadiologyDiagnostics · sample'])
     fireEvent.click(within(results).getByRole('link'))
-    await waitFor(() => expect(where()).toBe('/provider/bloodbank'))
+    await waitFor(() => expect(where()).toBe('/provider/radiology'))
   })
 
   it('counts pending access requests on the bell once they are read: on opening its drawer, or Home', async () => {
@@ -265,12 +267,12 @@ describe('the blue frame', () => {
 })
 
 describe('the demo role switcher', () => {
-  it('lists the sixteen demo roles in the account menu and shows each role\'s sample dashboard on Home', async () => {
+  it('lists the sixteen demo roles under the Demo chip and shows each role\'s sample dashboard on Home', async () => {
     await openDemo('/provider/whats-left')
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
     const roles = within(screen.getByRole('group', { name: 'View Home as a demo role (sample)' })).getAllByRole('button')
     expect(roles).toHaveLength(16)
-    fireEvent.click(within(screen.getByRole('region', { name: 'Account' })).getByRole('button', { name: 'Pharmacist' }))
+    fireEvent.click(within(screen.getByRole('region', { name: 'About this demo' })).getByRole('button', { name: 'Pharmacist' }))
     await waitFor(() => expect(where()).toBe('/provider'))
     expect(screen.getByRole('heading', { level: 1, name: 'Welcome, Demo Pharmacist' })).toBeDefined()
     expect(screen.getByText(SAMPLE_NOTICE)).toBeDefined()

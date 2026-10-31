@@ -12,10 +12,12 @@ import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, movedAddress,
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
 import { ConnectionStatus } from './ConnectionStatus'
-import { DeniedPage, LivePage, UnknownPage } from './LivePages'
+import { DeniedPage, LivePage } from './LivePages'
 import { BluePageProvider, BluePagesProvider, OpenPagesProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
 import { TODAY_PAGES, TODAY_PATHS } from './pages'
+import { DENIED_NOTICE, RedirectNotice } from './RedirectNotice'
+import { useRoleView } from './roleView'
 import { AccountMenu, AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
 import type { EhrBluePage } from './types'
 
@@ -46,7 +48,8 @@ const READS_BEFORE_REFUSING: ReadonlySet<string> = new Set(['requests', 'clinica
 /**
  * The blue Hospital EHR's frame: EhrAppShell with the design's sidebar and top bar, and the page
  * the address opens. Session, sign-out and facility switch are today's (useStaff). A page another folder exports
- * replaces the frame's stand-in for its path; an address no page takes says so.
+ * replaces the frame's stand-in for its path. An address no page takes opens Home, and so does a page this session may
+ * not open, with a note saying why (the design's admin/unknown-route and denied-route-redirect).
  */
 export function BlueFrame() {
   const { state, lock } = useStaff()
@@ -54,11 +57,13 @@ export function BlueFrame() {
   const navigate = useNavigate()
   const pageRef = useRef<HTMLDivElement>(null)
   const [samplePanel, setSamplePanel] = useState<'profile' | 'preferences' | 'help' | null>(null)
+  const { viewing } = useRoleView()
   useFocusOnPageChange(pageRef, lock !== null)
   const session = state.status === 'ready' ? state.session : null
   const facility = session?.actor.facility
   const permissions = useMemo(() => facility?.permissions ?? [], [facility])
-  const allowed = useMemo(() => BLUE_PAGES.filter(page => pageAllowed(page, session)), [session])
+  // A sample page opens to the design roles of the person, or of the demo role whose Home is being viewed.
+  const allowed = useMemo(() => BLUE_PAGES.filter(page => pageAllowed(page, session, viewing)), [session, viewing])
   // What the sidebar and search offer: the allowed pages this session lists.
   const listed = useMemo(() => allowed.filter(page => !session || (page.listed?.(session) ?? true)), [allowed, session])
   const match = matchBluePage(BLUE_PAGES, location.pathname)
@@ -96,11 +101,12 @@ export function BlueFrame() {
   const todayRefuses = match !== null && TODAY_PAGES.has(match.page) && shownHere
     && !READS_BEFORE_REFUSING.has(basePath(match.page.path))
   const content = match
-    ? pageAllowed(match.page, session) || todayRefuses
+    ? pageAllowed(match.page, session, viewing) || todayRefuses
       ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
-      : match.page.refusal ?? <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'}
-        reason={shownHere ? 'permission' : 'not-here'} />
-    : isLiveOnlyPath(location.pathname) ? <LivePage /> : <UnknownPage />
+      : match.page.refusal ?? (shownHere
+        ? <Navigate replace to="/provider" state={{ frameNotice: DENIED_NOTICE }} />
+        : <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'} />)
+    : isLiveOnlyPath(location.pathname) ? <LivePage /> : <Navigate replace to="/provider" />
 
   return (
     <BluePagesProvider value={BLUE_PAGES}><OpenPagesProvider value={allowed}>
@@ -122,7 +128,7 @@ export function BlueFrame() {
               start={<strong className="hid-ehr-blue-facility">{facility?.name ?? 'Health ID EHR'}</strong>}
               end={<>
                 <WorkspaceSearch pages={listed} />
-                {isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} /> : null}
+                {isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} onClassic={classicEhr} /> : null}
                 <NotificationsButton />
                 <AccountMenu onSample={setSamplePanel} onClassic={classicEhr} />
               </>}
@@ -130,6 +136,7 @@ export function BlueFrame() {
           )}
         >
           <div ref={pageRef} className="hid-ehr-blue-page">
+            <RedirectNotice />
             <ReviewBanner />
             <BillingBanner />
             {tabs.length > 0 ? (
