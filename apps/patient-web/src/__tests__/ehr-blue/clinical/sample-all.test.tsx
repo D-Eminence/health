@@ -48,6 +48,10 @@ beforeEach(() => {
 const ACTING_ROLE: Readonly<Partial<Record<string, DemoRole>>> = {
   radiology: 'Radiology Reporter', referrals: 'Medical Director', bloodbank: 'Lab Manager',
 }
+/** A design role that may create in each workspace whose create page the harness's doctor may not open (audit 16). */
+const CREATING_ROLE: Readonly<Partial<Record<string, DemoRole>>> = {
+  bloodbank: 'Lab Manager', 'ward-config': 'Hospital Admin',
+}
 
 const ALL = [...SAMPLE_WORKSPACE_IDS, 'emergency'] as const
 
@@ -84,6 +88,8 @@ describe.each(ALL)('%s', id => {
   })
 
   it('renders its new page with every catalogue field', () => {
+    staff.facilityId = DEMO_HOSPITAL_ID
+    roleView.viewing = CREATING_ROLE[id] ?? 'Doctor'
     open(id, '/new')
     expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(`New ${definition.title.toLowerCase()}`)

@@ -6,6 +6,7 @@ import { NO_ACTIONS } from '../../../ehr-blue/clinical/parts/Notices'
 import { DEFAULT_ACTION_PERMISSION, SAMPLE_DEFINITIONS, SAMPLE_WORKSPACE_IDS } from '../../../ehr-blue/clinical/sample/definitions'
 import { IDS } from '../../../ehr-blue/clinical/sample/seed'
 import { listedRecords, recordName, sampleState } from '../../../ehr-blue/clinical/sample/store'
+import { CREATE_REFUSED } from '../../../ehr-blue/clinical/sample/SampleCreate'
 import { SampleWorkspace, resetSampleStore } from '../../../ehr-blue/clinical/sample/SampleWorkspace'
 import type * as RoleView from '../../../ehr-blue/frame/roleView'
 import type { DemoRole } from '../../../ehr-blue/frame/roleView'
@@ -218,6 +219,34 @@ describe('audit 16: sample record pages follow the design’s roles', () => {
     open('journey', `/${IDS.visitTaylor}`)
     expect(within(historyCard()).getByText('Only records available to your current permissions are listed.')).toBeTruthy()
     expect(historyRows()).toEqual([])
+  })
+
+  it('audit 16: a role that may not create gets the design’s refusal at a sample’s new address, typed directly, and no form', () => {
+    const doctor = open('radiology', '/new')
+    expect(screen.getByRole('heading', { level: 1, name: 'New radiology' })).toBeTruthy()
+    // A patient workspace's form starts at "Patient *"; its fields and "Save record" follow a chosen patient.
+    expect(screen.getByRole('combobox', { name: /^Patient/ })).toBeTruthy()
+    expect(screen.queryByText(CREATE_REFUSED)).toBeNull()
+    doctor.unmount()
+
+    viewingAs('Radiology Reporter')
+    const reporter = open('radiology', '/new')
+    expect(screen.getByRole('heading', { level: 1, name: 'New radiology' })).toBeTruthy()
+    expect(screen.getByText(CREATE_REFUSED)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
+    expect(screen.queryByRole('combobox')).toBeNull()
+    reporter.unmount()
+
+    // A role the mapping does not name creates nowhere, the demo facility's Emergency board included.
+    signedInAs('org_admin_awaiting_review')
+    for (const id of ['appointments', 'journey', 'referrals', 'emergency']) {
+      if (id === 'emergency') staff.facilityId = DEMO_HOSPITAL_ID
+      const view = open(id, '/new')
+      expect(screen.getByText(CREATE_REFUSED)).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
+      view.unmount()
+    }
+    expect(touched.api).toEqual([])
   })
 
   it('audit 16: a Radiology Reporter sees no Create record on Radiology (radiology-1-list.png), and the design’s actions and history on its records', () => {

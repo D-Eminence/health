@@ -533,8 +533,13 @@ describe('sample engine', () => {
     expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(3)
   })
 
-  /** "Temporary ward", saved through the create page; its list then has 3 rows below the header. */
+  /**
+   * "Temporary ward", saved through the create page; its list then has 3 rows below the header. Ward configuration is
+   * the design's Hospital Admin's to create (audit 16), viewed at a demo facility; the list reads at that facility too.
+   */
   async function saveTemporaryWard() {
+    staff.facilityId = DEMO_HOSPITAL_ID
+    roleView.viewing = 'Hospital Admin'
     const view = open('ward-config', '/new')
     fireEvent.change(field('Ward name'), { target: { value: 'Temporary ward' } })
     fireEvent.submit(screen.getByRole('button', { name: 'Save record' }).closest('form')!)
