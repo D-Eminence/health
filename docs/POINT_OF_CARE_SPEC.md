@@ -77,34 +77,54 @@ Rules: a payment above `dueKobo` is refused `409 OVERPAYMENT` (cash change is wo
 (`POST …/payments/:paymentId/confirm`); dispense or sample collection is refused `409 PAYMENT_REQUIRED` when
 `payBefore` is on and the bill is neither paid nor deferred.
 
-## 4. Walk-ins and outside orders
+## 4. Walk-ins and outside orders (work first, Health ID optional)
+
+Owner decision 2026-10-31: no one has to give a Health ID before they are served. The pharmacy sells and the lab
+takes samples first; a Health ID can be found at any point, or created afterwards and the sale or request put on it.
 
 `POST /api/v1/pharmacy/walk-in-orders` (`pharmacy.walk-in.create`) · `POST /api/v1/lab/walk-in-requests` (`lab.walk-in.create`)
 
 ```ts
-// A walk-in with no Health ID gets one first, through the EXISTING facility registration (served today):
-// POST /identity/nin/resolve → registration case → approve-new or link-existing → POST …/enroll { email } → { patientId, hid }.
-// The Health ID and sign-in are emailed to the customer by enrolment; the walk-in then goes ahead as kind 'health_id'.
-// Needs (owner decision 2026-10-31): enrolment by phone (SMS) for customers with no email; the form asks for a phone but
-// nothing can send it today.
-type WalkInPatient =
-  | { kind: 'health_id'; healthId: string }
-  | { kind: 'anonymous' }                       // pharmacy only, and only for items with prescriptionOnly false
 type OutsideOrder = { prescriberName: string; facilityName?: string | null; writtenOn?: string | null
   photoFileId?: string | null; prescriberEmail?: string | null; prescriberPhone?: string | null }
-// pharmacy
-type WalkInOrder = { patient: WalkInPatient; outside?: OutsideOrder | null
+
+// PHARMACY. The customer is optional. Prescription-only items need `outside` (the doctor's prescription) when there is
+// no Health ID; otherwise refuse 422 PRESCRIPTION_REQUIRED.
+type WalkInOrder = {
+  patient: { kind: 'health_id'; healthId: string } | { kind: 'anonymous'; name?: string | null; phone?: string | null }
+  outside?: OutsideOrder | null
+  counter?: boolean            // true: a counter sale, handed over at once (not queued as a prescription)
   items: { catalogueItemId: string; quantity: number; dose?: string | null; frequency?: string | null; durationDays?: number | null }[] }
-// lab
-type WalkInLabRequest = { patient: { kind: 'health_id'; healthId: string }; outside?: OutsideOrder | null
+
+// LAB. Name, age, sex and phone are required (owner decision: enough to label the sample, read results against the
+// right ranges and send them by SMS). A Health ID is optional.
+type WalkInLabRequest = {
+  patient: { name: string; ageYears: number; sex: 'female' | 'male'; phone: string /* E.164 */; healthId?: string | null }
+  outside?: OutsideOrder | null
   tests: { catalogueItemId: string }[]; clinicalNote?: string | null; priority: 'routine' | 'urgent' }
-// both answer { workItemIds: string[]; bill: Bill }
+
+// both answer { workItemIds: string[]; bill: Bill; request?: { id: string; number: string } }
 ```
+
+**Counter hand-over (pharmacy):** `POST /api/v1/pharmacy/sales/:billId/hand-over` (`pharmacy.dispensing.create`) →
+`{ handedOverAt, bill }`. Takes stock from the batch that expires first; 409 `PAYMENT_REQUIRED` / 409 `OUT_OF_STOCK`.
+`Bill` gains `handedOverAt?: string | null`.
+
+**Put it on a Health ID afterwards:** `POST /api/v1/commercial/bills/:billId/patient` (`billing.bill.create`)
+`{ healthId }` → `Bill`. Moves the sale, and for the lab the request, its work items and results, onto that Health ID.
+A new Health ID is made through the existing registration (`nin/resolve` → approve or link → `enroll`).
+
+**Sales list:** `GET /api/v1/commercial/bills` also takes `date=YYYY-MM-DD`. Refund = void the payment with a reason
+("Refund: …") through the existing void route.
+
+**Work items made from walk-ins** carry `patient.fullName` (and age, sex) from the details given; `patientId` may be
+null. Lab work items also need, for the stage board (Waiting for sample → Testing → Enter results → Check & release →
+Done): `walkIn` (the basics plus `clinicalNote`), `request { id, number }`, `executionStatuses[]`, `resultStatuses[]`,
+`releasedAt`, and the patient's name, date of birth and sex on this facility's own orders too.
 
 Photos of outside prescriptions and lab request forms: `POST /api/v1/files/order-photos` (multipart, image only, max
 10 MB; `pharmacy.walk-in.create` or `lab.walk-in.create`) answers `{ fileId }`, used as `photoFileId`. The same route
-with `billing.catalogue.manage` stores price-list pictures (`imageFileId`). Neither exists today: the only upload is for
-patient documents.
+with `billing.catalogue.manage` stores price-list pictures (`imageFileId`). 
 
 ## 5. Stock (pharmacy)
 
@@ -128,8 +148,9 @@ refused `409 OUT_OF_STOCK`.
 
 ## 6. Lab results to outside doctors
 
-`POST /api/v1/lab/accessions/:accessionId/result-shares` (`lab.result.share`) body `{ email: string }`, answers
-`{ shareId, sentTo, expiresAt }`. The email carries a link that opens the released result only (the same model as the
+`POST /api/v1/lab/accessions/:accessionId/result-shares` (`lab.result.share`) body
+`{ channel: 'email' | 'sms'; to: string }` (to the referring doctor, or to the patient), answers
+`{ shareId, sentTo, expiresAt }`. The message carries a link that opens the released result only (the same model as the
 patient's card share). The patient always sees released results on their Health ID.
 
 ## 7. End of day
