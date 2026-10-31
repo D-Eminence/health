@@ -920,7 +920,7 @@ function AccessPinSettings({ profile, loading, onChanged }: {
       A hospital you give it to can use it to open your records.</p>
     <Saved>{notice}</Saved>
     <form onSubmit={event => void configurePin(event)} className="flex flex-wrap items-start gap-2">
-      <Field className="w-44" label={profile.accessPinConfigured ? 'New PIN' : 'Set PIN'} htmlFor="access-pin-input" hintId="access-pin-hint" hint="4 to 8 digits."
+      <Field className="w-44" label={profile.accessPinConfigured ? 'New PIN' : 'Set PIN'} htmlFor="access-pin-input" hintId="access-pin-hint" hint="4 to 8 digits. You must have signed in within the last 10 minutes to change it."
         errorId="access-pin-error" error={pinError}>
         <InputR id="access-pin-input" ref={pinFocus.target} required type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin}
           onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))}

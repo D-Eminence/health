@@ -66,7 +66,7 @@ describe('the facility’s designation for registration in person (hid-system #8
     expect(await section.findByText('This facility does not take part in registration in person.')).toBeTruthy()
     expect(mocks.api.assistedRegistration).toHaveBeenCalledWith(FACILITY_ID, expect.anything())
     expect(section.queryByRole('button', { name: 'Designate facility' })).toBeNull()
-    expect(section.getByText(/Changing it needs the platform.facility.manage permission/)).toBeTruthy()
+    expect(section.getByText('Your roles don’t let you change it.')).toBeTruthy()
   })
 
   it('designates a facility the first time with version 0, after step-up, as one submission', async () => {
@@ -145,7 +145,7 @@ describe('the facility’s designation for registration in person (hid-system #8
     ['FACILITY_NOT_ACTIVE', 409, 'Only a verified, active facility of an active organization can register patients in person. Verify the facility first.'],
     ['ADMIN_STATE_CONFLICT', 409, 'Nothing changed: the designation already has this status and location.'],
     ['ADMIN_COMMAND_INVALID', 400, 'This designation was refused. A facility’s first designation must be active; check the values and try again.'],
-    ['PERMISSION_DENIED', 403, 'Changing the designation needs the platform.facility.manage permission. Ask a Super Admin.'],
+    ['PERMISSION_DENIED', 403, 'Your roles don’t allow this. Ask a Super Admin.'],
     ['IDEMPOTENCY_CONFLICT', 409, 'This submission conflicts with an earlier one. Reload and try again.'],
   ])('explains %s', async (code, status, shown) => {
     mocks.api.assistedRegistration.mockResolvedValue(NONE)
@@ -318,7 +318,7 @@ describe('the facility’s designation for registration in person (hid-system #8
       `Cannot GET /api/v1/admin/facilities/${FACILITY_ID}/assisted-registration`, { code: 'NOT_FOUND', requestId: 'corr-404' }))
     open(MANAGE)
     const section = await panel()
-    const note = await section.findByText('Registration in person is not available on this Identity service yet. Nothing can be read or changed here until it is.')
+    const note = await section.findByText('Registration in person isn’t set up. Contact support.')
     expect(note.className).toBe('admin-note')
     expect(section.queryByRole('alert')).toBeNull()
     expect(section.queryByRole('button')).toBeNull()
@@ -415,9 +415,11 @@ describe('the facility’s designation for registration in person (hid-system #8
     const section = await panel()
     await section.findByText('12 Marina Road')
     expect(section.queryByText(/^Not in effect/)).toBeNull()
-    fireEvent.change(screen.getByLabelText('New value'), { target: { value: 'suspended' } })
-    fireEvent.change(screen.getByLabelText('Reason for this change'), { target: { value: 'Licence under review' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm change' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Change status' }))
+    fireEvent.change(within(screen.getByRole('dialog')).getByLabelText('Change to'), { target: { value: 'suspended' } })
+    const sheet = screen.getByRole('dialog')
+    fireEvent.change(within(sheet).getByLabelText('Reason for this change'), { target: { value: 'Licence under review' } })
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Suspend facility' }))
     expect(await section.findByText('Not in effect: the facility must be verified and active, in an active organization.')).toBeTruthy()
     await waitFor(() => expect(mocks.api.assistedRegistration).toHaveBeenCalledTimes(2))
   })

@@ -144,8 +144,8 @@ describe('Profile completion, on the profile', () => {
     expect(within(shown).queryByRole('button')).toBeNull()
     expect(shown.querySelector('[hidden]')).toBeNull()
     expect(shown.querySelector('.patient-completion-bar')).not.toBeNull()
-    expect(shown.compareDocumentPosition(sectionToggle('Bio-data')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(sectionToggle('Bio-data').getAttribute('aria-expanded')).toBe('false')
+    expect(shown.compareDocumentPosition(sectionToggle('About you')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(sectionToggle('About you').getAttribute('aria-expanded')).toBe('false')
   })
 
   it('takes "An emergency contact" to the emergency contacts in Health information, opened, with focus on their heading', async () => {
@@ -170,8 +170,8 @@ describe('Profile completion, on the profile', () => {
     expect(sectionToggle('Health information').getAttribute('aria-expanded')).toBe('true')
     // Another item of the same list, from the same page again.
     await press(shown.getByRole('link', { name: 'Your HMO' }))
-    await waitFor(() => expect(document.activeElement).toBe(sectionToggle('Coverage')))
-    expect(sectionToggle('Coverage').getAttribute('aria-expanded')).toBe('true')
+    await waitFor(() => expect(document.activeElement).toBe(sectionToggle('Insurance & hospital')))
+    expect(sectionToggle('Insurance & hospital').getAttribute('aria-expanded')).toBe('true')
   })
 
   it('takes "A verified email address" to the email in Bio-data, opened, where the email can be verified', async () => {
@@ -181,7 +181,7 @@ describe('Profile completion, on the profile', () => {
     await press(link)
     const block = document.getElementById('contact-details') as HTMLElement
     await waitFor(() => expect(document.activeElement).toBe(block))
-    expect(sectionToggle('Bio-data').getAttribute('aria-expanded')).toBe('true')
+    expect(sectionToggle('About you').getAttribute('aria-expanded')).toBe('true')
     expect(within(block).getByRole('button', { name: 'Verify email address' })).toBeTruthy()
   })
 
@@ -208,7 +208,7 @@ describe('Profile completion, on the profile', () => {
   it('is not shown by an Identity before 0094, which asks nothing more of it', async () => {
     const { sent } = renderPortal(<ProfilePage />, (path, method) => path === '/identity/me' && method === 'GET' ? json(profile)
       : problem(404, 'NOT_FOUND', path))
-    expect(await screen.findByRole('heading', { name: 'Bio-data' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'About you' })).toBeTruthy()
     await screen.findByText('Ada Example')
     expect(screen.queryByRole('heading', { name: 'Profile completion' })).toBeNull()
     // Only the profile, and what the parts moved from Settings read for themselves (the emergency contacts in Health

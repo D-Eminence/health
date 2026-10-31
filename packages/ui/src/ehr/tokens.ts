@@ -56,10 +56,10 @@ export const ehrTokens = {
   tabCurrentBorder: '#1570ef',
   tabRule: '#eaecf0',
 
-  // The design's exact values (owner decision): both are below WCAG contrast, by design.
-  /** A control's border, as the design draws it: 1.70:1 on white (WCAG 1.4.11 asks 3:1). */
+  // The control border and sidebar group headings: the redesign's accessible values.
+  /** A control's border: 3.62:1 on white, at least 3:1 on every surface (WCAG 1.4.11). */
   controlBorder: '#7d8799',
-  /** Sidebar group headings, as the design draws them: 4.39:1 on surface-tint (WCAG 1.4.3 asks 4.5:1). */
+  /** Sidebar group headings: 4.64:1 on surface-tint, at least 4.5:1 on every surface (WCAG 1.4.3). */
   navGroupText: '#667085',
 
   // Shape and depth.

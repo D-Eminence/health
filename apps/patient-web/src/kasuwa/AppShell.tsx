@@ -44,7 +44,7 @@ export interface Switcher {
   readonly menu?: (close: () => void) => ReactNode
 }
 
-export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, headerStart, headerActions, tabs, create, extraFooter, sidebarTop, children, mainAs = 'main', wide }: {
+export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, headerStart, headerActions, tabs, create, extraFooter, sidebarTop, children, mainAs = 'main', wide, skipLink }: {
   brand: ReactNode
   switcher: Switcher
   nav: readonly NavGroup[]
@@ -64,6 +64,11 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
   mainAs?: 'main' | 'div'
   /** Dense work screens (the EHR) take more width than paytrail's 1200px. */
   wide?: boolean
+  /**
+   * The text of a "skip to content" link, the first thing a keyboard reaches: it jumps past the navigation to <main>.
+   * Shown only while focused. Needs mainAs 'main' (the link's target is the shell's own <main>).
+   */
+  skipLink?: string
 }) {
   const { pathname, hash, search } = useLocation()
   const navigate = useNavigate()
@@ -207,6 +212,8 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
   const sidebarWidth = rail ? 'w-[76px]' : 'w-[264px]'
 
   return <div className="min-h-dvh bg-surface">
+    {skipLink && mainAs === 'main' && <a href="#main" onClick={event => { event.preventDefault(); document.getElementById('main')?.focus() }}
+      className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[var(--z-toast)] focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-ink focus:ring-2 focus:ring-brand">{skipLink}</a>}
     <aside className={cx('fixed inset-y-0 left-0 z-30 hidden border-r border-line bg-surface transition-[width] duration-200 lg:block', sidebarWidth)}>{sidebar}</aside>
     {creating && create && <div className="fixed inset-0 z-[var(--z-drawer)] lg:hidden">
       <div className="absolute inset-0 animate-fade-in bg-[#101828]/45" onClick={() => setCreating(false)} />

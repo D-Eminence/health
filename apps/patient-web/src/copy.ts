@@ -29,7 +29,7 @@ export const WORDS = {
 /** Messages that recur: said the same way on every screen. */
 export const SAY = {
   everyViewRecorded: 'Every view is recorded.',
-  signInAgain: 'For your safety, sign in again first, then come back within 10 minutes.',
+  signInAgain: 'For your safety, sign out, sign in again, then come back within 10 minutes.',
   tryAgain: 'Something went wrong. Please try again.',
   readOnly: 'You can view this, but not change it.',
 } as const

@@ -132,7 +132,7 @@ function gateway(start: boolean, answers: { put?: () => Response; del?: () => Re
   return handler
 }
 /** The photo control, at the top of Bio-data: the avatar, whose label wraps the hidden file field. */
-const photoCard = async () => within(await openSection('Bio-data'))
+const photoCard = async () => within(await openSection('About you'))
 async function choose(file: File) {
   const input = (await photoCard()).getByLabelText(/^(Add|Change) profile photo$/) as HTMLInputElement
   await act(async () => { fireEvent.change(input, { target: { files: [file] } }) })
@@ -440,7 +440,7 @@ describe('the photo shown', () => {
 
   it('is not offered by an Identity that does not say whether there is one', async () => {
     renderPortal(<ProfilePage />, (path, method) => path === '/identity/me' && method === 'GET' ? json(profile) : problem(404, 'NOT_FOUND', path))
-    const bio = await openSection('Bio-data')
+    const bio = await openSection('About you')
     expect(within(bio).getByText('Ada Example')).toBeTruthy()
     expect(within(bio).queryByLabelText(/profile photo/)).toBeNull()
     expect(bio.querySelector('input[type="file"]')).toBeNull()

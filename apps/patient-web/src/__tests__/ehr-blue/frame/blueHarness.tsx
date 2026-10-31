@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { vi } from 'vitest'
 import type * as BlueRoutes from '../../../ehr-blue/routes'
@@ -74,3 +74,15 @@ export function withFramePages(extra: () => readonly EhrBluePage[] = () => []) {
   })
 }
 
+
+/** Home's heading: the time of day's greeting and the person's name (kasuwa greeting()). */
+export const homeHeading = (name = 'Demo Clinician') => new RegExp(`^Good (morning|afternoon|evening), ${name}$`)
+
+/** The account menu is the sidebar's: the person's ⋯ button, which holds Sign out. */
+export const accountButton = (name = 'Demo Clinician') => screen.getByRole('button', { name: `${name}: account` })
+
+/** Switching facility is the sidebar's switcher: it lists the person's facilities, and one leads to Switch facility. */
+export function switchFacilityTo(current: string, next: string) {
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${current.replace(/[()]/g, '\\$&')}`) }))
+  fireEvent.click(screen.getByRole('button', { name: next }))
+}

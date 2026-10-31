@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import {
-  DEMO_HOSPITAL, REAL_FACILITY, REQUESTS, SESSION, facility, json, openStaffApp, serve, sessionAt, where, withFramePages,
+  DEMO_HOSPITAL, REAL_FACILITY, REQUESTS, SESSION, accountButton, facility, homeHeading, json, openStaffApp, serve, sessionAt, switchFacilityTo, where,
+  withFramePages,
 } from './blueHarness'
 
 /**
@@ -19,6 +20,15 @@ const many = <T,>(answer: T, count = 8): T[] => Array.from({ length: count }, ()
 const nav = () => screen.getByRole('navigation', { name: 'Main navigation' })
 const follow = (name: string) => act(() => { fireEvent.click(within(nav()).getByRole('link', { name })) })
 
+/**
+ * Sample workspaces are no longer listed in the sidebar (only working screens are): at a demo facility the
+ * notifications drawer's sample activity still opens the first appointment, 5a020001.
+ */
+function openFirstAppointment() {
+  fireEvent.click(screen.getByRole('button', { name: /^Notifications/ }))
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Notifications' })).getByRole('button', { name: /^Appointments record created/ }))
+}
+
 /** The blue EHR at every facility: the clinic switch on, and both page sets present (as pageSets.ts lists them). */
 function switchedOn() {
   vi.doMock('../../../ehr-blue/pageSets', () => ({
@@ -28,7 +38,8 @@ function switchedOn() {
 }
 
 describe('1. samples belong to one person at one facility', () => {
-  it('forgets them, and the classic EHR choice, at sign-out: the next person sees none of the last one\'s work', async () => {
+  // The classic EHR is gone (one EHR for every facility): the sign-out is the blue EHR's own.
+  it('forgets them at sign-out: the next person sees none of the last one\'s work', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write'])
     const next = { actor: { id: 'staff-demo-2', email: 'second.clinician@example.test', displayName: 'Second Clinician', roles: ['clinician'],
       permissions: [], facilities: [demo], facility: demo }, expiresAt: '2026-11-30T12:00:00.000Z' }
@@ -52,19 +63,17 @@ describe('1. samples belong to one person at one facility', () => {
     expect(await screen.findByText('checked-in')).toBeDefined()
     expect(screen.getAllByText('Author: Demo Clinician').length).toBeGreaterThan(0)
 
-    // Back to today's workspace, then sign out there.
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Use the classic EHR' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }))
+    // Sign out from the account menu.
+    fireEvent.click(accountButton())
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
     await waitFor(() => expect(where()).toBe('/provider/sign-in'))
 
     // Someone else signs in through the form, in the same tab: the blue EHR again, and the first person's work gone.
     fireEvent.change(screen.getByLabelText(/^Work email/), { target: { value: 'second.clinician@example.test' } })
     fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'fictional-password-2' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome, Second Clinician' })).toBeDefined()
-    follow('Appointments')
-    act(() => { fireEvent.click(screen.getAllByRole('link', { name: 'Review of results' })[0]!) })
+    expect(await screen.findByRole('heading', { level: 1, name: homeHeading('Second Clinician') })).toBeDefined()
+    openFirstAppointment()
     await waitFor(() => expect(where()).toBe('/provider/appointments/5a020001'))
     expect(screen.getByText('booked')).toBeDefined()
     expect(screen.queryByText('checked-in')).toBeNull()
@@ -84,12 +93,10 @@ describe('1. samples belong to one person at one facility', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Check in' }))
     fireEvent.click(within(screen.getByRole('form', { name: 'Check in' })).getByRole('button', { name: 'Check in' }))
     expect(await screen.findByText('checked-in')).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Switch facility' }))
+    switchFacilityTo('Demo Hospital', 'Demo Laboratory')
     fireEvent.click(await screen.findByRole('button', { name: 'Work at Demo Laboratory' }))
     await waitFor(() => expect(within(screen.getByRole('banner')).getByText('Demo Laboratory')).toBeDefined())
-    follow('Appointments')
-    act(() => { fireEvent.click(screen.getAllByRole('link', { name: 'Review of results' })[0]!) })
+    openFirstAppointment()
     expect(await screen.findByText('booked')).toBeDefined()
     expect(screen.queryByText('checked-in')).toBeNull()
   })
@@ -111,7 +118,7 @@ describe('2. Home says what today\'s Overview says (a novu-v1 build)', () => {
     const none = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(none, [none])] })
     const { unmount } = await openStaffApp('/provider')
-    const sentence = 'Your active facility has no clinical module permissions. Ask an administrator to review your assignment.'
+    const sentence = 'You have no clinical work at this facility yet. Ask an administrator to check your role.'
     expect(await screen.findByText(sentence)).toBeDefined()
     unmount()
     vi.resetModules()
@@ -119,7 +126,7 @@ describe('2. Home says what today\'s Overview says (a novu-v1 build)', () => {
     const some = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write', 'identity.patient.read'])
     serve({ [SESSION]: [sessionAt(some, [some])], [REQUESTS]: many(() => json([])) })
     await openStaffApp('/provider')
-    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
+    await screen.findByRole('heading', { level: 1, name: homeHeading() })
     expect(screen.queryByText(sentence)).toBeNull()
   })
 })
@@ -131,11 +138,12 @@ describe('3. access requests are read where today reads them, each time', () => 
       status: 'pending', requestedDurationMinutes: 60, requestedAt: '2026-10-29T09:00:00Z', approvedAt: null, deniedAt: null, deniedReason: null }]
     serve({ [SESSION]: [sessionAt(demo, [demo])], [REQUESTS]: [() => json([]), () => json(waiting), () => json(waiting)] })
     await openStaffApp('/provider')
-    expect(await screen.findByRole('link', { name: '0 pending access requests' })).toBeDefined()
-    follow('External record access')
+    // None waiting: Needs attention is all clear once they are read.
+    expect(await screen.findByText('All clear')).toBeDefined()
+    follow('Access requests')
     await waitFor(() => expect(where()).toBe('/provider/requests'))
     follow('Home')
-    expect(await screen.findByRole('link', { name: '1 pending access request' })).toBeDefined()
+    expect((await screen.findByRole('link', { name: /^1 access request waiting/ })).getAttribute('href')).toBe('/provider/requests')
   })
 
   it('reads none on another page', async () => {
@@ -178,7 +186,7 @@ describe('4. the session check keeps the keyboard over an open drawer', () => {
     expect(document.activeElement).toBe(tryAgain)
     // Search does not open over the lock.
     expect(fireEvent.keyDown(window, { key: 'k', ctrlKey: true })).toBe(true)
-    expect(screen.queryByRole('dialog', { name: 'Search Health ID' })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Search' })).toBeNull()
   })
 })
 
@@ -188,12 +196,13 @@ describe('6. Home reads only what today\'s Overview reads', () => {
     const riverside = facility(REAL_FACILITY, 'Riverside Teaching Hospital (fictional)', ['identity.consent.write', 'lab.work-item.read', 'pharmacy.work-item.read'])
     const sent = serve({ [SESSION]: [sessionAt(riverside, [riverside])], [REQUESTS]: many(() => json([])) })
     await openStaffApp('/provider')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
     await waitFor(() => expect(sent.some(call => call.route === REQUESTS)).toBe(true))
     expect([...new Set(sent.map(call => call.route))]).toEqual(['GET /api/v1/auth/session', REQUESTS])
-    // Today links to the work pages instead of counting their work.
-    const today = screen.getByRole('heading', { name: 'Today' }).closest('section')!
-    expect(within(today).getByRole('link', { name: 'Laboratory' }).getAttribute('href')).toBe('/provider/laboratory')
-    expect(within(today).getByRole('link', { name: 'Pharmacy' }).getAttribute('href')).toBe('/provider/pharmacy')
+    // Today's work links to the work pages instead of counting their work.
+    expect(screen.getByRole('heading', { name: 'Today\'s work' })).toBeDefined()
+    const main = document.querySelector('.hid-ehr-blue-page') as HTMLElement
+    expect(within(main).getByRole('link', { name: /^Laboratory/ }).getAttribute('href')).toBe('/provider/laboratory')
+    expect(within(main).getByRole('link', { name: /^Pharmacy/ }).getAttribute('href')).toBe('/provider/pharmacy')
   })
 })

@@ -297,6 +297,7 @@ export function App() {
         person={{ name: actor.displayName || actor.email || 'Platform administrator', detail: actor.email || 'Platform', profileTo: has(actor, 'platform.admin.access') ? '/admin/security' : undefined }}
         onSignOut={() => void signOut()}
         signingOut={signingOut}
+        skipLink="Skip to content"
         headerStart={<Link to="/admin/overview" aria-label="Health ID platform home" className="inline-flex items-center gap-2 no-underline lg:hidden"><BrandLogo className="h-7 w-auto" /><Badge tone="violet" size="sm">Admin</Badge></Link>}
         tabs={phoneTabs(sections)}>
           <div id="admin-main" className="admin-main @container">

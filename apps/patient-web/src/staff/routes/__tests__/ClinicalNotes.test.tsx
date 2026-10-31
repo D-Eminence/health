@@ -95,7 +95,7 @@ describe('creating a draft note', () => {
     await waitFor(() => expect(api.createRecord).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'clinical-notes',
       { noteType: 'Consultation', title: 'Follow-up', status: 'draft', content: 'Afebrile today.' }, expect.any(String)))
     expect(api.lookupPatient.mock.invocationCallOrder[0]).toBeLessThan(api.createRecord.mock.invocationCallOrder[0]!)
-    expect(await screen.findByText('Clinical record saved by the backend.')).toBeTruthy()
+    expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
   })
 
   it('reuses its key when the same draft is retried after a failure', async () => {

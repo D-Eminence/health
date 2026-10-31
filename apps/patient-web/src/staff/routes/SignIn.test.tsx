@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { SignIn } from './SignIn'
@@ -87,7 +87,7 @@ it.each([
 
   const link = screen.getByRole('link', { name: 'Forgot your password?' })
   expect(link.getAttribute('href')).toBe(href)
-  expect(screen.getByText(/Password resets are done on the main Health ID site/)).toBeTruthy()
+  expect(screen.getByText(/You reset it on the main Health ID site\./)).toBeTruthy()
 })
 
 it('on the production portal sends staff to the EHR site to sign in, with no form hid-system would refuse', () => {
@@ -96,7 +96,8 @@ it('on the production portal sends staff to the EHR site to sign in, with no for
 
   render(<MemoryRouter><SignIn /></MemoryRouter>)
 
-  expect(screen.getByRole('link', { name: 'Continue to provider sign in' }).getAttribute('href'))
+  expect(screen.getByRole('heading', { level: 1, name: 'Staff sign in is on the provider site.' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Go to staff sign in' }).getAttribute('href'))
     .toBe('https://ehr.healthidentitydirectory.com/provider/sign-in')
   expect(screen.queryByLabelText('Work email')).toBeNull()
   expect((window as unknown as { turnstile: { render: ReturnType<typeof vi.fn> } }).turnstile.render).not.toHaveBeenCalled()
@@ -167,7 +168,7 @@ it.each([
 })
 
 describe('a sign-in that Identity ended for want of an authenticator (403 STAFF_MFA_REQUIRED)', () => {
-  const NOTICE = 'Health ID now asks staff for a code from an authenticator app at sign-in. Sign in again to set one up, or to use the one you have.'
+  const NOTICE = 'Staff now need a code from an authenticator app to sign in. Sign in again to set one up, or to use the one you have.'
 
   it.each([
     ['signed out at load', 'signed-out'],
@@ -178,8 +179,9 @@ describe('a sign-in that Identity ended for want of an authenticator (403 STAFF_
     render(<MemoryRouter><SignIn /></MemoryRouter>)
 
     const notice = screen.getByRole('status')
-    expect(notice.textContent).toBe(NOTICE)
-    expect(notice.className).toBe('staff-notice')
+    // An info notice: its intent is said before it, and nothing else shares the status role.
+    expect(notice.textContent).toBe(`Info: ${NOTICE}`)
+    expect(notice.getAttribute('data-intent')).toBe('info')
     expect(screen.getByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
   })
 
@@ -225,9 +227,8 @@ describe('clinician self sign-up from the provider sign-in page (hid-system ADR-
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 
     expect((await screen.findByRole('alert')).textContent).toBe(detail)
-    expect(screen.getByText(/Applied as a doctor or nurse\? You can sign in once two HID administrators have approved your application\./))
-      .toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Check your clinician application' }).getAttribute('href')).toBe('/provider/join/status')
+    const applied = screen.getByText(/Applied as a doctor or nurse\? You can sign in once your application is approved\./)
+    expect(within(applied).getByRole('link', { name: 'Check your application' }).getAttribute('href')).toBe('/provider/join/status')
   })
 
   it('points nobody to a clinician application on Novu, which has none', async () => {

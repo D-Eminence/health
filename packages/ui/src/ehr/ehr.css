@@ -843,7 +843,7 @@
   .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table { min-width: 0; }
   .hid-ehr .hid-ehr-table-stack-sm :is(.hid-ehr-table, .hid-ehr-table-body, .hid-ehr-table-row, .hid-ehr-table-cell) { display: block; }
   .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-head :is(tr, th) { display: block; }
+  .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-head :is(.hid-ehr-table-head-row, .hid-ehr-table-header) { display: block; }
   .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-body { display: grid; gap: 8px; }
   .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-row { padding: 6px 0; border: 1px solid var(--ehr-line); border-radius: var(--ehr-radius-lg); background: var(--ehr-surface); }
   .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-cell { padding: 6px 14px; border: 0; text-align: left; font-size: 13px; }
@@ -854,7 +854,7 @@
   .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table { min-width: 0; }
   .hid-ehr .hid-ehr-table-stack-lg :is(.hid-ehr-table, .hid-ehr-table-body, .hid-ehr-table-row, .hid-ehr-table-cell) { display: block; }
   .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-head :is(tr, th) { display: block; }
+  .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-head :is(.hid-ehr-table-head-row, .hid-ehr-table-header) { display: block; }
   .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-body { display: grid; gap: 8px; }
   .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-row { padding: 6px 0; border: 1px solid var(--ehr-line); border-radius: var(--ehr-radius-lg); background: var(--ehr-surface); }
   .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-cell { padding: 6px 14px; border: 0; text-align: left; font-size: 13px; }
@@ -1272,7 +1272,7 @@
 
 @container (max-width: 760px) {
   .hid-ehr .hid-ehr-page-title {
-    font-size: 34px;
+    font-size: 28px;
   }
 }
 

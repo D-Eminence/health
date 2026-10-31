@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { REAL_FACILITY, facility, json, openStaffApp, problem, serve, sessionAt, where } from './blueHarness'
+import { REAL_FACILITY, accountButton, facility, homeHeading, json, openStaffApp, problem, serve, sessionAt, switchFacilityTo, where } from './blueHarness'
 
 /**
  * Today's session rules, on the blue EHR at a clinic: the clinic switch on (BLUE_FOR_ALL, mocked here) and the real,
@@ -46,7 +46,7 @@ const ANNEX = 'f0000000-0000-4000-8000-000000000002'
 const many = <T,>(answer: T, count = 8): T[] => Array.from({ length: count }, () => answer)
 const ended = () => problem(401, 'AUTHENTICATION_REQUIRED', 'Valid authentication is required')
 const mfaRequired = () => problem(403, 'STAFF_MFA_REQUIRED', 'Sign in again with your authenticator code to continue')
-const MFA_NOTICE = 'Health ID now asks staff for a code from an authenticator app at sign-in. Sign in again to set one up, or to use the one you have.'
+const MFA_NOTICE = 'Staff now need a code from an authenticator app to sign in. Sign in again to set one up, or to use the one you have.'
 const allowedLookup = () => json({ authorization: { decision: 'allow', consentGrantId: 'grant-1', scope: 'read_records' },
   patient: { patientId: PATIENT_ID, hid: PATIENT_HID, fullName: PATIENT_NAME } })
 
@@ -55,7 +55,7 @@ const riverside = (permissions: readonly string[] = CLINICAL) => facility(REAL_F
 const annex = (permissions: readonly string[] = CLINICAL) => facility(ANNEX, 'Riverside Annex (fictional)', permissions)
 
 async function expectBlueHome() {
-  expect(await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })).toBeDefined()
+  expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
   expect(document.querySelector('.hid-ehr.hid-ehr-shell')).not.toBeNull()
   expect(screen.queryByRole('complementary', { name: 'Provider navigation' })).toBeNull()
 }
@@ -67,8 +67,8 @@ async function signIn() {
 }
 
 async function openPatient() {
-  fireEvent.change(await screen.findByRole('textbox', { name: 'Search Patients' }), { target: { value: PATIENT_HID } })
-  fireEvent.click(screen.getByRole('button', { name: 'Verify access' }))
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: PATIENT_HID } })
+  fireEvent.click(screen.getByRole('button', { name: 'Find' }))
   await waitFor(() => expect(document.body.textContent).toContain(PATIENT_NAME))
 }
 
@@ -115,7 +115,7 @@ describe('at a clinic, with the clinic switch on', () => {
     // The Patients page has no patient open either: the next person starts from a search.
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('link', { name: 'Patients' }))
     await waitFor(() => expect(where()).toBe('/provider/patients'))
-    expect(await screen.findByRole('textbox', { name: 'Search Patients' })).toBeDefined()
+    expect(await screen.findByRole('textbox', { name: 'Health ID' })).toBeDefined()
     expect(document.body.textContent).not.toContain(PATIENT_NAME)
     // One lookup, before the session ended: nothing reopened the patient.
     expect(sent.filter(call => call.route === LOOKUP)).toHaveLength(1)
@@ -129,8 +129,8 @@ describe('at a clinic, with the clinic switch on', () => {
     })
     await openStaffApp('/provider')
     await expectBlueHome()
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Switch facility' }))
+    // The sidebar's facility switcher leads to Switch facility.
+    switchFacilityTo('Riverside Teaching Hospital (fictional)', 'Riverside Annex (fictional)')
     fireEvent.click(await screen.findByRole('button', { name: 'Work at Riverside Annex (fictional)' }))
 
     const heading = await screen.findByRole('heading', { name: 'Your session has ended' })
@@ -153,14 +153,15 @@ describe('at a clinic, with the clinic switch on', () => {
 
     // Another tab's change: the session read no longer lists Riverside.
     fromAnotherTab()
-    expect(await screen.findByRole('heading', { level: 1, name: 'Choose your workspace' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Where are you working today?' })).toBeDefined()
     expect(screen.getByText(/The facility you were working at is no longer available to you\./)).toBeDefined()
     expect(document.body.textContent).not.toContain(PATIENT_NAME)
 
     fireEvent.click(screen.getByRole('button', { name: 'Work at Riverside Annex (fictional)' }))
     // The workspace opens again at the facility chosen, on the same page, with no patient open.
     await waitFor(() => expect(within(screen.getByRole('banner')).getByText('Riverside Annex (fictional)')).toBeDefined())
-    expect(screen.getByRole('heading', { level: 1, name: 'Patients' })).toBeDefined()
+    expect(where()).toBe('/provider/patients/open')
+    expect(screen.getByText('Choose a patient first.')).toBeDefined()
     expect(document.body.textContent).not.toContain(PATIENT_NAME)
   })
 
@@ -170,7 +171,7 @@ describe('at a clinic, with the clinic switch on', () => {
       [FACILITY]: [sessionAt(annex(), [riverside(), annex()], 'selected')],
     })
     await openStaffApp('/provider')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Choose your workspace' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Where are you working today?' })).toBeDefined()
     expect(screen.getByText(/You work at more than one facility\./)).toBeDefined()
     expect(document.querySelector('.hid-ehr-blue-standalone')).not.toBeNull()
     expect(sent.map(call => call.route)).toEqual([SESSION])
@@ -193,15 +194,15 @@ describe('at a clinic, with the clinic switch on', () => {
     // The record has opened (its encounters read): every lookup it makes is in.
     await waitFor(() => expect(sent.some(call => call.route === ENCOUNTERS)).toBe(true))
     const lookups = sent.filter(call => call.route === LOOKUP).length
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Switch facility' }))
+    // The sidebar's facility switcher leads to Switch facility.
+    switchFacilityTo('Riverside Teaching Hospital (fictional)', 'Riverside Annex (fictional)')
     fireEvent.click(await screen.findByRole('button', { name: 'Work at Riverside Annex (fictional)' }))
     await waitFor(() => expect(within(screen.getByRole('banner')).getByText('Riverside Annex (fictional)')).toBeDefined())
     expect(document.body.textContent).not.toContain(PATIENT_NAME)
     // Back on Patients, nothing is open: the search, and no further lookup.
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('link', { name: 'Patients' }))
     await waitFor(() => expect(where()).toBe('/provider/patients'))
-    expect(await screen.findByRole('textbox', { name: 'Search Patients' })).toBeDefined()
+    expect(await screen.findByRole('textbox', { name: 'Health ID' })).toBeDefined()
     expect(document.body.textContent).not.toContain(PATIENT_NAME)
     expect(sent.filter(call => call.route === LOOKUP)).toHaveLength(lookups)
   })
@@ -215,7 +216,7 @@ describe('at a clinic, with the clinic switch on', () => {
     serve({ [SESSION]: [sessionAt(riverside(), [riverside()]), () => json({}), sessionAt(riverside(), [riverside()])] })
     await openStaffApp('/provider')
     await expectBlueHome()
-    const menu = screen.getByRole('button', { name: 'Account menu' })
+    const menu = accountButton()
     act(() => { menu.focus() })
 
     act(() => {
@@ -234,13 +235,13 @@ describe('at a clinic, with the clinic switch on', () => {
     expect(fireEvent.keyDown(tryAgain, { key: 'Tab' })).toBe(true)
     expect(fireEvent.keyDown(tryAgain, { key: 'Tab', shiftKey: true })).toBe(true)
     expect(fireEvent.keyDown(window, { key: 'k', ctrlKey: true })).toBe(true)
-    expect(screen.queryByRole('dialog', { name: 'Search Health ID' })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Search' })).toBeNull()
 
     // Enter on Try again (a button's click): the session is confirmed and the workspace comes back.
     fireEvent.click(tryAgain)
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull())
     expect(menu.closest('[inert]')).toBeNull()
-    expect(screen.getByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })).toBeDefined()
+    expect(screen.getByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
   })
 
   it('signs out from the account menu with its CSRF token and client name', async () => {
@@ -248,8 +249,8 @@ describe('at a clinic, with the clinic switch on', () => {
     const sent = serve({ [SESSION]: [sessionAt(riverside(), [riverside()])], [LOGOUT]: [() => new Response(null, { status: 204 })] })
     await openStaffApp('/provider')
     await expectBlueHome()
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
-    fireEvent.click(within(screen.getByRole('region', { name: 'Account' })).getByRole('button', { name: 'Sign out' }))
+    fireEvent.click(accountButton())
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
     await waitFor(() => expect(where()).toBe('/provider/sign-in'))
     const logout = sent.find(call => call.route === LOGOUT)
     expect(logout?.headers.get('X-CSRF-Token')).toBe('csrf-staff')

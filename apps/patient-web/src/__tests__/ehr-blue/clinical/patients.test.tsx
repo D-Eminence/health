@@ -9,7 +9,7 @@ import {
 
 /**
  * Patients: the Health ID search (today's governed access), the patient open now and that patient's page with the
- * design's Next steps and Connected hospital history. Everything is fictional.
+ * design's Next steps and History. Everything is fictional.
  */
 
 const api = vi.hoisted(() => ({
@@ -108,8 +108,8 @@ describe('Patients list', () => {
     open()
     expect(screen.getByRole('heading', { level: 1, name: 'Patients' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
-    expect(screen.getByText('No authorized patient')).toBeTruthy()
-    expect(screen.getByText('Open a patient using an approved request, patient PIN, or documented emergency access.')).toBeTruthy()
+    expect(screen.getByText('No patient open')).toBeTruthy()
+    expect(screen.getByText('Open a patient with an approved request, the patient’s PIN, or emergency access.')).toBeTruthy()
     expect(screen.getByText(HID_FORMAT)).toBeTruthy()
     // Sharing is not served (404): both cards stay hidden, with no alert.
     await act(async () => {})
@@ -332,7 +332,7 @@ describe('The open patient’s page', () => {
     open('/open')
     expect(nextSteps()).toEqual(['Open consent'])
     expect(screen.queryByRole('button', { name: 'Open clinical record' })).toBeNull()
-    expect(screen.queryByRole('heading', { name: 'Connected hospital history' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'History' })).toBeNull()
     await act(async () => {})
     expect(api.encounters).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Open consent' }))
@@ -359,7 +359,7 @@ describe('The open patient’s page', () => {
     atDemoHospital()
     staff.activePatient = activePatient()
     open('/open')
-    const actions = screen.getByRole('heading', { name: 'Available actions' }).closest('section')!
+    const actions = screen.getByRole('heading', { name: 'Actions' }).closest('section')!
     const buttons = within(actions).getAllByRole('button')
     expect(buttons.map(button => button.textContent)).toEqual(['Close my grant', 'Open appointments', 'Register walk-in visit', 'Open consent', 'Open clinical record'])
     for (const button of buttons) {
@@ -410,14 +410,14 @@ describe('The open patient’s page', () => {
     open('/open')
     expect(await screen.findByText('Loading encounters…')).toBeTruthy()
     await act(async () => { fail('offline') })
-    expect((await screen.findByRole('alert')).textContent).toBe('Encounters could not be loaded.')
+    expect((await screen.findByRole('alert')).textContent).toBe('Consultations could not be loaded.')
   })
 
   it('says when this facility has no encounters for the patient', async () => {
     staff.activePatient = activePatient()
     api.encounters.mockResolvedValue({ items: [], nextCursor: null })
     open('/open')
-    expect(await screen.findByText('No encounters are available for this patient and facility.')).toBeTruthy()
+    expect(await screen.findByText('No consultations for this patient here yet.')).toBeTruthy()
   })
 
   it('shows that access ended when the re-check is refused', async () => {
@@ -425,7 +425,7 @@ describe('The open patient’s page', () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
     open('/open')
     expect(await screen.findByText('Access to this patient ended')).toBeTruthy()
-    expect(screen.getByText('Patient access has ended. Reopen the record through governed access.')).toBeTruthy()
+    expect(screen.getByText('Your access to this patient has ended. Open the patient again to keep working.')).toBeTruthy()
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.encounters).not.toHaveBeenCalled()
   })
@@ -435,11 +435,11 @@ describe('The open patient’s page', () => {
     atDemoHospital()
     staff.activePatient = activePatient('emergency')
     open('/open')
-    expect(screen.getByText('Emergency access is read-only')).toBeTruthy()
+    expect(screen.getByText('Emergency access shows the emergency summary only')).toBeTruthy()
     expect(nextSteps()).toEqual(['Open the emergency summary'])
     expect(screen.queryByRole('button', { name: 'Register walk-in visit' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Open consent' })).toBeNull()
-    expect(screen.queryByRole('heading', { name: 'Connected hospital history' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'History' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Open the emergency summary' }))
     expect(where()).toBe('/provider/emergency/summary')
     expect(api.encounters).not.toHaveBeenCalled()
@@ -450,7 +450,7 @@ describe('The open patient’s page', () => {
     staff.activePatient = activePatient()
     api.consentStatus.mockResolvedValue({ patientId: PATIENT_ID, facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
     open('/open')
-    expect(await screen.findByText('Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.')).toBeTruthy()
+    expect(await screen.findByText('You can view this, but not change it. To add or change records, ask the patient to approve access that includes changes.')).toBeTruthy()
     expect(within(screen.getByRole('group', { name: 'Flags' })).getByText('Read only')).toBeTruthy()
   })
 
@@ -463,7 +463,7 @@ describe('The open patient’s page', () => {
     expect(api.closeGrant).toHaveBeenCalledWith(FACILITY_ID, 'grant-1', 'Clinician closed completed patient access')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(screen.getByRole('heading', { level: 1, name: 'Patients' })).toBeTruthy()
-    expect(screen.getByText('No authorized patient')).toBeTruthy()
+    expect(screen.getByText('No patient open')).toBeTruthy()
   })
 
   it('names what a role lacks to close its grant', () => {

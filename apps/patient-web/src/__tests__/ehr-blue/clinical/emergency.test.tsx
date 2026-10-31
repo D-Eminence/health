@@ -163,7 +163,7 @@ describe('the Emergency page', () => {
     for (const rest of ['/new', '/cfa650e2']) {
       const view = open(rest)
       expect(screen.getByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
-      expect(screen.getByText('The record is missing or outside your authorized hospital / branch.')).toBeTruthy()
+      expect(screen.getByText('This record doesn’t exist, or it belongs to another facility.')).toBeTruthy()
       expect(screen.getByRole('button', { name: 'Back to list' })).toBeTruthy()
       expect(screen.queryByRole('heading', { name: 'Emergency break-glass access' })).toBeNull()
       expect(document.body.textContent).not.toContain(SAMPLE_NOTICE)

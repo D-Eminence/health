@@ -60,7 +60,7 @@ export function EhrDataTable<Row>({
       <table className="hid-ehr-table" role="table">
         <caption className={captionHidden ? 'hid-ehr-sr-only' : 'hid-ehr-table-caption'}>{caption}</caption>
         <thead role="rowgroup" className="hid-ehr-table-head">
-          <tr role="row">
+          <tr role="row" className="hid-ehr-table-head-row">
             {columns.map(column => (
               <th key={column.id} scope="col" role="columnheader" className={cx('hid-ehr-table-header', column.align === 'end' && 'hid-ehr-align-end')}>
                 {column.header}

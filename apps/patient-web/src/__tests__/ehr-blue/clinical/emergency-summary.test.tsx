@@ -181,7 +181,7 @@ describe('the emergency summary page', () => {
     open()
     const ended = await screen.findByRole('alert')
     expect(within(ended).getByText('Access to this patient ended')).toBeTruthy()
-    expect(ended.textContent).toContain('Patient access has ended. Reopen the record through governed access.')
+    expect(ended.textContent).toContain('Your access to this patient has ended. Open the patient again to keep working.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.emergencyRecords).not.toHaveBeenCalled()
     expect(screen.queryByRole('region', { name: 'Patient' })).toBeNull()

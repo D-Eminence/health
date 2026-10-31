@@ -46,7 +46,7 @@ function open(id: string, rest = '') {
 }
 
 function actionsCard() {
-  return screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
+  return screen.getByRole('heading', { name: 'Actions' }).closest('section') as HTMLElement
 }
 
 describe.each(ALL)('%s', id => {
@@ -81,10 +81,10 @@ describe.each(ALL)('%s', id => {
     expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(recordName(record))
     expect(screen.getByRole('heading', { name: 'Saved record' })).toBeTruthy()
-    expect(Boolean(screen.queryByRole('heading', { name: 'Connected hospital history' }))).toBe(Boolean(record.patientId))
-    expect(Boolean(screen.queryByRole('heading', { name: 'Preserved versions & amendments' }))).toBe(record.versions.length > 0)
+    expect(Boolean(screen.queryByRole('heading', { name: 'History' }))).toBe(Boolean(record.patientId))
+    expect(Boolean(screen.queryByRole('heading', { name: 'Earlier versions' }))).toBe(record.versions.length > 0)
     const available = definition.actions.filter(action => action.from.includes(record.status))
-    if (available.length === 0) expect(within(actionsCard()).getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    if (available.length === 0) expect(within(actionsCard()).getByText('Nothing more to do here.')).toBeTruthy()
     for (const action of available) {
       fireEvent.click(within(actionsCard()).getByRole('button', { name: action.label, expanded: false }))
       const submit = within(actionsCard()).getAllByRole('button', { name: action.label }).find(button => button.getAttribute('type') === 'submit')

@@ -6,6 +6,7 @@ import { HidApiError } from '@hid/http'
 import type { AdminActor, Facility } from '../api'
 import { FacilitiesPage, FacilityDetailPage } from '../Facilities'
 import { StepUpProvider } from '../StepUp'
+import { ToastProvider } from '../../kasuwa/toast'
 
 const mocks = vi.hoisted(() => ({
   api: { facilities: vi.fn(), facility: vi.fn(), audit: vi.fn(), command: vi.fn(), stepUp: vi.fn(),
@@ -30,9 +31,18 @@ function Location() {
 }
 
 function open(path: string, element: ReactElement, route = '/admin/facilities') {
-  render(<MemoryRouter initialEntries={[path]}><StepUpProvider><Routes>
+  render(<ToastProvider><MemoryRouter initialEntries={[path]}><StepUpProvider><Routes>
     <Route path={route} element={<>{element}<Location /></>} />
-  </Routes></StepUpProvider></MemoryRouter>)
+  </Routes></StepUpProvider></MemoryRouter></ToastProvider>)
+}
+
+/** Opens the status change, picks the new status and gives the reason; returns the confirmation. */
+function changeStatus(status: string, reason: string) {
+  fireEvent.click(screen.getByRole('button', { name: 'Change status' }))
+  fireEvent.change(within(screen.getByRole('dialog')).getByLabelText('Change to'), { target: { value: status } })
+  const sheet = screen.getByRole('dialog')
+  fireEvent.change(within(sheet).getByLabelText('Reason for this change'), { target: { value: reason } })
+  return sheet
 }
 
 const location = () => screen.getByTestId('location').textContent
@@ -50,7 +60,8 @@ describe('facilities list', () => {
     expect(await screen.findByText('Ikeja Clinic')).toBeTruthy()
     expect(mocks.api.facilities).toHaveBeenCalledWith({ page: 2, pageSize: 25, status: 'suspended', query: 'Ikeja' }, expect.anything())
     expect(screen.getByRole('link', { name: 'Ikeja Clinic' }).getAttribute('href')).toBe(`/admin/facilities/${FACILITY_ID}`)
-    expect(screen.getByText('View only')).toBeTruthy()
+    // Without platform.facility.manage there is no status change.
+    expect(screen.queryByRole('button', { name: 'Change status' })).toBeNull()
   })
 
   it('pages through results and starts a new search on the first page', async () => {
@@ -76,15 +87,15 @@ describe('facilities list', () => {
     mocks.api.stepUp.mockResolvedValueOnce({ stepUpExpiresAt: '2026-10-08T12:05:00.000Z' })
     open('/admin/facilities', <FacilitiesPage actor={actor(['platform.facility.manage'])} />)
     await screen.findByText('Ikeja Clinic')
-    fireEvent.change(screen.getByLabelText('New value'), { target: { value: 'verified' } })
-    fireEvent.change(screen.getByLabelText('Reason for this change'), { target: { value: 'Documents reviewed and accepted' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm change' }))
+    const sheet = changeStatus('verified', 'Documents reviewed and accepted')
+    expect(within(sheet).getByText(/Ikeja Clinic becomes verified/)).toBeTruthy()
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Verify facility' }))
     fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm and continue' }))
-    expect(await screen.findByText('Saved. Current information is being refreshed.')).toBeTruthy()
+    expect(await screen.findByText('Ikeja Clinic is verified.')).toBeTruthy()
     await waitFor(() => expect(mocks.api.facilities).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(document.querySelector('.admin-status[data-state="verified"]')).toBeTruthy())
-    expect(screen.getByText('Saved. Current information is being refreshed.')).toBeTruthy()
+    expect(screen.getByText('Ikeja Clinic is verified.')).toBeTruthy()
     expect(mocks.api.command).toHaveBeenCalledTimes(2)
     for (const call of mocks.api.command.mock.calls) {
       expect(call).toEqual([`/api/v1/admin/facilities/${FACILITY_ID}/status`,
@@ -144,10 +155,9 @@ describe('facility detail', () => {
       '/admin/facilities/:facilityId')
     const changes = () => screen.getByRole('region', { name: 'Platform changes to this facility' })
     await screen.findByRole('heading', { name: 'Ikeja Clinic', level: 1 })
-    expect(await within(changes()).findByText('No items are available in this area.')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('New value'), { target: { value: 'verified' } })
-    fireEvent.change(screen.getByLabelText('Reason for this change'), { target: { value: 'Documents reviewed and accepted' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm change' }))
+    expect(await within(changes()).findByText('Nothing here yet')).toBeTruthy()
+    const sheet = changeStatus('verified', 'Documents reviewed and accepted')
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Verify facility' }))
     await waitFor(() => expect(within(changes()).getByText('staff:super')).toBeTruthy())
     expect(within(changes()).getByText('Documents reviewed and accepted')).toBeTruthy()
     expect(targetReads).toBe(2)

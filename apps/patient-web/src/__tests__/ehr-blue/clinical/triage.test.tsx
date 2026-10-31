@@ -38,7 +38,7 @@ const CORRECTIONS = [
   { id: 'correction-1', vitalId: VITAL_ID, correctionNo: 1, replacementValues: { systolicMmhg: 122, diastolicMmhg: 82, pulseBpm: 76 }, reason: 'Cuff too small', createdAt: '2026-10-30T08:10:00.000Z' },
   { id: 'correction-2', vitalId: VITAL_ID, correctionNo: 2, replacementValues: { systolicMmhg: 118, diastolicMmhg: 76, pulseBpm: 80 }, reason: 'Repeat reading', createdAt: '2026-10-30T08:20:00.000Z' },
 ]
-const READ_ONLY = 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'
+const READ_ONLY = 'You can view this, but not change it. To add or change records, ask the patient to approve access that includes changes.'
 const RECORD = `/${ENCOUNTER_ID}~${VITAL_ID}`
 
 let vitals: unknown[]
@@ -118,7 +118,7 @@ describe('Triage & Vitals list', () => {
     document.title = ''
     open()
     const table = await screen.findByRole('table', { name: 'Triage & Vitals' })
-    expect(document.title).toBe('Triage & Vitals · Health ID EHR')
+    expect(document.title).toBe('Vitals · Health ID EHR')
     expect(within(table).getAllByText('f0000000').map(element => element.tagName)).toEqual(['A', 'SPAN'])
     expect(within(table).queryByText('e0000000')).toBeNull()
   })
@@ -168,7 +168,7 @@ describe('Triage & Vitals list', () => {
   it('has today’s empty states: no encounters, and encounters with no vitals', async () => {
     api.encounters.mockResolvedValue({ items: [], nextCursor: null })
     const view = open()
-    expect(await screen.findByText('No encounters are available for this patient and facility.')).toBeTruthy()
+    expect(await screen.findByText('No consultations for this patient here yet.')).toBeTruthy()
     view.unmount()
     api.encounters.mockResolvedValue({ items: [ENCOUNTER], nextCursor: null })
     vitals = []
@@ -214,7 +214,7 @@ describe('Triage & Vitals list', () => {
     open()
     const ended = await screen.findByRole('alert')
     expect(ended.textContent).toContain('Access to this patient ended')
-    expect(ended.textContent).toContain('Patient access has ended. Reopen the record through governed access.')
+    expect(ended.textContent).toContain('Your access to this patient has ended. Open the patient again to keep working.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.encounters).not.toHaveBeenCalled()
   })
@@ -230,7 +230,7 @@ describe('Triage & Vitals list', () => {
   it('gives an emergency patient the read-only gate: nothing is read or offered here', () => {
     staff.activePatient = activePatient('emergency')
     open()
-    expect(screen.getByText('Emergency access is read-only')).toBeTruthy()
+    expect(screen.getByText('Emergency access shows the emergency summary only')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
     expect(api.encounters).not.toHaveBeenCalled()
     expect(api.records).not.toHaveBeenCalled()
@@ -311,7 +311,7 @@ describe('New triage & vitals', () => {
     // Enter in a field submits the form: the button is its submit button.
     fireEvent.submit(form)
 
-    expect(await screen.findByText('Clinical record saved by the backend.')).toBeTruthy()
+    expect(await screen.findByText('Saved.')).toBeTruthy()
     expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals',
       { recordedAt: expect.any(String), source: 'manual', systolicMmhg: 120, diastolicMmhg: 80, temperatureC: 37.2 }, expect.any(String))
     expect(api.lookupPatient.mock.invocationCallOrder.at(-2)!).toBeLessThan(api.createRecord.mock.invocationCallOrder[0]!)
@@ -385,7 +385,7 @@ describe('New triage & vitals', () => {
     expect(alert.textContent).toBe('One or more request fields are invalid. Pulse bpm must not be greater than 350.')
     expect(described(input(form, 'Pulse (bpm)'))).toContain('Pulse bpm must not be greater than 350.')
     fireEvent.click(within(form).getByRole('button', { name: 'Save record' }))
-    await screen.findByText('Clinical record saved by the backend.')
+    await screen.findByText('Saved.')
     expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
   })
 
@@ -397,7 +397,7 @@ describe('New triage & vitals', () => {
     view.unmount()
     staff.activePatient = activePatient('emergency')
     open('/new')
-    expect(screen.getByText('Emergency access is read-only')).toBeTruthy()
+    expect(screen.getByText('Emergency access shows the emergency summary only')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
   })
 
@@ -439,7 +439,7 @@ describe('Triage & Vitals record', () => {
     expect(screen.getByText(`${PATIENT_NAME} · ${PATIENT_HID}`)).toBeTruthy()
     expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.encounter.mock.invocationCallOrder[0]!)
     expect(api.encounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID)
-    const history = screen.getByRole('heading', { level: 2, name: 'Connected hospital history' }).closest('section')!
+    const history = screen.getByRole('heading', { level: 2, name: 'History' }).closest('section')!
     expect(within(history).getByRole('link', { name: 'Consultation · e0000000' }).getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
   })
 
@@ -447,7 +447,7 @@ describe('Triage & Vitals record', () => {
     document.title = ''
     vitals = [{ ...VITAL, recordedAt: '2026-10-30T07:55:00.000Z', oxygenSaturationPercent: '98.00', weightKg: '68.400', temperatureC: '36.60', heightCm: '170' }]
     await openRecord()
-    expect(document.title).toBe('Triage & Vitals · Health ID EHR')
+    expect(document.title).toBe('Vitals · Health ID EHR')
     expect(screen.getByText(`Saved ${new Date('2026-10-30T07:55:00.000Z').toLocaleString('en-US')}`)).toBeTruthy()
     expect(screen.queryByText(`Saved ${new Date(VITAL.createdAt).toLocaleString('en-US')}`)).toBeNull()
     const card = saved()
@@ -491,7 +491,7 @@ describe('Triage & Vitals record', () => {
     expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { fresh: true })
     expect(await screen.findByText('Corrected (correction 1)')).toBeTruthy()
     expect(within(saved()).getByText('78')).toBeTruthy()
-    expect(document.activeElement?.textContent).toBe('Available actions')
+    expect(document.activeElement?.textContent).toBe('Actions')
   })
 
   it('refuses an unchanged correction and a short reason, as today', async () => {
@@ -532,7 +532,7 @@ describe('Triage & Vitals record', () => {
     expect(within(card).getByText('118/76')).toBeTruthy()
     expect(within(card).getByText('Repeat reading')).toBeTruthy()
     expect(within(card).queryByText('120/80')).toBeNull()
-    const versions = screen.getByRole('heading', { level: 2, name: 'Preserved versions & amendments' }).closest('section')!
+    const versions = screen.getByRole('heading', { level: 2, name: 'Earlier versions' }).closest('section')!
     expect(within(versions).getByText('2026-10-30T08:10:00.000Z · final · Cuff too small')).toBeTruthy()
     expect(within(versions).getByText('Originally recorded')).toBeTruthy()
     expect(within(versions).getByText('120/80')).toBeTruthy()
@@ -549,7 +549,7 @@ describe('Triage & Vitals record', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('These vitals were corrected, but the correction could not be loaded, so the values below are as first recorded and may not be current. EHR is unavailable.')
     expect(screen.queryByRole('button', { name: 'Amend observation' })).toBeNull()
     // Where the design puts it: after the empty action list, as a note.
-    const none = screen.getByText('No further actions for your permission and this record state.')
+    const none = screen.getByText('Nothing more to do here.')
     expect(none.className).toBe('hid-ehr-clinical-note')
     expect(none.previousElementSibling?.className).toBe('hid-ehr-clinical-action-list')
     view.unmount()
@@ -594,7 +594,7 @@ describe('Triage & Vitals record', () => {
     api.lookupPatient.mockResolvedValue({ authorization: { decision: 'deny' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Amend observation' }))
     const ended = await screen.findByText('Access to this patient ended')
-    expect(ended.closest('[role="alert"]')?.textContent).toContain('Patient access has ended. Reopen the record through governed access.')
+    expect(ended.closest('[role="alert"]')?.textContent).toContain('Your access to this patient has ended. Open the patient again to keep working.')
     expect(api.correctVital).not.toHaveBeenCalled()
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
   })

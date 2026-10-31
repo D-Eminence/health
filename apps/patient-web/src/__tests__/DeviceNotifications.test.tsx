@@ -128,7 +128,7 @@ describe('Where the device sections are', () => {
   it('are not on the profile, which does not ask Identity about push', async () => {
     const { sent } = renderPortal(<ProfilePage />, (path, method) => path === '/identity/me' ? json(profile)
       : path.startsWith('/identity/me/web-push') ? json(pushState()) : problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`), {}, { webPush: true })
-    expect(await screen.findByRole('heading', { name: /Bio-data/ })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: /About you/ })).toBeTruthy()
     await settled()
     expect(pushRequests(sent)).toEqual([])
     expect(screen.queryByRole('heading', { name: HEADING })).toBeNull()

@@ -30,7 +30,7 @@ function gateway(start: ProfileDetails, put?: (body: unknown) => Response): Hand
   handler.saved = () => saved
   return handler
 }
-const card = async () => within(await openSection('Coverage'))
+const card = async () => within(await openSection('Insurance & hospital'))
 const puts = (sent: Sent[]) => sent.filter(request => request.path === DETAILS && request.method === 'PUT')
 
 describe('Coverage', () => {
@@ -51,7 +51,7 @@ describe('Coverage', () => {
     await press(save)
     expect(await shown.findByText('Your coverage details were saved.')).toBeTruthy()
     expect(puts(sent)).toEqual([{ path: DETAILS, method: 'PUT', body: { hospitalCurrentlyUsing: 'Lagos General Hospital', hmoName: 'Hygeia HMO', expectedVersion: 4 } }])
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Coverage' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Insurance & hospital' })))
     // Saved: the button waits for the next change, and the next save goes with the new version.
     expect((shown.getByRole('button', { name: 'Save coverage' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.change(hospital, { target: { value: '' } })
@@ -103,9 +103,9 @@ describe('Coverage', () => {
 
   it('is not shown by an Identity that does not serve it (404)', async () => {
     renderPortal(<ProfilePage />, (path, method) => path === '/identity/me' && method === 'GET' ? json(patient) : problem(404, 'NOT_FOUND', path))
-    await screen.findByRole('heading', { name: 'Bio-data' })
+    await screen.findByRole('heading', { name: 'About you' })
     await waitFor(() => expect(document.getElementById('contact-details')).not.toBeNull())
-    expect(screen.queryByRole('heading', { name: 'Coverage' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Insurance & hospital' })).toBeNull()
   })
 
   it('says when it could not be read, with its own Try again', async () => {

@@ -236,7 +236,7 @@ describe('Connected orders', () => {
   it('shows nothing of orders for an emergency patient, and the order pages show the read-only notice', async () => {
     staff.activePatient = activePatient('emergency')
     open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
-    expect(await screen.findByText('Emergency access is read-only')).toBeTruthy()
+    expect(await screen.findByText('Emergency access shows the emergency summary only')).toBeTruthy()
     expect(screen.queryByRole('form')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
     expect(api.records).not.toHaveBeenCalled()
@@ -408,7 +408,7 @@ describe('New pharmacy (prescription)', () => {
     change('Frequency', 'Twice daily')
     change('Instructions', 'After meals')
     fireEvent.click(save)
-    expect(await screen.findByText('Clinical record saved by the backend.')).toBeTruthy()
+    expect(await screen.findByText('Saved.')).toBeTruthy()
     expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', {
       medicationDisplay: 'Amoxicillin', doseQuantity: 500, doseUnit: 'mg', routeCode: 'oral', frequency: 'Twice daily', instructions: 'After meals', status: 'draft',
     }, expect.any(String))
@@ -530,7 +530,7 @@ describe('New laboratory (lab request)', () => {
     fill()
     fireEvent.change(field('Priority'), { target: { value: 'urgent' } })
     fireEvent.click(save)
-    expect(await screen.findByText('Clinical record saved by the backend.')).toBeTruthy()
+    expect(await screen.findByText('Saved.')).toBeTruthy()
     expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests', {
       testCodeSystem: 'LOINC', testCode: '718-7', testDisplay: 'Haemoglobin', priority: 'urgent', status: 'draft', specimenTypeCode: undefined, clinicalInformation: undefined,
     }, expect.any(String))
@@ -634,8 +634,8 @@ describe('A prescription’s page', () => {
     expect((await openOrder('pharmacy', RX)).textContent).toBe('Amoxicillin')
     expect(screen.getByText('Patient One · HID-ZDEMAAA2')).toBeTruthy()
     expect(screen.getByText('Twice daily')).toBeTruthy()
-    expect(screen.getByRole('heading', { level: 2, name: 'Saved record' })).toBeTruthy()
-    expect(screen.getByRole('heading', { level: 2, name: 'Available actions' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 2, name: 'Note' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 2, name: 'Actions' })).toBeTruthy()
     for (const name of ['Activate', 'Cancel order', 'Mark entered in error']) expect(screen.getByRole('button', { name })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Send to Pharmacy' })).toBeNull()
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
@@ -744,7 +744,7 @@ describe('A prescription’s page', () => {
     api.consentStatus.mockResolvedValue({ writeAllowed: false })
     await openOrder('pharmacy', RX)
     expect(await screen.findByText(READ_ONLY)).toBeTruthy()
-    expect(screen.getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    expect(screen.getByText('Nothing more to do here.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Send to Pharmacy' })).toBeNull()
   })
 
@@ -1115,7 +1115,7 @@ describe('Hand-off 06: the design’s "Patient *" and "Encounter *" on New labor
     change('Test code', '718-7')
     change('Test display', 'Haemoglobin')
     fireEvent.click(save)
-    expect(await screen.findByText('Clinical record saved by the backend.')).toBeTruthy()
+    expect(await screen.findByText('Saved.')).toBeTruthy()
     expect((field('Encounter') as unknown as HTMLSelectElement).value).toBe(ENCOUNTER_ID)
     expect(field('Test code').value).toBe('')
   })
@@ -1186,7 +1186,7 @@ describe('Hand-off 06: the design’s "Patient *" and "Encounter *" on New labor
     readOnly.unmount()
     staff.activePatient = activePatient('emergency')
     open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
-    expect(await screen.findByText('Emergency access is read-only')).toBeTruthy()
+    expect(await screen.findByText('Emergency access shows the emergency summary only')).toBeTruthy()
     expect(screen.queryByLabelText(labelled('Patient'))).toBeNull()
     expect(api.reportedHealthProfile).not.toHaveBeenCalled()
   })

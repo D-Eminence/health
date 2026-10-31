@@ -239,17 +239,18 @@ describe('registration', () => {
   })
 
   it('Check again', async () => {
-    render(<Registration />)
-    await screen.findByText(/NIN verification is disabled/)
+    render(<MemoryRouter><Registration /></MemoryRouter>)
+    await screen.findByText('NIN checks are off')
     await expectRefreshKeepsFocus(screen.getByRole('button', { name: 'Check again' }), api.registrationCapabilities,
       { nin: { enabled: false, state: 'disabled' }, newPatientRegistrationRequiresNin: true })
   })
 
   it('Refresh current case', async () => {
-    render(<Registration />)
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Registration case ID' }), { target: { value: CASE } })
-    fireEvent.click(screen.getByRole('button', { name: 'Load case' }))
-    await screen.findByRole('heading', { name: `Case ${CASE}` })
-    await expectRefreshKeepsFocus(screen.getByRole('button', { name: 'Refresh current case' }), api.registrationCase, registrationCase)
+    render(<MemoryRouter><Registration /></MemoryRouter>)
+    fireEvent.click(await screen.findByText('Continue a registration'))
+    fireEvent.change(screen.getByRole('textbox', { name: /^Registration ID/ }), { target: { value: CASE } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+    await screen.findByText(CASE)
+    await expectRefreshKeepsFocus(screen.getByRole('button', { name: 'Refresh' }), api.registrationCase, registrationCase)
   })
 })

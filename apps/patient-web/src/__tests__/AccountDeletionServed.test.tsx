@@ -44,7 +44,7 @@ describe('account deletion on Novu', () => {
   it('shows nothing while the status is read, nor after it answers 404, and asks nothing else', async () => {
     const read = held()
     const { sent } = settings(() => read.promise)
-    expect(await screen.findByRole('heading', { name: 'Bio-data' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'About you' })).toBeTruthy()
     await waitFor(() => expect(deletionRequests(sent)).toEqual(['GET /identity/me/account-deletion']))
     expect(screen.queryByRole('heading', { name: 'Delete account' })).toBeNull()
     expect(screen.queryByText('Checking your account…')).toBeNull()

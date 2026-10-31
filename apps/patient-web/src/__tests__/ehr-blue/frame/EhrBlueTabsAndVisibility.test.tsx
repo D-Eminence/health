@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { parse } from '../../cssRules'
 import type { EhrBluePage } from '../../../ehr-blue/frame/types'
-import { DEMO_HOSPITAL, REQUESTS, SESSION, facility, json, openStaffApp, serve, sessionAt, where, withFramePages } from './blueHarness'
+import { DEMO_HOSPITAL, REQUESTS, SESSION, accountButton, facility, homeHeading, json, openStaffApp, serve, sessionAt, where, withFramePages } from './blueHarness'
 
 /**
  * The frame's page options and its safety net: tabs that group pages as the design does (tabOf), pages a session does
- * not see (visible), and a page that fails to render, which leaves the frame and the way back to the classic EHR.
+ * not see (visible), and a page that fails to render, which leaves the frame and the way back to Home.
  */
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 beforeEach(() => { withFramePages() })
@@ -30,9 +30,9 @@ describe('tabs (tabOf)', () => {
     expect(tabs.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(within(tabs).getAllByRole('link').map(link => link.textContent)).toEqual(['Claims', 'Policies'])
     expect(within(tabs).getByRole('link', { name: 'Policies' }).getAttribute('aria-current')).toBe('page')
-    // The tab has no sidebar entry; the page it joins is the current one.
+    // The tab has no sidebar entry; nor has the sample workspace it joins (only working screens are listed).
     expect(within(nav).queryByRole('link', { name: 'Policies' })).toBeNull()
-    expect(within(nav).getByRole('link', { name: 'Insurance & Claims' }).getAttribute('aria-current')).toBe('page')
+    expect(within(nav).queryByRole('link', { name: 'Insurance & Claims' })).toBeNull()
 
     fireEvent.click(within(tabs).getByRole('link', { name: 'Claims' }))
     await waitFor(() => expect(where()).toBe('/provider/insurance'))
@@ -41,9 +41,9 @@ describe('tabs (tabOf)', () => {
       .getAttribute('aria-current')).toBe('page')
   })
 
-  it('shows Supply as one sidebar entry with Stock and Procurement as its tabs', async () => {
+  it('shows Supply with Stock and Procurement as its tabs, and neither in the sidebar (samples are not listed)', async () => {
     const nav = await openDemo('/provider/supply')
-    expect(within(nav).getByRole('link', { name: 'Supply' })).toBeDefined()
+    expect(within(nav).queryByRole('link', { name: 'Supply' })).toBeNull()
     expect(within(nav).queryByRole('link', { name: 'Procurement' })).toBeNull()
     expect(within(nav).queryByRole('button', { name: 'Supply' })).toBeNull()
     const tabs = screen.getByRole('navigation', { name: 'Supply' })
@@ -59,8 +59,9 @@ describe('tabs (tabOf)', () => {
 })
 
 describe('visible()', () => {
+  // A live page: sample pages are never listed now, so a live one shows what visible() does to the sidebar.
   const page = (visible: EhrBluePage['visible']): EhrBluePage =>
-    ({ path: 'self-signed', group: 'People', label: 'Self-signed setup', status: 'sample', element: <p>Self-signed setup page</p>, visible })
+    ({ path: 'self-signed', group: 'People', label: 'Self-signed setup', status: 'live', element: <p>Self-signed setup page</p>, visible })
 
   it('keeps a page it turns down out of the sidebar and search, and refuses its address', async () => {
     withFramePages(() => [page(session => session.actor.facility?.name === 'Riverside Teaching Hospital (fictional)')])
@@ -69,8 +70,8 @@ describe('visible()', () => {
     expect(screen.getByText('Self-signed setup is part of the Health ID demo only')).toBeDefined()
     expect(screen.queryByText('Self-signed setup page')).toBeNull()
     fireEvent.keyDown(document, { key: 'k', ctrlKey: true })
-    const search = await screen.findByRole('dialog', { name: 'Search Health ID' })
-    fireEvent.change(within(search).getByRole('searchbox', { name: 'Search work areas' }), { target: { value: 'Self-signed' } })
+    const search = await screen.findByRole('dialog', { name: 'Search' })
+    fireEvent.change(within(search).getByRole('searchbox', { name: 'Health ID or page' }), { target: { value: 'Self-signed' } })
     expect(within(search).queryByRole('link', { name: /Self-signed setup/ })).toBeNull()
   })
 
@@ -97,22 +98,24 @@ describe('a page that fails to render', () => {
     const nav = await openDemo('/provider/broken')
     const alert = screen.getByRole('alert')
     expect(within(alert).getByRole('heading', { level: 1, name: 'Something went wrong' })).toBeDefined()
-    expect(within(alert).getByText('This page could not be shown. Reload it to try again, or use the classic EHR.')).toBeDefined()
+    expect(within(alert).getByText('This page could not be shown. Reload it to try again, or go back to Home.')).toBeDefined()
     expect(document.body.textContent).not.toContain('fictional failure')
     expect(document.activeElement).toBe(within(alert).getByRole('heading', { level: 1 }))
-    expect(screen.getByRole('button', { name: 'Account menu' })).toBeDefined()
+    expect(accountButton()).toBeDefined()
     // Another page tries again.
     act(() => { fireEvent.click(within(nav).getByRole('link', { name: 'Home' })) })
-    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('offers the classic EHR from the message itself', async () => {
+  // The classic EHR was removed: the message offers Reload and Home instead.
+  it('offers Reload and Home from the message itself, and no classic EHR', async () => {
     await openDemo('/provider/broken')
-    fireEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Use the classic EHR' }))
-    expect(await screen.findByRole('complementary', { name: 'Provider navigation' })).toBeDefined()
-    expect(document.querySelector('.hid-ehr')).toBeNull()
-    expect(where()).toBe('/provider')
+    const alert = screen.getByRole('alert')
+    expect(within(alert).getByRole('button', { name: 'Reload' })).toBeDefined()
+    expect(within(alert).getByRole('button', { name: 'Go to Home' })).toBeDefined()
+    expect(within(alert).queryByRole('button', { name: 'Use the classic EHR' })).toBeNull()
+    expect(where()).toBe('/provider/broken')
   })
 })
 

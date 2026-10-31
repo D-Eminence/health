@@ -1,6 +1,6 @@
 /**
- * The page heading: the page's one h1 (Playfair Display 400: 40px, 34px at
- * 1000px and below, 24px on phones), an optional line on what the page is
+ * The page heading: the page's one h1 (the display face, 600: 30px, 28px at
+ * 760px of content and below, 24px at 640px), an optional line on what the page is
  * for, one primary action and any secondary ones, over a bottom rule.
  */
 

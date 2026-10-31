@@ -31,7 +31,7 @@ describe('Verify your NIN, on the profile', () => {
   it('is offered while the profile says ninVerified false, sends the 11 digits, then says NIN verified', async () => {
     const { sent } = renderPortal(<ProfilePage />, gateway({ ninVerified: false, assuranceState: 'SELF_ASSERTED' }))
     await openSection('Verify your NIN')
-    expect(screen.getByRole('heading', { name: 'Bio-data' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'About you' })).toBeTruthy()
     const button = screen.getByRole('button', { name: 'Verify NIN' }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
 
@@ -53,7 +53,7 @@ describe('Verify your NIN, on the profile', () => {
 
   it('is not shown while the profile read has no ninVerified (an Identity before it)', async () => {
     renderPortal(<ProfilePage />, gateway({ assuranceState: 'LEGACY_MIGRATED' }))
-    expect(await screen.findByRole('heading', { name: 'Bio-data' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'About you' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Verify your NIN' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'NIN verification' })).toBeNull()
   })

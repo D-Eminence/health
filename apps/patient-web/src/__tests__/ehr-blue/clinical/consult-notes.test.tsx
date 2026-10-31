@@ -99,7 +99,7 @@ afterEach(() => { vi.restoreAllMocks() })
 
 async function openEncounter() {
   renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-  expect(await screen.findByRole('heading', { level: 1, name: 'e0000000' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
   await screen.findByText('Cough for three days.', { exact: false })
 }
 
@@ -127,7 +127,7 @@ function dialog() {
 }
 
 function savedValues() {
-  const saved = within(card('Saved record'))
+  const saved = within(card('Note'))
   return Object.fromEntries(saved.getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent]))
 }
 
@@ -141,14 +141,14 @@ describe('Consultation record: the Notes card (item 1)', () => {
     const notes = within(card('Clinical notes'))
     expect(notes.getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['Consultation note', 'Admission note'])
     expect(notes.queryByText('Vitals')).toBeNull()
-    expect(noteRow('Admission note').getByText(/^Admission · Recorded 10\/29\/2026, /)).toBeTruthy()
-    expect(noteRow('Admission note').getByText('draft')).toBeTruthy()
+    expect(noteRow('Admission note').getByText(/^Admission · Recorded 29 Oct 2026, /)).toBeTruthy()
+    expect(noteRow('Admission note').getByText('Draft')).toBeTruthy()
     // Its content is read only when asked for, as today.
     expect(api.noteRevisions).not.toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'note-0')
     await review('Admission note', 'Admitted with fever (fictional).')
     expect(api.noteRevisions).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'note-0')
     expect(noteRow('Admission note').getByText('Revision 1')).toBeTruthy()
-    expect(noteRow('Admission note').getByText(/^10\/29\/2026, .* · Admission$/)).toBeTruthy()
+    expect(noteRow('Admission note').getByText(/^29 Oct 2026, .* · Admission$/)).toBeTruthy()
     expect(noteRow('Admission note').getByRole('button', { name: 'Hide note content' }).getAttribute('aria-expanded')).toBe('true')
     // The Saved record still summarises the newest note.
     expect(savedValues()).toMatchObject({ 'Note status': 'draft', Note: 'History\nCough for three days.' })
@@ -178,14 +178,14 @@ describe('Consultation record: the Notes card (item 1)', () => {
     pages['clinical-notes'] = { '': { items: [NOTE, OBSERVATION, { ...OLDER, status: 'signed', rowVersion: 6 }], nextCursor: null } }
     fireEvent.click(confirm)
 
-    expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
+    expect(await screen.findByText('Note updated.')).toBeTruthy()
     expect(api.updateRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', 'note-0',
       { expectedRowVersion: 5, changeReason: 'Admission reviewed', status: 'signed' })
     expect(api.lookupPatient.mock.calls.length).toBe(checks + 1)
     expect(api.lookupPatient.mock.invocationCallOrder.at(-1)!).toBeLessThan(api.updateRecord.mock.invocationCallOrder[0]!)
     // Today's reload: the page shown, fresh.
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: undefined, fresh: true })
-    await waitFor(() => expect(noteRow('Admission note').getByText('signed')).toBeTruthy())
+    await waitFor(() => expect(noteRow('Admission note').getByText('Signed')).toBeTruthy())
     // The form that held focus is gone: the note's title takes it.
     expect(document.activeElement?.textContent).toBe('Admission note')
     // The newest note is not touched.
@@ -206,10 +206,10 @@ describe('Consultation record: the Notes card (item 1)', () => {
     expect(within(dialog()).queryByLabelText(/Type .* to confirm/)).toBeNull()
     pages['clinical-notes'] = { '': { items: [NOTE, { ...OLDER, status: 'entered_in_error', rowVersion: 6 }], nextCursor: null } }
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
-    expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
+    expect(await screen.findByText('Note updated.')).toBeTruthy()
     expect(api.updateRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', 'note-0',
       { expectedRowVersion: 5, changeReason: 'Wrong patient', status: 'entered_in_error' })
-    await waitFor(() => expect(noteRow('Admission note').getByText('entered in error')).toBeTruthy())
+    await waitFor(() => expect(noteRow('Admission note').getByText('Entered in error')).toBeTruthy())
     // A note entered in error is read, but offers no change.
     await noteRow('Admission note').findByText('Admitted with fever (fictional).')
     expect(noteRow('Admission note').queryByRole('button', { name: 'Mark entered in error' })).toBeNull()
@@ -258,7 +258,7 @@ describe('Consultation record: the Notes card (item 1)', () => {
     expect(api.lookupPatient.mock.invocationCallOrder.at(-1)!).toBeLessThan(api.addNoteRevision.mock.invocationCallOrder[0]!)
     revisions['note-0'] = [...revisions['note-0']!, { id: 'rev-0b', revisionNo: 2, content: 'Admitted with fever and chills (fictional).', changeReason: 'Symptom added', createdAt: '2026-10-30T09:00:00.000Z' }]
     fireEvent.click(row.getByRole('button', { name: 'Record revision' }))
-    expect(await row.findByText('A new note revision was recorded.')).toBeTruthy()
+    expect(await row.findByText('Note changes saved.')).toBeTruthy()
     expect(api.addNoteRevision).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'note-0',
       { expectedRowVersion: 5, changeReason: 'Symptom added', content: 'Admitted with fever and chills (fictional).' }, expect.any(String))
     expect(api.addNoteRevision.mock.calls[1]![5]).toBe(api.addNoteRevision.mock.calls[0]![5])

@@ -12,6 +12,7 @@ import { useActionFocus } from './actionFocus'
 import { ItemName } from '../ItemName'
 import { Badge, Button, Field as KField, Select } from '../kasuwa/ui'
 import { Actions, Hint, InputR, Problem, Saved } from './profileParts'
+import { SAY } from '../copy'
 
 /** Which part of a step a refusal is about: focus goes there and its description names the error. */
 type Field = 'value' | 'password' | 'code' | null
@@ -41,7 +42,7 @@ export const CONTACT_REFUSALS: Readonly<Record<string, { message: string; field:
   CONTACT_UNAVAILABLE: { message: 'That email address or phone number can’t be used.', field: 'value' },
   PASSWORD_REQUIRED: { message: 'Set a password first, then you can change these.', field: null },
   OTP_INVALID_OR_EXPIRED: { message: 'That code is wrong or has expired. Try again, or send a new code.', field: 'code' },
-  PATIENT_RECENT_AUTH_REQUIRED: { message: 'For your safety, sign in again first, then come back within 10 minutes.', field: null },
+  PATIENT_RECENT_AUTH_REQUIRED: { message: SAY.signInAgain, field: null },
 }
 
 function refusal(cause: unknown, step: Step['kind']): { message: string; field: Field } {
@@ -309,7 +310,7 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
             {PHONE_COUNTRIES.map(country => <option key={country.iso} value={country.iso}>{country.name} (+{country.code})</option>)}
           </Select>
         </KField>
-        <KField label="Phone number" htmlFor="contact-phone" hintId="contact-phone-hint" hint="Like 0801 234 5678."
+        <KField label="Phone number" htmlFor="contact-phone" hintId="contact-phone-hint" hint={`Like 0801 234 5678. Health ID can’t text it yet, so it will show as not verified${phoneNoticeByEmail ? '; we’ll email your verified address to say it changed' : ''}.`}
           errorId={errorFor('value')} error={fieldProblem('value')}>
           <InputR id="contact-phone" ref={fieldRef('value')} type="tel" inputMode="tel" autoComplete="tel-national" maxLength={24} value={phone}
             onChange={event => { setPhone(event.target.value.replace(/[^\d+\s().-]/g, '')); if (error?.field === 'value') setError(null) }}

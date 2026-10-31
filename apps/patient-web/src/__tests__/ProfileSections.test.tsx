@@ -89,7 +89,7 @@ describe('a section of the profile', () => {
     const completion = await completionCard()
     expect(completion.getAttribute('aria-expanded')).toBeNull()
     expect(within(completion).getByRole('link', { name: 'A profile photo' })).toBeTruthy()
-    expect(completion.compareDocumentPosition(heading('Bio-data')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(completion.compareDocumentPosition(heading('About you')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it.each(SECTIONS)('%s opens on a click on its heading, alone, and closes on another', async name => {
@@ -107,11 +107,11 @@ describe('a section of the profile', () => {
 
   it('opens what it holds: the photo and the contact changes in Bio-data, the forms, the emergency contacts', async () => {
     renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
-    const bio = within(await openSection('Bio-data'))
+    const bio = within(await openSection('About you'))
     expect(bio.getByLabelText('Add profile photo')).toBeTruthy()
     expect(bio.getByRole('button', { name: 'Change email address' })).toBeTruthy()
     expect(bio.getByLabelText('Set PIN')).toBeTruthy()
-    expect(within(await openSection('Coverage')).getByRole('textbox', { name: 'HMO name' })).toBeTruthy()
+    expect(within(await openSection('Insurance & hospital')).getByRole('textbox', { name: 'HMO name' })).toBeTruthy()
     const health = within(await openSection('Health information'))
     expect(health.getByRole('combobox', { name: 'Blood group' })).toBeTruthy()
     expect(health.getByRole('button', { name: 'Add emergency contact' })).toBeTruthy()
@@ -124,7 +124,7 @@ describe('a section of the profile', () => {
     expect(screen.queryByRole('heading', { name: 'Contact details' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Photo' })).toBeNull()
     expect(screen.queryByText('Contact details')).toBeNull()
-    const bio = await openSection('Bio-data')
+    const bio = await openSection('About you')
     const block = await openContactDetails()
     expect(content('Bio-data').contains(block)).toBe(true)
     expect(block.querySelector('h2, h3')).toBeNull()
@@ -137,7 +137,7 @@ describe('a section of the profile', () => {
 
   it('ends Bio-data with the Access PIN, after the email and phone, under a small heading', async () => {
     renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
-    const bio = await openSection('Bio-data')
+    const bio = await openSection('About you')
     const pin = within(bio).getByRole('heading', { name: 'Access PIN', level: 3 }).parentElement as HTMLElement
     expect(pin.id).toBe('access-pin')
     expect((bio.querySelector('#contact-details') as HTMLElement).compareDocumentPosition(pin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -211,10 +211,10 @@ describe('a section of the profile', () => {
   it('has a heading that is a button in the tab order, which the browser presses with Enter or Space', async () => {
     renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
     await allShown()
-    const toggle = screen.getByRole('button', { name: 'Coverage', expanded: false }) as HTMLButtonElement
-    expect(toggle).toBe(sectionToggle('Coverage'))
-    expect(toggle.parentElement).toBe(heading('Coverage'))
-    expect(heading('Coverage').tagName).toBe('H2')
+    const toggle = screen.getByRole('button', { name: 'Insurance & hospital', expanded: false }) as HTMLButtonElement
+    expect(toggle).toBe(sectionToggle('Insurance & hospital'))
+    expect(toggle.parentElement).toBe(heading('Insurance & hospital'))
+    expect(heading('Insurance & hospital').tagName).toBe('H2')
     // A native button, never a form's submit, focusable from the keyboard.
     expect([toggle.tagName, toggle.type, toggle.tabIndex, toggle.disabled]).toEqual(['BUTTON', 'button', 0, false])
     toggle.focus()
@@ -255,31 +255,31 @@ describe('a section of the profile', () => {
 
   it('keeps what was typed while it is closed, and opens with it again', async () => {
     renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
-    const coverage = within(await openSection('Coverage'))
+    const coverage = within(await openSection('Insurance & hospital'))
     fireEvent.change(coverage.getByRole('textbox', { name: 'HMO name' }), { target: { value: 'Hygeia HMO' } })
     const contact = within(await openContactDetails())
     await press(contact.getByRole('button', { name: 'Change email address' }))
     fireEvent.change(contact.getByRole('textbox', { name: 'New email address' }), { target: { value: 'new.address@example.com' } })
 
-    await click(sectionToggle('Coverage'))
-    await click(sectionToggle('Bio-data'))
+    await click(sectionToggle('Insurance & hospital'))
+    await click(sectionToggle('About you'))
     expect(screen.queryByRole('textbox', { name: 'HMO name' })).toBeNull()
     expect(screen.queryByRole('textbox', { name: 'New email address' })).toBeNull()
 
-    await openSection('Coverage')
+    await openSection('Insurance & hospital')
     expect((coverage.getByRole('textbox', { name: 'HMO name' }) as HTMLInputElement).value).toBe('Hygeia HMO')
     expect((coverage.getByRole('button', { name: 'Save coverage' }) as HTMLButtonElement).disabled).toBe(false)
-    await openSection('Bio-data')
+    await openSection('About you')
     expect((contact.getByRole('textbox', { name: 'New email address' }) as HTMLInputElement).value).toBe('new.address@example.com')
   })
 
   it('stays open after a save, with focus on its heading', async () => {
     renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
-    const coverage = within(await openSection('Coverage'))
+    const coverage = within(await openSection('Insurance & hospital'))
     fireEvent.change(coverage.getByRole('textbox', { name: 'HMO name' }), { target: { value: 'Hygeia HMO' } })
     await press(coverage.getByRole('button', { name: 'Save coverage' }))
     expect(await coverage.findByText('Your coverage details were saved.')).toBeTruthy()
-    await waitFor(() => expect(document.activeElement).toBe(heading('Coverage')))
+    await waitFor(() => expect(document.activeElement).toBe(heading('Insurance & hospital')))
     expect(isOpen('Coverage')).toBe(true)
     // The completion read again counts the HMO: 9 of 12.
     await waitFor(async () => expect((await completionCard()).textContent).toContain('75% complete'))
@@ -289,7 +289,7 @@ describe('a section of the profile', () => {
   it('is open or closed in the page\'s memory only, and closed again when the page is next opened', async () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem')
     const { view } = renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
-    await openSection('Coverage')
+    await openSection('Insurance & hospital')
     await openSection('Health information')
     expect(setItem).not.toHaveBeenCalled()
     view.unmount()
@@ -310,8 +310,8 @@ describe('a link to a section of the profile', () => {
     let answer!: () => void
     const read = new Promise<void>(resolve => { answer = resolve })
     atProfile('/profile#coverage', gateway({ 'GET /identity/me/profile-details': async () => { await read; return json(details) } }))
-    await screen.findByRole('heading', { name: 'Bio-data' })
-    expect(screen.queryByRole('heading', { name: 'Coverage' })).toBeNull()
+    await screen.findByRole('heading', { name: 'About you' })
+    expect(screen.queryByRole('heading', { name: 'Insurance & hospital' })).toBeNull()
     const shown = focusWhenShown(() => document.querySelector<HTMLElement>('#coverage h2 > button'))
     // Answered outside act, as a fetch's answer arrives: React renders the section in one task, and runs effects later.
     environment.IS_REACT_ACT_ENVIRONMENT = false
@@ -390,8 +390,8 @@ describe('a link to a section of the profile', () => {
   it('stays closed once the patient closes it, until a link names it again', async () => {
     atProfile('/profile#coverage')
     await allShown()
-    await waitFor(() => expect(document.activeElement).toBe(sectionToggle('Coverage')))
-    const toggle = sectionToggle('Coverage')
+    await waitFor(() => expect(document.activeElement).toBe(sectionToggle('Insurance & hospital')))
+    const toggle = sectionToggle('Insurance & hospital')
     await press(toggle)
     expect(isOpen('Coverage')).toBe(false)
     // The completion's "Your HMO" names it again: it is open by the time focus reaches it, in the same commit.

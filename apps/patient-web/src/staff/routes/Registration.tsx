@@ -202,7 +202,7 @@ export function Registration() {
     } finally { if (currentFacility.current === facilityId) setBusy(false) }
   }
 
-  if (!facilityId || !canWrite) return <KEmpty icon={Lock} title="You can’t register patients here" description="Ask your facility admin to give you registration access." />
+  if (!facilityId || !canWrite) return <KEmpty titleAs="h1" icon={Lock} title="You can’t register patients here" description="Ask your facility admin to give you registration access." />
   const registration = registrationCase
   const done = registration ? completed.has(registration.status) : false
   const hid = registration?.patient?.hid
@@ -242,6 +242,8 @@ export function Registration() {
             </div>
           </div>
           <div className="flex flex-col gap-4 p-5">
+            {/* The ID that continues this registration later ("Continue a registration" asks for it). */}
+            <p className="m-0 text-[12px] text-ink-3">Registration ID <span className="break-all font-mono text-ink-2">{registration.caseId}</span></p>
             {hid && <div className="flex items-center gap-3 rounded-xl bg-success-soft/60 px-4 py-3 ring-1 ring-line">
               <CircleCheck className="size-5 shrink-0 text-success-ink" aria-hidden />
               <div className="min-w-0 flex-1"><p className="m-0 text-[12px] text-ink-3">Health ID</p><p className="m-0 text-base font-semibold tracking-[.06em] text-ink">{hid}</p></div>

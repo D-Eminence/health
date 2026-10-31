@@ -100,3 +100,8 @@ export function renderPage(element: ReactElement, path: string, rest = '') {
 export function labelled(label: string) {
   return new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\*?$`)
 }
+
+/** The sticky patient banner every chart page shows (kasuwa PatientBanner): name, Health ID and access. */
+export function patientBanner(name = PATIENT_NAME): HTMLElement {
+  return document.querySelector(`section[aria-label="Patient: ${name}"]`) as HTMLElement
+}

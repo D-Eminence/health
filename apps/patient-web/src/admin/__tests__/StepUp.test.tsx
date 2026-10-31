@@ -43,7 +43,7 @@ describe('step-up for high-risk actions', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Disable control' }))
     expect(await screen.findByRole('dialog')).toBeTruthy()
-    expect(screen.getByText(/Nothing has been changed yet/)).toBeTruthy()
+    expect(screen.getByText(/Nothing has changed yet\./)).toBeTruthy()
     expect(command).toHaveBeenCalledTimes(1)
 
     enterCode('123456')
@@ -62,7 +62,7 @@ describe('step-up for high-risk actions', () => {
     render(<StepUpProvider><Command name="Change role" command={command} /></StepUpProvider>)
     fireEvent.click(screen.getByRole('button', { name: 'Change role' }))
     expect(await screen.findByRole('dialog')).toBeTruthy()
-    expect(screen.getByText('Your last confirmation in this session is more than 5 minutes old.')).toBeTruthy()
+    expect(screen.getByText('Your last code was more than 5 minutes ago.')).toBeTruthy()
     enterCode('123456')
     expect(await screen.findByText('Change role done: saved')).toBeTruthy()
     expect(command.mock.calls).toEqual([['submission-1'], ['submission-1']])
@@ -83,7 +83,7 @@ describe('step-up for high-risk actions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Revoke sessions' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
     expect(await screen.findByRole('alert')).toHaveProperty('textContent',
-      'Revoke sessions: Authenticator confirmation was cancelled, so the action was not carried out.')
+      'Revoke sessions: You cancelled the code check, so nothing was changed.')
     expect(command).toHaveBeenCalledTimes(1)
     expect(mocks.stepUp).not.toHaveBeenCalled()
   })

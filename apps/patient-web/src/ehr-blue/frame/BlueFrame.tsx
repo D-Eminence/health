@@ -3,7 +3,7 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { EhrAppShell, EhrModuleTabs, type EhrNavGroup, type EhrNavItem } from '@hid/ui/ehr'
 import { Activity, Check, Hospital, House, Search, ShieldCheck, UserPlus, UserRound } from 'lucide-react'
 import { AppShell, type NavGroup, type NavItem } from '../../kasuwa/AppShell'
-import { Badge, cx, type Icon } from '../../kasuwa/ui'
+import { Alert, Badge, cx, type Icon } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
 import { ReviewBanner } from '../../staff/routes/ReviewBanner'
 import { BillingBanner } from '../../staff/routes/Billing'
@@ -85,6 +85,9 @@ export function BlueFrame() {
   const navigate = useNavigate()
   const pageRef = useRef<HTMLDivElement>(null)
   const [samplePanel, setSamplePanel] = useState<'profile' | 'preferences' | 'help' | null>(null)
+  // Today's sign-out: a refusal is said, and the session stays, as the account menu said it.
+  const [signingOut, setSigningOut] = useState(false)
+  const [signOutError, setSignOutError] = useState('')
   useFocusOnPageChange(pageRef, lock !== null)
   const session = state.status === 'ready' ? state.session : null
   const facility = session?.actor.facility
@@ -112,6 +115,15 @@ export function BlueFrame() {
   if (moved) return <Navigate replace to={{ pathname: moved, search: location.search, hash: location.hash }} />
   // A single product's home is its own queue.
   if (product !== 'ehr' && /^\/provider\/?$/.test(location.pathname)) return <Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} />
+
+  function leave() {
+    if (signingOut) return
+    setSignOutError('')
+    setSigningOut(true)
+    signOut()
+      .catch((caught: unknown) => setSignOutError(caught instanceof Error ? caught.message : 'Sign-out could not be completed.'))
+      .finally(() => setSigningOut(false))
+  }
 
   const follow = (item: { href: string }, event: MouseEvent<HTMLAnchorElement>) => {
     if (event.button !== 0 || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return
@@ -182,7 +194,8 @@ export function BlueFrame() {
             }}
             nav={nav}
             person={{ name, detail: session.actor.email ?? roles }}
-            onSignOut={() => { void signOut().catch(() => undefined) }}
+            onSignOut={leave}
+            signingOut={signingOut}
             headerStart={<>
               <a href="/provider" onClick={event => { event.preventDefault(); navigate('/provider') }} className="inline-flex no-underline lg:hidden" aria-label={`Health ID ${info.name} home`}><BrandLogo className="h-7 w-auto" /></a>
               <span className="hidden min-w-0 items-center gap-2 text-sm text-ink-3 lg:inline-flex"><Hospital className="size-4" aria-hidden /><span className="truncate font-medium text-ink">{facility?.name}</span>{isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} /> : null}</span>
@@ -198,6 +211,7 @@ export function BlueFrame() {
             ] }}
           >
             <div ref={pageRef} className="hid-ehr-blue-page @container">
+              {signOutError ? <Alert intent="error" title="Couldn’t sign out">{signOutError}</Alert> : null}
               <ReviewBanner />
               <BillingBanner />
               {tabs.length > 0 ? (

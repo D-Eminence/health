@@ -71,7 +71,7 @@ function heading() {
 }
 
 function actionsCard() {
-  return screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
+  return screen.getByRole('heading', { name: 'Actions' }).closest('section') as HTMLElement
 }
 
 function Where() {
@@ -233,7 +233,7 @@ describe('sample engine', () => {
     await waitFor(() => expect(heading()).toBe('Bed 3'))
     expect(screen.getByText('available')).toBeTruthy()
     expect(screen.getByText('Female Medical Ward')).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: 'Connected hospital history' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'History' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
     await waitFor(() => expect(heading()).toBe('Wards & Beds'))
     expect(within(screen.getByRole('table')).getByRole('link', { name: 'Bed 3' })).toBeTruthy()
@@ -274,12 +274,12 @@ describe('sample engine', () => {
     fireEvent.submit(submit.closest('form')!)
 
     await waitFor(() => expect(screen.getByText('checked-in')).toBeTruthy())
-    expect(within(actionsCard()).getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    expect(within(actionsCard()).getByText('Nothing more to do here.')).toBeTruthy()
     expect(document.activeElement?.classList.contains('hid-ehr-clinical-sample-actions')).toBe(true)
-    const versions = screen.getByRole('heading', { name: 'Preserved versions & amendments' }).closest('section')!
+    const versions = screen.getByRole('heading', { name: 'Earlier versions' }).closest('section')!
     expect(versions.textContent).toMatch(/\d{4}-\d{2}-\d{2}T[\d:.]+Z · booked · Check in/)
-    const history = screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section')!
-    expect(within(history).getByText('Only records available to your current permissions are listed.')).toBeTruthy()
+    const history = screen.getByRole('heading', { name: 'History' }).closest('section')!
+    expect(within(history).getByText('Only records your role can see are listed.')).toBeTruthy()
     expect(within(history).getByRole('link', { name: 'Patient visits · Medication review' })).toBeTruthy()
     expect(within(history).getByRole('link', { name: 'Referral Network · Specialist review' }).getAttribute('href')).toBe(`${BASE}/referrals/${IDS.referral}`)
   })
@@ -341,7 +341,7 @@ describe('sample engine', () => {
 
   it('lists the same patient’s records in other sample workspaces as connected history', () => {
     open('inpatient', `/${IDS.admitTaylor}`)
-    const history = screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section')!
+    const history = screen.getByRole('heading', { name: 'History' }).closest('section')!
     expect(within(history).getAllByRole('link').map(link => link.textContent)).toEqual([
       'Appointments · Review of results', 'Patient visits · b57e94c9', 'Patient visits · Review of results', 'Radiology · Abdominal ultrasound',
       'Dental · 503fafd8', 'Nursing tasks · 4-hourly observations', 'Nursing tasks · Wound dressing check',
@@ -395,20 +395,20 @@ describe('sample engine', () => {
     // Hand-off 09: Taylor's visit b57e94c9 lists the one sample record started from it, the ultrasound (scheduled);
     // its triage, consultation, lab and pharmacy rows are live records, never mixed into a sample.
     const visit = open('journey', `/${IDS.visitTaylor}`)
-    const history = screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section')!
+    const history = screen.getByRole('heading', { name: 'History' }).closest('section')!
     expect(within(history).getAllByRole('link').map(link => link.textContent)).toEqual(['Radiology · Abdominal ultrasound'])
     expect(within(history).getByRole('link', { name: 'Radiology · Abdominal ultrasound' }).getAttribute('href')).toBe(`${BASE}/radiology/${IDS.ultrasound}`)
     expect(within(history).getByText('scheduled')).toBeTruthy()
     visit.unmount()
     // Another visit of the same patient started nothing.
     open('journey', `/${IDS.visitCheckedIn}`)
-    const other = screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section')!
+    const other = screen.getByRole('heading', { name: 'History' }).closest('section')!
     expect(within(other).queryAllByRole('link')).toHaveLength(0)
   })
 
   it('keeps every earlier version, each with its author and values', () => {
     open('radiology', `/${IDS.xray}`)
-    const versions = screen.getByRole('heading', { name: 'Preserved versions & amendments' }).closest('section')!
+    const versions = screen.getByRole('heading', { name: 'Earlier versions' }).closest('section')!
     const summaries = Array.from(versions.querySelectorAll('summary')).map(summary => summary.textContent)
     expect(summaries).toEqual([
       '2026-10-26T11:41:15.455Z · ordered · Schedule examination',
@@ -441,7 +441,7 @@ describe('sample engine', () => {
     ['radiology', IDS.ultrasound, '2026-10-26T11:41:15.554Z · ordered · Schedule examination'],
   ])('shows the design’s version time on the %s record', (id, recordId, summary) => {
     open(id, `/${recordId}`)
-    const versions = screen.getByRole('heading', { name: 'Preserved versions & amendments' }).closest('section')!
+    const versions = screen.getByRole('heading', { name: 'Earlier versions' }).closest('section')!
     expect(Array.from(versions.querySelectorAll('summary')).map(item => item.textContent)).toEqual([summary])
   })
 
@@ -500,7 +500,7 @@ describe('sample engine', () => {
   it('shows the design’s missing-record page', () => {
     open('surgery', '/not-a-record')
     expect(heading()).toBe('Record not found')
-    expect(screen.getByText('The record is missing or outside your authorized hospital / branch.')).toBeTruthy()
+    expect(screen.getByText('This record doesn’t exist, or it belongs to another facility.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Back to list' })).toBeTruthy()
   })
 
@@ -584,7 +584,7 @@ describe('sample engine', () => {
 
   it('puts "No further actions…" after the empty action list, as the design does', () => {
     open('ward-config', `/${IDS.wardExample}`)
-    const sentence = within(actionsCard()).getByText('No further actions for your permission and this record state.')
+    const sentence = within(actionsCard()).getByText('Nothing more to do here.')
     const list = sentence.previousElementSibling as HTMLElement
     expect(list.className).toBe('hid-ehr-clinical-action-list')
     expect(list.childElementCount).toBe(0)

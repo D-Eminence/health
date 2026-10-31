@@ -88,7 +88,7 @@ describe('the overview with patient parity served', () => {
   it('shows the Health ID on the profile bio-data as plain text, with no Copy HID button', async () => {
     renderPortal(<ProfilePage />, gateway(), {}, parity)
     // Opened first: role queries skip a closed section's content.
-    const bio = within(await openSection('Bio-data'))
+    const bio = within(await openSection('About you'))
     expect(bio.getByRole('button', { name: 'HID-ABC234' }).className).toContain('patient-hid-plain')
     expect(bio.queryByRole('button', { name: 'Copy HID' })).toBeNull()
   })

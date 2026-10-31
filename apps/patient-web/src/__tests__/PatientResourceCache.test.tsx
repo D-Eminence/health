@@ -91,7 +91,7 @@ describe('a page opened again', () => {
     await waitFor(() => expect(client.sent.map(request => request.path).filter(path => path === '/identity/me')).toEqual(['/identity/me', '/identity/me']))
     // The rows, not the whole section: Bio-data also holds the PIN's and contact's notices (PR-03).
     expect(screen.getByText('Ada Example').closest('dl')?.getAttribute('aria-busy')).toBe('true')
-    expect(screen.getByRole('heading', { name: 'Bio-data' }).closest('.patient-card')?.getAttribute('aria-busy')).toBeNull()
+    expect(screen.getByRole('heading', { name: 'About you' }).closest('.patient-card')?.getAttribute('aria-busy')).toBeNull()
 
     await act(async () => { later.resolve(json({ ...profile, fullName: 'Ada Updated' })) })
     expect(screen.getByText('Ada Updated')).toBeTruthy()

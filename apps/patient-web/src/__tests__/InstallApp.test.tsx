@@ -69,7 +69,7 @@ describe('Install the Health ID app', () => {
   it('is not on the profile', async () => {
     offer()
     renderPortal(<ProfilePage />, path => path === '/identity/me' ? json(profile) : problem(404, 'NOT_FOUND', 'Not served'))
-    expect(await screen.findByRole('heading', { name: /Bio-data/ })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: /About you/ })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: HEADING })).toBeNull()
   })
 

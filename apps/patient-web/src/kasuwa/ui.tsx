@@ -215,13 +215,15 @@ function illustrationFor(I: Icon | undefined): IllustrationName {
  * button. No box, no dashed border, no circle: it sits in whatever holds it. `illustration` names the drawing; a screen
  * that passes only `icon` gets the drawing that stands for it.
  */
-export function EmptyState({ icon, illustration, title, description, action, compact }: {
+export function EmptyState({ icon, illustration, title, description, action, compact, titleAs: Title = 'p' }: {
   icon?: Icon; illustration?: IllustrationName; title: ReactNode; description?: ReactNode; action?: ReactNode; compact?: boolean
+  /** A whole-page state (no access, not set up) names the page: pass 'h1' so the page keeps its one heading. */
+  titleAs?: 'p' | 'h1' | 'h2' | 'h3'
 }) {
   return <div className={cx('flex flex-col items-center justify-center text-center', compact ? 'gap-3 px-4 py-8' : 'gap-4 px-6 py-14')}>
     <Illustration name={illustration ?? illustrationFor(icon)} className={compact ? 'h-20 w-[100px]' : undefined} />
     <div className="min-w-0 max-w-full">
-      <p className="m-0 text-title-3 break-words text-ink">{title}</p>
+      <Title className="m-0 text-title-3 break-words text-ink">{title}</Title>
       {description && <p className="m-0 mx-auto mt-1 max-w-sm text-[13px] text-ink-3">{description}</p>}
     </div>
     {action ? <div className="mt-1 flex flex-wrap justify-center gap-2">{action}</div> : null}

@@ -49,13 +49,13 @@ describe('platform session state screens', () => {
   it('checking the session: a main landmark holding the status', () => {
     api.session.mockReturnValueOnce(new Promise(() => {}))
     open()
-    expect(within(screen.getByRole('main')).getByRole('status').textContent).toBe('Checking your platform session…')
+    expect(within(screen.getByRole('main')).getByRole('status').textContent).toBe('Checking your sign-in…')
   })
 
   it('a session that cannot be checked: a main landmark with an h1, and an alert saying why', async () => {
     api.session.mockRejectedValueOnce(new HidApiError(503, 'The service could not complete the request.', { code: 'SERVICE_UNAVAILABLE' }))
     open()
-    const heading = await screen.findByRole('heading', { level: 1, name: 'Session unavailable' })
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Couldn’t check your sign-in' })
     const main = screen.getByRole('main')
     expect(main.contains(heading)).toBe(true)
     expect(within(main).getByRole('alert').textContent).toBe('We could not check your platform session. Try again.')
@@ -70,6 +70,18 @@ describe('platform administration session', () => {
     expect(screen.getAllByRole('link', { name: 'My security' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('link', { name: 'Approvals' }).length).toBeGreaterThan(0)
     expect(api.mfaStatus).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets a keyboard skip the navigation to the page', async () => {
+    api.session.mockResolvedValueOnce(actor(ALL))
+    open()
+    await screen.findByRole('heading', { name: 'Overview' })
+    const skip = screen.getByRole('link', { name: 'Skip to content' })
+    // The first thing a keyboard reaches, before the navigation.
+    expect(screen.getAllByRole('link')[0]).toBe(skip)
+    fireEvent.click(skip)
+    expect(document.activeElement).toBe(screen.getByRole('main'))
+    expect(screen.getByRole('main').contains(screen.getByRole('heading', { level: 1, name: 'Overview' }))).toBe(true)
   })
 
   it('hides approvals from an administrator who cannot list them', async () => {
@@ -89,7 +101,7 @@ describe('platform administration session', () => {
   it('refuses an account without platform administration access', async () => {
     api.session.mockResolvedValueOnce(actor(['platform.audit.read']))
     open()
-    expect(await screen.findByText('This account has no platform administration access.')).toBeTruthy()
+    expect(await screen.findByText('This account can’t use platform administration.')).toBeTruthy()
   })
 
   it('reports an expired session when the server refuses it after its reported idle expiry', async () => {
@@ -114,12 +126,12 @@ describe('platform administration session', () => {
     api.refresh.mockImplementationOnce(async () => { recordSessionWindow({ idleExpiresAt: inMinutes(15) }) })
     open()
     await screen.findByRole('heading', { name: 'Overview' })
-    expect(screen.queryByText(/your session ends at/)).toBeNull()
+    expect(screen.queryByText(/You’ll be signed out at/)).toBeNull()
     act(() => recordSessionWindow({ idleExpiresAt: inMinutes(1), absoluteExpiresAt: inMinutes(300) }))
-    expect(await screen.findByText(/For security, your session ends at .* unless you continue working/)).toBeTruthy()
+    expect(await screen.findByText(/You’ll be signed out at .* if you stay idle/)).toBeTruthy()
     expect(api.refresh).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Stay signed in' }))
-    await waitFor(() => expect(screen.queryByText(/your session ends at/)).toBeNull())
+    await waitFor(() => expect(screen.queryByText(/You’ll be signed out at/)).toBeNull())
     expect(api.refresh).toHaveBeenCalledTimes(1)
   })
 
@@ -129,7 +141,9 @@ describe('platform administration session', () => {
     await screen.findByRole('heading', { name: 'Overview' })
     const limit = inMinutes(1)
     act(() => recordSessionWindow({ idleExpiresAt: limit, absoluteExpiresAt: limit }))
-    expect(await screen.findByText(/reaches its 8-hour limit/)).toBeTruthy()
+    expect(await screen.findByText(/You’ll be signed out at/)).toBeTruthy()
+    expect(screen.getByText('Sessions last at most 8 hours. Save your work.')).toBeTruthy()
+    expect(screen.queryByText(/if you stay idle/)).toBeNull()
     expect(screen.queryByRole('button', { name: 'Stay signed in' })).toBeNull()
   })
 
@@ -139,8 +153,9 @@ describe('platform administration session', () => {
     api.logout.mockResolvedValueOnce(undefined)
     open()
     await screen.findByRole('heading', { name: 'Overview' })
-    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
-    expect(await screen.findByText('You have signed out of platform administration.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Ada Admin: account' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    expect(await screen.findByText('You’ve signed out.')).toBeTruthy()
     expect(api.logout).toHaveBeenCalledTimes(1)
   })
 })
@@ -152,7 +167,8 @@ describe('consolidated admin routing', () => {
     for (const path of ['/admin/facilities?status=suspended', '/admin/facilities/0f8c6d2e-4b1a-4c3d-9e5f-1a2b3c4d5e6f', '/admin/audit?actor=x']) {
       api.session.mockResolvedValueOnce(actor(SUPPORT))
       const view = render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/admin/*" element={<App />} /></Routes></MemoryRouter>)
-      expect(await screen.findByRole('heading', { name: 'Access denied' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { level: 1, name: 'You can’t open this page' })).toBeTruthy()
+      expect(screen.getByRole('alert').textContent).toContain('Ask a Super Admin if you need it.')
       expect(screen.getByRole('link', { name: 'Go to overview' })).toBeTruthy()
       view.unmount()
     }
@@ -163,8 +179,8 @@ describe('consolidated admin routing', () => {
     for (const path of ['/admin/clinicians', `/admin/clinicians/${id}`]) {
       api.session.mockResolvedValueOnce(actor(SUPPORT))
       const view = render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/admin/*" element={<App />} /></Routes></MemoryRouter>)
-      expect(await screen.findByRole('heading', { name: 'Access denied' })).toBeTruthy()
-      expect(screen.getByText(/does not have permission for Clinician applications/)).toBeTruthy()
+      expect(await screen.findByRole('heading', { level: 1, name: 'You can’t open this page' })).toBeTruthy()
+      expect(screen.getByText('You can’t open Clinician applications')).toBeTruthy()
       view.unmount()
     }
     expect(api.clinicianApplications).not.toHaveBeenCalled()
@@ -216,6 +232,6 @@ describe('session warning', () => {
       return null
     }
     render(<><SessionWarning /><RecordDuringCommit /></>)
-    expect(screen.getByText(/For security, your session ends at .* unless you continue working/)).toBeTruthy()
+    expect(screen.getByText(/You’ll be signed out at .* if you stay idle/)).toBeTruthy()
   })
 })

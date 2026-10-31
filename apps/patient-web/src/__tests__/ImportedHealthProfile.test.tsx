@@ -42,12 +42,12 @@ describe('your hid-1.0 health details, on the profile', () => {
     // Its one button opens and closes it.
     expect(shown.getAllByRole('button')).toEqual([sectionToggle('From your hid-1.0 account')])
     // The bio-data is still first.
-    expect(screen.getByRole('heading', { name: 'Bio-data' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'About you' })).toBeTruthy()
   })
 
   it('is not shown for a patient with no hid-1.0 details', async () => {
     renderPortal(<ProfilePage />, gateway(() => json(records(null))))
-    expect(await screen.findByRole('heading', { name: 'Bio-data' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'About you' })).toBeTruthy()
     await screen.findByText('Ada Example')
     expect(screen.queryByRole('heading', { name: 'From your hid-1.0 account' })).toBeNull()
   })
