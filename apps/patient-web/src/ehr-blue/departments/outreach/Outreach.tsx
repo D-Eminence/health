@@ -1,21 +1,22 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { EhrBadge, EhrButton, EhrDataTable, EhrDrawer, EhrEmptyState, EhrSkeleton, type EhrDataTableColumn } from '@hid/ui/ehr'
+import { EhrButton } from '@hid/ui/ehr'
+import { ArrowRight, ChevronRight, CircleCheck, Megaphone, Search, UserPlus, Users } from 'lucide-react'
+import { PageState } from '../../../kasuwa/parts'
+import { Alert, Badge, Button, Card, FilterTabs, Input } from '../../../kasuwa/ui'
 import { staffApi, type OutreachCampaign, type OutreachCase } from '../../../staff/api'
 import { useStaff } from '../../../staff/App'
+import { useFocusById } from '../../../staff/focus'
 import { focusLost } from '../../../pageFocus'
 import { useDeptAccess } from '../parts/access'
-import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage } from '../parts/DeptPage'
-import { DeptFacts, DeptLinkButton, DeptRecordName } from '../parts/DeptRecord'
-import { DeptSearch } from '../parts/DeptSearch'
 import { dateText, matchesSearch } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import { CampaignMembersRead, OutreachCampaignView } from './OutreachCampaignView'
 import { OutreachCaseView } from './OutreachCaseView'
 import { OutreachNew, type CaseAttempt } from './OutreachNew'
 import {
-  ageText, campaignFacts, campaignSearchText, CAMPAIGNS_NOT_LOADED, CAMPAIGNS_READ_ONLY, CAMPAIGNS_READ_ONLY_TITLE, caseFacts, caseName,
-  CASES_NOT_LOADED, caseSearchText, ErrorBox, NO_FACILITY, NO_READ_PERMISSION, PENDING, reference, sexText, statusWords, type MembersRead,
+  ageText, CAMPAIGNS_NOT_LOADED, CAMPAIGNS_READ_ONLY, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, ErrorBox,
+  NO_FACILITY, NO_READ_PERMISSION, nextStepText, PENDING, sexText, statusLabel, statusWords, type MembersRead,
 } from './outreachParts'
 
 /** The design's list shows this many records a page. */
@@ -152,6 +153,7 @@ export function Outreach() {
     content = item
       ? <OutreachCaseView key={item.id} facilityId={facilityId} item={item} campaign={campaignOf(item.campaignId)} canLink={canWrite}
         created={view.created} listError={cases.error} onBack={() => backToList(`outreach-case-${item.id}-open`)}
+        onNew={canWrite ? () => show({ kind: 'new' }) : undefined}
         onChanged={cases.refresh} onFocusHeading={focusHeadingIfLost} />
       : <RecordNotFound onBack={() => backToList()} />
   } else if (view.kind === 'campaign' && canReadCampaigns) {
@@ -188,7 +190,7 @@ function createdText(created: OutreachCase | undefined) {
   if (!created?.status) return 'Registration case created.'
   return created.status === PENDING
     ? 'Registration case created. It stays pending until it is linked to a verified Health ID patient.'
-    : `Registration case created. Its status is ${statusWords(created.status)}.`
+    : `Registration case created. Its status is ${statusLabel(created.status).toLowerCase()}.`
 }
 
 /** The design's view of a record the list no longer holds. */
@@ -207,7 +209,12 @@ interface ListRead<T> {
   readonly refresh: () => Promise<void>
 }
 
-/** The design's list view: "Create record", then each list in its search card. */
+type CaseTab = 'waiting' | 'done' | 'all'
+
+/**
+ * The list view: "New registration" as the one main action, then the registrations as cards (who, status, and the next
+ * step on each), filtered by what still needs doing, then the campaigns (read only).
+ */
 function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaigns, campaignOf, onNew, onOpenCase, onOpenCampaign }: {
   readonly canReadCases: boolean
   readonly canReadCampaigns: boolean
@@ -219,136 +226,129 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
   readonly onOpenCase: (item: OutreachCase) => void
   readonly onOpenCampaign: (campaign: OutreachCampaign) => void
 }) {
-  const [quick, setQuick] = useState<{ kind: 'case'; item: OutreachCase } | { kind: 'campaign'; campaign: OutreachCampaign } | null>(null)
+  const [tab, setTab] = useState<CaseTab>('waiting')
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(0)
+  const focus = useFocusById()
   const loading = (canReadCases && cases.loading) || (canReadCampaigns && campaigns.loading)
   const refresh = () => Promise.all([canReadCases ? cases.refresh() : undefined, canReadCampaigns ? campaigns.refresh() : undefined])
 
-  const caseColumns: EhrDataTableColumn<OutreachCase>[] = [
-    { id: 'record', header: 'Record', cell: item => <DeptRecordName id={`outreach-case-${item.id}-open`} name={caseName(item)} reference={reference(item.id)} onOpen={() => onOpenCase(item)} /> },
-    { id: 'context', header: 'Patient / context', cell: item => <>{caseName(item)}<span className="hid-ehr-dept-reference">{ageText(item)} · {sexText(item)}</span></> },
-    { id: 'status', header: 'Status', cell: item => <EhrBadge>{statusWords(item.status)}</EhrBadge> },
-    { id: 'created', header: 'Created', cell: item => dateText(item.createdAt) },
-    {
-      id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: item => (
-        <div className="hid-ehr-dept-table-actions">
-          <EhrButton variant="secondary" aria-describedby={`outreach-case-${item.id}-open`} onClick={() => setQuick({ kind: 'case', item })}>Quick view</EhrButton>
-          <DeptLinkButton describedBy={`outreach-case-${item.id}-open`} onClick={() => onOpenCase(item)}>Open <span aria-hidden="true">→</span></DeptLinkButton>
-        </div>
-      ),
-    },
-  ]
-  const campaignColumns: EhrDataTableColumn<OutreachCampaign>[] = [
-    { id: 'record', header: 'Record', cell: campaign => <DeptRecordName id={`outreach-campaign-${campaign.id}-open`} name={campaign.name} reference={reference(campaign.id)} onOpen={() => onOpenCampaign(campaign)} /> },
-    { id: 'services', header: 'Services', cell: campaign => campaign.services.length ? campaign.services.join(', ') : 'None listed' },
-    { id: 'status', header: 'Status', cell: campaign => <EhrBadge>{statusWords(campaign.status)}</EhrBadge> },
-    { id: 'starts', header: 'Starts', cell: campaign => dateText(campaign.startsAt) },
-    {
-      id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: campaign => (
-        <div className="hid-ehr-dept-table-actions">
-          <EhrButton variant="secondary" aria-describedby={`outreach-campaign-${campaign.id}-open`} onClick={() => setQuick({ kind: 'campaign', campaign })}>Quick view</EhrButton>
-          <DeptLinkButton describedBy={`outreach-campaign-${campaign.id}-open`} onClick={() => onOpenCampaign(campaign)}>Open <span aria-hidden="true">→</span></DeptLinkButton>
-        </div>
-      ),
-    },
-  ]
-
-  const open = () => {
-    if (!quick) return
-    setQuick(null)
-    if (quick.kind === 'case') onOpenCase(quick.item)
-    else onOpenCampaign(quick.campaign)
-  }
-
-  return (
-    <DeptPage title="Outreach" primaryAction={(
-      <>
-        {canWrite ? <EhrButton onClick={onNew}>Create record</EhrButton> : null}
-        <EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void refresh() }}>Refresh</EhrButton>
-      </>
-    )}>
-      <EhrDrawer open={quick !== null} title="Record quick view" onClose={() => setQuick(null)}>
-        {quick ? (
-          <>
-            <div className="hid-ehr-dept-outreach-quick">
-              <h3>{quick.kind === 'case' ? caseName(quick.item) : quick.campaign.name}</h3>
-              <p>{quick.kind === 'case' ? `Created ${dateText(quick.item.createdAt)}` : `Starts ${dateText(quick.campaign.startsAt)}`}</p>
-            </div>
-            <DeptFacts facts={quick.kind === 'case' ? caseFacts(quick.item, campaignOf(quick.item.campaignId)) : campaignFacts(quick.campaign)} />
-            <div className="hid-ehr-dept-outreach-quick-open"><EhrButton onClick={open}>Open full record</EhrButton></div>
-          </>
-        ) : null}
-      </EhrDrawer>
-      {canReadCases ? (
-        <RecordList label="Search Outreach" caption="Registration cases" pagesLabel="Registration case pages" read={cases} columns={caseColumns}
-          rowKey={item => item.id} searchText={caseSearchText} loadingLabel="Loading registration cases"
-          emptyMessage="Create the first record when you have the appropriate permission." />
-      ) : null}
-      {canReadCampaigns ? (
-        <>
-          <DeptNotice title={CAMPAIGNS_READ_ONLY_TITLE}>{CAMPAIGNS_READ_ONLY}</DeptNotice>
-          <RecordList label="Search campaigns" caption="Campaigns" pagesLabel="Campaign pages" read={campaigns} columns={campaignColumns}
-            rowKey={campaign => campaign.id} searchText={campaignSearchText} loadingLabel="Loading campaigns"
-            emptyMessage="No campaigns are listed for this facility yet." />
-        </>
-      ) : null}
-    </DeptPage>
-  )
-}
-
-/**
- * One list in the design's search card: the search (in memory: it sends nothing), "Clear
- * search", record pages over 50, and the table, or its loading, refused or empty state.
- */
-function RecordList<T>({ label, caption, pagesLabel, read, columns, rowKey, searchText, loadingLabel, emptyMessage }: {
-  readonly label: string
-  readonly caption: string
-  readonly pagesLabel: string
-  readonly read: ListRead<T>
-  readonly columns: readonly EhrDataTableColumn<T>[]
-  readonly rowKey: (row: T) => string
-  readonly searchText: (row: T) => ReadonlyArray<string | null | undefined>
-  readonly loadingLabel: string
-  readonly emptyMessage: string
-}) {
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(0)
-  // "Clear search" removes itself, so focus goes back to the search it cleared, in the commit that removes it.
-  const card = useRef<HTMLDivElement>(null)
-  const [cleared, setCleared] = useState(0)
-  useLayoutEffect(() => {
-    if (cleared) card.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus()
-  }, [cleared])
-  const all = read.value ?? []
-  const rows = all.filter(row => matchesSearch(search, searchText(row)))
+  // Newest first: the person just met is the one most likely to be looked for.
+  const all = [...(cases.value ?? [])].sort((a, b) => (Date.parse(b.createdAt ?? '') || 0) - (Date.parse(a.createdAt ?? '') || 0))
+  const waiting = all.filter(caseWaiting)
+  const inTab = (item: OutreachCase) => tab === 'all' || (tab === 'waiting') === caseWaiting(item)
+  const rows = all.filter(item => inTab(item) && matchesSearch(search, caseSearchText(item)))
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
   const shownPage = Math.min(page, pages - 1)
   const first = shownPage === 0
   const last = shownPage + 1 >= pages
+  const listed = cases.value !== null
+  const newButton = canWrite ? <Button variant="primary" icon={UserPlus} onClick={onNew}>New registration</Button> : null
+  const emptyAll = { icon: Users, title: 'No registrations yet', description: canWrite
+    ? 'People you register in the field show here, with what each needs next.' : 'People registered in the field show here.', action: newButton ?? undefined }
+  const empty = all.length === 0 ? emptyAll : rows.length > 0 ? null : search
+    ? { icon: Search, title: 'No matching registrations', description: 'Check the spelling, or search by another name.' }
+    : tab === 'waiting' ? { icon: CircleCheck, title: 'No one is waiting to be linked', description: 'Every registration here is linked to a Health ID.' }
+      : { icon: Users, title: 'None linked yet', description: 'Registrations move here once they are linked to a Health ID.' }
+
   return (
-    <div ref={card}>
-      <DeptSearch label={label} value={search} onChange={value => { setSearch(value); setPage(0) }}>
-        {search || rows.length > PAGE_SIZE ? (
-          <div className="hid-ehr-dept-outreach-list-tools">
-            {search ? <EhrButton variant="secondary" onClick={() => { setSearch(''); setPage(0); setCleared(count => count + 1) }}>Clear search</EhrButton> : null}
-            {rows.length > PAGE_SIZE ? (
-              <nav className="hid-ehr-dept-outreach-pages" aria-label={pagesLabel}>
-                {/* Unavailable at the first and last page, not disabled: a disabled button would lose the focus it has. */}
-                <EhrButton variant="secondary" className="hid-ehr-dept-outreach-unavailable" aria-disabled={first || undefined}
-                  onClick={() => { if (!first) setPage(shownPage - 1) }}>Previous page</EhrButton>
-                <span>Page {shownPage + 1} of {pages}</span>
-                <EhrButton variant="secondary" className="hid-ehr-dept-outreach-unavailable" aria-disabled={last || undefined}
-                  onClick={() => { if (!last) setPage(shownPage + 1) }}>Next page</EhrButton>
-              </nav>
-            ) : null}
-          </div>
+    <DeptPage title="Outreach" description="People registered in the field, and what each one needs next." primaryAction={newButton ?? undefined}
+      secondaryActions={<EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void refresh() }}>Refresh</EhrButton>}>
+      <div className="flex flex-col gap-6">
+        {canReadCases ? (
+          <section aria-labelledby="outreach-cases-heading" className="flex flex-col gap-3">
+            <h2 id="outreach-cases-heading" className="m-0 text-title-2 text-ink">Registrations</h2>
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+              <FilterTabs label="Show registrations" value={tab} onChange={value => { setTab(value); setPage(0) }} options={[
+                { value: 'waiting', label: 'Waiting to link', count: waiting.length },
+                { value: 'done', label: 'Linked', count: all.length - waiting.length },
+                { value: 'all', label: 'All', count: all.length },
+              ]} />
+              <div className="flex min-w-0 items-center gap-2 sm:w-80">
+                <label htmlFor="outreach-search" className="sr-only">Search Outreach</label>
+                <Input id="outreach-search" type="search" icon={Search} className="min-w-0 flex-1" value={search} autoComplete="off"
+                  placeholder="Search by name" onChange={event => { setSearch(event.target.value); setPage(0) }} />
+                {search ? <EhrButton variant="secondary" onClick={() => { setSearch(''); setPage(0); focus('outreach-search') }}>Clear search</EhrButton> : null}
+              </div>
+            </div>
+            {cases.error && listed ? <Alert intent="error" title="Couldn’t refresh registrations">{cases.error}</Alert> : null}
+            <PageState loading={cases.loading} error={listed ? null : cases.error || null} hasData={listed} onRetry={() => void cases.refresh()}
+              what="registrations" empty={empty}>
+              <ul aria-label="Registrations" className="m-0 grid list-none grid-cols-1 gap-3 p-0 md:grid-cols-2 2xl:grid-cols-3">
+                {rows.slice(shownPage * PAGE_SIZE, (shownPage + 1) * PAGE_SIZE).map(item => (
+                  <CaseCard key={item.id} item={item} campaign={campaignOf(item.campaignId)} canLink={canWrite} onOpen={() => onOpenCase(item)} />
+                ))}
+              </ul>
+              {rows.length > PAGE_SIZE ? (
+                <nav className="hid-ehr-dept-outreach-pages" aria-label="Registration case pages">
+                  {/* Unavailable at the first and last page, not disabled: a disabled button would lose the focus it has. */}
+                  <EhrButton variant="secondary" className="hid-ehr-dept-outreach-unavailable" aria-disabled={first || undefined}
+                    onClick={() => { if (!first) setPage(shownPage - 1) }}>Previous page</EhrButton>
+                  <span>Page {shownPage + 1} of {pages}</span>
+                  <EhrButton variant="secondary" className="hid-ehr-dept-outreach-unavailable" aria-disabled={last || undefined}
+                    onClick={() => { if (!last) setPage(shownPage + 1) }}>Next page</EhrButton>
+                </nav>
+              ) : null}
+            </PageState>
+          </section>
         ) : null}
-        <ErrorBox message={read.error} />
-        {read.value === null
-          ? (read.loading ? <EhrSkeleton label={loadingLabel} /> : null)
-          : rows.length === 0
-            ? <EhrEmptyState title="No matching records" message={all.length ? 'Change your search.' : emptyMessage} />
-            : <EhrDataTable caption={caption} captionHidden columns={columns} rows={rows.slice(shownPage * PAGE_SIZE, (shownPage + 1) * PAGE_SIZE)} rowKey={rowKey} />}
-      </DeptSearch>
-    </div>
+        {canReadCampaigns ? (
+          <section aria-labelledby="outreach-campaigns-heading" className="flex flex-col gap-3">
+            <h2 id="outreach-campaigns-heading" className="m-0 text-title-2 text-ink">Campaigns</h2>
+            <p className="m-0 text-[13px] text-ink-3">{CAMPAIGNS_READ_ONLY}</p>
+            {campaigns.error && campaigns.value ? <Alert intent="error" title="Couldn’t refresh campaigns">{campaigns.error}</Alert> : null}
+            <PageState loading={campaigns.loading} error={campaigns.value ? null : campaigns.error || null} hasData={campaigns.value !== null}
+              onRetry={() => void campaigns.refresh()} what="campaigns" rows={2}
+              empty={campaigns.value?.length === 0 ? { icon: Megaphone, title: 'No campaigns yet', description: 'Campaigns this facility runs show here.' } : null}>
+              <Card as="div">
+                <ul aria-label="Campaigns" className="m-0 list-none divide-y divide-line p-0">
+                  {(campaigns.value ?? []).map(campaign => (
+                    <li key={campaign.id}>
+                      <button type="button" id={`outreach-campaign-${campaign.id}-open`} onClick={() => onOpenCampaign(campaign)}
+                        className="flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent px-5 py-3.5 text-left text-ink hover:bg-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]">
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="font-semibold [overflow-wrap:anywhere]">{campaign.name}</span>
+                          <span className="text-[13px] text-ink-3">{campaign.services.length ? campaign.services.join(', ') : 'No services listed'} · starts {dateText(campaign.startsAt)}</span>
+                        </span>
+                        <Badge size="sm" tone={campaign.status === 'active' ? 'success' : 'neutral'}>{statusWords(campaign.status)}</Badge>
+                        <ChevronRight className="size-4 shrink-0 text-ink-3" aria-hidden />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            </PageState>
+          </section>
+        ) : null}
+      </div>
+    </DeptPage>
+  )
+}
+
+/** One registration as a card: who (large), age and sex, its status in words, and its next step. One button opens it. */
+function CaseCard({ item, campaign, canLink, onOpen }: {
+  readonly item: OutreachCase
+  readonly campaign: OutreachCampaign | undefined
+  readonly canLink: boolean
+  readonly onOpen: () => void
+}) {
+  const waiting = caseWaiting(item)
+  return (
+    <li className="flex min-w-0 overflow-hidden rounded-2xl bg-surface shadow-[var(--shadow-card)] ring-1 ring-line">
+      <button type="button" id={`outreach-case-${item.id}-open`} onClick={onOpen}
+        className="flex w-full cursor-pointer flex-col gap-1.5 border-0 bg-transparent p-4 text-left text-ink transition-colors hover:bg-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)] sm:p-5">
+        <span className="flex items-start justify-between gap-3">
+          <span className="min-w-0 text-[18px] font-semibold leading-tight [overflow-wrap:anywhere]">{caseName(item)}</span>
+          <Badge size="sm" tone={caseTone(item.status)}>{statusLabel(item.status)}</Badge>
+        </span>
+        <span className="text-[14px] text-ink-2">{ageText(item)} · {sexText(item)}{campaign ? ` · ${campaign.name}` : ''}</span>
+        <span className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2 text-[13px]">
+          <span className={waiting ? 'inline-flex items-center gap-1 font-medium text-brand-ink' : 'text-ink-3'}>
+            {nextStepText(item, canLink)}{waiting && canLink ? <ArrowRight className="size-3.5" aria-hidden /> : null}
+          </span>
+          <span className="text-ink-3 tabular">Registered {dateText(item.createdAt)}</span>
+        </span>
+      </button>
+    </li>
   )
 }

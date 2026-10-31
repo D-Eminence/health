@@ -7,7 +7,7 @@ import { MAIN_SITE_ORIGINS, STAFF_RECOVERY_PATH } from '../productHostname'
 import { usesNovuBackend } from '../backendContract'
 import { failure } from './problems'
 import {
-  Page, Refresh, ResourceView, Status, date, has, label, useGovernedSubmit, useResource, useUrlFilters,
+  Page, Refresh, ResourceView, Status, Table, date, has, label, useGovernedSubmit, useResource, useUrlFilters,
 } from './ui'
 
 /** `ListOrganizationApplicationsDto` statuses. */
@@ -53,12 +53,11 @@ function Evidence({ application }: { application: OrganizationApplication }) {
   if (rows.every(([, verified, profile]) => !verified && !profile)) {
     return <p className="admin-note">No registry or profile evidence has been recorded yet.</p>
   }
-  return <div className="admin-table-scroll"><table className="admin-table">
-    <thead><tr><th scope="col">Field</th><th scope="col">CAC registry</th><th scope="col">Completed profile</th><th scope="col">Source used</th></tr></thead>
-    <tbody>{rows.map(([field, verified, profile, source]) => <tr key={field}>
+  return <Table headings={['Field', 'CAC registry', 'Completed profile', 'Source used']}>
+    {rows.map(([field, verified, profile, source]) => <tr key={field}>
       <td>{field}</td><td>{verified ?? 'Not recorded'}</td><td>{profile ?? 'Not provided'}</td><td>{source ? label(source) : 'Not decided'}</td>
-    </tr>)}</tbody>
-  </table></div>
+    </tr>)}
+  </Table>
 }
 
 /** Approving can link the application to an existing organization through one of its facilities. */

@@ -17,7 +17,7 @@ export function HealthIdCode({ code, copyButton = false }: { code: string; copyB
 
   if (!code) return null
   if (copyButton) return <div className="flex flex-col gap-2">
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-brand-line bg-brand-soft/50 px-4 py-3">
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-brand-line bg-brand-soft/50 px-4 py-3">
       <strong className="text-[22px] font-semibold tracking-[.08em] text-ink tabular">{code}</strong>
       <Button size="sm" icon={copyState === 'copied' ? Check : Copy} onClick={() => void copy()}>{copyState === 'copied' ? 'Copied' : 'Copy'}<span className="sr-only"> your Health ID</span></Button>
     </div>

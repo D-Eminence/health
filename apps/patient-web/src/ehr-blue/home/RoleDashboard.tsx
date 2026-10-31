@@ -1,6 +1,6 @@
 import { useState, useSyncExternalStore } from 'react'
 import { Link } from 'react-router-dom'
-import { EhrButton, EhrCard, EhrField, EhrPageHeading, EhrSampleBanner, EhrSelect, EhrStatCard } from '@hid/ui/ehr'
+import { EhrBackButton, EhrCard, EhrField, EhrPageHeading, EhrSampleBanner, EhrSelect, EhrStatCard } from '@hid/ui/ehr'
 import { useSampleHref } from '../frame/pageContext'
 import { useRoleView, type DemoRole } from '../frame/roleView'
 import { sampleModule, sampleRecords, sampleTitle, sampleVersion, statusWords, subscribeSamples } from '../frame/sample/store'
@@ -42,7 +42,7 @@ export function RoleDashboard({ role }: { readonly role: DemoRole }) {
   const today = modules.slice(0, 2).flatMap(module => sampleRecords(module.id).map(record => ({ module, record }))).slice(0, 6)
   return <>
     <EhrPageHeading title={`Welcome, Demo ${role}`} description={`The ${role} dashboard, as the design shows it.`}
-      primaryAction={<EhrButton variant="secondary" onClick={() => view(null)}>Back to my dashboard</EhrButton>} />
+      back={<EhrBackButton label="Back to my dashboard" onClick={() => view(null)} />} />
     <EhrSampleBanner />
     <EhrField label="Reporting period" hint="Record creation dates · local time" className="hid-ehr-blue-narrow">
       <EhrSelect value={period} onChange={event => setPeriod(event.target.value)}>

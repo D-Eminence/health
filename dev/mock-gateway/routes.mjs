@@ -147,13 +147,74 @@ const staffSession = () => {
 }
 const DEMO_PATIENT_ID = 'a0000000-0000-4000-8000-000000000001'
 
+// Pharmacy's queue, as GET /pharmacy/work-items sends it today: this facility's own work carries no `patient` (only routed
+// work does: BACKEND-NEEDS.md), no priority, no image and no quantity. Dispensings made here are kept for the session.
+const pharmacyDispensed = new Map([['rx-6', { id: 'disp-6', reversed: false, version: 1 }]])
+const pharmacyItems = () => [
+  { id: 'rx-1', patientId: DEMO_PATIENT_ID, version: 1, acceptedAt: iso(-25 * MIN), medication: { display: 'Amoxicillin 500 mg capsules' }, doseQuantity: 1, doseUnit: 'capsule', routeCode: 'oral', frequency: 'three times daily', instructions: 'For 7 days. Finish the course.' },
+  { id: 'rx-2', patientId: 'a0000000-0000-4000-8000-000000000002', version: 1, acceptedAt: iso(-18 * MIN), medication: { display: 'Paracetamol 120 mg/5 ml syrup' }, doseQuantity: 5, doseUnit: 'ml', routeCode: 'oral', frequency: 'every 6 hours when needed', instructions: 'For fever. No more than 4 doses in 24 hours.' },
+  { id: 'rx-3', patientId: 'a0000000-0000-4000-8000-000000000003', version: 1, acceptedAt: iso(-12 * MIN), medication: { display: 'Salbutamol 100 mcg inhaler' }, doseQuantity: 2, doseUnit: 'puffs', routeCode: 'inhaled', frequency: 'when needed for wheeze', instructions: null },
+  { id: 'rx-4', patientId: DEMO_PATIENT_ID, version: 1, acceptedAt: iso(-9 * MIN), medication: { display: 'Ceftriaxone 1 g injection' }, doseQuantity: 1, doseUnit: 'g', routeCode: 'iv', frequency: 'once daily', instructions: 'For 5 days on the ward.' },
+  { id: 'rx-5', patientId: 'a0000000-0000-4000-8000-000000000004', version: 1, acceptedAt: iso(-6 * MIN), medication: { display: 'Metformin 500 mg tablets' }, doseQuantity: null, doseUnit: null, routeCode: 'oral', frequency: '', instructions: null },
+  { id: 'rx-6', patientId: 'a0000000-0000-4000-8000-000000000005', version: 2, acceptedAt: iso(-2 * 60 * MIN), medication: { display: 'Hydrocortisone 1% cream' }, doseQuantity: 1, doseUnit: 'thin layer', routeCode: 'topical', frequency: 'twice daily', instructions: 'To the rash only.' },
+  { id: 'rx-7', patientId: 'a0000000-0000-4000-8000-000000000006', version: 1, acceptedAt: iso(-3 * MIN), medication: { display: 'Artemether/Lumefantrine 80/480 mg' }, doseQuantity: 1, doseUnit: 'tablet', routeCode: 'oral', frequency: 'twice daily', instructions: 'With food, for 3 days.' },
+].map(item => {
+  const done = pharmacyDispensed.get(item.id)
+  return { ...item, version: done ? item.version + 1 : item.version, dispensing: done ? { id: done.id, reversed: done.reversed } : null }
+})
+
+// Outreach: one active registration campaign this membership belongs to, and the cases registered in the field.
+const outreachLinked = new Set(['oc-3'])
+const outreachCampaigns = () => [
+  { id: 'camp-1', name: 'Ajegunle health week', status: 'active', services: ['registration', 'screening'], startsAt: iso(-3 * DAY), rowVersion: 2 },
+  { id: 'camp-2', name: 'Makoko school screening', status: 'draft', services: ['screening'], startsAt: iso(10 * DAY), rowVersion: 1 },
+]
+const outreachCases = () => [
+  { id: 'oc-1', campaignId: 'camp-1', fullName: 'Kemi Balogun', ageYears: 34, sex: 'female', temporaryPatientId: 'tmp_7f3a9c21', createdAt: iso(-40 * MIN), rowVersion: 1 },
+  { id: 'oc-2', campaignId: 'camp-1', fullName: 'Ibrahim Musa', ageYears: 61, sex: 'male', temporaryPatientId: 'tmp_2b8e4d10', createdAt: iso(-2 * 60 * MIN), rowVersion: 1 },
+  { id: 'oc-3', campaignId: 'camp-1', fullName: 'Chiamaka Obi', ageYears: 8, sex: 'female', temporaryPatientId: 'tmp_9d1c6a55', createdAt: iso(-1 * DAY), rowVersion: 2 },
+  { id: 'oc-4', fullName: 'Segun Adewale', ageYears: 45, sex: 'unknown', temporaryPatientId: 'tmp_4e6f0b77', createdAt: iso(-2 * DAY), rowVersion: 1 },
+].map(item => ({ ...item, status: outreachLinked.has(item.id) ? 'identity_resolved' : 'identity_resolution_pending', rowVersion: item.rowVersion + (outreachLinked.has(item.id) && item.id !== 'oc-3' ? 1 : 0) }))
+
 function staffRoute(method, path) {
   if (method === 'POST' && path === '/auth/facility') return [200, staffSession()]
+  const dispense = method === 'POST' && /^\/pharmacy\/work-items\/([^/]+)\/dispensings$/.exec(path)
+  if (dispense) {
+    const id = decodeURIComponent(dispense[1])
+    if (!pharmacyItems().some(item => item.id === id)) return null
+    pharmacyDispensed.set(id, { id: `disp-${id}`, reversed: false, version: 1 })
+    return [201, { id: `disp-${id}`, workItemId: id, version: 1 }]
+  }
+  const reversal = method === 'POST' && /^\/pharmacy\/dispensings\/([^/]+)\/reversals$/.exec(path)
+  if (reversal) {
+    const entry = [...pharmacyDispensed.values()].find(done => done.id === decodeURIComponent(reversal[1]))
+    if (!entry) return null
+    entry.reversed = true
+    entry.version += 1
+    return [201, { id: entry.id, reversed: true, version: entry.version }]
+  }
+  const link = method === 'POST' && /^\/outreach\/registration-cases\/([^/]+)\/link-existing$/.exec(path)
+  if (link) {
+    const id = decodeURIComponent(link[1])
+    if (!outreachCases().some(item => item.id === id)) return null
+    outreachLinked.add(id)
+    return [200, outreachCases().find(item => item.id === id)]
+  }
   if (method === 'POST' && path === '/identity/patient-lookup') return [200, {
     authorization: { decision: 'allow', consentGrantId: 'grant-1', expiresAt: iso(2 * 60 * MIN), breakGlass: false },
     patient: { patientId: DEMO_PATIENT_ID, hid: 'HID-ZDEMAAA2', fullName: 'Adaeze Okafor', dateOfBirth: '1991-03-04', gender: 'female', version: 1 },
   }]
   if (method !== 'GET') return null
+  const dispensing = /^\/pharmacy\/dispensings\/([^/]+)$/.exec(path)
+  if (dispensing) {
+    const entry = [...pharmacyDispensed.values()].find(done => done.id === decodeURIComponent(dispensing[1]))
+    return entry ? [200, { id: entry.id, version: entry.version, reversed: entry.reversed }] : null
+  }
+  const members = /^\/outreach\/registration-cases\/campaigns\/([^/]+)\/members$/.exec(path)
+  if (members) return [200, decodeURIComponent(members[1]) === 'camp-1' ? [
+    { id: 'cm-1', campaignId: 'camp-1', membershipId: 'member-demo-1', role: 'health_worker', createdAt: iso(-4 * DAY) },
+    { id: 'cm-2', campaignId: 'camp-1', membershipId: 'member-demo-7', role: 'enumerator', createdAt: iso(-4 * DAY) },
+  ] : []]
   if (/^\/ehr\/patients\/[^/]+\/encounters(\/[^/]+\/[a-z-]+)?$/.test(path) || path === '/ehr/documents') return [200, { items: [], nextCursor: null }]
   switch (path) {
     case '/identity/access-requests': return [200, [
@@ -170,11 +231,9 @@ function staffRoute(method, path) {
       { id: 'lw-1', patientId: DEMO_PATIENT_ID, version: 1, status: 'accepted', testName: 'Full blood count', acceptedAt: iso(-40 * MIN), priority: 'routine' },
       { id: 'lw-2', patientId: DEMO_PATIENT_ID, version: 1, status: 'accepted', testName: 'Malaria parasite test', acceptedAt: iso(-15 * MIN), priority: 'urgent' },
     ] }]
-    case '/pharmacy/work-items': return [200, { items: [
-      { id: 'rx-1', patientId: DEMO_PATIENT_ID, version: 1, acceptedAt: iso(-25 * MIN), medication: { display: 'Amoxicillin 500 mg' }, dispensing: null },
-    ] }]
-    case '/outreach/registration-cases/campaigns': return [200, []]
-    case '/outreach/registration-cases': return [200, []]
+    case '/pharmacy/work-items': return [200, { items: pharmacyItems() }]
+    case '/outreach/registration-cases/campaigns': return [200, outreachCampaigns()]
+    case '/outreach/registration-cases': return [200, outreachCases()]
     case '/commercial/subscription': return [200, { organizationId: 'org-demo', productCode: 'provider', status: 'active', trialEndsAt: null, currentPeriodEndsAt: iso(32 * DAY), graceEndsAt: null, price: null, selfServePayment: false }]
     case '/commercial/invoices': return [200, { items: [] }]
     case '/ocr/jobs': return [200, { job: null }]

@@ -1,5 +1,7 @@
 import { useCallback, useEffect } from 'react'
-import { EhrBadge, EhrButton, EhrEmptyState, EhrSkeleton } from '@hid/ui/ehr'
+import { EhrBadge } from '@hid/ui/ehr'
+import { Users } from 'lucide-react'
+import { PageState } from '../../../kasuwa/parts'
 import { staffApi, type OutreachCampaign } from '../../../staff/api'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
@@ -7,7 +9,7 @@ import { DeptActions, DeptContextLine, DeptFacts, DeptRecordLayout } from '../pa
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import {
-  campaignFacts, CAMPAIGNS_READ_ONLY, CAMPAIGNS_READ_ONLY_TITLE, ErrorBox, MEMBERS_NOT_LOADED, NO_ACTIONS, reference, statusWords,
+  campaignFacts, CAMPAIGNS_READ_ONLY, CAMPAIGNS_READ_ONLY_TITLE, MEMBERS_NOT_LOADED, NO_ACTIONS, reference, statusWords,
   type MembersRead,
 } from './outreachParts'
 
@@ -35,6 +37,8 @@ export function CampaignMembersRead({ facilityId, membershipId, campaign, onMemb
   return null
 }
 
+const ROLE_WORDS: Readonly<Record<string, string>> = { enumerator: 'Enumerator', health_worker: 'Health worker', admin: 'Campaign admin' }
+
 /**
  * A campaign as the design's record view: read only, since Identity does not authorize
  * campaign writes until campaign governance is decided, so no action is offered and the page
@@ -57,24 +61,21 @@ export function OutreachCampaignView({ campaign, members, onBack }: {
         aside={<DeptActions empty={NO_ACTIONS} />}
       />
       <DeptSection title="Members">
-        <ErrorBox message={members?.error ?? ''} />
-        {members?.error && !items ? <EhrButton variant="secondary" onClick={() => members.refresh()}>Try again</EhrButton> : null}
-        {loading && !members?.error ? <EhrSkeleton label="Loading members" /> : null}
-        {!loading && !members?.error && items?.length === 0
-          ? <EhrEmptyState title="No members" message="No facility memberships are listed for this campaign." /> : null}
-        {items && items.length > 0 ? (
+        <PageState loading={loading} error={items ? null : members?.error || null} hasData={items !== null} what="members" rows={2}
+          onRetry={members ? () => void members.refresh() : undefined}
+          empty={items?.length === 0 ? { icon: Users, title: 'No members yet', description: 'No facility memberships are listed for this campaign.' } : null}>
           <ul className="hid-ehr-dept-rows">
-            {items.map(member => (
+            {(items ?? []).map(member => (
               <li key={member.id}>
                 <div className="hid-ehr-dept-row-main">
                   <span className="hid-ehr-dept-row-title">Membership {reference(member.membershipId)}</span>
                   <span className="hid-ehr-dept-muted">Added {dateText(member.createdAt)}</span>
                 </div>
-                <EhrBadge>{statusWords(member.role)}</EhrBadge>
+                <EhrBadge>{ROLE_WORDS[member.role] ?? statusWords(member.role)}</EhrBadge>
               </li>
             ))}
           </ul>
-        ) : null}
+        </PageState>
       </DeptSection>
     </DeptPage>
   )

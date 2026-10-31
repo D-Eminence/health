@@ -98,19 +98,17 @@
 .hid-ehr .hid-ehr-clinical-banner {
   margin: 0 0 18px;
   padding: 16px 20px;
-  border-left: 4px solid var(--ehr-brand);
+  border: 1px solid var(--ehr-line);
   border-radius: 10px;
   background: var(--ehr-tint);
   color: var(--ehr-ink);
 }
 
 .hid-ehr .hid-ehr-clinical-banner.hid-ehr-clinical-banner-warning {
-  border-left-color: var(--ehr-warning-banner-text);
   background: var(--ehr-warning-banner-surface);
 }
 
 .hid-ehr .hid-ehr-clinical-banner.hid-ehr-clinical-banner-critical {
-  border-left-color: var(--ehr-critical);
   background: #fff0ee;
 }
 
@@ -193,6 +191,27 @@
 /* The table region (or its empty state) under the search field. */
 .hid-ehr .hid-ehr-clinical-list-table {
   margin-top: 18px;
+}
+
+/* Below 1024px a record row is a card: the record and its status, the context, when, then Quick view and Open. */
+@media (max-width: 1023px) {
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg .hid-ehr-table-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'record status' 'context context' 'updated updated' 'open open';
+    gap: 4px 12px;
+    padding: 14px 16px 8px;
+  }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg .hid-ehr-table-cell { padding: 0; }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg .hid-ehr-table-cell[data-label]:not(:first-child)::before { content: none; }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg [data-col='record'] { grid-area: record; font-size: 14px; font-weight: 600; }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg [data-col='status'] { grid-area: status; justify-self: end; }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg [data-col='context'] { grid-area: context; color: var(--ehr-text); }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg [data-col='updated'] { grid-area: updated; color: var(--ehr-faint); font-size: 12px; }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg [data-col='updated'][data-label]:not(:first-child):not(:empty)::before { content: 'Updated '; display: inline; color: inherit; font-size: inherit; font-weight: 400; }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg [data-col='open'] { grid-area: open; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--ehr-line); }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg .hid-ehr-clinical-row-actions { display: flex; justify-content: space-between; gap: 8px; }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg .hid-ehr-clinical-row-actions > * { display: inline-flex; min-height: 44px; align-items: center; }
 }
 
 /* Record cell: link, then the short id on its own line. */
@@ -358,7 +377,6 @@
   margin: 0 0 20px;
   padding: 14px 18px;
   border: 1px solid var(--ehr-line);
-  border-left: 4px solid var(--ehr-brand);
   border-radius: 16px;
   background: var(--ehr-surface);
   box-shadow: 0 1px 2px #1018280a, 0 1px 3px #10182808;
@@ -555,8 +573,33 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
   margin-top: 20px;
+}
+
+/*
+ * A form's buttons by the laws (Fitts, thumb reach, Jakob), given as [secondary…, primary]: from 640px a row on the
+ * right with the primary rightmost; on phones full-width and stacked, the primary last (bottom, in thumb reach). A
+ * page's own form keeps its buttons in reach at the bottom of the screen, above the tab bar, under a hairline.
+ */
+@media (max-width: 639px) {
+  .hid-ehr .hid-ehr-clinical-form-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .hid-ehr .hid-ehr-clinical-form-footer > * {
+    width: 100%;
+  }
+  .hid-ehr .hid-ehr-clinical-form-footer-sticky {
+    position: sticky;
+    bottom: calc(64px + env(safe-area-inset-bottom));
+    z-index: 5;
+    padding: 12px 0;
+    border-top: 1px solid var(--ehr-line);
+    background: var(--ehr-surface);
+  }
 }
 
 .hid-ehr .hid-ehr-clinical-form-status {
@@ -688,7 +731,7 @@
 .hid-ehr .hid-ehr-clinical-consult-warning {
   margin: 16px 0 0;
   padding: 12px 16px;
-  border-left: 4px solid #94600c;
+  border: 1px solid var(--ehr-line);
   border-radius: 10px;
   background: #fff7e6;
   color: var(--ehr-ink);
@@ -924,7 +967,7 @@
 .hid-ehr .hid-ehr-clinical-orders-notice {
   margin: 12px 0;
   padding: 12px 16px;
-  border-left: 4px solid var(--ehr-brand);
+  border: 1px solid var(--ehr-line);
   border-radius: var(--ehr-radius-md);
   background: var(--ehr-tint);
   color: var(--ehr-ink);
@@ -932,7 +975,6 @@
 }
 
 .hid-ehr .hid-ehr-clinical-orders-notice.hid-ehr-clinical-orders-danger {
-  border-left-color: var(--ehr-critical);
   background: #fff0ee;
 }
 

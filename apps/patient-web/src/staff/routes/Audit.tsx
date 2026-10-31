@@ -92,12 +92,12 @@ export function FacilityAudit() {
     {page && visible.length > 0 && <Card className="staff-table-wrap"><table className="staff-table">
       <thead><tr><th>Occurred</th><th>Action</th><th>Outcome</th><th>Actor type</th><th>Resource type</th><th>Correlation ID</th></tr></thead>
       <tbody>{visible.map(event => <tr key={event.sequenceId}>
-        <td>{displayTime(event.occurredAt)}</td>
-        <td>{event.action}</td>
-        <td><Badge tone={outcomeTone(event.outcome)}>{event.outcome}</Badge></td>
-        <td>{event.actorType}</td>
-        <td>{event.resourceType ?? 'Not recorded'}</td>
-        <td><code>{event.correlationId}</code></td>
+        <td data-label="Occurred">{displayTime(event.occurredAt)}</td>
+        <td data-label="Action">{event.action}</td>
+        <td data-label="Outcome"><Badge tone={outcomeTone(event.outcome)}>{event.outcome}</Badge></td>
+        <td data-label="Actor type">{event.actorType}</td>
+        <td data-label="Resource type">{event.resourceType ?? 'Not recorded'}</td>
+        <td data-label="Correlation ID"><code>{event.correlationId}</code></td>
       </tr>)}</tbody>
     </table></Card>}
   </>

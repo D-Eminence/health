@@ -31,7 +31,9 @@
   --ehr-tint: #eff6ff;
   --ehr-ink: #101828;
   --ehr-muted: #475467;
-  --ehr-faint: #98a2b3;
+  --ehr-faint: #667085; /* 4.8:1 on white */
+  /* One background (owner, 2026-10-31): shell, header and cards are all --ehr-surface; sunk and tint are hover and
+     pressed fills only. */
   --ehr-surface: #ffffff;
   --ehr-surface-sunk: #f2f4f7;
   --ehr-surface-tint: #f5f7fa;
@@ -64,8 +66,8 @@
   --ehr-tab-current-text: #175cd3;
   --ehr-tab-current-border: #1570ef;
   --ehr-tab-rule: #eaecf0;
-  /* The design's exact values (owner decision), both below WCAG contrast by design: one token each. */
-  --ehr-control-border: #d0d5dd;
+  /* A control's boundary reaches 3:1 on white (WCAG 1.4.11). */
+  --ehr-control-border: #7d8799;
   --ehr-nav-group-text: #667085;
   --ehr-radius-md: 10px;
   --ehr-radius-lg: 12px;
@@ -125,7 +127,7 @@
 .hid-ehr.hid-ehr-shell {
   isolation: isolate;
   min-height: 100vh;
-  background: var(--ehr-surface-tint);
+  background: var(--ehr-surface);
 }
 
 .hid-ehr .hid-ehr-workspace {
@@ -145,7 +147,7 @@
   box-sizing: border-box;
   flex: 1;
   padding: 32px 32px 48px;
-  background: var(--ehr-surface-tint);
+  background: var(--ehr-surface);
 }
 
 .hid-ehr .hid-ehr-main:focus {
@@ -388,7 +390,7 @@
   gap: 12px;
   height: var(--ehr-topbar-height);
   padding: 0 32px;
-  background: color-mix(in srgb, var(--ehr-surface-tint) 86%, transparent);
+  background: color-mix(in srgb, var(--ehr-surface) 86%, transparent);
   -webkit-backdrop-filter: saturate(1.4) blur(12px);
   backdrop-filter: saturate(1.4) blur(12px);
   border-bottom: 1px solid var(--ehr-line);
@@ -428,6 +430,40 @@
 
 .hid-ehr .hid-ehr-page-heading-text {
   min-width: 0;
+}
+
+/* Back sits just before the title, on its line; the arrow's glyph lines up with the content edge. */
+.hid-ehr .hid-ehr-page-title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.hid-ehr .hid-ehr-back-button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-left: -12px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ehr-muted);
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-back-button:hover {
+  background: var(--ehr-surface-sunk);
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-back-button:focus-visible {
+  outline: var(--ehr-focus-ring-width) solid var(--ehr-focus-ring-color);
+  outline-offset: 2px;
 }
 
 .hid-ehr .hid-ehr-page-eyebrow {
@@ -676,7 +712,7 @@
   padding: 20px 22px;
   border: 1px solid var(--ehr-line);
   border-radius: var(--ehr-radius-xl);
-  background: var(--ehr-surface-tint);
+  background: var(--ehr-surface);
 }
 
 .hid-ehr .hid-ehr-stat-label {
@@ -753,8 +789,8 @@
 
 .hid-ehr .hid-ehr-table-header {
   padding: 13px 14px;
-  border-bottom: 1px solid #f0f0f0;
-  background: var(--ehr-surface-tint);
+  border-bottom: 1px solid var(--ehr-line);
+  background: var(--ehr-surface);
   color: var(--ehr-muted);
   font-size: 10px;
   font-weight: 500;
@@ -772,8 +808,33 @@
 
 .hid-ehr .hid-ehr-table-cell {
   padding: 13px 14px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--ehr-line);
   text-align: left;
+}
+
+/*
+ * Rows as cards where the screen is narrow (owner, 2026-10-31): no sideways scrolling. The header row is kept for
+ * assistive technology only; each value shows under its column's name (data-label); each row is one card.
+ */
+@media (max-width: 639px) {
+  .hid-ehr .hid-ehr-table-stack-sm { overflow: visible; }
+  .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table { min-width: 0; }
+  .hid-ehr .hid-ehr-table-stack-sm :is(.hid-ehr-table, .hid-ehr-table-body, .hid-ehr-table-row, .hid-ehr-table-cell) { display: block; }
+  .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-body { display: grid; gap: 8px; }
+  .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-row { padding: 6px 0; border: 1px solid var(--ehr-line); border-radius: var(--ehr-radius-lg); background: var(--ehr-surface); }
+  .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-cell { padding: 6px 14px; border: 0; text-align: left; font-size: 13px; }
+  .hid-ehr .hid-ehr-table-stack-sm .hid-ehr-table-cell[data-label]:not(:first-child)::before { content: attr(data-label); display: block; color: var(--ehr-muted); font-size: 11px; font-weight: 500; }
+}
+@media (max-width: 1023px) {
+  .hid-ehr .hid-ehr-table-stack-lg { overflow: visible; }
+  .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table { min-width: 0; }
+  .hid-ehr .hid-ehr-table-stack-lg :is(.hid-ehr-table, .hid-ehr-table-body, .hid-ehr-table-row, .hid-ehr-table-cell) { display: block; }
+  .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-body { display: grid; gap: 8px; }
+  .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-row { padding: 6px 0; border: 1px solid var(--ehr-line); border-radius: var(--ehr-radius-lg); background: var(--ehr-surface); }
+  .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-cell { padding: 6px 14px; border: 0; text-align: left; font-size: 13px; }
+  .hid-ehr .hid-ehr-table-stack-lg .hid-ehr-table-cell[data-label]:not(:first-child)::before { content: attr(data-label); display: block; color: var(--ehr-muted); font-size: 11px; font-weight: 500; }
 }
 
 .hid-ehr .hid-ehr-table-header.hid-ehr-align-end,
@@ -982,22 +1043,21 @@
 .hid-ehr .hid-ehr-empty-state {
   display: grid;
   justify-items: center;
+  gap: 4px;
   padding: 40px 24px;
-  border: 1px solid var(--ehr-line);
-  border-radius: 16px;
-  background: var(--ehr-surface);
   color: var(--ehr-muted);
   text-align: center;
 }
 
-/* A quiet emblem above the words: what is empty, at a glance. */
+/* A grey line drawing above the words (owner, 2026-10-31): no box, no circle, no colour; it follows the theme's text. */
 .hid-ehr .hid-ehr-empty-state::before {
   content: '';
-  width: 48px;
-  height: 48px;
-  margin-bottom: 14px;
-  border-radius: 14px;
-  background: var(--ehr-tint) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' fill='none' stroke='%23086dd9' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' viewBox='0 0 24 24'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") no-repeat center;
+  width: 120px;
+  height: 96px;
+  margin-bottom: 12px;
+  background-color: var(--ehr-faint);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 96' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cellipse cx='60' cy='86' rx='38' ry='4' fill='black' fill-opacity='.12' stroke='none'/%3E%3Crect x='34' y='18' width='52' height='16' rx='5' stroke-opacity='.45'/%3E%3Crect x='28' y='40' width='64' height='18' rx='5' fill='black' fill-opacity='.07'/%3E%3Crect x='34' y='64' width='52' height='16' rx='5' stroke-opacity='.45'/%3E%3Ccircle cx='40' cy='49' r='4'/%3E%3Cpath d='M50 49h30' stroke-opacity='.55'/%3E%3C/svg%3E") no-repeat center / contain;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 96' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cellipse cx='60' cy='86' rx='38' ry='4' fill='black' fill-opacity='.12' stroke='none'/%3E%3Crect x='34' y='18' width='52' height='16' rx='5' stroke-opacity='.45'/%3E%3Crect x='28' y='40' width='64' height='18' rx='5' fill='black' fill-opacity='.07'/%3E%3Crect x='34' y='64' width='52' height='16' rx='5' stroke-opacity='.45'/%3E%3Ccircle cx='40' cy='49' r='4'/%3E%3Cpath d='M50 49h30' stroke-opacity='.55'/%3E%3C/svg%3E") no-repeat center / contain;
 }
 
 .hid-ehr .hid-ehr-state-title {
@@ -1066,26 +1126,27 @@
 
 .hid-ehr .hid-ehr-sample-banner {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  align-items: baseline;
+  gap: 8px;
   margin: 0 0 20px;
-  padding: 12px 16px;
-  border-left: 4px solid var(--ehr-caution);
-  border-radius: var(--ehr-radius-md);
-  background: var(--ehr-warning-banner-surface);
-  color: var(--ehr-warning-banner-text);
+  padding: 0;
+  color: var(--ehr-muted);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 19px;
 }
 
-.hid-ehr .hid-ehr-sample-banner-mark {
+/* A quiet neutral note (owner, 2026-10-31): a small grey "Sample" tag, then the sentence. No stripe, no dot. */
+.hid-ehr .hid-ehr-sample-banner::before {
+  content: 'Sample';
   flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  margin-top: 6px;
-  border-radius: 50%;
-  background: var(--ehr-caution);
+  padding: 1px 7px;
+  border: 1px solid var(--ehr-line-strong);
+  border-radius: 6px;
+  color: var(--ehr-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
 }
 
 /* ---- Popover ---------------------------------------------------------------- */

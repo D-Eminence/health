@@ -2,7 +2,7 @@ import { useRef, useState, type FormEvent } from 'react'
 import { EmptyState, Field, Input, Select } from '@hid/ui'
 import { CircleCheck, RotateCcw, ShieldCheck } from 'lucide-react'
 import { Alert, Button as KButton, Card as KCard } from '../../kasuwa/ui'
-import { FormPage, Step } from '../../kasuwa/parts'
+import { FormActions, FormPage, Step } from '../../kasuwa/parts'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type AssistedDocumentType, type AssistedVerificationInput } from '../api'
 import { useStaff } from '../App'
@@ -347,7 +347,7 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
       {error && <Alert intent="error" title="That didn’t work">{error}</Alert>}
 
       {/* Kept enabled while it runs, so focus stays on it; a second press does nothing. */}
-      <div><KButton type="submit" variant="primary" icon={ShieldCheck} aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Checking…' : retrying ? 'Check again' : 'Check details'}</KButton></div>
+      <FormActions><KButton type="submit" variant="primary" icon={ShieldCheck} aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Checking…' : retrying ? 'Check again' : 'Check details'}</KButton></FormActions>
     </form>}
   </FormPage>
 }

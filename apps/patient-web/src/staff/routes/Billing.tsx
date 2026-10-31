@@ -158,10 +158,10 @@ export function Billing() {
         : <div className="billing-table-wrap"><table className="billing-table">
           <thead><tr><th scope="col">Invoice</th><th scope="col">Date</th><th scope="col">Amount</th><th scope="col">Status</th></tr></thead>
           <tbody>{invoices.value.map(invoice => <tr key={invoice.id}>
-            <td>{invoice.number}</td>
-            <td>{formatDate(invoice.issuedAt)}</td>
-            <td className="billing-amount">{formatMoney(invoice.amount_minor, invoice.currency)}</td>
-            <td><Badge tone={invoice.status === 'paid' ? 'success' : invoice.status === 'open' ? 'warning' : 'neutral'}>
+            <td data-label="Invoice">{invoice.number}</td>
+            <td data-label="Date">{formatDate(invoice.issuedAt)}</td>
+            <td data-label="Amount" className="billing-amount">{formatMoney(invoice.amount_minor, invoice.currency)}</td>
+            <td data-label="Status"><Badge tone={invoice.status === 'paid' ? 'success' : invoice.status === 'open' ? 'warning' : 'neutral'}>
               {invoice.status === 'paid' ? 'Paid' : invoice.status === 'open' ? 'Open' : 'Void'}</Badge></td>
           </tr>)}</tbody>
         </table></div>)}

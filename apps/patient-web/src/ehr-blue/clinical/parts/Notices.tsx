@@ -1,4 +1,4 @@
-import { EhrButton, EhrPageHeading, EhrSkeleton } from '@hid/ui/ehr'
+import { EhrBackButton, EhrButton, EhrPageHeading, EhrSkeleton } from '@hid/ui/ehr'
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -47,7 +47,7 @@ export function ListHeading({ title, createHref, createLabel = 'New record' }: {
   )
 }
 
-/** A record or create page's heading: its title and "Back to list". */
+/** A record or create page's heading: Back as an arrow just before the title ("Back to list" names it), then the title. */
 export function RecordHeading({ title, backHref, backLabel = 'Back to list' }: { title: ReactNode; backHref: string; backLabel?: string }) {
   const navigate = useNavigate()
   const mark = useRef<HTMLSpanElement>(null)
@@ -63,7 +63,7 @@ export function RecordHeading({ title, backHref, backLabel = 'Back to list' }: {
   return (
     <EhrPageHeading
       title={<span ref={mark}>{title}</span>}
-      primaryAction={<EhrButton variant="secondary" onClick={() => navigate(backHref)}>{backLabel}</EhrButton>}
+      back={<EhrBackButton label={backLabel} onClick={() => navigate(backHref)} />}
     />
   )
 }

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { OutreachCampaign, OutreachCampaignMember, OutreachCase } from '../../../staff/api'
+import type { Tone } from '../../../kasuwa/ui'
 import type { DeptFact } from '../parts/DeptRecord'
 import { dateText } from '../parts/format'
 
@@ -59,7 +60,8 @@ export function ageText(item: OutreachCase) {
 }
 
 export function sexText(item: OutreachCase) {
-  return item.sex ?? 'Not recorded'
+  if (!item.sex) return 'Sex not recorded'
+  return item.sex === 'unknown' ? 'Sex not known' : item.sex.replace(/^./, letter => letter.toUpperCase())
 }
 
 /** The words a list search looks in: what a row shows, and its full references. */
@@ -77,7 +79,7 @@ export function caseFacts(item: OutreachCase, campaign: OutreachCampaign | undef
     { label: 'Full name', value: caseName(item) },
     { label: 'Age', value: ageText(item) },
     { label: 'Sex', value: sexText(item) },
-    { label: 'Status', value: statusWords(item.status) },
+    { label: 'Status', value: statusLabel(item.status) },
     { label: 'Temporary patient ID', value: item.temporaryPatientId ?? 'Not assigned' },
     { label: 'Campaign', value: item.campaignId ? (campaign?.name ?? reference(item.campaignId)) : 'No campaign' },
     { label: 'Created', value: dateText(item.createdAt) },
@@ -152,4 +154,34 @@ export interface FieldErrors<Field extends string> {
   readonly errors: Partial<Record<Field, string>>
   readonly alert?: Field
   readonly seq: number
+}
+
+/** A case's status in plain words, as the cards and record say it: "Waiting to link", "Linked". */
+const STATUS_LABEL: Readonly<Record<string, string>> = {
+  [PENDING]: 'Waiting to link',
+  identity_resolved: 'Linked',
+  resolved: 'Linked',
+  linked_existing: 'Linked',
+  resolved_existing_identity: 'Already on Health ID',
+}
+
+export function statusLabel(status: string) {
+  return STATUS_LABEL[status] ?? statusWords(status).replace(/^./, letter => letter.toUpperCase())
+}
+
+/** A case's tone, with its word always beside it: waiting is amber, linked is green, anything else neutral. */
+export function caseTone(status: string): Tone {
+  if (status === PENDING) return 'warn'
+  return STATUS_LABEL[status] ? 'success' : 'neutral'
+}
+
+/** What happens next on a case, said on its card: the one next step, or that it is done. */
+export function nextStepText(item: OutreachCase, canLink: boolean): string {
+  if (item.status !== PENDING) return 'Done: nothing more to do'
+  return canLink ? 'Next: link their Health ID' : 'Waiting for someone to link their Health ID'
+}
+
+/** A case is waiting while its identity is unresolved; every other status is done here. */
+export function caseWaiting(item: OutreachCase) {
+  return item.status === PENDING
 }

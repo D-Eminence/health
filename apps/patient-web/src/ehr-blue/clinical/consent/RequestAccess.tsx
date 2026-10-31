@@ -2,7 +2,7 @@ import { normalizeHealthIdInput } from '@hid/contracts'
 import { Send } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FormPage } from '../../../kasuwa/parts'
+import { FormActions, FormPage } from '../../../kasuwa/parts'
 import { Alert, Button, Card, Field, Input, Textarea, cx } from '../../../kasuwa/ui'
 import { staffApi } from '../../../staff/api'
 import { failureText } from '../parts/chart'
@@ -101,7 +101,7 @@ export function RequestAccess() {
 
   return (
     <FormPage title="Ask the patient for access" description="They approve on their phone. You see nothing until they do."
-      back={{ to: href(), label: 'Access requests' }}>
+      back={{ to: href(), label: 'Back to access requests' }}>
       <Card>
         <form noValidate className="flex flex-col gap-5 p-5" onSubmit={event => void submit(event)}>
           <Field label="Health ID" htmlFor={`${id}-hid`} hint={HID_FORMAT} hintId={`${id}-hid-hint`} error={errors.hid} errorId={`${id}-hid-error`}>
@@ -137,10 +137,10 @@ export function RequestAccess() {
 
           {formError ? <Alert intent="error" title="Couldn’t send the request">{formError}</Alert> : null}
           {unavailable ? <p id={unavailableId} className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
-          <div className="flex justify-end">
+          <FormActions sticky={false}>
             <Button type="submit" variant="primary" icon={Send} loading={busy} disabled={!facility || unavailable !== null}
               aria-describedby={unavailable ? unavailableId : undefined}>{busy ? 'Sending…' : 'Send request'}</Button>
-          </div>
+          </FormActions>
         </form>
       </Card>
     </FormPage>

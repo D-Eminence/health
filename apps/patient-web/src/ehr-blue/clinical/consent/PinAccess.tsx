@@ -1,7 +1,7 @@
 import { normalizeHealthIdInput } from '@hid/contracts'
 import { KeyRound } from 'lucide-react'
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
-import { FormPage } from '../../../kasuwa/parts'
+import { FormActions, FormPage } from '../../../kasuwa/parts'
 import { Alert, Button, Card, Field, Input } from '../../../kasuwa/ui'
 import { useNavigate } from 'react-router-dom'
 import { staffApi } from '../../../staff/api'
@@ -79,7 +79,7 @@ export function PinAccess() {
   const pinId = `${id}-pin`
   return (
     <FormPage title="Use the patient’s Access PIN" description="Ask the patient to type their PIN. Only they should know it."
-      back={{ to: href(), label: 'Back' }}>
+      back={{ to: href(), label: 'Back to access requests' }}>
       <Card>
         <form noValidate className="flex flex-col gap-5 p-5" onSubmit={event => void submit(event)}>
           <Field label="Health ID" htmlFor={hidId} hint={HID_FORMAT} hintId={`${hidId}-hint`} error={shown('hid')} errorId={`${hidId}-error`}>
@@ -96,10 +96,10 @@ export function PinAccess() {
           </Field>
           {unavailable ? <p id="pin-access-unavailable" className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
           {error ? <Alert intent="error" title="Couldn’t open the record">{error}</Alert> : null}
-          <div className="flex justify-end">
+          <FormActions sticky={false}>
             <Button type="submit" variant="primary" icon={KeyRound} loading={busy} disabled={!facility || unavailable !== null}
               aria-describedby={unavailable ? 'pin-access-unavailable' : undefined}>{busy ? 'Checking…' : 'Check PIN and open'}</Button>
-          </div>
+          </FormActions>
         </form>
       </Card>
     </FormPage>

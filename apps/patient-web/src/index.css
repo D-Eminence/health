@@ -338,7 +338,7 @@
   .patient-identity-card .patient-eyebrow { color: #a7cbf5; }
   .patient-identity-card > strong { font-family: var(--font-mono); font-size: clamp(22px, 3vw, 32px); overflow-wrap: anywhere; }
   .patient-hid { display: grid; gap: 10px; }
-  .patient-hid .patient-hid-code { display: block; padding: 20px 18px; border: 1px dashed var(--color-brand); border-radius: var(--radius-card); background: var(--color-brand-tint); color: var(--color-brand); font-family: var(--font-mono); font-size: clamp(22px, 7vw, 28px); font-weight: 700; letter-spacing: .04em; text-align: center; overflow-wrap: anywhere; user-select: all; }
+  .patient-hid .patient-hid-code { display: block; padding: 20px 18px; border: 1px solid var(--color-brand-border); border-radius: var(--radius-card); background: var(--color-brand-tint); color: var(--color-brand); font-family: var(--font-mono); font-size: clamp(22px, 7vw, 28px); font-weight: 700; letter-spacing: .04em; text-align: center; overflow-wrap: anywhere; user-select: all; }
   /* On the profile and the dashboard the Health ID is plain text in the card's colour; a click copies it. */
   .patient-hid .patient-hid-plain { justify-self: start; padding: 0; border: 0; background: none; color: inherit; font-size: 20px; text-align: left; cursor: copy; }
   .patient-hid .patient-hid-plain:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; border-radius: 4px; }
@@ -644,12 +644,12 @@
   --ehr-text: #cecfd2;
   --ehr-muted: #94969c;
   --ehr-faint: #85888e;
-  --ehr-surface: #161b26;
-  --ehr-surface-sunk: #0c111d;
-  --ehr-surface-tint: #13161b;
-  --ehr-line: #1f242f;
-  --ehr-line-strong: #333741;
-  --ehr-control-border: #333741;
+  --ehr-surface: #000000;
+  --ehr-surface-sunk: #1a1a1a;
+  --ehr-surface-tint: #141414;
+  --ehr-line: #262626;
+  --ehr-line-strong: #3a3a3a;
+  --ehr-control-border: #74747a;
   --ehr-nav-group-text: #94969c;
   --ehr-positive: #47cd89;
   --ehr-caution: #fdb022;
@@ -663,7 +663,7 @@
   --ehr-warning-banner-text: #fdb022;
   --ehr-tab-current-surface: #102a56;
   --ehr-tab-current-text: #84adff;
-  --ehr-tab-rule: #1f242f;
+  --ehr-tab-rule: #262626;
   --ehr-primary-50: #102a56;
   --ehr-primary-100: #133466;
   --ehr-scrim: #000000a6;

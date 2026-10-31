@@ -75,3 +75,51 @@ export function notDispensableText(item: PharmacyWorkItem): string {
     : 'This prescription is no longer active as Pharmacy accepted it, or it could not be checked. A new prescription and '
       + 'handoff are needed.'
 }
+
+/** Which tab of the queue a prescription belongs to: waiting to be dispensed, or handed over. Reversed work is in All. */
+export type PharmacyTab = 'todo' | 'dispensed' | 'all'
+
+export function inTab(tab: PharmacyTab, item: PharmacyWorkItem): boolean {
+  if (tab === 'todo') return !item.dispensing
+  if (tab === 'dispensed') return Boolean(item.dispensing && !item.dispensing.reversed)
+  return true
+}
+
+/**
+ * The order the queue works in: what can be dispensed now first, oldest accepted first (first come, first served), then
+ * what can't be dispensed yet (dose missing, or refused), then what is already done. Pharmacy sends no priority yet
+ * (BACKEND-NEEDS.md), so urgent prescriptions can't be put first.
+ */
+export function queueOrder(items: readonly PharmacyWorkItem[], undispensable: (id: string) => boolean): PharmacyWorkItem[] {
+  const rank = (item: PharmacyWorkItem) => item.dispensing ? 2 : doseMissing(item) || undispensable(item.id) ? 1 : 0
+  const time = (item: PharmacyWorkItem) => Date.parse(item.acceptedAt) || 0
+  return items.map((item, index) => ({ item, index }))
+    .sort((a, b) => rank(a.item) - rank(b.item) || time(a.item) - time(b.item) || a.index - b.index).map(entry => entry.item)
+}
+
+const ROUTE_WORDS: Readonly<Record<string, string>> = {
+  oral: 'by mouth', po: 'by mouth', 'by mouth': 'by mouth', sublingual: 'under the tongue', sl: 'under the tongue',
+  iv: 'into a vein', intravenous: 'into a vein', im: 'into a muscle', intramuscular: 'into a muscle',
+  sc: 'under the skin', subcut: 'under the skin', subcutaneous: 'under the skin', topical: 'on the skin',
+  inhaled: 'by breathing in', inhalation: 'by breathing in', nasal: 'into the nose', rectal: 'into the back passage', pr: 'into the back passage',
+  ophthalmic: 'into the eye', eye: 'into the eye', otic: 'into the ear', ear: 'into the ear', vaginal: 'into the vagina', pv: 'into the vagina',
+}
+
+const VERB: Readonly<Record<string, string>> = { cream: 'Apply', inhaler: 'Inhale', drops: 'Use', injection: 'Give' }
+
+/**
+ * What the label says, in plain words: "Take 1 tablet by mouth twice daily." and the prescriber's instructions. Only
+ * what the prescription says: no part is guessed. Null when the dose or how often is missing (it can't be labelled).
+ */
+export function labelText(item: PharmacyWorkItem, form: string): string | null {
+  if (doseMissing(item)) return null
+  const route = item.routeCode ? ROUTE_WORDS[item.routeCode.trim().toLowerCase()] ?? item.routeCode.trim() : ''
+  const main = [VERB[form] ?? 'Take', doseText(item), route, item.frequency?.trim()].filter(Boolean).join(' ')
+  const extra = item.instructions?.trim()
+  return `${main}.${extra ? ` ${extra.replace(/^./, c => c.toUpperCase())}${/[.!?]$/.test(extra) ? '' : '.'}` : ''}`
+}
+
+/** A status as a dispenser says it, on the badge: work waiting is "To dispense". Never colour alone. */
+export function statusWord(status: PharmacyStatus): string {
+  return status === 'accepted' ? 'To dispense' : status === 'not dispensable' ? 'Not dispensable' : status === 'dispensed' ? 'Dispensed' : 'Reversed'
+}

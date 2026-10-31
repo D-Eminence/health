@@ -101,7 +101,7 @@ export function RequestDetail() {
   // page and its heading stay the same element while the request loads, so the focus the frame gave the heading stays.
   if (!request) {
     if (!list.error && list.requests !== null) return <><RecordNotFound backHref={href()} />{statusRegion}</>
-    return <FormPage title="Access request" back={{ to: href(), label: 'Access requests' }}>
+    return <FormPage title="Access request" back={{ to: href(), label: 'Back to access requests' }}>
       {statusRegion}
       {list.error ? <Alert intent="error" title="Couldn’t load this request" action={<Button size="sm" onClick={() => void list.load()}>Try again</Button>}>{list.error}</Alert>
         : <Card><LoadingRows rows={3} label="Loading this request" /></Card>}
@@ -113,7 +113,7 @@ export function RequestDetail() {
   // Emergency access is offered only while the patient has not given access: waiting, or refused.
   const offerEmergency = emergencyUnavailable === null && (key === 'pending' || key === 'denied')
   return (
-    <FormPage title={`Access request · ${who}`} back={{ to: href(), label: 'Access requests' }}
+    <FormPage title={`Access request · ${who}`} back={{ to: href(), label: 'Back to access requests' }}
       description={<span className="inline-flex flex-wrap items-center gap-2"><OutcomeBadge request={request} /><span>Updated {formatWhen(latest(request))}</span></span>}>
       {ended ? <Alert intent="error" title="Access to this patient ended"
         action={<Button size="sm" to={href.to('patients')}>Find a patient</Button>}>{ACCESS_ENDED}</Alert> : null}

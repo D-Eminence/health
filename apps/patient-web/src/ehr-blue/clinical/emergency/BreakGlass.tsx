@@ -3,6 +3,7 @@ import { Siren } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Alert, Button, Card, Field, Input, Textarea } from '../../../kasuwa/ui'
+import { FormActions } from '../../../kasuwa/parts'
 import { usesNovuBackend } from '../../../backendContract'
 import { isAllowedPatientLookup, staffApi } from '../../../staff/api'
 import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/session'
@@ -170,10 +171,10 @@ export function BreakGlassCard() {
         </div>
         {error ? <Alert intent="error" title="Couldn’t open emergency access">{error}</Alert> : null}
         {unavailable ? <p id={unavailableId} className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
-        <div className="flex justify-end">
+        <FormActions sticky={false}>
           <Button type="submit" variant="destructive" icon={Siren} loading={busy} disabled={!facility || unavailable !== null}
             aria-describedby={unavailable ? unavailableId : undefined}>{busy ? 'Opening…' : 'Open emergency access'}</Button>
-        </div>
+        </FormActions>
       </form>
     </Card>
   )

@@ -65,8 +65,8 @@ body { margin: 0; }
 .staff-module:hover { border-color: var(--color-brand-border); background: var(--color-brand-tint); }
 .staff-error { color: var(--color-critical) !important; font-size: 12px !important; margin: 0; }
 .staff-success { color: var(--color-positive-ink) !important; font-size: 12px !important; margin: 0; }
-.staff-notice { border-left: 2px solid var(--color-brand); padding: 9px 12px; background: var(--color-brand-tint); color: var(--color-ink); font-size: 13px; line-height: 1.45; }
-.staff-danger { border-left-color: var(--color-critical); background: color-mix(in srgb, var(--color-critical) 7%, white); }
+.staff-notice { border: 1px solid var(--color-line); border-radius: var(--radius-control); padding: 9px 12px; background: var(--color-brand-tint); color: var(--color-ink); font-size: 13px; line-height: 1.45; }
+.staff-danger { border-color: color-mix(in srgb, var(--color-critical) 30%, transparent); background: color-mix(in srgb, var(--color-critical) 7%, white); }
 .staff-form { display: grid; gap: 14px; }
 .staff-form-row { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
 .staff-auth-page { min-height: 100svh; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,.8fr); }
@@ -137,7 +137,7 @@ body { margin: 0; }
 .billing-note { max-width: 760px; margin: 20px 0 0; }
 .billing-table-wrap { overflow-x: auto; border: 0.5px solid var(--color-line-strong); border-radius: var(--radius-card); }
 .billing-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.billing-table th { padding: 10px 14px; color: var(--color-muted); font-size: 12px; font-weight: 600; text-align: left; background: var(--color-surface-sunk); }
+.billing-table th { padding: 10px 14px; color: var(--color-muted); font-size: 12px; font-weight: 600; text-align: left; background: var(--color-surface); }
 .billing-table td { padding: 12px 14px; border-top: 0.5px solid var(--color-line-strong); color: var(--color-ink); }
 .billing-amount { font-variant-numeric: tabular-nums; }
 .billing-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin: 0 0 20px; padding: 10px 14px; border-radius: var(--radius-control); font-size: 13px; line-height: 1.45; }
@@ -169,3 +169,14 @@ body { margin: 0; }
 .staff-reported-health dd { margin: 0; }
 .staff-multiline { white-space: pre-line; }
 .staff-share-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
+
+/* Phones: each row is a card, every value under its column's name (owner, 2026-10-31: no sideways scrolling). */
+@media (max-width: 639px) {
+  .staff-table-wrap, .billing-table-wrap { overflow: visible; border: 0; background: none; box-shadow: none; }
+  :is(.staff-table, .billing-table), :is(.staff-table, .billing-table) :is(tbody, tr, td) { display: block; }
+  :is(.staff-table, .billing-table) thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  :is(.staff-table, .billing-table) tbody { display: grid; gap: 8px; }
+  :is(.staff-table, .billing-table) tbody tr { padding: 6px 0; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-surface); }
+  :is(.staff-table, .billing-table) td { padding: 6px 14px; border: 0; }
+  :is(.staff-table, .billing-table) td[data-label]:not(:first-child)::before { content: attr(data-label); display: block; color: var(--color-faint); font-size: 12px; font-weight: 500; }
+}

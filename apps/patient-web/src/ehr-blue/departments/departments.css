@@ -398,23 +398,20 @@
 .hid-ehr .hid-ehr-dept-notice-banner {
   margin: 0 0 18px;
   padding: 16px 20px;
-  border-left: 4px solid var(--ehr-brand);
+  border: 1px solid var(--ehr-line);
   border-radius: 10px;
   background: var(--ehr-tint);
 }
 
 .hid-ehr .hid-ehr-dept-notice-banner.hid-ehr-dept-notice-caution {
-  border-left-color: #94600c;
   background: #fff7e6;
 }
 
 .hid-ehr .hid-ehr-dept-notice-banner.hid-ehr-dept-notice-critical {
-  border-left-color: var(--ehr-critical);
   background: #fff0ee;
 }
 
 .hid-ehr .hid-ehr-dept-notice-banner.hid-ehr-dept-notice-positive {
-  border-left-color: var(--ehr-positive);
   background: var(--ehr-success-50);
 }
 
@@ -455,14 +452,24 @@
 
 /* The sample notice, in the design's warning Banner: on every sample workspace and section, never dismissible. */
 .hid-ehr .hid-ehr-dept-sample-banner {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   margin: 0 0 18px;
-  padding: 16px 20px;
-  border-left: 4px solid #94600c;
-  border-radius: 10px;
-  background: #fff7e6;
-  color: var(--ehr-ink);
-  font-size: 14px;
+  color: var(--ehr-muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.hid-ehr .hid-ehr-dept-sample-banner::before {
+  content: 'Sample';
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border: 1px solid var(--ehr-line-strong);
+  border-radius: 6px;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 16px;
 }
 
 .hid-ehr .hid-ehr-dept-icon {
@@ -520,7 +527,6 @@
 }
 
 .hid-ehr .hid-ehr-dept-embedded .staff-notice {
-  border-left-width: 4px;
   border-radius: var(--ehr-radius-md);
 }
 
@@ -686,30 +692,18 @@
   font-size: 14px;
 }
 
-.hid-ehr .hid-ehr-dept-pharmacy-page-error {
-  margin: 0 0 20px;
-}
-
 /* What a list row's ending form said, and how a routed order ended, under the record or its status. */
 .hid-ehr .hid-ehr-dept-pharmacy-said,
 .hid-ehr .hid-ehr-dept-pharmacy-alert {
   display: block;
-  max-width: 36ch;
-  margin: 4px 0 0;
+  margin: 0;
   color: var(--ehr-danger-text);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .hid-ehr .hid-ehr-dept-pharmacy-said:focus-visible {
   outline: 3px solid var(--ehr-brand);
   outline-offset: 2px;
-}
-
-/* The design's form footer: the submit button, then why it was refused. */
-.hid-ehr .hid-ehr-dept-pharmacy-footer {
-  align-items: center;
-  gap: 12px;
-  margin-top: 4px;
 }
 
 .hid-ehr .hid-ehr-dept-pharmacy-footnote {
@@ -732,26 +726,13 @@
   margin: 8px 0 0;
 }
 
-.hid-ehr .hid-ehr-dept-pharmacy-clear {
-  margin: 0 0 18px;
+/* A button that keeps its focus while a dispensing is sent (aria-disabled), dimmed as a disabled one. */
+.hid-ehr .hid-ehr-dept-pharmacy-busy[aria-disabled='true'] {
+  opacity: 0.7;
+  cursor: progress;
 }
 
-/* The quick view: the record's name, when it was accepted, its fields, then Open full record. */
-.hid-ehr .hid-ehr-dept-pharmacy-quick h3 {
-  margin: 0;
-  color: var(--ehr-ink);
-  font-size: 17px;
-  font-weight: 600;
-}
 
-.hid-ehr .hid-ehr-dept-pharmacy-quick > p {
-  margin: 0 0 12px;
-  color: var(--ehr-ink);
-}
-
-.hid-ehr .hid-ehr-dept-pharmacy-quick > .hid-ehr-button {
-  margin-top: 12px;
-}
 
 /* ---- Migrate ---------------------------------------------------------- */
 
@@ -859,26 +840,9 @@
   font-size: 14px;
 }
 
-/* A form's submit, and what it says beside it. */
-.hid-ehr .hid-ehr-dept-outreach-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
-
 .hid-ehr .hid-ehr-dept-outreach-note {
   color: var(--ehr-muted);
   font-size: 12px;
-}
-
-/* "Clear search" and the record pages, between the search and the table. */
-.hid-ehr .hid-ehr-dept-outreach-list-tools {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 16px;
 }
 
 .hid-ehr .hid-ehr-dept-outreach-pages {
@@ -894,27 +858,6 @@
   cursor: not-allowed;
 }
 
-/* The quick view's record name and time, over its fields. */
-.hid-ehr .hid-ehr-dept-outreach-quick {
-  display: grid;
-  gap: 4px;
-  margin: 0 0 16px;
-}
-
-.hid-ehr .hid-ehr-dept-outreach-quick h3 {
-  margin: 0;
-  color: var(--ehr-ink);
-  font-size: 17px;
-  font-weight: 600;
-}
-
-.hid-ehr .hid-ehr-dept-outreach-quick p {
-  margin: 0;
-}
-
-.hid-ehr .hid-ehr-dept-outreach-quick-open {
-  margin-top: 12px;
-}
 
 /* ---- Staff & access ---------------------------------------------------------- */
 

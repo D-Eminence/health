@@ -1,5 +1,4 @@
 import { isHidApiError } from '@hid/http'
-import { UserSearch } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { SAY } from '../../../copy'
 import { PatientBanner } from '../../../kasuwa/parts'
@@ -193,7 +192,7 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
   }
   if (!chart) {
     return (
-      <EmptyState compact icon={UserSearch} title={CHOOSE_FIRST} description={OPEN_PATIENT_HOW}
+      <EmptyState illustration="patient" title={CHOOSE_FIRST} description={OPEN_PATIENT_HOW}
         action={<Button variant="primary" to={href.to('patients')}>Find a patient</Button>} />
     )
   }

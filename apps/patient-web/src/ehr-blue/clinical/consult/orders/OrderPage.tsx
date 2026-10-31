@@ -1,5 +1,5 @@
 import { isHidApiError } from '@hid/http'
-import { EhrButton, EhrCard, EhrPageHeading } from '@hid/ui/ehr'
+import { EhrBackButton, EhrButton, EhrCard, EhrPageHeading } from '@hid/ui/ehr'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -383,7 +383,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     <>
       <EhrPageHeading
         title={<span id={TITLE_ID} tabIndex={-1}>{title}</span>}
-        primaryAction={<EhrButton variant="secondary" onClick={() => navigate(back)}>Back to consultation</EhrButton>}
+        back={<EhrBackButton label="Back to consultation" onClick={() => navigate(back)} />}
       />
       <DetailMeta status={status || 'unknown'} saved={text(record.updatedAt) || record.createdAt} />
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
@@ -438,5 +438,5 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
 
 function RecordHeadingOnly({ title, back }: { title: string; back: string }) {
   const navigate = useNavigate()
-  return <EhrPageHeading title={title} primaryAction={<EhrButton variant="secondary" onClick={() => navigate(back)}>Back to consultation</EhrButton>} />
+  return <EhrPageHeading title={title} back={<EhrBackButton label="Back to consultation" onClick={() => navigate(back)} />} />
 }

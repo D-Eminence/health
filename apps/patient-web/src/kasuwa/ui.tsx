@@ -5,7 +5,8 @@
  */
 import type { ComponentType, HTMLAttributes, ReactNode, SVGProps } from 'react'
 import { Link } from 'react-router-dom'
-import { CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react'
+import { Illustration, type IllustrationName } from './illustrations'
 
 export const cx = (...c: Array<string | false | null | undefined>) => c.filter(Boolean).join(' ')
 
@@ -118,14 +119,27 @@ export function CardHeader({ title, description, icon, iconTone = 'neutral', act
   </div>
 }
 
-export function PageHeader({ title, description, actions, eyebrow, titleRef }: {
+/** The arrow that goes back, at the top-left just before a page title (owner, 2026-10-31): 44px, named for where it goes. */
+export function BackButton({ to, label, className }: { to: string; label: string; className?: string }) {
+  return <Link to={to} aria-label={label} title={label}
+    className={cx('-ml-2.5 inline-flex size-11 shrink-0 items-center justify-center rounded-full text-ink-2 no-underline transition-colors hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]', className)}>
+    <ArrowLeft className="size-5" aria-hidden />
+  </Link>
+}
+
+export function PageHeader({ title, description, actions, eyebrow, titleRef, back }: {
   title: ReactNode; description?: ReactNode; actions?: ReactNode; eyebrow?: ReactNode; titleRef?: React.Ref<HTMLHeadingElement>
+  /** Where Back goes, and its name: "Back to patients". Drawn as an arrow before the title. */
+  back?: { to: string; label: string }
 }) {
   return <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
     <div className="min-w-0">
-      {eyebrow && <div className="mb-2">{eyebrow}</div>}
-      <h1 ref={titleRef} tabIndex={-1} className="m-0 text-title-1 text-ink outline-none">{title}</h1>
-      {description && <p className="m-0 mt-1 max-w-2xl text-sm text-ink-2">{description}</p>}
+      {eyebrow && <div className={cx('mb-2', back && 'pl-[38px]')}>{eyebrow}</div>}
+      <div className="flex items-center gap-1">
+        {back ? <BackButton to={back.to} label={back.label} /> : null}
+        <h1 ref={titleRef} tabIndex={-1} className="m-0 min-w-0 text-title-1 text-ink outline-none">{title}</h1>
+      </div>
+      {description && <p className={cx('m-0 mt-1 max-w-2xl text-sm text-ink-2', back && 'pl-[38px]')}>{description}</p>}
     </div>
     {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
   </div>
@@ -180,34 +194,54 @@ export function Badge({ tone = 'neutral', icon: I, children, className, solid, s
   </span>
 }
 
-export function EmptyState({ icon, title, description, action, compact }: { icon: Icon; title: ReactNode; description?: ReactNode; action?: ReactNode; compact?: boolean }) {
-  return <div className={cx('flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-line-strong bg-surface/60 text-center', compact ? 'px-4 py-8' : 'px-6 py-14')}>
-    <IconChip icon={icon} size="lg" />
+/** The drawing that stands for an icon a screen already passes, by the icon's name (Lucide sets displayName). */
+function illustrationFor(I: Icon | undefined): IllustrationName {
+  const name = (I as { displayName?: string } | undefined)?.displayName ?? ''
+  if (/Calendar|Clock/.test(name)) return 'calendar'
+  if (/Flask|TestTube|Microscope/.test(name)) return 'flask'
+  if (/Pill|Syringe/.test(name)) return 'pill'
+  if (/Search|Compass/.test(name)) return 'search'
+  if (/Inbox|Bell|Mail|Check|Send/.test(name)) return 'inbox'
+  if (/File|Folder|Clipboard|Book|Notebook|Archive/.test(name)) return 'records'
+  if (/User|Stethoscope|Contact|IdCard|Siren|Heart/.test(name)) return 'patient'
+  return 'generic'
+}
+
+/**
+ * Nothing to show (owner, 2026-10-31): a grey line drawing, the title in ink, one line in ink-3, the action as a normal
+ * button. No box, no dashed border, no circle: it sits in whatever holds it. `illustration` names the drawing; a screen
+ * that passes only `icon` gets the drawing that stands for it.
+ */
+export function EmptyState({ icon, illustration, title, description, action, compact }: {
+  icon?: Icon; illustration?: IllustrationName; title: ReactNode; description?: ReactNode; action?: ReactNode; compact?: boolean
+}) {
+  return <div className={cx('flex flex-col items-center justify-center text-center', compact ? 'gap-3 px-4 py-8' : 'gap-4 px-6 py-14')}>
+    <Illustration name={illustration ?? illustrationFor(icon)} className={compact ? 'h-20 w-[100px]' : undefined} />
     <div>
       <p className="m-0 text-title-3 text-ink">{title}</p>
       {description && <p className="m-0 mx-auto mt-1 max-w-sm text-[13px] text-ink-3">{description}</p>}
     </div>
-    {action}
+    {action ? <div className="mt-1 flex flex-wrap justify-center gap-2">{action}</div> : null}
   </div>
 }
 
 /* ---- Alert (paytrail alert.js): neutral surface, intent colour only on the icon and title. ---- */
 export type Intent = 'success' | 'error' | 'warning' | 'info'
-const INTENTS: Record<Intent, { icon: Icon; text: string; accent: string; role: 'status' | 'alert'; label: string }> = {
-  success: { icon: CircleCheck, text: 'text-intent-success', accent: 'border-l-intent-success', role: 'status', label: 'Success' },
-  error: { icon: CircleAlert, text: 'text-intent-error', accent: 'border-l-intent-error', role: 'alert', label: 'Error' },
-  warning: { icon: TriangleAlert, text: 'text-intent-warning', accent: 'border-l-intent-warning', role: 'alert', label: 'Warning' },
-  info: { icon: Info, text: 'text-intent-info', accent: 'border-l-intent-info', role: 'status', label: 'Info' },
+const INTENTS: Record<Intent, { icon: Icon; text: string; role: 'status' | 'alert'; label: string }> = {
+  success: { icon: CircleCheck, text: 'text-intent-success', role: 'status', label: 'Success' },
+  error: { icon: CircleAlert, text: 'text-intent-error', role: 'alert', label: 'Error' },
+  warning: { icon: TriangleAlert, text: 'text-intent-warning', role: 'alert', label: 'Warning' },
+  info: { icon: Info, text: 'text-intent-info', role: 'status', label: 'Info' },
 }
 
-export function Alert({ intent = 'info', title, children, icon, action, variant = 'surface', size = 'md', live = true, className, id }: {
-  intent?: Intent; title?: ReactNode; children?: ReactNode; icon?: Icon; action?: ReactNode; variant?: 'surface' | 'accent'; size?: 'sm' | 'md'; live?: boolean; className?: string; id?: string
+export function Alert({ intent = 'info', title, children, icon, action, size = 'md', live = true, className, id }: {
+  intent?: Intent; title?: ReactNode; children?: ReactNode; icon?: Icon; action?: ReactNode; /** Kept for callers; both draw the same quiet box (no colour stripe). */ variant?: 'surface' | 'accent'; size?: 'sm' | 'md'; live?: boolean; className?: string; id?: string
 }) {
   const it = INTENTS[intent]
   const I = icon ?? it.icon
   const sm = size === 'sm'
   return <div id={id} role={live ? it.role : 'note'} data-intent={intent} className={cx('flex w-full gap-3 rounded-lg border border-notice-line bg-notice text-left',
-    variant === 'accent' && cx('border-l-2', it.accent), sm ? 'px-3 py-2.5' : 'px-4 py-3.5', className)}>
+    sm ? 'px-3 py-2.5' : 'px-4 py-3.5', className)}>
     <I className={cx('shrink-0', sm ? 'mt-px size-4' : 'mt-0.5 size-[18px]', it.text)} strokeWidth={2} aria-hidden />
     <div className="min-w-0 flex-1">
       <span className="sr-only">{it.label}: </span>

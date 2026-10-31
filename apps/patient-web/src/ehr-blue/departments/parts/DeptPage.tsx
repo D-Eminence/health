@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { EhrButton, EhrPageHeading } from '@hid/ui/ehr'
+import { EhrBackButton, EhrPageHeading } from '@hid/ui/ehr'
 import '../departments.css'
 
 export interface DeptPageProps {
@@ -9,7 +9,7 @@ export interface DeptPageProps {
   readonly description?: ReactNode
   readonly primaryAction?: ReactNode
   readonly secondaryActions?: ReactNode
-  /** A detail or form view's way back to its list: "Back to list" beside the title. */
+  /** A detail or form view's way back to its list: an arrow just before the title, named by `backLabel`. */
   readonly onBack?: () => void
   readonly backLabel?: string
   readonly children?: ReactNode
@@ -23,7 +23,7 @@ export interface DeptPageProps {
  */
 export function DeptPage({ eyebrow, title, description, primaryAction, secondaryActions, onBack, backLabel = 'Back to list',
   children, className }: DeptPageProps) {
-  const back = onBack ? <EhrButton variant="secondary" onClick={onBack}>{backLabel}</EhrButton> : undefined
+  const back = onBack ? <EhrBackButton label={backLabel} onClick={onBack} /> : undefined
   return (
     <div className={['hid-ehr-dept', className].filter(Boolean).join(' ')}>
       {eyebrow ? <p className="hid-ehr-dept-eyebrow">{eyebrow}</p> : null}
@@ -31,8 +31,9 @@ export function DeptPage({ eyebrow, title, description, primaryAction, secondary
         className={eyebrow ? 'hid-ehr-dept-heading-after-eyebrow' : undefined}
         title={title}
         description={description}
-        primaryAction={primaryAction ?? back}
-        secondaryActions={primaryAction !== undefined && back ? <>{secondaryActions}{back}</> : secondaryActions}
+        back={back}
+        primaryAction={primaryAction}
+        secondaryActions={secondaryActions}
       />
       {children}
     </div>

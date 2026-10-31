@@ -149,10 +149,10 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
         <div>
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => camera.current?.click()} disabled={files.length >= MAX_FILES}
-              className="flex h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-line-strong bg-subtle text-[13px] font-medium text-ink hover:border-brand hover:bg-brand-soft disabled:cursor-not-allowed disabled:opacity-50">
+              className="flex h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-line-strong bg-surface text-[13px] font-medium text-ink hover:border-brand hover:bg-brand-soft disabled:cursor-not-allowed disabled:opacity-50">
               <Camera className="size-5 text-brand" aria-hidden />Take a photo</button>
             <button type="button" onClick={() => upload.current?.click()} disabled={files.length >= MAX_FILES}
-              className="flex h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-line-strong bg-subtle text-[13px] font-medium text-ink hover:border-brand hover:bg-brand-soft disabled:cursor-not-allowed disabled:opacity-50">
+              className="flex h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-line-strong bg-surface text-[13px] font-medium text-ink hover:border-brand hover:bg-brand-soft disabled:cursor-not-allowed disabled:opacity-50">
               <Upload className="size-5 text-brand" aria-hidden />Upload a file</button>
           </div>
           <input ref={camera} type="file" accept="image/*" capture="environment" className="sr-only" tabIndex={-1} aria-hidden="true" onChange={e => { add(e.target.files); e.target.value = '' }} />

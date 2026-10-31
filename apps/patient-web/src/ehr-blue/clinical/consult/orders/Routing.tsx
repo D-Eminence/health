@@ -245,8 +245,8 @@ export function SendElsewhere({ kind, context, priority, onSend, onCancel }: {
         reloadAttestation={reload} errors={errors} queryRef={queryRef} attestedRef={attestedRef} />
       {error ? <ErrorBox>{error}</ErrorBox> : null}
       <div className="hid-ehr-clinical-form-footer">
-        <EhrButton type="submit" busy={busy}>{busy ? 'Sending…' : choice.destination ? `Send to ${choice.destination.facilityName}` : 'Send'}</EhrButton>
         <EhrButton variant="secondary" onClick={onCancel}>Cancel</EhrButton>
+        <EhrButton type="submit" busy={busy}>{busy ? 'Sending…' : choice.destination ? `Send to ${choice.destination.facilityName}` : 'Send'}</EhrButton>
       </div>
     </form>
   )

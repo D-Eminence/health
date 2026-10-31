@@ -79,7 +79,7 @@ export function ShareRecords() {
   useDocumentTitle('Share your records · Health ID')
   const probe = useShareProbe()
   if (probe.served === false) return <Navigate to="/access" replace />
-  return <FormPage title="Share your records" back={{ to: '/access', label: WORDS.accessPage }}>
+  return <FormPage title="Share your records" back={{ to: '/access', label: `Back to ${WORDS.accessPage}` }}>
     <PageState what="sharing" loading={probe.served === null && !probe.error} error={probe.error} hasData={false} onRetry={probe.retry} rows={2}>
       {probe.served === true ? <ShareFlow /> : null}
     </PageState>
@@ -202,10 +202,12 @@ function ShareFlow() {
   const alerts = (first: boolean) => first && problemAlert !== null
   const problemKey = (first: boolean) => alerts(first) ? `alert-${problemAlert}` : 'quiet'
   const problemRole = (first: boolean) => alerts(first) ? 'alert' : undefined
-  const frame = (key: string, body: ReactNode, footer?: ReactNode) => <Card key={key} as="div">
+  // The step's buttons, given as [secondary, primary]: a row on the right with the primary rightmost from 640px; on
+  // phones stacked full width, the primary last, held at the bottom of the screen above the tab bar (thumb reach).
+  const frame = (key: string, body: ReactNode, footer?: ReactNode) => <Card key={key} as="div" className={footer ? 'overflow-visible!' : undefined}>
     {number && <Stepper at={number} />}
     <div className="flex flex-col gap-5 p-5">{body}</div>
-    {footer && <div className="flex flex-wrap-reverse items-center justify-between gap-2 border-t border-line bg-subtle px-5 py-3.5">{footer}</div>}
+    {footer && <div data-form-actions="" className="flex flex-col gap-2 rounded-b-xl border-t border-line bg-surface px-5 py-3.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end [&>*]:w-full sm:[&>*]:w-auto max-sm:sticky max-sm:bottom-[calc(64px+env(safe-area-inset-bottom))] max-sm:z-[var(--z-sticky)]">{footer}</div>}
   </Card>
 
   if (step === 'search') {
@@ -259,7 +261,7 @@ function ShareFlow() {
 
   if (step === 'confirm' && provider) return frame('confirm', <form id="share-confirm" onSubmit={event => void share(event)} className="flex flex-col gap-5">
     {heading('Check and share')}
-    <div className="flex items-center gap-3 rounded-xl bg-subtle p-3 ring-1 ring-line">
+    <div className="flex items-center gap-3 rounded-xl p-3 ring-1 ring-line">
       <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-sm font-semibold text-brand-ink">{initials(provider.clinicianName)}</span>
       <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-ink">{provider.clinicianName}, {SHARE_ROLE_LABELS[provider.role]}</span>
         <span className="block text-[13px] text-ink-3">{[provider.facilityName, provider.organizationName].filter(Boolean).join(', ')}</span></span>
@@ -342,7 +344,7 @@ function Radio({ on }: { on: boolean }) {
 /** Where the patient is: three steps, the done ones ticked (goal gradient: the end is in sight). */
 function Stepper({ at }: { at: number }) {
   const steps = ['Who', 'Access', 'Check']
-  return <ol aria-label={`Step ${at} of ${steps.length}`} className="m-0 flex list-none items-center gap-2 border-b border-line bg-subtle px-5 py-3">
+  return <ol aria-label={`Step ${at} of ${steps.length}`} className="m-0 flex list-none items-center gap-2 rounded-t-xl border-b border-line px-5 py-3">
     {steps.map((label, i) => { const n = i + 1, done = n < at, now = n === at
       return <li key={label} aria-current={now ? 'step' : undefined} className="flex min-w-0 flex-1 items-center gap-2">
         <span className={cx('inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold', done ? 'bg-success text-white' : now ? 'bg-brand-fill text-white' : 'bg-surface text-ink-3 ring-1 ring-line-control')}>

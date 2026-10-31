@@ -1,8 +1,10 @@
 import { useState, type FormEvent, type MutableRefObject } from 'react'
-import { EhrButton, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
+import { EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
+import { ArrowLeft } from 'lucide-react'
+import { FormActions, FormPage, Step } from '../../../kasuwa/parts'
+import { Button } from '../../../kasuwa/ui'
 import { staffApi, type OutreachCampaign, type OutreachCase } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
-import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { errorText } from '../parts/errors'
 import {
   AGE_RANGE, AT_LEAST_THREE, COMPLETE_FIELD, controlProps, CREATE_FAILED, ErrorBox, OutreachField, RETRY_NOTE, type FieldErrors,
@@ -24,9 +26,10 @@ const FIELD_ID: Record<CaseField, string> = {
 }
 
 /**
- * The design's create form ("New outreach", "Save record"), on today's registration case
- * request: the same fields, the same checks before sending (CreateRegistrationCaseDto), and
- * the same command for the same case.
+ * "New registration": a person met in the field, registered as a temporary case in three short steps (who they are,
+ * how to reach them, the campaign and notes), on today's registration case request: the same fields, the same checks
+ * before sending (CreateRegistrationCaseDto), and the same command for the same case. The case is then opened, with
+ * its next step: linking it to a verified Health ID patient.
  */
 export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBack, onSending, onCreated }: {
   readonly facilityId: string
@@ -97,52 +100,58 @@ export function OutreachNew({ facilityId, showCampaign, campaigns, attempt, onBa
   const fieldError = (field: CaseField) => problems.errors[field]
   const field = (key: CaseField) => ({ error: fieldError(key), alert: problems.alert === key, seq: problems.seq })
 
+  // Unavailable while the case is sent, so its answer (a refusal to correct, or the case made) is not lost.
+  const back = () => { if (!busy) onBack() }
   return (
-    <DeptPage title="New outreach" primaryAction={(
-      // Unavailable while the case is sent, so its answer (a refusal to correct, or the case made) is not lost.
-      <EhrButton variant="secondary" className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined}
-        onClick={() => { if (!busy) onBack() }}>Back to list</EhrButton>
-    )}>
-      <DeptSection>
-        <form className="hid-ehr-dept-form" noValidate onSubmit={event => void createCase(event)}>
-          <div className="hid-ehr-dept-form-grid">
-            {showCampaign && (
-              <OutreachField id="outreach-case-campaign" label="Campaign" full
-                hint="Only active registration campaigns you belong to are listed. A case can also be saved without one.">
-                <EhrSelect name="campaignId" {...controlProps('outreach-case-campaign', undefined, true)}>
-                  <option value="">No campaign</option>
-                  {campaigns.map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}
-                </EhrSelect>
-              </OutreachField>
-            )}
-            <OutreachField id={FIELD_ID.name} label="Full name" required full {...field('name')}>
-              <EhrInput name="fullName" maxLength={200} required autoComplete="off" {...controlProps(FIELD_ID.name, fieldError('name'))} />
-            </OutreachField>
+    <FormPage title="New registration"
+      description="Register someone you meet in the field. They get a temporary record now, and you link it to their Health ID later."
+      actions={<Button variant="ghost" icon={ArrowLeft} className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={back}>Back to list</Button>}>
+      <form className="flex flex-col gap-4" noValidate onSubmit={event => void createCase(event)}>
+        <p className="m-0 text-caption text-ink-3">Fields marked * are required.</p>
+        <Step n={1} title="Who they are" hint="As they say it. You can correct it when you link their Health ID.">
+          <OutreachField id={FIELD_ID.name} label="Full name" required {...field('name')}>
+            <EhrInput name="fullName" maxLength={200} required autoComplete="off" {...controlProps(FIELD_ID.name, fieldError('name'))} />
+          </OutreachField>
+          <div className="grid gap-4 sm:grid-cols-2">
             <OutreachField id="outreach-case-sex" label="Sex" required>
               <EhrSelect name="sex" required {...controlProps('outreach-case-sex', undefined)}>
-                <option value="unknown">Unknown</option>
+                <option value="unknown">Not known</option>
                 <option value="female">Female</option>
                 <option value="male">Male</option>
                 <option value="other">Other</option>
               </EhrSelect>
             </OutreachField>
-            <OutreachField id={FIELD_ID.age} label="Age (years)" required {...field('age')}>
-              <EhrInput name="ageYears" type="number" min="0" max="130" required {...controlProps(FIELD_ID.age, fieldError('age'))} />
-            </OutreachField>
-            <OutreachField id={FIELD_ID.phone} label="Phone" full {...field('phone')}>
-              <EhrInput name="phone" type="tel" minLength={3} maxLength={32} autoComplete="off" {...controlProps(FIELD_ID.phone, fieldError('phone'))} />
-            </OutreachField>
-            <OutreachField id={FIELD_ID.notes} label="Operational notes" full {...field('notes')}>
-              <EhrTextarea name="operationalNotes" rows={3} minLength={3} maxLength={2000} {...controlProps(FIELD_ID.notes, fieldError('notes'))} />
+            <OutreachField id={FIELD_ID.age} label="Age in years" required hint="A best guess is fine. Under 1 year: enter 0." {...field('age')}>
+              <EhrInput name="ageYears" type="number" inputMode="numeric" min="0" max="130" required {...controlProps(FIELD_ID.age, fieldError('age'), true)} />
             </OutreachField>
           </div>
-          <ErrorBox message={error} />
-          <div className="hid-ehr-dept-outreach-footer">
-            <EhrButton type="submit" busy={busy}>{busy ? 'Saving…' : 'Save record'}</EhrButton>
-            {error ? <small className="hid-ehr-dept-outreach-note">{RETRY_NOTE}</small> : null}
-          </div>
-        </form>
-      </DeptSection>
-    </DeptPage>
+        </Step>
+        <Step n={2} title="How to reach them" hint="Optional. Used to follow up.">
+          <OutreachField id={FIELD_ID.phone} label="Phone number (optional)" hint="With or without +234." {...field('phone')}>
+            <EhrInput name="phone" type="tel" inputMode="tel" minLength={3} maxLength={32} autoComplete="off" {...controlProps(FIELD_ID.phone, fieldError('phone'), true)} />
+          </OutreachField>
+        </Step>
+        <Step n={3} title="Campaign and notes">
+          {showCampaign && (
+            <OutreachField id="outreach-case-campaign" label="Campaign (optional)"
+              hint={campaigns.length ? 'Only active registration campaigns you belong to are listed.' : 'You aren’t in an active registration campaign. You can save without one.'}>
+              <EhrSelect name="campaignId" {...controlProps('outreach-case-campaign', undefined, true)}>
+                <option value="">No campaign</option>
+                {campaigns.map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}
+              </EhrSelect>
+            </OutreachField>
+          )}
+          <OutreachField id={FIELD_ID.notes} label="Notes for the team (optional)" hint="Where you met them, what they need next. Not a clinical note." {...field('notes')}>
+            <EhrTextarea name="operationalNotes" rows={3} minLength={3} maxLength={2000} {...controlProps(FIELD_ID.notes, fieldError('notes'), true)} />
+          </OutreachField>
+        </Step>
+        <ErrorBox message={error} />
+        {error ? <small className="hid-ehr-dept-outreach-note">{RETRY_NOTE}</small> : null}
+        <FormActions>
+          <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={back}>Cancel</Button>
+          <Button type="submit" variant="primary" size="lg" className="hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || undefined}>{busy ? 'Saving…' : 'Save registration'}</Button>
+        </FormActions>
+      </form>
+    </FormPage>
   )
 }

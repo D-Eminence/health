@@ -75,3 +75,43 @@ which no one can match to a sample tube or a person at the counter.
    can be sorted first and badged. The lab queue already does this.
 
 Until then the queue shows the masked reference, and the confirm sheet says "Health ID not sent".
+
+## Pharmacy items need an optional drug image/cover URL, and the fields a fast pick needs
+
+The Pharmacy queue is now a set of large cards that lead with the drug, and opening one gives a picking view (checklist,
+label in plain words, one Dispense button). `GET /api/v1/pharmacy/work-items` (`PharmacyWorkItem`) sends only
+`medication.display`, `doseQuantity`, `doseUnit`, `routeCode`, `frequency` and `instructions`, so the UI has to work out
+the rest from text. What it needs, all optional and additive:
+
+1. **`medication.imageUrl`** (or `coverUrl`): a picture of the pack or product, from the formulary. Until it exists the
+   card draws a plain tile for the form (tablet, capsule, liquid, injection, cream, inhaler, drops), guessed from the
+   name, unit and route (`departments/pharmacy/drugForm.ts`).
+2. **`medication.strength`** and **`medication.doseForm`** as fields: today the strength is split out of the display
+   name ("Amoxicillin 500 mg capsules") and the form guessed from words. A coded form also makes the tile exact.
+3. **`duration`** (for example `{ value: 7, unit: 'day' }`) and **`quantityToDispense`** with its unit: the prescriber's
+   total. Today the card shows only dose and how often; the duration is only there if the prescriber typed it into the
+   instructions, and the dispenser works out and types the quantity themselves.
+4. **`priority`** (already asked above under "Lab and pharmacy queues need…"): the queue sorts oldest first because it
+   can't put urgent prescriptions first.
+5. A dispensing's **`Idempotency-Key` per attempt is generated in `staff/api.ts`**; a key kept per prescription across
+   retries (as Outreach does with `localCommandId`) would make a resend after a lost answer safe. Frontend-side change,
+   noted here so it isn't lost.
+
+## Outreach: what the registration screens can't do yet
+
+The Outreach screens now show registrations as cards with a next step, a three-step "New registration" form, and a case
+view that ends in a done state. These are not in the API (`/api/v1/outreach/registration-cases…`), so the UI says
+"not available yet" or leaves them out:
+
+1. **Follow-up visits** for a registration: no endpoint records a visit, a referral or a follow-up date. The case view
+   shows a "Follow-up visits: not available yet" card. Needed: `POST/GET …/registration-cases/:caseId/visits`.
+2. **Phone and notes back on the case**: `createOutreachCase` sends `phone` and `operationalNotes`, but `OutreachCase`
+   doesn't return them, so the team can't see how to reach the person after saving. Send them (masked phone is fine).
+3. **Link by Health ID, not by internal patient ID**: `link-existing` takes `canonicalPatientId`, which field staff don't
+   have. Accept a Health ID (HID-…) and answer with the matched patient's name and date of birth so the confirm step can
+   show who is being linked.
+4. **Who registered the case** (`createdBy` name) and **where** (campaign site) on each case, for the team list.
+5. **Campaign writes**: the contract lists `POST …/campaigns`, `…/campaigns/:id/status` and `…/campaigns/:id/members`,
+   but `staff/api.ts` has no calls for them and campaign governance isn't decided, so campaigns stay read only.
+6. **Member names**: `GET …/campaigns/:id/members` returns membership IDs only; the campaign view can only show
+   "Membership abc12345". Send the member's display name.

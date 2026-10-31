@@ -15,7 +15,7 @@ export const ehrTokens = {
   ink: '#101828',
   muted: '#475467',
   /** Borders and icons only, never text. */
-  faint: '#98a2b3',
+  faint: '#667085',
   surface: '#ffffff',
   surfaceSunk: '#f2f4f7',
   surfaceTint: '#f5f7fa',
@@ -58,7 +58,7 @@ export const ehrTokens = {
 
   // The design's exact values (owner decision): both are below WCAG contrast, by design.
   /** A control's border, as the design draws it: 1.70:1 on white (WCAG 1.4.11 asks 3:1). */
-  controlBorder: '#d0d5dd',
+  controlBorder: '#7d8799',
   /** Sidebar group headings, as the design draws them: 4.39:1 on surface-tint (WCAG 1.4.3 asks 4.5:1). */
   navGroupText: '#667085',
 

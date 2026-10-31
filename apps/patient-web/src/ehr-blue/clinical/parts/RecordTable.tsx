@@ -28,7 +28,8 @@ export interface RecordRow {
 
 /**
  * The design's record table: Record, Patient / context, Status, Updated, then "Quick view" and "Open →". The quick
- * view is the design's "Record quick view" drawer.
+ * view is the design's "Record quick view" drawer. Below 1024px each row is a card (title and status on the first
+ * line, the context, when it was updated, then its two actions), so nothing scrolls sideways (owner, 2026-10-31).
  */
 export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitle = 'No matching records', emptyMessage, emptyAction, contextHeader = 'Patient / context' }: {
   caption: string
@@ -95,6 +96,7 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
         caption={caption}
         captionHidden
         className="hid-ehr-clinical-list-table"
+        stack="lg"
         columns={columns}
         rows={rows}
         rowKey={row => row.id}

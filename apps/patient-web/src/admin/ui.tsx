@@ -109,10 +109,20 @@ export function Status({ value, text }: { value: string; text?: string }) {
   return <span className="admin-status" data-state={value.toLowerCase()}><Badge size="sm" solid tone={adminTone(value)}>{text ?? label(value)}</Badge></span>
 }
 
+/**
+ * A table on a computer; on phones each row reads as a card, every value under its column's name (owner, 2026-10-31:
+ * no sideways scrolling). Rows are written by each page, so the column names are put on their cells here.
+ */
 export function Table({ headings, children }: { headings: string[]; children: ReactNode }) {
+  const body = useRef<HTMLTableSectionElement>(null)
+  useLayoutEffect(() => {
+    body.current?.querySelectorAll('tr').forEach(row => {
+      Array.from(row.children).forEach((cell, index) => { const name = headings[index]; if (name) cell.setAttribute('data-label', name) })
+    })
+  })
   return <div className="admin-table-scroll"><table className="admin-table">
     <thead><tr>{headings.map(heading => <th key={heading} scope="col">{heading}</th>)}</tr></thead>
-    <tbody>{children}</tbody>
+    <tbody ref={body}>{children}</tbody>
   </table></div>
 }
 

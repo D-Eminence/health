@@ -4,7 +4,8 @@
  * Desktop: a calm sidebar that folds to an icon rail (the owner's references, 2026-10-31): the brand and a fold button,
  * the switcher, places grouped with thin dividers (Hick's law; groups fold), the current place as a soft pill, counts as
  * small ink pills, then the light/dark switch, then the person last with a ⋯ menu that holds Sign out (serial position:
- * the destructive action last and out of the easy path). A sticky header blurs what scrolls under it.
+ * the destructive action last and out of the easy path). One background per mode: sidebar, header and page share the
+ * surface colour and are told apart by hairlines only (owner, 2026-10-31).
  *
  * Phones: a tab bar in thumb reach (two tabs, a raised ➕ when there is something to start, one tab, Menu). Menu is a page
  * of its own (#menu), so the Back button closes it.
@@ -183,7 +184,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
       {group.title && <p className="m-0 px-1 pb-2 text-[13px] font-medium text-ink-3">{group.title}</p>}
       <ul className="m-0 list-none divide-y divide-line overflow-hidden rounded-2xl bg-surface p-0 ring-1 ring-line">
         {group.items.map(item => <li key={item.to}><Link to={item.to} className={row}>
-          <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-subtle text-ink-2"><item.icon className="size-[18px]" aria-hidden /></span>
+          <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-tray text-ink-2"><item.icon className="size-[18px]" aria-hidden /></span>
           <span className="min-w-0 flex-1 truncate">{item.label}</span>
           {item.badge ? badge(item.badge) : null}
           <ChevronRight className="size-4 shrink-0 text-ink-3" aria-hidden /></Link></li>)}
@@ -205,7 +206,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
     </span>{item.label}</>
   const sidebarWidth = rail ? 'w-[76px]' : 'w-[264px]'
 
-  return <div className="min-h-dvh bg-canvas">
+  return <div className="min-h-dvh bg-surface">
     <aside className={cx('fixed inset-y-0 left-0 z-30 hidden border-r border-line bg-surface transition-[width] duration-200 lg:block', sidebarWidth)}>{sidebar}</aside>
     {creating && create && <div className="fixed inset-0 z-[var(--z-drawer)] lg:hidden">
       <div className="absolute inset-0 animate-fade-in bg-[#101828]/45" onClick={() => setCreating(false)} />
@@ -221,7 +222,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
     </div>}
     <div className={cx('transition-[padding] duration-200', rail ? 'lg:pl-[76px]' : 'lg:pl-[264px]')}>
       {/* The header: shown on phones (brand, actions); on a computer only when it carries something. */}
-      <header className={cx('sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-line bg-canvas/85 px-4 backdrop-blur sm:px-6 lg:px-8', !headerStart && !headerActions && 'lg:hidden')}>
+      <header className={cx('sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-line bg-surface px-4 sm:px-6 lg:px-8', !headerStart && !headerActions && 'lg:hidden')}>
         <div className="flex min-w-0 items-center gap-2.5">{headerStart}</div>
         <div className="flex-1" />
         <div className="flex items-center gap-2">{headerActions}</div>
@@ -230,7 +231,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
         ? <main id="main" tabIndex={-1} className="mx-auto w-full max-w-[1200px] px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8 max-lg:pb-28">{menu ? menuPage : children}</main>
         : <div className={cx('mx-auto w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-8 max-lg:pb-28', wide ? 'max-w-[1440px]' : 'max-w-[1200px]')}>{menu ? menuPage : children}</div>}
     </div>
-    <nav aria-label="Quick" className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden print:hidden">
+    <nav aria-label="Quick" className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden print:hidden">
       {/* Four places when there is nothing to start; with ➕ in the middle when there is. */}
       {/* Up to three places, Menu last; ➕ in the middle when there is something to start. */}
       <div className="mx-auto grid max-w-xl items-end" style={{ gridTemplateColumns: `repeat(${Math.min(tabs.length, 3) + 1 + (create ? 1 : 0)}, minmax(0, 1fr))` }}>

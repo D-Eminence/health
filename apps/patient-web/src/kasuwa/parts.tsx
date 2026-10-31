@@ -11,18 +11,19 @@
  * - Value / Flag: a measurement always with its unit, and an abnormal one said in words with an icon, not colour alone.
  */
 import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
-import { ArrowDown, ArrowUp, ChevronLeft, CircleAlert, RotateCcw, TriangleAlert } from 'lucide-react'
+import { ArrowDown, ArrowUp, CircleAlert, RotateCcw, TriangleAlert } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, PageHeader, cx, type Icon, type Tone } from './ui'
 import { Modal } from './interactive'
+import type { IllustrationName } from './illustrations'
 
 export function FormPage({ title, description, back, actions, children, titleRef, wide = false }: {
-  title: ReactNode; description?: ReactNode; back?: { to: string; label: string }; actions?: ReactNode; children: ReactNode
+  title: ReactNode; description?: ReactNode
+  /** Back as an arrow before the title; `label` names where it goes: "Back to patients". */
+  back?: { to: string; label: string }; actions?: ReactNode; children: ReactNode
   titleRef?: React.Ref<HTMLHeadingElement>; wide?: boolean
 }) {
   return <div data-layout="column" className={cx('mx-auto flex w-full flex-col gap-6', wide ? 'max-w-3xl' : 'max-w-2xl')}>
-    {back ? <Link to={back.to} className="inline-flex items-center gap-1 self-start text-[13px] font-medium text-ink-3 no-underline hover:text-ink"><ChevronLeft className="size-4" aria-hidden />{back.label}</Link> : null}
-    <PageHeader title={title} description={description} actions={actions} titleRef={titleRef} />
+    <PageHeader title={title} description={description} actions={actions} titleRef={titleRef} back={back} />
     {children}
   </div>
 }
@@ -35,6 +36,25 @@ export function Step({ n, title, hint, children, done, bodyClassName }: { n: num
     </div>
     <div className={cx('flex flex-col gap-4 p-5', bodyClassName)}>{children}</div>
   </Card>
+}
+
+/**
+ * A form's buttons (Fitts, thumb reach, Jakob): children in the order [secondary…, primary].
+ * - From 640px: one row on the form's right edge, the primary last (rightmost), where the eye ends and people expect it.
+ * - Phones: full-width buttons stacked with the primary last (at the bottom, in thumb reach), held at the bottom of the
+ *   screen above the 64px tab bar (and the safe area) on the page's surface under a hairline, so it is always in reach.
+ * `sticky={false}` for a form that is short or sits inside a card that ends with it.
+ */
+export function FormActions({ children, sticky = true, className, align = 'end' }: {
+  children: ReactNode; sticky?: boolean; className?: string; align?: 'end' | 'start'
+}) {
+  return <div data-form-actions="" className={cx('flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center',
+    align === 'end' ? 'sm:justify-end' : 'sm:justify-start',
+    '[&>*]:w-full sm:[&>*]:w-auto',
+    sticky && 'max-sm:sticky max-sm:bottom-[calc(64px+env(safe-area-inset-bottom))] max-sm:z-[var(--z-sticky)] max-sm:-mx-4 max-sm:border-t max-sm:border-line max-sm:bg-surface max-sm:px-4 max-sm:py-3',
+    className)}>
+    {children}
+  </div>
 }
 
 /** Rows that look like the list they stand in for, while it loads. */
@@ -55,12 +75,12 @@ export function PageState({ loading, error, hasData, onRetry, retryLabel = 'Try 
   loading: boolean; error: string | null | undefined; hasData: boolean; onRetry?: () => void; retryLabel?: string
   /** What is being read, for the error title: "your records". */
   what: string
-  empty?: { icon: Icon; title: string; description?: ReactNode; action?: ReactNode } | null
+  empty?: { icon?: Icon; illustration?: IllustrationName; title: string; description?: ReactNode; action?: ReactNode } | null
   children: ReactNode; rows?: number
 }) {
   if (loading && !hasData) return <LoadingRows rows={rows} label={`Loading ${what}`} />
   if (error) return <Alert intent="error" title={`Couldn’t load ${what}`} action={onRetry ? <Button size="sm" icon={RotateCcw} onClick={onRetry}>{retryLabel}</Button> : undefined}>{error}</Alert>
-  if (empty) return <EmptyState compact icon={empty.icon} title={empty.title} description={empty.description} action={empty.action} />
+  if (empty) return <EmptyState compact icon={empty.icon} illustration={empty.illustration} title={empty.title} description={empty.description} action={empty.action} />
   return <>{children}</>
 }
 
@@ -106,7 +126,7 @@ export function PatientBanner({ name, hid, dateOfBirth, sex, status, sticky = fa
 }) {
   const age = ageOf(dateOfBirth)
   const initials = name.split(/\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase()
-  return <section aria-label={`Patient: ${name}`} className={cx('flex items-center gap-3 rounded-2xl bg-surface ring-1 ring-line shadow-[var(--shadow-xs)] border-l-4 border-l-brand-fill',
+  return <section aria-label={`Patient: ${name}`} className={cx('flex items-center gap-3 rounded-2xl bg-surface ring-1 ring-line',
     compact ? 'px-3 py-2' : 'px-4 py-3', sticky && 'sticky top-16 z-[var(--z-sticky)] lg:top-20')}>
     <span aria-hidden="true" className={cx('inline-flex shrink-0 items-center justify-center rounded-full bg-brand-soft font-semibold text-brand-ink', compact ? 'size-8 text-[12px]' : 'size-10 text-sm')}>{initials}</span>
     <div className="min-w-0 flex-1">

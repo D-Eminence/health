@@ -195,7 +195,7 @@ export function VitalsForm({ mode, visits = [], visitHint, current, groupLabel, 
       </div>
       {children}
       {formError ? <ErrorBox>{formError}</ErrorBox> : null}
-      <div className="hid-ehr-clinical-form-footer">
+      <div className="hid-ehr-clinical-form-footer hid-ehr-clinical-form-footer-sticky">
         <EhrButton type="submit" busy={busy}>{busy ? 'Saving…' : submitLabel}</EhrButton>
       </div>
     </form>

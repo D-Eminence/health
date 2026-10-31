@@ -1,8 +1,8 @@
-import { Activity, ChevronLeft, ChevronRight, FolderOpen, History, ListChecks, LogOut, Send, ShieldCheck, Siren, Stethoscope, UserPlus } from 'lucide-react'
+import { Activity, ChevronRight, FolderOpen, History, ListChecks, LogOut, Send, ShieldCheck, Siren, Stethoscope, UserPlus } from 'lucide-react'
 import { Alert, Badge, Button, Card, CardHeader, IconChip, ListRow, PageHeader } from '../../../kasuwa/ui'
 import { CardFace } from '../../../routes/HealthIdCard'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, READ_ONLY, type Chart } from '../parts/chart'
@@ -56,10 +56,8 @@ function ageOf(dateOfBirth: string | undefined): string {
  * (Open chart), the next steps, and this facility's visits.
  */
 export function PatientPage() {
-  const href = useWorkspaceHref()
   return (
     <div className="flex flex-col gap-5">
-      <Link to={href()} className="inline-flex items-center gap-1 self-start text-[13px] font-medium text-ink-3 no-underline hover:text-ink"><ChevronLeft className="size-4" aria-hidden />Find a patient</Link>
       <ChartGate allowEmergency>{current => <PatientRecord chart={current} />}</ChartGate>
     </div>
   )
@@ -127,7 +125,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
       </div>
 
       <div className="flex min-w-0 flex-col gap-5">
-        <PageHeader title={facts.name} description={about || undefined}
+        <PageHeader title={facts.name} description={about || undefined} back={{ to: href(), label: 'Back to find a patient' }}
           actions={emergency ? <Button variant="primary" icon={Siren} onClick={() => navigate(href.to('emergency', 'summary'))}>Open emergency summary</Button>
             : <Button variant="primary" icon={FolderOpen} onClick={() => navigate(href.to('consult'))}>Open chart</Button>} />
         {/* Read only, said once. */}

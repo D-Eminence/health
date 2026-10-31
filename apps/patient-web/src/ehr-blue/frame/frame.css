@@ -590,7 +590,7 @@
 .hid-ehr .hid-ehr-button.hid-ehr-blue-status-chip {
   min-height: 36px;
   padding: 6px 16px;
-  border-color: #b9d6ef;
+  border-color: var(--ehr-line-strong);
   border-radius: 24px;
   background: var(--ehr-surface);
   color: var(--ehr-muted);
@@ -783,7 +783,7 @@
 .hid-ehr .hid-ehr-blue-callout {
   margin: 0 0 18px;
   padding: 16px 20px;
-  border-left: 4px solid var(--ehr-warning-banner-text);
+  border: 1px solid var(--ehr-line);
   border-radius: 10px;
   background: var(--ehr-warning-banner-surface);
   color: var(--ehr-ink);

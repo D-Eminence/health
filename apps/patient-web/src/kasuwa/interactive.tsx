@@ -22,6 +22,12 @@ function useLayer(open: boolean) {
   return () => openLayers[openLayers.length - 1] === id.current
 }
 
+/**
+ * A dialog's or drawer's buttons, given as [secondary…, primary]: a right-aligned row with the primary rightmost from
+ * 640px; on phones full-width and stacked, the primary last (bottom, in thumb reach). One surface, a hairline above.
+ */
+const FOOTER = 'flex flex-col gap-2 border-t border-line bg-surface px-5 py-3.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end [&>*]:w-full sm:[&>*]:w-auto'
+
 export function Modal({ open, onClose, title, description, children, footer, size = 'md' }: {
   open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; children?: ReactNode; footer?: ReactNode; size?: 'sm' | 'md' | 'lg'
 }) {
@@ -51,7 +57,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
         <button type="button" onClick={onClose} aria-label="Close" className="inline-flex size-11 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-ink-3 hover:bg-hover hover:text-ink sm:size-9"><X className="size-4" /></button>
       </div>
       <div className="overflow-y-auto px-5 py-5">{children}</div>
-      {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-line bg-subtle px-5 py-3.5">{footer}</div>}
+      {footer && <div className={FOOTER}>{footer}</div>}
     </div>
   </div>
 }
@@ -93,7 +99,7 @@ export function Drawer({ open, onClose, title, description, icon, children, foot
         <button type="button" onClick={onClose} aria-label="Close" className="inline-flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-ink-3 hover:bg-hover hover:text-ink sm:size-9"><X className="size-4" /></button>
       </div>
       <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
-      {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-line bg-subtle px-5 py-3.5 pb-[max(14px,env(safe-area-inset-bottom))]">{footer}</div>}
+      {footer && <div className={cx(FOOTER, 'pb-[max(14px,env(safe-area-inset-bottom))]')}>{footer}</div>}
     </div>
   </div>
 }
@@ -153,7 +159,7 @@ export function ThemeToggle({ row = false, className }: { row?: boolean; classNa
   }
   const I = theme === 'dark' ? Sun : Moon
   if (row) return <button type="button" onClick={toggle} className={cx('flex h-11 w-full cursor-pointer items-center gap-3 rounded-lg border-0 bg-transparent px-2 text-left text-[14px] font-medium text-ink hover:bg-hover', className)}>
-    <span className="inline-flex size-8 items-center justify-center rounded-lg bg-subtle"><I className="size-[18px] text-ink-2" /></span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}
+    <span className="inline-flex size-8 items-center justify-center rounded-lg bg-hover"><I className="size-[18px] text-ink-2" /></span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}
   </button>
   return <button type="button" onClick={toggle} aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
     className={cx('inline-flex size-10 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-ink-2 ring-1 ring-line-strong ring-inset hover:bg-hover hover:text-ink', className)}>

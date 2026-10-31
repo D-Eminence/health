@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { EhrButton, EhrEmptyState, EhrSkeleton } from '@hid/ui/ehr'
-import { Flag } from '../../../kasuwa/parts'
+import { EhrButton } from '@hid/ui/ehr'
+import { CircleCheck, Pill, Search } from 'lucide-react'
+import { PageState } from '../../../kasuwa/parts'
+import { Alert, FilterTabs, Input } from '../../../kasuwa/ui'
 import { staffApi, type PharmacyWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
-import { cannotCompleteOffered, holdsReceivePermission, wrongPatientOffered } from '../../../staff/orderRoutes'
+import { cannotCompleteOffered, holdsReceivePermission, routeClosedForWork, wrongPatientOffered } from '../../../staff/orderRoutes'
 import { IncomingOrders } from '../../../staff/routes/IncomingOrders'
 import { LateWrongPatient } from '../../../staff/routes/LateWrongPatient'
 import { CannotCompleteEndings, type CannotCompleteEnding } from '../../../staff/routes/CannotComplete'
@@ -15,8 +17,6 @@ import { useDeptAccess } from '../parts/access'
 import { DeptEmbedded } from '../parts/DeptEmbedded'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage } from '../parts/DeptPage'
-import { DeptSearch } from '../parts/DeptSearch'
-import { QueuePatient, WorkQueue } from '../parts/WorkQueue'
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import {
@@ -24,8 +24,9 @@ import {
   StandaloneWorkNote, useLearnCannotCompleteServed, useLearnLateCorrectionServed, useLearnWrongPatientServed,
   useNotCompletedEndings, useReceiving, useRowSaid, WORK_LIST_CAP, WorkListCap, type Said,
 } from '../parts/routedWork'
+import { PharmacyCard, PharmacyCards } from './PharmacyQueue'
 import { PharmacyRecord } from './PharmacyRecord'
-import { DOSE_MISSING, doseLine, doseMissing, matchesItem, queueTone, routeAlert, statusOf } from './pharmacyText'
+import { doseMissing, inTab, matchesItem, queueOrder, queueTone, routeAlert, statusOf, type PharmacyTab } from './pharmacyText'
 
 const LOAD_FAILED = 'Prescriptions could not be loaded. Please retry.'
 /** The design's list shows 50 records a page. */
@@ -69,6 +70,8 @@ export function Pharmacy() {
   const navigate = useNavigate()
   const location = useLocation()
   const [search, setSearch] = useState('')
+  // The queue opens on what is waiting: the work of the counter.
+  const [tab, setTab] = useState<PharmacyTab>('todo')
   const [page, setPage] = useState(0)
   // A dispensing or reversal being sent from the open record: Back to list waits for its outcome.
   const [recording, setRecording] = useState(false)
@@ -146,23 +149,43 @@ export function Pharmacy() {
     void read.refresh()
   }
 
-  const rows = visible ?? []
-  const matching = rows.filter(item => matchesItem(search, item, statusOf(item, notDispensable(item.id))))
+  const routeClosed = (item: PharmacyWorkItem) => routeClosedForWork(item.orderRoute)
+  const rows = queueOrder(visible ?? [], notDispensable)
+  const counts = { todo: rows.filter(item => inTab('todo', item)).length, dispensed: rows.filter(item => inTab('dispensed', item)).length, all: rows.length }
+  const matching = rows.filter(item => inTab(tab, item) && matchesItem(search, item, statusOf(item, notDispensable(item.id))))
   const pages = Math.max(1, Math.ceil(matching.length / PAGE_SIZE))
   const current = Math.min(page, pages - 1)
   const shownRows = matching.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE)
   const listed = rows.length > 0
+  // The next prescription waiting, after the one open: "Next prescription" on the done state keeps the counter moving.
+  const nextItem = selected ? rows.find(item => item.id !== selected.id && inTab('todo', item) && !doseMissing(item)
+    && !notDispensable(item.id) && !routeClosed(item)) ?? null : null
+  function openNext() {
+    if (!nextItem) return
+    // In place of the record just done, keeping how it was reached, so Back to list still returns to the list.
+    setParams(previous => {
+      const next = new URLSearchParams(previous)
+      next.set(RX_PARAM, nextItem.id)
+      return next
+    }, { replace: true, state: location.state })
+    focus(`pharmacy-${nextItem.id}-title`)
+  }
   const refresh = <RefreshButton loading={read.loading} onRefresh={read.refresh}>Refresh</RefreshButton>
+  const emptyTab = tab === 'todo'
+    ? { icon: CircleCheck, title: 'Nothing waiting to dispense', description: 'New prescriptions show here as soon as Pharmacy accepts them.' }
+    : tab === 'dispensed' ? { icon: Pill, title: 'Nothing dispensed yet', description: 'Prescriptions you dispense move here.' }
+      : { icon: Pill, title: 'No prescriptions yet', description: 'Prescriptions show here once they are accepted.' }
   return (
     <DeptPage title={selected ? <span id={`pharmacy-${selected.id}-title`} tabIndex={-1}>{selected.medication.display}</span>
       : <span id={HEADING} tabIndex={-1}>Pharmacy</span>}
       primaryAction={selected ? <EhrButton variant="secondary" aria-disabled={recording || undefined} onClick={back}>Back to list</EhrButton>
         : undefined} secondaryActions={refresh}>
-      {read.error && <div className="hid-ehr-dept-pharmacy-error hid-ehr-dept-pharmacy-page-error" role="alert">{read.error}</div>}
+      {read.error && (listed || selected) && <Alert intent="error" title="Couldn’t refresh prescriptions"
+        action={<EhrButton variant="secondary" size="sm" onClick={() => void read.refresh()}>Try again</EhrButton>}>{read.error} What is shown may be out of date.</Alert>}
       <SaidAboveTheList service="pharmacy" said={ended} facilityId={here} onClose={() => setEnded(null)} />
       {notCompleted.endings.length > 0 && <DeptEmbedded><CannotCompleteEndings service="pharmacy" endings={notCompleted.endings}
         onClose={notCompleted.close} /></DeptEmbedded>}
-      <div hidden={selected !== null}>
+      <div hidden={selected !== null} className="flex flex-col gap-4">
         <StandaloneWorkNote facility={facility} kind="pharmacy" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
         {mounted && facility && <DeptEmbedded><IncomingOrders service="pharmacy" facilityId={here} facilityName={facility.name}
           probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
@@ -176,51 +199,55 @@ export function Pharmacy() {
           dispensed, but it stays listed and counts toward these {WORK_LIST_CAP}.</DeptNotice>
           {cannotServed === true && lateCorrection && <DeptNotice>{CAP_CANNOT_COMPLETE}</DeptNotice>}</WorkListCap>
         <SaidAboveList id="pharmacy-said" text={said.listSaid} />
-        <DeptSearch label="Search Pharmacy" value={search} onChange={value => { setSearch(value); setPage(0) }}
-          filters={search ? <div className="hid-ehr-dept-pharmacy-clear"><EhrButton variant="secondary" onClick={() => { setSearch(''); setPage(0) }}>
-            Clear search</EhrButton></div> : undefined}>
-          {matching.length > PAGE_SIZE && <nav className="hid-ehr-dept-toolbar" aria-label="Record pages">
-            <EhrButton variant="secondary" size="sm" aria-disabled={current === 0 || undefined}
-              onClick={() => { if (current > 0) setPage(current - 1) }}>Previous page</EhrButton>
-            <span className="hid-ehr-dept-toolbar-note">Page {current + 1} of {pages}</span>
-            <EhrButton variant="secondary" size="sm" aria-disabled={current + 1 >= pages || undefined}
-              onClick={() => { if (current + 1 < pages) setPage(current + 1) }}>Next page</EhrButton>
-          </nav>}
-          {read.loading && !listed ? <EhrSkeleton label="Loading prescriptions" />
-            : listed && matching.length > 0 ? <WorkQueue label="Prescriptions" titleHeader="Medicine" priority={false} rows={shownRows.map(item => {
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <FilterTabs label="Show prescriptions" value={tab} onChange={value => { setTab(value); setPage(0) }} options={[
+            { value: 'todo', label: 'To dispense', count: counts.todo },
+            { value: 'dispensed', label: 'Dispensed', count: counts.dispensed },
+            { value: 'all', label: 'All', count: counts.all },
+          ]} />
+          <div className="flex min-w-0 items-center gap-2 sm:w-80">
+            <label htmlFor="pharmacy-search" className="sr-only">Search Pharmacy</label>
+            <Input id="pharmacy-search" type="search" icon={Search} className="min-w-0 flex-1" value={search} autoComplete="off"
+              placeholder="Search by drug or patient" onChange={event => { setSearch(event.target.value); setPage(0) }} />
+            {search ? <EhrButton variant="secondary" onClick={() => { setSearch(''); setPage(0); focus('pharmacy-search') }}>Clear search</EhrButton> : null}
+          </div>
+        </div>
+        {matching.length > PAGE_SIZE && <nav className="hid-ehr-dept-toolbar" aria-label="Record pages">
+          <EhrButton variant="secondary" size="sm" aria-disabled={current === 0 || undefined}
+            onClick={() => { if (current > 0) setPage(current - 1) }}>Previous page</EhrButton>
+          <span className="hid-ehr-dept-toolbar-note">Page {current + 1} of {pages}</span>
+          <EhrButton variant="secondary" size="sm" aria-disabled={current + 1 >= pages || undefined}
+            onClick={() => { if (current + 1 < pages) setPage(current + 1) }}>Next page</EhrButton>
+        </nav>}
+        <PageState loading={read.loading} error={listed ? null : read.error || null} hasData={listed} onRetry={() => void read.refresh()}
+          what="prescriptions" rows={3}
+          empty={!listed ? emptyTab : matching.length === 0 ? (search
+            ? { icon: Search, title: 'No matching prescriptions', description: 'Check the spelling, or search by another drug or patient name.' }
+            : emptyTab) : null}>
+          <PharmacyCards label="Prescriptions">
+            {shownRows.map(item => {
               const status = statusOf(item, notDispensable(item.id))
               const text = selected ? null : said.rowSaid(item.orderRoute?.id)
               const alert = routeAlert(item.orderRoute, late)
-              const missing = !item.dispensing && doseMissing(item)
-              return {
-                id: item.id,
-                buttonId: `pharmacy-${item.id}-name`,
-                title: item.medication.display,
-                detail: doseLine(item),
-                // The name and date of birth to hand the medicine to the right person, when Pharmacy sends them.
-                patient: <QueuePatient patient={item.patient} fallback={patientLabel(item)} />,
-                status,
-                statusTone: queueTone(status),
-                flag: missing ? <span className="inline-flex items-center gap-1"><Flag level="abnormal" /><span className="text-[12px] font-medium text-warn-ink">{DOSE_MISSING}</span></span> : null,
-                when: dateText(item.acceptedAt),
-                onOpen: () => open(item),
-                below: item.orderRoute || alert ? <>
+              return <PharmacyCard key={item.id} item={item} buttonId={`pharmacy-${item.id}-name`} status={status} tone={queueTone(status)}
+                missing={!item.dispensing && doseMissing(item)} patientFallback={patientLabel(item)} when={dateText(item.acceptedAt)}
+                onOpen={() => open(item)}
+                below={item.orderRoute || alert ? <>
                   {text && item.orderRoute && <p id={`pharmacy-${item.id}-said`} className="hid-ehr-dept-pharmacy-said" role="alert" tabIndex={-1}>{text}</p>}
                   {item.orderRoute && <small className="hid-ehr-dept-reference">From {item.orderRoute.orderingFacilityName ?? 'the ordering facility'}</small>}
                   {alert && <small className="hid-ehr-dept-pharmacy-alert">{alert}</small>}
-                </> : undefined,
-              }
-            })} />
-              : listed ? <EhrEmptyState title="No matching prescriptions" message="Change your search." />
-                : !read.error ? <EhrEmptyState title="No prescriptions yet" message="Prescriptions show here once they are accepted." /> : null}
-        </DeptSearch>
+                </> : undefined} />
+            })}
+          </PharmacyCards>
+        </PageState>
       </div>
       {selected && <PharmacyRecord key={selected.id} facilityId={here} item={selected} permissions={permissions}
         undispensable={notDispensable(selected.id)}
         onUndispensable={() => setUndispensable(current => ({ facilityId: here,
           ids: new Set(current.facilityId === here ? current.ids : []).add(selected.id) }))}
         said={said.rowSaid(selected.orderRoute?.id)} holds={holds} crossFacilityWork={read.value?.crossFacilityWork}
-        onChanged={read.refresh} onBusy={setRecording} onEnded={endedHere} onNotCompleted={notCompletedHere} onReread={said.reread} />}
+        onChanged={read.refresh} onBusy={setRecording} onEnded={endedHere} onNotCompleted={notCompletedHere} onReread={said.reread}
+        next={nextItem ? nextItem.medication.display : null} onNext={openNext} onBack={back} />}
     </DeptPage>
   )
 }

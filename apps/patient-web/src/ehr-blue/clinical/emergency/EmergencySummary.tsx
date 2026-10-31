@@ -304,7 +304,7 @@ export function EmergencySummaryPage() {
   }, [closed])
 
   return (
-    <FormPage title="Emergency summary" back={{ to: href(), label: 'Emergency access' }} wide>
+    <FormPage title="Emergency summary" back={{ to: href(), label: 'Back to emergency access' }} wide>
       <div role="status" className="empty:hidden">
         {closed ? <p ref={said} tabIndex={-1} className="m-0 rounded-lg bg-subtle px-4 py-3 text-sm text-ink outline-none">{ACCESS_CLOSED}</p> : null}
       </div>

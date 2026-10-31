@@ -184,9 +184,10 @@ export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 
       </div>
       {children}
       {formError ? <ErrorBox>{formError}</ErrorBox> : null}
-      <div className="hid-ehr-clinical-form-footer">
-        <EhrButton type="submit" variant={submitVariant} busy={busy} disabled={disabled}>{busy ? busyLabel : submitLabel}</EhrButton>
+      {/* [secondary…, primary]: the primary rightmost on a computer, last (bottom, in thumb reach) on a phone. */}
+      <div className="hid-ehr-clinical-form-footer hid-ehr-clinical-form-footer-sticky">
         {footer}
+        <EhrButton type="submit" variant={submitVariant} busy={busy} disabled={disabled}>{busy ? busyLabel : submitLabel}</EhrButton>
       </div>
     </form>
   )
