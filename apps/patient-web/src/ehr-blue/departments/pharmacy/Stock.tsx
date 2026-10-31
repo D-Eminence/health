@@ -57,15 +57,14 @@ function StockList() {
   const [openId, setOpenId] = useState<string | null>(null)
   const lines = read.data?.items ?? []
   const opened = lines.find(line => line.catalogueItemId === openId) ?? null
-  const back = { to: '/provider/pharmacy', label: 'Back to pharmacy' }
 
   if (!facilityId || !canRead) return <div className="flex flex-col gap-6">
-    <PageHeader title="Stock" back={back} />
+    <PageHeader title="Stock" />
     <Alert intent="info" title="You can’t see stock here">Your role needs permission to see the pharmacy’s stock.</Alert>
   </div>
 
   return <div className="flex flex-col gap-5">
-    <PageHeader title="Stock" back={back} description="What is on the shelf, by item. Tap an item for its batches."
+    <PageHeader title="Stock" description="What is on the shelf, by item. Tap an item for its batches."
       actions={canManage ? <Button variant="primary" icon={PackagePlus} to="/provider/pharmacy/stock/receive">Receive stock</Button> : undefined} />
     {/* Stock that answers 404 shows the normal empty state. */}
     <>

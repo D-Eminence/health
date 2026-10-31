@@ -1,329 +1,237 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { EhrButton, EhrEmptyState, EhrSkeleton } from '@hid/ui/ehr'
-import { staffApi, type LabAccession, type LabWorkItem } from '../../../staff/api'
+import { Clock, FlaskConical, Plus, RotateCcw, Search } from 'lucide-react'
+import { PageState } from '../../../kasuwa/parts'
+import { Badge, Button, Card, EmptyState, FilterTabs, Input, PageHeader } from '../../../kasuwa/ui'
+import { staffApi, type LabWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
-import {
-  cannotCompleteOffered, holdsReceivePermission, licenceLine, routeClosedForWork, sampleCheckText, wrongPatientOffered,
-} from '../../../staff/orderRoutes'
+import { cannotCompleteOffered, holdsReceivePermission, wrongPatientOffered } from '../../../staff/orderRoutes'
 import { IncomingOrders } from '../../../staff/routes/IncomingOrders'
 import { LateWrongPatient } from '../../../staff/routes/LateWrongPatient'
-import { CannotCompleteEndings, OrderEndingActions, type CannotCompleteEnding, type OrderEndingMode } from '../../../staff/routes/CannotComplete'
+import { CannotCompleteEndings, type CannotCompleteEnding } from '../../../staff/routes/CannotComplete'
 import type { WrongPatientEnding } from '../../../staff/routes/WrongPatient'
 import { useLateCorrectionServed } from '../../../lateCorrectionServed'
 import { useCannotCompleteServed } from '../../../cannotCompleteServed'
+import type { PaymentSettings } from '../commerce/api'
+import { BillBadge } from '../commerce/BillBadge'
 import { useDeptAccess } from '../parts/access'
 import { DeptEmbedded } from '../parts/DeptEmbedded'
 import { DeptNotice } from '../parts/DeptNotice'
-import { DeptPage, DeptSection, DeptUnavailable } from '../parts/DeptPage'
-import { DeptContextLine, DeptFacts, DeptRecordLayout, type DeptFact } from '../parts/DeptRecord'
-import { DeptSearch } from '../parts/DeptSearch'
-import { birthDateText, dateText, matchesSearch } from '../parts/format'
-import { QueuePatient, statusTitle, urgentFirst, WorkQueue } from '../parts/WorkQueue'
+import { matchesSearch } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import {
-  CAP_CANNOT_COMPLETE, patientLabel, RefreshButton, RoutedWorkLines, RoutedWorkPaused, SaidAboveList, SaidAboveTheList,
-  StandaloneWorkNote, useLearnCannotCompleteServed, useLearnLateCorrectionServed, useLearnWrongPatientServed, useNotCompletedEndings,
-  useReceiving, useRowSaid, WorkListCap, type Said,
+  CAP_CANNOT_COMPLETE, RoutedWorkLines, RoutedWorkPaused, SaidAboveList, SaidAboveTheList, StandaloneWorkNote, useLearnCannotCompleteServed,
+  useLearnLateCorrectionServed, useLearnWrongPatientServed, useNotCompletedEndings, useReceiving, useRowSaid, WorkListCap, type Said,
 } from '../parts/routedWork'
-import { PatientBanner } from '../../../kasuwa/parts'
-import { AccessionForm, AccessionView, type LabSubject } from './accession'
-import { LabActionButton, LabActions, statusWord } from './labParts'
-import { Plus } from 'lucide-react'
-import { Button } from '../../../kasuwa/ui'
-import type { PaymentSettings, WorkItemBill } from '../commerce/api'
-import { BillBadge } from '../commerce/BillBadge'
-import { PaidLine, PaymentStep, usePaymentSettings } from '../pharmacy/pointOfCare'
-import { billOf, billOwing, outsideOf, paysFirst } from '../pharmacy/pocFields'
+import { usePaymentSettings } from '../pharmacy/pointOfCare'
+import { billOf, billOwing, paysFirst } from '../pharmacy/pocFields'
+import { LabRequest } from './LabRequest'
+import {
+  ageSex, byUrgencyThenWait, factsOfItem, nextAction, personOf, requestOf, stageOf, STAGE_LABEL, STAGES, waitedText, type LabStage,
+} from './stage'
 
-/** The open work's id in the address (`?work=`), so Back and a refresh keep the place. */
-const WORK_PARAM = 'work'
+/** The work list's address; a request opens below it (`/work/:id`), so Back and a refresh keep the place. */
+export const WORK_HREF = '/provider/laboratory/work'
+const STAGE_PARAM = 'stage'
 
-/*
- * Laboratory in the blue Hospital EHR: the queue (search, then the lab work, stat and urgent first, each row opening it) and
- * record view (Saved record, Available actions, then the accession's samples and results). What the page reads, writes
- * and refuses is today's Laboratory page's (staff/routes/Operations.tsx Laboratory): its work list, orders from other
- * facilities, the wrong-patient and can't-complete endings, the late correction, the accession and every step on it.
- */
+const isStage = (value: string | null): value is LabStage => value !== null && (STAGES as readonly string[]).includes(value)
 
-/** A work item's name, as its row and record show it. */
-function workTitle(item: LabWorkItem) {
-  return item.testName ?? 'Lab test'
+/** The request open in the address, if any. */
+function openId(pathname: string): string | null {
+  const match = /\/laboratory\/work\/([^/]+)\/?$/.exec(pathname)
+  return match ? decodeURIComponent(match[1]!) : null
 }
 
-/** A work item's status in the target's words: accessioned once it has an accession, else Lab's own status. */
-function workStatus(item: LabWorkItem) {
-  return item.accessionId ? 'accessioned' : statusWord(item.status)
+/** Work items asked for together (one walk-in request) and at the same stage: one card. */
+interface Group { readonly key: string; readonly items: readonly LabWorkItem[]; readonly stage: LabStage }
+
+function groupsOf(items: readonly LabWorkItem[]): Group[] {
+  const groups = new Map<string, { items: LabWorkItem[]; stage: LabStage }>()
+  for (const item of items) {
+    const stage = stageOf(item)
+    const key = `${requestOf(item)?.id ?? item.id}:${stage}`
+    const group = groups.get(key)
+    if (group) group.items.push(item)
+    else groups.set(key, { items: [item], stage })
+  }
+  return [...groups].map(([key, group]) => ({ key, ...group }))
 }
 
 /**
- * Who the work is for, for the confirm before a save: the name, date of birth and sex when Lab sends them (work from
- * another facility), else the masked reference Lab sends for this facility's own work.
+ * The lab's work list (laboratory/work): every request by stage (Waiting for sample → Testing → Enter results → Check &
+ * release → Done), urgent first, then the longest waiting; each card the one next thing to do. A request opens below
+ * the list (laboratory/work/:id) while the list stays mounted, so orders waiting here and a lookup in progress keep
+ * their place. Orders from other facilities keep everything today's Laboratory page does with them: Incoming, the
+ * wrong-patient and can't-complete endings and the late correction (staff/routes, unchanged).
  */
-function subjectOf(item: LabWorkItem): LabSubject {
-  const patient = item.patient
-  const name = patient?.fullName ?? patientLabel(item)
-  const hid = patient?.healthIdLast4 ? `Health ID ending ${patient.healthIdLast4}` : 'Health ID not sent'
-  return { name, banner: <PatientBanner compact name={name} hid={hid} dateOfBirth={patient?.dateOfBirth} sex={patient?.sex} /> }
-}
-
-/** What is known of a work item, for its record. */
-function workFacts(item: LabWorkItem): DeptFact[] {
-  const route = item.orderRoute
-  return [
-    { label: 'Test', value: workTitle(item) },
-    { label: 'Patient', value: patientLabel(item) },
-    ...(item.patient?.dateOfBirth ? [{ label: 'Date of birth', value: birthDateText(item.patient.dateOfBirth) }] : []),
-    ...(item.priority ? [{ label: 'Priority', value: statusTitle(item.priority) }] : []),
-    { label: 'Accepted', value: dateText(item.acceptedAt) },
-    ...(route ? [{ label: 'Ordering facility', value: route.orderingFacilityName ?? 'Not available' }] : []),
-    ...(route?.reference ? [{ label: 'Reference', value: route.reference }] : []),
-    ...(route?.ordererName ? [{ label: 'Ordered by', value: route.ordererName
-      + (route.ordererLicence ? ` · ${licenceLine(route.ordererLicence.body, route.ordererLicence.number)}` : '') }] : []),
-    { label: 'Accession', value: item.accessionNumber ?? 'Not created yet' },
-    { label: 'Status', value: statusTitle(workStatus(item)) },
-  ]
-}
-
 export function Laboratory() {
   const { facilityId, permissions, facility } = useDeptAccess()
   const canRead = permissions.includes('lab.work-item.read')
   const read = useFacilityRead(facilityId, canRead, useCallback((id: string) => staffApi.labWorkItems(id), []))
   const list = { ...read, items: read.value ? read.value.items : null }
-  // The open work lives in the address (`?work=`), so Back and a refresh keep the place. What a create added to it (its
-  // accession, and the line saying so) is held here, for that work only.
+  const location = useLocation()
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
-  const workId = params.get(WORK_PARAM)
-  const [selection, setSelection] = useState<{ facilityId: string; item: LabWorkItem; created?: string } | null>(null)
-  const chosen = workId ? list.items?.find(item => item.id === workId)
-    ?? (selection?.item.id === workId && list.items === null ? selection.item : null) ?? null : null
-  const extra = selection && selection.facilityId === facilityId && selection.item.id === workId ? selection : null
-  // The chosen work, only while the list still holds it: work that has left the list (an order ended, here or elsewhere)
-  // never shows its accession or its patient again, even once other work is listed.
-  const selected = chosen ? { ...chosen, accessionId: extra?.item.accessionId || chosen.accessionId, accessionNumber: extra?.item.accessionNumber || chosen.accessionNumber } : null
-  // The chosen work as the list now has it: its order may have ended since it was chosen.
-  const current = selected
-  const selectedRoute = current?.orderRoute
-  // Opening a record, going back, or creating an accession moves focus to where the work continues.
+  const workId = openId(location.pathname)
+  const chosen = workId ? list.items?.find(item => item.id === workId) ?? null : null
   const focus = useFocusById()
-  // Orders other facilities send here: received by laboratory scientists (lab.order-route.receive), and only at a
-  // laboratory: a hospital's or clinic's own laboratory is never sent any (useReceiving).
   const { mounted, probe, watch, holds, receives, onFound, onAnswer } = useReceiving(facility, 'lab', read)
   useLearnWrongPatientServed(list.items)
   useLearnLateCorrectionServed(read.value)
   useLearnCannotCompleteServed(read.value)
-  // "Correct an order that has ended": for a member who receives lab requests from other facilities, once the backend
-  // serves it; a laboratory that no longer receives may still hold past orders.
   const lateCorrection = useLateCorrectionServed() === true && holdsReceivePermission(facility, 'lab')
   const cannotServed = useCannotCompleteServed()
-  // An order ended as accepted for the wrong person, or an ended one withdrawn: said until closed; the list is read again.
   const [ended, setEnded] = useState<Said | null>(null)
-  // Orders ended because this laboratory couldn't complete them: one entry each, newest first, until closed.
   const notCompleted = useNotCompletedEndings(facilityId)
   const said = useRowSaid('lab', read.value, list.refresh, (mode, route) => mode === 'wrong_patient'
     ? wrongPatientOffered(route, permissions, 'lab') : cannotCompleteOffered(route, permissions, 'lab', cannotServed))
   const [search, setSearch] = useState('')
-  // The facility's payment setup (POINT_OF_CARE_SPEC §1): whether a bill is paid before the sample is taken. Off (404)
-  // or unread, nothing waits for payment, as today.
   const paymentSettings = usePaymentSettings(canRead ? facilityId : undefined)
-  const settings = paymentSettings.status === 'ready' ? paymentSettings.data : null
-  const navigate = useNavigate()
-  const location = useLocation()
-  // Leaving a record (its Back, or the browser's) puts focus back on its row, once the list shows again.
+  const settings: PaymentSettings | null = paymentSettings.status === 'ready' ? paymentSettings.data : null
+
+  const items = list.items ? notCompleted.shown(list.items) : []
+  const searched = items.filter(item => {
+    const person = personOf(item)
+    return matchesSearch(search, [item.testName, item.accessionNumber, person.name, person.phone, person.healthId, requestOf(item)?.number,
+      item.priority, item.orderRoute?.orderingFacilityName, item.orderRoute?.reference])
+  })
+  const groups = groupsOf(searched)
+  const count = (stage: LabStage) => groups.filter(group => group.stage === stage).length
+  const asked = params.get(STAGE_PARAM)
+  // With no stage in the address: the first with work waiting, else Waiting for sample.
+  const stage: LabStage = isStage(asked) ? asked : STAGES.find(value => value !== 'done' && groupsOf(items).some(group => group.stage === value)) ?? 'collect'
+  const shown = byUrgencyThenWait(groups.filter(group => group.stage === stage),
+    group => group.items.some(item => item.priority === 'stat') ? 'stat' : group.items.some(item => item.priority === 'urgent') ? 'urgent' : group.items[0]!.priority,
+    group => group.items[0]!.acceptedAt)
+  // The card each work item is reached from: focus goes back there from its record.
+  const cardOf = new Map(groupsOf(items).flatMap(group => group.items.map(item => [item.id, `lab-${group.items[0]!.id}-record`] as const)))
+
+  // Leaving a record (its Back, or the browser's) puts focus back on its card, once the list shows again.
   const lastWork = useRef(workId)
   useLayoutEffect(() => {
     const was = lastWork.current
     lastWork.current = workId
-    if (was && !workId) focus(`lab-${was}-record`, true)
-  }, [workId, focus])
-  // Work named in the address that the list no longer holds (it ended, or the address is old): back to the list.
+    if (was && !workId) focus([cardOf.get(was) ?? `lab-${was}-record`, 'lab-work-title'], true)
+  }, [workId, focus, cardOf])
+  // A request named in the address that the list no longer holds (it ended, or the address is old): back to the list.
   const stale = Boolean(workId && list.items !== null && !chosen)
   useLayoutEffect(() => {
-    if (stale) setParams(previous => { const next = new URLSearchParams(previous); next.delete(WORK_PARAM); return next }, { replace: true })
-  }, [stale, setParams])
-  if (!facilityId || !canRead) return <DeptUnavailable title="Laboratory"
-    message="You can’t open Laboratory here. Your role needs permission to see lab work." />
+    if (stale) navigate({ pathname: WORK_HREF, search: location.search }, { replace: true })
+  }, [stale, navigate, location.search])
+
+  if (!facilityId || !canRead) return <div className="flex flex-col gap-5">
+    <PageHeader title="Work list" />
+    <EmptyState icon={FlaskConical} title="You can’t open the lab here" description="Your role needs permission to see lab work." />
+  </div>
   const workFacility = facilityId
-  /** Opens or closes the work in the address: a new history entry, so the browser's Back returns to the list. */
-  function show(id: string | null, replace = false) {
-    setParams(previous => {
-      const next = new URLSearchParams(previous)
-      if (id) next.set(WORK_PARAM, id)
-      else next.delete(WORK_PARAM)
-      return next
-    }, { replace, state: id ? { fromQueue: true } : undefined })
-  }
+  const listHref = `${WORK_HREF}${stage ? `?${STAGE_PARAM}=${stage}` : ''}`
+
   function open(item: LabWorkItem) {
-    setSelection({ facilityId: workFacility, item })
-    show(item.id)
+    navigate(`${WORK_HREF}/${encodeURIComponent(item.id)}`, { state: { fromQueue: true } })
     focus('lab-record-title')
   }
-  function back(item: LabWorkItem) {
-    setSelection(null)
-    // Opened from the list: step back in history, so the browser's Back doesn't reopen it. Else (a shared address) replace.
-    if ((location.state as { fromQueue?: unknown } | null)?.fromQueue === true) navigate(-1)
-    else show(null, true)
-    focus(`lab-${item.id}-record`, true)
-  }
+  function closeRecord() { navigate(listHref, { replace: true }) }
   function endedHere(item: LabWorkItem, ending: WrongPatientEnding) {
     setEnded({ facilityId: workFacility, ending })
     said.clear()
-    if (workId === item.id) { setSelection(null); show(null, true) }
+    if (workId === item.id) closeRecord()
     void list.refresh()
   }
-  // Ended from "Correct an order that has ended" while still open: its record, if open, goes too.
   function endedLate(ending: WrongPatientEnding) {
     setEnded({ facilityId: workFacility, ending })
-    if (current?.orderRoute?.id === ending.result.route.id) { setSelection(null); show(null, true) }
+    if (chosen?.orderRoute?.id === ending.result.route.id) closeRecord()
     void list.refresh()
   }
-  // Ended because it can't be completed. The page goes back to the list, where the ending is said and takes focus; an
-  // order whose reads were kept stays listed and can be opened again.
   function notCompletedHere(ending: Omit<CannotCompleteEnding, 'key'>) {
     notCompleted.add(ending)
     said.clear()
-    if (current?.orderRoute?.id === ending.result.route.id) { setSelection(null); show(null, true) }
+    if (chosen?.orderRoute?.id === ending.result.route.id) closeRecord()
     void list.refresh()
   }
-  const items = list.items ? notCompleted.shown(list.items) : []
-  // Stat and urgent work first, so it is seen first.
-  const rows = urgentFirst(items.filter(item => matchesSearch(search, [workTitle(item), item.accessionNumber, patientLabel(item),
-    item.patient?.fullName, workStatus(item), item.priority, item.orderRoute?.orderingFacilityName, item.orderRoute?.reference])), item => item.priority)
-  const detail = current
+  const pick = (value: LabStage) => setParams(previous => { const next = new URLSearchParams(previous); next.set(STAGE_PARAM, value); return next }, { replace: true })
+  const siblings = chosen ? items.filter(item => item.id !== chosen.id && requestOf(item) && requestOf(item)?.id === requestOf(chosen)?.id) : []
+
   return <div className="hid-ehr-dept-laboratory">
-    {detail && <WorkRecord facilityId={workFacility} item={detail} accessionId={selected?.accessionId || detail.accessionId}
-      accessionNumber={selected?.accessionNumber || detail.accessionNumber} created={extra?.created} permissions={permissions} routed={Boolean(selectedRoute)} closed={routeClosedForWork(selectedRoute)}
-      said={said.rowSaid(detail.orderRoute?.id)} onBack={() => back(detail)} onListChanged={() => void list.refresh()}
-      onCreated={accession => {
-        setSelection({ facilityId: workFacility, item: { ...detail, accessionId: accession.id, accessionNumber: accession.accessionNumber },
-          created: `Accession ${accession.accessionNumber} created.` })
-        focus('lab-accession-title', true)
-        void list.refresh()
-      }}
-      onEnded={ending => endedHere(detail, ending)} onNotCompleted={notCompletedHere} onReread={said.reread} settings={settings} />}
+    {chosen ? <LabRequest key={chosen.id} facilityId={workFacility} item={chosen} siblings={siblings} permissions={permissions} settings={settings}
+      said={said.rowSaid(chosen.orderRoute?.id)} backTo={listHref} onListChanged={() => void list.refresh()}
+      onEnded={ending => endedHere(chosen, ending)} onNotCompleted={notCompletedHere} onReread={said.reread} /> : null}
     {/* The list stays mounted under a record, so orders waiting here and a lookup in progress keep their place. */}
-    <div hidden={Boolean(detail)}>
-      <DeptPage title="Laboratory" secondaryActions={<RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh</RefreshButton>}
-        primaryAction={permissions.includes('lab.walk-in.create') ? <Button variant="primary" icon={Plus} to="/provider/laboratory/new-walk-in">New walk-in</Button> : undefined}>
-        <StandaloneWorkNote facility={facility} kind="laboratory" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
-        {mounted && facility && <DeptEmbedded className="hid-ehr-dept-laboratory-embedded"><IncomingOrders service="lab" facilityId={workFacility}
-          facilityName={facility.name} probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
-          onAccepted={() => void list.refresh()}
-          onEnded={routeId => setSelection(previous => previous?.item.orderRoute?.id === routeId ? null : previous)}
-          closedRouteId={notCompleted.lastRouteId} /></DeptEmbedded>}
-        <SaidAboveTheList service="lab" said={ended} facilityId={workFacility} onClose={() => setEnded(null)} />
-        {notCompleted.endings.length > 0 && <DeptEmbedded>
-          <CannotCompleteEndings service="lab" endings={notCompleted.endings} onClose={notCompleted.close} />
-        </DeptEmbedded>}
-        {lateCorrection && <DeptEmbedded><LateWrongPatient service="lab" facilityId={workFacility} onEnded={endedLate}
-          onNotCompleted={notCompletedHere}
-          onCorrected={correction => { notCompleted.corrected(correction); setEnded({ facilityId: workFacility, correction }) }} /></DeptEmbedded>}
-        <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={holds} />
-        <WorkListCap count={list.items?.length ?? 0}>{cannotServed === true && lateCorrection
-          && <DeptNotice>{CAP_CANNOT_COMPLETE}</DeptNotice>}</WorkListCap>
-        <SaidAboveList id="lab-said" text={said.listSaid} />
-        <DeptSearch label="Search Laboratory" value={search} onChange={setSearch}>
-          {list.error && <DeptNotice tone="critical" role="alert">{list.error}</DeptNotice>}
-          {list.loading && !list.items?.length && <EhrSkeleton label="Loading lab work…" />}
-          {!list.loading && !list.error && !list.items?.length && <EhrEmptyState title="No lab work yet"
-            message="Lab orders accepted here show in this list. Refresh to check for new work."
-            action={<EhrButton variant="secondary" onClick={() => void list.refresh()}>Refresh</EhrButton>} />}
-          {items.length > 0 && rows.length === 0 && <EhrEmptyState title="No matching work" message="Change your search." />}
-          {rows.length > 0 && <WorkQueue label="Lab work" titleHeader="Test" rows={rows.map(item => {
-            const rowSaid = detail ? null : said.rowSaid(item.orderRoute?.id)
-            return {
-              id: item.id,
-              buttonId: `lab-${item.id}-record`,
-              title: workTitle(item),
-              detail: item.accessionNumber ? `Accession ${item.accessionNumber}` : undefined,
-              // The name and date of birth to match a sample to a person, when Lab sends them; else its masked reference.
-              patient: <QueuePatient patient={item.patient} fallback={patientLabel(item)} />,
-              priority: item.priority,
-              status: workStatus(item),
-              // The bill, from a backend that sends bills on the work (POINT_OF_CARE_SPEC §3): Paid, Unpaid ₦x, Bill follows.
-              flag: billOf(item) !== undefined ? <BillBadge bill={billOf(item)} /> : undefined,
-              when: dateText(item.acceptedAt),
-              onOpen: () => open(item),
-              below: item.orderRoute ? <>
-                {rowSaid && item.orderRoute && <DeptNotice id={`lab-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{rowSaid}</DeptNotice>}
-                <RoutedWorkLines route={item.orderRoute} />
-              </> : undefined,
-            }
-          })} />}
-        </DeptSearch>
-      </DeptPage>
+    <div hidden={Boolean(chosen)} className="flex flex-col gap-5">
+      <PageHeader title={<span id="lab-work-title" tabIndex={-1} className="outline-none">Work list</span>}
+        actions={<>
+          <Button icon={RotateCcw} loading={list.loading && list.items !== null} onClick={() => void list.refresh()}>Refresh</Button>
+          {permissions.includes('lab.walk-in.create') ? <Button variant="primary" icon={Plus} to="/provider/laboratory/new">New request</Button> : null}
+        </>} />
+      <StandaloneWorkNote facility={facility} kind="laboratory" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
+      {mounted && facility ? <DeptEmbedded className="hid-ehr-dept-laboratory-embedded"><IncomingOrders service="lab" facilityId={workFacility}
+        facilityName={facility.name} probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
+        onAccepted={() => void list.refresh()} onEnded={() => void list.refresh()} closedRouteId={notCompleted.lastRouteId} /></DeptEmbedded> : null}
+      <SaidAboveTheList service="lab" said={ended} facilityId={workFacility} onClose={() => setEnded(null)} />
+      {notCompleted.endings.length > 0 ? <DeptEmbedded>
+        <CannotCompleteEndings service="lab" endings={notCompleted.endings} onClose={notCompleted.close} />
+      </DeptEmbedded> : null}
+      {lateCorrection ? <DeptEmbedded><LateWrongPatient service="lab" facilityId={workFacility} onEnded={endedLate} onNotCompleted={notCompletedHere}
+        onCorrected={correction => { notCompleted.corrected(correction); setEnded({ facilityId: workFacility, correction }) }} /></DeptEmbedded> : null}
+      <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={holds} />
+      <WorkListCap count={list.items?.length ?? 0}>{cannotServed === true && lateCorrection ? <DeptNotice>{CAP_CANNOT_COMPLETE}</DeptNotice> : null}</WorkListCap>
+      <SaidAboveList id="lab-said" text={said.listSaid} />
+
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <FilterTabs<LabStage> label="Stage" value={stage} onChange={pick}
+          options={STAGES.map(value => ({ value, label: STAGE_LABEL[value], count: count(value) }))} />
+        <Input icon={Search} type="search" aria-label="Search the work list" placeholder="Name, phone, test or number" value={search}
+          onChange={event => setSearch(event.target.value)} className="lg:w-80" />
+      </div>
+      <PageState loading={list.loading} error={list.error || null} hasData={list.items !== null} onRetry={() => void list.refresh()} what="the work list" rows={4}
+        empty={shown.length === 0 ? { icon: FlaskConical, title: search.trim() ? 'Nothing matches' : stage === 'done' ? 'Nothing done yet today' : `Nothing in ${STAGE_LABEL[stage]}`,
+          description: search.trim() ? 'Check the spelling, or try another stage.' : stage === 'collect' ? 'New requests show here.' : undefined } : null}>
+        <ul aria-label={STAGE_LABEL[stage]} className="m-0 grid list-none gap-3 p-0 md:grid-cols-2">
+          {shown.map(group => <RequestCard key={group.key} group={group} settings={settings} onOpen={open}
+            below={group.items.map(item => {
+              const rowSaid = chosen ? null : said.rowSaid(item.orderRoute?.id)
+              return item.orderRoute ? <div key={item.id} className="flex flex-col gap-2">
+                {rowSaid ? <DeptNotice id={`lab-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{rowSaid}</DeptNotice> : null}
+                <DeptEmbedded><RoutedWorkLines route={item.orderRoute} /></DeptEmbedded>
+              </div> : null
+            })} />)}
+        </ul>
+      </PageState>
     </div>
   </div>
 }
 
-/**
- * One piece of lab work, opened from the list: what is known of it, what can be done on it (create its accession, end
- * an order from another facility as not the order's patient or as one this laboratory can't complete), and its
- * accession. On work from another facility it checks that the person is the patient before a sample is taken, leaves
- * out "Create accession" once the services would refuse it as closed, and offers the endings while the order may still
- * be worked. What an ending's refusal said stays here when the list read again no longer offers the form (`said`).
- */
-function WorkRecord({ facilityId, item, accessionId, accessionNumber, created, permissions, routed, closed, said, onBack, onListChanged, onCreated, onEnded,
-  onNotCompleted, onReread, settings }: {
-  readonly facilityId: string; readonly item: LabWorkItem; readonly accessionId: string | null | undefined
-  readonly accessionNumber: string | null | undefined; readonly created?: string
-  readonly permissions: readonly string[]; readonly routed: boolean; readonly closed: boolean; readonly said: string | null
-  readonly onBack: () => void; readonly onListChanged: () => void; readonly onCreated: (accession: LabAccession) => void
-  readonly onEnded: (ending: WrongPatientEnding) => void
-  readonly onNotCompleted: (ending: Omit<CannotCompleteEnding, 'key'>) => void
-  readonly onReread: (routeId: string, mode: OrderEndingMode, said?: string) => Promise<void>
-  /** The facility's payment setup, or null (unread, or payments not switched on: nothing waits for payment). */
-  readonly settings: PaymentSettings | null
+/** One request at one stage: who, their age and sex, the tests, urgency, how long they have waited, the bill, and the one next action. */
+function RequestCard({ group, settings, onOpen, below }: {
+  readonly group: Group; readonly settings: PaymentSettings | null; readonly onOpen: (item: LabWorkItem) => void; readonly below: ReactNode
 }) {
-  const route = item.orderRoute
-  // Payment first (POINT_OF_CARE_SPEC §3): creating the accession and collecting the sample wait for the bill to be paid
-  // or set to follow; the payment step stands in their place.
-  const [cleared, setCleared] = useState<NonNullable<WorkItemBill> | null>(null)
-  const bill = cleared ?? billOf(item)
-  const samples = permissions.includes('lab.accession.create') || permissions.includes('lab.specimen.collect')
-  const waitsForPayment = samples && !routeClosedForWork(route) && paysFirst(settings, 'lab') && billOwing(bill)
-  const outside = outsideOf(item)
-  const title = workTitle(item)
-  const prepare = !accessionId && permissions.includes('lab.accession.create') && !routeClosedForWork(route) && !waitsForPayment
-  const ordering = route?.orderingFacilityName ?? 'The ordering facility'
-  const cannotComplete = cannotCompleteOffered(route, permissions, 'lab', useCannotCompleteServed())
-  const [preparing, setPreparing] = useState(false)
-  const focus = useFocusById()
-  return <DeptPage title={<span id="lab-record-title" tabIndex={-1}>{title}</span>} onBack={onBack}>
-    <DeptContextLine status={statusTitle(workStatus(item))} items={[`Accepted ${dateText(item.acceptedAt)}`]} />
-    {/* Who the sample is for, in the same place on every record. */}
-    {subjectOf(item).banner}
-    {said && route && <DeptNotice id={`lab-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{said}</DeptNotice>}
-    {route && <div className="hid-ehr-dept-laboratory-routed"><RoutedWorkLines route={route} /></div>}
-    {waitsForPayment && bill && settings && <PaymentStep facilityId={facilityId} summary={bill} settings={settings}
-      permissions={permissions} subject={subjectOf(item).banner} verb="take the sample" headingId={`lab-${item.id}-payment`}
-      onCleared={summary => { setCleared(summary); focus(accessionId ? `lab-accession-title` : 'lab-record-title', true) }} />}
-    {cleared && <PaidLine summary={cleared} />}
-    {bill !== undefined && !waitsForPayment && !cleared ? <div className="flex items-center gap-2 text-[14px] text-ink-2">Bill: <BillBadge bill={bill} /></div> : null}
-    <DeptRecordLayout
-      main={<DeptSection title="Request"><DeptFacts facts={workFacts({ ...item, accessionNumber })} /></DeptSection>}
-      aside={<LabActions none={!prepare && !(waitsForPayment && !accessionId) && !wrongPatientOffered(route, permissions, 'lab')}>
-        {waitsForPayment && !accessionId && <DeptNotice tone="caution">Payment first. Once it is paid or set to follow, create the accession and take the sample.</DeptNotice>}
-        {prepare && route && item.patient && <DeptNotice>{sampleCheckText(item.patient.fullName)}</DeptNotice>}
-        {prepare && <LabActionButton open={preparing} onToggle={() => setPreparing(value => !value)}>Create accession</LabActionButton>}
-        {wrongPatientOffered(route, permissions, 'lab') && <DeptEmbedded className="hid-ehr-dept-laboratory-endings">
-          <OrderEndingActions base={`lab-${item.id}`} service="lab"
-            facilityId={facilityId} route={{ id: route.id, version: route.version, reference: route.reference }} title={title}
-            patient={item.patient?.fullName ?? null} ordering={ordering}
-            cannotComplete={cannotComplete ? { priority: item.priority ?? null, accession: Boolean(item.accessionId),
-              acceptedAt: item.acceptedAt ?? null, specimenStatuses: Array.isArray(item.specimenStatuses) ? item.specimenStatuses : [] }
-              : null}
-            onReread={(mode, text) => onReread(route.id, mode, text)}
-            onWrongPatientEnded={result => onEnded({ service: 'lab', title, reference: route.reference,
-              patient: item.patient?.fullName ?? null, ordering, result, dateOfBirthOnly: false })}
-            onNotCompleted={(result, reason) => onNotCompleted({ service: 'lab', title, reference: route.reference,
-              patient: item.patient?.fullName ?? null, ordering, reason, priority: item.priority ?? null, result })} />
-        </DeptEmbedded>}
-        {prepare && preparing && <AccessionForm facilityId={facilityId} item={item} subject={subjectOf(item)} onCreated={accession => { setPreparing(false); onCreated(accession) }} />}
-      </LabActions>}
-    />
-    {accessionId && permissions.includes('lab.accession.read') && <AccessionView key={`${facilityId}-${accessionId}`} facilityId={facilityId}
-      id={accessionId} permissions={permissions} created={created} routed={routed} closed={closed} subject={subjectOf(item)} onChanged={onListChanged}
-      collectBlocked={waitsForPayment} share={outside ? { email: outside.prescriberEmail, doctor: outside.prescriberName } : null} />}
-  </DeptPage>
+  const first = group.items[0]!
+  const person = personOf(first)
+  const urgent = group.items.some(item => item.priority === 'urgent' || item.priority === 'stat')
+  const bill = billOf(first)
+  const owing = group.stage === 'collect' && paysFirst(settings, 'lab') && billOwing(bill)
+  const action = nextAction(group.stage, factsOfItem(first), owing)
+  const waited = waitedText(first.acceptedAt)
+  const details = [ageSex(person), person.healthId ?? (person.hidText === 'No Health ID' ? null : person.hidText)].filter(Boolean).join(' · ')
+  return <Card as="li" className="flex flex-col gap-3 p-4">
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="m-0 text-title-3 text-ink [overflow-wrap:anywhere]">{person.name}</p>
+        {details ? <p className="m-0 text-caption text-ink-2">{details}</p> : null}
+      </div>
+      <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+        {urgent ? <Badge size="sm" tone="danger">Urgent</Badge> : null}
+        {bill !== undefined ? <BillBadge bill={bill} /> : null}
+      </div>
+    </div>
+    <p className="m-0 text-[15px] font-medium text-ink [overflow-wrap:anywhere]">{group.items.map(item => item.testName ?? 'Lab test').join(' · ')}</p>
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <span className="inline-flex items-center gap-1.5 text-caption text-ink-3 tabular">
+        <Clock className="size-3.5" aria-hidden />{waited ? `Waiting ${waited}` : 'Just in'}{requestOf(first) ? ` · ${requestOf(first)!.number}` : ''}
+      </span>
+      <Button id={`lab-${first.id}-record`} variant="soft" onClick={() => onOpen(first)} className="max-sm:w-full">
+        {action}<span className="sr-only">: {person.name}, {group.items.map(item => item.testName ?? 'Lab test').join(', ')}</span>
+      </Button>
+    </div>
+    {below}
+  </Card>
 }

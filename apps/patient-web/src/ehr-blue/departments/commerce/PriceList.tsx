@@ -15,6 +15,8 @@ import { useCommerceRead } from './useCommerceRead'
 
 type Kind = 'all' | CatalogueKind
 const KIND_WORD: Readonly<Record<CatalogueKind, string>> = { drug: 'Drug', lab_test: 'Lab test', other: 'Other' }
+const ALL_KINDS: readonly CatalogueKind[] = ['drug', 'lab_test', 'other']
+const KIND_TABS: readonly { value: CatalogueKind; label: string }[] = [{ value: 'drug', label: 'Drugs' }, { value: 'lab_test', label: 'Lab tests' }, { value: 'other', label: 'Other' }]
 const FORMS: readonly CatalogueForm[] = ['tablet', 'capsule', 'liquid', 'injection', 'cream', 'inhaler', 'drops', 'other']
 const FORM_LABEL: Readonly<Record<CatalogueForm, string>> = {
   tablet: 'Tablet', capsule: 'Capsule', liquid: 'Liquid (syrup, suspension)', injection: 'Injection', cream: 'Cream or ointment',
@@ -46,7 +48,12 @@ export function ItemTile({ item, size = 'md' }: { readonly item: Pick<CatalogueI
  * Price list (docs/POINT_OF_CARE_SPEC.md §2): what this facility charges for drugs, lab tests and anything else, in cash
  * and for each HMO. Searchable cards; Add and Edit in a drawer, for staff with billing.catalogue.manage.
  */
-export function PriceList() {
+export function PriceList({ kinds = ALL_KINDS, title = 'Price list', description = 'What you charge for each drug, test and service: the cash price and each HMO’s price.' }: {
+  /** The kinds of item this list shows and adds (Pharmacy's Products & prices: drugs and other items). All three if left out. */
+  readonly kinds?: readonly CatalogueKind[]
+  readonly title?: string
+  readonly description?: string
+} = {}) {
   const { facilityId, permissions } = useDeptAccess()
   const items = useCommerceRead<ListPage<CatalogueItem>>(facilityId ? `catalogue:${facilityId}` : null, signal => commerce.catalogueItems(facilityId!, {}, signal))
   const settings = useCommerceRead<PaymentSettings>(facilityId ? `settings:${facilityId}` : null, signal => commerce.paymentSettings(facilityId!, signal))
@@ -62,19 +69,19 @@ export function PriceList() {
     const known = new Set(read.map(item => item.id))
     return [...read.map(item => saved.get(item.id) ?? item), ...[...saved.values()].filter(item => !known.has(item.id))]
   }, [items.data, saved])
-  const count = (value: Kind) => all.filter(item => value === 'all' || item.kind === value).length
-  const shown = all.filter(item => (kind === 'all' || item.kind === kind) && matches(item, query))
+  const count = (value: Kind) => all.filter(item => kinds.includes(item.kind) && (value === 'all' || item.kind === value)).length
+  const shown = all.filter(item => kinds.includes(item.kind) && (kind === 'all' || item.kind === kind) && matches(item, query))
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="Price list" description="What you charge for each drug, test and service: the cash price and each HMO’s price."
+      <PageHeader title={title} description={description}
         actions={canManage ? <Button variant="primary" icon={Plus} onClick={() => setEditing('new')}>Add item</Button> : undefined} />
       {/* A price list that answers 404 shows the normal empty state; Add item says so if it can't save. */}
       <>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <FilterTabs<Kind> label="Kind of item" value={kind} onChange={setKind} options={[
-            { value: 'all', label: 'All', count: count('all') }, { value: 'drug', label: 'Drugs', count: count('drug') },
-            { value: 'lab_test', label: 'Lab tests', count: count('lab_test') }, { value: 'other', label: 'Other', count: count('other') },
+            { value: 'all', label: 'All', count: count('all') },
+            ...KIND_TABS.filter(tab => kinds.includes(tab.value)).map(tab => ({ ...tab, count: count(tab.value) })),
           ]} />
           <Input icon={Search} type="search" aria-label="Search the price list" placeholder="Search by name" value={query}
             onChange={event => setQuery(event.target.value)} className="sm:w-72" />
@@ -89,7 +96,7 @@ export function PriceList() {
         </PageState>
       </>
       {editing !== null ? (
-        <ItemDrawer key={editing === 'new' ? 'new' : `${editing.id}:${editing.version}`} item={editing === 'new' ? null : editing} hmos={hmos}
+        <ItemDrawer key={editing === 'new' ? 'new' : `${editing.id}:${editing.version}`} item={editing === 'new' ? null : editing} hmos={hmos} kinds={kinds}
           onClose={() => setEditing(null)}
           onSaved={item => { setSaved(previous => new Map(previous).set(item.id, item)); setEditing(null) }} />
       ) : null}
@@ -129,13 +136,13 @@ function HmoPrice({ name, kobo }: { readonly name: string; readonly kobo: number
 
 const kobo = (value: number | undefined) => value === undefined ? '' : (value / 100).toFixed(2)
 
-function ItemDrawer({ item, hmos, onClose, onSaved }: {
-  readonly item: CatalogueItem | null; readonly hmos: readonly Hmo[]; readonly onClose: () => void; readonly onSaved: (item: CatalogueItem) => void
+function ItemDrawer({ item, hmos, kinds = ALL_KINDS, onClose, onSaved }: {
+  readonly item: CatalogueItem | null; readonly hmos: readonly Hmo[]; readonly kinds?: readonly CatalogueKind[]; readonly onClose: () => void; readonly onSaved: (item: CatalogueItem) => void
 }) {
   const { facilityId } = useDeptAccess()
   const ids = useId()
   const toast = useToast()
-  const [kind, setKind] = useState<CatalogueKind>(item?.kind ?? 'drug')
+  const [kind, setKind] = useState<CatalogueKind>(item?.kind ?? kinds[0] ?? 'drug')
   const [name, setName] = useState(item?.name ?? '')
   const [strength, setStrength] = useState(item?.strength ?? '')
   const [form, setForm] = useState<CatalogueForm | ''>(item?.form ?? '')
@@ -206,11 +213,11 @@ function ItemDrawer({ item, hmos, onClose, onSaved }: {
       </>}>
       {off ? <NotSwitchedOn message={NOT_SET_UP_UNSAVED} /> : (
         <form className="flex flex-col gap-4" onSubmit={event => { event.preventDefault(); void save() }}>
-          {!item ? (
+          {!item && kinds.length > 1 ? (
             <div className="flex flex-col gap-1.5">
               <span className="text-[13px] font-medium text-ink-2" id={`${ids}-kind`}>What is it?</span>
               <Segmented<CatalogueKind> ariaLabel="What is it?" value={kind} onChange={setKind} className="self-start"
-                options={[{ value: 'drug', label: 'Drug' }, { value: 'lab_test', label: 'Lab test' }, { value: 'other', label: 'Other' }]} />
+                options={ALL_KINDS.filter(value => kinds.includes(value)).map(value => ({ value, label: KIND_WORD[value] }))} />
             </div>
           ) : null}
 

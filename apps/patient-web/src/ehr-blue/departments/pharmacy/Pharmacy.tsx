@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { EhrButton } from '@hid/ui/ehr'
-import { CircleCheck, Pill, Plus, Search, Wallet } from 'lucide-react'
+import { CircleCheck, FileText, Pill, Search, Wallet } from 'lucide-react'
 import { PageState } from '../../../kasuwa/parts'
 import { Alert, Button, FilterTabs, Input } from '../../../kasuwa/ui'
 import { staffApi, type PharmacyWorkItem } from '../../../staff/api'
@@ -25,6 +25,7 @@ import {
   useNotCompletedEndings, useReceiving, useRowSaid, WORK_LIST_CAP, WorkListCap, type Said,
 } from '../parts/routedWork'
 import { PharmacyCard, PharmacyCards } from './PharmacyQueue'
+import { PaperPrescription } from './PaperPrescription'
 import { PharmacyRecord } from './PharmacyRecord'
 import { doseMissing, inTab, matchesItem, queueOrder, queueTone, routeAlert, statusOf, type PharmacyTab } from './pharmacyText'
 import { BillBadge } from '../commerce/BillBadge'
@@ -35,17 +36,30 @@ const LOAD_FAILED = 'Prescriptions could not be loaded. Please retry.'
 /** The design's list shows 50 records a page. */
 const PAGE_SIZE = 50
 const HEADING = 'pharmacy-heading'
-/** The open prescription's id in the address (`?rx=`), so Back and a refresh keep the place. */
-const RX_PARAM = 'rx'
+/** Prescriptions' address; an open one is below it (`/provider/pharmacy/prescriptions/:id`), so Back and a refresh keep the place. */
+export const PRESCRIPTIONS = '/provider/pharmacy/prescriptions'
 
 /**
- * Pharmacy in the blue Hospital EHR: the prescriptions accepted at the working facility (and, at a pharmacy that
+ * Prescriptions, Pharmacy's second page: the prescriptions accepted at the working facility (and, at a pharmacy that
  * receives them, prescriptions other facilities send), each opened as a record to dispense or reverse. Live on today's
  * Pharmacy API with today's checks (staff/routes/Operations.tsx Pharmacy); the screens and words are the design's.
  * The list and the record are views of this page; the open record's id (never anything about the patient) is in the
- * address, so Back and a refresh keep the place.
+ * address (pharmacy/prescriptions/:id), so Back and a refresh keep the place. A paper prescription is entered at
+ * pharmacy/prescriptions/paper, then opened here to pick, pay and dispense.
  */
-export function Pharmacy() {
+export function Prescriptions() {
+  return openedOf(useLocation().pathname) === 'paper' ? <PaperPrescription /> : <PrescriptionQueue />
+}
+/** The name earlier code knew this page by. */
+export { Prescriptions as Pharmacy }
+
+/** What the address holds below Prescriptions: an open prescription's id, 'paper', or null on the list itself. */
+function openedOf(pathname: string): string | null {
+  const below = pathname.startsWith(`${PRESCRIPTIONS}/`) ? pathname.slice(PRESCRIPTIONS.length + 1).replace(/\/+$/, '') : ''
+  return below ? decodeURIComponent(below) : null
+}
+
+function PrescriptionQueue() {
   const { facilityId, permissions, facility } = useDeptAccess()
   const canRead = permissions.includes('pharmacy.work-item.read')
   const read = useFacilityRead(facilityId, canRead, useCallback((id: string) => staffApi.pharmacyWorkItems(id), []), LOAD_FAILED)
@@ -68,10 +82,9 @@ export function Pharmacy() {
     ? wrongPatientOffered(route, permissions, 'pharmacy') : cannotCompleteOffered(route, permissions, 'pharmacy', cannotServed))
   // Work Pharmacy refused to dispense (hid-system #48): known only from that refusal, kept while the work is listed.
   const [undispensable, setUndispensable] = useState<{ facilityId: string; ids: ReadonlySet<string> }>({ facilityId: '', ids: new Set() })
-  const [params, setParams] = useSearchParams()
-  const openedId = params.get(RX_PARAM)
   const navigate = useNavigate()
   const location = useLocation()
+  const openedId = openedOf(location.pathname)
   const [search, setSearch] = useState('')
   // The queue opens on what is waiting: the work of the counter.
   const [tab, setTab] = useState<PharmacyTab>('todo')
@@ -92,13 +105,8 @@ export function Pharmacy() {
   const gone = Boolean(openedId && visible !== null && !selected)
   /** Opens or closes a record in the address: a new history entry, so the browser's Back returns to the list. */
   const show = useCallback((id: string | null, replace = false) => {
-    setParams(previous => {
-      const next = new URLSearchParams(previous)
-      if (id) next.set(RX_PARAM, id)
-      else next.delete(RX_PARAM)
-      return next
-    }, { replace, state: id ? { fromQueue: true } : undefined })
-  }, [setParams])
+    navigate(id ? `${PRESCRIPTIONS}/${encodeURIComponent(id)}` : PRESCRIPTIONS, { replace, state: id ? { fromQueue: true } : undefined })
+  }, [navigate])
   // In the commit that removes the record, so focus is never left on the page meanwhile.
   useLayoutEffect(() => {
     if (!gone) return
@@ -121,8 +129,8 @@ export function Pharmacy() {
   }, [items])
 
   if (!facilityId || !canRead) return (
-    <DeptPage title="Pharmacy">
-      <div className="hid-ehr-dept-pharmacy-error">You can’t open Pharmacy here. Your role needs permission to see prescriptions.</div>
+    <DeptPage title="Prescriptions">
+      <div className="hid-ehr-dept-pharmacy-error">You can’t open Prescriptions here. Your role needs permission to see prescriptions.</div>
     </DeptPage>
   )
   const here = facilityId
@@ -173,11 +181,7 @@ export function Pharmacy() {
   function openNext() {
     if (!nextItem) return
     // In place of the record just done, keeping how it was reached, so Back to list still returns to the list.
-    setParams(previous => {
-      const next = new URLSearchParams(previous)
-      next.set(RX_PARAM, nextItem.id)
-      return next
-    }, { replace: true, state: location.state })
+    navigate(`${PRESCRIPTIONS}/${encodeURIComponent(nextItem.id)}`, { replace: true, state: location.state })
     focus(`pharmacy-${nextItem.id}-title`)
   }
   const refresh = <RefreshButton loading={read.loading} onRefresh={read.refresh}>Refresh</RefreshButton>
@@ -188,10 +192,11 @@ export function Pharmacy() {
       : { icon: Pill, title: 'No prescriptions yet', description: 'Prescriptions show here once they are accepted.' }
   return (
     <DeptPage title={selected ? <span id={`pharmacy-${selected.id}-title`} tabIndex={-1}>{selected.medication.display}</span>
-      : <span id={HEADING} tabIndex={-1}>Pharmacy</span>}
-      primaryAction={selected ? <EhrButton variant="secondary" aria-disabled={recording || undefined} onClick={back}>Back to list</EhrButton>
-        : permissions.includes('pharmacy.walk-in.create') ? <Button variant="primary" icon={Plus} to="/provider/pharmacy/new-sale">New sale</Button> : undefined}
-      secondaryActions={refresh}>
+      : <span id={HEADING} tabIndex={-1}>Prescriptions</span>}
+      onBack={selected ? back : undefined} backLabel="Back to prescriptions"
+      primaryAction={!selected && permissions.includes('pharmacy.walk-in.create')
+        ? <Button variant="primary" icon={FileText} to={`${PRESCRIPTIONS}/paper`}>Paper prescription</Button> : undefined}
+      secondaryActions={selected ? undefined : refresh}>
       {read.error && (listed || selected) && <Alert intent="error" title="Couldn’t refresh prescriptions"
         action={<EhrButton variant="secondary" size="sm" onClick={() => void read.refresh()}>Try again</EhrButton>}>{read.error} What is shown may be out of date.</Alert>}
       <SaidAboveTheList service="pharmacy" said={ended} facilityId={here} onClose={() => setEnded(null)} />

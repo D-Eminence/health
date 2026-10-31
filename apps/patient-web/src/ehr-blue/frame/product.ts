@@ -37,7 +37,10 @@ const SINGLE: readonly Exclude<Product, 'ehr'>[] = ['lab', 'pharmacy', 'outreach
  * payment at its own counter, keeps its price list and closes its day. Each still needs its own permission.
  */
 const COUNTER_PAGES: ReadonlySet<string> = new Set(['payments', 'price-list', 'end-of-day', 'payment-setup'])
-const SELLS: ReadonlySet<Product> = new Set<Product>(['lab', 'pharmacy'])
+// A pharmacy's menu has its own Sales & receipts, Products & prices, Till / End of day and Settings (pharmacy/page.tsx),
+// so it lists none of these.
+// A lab's menu has its own Tests & prices, Till / End of day and Settings (laboratory/page.tsx), so it lists none either.
+const SELLS: ReadonlySet<Product> = new Set<Product>([])
 
 declare global { interface Window { __HID_PREVIEW_PRODUCT__?: string } }
 
@@ -57,7 +60,7 @@ export function productOf(hostname: string, permissions: readonly string[]): Pro
 export function inProduct(product: Product, path: string): boolean {
   if (product === 'ehr') return true
   const base = basePath(path)
-  // The product's own pages below its home too: pharmacy/new-sale, pharmacy/stock, laboratory/new-walk-in.
+  // The product's own pages below its home too: pharmacy/sell … pharmacy/settings, laboratory/new … laboratory/settings.
   return base === PRODUCTS[product].home || base.startsWith(`${PRODUCTS[product].home}/`) || SHARED.has(base)
     || (SELLS.has(product) && COUNTER_PAGES.has(base))
 }

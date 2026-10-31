@@ -155,6 +155,7 @@ const DEMO_PATIENT_ID = 'a0000000-0000-4000-8000-000000000001'
 // Pharmacy's queue, as GET /pharmacy/work-items sends it today: this facility's own work carries no `patient` (only routed
 // work does: BACKEND-NEEDS.md), no priority, no image and no quantity. Dispensings made here are kept for the session.
 const pharmacyDispensed = new Map([['rx-6', { id: 'disp-6', reversed: false, version: 1 }]])
+const pharmacyPaperItems = []
 const pharmacyItems = () => [
   { id: 'rx-1', patientId: DEMO_PATIENT_ID, version: 1, acceptedAt: iso(-25 * MIN), medication: { display: 'Amoxicillin 500 mg capsules' }, doseQuantity: 1, doseUnit: 'capsule', routeCode: 'oral', frequency: 'three times daily', instructions: 'For 7 days. Finish the course.' },
   { id: 'rx-2', patientId: 'a0000000-0000-4000-8000-000000000002', version: 1, acceptedAt: iso(-18 * MIN), medication: { display: 'Paracetamol 120 mg/5 ml syrup' }, doseQuantity: 5, doseUnit: 'ml', routeCode: 'oral', frequency: 'every 6 hours when needed', instructions: 'For fever. No more than 4 doses in 24 hours.' },
@@ -163,6 +164,8 @@ const pharmacyItems = () => [
   { id: 'rx-5', patientId: 'a0000000-0000-4000-8000-000000000004', version: 1, acceptedAt: iso(-6 * MIN), medication: { display: 'Metformin 500 mg tablets' }, doseQuantity: null, doseUnit: null, routeCode: 'oral', frequency: '', instructions: null },
   { id: 'rx-6', patientId: 'a0000000-0000-4000-8000-000000000005', version: 2, acceptedAt: iso(-2 * 60 * MIN), medication: { display: 'Hydrocortisone 1% cream' }, doseQuantity: 1, doseUnit: 'thin layer', routeCode: 'topical', frequency: 'twice daily', instructions: 'To the rash only.' },
   { id: 'rx-7', patientId: 'a0000000-0000-4000-8000-000000000006', version: 1, acceptedAt: iso(-3 * MIN), medication: { display: 'Artemether/Lumefantrine 80/480 mg' }, doseQuantity: 1, doseUnit: 'tablet', routeCode: 'oral', frequency: 'twice daily', instructions: 'With food, for 3 days.' },
+  // Paper prescriptions entered at the pharmacy (POINT_OF_CARE_SPEC §4, not a counter sale): queued here to pick.
+  ...pharmacyPaperItems,
 ].map(item => {
   const done = pharmacyDispensed.get(item.id)
   return { ...item, version: done ? item.version + 1 : item.version, dispensing: done ? { id: done.id, reversed: done.reversed } : null,
@@ -532,9 +535,11 @@ function shiftView(shift) {
 }
 /** Keeps the pharmacy queue's bill summary (its work items' `bill`) in step with a bill paid here. */
 function syncWorkItemBill(bill) {
-  const workItemId = bill.lines.find(line => line.workItemId)?.workItemId
-  if (workItemId && typeof pharmacyBills !== 'undefined' && pharmacyBills[workItemId]) {
-    pharmacyBills[workItemId] = { billId: bill.id, status: bill.status, dueKobo: bill.dueKobo, receiptNumber: bill.receiptNumber }
+  // Every line's work item: a paper prescription with several drugs has one bill for all of them.
+  for (const workItemId of bill.lines.map(line => line.workItemId).filter(Boolean)) {
+    if (typeof pharmacyBills !== 'undefined' && pharmacyBills[workItemId]) {
+      pharmacyBills[workItemId] = { billId: bill.id, status: bill.status, dueKobo: bill.dueKobo, receiptNumber: bill.receiptNumber }
+    }
   }
 }
 const pocProblem = (status, code, detail) => [status, { type: 'about:blank', title: code, status, code, detail }]
@@ -561,6 +566,81 @@ const pocMovements = {}
 const pocMove = (catId, change, kind, note = null) => { (pocMovements[catId] ??= []).unshift({ id: `mv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, change, kind, note, by: STAFF_NAME, at: iso() }) }
 pocMove('cat-amox', 400, 'received', 'Invoice EMZ-5521'); pocMove('cat-amox', -21, 'dispensed'); pocMove('cat-ceft', -10, 'dispensed'); pocMove('cat-pcm-syr', -2, 'adjusted', 'Damaged')
 let pocWalkInSeq = 1
+
+/**
+ * The pharmacy's own writes (POINT_OF_CARE_SPEC §4, the owner's order of 2026-10-31: work first, identity optional):
+ * - POST /pharmacy/walk-in-orders: a counter sale (`counter: true`: no queue, handed over at the counter) or a paper
+ *   prescription (queued under Prescriptions to pick). No customer, a name and phone, or a Health ID; a prescription-only
+ *   item needs a Health ID or the doctor's prescription (`outside`).
+ * - POST /pharmacy/sales/:billId/hand-over: the sale's items leave the shelf (first to expire first).
+ * - POST /files/order-photos: a photo of the paper (multipart: the preview receives no body, and keeps no picture).
+ */
+function pharmacySaleRoute(path, body) {
+  if (path === '/files/order-photos') return [201, { fileId: `file-${Date.now().toString(36)}` }]
+  if (path === '/pharmacy/walk-in-orders') {
+    if (!body) return NO_BODY()
+    const lines = body.items ?? []
+    const who = body.patient ?? { kind: 'anonymous' }
+    if (lines.length === 0) return pocProblem(400, 'VALIDATION_FAILED', 'Add at least one item.')
+    const items = lines.map(line => pocCatalogue.find(entry => entry.id === line.catalogueItemId))
+    if (items.some(item => !item)) return pocProblem(404, 'COMMERCIAL_CATALOGUE_ITEM_NOT_FOUND', 'An item is no longer on the price list.')
+    const needsRx = items.find(item => item.prescriptionOnly)
+    if (needsRx && who.kind !== 'health_id' && !body.outside?.prescriberName) return pocProblem(422, 'PRESCRIPTION_REQUIRED', `${needsRx.name} needs the doctor’s prescription.`)
+    const short = lines.find(line => { const stock = pocStock.find(entry => entry.catalogueItemId === line.catalogueItemId); return stock && stock.onHand < (Number(line.quantity) || 1) })
+    if (short) return pocProblem(409, 'OUT_OF_STOCK', 'There isn’t enough in stock.')
+    const seq = pocWalkInSeq++
+    const counter = body.counter === true
+    const workItemIds = counter ? [] : lines.map((_, index) => `rx-paper-${seq}-${index + 1}`)
+    const bill = pocBill(`bill-walkin-${seq}`, 'pharmacy', null, lines.map((line, index) => [line.catalogueItemId, Number(line.quantity) || 1, workItemIds[index] ?? null]), { ago: 0 })
+    const name = who.kind === 'health_id' ? POC_HID_NAMES[who.healthId] ?? who.healthId : typeof who.name === 'string' && who.name.trim() ? who.name.trim() : null
+    bill.patient = name ? { patientId: null, displayName: name, healthId: who.kind === 'health_id' ? who.healthId : null } : null
+    if (counter) bill.handedOverAt = null
+    lines.forEach((line, index) => {
+      const workItemId = workItemIds[index]
+      if (!workItemId) return
+      const item = items[index]
+      const dose = /^\s*(\d+(?:\.\d+)?)\s*(.*)$/.exec(line.dose ?? '')
+      const stock = pocStock.find(entry => entry.catalogueItemId === item.id)
+      pharmacyPaperItems.unshift({ id: workItemId, patientId: null, version: 1, acceptedAt: iso(), medication: { display: [item.name, item.strength].filter(Boolean).join(' ') },
+        doseQuantity: dose ? Number(dose[1]) : null, doseUnit: dose ? dose[2] || null : null, routeCode: 'oral', frequency: line.frequency ?? '', instructions: null,
+        patient: { fullName: name ?? 'Walk-in customer', sex: null, dateOfBirth: null, healthIdLast4: who.kind === 'health_id' ? who.healthId.slice(-4) : null },
+        outside: body.outside ?? null })
+      pharmacyBills[workItemId] = { billId: bill.id, status: bill.status, dueKobo: bill.dueKobo, receiptNumber: null }
+      if (stock) pharmacyStock[workItemId] = { onHand: stock.onHand, unit: stock.unit }
+    })
+    pocBills.unshift(bill)
+    return [201, { workItemIds, bill }]
+  }
+  const handOver = /^\/pharmacy\/sales\/([^/]+)\/hand-over$/.exec(path)
+  if (handOver) {
+    const bill = pocBills.find(entry => entry.id === decodeURIComponent(handOver[1]))
+    if (!bill || bill.source !== 'pharmacy') return pocProblem(404, 'COMMERCIAL_BILL_NOT_FOUND', 'No such sale.')
+    if (bill.handedOverAt) return [200, { handedOverAt: bill.handedOverAt, bill }]
+    if (pocSettings.payBefore.pharmacy && ['unpaid', 'part_paid'].includes(bill.status)) return pocProblem(409, 'PAYMENT_REQUIRED', 'This needs to be paid first.')
+    for (const line of bill.lines) {
+      const stock = pocStock.find(entry => entry.catalogueItemId === line.catalogueItemId)
+      if (stock && stock.onHand < line.quantity) return pocProblem(409, 'OUT_OF_STOCK', 'There isn’t enough in stock.')
+    }
+    for (const line of bill.lines) {
+      const stock = pocStock.find(entry => entry.catalogueItemId === line.catalogueItemId)
+      if (!stock) continue
+      let left = line.quantity
+      for (const batch of [...stock.batches].sort((a, b) => a.expiresOn.localeCompare(b.expiresOn))) {
+        const take = Math.min(batch.quantity, left)
+        batch.quantity -= take
+        left -= take
+      }
+      stock.onHand -= line.quantity
+      pocMove(stock.catalogueItemId, -line.quantity, 'dispensed', `Sale ${bill.number}`)
+    }
+    bill.handedOverAt = iso()
+    pocBump(bill)
+    return [200, { handedOverAt: bill.handedOverAt, bill }]
+  }
+  return null
+}
+/** A time as the facility's day (the preview's local day), as `GET bills?date=` compares it. */
+const pocLocalDay = value => { const day = new Date(value); return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}` }
 
 function pointOfCareExtraRoute(method, path, { body, query } = {}) {
   const q = (query?.get?.('q') ?? '').trim().toLowerCase()
@@ -596,6 +676,8 @@ function pointOfCareExtraRoute(method, path, { body, query } = {}) {
     pocMove(found.catalogueItemId, change, 'adjusted', body.note ?? body.reason ?? null)
     return [201, found]
   }
+  const pharmacyAnswer = pharmacySaleRoute(path, body)
+  if (pharmacyAnswer) return pharmacyAnswer
   if (path === '/pharmacy/walk-in-orders' || path === '/lab/walk-in-requests') {
     if (!body) return NO_BODY()
     const lab = path.startsWith('/lab')
@@ -655,6 +737,7 @@ function pointOfCareRoute(method, path, { body, query } = {}) {
     const source = query?.get?.('source')
     const items = pocBills.filter(bill => (!status || bill.status === status || (status === 'open' && ['unpaid', 'part_paid'].includes(bill.status)))
       && (!source || bill.source === source)
+      && (!query?.get?.('date') || pocLocalDay(bill.createdAt) === query.get('date'))
       && (!q || [bill.number, bill.receiptNumber ?? '', bill.patient?.displayName ?? '', bill.patient?.healthId ?? ''].some(text => text.toLowerCase().includes(q))))
     return [200, { items, nextPage: null, total: items.length }]
   }
@@ -692,6 +775,14 @@ function pointOfCareRoute(method, path, { body, query } = {}) {
       settleBill(pocBump(bill), bill.status === 'paid' || bill.status === 'part_paid' ? undefined : bill.status)
       syncWorkItemBill(bill)
       return [200, bill]
+    }
+    // A sale made without a Health ID, put on the one given afterwards (pharmacy, after the sale).
+    if (rest === '/patient') {
+      const healthId = String(body.healthId ?? '').trim().toUpperCase()
+      if (!/^HID-[A-Z0-9]{4,}$/.test(healthId)) return pocProblem(400, 'VALIDATION_FAILED', 'Type a Health ID like HID-ADA2345.')
+      if (bill.patient?.healthId && bill.patient.healthId !== healthId) return pocProblem(409, 'COMMERCIAL_BILL_HAS_PATIENT', 'This sale is already on another Health ID.')
+      bill.patient = { patientId: null, displayName: POC_HID_NAMES[healthId] ?? bill.patient?.displayName ?? healthId, healthId }
+      return [200, pocBump(bill)]
     }
     if (rest === '/defer') {
       if (!['emergency', 'inpatient'].includes(body.reason)) return pocProblem(400, 'VALIDATION_FAILED', 'Reason: emergency or inpatient.')
@@ -742,6 +833,229 @@ function pointOfCareRoute(method, path, { body, query } = {}) {
   return null
 }
 
+// ------------------------------------------------------------------- lab --
+// The lab's work (today's Lab routes, plus docs/POINT_OF_CARE_SPEC.md §4 and §6, proposed): requests at every stage, so
+// the work list, a request's steps (collect, receive, test, result, check and release) and Results can be tried end to
+// end. Walk-ins carry only the basics (name, age, sex, phone) and a Health ID when they have one. Kept in this process's
+// memory for the session; a write needs its JSON body (the in-page preview passes it).
+let labSeq = 130
+const labWork = []
+const labAccessions = new Map()
+const labExecutionsById = new Map()
+const labTestCode = name => ({ codeSystem: 'LOCAL', code: name.replace(/[^A-Za-z]/g, '').slice(0, 6).toUpperCase(), name })
+function labAccession(workItemId, specimenType, status) {
+  const id = `acc-${labSeq}`
+  const accession = { id, accessionNumber: `ACC-2026-000${labSeq}`, workItemId, status: 'open',
+    specimens: [{ id: `spc-${labSeq}`, accessionId: id, specimenIdentifier: `SPC-000${labSeq}`, specimenType, status, version: 1 }] }
+  labSeq += 1
+  labAccessions.set(id, accession)
+  labWork.find(work => work.id === workItemId).accessionId = id
+  return accession
+}
+function labExecution(specimen, status, result = null) {
+  const work = labWork.find(entry => entry.accessionId === specimen.accessionId)
+  const id = `exe-${labSeq++}`
+  const execution = { id, accessionId: specimen.accessionId, specimenId: specimen.id, requestedTestId: `rt-${work.id}`, test: labTestCode(work.testName),
+    patientId: work.patientId, facilityId: DEMO_FACILITY_ID, status, method: 'Analyser', startedAt: iso(-30 * MIN), completedAt: status === 'completed' ? iso(-10 * MIN) : null,
+    version: status === 'completed' ? 2 : 1, result: null }
+  if (result) execution.result = labResult(execution, result)
+  labExecutionsById.set(id, execution)
+  return execution
+}
+function labRevision(version, value) {
+  return { version, resultType: value.resultType, numericValue: value.resultType === 'numeric' ? Number(value.numericValue) : null,
+    textValue: value.resultType === 'text' ? value.textValue : null, unit: value.unit ?? null, referenceRange: value.referenceRange ?? null,
+    abnormalFlag: value.abnormalFlag ?? 'unknown', entrySource: 'manual', verificationStatus: 'unverified', releaseStatus: 'not_released',
+    enteredAt: iso(), releasedAt: null, correctionReason: value.reason ?? null }
+}
+function labResult(execution, value) {
+  return { id: `res-${labSeq++}`, executionId: execution.id, status: 'entered_unverified', verificationStatus: 'unverified', currentVersion: 1,
+    currentReleasedVersion: null, revisions: [labRevision(1, value)] }
+}
+const labRelease = result => {
+  const revision = result.revisions.find(entry => entry.version === result.currentVersion)
+  Object.assign(revision, { verificationStatus: 'verified', releaseStatus: 'released', releasedAt: iso(-5 * MIN) })
+  Object.assign(result, { status: 'released', verificationStatus: 'verified', currentReleasedVersion: result.currentVersion })
+}
+const labPaid = n => ({ billId: `bill-lab-paid-${n}`, status: 'paid', dueKobo: 0, receiptNumber: `R-000${370 + n}` })
+const labBasics = (name, ageYears, sex, phone, healthId = null) => ({ name, ageYears, sex, phone, healthId, clinicalNote: null })
+// This facility's own EHR orders (lw-1, lw-2) and walk-ins at every stage.
+labWork.push(
+  { id: 'lw-1', patientId: DEMO_PATIENT_ID, testName: 'Full blood count', acceptedAt: iso(-40 * MIN), priority: 'routine',
+    patient: { fullName: 'Adaeze Okafor', sex: 'female', dateOfBirth: '1991-03-04', healthIdLast4: 'AAA2' } },
+  { id: 'lw-2', patientId: DEMO_PATIENT_ID, testName: 'Malaria parasite test', acceptedAt: iso(-15 * MIN), priority: 'urgent',
+    patient: { fullName: 'Adaeze Okafor', sex: 'female', dateOfBirth: '1991-03-04', healthIdLast4: 'AAA2' } },
+  { id: 'lw-3', patientId: null, testName: 'Fasting blood sugar', acceptedAt: iso(-8 * MIN), priority: 'routine', request: { id: 'lr-3', number: 'LR-000121' },
+    walkIn: { ...labBasics('Halima Yusuf', 52, 'female', '+2348035550101', 'HID-HALI9043'), clinicalNote: 'Thirst and tiredness. Rule out diabetes.' },
+    outside: { prescriberName: 'Dr Funmi Adeyemi', facilityName: 'Grace Family Clinic', writtenOn: iso(-1 * DAY).slice(0, 10), prescriberEmail: 'f.adeyemi@graceclinic.example', prescriberPhone: '+2348021112233', photoFileId: null } },
+  { id: 'lw-4', patientId: null, testName: 'Urinalysis', acceptedAt: iso(-55 * MIN), priority: 'routine', request: { id: 'lr-4', number: 'LR-000117' },
+    walkIn: labBasics('Chinedu Eze', 28, 'male', '+2348091234500'), bill: labPaid(1) },
+  { id: 'lw-5', patientId: null, testName: 'Malaria parasite test', acceptedAt: iso(-70 * MIN), priority: 'urgent', request: { id: 'lr-5', number: 'LR-000115' },
+    walkIn: labBasics('Musa Ibrahim', 9, 'male', '+2348067778899'), bill: labPaid(2) },
+  { id: 'lw-6', patientId: null, testName: 'Full blood count', acceptedAt: iso(-95 * MIN), priority: 'routine', request: { id: 'lr-6', number: 'LR-000112' },
+    walkIn: labBasics('Ngozi Eze', 41, 'female', '+2348023456789', 'HID-NGOZ7710'), bill: labPaid(3) },
+  { id: 'lw-7', patientId: null, testName: 'Fasting blood sugar', acceptedAt: iso(-2 * 60 * MIN), priority: 'routine', request: { id: 'lr-7', number: 'LR-000109' },
+    walkIn: labBasics('Funke Adebayo', 33, 'female', '+2348031112222'), bill: labPaid(4) },
+  { id: 'lw-8', patientId: null, testName: 'Malaria parasite test', acceptedAt: iso(-3 * 60 * MIN), priority: 'routine', request: { id: 'lr-8', number: 'LR-000104' },
+    walkIn: labBasics('Emeka Nwosu', 60, 'male', '+2348057654321', 'HID-EMEK6618'), bill: labPaid(5),
+    outside: { prescriberName: 'Dr Bello Sani', facilityName: 'Unity Clinic, Yaba', writtenOn: null, prescriberEmail: 'b.sani@unityclinic.example', prescriberPhone: null, photoFileId: null } },
+)
+labAccession('lw-4', 'Urine, clean catch', 'collected')
+labExecution(labAccession('lw-5', 'Blood film', 'received').specimens[0], 'in_progress')
+labExecution(labAccession('lw-6', 'Blood, EDTA tube', 'received').specimens[0], 'completed')
+labExecution(labAccession('lw-7', 'Blood, fluoride tube', 'received').specimens[0], 'completed',
+  { resultType: 'numeric', numericValue: 6.8, unit: 'mmol/L', referenceRange: '3.9-5.5', abnormalFlag: 'high' })
+labRelease(labExecution(labAccession('lw-8', 'Blood film', 'received').specimens[0], 'completed',
+  { resultType: 'text', textValue: 'No malaria parasites seen', referenceRange: 'Not seen', abnormalFlag: 'normal' }).result)
+
+/** A work item as GET /lab/work-items sends it, with the proposed fields: its bill, stage facts and the walk-in's basics. */
+function labWorkView(work) {
+  const accession = work.accessionId ? labAccessions.get(work.accessionId) : null
+  const executions = [...labExecutionsById.values()].filter(execution => execution.accessionId === work.accessionId)
+  const bill = pocBills.find(entry => entry.lines.some(line => line.workItemId === work.id))
+  const released = executions.flatMap(execution => execution.result?.revisions.filter(revision => revision.releasedAt).map(revision => revision.releasedAt) ?? []).sort().at(-1) ?? null
+  const { bill: fixedBill, ...rest } = work
+  return { ...rest, version: 1, status: 'accepted', accessionNumber: accession?.accessionNumber ?? null,
+    specimenStatuses: accession?.specimens.map(specimen => specimen.status) ?? [], executionStatuses: executions.map(execution => execution.status),
+    resultStatuses: executions.flatMap(execution => execution.result ? [execution.result.status] : []), releasedAt: released,
+    walkIn: work.walkIn ? { ...work.walkIn, healthId: work.walkIn.healthId ?? bill?.patient?.healthId ?? null } : undefined,
+    bill: bill ? { billId: bill.id, status: bill.status, dueKobo: bill.dueKobo, receiptNumber: bill.receiptNumber } : fixedBill ?? null }
+}
+const labVersionConflict = () => pocProblem(409, 'LAB_VERSION_CONFLICT', 'This changed since it was read. Refresh and try again.')
+
+function labRoute(method, path, { body } = {}) {
+  if (!path.startsWith('/lab/')) return null
+  if (method === 'GET' && path === '/lab/work-items') return [200, { items: labWork.map(labWorkView) }]
+  const workItem = /^\/lab\/work-items\/([^/]+)(\/accession)?$/.exec(path)
+  if (workItem) {
+    const work = labWork.find(entry => entry.id === decodeURIComponent(workItem[1]))
+    if (!work) return pocProblem(404, 'LAB_WORK_ITEM_NOT_FOUND', 'No such lab work.')
+    if (method === 'GET' && !workItem[2]) return [200, labWorkView(work)]
+    if (method !== 'POST' || !workItem[2]) return null
+    if (!body) return NO_BODY()
+    if (work.accessionId) return pocProblem(409, 'LAB_ACCESSION_EXISTS', 'This work already has an accession.')
+    const type = String(body.requirements?.[0]?.specimenType ?? '').trim()
+    if (!type || !String(body.reason ?? '').trim()) return pocProblem(400, 'VALIDATION_FAILED', 'Enter the sample type and the reason.')
+    return [201, labAccession(work.id, type, 'required')]
+  }
+  const accessionPath = /^\/lab\/accessions\/([^/]+)(\/.*)?$/.exec(path)
+  if (accessionPath) {
+    const accession = labAccessions.get(decodeURIComponent(accessionPath[1]))
+    if (!accession) return pocProblem(404, 'LAB_ACCESSION_NOT_FOUND', 'No such accession.')
+    const rest = accessionPath[2] ?? ''
+    if (method === 'GET' && rest === '') return [200, accession]
+    if (method === 'GET' && rest === '/specimens') return [200, { items: accession.specimens }]
+    if (method !== 'POST') return null
+    if (!body) return NO_BODY()
+    if (rest === '/result-shares') {
+      const channel = body.channel ?? (body.email ? 'email' : null)
+      const to = String(body.to ?? body.email ?? '').trim()
+      if (channel === 'email' && !/^\S+@\S+\.\S+$/.test(to)) return pocProblem(400, 'VALIDATION_FAILED', 'Enter an email address.')
+      if (channel === 'sms' && !/^\+\d{10,15}$/.test(to)) return pocProblem(400, 'VALIDATION_FAILED', 'Enter a phone number.')
+      if (channel !== 'email' && channel !== 'sms') return pocProblem(400, 'VALIDATION_FAILED', 'Send by email or SMS.')
+      return [201, { shareId: `share-${Date.now().toString(36)}`, sentTo: to, expiresAt: new Date(Date.now() + 14 * DAY).toISOString() }]
+    }
+    const step = /^\/specimens\/([^/]+)\/(collect|receive|reject)$/.exec(rest)
+    if (!step) return null
+    const specimen = accession.specimens.find(entry => entry.id === decodeURIComponent(step[1]))
+    if (!specimen) return pocProblem(404, 'LAB_SPECIMEN_NOT_FOUND', 'No such sample.')
+    if (body.expectedVersion !== undefined && body.expectedVersion !== specimen.version) return labVersionConflict()
+    const action = step[2]
+    const from = { collect: ['required'], receive: ['collected'], reject: ['required', 'collected'] }[action]
+    if (!from.includes(specimen.status)) return pocProblem(409, 'LAB_SPECIMEN_STATE_CONFLICT', 'The sample is not at that step.')
+    if (action === 'collect') {
+      const view = labWorkView(labWork.find(work => work.id === accession.workItemId))
+      if (pocSettings.payBefore.lab && ['unpaid', 'part_paid'].includes(view.bill?.status)) return pocProblem(409, 'PAYMENT_REQUIRED', 'This needs to be paid first.')
+    }
+    if (action === 'reject' && !String(body.reason ?? '').trim()) return pocProblem(400, 'VALIDATION_FAILED', 'Say why the sample is rejected.')
+    Object.assign(specimen, { status: { collect: 'collected', receive: 'received', reject: 'rejected' }[action], version: specimen.version + 1 })
+    return [200, specimen]
+  }
+  const specimenRuns = /^\/lab\/specimens\/([^/]+)\/executions$/.exec(path)
+  if (specimenRuns) {
+    const id = decodeURIComponent(specimenRuns[1])
+    const specimen = [...labAccessions.values()].flatMap(accession => accession.specimens).find(entry => entry.id === id)
+    if (!specimen) return pocProblem(404, 'LAB_SPECIMEN_NOT_FOUND', 'No such sample.')
+    if (method === 'GET') return [200, { items: [...labExecutionsById.values()].filter(execution => execution.specimenId === id) }]
+    if (method !== 'POST') return null
+    if (!body) return NO_BODY()
+    if (specimen.status !== 'received') return pocProblem(409, 'LAB_SPECIMEN_STATE_CONFLICT', 'Receive the sample first.')
+    if (body.expectedSpecimenVersion !== undefined && body.expectedSpecimenVersion !== specimen.version) return labVersionConflict()
+    const execution = labExecution(specimen, 'in_progress')
+    Object.assign(execution, { startedAt: iso(), method: body.method ?? null })
+    return [201, execution]
+  }
+  const run = /^\/lab\/executions\/([^/]+)(\/complete|\/results|\/results\/([^/]+)\/corrections)?$/.exec(path)
+  if (run) {
+    const execution = labExecutionsById.get(decodeURIComponent(run[1]))
+    if (!execution) return pocProblem(404, 'LAB_EXECUTION_NOT_FOUND', 'No such test.')
+    if (method === 'GET' && !run[2]) return [200, execution]
+    if (method !== 'POST' || !run[2]) return null
+    if (!body) return NO_BODY()
+    if (run[2] === '/complete') {
+      if (execution.status !== 'in_progress') return pocProblem(409, 'LAB_EXECUTION_STATE_CONFLICT', 'The test is not running.')
+      if (body.expectedVersion !== undefined && body.expectedVersion !== execution.version) return labVersionConflict()
+      Object.assign(execution, { status: 'completed', completedAt: iso(), version: execution.version + 1 })
+      return [200, execution]
+    }
+    if (body.resultType === 'numeric' && !body.unit) return pocProblem(400, 'VALIDATION_FAILED', 'A number needs its unit.')
+    if (run[2] === '/results') {
+      if (execution.status !== 'completed' || execution.result) return pocProblem(409, 'LAB_RESULT_STATE_CONFLICT', 'This test already has a result.')
+      execution.result = labResult(execution, body)
+      return [201, execution.result]
+    }
+    const result = execution.result
+    if (!result || result.id !== decodeURIComponent(run[3])) return pocProblem(404, 'LAB_RESULT_NOT_FOUND', 'No such result.')
+    if (body.expectedResultVersion !== undefined && body.expectedResultVersion !== result.currentVersion) return labVersionConflict()
+    const version = result.currentVersion + 1
+    result.revisions.push(labRevision(version, body))
+    Object.assign(result, { currentVersion: version, status: 'entered_unverified', verificationStatus: 'unverified' })
+    return [201, result]
+  }
+  const decision = /^\/lab\/results\/([^/]+)\/(verify|release|history)$/.exec(path)
+  if (decision) {
+    const result = [...labExecutionsById.values()].map(execution => execution.result).find(entry => entry?.id === decodeURIComponent(decision[1]))
+    if (!result) return pocProblem(404, 'LAB_RESULT_NOT_FOUND', 'No such result.')
+    if (decision[2] === 'history') return method === 'GET' ? [200, result] : null
+    if (method !== 'POST') return null
+    if (!body) return NO_BODY()
+    if (body.expectedResultVersion !== undefined && body.expectedResultVersion !== result.currentVersion) return labVersionConflict()
+    const revision = result.revisions.find(entry => entry.version === result.currentVersion)
+    if (decision[2] === 'verify') {
+      if (result.status !== 'entered_unverified') return pocProblem(409, 'LAB_RESULT_STATE_CONFLICT', 'This result is not waiting to be checked.')
+      Object.assign(revision, { verificationStatus: 'verified', releaseStatus: 'verified_not_released' })
+      Object.assign(result, { status: 'verified_not_released', verificationStatus: 'verified' })
+      return [200, result]
+    }
+    if (result.status !== 'verified_not_released') return pocProblem(409, 'LAB_RESULT_STATE_CONFLICT', 'Check the result before it is released.')
+    Object.assign(revision, { releaseStatus: 'released', releasedAt: iso() })
+    Object.assign(result, { status: 'released', currentReleasedVersion: result.currentVersion })
+    return [200, result]
+  }
+  if (method === 'POST' && path === '/lab/walk-in-requests') {
+    if (!body) return NO_BODY()
+    const who = body.patient ?? {}
+    const tests = body.tests ?? []
+    if (!String(who.name ?? '').trim() || !Number.isInteger(who.ageYears) || !['female', 'male'].includes(who.sex) || !/^\+\d{10,15}$/.test(who.phone ?? '')) {
+      return pocProblem(400, 'VALIDATION_FAILED', 'Enter their name, age, sex and phone.')
+    }
+    if (tests.length === 0) return pocProblem(400, 'VALIDATION_FAILED', 'Add at least one test.')
+    const items = tests.map(test => pocCatalogue.find(entry => entry.id === test.catalogueItemId && entry.kind === 'lab_test'))
+    if (items.some(item => !item)) return pocProblem(404, 'COMMERCIAL_CATALOGUE_ITEM_NOT_FOUND', 'A test is no longer on the price list.')
+    const seq = labSeq++
+    const request = { id: `lr-${seq}`, number: `LR-000${seq}` }
+    const workItemIds = items.map((_, index) => `lw-walkin-${seq}-${index + 1}`)
+    items.forEach((item, index) => labWork.unshift({ id: workItemIds[index], patientId: null, testName: item.name, acceptedAt: iso(), priority: body.priority === 'urgent' ? 'urgent' : 'routine',
+      request, walkIn: { name: who.name.trim(), ageYears: who.ageYears, sex: who.sex, phone: who.phone, healthId: who.healthId ?? null, clinicalNote: body.clinicalNote ?? null },
+      outside: body.outside ?? null }))
+    const bill = pocBill(`bill-${request.id}`, 'lab', null, items.map((item, index) => [item.id, 1, workItemIds[index]]), { ago: 0 })
+    bill.patient = { patientId: null, displayName: who.name.trim(), healthId: who.healthId ?? null }
+    pocBills.unshift(bill)
+    return [201, { workItemIds, bill, request }]
+  }
+  return null
+}
+
 export function respond(method, path, workspace, request = {}) {
   const csrfCookie = { 'Set-Cookie': `hid_access_csrf=${CSRF}; Path=/; SameSite=Lax` }
   if (path === '/auth/session' && method === 'GET') return { status: 200, body: workspace === 'provider' ? staffSession() : patientSession(), headers: csrfCookie }
@@ -752,7 +1066,7 @@ export function respond(method, path, workspace, request = {}) {
   }
   const handler = workspace === 'admin' ? adminRoute : workspace === 'provider' ? staffRoute : patientRoute
   // Point of care (proposed routes) for the provider workspace, with the request's body and query when the caller has them.
-  const hit = (workspace === 'provider' ? registrationRoute(method, path, request) ?? pointOfCareRoute(method, path, request) : null) ?? handler(method, path)
+  const hit = (workspace === 'provider' ? registrationRoute(method, path, request) ?? labRoute(method, path, request) ?? pointOfCareRoute(method, path, request) : null) ?? handler(method, path)
   return hit ? { status: hit[0], body: hit[1], headers: {} } : null
 }
 

@@ -207,7 +207,7 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // and their payments, receipts, and end of day.
       'commercial.paymentSettings', 'commercial.catalogueItems', 'commercial.catalogueItem', 'commercial.bills',
       'commercial.bill', 'commercial.billPayments', 'commercial.billPaymentVoid', 'commercial.billPaymentConfirm',
-      'commercial.billReceipt', 'commercial.billDefer', 'commercial.currentShift', 'commercial.shifts',
+      'commercial.billReceipt', 'commercial.billDefer', 'commercial.billPatient', 'commercial.currentShift', 'commercial.shifts',
       'commercial.shiftClose'],
   },
   'admin-web': {

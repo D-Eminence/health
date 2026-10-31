@@ -885,6 +885,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('pharmacy.dispensing','pharmacy','/api/v1/pharmacy/dispensings/:dispensingId',G,false,one('GET','pharmacy.dispensing.read')),
   r('pharmacy.reverse','pharmacy','/api/v1/pharmacy/dispensings/:dispensingId/reversals',P,false,one('POST','pharmacy.dispensing.reverse')),
   // Point of care (docs/POINT_OF_CARE_SPEC.md): walk-ins and stock at the pharmacy. Proposed; 404 until served.
+  proposed(r('pharmacy.saleHandOver','pharmacy','/api/v1/pharmacy/sales/:billId/hand-over',P,false,one('POST','pharmacy.dispensing.create'),
+    `${POINT_OF_CARE} A counter sale handed over: takes stock (first to expire); 409 PAYMENT_REQUIRED or OUT_OF_STOCK.`)),
   proposed(r('pharmacy.walkInOrders','pharmacy','/api/v1/pharmacy/walk-in-orders',P,false,one('POST','pharmacy.walk-in.create'),POINT_OF_CARE)),
   proposed(r('pharmacy.stock','pharmacy','/api/v1/pharmacy/stock',G,false,one('GET','pharmacy.stock.read'),POINT_OF_CARE)),
   proposed(r('pharmacy.stockReceipts','pharmacy','/api/v1/pharmacy/stock/receipts',P,false,one('POST','pharmacy.stock.manage'),POINT_OF_CARE)),
@@ -959,6 +961,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('GET','billing.bill.read'), POINT_OF_CARE)),
   proposed(r('commercial.billDefer','commercial','/api/v1/commercial/bills/:billId/defer',P,false,
     one('POST','billing.bill.defer'), `${POINT_OF_CARE} Reason: emergency | inpatient.`)),
+  proposed(r('commercial.billPatient','commercial','/api/v1/commercial/bills/:billId/patient',P,false,
+    one('POST','billing.bill.create'), `${POINT_OF_CARE} { healthId }: puts a finished walk-in sale or lab request, and its work and results, on that Health ID.`)),
   proposed(r('commercial.currentShift','commercial','/api/v1/commercial/shifts/current',G,false,
     one('GET','billing.shift.own'), `${POINT_OF_CARE} By payment-settings dayCloseBy: the facility's day, the signed-in `
     + 'cashier\'s own, or with ?tillId= that till\'s; null when none is open.')),

@@ -55,4 +55,14 @@ export interface EhrBluePage {
   readonly tabOf?: string
   /** The page's own name among its tabs, when other pages join it ('Claims' for Insurance & Claims). Else its label. */
   readonly tabLabel?: string
+  /**
+   * A '/*' page whose list and open record are views of one page (Pharmacy's prescriptions/:id): it stays mounted as
+   * the address below it changes, so the list's state lives on. The frame keys its error boundary by the page instead.
+   */
+  readonly keepsState?: boolean
+  /**
+   * false: a page whose address only forwards to one of the pages that join it (Laboratory, to its Work list): it gathers
+   * their tabs but draws no tab of its own.
+   */
+  readonly ownTab?: boolean
 }

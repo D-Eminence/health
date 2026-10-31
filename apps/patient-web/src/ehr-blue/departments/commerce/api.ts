@@ -75,6 +75,8 @@ export interface Bill {
   patient: BillPatient | null
   lines: BillLine[]; totalKobo: number; paidKobo: number; dueKobo: number; payments: Payment[]
   receiptNumber?: string | null; createdAt: string; version: number
+  /** A counter sale: when its items were handed over, or null while they wait. */
+  handedOverAt?: string | null
 }
 /** The bill summary a pharmacy or lab work item carries; null when it has no bill. */
 export type WorkItemBill = { billId: string; status: BillStatus; dueKobo: number; receiptNumber?: string | null } | null
@@ -105,20 +107,40 @@ export interface ReceiptData {
  */
 export type WalkInPatient =
   | { kind: 'health_id'; healthId: string }
-  | { kind: 'anonymous' }
+  /**
+   * No Health ID (the owner's decision: care comes first, identity is optional). A name and phone when the customer
+   * gives them, for the receipt and to find the sale again; a prescription-only item needs the doctor's prescription
+   * (`outside`) instead of a Health ID.
+   */
+  | { kind: 'anonymous'; name?: string | null; phone?: string | null }
 export interface OutsideOrder {
   prescriberName: string; facilityName?: string | null; writtenOn?: string | null
   photoFileId?: string | null; prescriberEmail?: string | null; prescriberPhone?: string | null
 }
 export interface WalkInOrder {
   patient: WalkInPatient; outside?: OutsideOrder | null
+  /**
+   * A sale at the counter: handed over across the counter (POST pharmacy/sales/:billId/hand-over), never queued under
+   * Prescriptions. Left out: a prescription to pick and dispense from the queue.
+   */
+  counter?: boolean
   items: { catalogueItemId: string; quantity: number; dose?: string | null; frequency?: string | null; durationDays?: number | null }[]
 }
+/**
+ * Who a lab walk-in is for (owner decision 2026-10-31: work first, identity optional): always the basics, all four
+ * required (to label the sample, read results against the right ranges and send them by SMS), and their Health ID
+ * when they have one.
+ */
+export interface LabWalkInPatient {
+  name: string; ageYears: number; sex: 'female' | 'male'; phone: string; healthId?: string | null
+}
 export interface WalkInLabRequest {
-  patient: Exclude<WalkInPatient, { kind: 'anonymous' }>; outside?: OutsideOrder | null
+  patient: LabWalkInPatient; outside?: OutsideOrder | null
   tests: { catalogueItemId: string }[]; clinicalNote?: string | null; priority: 'routine' | 'urgent'
 }
 export interface WalkInAnswer { workItemIds: string[]; bill: Bill }
+/** A counter sale handed over: when, and the bill as it now stands. */
+export interface SaleHandOver { handedOverAt: string; bill: Bill }
 
 export interface StockLine {
   catalogueItemId: string; name: string; strength?: string | null; form?: string | null; imageUrl?: string | null
@@ -141,6 +163,8 @@ export interface StockMovement {
 export const ORDER_PHOTO_MAX_BYTES = 10 * 1024 * 1024
 
 export interface ResultShare { shareId: string; sentTo: string; expiresAt: string }
+/** Where a released lab result goes (§6): by email (the doctor, or the patient) or by SMS (the patient). */
+export interface ResultShareInput { channel: 'email' | 'sms'; to: string }
 
 export interface ShiftTotal { method: PaymentMethod; count: number; amountKobo: number }
 export interface Shift {
@@ -255,8 +279,9 @@ export const commerce = {
     call<CatalogueItem>('PATCH', `${C}/catalogue-items/${id(itemId)}`, facilityId, { body: patch, idempotencyKey }),
 
   // §3 Bills and payments
-  bills: (facilityId: string, filter: { status?: BillStatus | 'open'; source?: BillSource; q?: string; page?: number } = {}, signal?: AbortSignal) =>
-    call<ListPage<Bill>>('GET', `${C}/bills`, facilityId, { query: { status: filter.status, source: filter.source, q: filter.q, page: filter.page }, signal }),
+  /** `date` (YYYY-MM-DD, the facility's day): the bills made that day, newest first. */
+  bills: (facilityId: string, filter: { status?: BillStatus | 'open'; source?: BillSource; q?: string; date?: string; page?: number } = {}, signal?: AbortSignal) =>
+    call<ListPage<Bill>>('GET', `${C}/bills`, facilityId, { query: { status: filter.status, source: filter.source, q: filter.q, date: filter.date, page: filter.page }, signal }),
   createBill: (facilityId: string, bill: BillInput, idempotencyKey?: string) =>
     call<Bill>('POST', `${C}/bills`, facilityId, { body: bill, idempotencyKey }),
   bill: (facilityId: string, billId: string, signal?: AbortSignal) =>
@@ -271,10 +296,22 @@ export const commerce = {
     call<ReceiptData>('GET', `${C}/bills/${id(billId)}/receipt`, facilityId, { signal }),
   deferBill: (facilityId: string, billId: string, reason: 'emergency' | 'inpatient', idempotencyKey?: string) =>
     call<Bill>('POST', `${C}/bills/${id(billId)}/defer`, facilityId, { body: { reason }, idempotencyKey }),
+  /**
+   * A sale made without a Health ID, put on one afterwards (the customer was given a Health ID after paying): the bill
+   * and its work items join that patient's record. billing.bill.create.
+   */
+  attachPatient: (facilityId: string, billId: string, healthId: string, idempotencyKey?: string) =>
+    call<Bill>('POST', `${C}/bills/${id(billId)}/patient`, facilityId, { body: { healthId }, idempotencyKey }),
 
   // §4 Walk-ins and outside orders
   pharmacyWalkIn: (facilityId: string, order: WalkInOrder, idempotencyKey?: string) =>
     call<WalkInAnswer>('POST', '/api/v1/pharmacy/walk-in-orders', facilityId, { body: order, idempotencyKey }),
+  /**
+   * A counter sale handed over (pharmacy.dispensing.create): every line is dispensed from the batch that expires first.
+   * Refused 409 PAYMENT_REQUIRED while payment comes first and the bill is owed, 409 OUT_OF_STOCK when short.
+   */
+  handOverSale: (facilityId: string, billId: string, idempotencyKey?: string) =>
+    call<SaleHandOver>('POST', `/api/v1/pharmacy/sales/${id(billId)}/hand-over`, facilityId, { body: {}, idempotencyKey }),
   labWalkIn: (facilityId: string, request: WalkInLabRequest, idempotencyKey?: string) =>
     call<WalkInAnswer>('POST', '/api/v1/lab/walk-in-requests', facilityId, { body: request, idempotencyKey }),
   /**
@@ -298,8 +335,8 @@ export const commerce = {
     call<ListPage<StockMovement>>('GET', `/api/v1/pharmacy/stock/${id(catalogueItemId)}/movements`, facilityId, { signal }),
 
   // §6 Lab results to outside doctors
-  shareLabResult: (facilityId: string, accessionId: string, email: string, idempotencyKey?: string) =>
-    call<ResultShare>('POST', `/api/v1/lab/accessions/${id(accessionId)}/result-shares`, facilityId, { body: { email }, idempotencyKey }),
+  shareLabResult: (facilityId: string, accessionId: string, share: ResultShareInput, idempotencyKey?: string) =>
+    call<ResultShare>('POST', `/api/v1/lab/accessions/${id(accessionId)}/result-shares`, facilityId, { body: share, idempotencyKey }),
 
   // §7 End of day
   /** The open day: the facility's, the signed-in cashier's, or (with `tillId`) that till's; null when none is open. */

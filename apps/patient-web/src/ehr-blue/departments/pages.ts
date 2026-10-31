@@ -1,6 +1,6 @@
 import type { EhrBluePage } from './types'
-import { labWalkInPage, laboratoryPage } from './laboratory/page'
-import { newSalePage, pharmacyPage, stockPage } from './pharmacy/page'
+import { labPages, laboratoryPage } from './laboratory/page'
+import { pharmacyPages } from './pharmacy/page'
 import { migratePage } from './migrate/page'
 import { outreachPage } from './outreach/page'
 import { staffAccessPage } from './staff/page'
@@ -16,10 +16,8 @@ import './departments.css'
 // sample only, so the frame can list what is left.
 export const pages: EhrBluePage[] = [
   laboratoryPage,
-  labWalkInPage,
-  pharmacyPage,
-  newSalePage,
-  stockPage,
+  ...labPages,
+  ...pharmacyPages,
   migratePage,
   outreachPage,
   staffAccessPage,

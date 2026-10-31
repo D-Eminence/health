@@ -127,11 +127,16 @@ export function BlueFrame() {
   const roles = facility ? facility.roles.join(', ') || 'Staff' : 'Staff'
   // In the EHR a page that joins another's tabs has no sidebar entry; in a single product (a pharmacy or lab on its own)
   // each is listed by its tab name ("To dispense", "New sale", "Stock").
-  const groups = navigationGroups(product === 'ehr' ? listed.filter(page => !page.tabOf)
-    : listed.map(page => page.tabLabel ? { ...page, label: page.tabLabel } : page))
+  // A single product's own pages come first (its menu), then anything else it holds (settings, insight).
+  const own = (page: EhrBluePage) => basePath(page.path) === info.home || basePath(page.path).startsWith(`${info.home}/`)
+  const ordered = product === 'ehr' ? listed : [...listed.filter(own), ...listed.filter(page => !own(page))]
+  const groups = navigationGroups(product === 'ehr' ? ordered.filter(page => !page.tabOf)
+    : ordered.map(page => page.tabLabel ? { ...page, label: page.tabLabel } : page))
   // The groups a clinician opens all day stay open; the rest fold (Hick's Law), each opening while it holds the page.
   // A single product's own group is its whole job, so it stays open too.
-  const OPEN = new Set(['Front desk', 'Care', ...(product === 'ehr' ? [] : [listed.find(page => basePath(page.path) === info.home)?.group ?? ''])])
+  // (A pharmacy's home is a menu of pages below it, pharmacy/sell first: its group is theirs.)
+  const OPEN = new Set(['Front desk', 'Care', ...(product === 'ehr' ? [] : [listed.find(page => basePath(page.path) === info.home
+    || basePath(page.path).startsWith(`${info.home}/`))?.group ?? ''])])
   const nav: NavGroup[] = groups.map(group => ({
     title: group.label,
     collapsible: Boolean(group.label),
@@ -189,12 +194,13 @@ export function BlueFrame() {
                 <EhrModuleTabs
                   label={tabs[0]!.label}
                   currentId={basePath(match!.page.path)}
-                  tabs={tabs.map((tab, index) => ({ id: basePath(tab.path), label: index === 0 ? tab.tabLabel ?? tab.label : tab.label, href: pageHrefOf(tab) }))}
+                  tabs={tabs.filter((tab, index) => index > 0 || tab.ownTab !== false)
+                    .map(tab => ({ id: basePath(tab.path), label: tab === tabs[0] ? tab.tabLabel ?? tab.label : tab.label, href: pageHrefOf(tab) }))}
                   onNavigate={follow}
                 />
               ) : null}
               {/* A page that fails would take the frame with it, and the account menu's way back to the classic EHR. */}
-              <BluePageBoundary key={location.pathname}>{content}</BluePageBoundary>
+              <BluePageBoundary key={match?.page.keepsState ? match.page.path : location.pathname}>{content}</BluePageBoundary>
             </div>
             {/* Fictional figures: only where the page itself is a sample. */}
             {match?.page.status === 'sample' ? <ConnectionStatus /> : null}

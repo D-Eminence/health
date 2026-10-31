@@ -55,7 +55,7 @@
   }
 
   /* Headings take focus when a page opens (for screen readers); they are not controls, so no focus box. */
-  :is(h1, h2, h3)[tabindex='-1']:focus { outline: none; }
+  :is(h1, h2, h3, div, main, section, article)[tabindex='-1']:focus { outline: none; }
 }
 
 @layer components {
