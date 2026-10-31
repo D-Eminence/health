@@ -12,7 +12,7 @@ import { CHANNEL, type UpdateSafeAnswer, type UpdateSafeQuery } from './contract
 export type OfflineMessage =
   | { type: 'lock'; reason: string }
   | { type: 'outbox-changed'; vaultId: string }
-  | { type: 'wipe'; reason: string }
+  | { type: 'wipe'; reason: string; ended?: { accountId: string; facilityId: string } }
   | UpdateSafeQuery
   | UpdateSafeAnswer
   | { type: 'summary-changed' }

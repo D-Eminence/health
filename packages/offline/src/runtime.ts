@@ -146,13 +146,19 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
   /** The session the last opened vault served (its owner), kept after a lock or sign-out like lastVaultId. */
   let lastVaultFor: StaffSessionSnapshot | null = null
   let attachedSession: StaffSessionSnapshot | null = null
-  /** When attachedSession was verified by the server (server time when known). */
-  let attachedAt = 0
+  /** When attachedSession was verified, on this device's clocks (monotonic and wall). Server time: attachedAtServer(). */
+  let attachedMono = 0
+  let attachedWall = 0
   let sessionReady = false
   /** The account Health ID confirmed for this tab's session (A12.3): only that account's vault sends or extends its lease. */
   let readyAccount: string | null = null
   /** The email of the vault last opened in this tab, kept until sign-out so the lock overlay can reopen it (A12.8). */
   let lastEmail: string | null = null
+  /**
+   * A membership end this tab learned while it held no vault of that person's (a reload, or a tab another tab signed
+   * out of): the lock overlay must not reopen that account's vault at that facility for a session verified before it.
+   */
+  let endedHere: { accountId: string; facilityId: string; at: number } | null = null
   let policy: OfflinePolicy = evaluatePolicy(config, { appHost, supported })
   let lastActivity = mono()
   let hiddenSince: number | null = null
@@ -535,6 +541,15 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     await audit.record({ action: 'ehr.offline.unlock', patientId: null, section: null }).catch(() => undefined)
   }
 
+  /**
+   * Server time when attachedSession was verified, or null while this tab has seen no server Date. It is taken back from
+   * the anchor along the monotonic clock, never from the device clock, so it compares with server-time markers (D9).
+   */
+  function attachedAtServer(): number | null {
+    const now = clock.serverNow()
+    return now === null ? null : now - (mono() - attachedMono)
+  }
+
   async function wipeAudit(reason: WipeReason): Promise<void> {
     if (!unlocked) return
     await audit.record({ action: 'ehr.offline.wipe', patientId: null, section: reason }).catch(() => undefined)
@@ -624,12 +639,17 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       // The online-reload path trusts the attached session in place of the lease, so only while that session was
       // verified within the lease window. Otherwise (a tab locked long after its sign-in, perhaps offline for days) the
       // tab's own vault goes through the offline rules: lease, clock and a readable copy; a stale reload signs in again.
-      if (clock.now() - attachedAt >= LIMITS.leaseMs) {
+      // Measured on this device (either clock running past it counts), not against server time it may not have seen.
+      if (Math.max(mono() - attachedMono, wall() - attachedWall) >= LIMITS.leaseMs) {
         // Only the tab's own vault for this session: after a facility switch it is not this session's (P1).
         return lastVaultId && lastVaultFor && sameOwner(lastVaultFor, session)
           ? unlockWith(email, password, lastVaultId)
           : { ok: false, reason: 'lease-expired' }
       }
+      // A membership end this tab learned while holding no vault of this person's (item 5): not undone by the overlay.
+      const verifiedAt = attachedAtServer()
+      if (endedHere && endedHere.accountId === session.accountId && endedHere.facilityId.toLowerCase() === session.facilityId.toLowerCase()
+        && (verifiedAt === null || endedHere.at >= verifiedAt)) return { ok: false, reason: 'no-vault' }
       // Online reload: open the vault for the attached session's facility.
       const s = await storeIfExists()
       if (!s) return { ok: false, reason: 'no-vault' }
@@ -650,7 +670,8 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       if (endedAt !== null) {
         // The membership ended after this session was verified (this tab, or another tab that told us): the lock
         // overlay must not undo it (D9). Only a session verified after the end shows the membership is current (A9.2).
-        if (endedAt >= attachedAt) return { ok: false, reason: 'no-vault' }
+        // Both in server time; with no server Date seen yet, nothing shows the session is newer than the end.
+        if (verifiedAt === null || endedAt >= verifiedAt) return { ok: false, reason: 'no-vault' }
         match = { ...match, record: await vs.update(match.record.vaultId, r => ({ ...r, flags: { ...r.flags, membershipEndedAt: null } })) }
       }
       await openVault(match, kek, session, false)
@@ -660,6 +681,25 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       return { ok: true, summary: summaryCache }
     }
     return unlockWith(email, password, lastVaultId)
+  }
+
+  /**
+   * Another tab learned that this account's membership at this facility ended (item 5): if this tab holds that vault,
+   * hold its queue (CC8), wipe its readable copy and record the end, as wipe('membership') would here.
+   */
+  async function membershipEndedElsewhere(ended: { accountId: string; facilityId: string }): Promise<void> {
+    const owner = unlocked?.session ?? lastVaultFor
+    const current = unlocked?.open.record.vaultId ?? lastVaultId
+    if (!owner || !current || owner.accountId !== ended.accountId) return
+    if (owner.facilityId.toLowerCase() !== ended.facilityId.toLowerCase()) return
+    const vs = await vaults()
+    const record = await vs.get(current).catch(() => undefined)
+    if (!record || record.flags.membershipEndedAt !== null) return
+    await wipeAudit('membership')
+    if (unlocked) await engine.holdMembership()
+    await vs.wipeCache([current], { membershipEndedAt: clock.serverNow() ?? clock.now() }).catch(() => undefined)
+    if (unlocked) dropKeys('locked')
+    await refreshSummary()
   }
 
   /** Drop the keys in this tab; with `tell`, in every tab (BroadcastChannel). Forms stay mounted under the app's lock overlay. */
@@ -680,6 +720,7 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
         changed()
         break
       case 'wipe': {
+        if (m.reason === 'membership' && m.ended) await membershipEndedElsewhere(m.ended)
         const u = unlocked
         if (u) {
           const record = await (await vaults()).get(u.open.record.vaultId).catch(() => undefined)
@@ -772,7 +813,8 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     async attachSession(s, opts) {
       await startup
       attachedSession = s
-      attachedAt = clock.serverNow() ?? clock.now()
+      attachedMono = mono()
+      attachedWall = wall()
       // Another account or facility (a facility switch, A12.7): the open vault is not this session's, so its keys go
       // before anything attaches. Unlock then opens only this session's own vault.
       if (unlocked && !sameOwner(unlocked.session, s)) {
@@ -924,13 +966,21 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     lock: reason => lockLocal(reason, true),
 
     async signOut(opts) {
-      const id = unlocked?.open.record.vaultId ?? lastVaultId
+      // The vault this tab opened is the signing-out session's only when it has the same owner (account and facility).
+      // After a facility switch or another account's session reaching this tab with no password, this tab cannot tell
+      // which vault is the leaving session's, so every readable copy goes (A8.11).
+      const owner = unlocked?.session ?? lastVaultFor
+      const leaving = attachedSession ?? owner
+      let id = owner && leaving && sameOwner(owner, leaving) ? unlocked?.open.record.vaultId ?? lastVaultId : null
       engine.stop()
       unlocked = null
       const s = id ? openStore : await storeIfExists()
       if (s) {
         openStore = s
         const vs = await vaults()
+        // A vault since deleted (replaced by an escrow recovery in another tab, or signed out of there) says nothing
+        // about where the leaving session's copy is now: wipe every readable copy as well.
+        if (id && !(await vs.get(id).catch(() => undefined))) id = null
         // Without a key this tab cannot tell which vault is this person's (an online reload never unlocked), so
         // every readable copy on this app host is wiped: a sign-out must never leave a chart readable offline.
         const ids = id ? [id] : (await vs.list()).map(v => v.vaultId)
@@ -954,6 +1004,7 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       await wipeAudit(reason)
       const current = unlocked?.open.record.vaultId ?? lastVaultId
       const all = (await vs.list()).map(v => v.vaultId)
+      const endedSession = reason === 'membership' ? attachedSession ?? unlocked?.session ?? lastVaultFor : null
       switch (reason) {
         case 'failed-unlocks':
         case 'kill-switch':
@@ -975,6 +1026,13 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
             // the sweep removes it 30 days later; a later verified sign-in at this facility clears it (A9.2).
             await vs.wipeCache([current], { membershipEndedAt: clock.serverNow() ?? clock.now() })
           }
+          if (ended && (current === null || !all.includes(current))) {
+            // This tab holds no vault of the ended session's (a reload, or one another tab signed out of): as A8.11 it
+            // cannot tell which vault is that person's, so every readable copy goes; the tab holding the vault records
+            // the end when it hears the broadcast, and this tab's overlay will not reopen it.
+            await vs.wipeCache(all)
+            endedHere = { accountId: ended.accountId, facilityId: ended.facilityId, at: clock.serverNow() ?? clock.now() }
+          }
           if (unlocked) dropKeys('locked')
           break
         }
@@ -988,7 +1046,9 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
           if (unlocked) dropKeys('locked')
       }
       o.report?.({ kind: 'wipe', reason })
-      broadcast.post({ type: 'wipe', reason })
+      broadcast.post(endedSession
+        ? { type: 'wipe', reason, ended: { accountId: endedSession.accountId, facilityId: endedSession.facilityId } }
+        : { type: 'wipe', reason })
       await refreshSummary()
     },
 

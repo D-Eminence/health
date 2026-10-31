@@ -200,6 +200,8 @@ export async function runSequence(seed: number, steps: number): Promise<void> {
       if (checkOpened(t, acc, null) && how === 'offline' && noReadable.has(key(acc, t.open!.fac)) && !killSwitch) {
         fail(`I2: ${acc}@${t.open!.fac} unlocked offline after sign-out or wipe`)
       }
+      // M1: the lock overlay with a session attached opens that session's vault, even a headerless one.
+      if (how === 'locked' && t.attached) t.lastOwner = t.attached
       exact = false
     } else if (!right) {
       // Only a guess that was counted (it reserved an attempt) answers wrong-credentials or wiped.
@@ -225,8 +227,11 @@ export async function runSequence(seed: number, steps: number): Promise<void> {
     { w: 3, run: async () => {
       const t = r.pick(tabs), online = r.chance(0.5)
       const who = t.open
+      const leaving = t.attached
       await t.rt.signOut({ online })
       if (who) noReadable.add(key(who.acc, who.fac))
+      // The leaving session's copy too (round 5 item 2): after a switch it is not the vault this tab opened.
+      if (leaving) noReadable.add(key(leaving.acc, leaving.fac))
       t.open = null
       t.lastOwner = null
       t.attached = null
