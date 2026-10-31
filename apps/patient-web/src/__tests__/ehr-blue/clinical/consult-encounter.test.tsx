@@ -431,7 +431,8 @@ describe('Consultation record', () => {
     expect(api.lookupPatient.mock.calls.length).toBe(checks + 1)
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: undefined, fresh: true })
     await waitFor(() => expect(actions().queryByRole('button', { name: 'Sign note' })).toBeNull())
-    expect(actions().getByRole('button', { name: 'Amend signed note' })).toBeTruthy()
+    // "Amend signed note" needs the signed note's content, read again once its version changed.
+    expect(await actions().findByRole('button', { name: 'Amend signed note' })).toBeTruthy()
   })
 
   it('keeps the draft when the sign dialog is cancelled, or closed with Escape', async () => {
