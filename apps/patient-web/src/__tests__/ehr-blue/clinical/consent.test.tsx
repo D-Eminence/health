@@ -272,6 +272,8 @@ describe('New external record access', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send access request' }))
     expect(await screen.findByText('Loading requests…')).toBeTruthy()
     expect(screen.getByText(SENT)).toBeTruthy()
+    // The page shows "Loading requests…" before its read is asked for: fail the read only once it has been.
+    await waitFor(() => expect(api.listAccessRequests).toHaveBeenCalled())
     await act(async () => { fail(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' })) })
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(screen.getByText(SENT)).toBeTruthy()

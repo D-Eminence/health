@@ -439,6 +439,8 @@ describe('The open patient’s page', () => {
     api.encounters.mockReturnValue(new Promise((_resolve, reject) => { fail = reject }))
     open('/open')
     expect(await screen.findByText('Loading encounters…')).toBeTruthy()
+    // The read starts after the access check: fail it only once it has been asked for.
+    await waitFor(() => expect(api.encounters).toHaveBeenCalled())
     await act(async () => { fail('offline') })
     expect((await screen.findByRole('alert')).textContent).toBe('Encounters could not be loaded.')
   })
