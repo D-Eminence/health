@@ -14,7 +14,9 @@
  *    amounts, version numbers and UUIDs are not counted when they stand alone.
  * 5. A code of 6 or more characters mixing letters and digits, in one piece or read out in groups; after HID, any 6
  *    letters and digits read out, with a digit among them.
- * 6. A Health ID of letters only in its printed form: in capitals straight after HID, in a question not in capitals.
+ * 6. A Health ID of letters only as it is printed or keyed in: in capitals straight after HID, in a question not in
+ *    capitals; or 6 or 8 letters in one case after HID, a patient ID or an ID and a colon, = or # ("hid: kqzxtw",
+ *    "health_id=kqzxtw", "Patient ID: kqzxtw").
  * 7. Three or more spelling-alphabet words in a row ("kilo quebec zulu").
  * A Health ID of letters only written any other way cannot be told from a word here: support-api checks questions
  * against the Health IDs issued.
@@ -30,7 +32,7 @@ export const REFUSAL_REASONS = {
   encoded: 'Remove encoded characters such as %40 or &amp;.',
   email: 'Remove email addresses and the @ sign.',
   number: 'Remove phone numbers, NINs and other numbers of 7 or more digits.',
-  code: 'Remove codes that mix letters and digits, such as Health IDs.',
+  code: 'Remove Health IDs and other codes that mix letters and digits.',
 } as const
 
 export type RefusalReason = keyof typeof REFUSAL_REASONS
@@ -275,8 +277,11 @@ const HEALTH = /^(?:health|heath|helath|helth|hlth|healt|healh)$/i
 const ID_WORD = /^(?:id|ids|identity|identifier|identification|no|num|number)$/i
 // Words that come between HID and its code: "HID is ...", "HID of the patient: ...", "HID number ...".
 const CONNECTOR = /^(?:is|was|of|for|the|a|my|our|her|his|their|this|that|patient|patients|number|no|nr|num|code|card|s)$/i
-// The Health ID alphabet without its digits: letters except I and O.
+// The Health ID alphabet without its digits: letters except I and O. Health IDs are issued with 6 characters (the demo
+// tenant's with 8), and nearly one in five of them has no digit.
 const HID_LETTERS = /^[A-HJ-NP-Z]{6,32}$/
+// 6 or 8 such letters in one case, as a Health ID keyed in after a label and a sign: "kqzxtw", "ABCDEFGH".
+const KEYED_IN = /^(?:[a-hj-np-z]{6}|[a-hj-np-z]{8}|[A-HJ-NP-Z]{6}|[A-HJ-NP-Z]{8})$/
 const NATO = new Set('alfa alpha bravo charlie delta echo foxtrot golf hotel india juliet juliett kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey whisky xray yankee zulu'.split(' '))
 
 /** Where the words of an HID label end, if one starts at `at`: "HID", "H.I.D.", "h1d", "Health ID", "patientHealthId". */
@@ -305,6 +310,12 @@ function afterHid(text: string): boolean {
     .replace(/([a-z])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
   const words = wordsOf(split)
   for (let at = 0; at < words.length; at += 1) {
+    const idEnd = idLabelEnd(words, at)
+    if (idEnd >= 0) {
+      let after = idEnd
+      while (after - idEnd < 6 && CONNECTOR.test(words[after]?.text ?? '')) after += 1
+      if (keyedIn(words, at, after)) return true
+    }
     let next = hidLabelEnd(words, at)
     if (next < 0) continue
     // The connecting words skipped; a one-letter one ("a", "s") may be the code's first group, so the code is read
@@ -321,6 +332,7 @@ function afterHid(text: string): boolean {
     const othersInCapitals = others.length > 0 && others.every(word => word === word.toUpperCase())
     if (first && HID_LETTERS.test(first.text) && !/^(.)\1+$/.test(first.text) && !/\u00A7/.test(first.before)
       && !othersInCapitals) return true
+    if (keyedIn(words, at, next)) return true
     // In a question written in capitals, a word of capitals is part of the code only beside a group of two or more
     // letters with a digit ("HID KQZ 2XT"), not beside a number ("CAN A HID HAVE 32 CHARACTERS?").
     const shouting = inCapitals(words)
@@ -333,6 +345,23 @@ function afterHid(text: string): boolean {
     for (const start of [next, ...starts]) if (codeFrom(words, start, shouting)) return true
   }
   return false
+}
+
+/**
+ * A Health ID of letters only, keyed in after its label and a sign: the word after HID (or a patient ID, or an ID) and
+ * its connecting words is 6 or 8 letters in one case, with a colon, = or # before it ("hid: kqzxtw", "HID number: abcdef",
+ * "health_id=kqzxtw", "Patient ID: kqzxtw"). A word after HID and a space is not read so: "HID backup failed".
+ */
+function keyedIn(words: readonly Word[], at: number, next: number): boolean {
+  const word = words[next]
+  if (!word || !KEYED_IN.test(word.text) || /^(.)\1+$/.test(word.text)) return false
+  const signs = words.slice(at + 1, next + 1).map(between => between.before).join('')
+  return /[:=#]/.test(signs) && !/\u00A7/.test(signs)
+}
+
+/** Where a label that a keyed-in Health ID can follow ends: HID's, or "ID" and "Patient ID" alone ("ID: kqzxtw"). */
+function idLabelEnd(words: readonly Word[], at: number): number {
+  return /^id$/i.test(words[at]?.text ?? '') ? at + 1 : -1
 }
 
 /** Whether the groups from `start` on read as a Health ID with a digit (see afterHid). */

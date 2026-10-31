@@ -6,11 +6,9 @@ import { DEMO_HOSPITAL, REAL_FACILITY, SESSION, facility, json, openStaffApp, pr
 /**
  * Help in the blue EHR: Health ID's support assistant (support-api, anonymous), in a drawer of the frame, for any
  * signed-in staff member, where the build offers it (the ehr build). Its privacy guard keeps patients out of it: the
- * notice above the question, and a question that could hold a Health ID, a NIN, an email address or a phone number
- * refused before anything is sent, saying what to remove. The guard refuses shapes, not words (#61, option a): some
- * ordinary questions are refused on purpose, and a Health ID of letters only, written other than as printed, is left
- * to support-api. The chat's session id stays in memory and nothing is stored. Today's classic portal has no chat.
- * Every account, facility, number, address and question here is fictional, generated ones included.
+ * notice above the question, and a question holding a Health ID, a NIN, an email address or a phone number refused
+ * before anything is sent. The chat's session id stays in memory and nothing is stored. Today's classic portal has no
+ * chat. Every account, facility and question here is fictional.
  */
 const build = vi.hoisted(() => ({ supportChatEnabled: true }))
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({
@@ -146,7 +144,7 @@ const REFUSED: Record<string, readonly string[]> = {
     'HID IS ABCDEF', 'H.I.D. KQZXTW', 'HID, KQZXTW', 'Health I.D. KQZXTW', 'H.I.D.: KQZXTW', 'HID. KQZXTW',
     'Patient HID. KQZXTW cannot sign in', 'Health ID; KQZXTW', 'HID | KQZXTW', '| HID | KQZXTW |', 'HID,KQZXTW', 'Name, HID, KQZXTW',
     'HID \u2192 KQZXTW', 'HID `KQZXTW`', 'HID \u201EKQZXTW\u201C', 'HID \u300CKQZXTW\u300D', 'HID ~ KQZXTW', 'HID @ KQZXTW',
-    'HID ^ KQZXTW', 'Health ID for my patient is KQZXTW', 'The HID for my new patient is abc234',
+    'HID ^ KQZXTW', 'HID: kqzxtw', 'Health ID for my patient is KQZXTW', 'The HID for my new patient is abc234',
     'The HID of my new patient is ABCDEFGH2345', 'HID for bed 4 patient: abc234', 'Health ID (patient 2): abc234',
     'Hi, the HID of the patient I am seeing is kqz2xt', 'HID of the lady in bed four is kqz2xt',
   ],
@@ -155,12 +153,12 @@ const REFUSED: Record<string, readonly string[]> = {
     'kqz2xt (her Health ID) will not load', 'Record ABCDEFGH2345 (Health ID) is locked', 'patient abc234 HID',
   ],
   'a Health ID pasted from a log, a link or a page': [
-    'health_id: abc234', 'patient_health_id: ABCDEFGH2345', '{"health_id":"kqz2xt"}', 'Health_ID KQZXTW', 'H_I_D abc234',
-    'search?q=hid%20abc234', 'https://ehr.example.test/search?q=HID%20KQZXTW', '?q=hid+abc+234', '?q=HID+KQZXTW', 'HID&#45;KQZXTW',
-    'HID&nbsp;KQZXTW',
+    'health_id: abc234', 'health_id=kqzxtw', 'patient_health_id: ABCDEFGH2345', '{"health_id":"kqz2xt"}', 'Health_ID KQZXTW',
+    'H_I_D abc234', 'search?q=hid%20abc234', 'https://ehr.example.test/search?q=HID%20KQZXTW', '?q=hid+abc+234', '?q=HID+KQZXTW',
+    'HID&#45;KQZXTW', 'HID&nbsp;KQZXTW',
   ],
   'a Health ID of letters only': [
-    'hid ABCDEF', 'Health ID ABCDEF', 'HEALTH ID ABCDEF', 'Health ID: ABCDEF', 'HID-KQZXTW',
+    'hid ABCDEF', 'hid: abcdef', 'Health ID ABCDEF', 'HEALTH ID ABCDEF', 'Health ID: ABCDEF', 'HID-KQZXTW',
   ],
   'a Health ID alone, as issued': [
     'Patient 7KQ2M9 cannot sign in', 'K7P2QX will not open', 'Patient AB23CD',
@@ -169,8 +167,8 @@ const REFUSED: Record<string, readonly string[]> = {
     'ＨＩＤ\uFF0DＡＢＣ２３４', 'HID AB\u200BC234', 'HID\u2063ABC234', 'Open HID-\u200EABC234', 'HID\u200E-ABC234', 'HID\u200EABC234',
     'HID-\u034FABC234', 'HID-\u180EABC234', 'HID-\uFE0FABC234', 'HID-\u{E0041}ABC234', 'HID-\u202AABC234\u202C', 'Health\u200BID ABC234',
     'HID A\u0301BC234', 'HID ABC２３４', 'HID ABC²³⁴', 'HID ABC①②③', 'HID ⒶⒷⒸ234', 'HID 𝐀𝐁𝐂234', 'HID ABC٢٣٤', 'HID \u202E432CBA',
-    'НID-ABC234', 'Open НІD ABC234', 'HID АВС234', 'һіԁ abcdef', 'ʜɪᴅ ABC234', 'hıd abc234', 'HlD abc234', 'H1D abc234', 'HӀD abc234',
-    'HǀD abc234', 'HID ABC2З4', 'HID 7кq2м9', 'hid кqzxтw', 'HID 7κq2m9', 'ꓧꓲꓓ abc234', 'HID 7ꓗQ2ꓟ9',
+    'НID-ABC234', 'Open НІD ABC234', 'HID АВС234', 'һіԁ abcdef', 'ʜɪᴅ ABC234', 'hıd abc234', 'Hıd: kqzxtw', 'HlD abc234', 'H1D abc234',
+    'HӀD abc234', 'HǀD abc234', 'HID ABC2З4', 'HID 7кq2м9', 'hid кqzxтw', 'HID 7κq2m9', 'ꓧꓲꓓ abc234', 'HID 7ꓗQ2ꓟ9',
   ],
   'a NIN': [
     'The NIN 12345678901 is refused', 'NIN: 98765432109', 'NIN 1234 5678 901', 'NIN: 123-456-789-01', 'NIN 12345\u200E678901',
@@ -282,6 +280,10 @@ const REFUSED: Record<string, readonly string[]> = {
     'ada at my-clinic dot com', 'ada @ my-clinic dot com', 'ada at the-clinic dot ng', 'ada at a-z dot com', 'Add ada@օutlook to my team',
     'ada@ⲟutlook', 'ada@үahoo', 'ada@ǥmail', 'ada@ɠmail', 'ada(a)example.com', 'ada (a) example.com', 'adaⓐexample.com',
     'ada ⓐ example.com',
+  ],
+  'a Health ID of letters only, keyed in after its label and a sign': [
+    'hid: kqzxtw', 'HID: abcdef', 'Health ID: kqzxtw', 'health_id=kqzxtw', 'Patient ID: kqzxtw', 'ID: abcdef', 'HID number: abcdef',
+    '?patientHid=kqzxtw', '{"hid":"kqzxtw"}', 'Health ID # KQZXTW', 'HID: abcdefgh', 'patient_id: zdemaaah',
   ],
 }
 
@@ -476,12 +478,11 @@ const REFUSED_ON_PURPOSE: Record<string, readonly string[]> = {
  */
 const LEFT_TO_SUPPORT_API = [
   'HIDKQZ XTW', 'HID ABC DEF', 'HID ABC DEF GHJ', 'HID ABCD EFGH', 'HID KQZ XTW', 'Health ID: KQZ\u00B7XTW', 'MY HID NUMBER IS ABCDEF',
-  'H.I.D. kqzxtw', 'HID; kqzxtw', 'HID \u2039kqzxtw\u203A', 'HID\u2026kqzxtw', 'HID: kqzxtw', 'HID support: KQZXTW',
-  'kqzxtw is the patient\'s Health ID', 'KQZXTW is her HID', 'kqzxtw (HID)', 'health_id=kqzxtw', 'patient hid abcdef will not load',
-  'HID abcdef', 'HID Abcdef', 'Hid abcdef', 'hidabcdef', 'HIDabcdef', 'hid: abcdef', 'hid \u2013 abcdef', 'hid\nabcdef', 'HID-abcdef',
-  'hid-kqzxtw', 'hid ａｂｃｄｅｆ', 'HID\u200Babcdef', 'Hıd: kqzxtw', 'Before the update the HID showed KQZXTW',
-  'Patient KQZXTW HID will not load', 'KQZXTW - her HID', 'Our patient KQZXTW has no HID card', 'Name, HID: Ada Obi, KQZXTW',
-  '| Name | HID |\n| Ada Obi | KQZXTW |', 'name,hid\nAda Obi,KQZXTW',
+  'H.I.D. kqzxtw', 'HID; kqzxtw', 'HID \u2039kqzxtw\u203A', 'HID\u2026kqzxtw', 'HID support: KQZXTW', 'kqzxtw is the patient\'s Health ID',
+  'KQZXTW is her HID', 'kqzxtw (HID)', 'patient hid abcdef will not load', 'HID abcdef', 'HID Abcdef', 'Hid abcdef', 'hidabcdef',
+  'HIDabcdef', 'hid \u2013 abcdef', 'hid\nabcdef', 'HID-abcdef', 'hid-kqzxtw', 'hid ａｂｃｄｅｆ', 'HID\u200Babcdef',
+  'Before the update the HID showed KQZXTW', 'Patient KQZXTW HID will not load', 'KQZXTW - her HID', 'Our patient KQZXTW has no HID card',
+  'Name, HID: Ada Obi, KQZXTW', '| Name | HID |\n| Ada Obi | KQZXTW |', 'name,hid\nAda Obi,KQZXTW',
 ]
 
 describe('the privacy guard refuses before anything is sent', () => {
@@ -650,7 +651,24 @@ describe('the privacy guard against generated questions', () => {
       id => `HID ${[...id].map(character => /\d/.test(character) ? DIGIT_NAMES[Number(character)] : character).join(' ')}`,
       id => `Health ID number ${inGroups(id, 3, ' - ')}`, id => `| Name | HID |\n| Ada Obi | ${id} |`,
     ]
-    const questions = Array.from({ length: 400 }, () => pickFrom(next, shapes)(fictionalHealthId(next, pickFrom(next, [6, 6, 8, 16]))))
+    // As issued: 6 characters (the demo tenant's 8).
+    const questions = Array.from({ length: 400 }, () => pickFrom(next, shapes)(fictionalHealthId(next, pickFrom(next, [6, 6, 6, 8]))))
+    expect(questions.filter(question => !holdsPersonalDetails(question))).toEqual([])
+  })
+
+  it('refuses 300 Health IDs of letters only, as printed or keyed in after a label and a sign', () => {
+    const next = seeded(18)
+    const shapes: readonly ((id: string) => string)[] = [
+      id => `Why can't I open HID-${id}?`, id => `HID ${id} cannot sign in`, id => `Her Health ID is ${id}`, id => `hid: ${id.toLowerCase()}`,
+      id => `health_id=${id.toLowerCase()}`, id => `Patient ID: ${id.toLowerCase()}`, id => `ID: ${id.toLowerCase()}`,
+      id => `HID number: ${id.toLowerCase()}`, id => `?patientHid=${id.toLowerCase()}`, id => `{"hid":"${id.toLowerCase()}"}`,
+      id => `HID for my patient ${id}`, id => `Health ID # ${id}`,
+    ]
+    const letters = HID_ALPHABET.filter(character => /[A-Z]/.test(character))
+    const questions = Array.from({ length: 300 }, () => {
+      const id = Array.from({ length: pickFrom(next, [6, 6, 6, 8]) }, () => pickFrom(next, letters)).join('')
+      return pickFrom(next, shapes)(id)
+    })
     expect(questions.filter(question => !holdsPersonalDetails(question))).toEqual([])
   })
 
