@@ -33,6 +33,11 @@ const ClinicianApplicationStatus = lazy(async () => ({
   default: (await import('./staff/routes/ClinicianApplicationStatus')).ClinicianApplicationStatus }))
 const AdminApp = lazy(async () => ({ default: (await import('./admin/App')).App }))
 const StaffInvitation = lazy(async () => ({ default: (await import('./staff/routes/StaffInvitation')).StaffInvitation }))
+// The blue EHR's recovery and invitation, once the clinic switch is on (BLUE_FOR_ALL, as for sign-up above): today's
+// steps and words. Marked pure so that, while the switch is off and nothing uses them, the build drops both calls and
+// the entry bundle names no blue chunk.
+const BlueRecovery = /* @__PURE__ */ lazy(async () => ({ default: (await import('./ehr-blue/frame/auth/BlueRecovery')).BlueRecovery }))
+const BlueStaffInvitation = /* @__PURE__ */ lazy(async () => ({ default: (await import('./ehr-blue/frame/auth/BlueStaffInvitation')).BlueStaffInvitation }))
 
 function PatientNotFound() {
   useDocumentTitle('Page not found · Health ID')
@@ -95,10 +100,13 @@ function ProductHostnameGate({ children }: { children: React.ReactNode }) {
  */
 export function App() {
   return <ProductHostnameGate><Routes>
-    <Route path={STAFF_RECOVERY_PATH} element={<PrincipalRecovery audience="staff" />} />
+    <Route path={STAFF_RECOVERY_PATH} element={BLUE_FOR_ALL
+      ? <Suspense fallback={<main><p role="status">Opening account recovery…</p></main>}><BlueRecovery /></Suspense>
+      : <PrincipalRecovery audience="staff" />} />
     <Route path="/provider/enroll" element={<Suspense fallback={<main><p role="status">Opening provider enrollment…</p></main>}><ProviderEnrollment /></Suspense>} />
     {/* A facility's staff invitation (Novu, P4b): public, outside the provider workspace and its session. */}
-    {usesNovuBackend() && <Route path={STAFF_INVITATION_PATH} element={<Suspense fallback={<main><p role="status">Opening your invitation…</p></main>}><StaffInvitation /></Suspense>} />}
+    {usesNovuBackend() && <Route path={STAFF_INVITATION_PATH} element={<Suspense fallback={<main><p role="status">Opening your invitation…</p></main>}>
+      {BLUE_FOR_ALL ? <BlueStaffInvitation /> : <StaffInvitation />}</Suspense>} />}
     {/* Clinician self sign-up (hid-system ADR-066): public, outside the provider workspace and its session. */}
     <Route path={CLINICIAN_SIGNUP_PATH} element={<Suspense fallback={<main><p role="status">Opening clinician sign-up…</p></main>}><ClinicianSignUp /></Suspense>} />
     <Route path={CLINICIAN_STATUS_PATH} element={<Suspense fallback={<main><p role="status">Opening your clinician application…</p></main>}><ClinicianApplicationStatus /></Suspense>} />

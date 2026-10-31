@@ -8,11 +8,12 @@ import {
   readInvoices, readSubscription, TRIAL_DAYS, type BillingRead, type Invoice, type Subscription,
 } from '../billing'
 
-const PRODUCT_LABELS: Record<string, string> = {
+/** Shared with the blue EHR's Facility subscription page (ehr-blue/frame/BlueSubscription.tsx), word for word. */
+export const PRODUCT_LABELS: Record<string, string> = {
   ehr: 'Health ID EHR', laboratory: 'Health ID Laboratory', pharmacy: 'Health ID Pharmacy', migrate: 'Health ID Migrate',
 }
 
-const STATUS: Record<Subscription['status'], { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' | 'information' }> = {
+export const STATUS: Record<Subscription['status'], { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' | 'information' }> = {
   none: { label: 'No plan yet', tone: 'neutral' },
   trialing: { label: 'Free trial', tone: 'information' },
   active: { label: 'Active', tone: 'success' },
@@ -21,7 +22,7 @@ const STATUS: Record<Subscription['status'], { label: string; tone: 'success' | 
   cancelled: { label: 'Cancelled', tone: 'neutral' },
 }
 
-function statusDetail(subscription: Subscription): string {
+export function statusDetail(subscription: Subscription): string {
   switch (subscription.status) {
     case 'none': return `Start a ${TRIAL_DAYS}-day free trial, or pay now. No card is needed for the trial.`
     case 'trialing': {
