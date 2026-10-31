@@ -30,8 +30,11 @@ async function signedOutWithOpen(server: ReturnType<typeof createServer>, env: E
   rt.audit.recordOpen(PATIENT, 'encounters')
   const store = (await rt.storeForDiagnostics())!
   await until(async () => (await store.dump()).audit.length > 0)
+  // Let the idle audit flush that already passed canSend fail against the outage before C2 comes back.
+  await settle(rt)
   await rt.signOut({ online: false })
   rt.dispose()
+  expect((await store.dump()).audit.length).toBeGreaterThan(0)
   server.state.auditDown = false
 }
 
@@ -49,7 +52,7 @@ describe('1. the returning owner\'s own vault is never treated as abandoned', ()
     serverContact(rt)
     expect(await rt.offer(SESSION)).toEqual({ kind: 'existing' })
     await rt.attachSession(SESSION, { optIn: false, online: true })
-    rt.setSessionReady(true)
+    rt.setSessionReady(true, SESSION.accountId)
     await settle(rt)
     await until(() => readEvents(server.calls.slice(from)).length > 0)
     expect((await dump(rt)).vaults).toHaveLength(1)
@@ -71,7 +74,7 @@ describe('2. an online-reload unlock at the facility clears an earlier membershi
     const reload = makeRuntime({ server, env, idb })
     serverContact(reload)
     await reload.attachSession(SESSION, { optIn: false, online: true })
-    reload.setSessionReady(true)
+    reload.setSessionReady(true, SESSION.accountId)
     expect((await reload.unlockLocked(PASSWORD)).ok).toBe(true)
     const vault = (await dump(reload)).vaults[0] as { flags: { membershipEndedAt: number | null } }
     expect(vault.flags.membershipEndedAt).toBeNull()

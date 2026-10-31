@@ -76,7 +76,7 @@ describe('fixes from the core review', () => {
     rt.commands.register([{ ...(noteCreate as unknown as OpDefinition<Json>), op: 'ehr.diagnosis.create',
       body: () => { calls += 1; if (calls > 1) throw new Error('bad definition'); return { x: 1 } } }])
     await rt.commands.save('ehr.diagnosis.create', { patientId: 'p9', encounter: { server: 'e9' } }, { awaitMs: 0 })
-    rt.setSessionReady(true)
+    rt.setSessionReady(true, SESSION.accountId)
     await settle(rt)
     expect((await rt.review.list()).find(r => r.op === 'ehr.diagnosis.create')!.class).toBe('CC7')
     expect(calls).toBeLessThan(5)

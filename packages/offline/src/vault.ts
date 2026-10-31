@@ -358,11 +358,13 @@ export interface SweepResult { deletedRecords: number; deletedVaults: number }
  *   membership-held entries after 30 days);
  * - a whole vault is deleted only when it has no header and its membership ended more than 30 days ago, or when it is
  *   abandoned: every remaining outbox record is applied and its last server contact is more than 30 days old (with
- *   or without a header). `spare`, the vault matched by the current sign-in, is never abandoned.
+ *   or without a header). `spare` (the vault matched by the current sign-in, and vaults escrow may still recover for
+ *   it) is never abandoned.
  *   An abandoned vault's undelivered offline audit goes with it (A9.2 amends §2.11).
  * Any other emptied vault is left to deleteIfIdle and eviction.
  */
-export async function sweepExpired(store: OfflineStore, appHost: string, now: number, spare: string | null = null): Promise<SweepResult> {
+export async function sweepExpired(store: OfflineStore, appHost: string, now: number, spare: readonly string[] = []): Promise<SweepResult> {
+  const spared = new Set(spare)
   return store.write(['vaults', 'cache', ...KEPT_STORES], async tx => {
     const result: SweepResult = { deletedRecords: 0, deletedVaults: 0 }
     for (const vault of (await tx.all('vaults')).filter(v => v.v === 1 && v.appHost === appHost)) {
@@ -374,7 +376,7 @@ export async function sweepExpired(store: OfflineStore, appHost: string, now: nu
       const membershipGone = vault.flags.membershipEndedAt !== null && vault.flags.membershipEndedAt + LIMITS.membershipEndedKeepMs <= now
       // The vault matched by the current sign-in is never abandoned: that sign-in is server contact and sends its
       // audit (A9.2). Abandoned applies with or without a header: every lease expired long before.
-      const abandoned = vault.vaultId !== spare && remaining.every(r => r.state === 'applied')
+      const abandoned = !spared.has(vault.vaultId) && remaining.every(r => r.state === 'applied')
         && vault.lease.lastServerContactAt + LIMITS.membershipEndedKeepMs <= now
       if ((vault.header === null && membershipGone) || abandoned) {
         // Nothing that may still be sent or must still be kept: the vault goes, with its media and unsendable audit.
