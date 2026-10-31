@@ -1,4 +1,4 @@
-import { isValidElement, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { EhrAppShell, EhrModuleTabs, EhrSidebar, EhrTopBar, type EhrNavGroup, type EhrNavItem } from '@hid/ui/ehr'
 import { useStaff } from '../../staff/App'
@@ -15,7 +15,7 @@ import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage, UnknownPage } from './LivePages'
 import { BluePageProvider, BluePagesProvider, OpenPagesProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
-import { TODAY_PATHS } from './pages'
+import { TODAY_PAGES, TODAY_PATHS } from './pages'
 import { AccountMenu, AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
 import type { EhrBluePage } from './types'
 
@@ -93,8 +93,8 @@ export function BlueFrame() {
 
   // Today's page refuses in its own words ("Laboratory unavailable"), and reads nothing without the permission.
   const shownHere = match === null || (match.page.visible?.(session) ?? true)
-  const todayRefuses = match !== null && match.page.status === 'live' && isValidElement(match.page.element)
-    && match.page.element.type === LivePage && shownHere && !READS_BEFORE_REFUSING.has(basePath(match.page.path))
+  const todayRefuses = match !== null && TODAY_PAGES.has(match.page) && shownHere
+    && !READS_BEFORE_REFUSING.has(basePath(match.page.path))
   const content = match
     ? pageAllowed(match.page, session) || todayRefuses
       ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
