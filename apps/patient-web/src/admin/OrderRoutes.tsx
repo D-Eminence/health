@@ -183,8 +183,7 @@ const LISTING_PROBLEMS: Readonly<Record<string, string>> = {
   ORDER_ROUTE_DESTINATION_UNCHANGED: 'It is already listed that way. The summary has been refreshed.',
   ADMIN_FACILITY_NOT_FOUND: 'Only a facility that signed up, or was approved, as a laboratory or pharmacy can be listed for '
     + 'orders from other facilities.',
-  PERMISSION_DENIED: 'Listing a facility for orders needs the platform.facility.manage and platform.facility.unlock '
-    + 'permissions. Ask a Super Admin.',
+  PERMISSION_DENIED: 'Your roles don’t allow this. Ask a Super Admin.',
   VALIDATION_FAILED: 'Enter a reason of 8 to 500 characters.',
   ORDER_ROUTE_DESTINATION_INVALID: 'Enter a reason of 8 to 500 characters.',
 }
@@ -359,7 +358,7 @@ function FacilityOrderRoutesSummary({ facilityId, facilityName, actor, known }: 
       </Table>}
     {/* Listing changes nothing for a facility that can never receive, and C23 refuses it. */}
     {!listing.listable ? null : canList ? <ListingForm facilityId={facilityId} facilityName={facilityName} listed={summary.listed.value} onDone={resource.reload} />
-      : <p className="admin-note">Listing it for orders needs the platform.facility.manage and platform.facility.unlock permissions.</p>}
+      : <p className="admin-note">Your roles don’t let you list it for orders.</p>}
     </div>
   }}</ResourceView>
 }
@@ -436,7 +435,7 @@ const CLOSE_PROBLEMS: Readonly<Record<string, string>> = {
   VERSION_CONFLICT: 'This order changed after it was found. It has been found again: check it before closing it.',
   ORDER_ROUTE_ALREADY_CLOSED: 'This order’s access has already ended, so there is nothing to close.',
   ORDER_ROUTE_NOT_FOUND: 'This order was not found. Find it again.',
-  PERMISSION_DENIED: 'Closing an order needs the platform.facility.manage permission. Ask a Super Admin.',
+  PERMISSION_DENIED: 'Your roles don’t allow this. Ask a Super Admin.',
   VALIDATION_FAILED: 'Enter a reason of 8 to 500 characters.',
   ORDER_ROUTE_CLOSE_INVALID: 'Enter a reason of 8 to 500 characters.',
 }

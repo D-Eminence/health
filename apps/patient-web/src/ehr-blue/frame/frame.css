@@ -150,7 +150,6 @@
 
 .hid-ehr .hid-ehr-blue-worklink:focus-visible,
 .hid-ehr .hid-ehr-blue-link:focus-visible,
-.hid-ehr .hid-ehr-blue-result:focus-visible,
 .hid-ehr .hid-ehr-blue-check-input:focus-visible {
   outline: var(--ehr-focus-ring-width) solid var(--ehr-focus-ring-color);
   outline-offset: var(--ehr-focus-ring-offset);
@@ -484,55 +483,11 @@
   font-weight: 500;
 }
 
-.hid-ehr .hid-ehr-blue-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
 .hid-ehr .hid-ehr-blue-step {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-}
-
-.hid-ehr .hid-ehr-blue-results {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.hid-ehr .hid-ehr-blue-result {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px;
-  border: 1px solid var(--ehr-line);
-  border-radius: var(--ehr-radius-md);
-  color: var(--ehr-ink);
-  font-size: 13px;
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.hid-ehr .hid-ehr-blue-result:hover {
-  background: var(--ehr-surface-tint);
-}
-
-.hid-ehr .hid-ehr-blue-notice-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.hid-ehr .hid-ehr-blue-notice-item p {
-  margin: 0;
 }
 
 /* ---- Design tour ---------------------------------------------------------- */
@@ -658,15 +613,8 @@
   margin: 0 0 4px;
 }
 
-.hid-ehr .hid-ehr-blue-sync-item p,
-.hid-ehr .hid-ehr-blue-drawer-section {
+.hid-ehr .hid-ehr-blue-sync-item p {
   margin-top: 16px;
-}
-
-.hid-ehr .hid-ehr-blue-notification {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
 }
 
 /* ---- Choose your workspace (screens/admin/institutions.png) --------------- */

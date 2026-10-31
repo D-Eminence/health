@@ -5,6 +5,8 @@ import { useSession } from '../session'
 import { describedBy, sentFromField, useStepFocus } from '../authSteps'
 import { useActionFocus } from './actionFocus'
 import { ProfileSection } from './ProfileSection'
+import { Button, Field, Input } from '../kasuwa/ui'
+import { Hint, InputR, Problem } from './profileParts'
 
 /**
  * Why Identity refused POST /identity/me/verification/nin (hid-system
@@ -42,16 +44,17 @@ export function ninVerifiedOf(profile: Pick<PatientProfile, 'ninVerified' | 'ass
 
 /**
  * "Verify your NIN" on the profile: optional, never blocking. A patient who
- * signed up without a NIN adds it here; once verified, the card says so.
+ * signed up without a NIN adds it here; once verified, the card says so. The
+ * date of birth starts from the profile's, so most people only type the number.
  */
 export function NinVerificationCard({ profile, onVerified }: {
-  profile: Pick<PatientProfile, 'ninVerified' | 'assuranceState'>
+  profile: Pick<PatientProfile, 'ninVerified' | 'assuranceState'> & Partial<Pick<PatientProfile, 'dateOfBirth'>>
   /** Reads the profile again once Identity has verified the NIN. */
   onVerified: () => Promise<unknown> | void
 }) {
   const { api } = useSession()
   const [nin, setNin] = useState('')
-  const [dateOfBirth, setDateOfBirth] = useState('')
+  const [dateOfBirth, setDateOfBirth] = useState(() => (profile.dateOfBirth ?? '').slice(0, 10))
   const [busy, setBusy] = useState(false)
   const [verifiedHere, setVerifiedHere] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -73,7 +76,7 @@ export function NinVerificationCard({ profile, onVerified }: {
     try {
       const result = await api.verifyNin(nin, dateOfBirth)
       if (result?.state === 'verified') {
-        setNin(''); setDateOfBirth(''); setVerifiedHere(true)
+        setNin(''); setVerifiedHere(true)
         focusAfter(() => heading.current)
         void onVerified()
         return
@@ -91,20 +94,25 @@ export function NinVerificationCard({ profile, onVerified }: {
 
   // One section either way (#nin-verification), so it stays open, with focus on its heading, as the NIN is verified.
   if (verified) {
-    return <ProfileSection id="nin-verification" title="NIN verification" state="Verified" headingRef={heading}>
-      <p role="status"><strong>NIN verified</strong></p>
+    return <ProfileSection id="nin-verification" title="NIN" state="Verified" headingRef={heading}>
+      <p role="status" className="m-0 text-sm font-medium text-success-ink">Your NIN is verified.</p>
     </ProfileSection>
   }
-  return <ProfileSection id="nin-verification" title="Verify your NIN" headingRef={heading}>
-    <p id="nin-verify-hint" className="patient-field-hint">Optional. Your Health ID works without it.</p>
-    {error && <p id="nin-verify-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
-    <form onSubmit={event => void submit(event)} className="patient-form patient-inline-form">
-      <label>NIN (11 digits)<input ref={fieldFocus.target} required inputMode="numeric" autoComplete="off" pattern="[0-9]{11}" maxLength={11}
-        value={nin} onChange={event => { setNin(event.target.value.replace(/\D/g, '').slice(0, 11)); setFieldError(false) }}
-        aria-invalid={fieldError || undefined} aria-describedby={describedBy('nin-verify-hint', fieldError && 'nin-verify-error')} /></label>
-      <label>Date of birth, as on your NIN<input type="date" required autoComplete="bday" value={dateOfBirth}
-        max={new Date().toISOString().slice(0, 10)} onChange={event => setDateOfBirth(event.target.value)} /></label>
-      <button type="submit" className="patient-primary-button" disabled={busy || nin.length !== 11 || !dateOfBirth}>{busy ? 'Verifying…' : 'Verify NIN'}</button>
+  return <ProfileSection id="nin-verification" title="Verify your NIN" state="Optional" headingRef={heading}>
+    <Hint id="nin-verify-hint">Your Health ID works without it.</Hint>
+    <form onSubmit={event => void submit(event)} className="flex flex-col gap-4">
+      <Field label="NIN (11 digits)" htmlFor="nin-verify-number" errorId="nin-verify-error"
+        error={error && fieldError ? <span role={errorAlert ? 'alert' : undefined}>{error}</span> : undefined}>
+        <InputR id="nin-verify-number" ref={fieldFocus.target} required inputMode="numeric" autoComplete="off" pattern="[0-9]{11}" maxLength={11}
+          value={nin} onChange={event => { setNin(event.target.value.replace(/\D/g, '').slice(0, 11)); setFieldError(false) }}
+          aria-invalid={fieldError || undefined} aria-describedby={describedBy('nin-verify-hint', fieldError && 'nin-verify-error')} />
+      </Field>
+      <Field label="Date of birth, as on your NIN" htmlFor="nin-verify-dob">
+        <Input id="nin-verify-dob" type="date" required autoComplete="bday" value={dateOfBirth}
+          max={new Date().toISOString().slice(0, 10)} onChange={event => setDateOfBirth(event.target.value)} />
+      </Field>
+      {error && !fieldError && <Problem id="nin-verify-error" alert={errorAlert}>{error}</Problem>}
+      <Button type="submit" variant="primary" className="self-start" loading={busy} disabled={busy || nin.length !== 11 || !dateOfBirth}>{busy ? 'Verifying…' : 'Verify NIN'}</Button>
     </form>
   </ProfileSection>
 }

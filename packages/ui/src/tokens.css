@@ -21,6 +21,8 @@
   /* A filled control with white text on it: 4.5:1 or more in both themes (the dark theme's brand is for text). */
   --color-brand-fill: #1570ef;
   --color-brand-fill-hover: #175cd3;
+  --color-danger-fill: #d92d20;
+  --color-danger-fill-hover: #b42318;
   --color-brand-active: #1849a9;
   --color-brand-tint: #eff6ff;
   --color-brand-tint-hover: #e0eeff;

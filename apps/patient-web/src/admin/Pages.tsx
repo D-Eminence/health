@@ -7,8 +7,9 @@ import {
   type DemoStatus,
   type PlatformControl,
 } from './api'
+import { Card } from '../kasuwa/ui'
 import {
-  ActionForm, LoadMore, Page, Pager, Refresh, ResourceView, Status, Table, date, has, label, pageNumber, useCursorPages,
+  ActionForm, ConfirmAction, Subject, LoadMore, Page, Pager, Refresh, ResourceView, Status, Table, date, has, label, pageNumber, useCursorPages,
   useGovernedSubmit, useResource, useUrlFilters,
 } from './ui'
 
@@ -138,7 +139,10 @@ export function PricingPage({ actor }: { actor: AdminActor }) {
     <ResourceView resource={resource} empty={catalog => catalog.products.length === 0}>{catalog => <div className="admin-stack">
       {catalog.products.map(product => <section className="admin-panel" key={product.slug}>
         <div className="admin-panel-head"><div><h2>{product.name}</h2><p>{product.slug}</p></div><Status value={product.status} /></div>
-        {canManage && <ActionForm title="Change product status" options={
+        {canManage && <ActionForm title="Change status" subject={<Subject name={product.name} detail={`Now ${label(product.status).toLowerCase()}`} />}
+          describe={choice => choice ? { title: `Change ${product.name}?`, effect: <>{product.name} becomes <strong>{choice.title.toLowerCase()}</strong> on the public website.</>,
+            undo: 'You can change it back from this page.', confirmLabel: `Make it ${choice.title.toLowerCase()}`, done: `${product.name} is now ${choice.title.toLowerCase()}.`,
+            destructive: choice.value === 'retired' } : {}} options={
           ['active', 'coming_soon', 'draft', 'retired'].filter(value => value !== product.status)
             .map(value => ({ value, title: label(value) }))
         } onSubmit={async (status, reason, idempotencyKey) => {
@@ -164,13 +168,16 @@ export function PricingPage({ actor }: { actor: AdminActor }) {
  * The confirmation is page-level because the reload starts the list again from
  * its first page, which removes a row loaded with "Load more".
  */
-function DemoAction({ request, onSaved }: { request: DemoRequest; onSaved: (message: string) => void }) {
-  return <ActionForm title="Change status" options={DEMO_STATUSES
-    .filter(value => value !== request.status).map(value => ({ value, title: label(value) }))}
+function DemoAction({ request, onSaved }: { request: DemoRequest; onSaved: () => void }) {
+  return <ActionForm title="Change status" subject={<Subject name={request.contactName} detail={request.organizationName ?? request.contactEmail} />}
+    describe={choice => choice ? { title: 'Change this request’s status?', effect: <>It will show as <strong>{choice.title.toLowerCase()}</strong>.</>,
+      undo: 'You can change it again later.', confirmLabel: `Mark ${choice.title.toLowerCase()}`,
+      done: `The request from ${request.contactName} is now ${choice.title.toLowerCase()}.` } : {}}
+    options={DEMO_STATUSES.filter(value => value !== request.status).map(value => ({ value, title: label(value) }))}
     onSubmit={async (status, reason) => {
       await adminApi.command(`/api/v1/admin/demo-requests/${encodeURIComponent(request.id)}/status`,
         { status, reason }, { version: request.version })
-      onSaved(`The request from ${request.contactName} is now ${label(status).toLowerCase()}.`)
+      onSaved()
     }} />
 }
 
@@ -184,75 +191,90 @@ export function DemosPage({ actor }: { actor: AdminActor }) {
   const resource = useResource(load, 'Demo requests could not be loaded.')
   const pages = useCursorPages(resource, (cursor, signal) => adminApi.demos(query, { cursor }, signal),
     'More demo requests could not be loaded.')
-  const [notice, setNotice] = useState<string | null>(null)
-  const saved = (message: string) => { setNotice(message); resource.reload() }
-  return <Page eyebrow="Commercial" title="Demo requests" description="Requests submitted through the public Health ID website."
+  const manage = has(actor, 'platform.demo.manage')
+  return <Page eyebrow="Commercial" title="Demo requests" description="Requests from the public Health ID website."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
     <div className="admin-filters">
-      <label>Status<select value={filters.status} onChange={event => { setNotice(null); setFilters({ status: event.target.value }) }}>
+      <label>Status<select value={filters.status} onChange={event => setFilters({ status: event.target.value })}>
         <option value="">Any status</option>
         {DEMO_STATUSES.map(value => <option key={value} value={value}>{label(value)}</option>)}
       </select></label>
-      <label>Product<select value={filters.product} onChange={event => { setNotice(null); setFilters({ product: event.target.value }) }}>
+      <label>Product<select value={filters.product} onChange={event => setFilters({ product: event.target.value })}>
         <option value="">Any product</option>
         {DEMO_PRODUCTS.map(value => <option key={value} value={value}>{label(value)}</option>)}
       </select></label>
     </div>
-    {notice && <p role="status" className="admin-success">{notice}</p>}
-    <ResourceView resource={resource} empty={result => result.items.length === 0}>{() => <>
-      <p className="admin-result-count">Showing {pages.items.length} requests, newest first{pages.hasMore ? '; more are available' : ''}</p>
-      <Table headings={['Contact', 'Organization', 'Product', 'Submitted', 'Status', 'Action']}>
+    <ResourceView resource={resource} emptyTitle="No demo requests match" empty={result => result.items.length === 0}>{() => <>
+      <p className="m-0 text-caption text-ink-3">{pages.items.length} requests, newest first{pages.hasMore ? '. More below.' : ''}</p>
+      <Table headings={['Contact', 'Organization', 'Product', 'Sent', 'Status', ...(manage ? [''] : [])]}>
       {pages.items.map(item => <tr key={item.id}>
         <td><strong>{item.contactName}</strong><small>{item.contactEmail}</small>
           {item.contactPhone && <small>{item.contactPhone}</small>}{item.contactRole && <small>{item.contactRole}</small>}</td>
-        <td>{item.sourceSection === REFERRAL_SECTION && <span className="admin-status" data-state="referral">Referral</span>}
+        <td>{item.sourceSection === REFERRAL_SECTION && <span className="mb-1.5 block"><Status value="referral" /></span>}
           {item.organizationName ? <strong>{item.organizationName}</strong> : 'Not provided'}
           {item.organizationType && <small>{label(item.organizationType)}</small>}
           {item.message && <details className="admin-action"><summary>Message</summary>
             <p className="admin-demo-message">{item.message}</p></details>}</td>
         <td>{label(item.productCode)}</td><td>{date(item.createdAt)}</td>
         <td><Status value={item.status} /></td>
-        <td>{has(actor, 'platform.demo.manage') ? <DemoAction request={item} onSaved={saved} /> : 'View only'}</td>
+        {manage && <td className="text-right"><DemoAction request={item} onSaved={resource.reload} /></td>}
       </tr>)}
     </Table>
       <LoadMore pages={pages} label="Load more requests" /></>}</ResourceView>
   </Page>
 }
 
-/** What a control does, where its key alone does not say it. */
+/** A control's name in words, where its key alone does not say it. */
+const CONTROL_NAMES: Readonly<Record<string, string>> = {
+  clinician_signup_enabled: 'Clinician sign-up',
+  cross_facility_orders_enabled: 'Orders between facilities',
+  cross_facility_route_access_enabled: 'Work on orders from other facilities',
+}
+const controlName = (key: string) => CONTROL_NAMES[key] ?? label(key.replace(/_enabled$/, ''))
+
+/** What a control does, in a line. */
 const CONTROL_NOTES: Readonly<Record<string, string>> = {
   // hid-system ADR-066 (0098), seeded off.
-  clinician_signup_enabled: 'Lets doctors and nurses apply by themselves at /provider/join. Their applications wait in '
-    + 'Clinician applications until one Super Admin verifies and a second approves, so open it only when the queue is '
-    + 'staffed. Applying also needs the provider portal on and maintenance off.',
+  clinician_signup_enabled: 'Lets doctors and nurses apply at /provider/join. Two Super Admins review each one, so turn it on '
+    + 'only when the queue is staffed.',
   // P4c (Novu), seeded off: switched on with facility sign-up and staff invitations after the closed-state checks.
-  cross_facility_orders_enabled: 'Lets clinicians send lab requests and prescriptions to a reviewed laboratory or pharmacy '
-    + 'at another facility, and lets those facilities accept them. Switching it off stops new sends and acceptances; work '
-    + 'already accepted carries on.',
+  cross_facility_orders_enabled: 'Lets clinicians send lab requests and prescriptions to other facilities. Turning it off stops '
+    + 'new sends; accepted work carries on.',
   // P4c (Novu), seeded on: off only to stop all work on accepted orders at once if something goes wrong.
-  cross_facility_route_access_enabled: 'Lets laboratories and pharmacies work on orders from other facilities they have '
-    + 'accepted. Switch it off only to stop all of that work at once, everywhere, if something goes wrong.',
+  cross_facility_route_access_enabled: 'Lets labs and pharmacies work on accepted orders from other facilities. Turn it off only '
+    + 'to stop all of that work at once.',
 }
 
 function ControlAction({ control, reload }: { control: PlatformControl; reload: () => void }) {
-  return <ActionForm title={control.enabled ? 'Disable control' : 'Enable control'} onSubmit={async (_, reason) => {
-    await adminApi.command('/api/v1/admin/controls', { controlKey: control.controlKey,
-      enabled: !control.enabled, reason }, { version: control.version })
-    reload()
-  }} />
+  const name = controlName(control.controlKey)
+  const turningOn = !control.enabled
+  // Turning maintenance on stops the service; for every other switch, turning it off does.
+  const stops = /maintenance/.test(control.controlKey) ? turningOn : !turningOn
+  const verb = turningOn ? 'Turn on' : 'Turn off'
+  return <ConfirmAction label={`${verb} ${name.toLowerCase()}`} variant={stops ? 'danger' : 'secondary'}
+    spec={{ title: `${verb} ${name.toLowerCase()}?`, subject: <Subject name={name} detail={`Now ${control.enabled ? 'on' : 'off'}`} />,
+      effect: `${name} is ${turningOn ? 'on' : 'off'} for everyone at once.`, undo: `You can turn it ${turningOn ? 'off' : 'back on'} from this page.`,
+      confirmLabel: `${verb}`, destructive: stops, stepUp: `${verb.toLowerCase()} ${name.toLowerCase()}`,
+      done: `${name} is ${turningOn ? 'on' : 'off'}.` }}
+    onSubmit={async reason => {
+      await adminApi.command('/api/v1/admin/controls', { controlKey: control.controlKey,
+        enabled: !control.enabled, reason }, { version: control.version })
+      reload()
+    }} />
 }
 
 export function ControlsPage({ actor }: { actor: AdminActor }) {
   const resource = useResource(adminApi.controls, 'Platform controls could not be loaded.')
-  return <Page eyebrow="Configuration" title="Platform controls" description="Changes are version checked and recorded by the backend."
+  return <Page eyebrow="Operations" title="Platform controls" description="Switches that change the platform for everyone. Each change is recorded."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <ResourceView resource={resource} empty={controls => controls.length === 0}>{controls => <div className="admin-tile-grid">
-      {controls.map(control => <article className="admin-tile" key={control.controlKey}>
-        <div className="admin-panel-head"><h2>{label(control.controlKey)}</h2><Status value={control.enabled ? 'enabled' : 'disabled'} /></div>
-        {Object.hasOwn(CONTROL_NOTES, control.controlKey) && <p className="admin-note">{CONTROL_NOTES[control.controlKey]}</p>}
-        <p>{control.reason}</p><p className="admin-note">Updated {date(control.updatedAt)}</p>
-        {has(actor, 'platform.control.manage') && <ControlAction control={control} reload={resource.reload} />}
-      </article>)}
+    <ResourceView resource={resource} emptyTitle="No controls" empty={controls => controls.length === 0}>{controls => <div className="grid gap-4 md:grid-cols-2">
+      {controls.map(control => <Card as="article" className="flex flex-col gap-3 p-5" key={control.controlKey}>
+        <div className="flex items-start justify-between gap-3"><h2 className="m-0 text-title-3 text-ink">{controlName(control.controlKey)}</h2>
+          <Status value={control.enabled ? 'on' : 'off'} text={control.enabled ? 'On' : 'Off'} /></div>
+        {Object.hasOwn(CONTROL_NOTES, control.controlKey) && <p className="m-0 text-sm text-ink-2">{CONTROL_NOTES[control.controlKey]}</p>}
+        <p className="m-0 text-caption text-ink-3">Last change {date(control.updatedAt)}{control.reason ? `: “${control.reason}”` : ''}</p>
+        {has(actor, 'platform.control.manage') && <div><ControlAction control={control} reload={resource.reload} /></div>}
+      </Card>)}
     </div>}</ResourceView>
   </Page>
 }

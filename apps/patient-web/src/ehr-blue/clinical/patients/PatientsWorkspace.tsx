@@ -1,16 +1,17 @@
 import { normalizeHealthIdInput } from '@hid/contracts'
 import { ArrowRight, IdCard, KeyRound, Lock, Search, Send, Siren, UserPlus } from 'lucide-react'
 import { useRef, useState } from 'react'
-import { Alert, Badge, Button, Card, IconChip, Input, PageHeader, SectionHeader, cx, type Icon } from '../../../kasuwa/ui'
+import { Alert, Badge, Button, Card, IconChip, Input, SectionHeader, cx, type Icon } from '../../../kasuwa/ui'
+import { FormPage } from '../../../kasuwa/parts'
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { ACCESS_ENDED, ChartProvider, useAccessEnded } from '../parts/chart'
+import { ChartProvider, useAccessEnded } from '../parts/chart'
 import { formatWhen } from '../parts/format'
 import { RecordNotFound } from '../parts/Notices'
 import { patientFacts } from '../parts/PatientHeader'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import type { EhrBluePageStatus } from '../types'
 import {
-  ACCESS_CLOSED, HID_FORMAT, OPEN_SHARED, actionUnavailable, administratorOf, healthIdInput, healthIdProblem, isRefusedLookup,
+  ACCESS_CLOSED, HID_FORMAT, NOT_GRANTED, OPEN_SHARED, actionUnavailable, administratorOf, healthIdInput, healthIdProblem, isRefusedLookup,
   offerHealthId, useOpenPatient,
 } from '../consent/access'
 import { PinAccess } from '../consent/PinAccess'
@@ -21,7 +22,7 @@ import { ShareInvitationsForMe, SharedWithYou } from './SharingCards'
 export const patientsStatus: EhrBluePageStatus = 'live'
 
 /**
- * Patients: search by Health ID (today's governed access), the patient open now, that patient's page at
+ * Patients: search by Health ID (today's access rules), the patient open now, that patient's page at
  * `patients/open`, and the patient PIN at `patients/pin` (as on today's Patients page, it needs no
  * identity.consent.write, which the frame asks for External record access). There is no list of every patient:
  * Health ID shows a patient only once this facility may see them.
@@ -31,7 +32,7 @@ export function PatientsWorkspace() {
     <Workspace path="patients" title="Patients">
       <ChartProvider>
         <Routes>
-          <Route index element={<PatientList />} />
+          <Route index element={<HandedPatientList />} />
           <Route path="open" element={<PatientPage />} />
           <Route path="pin" element={<PinAccess />} />
           <Route path="*" element={<NotFound />} />
@@ -44,6 +45,16 @@ export function PatientsWorkspace() {
 function NotFound() {
   const href = useWorkspaceHref()
   return <RecordNotFound backHref={href()} />
+}
+
+/**
+ * A Health ID handed over in location state (Registration, or the top-bar search) starts a fresh form, even when Find
+ * a patient is already open, so the handed one is what the field shows.
+ */
+function HandedPatientList() {
+  const location = useLocation()
+  const handed = (location.state as { hid?: unknown } | null)?.hid
+  return <PatientList key={typeof handed === 'string' ? location.key : 'list'} />
 }
 
 function noticeOf(state: unknown): string {
@@ -113,8 +124,15 @@ function PatientList() {
    * The PIN is a Patients page; a request is External record access, which the frame opens only with
    * identity.consent.write. The Health ID is handed over only where the form can open and read it.
    */
-  function obtain(target: 'new' | 'pin') {
+  function obtain(target: 'new' | 'pin' | 'emergency') {
     if (!refused || !facility) return
+    if (target === 'emergency') {
+      // The emergency form reads it too (the frame opens it only with identity.break-glass.write), so the Health ID
+      // just searched is not typed again.
+      if (can('identity.break-glass.write')) offerHealthId(refused.hid, facility.id, setActivePatient)
+      navigate(href.to('emergency'))
+      return
+    }
     if (target === 'pin') {
       offerHealthId(refused.hid, facility.id, setActivePatient)
       navigate(href('pin'))
@@ -129,10 +147,9 @@ function PatientList() {
   const hidError = problem ? (problem.alert ? <span key={attempt} role="alert">{problem.message}</span> : problem.message) : null
 
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader title="Find a patient" description="Search by Health ID. You’ll see whether you can open their chart, and how to get access if not."
-        actions={<Button to="/provider/registration" icon={UserPlus}>Register a patient</Button>} />
-      {ended && !activePatient ? <Alert intent="error" title="Access to this patient ended">{ACCESS_ENDED}</Alert> : null}
+    <FormPage title="Find a patient" description="Search by Health ID to open their record, or to get access if you don’t have it yet."
+      actions={<Button to="/provider/registration" icon={UserPlus}>Register a patient</Button>}>
+      {ended && !activePatient ? <Alert intent="error" title="Access to this patient ended">Open the patient again to keep working.</Alert> : null}
 
       <Card>
         <form ref={searchBox} noValidate className="flex flex-col gap-2 p-5" onSubmit={event => { event.preventDefault(); search() }}>
@@ -152,12 +169,12 @@ function PatientList() {
           <div className="mb-3 flex items-start gap-3">
             <IconChip icon={Lock} tone="warn" />
             <div className="min-w-0"><p className="m-0 text-title-3 text-ink">You don’t have access to {refused.hid} yet</p>
-              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{refused.message}</p></div>
+              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{refused.message === NOT_GRANTED ? 'Choose how to get it.' : refused.message}</p></div>
           </div>
           <ul className="m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 sm:grid-cols-3">
             <AccessWay icon={Send} title="Ask the patient" hint="They approve on their phone. You’re told the moment they do." primary onClick={() => obtain('new')} />
             <AccessWay icon={KeyRound} title="Use their Access PIN" hint="If they’re with you and have set one." onClick={() => obtain('pin')} />
-            <AccessWay icon={Siren} title="Emergency access" hint="Only if they can’t consent. Time-limited and reviewed." danger onClick={() => navigate(href.to('emergency'))} />
+            <AccessWay icon={Siren} title="Emergency access" hint="Only if they can’t consent. Time-limited and reviewed." danger onClick={() => obtain('emergency')} />
           </ul>
         </div> : null}
         {error ? <div className="border-t border-line p-5"><Alert intent="error" title="Couldn’t check access">{error}</Alert></div> : null}
@@ -165,26 +182,27 @@ function PatientList() {
         <div role="status" className="empty:hidden">{notice ? <p className="m-0 border-t border-line px-5 py-3 text-[13px] text-ink-2">{notice}</p> : null}</div>
       </Card>
 
-      <section aria-labelledby="patients-open" className="flex flex-col gap-3">
+      {/* Shown only while a patient is open: a section shows only when it has something in it. */}
+      {activePatient && open_ ? <section aria-labelledby="patients-open" className="flex flex-col gap-3">
         <SectionHeader id="patients-open" title="Open now" />
-        {activePatient && open_ ? <Card>
+        <Card>
           <div className="flex flex-wrap items-center gap-4 p-5">
             <span aria-hidden="true" className="inline-flex size-12 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[15px] font-semibold text-brand-ink">{open_.name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()}</span>
             <div className="min-w-0 flex-1">
               <p className="m-0 truncate text-title-3 text-ink">{open_.name}</p>
-              <p className="m-0 mt-0.5 text-[13px] text-ink-3"><span className="font-medium tracking-[.06em] text-ink-2">{open_.hid}</span> · {activePatient.purpose === 'emergency' ? 'Emergency access' : 'Direct care'}{expires ? ` · until ${formatWhen(expires)}` : ''}</p>
+              <p className="m-0 mt-0.5 text-[13px] text-ink-3"><span className="font-medium tracking-[.06em] text-ink-2">{open_.hid}</span>{expires ? ` · until ${formatWhen(expires)}` : ''}</p>
             </div>
             <Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'} size="sm">{accessLabel(activePatient)}</Badge>
-            <Button to={href('open')} variant="primary" iconRight={ArrowRight}>Open chart</Button>
+            <Button to={href('open')} iconRight={ArrowRight}>Open</Button>
           </div>
-        </Card> : <p className="m-0 rounded-xl border border-dashed border-line-strong px-4 py-3 text-[13px] text-ink-3">No patient open. Find one by their Health ID above.</p>}
-      </section>
+        </Card>
+      </section> : null}
 
-      <div className="grid gap-6 empty:hidden lg:grid-cols-2">
+      <div className="flex flex-col gap-6 empty:hidden">
         <SharedWithYou facilityId={facility?.id} permissions={permissions} openUnavailable={openSharedUnavailable} busy={busy} onOpen={openShared} />
         <ShareInvitationsForMe facilityId={facility?.id} permissions={permissions} />
       </div>
-    </div>
+    </FormPage>
   )
 }
 

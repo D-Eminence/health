@@ -109,8 +109,8 @@ function resultWords(field: keyof Mismatch, result: string | undefined, typedDat
 const DESK_CODE_ENTRY = 'Type the 10-character code on their phone.'
 const DATE_OF_BIRTH_ENTRY = 'Type the full date as it is on the ID, or leave it empty if there isn’t one.'
 const STALE = 'That code has changed. Ask for the code on their phone now, then check again.'
-const RETRY = 'That didn’t go through. Press Check again without changing anything. It won’t count twice.'
-const RETRY_PROOF = 'The check was saved, but their sign-up didn’t move on. Press Check again within 10 minutes, without changes. It won’t count twice.'
+const RETRY = 'That didn’t go through. Press Check again without changes. It won’t count twice.'
+const RETRY_PROOF = 'Saved, but their sign-up didn’t move on. Press Check again within 10 minutes, without changes.'
 
 /**
  * An answer that may or may not have been recorded: the same submission is sent again. A 503
@@ -137,7 +137,7 @@ export function InPersonCheck() {
   const facility = state.status === 'ready' ? state.session.actor.facility : undefined
   if (!facility || !facility.permissions.includes(ASSISTED_REGISTRATION_PERMISSION)) {
     return <EmptyState titleAs="h1" title="You can’t check patients in person here"
-      description="Doctors, clinicians and nurses at a taking-part facility can. Ask your administrator if you should." />
+      description="Doctors and nurses at a taking-part facility can. Ask your administrator." />
   }
   // Another facility starts afresh: nothing typed, answered or kept for a retry carries over.
   return <CheckDesk key={facility.id} facilityId={facility.id} />
@@ -232,7 +232,7 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
       case 'ASSISTED_REGISTRATION_NOT_AUTHORIZED':
         // One answer for four causes (INTERFACE_CONTRACT.md at f9dbaf0): no sign-in confirmed with an authenticator, no
         // attested grant, an inactive membership or account, or a facility that does not take part. Each is named.
-        setError('You can’t check patients in person here yet. Ask your Health ID administrator to set you up.')
+        setError('You can’t check patients in person here yet. Ask Health ID support to set you up.')
         return
       case 'PERMISSION_DENIED':
         setError('Your role here can’t check patients in person. Ask your administrator.')
@@ -266,7 +266,7 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
 
   // One column: the heading, each step and the button share one edge (alignment), and the steps are three short groups
   // (chunking). The method is fixed (a government photo ID seen in person), so it is said, not offered as a choice.
-  return <FormPage title="Check a patient in person" description="For patients who can’t get the code on their NIN phone number. You check their photo ID.">
+  return <FormPage title="Check a patient in person" description="For patients who can’t get a code on their NIN phone. You check their photo ID.">
 
     {stage.kind === 'verified' && <KCard>
       <div className="flex flex-col items-center gap-3 px-5 py-8 text-center">
@@ -341,7 +341,7 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
           <li>Last name: {resultWords('lastName', mismatch.fields.lastName, mismatch.typedDateOfBirth)}</li>
           <li>Date of birth: {resultWords('dateOfBirth', mismatch.fields.dateOfBirth, mismatch.typedDateOfBirth)}</li>
         </ul>
-        <p className="m-0 mt-2">If only a space or hyphen differs, type it as the ID shows and check again (each check counts). Otherwise, don’t register them.</p>
+        <p className="m-0 mt-2">If only a space or hyphen differs, type it as the ID shows and check again. Otherwise, don’t register them.</p>
       </Alert>}
       {mismatch ? <span id="in-person-mismatch-title" tabIndex={-1} className="sr-only">The details don’t match their NIN</span> : null}
       {error && <Alert intent="error" title="That didn’t work">{error}</Alert>}

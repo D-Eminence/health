@@ -54,7 +54,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
   headerStart?: ReactNode
   headerActions?: ReactNode
   /** Three tabs for phones: two before the ➕ and one after (Menu is added by the shell). */
-  tabs: readonly [NavItem, NavItem, NavItem]
+  tabs: readonly NavItem[]
   create?: { label: string; items: readonly CreateItem[] }
   extraFooter?: ReactNode
   sidebarTop?: ReactNode
@@ -201,7 +201,7 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
   const tabInner = (item: Pick<NavItem, 'icon' | 'label' | 'badge'>, on: boolean) => <>
     <span className={cx('relative inline-flex h-7 w-12 items-center justify-center rounded-full transition-colors', on && 'bg-hover')}>
       <item.icon className="size-5" aria-hidden strokeWidth={on ? 2.2 : 1.8} />
-      {item.badge ? <span className="absolute -top-1 right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-white ring-2 ring-surface">{item.badge}</span> : null}
+      {item.badge ? <span className="absolute -top-1 right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger-fill px-1 text-[10px] font-semibold text-white ring-2 ring-surface">{item.badge}</span> : null}
     </span>{item.label}</>
   const sidebarWidth = rail ? 'w-[76px]' : 'w-[264px]'
 
@@ -232,13 +232,14 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
     </div>
     <nav aria-label="Quick" className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden print:hidden">
       {/* Four places when there is nothing to start; with ➕ in the middle when there is. */}
-      <div className={cx('mx-auto grid max-w-xl items-end', create ? 'grid-cols-5' : 'grid-cols-4')}>
+      {/* Up to three places, Menu last; ➕ in the middle when there is something to start. */}
+      <div className="mx-auto grid max-w-xl items-end" style={{ gridTemplateColumns: `repeat(${Math.min(tabs.length, 3) + 1 + (create ? 1 : 0)}, minmax(0, 1fr))` }}>
         {tabs.slice(0, 2).map(t => <NavLink key={t.to} to={t.to} end={t.end} className={({ isActive }) => tabCls(isActive && !menu)}>{({ isActive }) => tabInner(t, isActive && !menu)}</NavLink>)}
         {create ? <div className="flex justify-center pb-1.5">
           <button ref={plus} type="button" onClick={() => setCreating(true)} aria-label={create.label}
             className="-mt-5 inline-flex size-14 cursor-pointer items-center justify-center rounded-full border-0 bg-brand-fill text-white shadow-[0_10px_24px_-8px_rgba(23,92,211,.7)] ring-4 ring-surface transition-transform active:scale-95"><Plus className="size-7" aria-hidden /></button>
         </div> : null}
-        <NavLink to={tabs[2].to} end={tabs[2].end} className={({ isActive }) => tabCls(isActive && !menu)}>{({ isActive }) => tabInner(tabs[2], isActive && !menu)}</NavLink>
+        {tabs[2] ? <NavLink to={tabs[2].to} end={tabs[2].end} className={({ isActive }) => tabCls(isActive && !menu)}>{({ isActive }) => tabInner(tabs[2]!, isActive && !menu)}</NavLink> : null}
         <button type="button" onClick={() => menu ? closeMenu() : openMenu()} aria-pressed={menu} className={cx(tabCls(menu), 'cursor-pointer border-0 bg-transparent')}>{tabInner({ icon: MenuIcon, label: 'Menu' }, menu)}</button>
       </div>
     </nav>

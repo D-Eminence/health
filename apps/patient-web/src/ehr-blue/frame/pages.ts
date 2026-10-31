@@ -67,7 +67,7 @@ export const pages: EhrBluePage[] = [
   sample('surgery', 'Clinical', 'Theatre & Procedures', 'scissors'),
   sample('icu', 'Clinical', 'ICU', 'monitor'),
   sample('dental', 'Clinical', 'Dental', 'tooth'),
-  live('requests', 'Clinical', 'External record access', 'lock', 'identity.consent.write'),
+  live('requests', 'Clinical', 'Access requests', 'lock', 'identity.consent.write'),
   sample('nursing-tasks', 'Clinical', 'Nursing tasks', 'check'),
 
   live('laboratory', 'Diagnostics', 'Laboratory', 'flask', 'lab.work-item.read'),

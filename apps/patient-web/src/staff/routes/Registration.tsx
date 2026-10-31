@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Field, Input, Select, Textarea } from '@hid/ui'
 import { useNavigate } from 'react-router-dom'
-import { ArrowRight, CircleCheck, History, IdCard, Lock, Search } from 'lucide-react'
-import { Alert, Badge as KBadge, Button as KButton, Card as KCard, CardHeader, EmptyState as KEmpty, PageHeader } from '../../kasuwa/ui'
+import { ArrowRight, CircleCheck, History, IdCard, Lock, RotateCcw, Search } from 'lucide-react'
+import { Alert, Badge as KBadge, Button as KButton, Card as KCard, CardHeader, EmptyState as KEmpty } from '../../kasuwa/ui'
+import { FormPage } from '../../kasuwa/parts'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type RegistrationCapabilities, type RegistrationCase, type RegistrationEnrollment, type ResolveNinInput } from '../api'
 import { useStaff } from '../App'
@@ -220,15 +221,20 @@ export function Registration() {
   const registration = registrationCase
   const done = registration ? completed.has(registration.status) : false
   const hid = registration?.patient?.hid
-  return <div className="flex flex-col gap-6" data-layout="split">
-    <PageHeader title="Register a patient" description="Check their NIN, then give them a Health ID or link them to the one they already have." />
+  return <FormPage title="Register a patient" description="Check their NIN, then give them a Health ID or link them to the one they already have.">
+    {/* Rarely needed: continuing a registration from its ID, as a small disclosure under the heading. */}
+    <details className="group -mt-3 self-start [&[open]]:w-full" open={caseProblems.error('registration-case-id') ? true : undefined}>
+      <summary className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 text-[13px] font-medium text-brand-ink sm:min-h-0"><History className="size-4" aria-hidden />Continue a registration</summary>
+      <form className="staff-form mt-2 rounded-xl bg-surface p-4 ring-1 ring-line" onSubmit={event => { event.preventDefault(); if (!caseLoading && !busy) void loadCase(caseIdInput) }}>
+        <Field label="Registration ID" htmlFor="registration-case-id" hint="Shown on the registration when it was started." error={caseProblems.error('registration-case-id')} required><Input {...caseProblems.control('registration-case-id')} id="registration-case-id" value={caseIdInput} onChange={event => setCaseIdInput(event.target.value)} autoComplete="off" required /></Field>
+        <div><KButton type="submit" aria-disabled={caseLoading || busy || undefined} className={BUSY}>{caseLoading ? 'Opening…' : 'Open'}</KButton></div>
+      </form>
+    </details>
     {/* Only when NIN checks are not working: a working service needs no card. */}
     {capabilityError ? <Alert intent="error" title="Can’t check NINs right now" action={<KButton size="sm" aria-disabled={capabilityLoading || undefined} className={UNAVAILABLE} onClick={() => { if (!capabilityLoading) void refreshCapabilities() }}>{capabilityLoading ? 'Checking…' : 'Try again'}</KButton>}>{capabilityError}</Alert>
-      : !capabilities ? <p className="m-0 text-[13px] text-ink-3" role="status">Checking NIN service…</p>
+      : !capabilities ? <p className="m-0 text-[13px] text-ink-3" role="status">Checking NIN checks are working…</p>
       : !capabilities.nin.enabled ? <Alert intent="warning" title="NIN checks are off" action={<KButton size="sm" aria-disabled={capabilityLoading || undefined} className={UNAVAILABLE} onClick={() => { if (!capabilityLoading) void refreshCapabilities() }}>{capabilityLoading ? 'Checking…' : 'Check again'}</KButton>}>New registrations can’t start until they’re back on.</Alert> : null}
 
-    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <div className="flex min-w-0 flex-col gap-6">
         {capabilities?.nin.enabled && !registration && <KCard>
           <CardHeader as="h2" title="1. Check their NIN" description="Type it as it is on their NIN slip. It isn’t kept here." icon={IdCard} iconTone="brand" />
           <form className="staff-form p-5" onInput={() => { resolveKey.current = crypto.randomUUID() }} onSubmit={event => void resolve(event)}>
@@ -245,7 +251,10 @@ export function Registration() {
         {registration && <KCard>
           <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
             <h2 id="registration-case-title" tabIndex={-1} className="m-0 text-title-3 text-ink outline-none">{done ? '3. Done' : '2. Check the result'}</h2>
-            <KBadge size="sm" tone={done ? 'success' : registration.status === 'rejected' || registration.status === 'cancelled' ? 'danger' : 'warn'}>{statusLabel(registration.status)}</KBadge>
+            <div className="flex items-center gap-2">
+              <KBadge size="sm" tone={done ? 'success' : registration.status === 'rejected' || registration.status === 'cancelled' ? 'danger' : 'warn'}>{statusLabel(registration.status)}</KBadge>
+              <KButton size="sm" variant="ghost" icon={RotateCcw} aria-disabled={caseLoading || busy || undefined} className={UNAVAILABLE} onClick={() => { if (!caseLoading && !busy) void loadCase(registration.caseId) }}>{caseLoading ? 'Refreshing…' : 'Refresh'}</KButton>
+            </div>
           </div>
           <div className="flex flex-col gap-4 p-5">
             {hid && <div className="flex items-center gap-3 rounded-xl bg-success-soft/60 px-4 py-3 ring-1 ring-line">
@@ -282,16 +291,5 @@ export function Registration() {
         {error && <Alert intent="error" title="That didn’t work">{error}</Alert>}
         {/* Mounted throughout, so what a step says is announced. */}
         <div id="registration-status" role="status" className="empty:hidden">{message && <p className="m-0 text-[13px] text-ink-2">{message}</p>}</div>
-      </div>
-
-      {/* Rarely needed: continuing a registration from its ID. */}
-      <KCard>
-        <CardHeader as="h2" title="Continue a registration" description="If you have its ID" icon={History} />
-        <form className="staff-form p-5" onSubmit={event => { event.preventDefault(); if (!caseLoading && !busy) void loadCase(caseIdInput) }}>
-          <Field label="Registration ID" htmlFor="registration-case-id" error={caseProblems.error('registration-case-id')} required><Input {...caseProblems.control('registration-case-id')} id="registration-case-id" value={caseIdInput} onChange={event => setCaseIdInput(event.target.value)} autoComplete="off" required /></Field>
-          <div className="flex flex-wrap gap-2"><KButton type="submit" aria-disabled={caseLoading || busy || undefined} className={BUSY}>{caseLoading ? 'Opening…' : 'Open'}</KButton>{registration && <KButton variant="ghost" aria-disabled={caseLoading || busy || undefined} className={UNAVAILABLE} onClick={() => { if (!caseLoading && !busy) void loadCase(registration.caseId) }}>Refresh</KButton>}</div>
-        </form>
-      </KCard>
-    </div>
-  </div>
+  </FormPage>
 }

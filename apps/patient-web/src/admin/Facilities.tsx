@@ -6,8 +6,10 @@ import { AssistedRegistrationPanel } from './AssistedRegistration'
 import { FacilityStaffPanel } from './FacilityStaffPanel'
 import { FacilityOrderRoutesPanel, knownSignUp } from './OrderRoutes'
 import { isProblem } from './problems'
+import { Search } from 'lucide-react'
+import { Button, Field, FilterTabs, Input } from '../kasuwa/ui'
 import {
-  ActionForm, Page, Pager, Refresh, ResourceView, Status, Table, date, has, label, pageNumber, useGovernedSubmit, useResource,
+  ActionForm, Subject, type ConfirmSpec, Page, Pager, Refresh, ResourceView, Status, Table, date, has, label, pageNumber, useGovernedSubmit, useResource,
   useUrlFilters,
 } from './ui'
 
@@ -18,11 +20,21 @@ const FACILITY_TRANSITIONS = ['verified', 'rejected', 'suspended'] as const
 /** The backend accepts only UUID v4 facility IDs. */
 const FACILITY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+const STATUS_CHOICE: Readonly<Record<(typeof FACILITY_TRANSITIONS)[number], (name: string) => Partial<ConfirmSpec>>> = {
+  verified: name => ({ title: `Verify ${name}?`, effect: `${name} becomes verified, and its staff can use Health ID.`,
+    undo: 'You can suspend it later from this page.', confirmLabel: 'Verify facility', done: `${name} is verified.`, stepUp: `verify ${name}` }),
+  suspended: name => ({ title: `Suspend ${name}?`, effect: `Everyone at ${name} loses access to Health ID at once.`,
+    undo: 'To restore access, verify it again from this page.', confirmLabel: 'Suspend facility', destructive: true,
+    done: `${name} is suspended. Its staff can’t use Health ID.`, stepUp: `suspend ${name}` }),
+  rejected: name => ({ title: `Reject ${name}?`, effect: `${name} is rejected. Its staff can’t use Health ID.`,
+    undo: 'If this was a mistake, verify it later from this page.', confirmLabel: 'Reject facility', destructive: true,
+    done: `${name} is rejected.`, stepUp: `reject ${name}` }),
+}
+
 function FacilityStatusAction({ facility, reload }: { facility: Facility; reload: () => void }) {
-  return <ActionForm title="Change facility status"
-    note={<p className="admin-note">Suspending or rejecting a facility affects everyone who works there. The change needs
-      your authenticator confirmation and is recorded with your reason.</p>}
+  return <ActionForm title="Change status" subject={<Subject name={facility.name} detail={`${facility.organizationName} · now ${label(facility.status).toLowerCase()}`} />}
     options={FACILITY_TRANSITIONS.filter(status => status !== facility.status).map(value => ({ value, title: label(value) }))}
+    describe={choice => choice ? STATUS_CHOICE[choice.value as (typeof FACILITY_TRANSITIONS)[number]](facility.name) : {}}
     onSubmit={async (status, reason, idempotencyKey) => {
       await adminApi.command(`/api/v1/admin/facilities/${encodeURIComponent(facility.id)}/status`,
         { status, reason }, { version: facility.version, idempotencyKey })
@@ -36,7 +48,7 @@ const SUPPORT_PHONE = '+234 702 671 7252'
 const ALERT_PHONE_PROBLEMS: Readonly<Record<string, string>> = {
   ADMIN_INVALID_FACILITY_PHONE: 'Enter the facility phone in international format (+234...) or as an 11-digit number starting with 0.',
   VERSION_CONFLICT: 'This facility changed since it was read. It has been read again: check it, then make your change again.',
-  PERMISSION_DENIED: 'Changing the alert phone number needs the platform.facility.manage permission. Ask a Super Admin.',
+  PERMISSION_DENIED: 'Your roles don’t let you change this. Ask a Super Admin.',
   // ADMIN_NO_STATE_CHANGE: the number given is the one already set (after normalising, so 0803... matches +234803...).
   ADMIN_STATE_CONFLICT: 'The facility already has this alert phone number, or none if you are clearing it. Nothing was changed.',
 }
@@ -111,7 +123,7 @@ function FacilityAlertPhone({ facility, actor, reload }: { facility: Facility; a
         {governed.error && <p id={`${ALERT_PHONE}-error`} className="admin-error" role="alert">{governed.error}</p>}
         <div role="status">{notice && <p className="admin-success">{notice}</p>}</div>
       </form>
-    </details> : <p className="admin-note">Changing it needs the platform.facility.manage permission.</p>}
+    </details> : <p className="admin-note">Your roles don’t let you change it.</p>}
   </section>
 }
 
@@ -131,30 +143,29 @@ export function FacilitiesPage({ actor }: { actor: AdminActor }) {
     setFilters({ query: value, page: '' })
   }
 
-  return <Page eyebrow="Organizations" title="Facilities" description="Facility status, organization and membership counts from the platform record."
+  const manage = has(actor, 'platform.facility.manage')
+  return <Page eyebrow="Organizations" title="Facilities" description="Every facility, its status and its staff count."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <form className="admin-filters" onSubmit={search} role="search" aria-label="Filter facilities">
-      <label>Status<select value={filters.status} onChange={event => setFilters({ status: event.target.value, page: '' })}>
-        <option value="">Any status</option>
-        {FACILITY_STATUSES.map(value => <option key={value} value={value}>{label(value)}</option>)}
-      </select></label>
-      <label>Name or code<input type="search" value={input} minLength={2} placeholder="At least two characters"
-        onChange={event => setInput(event.target.value)} /></label>
-      <button type="submit" className="admin-secondary" disabled={input.trim().length === 1}>Search</button>
-      {(filters.status || filters.query) && <button type="button" className="admin-link"
-        onClick={() => { setInput(''); setFilters({ status: '', query: '', page: '' }) }}>Clear filters</button>}
+    <FilterTabs label="Facility status" value={filters.status} onChange={value => setFilters({ status: value, page: '' })}
+      options={[{ value: '', label: 'All' }, ...FACILITY_STATUSES.map(value => ({ value, label: label(value) }))]} />
+    <form className="flex flex-col gap-3 sm:flex-row sm:items-end" onSubmit={search} role="search" aria-label="Filter facilities">
+      <Field label="Name or code" htmlFor="admin-facility-query" className="min-w-0 flex-1 sm:max-w-md">
+        <Input id="admin-facility-query" type="search" icon={Search} value={input} minLength={2} placeholder="At least 2 characters"
+          onChange={event => setInput(event.target.value)} /></Field>
+      <Button type="submit" disabled={input.trim().length === 1}>Search</Button>
+      {(filters.status || filters.query) && <Button variant="ghost"
+        onClick={() => { setInput(''); setFilters({ status: '', query: '', page: '' }) }}>Clear filters</Button>}
     </form>
-    <ResourceView resource={resource} empty={result => result.items.length === 0}>{result => <>
-      <p className="admin-result-count">Showing {result.items.length} of {result.total} facilities</p>
-      <Table headings={['Facility', 'Organization', 'Status', 'Members', 'Status changed', 'Action']}>
+    <ResourceView resource={resource} emptyTitle="No facilities match" empty={result => result.items.length === 0}>{result => <>
+      <p className="m-0 text-caption text-ink-3">{result.items.length} of {result.total} facilities</p>
+      <Table headings={['Facility', 'Organization', 'Status', 'Staff', 'Status changed', ...(manage ? [''] : [])]}>
         {result.items.map(facility => <tr key={facility.id}>
           <td><Link to={`/admin/facilities/${encodeURIComponent(facility.id)}`}><strong>{facility.name}</strong></Link><small>{facility.code}</small></td>
           <td>{facility.organizationName}</td>
           <td><Status value={facility.status} />{facility.statusReason ? <small>{facility.statusReason}</small> : null}</td>
           <td>{facility.membershipCount}</td>
           <td>{date(facility.statusChangedAt)}</td>
-          <td>{has(actor, 'platform.facility.manage')
-            ? <FacilityStatusAction facility={facility} reload={resource.reload} /> : 'View only'}</td>
+          {manage && <td className="text-right"><FacilityStatusAction facility={facility} reload={resource.reload} /></td>}
         </tr>)}
       </Table>
       <Pager page={result.page} pageSize={result.pageSize} total={result.total} disabled={resource.loading}
@@ -174,7 +185,7 @@ function AuditExcerpt({ id, title, description, filters, search, withReason = fa
     <div className="admin-panel-head"><div><h2 id={id}>{title}</h2><p>{description}</p></div>
       <Link to={`/admin/audit?${search}`}>Open in Audit</Link></div>
     <ResourceView resource={resource} empty={result => result.items.length === 0}>{result =>
-      <Table headings={['Occurred', 'Action', 'Outcome', 'Actor']}>
+      <Table headings={['When', 'What happened', 'Result', 'Who']}>
         {result.items.slice(0, 10).map(item => <tr key={item.eventId}><td>{date(item.occurredAt)}</td>
           <td>{label(item.action)}{withReason && item.reason ? <small>{item.reason}</small> : null}</td>
           <td><Status value={item.outcome} /></td><td>{item.actorSubject || 'System'}</td></tr>)}
@@ -200,7 +211,7 @@ export function FacilityDetailPage({ actor }: { actor: AdminActor }) {
   const { facilityId = '' } = useParams()
   if (!FACILITY_ID.test(facilityId)) {
     return <Page eyebrow="Facility" title="Facility not found" description="This link does not contain a valid facility ID.">
-      <p><Link to="/admin/facilities">← All facilities</Link></p>
+      <Link className="self-start text-sm font-medium text-brand-ink" to="/admin/facilities">← All facilities</Link>
     </Page>
   }
   return <FacilityDetail facilityId={facilityId} actor={actor} />
@@ -219,7 +230,7 @@ function FacilityDetail({ facilityId, actor }: { facilityId: string; actor: Admi
   const reload = () => { resource.reload(); setRevision(value => value + 1); setRefreshes(value => value + 1) }
   return <Page eyebrow="Facility" title={resource.data?.name ?? 'Facility'} description="The platform record for one facility."
     action={<Refresh onClick={reload} disabled={resource.loading} />}>
-    <p><Link to="/admin/facilities">← All facilities</Link></p>
+    <Link className="self-start text-sm font-medium text-brand-ink" to="/admin/facilities">← All facilities</Link>
     <ResourceView resource={resource}>{facility => <div className="admin-stack">
       <section className="admin-panel">
         <dl className="admin-detail-grid">
@@ -229,9 +240,9 @@ function FacilityDetail({ facilityId, actor }: { facilityId: string; actor: Admi
           <div><dt>Status reason</dt><dd>{facility.statusReason ?? 'Not recorded'}</dd></div>
           <div><dt>Status changed</dt><dd>{date(facility.statusChangedAt)}</dd></div>
           <div><dt>Created</dt><dd>{date(facility.createdAt)}</dd></div>
-          <div><dt>Active staff memberships</dt><dd>{facility.membershipCount}</dd></div>
+          <div><dt>Active staff</dt><dd>{facility.membershipCount}</dd></div>
         </dl>
-        {has(actor, 'platform.facility.manage') && <FacilityStatusAction facility={facility} reload={reload} />}
+        {has(actor, 'platform.facility.manage') && <div className="mt-4"><FacilityStatusAction facility={facility} reload={reload} /></div>}
       </section>
       {/* hid-system #109, which only Novu serves: main has neither the field nor the route. A change is audited
           against the facility, so the page's reload reads the audit excerpts again too. */}

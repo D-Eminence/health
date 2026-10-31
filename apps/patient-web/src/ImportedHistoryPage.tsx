@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Alert, Button } from './kasuwa/ui'
+import { LoadingRows } from './kasuwa/parts'
 import { isHidApiError } from '@hid/http'
 import { ImportedHistory } from './ImportedHistory'
 import type { ImportedHistoryPage, ImportedHistorySharing, ImportedHistorySharingChange, ImportedMedicalRecord } from './importedRecords'
@@ -97,9 +99,9 @@ function ImportedHistoryBody({ state, more, loadMore, retry, audience, query, gr
   audience: ImportedHistoryAudience; query?: string; groupedByDay?: boolean
 }) {
   if (state.status === 'unavailable') return null
-  if (state.status === 'loading') return <p role="status">Loading older records…</p>
+  if (state.status === 'loading') return <LoadingRows rows={2} label="Loading older records" />
   if (state.status === 'error') return <section className="imported-history" aria-label="Older health records"><h2>Older health records</h2>
-    <p role="alert">{state.message}</p><button type="button" onClick={retry}>Try again</button></section>
+    <Alert intent="error" size="sm" title="Couldn’t load older records" action={<Button size="sm" onClick={retry}>Try again</Button>}>{state.message}</Alert></section>
   if (audience === 'staff' && state.shared === false) {
     return <section className="imported-history" aria-label="Older health records"><h2>Older health records</h2>
       <p role="status">This patient has not shared their imported medical history, or has none.</p></section>
@@ -107,8 +109,8 @@ function ImportedHistoryBody({ state, more, loadMore, retry, audience, query, gr
   return <>
     <ImportedHistory records={state.records} limit={state.limit} paged query={query} groupedByDay={groupedByDay} />
     {state.nextCursor && <div className="imported-history">
-      {more.error && <p role="alert">{more.error}</p>}
-      <button type="button" disabled={more.busy} onClick={loadMore}>{more.busy ? 'Loading more…' : 'Show more'}</button>
+      {more.error && <Alert intent="error" size="sm">{more.error}</Alert>}
+      <Button size="sm" loading={more.busy} disabled={more.busy} onClick={loadMore}>{more.busy ? 'Loading more…' : 'Show more'}</Button>
     </div>}
   </>
 }
@@ -152,8 +154,8 @@ export function ImportedHistorySharingCard({ api }: { api: SharingApi }) {
     return () => controller.abort()
   }, [api, attempt])
   if (state.status === 'unavailable' || state.status === 'loading') return null
-  if (state.status === 'error') return <div className="imported-history"><p role="alert">Couldn’t load your sharing choice.</p>
-    <button type="button" onClick={() => setAttempt(value => value + 1)}>Try again</button></div>
+  if (state.status === 'error') return <div className="imported-history"><Alert intent="error" size="sm" title="Couldn’t load your sharing choice"
+    action={<Button size="sm" onClick={() => setAttempt(value => value + 1)}>Try again</Button>} /></div>
   const change = async (shared: boolean) => {
     setBusy(true); setNotice(''); setError('')
     try {
@@ -167,10 +169,10 @@ export function ImportedHistorySharingCard({ api }: { api: SharingApi }) {
     <p>{state.shared
       ? 'Health workers who treat you, at places you gave access to, can see these records.'
       : 'Only you can see these records. You can share them with health workers who treat you, and stop at any time.'}</p>
-    <button type="button" disabled={busy} onClick={() => void change(!state.shared)}>
-      {busy ? 'Saving…' : state.shared ? 'Stop sharing' : 'Share with health workers who treat me'}</button>
-    <div role="status">{notice && <p>{notice}</p>}</div>
-    {error && <p role="alert">{error}</p>}
+    <Button className="self-start" variant={state.shared ? 'secondary' : 'soft'} loading={busy} disabled={busy} onClick={() => void change(!state.shared)}>
+      {busy ? 'Saving…' : state.shared ? 'Stop sharing' : 'Share with health workers who treat me'}</Button>
+    <div role="status" className="empty:hidden">{notice && <Alert intent="success" size="sm" live={false}>{notice}</Alert>}</div>
+    {error && <Alert intent="error" size="sm">{error}</Alert>}
   </section>
 }
 

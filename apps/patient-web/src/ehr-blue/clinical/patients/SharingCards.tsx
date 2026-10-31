@@ -10,7 +10,7 @@ import { roleMay } from '../consent/access'
 
 /**
  * Patient sharing on Patients (today's SharedPatients.tsx), in the design's card and list-row style. Each card is
- * hidden while it loads, for a role the route would refuse, and when the backend does not serve it (404). What they
+ * hidden while it loads, for a role the route would refuse, and when the API does not serve it (404). What they
  * read is held in component memory only.
  */
 
@@ -141,7 +141,7 @@ export function ShareInvitationsForMe({ facilityId, permissions }: { facilityId:
             <span className="min-w-0 flex-1"><span className="block text-sm font-medium text-ink">{item.reference ? `Invitation ${item.reference}` : 'Invitation'}{item.inviteeName ? ` · to ${item.inviteeName}` : ''}</span>
               <span className="block text-[12px] text-ink-3">{DURATION_LABELS[item.duration]} · open until {shareDay(item.expiresAt)}</span></span>
             <Badge size="sm" tone="brand">{shareLevelLabel(item.level) ?? item.level}</Badge>
-            <Button size="sm" variant="primary" loading={accepting === item.invitationId} disabled={!acceptAllowed || (accepting !== null && accepting !== item.invitationId)}
+            <Button size="sm" loading={accepting === item.invitationId} disabled={!acceptAllowed || (accepting !== null && accepting !== item.invitationId)}
               aria-label={item.reference ? `Accept invitation ${item.reference}` : 'Accept invitation'} onClick={() => void accept(item)}>
               {accepting === item.invitationId ? 'Accepting…' : 'Accept'}</Button>
           </li>

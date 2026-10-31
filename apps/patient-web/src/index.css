@@ -671,3 +671,5 @@
 }
 :root[data-theme='dark'] :is(.hid-ehr-attention, [class*='hid-ehr-'][class*='warn']) { background-color: #2a1f08; }
 :root[data-theme='dark'] :is([class*='hid-ehr-'][class*='critical'], [class*='hid-ehr-'][class*='danger']) { background-color: #2b1210; }
+/* Links in the older EHR styles keep 4.5:1 on dark surfaces (their brand-dark is also a fill colour, so only links change). */
+:root[data-theme='dark'] .hid-ehr :is(a:not([class]), .hid-ehr-clinical-link) { color: #84adff; }

@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type Ref } from 'react'
+import { InputR } from '../profileParts'
 
 /** A health facility in Nigeria: its name, state and kind. */
 export interface Facility { readonly name: string; readonly state: string; readonly type: string }
@@ -78,19 +79,21 @@ export function HospitalPicker({ id: inputId, inputRef, value, onChange, invalid
     }
   }
 
-  return <div ref={area} className="patient-hospital-picker">
-    <input id={inputId} ref={inputRef} role="combobox" aria-autocomplete="list" aria-expanded={shown} aria-controls={listId}
+  return <div ref={area} className="relative">
+    <InputR id={inputId} ref={inputRef} role="combobox" aria-autocomplete="list" aria-expanded={shown} aria-controls={listId}
       aria-activedescendant={shown && active >= 0 ? `${listId}-${active}` : undefined}
       autoComplete="off" maxLength={maxLength} value={value}
       onFocus={() => { start(); setOpen(true) }}
       onChange={event => { start(); onChange(event.target.value); setOpen(true); setActive(-1) }}
       onBlur={() => { setOpen(false); setActive(-1) }}
       onKeyDown={onKeyDown} aria-invalid={invalid || undefined} aria-describedby={describedBy} />
-    <ul id={listId} role="listbox" aria-label="Hospitals" hidden={!shown} className="patient-hospital-options">
+    <ul id={listId} role="listbox" aria-label="Hospitals" hidden={!shown}
+      className="absolute inset-x-0 top-[calc(100%+4px)] z-20 m-0 max-h-72 list-none overflow-y-auto rounded-md bg-surface p-1 shadow-[var(--shadow-pop)] ring-1 ring-line-strong">
       {shown && suggestions.map((facility, index) => (
         <li key={`${facility.name}-${facility.state}-${index}`} id={`${listId}-${index}`} role="option" aria-selected={index === active}
-          onPointerDown={event => event.preventDefault()} onClick={() => pick(facility)}>
-          <span>{facility.name}</span><small>{[facility.state, facility.type].filter(Boolean).join(' · ')}</small>
+          onPointerDown={event => event.preventDefault()} onClick={() => pick(facility)}
+          className="grid min-h-11 cursor-pointer gap-0.5 rounded-sm px-3 py-2 text-sm text-ink hover:bg-brand-soft aria-selected:bg-brand-soft">
+          <span>{facility.name}</span><small className="text-xs text-ink-3">{[facility.state, facility.type].filter(Boolean).join(' · ')}</small>
         </li>
       ))}
     </ul>

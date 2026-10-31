@@ -18,6 +18,7 @@ import { DeptFacts, DeptRecordLayout, type DeptFact } from '../parts/DeptRecord'
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { patientLabel } from '../parts/routedWork'
+import { useConfirm } from '../../clinical/parts/confirm'
 import { LabActionButton, LabActions, statusWord } from './labParts'
 
 /*
@@ -29,6 +30,44 @@ import { LabActionButton, LabActions, statusWord } from './labParts'
 
 /** Whether the accession shown is work from an order another facility sent: its writes may be refused as closed. */
 const RoutedAccession = createContext(false)
+
+/** Who the lab work is for: their name, and their banner for the confirm sheet before a save (wrong-patient prevention). */
+export interface LabSubject { readonly name: string; readonly banner: ReactNode }
+const LabSubjectContext = createContext<LabSubject | null>(null)
+
+/** Before saving: the patient (compact banner) and what saving does, Confirm or Cancel. Resolves true with no subject. */
+function useConfirmLabPatient() {
+  const subject = useContext(LabSubjectContext)
+  const { ask, sheet } = useConfirm()
+  const confirm = (effect: (name: string) => string, confirmLabel: string) =>
+    subject ? ask({ subject: subject.banner, effect: effect(subject.name), confirmLabel }) : Promise.resolve(true)
+  return { confirm, sheet }
+}
+
+/**
+ * A reference range as a lab writes it ("12-16", "12 – 16", "<5", "≤ 5", ">10"), as its bounds; null when it can't be
+ * read as numbers (then no flag is set from it).
+ */
+export function parseRange(range: string): { low?: number; high?: number } | null {
+  const text = range.trim().replace(/,/g, '.')
+  const between = /^(-?\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(-?\d+(?:\.\d+)?)/i.exec(text)
+  if (between) return { low: Number(between[1]), high: Number(between[2]) }
+  const below = /^(?:<|≤|<=)\s*(-?\d+(?:\.\d+)?)/.exec(text)
+  if (below) return { high: Number(below[1]) }
+  const above = /^(?:>|≥|>=)\s*(-?\d+(?:\.\d+)?)/.exec(text)
+  if (above) return { low: Number(above[1]) }
+  return null
+}
+
+/** The flag a number earns against its reference range, or null when either is missing or unreadable. */
+export function flagFromRange(value: string, range: string): LabAbnormalFlag | null {
+  const number = value.trim() === '' ? NaN : Number(value)
+  const bounds = parseRange(range)
+  if (!Number.isFinite(number) || !bounds) return null
+  if (bounds.low !== undefined && number < bounds.low) return 'low'
+  if (bounds.high !== undefined && number > bounds.high) return 'high'
+  return 'normal'
+}
 
 /** A result's status in the target's words. */
 const RESULT_STATUS: Record<LabResult['status'], string> = {
@@ -46,31 +85,44 @@ function executionStatus(status: LabExecution['status']) {
 
 /** The value of a result revision with its flag: "7.1 g/dL · low". */
 function valueLine(revision: LabResultRevision) {
-  return `${revisionValue(revision).trim()} · ${statusWord(revision.abnormalFlag)}`
+  return `${revisionValue(revision).trim()} · ${FLAG_WORDS[revision.abnormalFlag] ?? statusWord(revision.abnormalFlag)}`
 }
 
-export function AccessionForm({ facilityId, item, onCreated }: {
+export function AccessionForm({ facilityId, item, subject, onCreated }: {
+  readonly facilityId: string; readonly item: LabWorkItem; readonly subject?: LabSubject; readonly onCreated: (accession: LabAccession) => void
+}) {
+  return <LabSubjectContext.Provider value={subject ?? null}><AccessionFormFields facilityId={facilityId} item={item} onCreated={onCreated} /></LabSubjectContext.Provider>
+}
+
+function AccessionFormFields({ facilityId, item, onCreated }: {
   readonly facilityId: string; readonly item: LabWorkItem; readonly onCreated: (accession: LabAccession) => void
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const problems = useFieldProblems()
+  const asking = useRef(false)
+  const { confirm, sheet } = useConfirmLabPatient()
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     // The button stays focusable while the request runs; a second press does nothing.
-    if (busy) return
+    if (busy || asking.current) return
     const form = new FormData(event.currentTarget)
     const specimenType = String(form.get('specimenType') ?? '').trim()
     const reason = String(form.get('reason') ?? '').trim()
     setError(''); problems.clear()
     if (!specimenType || !reason) return problems.refuse(!specimenType ? 'lab-specimen-type' : 'lab-accession-reason', 'Complete this field.')
+    asking.current = true
+    let confirmed = false
+    try { confirmed = await confirm(name => `Create an accession for ${name}’s ${specimenType} sample?`, 'Create accession') }
+    finally { asking.current = false }
+    if (!confirmed) return
     setBusy(true)
     try { onCreated(await staffApi.createLabAccession(facilityId, item.id, specimenType, reason)) }
     catch (caught) { setError(errorText(caught, 'The accession could not be created.')) }
     finally { setBusy(false) }
   }
   return <form className="hid-ehr-dept-action-form" aria-label="Create accession" noValidate onSubmit={event => void submit(event)}>
-    <p className="hid-ehr-dept-muted">{item.testName ?? 'Lab test'} · {patientLabel(item)}</p>
+    <p className="hid-ehr-dept-muted">{item.testName ?? 'Lab test'} · {item.patient?.fullName ?? patientLabel(item)}</p>
     <EhrField label={<>Sample type<span aria-hidden="true"> *</span></>} controlId="lab-specimen-type" error={problems.error('lab-specimen-type')}>
       <EhrInput name="specimenType" maxLength={240} placeholder="Blood, urine, swab…" required />
     </EhrField>
@@ -79,6 +131,7 @@ export function AccessionForm({ facilityId, item, onCreated }: {
     </EhrField>
     {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
     <div className="hid-ehr-dept-form-actions"><EhrButton type="submit" busy={busy}>{busy ? 'Creating…' : 'Create accession'}</EhrButton></div>
+    {sheet}
   </form>
 }
 
@@ -156,6 +209,11 @@ function SpecimenActions({ facilityId, accessionId, specimen, permissions, onSta
 
 const abnormalFlags: readonly LabAbnormalFlag[] = ['unknown', 'normal', 'high', 'low', 'abnormal', 'critical_candidate']
 
+/** Each flag in plain words. */
+const FLAG_WORDS: Readonly<Record<LabAbnormalFlag, string>> = {
+  unknown: 'Not set', normal: 'Normal', high: 'High', low: 'Low', abnormal: 'Abnormal', critical_candidate: 'Possibly critical',
+}
+
 /** The result entered under `id` (an execution's), or a FieldInputError naming the field refused. */
 function resultValue(form: FormData, resultType: 'numeric' | 'text', id: string): LabResultValue {
   const unit = String(form.get('unit') ?? '').trim()
@@ -169,6 +227,8 @@ function resultValue(form: FormData, resultType: 'numeric' | 'text', id: string)
   if (resultType === 'numeric') {
     const raw = String(form.get('numericValue') ?? '').trim()
     if (!raw || !Number.isFinite(Number(raw))) throw new FieldInputError(`lab-numeric-${id}`, 'Enter a number.')
+    // A number without its unit can't be read safely (mg/dL or mmol/L?): the unit is required.
+    if (!unit) throw new FieldInputError(`lab-unit-${id}`, 'Enter the unit, like g/dL or mmol/L.')
     return { resultType, numericValue: Number(raw), ...shared }
   }
   const textValue = String(form.get('textValue') ?? '').trim()
@@ -188,9 +248,22 @@ function ResultEntry({ facilityId, execution, result, label, onStarted, onChange
   const problems = useFieldProblems()
   const routed = useContext(RoutedAccession)
   const id = execution.id
+  // The value, range and flag are held here so the flag can follow the range: set from it while it hasn't been chosen
+  // by hand, and still changeable.
+  const [numeric, setNumeric] = useState(current?.resultType === 'numeric' && current.numericValue != null ? String(current.numericValue) : '')
+  const [range, setRange] = useState(current?.referenceRange ?? '')
+  const [flag, setFlag] = useState<string>(current?.abnormalFlag ?? 'unknown')
+  const [flagChosen, setFlagChosen] = useState(Boolean(current))
+  const asking = useRef(false)
+  const { confirm, sheet } = useConfirmLabPatient()
+  const follow = (nextValue: string, nextRange: string) => {
+    if (flagChosen || resultType !== 'numeric') return
+    const fromRange = flagFromRange(nextValue, nextRange)
+    if (fromRange) setFlag(fromRange)
+  }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (busy) return
+    if (busy || asking.current) return
     const form = new FormData(event.currentTarget)
     setError(''); problems.clear()
     let value: LabResultValue
@@ -202,6 +275,11 @@ function ResultEntry({ facilityId, execution, result, label, onStarted, onChange
     }
     const reason = String(form.get('reason') ?? '').trim()
     if (result && !reason) return problems.refuse(`lab-result-reason-${id}`, 'Complete this field.')
+    asking.current = true
+    let confirmed = false
+    try { confirmed = await confirm(name => result ? `Save this corrected result for ${name}?` : `Save this result for ${name}?`, result ? 'Save correction' : 'Save result') }
+    finally { asking.current = false }
+    if (!confirmed) return
     setBusy(true); onStarted()
     try {
       const updated = result
@@ -222,24 +300,26 @@ function ResultEntry({ facilityId, execution, result, label, onStarted, onChange
     </EhrField>
     {resultType === 'numeric'
       ? <EhrField label={<>Result value<span aria-hidden="true"> *</span></>} controlId={`lab-numeric-${id}`} error={problems.error(`lab-numeric-${id}`)}>
-        <EhrInput name="numericValue" type="number" step="any" required
-          defaultValue={current?.resultType === 'numeric' ? current.numericValue ?? '' : ''} />
+        <EhrInput name="numericValue" type="number" step="any" required value={numeric}
+          onChange={event => { setNumeric(event.target.value); follow(event.target.value, range) }} />
       </EhrField>
       : <EhrField label={<>Result value<span aria-hidden="true"> *</span></>} controlId={`lab-text-${id}`} error={problems.error(`lab-text-${id}`)}>
         <EhrTextarea name="textValue" maxLength={4000} required
           defaultValue={current?.resultType === 'text' ? current.textValue ?? '' : ''} />
       </EhrField>}
     <div className="hid-ehr-dept-form-grid">
-      <EhrField label="Unit" controlId={`lab-unit-${id}`}>
-        <EhrInput name="unit" maxLength={80} defaultValue={current?.unit ?? ''} />
+      <EhrField label={resultType === 'numeric' ? <>Unit<span aria-hidden="true"> *</span></> : 'Unit'} controlId={`lab-unit-${id}`} error={problems.error(`lab-unit-${id}`)}>
+        <EhrInput name="unit" maxLength={80} placeholder="g/dL" required={resultType === 'numeric'} defaultValue={current?.unit ?? ''} />
       </EhrField>
-      <EhrField label="Reference range" controlId={`lab-range-${id}`}>
-        <EhrInput name="referenceRange" maxLength={240} defaultValue={current?.referenceRange ?? ''} />
+      <EhrField label="Reference range" controlId={`lab-range-${id}`} hint="Like 12-16. The flag is set from it.">
+        <EhrInput name="referenceRange" maxLength={240} value={range}
+          onChange={event => { setRange(event.target.value); follow(numeric, event.target.value) }} />
       </EhrField>
     </div>
-    <EhrField label="Flag" controlId={`lab-flag-${id}`} error={problems.error(`lab-flag-${id}`)}>
-      <EhrSelect name="abnormalFlag" defaultValue={current?.abnormalFlag ?? 'unknown'}>
-        {abnormalFlags.map(flag => <option key={flag} value={flag}>{statusWord(flag)}</option>)}
+    <EhrField label="Flag" controlId={`lab-flag-${id}`} error={problems.error(`lab-flag-${id}`)}
+      hint={!flagChosen && resultType === 'numeric' && flagFromRange(numeric, range) ? 'Set from the reference range. You can change it.' : undefined}>
+      <EhrSelect name="abnormalFlag" value={flag} onChange={event => { setFlag(event.target.value); setFlagChosen(true) }}>
+        {abnormalFlags.map(option => <option key={option} value={option}>{FLAG_WORDS[option]}</option>)}
       </EhrSelect>
     </EhrField>
     {result && <>
@@ -252,6 +332,7 @@ function ResultEntry({ facilityId, execution, result, label, onStarted, onChange
     </>}
     {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
     <div className="hid-ehr-dept-form-actions"><EhrButton type="submit" busy={busy}>{busy ? 'Saving…' : label}</EhrButton></div>
+    {sheet}
   </form>
 }
 
@@ -284,7 +365,7 @@ function ResultGovernance({ facilityId, result, action, onStarted, onChanged, on
   return <form className="hid-ehr-dept-action-form" aria-label={label} noValidate onSubmit={event => void submit(event)}>
     <p className="hid-ehr-dept-muted">{action === 'verify'
       ? `Verify version ${result.currentVersion} after an independent review. The person who entered it cannot verify it.`
-      : `Publish verified version ${result.currentVersion} to authorized readers.`}</p>
+      : `Publish verified version ${result.currentVersion} so the care team and the patient can see it.`}</p>
     <EhrField label={<>{action === 'verify' ? 'Review note' : 'Reason'}<span aria-hidden="true"> *</span></>} controlId={reasonId} error={problems.error(reasonId)}>
       <EhrTextarea name="reason" maxLength={500} required />
     </EhrField>
@@ -387,7 +468,7 @@ function labResultsReadDoubt(error: unknown): LabResultsHiddenReason | null {
 }
 
 export const LAB_RESULTS_HIDDEN: Record<LabResultsHiddenReason, string> = {
-  denied: 'Access denied. You are not authorized to view lab results for this patient. Results stay hidden until access is granted again.',
+  denied: 'You can’t see lab results for this patient right now. They stay hidden until your access is back.',
   unverified: 'Lab results are hidden because access to them could not be checked right now. Refresh to check again.',
   signedOut: 'Lab results are hidden because your session has ended. Sign in again to view them.',
 }
@@ -613,9 +694,11 @@ const LAB_WRITE_PERMISSIONS: ReadonlySet<string> = new Set(['lab.specimen.collec
  * (`closed`: routeClosedForWork), it is shown to be read: every sample step, execution and result write is left out, as
  * the services refuse them, and it says so; what was recorded can still be read while the order lets it.
  */
-export function AccessionView({ facilityId, id, permissions: granted, created, routed = false, closed = false, onChanged }: {
+export function AccessionView({ facilityId, id, permissions: granted, created, routed = false, closed = false, subject, onChanged }: {
   readonly facilityId: string; readonly id: string; readonly permissions: readonly string[]; readonly created?: string
   readonly routed?: boolean; readonly closed?: boolean; readonly onChanged: () => void
+  /** Who the work is for, confirmed before a result is saved. */
+  readonly subject?: LabSubject
 }) {
   const permissions = useMemo(() => closed ? granted.filter(permission => !LAB_WRITE_PERMISSIONS.has(permission)) : granted,
     [closed, granted])
@@ -678,7 +761,7 @@ export function AccessionView({ facilityId, id, permissions: granted, created, r
       })
     return () => { active = false }
   }, [facilityId, id, revision, recheck])
-  return <RoutedAccession.Provider value={routed}>
+  return <LabSubjectContext.Provider value={subject ?? null}><RoutedAccession.Provider value={routed}>
     <DeptSection title="Accession" headingId="lab-accession-title" className="hid-ehr-dept-laboratory-accession"
       actions={<EhrButton id="lab-accession-refresh" variant="secondary" size="sm" busy={loading}
         onClick={() => { if (loading) return; setNotice(''); reload() }}>Refresh accession</EhrButton>}>
@@ -703,5 +786,5 @@ export function AccessionView({ facilityId, id, permissions: granted, created, r
               onRefused={specimenRefused} />} />}
       </div>
     })}
-  </RoutedAccession.Provider>
+  </RoutedAccession.Provider></LabSubjectContext.Provider>
 }

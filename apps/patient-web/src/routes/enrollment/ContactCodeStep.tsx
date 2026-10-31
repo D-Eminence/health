@@ -2,6 +2,7 @@ import type { FormEvent } from 'react'
 import { describedBy } from '../../authSteps'
 import { CodeBoxes, codeComplete } from '../../CodeBoxes'
 import type { StepProps } from './stepProps'
+import { Button } from '../../kasuwa/ui'
 
 /**
  * Enrollment's limits (hid-system #61 and #50): wrong codes spend one budget per
@@ -23,13 +24,13 @@ interface ContactCodeStepProps extends StepProps {
 
 /** The code sent to the contact. */
 export function ContactCodeStep({ focusTarget, busy, invalid, errorId, maskedContact, code, onCode, onSubmit, onAnotherCode, budgetNote }: ContactCodeStepProps) {
-  return <form onSubmit={onSubmit} className="patient-form">
-    <h2>Verify your contact</h2><p id="enroll-code-hint" className="patient-field-hint">Enter the six digit code sent to {maskedContact || 'your contact'}.</p>
-    <CodeBoxes id="enroll-code" label="Verification code" value={code} onChange={onCode} inputRef={focusTarget} busy={busy}
+  return <form onSubmit={onSubmit} className="flex flex-col gap-4">
+    <h2 className="m-0 text-title-2 text-ink">Enter the code</h2><p id="enroll-code-hint" className="m-0 text-sm text-ink-2">We sent a 6-digit code to {maskedContact || 'your contact'}.</p>
+    <CodeBoxes id="enroll-code" label="Code" value={code} onChange={onCode} inputRef={focusTarget} busy={busy}
       invalid={invalid} describedBy={describedBy('enroll-code-hint', errorId)} />
-    <button type="submit" className="patient-primary-button" disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Verify code'}</button>
+    <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Verify code'}</Button>
     {/* The note on a refused code is about that code: a new one starts without it. */}
-    <button type="button" className="patient-text-button" disabled={busy} onClick={onAnotherCode}>Request another code or change contact</button>
-    {budgetNote && <p className="patient-field-hint">{CODE_BUDGET_HINT}</p>}
+    <Button variant="link" className="self-start" disabled={busy} onClick={onAnotherCode}>Get another code or change contact</Button>
+    {budgetNote && <p className="m-0 text-[13px] text-ink-3">{CODE_BUDGET_HINT}</p>}
   </form>
 }

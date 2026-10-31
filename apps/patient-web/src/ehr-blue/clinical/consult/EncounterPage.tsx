@@ -10,8 +10,7 @@ import {
 } from '../parts/Detail'
 import { formatWhen, shortId, statusLabel } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
-import { Banner, ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
-import { patientLine } from '../parts/PatientHeader'
+import { ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
 import { COMPLETE_FIELD, RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
 import { isObservation, noteStatus as observationStatus } from '../nursing/observations'
@@ -26,6 +25,7 @@ import {
   recordStatus, refusedFieldErrors, retractionNotPermitted, rowVersion, text, useLatest,
 } from './encounters'
 import { EncounterOrders, orderPath } from './orders'
+import { KINDS } from './orders/orders'
 import { TodaySections } from './TodaySections'
 import { useDocumentList, useRecordList, useRevisions, type RecordList } from './records'
 
@@ -33,7 +33,7 @@ import { useDocumentList, useRecordList, useRevisions, type RecordList } from '.
 export function EncounterPage() {
   const href = useWorkspaceHref()
   const chart = useChart()
-  if (chart && chart.purpose === 'direct-care') return <EncounterLoader chart={chart} />
+  if (chart && chart.purpose === 'direct-care') return <ChartGate>{open => <EncounterLoader chart={open} />}</ChartGate>
   return (
     <>
       <RecordHeading title={TITLE} backHref={href()} />
@@ -73,13 +73,13 @@ function EncounterLoader({ chart }: { chart: Chart }) {
       } catch (caught) {
         if (!current) return
         if (isHidApiError(caught) && caught.status === 404) return setLoaded({ phase: 'missing' })
-        setLoaded({ phase: 'failed', message: refusalText(caught, 'Encounters could not be loaded.') })
+        setLoaded({ phase: 'failed', message: refusalText(caught, 'This consultation could not be loaded.') })
       }
     })()
     return () => { current = false }
   }, [facilityId, patientId, recordId, verify])
 
-  if (loaded.phase === 'loading') return <Loading label="Loading encounters…" />
+  if (loaded.phase === 'loading') return <Loading label="Loading consultations…" />
   if (loaded.phase === 'missing') return <RecordNotFound backHref={href()} />
   if (loaded.phase === 'failed') {
     return (
@@ -225,7 +225,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
 
   const encounterStatus = (status: string) => async (values: FormValues): Promise<SubmitOutcome> => {
     const expectedRowVersion = rowVersion(encounter.rowVersion)
-    if (expectedRowVersion === null) return { formError: 'Reload the encounter before changing its status.' }
+    if (expectedRowVersion === null) return { formError: 'Reload the consultation before changing it.' }
     begin()
     let updated: Encounter
     try {
@@ -289,7 +289,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     .map(item => field(item, 'display')).filter(Boolean)
   const readsNone = !Object.values(reads).some(Boolean)
   const saved: KeyValue[] = [
-    { label: 'Encounter type', value: encounterTypeLabel(encounter.encounterType) },
+    { label: 'Type of visit', value: encounterTypeLabel(encounter.encounterType) },
     { label: 'Complaint', value: encounter.chiefComplaint || NO_COMPLAINT },
     { label: 'Started', value: formatWhen(encounter.startedAt) },
   ]
@@ -299,18 +299,21 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     saved.push({ label: 'Note', value: noteValue(notes, note, revisions, latest) })
   }
 
+  // The page's one primary is "Sign note"; other note actions are secondary, and changes to the consultation itself quiet.
+  const variantOf = (item: ActionDef) => item.id === 'sign' ? 'primary' : item.id.startsWith('encounter-') ? 'quiet' : 'secondary'
+
+  // In the order a clinician works: the note, diagnoses, orders, documents, then history and earlier versions.
   return (
     <>
-      <RecordHeading title={encounterTitle(encounter)} backHref={href()} />
-      {chart.writeNotice ? <Banner tone="warning" title="Changes are unavailable">{chart.writeNotice}</Banner> : null}
+      <RecordHeading title={`${TITLE} ${encounterTitle(encounter)}`} backHref={href()} />
       {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
       <div className="hid-ehr-clinical-status" role="status">{success}</div>
-      <DetailMeta status={encounter.status} patient={patientLine(chart.facts)}>
+      <DetailMeta status={encounter.status}>
         <span className="hid-ehr-clinical-meta-saved">Started {formatWhen(encounter.startedAt)}</span>
       </DetailMeta>
       {readsNone ? <ErrorBox>{NO_RECORD_ACCESS}</ErrorBox> : null}
       <DetailGrid>
-        <SavedRecord items={saved}>
+        <SavedRecord title="Note" items={saved}>
           {writes.notes && note?.status === 'draft' && seen ? (
             <div className="hid-ehr-clinical-consult-edit">
               <EhrButton variant="secondary" aria-expanded={editing} onClick={() => setEditing(open => !open)}>
@@ -321,7 +324,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
                   key={`${note.id}-${String(note.rowVersion)}`}
                   fields={EDIT_FIELDS}
                   initial={{ content: latest?.content ?? '' }}
-                  submitLabel="Save draft changes"
+                  submitLabel="Save draft"
                   validate={contentCheck}
                   disabled={revisions.loading}
                   onSubmit={noteRevision('Draft edited')}
@@ -330,11 +333,11 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
             </div>
           ) : null}
         </SavedRecord>
-        <EhrCard title={<span id={`encounter-${encounterId}-actions`} className="hid-ehr-clinical-consult-focus" tabIndex={-1}>Available actions</span>}>
+        <EhrCard title={<span id={`encounter-${encounterId}-actions`} className="hid-ehr-clinical-consult-focus" tabIndex={-1}>Actions</span>}>
           {actions.length > 0 ? (
             <ActionList>
               {actions.map(item => (
-                <EhrButton key={item.id} variant="secondary" aria-expanded={selected === item.id} onClick={() => setSelected(open => open === item.id ? null : item.id)}>
+                <EhrButton key={item.id} variant={variantOf(item)} aria-expanded={selected === item.id} onClick={() => setSelected(open => open === item.id ? null : item.id)}>
                   {item.label}
                 </EhrButton>
               ))}
@@ -353,20 +356,22 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
               {action.warning ? <p className="hid-ehr-clinical-consult-warning">{action.warning}</p> : null}
             </RecordForm>
           ) : null}
-          <EncounterOrders chart={chart} encounter={encounter} />
         </EhrCard>
       </DetailGrid>
+      {reads.diagnoses ? (
+        <DiagnosesCard chart={chart} encounterId={encounterId} list={diagnoses} canWrite={writes.diagnoses} onSaved={setSuccess} onError={setPageError} />
+      ) : null}
+      {chart.can(KINDS.pharmacy.read) || chart.can(KINDS.laboratory.read) || chart.canWrite ? (
+        <EhrCard title="Orders"><EncounterOrders chart={chart} encounter={encounter} /></EhrCard>
+      ) : null}
+      {reads.documents ? (
+        <DocumentsCard chart={chart} encounterId={encounterId} list={documents} canWrite={writes.documents} />
+      ) : null}
       <TodaySections chart={chart} />
       <HistoryCard items={historyItems(href, encounterId, others, { notes, diagnoses, vitals, prescriptions, labs }, documents)}>
         <HistoryErrors lists={[notes, diagnoses, vitals, prescriptions, labs, documents]} />
       </HistoryCard>
       <VersionsCard versions={versionItems(revisions.items)} />
-      {reads.diagnoses ? (
-        <DiagnosesCard chart={chart} encounterId={encounterId} list={diagnoses} canWrite={writes.diagnoses} onSaved={setSuccess} onError={setPageError} />
-      ) : null}
-      {reads.documents ? (
-        <DocumentsCard chart={chart} encounterId={encounterId} list={documents} canWrite={writes.documents} />
-      ) : null}
       <ConfirmAction
         open={asking !== null}
         label={asking?.label ?? ''}
@@ -406,10 +411,10 @@ function historyItems(href: ReturnType<typeof useWorkspaceHref>, encounterId: st
   const notes = lists.notes.items ?? []
   return [
     ...others.map(item => ({ key: `encounter-${item.id}`, label: `${TITLE} · ${encounterTitle(item)}`, href: href(item.id), status: item.status })),
-    ...rows(notes.filter(note => !isObservation(note)), 'Clinical notes', record => field(record, 'title') || 'Clinical note', record => recordStatus(record, 'unknown')),
+    ...rows(notes.filter(note => !isObservation(note)), 'Notes', record => field(record, 'title') || 'Clinical note', record => recordStatus(record, 'unknown')),
     ...rows(notes.filter(isObservation), 'Nursing observations', record => shortId(record.id), observationStatus, record => href.to('nursing', recordKey(encounterId, record.id))),
     ...rows(lists.diagnoses.items ?? [], 'Diagnoses', record => field(record, 'display') || 'Diagnosis', diagnosisStatus),
-    ...rows(lists.vitals.items ?? [], 'Triage & Vitals', record => shortId(record.id), vitalStatus, record => href.to('triage', recordKey(encounterId, record.id))),
+    ...rows(lists.vitals.items ?? [], 'Vitals', record => shortId(record.id), vitalStatus, record => href.to('triage', recordKey(encounterId, record.id))),
     ...rows(lists.prescriptions.items ?? [], 'Pharmacy', record => field(record, 'medicationDisplay') || 'Prescription', record => recordStatus(record), record => href(orderPath(encounterId, 'pharmacy', record.id))),
     ...rows(lists.labs.items ?? [], 'Laboratory', record => field(record, 'testDisplay') || 'Lab request', record => recordStatus(record), record => href(orderPath(encounterId, 'laboratory', record.id))),
     ...(documents.items ?? []).map(item => ({ key: `document-${item.id}`, label: `Documents · ${item.fileName}`, status: item.status || 'uploaded' })),
@@ -421,7 +426,7 @@ function versionItems(revisions: readonly NoteRevision[] | null): VersionItem[] 
   if (!revisions || revisions.length < 2) return []
   return revisions.map(revision => ({
     key: revision.id,
-    summary: `${revision.createdAt} · Revision ${revision.revisionNo} · ${revision.changeReason}`,
+    summary: `${formatWhen(revision.createdAt)} · Version ${revision.revisionNo} · ${revision.changeReason}`,
     items: [{ label: 'Content', value: revision.content }, { label: 'Recorded', value: formatWhen(revision.createdAt) }],
   }))
 }

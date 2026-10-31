@@ -1,4 +1,6 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { PatientBanner, Value } from '../../../kasuwa/parts'
+import { useConfirm } from '../../clinical/parts/confirm'
 import { isHidApiError } from '@hid/http'
 import { EhrButton, EhrInput, EhrTextarea } from '@hid/ui/ehr'
 import { staffApi, type PharmacyWorkItem } from '../../../staff/api'
@@ -15,23 +17,24 @@ import { DeptContextLine, DeptFacts, DeptRecordLayout, type DeptFact } from '../
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { patientLabel, RoutedWorkLines, RoutedWorkPaused } from '../parts/routedWork'
-import { doseText, notDispensableText, statusOf, statusTone } from './pharmacyText'
+import { statusTitle } from '../parts/WorkQueue'
+import { DOSE_MISSING, doseMissing, notDispensableText, statusOf, statusTone } from './pharmacyText'
 
 /** The design's words under a form that was refused. */
-const RETRY_NOTE = 'Correct the issue or retry using the same button. No success is reported until saved.'
-const ACTION_FAILED = 'This action could not be completed. Please retry.'
+const RETRY_NOTE = 'Fix what’s marked, or try again with the same button. Nothing is saved until it says so.'
+const ACTION_FAILED = 'That didn’t work. Please try again.'
 
-/** A prescription's saved fields, as "Saved record" and the quick view show them. */
+/** A prescription's saved fields. The dose is always shown with its unit, a decimal with its leading zero. */
 export function recordFacts(item: PharmacyWorkItem, status: string, withPatient = false): DeptFact[] {
   return [
-    { label: 'Item', value: item.medication.display },
+    { label: 'Medicine', value: item.medication.display },
     ...(withPatient ? [{ label: 'Patient', value: patientLabel(item) }] : []),
-    { label: 'Dose', value: doseText(item) ?? 'Not recorded' },
-    { label: 'Frequency', value: item.frequency ?? 'Not recorded' },
+    { label: 'Dose', value: item.doseQuantity == null ? 'Not recorded' : <Value value={item.doseQuantity} unit={item.doseUnit || 'unit not recorded'} /> },
+    { label: 'How often', value: item.frequency || 'Not recorded' },
     { label: 'Route', value: item.routeCode || 'Not recorded' },
     ...(item.instructions ? [{ label: 'Instructions', value: item.instructions }] : []),
     { label: 'Dispensed', value: item.dispensing ? (item.dispensing.reversed ? 'Reversed' : 'Yes') : 'No' },
-    ...(withPatient ? [{ label: 'Status', value: status }] : []),
+    ...(withPatient ? [{ label: 'Status', value: statusTitle(status) }] : []),
     { label: 'Accepted', value: dateText(item.acceptedAt) },
   ]
 }
@@ -88,11 +91,17 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const focus = useFocusById()
   const problems = useFieldProblems()
   const title = `pharmacy-${item.id}-title`
+  // Who the medicine is for, confirmed before a dispensing is recorded (wrong-patient prevention).
+  const name = item.patient?.fullName ?? patientLabel(item)
+  const banner = <PatientBanner compact name={name} hid={item.patient?.healthIdLast4 ? `Health ID ending ${item.patient.healthIdLast4}` : 'Health ID not sent'}
+    dateOfBirth={item.patient?.dateOfBirth} sex={item.patient?.sex} />
+  const { ask, sheet } = useConfirm()
+  const asking = useRef(false)
 
   async function submit(event: FormEvent<HTMLFormElement>, reverse = false) {
     event.preventDefault()
     // The button stays focusable while the request runs; a second press does nothing.
-    if (busy) return
+    if (busy || asking.current) return
     setError(''); setSuccess(''); problems.clear()
     const form = new FormData(event.currentTarget)
     const reason = String(form.get('reason') ?? '').trim()
@@ -102,6 +111,14 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
     if (!reverse && (!Number.isFinite(quantity) || quantity <= 0 || !unit)) {
       return problems.refuse(!Number.isFinite(quantity) || quantity <= 0 ? `pharmacy-quantity-${item.id}` : `pharmacy-unit-${item.id}`, 'Enter a positive quantity and unit.')
     }
+    asking.current = true
+    let confirmed = false
+    try {
+      confirmed = await ask(reverse
+        ? { subject: banner, effect: `Reverse the dispensing of ${item.medication.display} for ${name}?`, confirmLabel: 'Reverse dispensing' }
+        : { subject: banner, effect: `Dispense ${String(quantity).replace(/^\./, '0.')} ${unit} of ${item.medication.display} to ${name}?`, confirmLabel: 'Dispense' })
+    } finally { asking.current = false }
+    if (!confirmed) return
     setBusy(true)
     onBusy(true)
     try {
@@ -162,8 +179,10 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   </>
 
   const actions = <section className="hid-ehr-card hid-ehr-dept-section hid-ehr-dept-actions-card" aria-labelledby={`pharmacy-${item.id}-actions`}>
-    <h2 id={`pharmacy-${item.id}-actions`} className="hid-ehr-card-title">Available actions</h2>
+    <h2 id={`pharmacy-${item.id}-actions`} className="hid-ehr-card-title">Actions</h2>
     {undispensable && !item.dispensing && <DeptNotice tone="critical" role="alert" title="Not dispensable">{notDispensableText(item)}</DeptNotice>}
+    {!item.dispensing && doseMissing(item) && <DeptNotice tone="caution" title={DOSE_MISSING}>
+      The prescription doesn’t say the dose with its unit, or how often. Ask the prescriber to complete it before you hand it over.</DeptNotice>}
     {(canDispense || canReverse) && <div className="hid-ehr-dept-action-stack">
       {canDispense && <EhrButton variant="secondary" aria-expanded={shown === 'dispense'} aria-controls={`pharmacy-dispense-${item.id}`}
         onClick={() => toggle('dispense')}>Dispense quantity</EhrButton>}
@@ -173,8 +192,8 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
     {shown === 'dispense' && <form id={`pharmacy-dispense-${item.id}`} className="hid-ehr-dept-form hid-ehr-dept-action-form"
       aria-label="Dispense quantity" noValidate onSubmit={event => void submit(event)}>
       <div className="hid-ehr-dept-form-grid">
-        <ActionField id={`pharmacy-quantity-${item.id}`} label="Units to dispense" error={problems.error(`pharmacy-quantity-${item.id}`)}
-          hint="The whole quantity handed over: Health ID can’t record part of a dispensing.">
+        <ActionField id={`pharmacy-quantity-${item.id}`} label="Quantity to dispense" error={problems.error(`pharmacy-quantity-${item.id}`)}
+          hint="The whole amount handed over. Part of a dispensing can’t be recorded.">
           <EhrInput name="quantity" type="number" min="0.0001" step="0.0001" required {...control(`pharmacy-quantity-${item.id}`, true)} />
         </ActionField>
         <ActionField id={`pharmacy-unit-${item.id}`} label="Unit" error={problems.error(`pharmacy-unit-${item.id}`)}>
@@ -203,17 +222,20 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
         patient: item.patient?.fullName ?? null, ordering, result, dateOfBirthOnly: false })}
       onNotCompleted={(result, reason) => onNotCompleted({ service: 'pharmacy', title: item.medication.display,
         reference: route.reference, patient: item.patient?.fullName ?? null, ordering, reason, priority: null, result })} /></DeptEmbedded>}
-    {!canDispense && !canReverse && !ending && <p className="hid-ehr-dept-muted">No further actions for your permission and this record state.</p>}
+    {!canDispense && !canReverse && !ending && <p className="hid-ehr-dept-muted">Nothing more to do here.</p>}
+    {sheet}
     {/* Mounted throughout, so what was recorded is announced. */}
     <div id={`pharmacy-status-${item.id}`} role="status">{success && <p className="hid-ehr-dept-pharmacy-success">{success}</p>}</div>
   </section>
 
   return <>
-    <DeptContextLine status={status} tone={statusTone(status)} items={[patientLabel(item), `Accepted ${dateText(item.acceptedAt)}`]} />
+    <DeptContextLine status={statusTitle(status)} tone={statusTone(status)} items={[`Accepted ${dateText(item.acceptedAt)}`]} />
+    {/* Who the medicine is for, in the same place on every record. */}
+    {banner}
     {said && route && <DeptNotice id={`pharmacy-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{said}</DeptNotice>}
     <RoutedWorkPaused items={[item]} crossFacilityWork={crossFacilityWork} receives={holds} />
     <DeptRecordLayout
-      main={<DeptSection title="Saved record"><DeptFacts facts={recordFacts(item, status)} />
+      main={<DeptSection title="Prescription"><DeptFacts facts={recordFacts(item, status)} />
         {route && <div className="hid-ehr-dept-pharmacy-route"><RoutedWorkLines route={route} /></div>}</DeptSection>}
       aside={actions} />
   </>

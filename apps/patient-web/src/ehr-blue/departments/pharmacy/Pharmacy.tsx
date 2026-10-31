@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
-import { EhrBadge, EhrButton, EhrDataTable, EhrDrawer, EhrEmptyState, EhrSkeleton, type EhrDataTableColumn } from '@hid/ui/ehr'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { EhrButton, EhrEmptyState, EhrSkeleton } from '@hid/ui/ehr'
+import { Flag } from '../../../kasuwa/parts'
 import { staffApi, type PharmacyWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import { cannotCompleteOffered, holdsReceivePermission, wrongPatientOffered } from '../../../staff/orderRoutes'
@@ -13,8 +15,8 @@ import { useDeptAccess } from '../parts/access'
 import { DeptEmbedded } from '../parts/DeptEmbedded'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage } from '../parts/DeptPage'
-import { DeptFacts, DeptLinkButton, DeptRecordName } from '../parts/DeptRecord'
 import { DeptSearch } from '../parts/DeptSearch'
+import { QueuePatient, WorkQueue } from '../parts/WorkQueue'
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import {
@@ -22,19 +24,22 @@ import {
   StandaloneWorkNote, useLearnCannotCompleteServed, useLearnLateCorrectionServed, useLearnWrongPatientServed,
   useNotCompletedEndings, useReceiving, useRowSaid, WORK_LIST_CAP, WorkListCap, type Said,
 } from '../parts/routedWork'
-import { PharmacyRecord, recordFacts } from './PharmacyRecord'
-import { doseLine, matchesItem, routeAlert, statusOf, statusTone } from './pharmacyText'
+import { PharmacyRecord } from './PharmacyRecord'
+import { DOSE_MISSING, doseLine, doseMissing, matchesItem, queueTone, routeAlert, statusOf } from './pharmacyText'
 
 const LOAD_FAILED = 'Prescriptions could not be loaded. Please retry.'
 /** The design's list shows 50 records a page. */
 const PAGE_SIZE = 50
 const HEADING = 'pharmacy-heading'
+/** The open prescription's id in the address (`?rx=`), so Back and a refresh keep the place. */
+const RX_PARAM = 'rx'
 
 /**
  * Pharmacy in the blue Hospital EHR: the prescriptions accepted at the working facility (and, at a pharmacy that
  * receives them, prescriptions other facilities send), each opened as a record to dispense or reverse. Live on today's
  * Pharmacy API with today's checks (staff/routes/Operations.tsx Pharmacy); the screens and words are the design's.
- * The list and the record are views of this page, not routes: nothing about a record goes in the address.
+ * The list and the record are views of this page; the open record's id (never anything about the patient) is in the
+ * address, so Back and a refresh keep the place.
  */
 export function Pharmacy() {
   const { facilityId, permissions, facility } = useDeptAccess()
@@ -59,8 +64,10 @@ export function Pharmacy() {
     ? wrongPatientOffered(route, permissions, 'pharmacy') : cannotCompleteOffered(route, permissions, 'pharmacy', cannotServed))
   // Work Pharmacy refused to dispense (hid-system #48): known only from that refusal, kept while the work is listed.
   const [undispensable, setUndispensable] = useState<{ facilityId: string; ids: ReadonlySet<string> }>({ facilityId: '', ids: new Set() })
-  const [opened, setOpened] = useState<{ facilityId: string; id: string } | null>(null)
-  const [quick, setQuick] = useState<string | null>(null)
+  const [params, setParams] = useSearchParams()
+  const openedId = params.get(RX_PARAM)
+  const navigate = useNavigate()
+  const location = useLocation()
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
   // A dispensing or reversal being sent from the open record: Back to list waits for its outcome.
@@ -71,14 +78,30 @@ export function Pharmacy() {
   const visible = items ? notCompleted.shown(items) : null
   // The record open, only as the list now shows it: work that has left the list (an order ended, here or elsewhere) is
   // never shown again, even once other work is listed.
-  const selected = opened && opened.facilityId === facilityId ? visible?.find(item => item.id === opened.id) ?? null : null
-  const gone = Boolean(opened && (opened.facilityId !== facilityId || (visible !== null && !selected)))
+  const selected = openedId ? visible?.find(item => item.id === openedId) ?? null : null
+  const gone = Boolean(openedId && visible !== null && !selected)
+  /** Opens or closes a record in the address: a new history entry, so the browser's Back returns to the list. */
+  const show = useCallback((id: string | null, replace = false) => {
+    setParams(previous => {
+      const next = new URLSearchParams(previous)
+      if (id) next.set(RX_PARAM, id)
+      else next.delete(RX_PARAM)
+      return next
+    }, { replace, state: id ? { fromQueue: true } : undefined })
+  }, [setParams])
   // In the commit that removes the record, so focus is never left on the page meanwhile.
   useLayoutEffect(() => {
     if (!gone) return
-    setOpened(null)
+    show(null, true)
     focus(HEADING, true)
-  }, [gone, focus])
+  }, [gone, focus, show])
+  // Leaving a record (its Back, or the browser's) puts focus back on its row, once the list shows again.
+  const lastOpened = useRef(openedId)
+  useLayoutEffect(() => {
+    const was = lastOpened.current
+    lastOpened.current = openedId
+    if (was && !openedId) focus([`pharmacy-${was}-name`, HEADING], true)
+  }, [openedId, focus])
   useEffect(() => {
     if (!items) return
     setUndispensable(current => {
@@ -89,36 +112,37 @@ export function Pharmacy() {
 
   if (!facilityId || !canRead) return (
     <DeptPage title="Pharmacy">
-      <div className="hid-ehr-dept-pharmacy-error">Permission denied. This facility membership cannot open Pharmacy: it needs pharmacy work-item read permission.</div>
+      <div className="hid-ehr-dept-pharmacy-error">You can’t open Pharmacy here. Your role needs permission to see prescriptions.</div>
     </DeptPage>
   )
   const here = facilityId
   const notDispensable = (id: string) => undispensable.facilityId === here && undispensable.ids.has(id)
 
   function open(item: PharmacyWorkItem) {
-    setQuick(null)
-    setOpened({ facilityId: here, id: item.id })
+    show(item.id)
     focus(`pharmacy-${item.id}-title`)
   }
   function back() {
     // Focusable while a request runs, but a press does nothing: the record must stay to say how it ended.
     if (recording) return
     const id = selected?.id
-    setOpened(null)
-    focus(id ? [`pharmacy-${id}-name`, HEADING] : HEADING)
+    // Opened from the list: step back in history, so the browser's Back doesn't reopen it. Else (a shared address) replace.
+    if ((location.state as { fromQueue?: unknown } | null)?.fromQueue === true) navigate(-1)
+    else show(null, true)
+    focus(id ? [`pharmacy-${id}-name`, HEADING] : HEADING, true)
   }
   function notCompletedHere(ending: Omit<CannotCompleteEnding, 'key'>) {
     notCompleted.add(ending)
     said.clear()
     // Where its reads ended at once, nothing of it is shown again.
-    if (!readsKept(ending.result) && selected?.orderRoute?.id === ending.result.route.id) setOpened(null)
+    if (!readsKept(ending.result) && selected?.orderRoute?.id === ending.result.route.id) show(null, true)
     void read.refresh()
   }
   function endedHere(ending: WrongPatientEnding) {
     said.clear()
     setEnded({ facilityId: here, ending })
     // The patient's details go at once: the record closes, and the list is read again.
-    setOpened(null)
+    show(null, true)
     void read.refresh()
   }
 
@@ -127,40 +151,8 @@ export function Pharmacy() {
   const pages = Math.max(1, Math.ceil(matching.length / PAGE_SIZE))
   const current = Math.min(page, pages - 1)
   const shownRows = matching.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE)
-  const quickItem = quick ? items?.find(item => item.id === quick) ?? null : null
-
-  const columns: EhrDataTableColumn<PharmacyWorkItem>[] = [
-    { id: 'record', header: 'Record', cell: item => {
-      const text = selected ? null : said.rowSaid(item.orderRoute?.id)
-      return <>
-        <DeptRecordName id={`pharmacy-${item.id}-name`} name={item.medication.display} reference={item.id.slice(0, 8)} onOpen={() => open(item)} />
-        {text && item.orderRoute && <p id={`pharmacy-${item.id}-said`} className="hid-ehr-dept-pharmacy-said" role="alert" tabIndex={-1}>{text}</p>}
-      </>
-    } },
-    { id: 'patient', header: 'Patient / context', cell: item => <>
-      {patientLabel(item)}
-      <small className="hid-ehr-dept-reference">{doseLine(item)}</small>
-      {item.orderRoute && <small className="hid-ehr-dept-reference">From {item.orderRoute.orderingFacilityName ?? 'the ordering facility'}</small>}
-    </> },
-    { id: 'status', header: 'Status', cell: item => {
-      const status = statusOf(item, notDispensable(item.id))
-      const alert = routeAlert(item.orderRoute, late)
-      return <>
-        <EhrBadge tone={statusTone(status)}>{status}</EhrBadge>
-        {alert && <small className="hid-ehr-dept-pharmacy-alert">{alert}</small>}
-      </>
-    } },
-    { id: 'accepted', header: 'Accepted', cell: item => <span className="hid-ehr-dept-nowrap">{dateText(item.acceptedAt)}</span> },
-    { id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: item => (
-      <div className="hid-ehr-dept-table-actions">
-        <EhrButton variant="secondary" aria-describedby={`pharmacy-${item.id}-name`} onClick={() => setQuick(item.id)}>Quick view</EhrButton>
-        <DeptLinkButton describedBy={`pharmacy-${item.id}-name`} onClick={() => open(item)}>Open<span aria-hidden="true"> →</span></DeptLinkButton>
-      </div>
-    ) },
-  ]
-
   const listed = rows.length > 0
-  const refresh = <RefreshButton loading={read.loading} onRefresh={read.refresh}>Refresh list</RefreshButton>
+  const refresh = <RefreshButton loading={read.loading} onRefresh={read.refresh}>Refresh</RefreshButton>
   return (
     <DeptPage title={selected ? <span id={`pharmacy-${selected.id}-title`} tabIndex={-1}>{selected.medication.display}</span>
       : <span id={HEADING} tabIndex={-1}>Pharmacy</span>}
@@ -195,18 +187,33 @@ export function Pharmacy() {
               onClick={() => { if (current + 1 < pages) setPage(current + 1) }}>Next page</EhrButton>
           </nav>}
           {read.loading && !listed ? <EhrSkeleton label="Loading prescriptions" />
-            : listed && matching.length > 0 ? <EhrDataTable caption="Prescriptions" captionHidden columns={columns} rows={shownRows} rowKey={item => item.id} />
-              : listed ? <EhrEmptyState title="No matching records" message="Change your search." />
-                : !read.error ? <EhrEmptyState title="No matching records" message="Prescriptions appear here once they are accepted." /> : null}
+            : listed && matching.length > 0 ? <WorkQueue label="Prescriptions" titleHeader="Medicine" priority={false} rows={shownRows.map(item => {
+              const status = statusOf(item, notDispensable(item.id))
+              const text = selected ? null : said.rowSaid(item.orderRoute?.id)
+              const alert = routeAlert(item.orderRoute, late)
+              const missing = !item.dispensing && doseMissing(item)
+              return {
+                id: item.id,
+                buttonId: `pharmacy-${item.id}-name`,
+                title: item.medication.display,
+                detail: doseLine(item),
+                // The name and date of birth to hand the medicine to the right person, when Pharmacy sends them.
+                patient: <QueuePatient patient={item.patient} fallback={patientLabel(item)} />,
+                status,
+                statusTone: queueTone(status),
+                flag: missing ? <span className="inline-flex items-center gap-1"><Flag level="abnormal" /><span className="text-[12px] font-medium text-warn-ink">{DOSE_MISSING}</span></span> : null,
+                when: dateText(item.acceptedAt),
+                onOpen: () => open(item),
+                below: item.orderRoute || alert ? <>
+                  {text && item.orderRoute && <p id={`pharmacy-${item.id}-said`} className="hid-ehr-dept-pharmacy-said" role="alert" tabIndex={-1}>{text}</p>}
+                  {item.orderRoute && <small className="hid-ehr-dept-reference">From {item.orderRoute.orderingFacilityName ?? 'the ordering facility'}</small>}
+                  {alert && <small className="hid-ehr-dept-pharmacy-alert">{alert}</small>}
+                </> : undefined,
+              }
+            })} />
+              : listed ? <EhrEmptyState title="No matching prescriptions" message="Change your search." />
+                : !read.error ? <EhrEmptyState title="No prescriptions yet" message="Prescriptions show here once they are accepted." /> : null}
         </DeptSearch>
-        <EhrDrawer open={quickItem !== null} title="Record quick view" onClose={() => setQuick(null)}>
-          {quickItem && <div className="hid-ehr-dept-pharmacy-quick">
-            <h3>{quickItem.medication.display}</h3>
-            <p>Accepted {dateText(quickItem.acceptedAt)}</p>
-            <DeptFacts facts={recordFacts(quickItem, statusOf(quickItem, notDispensable(quickItem.id)), true)} />
-            <EhrButton onClick={() => open(quickItem)}>Open full record</EhrButton>
-          </div>}
-        </EhrDrawer>
       </div>
       {selected && <PharmacyRecord key={selected.id} facilityId={here} item={selected} permissions={permissions}
         undispensable={notDispensable(selected.id)}

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { Download } from 'lucide-react'
+import { Alert, Button } from './kasuwa/ui'
 import type { ImportedAttachmentDownload, ImportedMedicalRecord, ImportedRecordVersion } from './importedRecords'
 import { dayWords, groupByDay as byDay, matchesQuery, textOf } from './routes/recordSearch'
 import './imported-history.css'
@@ -118,8 +120,8 @@ export function ImportedHistory({ records, limit, download, allowLocalHttp = fal
         .map(version => <div key={version.id}><Inner>Version {version.versionNo} · {date(version.createdAt)}</Inner><VersionContent version={version} level={innerLevel} /></div>)}</details>}
       {record.files.length > 0 && <div><Inner>Files</Inner><ul>{record.files.map(file => <li key={file.id}>
         <span>{file.fileName || 'File'}</span>{file.accessStatus === 'available'
-          ? download ? <button type="button" disabled={busy !== null} onClick={() => void openFile(file.id)}>
-            {busy === file.id ? 'Opening…' : `Download ${file.fileName || 'file'}`}</button> : <span>You can’t open this file here.</span>
+          ? download ? <Button size="sm" icon={Download} loading={busy === file.id} disabled={busy !== null} onClick={() => void openFile(file.id)}>
+            {busy === file.id ? 'Opening…' : <>Download<span className="sr-only"> {file.fileName || 'file'}</span></>}</Button> : <span>You can’t open this file here.</span>
           : <span>{file.accessStatus === 'rejected' ? 'This file can’t be opened. It failed our safety check.' : 'This file is still being checked for safety.'}</span>}
       </li>)}</ul></div>}
     </article>
@@ -129,11 +131,11 @@ export function ImportedHistory({ records, limit, download, allowLocalHttp = fal
   return <section className="imported-history" aria-label="Older health records">
     <h2>Older health records</h2>
     <p>From the old Health ID system.</p>
-    {error && <p role="alert">{error}</p>}
+    {error && <Alert intent="error" size="sm">{error}</Alert>}
     {records.length === 0 ? <p>No older records.</p>
       : shown.length === 0 ? <p>No older records match your search.</p>
       : groupedByDay ? byDay(shown, record => record.createdAt).map(group => <div className="imported-history-day" key={group.day ?? 'undated'}>
-        <h3 className="patient-day-heading">{group.label}</h3><div className="imported-history-list">{group.items.map(card)}</div></div>)
+        <h3 className="m-0 rounded-md bg-subtle px-3 py-2 text-overline text-ink-3">{group.label}</h3><div className="imported-history-list">{group.items.map(card)}</div></div>)
       : <div className="imported-history-list">{shown.map(card)}</div>}
     {records.length > 0 && <p>{searching ? `${shown.length} of ${records.length} older ${records.length === 1 ? 'record' : 'records'} match your search.`
       : paged ? `Showing ${records.length} older ${records.length === 1 ? 'record' : 'records'}, newest first.` : `Showing up to ${limit} older records, newest first.`}</p>}

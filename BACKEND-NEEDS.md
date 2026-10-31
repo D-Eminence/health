@@ -56,3 +56,22 @@ share allows, **with no sign-in or code**. This works whether or not the provide
 **Risk the product owner accepted:** anyone the email reaches can read the card and open the records, including on
 forwarding or misdelivery. Health data is sensitive personal data under the NDPA 2023, so legal or compliance sign-off is
 recommended before launch.
+
+## Lab and pharmacy queues need the patient's name and date of birth for sample matching
+
+The Laboratory and Pharmacy queues show who each piece of work is for, so staff can match a sample or a medicine to
+the person in front of them. Today `GET …/lab/work-items` and `GET …/pharmacy/work-items` send the patient's
+`fullName`, `dateOfBirth`, `sex` and `healthIdLast4` (`patient`) **only on work another facility sent here**. This
+facility's own work carries just `patientId`, so the queue can only show a masked reference ("Patient ••••000001"),
+which no one can match to a sample tube or a person at the counter.
+
+**What the backend needs to do**
+
+1. Send `patient: { fullName, dateOfBirth, sex, healthIdLast4 }` on every lab and pharmacy work item the member may read
+   (`lab.work-item.read`, `pharmacy.work-item.read`), not only routed ones. The UI already shows it when present
+   (`departments/parts/WorkQueue.tsx` `QueuePatient`), and uses it in the "confirm the patient" sheet before an
+   accession, a result or a dispensing is saved.
+2. Pharmacy work items: also send the prescription's `priority` (as lab work items do), so urgent and stat prescriptions
+   can be sorted first and badged. The lab queue already does this.
+
+Until then the queue shows the masked reference, and the confirm sheet says "Health ID not sent".

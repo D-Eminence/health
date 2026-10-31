@@ -13,6 +13,11 @@
   min-width: 0;
 }
 
+/* The patient banner ChartGate draws once on every chart page, and the read-only line under it. */
+.hid-ehr .hid-ehr-clinical-page section[aria-label^="Patient:"] {
+  margin-bottom: 16px;
+}
+
 /* Cards stack 20px apart (design .panel margin-bottom). */
 .hid-ehr .hid-ehr-clinical-page .hid-ehr-card {
   margin-bottom: 20px;
@@ -429,10 +434,20 @@
   margin-top: 16px;
 }
 
+/* Forms are one column, labels above, at a readable width (rule B); a pair that belongs together (dose and its unit)
+   sits on one row. */
 .hid-ehr .hid-ehr-clinical-form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
+  max-width: 40rem;
+}
+
+.hid-ehr .hid-ehr-clinical-form-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
 }
 
 .hid-ehr .hid-ehr-clinical-form-grid > .hid-ehr-clinical-form-full {
@@ -1003,6 +1018,18 @@
   grid-column: 1 / -1;
 }
 
+/* A measurement's input with its flag beside it, as typed (outside the adult range). */
+.hid-ehr .hid-ehr-clinical-triage-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-clinical-triage-input > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
 /* The sample-only priority and observations, below the measurements. */
 .hid-ehr .hid-ehr-clinical-triage-sample {
   margin-top: 18px;
@@ -1109,4 +1136,16 @@
    ring, as the card titles that take focus. */
 .hid-ehr .hid-ehr-clinical-page .hid-ehr-page-title:focus {
   outline: none;
+}
+
+/* A vitals row's readings: each value with its unit and flag, wrapping on narrow screens. */
+.hid-ehr .hid-ehr-clinical-readings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.hid-ehr .hid-ehr-clinical-cell-sub-inline {
+  color: var(--ehr-muted);
+  font-size: 12px;
 }

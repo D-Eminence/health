@@ -10,12 +10,12 @@ import { useClinical } from '../parts/Workspace'
 /** Today's filter wording (AccessRequests.tsx FILTER_LABELS, not exported there): the backend matches either. */
 export const FILTER_LABELS: Readonly<Record<AccessRequestStatus, string>> = {
   pending: 'Waiting for the patient', approved: 'Approved (any outcome)', denied: 'Denied',
-  active: 'Access active', expired: 'Expired', closed: 'Closed by you', revoked: 'Revoked',
+  active: 'Access active', expired: 'Expired', closed: 'Closed by you', revoked: 'Ended by the patient',
 }
 
 export const SCOPE_LABELS: Readonly<Record<AccessRequest['scope'], string>> = {
-  read_records: 'Read records',
-  write_records: 'Read and write records',
+  read_records: 'See their records',
+  write_records: 'See and add to their records',
 }
 
 /** Today's close refusals (AccessRequests.tsx closeError, not exported there). */
@@ -53,15 +53,15 @@ export function statusNote(request: AccessRequest): string {
 /** The request as the design's key and value list prints it. */
 export function requestDetails(request: AccessRequest): KeyValue[] {
   const items: KeyValue[] = [
-    { label: 'Purpose of access', value: request.reason },
-    { label: 'Access scope', value: SCOPE_LABELS[request.scope] ?? request.scope },
-    { label: 'Duration (minutes)', value: String(request.requestedDurationMinutes) },
+    { label: 'Why', value: request.reason },
+    { label: 'What you asked for', value: SCOPE_LABELS[request.scope] ?? request.scope },
+    { label: 'How long', value: `${request.requestedDurationMinutes} minute${request.requestedDurationMinutes === 1 ? '' : 's'}` },
     { label: 'Patient', value: patientContext(request) },
     { label: 'Requested', value: formatWhen(request.requestedAt) },
   ]
   if (request.approvedAt) items.push({ label: 'Approved', value: formatWhen(request.approvedAt) })
   if (request.deniedAt) items.push({ label: 'Denied', value: formatWhen(request.deniedAt) })
-  if (request.deniedReason) items.push({ label: 'Reason given', value: request.deniedReason })
+  if (request.deniedReason) items.push({ label: 'The patient said', value: request.deniedReason })
   if (request.authorizationMethod) items.push({ label: 'Approved with', value: methodLabel(request) })
   if (request.grantExpiresAt) items.push({ label: 'Access until', value: formatWhen(request.grantExpiresAt) })
   return items

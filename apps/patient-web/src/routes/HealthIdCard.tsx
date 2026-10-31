@@ -23,10 +23,11 @@ import { initialsOf, useObjectUrl, usePatientPhoto } from './ProfilePhoto'
  * group and genotype. It opens every page about the patient (Home, Profile), first on a phone.
  *
  * The photo is the photo control (as on hid-1.0): tapping it picks a JPEG or PNG, drawn afresh as a square JPEG on this
- * page (photoImage.ts, so nothing the file held is sent), shown in a drawer to save. The actions sit under the card, not
- * on it, so the card reads as a card. `links` leaves out the link to the page it is on.
+ * page (photoImage.ts, so nothing the file held is sent), shown in a drawer to save. A "Change photo" pill on the
+ * medallion says so. The actions sit under the card, not on it, so the card reads as a card. `links` leaves out the link
+ * to the page it is on; Profile passes none.
  */
-export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergies, shareTo, links = ['share', 'profile'], onChanged, className }: {
+export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergies, shareTo, links = ['share', 'profile'], sharePrimary = true, onChanged, className }: {
   profile: PatientProfile
   verified: boolean | null
   bloodGroup?: string | null
@@ -34,6 +35,8 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
   allergies?: string | null
   shareTo: string
   links?: ReadonlyArray<'share' | 'profile'>
+  /** Share is the screen's one primary action, unless something else on it is (a request waiting on Home). */
+  sharePrimary?: boolean
   /** Reads the profile again after the photo changes. */
   onChanged?: () => Promise<unknown>
   className?: string
@@ -77,8 +80,8 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
     try {
       await api.savePhoto(await base64Of(prepared))
       await onChanged?.(); void photo.reload(); announce()
+      // The card shows the new photo: that is the result, so no toast repeats it.
       setOpen(false); setPrepared(null)
-      toast.success({ title: 'Photo saved', message: 'It’s on your Health ID card now.' })
     } catch (cause) {
       toast.error({ title: 'Couldn’t save your photo', message: isHidApiError(cause) && cause.code === 'PHOTO_INVALID' ? 'Choose a JPEG or PNG photo.' : isHidApiError(cause) ? cause.message : 'Please try again.' })
     } finally { setBusy(null) }
@@ -90,7 +93,6 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
       await api.removePhoto(); photo.forget()
       await onChanged?.(); announce()
       setOpen(false); setPrepared(null)
-      toast.success('Photo removed')
     } catch (cause) {
       toast.error({ title: 'Couldn’t remove your photo', message: isHidApiError(cause) ? cause.message : 'Please try again.' })
     } finally { setBusy(null) }
@@ -106,15 +108,17 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
 
   return <div className={cx('flex flex-col gap-3', className)}>
     <CardFace name={profile.fullName} hid={<HealthIdCode code={profile.hid} />} verified={verified} facts={facts} allergies={allergyList}
-      onAllergies={() => setAllergiesOpen(true)} medallion={editable ? <label className="group/photo absolute inset-0 cursor-pointer overflow-hidden rounded-full bg-[#071a3d] ring-[.5cqw] ring-white/25 focus-within:ring-white">
-        <span className="absolute inset-0 flex items-center justify-center">{face}</span>
-        <span aria-hidden="true" className="absolute right-[2.4cqw] bottom-[2.4cqw] inline-flex size-[5.6cqw] items-center justify-center rounded-full bg-white text-[#0d3f99] shadow"><Camera className="size-[3.2cqw]" /></span>
+      onAllergies={() => setAllergiesOpen(true)} medallion={editable ? <label className="group/photo absolute inset-0 cursor-pointer rounded-full">
+        <span className="absolute inset-0 flex items-center justify-center overflow-hidden rounded-full bg-[#071a3d] ring-[.5cqw] ring-white/25 group-focus-within/photo:ring-white">{face}</span>
+        {/* Seen as a control: a pill that says what it does; the whole medallion (well over 44px) is its target. */}
+        <span aria-hidden="true" className="absolute -bottom-[2.6cqw] left-1/2 inline-flex -translate-x-1/2 items-center gap-[1cqw] rounded-full bg-white px-[2.4cqw] py-[1.1cqw] text-[3cqw] leading-none font-semibold whitespace-nowrap text-[#0d3f99] shadow-[0_2px_6px_rgba(2,5,11,.35)] group-hover/photo:bg-[#eef3fb]">
+          <Camera className="size-[3.2cqw]" />{photo.url ? 'Change photo' : 'Add photo'}</span>
         <input ref={picker} type="file" accept="image/jpeg,image/png" className="sr-only" disabled={busy !== null}
           aria-label={photo.url ? 'Change the photo on your card' : 'Add a photo to your card'} onChange={event => void choose(event)} />
       </label> : undefined} face={face} />
 
     {links.length > 0 && <div className="flex gap-2">
-      {links.includes('share') && <Button to={shareTo} variant="primary" icon={Share2} className="flex-1">Share records</Button>}
+      {links.includes('share') && <Button to={shareTo} variant={sharePrimary ? 'primary' : 'secondary'} icon={Share2} className="flex-1">Share records</Button>}
       {links.includes('profile') && <Button to="/profile" icon={UserRound} className="flex-1">View profile</Button>}
     </div>}
 
@@ -186,8 +190,8 @@ export function CardFace({ name, hid, verified, facts, allergies, onAllergies, m
   }
   const firstAllergy = allergies[0] ?? null
   const allergyText = firstAllergy && <>
-    <span className="truncate text-[3cqw] leading-none font-medium tracking-[.04em]">{firstAllergy}</span>
-    {allergies.length > 1 && <span className="shrink-0 rounded-full bg-white/15 px-[1.2cqw] py-[.4cqw] text-[2cqw] leading-none font-semibold ring-1 ring-white/25">+{allergies.length - 1}</span>}
+    <span className="truncate text-[3.2cqw] leading-none font-medium tracking-[.02em]">{firstAllergy}</span>
+    {allergies.length > 1 && <span className="shrink-0 rounded-full bg-white/20 px-[1.2cqw] py-[.5cqw] text-[3cqw] leading-none font-semibold">+{allergies.length - 1}</span>}
     <span className="sr-only">, all allergies: {allergies.join(', ')}.{onAllergies ? ' Open the list.' : ''}</span></>
   return <div className={cx('@container [perspective:1100px]', !still && 'motion-safe:animate-[hid-card-idle_7s_ease-in-out_infinite] motion-safe:hover:[animation-play-state:paused]')}>
     <section ref={card} aria-label={`${name}’s Health ID card`} onPointerMove={tilt} onPointerLeave={untilt}
@@ -200,7 +204,7 @@ export function CardFace({ name, hid, verified, facts, allergies, onAllergies, m
 
       {/* The top: the logo and what the card is. */}
       <img src={logoSrc} alt="Health ID" width={890} height={264} className="absolute top-[7.2cqw] left-[7.5cqw] h-[5.6cqw] w-auto brightness-0 invert" />
-      <span className="absolute top-[8.6cqw] right-[7.5cqw] text-[1.8cqw] font-medium tracking-[.3em] text-white/55 uppercase">{label}</span>
+      <span className="absolute top-[8.2cqw] right-[7.5cqw] text-[3cqw] leading-none font-medium tracking-[.12em] text-white/80 uppercase">{label}</span>
 
       {/* The chip and the contactless mark, where a card has them. */}
       <span aria-hidden="true" className="absolute top-[19.5cqw] left-[7.5cqw] h-[8.6cqw] w-[11.2cqw] overflow-hidden rounded-[1.6cqw] [background:linear-gradient(135deg,#eef2f6_0%,#b9c2cc_40%,#e6ebf0_62%,#a7b0bb_100%)] shadow-[inset_0_0_0_1px_rgba(40,50,60,.35),0_1px_2px_rgba(0,0,0,.4)]">
@@ -218,24 +222,25 @@ export function CardFace({ name, hid, verified, facts, allergies, onAllergies, m
       </div>
 
       {/* What an emergency team needs first, printed under the chip. */}
-      {(facts.length > 0 || firstAllergy) && <dl className="absolute top-[32cqw] left-[7.5cqw] m-0 flex max-w-[56cqw] gap-[5.5cqw]">
-        {facts.map(([factLabel, value]) => <div key={factLabel} className="min-w-0">
-          <dt className="text-[1.7cqw] font-medium tracking-[.28em] text-white/50 uppercase">{factLabel}</dt>
-          <dd className="m-0 mt-[1.1cqw] truncate text-[3cqw] leading-none font-medium tracking-[.04em] text-white/95">{value}</dd></div>)}
-        {firstAllergy && <div className="min-w-0">
-          <dt className="text-[1.7cqw] font-medium tracking-[.28em] text-white/50 uppercase">{allergies.length > 1 ? 'Allergies' : 'Allergy'}</dt>
-          <dd className="m-0 mt-[1.1cqw]">{onAllergies
-            ? <button type="button" onClick={onAllergies} title={allergies.join(', ')} className="flex max-w-full cursor-pointer items-center gap-[1.2cqw] border-0 bg-transparent p-0 text-left font-[inherit] text-white/95 hover:underline hover:underline-offset-2">{allergyText}</button>
+      {(facts.length > 0 || firstAllergy) && <dl className="absolute top-[30.5cqw] left-[7.5cqw] m-0 flex w-[59cqw] gap-[3.5cqw]">
+        {facts.map(([factLabel, value]) => <div key={factLabel} className="min-w-0 shrink-0">
+          <dt className="text-[3cqw] leading-none font-medium tracking-[.06em] text-white/80 uppercase">{factLabel}</dt>
+          <dd className="m-0 mt-[1.4cqw] truncate text-[3.6cqw] leading-none font-semibold tracking-[.02em] text-white">{value}</dd></div>)}
+        {firstAllergy && <div className="min-w-0 flex-1">
+          <dt className="text-[3cqw] leading-none font-medium tracking-[.06em] text-white/80 uppercase">{allergies.length > 1 ? 'Allergies' : 'Allergy'}</dt>
+          <dd className="m-0 mt-[.8cqw]">{onAllergies
+            // A pill with a chevron, so it reads as something to tap; its target reaches 44px above and below.
+            ? <button type="button" onClick={onAllergies} title={allergies.join(', ')} className="relative flex max-w-full cursor-pointer items-center gap-[1cqw] rounded-full border-0 bg-white/15 py-[.8cqw] pr-[.8cqw] pl-[1.8cqw] text-left font-[inherit] text-white ring-1 ring-white/40 after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-[''] hover:bg-white/25 focus-visible:outline-2 focus-visible:outline-white">{allergyText}</button>
             : <span title={allergies.join(', ')} className="flex max-w-full items-center gap-[1.2cqw] text-white/95">{allergyText}</span>}</dd></div>}
       </dl>}
 
       {/* The holder: name, NIN and the ID. */}
       <div className="absolute right-[7.5cqw] bottom-[6.5cqw] left-[7.5cqw] flex items-end justify-between gap-[4cqw]">
         <div className="min-w-0">
-          <p className="m-0 flex items-center gap-[1.2cqw] truncate text-[2.7cqw] leading-none font-medium tracking-[.2em] text-white/80 uppercase">{name}
+          <p className="m-0 flex items-center gap-[1.2cqw] truncate text-[3.2cqw] leading-none font-medium tracking-[.12em] text-white/90 uppercase">{name}
             {verified !== null && (verified ? <BadgeCheck className="size-[2.9cqw] shrink-0 text-[#8ee6c1]" aria-label="NIN verified" />
               : <CircleAlert className="size-[2.9cqw] shrink-0 text-amber-200" aria-label="NIN not verified" />)}</p>
-          <div className="mt-[1.8cqw] text-[4.9cqw] leading-none font-medium tracking-[.16em] whitespace-nowrap text-[#eef3fb] [filter:drop-shadow(0_1px_0_rgba(0,0,0,.45))] [&_.patient-hid]:gap-0 [&_.patient-hid-code]:p-0 [&_.patient-hid-code]:text-[4.9cqw] [&_.patient-hid-code]:leading-none [&_.patient-hid-code]:font-medium [&_.patient-hid-code]:tracking-[.16em] [&_.patient-hid-code]:whitespace-nowrap [&_.patient-hid-code]:text-[#eef3fb] [&_.patient-hid-note]:text-[1.9cqw] [&_.patient-hid-note]:text-white/70">{hid}</div>
+          <div className="mt-[1.8cqw] text-[4.9cqw] leading-none font-medium tracking-[.16em] whitespace-nowrap text-[#eef3fb] [filter:drop-shadow(0_1px_0_rgba(0,0,0,.45))] [&_.patient-hid]:gap-0 [&_.patient-hid-code]:p-0 [&_.patient-hid-code]:text-[4.9cqw] [&_.patient-hid-code]:leading-none [&_.patient-hid-code]:font-medium [&_.patient-hid-code]:tracking-[.16em] [&_.patient-hid-code]:whitespace-nowrap [&_.patient-hid-code]:text-[#eef3fb] [&_.patient-hid-note]:text-[3cqw] [&_.patient-hid-note]:tracking-normal [&_.patient-hid-note]:text-white/80">{hid}</div>
         </div>
       </div>
     </section>

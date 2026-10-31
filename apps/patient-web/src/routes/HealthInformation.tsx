@@ -11,6 +11,8 @@ import { useActionFocus, useRetryFocus } from './actionFocus'
 import { ItemName } from '../ItemName'
 import { useShownOnceServed, type ProfileResource } from './ProfileCoverage'
 import { ProfileSection } from './ProfileSection'
+import { Button, Field, Select, Textarea } from '../kasuwa/ui'
+import { Hint, LoadProblem, Problem, Saved } from './profileParts'
 
 /** What each health field is called, as hid-1.0's biodata named them; the sixth is its "Medical notes for my care team". */
 export const HEALTH_LABELS: Readonly<Record<keyof HealthFields, string>> = {
@@ -160,35 +162,35 @@ function HealthInformationForm({ resource, fromHid1, children }: {
 
   const when = savedOn(saved?.updatedAt ?? null)
   // A read that failed is said in the heading too: the card's alert is not seen while it is closed.
-  return <ProfileSection id="health-information" title="Health information" state={resource.error ? 'Could not load' : null}
+  return <ProfileSection id="health-information" title="Health information" state={resource.error ? 'Could not load' : when ? `Saved ${when}` : null}
     busy={resource.loading} headingRef={heading}>
-    <p id="health-hint" className="patient-field-hint">Doctors and nurses with access will see that you wrote this.</p>
-    {resource.error && <div role="alert"><p>{resource.error}</p>
-      <button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(resource.reload)}>Try again <ItemName>loading your health information</ItemName></button></div>}
-    {seeded && <p className="patient-field-hint">Filled in from your old Health ID account. Check it, then save to keep it.</p>}
-    {when && <p className="patient-field-hint">Last saved {when}.</p>}
-    {error && <p id="health-error" role="alert" className="patient-inline-error">{error}</p>}
-    <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
-    {saved && draft && <form className="patient-form" onSubmit={event => void save(event)}>
-      <div className="patient-health-selects">
-        <label>{HEALTH_LABELS.bloodGroup}<select id="health-bloodGroup" value={draft.bloodGroup}
-          onChange={event => set('bloodGroup', event.target.value as Draft['bloodGroup'])} aria-describedby={describedBy(error && 'health-error')}>
-          <option value="">Not stated</option>
-          {BLOOD_GROUPS.map(value => <option key={value} value={value}>{value}</option>)}
-        </select></label>
-        <label>{HEALTH_LABELS.genotype}<select id="health-genotype" value={draft.genotype}
-          onChange={event => set('genotype', event.target.value as Draft['genotype'])}>
-          <option value="">Not stated</option>
-          {GENOTYPES.map(value => <option key={value} value={value}>{value}</option>)}
-        </select></label>
+    <Hint id="health-hint">{seeded ? 'Filled in from your old Health ID account. Check it, then save to keep it.' : 'Doctors and nurses you share with see that you wrote this.'}</Hint>
+    {resource.error && <LoadProblem what="your health information" error={resource.error} buttonRef={retryFocus.button}
+      onRetry={() => retryFocus.retry(resource.reload)} name={<ItemName>loading your health information</ItemName>} />}
+    <Saved>{notice}</Saved>
+    {saved && draft && <form className="flex flex-col gap-4" onSubmit={event => void save(event)}>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label={HEALTH_LABELS.bloodGroup} htmlFor="health-bloodGroup">
+          <Select id="health-bloodGroup" value={draft.bloodGroup}
+            onChange={event => set('bloodGroup', event.target.value as Draft['bloodGroup'])} aria-describedby={describedBy(error && 'health-error')}>
+            <option value="">Not stated</option>
+            {BLOOD_GROUPS.map(value => <option key={value} value={value}>{value}</option>)}
+          </Select>
+        </Field>
+        <Field label={HEALTH_LABELS.genotype} htmlFor="health-genotype">
+          <Select id="health-genotype" value={draft.genotype} onChange={event => set('genotype', event.target.value as Draft['genotype'])}>
+            <option value="">Not stated</option>
+            {GENOTYPES.map(value => <option key={value} value={value}>{value}</option>)}
+          </Select>
+        </Field>
       </div>
-      {HEALTH_TEXT_FIELDS.map(field => <div key={field} className="patient-field">
-        <label>{HEALTH_LABELS[field]}<textarea id={`health-${field}`} rows={3} maxLength={HEALTH_TEXT_LIMIT} value={draft[field]}
+      {HEALTH_TEXT_FIELDS.map(field => <Field key={field} label={HEALTH_LABELS[field]} htmlFor={`health-${field}`} hintId={`health-${field}-hint`} hint={TEXT_HINTS[field]}>
+        <Textarea id={`health-${field}`} rows={3} maxLength={HEALTH_TEXT_LIMIT} value={draft[field]}
           onChange={event => set(field, multiLine(event.target.value).slice(0, HEALTH_TEXT_LIMIT))}
-          aria-describedby={`health-${field}-hint`} /></label>
-        <p id={`health-${field}-hint`} className="patient-field-hint">{TEXT_HINTS[field]} Up to {HEALTH_TEXT_LIMIT.toLocaleString('en-NG')} characters.</p>
-      </div>)}
-      <button type="submit" className="patient-primary-button" disabled={busy || !changed}>{busy ? 'Saving…' : 'Save health information'}</button>
+          aria-describedby={`health-${field}-hint`} />
+      </Field>)}
+      {error && <Problem id="health-error">{error}</Problem>}
+      <Button type="submit" variant="primary" className="self-start" loading={busy} disabled={busy || !changed}>{busy ? 'Saving…' : 'Save health information'}</Button>
     </form>}
     {children}
   </ProfileSection>

@@ -14,8 +14,8 @@ import type { Chart } from '../../parts/chart'
 import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord } from '../../parts/Detail'
 import { formatWhen, shortId } from '../../parts/format'
 import type { KeyValue } from '../../parts/KeyValueList'
-import { Banner, ErrorBox, Loading, NoActions, RecordNotFound } from '../../parts/Notices'
-import { patientLine } from '../../parts/PatientHeader'
+import { Value } from '../../../../kasuwa/parts'
+import { ErrorBox, Loading, NoActions, RecordNotFound } from '../../parts/Notices'
 import { RecordForm, type FieldErrors, type FormValues, type SubmitOutcome } from '../../parts/RecordForm'
 import { useWorkspaceHref } from '../../parts/Workspace'
 import { KINDS, mayBeSent, orderRights, orderTitle, patientWord, priorityText, readOrder, routeOf, text, useFlash, type OrderKind } from './orders'
@@ -359,23 +359,23 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     return null
   })()
 
+  const dose = text(record.doseQuantity)
   const items: KeyValue[] = lab ? [
-    { label: 'Encounter', value: shortId(encounterId) },
-    { label: 'Test code system', value: text(record.testCodeSystem) },
-    { label: 'Test code', value: text(record.testCode) },
-    { label: 'Test display', value: text(record.testDisplay) },
+    { label: 'Test', value: text(record.testDisplay) },
+    { label: 'Code', value: [text(record.testCodeSystem), text(record.testCode)].filter(Boolean).join(' ') },
     { label: 'Priority', value: priorityText(record.priority) },
-    { label: 'Specimen type code', value: text(record.specimenTypeCode) },
+    { label: 'Specimen type', value: text(record.specimenTypeCode) },
     { label: 'Clinical information', value: text(record.clinicalInformation) },
+    { label: 'Consultation', value: shortId(encounterId) },
     { label: 'Recorded', value: formatWhen(record.createdAt) },
   ] : [
-    { label: 'Encounter', value: shortId(encounterId) },
-    { label: 'Medication', value: text(record.medicationDisplay) },
-    { label: 'Dose quantity', value: text(record.doseQuantity) },
-    { label: 'Dose unit', value: text(record.doseUnit) },
-    { label: 'Route code', value: text(record.routeCode) },
-    { label: 'Frequency', value: text(record.frequency) },
+    { label: 'Medicine', value: text(record.medicationDisplay) },
+    // The dose always with its unit; a decimal with its leading zero (Value).
+    { label: 'Dose', value: dose ? <Value value={dose.replace(/^\./, '0.')} unit={text(record.doseUnit) || null} /> : '' },
+    { label: 'Route', value: text(record.routeCode) },
+    { label: 'How often', value: text(record.frequency) },
     { label: 'Instructions', value: text(record.instructions) },
+    { label: 'Consultation', value: shortId(encounterId) },
     { label: 'Recorded', value: formatWhen(record.createdAt) },
   ]
 
@@ -383,15 +383,14 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     <>
       <EhrPageHeading
         title={<span id={TITLE_ID} tabIndex={-1}>{title}</span>}
-        primaryAction={<EhrButton variant="secondary" onClick={() => navigate(back)}>Back to list</EhrButton>}
+        primaryAction={<EhrButton variant="secondary" onClick={() => navigate(back)}>Back to consultation</EhrButton>}
       />
-      <DetailMeta status={status || 'unknown'} patient={patientLine(chart.facts)} saved={text(record.updatedAt) || record.createdAt} />
+      <DetailMeta status={status || 'unknown'} saved={text(record.updatedAt) || record.createdAt} />
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
       {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
-      {chart.writeNotice ? <Banner tone="warning" title="Changes are unavailable">{chart.writeNotice}</Banner> : null}
       <DetailGrid>
         <SavedRecord items={items} />
-        <EhrCard title={<span id={ACTIONS_ID} tabIndex={-1}>Available actions</span>}>
+        <EhrCard title={<span id={ACTIONS_ID} tabIndex={-1}>Actions</span>}>
           {actions.length > 0 ? (
             <div className="hid-ehr-clinical-orders-actions">
               <ActionList>
@@ -439,5 +438,5 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
 
 function RecordHeadingOnly({ title, back }: { title: string; back: string }) {
   const navigate = useNavigate()
-  return <EhrPageHeading title={title} primaryAction={<EhrButton variant="secondary" onClick={() => navigate(back)}>Back to list</EhrButton>} />
+  return <EhrPageHeading title={title} primaryAction={<EhrButton variant="secondary" onClick={() => navigate(back)}>Back to consultation</EhrButton>} />
 }

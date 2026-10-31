@@ -1,6 +1,6 @@
 import { useMemo, useRef } from 'react'
 import { ArrowRight, BadgeCheck, ChevronRight, CircleDashed, History, IdCard, NotebookPen, PhoneCall, ShieldAlert, ShieldCheck, Stethoscope, FolderHeart, FileText, Pill } from 'lucide-react'
-import { Alert, Button, Card, CardHeader, EmptyState, IconChip, ListRow, PageHeader, PageSkeleton, StatCard, StatGroup, Timeline, greeting, timeAgo, type Icon } from '../kasuwa/ui'
+import { Alert, Button, Card, CardHeader, EmptyState, cx, IconChip, ListRow, PageHeader, PageSkeleton, StatCard, StatGroup, Timeline, greeting, timeAgo, type Icon } from '../kasuwa/ui'
 import { COMPLETION_ITEMS, type CompletionKey } from './profileCompletion'
 import { Link } from 'react-router-dom'
 import type { AccessHistory, AccessRequest, PatientNotification, PatientProfile, PatientRecords } from '../api'
@@ -8,6 +8,7 @@ import type { AccessLogEvent, AccessLogPage } from '../accessLog'
 import type { ImportedHealthProfile } from '../importedRecords'
 import type { HealthProfile } from '../profileParity'
 import { useSession } from '../session'
+import { WORDS } from '../copy'
 import { usePatientResource } from './usePatientResource'
 import { useDocumentTitle } from '../authSteps'
 import { useRetryFocus } from './actionFocus'
@@ -162,6 +163,7 @@ export function Overview() {
 
   // One place for each thing: requests as alerts (the decision), profile gaps in the checklist, anything else as a note.
   const notes = checklist.length > 0 ? others.filter(item => !checklist.some(c => ATTENTION_KEY[item.id] === c.key)) : others
+  const left = checklist.filter(c => !completion?.done.some(d => d.key === c.key))
   const today = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Lagos' }).format(new Date())
 
   return <div className="flex flex-col gap-6">
@@ -170,25 +172,26 @@ export function Overview() {
     {/* The Health ID card is first on a phone (it is what a front desk asks for), and heads the side column on a computer. */}
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_1fr]">
       <HealthIdCard className="self-start lg:col-start-2 lg:row-start-1" profile={shown} onChanged={profile.reload}
-        verified={typeof shown.ninVerified === 'boolean' ? ninVerifiedOf(shown) : null} shareTo={shareTo}
+        verified={typeof shown.ninVerified === 'boolean' ? ninVerifiedOf(shown) : null} shareTo={shareTo} sharePrimary={pending.length === 0}
         allergies={cardFact(savedHealth?.allergies, fromHid1?.content.allergies, savedHealth)}
         bloodGroup={cardFact(savedHealth?.bloodGroup, fromHid1?.content.blood_group, savedHealth)} genotype={cardFact(savedHealth?.genotype, fromHid1?.content.genotype, savedHealth)} />
 
       <div className="flex min-w-0 flex-col gap-6 lg:col-start-1 lg:row-span-2 lg:row-start-1">
         {/* Each decision waiting for the patient, in words they act on (inverted pyramid). */}
-        {pending.map(item => <Alert key={item.accessRequestId} intent="warning" icon={ShieldAlert}
-          title={`${item.facilityName} wants to see your records`}
-          action={<Button to="/access" size="sm" variant="primary">Review</Button>}>
+        {/* One primary on the page: the first request's Review; the card's Share steps back while any waits. */}
+        {pending.map((item, index) => <Alert key={item.accessRequestId} intent="warning" icon={ShieldAlert}
+          title={`${item.facilityName} wants to see your ${WORDS.records}`}
+          action={<Button to="/access" size="sm" variant={index === 0 ? 'primary' : 'secondary'}>Review</Button>}>
           {item.reason ? `“${item.reason}”` : 'No reason given.'}{forHowLong(item.requestedDurationMinutes)} Nothing is shared until you approve.
         </Alert>)}
-        {notes.map(item => <Alert key={item.id} intent="info" icon={ATTENTION_ICON[item.id]} title={item.text} action={<Button to={item.to} size="sm">Fix</Button>}>{ATTENTION_HINT[item.id]}</Alert>)}
+        {notes.map(item => <Alert key={item.id} intent="info" icon={ATTENTION_ICON[item.id]} title={item.text} action={<Button to={item.to} size="sm">{ATTENTION_ACTION[item.id] ?? 'Open'}</Button>}>{ATTENTION_HINT[item.id]}</Alert>)}
 
         {checklist.length > 0 && completion && <Card>
           <CardHeader title="Finish your Health ID" description={`${completion.percent}% done · ${completion.missing.length} to go`} icon={IdCard} iconTone="brand" />
           <div className="h-1 bg-tray" role="progressbar" aria-label="Health ID completion" aria-valuenow={completion.percent} aria-valuemin={0} aria-valuemax={100}><div className="h-full bg-brand-fill" style={{ width: `${completion.percent}%` }} /></div>
-          <ul className="m-0 grid list-none gap-1.5 bg-tray p-1.5 sm:grid-cols-2">
+          <ul className={cx('m-0 grid list-none gap-1.5 bg-tray p-1.5', left.length > 1 && 'sm:grid-cols-2')}>
             {/* Only what is left: done steps are the progress bar's, not a list to read past. */}
-            {checklist.filter(c => !completion.done.some(d => d.key === c.key)).map(c =>
+            {left.map(c =>
               <li key={c.key}><Link to={c.to} className="flex h-full min-h-12 items-center gap-3 rounded-xl bg-surface px-4 py-3 no-underline ring-1 ring-line transition-shadow hover:shadow-[var(--shadow-card)]">
                 <CircleDashed className="size-5 shrink-0 text-ink-3" aria-hidden />
                 <span className="flex-1 text-[13px] font-medium text-ink">{c.label}</span>
@@ -200,20 +203,20 @@ export function Overview() {
         {/* Blood group, genotype and allergies are on the card; these say what the record holds. */}
         <StatGroup label="Your record at a glance">
           <StatCard icon={FolderHeart} tone="brand" label="Records" value={counts ? counts.records : '…'} to="/records" />
-          <StatCard icon={FileText} tone="violet" label="Documents" value={counts ? counts.documents : '…'} to="/records" />
+          <StatCard icon={FileText} tone="violet" label="Documents" value={counts ? counts.documents : '…'} to="/records?tab=documents" />
           <StatCard icon={ShieldCheck} tone="success" label={active === 1 ? 'Facility with access' : 'Facilities with access'} value={active ?? (history.error ? '—' : '…')} to="/access" />
-          <StatCard icon={Pill} tone="warn" label="Medicines" value={counts ? counts.medicines : '…'} to="/records" />
+          <StatCard icon={Pill} tone="warn" label="Medicines" value={counts ? counts.medicines : '…'} to="/records?tab=prescriptions" />
         </StatGroup>
 
         <Card aria-labelledby="overview-contributions" aria-busy={(records.loading && records.data !== null) || undefined}>
           <CardHeader as="h2" titleId="overview-contributions" title="Latest from your providers" icon={FolderHeart} iconTone="brand"
-            actions={<Button to="/records" size="sm" variant="ghost" iconRight={ArrowRight}>All records</Button>} />
+            actions={<Button to="/records" size="sm" variant="ghost" iconRight={ArrowRight}>All {WORDS.records}</Button>} />
           {records.loading && !records.data ? <PageSkeletonRows />
             : records.error ? <div className="p-5"><Alert intent="error" title="Couldn't load your records" action={<Button size="sm" onClick={() => void records.reload()}>Try again <ItemName>loading recent provider contributions</ItemName></Button>}>{records.error}</Alert></div>
             : contributions.length === 0 ? <p className="m-0 px-5 py-6 text-[13px] text-ink-3">Visits and notes appear here once a provider signs them.</p>
             : <ul className="m-0 list-none divide-y divide-line p-0">{contributions.map(row => <li key={row.id}>
                 <ListRow to="/records" leading={<IconChip size="sm" icon={row.kind === 'Clinical note' ? NotebookPen : Stethoscope} />}
-                  title={plain(row.title)} subtitle={[row.kind, when(row.at, false)].filter(Boolean).join(' · ')} trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}</ul>}
+                  title={plain(row.title)} subtitle={[KIND_WORDS[row.kind] ?? row.kind, when(row.at, false)].filter(Boolean).join(' · ')} trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}</ul>}
         </Card>
       </div>
 
@@ -241,11 +244,15 @@ const CHECKLIST: ReadonlyArray<{ key: CompletionKey; label: string; to: string }
 
 const ATTENTION_KEY: Readonly<Record<string, CompletionKey>> = { nin: 'nin', 'emergency-contact': 'emergencyContact' }
 const ATTENTION_ICON: Readonly<Record<string, Icon>> = { requests: ShieldAlert, nin: BadgeCheck, completion: IdCard, 'emergency-contact': PhoneCall }
+/** The plain word for each kind of contribution. */
+const KIND_WORDS: Readonly<Record<string, string>> = { Encounter: 'Visit', 'Clinical note': 'Doctor’s note' }
+/** Each note's button names what it does. */
+const ATTENTION_ACTION: Readonly<Record<string, string>> = { requests: 'Review', nin: 'Verify NIN', completion: 'Finish profile', 'emergency-contact': 'Add contact' }
 const ATTENTION_HINT: Readonly<Record<string, string>> = {
   requests: 'Approve or deny. Nothing is shared until you decide.',
-  nin: 'Links your record to your National Identity Number',
-  completion: 'A complete profile helps clinicians in an emergency',
-  'emergency-contact': 'Who we tell if your records are opened in an emergency',
+  nin: 'Links your records to your National Identity Number.',
+  completion: 'A complete profile helps clinicians in an emergency.',
+  'emergency-contact': 'Who we tell if your records are opened in an emergency.',
 }
 
 function forHowLong(minutes: number | null | undefined) {

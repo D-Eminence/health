@@ -21,8 +21,8 @@ import '../../mfa/mfa.css'
  */
 
 /** Said at the password step too: the account's authenticator verifies platform sign-in only. */
-export const STAFF_MFA_FACTOR_UNPROVEN = 'Your authenticator was set up at platform sign-in, so it cannot be used for staff sign-in. '
-  + 'Two platform administrators must reset it (one requests the reset, another approves it); then sign in here to set it up again.'
+export const STAFF_MFA_FACTOR_UNPROVEN = 'This authenticator was set up for Health ID admin sign-in, so it can’t be used here. '
+  + 'Ask Health ID support to reset it, then sign in here to set it up again.'
 /** Said at the password step too: Identity has no key to protect authenticator secrets with (503 MFA_UNAVAILABLE). */
 export const STAFF_MFA_UNAVAILABLE = 'Staff sign-in with an authenticator is temporarily unavailable. '
   + 'Try again later, or contact your administrator if this continues.'
@@ -302,8 +302,8 @@ function VerifyStep({ look, carried, onMoved, restart, expiresAt, verify, onVeri
       <look.Button onClick={switchMode} disabled={pending}>{mode === 'totp' ? 'Use a recovery code instead' : 'Use my authenticator app instead'}</look.Button>
       <Restart look={look} restart={restart} pending={pending} />
     </div>
-    <p className={look.classNames.note}>Lost your authenticator and your recovery codes? Two platform administrators must reset your
-      authenticator (one requests the reset, another approves it). Then sign in again to set up a new one.</p>
+    <p className={look.classNames.note}>Lost your authenticator and your recovery codes? Ask Health ID support to reset it,
+      then sign in again to set up a new one.</p>
   </form>
 }
 
@@ -473,7 +473,7 @@ function RecoveryStep({ look, activation, doneLabel, onDone }: {
     onDone(session)
   }
   return <RecoveryCodes codes={activation.recoveryCodes} onDone={finish} doneLabel={doneLabel}
-    limits="Health ID cannot show them again. Once they are used up, a lost authenticator must be reset by two platform administrators."
+    limits="They won’t be shown again. Once they are used up, Health ID support must reset a lost authenticator."
     fileName="hid-provider-recovery-codes.txt" headingId="staff-mfa-recovery-title" headingAs={look.headingAs} headingRef={heading}
     classNames={{ root: `${look.classNames.step} hid-mfa-recovery`, list: 'hid-mfa-codes', actions: 'hid-mfa-links', success: look.classNames.status,
       error: look.classNames.error, checkbox: 'hid-mfa-checkbox' }} Button={look.Button} />

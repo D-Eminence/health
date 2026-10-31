@@ -10,12 +10,11 @@ import { ItemName } from '../ItemName'
  */
 export function ProfileCompletionCard({ completion, compact = false }: { completion: ProfileCompletion; compact?: boolean }) {
   const { percent, missing } = completion
-  const bar = <div className="patient-completion-bar" aria-hidden="true"><span style={{ width: `${percent}%` }} /></div>
   if (compact) {
-    return <div className="patient-completion patient-completion-compact">
-      <p><strong>{percent}%</strong> of your profile is complete</p>
-      {bar}
-      {missing.length > 0 && <Link to="/profile#profile-completion">See what’s missing <ItemName>from your profile</ItemName></Link>}
+    return <div className="flex flex-col gap-2">
+      <p className="m-0 text-sm text-ink"><strong className="font-semibold">{percent}%</strong> of your profile is complete</p>
+      <div className="h-1.5 overflow-hidden rounded-full bg-tray" aria-hidden="true"><div className="h-full rounded-full bg-brand-fill" style={{ width: `${percent}%` }} /></div>
+      {missing.length > 0 && <Link to="/profile#profile-completion" className="text-[13px] font-medium text-brand-ink">See what’s missing <ItemName>from your profile</ItemName></Link>}
     </div>
   }
   return <section className="overflow-hidden rounded-2xl bg-surface shadow-[var(--shadow-card)] ring-1 ring-line" id="profile-completion" aria-labelledby="profile-completion-title">

@@ -1,4 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
+import { FilterTabs } from '../kasuwa/ui'
 import { Link } from 'react-router-dom'
 import { adminApi, type AdminActor, type ApplicationStatus, type Facility, type OrganizationApplication } from './api'
 import { environment } from './env'
@@ -98,7 +99,7 @@ function ApplicationReview({ application, actor, onReviewed }: {
   const canVerify = has(actor, 'platform.facility.manage')
   const canApprove = APPROVE_PERMISSIONS.every(code => has(actor, code))
   const canReject = has(actor, 'platform.facility.manage')
-  if (!canVerify && !canApprove && !canReject) return <p className="admin-note">View only.</p>
+  if (!canVerify && !canApprove && !canReject) return null
 
   async function run(kind: 'verify' | 'approve' | 'reject') {
     if (governed.busy || (kind !== 'verify' && reason.trim().length < 8)) return
@@ -188,12 +189,8 @@ export function ApplicationsPage({ actor }: { actor: AdminActor }) {
   return <Page eyebrow="Organizations" title="Applications"
     description="Organizations apply to use Health ID. Verify their CAC registration, then approve or reject them."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <div className="admin-filter" role="group" aria-label="Application status">
-      {[{ value: '', title: 'All' }, ...APPLICATION_STATUSES.map(value => ({ value, title: label(value) }))].map(item =>
-        <button key={item.title} type="button" aria-pressed={filters.status === item.value}
-          className={filters.status === item.value ? 'admin-primary' : 'admin-secondary'}
-          onClick={() => { setNotice(null); setFilters({ status: item.value }) }}>{item.title}</button>)}
-    </div>
+    <FilterTabs label="Application status" value={filters.status} onChange={value => { setNotice(null); setFilters({ status: value }) }}
+      options={[{ value: '', label: 'All' }, ...APPLICATION_STATUSES.map(value => ({ value: value as string, label: label(value) }))]} />
     {notice && <p role="status" className="admin-success">{notice}</p>}
     <p className="admin-note">Approved organizations appear through their <Link to="/admin/facilities">facilities</Link>.
       There is no separate organization directory yet.</p>

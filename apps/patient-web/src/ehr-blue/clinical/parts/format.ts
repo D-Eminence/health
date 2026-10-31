@@ -30,6 +30,13 @@ export function statusLabel(status: string): string {
   return status.replaceAll('_', ' ')
 }
 
+/** A status as a badge says it, in sentence case: "in_progress" is "In progress". */
+export function statusWords(status: string): string {
+  // Sentence case, as every other label in the app: "Entered in error", "In progress".
+  const words = statusLabel(status)
+  return words.charAt(0).toUpperCase() + words.slice(1).toLowerCase()
+}
+
 /** A label from a record key, as the design's detail list prints it: "nextVisit" is "Next Visit". */
 export function keyLabel(key: string): string {
   const spaced = key.replace(/([A-Z])/g, ' $1').trim()

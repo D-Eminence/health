@@ -1,5 +1,6 @@
-import { useCallback, useState } from 'react'
-import { EhrBadge, EhrButton, EhrDataTable, EhrDrawer, EhrEmptyState, EhrSkeleton, type EhrDataTableColumn } from '@hid/ui/ehr'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { EhrButton, EhrEmptyState, EhrSkeleton } from '@hid/ui/ehr'
 import { staffApi, type LabAccession, type LabWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import {
@@ -15,20 +16,25 @@ import { useDeptAccess } from '../parts/access'
 import { DeptEmbedded } from '../parts/DeptEmbedded'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection, DeptUnavailable } from '../parts/DeptPage'
-import { DeptContextLine, DeptFacts, DeptLinkButton, DeptRecordLayout, DeptRecordName, type DeptFact } from '../parts/DeptRecord'
+import { DeptContextLine, DeptFacts, DeptRecordLayout, type DeptFact } from '../parts/DeptRecord'
 import { DeptSearch } from '../parts/DeptSearch'
-import { dateText, matchesSearch } from '../parts/format'
+import { birthDateText, dateText, matchesSearch } from '../parts/format'
+import { QueuePatient, statusTitle, urgentFirst, WorkQueue } from '../parts/WorkQueue'
 import { useFacilityRead } from '../parts/useFacilityRead'
 import {
   CAP_CANNOT_COMPLETE, patientLabel, RefreshButton, RoutedWorkLines, RoutedWorkPaused, SaidAboveList, SaidAboveTheList,
   StandaloneWorkNote, useLearnCannotCompleteServed, useLearnLateCorrectionServed, useLearnWrongPatientServed, useNotCompletedEndings,
   useReceiving, useRowSaid, WorkListCap, type Said,
 } from '../parts/routedWork'
-import { AccessionForm, AccessionView } from './accession'
+import { PatientBanner } from '../../../kasuwa/parts'
+import { AccessionForm, AccessionView, type LabSubject } from './accession'
 import { LabActionButton, LabActions, statusWord } from './labParts'
 
+/** The open work's id in the address (`?work=`), so Back and a refresh keep the place. */
+const WORK_PARAM = 'work'
+
 /*
- * Laboratory in the blue Hospital EHR: the target's list (search, a table of lab work with Quick view and Open) and
+ * Laboratory in the blue Hospital EHR: the queue (search, then the lab work, stat and urgent first, each row opening it) and
  * record view (Saved record, Available actions, then the accession's samples and results). What the page reads, writes
  * and refuses is today's Laboratory page's (staff/routes/Operations.tsx Laboratory): its work list, orders from other
  * facilities, the wrong-patient and can't-complete endings, the late correction, the accession and every step on it.
@@ -44,20 +50,32 @@ function workStatus(item: LabWorkItem) {
   return item.accessionId ? 'accessioned' : statusWord(item.status)
 }
 
-/** What is known of a work item, for its Saved record and its quick view. */
+/**
+ * Who the work is for, for the confirm before a save: the name, date of birth and sex when Lab sends them (work from
+ * another facility), else the masked reference Lab sends for this facility's own work.
+ */
+function subjectOf(item: LabWorkItem): LabSubject {
+  const patient = item.patient
+  const name = patient?.fullName ?? patientLabel(item)
+  const hid = patient?.healthIdLast4 ? `Health ID ending ${patient.healthIdLast4}` : 'Health ID not sent'
+  return { name, banner: <PatientBanner compact name={name} hid={hid} dateOfBirth={patient?.dateOfBirth} sex={patient?.sex} /> }
+}
+
+/** What is known of a work item, for its record. */
 function workFacts(item: LabWorkItem): DeptFact[] {
   const route = item.orderRoute
   return [
     { label: 'Test', value: workTitle(item) },
     { label: 'Patient', value: patientLabel(item) },
-    ...(item.priority ? [{ label: 'Priority', value: statusWord(item.priority) }] : []),
+    ...(item.patient?.dateOfBirth ? [{ label: 'Date of birth', value: birthDateText(item.patient.dateOfBirth) }] : []),
+    ...(item.priority ? [{ label: 'Priority', value: statusTitle(item.priority) }] : []),
     { label: 'Accepted', value: dateText(item.acceptedAt) },
     ...(route ? [{ label: 'Ordering facility', value: route.orderingFacilityName ?? 'Not available' }] : []),
     ...(route?.reference ? [{ label: 'Reference', value: route.reference }] : []),
     ...(route?.ordererName ? [{ label: 'Ordered by', value: route.ordererName
       + (route.ordererLicence ? ` · ${licenceLine(route.ordererLicence.body, route.ordererLicence.number)}` : '') }] : []),
     { label: 'Accession', value: item.accessionNumber ?? 'Not created yet' },
-    { label: 'Status', value: workStatus(item) },
+    { label: 'Status', value: statusTitle(workStatus(item)) },
   ]
 }
 
@@ -66,13 +84,19 @@ export function Laboratory() {
   const canRead = permissions.includes('lab.work-item.read')
   const read = useFacilityRead(facilityId, canRead, useCallback((id: string) => staffApi.labWorkItems(id), []))
   const list = { ...read, items: read.value ? read.value.items : null }
+  // The open work lives in the address (`?work=`), so Back and a refresh keep the place. What a create added to it (its
+  // accession, and the line saying so) is held here, for that work only.
+  const [params, setParams] = useSearchParams()
+  const workId = params.get(WORK_PARAM)
   const [selection, setSelection] = useState<{ facilityId: string; item: LabWorkItem; created?: string } | null>(null)
+  const chosen = workId ? list.items?.find(item => item.id === workId)
+    ?? (selection?.item.id === workId && list.items === null ? selection.item : null) ?? null : null
+  const extra = selection && selection.facilityId === facilityId && selection.item.id === workId ? selection : null
   // The chosen work, only while the list still holds it: work that has left the list (an order ended, here or elsewhere)
   // never shows its accession or its patient again, even once other work is listed.
-  const selected = selection && selection.facilityId === facilityId
-    && (list.items === null || list.items.some(item => item.id === selection.item.id)) ? selection.item : null
+  const selected = chosen ? { ...chosen, accessionId: extra?.item.accessionId || chosen.accessionId, accessionNumber: extra?.item.accessionNumber || chosen.accessionNumber } : null
   // The chosen work as the list now has it: its order may have ended since it was chosen.
-  const current = selected && (list.items?.find(item => item.id === selected.id) || selected)
+  const current = selected
   const selectedRoute = current?.orderRoute
   // Opening a record, going back, or creating an accession moves focus to where the work continues.
   const focus = useFocusById()
@@ -93,29 +117,54 @@ export function Laboratory() {
   const said = useRowSaid('lab', read.value, list.refresh, (mode, route) => mode === 'wrong_patient'
     ? wrongPatientOffered(route, permissions, 'lab') : cannotCompleteOffered(route, permissions, 'lab', cannotServed))
   const [search, setSearch] = useState('')
-  const [quickId, setQuickId] = useState<string | null>(null)
+  const navigate = useNavigate()
+  const location = useLocation()
+  // Leaving a record (its Back, or the browser's) puts focus back on its row, once the list shows again.
+  const lastWork = useRef(workId)
+  useLayoutEffect(() => {
+    const was = lastWork.current
+    lastWork.current = workId
+    if (was && !workId) focus(`lab-${was}-record`, true)
+  }, [workId, focus])
+  // Work named in the address that the list no longer holds (it ended, or the address is old): back to the list.
+  const stale = Boolean(workId && list.items !== null && !chosen)
+  useLayoutEffect(() => {
+    if (stale) setParams(previous => { const next = new URLSearchParams(previous); next.delete(WORK_PARAM); return next }, { replace: true })
+  }, [stale, setParams])
   if (!facilityId || !canRead) return <DeptUnavailable title="Laboratory"
-    message="Permission denied. This facility membership cannot open Laboratory: it needs permission to read lab work." />
+    message="You can’t open Laboratory here. Your role needs permission to see lab work." />
   const workFacility = facilityId
+  /** Opens or closes the work in the address: a new history entry, so the browser's Back returns to the list. */
+  function show(id: string | null, replace = false) {
+    setParams(previous => {
+      const next = new URLSearchParams(previous)
+      if (id) next.set(WORK_PARAM, id)
+      else next.delete(WORK_PARAM)
+      return next
+    }, { replace, state: id ? { fromQueue: true } : undefined })
+  }
   function open(item: LabWorkItem) {
-    setQuickId(null)
     setSelection({ facilityId: workFacility, item })
+    show(item.id)
     focus('lab-record-title')
   }
   function back(item: LabWorkItem) {
     setSelection(null)
-    focus(`lab-${item.id}-record`)
+    // Opened from the list: step back in history, so the browser's Back doesn't reopen it. Else (a shared address) replace.
+    if ((location.state as { fromQueue?: unknown } | null)?.fromQueue === true) navigate(-1)
+    else show(null, true)
+    focus(`lab-${item.id}-record`, true)
   }
   function endedHere(item: LabWorkItem, ending: WrongPatientEnding) {
     setEnded({ facilityId: workFacility, ending })
     said.clear()
-    if (selection?.item.id === item.id) setSelection(null)
+    if (workId === item.id) { setSelection(null); show(null, true) }
     void list.refresh()
   }
   // Ended from "Correct an order that has ended" while still open: its record, if open, goes too.
   function endedLate(ending: WrongPatientEnding) {
     setEnded({ facilityId: workFacility, ending })
-    setSelection(previous => previous?.item.orderRoute?.id === ending.result.route.id ? null : previous)
+    if (current?.orderRoute?.id === ending.result.route.id) { setSelection(null); show(null, true) }
     void list.refresh()
   }
   // Ended because it can't be completed. The page goes back to the list, where the ending is said and takes focus; an
@@ -123,35 +172,17 @@ export function Laboratory() {
   function notCompletedHere(ending: Omit<CannotCompleteEnding, 'key'>) {
     notCompleted.add(ending)
     said.clear()
-    setSelection(previous => previous?.item.orderRoute?.id === ending.result.route.id ? null : previous)
+    if (current?.orderRoute?.id === ending.result.route.id) { setSelection(null); show(null, true) }
     void list.refresh()
   }
   const items = list.items ? notCompleted.shown(list.items) : []
-  const rows = items.filter(item => matchesSearch(search, [workTitle(item), item.accessionNumber, patientLabel(item), workStatus(item),
-    item.orderRoute?.orderingFacilityName, item.orderRoute?.reference]))
+  // Stat and urgent work first, so it is seen first.
+  const rows = urgentFirst(items.filter(item => matchesSearch(search, [workTitle(item), item.accessionNumber, patientLabel(item),
+    item.patient?.fullName, workStatus(item), item.priority, item.orderRoute?.orderingFacilityName, item.orderRoute?.reference])), item => item.priority)
   const detail = current
-  const quick = quickId ? items.find(item => item.id === quickId) ?? null : null
-  const columns: EhrDataTableColumn<LabWorkItem>[] = [
-    { id: 'record', header: 'Record', cell: item => <DeptRecordName id={`lab-${item.id}-record`} name={workTitle(item)}
-      reference={item.accessionNumber ?? item.id.slice(0, 8)} onOpen={() => open(item)} /> },
-    { id: 'patient', header: 'Patient / context', cell: item => {
-      const rowSaid = detail ? null : said.rowSaid(item.orderRoute?.id)
-      return <div className="hid-ehr-dept-laboratory-cell">
-        {rowSaid && item.orderRoute && <DeptNotice id={`lab-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{rowSaid}</DeptNotice>}
-        <span>{patientLabel(item)}</span>
-        <RoutedWorkLines route={item.orderRoute} />
-      </div>
-    } },
-    { id: 'status', header: 'Status', cell: item => <EhrBadge>{workStatus(item)}</EhrBadge> },
-    { id: 'updated', header: 'Updated', cell: item => <span className="hid-ehr-dept-nowrap">{dateText(item.acceptedAt)}</span> },
-    { id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: item => <div className="hid-ehr-dept-table-actions">
-      <EhrButton variant="secondary" aria-describedby={`lab-${item.id}-record`} onClick={() => setQuickId(item.id)}>Quick view</EhrButton>
-      <DeptLinkButton describedBy={`lab-${item.id}-record`} onClick={() => open(item)}>Open <span aria-hidden="true">→</span></DeptLinkButton>
-    </div> },
-  ]
   return <div className="hid-ehr-dept-laboratory">
     {detail && <WorkRecord facilityId={workFacility} item={detail} accessionId={selected?.accessionId || detail.accessionId}
-      accessionNumber={selected?.accessionNumber || detail.accessionNumber} created={selection?.created} permissions={permissions} routed={Boolean(selectedRoute)} closed={routeClosedForWork(selectedRoute)}
+      accessionNumber={selected?.accessionNumber || detail.accessionNumber} created={extra?.created} permissions={permissions} routed={Boolean(selectedRoute)} closed={routeClosedForWork(selectedRoute)}
       said={said.rowSaid(detail.orderRoute?.id)} onBack={() => back(detail)} onListChanged={() => void list.refresh()}
       onCreated={accession => {
         setSelection({ facilityId: workFacility, item: { ...detail, accessionId: accession.id, accessionNumber: accession.accessionNumber },
@@ -162,7 +193,7 @@ export function Laboratory() {
       onEnded={ending => endedHere(detail, ending)} onNotCompleted={notCompletedHere} onReread={said.reread} />}
     {/* The list stays mounted under a record, so orders waiting here and a lookup in progress keep their place. */}
     <div hidden={Boolean(detail)}>
-      <DeptPage title="Laboratory" primaryAction={<RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh list</RefreshButton>}>
+      <DeptPage title="Laboratory" secondaryActions={<RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh</RefreshButton>}>
         <StandaloneWorkNote facility={facility} kind="laboratory" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
         {mounted && facility && <DeptEmbedded className="hid-ehr-dept-laboratory-embedded"><IncomingOrders service="lab" facilityId={workFacility}
           facilityName={facility.name} probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
@@ -184,21 +215,30 @@ export function Laboratory() {
           {list.error && <DeptNotice tone="critical" role="alert">{list.error}</DeptNotice>}
           {list.loading && !list.items?.length && <EhrSkeleton label="Loading lab work…" />}
           {!list.loading && !list.error && !list.items?.length && <EhrEmptyState title="No lab work yet"
-            message="Accepted lab orders for this facility appear here. Refresh to check for new work."
+            message="Lab orders accepted here show in this list. Refresh to check for new work."
             action={<EhrButton variant="secondary" onClick={() => void list.refresh()}>Refresh</EhrButton>} />}
-          {items.length > 0 && <EhrDataTable caption="Lab work" captionHidden columns={columns} rows={rows} rowKey={item => item.id}
-            emptyTitle="No matching records" emptyMessage="Change your search." />}
+          {items.length > 0 && rows.length === 0 && <EhrEmptyState title="No matching work" message="Change your search." />}
+          {rows.length > 0 && <WorkQueue label="Lab work" titleHeader="Test" rows={rows.map(item => {
+            const rowSaid = detail ? null : said.rowSaid(item.orderRoute?.id)
+            return {
+              id: item.id,
+              buttonId: `lab-${item.id}-record`,
+              title: workTitle(item),
+              detail: item.accessionNumber ? `Accession ${item.accessionNumber}` : undefined,
+              // The name and date of birth to match a sample to a person, when Lab sends them; else its masked reference.
+              patient: <QueuePatient patient={item.patient} fallback={patientLabel(item)} />,
+              priority: item.priority,
+              status: workStatus(item),
+              when: dateText(item.acceptedAt),
+              onOpen: () => open(item),
+              below: item.orderRoute ? <>
+                {rowSaid && item.orderRoute && <DeptNotice id={`lab-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{rowSaid}</DeptNotice>}
+                <RoutedWorkLines route={item.orderRoute} />
+              </> : undefined,
+            }
+          })} />}
         </DeptSearch>
       </DeptPage>
-      <EhrDrawer open={Boolean(quick)} title="Record quick view" onClose={() => setQuickId(null)}>
-        {quick && <div className="hid-ehr-dept-laboratory-quick">
-          <h3>{workTitle(quick)}</h3>
-          <p>Accepted {dateText(quick.acceptedAt)}</p>
-          <DeptFacts facts={workFacts(quick)} />
-          <RoutedWorkLines route={quick.orderRoute} />
-          <div><EhrButton onClick={() => open(quick)}>Open full record</EhrButton></div>
-        </div>}
-      </EhrDrawer>
     </div>
   </div>
 }
@@ -227,11 +267,13 @@ function WorkRecord({ facilityId, item, accessionId, accessionNumber, created, p
   const cannotComplete = cannotCompleteOffered(route, permissions, 'lab', useCannotCompleteServed())
   const [preparing, setPreparing] = useState(false)
   return <DeptPage title={<span id="lab-record-title" tabIndex={-1}>{title}</span>} onBack={onBack}>
-    <DeptContextLine status={workStatus(item)} items={[patientLabel(item), `Accepted ${dateText(item.acceptedAt)}`]} />
+    <DeptContextLine status={statusTitle(workStatus(item))} items={[`Accepted ${dateText(item.acceptedAt)}`]} />
+    {/* Who the sample is for, in the same place on every record. */}
+    {subjectOf(item).banner}
     {said && route && <DeptNotice id={`lab-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{said}</DeptNotice>}
     {route && <div className="hid-ehr-dept-laboratory-routed"><RoutedWorkLines route={route} /></div>}
     <DeptRecordLayout
-      main={<DeptSection title="Saved record"><DeptFacts facts={workFacts({ ...item, accessionNumber })} /></DeptSection>}
+      main={<DeptSection title="Request"><DeptFacts facts={workFacts({ ...item, accessionNumber })} /></DeptSection>}
       aside={<LabActions none={!prepare && !wrongPatientOffered(route, permissions, 'lab')}>
         {prepare && route && item.patient && <DeptNotice>{sampleCheckText(item.patient.fullName)}</DeptNotice>}
         {prepare && <LabActionButton open={preparing} onToggle={() => setPreparing(value => !value)}>Create accession</LabActionButton>}
@@ -248,10 +290,10 @@ function WorkRecord({ facilityId, item, accessionId, accessionNumber, created, p
             onNotCompleted={(result, reason) => onNotCompleted({ service: 'lab', title, reference: route.reference,
               patient: item.patient?.fullName ?? null, ordering, reason, priority: item.priority ?? null, result })} />
         </DeptEmbedded>}
-        {prepare && preparing && <AccessionForm facilityId={facilityId} item={item} onCreated={accession => { setPreparing(false); onCreated(accession) }} />}
+        {prepare && preparing && <AccessionForm facilityId={facilityId} item={item} subject={subjectOf(item)} onCreated={accession => { setPreparing(false); onCreated(accession) }} />}
       </LabActions>}
     />
     {accessionId && permissions.includes('lab.accession.read') && <AccessionView key={`${facilityId}-${accessionId}`} facilityId={facilityId}
-      id={accessionId} permissions={permissions} created={created} routed={routed} closed={closed} onChanged={onListChanged} />}
+      id={accessionId} permissions={permissions} created={created} routed={routed} closed={closed} subject={subjectOf(item)} onChanged={onListChanged} />}
   </DeptPage>
 }

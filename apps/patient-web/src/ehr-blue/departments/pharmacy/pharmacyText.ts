@@ -1,4 +1,5 @@
 import type { EhrBadgeTone } from '@hid/ui/ehr'
+import type { Tone } from '../../../kasuwa/ui'
 import type { PharmacyWorkItem, WorkItemOrderRoute } from '../../../staff/api'
 import { routedWorkEndedText } from '../../../staff/orderRoutes'
 import { matchesSearch } from '../parts/format'
@@ -20,13 +21,33 @@ export function statusTone(status: PharmacyStatus): EhrBadgeTone {
   return status === 'not dispensable' ? 'critical' : 'brand'
 }
 
-export function doseText(item: PharmacyWorkItem): string | null {
-  return item.doseQuantity == null ? null : `${item.doseQuantity} ${item.doseUnit ?? ''}`.trim()
+/** A status's tone in the shared map: dispensed done, reversed ended, not dispensable stopped, accepted waiting. */
+export function queueTone(status: PharmacyStatus): Tone {
+  return status === 'not dispensable' ? 'danger' : status === 'dispensed' ? 'success' : status === 'reversed' ? 'neutral' : 'brand'
 }
 
-/** The dose and frequency under the patient in the list. */
+/** A dose's number as written on a label: a leading zero before a decimal point ("0.5", never ".5"). */
+function doseNumber(value: number): string {
+  return String(value).replace(/^(-?)\./, '$10.')
+}
+
+export function doseText(item: PharmacyWorkItem): string | null {
+  return item.doseQuantity == null ? null : `${doseNumber(item.doseQuantity)} ${item.doseUnit ?? ''}`.trim()
+}
+
+/**
+ * Whether the prescription lacks what a dispenser needs to hand it over safely: the dose with its unit, and how often.
+ * Said on the row and the record as "Can't dispense: dose missing" (the prescriber needs to complete it).
+ */
+export function doseMissing(item: PharmacyWorkItem): boolean {
+  return item.doseQuantity == null || !item.doseUnit?.trim() || !item.frequency?.trim()
+}
+
+export const DOSE_MISSING = 'Can’t dispense: dose missing'
+
+/** The dose and frequency under the medicine in the list. */
 export function doseLine(item: PharmacyWorkItem): string {
-  return `${doseText(item) ?? 'Dose not recorded'} · ${item.frequency ?? 'Frequency not recorded'}`
+  return `${doseText(item) ?? 'Dose not recorded'} · ${item.frequency || 'How often not recorded'}`
 }
 
 /**

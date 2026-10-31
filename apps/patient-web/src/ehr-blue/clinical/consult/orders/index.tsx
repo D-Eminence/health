@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { staffApi, type ClinicalRecord, type Encounter } from '../../../../staff/api'
 import { ChartGate, type Chart } from '../../parts/chart'
-import { Step, SubHeading } from '../../parts/Detail'
+import { Step } from '../../parts/Detail'
 import { ErrorBox, Loading, RecordNotFound } from '../../parts/Notices'
 import { StatusBadge } from '../../parts/StatusBadge'
 import { useWorkspaceHref } from '../../parts/Workspace'
@@ -14,8 +14,8 @@ import { isDemoFacility } from '../../../blueFacilities'
 
 export type { OrderKind } from './orders'
 
-/** The design's note under "Connected orders". */
-export const CONNECTED_ORDERS_NOTE = 'Patient and encounter carry into each order. Sign the encounter before issuing orders; investigations retain their own lifecycle.'
+/** The note under the order buttons. */
+export const CONNECTED_ORDERS_NOTE = 'Each order is for this patient and this consultation. Sign the note before you send orders.'
 
 /** The address of one order's page, below the consultation workspace: `{encounterId}/orders/{kind}/{orderId}` (record ids only). */
 export function orderPath(encounterId: string, kind: OrderKind, orderId: string): string {
@@ -105,24 +105,23 @@ export function EncounterOrders({ chart, encounter }: { chart: Chart; encounter:
 
   return (
     <div className="hid-ehr-clinical-orders-connected">
-      <SubHeading>Connected orders</SubHeading>
-      {createRx ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'pharmacy'))}>Create pharmacy record</EhrButton></Step> : null}
-      {createLab ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'laboratory'))}>Create laboratory record</EhrButton></Step> : null}
+      {createRx ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'pharmacy'))}>New prescription</EhrButton></Step> : null}
+      {createLab ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'laboratory'))}>New lab request</EhrButton></Step> : null}
       {/* Radiology and referrals are samples: offered only at the demo facilities, so a live page at a real facility
           never leads into a sample. */}
       {chart.canWrite && isDemoFacility(chart.facilityId) ? (
         <>
-          <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('radiology', 'new'))}>Create radiology record</EhrButton></Step>
-          <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('referrals', 'new'))}>Create referral network record</EhrButton></Step>
+          <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('radiology', 'new'))}>New radiology request</EhrButton></Step>
+          <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('referrals', 'new'))}>New referral</EhrButton></Step>
         </>
       ) : null}
-      <p className="hid-ehr-clinical-note">{CONNECTED_ORDERS_NOTE}</p>
+      {createRx || createLab ? <p className="hid-ehr-clinical-note">{CONNECTED_ORDERS_NOTE}</p> : null}
       {loading ? <Loading label="Loading records…" /> : null}
       {lists.map(({ kind, list }) => list.error ? <ErrorBox key={kind}>{list.error}</ErrorBox> : null)}
       {!loading && lists.map(({ kind, list }) => !list.error && list.items?.length === 0
         ? <p key={kind} className="hid-ehr-clinical-orders-muted">{KINDS[kind].empty}</p> : null)}
       {rows.length > 0 ? (
-        <ul className="hid-ehr-clinical-history-list" aria-label="Orders from this encounter">
+        <ul className="hid-ehr-clinical-history-list" aria-label="Orders from this consultation">
           {rows.map(({ kind, record }) => (
             <li key={`${kind}-${record.id}`} className="hid-ehr-clinical-history-row">
               <Link className="hid-ehr-clinical-link" to={href(orderPath(encounter.id, kind, record.id))}>{KINDS[kind].title} · {orderTitle(kind, record)}</Link>

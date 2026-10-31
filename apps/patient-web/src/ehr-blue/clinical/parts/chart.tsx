@@ -1,22 +1,23 @@
 import { isHidApiError } from '@hid/http'
-import { EhrEmptyState } from '@hid/ui/ehr'
+import { UserSearch } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { SAY } from '../../../copy'
+import { PatientBanner } from '../../../kasuwa/parts'
+import { Alert, Button, EmptyState, type Tone } from '../../../kasuwa/ui'
 import { isAllowedPatientLookup, staffApi } from '../../../staff/api'
 import type { ActivePatient } from '../../../staff/App'
-import { Banner } from './Notices'
 import { patientFacts, type PatientFacts } from './PatientHeader'
 import { useClinical, useWorkspaceHref } from './Workspace'
 
-/** Today's chart wording, kept word for word. */
-export const OPEN_FIRST = 'Open a patient through governed access first.'
-export const ACCESS_ENDED = 'Patient access has ended. Reopen the record through governed access.'
-export const READ_ONLY = 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'
-export const WRITE_UNKNOWN = 'Write access could not be confirmed, so changes are unavailable. Refresh the page to try again.'
+/** The chart's wording, in plain words (copy.ts). */
+export const OPEN_FIRST = 'Open a patient first.'
+export const ACCESS_ENDED = 'Your access to this patient has ended. Open the patient again to keep working.'
+export const READ_ONLY = `${SAY.readOnly} To add or change records, ask the patient to approve access that includes changes.`
+export const WRITE_UNKNOWN = 'We couldn’t check whether you can make changes, so changes are off. Refresh the page to try again.'
 export const CHOOSE_FIRST = 'Choose a patient first.'
-export const CHOOSE_FIRST_DETAIL = 'Clinical records require a current backend authorization for the selected facility.'
-export const NO_AUTHORIZED_PATIENT = 'No authorized patient'
-export const OPEN_PATIENT_HOW = 'Open a patient using an approved request, patient PIN, or documented emergency access.'
+export const CHOOSE_FIRST_DETAIL = 'Records show only for a patient you have access to at this facility.'
+export const NO_AUTHORIZED_PATIENT = 'No patient open'
+export const OPEN_PATIENT_HOW = 'Open a patient with an approved request, the patient’s PIN, or emergency access.'
 
 type WriteAccess = { readonly scope: string; readonly lookup: object; readonly allowed: boolean; readonly failed: boolean }
 
@@ -158,38 +159,60 @@ export function failureText(caught: unknown, fallback: string): string {
   return fallback
 }
 
+/** The open patient's banner, the same on every chart page: who is open and what this access allows. */
+export function ChartBanner({ chart, compact = false, sticky = false }: { chart: Chart; compact?: boolean; sticky?: boolean }) {
+  return <PatientBanner name={chart.facts.name} hid={chart.facts.hid} dateOfBirth={chart.facts.dateOfBirth} sex={chart.facts.sex}
+    status={accessStatus(chart)} compact={compact} sticky={sticky} />
+}
+
+function accessStatus(chart: Chart): { label: string; tone: Tone } {
+  if (chart.purpose === 'emergency') return { label: 'Emergency access · Read only', tone: 'danger' }
+  if (chart.writeNotice) return { label: 'Read only', tone: 'warn' }
+  return { label: 'Access allowed', tone: 'success' }
+}
+
 /**
- * The states a chart page shows instead of its content: access ended (drawn as the design's critical banner, with
- * today's sentence), no patient open (today's words in the design's empty state), and emergency access, which is
- * read-only and shows only the emergency summary. Otherwise renders `children(chart)`.
+ * The states a chart page shows instead of its content: access ended, no patient open, and emergency access, which is
+ * read-only and shows only the emergency summary. Otherwise the patient banner (sticky, once per page: wrong-patient
+ * prevention), why changes are off when they are (said once, here), then `children(chart)`. `banner` is off for pages
+ * that draw the patient themselves (the patient page and the emergency summary).
  */
-export function ChartGate({ children, allowEmergency = false }: { children: (chart: Chart) => ReactNode; allowEmergency?: boolean }) {
+export function ChartGate({ children, allowEmergency = false, banner = !allowEmergency }: {
+  children: (chart: Chart) => ReactNode; allowEmergency?: boolean; banner?: boolean
+}) {
   const chart = useChart()
   const ended = useAccessEnded()
   const href = useWorkspaceHref()
 
   if (ended && !chart) {
     return (
-      <Banner tone="critical" title="Access to this patient ended" actions={<Link className="hid-ehr-clinical-link" to={href.to('patients')}>Go to patient access →</Link>}>
-        {ACCESS_ENDED}
-      </Banner>
+      <Alert intent="error" title="Access to this patient ended" action={<Button size="sm" to={href.to('patients')}>Find a patient</Button>}>
+        Open the patient again to keep working.
+      </Alert>
     )
   }
   if (!chart) {
     return (
-      <EhrEmptyState
-        title={CHOOSE_FIRST}
-        message={`${CHOOSE_FIRST_DETAIL} ${OPEN_PATIENT_HOW}`}
-        action={<Link className="hid-ehr-clinical-link" to={href.to('patients')}>Go to patient access →</Link>}
-      />
+      <EmptyState compact icon={UserSearch} title={CHOOSE_FIRST} description={OPEN_PATIENT_HOW}
+        action={<Button variant="primary" to={href.to('patients')}>Find a patient</Button>} />
     )
   }
   if (chart.purpose === 'emergency' && !allowEmergency) {
     return (
-      <Banner tone="warning" title="Emergency access is read-only" actions={<Link className="hid-ehr-clinical-link" to={href.to('emergency', 'summary')}>Open the emergency summary →</Link>}>
-        {`${chart.facts.name} is open under emergency access. Emergency access shows the read-only emergency summary only; nothing can be added or changed.`}
-      </Banner>
+      <>
+        {banner ? <ChartBanner chart={chart} sticky /> : null}
+        <Alert intent="warning" className="mb-4" title="Emergency access shows the emergency summary only"
+          action={<Button size="sm" to={href.to('emergency', 'summary')}>Open the emergency summary</Button>}>
+          Nothing can be added or changed.
+        </Alert>
+      </>
     )
   }
-  return <>{children(chart)}</>
+  return (
+    <>
+      {banner ? <ChartBanner chart={chart} sticky /> : null}
+      {banner && chart.writeNotice ? <Alert intent="info" size="sm" className="mb-4">{chart.writeNotice}</Alert> : null}
+      {children(chart)}
+    </>
+  )
 }

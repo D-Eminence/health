@@ -5,7 +5,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
-import { ChartGate, type Chart } from '../parts/chart'
+import { ChartGate, READ_ONLY, type Chart } from '../parts/chart'
+import { ConfirmSheet, LoadingRows, PatientBanner } from '../../../kasuwa/parts'
 import { formatDate, formatWhen, shortId } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import type { PatientFacts } from '../parts/PatientHeader'
@@ -69,7 +70,11 @@ function PatientRecord({ chart }: { chart: Chart }) {
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   const [error, setError] = useState('')
+  const [confirming, setConfirming] = useState(false)
+  const [ending, setEnding] = useState(false)
   const emergency = chart.purpose === 'emergency'
+  // Read only (emergency, or a grant without changes): write actions are hidden, not offered as a dead end.
+  const readOnly = emergency || chart.writeNotice !== null
   const grantId = chart.patient.lookup.authorization.consentGrantId ?? null
   const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administratorOf(facility, permissions))
   const expires = chart.patient.lookup.authorization.expiresAt
@@ -77,13 +82,17 @@ function PatientRecord({ chart }: { chart: Chart }) {
   const about = [ageOf(facts.dateOfBirth), sexText(facts.sex), facts.dateOfBirth ? `born ${formatDate(facts.dateOfBirth)}` : ''].filter(Boolean).join(' · ')
 
   async function closeGrant() {
-    if (!grantId || closeUnavailable) return
+    if (!grantId || closeUnavailable || ending) return
+    setEnding(true)
     setError('')
     try {
       await staffApi.closeGrant(chart.facilityId, grantId, CLOSE_REASON)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Grant could not be closed.')
+      setError(caught instanceof Error && caught.message ? caught.message : 'Couldn’t end your access. Please try again.')
+      setConfirming(false)
       return
+    } finally {
+      setEnding(false)
     }
     setActivePatient(null)
     navigate(href(), { state: { notice: CLOSED_NOTICE } })
@@ -105,14 +114,14 @@ function PatientRecord({ chart }: { chart: Chart }) {
           <div className="flex items-center gap-3 px-4 py-3">
             <IconChip icon={emergency ? Siren : ShieldCheck} tone={emergency ? 'danger' : 'success'} size="sm" />
             <div className="min-w-0 flex-1">
-              <p className="m-0 text-sm font-semibold text-ink">{emergency ? 'Emergency access' : 'You have access'}{chart.writeNotice !== null ? ' · read only' : ''}</p>
-              <p className="m-0 text-[12px] text-ink-3">{emergency ? 'Read-only emergency summary' : 'Direct care'}{expires ? ` · until ${formatWhen(expires)}` : ''}</p>
+              <p className="m-0 text-sm font-semibold text-ink">{emergency ? 'Emergency access' : 'You have access'}</p>
+              {expires ? <p className="m-0 text-[12px] text-ink-3">Until {formatWhen(expires)}</p> : null}
             </div>
           </div>
           {grantId ? <div className="border-t border-line px-4 py-2.5">
             {closeUnavailable ? <p id="close-grant-unavailable" className="m-0 mb-1.5 text-[12px] text-ink-3">{closeUnavailable}</p> : null}
             <Button variant="danger" size="sm" icon={LogOut} disabled={closeUnavailable !== null} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}
-              onClick={() => void closeGrant()}>End my access</Button>
+              onClick={() => setConfirming(true)}>End my access</Button>
           </div> : null}
         </Card>
       </div>
@@ -121,22 +130,32 @@ function PatientRecord({ chart }: { chart: Chart }) {
         <PageHeader title={facts.name} description={about || undefined}
           actions={emergency ? <Button variant="primary" icon={Siren} onClick={() => navigate(href.to('emergency', 'summary'))}>Open emergency summary</Button>
             : <Button variant="primary" icon={FolderOpen} onClick={() => navigate(href.to('consult'))}>Open chart</Button>} />
-        {emergency ? <Alert intent="warning" title="Emergency access is read-only">{`Only the emergency summary can be seen. Nothing can be added or changed for ${facts.name}.`}</Alert> : null}
-        {chart.writeNotice ? <Alert intent="info" title="Read only">{chart.writeNotice}</Alert> : null}
+        {/* Read only, said once. */}
+        {emergency ? <Alert intent="warning" title="View only">{`Emergency access shows the emergency summary only. Nothing can be added or changed for ${facts.name}.`}</Alert>
+          : chart.writeNotice ? <Alert intent="info" title="View only">{chart.writeNotice === READ_ONLY
+            ? 'You can see this record but not add to it. To make changes, ask the patient to let you see and add to their records.'
+            : chart.writeNotice}</Alert> : null}
         {error ? <Alert intent="error" title="Couldn’t end access">{error}</Alert> : null}
 
         {!emergency ? <Card>
           <CardHeader as="h2" title="Next steps" icon={ListChecks} iconTone="brand" />
           <ul className="m-0 list-none divide-y divide-line p-0">
-            <li><ListRow onClick={() => navigate(href.to('consult', 'new'))} leading={<IconChip size="sm" icon={Stethoscope} />} title="Start a consultation" subtitle="Notes, diagnoses and orders in one place" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>
-            <li><ListRow onClick={() => navigate(href.to('triage', 'new'))} leading={<IconChip size="sm" icon={Activity} />} title="Record vitals" subtitle="Blood pressure, temperature, pulse, oxygen" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>
+            {!readOnly ? <>
+              <li><ListRow onClick={() => navigate(href.to('consult', 'new'))} leading={<IconChip size="sm" icon={Stethoscope} />} title="Start a consultation" subtitle="Notes, diagnoses and orders in one place" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>
+              <li><ListRow onClick={() => navigate(href.to('triage', 'new'))} leading={<IconChip size="sm" icon={Activity} />} title="Record vitals" subtitle="Blood pressure, temperature, pulse, oxygen" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>
+            </> : null}
             {/* Appointments and walk-in visits are samples: offered only at the demo facilities. */}
             {isDemoFacility(chart.facilityId) ? <li><ListRow onClick={() => navigate(href.to('journey', 'new'))} leading={<IconChip size="sm" icon={UserPlus} />} title="Register a walk-in visit" subtitle="Sample at demo facilities" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
-            <li><ListRow onClick={openConsent} leading={<IconChip size="sm" icon={Send} />} title="Ask for more access" subtitle="A longer or wider grant, approved by the patient" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>
+            <li><ListRow onClick={openConsent} leading={<IconChip size="sm" icon={Send} />} title="Ask for more access" subtitle="More time, or the right to add records. The patient approves." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>
           </ul>
         </Card> : null}
-        {!emergency && chart.can('ehr.encounter.read') ? <EncounterHistory chart={chart} /> : null}
+        {!emergency && chart.can('ehr.encounter.read') ? <EncounterHistory chart={chart} canStart={!readOnly} /> : null}
       </div>
+      <ConfirmSheet open={confirming} onClose={() => setConfirming(false)} destructive busy={ending} confirmLabel="End my access"
+        title={`End your access to ${facts.name}?`}
+        subject={<PatientBanner name={facts.name} hid={facts.hid} dateOfBirth={facts.dateOfBirth} sex={facts.sex} compact />}
+        effect="You’ll need the patient’s approval to open their record again."
+        onConfirm={() => void closeGrant()} />
     </div>
   )
 }
@@ -147,7 +166,7 @@ type HistoryState = { readonly items: readonly Encounter[] } | { readonly error:
  * This facility's visits for the patient (today's chart list), each opening in Consultation. Read after today's
  * re-check; a refusal there closes the patient and shows that access ended.
  */
-function EncounterHistory({ chart }: { chart: Chart }) {
+function EncounterHistory({ chart, canStart }: { chart: Chart; canStart: boolean }) {
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   const [state, setState] = useState<HistoryState>(null)
@@ -165,7 +184,7 @@ function EncounterHistory({ chart }: { chart: Chart }) {
         const page = await staffApi.encounters(facilityId, patientId)
         if (current) setState({ items: page.items })
       } catch (caught) {
-        if (current) setState({ error: refusalText(caught, 'Encounters could not be loaded.') })
+        if (current) setState({ error: refusalText(caught, 'Please try again.') })
       }
     })()
     return () => { current = false }
@@ -173,9 +192,9 @@ function EncounterHistory({ chart }: { chart: Chart }) {
 
   return <Card>
     <CardHeader as="h2" title="Visits here" description="Only what your role may see" icon={History} />
-    {state === null ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3" role="status">Loading visits…</p>
+    {state === null ? <LoadingRows rows={2} label="Loading visits" />
       : 'error' in state ? <div className="p-5"><Alert intent="error" title="Couldn’t load visits">{state.error}</Alert></div>
-      : state.items.length === 0 ? <p className="m-0 px-5 py-5 text-[13px] text-ink-3">No visits at this facility yet. Start a consultation to begin one.</p>
+      : state.items.length === 0 ? <p className="m-0 px-5 py-5 text-[13px] text-ink-3">No visits at this facility yet.{canStart ? ' Start a consultation to begin one.' : ''}</p>
       : <ul className="m-0 list-none divide-y divide-line p-0">{state.items.map(item => <li key={item.id}>
           <ListRow onClick={() => navigate(href.to('consult', item.id))} leading={<IconChip size="sm" icon={Stethoscope} />} title={`Consultation · ${shortId(item.id)}`}
             trailing={<Badge size="sm" tone={item.status === 'in_progress' || item.status === 'open' ? 'brand' : 'neutral'}>{sexText(item.status)}</Badge>} />

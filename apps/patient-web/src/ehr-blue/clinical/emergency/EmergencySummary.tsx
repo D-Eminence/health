@@ -1,26 +1,23 @@
-import { EhrBadge, EhrButton, EhrCard, EhrEmptyState } from '@hid/ui/ehr'
+import { RotateCcw, Siren, UserSearch } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { FormPage, LoadingRows, PatientBanner, Value } from '../../../kasuwa/parts'
+import { Alert, Badge, Button, Card, CardHeader, EmptyState } from '../../../kasuwa/ui'
 import { usesNovuBackend } from '../../../backendContract'
 import { staffApi, type EmergencyRecords, type EmergencySection } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { selfServiceReview } from '../../../staff/staffAccess'
-import { CHOOSE_FIRST, CHOOSE_FIRST_DETAIL, ChartGate, OPEN_PATIENT_HOW, type Chart } from '../parts/chart'
-import { ActionList, DetailGrid, Step } from '../parts/Detail'
+import { ChartGate, type Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
-import { ErrorBox, Loading, RecordHeading } from '../parts/Notices'
-import { PatientHeader } from '../parts/PatientHeader'
-import { StatusBadge } from '../parts/StatusBadge'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { ACCESS_CLOSED, CLOSE_FAILED, CLOSE_GRANT, CLOSE_REASON, actionUnavailable } from './access'
 import { ReleasedResults } from './ReleasedResults'
 
 /** Today's emergency summary wording (Clinical.tsx EmergencySummary), word for word. */
-export const SUMMARY_EYEBROW = 'Emergency record · audited access'
-export const SUMMARY_LEDE = 'This read-only summary holds this facility’s completed encounters and signed clinical notes, and the diagnoses, prescriptions, lab requests and documents your role may read. The server checks the active emergency grant on each request.'
-export const VITALS_NOTICE = 'Vital signs are not shown in this summary. EHR sends them as first recorded, without later corrections, so a value here could be one a clinician has since corrected.'
-export const SUMMARY_FAILED = 'Emergency records could not be loaded.'
-export const LOADING_SUMMARY = 'Loading emergency summary…'
+export const SUMMARY_EYEBROW = 'Emergency summary'
+export const SUMMARY_LEDE = 'View only. This facility’s finished visits, signed notes, diagnoses, prescriptions, lab tests and documents that your role may see. Every view is reviewed.'
+export const VITALS_NOTICE = 'Vital signs aren’t shown here: a recorded value may have been corrected since.'
+export const SUMMARY_FAILED = 'Please try again.'
+export const LOADING_SUMMARY = 'Loading emergency summary'
 
 // What EHR's emergency summary sends of each section at most (Clinical.tsx EMERGENCY_CAPS).
 const EMERGENCY_CAPS = { encounters: 50, notes: 50, diagnoses: 100, prescriptions: 100, labRequests: 100, documents: 100 } as const
@@ -58,19 +55,30 @@ function calendarDay(value: string) {
   return Number.isNaN(instant) ? value : CALENDAR_DAY.format(new Date(Math.round(instant / DAY_MS) * DAY_MS))
 }
 
-/** Clinical.tsx fileSize. */
+/** A file size in KB or MB. */
 function fileSize(value: number | string | null | undefined): string {
   const count = value == null || value === '' ? NaN : Number(value)
-  return Number.isFinite(count) && count >= 0 ? `${Math.ceil(count / 1024).toLocaleString()} KiB` : 'Size unavailable'
+  if (!Number.isFinite(count) || count < 0) return 'Size not known'
+  return count >= 1024 * 1024 ? `${(count / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.ceil(count / 1024)).toLocaleString()} KB`
 }
 
+/** A file type in words: "PDF", "Image", else the subtype in capitals. */
+function fileKind(mediaType: string | null | undefined): string {
+  if (!mediaType) return 'File'
+  if (mediaType === 'application/pdf') return 'PDF'
+  if (mediaType.startsWith('image/')) return 'Image'
+  return (mediaType.split('/')[1] ?? mediaType).split(/[.+-]/)[0]!.toUpperCase()
+}
+
+const words = (value: string) => { const text = value.replaceAll('_', ' '); return text.charAt(0).toUpperCase() + text.slice(1) }
+
 function ErrorBadge() {
-  return <EhrBadge tone="critical" className="hid-ehr-clinical-badge">Entered in error</EhrBadge>
+  return <Badge size="sm" tone="danger" solid>Entered in error</Badge>
 }
 
 function OrderStatus({ status }: { status: string }) {
   if (status === 'entered_in_error') return <ErrorBadge />
-  return <StatusBadge status={ORDER_STATUSES[status]?.label ?? status.replaceAll('_', ' ')} />
+  return <Badge size="sm" tone={status === 'active' ? 'success' : 'neutral'}>{ORDER_STATUSES[status]?.label ?? words(status)}</Badge>
 }
 
 /**
@@ -88,35 +96,31 @@ function SummarySection<T extends { id: string }>({ title, items, cap, empty, no
   withheld?: boolean
   truncated?: boolean
 }) {
+  const line = (text: string) => <p className="m-0 px-5 py-4 text-[13px] text-ink-3">{text}</p>
   if (withheld && (!Array.isArray(items) || items.length === 0)) {
-    return (
-      <EhrCard title={title}>
-        <p>{title} are not included in this summary: EHR did not release them to your role at this facility.</p>
-      </EhrCard>
-    )
+    return <Card><CardHeader as="h2" title={title} />{line(`${title} aren’t shared with your role here.`)}</Card>
   }
   const shortened = Array.isArray(items) && (truncated ?? items.length >= cap)
   return (
-    <EhrCard title={title}>
-      {note}
-      {!Array.isArray(items) ? <p>{title} are not available in this summary.</p>
-        : items.length === 0 ? <p>{empty}</p>
-          : (
-            <ul className="hid-ehr-clinical-emergency-entries">
-              {items.map(item => <li key={item.id} className="hid-ehr-clinical-emergency-entry">{render(item)}</li>)}
-            </ul>
-          )}
-      {shortened ? (
-        <p className="hid-ehr-clinical-emergency-muted">{truncated === undefined
-          ? `The backend sends only the ${cap} most recent; older ones are not shown.`
-          : `Only the ${cap} most recent are shown; older ones exist and are not shown.`}</p>
-      ) : null}
-    </EhrCard>
+    <Card>
+      <CardHeader as="h2" title={title} description={Array.isArray(items) && items.length > 0 ? `${items.length}` : undefined} />
+      {note ? <div className="border-b border-line px-5 py-3 text-[13px] text-ink-3">{note}</div> : null}
+      {!Array.isArray(items) ? line(`${title} aren’t available in this summary.`)
+        : items.length === 0 ? line(empty)
+          : <ul className="m-0 list-none divide-y divide-line p-0">
+              {items.map(item => <li key={item.id} className="flex flex-col gap-1 px-5 py-3.5 text-[13px] text-ink-2">{render(item)}</li>)}
+            </ul>}
+      {shortened ? <p className="m-0 border-t border-line px-5 py-3 text-[12px] text-ink-3">Only the {cap} most recent are shown.</p> : null}
+    </Card>
   )
 }
 
 function Head({ children }: { children: ReactNode }) {
-  return <div className="hid-ehr-clinical-emergency-entry-head">{children}</div>
+  return <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-ink">{children}</div>
+}
+
+function Text({ children }: { children: ReactNode }) {
+  return <p className="m-0 whitespace-pre-wrap text-ink">{children}</p>
 }
 
 /** The sections of one emergency summary. Reading only: no control here creates, changes, signs or sends anything. */
@@ -129,67 +133,67 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
   const released = (key: EmergencySection) => !summary.released || summary.released.includes(key)
   return (
     <>
-      {released('vitals') ? <div className="hid-ehr-clinical-banner"><p>{VITALS_NOTICE}</p></div> : null}
-      <SummarySection title="Completed encounters" items={summary.encounters} {...sectionProps('encounters')}
-        empty="No completed encounters are available from this facility." render={item => <>
-          <Head><strong>{item.encounterType.replace('_', ' ')}</strong></Head>
-          <p>Started {formatWhen(item.startedAt)}</p>
-          {item.endedAt ? <p>Ended {formatWhen(item.endedAt)}</p> : null}
+      {released('vitals') ? <Alert intent="info" size="sm" live={false}>{VITALS_NOTICE}</Alert> : null}
+      <SummarySection title="Finished visits" items={summary.encounters} {...sectionProps('encounters')}
+        empty="No finished visits at this facility." render={item => <>
+          <Head>{words(item.encounterType)}</Head>
+          <span>{formatWhen(item.startedAt)}{item.endedAt ? ` to ${formatWhen(item.endedAt)}` : ''}</span>
         </>} />
       <SummarySection title="Signed notes" items={summary.notes} {...sectionProps('notes')}
-        empty="No signed notes are available from this facility." render={item => <>
-          <Head><strong>{item.title}</strong></Head>
-          <p>{item.noteType} · {item.status} · revision {item.revisionNo}</p>
-          <p className="hid-ehr-clinical-emergency-content">{item.content}</p>
-          {item.signedAt ? <p>Signed {formatWhen(item.signedAt)}</p> : null}
+        empty="No signed notes at this facility." render={item => <>
+          <Head>{item.title}</Head>
+          <span>{words(item.noteType)} · version {item.revisionNo}{item.signedAt ? ` · signed ${formatWhen(item.signedAt)}` : ''}</span>
+          <Text>{item.content}</Text>
         </>} />
       {may('ehr.diagnosis.read') ? (
         <SummarySection title="Diagnoses" {...sectionProps('diagnoses')}
           items={Array.isArray(summary.diagnoses) ? currentFirst(summary.diagnoses, diagnosisRank) : undefined}
-          empty="No diagnoses are available from this facility." render={item => <>
+          empty="No diagnoses at this facility." render={item => <>
             <Head>
-              <strong>{item.display}</strong>
+              {item.display}
               {item.verificationStatus === 'entered_in_error' ? <ErrorBadge /> : null}
-              {item.verificationStatus === 'refuted' ? <StatusBadge status="Refuted" /> : null}
+              {item.verificationStatus === 'refuted' ? <Badge size="sm">Ruled out</Badge> : null}
             </Head>
-            {item.verificationStatus === 'entered_in_error' ? <p>Recorded in error: not a diagnosis of this patient.</p> : null}
-            <p>{item.codeSystem} {item.code} · {item.clinicalStatus.replaceAll('_', ' ')} · {item.verificationStatus.replaceAll('_', ' ')}</p>
-            {item.notes ? <p className="hid-ehr-clinical-emergency-content">{item.notes}</p> : null}
+            {item.verificationStatus === 'entered_in_error' ? <span className="font-medium text-danger-ink">Recorded in error: not a diagnosis of this patient.</span> : null}
+            <span>{words(item.clinicalStatus)} · {words(item.verificationStatus)}{item.code ? ` · code ${item.code}` : ''}</span>
+            {item.notes ? <Text>{item.notes}</Text> : null}
           </>} />
       ) : null}
       {may('ehr.prescription.read') ? (
         <SummarySection title="Prescriptions" {...sectionProps('prescriptions')}
           items={Array.isArray(summary.prescriptions) ? currentFirst(summary.prescriptions, item => orderRank(item.status)) : undefined}
-          empty="No prescriptions are available from this facility." render={item => <>
-            <Head><strong>{item.medicationDisplay}</strong><OrderStatus status={item.status} /></Head>
-            {item.status === 'entered_in_error' ? <p>Recorded in error: not a prescription for this patient.</p> : null}
-            <p>{item.doseQuantity == null || item.doseQuantity === '' ? 'Dose not recorded' : `${Number(item.doseQuantity)} ${item.doseUnit ?? ''}`.trim()} · {item.routeCode ? `Route ${item.routeCode}` : 'Route not recorded'} · {item.frequency}</p>
-            {item.instructions ? <p className="hid-ehr-clinical-emergency-content">{item.instructions}</p> : null}
+          empty="No prescriptions at this facility." render={item => <>
+            <Head>{item.medicationDisplay}<OrderStatus status={item.status} /></Head>
+            {item.status === 'entered_in_error' ? <span className="font-medium text-danger-ink">Recorded in error: not a prescription for this patient.</span> : null}
+            <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
+              <Value label="Dose" value={item.doseQuantity == null || item.doseQuantity === '' ? null : Number(item.doseQuantity)} unit={item.doseUnit} />
+              <span>· {item.routeCode ? `route ${item.routeCode}` : 'route not recorded'} · {item.frequency}</span>
+            </span>
+            {item.instructions ? <Text>{item.instructions}</Text> : null}
             {item.startsOn || item.endsOn ? (
-              <p>{[item.startsOn && `Starts ${calendarDay(item.startsOn)}`, item.endsOn && `Ends ${calendarDay(item.endsOn)}`].filter(Boolean).join(' · ')}</p>
+              <span>{[item.startsOn && `Starts ${calendarDay(item.startsOn)}`, item.endsOn && `Ends ${calendarDay(item.endsOn)}`].filter(Boolean).join(' · ')}</span>
             ) : null}
           </>} />
       ) : null}
       {may('ehr.lab-request.read') ? (
-        <SummarySection title="Lab requests" {...sectionProps('labRequests')}
+        <SummarySection title="Lab tests" {...sectionProps('labRequests')}
           items={Array.isArray(summary.labRequests) ? currentFirst(summary.labRequests, item => orderRank(item.status)) : undefined}
-          empty="No lab requests are available from this facility." render={item => <>
-            <Head><strong>{item.testDisplay}</strong><OrderStatus status={item.status} /></Head>
-            {item.status === 'entered_in_error' ? <p>Recorded in error: not a request for this patient.</p> : null}
-            <p>{item.testCodeSystem} {item.testCode} · {item.priority} priority · Requested {formatWhen(item.createdAt)}</p>
-            {item.clinicalInformation ? <p className="hid-ehr-clinical-emergency-content">{item.clinicalInformation}</p> : null}
+          empty="No lab tests at this facility." render={item => <>
+            <Head>{item.testDisplay}<OrderStatus status={item.status} />{item.priority && item.priority !== 'routine' ? <Badge size="sm" tone="danger">{words(item.priority)}</Badge> : null}</Head>
+            {item.status === 'entered_in_error' ? <span className="font-medium text-danger-ink">Recorded in error: not a test for this patient.</span> : null}
+            <span>Asked for {formatWhen(item.createdAt)}</span>
+            {item.clinicalInformation ? <Text>{item.clinicalInformation}</Text> : null}
             {/* Lab allows a released-results read under an active emergency grant; a draft never reached Lab. */}
             {item.status !== 'draft' && may('lab.result.released.read') ? <ReleasedResults facilityId={facilityId} requestId={item.id} /> : null}
           </>} />
       ) : null}
       {may('ehr.document.read') ? (
         <SummarySection title="Documents" items={summary.documents} {...sectionProps('documents')}
-          note={<p>{summary.released
-            ? 'Documents that passed the virus scan are listed for reference; they cannot be opened from this summary.'
-            : 'Uploaded documents are listed for reference. They cannot be opened from this summary, and their virus scan result is not included.'}</p>}
-          empty="No uploaded documents are available from this facility." render={item => <>
-            <Head><strong>{item.fileName}</strong></Head>
-            <p>{item.mediaType} · {fileSize(item.sizeBytes)} · Uploaded {formatWhen(item.createdAt)}</p>
+          note={summary.released ? 'Listed only: documents can’t be opened here. Only files that passed the virus check are listed.'
+            : 'Listed only: documents can’t be opened here, and they may not have been checked for viruses.'}
+          empty="No documents at this facility." render={item => <>
+            <Head>{item.fileName}</Head>
+            <span>{fileKind(item.mediaType)} · {fileSize(item.sizeBytes)} · added {formatWhen(item.createdAt)}</span>
           </>} />
       ) : null}
     </>
@@ -197,9 +201,9 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
 }
 
 /**
- * The open emergency patient's read-only summary: today's re-check (an emergency lookup), then the emergency records.
- * The only actions are reading again, closing this clinician's own grant (today's "Close my grant", at once, as today:
- * nothing may stand between a clinician and ending emergency access) and leaving.
+ * The open emergency patient's view-only summary: today's re-check (an emergency lookup), then the emergency records.
+ * The only actions are reading again, ending this clinician's own emergency access (at once, as today: nothing may
+ * stand between a clinician and ending emergency access) and leaving.
  */
 function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
   const { facility, permissions, setActivePatient } = useClinical()
@@ -235,7 +239,7 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
   const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administrator)
   const closeUnavailableId = `${id}-close-unavailable`
   const expiresAt = chart.patient.lookup.authorization.expiresAt
-  const expires = expiresAt && !Number.isNaN(new Date(expiresAt).getTime()) ? new Date(expiresAt).toLocaleTimeString('en-US') : ''
+  const expires = expiresAt && !Number.isNaN(new Date(expiresAt).getTime()) ? new Date(expiresAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''
 
   async function closeGrant() {
     if (!grantId || closeUnavailable || closing.current) return
@@ -255,33 +259,25 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
 
   return (
     <>
-      <PatientHeader facts={chart.facts} flags={['Emergency access', 'Read only']} />
-      <DetailGrid>
-        <EhrCard title={SUMMARY_EYEBROW}>
-          <p>{SUMMARY_LEDE}</p>
-          {expires ? <p>Grant expires {expires}.</p> : null}
-        </EhrCard>
-        <EhrCard title="Available actions">
-          <ActionList>
-            <EhrButton variant="secondary" busy={loading} onClick={() => setRevision(value => value + 1)}>Refresh summary</EhrButton>
-            {grantId ? (
-              <EhrButton
-                variant="secondary"
-                disabled={closeUnavailable !== null}
-                aria-describedby={closeUnavailable ? closeUnavailableId : undefined}
-                onClick={closeGrant}
-              >
-                Close my grant
-              </EhrButton>
-            ) : null}
-          </ActionList>
-          {grantId && closeUnavailable ? <p id={closeUnavailableId}>{closeUnavailable}</p> : null}
-          {closeError ? <ErrorBox>{closeError}</ErrorBox> : null}
-          <Step><Link className="hid-ehr-clinical-link" to={href.to('patients')}>Change patient →</Link></Step>
-        </EhrCard>
-      </DetailGrid>
-      {loading ? <Loading label={LOADING_SUMMARY} /> : null}
-      {error ? <ErrorBox>{error}</ErrorBox> : null}
+      <PatientBanner name={chart.facts.name} hid={chart.facts.hid} dateOfBirth={chart.facts.dateOfBirth} sex={chart.facts.sex} sticky
+        status={{ label: 'Emergency access', tone: 'danger' }} />
+      <Card>
+        <div className="flex flex-col gap-3 p-5">
+          <p className="m-0 text-sm text-ink-2">{SUMMARY_LEDE}{expires ? ` Access ends at ${expires}.` : ''}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button icon={RotateCcw} loading={loading} onClick={() => setRevision(value => value + 1)}>Refresh</Button>
+            {/* At once, as today: nothing may stand between a clinician and ending emergency access. */}
+            {grantId ? <Button variant="danger" disabled={closeUnavailable !== null} aria-describedby={closeUnavailable ? closeUnavailableId : undefined}
+              onClick={closeGrant}>End emergency access</Button> : null}
+            <Button variant="ghost" icon={UserSearch} to={href.to('patients')}>Find another patient</Button>
+          </div>
+          {grantId && closeUnavailable ? <p id={closeUnavailableId} className="m-0 text-[13px] text-ink-3">{closeUnavailable}</p> : null}
+          {closeError ? <Alert intent="error" title="Couldn’t end access">{closeError}</Alert> : null}
+        </div>
+      </Card>
+      {loading && !summary ? <Card><LoadingRows rows={3} label={LOADING_SUMMARY} /></Card> : null}
+      {error ? <Alert intent="error" title="Couldn’t load the emergency summary"
+        action={<Button size="sm" icon={RotateCcw} onClick={() => setRevision(value => value + 1)}>Try again</Button>}>{error}</Alert> : null}
       {summary ? <Sections summary={summary} facilityId={facilityId} may={permission => permissions.includes(permission)} /> : null}
     </>
   )
@@ -290,13 +286,8 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
 /** ChartGate's no-patient state, for a patient open in direct care: the emergency summary is for emergency access. */
 function NoEmergencyPatient() {
   const href = useWorkspaceHref()
-  return (
-    <EhrEmptyState
-      title={CHOOSE_FIRST}
-      message={`${CHOOSE_FIRST_DETAIL} ${OPEN_PATIENT_HOW}`}
-      action={<Link className="hid-ehr-clinical-link" to={href.to('patients')}>Go to patient access →</Link>}
-    />
-  )
+  return <EmptyState icon={Siren} title="No patient open with emergency access" description="Open one from Emergency access first."
+    action={<Button to={href()}>Emergency access</Button>} />
 }
 
 /** emergency/summary: the read-only emergency summary of the patient open under emergency access. */
@@ -305,7 +296,7 @@ export function EmergencySummaryPage() {
   const [closed, setClosed] = useState(0)
   const said = useRef<HTMLParagraphElement>(null)
 
-  // Closing the grant removes the button that did it: focus goes to what the page now says, if it was lost.
+  // Ending access removes the button that did it: focus goes to what the page now says, if it was lost.
   useLayoutEffect(() => {
     if (!closed) return
     const active = document.activeElement
@@ -313,16 +304,15 @@ export function EmergencySummaryPage() {
   }, [closed])
 
   return (
-    <>
-      <RecordHeading title="Emergency summary" backHref={href()} />
-      <div role="status">
-        {closed ? <p ref={said} tabIndex={-1} className="hid-ehr-clinical-status">{ACCESS_CLOSED}</p> : null}
+    <FormPage title="Emergency summary" back={{ to: href(), label: 'Emergency access' }} wide>
+      <div role="status" className="empty:hidden">
+        {closed ? <p ref={said} tabIndex={-1} className="m-0 rounded-lg bg-subtle px-4 py-3 text-sm text-ink outline-none">{ACCESS_CLOSED}</p> : null}
       </div>
       <ChartGate allowEmergency>
         {chart => chart.purpose === 'emergency'
           ? <Summary key={chart.patientId} chart={chart} onClosed={() => setClosed(value => value + 1)} />
           : <NoEmergencyPatient />}
       </ChartGate>
-    </>
+    </FormPage>
   )
 }

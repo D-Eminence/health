@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Button, Card } from '../kasuwa/ui'
+import { LoadingRows } from '../kasuwa/parts'
+import { Problem, Saved } from './profileParts'
 import { isHidApiError } from '@hid/http'
 import { ItemName } from '../ItemName'
 import { useSession } from '../session'
@@ -271,15 +274,16 @@ export function SentOrdersCard() {
     } finally { setWorking(null) }
   }
 
-  return <div className="patient-card" aria-busy={(routes.loading && routes.data !== null) || undefined}>
-    <h2 ref={heading} tabIndex={-1}>Tests and prescriptions sent elsewhere</h2>
-    <p className="patient-field-hint">What your doctor sent to another lab or pharmacy, and exactly what they get.</p>
-    {routes.loading && routes.data === null && <p role="status">Loading your orders…</p>}
-    {routes.error && <p role="alert">{routes.error}</p>}
-    {error && <p role="alert" className="patient-inline-error">{error}</p>}
-    <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
-    {routes.data && !routes.error && (items.length === 0 ? <p className="patient-empty">Nothing has been sent to another lab or pharmacy.</p>
-      : <ul className="patient-list">{items.map(route => {
+  return <Card aria-busy={(routes.loading && routes.data !== null) || undefined} aria-labelledby="sent-orders-heading">
+    <div className="border-b border-line px-5 py-4">
+      <h2 ref={heading} id="sent-orders-heading" tabIndex={-1} className="m-0 text-title-3 text-ink outline-none">Tests and prescriptions sent elsewhere</h2>
+      <p className="m-0 text-[13px] text-ink-3">What your doctor sent to another lab or pharmacy, and exactly what they get.</p>
+    </div>
+    {routes.loading && routes.data === null && <LoadingRows rows={2} label="Loading your orders" />}
+    {(routes.error || error) && <div className="flex flex-col gap-3 px-5 pt-4">{routes.error && <Problem>{routes.error}</Problem>}{error && <Problem>{error}</Problem>}</div>}
+    <div className="px-5 pt-4 empty:hidden"><Saved>{notice}</Saved></div>
+    {routes.data && !routes.error && (items.length === 0 ? <p className="m-0 px-5 py-6 text-[13px] text-ink-3">Nothing has been sent to another lab or pharmacy.</p>
+      : <ul className="m-0 list-none divide-y divide-line p-0">{items.map(route => {
         const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the lab or pharmacy')
         const ordering = named(route.orderingFacilityName, 'your doctor’s clinic')
         const inError = route.enteredInError === true
@@ -294,13 +298,13 @@ export function SentOrdersCard() {
         // D18: the receiving facility couldn't complete it; with a report, wrongPatientParagraph says this once already.
         const notCompleted = route.endedKind === 'receiving_unable' && route.effectiveState === 'cancelled' && !wrongPatient
           && !wrongPatientReportOf(route)
-        return <li key={route.id} className="patient-access-item patient-order-route"><div>
-          <strong>{whatWasSent(route)} from {ordering} to {receiving}: {patientRouteState(route)}</strong>
-          {route.receivingRegisteredAddress && <span>{receiving}’s registered office: {route.receivingRegisteredAddress}</span>}
-          <span>Sent on {day(route.createdAt)}{route.reference ? ` · Reference ${route.reference}` : ''}</span>
+        return <li key={route.id} className="flex flex-col gap-3 px-5 py-4"><div className="flex flex-col gap-2 text-[13px] text-ink-2 [&_p]:m-0">
+          <p className="text-sm font-semibold text-ink">{whatWasSent(route)} from {ordering} to {receiving}: {patientRouteState(route)}</p>
+          {route.receivingRegisteredAddress && <p className="text-ink-3">{receiving}’s registered office: {route.receivingRegisteredAddress}</p>}
+          <p className="text-ink-3">Sent on {day(route.createdAt)}{route.reference ? ` · Reference ${route.reference}` : ''}</p>
           {confirmed && <>
             <p>{named(route.attestedByName, 'Your doctor')} at {ordering} confirmed that you agreed:</p>
-            <blockquote className="patient-quote">{confirmed}</blockquote>
+            <blockquote className="m-0 rounded-xl bg-subtle px-4 py-3 text-sm text-ink ring-1 ring-line">{confirmed}</blockquote>
           </>}
           {inError ? <>
             <p>{ordering} marked this order as a mistake, so its details are no longer shown.</p>
@@ -310,8 +314,9 @@ export function SentOrdersCard() {
             {correctableUntilOf(route) !== undefined && haventBeen && <p>{haventBeen}</p>}
             <p>If you have questions about it, contact {ordering}.</p>
           </> : <>
-            <p><strong>{received ? `What ${receiving} received` : `What ${receiving} will receive`}</strong></p>
-            <dl className="patient-details">{sentFields(route).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+            <p className="font-medium text-ink">{received ? `What ${receiving} received` : `What ${receiving} will receive`}</p>
+            <dl className="m-0 divide-y divide-line rounded-xl ring-1 ring-line">{sentFields(route).map(([label, value]) => <div key={label} className="flex items-start justify-between gap-4 px-4 py-2.5">
+              <dt className="text-ink-3">{label}</dt><dd className="m-0 text-right font-medium [overflow-wrap:anywhere] text-ink">{value}</dd></div>)}</dl>
             {wrongPatient && wrongPatientParagraph(route, true, served).map((line, index) => <p key={index}>{line}</p>)}
             {canStop && <p>If you didn’t agree to this, stop it now, before {receiving} accepts it.</p>}
             {stoppable && route.effectiveState === 'accepted' && <p>{receiving} has accepted it. To stop it, contact {ordering}.</p>}
@@ -320,9 +325,9 @@ export function SentOrdersCard() {
             {haventBeen && <p>{haventBeen}</p>}
           </>}
         </div>
-          {canStop && <div className="patient-decision-actions"><button id={`stop-${route.id}`} type="button" className="patient-secondary-button"
-            disabled={!!working || routes.loading} onClick={() => void stop(route)}>{working === route.id ? 'Stopping…' : 'Stop it'}<ItemName>: {whatWasSent(route)} to {receiving}</ItemName></button></div>}
+          {canStop && <Button id={`stop-${route.id}`} variant="destructive" className="self-start"
+            disabled={!!working || routes.loading} loading={working === route.id} onClick={() => void stop(route)}>{working === route.id ? 'Stopping…' : 'Stop it'}<ItemName>: {whatWasSent(route)} to {receiving}</ItemName></Button>}
         </li>
       })}</ul>)}
-  </div>
+  </Card>
 }

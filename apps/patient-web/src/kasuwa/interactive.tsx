@@ -7,16 +7,33 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { Moon, Sun, X } from 'lucide-react'
 import { cx } from './ui'
 
+/*
+ * Open dialogs and drawers, newest last: Escape closes only the top one (a confirm opened over a drawer closes alone).
+ */
+const openLayers: symbol[] = []
+function useLayer(open: boolean) {
+  const id = useRef(Symbol('layer'))
+  useLayoutEffect(() => {
+    if (!open) return
+    const me = id.current
+    openLayers.push(me)
+    return () => { const i = openLayers.lastIndexOf(me); if (i >= 0) openLayers.splice(i, 1) }
+  }, [open])
+  return () => openLayers[openLayers.length - 1] === id.current
+}
+
 export function Modal({ open, onClose, title, description, children, footer, size = 'md' }: {
   open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; children?: ReactNode; footer?: ReactNode; size?: 'sm' | 'md' | 'lg'
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const closeRef = useRef(onClose)
-  useEffect(() => { closeRef.current = onClose })
+  const onTop = useLayer(open)
+  const topRef = useRef(onTop)
+  useEffect(() => { closeRef.current = onClose; topRef.current = onTop })
   // Focus moves as the dialog is shown (a layout effect), so a key pressed at once lands inside it.
   useLayoutEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeRef.current() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && topRef.current()) closeRef.current() }
     document.addEventListener('keydown', onKey)
     const previous = document.activeElement as HTMLElement | null
     const box = ref.current
@@ -49,10 +66,12 @@ export function Drawer({ open, onClose, title, description, icon, children, foot
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const closeRef = useRef(onClose)
-  useEffect(() => { closeRef.current = onClose })
+  const onTop = useLayer(open)
+  const topRef = useRef(onTop)
+  useEffect(() => { closeRef.current = onClose; topRef.current = onTop })
   useLayoutEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeRef.current() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && topRef.current()) closeRef.current() }
     document.addEventListener('keydown', onKey)
     const previous = document.activeElement as HTMLElement | null
     const box = ref.current

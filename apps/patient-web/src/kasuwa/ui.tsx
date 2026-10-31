@@ -62,7 +62,7 @@ const BUTTON_VARIANT = {
   soft: 'bg-brand-soft text-brand-ink ring-1 ring-inset ring-brand-line/60 hover:ring-brand-line',
   ghost: 'text-ink-2 hover:bg-hover hover:text-ink',
   danger: 'text-danger-ink hover:bg-danger-soft',
-  destructive: 'bg-danger text-white shadow-[var(--shadow-xs)] hover:bg-danger-ink',
+  destructive: 'bg-danger-fill text-white shadow-[var(--shadow-xs)] hover:bg-danger-fill-hover',
   link: 'text-brand-ink hover:underline underline-offset-4 !h-auto !px-0',
 } as const
 // 44px on phones (Fitts, WCAG 2.5.5), a little tighter where a pointer is precise.

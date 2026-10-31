@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import { ArrowLeft, ArrowRight, Check, ChevronLeft, CircleCheck, Clock, Eye, Lock, Mail, PenLine, Search, Share2, Stethoscope } from 'lucide-react'
-import { Button, PageHeader, cx } from '../kasuwa/ui'
-import { useToast } from '../kasuwa/toast'
+import { ArrowLeft, ArrowRight, Check, ChevronDown, CircleCheck, Clock, Eye, Lock, Mail, PenLine, Search, Share2, Stethoscope } from 'lucide-react'
+import { Alert, Button, Card, Field, cx } from '../kasuwa/ui'
+import { FormPage, PageState } from '../kasuwa/parts'
+import { SAY, WORDS } from '../copy'
+import { InputR } from './profileParts'
 import { ShareEmailPreview, useMyCard } from './SharedCard'
 import { useSession } from '../session'
 import { describedBy, sentFromField, useDocumentTitle, useStepFocus } from '../authSteps'
@@ -77,14 +79,11 @@ export function ShareRecords() {
   useDocumentTitle('Share your records · Health ID')
   const probe = useShareProbe()
   if (probe.served === false) return <Navigate to="/access" replace />
-  return <section className="patient-section max-w-2xl">
-    <Link to="/access" className="inline-flex items-center gap-1 text-[13px] font-medium text-ink-3 no-underline hover:text-ink"><ChevronLeft className="size-4" aria-hidden />Access & sharing</Link>
-    <PageHeader title="Share your records" />
-    {probe.served === true ? <ShareFlow />
-      : probe.error ? <div className="patient-card" role="alert"><p>{probe.error}</p>
-        <button type="button" onClick={probe.retry}>Try again</button></div>
-      : <div className="patient-card patient-loading" role="status">Opening sharing…</div>}
-  </section>
+  return <FormPage title="Share your records" back={{ to: '/access', label: WORDS.accessPage }}>
+    <PageState what="sharing" loading={probe.served === null && !probe.error} error={probe.error} hasData={false} onRetry={probe.retry} rows={2}>
+      {probe.served === true ? <ShareFlow /> : null}
+    </PageState>
+  </FormPage>
 }
 
 function ShareFlow() {
@@ -121,8 +120,8 @@ function ShareFlow() {
   // Whether the error shown is the choice's (the search step's second form) rather than the search's.
   const [choosing, setChoosing] = useState(false)
   const go = (next: Step) => { setStep(next); setError(null); stepFocus.focus() }
-  const toast = useToast()
-  const fail = (message: string, ofChoice = false) => { setError(message); setChoosing(ofChoice); errorFocus.focus(); if (!ofChoice) toast.error({ title: 'That didn’t go through', message }) }
+  // A failed request is said in place, under the step, where focus goes.
+  const fail = (message: string, ofChoice = false) => { setError(message); setChoosing(ofChoice); errorFocus.focus() }
   const refuseField = (fromField: boolean) => { setProblemAlert(value => fromField ? (value ?? 0) + 1 : null); fieldFocus.focus() }
 
   const search = async (event: FormEvent) => {
@@ -158,8 +157,8 @@ function ShareFlow() {
     setBusy(true); setError(null)
     try {
       const answer = await api.createShare(body, shareKey(body))
+      // The done step says it: no toast repeats it.
       setCreated(answer); go('done')
-      toast.success({ title: 'Shared', message: `${answer.clinicianName ?? 'They'} can see your records now.` })
     } catch (cause) {
       fail(shareProblem(cause, 'Your records could not be shared. Please try again.'))
     } finally { setBusy(false) }
@@ -180,7 +179,6 @@ function ShareFlow() {
     try {
       const answer = await api.createShareInvitation(body, inviteKey(body))
       setInvited({ ...answer, email: address }); go('invited')
-      toast.success({ title: 'Invitation sent', message: `We’ll email ${address}.` })
     } catch (cause) {
       if (isHidApiError(cause) && cause.code === 'SHARE_INVITATION_EMAIL_INVALID') { setEmailProblem(cause.message); refuseField(fromField) }
       else fail(shareProblem(cause, 'The invitation could not be sent. Please try again.'))
@@ -192,8 +190,8 @@ function ShareFlow() {
     setEmail(''); setName(''); setLevel('view_only'); setDuration('24h'); setProblemAlert(null); go(next)
   }
 
-  // A failed request is said at the top (a toast, read out as an alert); only a choice left out is said in place.
-  const alert = error && choosing && <p ref={errorFocus.target} tabIndex={-1} role="alert" className="patient-inline-error">{error}</p>
+  // A failed request, or a choice left out, is said in place; focus goes to it.
+  const alert = error && <div ref={errorFocus.target} tabIndex={-1} className="outline-none"><Alert intent="error" size="sm">{error}</Alert></div>
   const number = STEP_NUMBER[step]
   const heading = (text: string, hint?: ReactNode) => <div className="flex flex-col gap-1">
     <h2 ref={stepFocus.target} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">{text}</h2>
@@ -204,11 +202,11 @@ function ShareFlow() {
   const alerts = (first: boolean) => first && problemAlert !== null
   const problemKey = (first: boolean) => alerts(first) ? `alert-${problemAlert}` : 'quiet'
   const problemRole = (first: boolean) => alerts(first) ? 'alert' : undefined
-  const frame = (key: string, body: ReactNode, footer?: ReactNode) => <div key={key} className="overflow-hidden rounded-2xl bg-surface shadow-[var(--shadow-card)] ring-1 ring-line">
+  const frame = (key: string, body: ReactNode, footer?: ReactNode) => <Card key={key} as="div">
     {number && <Stepper at={number} />}
     <div className="flex flex-col gap-5 p-5">{body}</div>
     {footer && <div className="flex flex-wrap-reverse items-center justify-between gap-2 border-t border-line bg-subtle px-5 py-3.5">{footer}</div>}
-  </div>
+  </Card>
 
   if (step === 'search') {
     const items = results?.items ?? []
@@ -216,16 +214,16 @@ function ShareFlow() {
     return frame('search', <>
       <form noValidate onSubmit={event => void search(event)} className="flex flex-col gap-3">
         {heading('Who do you want to share with?', 'Search a doctor, nurse or clinician by their name or their hospital’s. Only their name, role and hospital are shown.')}
-        <div className="flex gap-2">
-          <label className="relative min-w-0 flex-1"><span className="sr-only">Name of the clinician or facility</span>
-            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-3" aria-hidden />
-            <input ref={fieldFocus.target} type="search" value={query} maxLength={QUERY_MAX} autoComplete="off" placeholder="e.g. Dr Bello or Lagos General"
+        {/* Search is secondary: the step's one primary is Continue, once someone is found. */}
+        <Field htmlFor="share-query" label={<span className="sr-only">Name of the clinician or facility</span>} hintId="share-query-hint" hint="At least 3 characters."
+          errorId="share-query-problem" error={queryProblem ? <span key={problemKey(true)} role={problemRole(true)}>{queryProblem}</span> : undefined}>
+          <div className="flex gap-2">
+            <InputR id="share-query" ref={fieldFocus.target} className="min-w-0 flex-1" icon={Search} type="search" value={query} maxLength={QUERY_MAX} autoComplete="off" placeholder="e.g. Dr Bello or Lagos General"
               aria-invalid={queryProblem ? true : undefined} aria-describedby={describedBy('share-query-hint', queryProblem && 'share-query-problem')}
-              onChange={event => setQuery(event.target.value)} className={cx(FIELD, 'pl-9')} /></label>
-          <Button type="submit" variant="primary" loading={searching} disabled={searching}>{searching ? 'Searching…' : 'Search'}</Button>
-        </div>
-        <p id="share-query-hint" className="m-0 text-[12px] text-ink-3">At least 3 characters.</p>
-        {queryProblem && <p key={problemKey(true)} role={problemRole(true)} id="share-query-problem" className="m-0 text-[13px] font-medium text-danger-ink">{queryProblem}</p>}
+              onChange={event => setQuery(event.target.value)} />
+            <Button type="submit" loading={searching} disabled={searching}>{searching ? 'Searching…' : 'Search'}</Button>
+          </div>
+        </Field>
         <div role="status" className="empty:hidden">{results && <p ref={resultsFocus.target} tabIndex={-1} className="m-0 text-[13px] text-ink-2 outline-none">{items.length === 0
           ? `No one matched “${results.query}”. Check the spelling, or invite them by email.`
           : `${items.length} found for “${results.query}”. Choose who to share with.`}</p>}</div>
@@ -275,12 +273,13 @@ function ShareFlow() {
         <dd className="m-0 text-sm font-medium text-ink">{shareDurationLabel(duration)}</dd></div>
         <button type="button" onClick={() => go('level')} className="cursor-pointer border-0 bg-transparent text-[13px] font-semibold text-brand-ink hover:underline">Change<span className="sr-only"> how long</span></button></div>
     </dl>
-    <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />If you already share with them, this replaces it. Every view is recorded, and you can end it any time.</p>
-    {/* Your card is what arrives: the email they will receive, before you send it. */}
-    {myCard && <div className="flex flex-col gap-2">
-      <p className="m-0 text-[13px] font-medium text-ink-2">What {provider.clinicianName} receives</p>
-      <ShareEmailPreview card={myCard} to={provider.clinicianName} level={level} duration={duration} />
-    </div>}
+    <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />If you already share with them, this replaces it. {SAY.everyViewRecorded}</p>
+    {/* Your card is what arrives: the email they will receive, there to open, so it doesn't push Share down. */}
+    {myCard && <details className="group rounded-xl ring-1 ring-line">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 text-[13px] font-semibold text-brand-ink [&::-webkit-details-marker]:hidden">
+        <Mail className="size-4" aria-hidden />See the email they get<ChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" aria-hidden /></summary>
+      <div className="border-t border-line p-3"><ShareEmailPreview card={myCard} to={provider.clinicianName} level={level} duration={duration} /></div>
+    </details>}
     {alert}
   </form>, <><Button disabled={busy} onClick={() => go('level')} icon={ArrowLeft}>Back</Button>
     <Button type="submit" form="share-confirm" variant="primary" icon={Share2} loading={busy} disabled={busy}>{busy ? 'Sharing…' : 'Share my records'}</Button></>)
@@ -297,18 +296,19 @@ function ShareFlow() {
 
   if (step === 'invite') return frame('invite', <form id="share-invite" noValidate onSubmit={event => void invite(event)} className="flex flex-col gap-5">
     {heading('Invite them by email', 'For a doctor, nurse or clinician who isn’t on Health ID yet.')}
-    <label className="flex flex-col gap-1.5 text-[13px] font-medium text-ink-2">Their email address
-      <input ref={emailProblem || !nameProblem ? fieldFocus.target : undefined} type="email" value={email} maxLength={254}
+    <Field label="Their email address" htmlFor="invite-email" errorId="invite-email-problem"
+      error={emailProblem ? <span key={problemKey(true)} role={problemRole(true)}>{emailProblem}</span> : undefined}>
+      <InputR id="invite-email" ref={emailProblem || !nameProblem ? fieldFocus.target : undefined} type="email" value={email} maxLength={254}
         autoComplete="off" aria-invalid={emailProblem ? true : undefined} aria-describedby={describedBy(emailProblem && 'invite-email-problem')}
-        onChange={event => setEmail(event.target.value)} className={FIELD} /></label>
-    {emailProblem && <p key={problemKey(true)} role={problemRole(true)} id="invite-email-problem" className="m-0 -mt-3 text-[13px] font-medium text-danger-ink">{emailProblem}</p>}
-    <label className="flex flex-col gap-1.5 text-[13px] font-medium text-ink-2"><span>Their name <span className="font-normal text-ink-3">· optional</span></span>
-      <input ref={nameProblem && !emailProblem ? fieldFocus.target : undefined} value={name} maxLength={120} autoComplete="off"
-        aria-invalid={nameProblem ? true : undefined} aria-describedby={describedBy('invite-name-hint', nameProblem && 'invite-name-problem')}
-        onChange={event => setName(event.target.value)} className={FIELD} /></label>
-    <p id="invite-name-hint" className="m-0 -mt-3 text-[12px] text-ink-3">Only you see it. It isn’t put in the email.</p>
+        onChange={event => setEmail(event.target.value)} />
+    </Field>
     {/* One alert at a time: the email's, when both are wrong. */}
-    {nameProblem && <p key={problemKey(!emailProblem)} role={problemRole(!emailProblem)} id="invite-name-problem" className="m-0 -mt-3 text-[13px] font-medium text-danger-ink">{nameProblem}</p>}
+    <Field label="Their name" optional htmlFor="invite-name" hintId="invite-name-hint" hint="Only you see it. It isn’t put in the email."
+      errorId="invite-name-problem" error={nameProblem ? <span key={problemKey(!emailProblem)} role={problemRole(!emailProblem)}>{nameProblem}</span> : undefined}>
+      <InputR id="invite-name" ref={nameProblem && !emailProblem ? fieldFocus.target : undefined} value={name} maxLength={120} autoComplete="off"
+        aria-invalid={nameProblem ? true : undefined} aria-describedby={describedBy('invite-name-hint', nameProblem && 'invite-name-problem')}
+        onChange={event => setName(event.target.value)} />
+    </Field>
     <LevelChoice name="invite-level" value={level} onChange={setLevel} />
     <DurationChoice name="invite-duration" value={duration} onChange={setDuration} />
     <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />Nothing is shared until they join Health ID, accept, and you confirm.</p>
@@ -329,7 +329,6 @@ function ShareFlow() {
   return frame('lost', <Button onClick={() => startAgain('search')}>Start again</Button>)
 }
 
-const FIELD = 'h-10 w-full rounded-[10px] border-0 bg-surface px-3 text-sm text-ink shadow-[var(--shadow-xs)] ring-1 ring-inset ring-line-control outline-none placeholder:text-ink-3 focus:ring-2 focus:ring-brand'
 const TILE = 'flex cursor-pointer items-center gap-3 rounded-xl p-3 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand'
 const TILE_ON = 'bg-brand-soft ring-[1.5px] ring-brand'
 const TILE_OFF = 'bg-surface ring-1 ring-line hover:bg-subtle'

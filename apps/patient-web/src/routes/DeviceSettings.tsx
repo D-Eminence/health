@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { isHidApiError } from '@hid/http'
 import { useSession } from '../session'
+import { Alert, Button, Card, cx } from '../kasuwa/ui'
 import { usePatientResource } from './usePatientResource'
 import { useActionFocus } from './actionFocus'
 import { learnWebPushServed, useWebPushServed } from '../webPushServed'
@@ -11,7 +12,7 @@ import type * as PushDeviceModule from '../pushDevice'
 import type { BrowserPushSubscription, PushSupport } from '../pushDevice'
 
 /*
- * The Notifications page's two device sections (contract b6-contract.md §11.4-11.5): "Notifications on this device", payload-free Web
+ * The profile's two device settings (once on the Notifications page) (contract b6-contract.md §11.4-11.5): "Notifications on this device", payload-free Web
  * Push to this phone or computer (hid-system 0097), and "Install the Health ID app". The push section is hidden
  * entirely, saying nothing, until Identity's GET identity/me/web-push answers 200: a backend before 0097, or one whose
  * push keys are not configured, answers 404. The browser's push APIs live in ../pushDevice, loaded only then.
@@ -194,21 +195,25 @@ export function DeviceNotificationsCard() {
     }
   }
 
-  return <div className="patient-card" aria-labelledby="device-notifications-heading">
-    <h2 ref={heading} tabIndex={-1} id="device-notifications-heading">Notifications on this device</h2>
-    {error && <p role="alert" className="patient-inline-error">{error}</p>}
-    <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
-    <p id="device-notifications-state">{stateText(state)}</p>
-    {withSwitch && <>
-      <button ref={control} type="button" role="switch" aria-checked={on} className="patient-switch"
+  return <Card data-setting="" aria-labelledby="device-notifications-heading" className="flex flex-col gap-3 p-5">
+    <div className="flex items-start gap-4">
+      <div className="min-w-0 flex-1">
+        <h3 ref={heading} tabIndex={-1} id="device-notifications-heading" className="m-0 text-title-3 text-ink outline-none">Notifications on this device</h3>
+        <p id="device-notifications-state" className="m-0 mt-1 text-[13px] text-ink-3">{stateText(state)}</p>
+      </div>
+      {withSwitch && <button ref={control} type="button" role="switch" aria-checked={on}
         aria-labelledby="device-notifications-heading" aria-describedby="device-notifications-state device-notifications-sign-out"
-        aria-busy={busy || undefined} disabled={busy || state === 'denied'} onClick={() => void toggle()}>
-        <span className="patient-switch-track" aria-hidden="true"><span className="patient-switch-thumb" /></span>
+        aria-busy={busy || undefined} disabled={busy || state === 'denied'} onClick={() => void toggle()}
+        className="inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-[13px] font-medium text-ink-2 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]">
         <span aria-hidden="true">{on ? 'On' : 'Off'}</span>
-      </button>
-      <p id="device-notifications-sign-out" className="patient-field-hint">Signing out turns this off.</p>
-    </>}
-  </div>
+        <span aria-hidden="true" className={cx('relative inline-flex h-6 w-11 items-center rounded-full transition-colors', on ? 'bg-brand-fill' : 'bg-line-strong')}>
+          <span className={cx('inline-block size-5 rounded-full bg-white shadow-[var(--shadow-xs)] transition-transform', on ? 'translate-x-[22px]' : 'translate-x-0.5')} /></span>
+      </button>}
+    </div>
+    {withSwitch && <p id="device-notifications-sign-out" className="m-0 text-[12px] text-ink-3">Signing out turns this off.</p>}
+    {error && <Alert intent="error" size="sm">{error}</Alert>}
+    <div role="status" className="empty:hidden">{notice && <Alert intent="success" size="sm" live={false}>{notice}</Alert>}</div>
+  </Card>
 }
 
 /**
@@ -230,11 +235,11 @@ export function InstallAppCard({ afterward }: { afterward: RefObject<HTMLElement
     try { await promptInstall() } finally { setBusy(false); focusAfter(() => afterward.current) }
   }
 
-  return <div className="patient-card" aria-labelledby="install-app-heading">
-    <h2 id="install-app-heading">Install the Health ID app</h2>
+  return <Card data-setting="" aria-labelledby="install-app-heading" className="flex flex-col gap-3 p-5">
+    <h3 id="install-app-heading" className="m-0 text-title-3 text-ink">Install the Health ID app</h3>
     {offer ? <>
-      <p>Open Health ID like an app on this device.</p>
-      <button type="button" className="patient-secondary-button" disabled={busy} onClick={() => void install()}>Install Health ID</button>
-    </> : <p>Tap the Share button, then Add to Home Screen.</p>}
-  </div>
+      <p className="m-0 text-[13px] text-ink-3">Open Health ID like an app on this device.</p>
+      <Button className="self-start" disabled={busy} onClick={() => void install()}>Install Health ID</Button>
+    </> : <p className="m-0 text-[13px] text-ink-3">Tap the Share button, then Add to Home Screen.</p>}
+  </Card>
 }

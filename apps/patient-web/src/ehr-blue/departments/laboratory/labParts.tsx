@@ -8,7 +8,7 @@ import { EhrButton } from '@hid/ui/ehr'
  */
 
 /** Said in an actions card that offers nothing. */
-export const NO_ACTIONS = 'No further actions for your permission and this record state.'
+export const NO_ACTIONS = 'Nothing more to do here.'
 
 /**
  * The target's "Available actions" card: its actions stacked full width, the form of the one opened under them, or a line
@@ -21,7 +21,7 @@ export function LabActions({ title, none, children }: {
 }) {
   return (
     <section className="hid-ehr-card hid-ehr-dept-section hid-ehr-dept-actions-card">
-      <h2 className="hid-ehr-card-title">{title ?? 'Available actions'}</h2>
+      <h2 className="hid-ehr-card-title">{title ?? 'Actions'}</h2>
       {none ? <p className="hid-ehr-dept-muted">{NO_ACTIONS}</p> : <div className="hid-ehr-dept-action-stack">{children}</div>}
     </section>
   )

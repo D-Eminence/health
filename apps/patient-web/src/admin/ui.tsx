@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { RefreshCw } from 'lucide-react'
-import { Button as KButton, PageHeader as KPageHeader } from '../kasuwa/ui'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { ChevronLeft, ChevronRight, Inbox, RefreshCw, RotateCcw } from 'lucide-react'
+import {
+  Alert, Badge, Button as KButton, EmptyState, Field, PageHeader as KPageHeader, Select, Textarea, statusTone, type ButtonSize,
+  type ButtonVariant, type Tone,
+} from '../kasuwa/ui'
+import { ConfirmSheet, LoadingRows } from '../kasuwa/parts'
+import { useToast } from '../kasuwa/toast'
 import { useSearchParams } from 'react-router-dom'
 import { newIdempotencyKey, type AdminActor, type CursorPage } from './api'
 import { failure } from './problems'
@@ -71,23 +76,37 @@ export function Refresh({ onClick, disabled = false }: { onClick: () => void; di
   return <KButton icon={RefreshCw} onClick={onClick} disabled={disabled}>Refresh</KButton>
 }
 
-export function ResourceView<T>({ resource, empty, children }: {
-  resource: Resource<T>; empty?: (value: T) => boolean; children: (value: T) => ReactNode
+export function ResourceView<T>({ resource, empty, emptyTitle = 'Nothing here yet', children }: {
+  resource: Resource<T>; empty?: (value: T) => boolean; emptyTitle?: string; children: (value: T) => ReactNode
 }) {
-  if (resource.loading && resource.data === null) return <div className="admin-state" role="status">Loading current information…</div>
-  if (resource.error) return <div className="admin-state admin-state-error" role="alert">
-    <p>{resource.error}</p><Refresh onClick={resource.reload} />
-  </div>
-  if (!resource.data) return <div className="admin-state">No information was returned.</div>
-  if (empty?.(resource.data)) return <div className="admin-state">No items are available in this area.</div>
+  if (resource.loading && resource.data === null) return <div className="overflow-hidden rounded-xl bg-surface ring-1 ring-line"><LoadingRows label="Loading" /></div>
+  if (resource.error) return <Alert intent="error" title="Couldn’t load this"
+    action={<KButton size="sm" icon={RotateCcw} onClick={resource.reload}>Try again</KButton>}>{resource.error}</Alert>
+  if (!resource.data) return <EmptyState compact icon={Inbox} title="Nothing came back" />
+  if (empty?.(resource.data)) return <EmptyState compact icon={Inbox} title={emptyTitle} />
   return <>
-    {resource.loading && <p className="admin-note" role="status">Refreshing current information…</p>}
+    {resource.loading && <p className="sr-only" role="status">Refreshing…</p>}
     {children(resource.data)}
   </>
 }
 
-export function Status({ value }: { value: string }) {
-  return <span className="admin-status" data-state={value.toLowerCase()}>{label(value)}</span>
+/** Admin statuses the shared map does not know, by the tone that says them. */
+const ADMIN_TONES: Readonly<Record<string, Tone>> = {
+  success: 'success', ready: 'success', available: 'success', ok: 'success', qualified: 'success', approved_new_identity: 'success',
+  linked_existing: 'success', resolved_existing_identity: 'success', coming_soon: 'info', reviewed: 'success',
+  new: 'info', contacted: 'warn', degraded: 'warn', submitted: 'warn', under_review: 'warn', awaiting_authenticator: 'warn',
+  ready_for_review: 'warn', pending_verification: 'warn', pending_reset: 'warn', review_required: 'warn',
+  pending_new_identity_approval: 'warn', retired: 'neutral', hidden: 'neutral', referral: 'violet',
+  failure: 'danger', unavailable: 'danger', locked: 'danger', released: 'danger', deleted: 'neutral', inactive: 'neutral',
+  on: 'success', off: 'neutral',
+}
+export function adminTone(value: string): Tone {
+  return ADMIN_TONES[value.toLowerCase().replace(/[\s-]+/g, '_')] ?? statusTone(value)
+}
+
+/** A status in words, with its tone (never colour alone). `text` replaces the label where the value is a code. */
+export function Status({ value, text }: { value: string; text?: string }) {
+  return <span className="admin-status" data-state={value.toLowerCase()}><Badge size="sm" solid tone={adminTone(value)}>{text ?? label(value)}</Badge></span>
 }
 
 export function Table({ headings, children }: { headings: string[]; children: ReactNode }) {
@@ -103,10 +122,10 @@ export function Pager({ page, pageSize, total, onPage, disabled = false }: {
 }) {
   const pages = Math.max(1, Math.ceil(total / pageSize))
   if (pages <= 1) return null
-  return <nav className="admin-pager" aria-label="Pages">
-    <button type="button" className="admin-secondary" disabled={disabled || page <= 1} onClick={() => onPage(page - 1)}>Previous</button>
+  return <nav className="flex flex-wrap items-center gap-3 text-[13px] text-ink-2" aria-label="Pages">
+    <KButton size="sm" icon={ChevronLeft} disabled={disabled || page <= 1} onClick={() => onPage(page - 1)}>Previous</KButton>
     <span aria-current="page">Page {page} of {pages}</span>
-    <button type="button" className="admin-secondary" disabled={disabled || page >= pages} onClick={() => onPage(page + 1)}>Next</button>
+    <KButton size="sm" iconRight={ChevronRight} disabled={disabled || page >= pages} onClick={() => onPage(page + 1)}>Next</KButton>
   </nav>
 }
 
@@ -158,9 +177,9 @@ export function LoadMore({ pages, label: title }: {
   pages: { hasMore: boolean; loading: boolean; error: string | null; loadMore: () => Promise<void> }; label: string
 }) {
   return <>
-    {pages.error ? <p role="alert" className="admin-error">{pages.error}</p> : null}
-    {pages.hasMore ? <button type="button" className="admin-secondary" onClick={() => void pages.loadMore()}
-      disabled={pages.loading}>{pages.loading ? 'Loading…' : title}</button> : null}
+    {pages.error ? <Alert intent="error" size="sm">{pages.error}</Alert> : null}
+    {pages.hasMore ? <KButton className="self-start" onClick={() => void pages.loadMore()} loading={pages.loading}
+      disabled={pages.loading}>{pages.loading ? 'Loading…' : title}</KButton> : null}
   </>
 }
 
@@ -205,13 +224,14 @@ export function useGovernedSubmit() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  /** `what` names the action for the authenticator check ("suspend Demo Hospital"). */
   async function submit<T>(command: (idempotencyKey: string) => Promise<T>, fallback: string,
-    context?: Readonly<Record<string, string>>): Promise<T | null> {
+    context?: Readonly<Record<string, string>>, what?: string): Promise<T | null> {
     if (busy) return null
     const idempotencyKey = newIdempotencyKey()
     setBusy(true); setError(null)
     try {
-      return await withStepUp(() => command(idempotencyKey))
+      return await withStepUp(() => command(idempotencyKey), what)
     } catch (caught) {
       setError(commandFailure(caught, fallback, context))
       return null
@@ -221,43 +241,129 @@ export function useGovernedSubmit() {
   return { submit, busy, error, setError }
 }
 
-interface Choice { value: string; title: string }
+/** What a confirmation says: the item, what will happen, how to undo it, and the toast once it's done. */
+export interface ConfirmSpec {
+  /** The sheet's title, e.g. "Suspend Demo Hospital?" */
+  title: string
+  /** The item acted on, shown first (a name, a line under it). */
+  subject?: ReactNode
+  /** What will happen, in words: "Everyone at Demo Hospital loses access at once." */
+  effect: ReactNode
+  /** How to undo it, or that it can't be. */
+  undo?: ReactNode
+  confirmLabel: string
+  destructive?: boolean
+  /** The toast once it's done: exactly what changed (from the command's answer, where it says more). */
+  done: string | ((result: unknown) => string)
+  /** For the authenticator check: "suspend Demo Hospital". Defaults to the confirm label. */
+  stepUp?: string
+}
 
-export function ActionForm({ title, options, onSubmit, disabled = false, note }: {
-  title: string; options?: Choice[]; disabled?: boolean; note?: ReactNode
-  onSubmit: (choice: string, reason: string, idempotencyKey: string) => Promise<void>
+/** The item a confirmation acts on: its name and one line under it. */
+export function Subject({ name, detail }: { name: ReactNode; detail?: ReactNode }) {
+  return <div className="rounded-lg bg-subtle px-3.5 py-2.5 ring-1 ring-line">
+    <p className="m-0 text-sm font-semibold text-ink [overflow-wrap:anywhere]">{name}</p>
+    {detail ? <p className="m-0 text-caption text-ink-3 [overflow-wrap:anywhere]">{detail}</p> : null}
+  </div>
+}
+
+const REASON_MIN = 8
+
+/** A drawer's close that waits while a dialog opened from it is showing (its Escape is that dialog's). */
+export function unlessDialogAbove(close: () => void) {
+  return () => { if (!document.querySelector('[role="dialog"][aria-modal="true"]:not(.hid-drawer)')) close() }
+}
+
+/**
+ * The one confirmation for a governed change: a sheet that names the item and the effect and asks for the reason the
+ * audit log keeps. The command runs with one idempotency key per submission, the authenticator check (named after the
+ * action) when the backend asks for it, and ends with a toast that says what changed.
+ */
+export function ReasonConfirm({ open, onClose, spec, onSubmit, children, fallback = 'The change could not be saved. Try again.', problems, ready = true }: {
+  open: boolean; onClose: () => void; spec: ConfirmSpec
+  onSubmit: (reason: string, idempotencyKey: string) => Promise<unknown>
+  children?: ReactNode; fallback?: string; problems?: Readonly<Record<string, string>>; ready?: boolean
 }) {
-  const [choice, setChoice] = useState(options?.[0]?.value ?? '')
   const [reason, setReason] = useState('')
-  const [notice, setNotice] = useState<string | null>(null)
+  // Each refused confirm counts up, so focus moves back to the reason every time.
+  const [refusals, setRefusals] = useState(0)
+  const short = refusals > 0
+  const setShort = (value: boolean) => setRefusals(count => value ? count + 1 : 0)
   const governed = useGovernedSubmit()
+  const toast = useToast()
+  const id = useId()
+  useLayoutEffect(() => { if (refusals > 0) document.getElementById(`${id}-reason`)?.focus() }, [refusals, id])
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (governed.busy || disabled || reason.trim().length < 8 || (options && !choice)) return
-    setNotice(null)
-    const done = await governed.submit(async key => { await onSubmit(choice, reason.trim(), key); return true },
-      'The change could not be saved. Try again.')
-    if (done) {
-      setNotice('Saved. Current information is being refreshed.')
-      setReason('')
-    }
+  function close() { if (governed.busy) return; setReason(''); setShort(false); governed.setError(null); onClose() }
+
+  async function confirm() {
+    if (governed.busy || !ready) return
+    if (reason.trim().length < REASON_MIN) { setShort(true); return }
+    const done = await governed.submit(async key => ({ result: await onSubmit(reason.trim(), key) }), fallback, problems,
+      spec.stepUp ?? spec.confirmLabel.toLowerCase())
+    if (done) { toast.success(typeof spec.done === 'function' ? spec.done(done.result) : spec.done); setReason(''); onClose() }
   }
 
-  return <details className="admin-action">
-    <summary>{title}</summary>
-    <form onSubmit={event => void submit(event)} className="admin-action-form">
+  return <ConfirmSheet open={open} onClose={close} title={spec.title} subject={spec.subject} effect={spec.effect} undo={spec.undo}
+    confirmLabel={spec.confirmLabel} destructive={spec.destructive} busy={governed.busy} onConfirm={() => void confirm()}>
+    {children}
+    <Field label="Reason for this change" htmlFor={`${id}-reason`} hint="Kept in the audit log." errorId={`${id}-error`}
+      error={short ? `Give a reason of at least ${REASON_MIN} characters.` : undefined}>
+      <Textarea id={`${id}-reason`} rows={3} maxLength={500} value={reason} aria-invalid={short || undefined}
+        aria-describedby={short ? `${id}-error` : undefined}
+        onChange={event => { setReason(event.target.value); if (short) setShort(false) }} />
+    </Field>
+    {governed.error && <Alert intent="error" size="sm">{governed.error}</Alert>}
+  </ConfirmSheet>
+}
+
+/** A button that opens a ReasonConfirm. */
+export function ConfirmAction({ label: text, spec, onSubmit, variant = 'secondary', size = 'sm', disabled, fallback, problems, icon, children }: {
+  label: string; spec: ConfirmSpec; onSubmit: (reason: string, idempotencyKey: string) => Promise<unknown>
+  variant?: ButtonVariant; size?: ButtonSize; disabled?: boolean; fallback?: string; problems?: Readonly<Record<string, string>>
+  icon?: Parameters<typeof KButton>[0]['icon']; children?: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return <>
+    <KButton size={size} variant={variant} icon={icon} disabled={disabled} onClick={() => setOpen(true)}>{text}</KButton>
+    <ReasonConfirm open={open} onClose={() => setOpen(false)} spec={spec} onSubmit={onSubmit} fallback={fallback} problems={problems}>{children}</ReasonConfirm>
+  </>
+}
+
+interface Choice { value: string; title: string }
+
+/**
+ * A change with a choice of new value (a provider, a status): a button that opens the confirmation with the choice in
+ * it. `describe` says, for the chosen value, what will happen; without it the sheet says the choice in plain words.
+ */
+export function ActionForm({ title, options, onSubmit, disabled = false, note, subject, describe }: {
+  title: string; options?: Choice[]; disabled?: boolean; note?: ReactNode; subject?: ReactNode
+  describe?: (choice: Choice | undefined) => Partial<ConfirmSpec>
+  onSubmit: (choice: string, reason: string, idempotencyKey: string) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [choice, setChoice] = useState(options?.[0]?.value ?? '')
+  const id = useId()
+  // The options can change under an open sheet (a reload): keep a value that is still offered.
+  const current = options?.find(option => option.value === choice) ?? options?.[0]
+  const custom = describe?.(current) ?? {}
+  const spec: ConfirmSpec = {
+    title, subject,
+    effect: current ? <>The new value will be <strong>{current.title}</strong>.</> : 'This change takes effect at once.',
+    confirmLabel: current ? `Change to ${current.title}` : title,
+    done: current ? `${title}: ${current.title}.` : `${title}: done.`,
+    stepUp: title.toLowerCase(),
+    ...custom,
+  }
+  return <>
+    <KButton size="sm" disabled={disabled} onClick={() => setOpen(true)}>{title}</KButton>
+    <ReasonConfirm open={open} onClose={() => setOpen(false)} spec={spec} ready={!options || Boolean(current)}
+      onSubmit={(reason, key) => onSubmit(current?.value ?? '', reason, key)}>
       {note}
-      {options && <label>New value<select value={choice} onChange={event => setChoice(event.target.value)} required>
-        {options.map(option => <option key={option.value} value={option.value}>{option.title}</option>)}
-      </select></label>}
-      <label>Reason for this change<textarea required minLength={8} maxLength={500} rows={3}
-        value={reason} onChange={event => setReason(event.target.value)} /></label>
-      <button type="submit" className="admin-primary" disabled={governed.busy || disabled || reason.trim().length < 8 || Boolean(options && !choice)}>
-        {governed.busy ? 'Saving…' : 'Confirm change'}
-      </button>
-      {governed.error && <p className="admin-error" role="alert">{governed.error}</p>}
-      {notice && <p className="admin-success" role="status">{notice}</p>}
-    </form>
-  </details>
+      {options && options.length > 1 && <Field label="Change to" htmlFor={`${id}-choice`}>
+        <Select id={`${id}-choice`} value={current?.value ?? ''} onChange={event => setChoice(event.target.value)}>
+          {options.map(option => <option key={option.value} value={option.value}>{option.title}</option>)}
+        </Select></Field>}
+    </ReasonConfirm>
+  </>
 }

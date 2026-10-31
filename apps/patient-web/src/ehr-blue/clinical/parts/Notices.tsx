@@ -3,8 +3,8 @@ import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 /** The design's generic failure line, for an operation whose own message would be technical. */
-export const ACTION_FAILED = 'This action could not be completed. Your saved work is safe. Please retry.'
-export const NO_ACTIONS = 'No further actions for your permission and this record state.'
+export const ACTION_FAILED = 'That didn’t work. What you saved is safe; please try again.'
+export const NO_ACTIONS = 'Nothing more to do here.'
 
 /**
  * The design's Banner: a strong title on its own line, then the message. Info and warning are status regions;
@@ -36,8 +36,8 @@ export function Loading({ label }: { label: string }) {
   return <EhrSkeleton label={label} />
 }
 
-/** A list page's heading: the workspace title and, when allowed, "Create record". */
-export function ListHeading({ title, createHref, createLabel = 'Create record' }: { title: string; createHref?: string; createLabel?: string }) {
+/** A list page's heading: the workspace title and, when allowed, its "New …" button. */
+export function ListHeading({ title, createHref, createLabel = 'New record' }: { title: string; createHref?: string; createLabel?: string }) {
   const navigate = useNavigate()
   return (
     <EhrPageHeading
@@ -82,7 +82,7 @@ export function NoActions() {
 }
 
 /** The design's missing-record page. */
-export function RecordNotFound({ backHref, message = 'The record is missing or outside your authorized hospital / branch.' }: {
+export function RecordNotFound({ backHref, message = 'This record doesn’t exist, or it belongs to another facility.' }: {
   backHref: string
   message?: string
 }) {

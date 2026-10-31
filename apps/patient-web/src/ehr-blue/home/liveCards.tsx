@@ -31,7 +31,7 @@ export function AttentionLines({ activePatient }: { readonly activePatient: Acti
     {read.state === 'ready' ? (
       <li className="hid-ehr-blue-list-item">
         <Link to="/provider/requests" className="hid-ehr-blue-worklink"><strong>{read.pending} pending access request{read.pending === 1 ? '' : 's'}</strong></Link>
-        <span className="hid-ehr-blue-muted">External record access · pending</span>
+        <span className="hid-ehr-blue-muted">Access request · waiting</span>
       </li>
     ) : null}
     {activePatient ? (
