@@ -17,7 +17,7 @@ import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_ID,
 
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), records: vi.fn(), createRecord: vi.fn(), updateRecord: vi.fn(),
-  acceptPrescription: vi.fn(), sendLabRequestToLab: vi.fn(), labReleasedResultsForOrder: vi.fn(),
+  acceptPrescription: vi.fn(), sendLabRequestToLab: vi.fn(), labReleasedResultsForOrder: vi.fn(), reportedHealthProfile: vi.fn(),
 }))
 const routes = vi.hoisted(() => ({ destinations: vi.fn(), attestation: vi.fn(), send: vi.fn(), routes: vi.fn(), withdraw: vi.fn() }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined }))
@@ -88,6 +88,7 @@ beforeEach(() => {
   }))
   api.createRecord.mockResolvedValue(prescription())
   api.updateRecord.mockResolvedValue(prescription())
+  api.reportedHealthProfile.mockResolvedValue(null)
   routes.attestation.mockImplementation(async (_facility: string, kind: string) => kind === 'lab_request'
     ? { kind, version: 'order-route-lab-attestation-v1', text: 'I confirm that {patient} agreed that {orderingFacility} sends this test request to {receivingFacility}.' }
     : { kind, version: 'order-route-prescription-attestation-v1', text: 'I confirm that {patient} agreed that {orderingFacility} sends this prescription to {receivingFacility}.' })
@@ -239,6 +240,153 @@ describe('Connected orders', () => {
     expect(screen.queryByRole('form')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
     expect(api.records).not.toHaveBeenCalled()
+  })
+})
+
+/** Fictional orders past today's 50 to a page: "Test medicine 1" … and "Test 1" … with ids of their own. */
+function manyPrescriptions(from: number, to: number) {
+  return Array.from({ length: to - from + 1 }, (_, index) => prescription({
+    id: `b1000000-0000-4000-8000-${String(from + index).padStart(12, '0')}`, medicationDisplay: `Test medicine ${from + index}`,
+  }))
+}
+
+function manyLabRequests(from: number, to: number) {
+  return Array.from({ length: to - from + 1 }, (_, index) => labRequest({
+    id: `c1000000-0000-4000-8000-${String(from + index).padStart(12, '0')}`, testDisplay: `Test ${from + index}`,
+  }))
+}
+
+type PageAnswer = { items: unknown[]; nextCursor: string | null }
+
+/** Each kind's pages by cursor (none: the first page); a cursor with no page is refused as today's EHR refuses a stale one. */
+function pagedLists(pages: Record<string, Record<string, PageAnswer>>) {
+  api.records.mockImplementation(async (_facility: string, _patient: string, _encounter: string, kind: string, page?: { cursor?: string }) => {
+    const answer = pages[kind]?.[page?.cursor ?? 'first']
+    if (!answer) throw new HidApiError(400, 'The cursor is invalid.', { code: 'INVALID_CURSOR' })
+    return answer
+  })
+}
+
+const RX_PAGES = { first: { items: manyPrescriptions(1, 50), nextCursor: 'rx-page-2' }, 'rx-page-2': { items: manyPrescriptions(51, 53), nextCursor: null } }
+const LAB_PAGES = { first: { items: manyLabRequests(1, 50), nextCursor: 'lab-page-2' }, 'lab-page-2': { items: manyLabRequests(51, 52), nextCursor: null } }
+
+async function pagerOf(list: 'Pharmacy' | 'Laboratory') {
+  const group = await screen.findByRole('group', { name: list })
+  return { group, pager: within(group).getByRole('navigation', { name: 'Record pages' }) }
+}
+
+function pageButton(pager: HTMLElement, name: 'Previous page' | 'Next page') {
+  return within(pager).getByRole('button', { name }) as HTMLButtonElement
+}
+
+describe('Connected orders past 50 (review item 6: pagers past 50)', () => {
+  it('item 6: pages more than 50 prescriptions with Next and Previous, sending today’s cursor', async () => {
+    pagedLists({ prescriptions: RX_PAGES, 'lab-requests': { first: { items: [labRequest()], nextCursor: null } } })
+    open(ENCOUNTER_ID)
+    const { pager } = await pagerOf('Pharmacy')
+    // The lab requests fit on one page: only the prescriptions are paged.
+    expect(screen.getAllByRole('navigation', { name: 'Record pages' })).toHaveLength(1)
+    expect(within(pager).getByText('Page 1')).toBeTruthy()
+    expect(pageButton(pager, 'Previous page').disabled).toBe(true)
+    const list = screen.getByRole('list', { name: 'Orders from this encounter' })
+    expect(within(list).getAllByRole('link', { name: /^Pharmacy · / })).toHaveLength(50)
+    expect(within(list).queryByRole('link', { name: 'Pharmacy · Test medicine 51' })).toBeNull()
+    // Today's first read takes no page argument.
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
+
+    fireEvent.click(pageButton(pager, 'Next page'))
+    expect(await within(pager).findByText('Page 2')).toBeTruthy()
+    expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: 'rx-page-2', fresh: false })
+    const second = screen.getByRole('list', { name: 'Orders from this encounter' })
+    expect(within(second).getAllByRole('link', { name: /^Pharmacy · / }).map(link => link.textContent))
+      .toEqual(['Pharmacy · Test medicine 51', 'Pharmacy · Test medicine 52', 'Pharmacy · Test medicine 53'])
+    expect(within(second).getByRole('link', { name: 'Laboratory · Haemoglobin' })).toBeTruthy()
+    expect(pageButton(pager, 'Next page').disabled).toBe(true)
+    expect(pageButton(pager, 'Previous page').disabled).toBe(false)
+
+    fireEvent.click(pageButton(pager, 'Previous page'))
+    expect(await within(pager).findByText('Page 1')).toBeTruthy()
+    expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: undefined, fresh: false })
+    expect(screen.getByRole('link', { name: 'Pharmacy · Test medicine 1' })).toBeTruthy()
+    // As today, moving between record pages re-checks no access.
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
+  it('item 6: pages more than 50 lab requests with Next and Previous on their own pager, sending today’s cursor', async () => {
+    pagedLists({ prescriptions: RX_PAGES, 'lab-requests': LAB_PAGES })
+    open(ENCOUNTER_ID)
+    const lab = await pagerOf('Laboratory')
+    const rx = await pagerOf('Pharmacy')
+    expect(screen.getAllByRole('navigation', { name: 'Record pages' })).toHaveLength(2)
+    expect(within(screen.getByRole('list', { name: 'Orders from this encounter' })).getAllByRole('link', { name: /^Laboratory · / })).toHaveLength(50)
+
+    fireEvent.click(pageButton(lab.pager, 'Next page'))
+    expect(await within(lab.pager).findByText('Page 2')).toBeTruthy()
+    expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests', { cursor: 'lab-page-2', fresh: false })
+    const list = screen.getByRole('list', { name: 'Orders from this encounter' })
+    expect(within(list).getAllByRole('link', { name: /^Laboratory · / }).map(link => link.textContent))
+      .toEqual(['Laboratory · Test 51', 'Laboratory · Test 52'])
+    // The prescriptions stay on their own first page.
+    expect(within(rx.pager).getByText('Page 1')).toBeTruthy()
+    expect(within(list).getAllByRole('link', { name: /^Pharmacy · / })).toHaveLength(50)
+    expect(pageButton(lab.pager, 'Next page').disabled).toBe(true)
+
+    fireEvent.click(pageButton(lab.pager, 'Previous page'))
+    expect(await within(lab.pager).findByText('Page 1')).toBeTruthy()
+    expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests', { cursor: undefined, fresh: false })
+    expect(screen.getByRole('link', { name: 'Laboratory · Test 1' })).toBeTruthy()
+  })
+
+  it('item 6: starts a list again from the newest, with today’s notice, when EHR no longer accepts its cursor', async () => {
+    // EHR refuses the second page's cursor (400 INVALID_CURSOR): the list is read again from the newest, afresh.
+    pagedLists({ prescriptions: { first: RX_PAGES.first }, 'lab-requests': { first: { items: [labRequest()], nextCursor: null } } })
+    open(ENCOUNTER_ID)
+    const { group, pager } = await pagerOf('Pharmacy')
+    fireEvent.click(pageButton(pager, 'Next page'))
+    const notice = await within(group).findByRole('status')
+    expect(notice.textContent).toBe('This list changed since it was opened, so it shows the newest entries again.')
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: 'rx-page-2', fresh: false })
+    expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: undefined, fresh: true })
+    const shown = within(screen.getByRole('group', { name: 'Pharmacy' })).getByRole('navigation', { name: 'Record pages' })
+    expect(within(shown).getByText('Page 1')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Pharmacy · Test medicine 1' })).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('item 6: says a page that could not be loaded beside its pager, in today’s words, and keeps the page shown', async () => {
+    pagedLists({ prescriptions: RX_PAGES, 'lab-requests': { first: { items: [labRequest()], nextCursor: null } } })
+    open(ENCOUNTER_ID)
+    const { group, pager } = await pagerOf('Pharmacy')
+    api.records.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
+    fireEvent.click(pageButton(pager, 'Next page'))
+    expect((await within(group).findByRole('alert')).textContent).toBe('The page could not be loaded. EHR is unavailable.')
+    expect(within(pager).getByText('Page 1')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Pharmacy · Test medicine 1' })).toBeTruthy()
+    // The next move clears the notice and reads the page.
+    fireEvent.click(pageButton(pager, 'Next page'))
+    expect(await within(pager).findByText('Page 2')).toBeTruthy()
+    expect(within(group).queryByRole('alert')).toBeNull()
+  })
+
+  it('item 6: shows no pager while each list fits on one page', async () => {
+    open(ENCOUNTER_ID)
+    await screen.findByRole('list', { name: 'Orders from this encounter' })
+    expect(screen.queryByRole('navigation', { name: 'Record pages' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Pharmacy' })).toBeNull()
+  })
+
+  it('item 6: opens a prescription past the first 50 from its page, found by the order page’s own search across pages', async () => {
+    pagedLists({ prescriptions: RX_PAGES, 'lab-requests': { first: { items: [labRequest()], nextCursor: null } } })
+    open(ENCOUNTER_ID)
+    const { pager } = await pagerOf('Pharmacy')
+    fireEvent.click(pageButton(pager, 'Next page'))
+    const link = await screen.findByRole('link', { name: 'Pharmacy · Test medicine 52' })
+    expect(link.getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}/orders/pharmacy/b1000000-0000-4000-8000-000000000052`)
+    api.records.mockClear()
+    fireEvent.click(link)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Test medicine 52' })).toBeTruthy()
+    expect(api.records).toHaveBeenNthCalledWith(1, FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
+    expect(api.records).toHaveBeenNthCalledWith(2, FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: 'rx-page-2', fresh: false })
   })
 })
 
@@ -852,6 +1000,202 @@ describe('Sending to another facility, and what it reported', () => {
     expect(await screen.findByText(/^Haemoglobin: Released by Demo Laboratory on .*: 9\.8 g\/dL, flagged low, reference 12\.0-15\.5$/)).toBeTruthy()
     expect(routes.routes).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab_request', LAB)
     expect(screen.getByRole('button', { name: 'Hide details' }).getAttribute('aria-expanded')).toBe('true')
+  })
+})
+
+/** A select's options, as their visible text. */
+function options(label: string) {
+  return Array.from((field(label) as unknown as HTMLSelectElement).options).map(option => option.textContent)
+}
+
+/** The form grid's field labels, in order. */
+function gridLabels() {
+  const grid = document.querySelector('.hid-ehr-clinical-form .hid-ehr-clinical-form-grid')!
+  return Array.from(grid.querySelectorAll(':scope > .hid-ehr-field > label.hid-ehr-label'))
+    .map(label => label.textContent?.replace(/\s*\*$/, '').trim())
+}
+
+const ALLERGIES = 'Recorded allergies: Penicillin (patient-reported: entered by the patient in their Health ID portal, not clinically verified).'
+const NONE_RECORDED = 'Recorded allergies: None recorded. Confirm with the patient.'
+const NOT_LOADED = 'Recorded allergies: what the patient entered about their health could not be loaded. Confirm with the patient.'
+
+describe('Hand-off 06: the design’s "Patient *" and "Encounter *" on New laboratory and New pharmacy', () => {
+  it.each([
+    ['laboratory', 'New laboratory'],
+    ['pharmacy', 'New pharmacy'],
+  ] as const)('06: New %s holds only the open patient and this encounter, both chosen', async (kind, title) => {
+    open(`${ENCOUNTER_ID}/orders/new/${kind}`)
+    expect(await screen.findByRole('heading', { level: 1, name: title })).toBeTruthy()
+    const patient = field('Patient') as unknown as HTMLSelectElement
+    expect(patient.tagName).toBe('SELECT')
+    expect(patient.required).toBe(true)
+    expect(options('Patient')).toEqual(['Patient One · HID-ZDEMAAA2'])
+    expect(patient.selectedOptions[0]!.textContent).toBe('Patient One · HID-ZDEMAAA2')
+    const encounter = field('Encounter') as unknown as HTMLSelectElement
+    expect(encounter.tagName).toBe('SELECT')
+    expect(encounter.required).toBe(true)
+    // The design's ref select: "Select…", then the one encounter it may name (its short reference).
+    expect(options('Encounter')).toEqual(['Select…', 'e0000000'])
+    expect(encounter.value).toBe(ENCOUNTER_ID)
+    // "Patient *" above the form, "Encounter *" first in its grid (beside the first of today's fields).
+    expect(patient.closest('form')).toBeNull()
+    expect(gridLabels()[0]).toBe('Encounter')
+    expect(gridLabels()[1]).toBe(kind === 'laboratory' ? 'Test code system' : 'Medication')
+    // The old block's "Encounter e0000000" line is gone; the address names record ids only.
+    expect(screen.queryByText('Encounter e0000000')).toBeNull()
+    expect(document.title).not.toContain('Patient One')
+  })
+
+  it('06: New laboratory draws no "Patient context" (the design draws one only for consult, triage and pharmacy) and reads no allergies', async () => {
+    staff.permissions = [...READ_WRITE, 'ehr.note.read']
+    open(`${ENCOUNTER_ID}/orders/new/laboratory`)
+    await screen.findByRole('button', { name: 'Save record' })
+    expect(screen.queryByRole('heading', { name: 'Patient context' })).toBeNull()
+    await act(async () => {})
+    expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+  })
+
+  it('06: the lab request is raised on the encounter in the address, and the field is never sent', async () => {
+    api.createRecord.mockResolvedValue(labRequest())
+    open(`${ENCOUNTER_ID}/orders/new/laboratory`)
+    const save = await screen.findByRole('button', { name: 'Save record' })
+    change('Test code system', 'LOINC')
+    change('Test code', '718-7')
+    change('Test display', 'Haemoglobin')
+    fireEvent.click(save)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Haemoglobin' })).toBeTruthy()
+    expect(api.createRecord).toHaveBeenCalledTimes(1)
+    const [facilityId, patientId, encounterId, kind, body] = api.createRecord.mock.calls[0]!
+    expect([facilityId, patientId, encounterId, kind]).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests'])
+    expect(Object.keys(body as object)).not.toContain('encounter')
+    expect(Object.keys(body as object)).not.toContain('patient')
+  })
+
+  it('06: a blank "Encounter *" is the design’s "Complete this field.", focused, and nothing is sent; chosen again, it saves (keyboard: Enter submits)', async () => {
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    await screen.findByRole('button', { name: 'Save record' })
+    fireEvent.change(field('Encounter'), { target: { value: '' } })
+    change('Medication', 'Amoxicillin')
+    change('Frequency', 'Twice daily')
+    change('Instructions', 'After meals')
+    field('Instructions').focus()
+    await act(async () => { fireEvent.submit(field('Instructions').closest('form')!) })
+    expect(document.activeElement).toBe(field('Encounter'))
+    expect(field('Encounter').getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getAllByText('Complete this field.')).toHaveLength(1)
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+    expect(api.createRecord).not.toHaveBeenCalled()
+    fireEvent.change(field('Encounter'), { target: { value: ENCOUNTER_ID } })
+    expect(field('Encounter').getAttribute('aria-invalid')).toBeNull()
+    await act(async () => { fireEvent.submit(field('Instructions').closest('form')!) })
+    expect(await screen.findByRole('heading', { level: 1, name: 'Amoxicillin' })).toBeTruthy()
+    expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', expect.not.objectContaining({ encounter: expect.anything() }), expect.any(String))
+  })
+
+  it('06: the same values sent again after no answer are the same create (one Idempotency-Key), with the encounter shown', async () => {
+    open(`${ENCOUNTER_ID}/orders/new/laboratory`)
+    const save = await screen.findByRole('button', { name: 'Save record' })
+    change('Test code system', 'LOINC')
+    change('Test code', '718-7')
+    change('Test display', 'Haemoglobin')
+    api.createRecord.mockRejectedValueOnce(new Error('Network error'))
+    fireEvent.click(save)
+    expect((await screen.findByRole('alert')).textContent).toBe('Network error')
+    api.createRecord.mockResolvedValueOnce(labRequest())
+    fireEvent.click(screen.getByRole('button', { name: 'Save record' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Haemoglobin' })).toBeTruthy()
+    expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
+  })
+
+  it('06: after a save the page cannot name, the form starts again with this encounter still chosen', async () => {
+    api.createRecord.mockResolvedValue({})
+    open(`${ENCOUNTER_ID}/orders/new/laboratory`)
+    const save = await screen.findByRole('button', { name: 'Save record' })
+    change('Test code system', 'LOINC')
+    change('Test code', '718-7')
+    change('Test display', 'Haemoglobin')
+    fireEvent.click(save)
+    expect(await screen.findByText('Clinical record saved by the backend.')).toBeTruthy()
+    expect((field('Encounter') as unknown as HTMLSelectElement).value).toBe(ENCOUNTER_ID)
+    expect(field('Test code').value).toBe('')
+  })
+
+  it('06: New pharmacy keeps the design’s "Patient context": the name, then nothing while its allergy read runs', async () => {
+    staff.permissions = [...READ_WRITE, 'ehr.note.read']
+    let answer: (value: unknown) => void = () => {}
+    api.reportedHealthProfile.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    const context = (await screen.findByRole('heading', { level: 2, name: 'Patient context' })).closest('section')!
+    expect(within(context).getByText('Patient One')).toBeTruthy()
+    expect(within(context).queryByText(/^Recorded allergies/)).toBeNull()
+    expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
+    await act(async () => { answer({ allergies: 'Penicillin', bloodGroup: null, genotype: null, currentMedications: null, chronicConditions: null, medicalNotes: null, updatedAt: null }) })
+    expect(within(context).getByText(ALLERGIES)).toBeTruthy()
+    // Patient context comes between "Patient *" and the form.
+    const patient = field('Patient')
+    expect(patient.compareDocumentPosition(context) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(context.compareDocumentPosition(field('Encounter')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it.each([
+    ['an answer with no allergies', () => api.reportedHealthProfile.mockResolvedValue({ allergies: null }), NONE_RECORDED],
+    ['no profile', () => api.reportedHealthProfile.mockResolvedValue(null), NONE_RECORDED],
+    ['an outage (503)', () => api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })), NOT_LOADED],
+  ])('06: New pharmacy’s Patient context after %s says today’s sentence', async (_label, arrange, sentence) => {
+    staff.permissions = [...READ_WRITE, 'ehr.note.read']
+    arrange()
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    const context = (await screen.findByRole('heading', { level: 2, name: 'Patient context' })).closest('section')!
+    expect(await within(context).findByText(sentence)).toBeTruthy()
+  })
+
+  it.each([
+    ['a refusal (403)', new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' })],
+    ['a route EHR does not serve (404)', new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' })],
+  ])('06: New pharmacy’s Patient context says nothing of allergies after %s', async (_label, refusal) => {
+    staff.permissions = [...READ_WRITE, 'ehr.note.read']
+    api.reportedHealthProfile.mockRejectedValue(refusal)
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    const context = (await screen.findByRole('heading', { level: 2, name: 'Patient context' })).closest('section')!
+    await waitFor(() => expect(api.reportedHealthProfile).toHaveBeenCalled())
+    await act(async () => {})
+    expect(within(context).queryByText(/^Recorded allergies/)).toBeNull()
+    expect(within(context).getByText('Patient One')).toBeTruthy()
+  })
+
+  it('06: New pharmacy reads no allergies without ehr.note.read, as today’s chart', async () => {
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    const context = (await screen.findByRole('heading', { level: 2, name: 'Patient context' })).closest('section')!
+    await act(async () => {})
+    expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+    expect(within(context).queryByText(/^Recorded allergies/)).toBeNull()
+  })
+
+  it('06: no select or context shows without the write permission, under read-only access or for an emergency patient', async () => {
+    staff.permissions = ['ehr.encounter.read', 'ehr.lab-request.read']
+    const refused = open(`${ENCOUNTER_ID}/orders/new/laboratory`)
+    expect(await screen.findByText('You do not have permission to create this record.')).toBeTruthy()
+    expect(screen.queryByLabelText(labelled('Patient'))).toBeNull()
+    refused.unmount()
+    staff.permissions = [...READ_WRITE]
+    api.consentStatus.mockResolvedValue({ writeAllowed: false })
+    const readOnly = open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    expect(await screen.findByText(READ_ONLY)).toBeTruthy()
+    expect(screen.queryByLabelText(labelled('Encounter'))).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Patient context' })).toBeNull()
+    readOnly.unmount()
+    staff.activePatient = activePatient('emergency')
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    expect(await screen.findByText('Emergency access is read-only')).toBeTruthy()
+    expect(screen.queryByLabelText(labelled('Patient'))).toBeNull()
+    expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+  })
+
+  it('06: shows "Checking write access…" while the grant is asked about, with no select yet', async () => {
+    api.consentStatus.mockReturnValue(new Promise(() => {}))
+    open(`${ENCOUNTER_ID}/orders/new/laboratory`)
+    expect(await screen.findByText('Checking write access…')).toBeTruthy()
+    expect(screen.queryByLabelText(labelled('Patient'))).toBeNull()
   })
 })
 

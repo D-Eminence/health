@@ -3,6 +3,10 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type * as AppModule from './App'
 
+// Today's workspace at every facility, as real clinics have it until the clinic switch (ehr-blue/clinicSwitch.ts):
+// these tests cover the classic portal whatever BLUE_FOR_ALL is. The blue one is EhrBlueAtClinics.test.tsx's.
+vi.mock('../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: false }))
+
 /**
  * Staff sign-in in two steps (hid-system #71, ADR-054, 0088). The password step
  * answers with the second step Identity asks for and only an httpOnly challenge

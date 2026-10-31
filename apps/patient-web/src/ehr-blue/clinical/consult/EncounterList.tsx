@@ -1,7 +1,7 @@
 import { EhrButton, EhrCard, EhrPageHeading } from '@hid/ui/ehr'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { staffApi, type Encounter } from '../../../staff/api'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { staffApi, type Encounter, type OrderRouteKind } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
 import { formatWhen, statusLabel } from '../parts/format'
@@ -11,10 +11,17 @@ import { useWorkspaceHref } from '../parts/Workspace'
 import {
   FIRST_PAGE, NO_COMPLAINT, NO_ENCOUNTERS, RESTARTED, TITLE, encounterTitle, encounterTypeLabel, readPage, useLatest, type Cursors,
 } from './encounters'
+import { orderPath, type OrderKind } from './orders'
+import { TodaySections } from './TodaySections'
 
-/** The list page: the design's heading and table, or the chart's own state (no patient, access ended, emergency). */
+/**
+ * The list page: the design's heading and table, or the chart's own state (no patient, access ended, emergency). An
+ * order Home links to (today's `location.state.order`) opens that order's page instead.
+ */
 export function EncounterList() {
   const chart = useChart()
+  const linked = useLinkedOrder(chart)
+  if (linked) return <OpenLinkedOrder to={linked} />
   if (chart && chart.purpose === 'direct-care') return <Encounters chart={chart} />
   return (
     <>
@@ -22,6 +29,37 @@ export function EncounterList() {
       <ChartGate>{open => <Encounters chart={open} />}</ChartGate>
     </>
   )
+}
+
+/** Today's order kinds (the link's `kind`, staff/api OrderRouteKind) as this workspace's order pages name them. */
+const LINKED_KINDS: Readonly<Record<OrderRouteKind, OrderKind>> = { prescription: 'pharmacy', lab_request: 'laboratory' }
+
+function isRecordId(value: unknown): value is string {
+  return typeof value === 'string' && value !== '' && !value.includes('/')
+}
+
+/**
+ * The order Home's "Orders accepted for the wrong person" links to: today's `location.state.order` ({ patientId,
+ * encounterId, kind: 'lab_request' | 'prescription', orderId }, staff/routes/Clinical.tsx linkedOrder). Its page's
+ * address, only for direct care and the patient open now, as today; any other link is ignored.
+ */
+function useLinkedOrder(chart: Chart | null): string | null {
+  const state: unknown = useLocation().state
+  const href = useWorkspaceHref()
+  if (!chart || chart.purpose !== 'direct-care') return null
+  const value = state && typeof state === 'object' ? (state as { order?: unknown }).order : null
+  if (!value || typeof value !== 'object') return null
+  const { patientId, encounterId, kind, orderId } = value as Record<string, unknown>
+  if (patientId !== chart.patientId || !isRecordId(encounterId) || !isRecordId(orderId)) return null
+  if (kind !== 'lab_request' && kind !== 'prescription') return null
+  return href(orderPath(encounterId, LINKED_KINDS[kind], orderId))
+}
+
+/** Opens the linked order in place of the list (replace: the link's state is not kept, and the address holds record ids only). */
+function OpenLinkedOrder({ to }: { to: string }) {
+  const navigate = useNavigate()
+  useEffect(() => { navigate(to, { replace: true }) }, [navigate, to])
+  return <ListHeading title={TITLE} />
 }
 
 type Notice = { readonly text: string; readonly alert: boolean }
@@ -131,6 +169,8 @@ function Encounters({ chart }: { chart: Chart }) {
           />
         )}
       </EhrCard>
+      {/* Today's chart sections, as on today's Clinical page: shown with or without an encounter here (direct care only). */}
+      <TodaySections chart={chart} />
     </>
   )
 }

@@ -5,7 +5,7 @@
  * src/catalog.ts:1320-1442 (clinical, administration and permissions()), unchanged but for the types.
  */
 
-export const ROLE_TEMPLATES = ['Hospital Owner', 'Medical Director', 'Hospital Admin', 'Consultant', 'Doctor', 'Nurse',
+export const ROLE_TEMPLATES = ['Facility Owner', 'Medical Director', 'Facility Admin', 'Consultant', 'Doctor', 'Nurse',
   'Receptionist', 'Records Officer', 'Lab Manager', 'Lab Scientist', 'Pharmacy Manager', 'Pharmacist', 'Billing Officer',
   'Cashier', 'Radiology Reporter'] as const
 
@@ -23,11 +23,11 @@ export function templateScopes(role: RoleTemplate): string[] {
   const is = (...roles: readonly RoleTemplate[]) => roles.includes(role)
   if (is('Nurse', 'Doctor', 'Consultant', 'Medical Director')) grant(['nursing-tasks'], ['view', 'create', 'edit', 'assign'])
   const manage = ['view', 'create', 'edit', 'assign', 'approve', 'export']
-  if (is('Hospital Owner', 'Hospital Admin', 'Billing Officer')) grant(['subscription'], ['view', 'edit'])
-  if (is('Hospital Owner', 'Hospital Admin')) grant(['facility'], ['view', 'edit'])
-  if (is('Hospital Owner', 'Hospital Admin')) {
+  if (is('Facility Owner', 'Facility Admin', 'Billing Officer')) grant(['subscription'], ['view', 'edit'])
+  if (is('Facility Owner', 'Facility Admin')) grant(['facility'], ['view', 'edit'])
+  if (is('Facility Owner', 'Facility Admin')) {
     grant(['setup', 'staff', 'reports', 'audit', ...ADMINISTRATION], manage)
-    grant(['billing', 'insurance', 'policies'], role === 'Hospital Owner' ? [...manage, 'refund', 'collect-payment'] : ['view'])
+    grant(['billing', 'insurance', 'policies'], role === 'Facility Owner' ? [...manage, 'refund', 'collect-payment'] : ['view'])
   }
   if (is('Doctor', 'Consultant', 'Medical Director')) {
     grant(CLINICAL, ['view', 'create', 'edit', 'assign', 'sign', 'export', 'request-external', 'emergency'])
