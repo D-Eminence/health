@@ -9,8 +9,8 @@ import { usesNovuBackend } from '../../backendContract'
 import { isDemoFacility } from '../blueFacilities'
 import { useAccessRequests, useReloadAccessRequests } from './attention'
 import { DEMO_ROLES, useRoleView } from './roleView'
-import { modulePath } from './sample/paths'
 import { sampleModule, sampleRecords } from './sample/store'
+import { useSampleHref } from './pageContext'
 import { pageHrefOf } from './pageHref'
 import type { EhrBluePage } from './types'
 
@@ -69,6 +69,9 @@ export function NotificationsButton() {
   const navigate = useNavigate()
   const read = useAccessRequests()
   const reload = useReloadAccessRequests()
+  // Sample activity links only into a sample this session may open: a workspace closed to the role would send them
+  // Home, and a live page at the module's address would not find a sample record.
+  const hrefOf = useSampleHref()
   const pending = read.state === 'ready' ? read.pending : 0
   return <>
     <EhrButton variant="secondary" icon={<EhrIcon name="bell" />} onClick={() => { setOpen(true); reload() }}
@@ -92,11 +95,12 @@ export function NotificationsButton() {
         {SAMPLE_ACTIVITY.map(moduleId => {
           const module = sampleModule(moduleId)
           const record = sampleRecords(moduleId)[0]
-          if (!module || !record) return null
+          const href = hrefOf(moduleId)
+          if (!module || !record || href === null) return null
           return <li key={moduleId} className="hid-ehr-blue-list-item hid-ehr-blue-notification">
             <span>{module.title} record created</span>
             <EhrButton variant="secondary" size="sm" aria-label={`Open ${module.title} record`}
-              onClick={() => { setOpen(false); navigate(`${modulePath(moduleId)}/${record.id}`) }}>Open record</EhrButton>
+              onClick={() => { setOpen(false); navigate(`${href}/${record.id}`) }}>Open record</EhrButton>
           </li>
         })}
       </ul>

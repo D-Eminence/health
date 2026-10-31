@@ -104,7 +104,7 @@ export function BlueFrame() {
     ? pageAllowed(match.page, session, viewing) || todayRefuses
       ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
       : match.page.refusal ?? (shownHere
-        ? <Navigate replace to="/provider" state={{ notice: DENIED_NOTICE }} />
+        ? <Navigate replace to="/provider" state={{ frameNotice: DENIED_NOTICE }} />
         : <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'} />)
     : isLiveOnlyPath(location.pathname) ? <LivePage /> : <Navigate replace to="/provider" />
 

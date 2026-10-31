@@ -20,7 +20,7 @@ const api = vi.hoisted(() => ({
   acceptPrescription: vi.fn(), sendLabRequestToLab: vi.fn(), labReleasedResultsForOrder: vi.fn(),
 }))
 const routes = vi.hoisted(() => ({ destinations: vi.fn(), attestation: vi.fn(), send: vi.fn(), routes: vi.fn(), withdraw: vi.fn() }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined }))
+const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined, roles: undefined as string[] | undefined }))
 
 vi.mock('../../../staff/api', async () => ({
   staffApi: api,
@@ -74,6 +74,7 @@ function setLists(prescriptions: unknown[], labs: unknown[], extra: Record<strin
 
 beforeEach(() => {
   staff.facilityId = undefined
+  staff.roles = undefined
   vi.clearAllMocks()
   forgetWrongPatientServed()
   forgetLateCorrectionServed()
@@ -180,6 +181,16 @@ describe('Connected orders', () => {
     for (const link of screen.queryAllByRole('link')) {
       expect(link.getAttribute('href') ?? '').not.toMatch(/^\/provider\/(radiology|referrals)(\/|$)/)
     }
+  })
+
+  it('offers a demo facility\'s administrator no radiology or referral step: the design gives the role neither sample', async () => {
+    staff.facilityId = DEMO_HOSPITAL_ID
+    staff.roles = ['org_admin']
+    open(ENCOUNTER_ID)
+    expect(await screen.findByRole('button', { name: 'Create pharmacy record' })).toBeTruthy()
+    await screen.findByRole('list', { name: 'Orders from this encounter' })
+    expect(screen.queryByRole('button', { name: 'Create radiology record' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Create referral network record' })).toBeNull()
   })
 
   it('opens the pharmacy and laboratory create pages', async () => {

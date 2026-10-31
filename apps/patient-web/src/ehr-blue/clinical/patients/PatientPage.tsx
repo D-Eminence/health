@@ -11,6 +11,7 @@ import { Banner, ErrorBox, Loading, NoActions, RecordHeading } from '../parts/No
 import { PatientHeader, type PatientFacts } from '../parts/PatientHeader'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isDemoFacility } from '../../blueFacilities'
+import { useSampleCan } from '../../frame/sampleAccess'
 import { CLOSE_GRANT, CLOSE_REASON, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
 import type { ActivePatient } from '../../../staff/App'
 
@@ -54,6 +55,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
   const { facility, permissions, can, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
+  const sampleCan = useSampleCan()
   const [error, setError] = useState('')
   const emergency = chart.purpose === 'emergency'
   const grantId = chart.patient.lookup.authorization.consentGrantId ?? null
@@ -113,11 +115,12 @@ function PatientRecord({ chart }: { chart: Chart }) {
           ) : (
             <>
               {/* Appointments and patient visits are samples: offered only at the demo facilities. Today's Patients
-                  page offers no registration, so a real facility gets neither step. */}
+                  page offers no registration, so a real facility gets neither step. Each shows only to a design role
+                  that may create there (sampleAccess.ts): a role the sample is closed to would land on Home instead. */}
               {isDemoFacility(chart.facilityId) ? (
                 <>
-                  <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('appointments'))}>Open appointments</EhrButton></Step>
-                  <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('journey', 'new'))}>Register walk-in visit</EhrButton></Step>
+                  {sampleCan('appointments', 'create') ? <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('appointments'))}>Open appointments</EhrButton></Step> : null}
+                  {sampleCan('journey', 'create') ? <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('journey', 'new'))}>Register walk-in visit</EhrButton></Step> : null}
                 </>
               ) : null}
               <Step><EhrButton variant="secondary" onClick={openConsent}>Open consent</EhrButton></Step>

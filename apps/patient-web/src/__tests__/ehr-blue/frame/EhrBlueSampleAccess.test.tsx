@@ -149,6 +149,15 @@ describe('Home in place of a refused or unknown page', () => {
     expect(window.sessionStorage.length).toBe(0)
   })
 
+  it('leaves a page\'s own notice to the page: Patients\' "closed" after Close my grant shows no frame notice', async () => {
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.patient.read'])
+    serve({ [SESSION]: [sessionAt(demo, [demo])] })
+    await openStaffApp({ pathname: '/provider/patients', state: { notice: 'closed' } })
+    await screen.findByRole('navigation', { name: 'Main navigation' })
+    expect(where()).toBe('/provider/patients')
+    expect(document.querySelector('.hid-ehr-blue-notice')).toBeNull()
+  })
+
   it('opens Home for an address that is no page, without the notice', async () => {
     await openAs(['receptionist'], '/provider/not-a-page')
     await waitFor(() => expect(where()).toBe('/provider'))
