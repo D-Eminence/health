@@ -1159,7 +1159,8 @@ describe('Hand-off 06: the design’s "Patient *" and "Encounter *" on New labor
     const context = (await screen.findByRole('heading', { level: 2, name: 'Patient context' })).closest('section')!
     expect(within(context).getByText('Patient One')).toBeTruthy()
     expect(within(context).queryByText(/^Recorded allergies/)).toBeNull()
-    expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
+    // The read starts in an effect after the card is drawn: wait for it to be asked for before answering it.
+    await waitFor(() => expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal)))
     await act(async () => { answer({ allergies: 'Penicillin', bloodGroup: null, genotype: null, currentMedications: null, chronicConditions: null, medicalNotes: null, updatedAt: null }) })
     expect(within(context).getByText(ALLERGIES)).toBeTruthy()
     // Patient context comes between "Patient *" and the form.
