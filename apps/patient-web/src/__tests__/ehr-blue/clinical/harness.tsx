@@ -48,12 +48,18 @@ export interface StaffMock {
   setActivePatient: Mock
   /** The working facility's id; FACILITY_ID unless a test needs another (a demo facility, for example). */
   facilityId?: string
+  /**
+   * The staff roles at the working facility; ['doctor'] unless a test needs others. Sample pages read them through the
+   * design's role mapping (frame/sampleAccess.ts: doctor works as the design's Doctor, receptionist as Receptionist…).
+   */
+  roles?: readonly string[]
 }
 
 /** Demo Hospital, one of the sealed demo tenant's four facilities (ehr-blue/blueFacilities.ts). */
 export const DEMO_HOSPITAL_ID = '98d00002-0000-4000-8000-000000000001'
 
 export function staffValue(staff: StaffMock) {
+  const roles = [...(staff.roles ?? ['doctor'])]
   return {
     state: {
       status: 'ready' as const,
@@ -61,10 +67,10 @@ export function staffValue(staff: StaffMock) {
         actor: {
           id: 'staff-1',
           displayName: 'Demo Clinician',
-          roles: ['doctor'],
+          roles,
           permissions: staff.permissions,
           facilities: [],
-          facility: { id: staff.facilityId ?? FACILITY_ID, membershipId: 'member-1', organizationId: 'org-1', name: FACILITY_NAME, roles: ['doctor'], permissions: staff.permissions, isPrimary: true },
+          facility: { id: staff.facilityId ?? FACILITY_ID, membershipId: 'member-1', organizationId: 'org-1', name: FACILITY_NAME, roles, permissions: staff.permissions, isPrimary: true },
         },
       },
     },

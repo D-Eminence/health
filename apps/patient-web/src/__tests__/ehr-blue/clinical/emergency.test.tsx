@@ -20,7 +20,10 @@ const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), breakGlass: vi.fn(), closeGrant: vi.fn(), emergencyRecords: vi.fn(),
   labReleasedResultsForOrder: vi.fn(),
 }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined }))
+const staff = vi.hoisted(() => ({
+  permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined,
+  roles: undefined as string[] | undefined,
+}))
 const session = vi.hoisted(() => ({
   staffSessionGeneration: vi.fn(() => 7), untilStaffSessionReady: vi.fn(async (_sentIn: number) => {}),
   staffSessionSignal: vi.fn(() => new AbortController().signal),
@@ -57,6 +60,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   dropOfferedHealthId()
   staff.facilityId = undefined
+  staff.roles = undefined
   staff.permissions = [...EMERGENCY_PERMISSIONS]
   staff.activePatient = null
   staff.setActivePatient.mockImplementation(value => { staff.activePatient = value; return true })
@@ -124,6 +128,22 @@ describe('the Emergency page', () => {
     expect(screen.queryByText(NO_MATCHING)).toBeNull()
     expect(screen.queryByText(BEFORE)).toBeNull()
     expect(document.querySelectorAll('.hid-ehr-card')).toHaveLength(0)
+  })
+
+  it('audit 16: at a demo facility, the board’s Create record follows the design’s roles (a Doctor’s, not a Nurse’s); the live page is unchanged', () => {
+    staff.facilityId = DEMO_HOSPITAL_ID
+    const doctor = open()
+    expect(screen.getByRole('button', { name: 'Create record' })).toBeTruthy()
+    doctor.unmount()
+    // The design gives a Nurse no Emergency module: no sample record to create, but the same live page and board.
+    staff.roles = ['nurse']
+    const nurse = open()
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(screen.getByTestId('sample-list').textContent).toBe('emergency')
+    nurse.unmount()
+    open('/break-glass')
+    expect(screen.getByRole('button', { name: 'Record emergency access' })).toBeTruthy()
   })
 
   it('audit 7: the break-glass page has its own heading and Back to list, with the design’s form', () => {

@@ -6,6 +6,7 @@ import { isDemoFacility } from '../../blueFacilities'
 import { ListHeading, RecordNotFound } from '../parts/Notices'
 import { RecordTable } from '../parts/RecordTable'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
+import { useSampleAccess } from '../sample/access'
 import { SampleCreate, SampleDetail, SampleList } from '../sample/SampleWorkspace'
 import { NOTICE_BEFORE } from './access'
 import { BreakGlassPage, CurrentEmergency } from './BreakGlass'
@@ -28,15 +29,17 @@ function useDemoFacility() {
  * board; at a real facility it is an empty list whose one action opens the break-glass page. Its empty state says what
  * the design's empty list says ("No matching records"), never that there is no emergency access, since an open
  * emergency patient's way back to their summary shows above it (as today's Patients page shows it), and today's words
- * for when emergency access is used.
+ * for when emergency access is used. The board's "Create record" makes a sample record, so it follows the design's role
+ * mapping (audit item 16); the page itself keeps its live permission.
  */
 function EmergencyHome() {
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   const demo = useDemoFacility()
+  const can = useSampleAccess()
   return (
     <>
-      <ListHeading title="Emergency" createHref={demo ? href('new') : undefined} />
+      <ListHeading title="Emergency" createHref={demo && can('emergency', 'create') ? href('new') : undefined} />
       <CurrentEmergency />
       {demo ? <SampleList id="emergency" /> : (
         <EhrCard className="hid-ehr-clinical-emergency-list">
