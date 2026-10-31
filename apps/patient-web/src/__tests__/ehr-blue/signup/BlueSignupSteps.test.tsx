@@ -288,9 +288,9 @@ describe('step 5, Agreements', () => {
     await toReview()
     fireEvent.click(screen.getByText('Read the agreements'))
     expect(screen.getByRole('link', { name: 'Health ID Terms of Service' }).getAttribute('href'))
-      .toBe('/terms')
+      .toBe('https://healthidentitydirectory.com/terms')
     expect(screen.getByRole('link', { name: 'Health ID Privacy Policy' }).getAttribute('href'))
-      .toBe('/privacy')
+      .toBe('https://healthidentitydirectory.com/privacy')
     // Nothing on the page says that the ticks are recorded: Health ID does not record them yet.
     expect(document.body.textContent).not.toMatch(/record(ed)? (your|the) (agreement|acceptance)|we keep a record/i)
     // Health ID has no Data Processing Agreement: no box and no paragraph name one.
