@@ -2,16 +2,22 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Route, Routes } from 'react-router-dom'
 import { useSiblingPages } from '../../../../ehr-blue/departments/parts/sample/navigation'
+import type { DemoRole } from '../../../../ehr-blue/frame/roleView'
+import { ambulanceSample, qualitySample, servicesSample, shiftsSample, vehiclesSample } from '../../../../ehr-blue/departments/sample/admin'
+import { billingSample, insuranceSample, policiesSample } from '../../../../ehr-blue/departments/sample/finance'
 import { samplePages } from '../../../../ehr-blue/departments/sample/pages'
+import { inventorySample, procurementSample } from '../../../../ehr-blue/departments/sample/supply'
 import { renderDept } from '../harness'
 import {
   actionButtons, guardBrowser, heading, noticeUnderHeading, renderSample, SAMPLE_TEXT, savedFacts, statusBadge, where,
 } from './sampleHarness'
 import { dateText } from '../../../../ehr-blue/departments/parts/format'
+import { viewAs } from './sampleViewer'
 
 /*
  * The sample workspaces' engine (parts/sample), through real definitions: the design's list, create form, record
- * view, actions, Quick view and links to the pages beside them, all in the page's memory. All data is fictional.
+ * view, actions, Quick view and links to the pages beside them, all in the page's memory, and what the viewer's design
+ * role may do there. All data is fictional.
  */
 
 const touched = vi.hoisted(() => [] as string[])
@@ -21,6 +27,8 @@ vi.mock('../../../../staff/api', () => ({
 vi.mock('../../../../staff/App', () => ({
   useStaff: () => { touched.push('useStaff'); throw new Error('A sample page must not read the staff session.') },
 }))
+// The design's role check (useSampleCan) answers for the roles viewAs sets: a Hospital Owner unless a test says otherwise.
+vi.mock('../../../../ehr-blue/frame/sampleAccess', async importOriginal => (await import('./sampleViewer')).sampleAccessAsViewer(importOriginal))
 
 guardBrowser()
 afterEach(() => {
@@ -409,6 +417,128 @@ describe('the record view', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
     expect(where()).toBe('/ehr/patient-billing')
+  })
+})
+
+describe('the viewer\'s design permission', () => {
+  const NONE = 'No further actions for your permission and this record state.'
+
+  it('names each action\'s verb as the design\'s catalogue does, and asks for edit where it names none', () => {
+    const definitions = [
+      billingSample, insuranceSample, policiesSample, servicesSample, inventorySample, procurementSample, qualitySample, shiftsSample,
+      ambulanceSample, vehiclesSample,
+    ]
+    expect(Object.fromEntries(definitions.map(definition => [definition.id, definition.actions.map(action => `${action.id}:${action.permission}`)])))
+      .toEqual({
+        billing: ['issue:approve', 'pay:collect-payment', 'refund:refund', 'void:approve'],
+        insurance: ['submit:create', 'approve:approve', 'reject:approve', 'settle:collect-payment'],
+        policies: [],
+        services: [],
+        inventory: ['receive:edit', 'adjust:edit', 'transfer:assign'],
+        procurement: ['approve:approve', 'order:create', 'receive:edit'],
+        quality: ['assign:assign', 'investigate:edit', 'resolve:approve'],
+        shifts: ['clockin:edit', 'clockout:edit'],
+        ambulance: ['dispatch:assign', 'complete:edit', 'cancel:edit'],
+        // The design's catalogue names no verb for these two; its record view asks for edit.
+        vehicles: ['maintenance:edit', 'release:edit'],
+      })
+  })
+
+  it('offers a role the design lets act every action the record\'s status allows', () => {
+    renderSample('patient-billing')
+    openRecord('DEMO-1')
+    expect(actionButtons().map(button => button.textContent)).toEqual(['Record simulated payment', 'Refund payment'])
+    expect(screen.queryByText(NONE)).toBeNull()
+  })
+
+  it('shows the design\'s Billing Officer no action on DEMO-1, as billing-3-detail1 does', () => {
+    viewAs('Billing Officer')
+    renderSample('patient-billing')
+    openRecord('DEMO-1')
+    expect(statusBadge()).toBe('partial')
+    expect(actionButtons()).toHaveLength(0)
+    const card = screen.getByRole('heading', { name: 'Available actions' }).closest('section')!
+    expect(within(card).getByText(NONE).tagName).toBe('P')
+    expect(within(card).queryAllByRole('button')).toEqual([])
+  })
+
+  // Each finance verb: approve (Issue, Void, payer decision, rejection), collect-payment (payment, settlement), refund,
+  // and create (Submit simulated claim), for the design roles that hold it and one that does not.
+  it.each<[DemoRole, string, string, string[]]>([
+    ['Billing Officer', 'patient-billing', 'DEMO-3', ['Issue invoice', 'Void invoice']],
+    ['Cashier', 'patient-billing', 'DEMO-3', []],
+    ['Billing Officer', 'patient-billing', 'DEMO-2', ['Void invoice']],
+    ['Cashier', 'patient-billing', 'DEMO-2', ['Record simulated payment']],
+    ['Hospital Owner', 'patient-billing', 'DEMO-2', ['Record simulated payment', 'Void invoice']],
+    ['Cashier', 'patient-billing', 'DEMO-1', ['Record simulated payment']],
+    ['Hospital Owner', 'patient-billing', 'DEMO-1', ['Record simulated payment', 'Refund payment']],
+    ['Hospital Admin', 'patient-billing', 'DEMO-1', []],
+    ['Billing Officer', 'insurance', 'e5f20b68', ['Submit simulated claim']],
+    ['Cashier', 'insurance', 'e5f20b68', []],
+    ['Billing Officer', 'insurance', '2a6f15aa', ['Record payer decision', 'Record rejection']],
+    ['Cashier', 'insurance', '2a6f15aa', []],
+    ['Cashier', 'insurance', '9d41c7b3', ['Record simulated settlement']],
+    ['Billing Officer', 'insurance', '9d41c7b3', []],
+  ])('offers a %s on %s %s: %j', (role, path, name, actions) => {
+    viewAs(role)
+    renderSample(path)
+    openRecord(name)
+    expect(actionButtons().map(button => button.textContent)).toEqual(actions)
+    expect(screen.queryByText(NONE) !== null).toBe(actions.length === 0)
+  })
+
+  it('keeps asking after each action: a cashier who takes the whole balance has no refund to offer', () => {
+    viewAs('Cashier')
+    renderSample('patient-billing')
+    openRecord('DEMO-2')
+    fireEvent.click(screen.getByRole('button', { name: 'Record simulated payment' }))
+    type('Amount (currency units)', '5000', 'spinbutton')
+    choose('Method', 'Cash')
+    type('Unique transaction reference', 'TX-DEMO-9')
+    fireEvent.click(within(document.querySelector('.hid-ehr-dept-action-form') as HTMLElement).getByRole('button', { name: 'Record simulated payment' }))
+    expect(statusBadge()).toBe('paid')
+    expect(actionButtons()).toHaveLength(0)
+    expect(screen.getByText(NONE)).toBeDefined()
+  })
+
+  it('asks for the module\'s own grants on the other pages: a lab scientist may look at stock but not move it', () => {
+    viewAs('Lab Scientist')
+    renderSample('supply')
+    openRecord('Fictional Med A')
+    expect(actionButtons()).toHaveLength(0)
+    expect(screen.getByText(NONE)).toBeDefined()
+  })
+
+  // As the design's list: "Create record" for a role that may create in the module, none for one that may only look.
+  it.each<[DemoRole, string, boolean]>([
+    ['Hospital Owner', 'patient-billing', true],
+    ['Billing Officer', 'patient-billing', true],
+    ['Cashier', 'patient-billing', false],
+    ['Hospital Admin', 'patient-billing', false],
+    ['Billing Officer', 'policies', true],
+    ['Cashier', 'insurance', false],
+    ['Hospital Admin', 'supply', true],
+    ['Lab Scientist', 'supply', false],
+    ['Pharmacy Manager', 'procurement', true],
+    ['Doctor', 'quality', true],
+  ])('shows a %s Create record on %s: %s', (role, path, shown) => {
+    viewAs(role)
+    renderSample(path)
+    const heads = heading().closest('.hid-ehr-page-heading') as HTMLElement
+    expect(within(heads).queryAllByRole('button').map(button => button.textContent)).toEqual(shown ? ['Create record'] : [])
+    // The rows still open.
+    expect(screen.getAllByRole('row').length).toBeGreaterThan(1)
+  })
+
+  it('leaves the create form for the list if the role loses create while it is open', () => {
+    renderSample('patient-billing')
+    fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
+    expect(heading().textContent).toBe('New patient billing')
+    viewAs('Cashier')
+    expect(heading().textContent).toBe('Patient billing')
+    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(document.querySelector('form')).toBeNull()
+    expect(screen.getByRole('button', { name: 'DEMO-1' })).toBeDefined()
   })
 })
 
