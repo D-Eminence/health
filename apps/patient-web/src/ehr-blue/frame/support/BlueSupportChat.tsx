@@ -3,7 +3,7 @@ import { createRegisteredBrowserClient, createSupportService } from '@hid/api'
 import { createApiClient, isHidApiError } from '@hid/http'
 import { EhrButton, EhrDrawer, EhrField, EhrInput } from '@hid/ui/ehr'
 import { getEnvironment } from '../../../staff/env'
-import { holdsPersonalDetails, PERSONAL_DETAILS_REFUSAL, SUPPORT_PRIVACY_NOTICE } from './supportPrivacy'
+import { PERSONAL_DETAILS_REFUSAL, refusalFor, refusalMessage, SUPPORT_PRIVACY_NOTICE } from './supportPrivacy'
 
 type SupportSend = (text: string, sessionId: string | undefined, options: { signal: AbortSignal }) =>
   Promise<{ sessionId: string; messages: string[] }>
@@ -58,9 +58,10 @@ export function BlueSupportChat({ contact }: { readonly contact: string }) {
     event.preventDefault()
     const text = draft.trim()
     if (flight.current || !text || text.length > 500) return
-    // Refused here, before any request: the question stays in the box to be changed.
-    if (holdsPersonalDetails(text)) {
-      setError(PERSONAL_DETAILS_REFUSAL)
+    // Refused here, before any request, saying what to remove: the question stays in the box to be changed.
+    const refused = refusalFor(text)
+    if (refused) {
+      setError(refusalMessage(refused))
       input.current?.focus()
       return
     }
@@ -104,7 +105,7 @@ export function BlueSupportChat({ contact }: { readonly contact: string }) {
             The Send button and flight.current still stop a second send. The notice above is read with the field. */}
         <EhrInput ref={input} value={draft} maxLength={500} autoComplete="off" readOnly={busy}
           aria-describedby={`${id}-notice`}
-          onChange={event => { setDraft(event.target.value); if (error === PERSONAL_DETAILS_REFUSAL) setError(null) }} />
+          onChange={event => { setDraft(event.target.value); if (error?.startsWith(PERSONAL_DETAILS_REFUSAL)) setError(null) }} />
       </EhrField>
       <EhrButton type="submit" disabled={busy || !draft.trim()}>Send</EhrButton>
     </form>
