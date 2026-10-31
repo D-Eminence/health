@@ -1,32 +1,21 @@
 import type { ReactNode } from 'react'
 import { EhrEmptyState } from '@hid/ui/ehr'
 import { usesNovuBackend } from '../../../backendContract'
-import { roleLabels, selfServiceReview, selfServiceType, type OrganizationType } from '../../../staff/staffAccess'
+import { selfServiceReview, selfServiceType, type OrganizationType } from '../../../staff/staffAccess'
 import { reviewPendingText } from '../../../staff/routes/ReviewBanner'
 import { useDeptAccess } from '../parts/access'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptNotice } from '../parts/DeptNotice'
-import { DeptFacts } from '../parts/DeptRecord'
-import { countText } from '../parts/format'
 
 /*
  * Facility profile (target admin/facility.png), read-only: the working facility as today's staff session reports it
- * (staff/api.ts Facility: name, code, the member's roles and permissions there, whether it is their primary facility,
- * and, at a facility that signed itself up, Health ID support's check and the facility's type). Health ID has no read or
- * write for the rest of the target's profile, so each of those fields says it is not available, and nothing is saved.
- * No request is made.
+ * (staff/api.ts Facility: its name and, at a facility that signed itself up, Health ID support's check and the
+ * facility's type). Health ID has no read or write for the rest of the target's profile, so each of those fields says it
+ * is not available, and nothing is saved. As the target draws it, the page ends with the verification banner and
+ * "Verification history". No request is made.
  */
 
 const NOT_AVAILABLE = 'Not available in Health ID yet'
-
-/** The kinds of facility that sign themselves up, as the provider sign-up names them (ProviderEnrollment.tsx). */
-const ORGANIZATION_TYPES: Readonly<Record<OrganizationType, string>> = {
-  hospital: 'Hospital',
-  clinic: 'Clinic',
-  laboratory: 'Laboratory',
-  pharmacy: 'Pharmacy',
-  other: 'Other healthcare provider',
-}
 
 /** The picture's stand-in, as the target draws it: the first letters of the facility's first two words. */
 function initials(name: string): string {
@@ -91,8 +80,6 @@ export function FacilityProfile() {
   const novu = usesNovuBackend()
   const review: Review = novu ? selfServiceReview(facility) : null
   const type = novu ? selfServiceType(facility) : null
-  const roles = (novu ? roleLabels(facility.roles) : facility.roles.join(', ')) || 'Staff'
-  const permissions = facility.permissions
 
   return (
     <DeptPage title="Facility profile" className="hid-ehr-dept-facility">
@@ -133,23 +120,6 @@ export function FacilityProfile() {
         <p className="hid-ehr-dept-muted">{NOT_AVAILABLE}.</p>
       </DeptSection>
       <Verification name={facility.name} review={review} type={type} />
-      <DeptSection title="Facility details">
-        <DeptFacts facts={[
-          { label: 'Facility name', value: facility.name },
-          { label: 'Facility type', value: type ? ORGANIZATION_TYPES[type] : 'Not reported' },
-          { label: 'Facility code', value: facility.code?.trim() || 'Not reported' },
-          { label: 'Your roles here', value: roles },
-          { label: 'Your primary facility', value: facility.isPrimary ? 'Yes' : 'No' },
-          { label: 'Your permissions here', value: permissions.length === 0 ? 'None' : (
-            <details className="hid-ehr-dept-facility-permissions">
-              <summary>{countText(permissions.length, 'permission')}</summary>
-              <ul className="hid-ehr-dept-facility-codes">
-                {permissions.map(code => <li key={code} className="hid-ehr-dept-mono">{code}</li>)}
-              </ul>
-            </details>
-          ) },
-        ]} />
-      </DeptSection>
       <DeptSection title="Verification history">
         <p className="hid-ehr-dept-muted">{NOT_AVAILABLE}.</p>
       </DeptSection>

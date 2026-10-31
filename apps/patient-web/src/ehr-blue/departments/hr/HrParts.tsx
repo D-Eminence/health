@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
-import { EhrBadge, EhrButton, EhrDataTable, EhrDrawer, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
+import { EhrBadge, EhrButton, EhrDataTable, EhrDrawer, EhrField, EhrInput, EhrSelect, EhrSkeleton } from '@hid/ui/ehr'
 import { useFocusById } from '../../../staff/focus'
 import { DeptSearch } from '../parts/DeptSearch'
 import { DeptFacts, DeptLinkButton, DeptRecordName, type DeptFact } from '../parts/DeptRecord'
@@ -28,9 +28,12 @@ export function HrContextLine({ status, context, saved }: { readonly status: str
   )
 }
 
-/** One row of a list: a live member's licence or a sample record. */
+/** One row of the list: a live member's licence or a sample record. */
 export interface HrRow {
+  /** The live member's membership id, or the sample record's id. */
   readonly key: string
+  /** A fictional record in this page's memory: its reference says so, and its quick view opens with the sample notice. */
+  readonly sample?: boolean
   /** The id of the row's record link, which its Quick view and Open name it by, and which focus returns to. */
   readonly linkId: string
   readonly name: string
@@ -44,9 +47,10 @@ export interface HrRow {
 /**
  * The design's list card: "Search …" over the rows already on the page (nothing is sent), and the table under it:
  * Record | Patient / context | Status | Updated | Quick view and Open. Quick view opens the design's "Record quick view"
- * drawer, which opens with the sample notice when the rows are samples.
+ * drawer, which opens with the sample notice when the row is a sample. While the live rows are read, the card says so
+ * over the table, and the rows already there (the sample ones) stay listed.
  */
-export function HrRecordList({ label, search, onSearch, rows, total, onOpen, sample = false }: {
+export function HrRecordList({ label, search, onSearch, rows, total, onOpen, loading }: {
   readonly label: string
   readonly search: string
   readonly onSearch: (value: string) => void
@@ -54,29 +58,30 @@ export function HrRecordList({ label, search, onSearch, rows, total, onOpen, sam
   readonly rows: ReadonlyArray<HrRow>
   /** How many rows there are before the search. */
   readonly total: number
-  readonly onOpen: (key: string) => void
-  /** Sample rows: the drawer says so first. */
-  readonly sample?: boolean
+  readonly onOpen: (row: HrRow) => void
+  /** What is still being read, said (and drawn as a skeleton) over the table; nothing once it is read. */
+  readonly loading?: string
 }) {
   const [quick, setQuick] = useState<HrRow | null>(null)
   return (
     <DeptSearch label={label} value={search} onChange={onSearch}>
+      {loading ? <EhrSkeleton label={loading} bars={1} /> : null}
       <EhrDataTable
         caption={label.replace(/^Search /, '')}
         captionHidden
         rows={rows}
-        rowKey={row => row.key}
+        rowKey={row => row.linkId}
         emptyTitle="No matching records"
         emptyMessage={total ? 'Change your search.' : 'Create the first record when you have the appropriate permission.'}
         columns={[
-          { id: 'record', header: 'Record', cell: row => <DeptRecordName id={row.linkId} name={row.name} reference={row.reference} onOpen={() => onOpen(row.key)} /> },
+          { id: 'record', header: 'Record', cell: row => <DeptRecordName id={row.linkId} name={row.name} reference={row.reference} onOpen={() => onOpen(row)} /> },
           { id: 'context', header: 'Patient / context', cell: row => row.context },
           { id: 'status', header: 'Status', cell: row => <EhrBadge>{row.status}</EhrBadge> },
           { id: 'updated', header: 'Updated', cell: row => dateText(row.updatedAt) },
           { id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: row => (
             <div className="hid-ehr-dept-table-actions">
               <EhrButton variant="secondary" aria-describedby={row.linkId} onClick={() => setQuick(row)}>Quick view</EhrButton>
-              <DeptLinkButton describedBy={row.linkId} onClick={() => onOpen(row.key)}>Open <span aria-hidden="true">→</span></DeptLinkButton>
+              <DeptLinkButton describedBy={row.linkId} onClick={() => onOpen(row)}>Open <span aria-hidden="true">→</span></DeptLinkButton>
             </div>
           ) },
         ]}
@@ -84,11 +89,11 @@ export function HrRecordList({ label, search, onSearch, rows, total, onOpen, sam
       <EhrDrawer open={quick !== null} title="Record quick view" onClose={() => setQuick(null)}>
         {quick ? (
           <div className="hid-ehr-dept-hr-quick">
-            {sample ? <SampleBanner /> : null}
+            {quick.sample ? <SampleBanner /> : null}
             <h3>{quick.name}</h3>
             <p className="hid-ehr-dept-muted">Last updated {dateText(quick.updatedAt)}</p>
             <DeptFacts facts={quick.facts} />
-            <EhrButton onClick={() => { setQuick(null); onOpen(quick.key) }}>Open full record</EhrButton>
+            <EhrButton onClick={() => { setQuick(null); onOpen(quick) }}>Open full record</EhrButton>
           </div>
         ) : null}
       </EhrDrawer>

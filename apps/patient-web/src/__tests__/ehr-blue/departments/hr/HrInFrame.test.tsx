@@ -52,7 +52,12 @@ describe('a record link from Home or the Notifications drawer', () => {
     expect(screen.queryByText('Page not found')).toBeNull()
     expect(within(nav).getByRole('link', { name: 'HR & Credentials' }).getAttribute('aria-current')).toBe('page')
     expect(await screen.findByRole('button', { name: 'No licence on record' })).toBeDefined()
-    expect(screen.getByRole('region', { name: 'Search sample records' })).toBeDefined()
+    // One list: the live row and, after it, the sample rows, marked.
+    const list = screen.getByRole('region', { name: 'Search HR & Credentials' })
+    expect(within(list).getByRole('button', { name: 'Medical licence (fictional)' })).toBeDefined()
+    expect(within(list).getByText('f8f25d2e · sample')).toBeDefined()
+    expect(screen.queryByRole('region', { name: 'Search sample records' })).toBeNull()
+    expect(screen.getAllByRole('searchbox')).toHaveLength(1)
     expect(sent.filter(request => request.route === STAFF)).toHaveLength(1)
   })
 })

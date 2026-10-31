@@ -107,6 +107,12 @@ export interface SampleDefinition {
   readonly patient?: boolean
   /** The status a new record starts in. */
   readonly initial: string
+  /**
+   * Offers "Edit record" in "Saved record" while the record keeps the status it was created in. Left unset on every
+   * workspace today: the design's record views have no such button (Patient billing, Policies, Stock, Procurement,
+   * Service catalogue), so a record changes only through its actions.
+   */
+  readonly editable?: boolean
   readonly fields: readonly SampleField[]
   readonly actions: readonly SampleAction[]
   /** Values a new form starts with, as the design's forms do (quantity 1, units per pack 1). */

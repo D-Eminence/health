@@ -1,9 +1,9 @@
 import {
-  createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode,
-  type RefObject,
+  createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent,
+  type ReactNode, type RefObject,
 } from 'react'
 import { isHidApiError } from '@hid/http'
-import { EhrBadge, EhrButton, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
+import { EhrButton, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import {
   staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue,
   type LabSpecimen, type LabWorkItem,
@@ -14,18 +14,35 @@ import { useFieldProblems } from '../../../staff/useFieldProblems'
 import { revisionValue } from '../../../staff/labRevisions'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptSection } from '../parts/DeptPage'
-import { DeptFacts, DeptRecordLayout, type DeptFact } from '../parts/DeptRecord'
+import { DeptFacts, type DeptFact } from '../parts/DeptRecord'
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { patientLabel } from '../parts/routedWork'
-import { LabActionButton, LabActions, statusWord } from './labParts'
+import { combineOffers, LabActionButton, LabSlot, SAVED_TITLE_ID, statusWord, type LabOffer } from './labParts'
 
 /*
  * An accession and everything recorded on it: its samples' custody, their processing (analytical executions) and
  * manual results with their verification, publication (release), correction and history. The logic is today's
  * Laboratory page's (staff/routes/Operations.tsx AccessionView and the parts it uses), unchanged: the same requests,
- * permissions, re-checks of read access and refusals. Only the look and the words follow the target.
+ * permissions, re-checks of read access and refusals. Only the look and the words follow the target, which shows the
+ * accession inside the record's "Saved record" (each sample a sub-section), its actions in the record's one
+ * "Available actions" card and its results' versions under "Preserved versions & amendments" (LabSlot); the history
+ * is read when the record opens.
  */
+
+/** Each sample's part tells the accession what it offers in the actions card, for as long as it is shown. */
+const ReportOffer = createContext<(key: string, offer: LabOffer | null) => void>(() => undefined)
+
+function useReportOffer(key: string, offer: LabOffer) {
+  const report = useContext(ReportOffer)
+  useLayoutEffect(() => { report(key, offer) }, [report, key, offer])
+  useLayoutEffect(() => () => report(key, null), [report, key])
+}
+
+/** A sample's part, keyed by its status as well: a step that changes the status draws the sample afresh. */
+function partKey(specimen: LabSpecimen) {
+  return `${specimen.id}-${specimen.status}`
+}
 
 /** Whether the accession shown is work from an order another facility sent: its writes may be refused as closed. */
 const RoutedAccession = createContext(false)
@@ -126,32 +143,36 @@ function SpecimenStepForm({ facilityId, accessionId, specimen, action, onStarted
   </form>
 }
 
-/** A sample's own card: its title (focused after a step), its status and what is known of it. */
-function SpecimenCard({ specimen, actions, children }: {
-  readonly specimen: LabSpecimen; readonly actions?: ReactNode; readonly children?: ReactNode
-}) {
-  return <DeptSection headingId={`lab-specimen-${specimen.id}-title`} title={`Sample ${specimen.specimenIdentifier}`}
-    actions={<div className="hid-ehr-dept-table-actions">{actions}<EhrBadge>{statusWord(specimen.status)}</EhrBadge></div>}>
+/**
+ * A sample in "Saved record": a sub-section with its title (focused after a step) and what is known of it, then its
+ * processing (`children`).
+ */
+function SpecimenPart({ specimen, children }: { readonly specimen: LabSpecimen; readonly children?: ReactNode }) {
+  return <div className="hid-ehr-dept-laboratory-specimen">
+    <h3 id={`lab-specimen-${specimen.id}-title`} tabIndex={-1}>Sample {specimen.specimenIdentifier}</h3>
     <DeptFacts facts={[{ label: 'Sample type', value: specimen.specimenType }, { label: 'Sample identifier', value: specimen.specimenIdentifier },
       { label: 'Status', value: statusWord(specimen.status) }]} />
     {children}
-  </DeptSection>
+  </div>
 }
 
-/** The actions card of a sample awaiting collection or receipt: collect, receive or reject it. */
-function SpecimenActions({ facilityId, accessionId, specimen, permissions, onStarted, onChanged, onRefused }: {
+/** The actions of a sample awaiting collection or receipt (collect, receive or reject it), in the record's actions card. */
+function SpecimenActions({ facilityId, accessionId, specimen, permissions, suffix, onStarted, onChanged, onRefused }: {
   readonly facilityId: string; readonly accessionId: string; readonly specimen: LabSpecimen; readonly permissions: readonly string[]
+  /** Names the sample on each action once the accession has several. */
+  readonly suffix: string
   readonly onStarted: () => void; readonly onChanged: (message: string) => void; readonly onRefused: (error: unknown) => void
 }) {
   const allowed = specimenSteps(specimen, permissions)
   const [open, setOpen] = useState<SpecimenActionKind | null>(null)
   const shown = open && allowed.includes(open) ? open : null
-  return <LabActions none={allowed.length === 0} title={<>{'Available actions '}<span className="hid-ehr-sr-only">for sample {specimen.specimenIdentifier}</span></>}>
+  useReportOffer(partKey(specimen), allowed.length > 0 ? 'some' : 'none')
+  return <LabSlot to="actions">
     {allowed.map((action, index) => <LabActionButton key={action} id={index === 0 ? `lab-action-${specimen.id}` : undefined}
-      open={shown === action} onToggle={() => setOpen(current => current === action ? null : action)}>{SPECIMEN_STEP[action]}</LabActionButton>)}
+      open={shown === action} onToggle={() => setOpen(current => current === action ? null : action)}>{SPECIMEN_STEP[action]}{suffix}</LabActionButton>)}
     {shown && <SpecimenStepForm key={shown} facilityId={facilityId} accessionId={accessionId} specimen={specimen} action={shown}
       onStarted={onStarted} onChanged={onChanged} onRefused={onRefused} />}
-  </LabActions>
+  </LabSlot>
 }
 
 const abnormalFlags: readonly LabAbnormalFlag[] = ['unknown', 'normal', 'high', 'low', 'abnormal', 'critical_candidate']
@@ -319,55 +340,48 @@ function CompleteForm({ facilityId, execution, onStarted, onChanged, onRefused }
   </form>
 }
 
-/** "Preserved versions & amendments": a result's history, read only when opened. */
+/**
+ * "Preserved versions & amendments": a result's history, read when the record shows the result to a member who may read
+ * released results (the caller's check), and read again when a step changes the result (a new version, its
+ * verification or its publication), as there is no Refresh to bring it up to date.
+ */
 function ResultHistory({ facilityId, result, title, onRefused }: {
   readonly facilityId: string; readonly result: LabResult; readonly title: string; readonly onRefused: (error: unknown) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [revision, setRevision] = useState(0)
   const [history, setHistory] = useState<LabResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   // Released-result readers get 404 until a version is released; that is not a refusal.
   const unreleased = result.currentReleasedVersion == null
   useEffect(() => {
-    if (!open) return
     let active = true
     setLoading(true); setError('')
     void staffApi.labResultHistory(facilityId, result.id)
       .then(value => { if (active) setHistory(value) })
       .catch(caught => {
         if (active) setError(errorText(caught, 'The result history could not be loaded.'))
-        // Even after the history was closed, a refusal says something about read access.
+        // Even once the history is no longer shown, a refusal says something about read access.
         if (!(unreleased && isHidApiError(caught) && caught.status === 404)) onRefused(caught)
       })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [facilityId, result.id, result.currentVersion, unreleased, open, revision, onRefused])
-  return <DeptSection title={<>Preserved versions & amendments<span className="hid-ehr-sr-only">: {title}</span></>}
-    actions={<div className="hid-ehr-dept-table-actions">
-      {open && <EhrButton variant="secondary" size="sm" busy={loading} onClick={() => { if (!loading) setRevision(value => value + 1) }}>Refresh history</EhrButton>}
-      <EhrButton variant="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? 'Hide result history' : 'View result history'}</EhrButton>
-    </div>}>
-    {!open && <p className="hid-ehr-dept-muted">Every version of this result is kept. View the history to read them.</p>}
-    {open && <>
-      {loading && <p className="hid-ehr-dept-muted" role="status">Loading result history…</p>}
-      {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
-      {!loading && !error && history && history.revisions.map(entry => <details key={entry.version} className="hid-ehr-dept-history">
-        <summary>Version {entry.version} · {RELEASE_STATUS[entry.releaseStatus]}{entry.verificationStatus === 'entered_in_error' ? ' · entered in error' : ''}
-          {entry.correctionReason ? ` · ${entry.correctionReason}` : ''}</summary>
-        <div className="hid-ehr-dept-history-detail">
-          <DeptFacts facts={[
-            { label: 'Value', value: valueLine(entry) },
-            { label: 'Entered', value: dateText(entry.enteredAt) },
-            { label: 'Verification', value: statusWord(entry.verificationStatus) },
-            ...(entry.releasedAt ? [{ label: 'Published', value: dateText(entry.releasedAt) }] : []),
-            ...(entry.referenceRange ? [{ label: 'Reference range', value: entry.referenceRange }] : []),
-            ...(entry.correctionReason ? [{ label: 'Reason', value: entry.correctionReason }] : []),
-          ]} />
-        </div>
-      </details>)}
-    </>}
+  }, [facilityId, result.id, result.currentVersion, result.status, unreleased, onRefused])
+  return <DeptSection title={<>Preserved versions & amendments<span className="hid-ehr-sr-only">: {title}</span></>}>
+    {loading && <p className="hid-ehr-dept-muted" role="status">Loading result history…</p>}
+    {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
+    {!loading && !error && history && history.revisions.map(entry => <details key={entry.version} className="hid-ehr-dept-history">
+      <summary>{`${dateText(entry.enteredAt)} · ${RELEASE_STATUS[entry.releaseStatus]} · Version ${entry.version}`}</summary>
+      <div className="hid-ehr-dept-history-detail">
+        <DeptFacts facts={[
+          { label: 'Value', value: valueLine(entry) },
+          { label: 'Entered', value: dateText(entry.enteredAt) },
+          { label: 'Verification', value: statusWord(entry.verificationStatus) },
+          ...(entry.releasedAt ? [{ label: 'Published', value: dateText(entry.releasedAt) }] : []),
+          ...(entry.referenceRange ? [{ label: 'Reference range', value: entry.referenceRange }] : []),
+          ...(entry.correctionReason ? [{ label: 'Reason', value: entry.correctionReason }] : []),
+        ]} />
+      </div>
+    </details>)}
   </DeptSection>
 }
 
@@ -435,10 +449,15 @@ function executionFacts(execution: LabExecution): DeptFact[] {
   ]
 }
 
-/** A received sample: its processing and results, their actions, and each result's history. */
-function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck, resultsHidden, onResultsHidden }: {
+/**
+ * A received sample: its processing and results in its sub-section of "Saved record", their actions in the record's
+ * actions card, and each result's history under "Preserved versions & amendments".
+ */
+function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck, resultsHidden, suffix, onResultsHidden }: {
   readonly facilityId: string; readonly specimen: LabSpecimen; readonly permissions: readonly string[]; readonly generation: RefObject<number>
   readonly recheck: LabResultsSignal | null; readonly resultsHidden: LabResultsSignal | null
+  /** Names the sample on each action once the accession has several. */
+  readonly suffix: string
   readonly onResultsHidden: (reason: LabResultsHiddenReason) => void
 }) {
   const canRead = permissions.includes('lab.execution.read')
@@ -461,7 +480,7 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
   const startProblems = useFieldProblems()
   const [busy, setBusy] = useState(false)
   const [revision, setRevision] = useState(0)
-  // The action whose form is open in this sample's actions card.
+  // The action of this sample whose form is open in the record's actions card.
   const [open, setOpen] = useState<string | null>(null)
   // A step removes the form that made it; focus goes to its execution, if it was lost.
   const focus = useFocusById()
@@ -546,45 +565,43 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
   const shown = open === 'start' && offerStart ? 'start' : actions.find(entry => entry.key === open) ?? null
   const toggle = (key: string) => setOpen(current => current === key ? null : key)
   const readers = (items ?? []).filter(execution => execution.result && permissions.includes('lab.result.released.read'))
+  // "No further actions" only once the read has settled and access is confirmed: while it loads, or once the results are
+  // hidden (which always sets `error`), the status region and the alert say what is happening instead.
+  useReportOffer(partKey(specimen), offerStart || actions.length > 0 ? 'some' : loading || error ? 'unsettled' : 'none')
   return <>
-    <DeptRecordLayout
-      main={<SpecimenCard specimen={specimen} actions={canRead && <EhrButton variant="secondary" size="sm" busy={loading}
-        onClick={() => { if (loading) return; setNotice(''); setRevision(value => value + 1) }}>Refresh processing</EhrButton>}>
-        <h3>Processing</h3>
-        {/* Mounted throughout, so what a step records is announced; it says so through the read that follows. */}
-        <div id={`lab-executions-status-${specimen.id}`} role="status">{notice
-          ? <p className="hid-ehr-dept-laboratory-success">{notice}</p> : loading && <p className="hid-ehr-dept-muted">Loading processing…</p>}</div>
-        {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
-        {items?.map(execution => <DeptFacts key={execution.id} className="hid-ehr-dept-laboratory-execution" facts={executionFacts(execution)} />)}
-        {canRead && !loading && !error && items?.length === 0 && !canStart && <p className="hid-ehr-dept-muted">No processing has started for this sample.</p>}
-        {canStart && !canRead && !loading && !error && !items && <p className="hid-ehr-dept-muted">Start processing once this sample is ready.</p>}
-      </SpecimenCard>}
-      // "No further actions" only once the read has settled and access is confirmed: while it loads, or once the results
-      // are hidden (which always sets `error`), the status region and the alert say what is happening instead.
-      aside={<LabActions none={!loading && !error && !offerStart && actions.length === 0}
-        title={<>{'Available actions '}<span className="hid-ehr-sr-only">for sample {specimen.specimenIdentifier}</span></>}>
-        {offerStart && <LabActionButton id={`lab-start-${specimen.id}`} open={shown === 'start'} onToggle={() => toggle('start')}>Start processing</LabActionButton>}
-        {actions.map(entry => <LabActionButton key={entry.key} open={shown !== 'start' && shown?.key === entry.key} onToggle={() => toggle(entry.key)}>
-          {executionActionLabel(entry.action, entry.execution.result)}{several ? ` · ${entry.execution.test.name}` : ''}</LabActionButton>)}
-        {shown === 'start' && <form className="hid-ehr-dept-action-form" aria-label="Start processing" noValidate onSubmit={event => void start(event)}>
-          <p className="hid-ehr-dept-muted">Start analysis of this received sample. Health ID checks the sample’s version and the patient’s permission.</p>
-          <EhrField label="Method" controlId={`lab-method-${specimen.id}`}>
-            <EhrInput name="method" maxLength={240} />
-          </EhrField>
-          <EhrField label={<>Processing details<span aria-hidden="true"> *</span></>} controlId={`lab-start-reason-${specimen.id}`}
-            error={startProblems.error(`lab-start-reason-${specimen.id}`)}>
-            <EhrTextarea name="reason" maxLength={500} required />
-          </EhrField>
-          {startError && <DeptNotice tone="critical" role="alert">{startError}</DeptNotice>}
-          <div className="hid-ehr-dept-form-actions"><EhrButton type="submit" busy={busy}>{busy ? 'Starting…' : 'Start processing'}</EhrButton></div>
-        </form>}
-        {shown && shown !== 'start' && <ExecutionActionForm key={shown.key} facilityId={facilityId} execution={shown.execution} action={shown.action}
-          label={executionActionLabel(shown.action, shown.execution.result)} onStarted={stepStarted} onExecutionChanged={changedExecution}
-          onResultChanged={(value, message) => changedResult(shown.execution.id, value, message)} onRefused={recheckAccess} />}
-      </LabActions>}
-    />
-    {readers.map(execution => execution.result && <ResultHistory key={execution.id} facilityId={facilityId} result={execution.result}
-      title={`${execution.test.name}, sample ${specimen.specimenIdentifier}`} onRefused={recheckAccess} />)}
+    <SpecimenPart specimen={specimen}>
+      {/* Mounted throughout, so what a step records is announced; it says so through the read that follows. */}
+      <div id={`lab-executions-status-${specimen.id}`} role="status">{notice
+        ? <p className="hid-ehr-dept-laboratory-success">{notice}</p> : loading && <p className="hid-ehr-dept-muted">Loading processing…</p>}</div>
+      {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
+      {items?.map(execution => <DeptFacts key={execution.id} className="hid-ehr-dept-laboratory-execution" facts={executionFacts(execution)} />)}
+      {canRead && !loading && !error && items?.length === 0 && !canStart && <p className="hid-ehr-dept-muted">No processing has started for this sample.</p>}
+      {canStart && !canRead && !loading && !error && !items && <p className="hid-ehr-dept-muted">Start processing once this sample is ready.</p>}
+    </SpecimenPart>
+    <LabSlot to="actions">
+      {offerStart && <LabActionButton id={`lab-start-${specimen.id}`} open={shown === 'start'} onToggle={() => toggle('start')}>Start processing{suffix}</LabActionButton>}
+      {actions.map(entry => <LabActionButton key={entry.key} open={shown !== 'start' && shown?.key === entry.key} onToggle={() => toggle(entry.key)}>
+        {executionActionLabel(entry.action, entry.execution.result)}{several ? ` · ${entry.execution.test.name}` : ''}{suffix}</LabActionButton>)}
+      {shown === 'start' && <form className="hid-ehr-dept-action-form" aria-label="Start processing" noValidate onSubmit={event => void start(event)}>
+        <p className="hid-ehr-dept-muted">Start analysis of this received sample. Health ID checks the sample’s version and the patient’s permission.</p>
+        <EhrField label="Method" controlId={`lab-method-${specimen.id}`}>
+          <EhrInput name="method" maxLength={240} />
+        </EhrField>
+        <EhrField label={<>Processing details<span aria-hidden="true"> *</span></>} controlId={`lab-start-reason-${specimen.id}`}
+          error={startProblems.error(`lab-start-reason-${specimen.id}`)}>
+          <EhrTextarea name="reason" maxLength={500} required />
+        </EhrField>
+        {startError && <DeptNotice tone="critical" role="alert">{startError}</DeptNotice>}
+        <div className="hid-ehr-dept-form-actions"><EhrButton type="submit" busy={busy}>{busy ? 'Starting…' : 'Start processing'}</EhrButton></div>
+      </form>}
+      {shown && shown !== 'start' && <ExecutionActionForm key={shown.key} facilityId={facilityId} execution={shown.execution} action={shown.action}
+        label={executionActionLabel(shown.action, shown.execution.result)} onStarted={stepStarted} onExecutionChanged={changedExecution}
+        onResultChanged={(value, message) => changedResult(shown.execution.id, value, message)} onRefused={recheckAccess} />}
+    </LabSlot>
+    <LabSlot to="history">
+      {readers.map(execution => execution.result && <ResultHistory key={execution.id} facilityId={facilityId} result={execution.result}
+        title={`${execution.test.name}, sample ${specimen.specimenIdentifier}`} onRefused={recheckAccess} />)}
+    </LabSlot>
   </>
 }
 
@@ -609,13 +626,19 @@ const LAB_WRITE_PERMISSIONS: ReadonlySet<string> = new Set(['lab.specimen.collec
   'lab.result.verify', 'lab.result.release'])
 
 /**
- * An accession. On work from an order another facility sent (`routed`) that no longer lets this laboratory record on it
- * (`closed`: routeClosedForWork), it is shown to be read: every sample step, execution and result write is left out, as
- * the services refuse them, and it says so; what was recorded can still be read while the order lets it.
+ * An accession, drawn inside the record's "Saved record": its number and samples, then each sample as a sub-section; its
+ * actions go to the record's actions card and its results' versions after it (LabSlot). `onOffer` says what it offers
+ * there, so the card says "No further actions" only once every sample has settled on nothing. On work from an order
+ * another facility sent (`routed`) that no longer lets this laboratory record on it (`closed`: routeClosedForWork), it
+ * is shown to be read: every sample step, execution and result write is left out, as the services refuse them, and it
+ * says so; what was recorded can still be read while the order lets it.
  */
-export function AccessionView({ facilityId, id, permissions: granted, created, routed = false, closed = false, onChanged }: {
-  readonly facilityId: string; readonly id: string; readonly permissions: readonly string[]; readonly created?: string
-  readonly routed?: boolean; readonly closed?: boolean; readonly onChanged: () => void
+export function AccessionView({ facilityId, id, number, permissions: granted, created, routed = false, closed = false, onChanged, onOffer }: {
+  readonly facilityId: string; readonly id: string
+  /** The accession's number as the work item has it: said while the accession is read, or when it could not be. */
+  readonly number?: string | null
+  readonly permissions: readonly string[]; readonly created?: string
+  readonly routed?: boolean; readonly closed?: boolean; readonly onChanged: () => void; readonly onOffer: (offer: LabOffer) => void
 }) {
   const permissions = useMemo(() => closed ? granted.filter(permission => !LAB_WRITE_PERMISSIONS.has(permission)) : granted,
     [closed, granted])
@@ -644,6 +667,17 @@ export function AccessionView({ facilityId, id, permissions: granted, created, r
   const generation = useRef(0)
   const accession = loaded?.revision === revision ? loaded.accession : null
   const reload = useCallback(() => { setRevision(value => value + 1); setRecheck(null); setResultsHidden(null) }, [])
+  // What each sample's part offers in the actions card, by partKey.
+  const [offers, setOffers] = useState<ReadonlyMap<string, LabOffer>>(() => new Map())
+  const report = useCallback((key: string, offer: LabOffer | null) => setOffers(current => {
+    if ((current.get(key) ?? null) === offer) return current
+    const next = new Map(current)
+    if (offer) next.set(key, offer)
+    else next.delete(key)
+    return next
+  }), [])
+  const offer = accession ? combineOffers(accession.specimens.map(specimen => offers.get(partKey(specimen)) ?? 'unsettled')) : 'unsettled'
+  useLayoutEffect(() => { onOffer(offer) }, [offer, onOffer])
   // A new signal for every hide, so a panel restored by its own refresh hides again.
   const hideResults = useCallback((reason: LabResultsHiddenReason) => {
     generation.current += 1
@@ -659,11 +693,11 @@ export function AccessionView({ facilityId, id, permissions: granted, created, r
   useLayoutEffect(() => {
     if (!focusAfterRead || (!accession && !error)) return
     setFocusAfterRead(null)
-    focus(accession ? focusAfterRead : 'lab-accession-refresh', true)
+    focus(accession ? focusAfterRead : 'lab-accession-error', true)
   }, [focusAfterRead, accession, error, focus])
   function specimenChanged(specimen: LabSpecimen, message: string) {
     setNotice(message)
-    setFocusAfterRead([`lab-action-${specimen.id}`, `lab-specimen-${specimen.id}-title`, 'lab-accession-title'])
+    setFocusAfterRead([`lab-action-${specimen.id}`, `lab-specimen-${specimen.id}-title`, SAVED_TITLE_ID])
     reload()
   }
   useEffect(() => {
@@ -678,30 +712,33 @@ export function AccessionView({ facilityId, id, permissions: granted, created, r
       })
     return () => { active = false }
   }, [facilityId, id, revision, recheck])
+  const suffix = (specimen: LabSpecimen) => (accession?.specimens.length ?? 0) > 1 ? ` · ${specimen.specimenIdentifier}` : ''
   return <RoutedAccession.Provider value={routed}>
-    <DeptSection title="Accession" headingId="lab-accession-title" className="hid-ehr-dept-laboratory-accession"
-      actions={<EhrButton id="lab-accession-refresh" variant="secondary" size="sm" busy={loading}
-        onClick={() => { if (loading) return; setNotice(''); reload() }}>Refresh accession</EhrButton>}>
-      {closed && <DeptNotice tone="caution">This order from another facility has ended, so nothing more can be recorded on it. You can
-        still read what was recorded.</DeptNotice>}
-      {/* Mounted throughout, so what a step records is announced; it says so through the read that follows. */}
-      <div id="lab-accession-status" role="status">{notice
-        ? <p className="hid-ehr-dept-laboratory-success">{notice}</p> : loading && <p className="hid-ehr-dept-muted">Loading accession…</p>}</div>
-      {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
-      {accession && <DeptFacts facts={[{ label: 'Accession number', value: accession.accessionNumber },
-        { label: 'Samples', value: String(accession.specimens.length) }]} />}
-    </DeptSection>
-    {accession?.specimens.map(specimen => {
-      const executions = specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start'))
-      return <div className="hid-ehr-dept-stack" key={`${specimen.id}-${specimen.status}`}>
-        {executions
-          ? <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} generation={generation} recheck={recheck}
-            resultsHidden={resultsHidden} onResultsHidden={hideResults} />
-          : <DeptRecordLayout main={<SpecimenCard specimen={specimen} />}
-            aside={<SpecimenActions facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions}
-              onStarted={() => setNotice('')} onChanged={message => { specimenChanged(specimen, message); onChanged() }}
-              onRefused={specimenRefused} />} />}
+    <ReportOffer.Provider value={report}>
+      <div className="hid-ehr-dept-laboratory-accession">
+        {closed && <DeptNotice tone="caution">This order from another facility has ended, so nothing more can be recorded on it. You can
+          still read what was recorded.</DeptNotice>}
+        {/* Mounted throughout, so what a step records is announced; it says so through the read that follows. */}
+        <div id="lab-accession-status" role="status">{notice
+          ? <p className="hid-ehr-dept-laboratory-success">{notice}</p> : loading && <p className="hid-ehr-dept-muted">Loading accession…</p>}</div>
+        {error && <DeptNotice id="lab-accession-error" tone="critical" role="alert" tabIndex={-1}>{error}</DeptNotice>}
+        {(accession || number) && <DeptFacts facts={[{ label: 'Accession number', value: accession?.accessionNumber ?? number },
+          ...(accession ? [{ label: 'Samples', value: String(accession.specimens.length) }] : [])]} />}
+        {accession?.specimens.map(specimen => {
+          const executions = specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start'))
+          return <Fragment key={partKey(specimen)}>
+            {executions
+              ? <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} generation={generation} recheck={recheck}
+                resultsHidden={resultsHidden} suffix={suffix(specimen)} onResultsHidden={hideResults} />
+              : <>
+                <SpecimenPart specimen={specimen} />
+                <SpecimenActions facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions} suffix={suffix(specimen)}
+                  onStarted={() => setNotice('')} onChanged={message => { specimenChanged(specimen, message); onChanged() }}
+                  onRefused={specimenRefused} />
+              </>}
+          </Fragment>
+        })}
       </div>
-    })}
+    </ReportOffer.Provider>
   </RoutedAccession.Provider>
 }

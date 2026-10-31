@@ -80,6 +80,7 @@
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
   gap: 20px;
   align-items: start;
+  margin: 0 0 24px;
 }
 
 /* Text helpers. */
@@ -176,13 +177,9 @@
 .hid-ehr .hid-ehr-dept-table-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
+  justify-content: flex-start;
+  gap: 0;
   white-space: nowrap;
-}
-
-.hid-ehr .hid-ehr-dept-table-actions .hid-ehr-dept-link {
-  margin-left: 4px;
 }
 
 .hid-ehr .hid-ehr-dept-toolbar {
@@ -213,7 +210,7 @@
 }
 
 .hid-ehr .hid-ehr-dept-context-item:nth-of-type(2) {
-  color: var(--ehr-ink);
+  color: var(--ehr-text);
   font-size: 14px;
 }
 
@@ -238,14 +235,22 @@
 
 .hid-ehr .hid-ehr-dept-fact dd {
   margin: 0;
-  color: var(--ehr-ink);
+  color: var(--ehr-text);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
 /* "Available actions": each action full width; an open one shows its form under it. */
-.hid-ehr .hid-ehr-dept-actions-card .hid-ehr-card-title {
+.hid-ehr .hid-ehr-dept-actions-card .hid-ehr-card-title,
+.hid-ehr .hid-ehr-dept-history-card .hid-ehr-card-title {
   margin: 0 0 16px;
+}
+
+/* "No further actions…" in the design's body text. */
+.hid-ehr .hid-ehr-dept-actions-empty {
+  margin: 8px 0 0;
+  color: var(--ehr-text);
+  font-size: 14px;
 }
 
 .hid-ehr .hid-ehr-dept-action-stack {
@@ -313,7 +318,7 @@
 }
 
 .hid-ehr .hid-ehr-dept-history summary {
-  color: var(--ehr-ink);
+  color: var(--ehr-text);
   font-weight: 500;
   cursor: pointer;
 }
@@ -967,7 +972,7 @@
 
 .hid-ehr .hid-ehr-dept-staff-name strong,
 .hid-ehr .hid-ehr-dept-staff-invitation strong {
-  color: var(--ehr-ink);
+  color: var(--ehr-text);
   font-weight: 600;
 }
 
@@ -1132,7 +1137,7 @@
 }
 
 .hid-ehr .hid-ehr-dept-audit-action {
-  color: var(--ehr-ink);
+  color: var(--ehr-text);
   font-weight: 600;
 }
 
@@ -1248,18 +1253,6 @@
   font-weight: 600;
 }
 
-.hid-ehr .hid-ehr-dept-facility-codes {
-  display: grid;
-  gap: 4px;
-  margin: 8px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.hid-ehr .hid-ehr-dept-facility-permissions summary {
-  cursor: pointer;
-}
-
 /* ---- HR & Credentials ---------------------------------------------------------- */
 
 /*
@@ -1350,7 +1343,17 @@
   white-space: nowrap;
 }
 
-/* Audit's Outcome filter lines up with the search box beside it, not with its hint below. */
-.hid-ehr .hid-ehr-dept-audit-outcome {
-  align-self: start;
+/* In a list table: the reference sits tight under the name, and the name keeps the table's size (design rows 69px). */
+.hid-ehr .hid-ehr-table .hid-ehr-dept-reference {
+  margin-top: 0;
+  font-size: 10px;
+}
+
+.hid-ehr .hid-ehr-table .hid-ehr-dept-link {
+  font-size: inherit;
+}
+
+/* A create form starts 16px into its card, as the design's new-record screens. */
+.hid-ehr .hid-ehr-dept-section > .hid-ehr-dept-form:first-child {
+  margin-top: 16px;
 }

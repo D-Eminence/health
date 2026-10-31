@@ -8,7 +8,8 @@ import { DEMO_HOSPITAL_ID, fakeFacility, renderDept, type FakeFacility } from '.
 
 /**
  * HR & Credentials, its sample half: the design's credential records (create, edit while recorded, the credential review),
- * fictional and in the page's memory only. It shows the sample notice and asks nothing of Health ID: the only request
+ * fictional and in the page's memory only, listed after the live rows in the page's one list, each marked "· sample".
+ * A sample record and the create form open with the sample notice; nothing is asked of Health ID: the only request
  * the page makes is the live half's one Staff read.
  */
 const session = vi.hoisted(() => ({ facility: undefined as unknown }))
@@ -37,8 +38,8 @@ const staff: FacilityStaff = {
 
 const SEEDED_AT = new Date('2026-10-26T11:41:16.706Z').toLocaleString()
 
-/** The sample list: the list card under the sample notice. */
-const sampleList = () => screen.getByRole('region', { name: 'Search sample records' })
+/** The page's one list card, which holds the sample rows after the live ones. */
+const sampleList = () => screen.getByRole('region', { name: 'Search HR & Credentials' })
 const row = (name: string) => within(sampleList()).getByRole('button', { name }).closest('tr') as HTMLElement
 const fact = (scope: HTMLElement, label: string) => within(scope).queryByText(label, { selector: 'dt' })?.nextElementSibling?.textContent
 const savedRecord = () => screen.getByRole('heading', { name: 'Saved record' }).closest('section') as HTMLElement
@@ -69,20 +70,24 @@ beforeEach(() => {
   api.read.mockResolvedValue(staff)
 })
 
-describe('the sample list', () => {
-  it('shows the sample notice over the design’s two fictional records', async () => {
+describe('the sample rows', () => {
+  it('lists the design’s two fictional records after the live row, each marked “· sample”, with no sample notice', async () => {
     await open()
     expect(SAMPLE_NOTICE).toBe('Sample only: not connected to Health ID yet. Nothing you do here is saved.')
-    const notice = screen.getByRole('note')
-    expect(notice.textContent).toBe(SAMPLE_NOTICE)
-    expect(notice.nextElementSibling).toBe(sampleList())
+    expect(screen.queryByRole('note')).toBeNull()
+    expect(screen.queryByText(SAMPLE_NOTICE)).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Search sample records' })).toBeNull()
+    expect(within(sampleList()).getAllByRole('row').slice(1).map(tableRow => within(tableRow).getAllByRole('button')[0]?.textContent))
+      .toEqual(['No licence on record', 'Medical licence (fictional)', 'Nursing registration (fictional)'])
+    // The live row's reference is its own; only the sample rows are marked.
+    expect(within(row('No licence on record')).queryByText(/ · sample$/)).toBeNull()
     const medical = row('Medical licence (fictional)')
-    expect(within(medical).getByText('f8f25d2e')).toBeTruthy()
+    expect(within(medical).getByText('f8f25d2e · sample').className).toBe('hid-ehr-dept-reference')
     expect(within(medical).getByText('Demo Doctor')).toBeTruthy()
     expect(within(medical).getByText('reviewed')).toBeTruthy()
     expect(within(medical).getByText(SEEDED_AT)).toBeTruthy()
     const nursing = row('Nursing registration (fictional)')
-    expect(within(nursing).getByText('b459b486')).toBeTruthy()
+    expect(within(nursing).getByText('b459b486 · sample')).toBeTruthy()
     expect(within(nursing).getByText('Demo Nurse')).toBeTruthy()
     expect(within(nursing).getByText('recorded')).toBeTruthy()
     expect(within(sampleList()).getAllByRole('columnheader').map(cell => cell.textContent))
@@ -90,12 +95,13 @@ describe('the sample list', () => {
     expectNoSampleRequest()
   })
 
-  it('searches the sample rows in the page', async () => {
+  it('searches the sample rows with the list’s one search', async () => {
     await open()
-    const search = within(sampleList()).getByRole('searchbox', { name: 'Search sample records' })
+    const search = within(sampleList()).getByRole('searchbox', { name: 'Search HR & Credentials' })
     expect(search.getAttribute('placeholder')).toBe('Search saved records…')
     fireEvent.change(search, { target: { value: 'nursing' } })
     expect(within(sampleList()).queryByRole('button', { name: 'Medical licence (fictional)' })).toBeNull()
+    expect(within(sampleList()).queryByRole('button', { name: 'No licence on record' })).toBeNull()
     expect(within(sampleList()).getByRole('button', { name: 'Nursing registration (fictional)' })).toBeTruthy()
     fireEvent.change(search, { target: { value: 'no such credential' } })
     expect(within(sampleList()).getByText('No matching records')).toBeTruthy()
@@ -167,6 +173,8 @@ describe('creating a record', () => {
     expect(document.activeElement).toBe(within(sampleList()).getByRole('button', { name: 'Pharmacy licence (fictional)' }))
     expect(within(row('Pharmacy licence (fictional)')).getByText('Demo Pharmacist')).toBeTruthy()
     expect(within(row('Pharmacy licence (fictional)')).getByText('recorded')).toBeTruthy()
+    expect(within(row('Pharmacy licence (fictional)')).getByText(/^[0-9a-f]{8} · sample$/)).toBeTruthy()
+    expect(within(sampleList()).getAllByRole('row')[2]).toBe(row('Pharmacy licence (fictional)'))
     expectNoSampleRequest()
   })
 
@@ -189,7 +197,8 @@ describe('creating a record', () => {
     api.read.mockClear()
     await open()
     expect(within(sampleList()).queryByRole('button', { name: 'Laboratory licence (fictional)' })).toBeNull()
-    expect(within(sampleList()).getAllByRole('row')).toHaveLength(3)
+    // The header, the live row and the design's two sample rows.
+    expect(within(sampleList()).getAllByRole('row')).toHaveLength(4)
     expectNoSampleRequest()
   })
 })
@@ -312,7 +321,7 @@ describe('an address below the page’s own', () => {
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider/hr'))
     expect(screen.getAllByRole('heading', { level: 1 }).map(heading => heading.textContent)).toEqual(['HR & Credentials'])
     await screen.findByRole('button', { name: 'No licence on record' })
-    expect(within(sampleList()).getAllByRole('row')).toHaveLength(3)
+    expect(within(sampleList()).getAllByRole('row')).toHaveLength(4)
     expect(screen.queryByRole('heading', { name: 'Saved record' })).toBeNull()
     expect(api.read).toHaveBeenCalledTimes(1)
     expectNoSampleRequest()

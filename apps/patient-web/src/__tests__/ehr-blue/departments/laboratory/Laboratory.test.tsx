@@ -7,6 +7,7 @@ import { forgetCannotCompleteServed } from '../../../../cannotCompleteServed'
 import { forgetLateCorrectionServed } from '../../../../lateCorrectionServed'
 import { forgetWrongPatientServed } from '../../../../wrongPatientServed'
 import { Laboratory } from '../../../../ehr-blue/departments/laboratory/Laboratory'
+import { sameShownPatient } from '../../../../ehr-blue/departments/parts/routedWork'
 import { laboratoryPage } from '../../../../ehr-blue/departments/laboratory/page'
 import { DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 
@@ -114,6 +115,12 @@ function cardOf(heading: string | RegExp) {
   return screen.getByRole('heading', { name: heading }).closest('section') as HTMLElement
 }
 
+/** The record's one "Available actions" card. */
+function actionsCard() {
+  expect(screen.getAllByRole('heading', { name: 'Available actions' })).toHaveLength(1)
+  return cardOf('Available actions')
+}
+
 async function openRecord(name = 'Haemoglobin') {
   const row = (await screen.findByRole('button', { name })).closest('tr') as HTMLElement
   fireEvent.click(within(row).getByRole('button', { name: 'Open' }))
@@ -121,7 +128,7 @@ async function openRecord(name = 'Haemoglobin') {
   return recordView()
 }
 
-/** Renders the page as `permissions`, opens the accessioned work and waits for its sample. */
+/** Renders the page as `permissions`, opens the accessioned work and waits for its sample, in its Saved record. */
 async function openAccession(permissions: string[], value: LabAccession) {
   as(permissions)
   api.labWorkItems.mockResolvedValue({ items: [accessioned] })
@@ -129,7 +136,7 @@ async function openAccession(permissions: string[], value: LabAccession) {
   renderDept(<Laboratory />)
   await openRecord()
   await screen.findByRole('heading', { name: 'Sample SPC-000123' })
-  return cardOf('Accession')
+  return cardOf('Saved record')
 }
 
 async function refusalOf(control: HTMLElement) {
@@ -143,6 +150,7 @@ beforeEach(() => {
   as(WORK)
   api.labWorkItems.mockResolvedValue({ items: [] })
   api.labExecutions.mockResolvedValue({ items: [] })
+  api.labResultHistory.mockImplementation(() => Promise.resolve(draftResult()))
   routes.incoming.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: true })
   forgetReceiving(); forgetCannotCompleteServed(); forgetLateCorrectionServed(); forgetWrongPatientServed()
 })
@@ -178,18 +186,18 @@ describe('access', () => {
 })
 
 describe('the list', () => {
-  it('says it is loading while the work list is read, with Refresh list unavailable but focusable', async () => {
+  it('says it is loading while the work list is read, with no Refresh list beside the heading', async () => {
     const pending = deferred<{ items: LabWorkItem[] }>()
     api.labWorkItems.mockReturnValue(pending.promise)
     renderDept(<Laboratory />)
     expect(screen.getByRole('status').textContent).toBe('Loading lab work…')
-    const refresh = screen.getByRole('button', { name: 'Refresh list' })
-    expect(refresh.getAttribute('aria-disabled')).toBe('true')
-    expect((refresh as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
+    expect(listView().querySelector('.hid-ehr-page-actions')).toBeNull()
     expect(api.labWorkItems).toHaveBeenCalledWith(DEMO_LABORATORY_ID)
     await act(async () => { pending.resolve({ items: [workItem()] }) })
     expect(await screen.findByRole('button', { name: 'Haemoglobin' })).toBeTruthy()
     expect(screen.queryByText('Loading lab work…')).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
   })
 
   it('says there is no lab work yet, and reads the list again from its Refresh', async () => {
@@ -198,26 +206,45 @@ describe('the list', () => {
     expect(screen.getByText('Accepted lab orders for this facility appear here. Refresh to check for new work.')).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
     api.labWorkItems.mockResolvedValue({ items: [workItem()] })
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    const refresh = screen.getByRole('button', { name: 'Refresh' })
+    refresh.focus()
+    fireEvent.click(refresh)
     expect(await screen.findByRole('button', { name: 'Haemoglobin' })).toBeTruthy()
     expect(api.labWorkItems).toHaveBeenCalledTimes(2)
+    // The Refresh went while the list was read: focus is not left on the page.
+    await waitFor(() => expect(document.activeElement?.id).toBe('lab-list-title'))
+    expect(screen.getByRole('heading', { level: 1, name: 'Laboratory' }).contains(document.activeElement)).toBe(true)
   })
 
-  it('shows the refusal, not the empty state, and recovers from Refresh list', async () => {
-    api.labWorkItems.mockRejectedValueOnce(problem(503, 'SERVICE_UNAVAILABLE', 'The service is temporarily unavailable. Please try again shortly.'))
+  it('shows the refusal, not the empty state, in the list card, and recovers from its Refresh', async () => {
+    const unavailable = problem(503, 'SERVICE_UNAVAILABLE', 'The service is temporarily unavailable. Please try again shortly.')
+    api.labWorkItems.mockRejectedValueOnce(unavailable).mockRejectedValueOnce(unavailable)
     api.labWorkItems.mockResolvedValue({ items: [workItem()] })
     renderDept(<Laboratory />)
-    expect((await screen.findByRole('alert')).textContent).toBe('The service is temporarily unavailable. Please try again shortly.')
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('The service is temporarily unavailable. Please try again shortly.')
     expect(screen.queryByText('No lab work yet')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh list' }))
+    const card = screen.getByRole('region', { name: 'Search Laboratory' })
+    expect(card.contains(alert)).toBe(true)
+    // Refused again: focus comes back to the Refresh shown again.
+    within(card).getByRole('button', { name: 'Refresh' }).focus()
+    fireEvent.click(within(card).getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(api.labWorkItems).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(document.activeElement).toBe(within(card).getByRole('button', { name: 'Refresh' })))
+    fireEvent.click(within(card).getByRole('button', { name: 'Refresh' }))
     expect(await screen.findByRole('button', { name: 'Haemoglobin' })).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull()
+    expect(api.labWorkItems).toHaveBeenCalledTimes(3)
+    // Then to the list's heading, as the Refresh is gone.
+    await waitFor(() => expect(document.activeElement?.id).toBe('lab-list-title'))
   })
 
-  it('says the module is not in service when the gateway has no Lab route', async () => {
+  it('says the module is not in service when the gateway has no Lab route, and offers no Refresh that cannot help', async () => {
     api.labWorkItems.mockRejectedValue(problem(404, 'API_ROUTE_NOT_FOUND', 'Not found'))
     renderDept(<Laboratory />)
     expect((await screen.findByRole('alert')).textContent).toMatch(/^This workspace is not in service on this Health ID deployment/)
+    expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
   })
 
   it('lists the work in the target’s columns, with masked patients only', async () => {
@@ -242,6 +269,16 @@ describe('the list', () => {
     expect(within(rowOf('Lab test')).getByText('abcdef12')).toBeTruthy()
     expect(document.body.innerHTML).not.toContain(PATIENT)
     expect(document.body.innerHTML).not.toContain(other)
+  })
+
+  it('puts the list card first under the heading', async () => {
+    api.labWorkItems.mockResolvedValue({ items: [workItem()] })
+    renderDept(<Laboratory />)
+    await screen.findByRole('button', { name: 'Haemoglobin' })
+    const [heading, first] = [...listView().children]
+    expect(heading?.querySelector('h1')?.textContent).toBe('Laboratory')
+    expect(first).toBe(screen.getByRole('region', { name: 'Search Laboratory' }))
+    expect(first?.classList.contains('hid-ehr-dept-list-card')).toBe(true)
   })
 
   it('searches what is listed, and says when nothing matches', async () => {
@@ -281,7 +318,7 @@ describe('quick view', () => {
     const drawer = screen.getByRole('dialog', { name: 'Record quick view' })
     expect(within(drawer).getByRole('heading', { name: 'Haemoglobin' })).toBeTruthy()
     expect(within(drawer).getByText('Patient').nextSibling?.textContent).toBe(MASKED)
-    expect(within(drawer).getByText('Priority').nextSibling?.textContent).toBe('urgent')
+    expect(within(drawer).getByText('Urgency').nextSibling?.textContent).toBe('Urgent')
     expect(within(drawer).getByText('Accession').nextSibling?.textContent).toBe('Not created yet')
     fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }))
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -300,13 +337,51 @@ describe('the record view', () => {
     const record = await openRecord()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(document.activeElement?.id).toBe('lab-record-title')
-    expect(within(record).getAllByText(MASKED)).toHaveLength(2)
+    // The Saved record's patient, and the context line's patient with the record's reference after it (the design's).
+    expect(within(record).getAllByText(MASKED)).toHaveLength(1)
+    expect(within(record).getAllByText(text => text.startsWith(`${MASKED} · `))).toHaveLength(1)
     expect(within(record).getAllByText('accepted')).toHaveLength(2)
     // Nothing about the record goes in the address.
     expect(window.location.href).not.toMatch(/work-item-1/)
     fireEvent.click(within(record).getByRole('button', { name: 'Back to list' }))
     expect(screen.getByRole('heading', { level: 1, name: 'Laboratory' })).toBeTruthy()
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Haemoglobin' }))
+  })
+
+  it('lists the patient’s other work on the list under Connected hospital history, and opens it from there', async () => {
+    as(ACCESSION)
+    const other = 'b0000000-0000-4000-8000-00000071d3a8'
+    api.labWorkItems.mockResolvedValue({ items: [workItem(), workItem({ id: 'work-item-2', testName: 'Serum ferritin', accessionId: 'accession-2',
+      accessionNumber: 'ACC-2026-000124' }), workItem({ id: 'work-item-3', patientId: other, testName: 'Urea' })] })
+    api.labAccession.mockReturnValue(new Promise(() => undefined))
+    renderDept(<Laboratory />)
+    await openRecord()
+    // A form opened on this record does not follow to the next one.
+    fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Create accession' }))
+    let connected = cardOf('Connected hospital history')
+    expect(within(connected).getByText('Only records available to your current permissions are listed.')).toBeTruthy()
+    expect(within(connected).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Serum ferritin · ACC-2026-000124accessioned'])
+    // It follows the record view's cards.
+    expect(cardOf('Saved record').compareDocumentPosition(connected) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(within(connected).getByRole('button', { name: 'Serum ferritin · ACC-2026-000124' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Serum ferritin' })).toBeTruthy()
+    expect(document.activeElement?.id).toBe('lab-record-title')
+    expect(screen.queryByRole('form', { name: 'Create accession' })).toBeNull()
+    connected = cardOf('Connected hospital history')
+    expect(within(connected).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Haemoglobin · work-iteaccepted'])
+    expect(within(connected).queryByText(/Urea/)).toBeNull()
+    expect(window.location.href).not.toMatch(/work-item/)
+    expect(api.labWorkItems).toHaveBeenCalledTimes(1)
+  })
+
+  it('says only the sentence under Connected hospital history when the list holds no other work for the patient', async () => {
+    api.labWorkItems.mockResolvedValue({ items: [workItem(), workItem({ id: 'work-item-3', patientId: 'b0000000-0000-4000-8000-00000071d3a8',
+      testName: 'Urea' })] })
+    renderDept(<Laboratory />)
+    await openRecord()
+    const connected = cardOf('Connected hospital history')
+    expect(connected.textContent).toBe('Connected hospital historyOnly records available to your current permissions are listed.')
+    expect(within(connected).queryByRole('list')).toBeNull()
   })
 
   it('opens from the record’s name too, by keyboard', async () => {
@@ -324,7 +399,7 @@ describe('the record view', () => {
     renderDept(<Laboratory />)
     await openRecord()
     const saved = cardOf('Saved record')
-    expect([...saved.querySelectorAll('dt')].map(term => term.textContent)).toEqual(['Test', 'Patient', 'Priority', 'Accepted', 'Accession', 'Status'])
+    expect([...saved.querySelectorAll('dt')].map(term => term.textContent)).toEqual(['Test', 'Patient', 'Urgency', 'Accepted', 'Accession', 'Status'])
     expect(within(cardOf('Available actions')).getByText('No further actions for your permission and this record state.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Create accession' })).toBeNull()
   })
@@ -390,8 +465,9 @@ describe('creating an accession', () => {
     await waitFor(() => expect(api.labAccession).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'accession-7'))
     expect(api.createLabAccession).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'work-item-1', 'Venous blood', 'Suspected anaemia')
     expect(await screen.findByRole('heading', { name: 'Sample SPC-000777' })).toBeTruthy()
-    expect(within(cardOf('Accession')).getByRole('status').textContent).toBe('Accession ACC-2026-000777 created.')
-    expect(document.activeElement?.id).toBe('lab-accession-title')
+    const saved = cardOf('Saved record')
+    expect(within(saved).getByRole('status').textContent).toBe('Accession ACC-2026-000777 created.')
+    expect(document.activeElement).toBe(within(saved).getByRole('heading', { name: 'Saved record' }))
     expect(screen.queryByRole('form', { name: 'Create accession' })).toBeNull()
     await waitFor(() => expect(api.labWorkItems).toHaveBeenCalledTimes(2))
     expect(document.body.innerHTML).not.toContain(PATIENT)
@@ -409,43 +485,64 @@ describe('creating an accession', () => {
 })
 
 describe('the accession', () => {
-  it('says it is loading, with Refresh accession unavailable', async () => {
+  it('says it is loading in Saved record, with no Refresh accession, then lists its number and samples there', async () => {
     const pending = deferred<LabAccession>()
     as(ACCESSION)
     api.labWorkItems.mockResolvedValue({ items: [accessioned] })
     api.labAccession.mockReturnValue(pending.promise)
     renderDept(<Laboratory />)
     await openRecord()
-    const card = cardOf('Accession')
+    const card = cardOf('Saved record')
     expect(within(card).getByRole('status').textContent).toBe('Loading accession…')
-    expect(within(card).getByRole('button', { name: 'Refresh accession' }).getAttribute('aria-disabled')).toBe('true')
-    await act(async () => { pending.resolve(accession([specimen('received')])) })
-    expect(await screen.findByRole('heading', { name: 'Sample SPC-000123' })).toBeTruthy()
+    // The work's accession number is said while the accession is read, once.
     expect(within(card).getByText('Accession number').nextSibling?.textContent).toBe('ACC-2026-000123')
+    expect(within(card).queryByText('Accession')).toBeNull()
+    expect(within(card).queryByText('Samples')).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Accession' })).toBeNull()
+    // Not "nothing to do" while it is read.
+    expect(within(actionsCard()).queryByText('No further actions for your permission and this record state.')).toBeNull()
+    await act(async () => { pending.resolve(accession([specimen('received')])) })
+    const sample = await screen.findByRole('heading', { level: 3, name: 'Sample SPC-000123' })
+    expect(card.contains(sample)).toBe(true)
+    expect(within(card).getByText('Accession number').nextSibling?.textContent).toBe('ACC-2026-000123')
+    expect(within(card).getByText('Samples').nextSibling?.textContent).toBe('1')
+    // The accession's own number stands in for the work's "Accession".
+    expect([...card.querySelectorAll('dt')].map(term => term.textContent).slice(0, 7))
+      .toEqual(['Test', 'Patient', 'Accepted', 'Status', 'Accession number', 'Samples', 'Sample type'])
+    expect(within(actionsCard()).getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
   })
 
-  it('shows a refusal and no samples, then recovers from Refresh accession', async () => {
+  it('shows a refusal and no samples, then reads it again when the record is opened again', async () => {
     as(CUSTODY)
     api.labWorkItems.mockResolvedValue({ items: [accessioned] })
     api.labAccession.mockRejectedValueOnce(problem(403, 'LAB_OPERATION_ACCESS_DENIED', 'Lab operation is not authorized'))
       .mockResolvedValue(accession([specimen('required')]))
     renderDept(<Laboratory />)
-    await openRecord()
-    const card = cardOf('Accession')
-    expect((await within(card).findByRole('alert')).textContent).toBe('Lab operation is not authorized')
+    const record = await openRecord()
+    expect((await within(cardOf('Saved record')).findByRole('alert')).textContent).toBe('Lab operation is not authorized')
     expect(screen.queryByRole('heading', { name: 'Sample SPC-000123' })).toBeNull()
-    const refresh = within(card).getByRole('button', { name: 'Refresh accession' })
-    await waitFor(() => expect(refresh.getAttribute('aria-disabled')).toBeNull())
-    fireEvent.click(refresh)
+    // What the work says of its accession stays in Saved record.
+    expect(within(cardOf('Saved record')).getByText('Accession number').nextSibling?.textContent).toBe('ACC-2026-000123')
+    expect(within(cardOf('Saved record')).queryByText('Samples')).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
+    // A refusal is not "nothing to do".
+    expect(within(actionsCard()).queryByText('No further actions for your permission and this record state.')).toBeNull()
+    fireEvent.click(within(record).getByRole('button', { name: 'Back to list' }))
+    await openRecord()
     expect(await screen.findByRole('heading', { name: 'Sample SPC-000123' })).toBeTruthy()
-    expect(within(card).queryByRole('alert')).toBeNull()
+    expect(within(cardOf('Saved record')).queryByRole('alert')).toBeNull()
+    expect(api.labAccession).toHaveBeenCalledTimes(2)
   })
 
   it('offers no accession to a member without lab.accession.read', async () => {
     api.labWorkItems.mockResolvedValue({ items: [accessioned] })
     renderDept(<Laboratory />)
     await openRecord()
-    expect(screen.queryByRole('heading', { name: 'Accession' })).toBeNull()
+    expect(screen.queryByText('Accession number')).toBeNull()
+    expect(within(cardOf('Saved record')).getByText('Accession').nextSibling?.textContent).toBe('ACC-2026-000123')
+    expect(within(actionsCard()).getByText('No further actions for your permission and this record state.')).toBeTruthy()
     expect(api.labAccession).not.toHaveBeenCalled()
   })
 })
@@ -453,19 +550,27 @@ describe('the accession', () => {
 describe('sample custody', () => {
   it('offers collect and reject for a sample awaiting collection, as granted', async () => {
     await openAccession(CUSTODY, accession([specimen('required')]))
-    const actions = cardOf(/^Available actions for sample SPC-000123/)
-    expect(within(actions).getAllByRole('button').map(button => button.textContent)).toEqual(['Collect sample', 'Reject sample'])
+    expect(within(actionsCard()).getAllByRole('button').map(button => button.textContent)).toEqual(['Collect sample', 'Reject sample'])
+    expect(within(actionsCard()).queryByText('No further actions for your permission and this record state.')).toBeNull()
+  })
+
+  it('names the sample on each step once the accession has several, in the order of its samples', async () => {
+    await openAccession(CUSTODY, accession([specimen('required'), specimen('collected', { id: 'specimen-2', specimenIdentifier: 'SPC-000124' })]))
+    expect(within(actionsCard()).getAllByRole('button').map(button => button.textContent))
+      .toEqual(['Collect sample · SPC-000123', 'Reject sample · SPC-000123', 'Receive sample · SPC-000124', 'Reject sample · SPC-000124'])
+    const saved = cardOf('Saved record')
+    expect(within(saved).getAllByRole('heading', { level: 3 }).map(heading => heading.textContent)).toEqual(['Sample SPC-000123', 'Sample SPC-000124'])
+    expect(within(saved).getByText('Samples').nextSibling?.textContent).toBe('2')
   })
 
   it('offers receipt only with lab.specimen.receive', async () => {
     await openAccession([...ACCESSION, 'lab.specimen.collect', 'lab.specimen.reject'], accession([specimen('collected')]))
-    const actions = cardOf(/^Available actions for sample/)
-    expect(within(actions).getAllByRole('button').map(button => button.textContent)).toEqual(['Reject sample'])
+    expect(within(actionsCard()).getAllByRole('button').map(button => button.textContent)).toEqual(['Reject sample'])
   })
 
   it('offers no step without lab.specimen permissions', async () => {
     await openAccession(ACCESSION, accession([specimen('required')]))
-    expect(within(cardOf(/^Available actions for sample/)).getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    expect(within(actionsCard()).getByText('No further actions for your permission and this record state.')).toBeTruthy()
   })
 
   it('records collection, reads the accession again, says so, and moves focus to the next step', async () => {
@@ -482,8 +587,29 @@ describe('sample custody', () => {
     expect(api.transitionSpecimen).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'accession-1', required, 'collect', 'Left arm')
     const receive = await screen.findByRole('button', { name: 'Receive sample' })
     await waitFor(() => expect(document.activeElement).toBe(receive))
-    expect(within(cardOf('Accession')).getByRole('status').textContent).toBe('Sample collected.')
+    expect(within(actionsCard()).getAllByRole('button').map(button => button.textContent)).toEqual(['Receive sample', 'Reject sample'])
+    const status = document.getElementById('lab-accession-status')
+    expect(cardOf('Saved record').contains(status)).toBe(true)
+    expect(status?.textContent).toBe('Sample collected.')
     await waitFor(() => expect(api.labWorkItems).toHaveBeenCalledTimes(2))
+  })
+
+  it('moves focus to what the accession read said when reading it again after a step fails', async () => {
+    const required = specimen('required')
+    await openAccession(CUSTODY, accession([required]))
+    api.transitionSpecimen.mockResolvedValue(specimen('collected', { version: 3 }))
+    api.labAccession.mockRejectedValue(problem(503, 'SERVICE_UNAVAILABLE', 'The service is temporarily unavailable. Please try again shortly.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Collect sample' }))
+    const form = screen.getByRole('form', { name: 'Collect sample' })
+    within(form).getByRole('button', { name: 'Collect sample' }).focus()
+    fireEvent.click(within(form).getByRole('button', { name: 'Collect sample' }))
+    const alert = await within(cardOf('Saved record')).findByRole('alert')
+    expect(alert.textContent).toBe('The service is temporarily unavailable. Please try again shortly.')
+    expect(alert.id).toBe('lab-accession-error')
+    await waitFor(() => expect(document.activeElement).toBe(alert))
+    expect(api.transitionSpecimen).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'accession-1', required, 'collect', '')
+    expect(screen.queryByRole('heading', { name: 'Sample SPC-000123' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
   })
 
   it('asks for a reason before rejecting a sample', async () => {
@@ -521,7 +647,7 @@ describe('processing and results', () => {
     await openAccession(permissions, accession([specimen('received')]))
     await waitFor(() => expect(api.labExecutions).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'specimen-1'))
     await waitFor(() => expect(screen.queryByText('Loading processing…')).toBeNull())
-    return cardOf(/^Available actions for sample/)
+    return actionsCard()
   }
 
   it('starts processing a received sample, asking for its details first', async () => {
@@ -607,8 +733,9 @@ describe('processing and results', () => {
     api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
     api.verifyLabResult.mockResolvedValue(verifiedResult())
     const actions = await openReceived()
-    expect(screen.getByText('Result').nextSibling?.textContent).toBe('draft result · version 1')
-    expect(screen.getByText('Value').nextSibling?.textContent).toBe('7.1 g/dL · low')
+    const saved = cardOf('Saved record')
+    expect(within(saved).getByText('Result').nextSibling?.textContent).toBe('draft result · version 1')
+    expect(within(saved).getByText('Value').nextSibling?.textContent).toBe('7.1 g/dL · low')
     fireEvent.click(within(actions).getByRole('button', { name: 'Verify result' }))
     const form = screen.getByRole('form', { name: 'Verify result' })
     fireEvent.click(within(form).getByRole('button', { name: 'Verify result' }))
@@ -666,21 +793,79 @@ describe('processing and results', () => {
       { resultType: 'numeric', numericValue: 7.4, unit: 'g/dL', referenceRange: '12.0-15.5', abnormalFlag: 'low' }, 'Transcription error', 'amendment')
   })
 
-  it('reads the result history only when asked, under Preserved versions & amendments', async () => {
+  it('reads the result history when the record opens, and lists each version under Preserved versions & amendments', async () => {
     const result = publishedResult()
     api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
     api.labResultHistory.mockResolvedValue({ ...result, revisions: [...result.revisions,
-      revision({ version: 2, numericValue: 7.4, correctionReason: 'Transcription error' })] })
+      revision({ version: 2, numericValue: 7.4, enteredAt: '2026-10-10T08:00:00.000Z', correctionReason: 'Transcription error' })] })
     await openReceived()
     const history = cardOf(/^Preserved versions & amendments/)
-    expect(api.labResultHistory).not.toHaveBeenCalled()
-    const toggle = within(history).getByRole('button', { name: 'View result history' })
-    expect(toggle.getAttribute('aria-expanded')).toBe('false')
-    fireEvent.click(toggle)
-    expect(toggle.getAttribute('aria-expanded')).toBe('true')
-    expect(await within(history).findByText('Version 1 · published')).toBeTruthy()
-    expect(within(history).getByText('Version 2 · not published · Transcription error')).toBeTruthy()
+    expect(api.labResultHistory).toHaveBeenCalledTimes(1)
     expect(api.labResultHistory).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'result-1')
+    const first = `${new Date('2026-10-09T10:00:00.000Z').toLocaleString()} · published · Version 1`
+    const second = `${new Date('2026-10-10T08:00:00.000Z').toLocaleString()} · not published · Version 2`
+    await waitFor(() => expect([...history.querySelectorAll('summary')].map(summary => summary.textContent)).toEqual([first, second]))
+    // Each version is a disclosure holding what it recorded.
+    const later = within(history).getByText(second).closest('details') as HTMLElement
+    expect(within(later).getByText('Reason').nextSibling?.textContent).toBe('Transcription error')
+    expect(within(history).queryByRole('button')).toBeNull()
+    expect(within(history).queryByText(/View the history/)).toBeNull()
+    // The card comes after Connected hospital history, outside the record's two columns.
+    const connected = cardOf('Connected hospital history')
+    expect(connected.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(cardOf('Saved record').contains(history)).toBe(false)
+  })
+
+  it('reads the result history again when a step changes the result', async () => {
+    const result = draftResult()
+    api.labExecutions.mockResolvedValueOnce({ items: [execution({ result })] }).mockResolvedValue({ items: [execution({ result: verifiedResult() })] })
+    api.labResultHistory.mockResolvedValueOnce(result).mockResolvedValue(verifiedResult())
+    const actions = await openReceived()
+    const history = cardOf(/^Preserved versions & amendments/)
+    const entered = new Date('2026-10-09T10:00:00.000Z').toLocaleString()
+    await waitFor(() => expect([...history.querySelectorAll('summary')].map(summary => summary.textContent))
+      .toEqual([`${entered} · not published · Version 1`]))
+    expect(api.labResultHistory).toHaveBeenCalledTimes(1)
+    fireEvent.click(within(actions).getByRole('button', { name: 'Verify result' }))
+    const form = screen.getByRole('form', { name: 'Verify result' })
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Review note' }), { target: { value: 'Independent review' } })
+    api.verifyLabResult.mockResolvedValue(verifiedResult())
+    fireEvent.click(within(form).getByRole('button', { name: 'Verify result' }))
+    expect(await screen.findByText('Version 1 verified.')).toBeTruthy()
+    await waitFor(() => expect([...cardOf(/^Preserved versions & amendments/).querySelectorAll('summary')].map(summary => summary.textContent))
+      .toEqual([`${entered} · verified, not published · Version 1`]))
+    expect(api.labResultHistory).toHaveBeenCalledTimes(2)
+    expect(api.labResultHistory).toHaveBeenLastCalledWith(DEMO_LABORATORY_ID, 'result-1')
+  })
+
+  it('says the history of a result not published yet was not found, without re-checking access for it', async () => {
+    api.labExecutions.mockImplementation(async () => ({ items: [execution({ result: draftResult() })] }))
+    api.labResultHistory.mockRejectedValue(problem(404, 'LAB_RESULT_NOT_FOUND', 'Lab result was not found'))
+    await openReceived()
+    const history = cardOf(/^Preserved versions & amendments/)
+    expect((await within(history).findByRole('alert')).textContent).toBe('Lab result was not found')
+    expect(api.labResultHistory).toHaveBeenCalledTimes(1)
+    expect(api.labExecutions).toHaveBeenCalledTimes(1)
+    expect(within(cardOf('Saved record')).getByText('7.1 g/dL · low')).toBeTruthy()
+    expect(screen.queryByText(DENIED)).toBeNull()
+  })
+
+  it('reads no result history without lab.result.released.read', async () => {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: publishedResult() })] })
+    await openReceived(PROCESSING.filter(permission => permission !== 'lab.result.released.read'))
+    expect(within(cardOf('Saved record')).getByText('Result').nextSibling?.textContent).toBe('published · version 1')
+    expect(screen.queryByRole('heading', { name: /^Preserved versions & amendments/ })).toBeNull()
+    expect(api.labResultHistory).not.toHaveBeenCalled()
+  })
+
+  it('says a history read that failed, and re-checks access for a refusal of it', async () => {
+    api.labExecutions.mockResolvedValueOnce({ items: [execution({ result: publishedResult() })] })
+      .mockRejectedValue(problem(403, 'LAB_EXECUTION_ACCESS_DENIED', 'Lab execution/result access is not authorized'))
+    api.labResultHistory.mockRejectedValue(problem(403, 'LAB_RESULT_ACCESS_DENIED', 'Lab result access is not authorized'))
+    await openAccession(PROCESSING, accession([specimen('received')]))
+    expect(await screen.findByText(DENIED)).toBeTruthy()
+    await waitFor(() => expect(api.labExecutions).toHaveBeenCalledTimes(2))
+    expect(screen.queryByText('7.1 g/dL · low')).toBeNull()
   })
 
   it('hides every result and says access was denied when the processing read is refused', async () => {
@@ -688,8 +873,9 @@ describe('processing and results', () => {
     await openAccession(PROCESSING, accession([specimen('received')]))
     expect(await screen.findByText(DENIED)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Start processing' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Refresh/ })).toBeNull()
     // Hidden results are not "nothing to do".
-    expect(within(cardOf(/^Available actions for sample/)).queryByText('No further actions for your permission and this record state.')).toBeNull()
+    expect(within(actionsCard()).queryByText('No further actions for your permission and this record state.')).toBeNull()
   })
 
   it('does not say there is nothing to do while processing is still loading, and offers the action once it has loaded', async () => {
@@ -697,7 +883,7 @@ describe('processing and results', () => {
     api.labExecutions.mockReturnValue(pending.promise)
     await openAccession(PROCESSING, accession([specimen('received')]))
     expect(await screen.findByText('Loading processing…')).toBeTruthy()
-    const actions = cardOf(/^Available actions for sample/)
+    const actions = actionsCard()
     expect(within(actions).queryByText('No further actions for your permission and this record state.')).toBeNull()
     await act(async () => { pending.resolve({ items: [] }) })
     expect(await within(actions).findByRole('button', { name: 'Start processing' })).toBeTruthy()
@@ -706,7 +892,7 @@ describe('processing and results', () => {
   it('says there is nothing to do once processing has loaded and the member may only read', async () => {
     await openAccession([...ACCESSION, 'lab.execution.read'], accession([specimen('received')]))
     expect(await screen.findByText('No processing has started for this sample.')).toBeTruthy()
-    expect(within(cardOf(/^Available actions for sample/)).getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    expect(within(actionsCard()).getByText('No further actions for your permission and this record state.')).toBeTruthy()
   })
 
   it('hides the values when a refused verification is followed by a refused re-check', async () => {
@@ -714,7 +900,7 @@ describe('processing and results', () => {
       .mockRejectedValue(problem(403, 'LAB_EXECUTION_ACCESS_DENIED', 'Lab execution/result access is not authorized'))
     api.verifyLabResult.mockRejectedValue(problem(403, 'LAB_OPERATION_ACCESS_DENIED', 'Lab operation is not authorized'))
     const actions = await openReceived()
-    expect(screen.getByText('7.1 g/dL · low')).toBeTruthy()
+    expect(within(cardOf('Saved record')).getByText('7.1 g/dL · low')).toBeTruthy()
     fireEvent.click(within(actions).getByRole('button', { name: 'Verify result' }))
     const form = screen.getByRole('form', { name: 'Verify result' })
     fireEvent.change(within(form).getByRole('textbox', { name: 'Review note' }), { target: { value: 'Review' } })
@@ -734,7 +920,7 @@ describe('processing and results', () => {
     fireEvent.click(within(form).getByRole('button', { name: 'Verify result' }))
     expect((await within(form).findByRole('alert')).textContent).toBe('The person who entered a result cannot verify it')
     expect(api.labExecutions).toHaveBeenCalledTimes(1)
-    expect(screen.getByText('7.1 g/dL · low')).toBeTruthy()
+    expect(within(cardOf('Saved record')).getByText('7.1 g/dL · low')).toBeTruthy()
   })
 })
 
@@ -834,6 +1020,20 @@ describe('work from another facility', () => {
     expect(screen.queryByRole('button', { name: 'Collect sample' })).toBeNull()
   })
 
+  it('keeps the list card first, above Incoming, the late correction and the paused notice', async () => {
+    as(RECEIVE)
+    api.labWorkItems.mockResolvedValue(answer([routed(), local], { crossFacilityWork: false }))
+    renderDept(<Laboratory />)
+    const incoming = await screen.findByRole('heading', { name: /^Incoming/ })
+    const card = screen.getByRole('region', { name: 'Search Laboratory' })
+    expect([...listView().children][1]).toBe(card)
+    for (const below of [incoming, screen.getByText('Correct an order that has ended'),
+      screen.getByText('Work on orders from other facilities is paused by Health ID.')]) {
+      expect(card.compareDocumentPosition(below) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(card.contains(below)).toBe(false)
+    }
+  })
+
   it('says work on orders from other facilities is paused', async () => {
     api.labWorkItems.mockResolvedValue(answer([routed()], { crossFacilityWork: false }))
     renderDept(<Laboratory />)
@@ -883,7 +1083,22 @@ describe('ending an order from its record', () => {
     expect(within(cardOf('Available actions')).queryByRole('button', { name: new RegExp(`^${CC}`) })).toBeNull()
   })
 
-  it('ends an order it can’t complete, then says so above the list with focus on it', async () => {
+  it('offers the accession’s steps and the endings in the one Available actions card', async () => {
+    as([...RECEIVE, 'lab.specimen.collect', 'lab.specimen.reject'])
+    api.labWorkItems.mockResolvedValue(answer([routed({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123' })]))
+    api.labAccession.mockResolvedValue(accession([specimen('required')]))
+    renderDept(<Laboratory />)
+    await openRecord()
+    const collect = await screen.findByRole('button', { name: 'Collect sample' })
+    const actions = actionsCard()
+    expect(actions.contains(collect)).toBe(true)
+    const end = await within(actions).findByRole('button', { name: WP })
+    expect(collect.compareDocumentPosition(end) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(actions).queryByText('No further actions for your permission and this record state.')).toBeNull()
+    expect(cardOf('Saved record').contains(screen.getByRole('heading', { level: 3, name: 'Sample SPC-000123' }))).toBe(true)
+  })
+
+  it('ends an order it can’t complete, then says so under the list card with focus on it', async () => {
     as(RECEIVE)
     api.labWorkItems.mockResolvedValueOnce(answer([routed(), local], { cannotComplete: true }))
       .mockResolvedValue(answer([local], { cannotComplete: true }))
@@ -901,12 +1116,13 @@ describe('ending an order from its record', () => {
     const ended = await screen.findByText(/^Ended: Haemoglobin, reference 9C1B2D3E\./)
     expect(screen.getByRole('heading', { level: 1, name: 'Laboratory' })).toBeTruthy()
     expect(document.activeElement).toBe(ended)
+    expect(screen.getByRole('region', { name: 'Search Laboratory' }).compareDocumentPosition(ended) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(routes.cannotComplete).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'lab', { id: ROUTE_ID, version: 3 },
       { reason: 'supplies_unavailable', confirmedPatient: true }, expect.any(String))
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Haemoglobin' })).toBeNull())
   })
 
-  it('ends an order accepted for the wrong person, then says so above the list', async () => {
+  it('ends an order accepted for the wrong person, then says so under the list card', async () => {
     as(RECEIVE)
     api.labWorkItems.mockResolvedValueOnce(answer([routed(), local])).mockResolvedValue(answer([local]))
     routes.reportWrongPatient.mockResolvedValue({ route: { id: ROUTE_ID, version: 4, effectiveState: 'cancelled', endedKind: 'wrong_patient' },
@@ -922,6 +1138,7 @@ describe('ending an order from its record', () => {
     const ended = await screen.findByText(/^Ended: Haemoglobin, reference 9C1B2D3E\. Patient One is told in the Health ID app\./)
     expect(screen.getByRole('heading', { level: 1, name: 'Laboratory' })).toBeTruthy()
     await waitFor(() => expect(document.activeElement).toBe(ended))
+    expect(screen.getByRole('region', { name: 'Search Laboratory' }).compareDocumentPosition(ended) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(routes.reportWrongPatient).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'lab', { id: ROUTE_ID, version: 3 },
       { reason: 'wrong_order_chosen', note: 'Wrong order picked' }, expect.any(String))
   })
@@ -949,5 +1166,34 @@ describe('ending an order from its record', () => {
     expect(said.textContent).toMatch(/^This order has already ended, so it can’t be ended here\./)
     await waitFor(() => expect(document.activeElement).toBe(said))
     expect(within(recordView()).getByText('Cancelled by Demo Hospital: stop work.')).toBeTruthy()
+  })
+})
+
+describe('Connected hospital history and the masked patient', () => {
+  beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+
+  it('links only work shown the same way: a named record never lists the masked rows of its patient, nor the reverse', async () => {
+    as(RECEIVE)
+    // The same patient: once named (an order routed here, accepted) and once masked (this laboratory's own work).
+    api.labWorkItems.mockResolvedValue(answer([routed({ testName: 'Glucose, fasting' }), workItem()]))
+    renderDept(<Laboratory />)
+    await openRecord('Glucose, fasting')
+    let connected = cardOf('Connected hospital history')
+    expect(connected.textContent).toBe('Connected hospital historyOnly records available to your current permissions are listed.')
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    await openRecord('Haemoglobin')
+    connected = cardOf('Connected hospital history')
+    expect(connected.textContent).toBe('Connected hospital historyOnly records available to your current permissions are listed.')
+  })
+
+  it('matches two named rows, or two masked rows, of the same patient, and never a named row with a masked one', () => {
+    const named = { patientId: 'p-1', patient: { fullName: 'Patient One' } }
+    const masked = { patientId: 'p-1' }
+    expect(sameShownPatient(named, { ...named })).toBe(true)
+    expect(sameShownPatient(masked, { ...masked })).toBe(true)
+    expect(sameShownPatient(named, masked)).toBe(false)
+    expect(sameShownPatient(masked, named)).toBe(false)
+    expect(sameShownPatient(masked, { patientId: 'p-2' })).toBe(false)
+    expect(sameShownPatient({ patientId: '' }, { patientId: '' })).toBe(false)
   })
 })

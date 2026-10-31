@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { isHidApiError } from '@hid/http'
-import { EhrButton, EhrInput, EhrTextarea } from '@hid/ui/ehr'
+import { EhrBadge, EhrButton, EhrInput, EhrTextarea } from '@hid/ui/ehr'
 import { staffApi, type PharmacyWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import { useFieldProblems } from '../../../staff/useFieldProblems'
@@ -11,11 +11,11 @@ import { useCannotCompleteServed } from '../../../cannotCompleteServed'
 import { DeptEmbedded } from '../parts/DeptEmbedded'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptSection } from '../parts/DeptPage'
-import { DeptContextLine, DeptFacts, DeptRecordLayout, type DeptFact } from '../parts/DeptRecord'
+import { DeptContextLine, DeptFacts, DeptHistory, DeptLinkButton, DeptRecordLayout, type DeptFact, type DeptHistoryEntry } from '../parts/DeptRecord'
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
-import { patientLabel, RoutedWorkLines, RoutedWorkPaused } from '../parts/routedWork'
-import { doseText, notDispensableText, statusOf, statusTone } from './pharmacyText'
+import { patientLabel, RoutedWorkLines, RoutedWorkPaused, sameShownPatient } from '../parts/routedWork'
+import { doseText, notDispensableText, statusOf, statusTone, type PharmacyStatus } from './pharmacyText'
 
 /** The design's words under a form that was refused. */
 const RETRY_NOTE = 'Correct the issue or retry using the same button. No success is reported until saved.'
@@ -34,6 +34,18 @@ export function recordFacts(item: PharmacyWorkItem, status: string, withPatient 
     ...(withPatient ? [{ label: 'Status', value: status }] : []),
     { label: 'Accepted', value: dateText(item.acceptedAt) },
   ]
+}
+
+/**
+ * "Preserved versions & amendments" from what the work list carries: when Pharmacy accepted the prescription, then its
+ * dispensing or the dispensing's reversal. The list has no time for either, so that entry has none.
+ */
+export function historyEntries(item: PharmacyWorkItem): DeptHistoryEntry[] {
+  const entries: DeptHistoryEntry[] = [{ key: 'accepted', summary: `${dateText(item.acceptedAt)} · accepted · Accept prescription` }]
+  if (item.dispensing) entries.push(item.dispensing.reversed
+    ? { key: 'reversed', summary: 'reversed · Reverse dispensing' }
+    : { key: 'dispensed', summary: 'dispensed · Dispense quantity' })
+  return entries
 }
 
 /** One field of an action form: the design's label with its asterisk, a hint, and the error a refusal names. */
@@ -70,15 +82,20 @@ export interface PharmacyRecordProps {
   readonly onEnded: (ending: WrongPatientEnding) => void
   readonly onNotCompleted: (ending: Omit<CannotCompleteEnding, 'key'>) => void
   readonly onReread: (routeId: string, mode: OrderEndingMode, said?: string) => Promise<void>
+  /** The work the list shows: the same patient's other prescriptions are named under "Connected hospital history". */
+  readonly items: readonly PharmacyWorkItem[]
+  readonly statusOfItem: (item: PharmacyWorkItem) => PharmacyStatus
+  readonly onOpen: (item: PharmacyWorkItem) => void
 }
 
 /**
- * One prescription's record: its status and patient, "Saved record", and "Available actions" (Dispense quantity,
- * Reverse dispensing, and on work from another facility the order's ending actions). The checks, requests and refusals
- * are today's PharmacyAction (staff/routes/Operations.tsx), ported line for line; the look and words are the design's.
+ * One prescription's record: its status and patient, "Saved record", "Available actions" (Dispense quantity, Reverse
+ * dispensing, and on work from another facility the order's ending actions), "Connected hospital history" and "Preserved
+ * versions & amendments". The checks, requests and refusals are today's PharmacyAction (staff/routes/Operations.tsx),
+ * ported line for line; the look and words are the design's.
  */
 export function PharmacyRecord({ facilityId, item, permissions, undispensable, onUndispensable, said, holds, crossFacilityWork,
-  onChanged, onBusy, onEnded, onNotCompleted, onReread }: PharmacyRecordProps) {
+  onChanged, onBusy, onEnded, onNotCompleted, onReread, items, statusOfItem, onOpen }: PharmacyRecordProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -125,7 +142,17 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
         onUndispensable()
         setOpened(null)
         focus(title, true)
-      } else setError(errorText(caught, ACTION_FAILED))
+      } else {
+        setError(errorText(caught, ACTION_FAILED))
+        // The design has no Refresh list: after a version conflict the work is read again before the form can be sent
+        // again, so a retry binds to the version now current, as one after Refresh list did. The form and its words stay,
+        // unless the work read again can no longer be dispensed here (dispensed elsewhere, its order closed): the form goes
+        // with the button that had focus, so focus goes to the prescription's title.
+        if (!reverse && isHidApiError(caught) && caught.status === 412) {
+          await onChanged()
+          focus(title, true)
+        }
+      }
     }
     finally { setBusy(false); onBusy(false) }
   }
@@ -208,13 +235,30 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
     <div id={`pharmacy-status-${item.id}`} role="status">{success && <p className="hid-ehr-dept-pharmacy-success">{success}</p>}</div>
   </section>
 
+  // The same patient's other work, as the list now shows it; none is said by the sentence alone. Work with no patient
+  // named is never matched to other such work.
+  const connected = items.filter(other => other.id !== item.id && sameShownPatient(other, item))
+
   return <>
-    <DeptContextLine status={status} tone={statusTone(status)} items={[patientLabel(item), `Accepted ${dateText(item.acceptedAt)}`]} />
+    <DeptContextLine status={status} tone={statusTone(status)} items={[`${patientLabel(item)} · ${item.id.slice(0, 8)}`, `Accepted ${dateText(item.acceptedAt)}`]} />
     {said && route && <DeptNotice id={`pharmacy-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{said}</DeptNotice>}
     <RoutedWorkPaused items={[item]} crossFacilityWork={crossFacilityWork} receives={holds} />
     <DeptRecordLayout
       main={<DeptSection title="Saved record"><DeptFacts facts={recordFacts(item, status)} />
         {route && <div className="hid-ehr-dept-pharmacy-route"><RoutedWorkLines route={route} /></div>}</DeptSection>}
       aside={actions} />
+    <DeptSection title="Connected hospital history">
+      <p>Only records available to your current permissions are listed.</p>
+      {connected.length > 0 && <ul className="hid-ehr-dept-rows hid-ehr-dept-pharmacy-connected">
+        {connected.map(other => {
+          const otherStatus = statusOfItem(other)
+          return <li key={other.id}>
+            <DeptLinkButton onClick={() => onOpen(other)}>Pharmacy · {other.medication.display} · {other.id.slice(0, 8)}</DeptLinkButton>
+            <EhrBadge tone={statusTone(otherStatus)}>{otherStatus}</EhrBadge>
+          </li>
+        })}
+      </ul>}
+    </DeptSection>
+    <DeptHistory entries={historyEntries(item)} />
   </>
 }
