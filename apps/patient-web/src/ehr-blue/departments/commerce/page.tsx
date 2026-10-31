@@ -17,6 +17,6 @@ const icon = (I: typeof Wallet) => <I aria-hidden strokeWidth={1.8} />
 export const commercePages: EhrBluePage[] = [
   { path: 'payments', group: 'Finance', label: 'Payments', permission: 'billing.bill.read', status: 'live', icon: icon(Wallet), element: <Payments /> },
   { path: 'price-list', group: 'Finance', label: 'Price list', permission: 'billing.catalogue.read', status: 'live', icon: icon(Tags), element: <PriceList /> },
-  { path: 'end-of-day', group: 'Finance', label: 'End of day', permission: 'billing.shift.manage', status: 'live', icon: icon(CalendarCheck), element: <EndOfDay /> },
+  { path: 'end-of-day', group: 'Finance', label: 'End of day', permission: 'billing.shift.own', status: 'live', icon: icon(CalendarCheck), element: <EndOfDay /> },
   { path: 'payment-setup', group: 'Finance', label: 'Payment setup', permission: 'billing.settings.manage', status: 'live', icon: icon(SlidersHorizontal), element: <PaymentSetup /> },
 ]

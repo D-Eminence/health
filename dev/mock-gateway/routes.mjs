@@ -131,7 +131,7 @@ const STAFF_PERMISSIONS = [
   // Point of care (docs/POINT_OF_CARE_SPEC.md; proposed): so Payments, Price list, End of day and Payment setup show.
   'billing.settings.manage', 'billing.catalogue.read', 'billing.catalogue.manage', 'billing.bill.read', 'billing.bill.create',
   'billing.bill.defer', 'billing.payment.record', 'billing.payment.confirm', 'billing.payment.void', 'billing.payment.waive',
-  'billing.shift.manage', 'pharmacy.walk-in.create', 'pharmacy.stock.read', 'pharmacy.stock.manage', 'lab.walk-in.create',
+  'billing.shift.manage', 'billing.shift.own', 'pharmacy.walk-in.create', 'pharmacy.stock.read', 'pharmacy.stock.manage', 'lab.walk-in.create',
   'lab.result.share',
 ]
 const staffFacility = () => {
@@ -369,7 +369,10 @@ const pocSettings = {
   payBefore: { pharmacy: true, lab: true }, allowDeferredFor: ['emergency', 'inpatient'],
   transferAccount: { bankName: 'Zenith Bank', accountName: 'Demo Hospital Ltd', accountNumber: '1012345678' },
   hmos: [{ id: 'hmo-nhia', name: 'NHIA' }, { id: 'hmo-hygeia', name: 'Hygeia HMO' }, { id: 'hmo-axa', name: 'AXA Mansard Health' }, { id: 'hmo-leadway', name: 'Leadway Health' }],
-  receiptFooter: 'Thank you. Keep this receipt: the pharmacy or lab will ask for it.', version: 3,
+  receiptFooter: 'Thank you. Keep this receipt: the pharmacy or lab will ask for it.',
+  // End of day (§7): each till has its own day here; 'facility' and 'cashier' can be tried from Payment setup.
+  dayCloseBy: 'till', tills: [{ id: 'till-pharmacy', name: 'Pharmacy till' }, { id: 'till-lab', name: 'Lab till' }],
+  version: 3,
 }
 const pocItem = (id, kind, name, extra, cash, hmo = {}) => ({
   id, kind, name, strength: null, form: null, packSize: null, imageUrl: null, prescriptionOnly: kind === 'drug', active: true, version: 1, ...extra,
@@ -398,6 +401,57 @@ const POC_PATIENTS = {
   'a0000000-0000-4000-8000-000000000005': ['Funke Adebayo', 'HID-FUNK2054'],
   'a0000000-0000-4000-8000-000000000006': ['Emeka Nwosu', 'HID-EMEK6618'],
   'a0000000-0000-4000-8000-000000000007': ['Halima Yusuf', 'HID-HALI9043'],
+}
+/** Names by Health ID: the demo patients and anyone given a Health ID at a walk-in, so a bill shows their name. */
+const POC_HID_NAMES = Object.fromEntries(Object.values(POC_PATIENTS).map(([name, hid]) => [hid, name]))
+
+// Facility registration (served by hid-system: NIN check → case → approve new or link existing → enroll), as the
+// Registration page and a walk-in's "New Health ID" use it. Cases live in memory. A last name the demo patients share
+// (Okafor, Ibrahim, Eze…) answers a possible match, so "This is them" / "Someone new" can be tried; anyone else, none.
+const registrationCases = new Map()
+let registrationSeq = 1
+const newHid = () => `HID-${Array.from({ length: 8 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]).join('')}`
+function registrationRoute(method, path, { body } = {}) {
+  if (method === 'POST' && path === '/identity/nin/resolve') {
+    if (!body) return NO_BODY()
+    if (!body.firstName || !body.lastName || !body.dateOfBirth) return pocProblem(400, 'VALIDATION_FAILED', 'Enter the name and date of birth.')
+    if (body.nin !== undefined && !/^\d{11}$/.test(body.nin)) return pocProblem(400, 'VALIDATION_FAILED', 'Enter the 11 digit NIN.')
+    const last = String(body.lastName).trim().toLowerCase()
+    const candidates = Object.entries(POC_PATIENTS).filter(([, [name]]) => name.toLowerCase().split(' ').at(-1) === last)
+      .map(([patientId, [fullName]]) => ({ patientId, fullName, dateOfBirth: patientId === DEMO_PATIENT_ID ? '1991-03-04' : null }))
+    const caseId = `00000000-0000-4000-8000-${String(registrationSeq++).padStart(12, '0')}`
+    const found = { caseId, status: candidates.length ? 'review_required' : 'pending_new_identity_approval', version: 1,
+      candidateCount: candidates.length, candidates, fullName: `${String(body.firstName).trim()} ${String(body.lastName).trim()}` }
+    registrationCases.set(caseId, found)
+    const { fullName: _name, ...view } = found
+    return [201, view]
+  }
+  const casePath = /^\/identity\/registration-cases\/([^/]+)(\/(approve-new|link-existing|enroll))?$/.exec(path)
+  if (!casePath) return null
+  const found = registrationCases.get(decodeURIComponent(casePath[1]))
+  if (!found) return pocProblem(404, 'IDENTITY_REGISTRATION_CASE_NOT_FOUND', 'No such registration.')
+  const view = () => { const { fullName: _name, ...rest } = found; return rest }
+  const action = casePath[3]
+  if (!action) return method === 'GET' ? [200, view()] : null
+  if (method !== 'POST') return null
+  if (!body) return NO_BODY()
+  if (body.expectedVersion !== undefined && body.expectedVersion !== found.version) return pocProblem(409, 'VERSION_CONFLICT', 'The registration changed.')
+  if (action === 'approve-new') {
+    if (!['pending_new_identity_approval', 'review_required'].includes(found.status)) return pocProblem(409, 'IDENTITY_REGISTRATION_INVALID_STATE', 'This registration is already decided.')
+    const hid = newHid()
+    Object.assign(found, { status: 'approved_new_identity', version: found.version + 1, patient: { patientId: crypto.randomUUID(), hid } })
+    POC_HID_NAMES[hid] = found.fullName
+    return [200, view()]
+  }
+  if (action === 'link-existing') {
+    const candidate = found.candidates.find(entry => entry.patientId === body.patientId)
+    if (found.status !== 'review_required' || !candidate) return pocProblem(409, 'IDENTITY_REGISTRATION_INVALID_STATE', 'Pick one of the matches.')
+    Object.assign(found, { status: 'linked_existing', version: found.version + 1, patient: { patientId: candidate.patientId, hid: POC_PATIENTS[candidate.patientId][1] } })
+    return [200, view()]
+  }
+  if (!found.patient) return pocProblem(409, 'IDENTITY_REGISTRATION_INVALID_STATE', 'Give them a Health ID first.')
+  if (!/^\S+@\S+\.\S+$/.test(body.email ?? '')) return pocProblem(400, 'VALIDATION_FAILED', 'Enter a valid email.')
+  return [201, { patientId: found.patient.patientId, hid: found.patient.hid, contactVerificationRequired: true, replayed: false }]
 }
 const STAFF_NAME = 'Dr Tunde Bello'
 let pocBillSeq = 400
@@ -441,8 +495,25 @@ const pocBills = [
   pocBill('bill-otc-1', 'pharmacy', null, [['cat-vitc', 2], ['cat-pcm-syr', 1]], { ago: 2 }),
   pocBill('bill-lab-ua', 'lab', `${POC_PID}2`, [['cat-ua', 1], ['cat-fbc', 1]], { payments: [pocPayment('transfer', 6000, { reference: 'FBN/0091/7723', receivedAt: iso(-25 * MIN) })], receiptNumber: 'R-000389', ago: 28 }),
 ]
-let pocShift = { id: 'shift-1', openedBy: STAFF_NAME, openedAt: new Date(new Date().setHours(8, 0, 0, 0)).toISOString(), closedAt: null, openingCashKobo: pocKobo(20000) }
-const pocClosedShifts = []
+// The days open now, whoever's they are (the facility's, a cashier's or a till's), and those closed, newest last.
+const pocTodayAt = (hours, minutes = 0) => new Date(new Date().setHours(hours, minutes, 0, 0)).toISOString()
+const pocOpenShifts = [
+  { id: 'shift-1', scope: 'till', tillId: 'till-pharmacy', tillName: 'Pharmacy till', cashierName: STAFF_NAME, openedBy: STAFF_NAME,
+    openedAt: pocTodayAt(8), closedAt: null, openingCashKobo: pocKobo(20000) },
+]
+const pocClosedShifts = [
+  { id: 'shift-0', scope: 'cashier', tillId: null, tillName: null, cashierName: 'Amaka Obi', openedBy: 'Amaka Obi', openedAt: pocTodayAt(7),
+    closedAt: pocTodayAt(7, 50), openingCashKobo: pocKobo(5000), totals: ['cash', 'pos', 'transfer', 'hmo', 'waiver'].map(method => ({ method, count: method === 'cash' ? 2 : 0, amountKobo: method === 'cash' ? pocKobo(7500) : 0 })),
+    expectedCashKobo: pocKobo(12500), countedCashKobo: pocKobo(12300), differenceKobo: pocKobo(-200), unpaidBills: { count: 0, amountKobo: 0 }, deferredBills: { count: 0, amountKobo: 0 }, note: 'Gave change twice.' },
+]
+let pocShiftSeq = 2
+/** Whose day a request means, by the facility's setup: the facility's, this cashier's, or the till asked for. */
+function pocShiftMatch(tillId) {
+  const by = pocSettings.dayCloseBy ?? 'facility'
+  if (by === 'till') return shift => shift.scope === 'till' && shift.tillId === tillId
+  if (by === 'cashier') return shift => shift.scope === 'cashier' && shift.cashierName === STAFF_NAME
+  return shift => shift.scope === 'facility'
+}
 
 /** The day as the screen reads it: totals of the payments that stand since it opened. */
 function shiftView(shift) {
@@ -533,7 +604,7 @@ function pointOfCareExtraRoute(method, path, { body, query } = {}) {
     const id = `bill-walkin-${pocWalkInSeq++}`
     const workItemIds = lines.map((_, index) => `${lab ? 'lw' : 'rx'}-walkin-${pocWalkInSeq}-${index + 1}`)
     const bill = pocBill(id, lab ? 'lab' : 'pharmacy', null, lines.map((line, index) => [line.catalogueItemId, lab ? 1 : Number(line.quantity) || 1, workItemIds.at(index)]), { ago: 0 })
-    bill.patient = who.kind === 'anonymous' ? null : { patientId: null, displayName: who.kind === 'quick' ? who.name : who.healthId, healthId: who.kind === 'health_id' ? who.healthId : null }
+    bill.patient = who.kind === 'anonymous' ? null : { patientId: null, displayName: POC_HID_NAMES[who.healthId] ?? who.healthId, healthId: who.kind === 'health_id' ? who.healthId : null }
     pocBills.unshift(bill)
     return [201, { workItemIds, bill }]
   }
@@ -630,23 +701,42 @@ function pointOfCareRoute(method, path, { body, query } = {}) {
     }
     return null
   }
-  if (path === '/commercial/shifts/current' && method === 'GET') return [200, pocShift ? shiftView(pocShift) : null]
+  if (path === '/commercial/shifts/current' && method === 'GET') {
+    const tillId = query?.get?.('tillId') || null
+    if ((pocSettings.dayCloseBy ?? 'facility') === 'till' && !tillId) return pocProblem(400, 'VALIDATION_FAILED', 'Say which till.')
+    const open = pocOpenShifts.find(pocShiftMatch(tillId))
+    return [200, open ? shiftView(open) : null]
+  }
   if (path === '/commercial/shifts') {
-    if (method === 'GET') return [200, { items: [...pocClosedShifts, ...(pocShift ? [shiftView(pocShift)] : [])], nextPage: null }]
+    if (method === 'GET') {
+      const status = query?.get?.('status')
+      const date = query?.get?.('date')
+      const open = pocOpenShifts.map(shiftView)
+      const items = status === 'open' ? open
+        : [...pocClosedShifts, ...open].filter(shift => !date || shift.openedAt.slice(0, 10) === date || (shift.closedAt ?? '').slice(0, 10) === date)
+      return [200, { items, nextPage: null }]
+    }
     if (!body) return NO_BODY()
-    if (pocShift) return pocProblem(409, 'SHIFT_ALREADY_OPEN', 'The day is already open.')
-    pocShift = { id: `shift-${pocClosedShifts.length + 2}`, openedBy: STAFF_NAME, openedAt: iso(), closedAt: null, openingCashKobo: Number(body.openingCashKobo) || 0 }
-    return [201, shiftView(pocShift)]
+    const by = pocSettings.dayCloseBy ?? 'facility'
+    const till = by === 'till' ? (pocSettings.tills ?? []).find(entry => entry.id === body.tillId) : null
+    if (by === 'till' && !till) return pocProblem(400, 'VALIDATION_FAILED', 'Pick one of this facility’s tills.')
+    if (pocOpenShifts.some(pocShiftMatch(till?.id ?? null))) return pocProblem(409, 'SHIFT_ALREADY_OPEN', 'This day is already open.')
+    const opened = { id: `shift-${pocShiftSeq++}`, scope: by, tillId: till?.id ?? null, tillName: till?.name ?? null,
+      cashierName: by === 'cashier' || by === 'till' ? STAFF_NAME : null, openedBy: STAFF_NAME, openedAt: iso(), closedAt: null,
+      openingCashKobo: Number(body.openingCashKobo) || 0 }
+    pocOpenShifts.push(opened)
+    return [201, shiftView(opened)]
   }
   const close = method === 'POST' && /^\/commercial\/shifts\/([^/]+)\/close$/.exec(path)
   if (close) {
-    if (!pocShift || pocShift.id !== decodeURIComponent(close[1])) return pocProblem(404, 'COMMERCIAL_SHIFT_NOT_FOUND', 'That day is not open.')
+    const index = pocOpenShifts.findIndex(shift => shift.id === decodeURIComponent(close[1]))
+    if (index < 0) return pocProblem(404, 'COMMERCIAL_SHIFT_NOT_FOUND', 'That day is not open.')
     if (!body) return NO_BODY()
     const counted = Number(body.countedCashKobo)
-    const view = shiftView(pocShift)
+    const view = shiftView(pocOpenShifts[index])
     const done = { ...view, closedAt: iso(), countedCashKobo: counted, differenceKobo: counted - view.expectedCashKobo, note: body.note ?? null }
     pocClosedShifts.push(done)
-    pocShift = null
+    pocOpenShifts.splice(index, 1)
     return [200, done]
   }
   return null
@@ -662,7 +752,7 @@ export function respond(method, path, workspace, request = {}) {
   }
   const handler = workspace === 'admin' ? adminRoute : workspace === 'provider' ? staffRoute : patientRoute
   // Point of care (proposed routes) for the provider workspace, with the request's body and query when the caller has them.
-  const hit = (workspace === 'provider' ? pointOfCareRoute(method, path, request) : null) ?? handler(method, path)
+  const hit = (workspace === 'provider' ? registrationRoute(method, path, request) ?? pointOfCareRoute(method, path, request) : null) ?? handler(method, path)
   return hit ? { status: hit[0], body: hit[1], headers: {} } : null
 }
 

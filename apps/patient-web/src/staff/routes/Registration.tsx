@@ -4,18 +4,15 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowRight, CircleCheck, History, IdCard, Lock, RotateCcw, Search } from 'lucide-react'
 import { Alert, Badge as KBadge, Button as KButton, Card as KCard, CardHeader, EmptyState as KEmpty } from '../../kasuwa/ui'
 import { FormActions, FormPage } from '../../kasuwa/parts'
-import { isHidApiError } from '@hid/http'
 import { staffApi, type RegistrationCapabilities, type RegistrationCase, type RegistrationEnrollment, type ResolveNinInput } from '../api'
 import { useStaff } from '../App'
 import { BUSY, UNAVAILABLE, useFocusById } from '../focus'
 import { useFieldProblems } from '../useFieldProblems'
+import { REGISTRATION_COMPLETED, REGISTRATION_GENDERS, registrationErrorText, useCommandKey } from '../registrationFlow'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-const completed = new Set<RegistrationCase['status']>(['approved_new_identity', 'linked_existing', 'resolved_existing_identity'])
-
-function safeError(error: unknown, fallback: string) {
-  return isHidApiError(error) ? error.message : fallback
-}
+const completed = REGISTRATION_COMPLETED
+const safeError = registrationErrorText
 
 function statusLabel(status: RegistrationCase['status']) {
   return ({
@@ -27,18 +24,6 @@ function statusLabel(status: RegistrationCase['status']) {
     rejected: 'Rejected',
     cancelled: 'Cancelled',
   })[status]
-}
-
-/** Idempotency keys stay in component memory only and are reused for an unchanged retry. */
-function useCommandKey() {
-  const previous = useRef<{ signature: string; key: string } | null>(null)
-  return {
-    forInput(signature: string) {
-      if (previous.current?.signature !== signature) previous.current = { signature, key: crypto.randomUUID() }
-      return previous.current.key
-    },
-    clear() { previous.current = null },
-  }
 }
 
 export function Registration() {
@@ -242,7 +227,7 @@ export function Registration() {
             <fieldset className="staff-form">
               <Field label="NIN (11 digits)" htmlFor="registration-nin" error={ninProblems.error('registration-nin')} required><Input {...ninProblems.control('registration-nin')} id="registration-nin" name="nin" type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{11}" minLength={11} maxLength={11} readOnly={busy} required /></Field>
               <div className="staff-form-row"><Field label="First name" htmlFor="registration-first" error={ninProblems.error('registration-first')} required><Input {...ninProblems.control('registration-first')} id="registration-first" name="firstName" maxLength={100} autoComplete="off" readOnly={busy} required /></Field><Field label="Last name" htmlFor="registration-last" error={ninProblems.error('registration-last')} required><Input {...ninProblems.control('registration-last')} id="registration-last" name="lastName" maxLength={100} autoComplete="off" readOnly={busy} required /></Field></div>
-              <div className="staff-form-row"><Field label="Date of birth" htmlFor="registration-dob" error={ninProblems.error('registration-dob')} required><Input {...ninProblems.control('registration-dob')} id="registration-dob" name="dateOfBirth" type="date" readOnly={busy} required /></Field><Field label="Gender (optional)" htmlFor="registration-gender"><Select id="registration-gender" name="gender"><option value="">Not given</option><option value="female">Female</option><option value="male">Male</option><option value="intersex">Intersex</option><option value="other">Other</option><option value="unknown">Unknown</option></Select></Field></div>
+              <div className="staff-form-row"><Field label="Date of birth" htmlFor="registration-dob" error={ninProblems.error('registration-dob')} required><Input {...ninProblems.control('registration-dob')} id="registration-dob" name="dateOfBirth" type="date" readOnly={busy} required /></Field><Field label="Gender (optional)" htmlFor="registration-gender"><Select id="registration-gender" name="gender"><option value="">Not given</option>{REGISTRATION_GENDERS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field></div>
               <FormActions sticky={false}><KButton type="submit" variant="primary" icon={Search} aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Checking…' : 'Check NIN'}</KButton></FormActions>
             </fieldset>
           </form>

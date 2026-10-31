@@ -20,6 +20,9 @@ export const PAYMENT_METHODS: readonly PaymentMethod[] = ['cash', 'pos', 'transf
 
 export interface TransferAccount { bankName: string; accountName: string; accountNumber: string }
 export interface Hmo { id: string; name: string }
+/** Who opens and closes a day (§7): the whole facility as one, each cashier their own, or each till. */
+export type DayCloseBy = 'facility' | 'cashier' | 'till'
+export interface Till { id: string; name: string }
 
 export interface PaymentSettings {
   wherePaid: 'cashier' | 'counter' | 'both'
@@ -29,6 +32,9 @@ export interface PaymentSettings {
   transferAccount?: TransferAccount | null
   hmos: Hmo[]
   receiptFooter?: string | null
+  /** How the day is closed here; with 'till', the tills a day is opened on. */
+  dayCloseBy: DayCloseBy
+  tills: Till[]
   version: number
 }
 
@@ -93,9 +99,12 @@ export interface ReceiptData {
   footer?: string | null
 }
 
+/**
+ * Who a walk-in is for: their Health ID (one made at the counter through facility registration counts), or no one, for
+ * an over-the-counter sale at a pharmacy. There is no "quick details" patient: someone without a Health ID gets one.
+ */
 export type WalkInPatient =
   | { kind: 'health_id'; healthId: string }
-  | { kind: 'quick'; name: string; phone: string; sex?: 'female' | 'male' | null; ageYears?: number | null; dateOfBirth?: string | null }
   | { kind: 'anonymous' }
 export interface OutsideOrder {
   prescriberName: string; facilityName?: string | null; writtenOn?: string | null
@@ -133,6 +142,9 @@ export interface ResultShare { shareId: string; sentTo: string; expiresAt: strin
 export interface ShiftTotal { method: PaymentMethod; count: number; amountKobo: number }
 export interface Shift {
   id: string; openedBy: string; openedAt: string; closedAt?: string | null; openingCashKobo: number
+  /** Whose day it is: the facility's, one cashier's (cashierName), or one till's (tillId, tillName). */
+  scope: DayCloseBy
+  cashierName?: string | null; tillId?: string | null; tillName?: string | null
   totals: ShiftTotal[]
   expectedCashKobo: number; countedCashKobo?: number | null; differenceKobo?: number | null
   unpaidBills: { count: number; amountKobo: number }; deferredBills: { count: number; amountKobo: number }
@@ -278,14 +290,16 @@ export const commerce = {
     call<ResultShare>('POST', `/api/v1/lab/accessions/${id(accessionId)}/result-shares`, facilityId, { body: { email }, idempotencyKey }),
 
   // §7 End of day
-  currentShift: (facilityId: string, signal?: AbortSignal) =>
-    call<Shift | null>('GET', `${C}/shifts/current`, facilityId, { signal }),
-  openShift: (facilityId: string, openingCashKobo: number, idempotencyKey?: string) =>
-    call<Shift>('POST', `${C}/shifts`, facilityId, { body: { openingCashKobo }, idempotencyKey }),
+  /** The open day: the facility's, the signed-in cashier's, or (with `tillId`) that till's; null when none is open. */
+  currentShift: (facilityId: string, scope: { tillId?: string } = {}, signal?: AbortSignal) =>
+    call<Shift | null>('GET', `${C}/shifts/current`, facilityId, { query: { tillId: scope.tillId }, signal }),
+  openShift: (facilityId: string, openingCashKobo: number, scope: { tillId?: string } = {}, idempotencyKey?: string) =>
+    call<Shift>('POST', `${C}/shifts`, facilityId, { body: { openingCashKobo, ...(scope.tillId ? { tillId: scope.tillId } : {}) }, idempotencyKey }),
   closeShift: (facilityId: string, shiftId: string, countedCashKobo: number, note?: string | null, idempotencyKey?: string) =>
     call<Shift>('POST', `${C}/shifts/${id(shiftId)}/close`, facilityId, { body: { countedCashKobo, ...(note ? { note } : {}) }, idempotencyKey }),
-  shifts: (facilityId: string, date?: string, signal?: AbortSignal) =>
-    call<ListPage<Shift>>('GET', `${C}/shifts`, facilityId, { query: { date }, signal }),
+  /** Days by date, or every day open now (`status: 'open'`): the cashiers' or tills' overview. */
+  shifts: (facilityId: string, filter: { date?: string; status?: 'open' } = {}, signal?: AbortSignal) =>
+    call<ListPage<Shift>>('GET', `${C}/shifts`, facilityId, { query: { date: filter.date, status: filter.status }, signal }),
 }
 
 // ------------------------------------------------------------------ words --
@@ -295,4 +309,5 @@ export const METHOD_LABEL: Readonly<Record<PaymentMethod, string>> = {
 export const BILL_STATUS_LABEL: Readonly<Record<BillStatus, string>> = {
   unpaid: 'Unpaid', part_paid: 'Part paid', paid: 'Paid', deferred: 'Bill follows', void: 'Cancelled',
 }
+export const DAY_CLOSE_LABEL: Readonly<Record<DayCloseBy, string>> = { facility: 'Whole facility', cashier: 'Each cashier', till: 'Each till' }
 export const SOURCE_LABEL: Readonly<Record<BillSource, string>> = { pharmacy: 'Pharmacy', lab: 'Lab' }

@@ -5,7 +5,7 @@ import { Alert, Button, Field, Input, PageHeader, Textarea, cx } from '../../../
 import { FormActions, FormPage, LoadingRows, Step } from '../../../kasuwa/parts'
 import { useToast } from '../../../kasuwa/toast'
 import { useDeptAccess } from '../parts/access'
-import { commerce, METHOD_LABEL, PAYMENT_METHODS, type Hmo, type PaymentMethod, type PaymentSettings } from './api'
+import { commerce, METHOD_LABEL, PAYMENT_METHODS, type DayCloseBy, type Hmo, type PaymentMethod, type PaymentSettings, type Till } from './api'
 import { NotSwitchedOn } from './NotSwitchedOn'
 import { useCommerceRead } from './useCommerceRead'
 
@@ -13,6 +13,11 @@ const WHERE: readonly { value: PaymentSettings['wherePaid']; title: string; hint
   { value: 'cashier', title: 'At the cashier', hint: 'Patients pay at one desk, then bring the receipt to the pharmacy or lab.' },
   { value: 'counter', title: 'At the counter', hint: 'The pharmacy and the lab take payment themselves.' },
   { value: 'both', title: 'Either', hint: 'The cashier, or the pharmacy or lab counter.' },
+]
+const CLOSE_BY: readonly { value: DayCloseBy; title: string; hint: string }[] = [
+  { value: 'facility', title: 'Whole facility', hint: 'One day for everyone.' },
+  { value: 'cashier', title: 'Each cashier', hint: 'Every staff member opens and closes their own.' },
+  { value: 'till', title: 'Each till', hint: 'Pick the till when opening.' },
 ]
 const METHOD_HINT: Readonly<Record<PaymentMethod, string>> = {
   cash: 'Notes and coins. The screen works out the change.',
@@ -24,7 +29,7 @@ const METHOD_HINT: Readonly<Record<PaymentMethod, string>> = {
 
 const DEFAULTS: PaymentSettings = {
   wherePaid: 'cashier', methods: ['cash', 'pos', 'transfer'], payBefore: { pharmacy: true, lab: true }, allowDeferredFor: ['emergency'],
-  transferAccount: null, hmos: [], receiptFooter: null, version: 0,
+  transferAccount: null, hmos: [], receiptFooter: null, dayCloseBy: 'facility', tills: [], version: 0,
 }
 
 /**
@@ -63,6 +68,10 @@ function SetupForm({ initial, onSaved, onOff }: { readonly initial: PaymentSetti
   const [hmos, setHmos] = useState<readonly Hmo[]>(initial.hmos)
   const [newHmo, setNewHmo] = useState('')
   const [footer, setFooter] = useState(initial.receiptFooter ?? '')
+  // A setup saved before these were asked has neither: one day for the whole facility, as before.
+  const [closeBy, setCloseBy] = useState<DayCloseBy>(initial.dayCloseBy ?? 'facility')
+  const [tills, setTills] = useState<readonly Till[]>(initial.tills ?? [])
+  const [newTill, setNewTill] = useState('')
   const [tried, setTried] = useState(false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -79,6 +88,7 @@ function SetupForm({ initial, onSaved, onOff }: { readonly initial: PaymentSetti
     accountName: (has('transfer') || transferStarted) && accountName.trim().length < 2 ? 'Type the name on the account.' : null,
     accountNumber: (has('transfer') || transferStarted) && !/^\d{10}$/.test(accountNumber.replace(/\s/g, '')) ? 'Type the 10-digit account number (NUBAN).' : null,
     hmos: has('hmo') && hmos.length === 0 ? 'Add at least one HMO, or turn HMO off above.' : null,
+    tills: closeBy === 'till' && tills.length === 0 ? 'Add at least one till, or pick another way above.' : null,
   }
   const blocked = Object.values(errors).some(Boolean)
 
@@ -90,6 +100,14 @@ function SetupForm({ initial, onSaved, onOff }: { readonly initial: PaymentSetti
     setNewHmo('')
   }
 
+  function addTill() {
+    const name = newTill.trim()
+    if (name.length < 2 || tills.some(till => till.name.toLowerCase() === name.toLowerCase())) return
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    setTills(previous => [...previous, { id: `till-${slug || crypto.randomUUID()}`, name }])
+    setNewTill('')
+  }
+
   async function save() {
     setTried(true)
     if (!facilityId || blocked) return
@@ -98,7 +116,7 @@ function SetupForm({ initial, onSaved, onOff }: { readonly initial: PaymentSetti
       wherePaid, methods: [...methods], payBefore, allowDeferredFor: [...deferred],
       transferAccount: has('transfer') || transferStarted
         ? { bankName: bankName.trim(), accountName: accountName.trim(), accountNumber: accountNumber.replace(/\s/g, '') } : null,
-      hmos: [...hmos], receiptFooter: footer.trim() || null, version: initial.version,
+      hmos: [...hmos], receiptFooter: footer.trim() || null, dayCloseBy: closeBy, tills: [...tills], version: initial.version,
     }
     const result = await commerce.savePaymentSettings(facilityId, next, key)
     setBusy(false)
@@ -179,6 +197,42 @@ function SetupForm({ initial, onSaved, onOff }: { readonly initial: PaymentSetti
           <Field label="Line at the foot of each receipt" optional htmlFor={`${ids}-footer`} className="border-t border-line pt-4">
             <Textarea id={`${ids}-footer`} rows={2} value={footer} onChange={event => setFooter(event.target.value)} placeholder="Thank you. Keep this receipt for the pharmacy or lab." />
           </Field>
+        </Step>
+
+        <Step n={6} title="Closing the day" hint="Who counts the cash and closes the day.">
+          <div role="radiogroup" aria-label="Closing the day" className="grid gap-2 sm:grid-cols-3">
+            {CLOSE_BY.map(option => {
+              const on = option.value === closeBy
+              return (
+                <button key={option.value} type="button" role="radio" aria-checked={on} onClick={() => setCloseBy(option.value)}
+                  className={cx('flex min-h-[44px] cursor-pointer flex-col items-start gap-1 rounded-lg border-0 bg-surface px-3.5 py-3 text-left ring-1 ring-inset',
+                    on ? 'ring-2 ring-brand' : 'ring-line hover:ring-line-strong')}>
+                  <span className="text-sm font-semibold text-ink">{option.title}</span>
+                  <span className="text-[12.5px] text-ink-3">{option.hint}</span>
+                </button>
+              )
+            })}
+          </div>
+          {closeBy === 'till' ? <div className="flex flex-col gap-3 border-t border-line pt-4">
+            <p className="m-0 text-[13px] font-medium text-ink-2">Tills</p>
+            {tills.length > 0 ? (
+              <ul className="m-0 flex list-none flex-col divide-y divide-line rounded-lg p-0 ring-1 ring-line">
+                {tills.map(till => (
+                  <li key={till.id} className="flex items-center justify-between gap-3 py-1 pr-1 pl-3.5">
+                    <span className="text-sm text-ink">{till.name}</span>
+                    <Button variant="ghost" size="sm" icon={X} aria-label={`Remove ${till.name}`} className="size-11 px-0 sm:size-9"
+                      onClick={() => setTills(previous => previous.filter(entry => entry.id !== till.id))} />
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="m-0 text-[13px] text-ink-3">No tills yet.</p>}
+            <div className="flex gap-2">
+              <Input aria-label="Till name" placeholder="Pharmacy till, Lab till…" autoComplete="off" value={newTill} className="flex-1"
+                onChange={event => setNewTill(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addTill() } }} />
+              <Button icon={Plus} onClick={addTill} disabled={newTill.trim().length < 2}>Add</Button>
+            </div>
+            {tried && errors.tills ? <p className="m-0 text-xs font-medium text-danger-ink">{errors.tills}</p> : null}
+          </div> : null}
         </Step>
 
         {tried && blocked ? <Alert intent="error" title="Not saved yet">Check the steps marked above.</Alert> : null}

@@ -954,11 +954,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('commercial.billDefer','commercial','/api/v1/commercial/bills/:billId/defer',P,false,
     one('POST','billing.bill.defer'), `${POINT_OF_CARE} Reason: emergency | inpatient.`)),
   proposed(r('commercial.currentShift','commercial','/api/v1/commercial/shifts/current',G,false,
-    one('GET','billing.shift.manage'), POINT_OF_CARE)),
+    one('GET','billing.shift.own'), `${POINT_OF_CARE} By payment-settings dayCloseBy: the facility's day, the signed-in `
+    + 'cashier\'s own, or with ?tillId= that till\'s; null when none is open.')),
   proposed(r('commercial.shifts','commercial','/api/v1/commercial/shifts',GP,false,
-    {GET:['billing.shift.manage'],POST:['billing.shift.manage']}, POINT_OF_CARE)),
+    {GET:['billing.shift.manage'],POST:['billing.shift.own']}, `${POINT_OF_CARE} GET ?date= or ?status=open (the cashiers' or `
+    + 'tills\' overview); POST { openingCashKobo, tillId? } (tillId required when dayCloseBy is till).')),
   proposed(r('commercial.shiftClose','commercial','/api/v1/commercial/shifts/:shiftId/close',P,false,
-    one('POST','billing.shift.manage'), POINT_OF_CARE)),
+    one('POST','billing.shift.own'), `${POINT_OF_CARE} Your own day or till; another cashier's needs billing.shift.manage.`)),
 
   r('admin.session','admin','/api/v1/admin/session',G,false,one('GET','platform.admin.access')),
   r('admin.overview','admin','/api/v1/admin/overview',G,false,one('GET','platform.admin.access')),

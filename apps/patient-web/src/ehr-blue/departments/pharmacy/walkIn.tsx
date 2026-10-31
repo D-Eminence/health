@@ -2,32 +2,32 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Camera, Check, FlaskConical, Minus, Plus, Search, X } from 'lucide-react'
 import { Segmented } from '../../../kasuwa/interactive'
 import { Step } from '../../../kasuwa/parts'
-import { Alert, Badge, Button, Field, Input, Select, cx } from '../../../kasuwa/ui'
+import { Alert, Badge, Button, Field, Input, cx } from '../../../kasuwa/ui'
 import { commerce, type CatalogueItem, type CatalogueKind, type StockLine as StockRow, type WalkInPatient } from '../commerce/api'
 import { naira } from '../commerce/money'
 import { NotSwitchedOn } from '../commerce/NotSwitchedOn'
 import { useCommerceRead } from '../commerce/useCommerceRead'
 import { ItemCover } from './pointOfCare'
 import { drugFormFromCatalogue } from './pocFields'
+import { MadeHealthIdPanel, NewHealthIdForm } from './newHealthId'
 
 /*
- * The parts the pharmacy's New sale and the lab's New walk-in share (POINT_OF_CARE_SPEC §4): who the patient is (a Health
- * ID, quick details, or, at a pharmacy only, no details for over-the-counter items), the outside order they brought, and
+ * The parts the pharmacy's New sale and the lab's New walk-in share (POINT_OF_CARE_SPEC §4): who the patient is (their Health
+ * ID, a new Health ID made here and sent to them, or, at a pharmacy only, no details for over-the-counter items), the outside order they brought, and
  * a fast picker over the price list. Nothing here is saved on its own; the page sends one order at the end.
  */
 
 // ------------------------------------------------------------------- who --
-export type WhoMode = 'health_id' | 'quick' | 'anonymous'
+export type WhoMode = 'health_id' | 'new_health_id' | 'anonymous'
+/** A Health ID made here for a walk-in (§4): the facility registration flow, then sent to their email. */
+export interface MadeHealthId { readonly hid: string; readonly name: string; readonly email: string | null }
 export interface WhoDraft {
   mode: WhoMode
   healthId: string
-  name: string
-  phone: string
-  sex: '' | 'female' | 'male'
-  age: string
+  made: MadeHealthId | null
 }
-export const EMPTY_WHO: WhoDraft = { mode: 'health_id', healthId: '', name: '', phone: '', sex: '', age: '' }
-export type WhoErrors = Partial<Record<'healthId' | 'name' | 'phone' | 'age', string>>
+export const EMPTY_WHO: WhoDraft = { mode: 'health_id', healthId: '', made: null }
+export type WhoErrors = Partial<Record<'healthId' | 'made', string>>
 
 /** "hid-ada 2345", "HIDADA2345" → "HID-ADA2345" (Postel: take it messy, send it clean). */
 export function normalizeHealthId(text: string): string {
@@ -48,28 +48,31 @@ export function checkWho(who: WhoDraft): WhoErrors {
   const errors: WhoErrors = {}
   if (who.mode === 'health_id') {
     if (!/^HID-[A-Z0-9]{4,}$/.test(normalizeHealthId(who.healthId))) errors.healthId = 'Type the Health ID on their card, like HID-ADA2345.'
-  } else if (who.mode === 'quick') {
-    if (!who.name.trim()) errors.name = 'Type their name as they say it.'
-    if (normalizePhone(who.phone).replace(/\D/g, '').length < 10) errors.phone = 'Type a phone number, like 0803 123 4567.'
-    const age = who.age.trim()
-    if (age && (!/^\d{1,3}$/.test(age) || Number(age) > 130)) errors.age = 'Type the age in whole years, 0 to 130.'
-  }
+  } else if (who.mode === 'new_health_id' && !who.made) errors.made = 'Make their Health ID first, or pick another way.'
   return errors
 }
 
+/** The id of the field an error in `checkWho` belongs to. */
+export function whoFieldId(idBase: string, key: keyof WhoErrors): string {
+  return key === 'healthId' ? `${idBase}-hid` : `${idBase}-new-first`
+}
+
+/** Whether the step's own Continue shows: not while a new Health ID is being made (its form has its own button). */
+export function whoCanContinue(who: WhoDraft): boolean {
+  return who.mode !== 'new_health_id' || who.made !== null
+}
+
 export function walkInPatient(who: WhoDraft): WalkInPatient {
-  if (who.mode === 'health_id') return { kind: 'health_id', healthId: normalizeHealthId(who.healthId) }
   if (who.mode === 'anonymous') return { kind: 'anonymous' }
-  return { kind: 'quick', name: who.name.trim(), phone: normalizePhone(who.phone), sex: who.sex || null,
-    ageYears: who.age.trim() ? Number(who.age) : null }
+  if (who.mode === 'new_health_id' && who.made) return { kind: 'health_id', healthId: who.made.hid }
+  return { kind: 'health_id', healthId: normalizeHealthId(who.healthId) }
 }
 
 /** Who, in one line, for the step's summary and the check before sending. */
 export function whoLine(who: WhoDraft): string {
-  if (who.mode === 'health_id') return `Health ID ${normalizeHealthId(who.healthId)}`
   if (who.mode === 'anonymous') return 'No details: over the counter only'
-  return [who.name.trim(), normalizePhone(who.phone), who.sex ? (who.sex === 'female' ? 'Female' : 'Male') : '', who.age.trim() ? `${who.age.trim()} years` : '']
-    .filter(Boolean).join(' · ')
+  if (who.mode === 'new_health_id' && who.made) return `${who.made.name} · new Health ID ${who.made.hid}`
+  return `Health ID ${normalizeHealthId(who.healthId)}`
 }
 
 const fieldProps = (id: string, error?: string, hint = false) => ({
@@ -77,15 +80,18 @@ const fieldProps = (id: string, error?: string, hint = false) => ({
   'aria-describedby': error ? `${id}-error` : hint ? `${id}-hint` : undefined,
 })
 
-export function WhoFields({ idBase, who, errors, anonymous, onChange }: {
-  readonly idBase: string; readonly who: WhoDraft; readonly errors: WhoErrors
+export function WhoFields({ idBase, facilityId, place, who, errors, anonymous, onChange }: {
+  readonly idBase: string; readonly facilityId: string
+  /** Where the walk-in is: the reason recorded with the new Health ID, and what to say to someone without email. */
+  readonly place: 'pharmacy' | 'lab'
+  readonly who: WhoDraft; readonly errors: WhoErrors
   /** Whether "No details" is offered: a pharmacy's over-the-counter sale only, never a lab. */
   readonly anonymous: boolean
   readonly onChange: (next: WhoDraft) => void
 }) {
   const set = (patch: Partial<WhoDraft>) => onChange({ ...who, ...patch })
   const options: { value: WhoMode; label: string }[] = [
-    { value: 'health_id', label: 'Health ID' }, { value: 'quick', label: 'Quick details' },
+    { value: 'health_id', label: 'Health ID' }, { value: 'new_health_id', label: 'New Health ID' },
     ...(anonymous ? [{ value: 'anonymous' as const, label: 'No details' }] : []),
   ]
   return <div className="flex flex-col gap-4">
@@ -96,27 +102,10 @@ export function WhoFields({ idBase, who, errors, anonymous, onChange }: {
         spellCheck={false} placeholder="HID-ADA2345" className="h-12 text-base tracking-[.04em]" onChange={event => set({ healthId: event.target.value })}
         onBlur={() => { if (who.healthId.trim()) set({ healthId: normalizeHealthId(who.healthId) }) }} />
     </Field> : null}
-    {who.mode === 'quick' ? <>
-      <Field label="Name" htmlFor={`${idBase}-name`} error={errors.name} errorId={`${idBase}-name-error`}>
-        <Input {...fieldProps(`${idBase}-name`, errors.name)} value={who.name} maxLength={200} autoComplete="off" className="h-11"
-          onChange={event => set({ name: event.target.value })} />
-      </Field>
-      <Field label="Phone" htmlFor={`${idBase}-phone`} error={errors.phone} errorId={`${idBase}-phone-error`} hint="With or without +234." hintId={`${idBase}-phone-hint`}>
-        <Input {...fieldProps(`${idBase}-phone`, errors.phone, true)} type="tel" inputMode="tel" value={who.phone} maxLength={32} autoComplete="off" className="h-11"
-          onChange={event => set({ phone: event.target.value })} />
-      </Field>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Sex" htmlFor={`${idBase}-sex`} optional>
-          <Select id={`${idBase}-sex`} value={who.sex} onChange={event => set({ sex: event.target.value as WhoDraft['sex'] })}>
-            <option value="">Not said</option><option value="female">Female</option><option value="male">Male</option>
-          </Select>
-        </Field>
-        <Field label="Age in years" htmlFor={`${idBase}-age`} optional error={errors.age} errorId={`${idBase}-age-error`}>
-          <Input {...fieldProps(`${idBase}-age`, errors.age)} type="number" inputMode="numeric" min="0" max="130" value={who.age} className="h-11"
-            onChange={event => set({ age: event.target.value })} />
-        </Field>
-      </div>
-    </> : null}
+    {who.mode === 'new_health_id' ? (who.made
+      ? <MadeHealthIdPanel idBase={idBase} made={who.made} />
+      : <NewHealthIdForm idBase={idBase} facilityId={facilityId} place={place} otcFallback={anonymous}
+        onMade={made => onChange({ ...who, made })} />) : null}
     {who.mode === 'anonymous' ? <p className="m-0 rounded-lg bg-subtle px-4 py-3 text-[14px] text-ink-2 ring-1 ring-inset ring-line">
       Over-the-counter items only. Medicines that need a prescription can’t be sold without a name.</p> : null}
   </div>

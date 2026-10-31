@@ -13,7 +13,7 @@ import { PaidLine, PaymentStep, usePaymentSettings } from '../pharmacy/pointOfCa
 import { paysFirst, summaryOf } from '../pharmacy/pocFields'
 import {
   CataloguePicker, checkOutside, checkWho, EMPTY_OUTSIDE, EMPTY_WHO, OutsideFields, outsideOrder, outsideUsed, StepCard, StepSummary,
-  useAttemptKey, walkInPatient, whoLine, WhoFields, type OutsideDraft, type OutsideErrors, type WhoDraft, type WhoErrors,
+  useAttemptKey, walkInPatient, whoCanContinue, whoFieldId, whoLine, WhoFields, type OutsideDraft, type OutsideErrors, type WhoDraft, type WhoErrors,
 } from '../pharmacy/walkIn'
 
 const BACK = { to: '/provider/laboratory', label: 'Back to the lab' }
@@ -23,8 +23,8 @@ type StepNo = 1 | 2 | 3 | 4
 
 /**
  * New walk-in at the lab (POINT_OF_CARE_SPEC §4, POST lab/walk-in-requests): someone who comes with a request form from
- * an outside doctor, or asks for a test themselves. Four steps: who (a Health ID or quick details: a sample is never
- * taken without a name), the referring doctor (optional, with their email so the result can be sent back), the tests
+ * an outside doctor, or asks for a test themselves. Four steps: who (a Health ID, or a new one made here: a sample is
+ * never taken without a name), the referring doctor (optional, with their email so the result can be sent back), the tests
  * (search the price list, tap to add; priority and a clinical note), and check and pay. The request is made once; then
  * payment, and on to the work list to take the sample. A 404 says it isn't switched on: nothing is pretended saved.
  */
@@ -66,7 +66,7 @@ function WalkInForm({ facilityId, permissions }: { readonly facilityId: string; 
     const errors = checkWho(who)
     setWhoErrors(errors)
     const first = Object.keys(errors)[0]
-    if (first) return focus(first === 'healthId' ? 'walkin-who-hid' : `walkin-who-${first}`)
+    if (first) return focus(whoFieldId('walkin-who', first as keyof WhoErrors))
     go(2)
   }
   function doneDoctor() {
@@ -117,8 +117,9 @@ function WalkInForm({ facilityId, permissions }: { readonly facilityId: string; 
     description={created ? undefined : `Step ${step} of 4. Someone who comes in for a test, with or without a doctor’s request form.`}>
     <StepCard anchor="walkin-step-1" n={1} title="Who is it for?" current={step === 1} done={step > 1}
       summary={<StepSummary label="Change who it is for" onChange={created ? undefined : () => go(1)}>{whoLine(who)}</StepSummary>}>
-      <WhoFields idBase="walkin-who" who={who} errors={whoErrors} anonymous={false} onChange={next => { setWho(next); setWhoErrors({}) }} />
-      <FormActions sticky={false}><Button variant="primary" size="lg" iconRight={ArrowRight} onClick={doneWho}>Continue</Button></FormActions>
+      <WhoFields idBase="walkin-who" facilityId={facilityId} place="lab" who={who} errors={whoErrors} anonymous={false}
+        onChange={next => { if (next.made && !who.made) focus('walkin-who-made'); setWho(next); setWhoErrors({}) }} />
+      {whoCanContinue(who) ? <FormActions sticky={false}><Button variant="primary" size="lg" iconRight={ArrowRight} onClick={doneWho}>Continue</Button></FormActions> : null}
     </StepCard>
 
     <StepCard anchor="walkin-step-2" n={2} title="Referring doctor" hint="Optional. From the request form, so the result can go back to them."

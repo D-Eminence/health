@@ -82,9 +82,13 @@ Rules: a payment above `dueKobo` is refused `409 OVERPAYMENT` (cash change is wo
 `POST /api/v1/pharmacy/walk-in-orders` (`pharmacy.walk-in.create`) · `POST /api/v1/lab/walk-in-requests` (`lab.walk-in.create`)
 
 ```ts
+// A walk-in with no Health ID gets one first, through the EXISTING facility registration (served today):
+// POST /identity/nin/resolve → registration case → approve-new or link-existing → POST …/enroll { email } → { patientId, hid }.
+// The Health ID and sign-in are emailed to the customer by enrolment; the walk-in then goes ahead as kind 'health_id'.
+// Needs (owner decision 2026-10-31): enrolment by phone (SMS) for customers with no email; the form asks for a phone but
+// nothing can send it today.
 type WalkInPatient =
   | { kind: 'health_id'; healthId: string }
-  | { kind: 'quick'; name: string; phone: string; sex?: 'female' | 'male' | null; ageYears?: number | null; dateOfBirth?: string | null }
   | { kind: 'anonymous' }                       // pharmacy only, and only for items with prescriptionOnly false
 type OutsideOrder = { prescriberName: string; facilityName?: string | null; writtenOn?: string | null
   photoFileId?: string | null; prescriberEmail?: string | null; prescriberPhone?: string | null }
@@ -92,7 +96,7 @@ type OutsideOrder = { prescriberName: string; facilityName?: string | null; writ
 type WalkInOrder = { patient: WalkInPatient; outside?: OutsideOrder | null
   items: { catalogueItemId: string; quantity: number; dose?: string | null; frequency?: string | null; durationDays?: number | null }[] }
 // lab
-type WalkInLabRequest = { patient: Exclude<WalkInPatient, { kind: 'anonymous' }>; outside?: OutsideOrder | null
+type WalkInLabRequest = { patient: { kind: 'health_id'; healthId: string }; outside?: OutsideOrder | null
   tests: { catalogueItemId: string }[]; clinicalNote?: string | null; priority: 'routine' | 'urgent' }
 // both answer { workItemIds: string[]; bill: Bill }
 ```
@@ -130,22 +134,35 @@ patient's card share). The patient always sees released results on their Health 
 
 ## 7. End of day
 
-`GET /api/v1/commercial/shifts/current` · `POST /api/v1/commercial/shifts` (open, `{ openingCashKobo }`) ·
-`POST /api/v1/commercial/shifts/:shiftId/close` (`{ countedCashKobo, note? }`) · `GET /api/v1/commercial/shifts?date=`
-(`billing.shift.manage`).
+The facility picks how the day is closed (owner decision 2026-10-31: all three, chosen in Payment setup):
+`PaymentSettings.dayCloseBy: 'facility' | 'cashier' | 'till'` and `PaymentSettings.tills: { id: string; name: string }[]`.
+
+- `facility`: one day for everyone.
+- `cashier`: every staff member opens and closes their own day; the totals count the payments they took.
+- `till`: the day is opened on a named till (`tillId` in the open body); totals count payments taken on that till.
+
+`GET /api/v1/commercial/shifts/current` (`billing.shift.own`): the facility's open day, the signed-in cashier's, or with
+`?tillId=` that till's; null when none is open. · `POST /api/v1/commercial/shifts` (`billing.shift.own`) open,
+`{ openingCashKobo, tillId? }` (tillId required in till mode) · `POST /api/v1/commercial/shifts/:shiftId/close`
+(`billing.shift.own` for your own day or till; another's needs `billing.shift.manage`) `{ countedCashKobo, note? }` ·
+`GET /api/v1/commercial/shifts?date=` or `?status=open` (`billing.shift.manage`: every cashier's or till's day).
 
 ```ts
-type Shift = { id: string; openedBy: string; openedAt: string; closedAt?: string | null; openingCashKobo: number
+type Shift = { id: string; scope: 'facility' | 'cashier' | 'till'; cashierName?: string | null; tillId?: string | null; tillName?: string | null
+  openedBy: string; openedAt: string; closedAt?: string | null; openingCashKobo: number
   totals: { method: PaymentMethod; count: number; amountKobo: number }[]
   expectedCashKobo: number; countedCashKobo?: number | null; differenceKobo?: number | null
   unpaidBills: { count: number; amountKobo: number }; deferredBills: { count: number; amountKobo: number } }
 ```
 
+A payment records the shift it was taken in (`shiftId`), so totals do not depend on time windows. One open day per
+scope: a second open for the same facility, cashier or till is refused `409 SHIFT_ALREADY_OPEN`.
+
 ## Permissions (new)
 
 billing.settings.manage, billing.catalogue.read, billing.catalogue.manage, billing.bill.read, billing.bill.create,
 billing.bill.defer, billing.payment.record, billing.payment.confirm, billing.payment.void, billing.payment.waive,
-billing.shift.manage, pharmacy.walk-in.create, pharmacy.stock.read, pharmacy.stock.manage, lab.walk-in.create,
+billing.shift.own, billing.shift.manage, pharmacy.walk-in.create, pharmacy.stock.read, pharmacy.stock.manage, lab.walk-in.create,
 lab.result.share.
 
 ## Front-end module (apps/patient-web/src/ehr-blue/departments/commerce/)

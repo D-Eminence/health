@@ -12,7 +12,7 @@ import { ItemCover, PaymentStep, PaidLine, usePaymentSettings } from './pointOfC
 import { drugFormFromCatalogue, paysFirst, summaryOf } from './pocFields'
 import {
   CataloguePicker, checkOutside, StepCard, checkWho, EMPTY_OUTSIDE, EMPTY_WHO, OutsideFields, outsideOrder, outsideUsed, StepSummary, Stepper,
-  useAttemptKey, walkInPatient, whoLine, WhoFields, type OutsideDraft, type OutsideErrors, type PickItem, type WhoDraft, type WhoErrors,
+  useAttemptKey, walkInPatient, whoCanContinue, whoFieldId, whoLine, WhoFields, type OutsideDraft, type OutsideErrors, type PickItem, type WhoDraft, type WhoErrors,
 } from './walkIn'
 
 const BACK = { to: '/provider/pharmacy', label: 'Back to pharmacy' }
@@ -31,7 +31,7 @@ type StepNo = 1 | 2 | 3 | 4
 
 /**
  * New sale at the pharmacy counter (POINT_OF_CARE_SPEC §4): a walk-in, with or without an outside prescription, in four
- * short steps made for a busy counter: who (a Health ID, quick details, or no details for over-the-counter items), the
+ * short steps made for a busy counter: who (a Health ID, a new Health ID made here, or no details for over-the-counter items), the
  * outside prescription (optional), the items (search the price list, tap to add), and check and pay. The order is made
  * once (POST walk-in-orders, one Idempotency-Key per order as typed); then payment at the counter or the cashier, and on
  * to dispensing in the queue's picking view, which keeps its own checks. A 404 says it isn't switched on: nothing is
@@ -74,7 +74,7 @@ function NewSaleForm({ facilityId, permissions }: { readonly facilityId: string;
     const errors = checkWho(who)
     setWhoErrors(errors)
     const first = Object.keys(errors)[0]
-    if (first) return focus(first === 'healthId' ? 'sale-who-hid' : `sale-who-${first}`)
+    if (first) return focus(whoFieldId('sale-who', first as keyof WhoErrors))
     // Over the counter: items that need a prescription can't stay in the sale.
     if (anonymous && cart.some(line => line.item.prescriptionOnly)) setCart(current => current.filter(line => !line.item.prescriptionOnly))
     go(anonymous ? 3 : 2)
@@ -141,8 +141,9 @@ function NewSaleForm({ facilityId, permissions }: { readonly facilityId: string;
     {/* 1. Who */}
     <StepCard anchor="sale-step-1" n={1} title="Who is it for?" current={step === 1} done={step > 1}
       summary={<StepSummary label="Change who it is for" onChange={created ? undefined : () => go(1)}>{whoLine(who)}</StepSummary>}>
-      <WhoFields idBase="sale-who" who={who} errors={whoErrors} anonymous onChange={next => { setWho(next); setWhoErrors({}) }} />
-      <FormActions sticky={false}><Button variant="primary" size="lg" iconRight={ArrowRight} onClick={doneWho}>Continue</Button></FormActions>
+      <WhoFields idBase="sale-who" facilityId={facilityId} place="pharmacy" who={who} errors={whoErrors} anonymous
+        onChange={next => { if (next.made && !who.made) focus('sale-who-made'); setWho(next); setWhoErrors({}) }} />
+      {whoCanContinue(who) ? <FormActions sticky={false}><Button variant="primary" size="lg" iconRight={ArrowRight} onClick={doneWho}>Continue</Button></FormActions> : null}
     </StepCard>
 
     {/* 2. Outside prescription */}
