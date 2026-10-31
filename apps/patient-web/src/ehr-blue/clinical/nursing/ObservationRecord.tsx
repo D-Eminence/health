@@ -4,18 +4,18 @@ import { useLocation, useParams } from 'react-router-dom'
 import { staffApi, type ClinicalRecord, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
-import {
-  ActionList, ConfirmAction, DetailGrid, DetailMeta, HistoryCard, SavedRecord, VersionsCard, type HistoryItem, type VersionItem,
-} from '../parts/Detail'
+import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord, VersionsCard, type VersionItem } from '../parts/Detail'
 import { shortId, statusLabel } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import { Banner, ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
+import { MoreActions } from '../parts/MoreActions'
 import { patientLine } from '../parts/PatientHeader'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
+import { ConnectedHistory } from '../triage/ConnectedHistory'
 import {
-  NO_RECORD_ACCESS, REASON_SHORT, RECORD_SAVED, RELOAD_FAILED, field, recordKey, refusedFieldErrors, rowVersion, text, useFocusAfterChange,
-  useLatest, useVisitRecord,
+  NO_RECORD_ACCESS, REASON_SHORT, RECORD_SAVED, RELOAD_FAILED, field, refusedFieldErrors, rowVersion, text, useFocusAfterChange, useLatest,
+  useVisitRecord,
 } from '../triage/records'
 import {
   AMEND_LABEL, CONTENT_EMPTY, DETAILS_LIMIT, LOADING_REVISIONS, NOTE_STATUS_UPDATED, NOTE_TRANSITIONS, NO_CONTENT, RELOAD_NOTE, RELOAD_RECORD,
@@ -66,7 +66,7 @@ function ObservationReader({ chart }: { chart: Chart }) {
       </>
     )
   }
-  return <Observation key={loaded.record.id} chart={chart} encounter={loaded.encounter} note={loaded.record} siblings={loaded.siblings} reload={reload} />
+  return <Observation key={loaded.record.id} chart={chart} encounter={loaded.encounter} note={loaded.record} reload={reload} />
 }
 
 const AMEND_FIELDS: readonly FieldDef[] = [
@@ -92,16 +92,22 @@ type Selected = 'amend' | NoteStatusChange
 type Asking = { readonly label: string; readonly word?: string; readonly answer: (yes: boolean) => void }
 
 /**
- * The design's record page for one nursing observation: "Saved record" (the latest revision), "Available actions"
- * ("Amend observation": today's note revision, with a reason; and today's note status changes, "Sign note" for a
- * draft and "Mark entered in error", each with a reason and the design's decision dialog), "Connected hospital
- * history" (the visit and its other observations) and "Preserved versions & amendments" (what each revision replaced).
+ * Today's status changes the design's Available actions card does not show: behind "More actions" (the owner's
+ * decision), with the same form, reason, dialog, call and messages.
  */
-function Observation({ chart, encounter, note, siblings, reload }: {
+const MORE_CHANGES: ReadonlySet<NoteStatusChange> = new Set(['entered_in_error'])
+
+/**
+ * The design's record page for one nursing observation: "Saved record" (the latest revision), "Available actions"
+ * (the design's "Amend observation": today's note revision, with a reason; and "Sign note" for a draft; then "More
+ * actions", holding today's "Mark entered in error"; each status change with a reason and the design's decision
+ * dialog), "Connected hospital history" (the visit, then the encounter's records in the other workspaces:
+ * ConnectedHistory) and "Preserved versions & amendments" (what each revision replaced).
+ */
+function Observation({ chart, encounter, note, reload }: {
   chart: Chart
   encounter: Encounter
   note: ClinicalRecord
-  siblings: readonly ClinicalRecord[]
   reload: Reload
 }) {
   const href = useWorkspaceHref()
@@ -123,6 +129,8 @@ function Observation({ chart, encounter, note, siblings, reload }: {
   // Nothing is signed or retracted unseen: as today, only once the note's revisions were read and hold its content.
   const changes = writes && revisions.state === 'shown' && revisions.items.length > 0 ? NOTE_TRANSITIONS[noteStatus(note)] ?? [] : []
   const change = selected === 'amend' ? null : changes.find(item => item.status === selected) ?? null
+  const shownChanges = changes.filter(item => !MORE_CHANGES.has(item.status))
+  const moreChanges = changes.filter(item => MORE_CHANGES.has(item.status))
   const ask = (label: string, word?: string) => new Promise<boolean>(answer => setAsking({ label, word, answer }))
 
   const amend = async (values: FormValues): Promise<SubmitOutcome> => {
@@ -179,6 +187,12 @@ function Observation({ chart, encounter, note, siblings, reload }: {
     if ('failed' in reloaded) setPageError(`${RELOAD_FAILED} ${reloaded.failed}`.trim())
   }
   const toggle = (action: Selected) => setSelected(current => current === action ? null : action)
+  // A menu item always opens its form (a form already open stays, with what was typed), as the consultation page's
+  // menu does; the action buttons or the form's own submit close it.
+  const chooseMore = (id: string) => {
+    const chosen = moreChanges.find(item => item.status === id)
+    if (chosen) setSelected(chosen.status)
+  }
 
   const saved: KeyValue[] = [
     { label: 'Visit', value: shortId(encounter.id) },
@@ -198,14 +212,19 @@ function Observation({ chart, encounter, note, siblings, reload }: {
           {revisions.state === 'failed' ? <ErrorBox>{revisions.message}</ErrorBox> : null}
         </SavedRecord>
         <EhrCard title={<span id={actionsId} className="hid-ehr-clinical-nursing-focus" tabIndex={-1}>Available actions</span>}>
-          {canAmend || changes.length > 0 ? (
+          {canAmend || shownChanges.length > 0 ? (
             <ActionList>
               {canAmend ? <EhrButton variant="secondary" aria-expanded={selected === 'amend'} onClick={() => toggle('amend')}>{AMEND_LABEL}</EhrButton> : null}
-              {changes.map(item => (
+              {shownChanges.map(item => (
                 <EhrButton key={item.status} variant="secondary" aria-expanded={selected === item.status} onClick={() => toggle(item.status)}>{item.label}</EhrButton>
               ))}
             </ActionList>
-          ) : <NoActions />}
+          ) : moreChanges.length === 0 ? <NoActions /> : null}
+          <MoreActions
+            items={moreChanges.map(item => ({ id: item.status, label: item.label }))}
+            selected={moreChanges.some(item => item.status === selected) ? selected : null}
+            onSelect={chooseMore}
+          />
           {canAmend && selected === 'amend' ? (
             <RecordForm key={`${note.id}-${String(note.rowVersion)}`} fields={AMEND_FIELDS} submitLabel={AMEND_LABEL} validate={amendCheck} onSubmit={amend} />
           ) : null}
@@ -221,7 +240,7 @@ function Observation({ chart, encounter, note, siblings, reload }: {
           ) : null}
         </EhrCard>
       </DetailGrid>
-      <HistoryCard items={historyItems(chart, href, encounter, siblings)} />
+      <ConnectedHistory chart={chart} encounter={encounter} owner="nursing" />
       <VersionsCard versions={versionItems(note, revisions)} />
       <ConfirmAction
         open={asking !== null}
@@ -241,24 +260,6 @@ function contentItems(revisions: Revisions, content: string | null): KeyValue[] 
   if (revisions.state === 'failed') return []
   if (!content) return note(NO_CONTENT)
   return observationItems(content)
-}
-
-/** "Connected hospital history": the visit (in Consultation) and its other nursing observations. */
-function historyItems(chart: Chart, href: ReturnType<typeof useWorkspaceHref>, encounter: Encounter, siblings: readonly ClinicalRecord[]): HistoryItem[] {
-  return [
-    {
-      key: `encounter-${encounter.id}`,
-      label: `Consultation · ${shortId(encounter.id)}`,
-      href: chart.can('ehr.encounter.read') ? href.to('consult', encounter.id) : undefined,
-      status: encounter.status,
-    },
-    ...siblings.map(record => ({
-      key: `observation-${record.id}`,
-      label: `${TITLE} · ${shortId(record.id)}`,
-      href: href(recordKey(encounter.id, record.id)),
-      status: noteStatus(record),
-    })),
-  ]
 }
 
 /**

@@ -1,15 +1,15 @@
-import { EhrButton, EhrCard, EhrField, EhrPageHeading, EhrSelect } from '@hid/ui/ehr'
+import { EhrButton, EhrCard } from '@hid/ui/ehr'
 import { useMemo, useState } from 'react'
-import { Route, Routes, useNavigate } from 'react-router-dom'
-import { ACCESS_OUTCOME_FILTERS, ACCESS_REQUEST_STATUSES, type AccessRequestStatus } from '../../../staff/api'
-import { ErrorBox, Loading } from '../parts/Notices'
+import { Route, Routes } from 'react-router-dom'
+import { Step } from '../parts/Detail'
+import { ErrorBox, ListHeading, Loading } from '../parts/Notices'
 import { RecordTable, SearchField } from '../parts/RecordTable'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import type { EhrBluePageStatus } from '../types'
 import { PinAccess } from './PinAccess'
 import { RequestAccess } from './RequestAccess'
 import { RequestDetail } from './RequestDetail'
-import { FILTER_LABELS, requestRow, useAccessRequests } from './requests'
+import { requestRow, useAccessRequests } from './requests'
 
 /** Every part is on today's Health ID API: access requests, their outcomes, closing a grant and the patient PIN. */
 export const consentStatus: EhrBluePageStatus = 'live'
@@ -36,13 +36,10 @@ export function ConsentWorkspace() {
 function RequestList() {
   const { facility, can } = useClinical()
   const href = useWorkspaceHref()
-  const navigate = useNavigate()
-  const [status, setStatus] = useState<AccessRequestStatus | ''>('')
   const [search, setSearch] = useState('')
-  const { requests, loading, error, outcomesReported, load } = useAccessRequests(status)
+  // Every status is read (no status filter, as the design's list has none); the search matches each row's status.
+  const { requests, loading, error, load } = useAccessRequests('')
 
-  const filters: readonly AccessRequestStatus[] = outcomesReported || (ACCESS_OUTCOME_FILTERS as readonly string[]).includes(status)
-    ? [...ACCESS_REQUEST_STATUSES, ...ACCESS_OUTCOME_FILTERS] : ACCESS_REQUEST_STATUSES
   const rows = useMemo(() => (requests ?? []).map(requestRow), [requests])
   const shown = useMemo(() => {
     const words = search.trim().toLowerCase()
@@ -52,38 +49,24 @@ function RequestList() {
 
   return (
     <>
-      {/* The design's order: "Create record", then the secondary "Verify patient PIN", in one slot. */}
-      <EhrPageHeading
-        title={TITLE}
-        primaryAction={can('identity.consent.write') || can('identity.patient-access-pin.verify') ? (
-          <>
-            {can('identity.consent.write') ? <EhrButton onClick={() => navigate(href('new'))}>Create record</EhrButton> : null}
-            {can('identity.patient-access-pin.verify')
-              ? <EhrButton variant="secondary" onClick={() => navigate(href('pin'))}>Verify patient PIN</EhrButton> : null}
-          </>
-        ) : undefined}
-      />
+      {/* The design's one primary action (audit 5). The patient PIN is reached from Patients' refused lookup. */}
+      <ListHeading title={TITLE} createHref={can('identity.consent.write') ? href('new') : undefined} />
       <EhrCard>
         <SearchField label={`Search ${TITLE}`} value={search} onChange={setSearch} />
-        <div className="hid-ehr-clinical-consent-toolbar">
-          <EhrField label="Status">
-            <EhrSelect value={status} onChange={event => setStatus(event.target.value as AccessRequestStatus | '')}>
-              <option value="">Any status</option>
-              {filters.map(value => <option key={value} value={value}>{FILTER_LABELS[value]}</option>)}
-            </EhrSelect>
-          </EhrField>
-          {/* Focusable while the list is read, when a second press does nothing. */}
-          <EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void load() }}>Refresh</EhrButton>
-        </div>
-        {error ? <ErrorBox>{error}</ErrorBox> : null}
+        {error ? (
+          <>
+            <ErrorBox>{error}</ErrorBox>
+            {/* Today's Refresh, kept only where the list could not be read: the one way to read it again here. Focusable
+                while the list is read, when a second press does nothing. */}
+            <Step><EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void load() }}>Refresh</EhrButton></Step>
+          </>
+        ) : null}
         {!facility ? null : loading && !requests ? <Loading label="Loading requests…" /> : requests ? (
           <RecordTable
             caption="Access requests"
             rows={shown}
             hrefFor={row => href(row.id)}
-            emptyTitle={requests.length === 0
-              ? status ? `No access requests: ${FILTER_LABELS[status].toLowerCase()}` : 'No access requests'
-              : 'No matching records'}
+            emptyTitle={requests.length === 0 ? 'No access requests' : 'No matching records'}
             emptyMessage={requests.length === 0 ? 'Requests you send for this facility will appear here.' : 'Change your search.'}
           />
         ) : null}

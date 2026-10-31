@@ -170,7 +170,7 @@ describe('sample engine', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Quick view 4-hourly observations' }))
     const drawer = screen.getByRole('dialog', { name: 'Record quick view' })
     expect(within(drawer).getByRole('heading', { name: '4-hourly observations' })).toBeTruthy()
-    expect(drawer.textContent).toContain('Assigned To')
+    expect(drawer.textContent).toContain('Assigned to')
     expect(drawer.textContent).toContain('Observation (fictional)')
     fireEvent.keyDown(drawer, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Record quick view' })).toBeNull())
@@ -339,12 +339,14 @@ describe('sample engine', () => {
     expect(sampleState().handoff).toBeNull()
   })
 
-  it('lists the same patient’s records in other sample workspaces as connected history', () => {
+  it('lists the same patient’s records in other workspaces as connected history (inpatient-3-detail1.png)', () => {
     open('inpatient', `/${IDS.admitTaylor}`)
     const history = screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section')!
     expect(within(history).getAllByRole('link').map(link => link.textContent)).toEqual([
-      'Appointments · Review of results', 'Patient visits · b57e94c9', 'Patient visits · Review of results', 'Radiology · Abdominal ultrasound',
-      'Dental · 503fafd8', 'Nursing tasks · 4-hourly observations', 'Nursing tasks · Wound dressing check',
+      'Appointments · Review of results', 'Patient visits · b57e94c9', 'Patient visits · Review of results', 'Triage & Vitals · 329417b6',
+      'Consultation · fd276688', 'Laboratory · Malaria parasite test', 'Laboratory · Blood culture', 'Radiology · Abdominal ultrasound',
+      'Pharmacy · fe7be2ce', 'Nursing observations · 637d9f70', 'Nursing observations · 76354f18', 'Dental · 503fafd8',
+      'Nursing tasks · 4-hourly observations', 'Nursing tasks · Wound dressing check',
     ])
     expect(within(history).getByRole('link', { name: 'Appointments · Review of results' }).getAttribute('href')).toBe(`${BASE}/appointments/${IDS.apptTaylor}`)
   })
@@ -392,11 +394,14 @@ describe('sample engine', () => {
     const view = open('journey')
     expect(screen.getByText(/^Journey stages are derived from visits/)).toBeTruthy()
     view.unmount()
-    // Hand-off 09: Taylor's visit b57e94c9 lists the one sample record started from it, the ultrasound (scheduled);
-    // its triage, consultation, lab and pharmacy rows are live records, never mixed into a sample.
+    // Hand-off 09: Taylor's visit b57e94c9 lists what was started from it: the sample ultrasound (scheduled) and, owner
+    // decision 3, the design's fictional triage, consultation, lab and pharmacy rows (never a live record).
     const visit = open('journey', `/${IDS.visitTaylor}`)
     const history = screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section')!
-    expect(within(history).getAllByRole('link').map(link => link.textContent)).toEqual(['Radiology · Abdominal ultrasound'])
+    expect(within(history).getAllByRole('link').map(link => link.textContent)).toEqual([
+      'Triage & Vitals · 329417b6', 'Consultation · fd276688', 'Laboratory · Malaria parasite test', 'Laboratory · Blood culture',
+      'Radiology · Abdominal ultrasound', 'Pharmacy · fe7be2ce',
+    ])
     expect(within(history).getByRole('link', { name: 'Radiology · Abdominal ultrasound' }).getAttribute('href')).toBe(`${BASE}/radiology/${IDS.ultrasound}`)
     expect(within(history).getByText('scheduled')).toBeTruthy()
     visit.unmount()
@@ -420,7 +425,7 @@ describe('sample engine', () => {
     ])
     expect(versions.textContent).toContain('Author: Demo Doctor (fictional)')
     const saved = screen.getByRole('heading', { name: 'Saved record' }).closest('section')!
-    expect(saved.textContent).toContain('Published At')
+    expect(saved.textContent).toContain('Published at')
     expect(within(saved).getByText('5f459730')).toBeTruthy()
   })
 
@@ -493,7 +498,7 @@ describe('sample engine', () => {
     fireEvent.submit(field('Delivery record', actionsCard()).closest('form')!)
     await waitFor(() => expect(screen.getByText('delivered')).toBeTruthy())
     const saved = screen.getByRole('heading', { name: 'Saved record' }).closest('section')!
-    expect(saved.textContent).toContain('Newborn Id')
+    expect(saved.textContent).toContain('Newborn identity')
     expect(sampleState().patients.find(patient => patient.name === 'Baby Demo')?.provisional).toBe(true)
   })
 

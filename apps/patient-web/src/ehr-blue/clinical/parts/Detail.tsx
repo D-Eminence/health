@@ -1,5 +1,5 @@
 import { EhrCard, EhrDialog } from '@hid/ui/ehr'
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { formatWhen } from './format'
 import { KeyValueList, type KeyValue } from './KeyValueList'
@@ -59,28 +59,66 @@ export interface HistoryItem {
   readonly label: string
   readonly href?: string
   readonly status?: string
+  /**
+   * A row that opens by an action rather than an address (a document's file): its label is a button drawn as the
+   * row's link, disabled while it cannot be opened, busy (aria-busy) and ignoring presses (aria-disabled) while it is
+   * being opened.
+   */
+  readonly open?: { readonly onOpen: () => void; readonly disabled?: boolean; readonly busy?: boolean }
+  /** Lines under the label (a document's type, size and scan), which also describe its button. */
+  readonly detail?: readonly string[]
+  /** Controls after the status (a document's "Extract with OCR"). */
+  readonly extra?: ReactNode
 }
 
-/** "Connected hospital history": records of the same patient this user may see, each with its status. An empty `empty` draws nothing when there are none. */
-export function HistoryCard({ items, empty = 'No other records for this patient yet.', children }: {
+/**
+ * "Connected hospital history": records of the same patient this user may see, each with its status. An empty
+ * `empty` draws nothing when there are none. `children` come before the rows (notices, pagers), `footer` after them.
+ */
+export function HistoryCard({ items, empty = 'No other records for this patient yet.', children, footer }: {
   items: readonly HistoryItem[]
   empty?: string
   children?: ReactNode
+  footer?: ReactNode
 }) {
+  const id = useId()
   return (
     <EhrCard title="Connected hospital history">
       <p>Only records available to your current permissions are listed.</p>
       {children}
       {items.length === 0 ? (empty ? <p>{empty}</p> : null) : (
         <ul className="hid-ehr-clinical-history-list">
-          {items.map(item => (
-            <li key={item.key} className="hid-ehr-clinical-history-row">
-              {item.href ? <Link className="hid-ehr-clinical-link" to={item.href}>{item.label}</Link> : <span>{item.label}</span>}
-              {item.status ? <StatusBadge status={item.status} /> : null}
-            </li>
-          ))}
+          {items.map((item, index) => {
+            const detailIds = (item.detail ?? []).map((_, line) => `${id}-${index}-${line}`)
+            const label = item.open ? (
+              <button
+                type="button"
+                className="hid-ehr-clinical-link hid-ehr-clinical-history-open"
+                disabled={item.open.disabled}
+                aria-disabled={item.open.busy || undefined}
+                aria-busy={item.open.busy || undefined}
+                aria-describedby={detailIds.length > 0 ? detailIds.join(' ') : undefined}
+                onClick={() => { if (!item.open?.busy) item.open?.onOpen() }}
+              >
+                {item.label}
+              </button>
+            ) : item.href ? <Link className="hid-ehr-clinical-link" to={item.href}>{item.label}</Link> : <span>{item.label}</span>
+            const status = item.status ? <StatusBadge status={item.status} /> : null
+            return (
+              <li key={item.key} className="hid-ehr-clinical-history-row">
+                {detailIds.length > 0 ? (
+                  <span>
+                    {label}
+                    {item.detail?.map((line, at) => <span key={detailIds[at]} id={detailIds[at]} className="hid-ehr-clinical-cell-sub">{line}</span>)}
+                  </span>
+                ) : label}
+                {item.extra ? <span className="hid-ehr-clinical-consult-document-actions">{status}{item.extra}</span> : status}
+              </li>
+            )
+          })}
         </ul>
       )}
+      {footer}
     </EhrCard>
   )
 }

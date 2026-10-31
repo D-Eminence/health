@@ -157,12 +157,16 @@ export function pagerProps(list: RecordList<unknown>) {
   }
 }
 
-/** The encounter's records of one kind (`records(facility, patient, encounter, kind)` first, then today's pages). */
-export function useRecordList(chart: Chart, encounterId: string, kind: RecordKind, enabled: boolean): RecordList<ClinicalRecord> {
+/**
+ * The encounter's records of one kind (`records(facility, patient, encounter, kind)` first, then today's pages).
+ * `learn` is given every answer, as today's page learns from an orders answer what the order pages need.
+ */
+export function useRecordList(chart: Chart, encounterId: string, kind: RecordKind, enabled: boolean, learn?: (answer: Page<ClinicalRecord>) => void): RecordList<ClinicalRecord> {
   const { facilityId, patientId } = chart
+  const told = <P extends Page<ClinicalRecord>>(answer: P) => { learn?.(answer); return answer }
   const reader: Reader<ClinicalRecord> = {
-    first: () => staffApi.records(facilityId, patientId, encounterId, kind),
-    page: (cursor, fresh) => staffApi.records(facilityId, patientId, encounterId, kind, { cursor, fresh }),
+    first: async () => told(await staffApi.records(facilityId, patientId, encounterId, kind)),
+    page: async (cursor, fresh) => told(await staffApi.records(facilityId, patientId, encounterId, kind, { cursor, fresh })),
   }
   return usePagedList(JSON.stringify([facilityId, patientId, encounterId, kind]), enabled, reader, 'Records could not be loaded.')
 }

@@ -5,9 +5,10 @@ import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWork
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, activePatient, allowedLookup, renderPage } from './harness'
 
 /**
- * Today's chart sections on the Consultation encounter page: staff imported history, the patient assistant,
+ * Today's chart sections on the Consultation list (#50 item 2): staff imported history, the patient assistant,
  * "Reported by the patient" and the imported medical history, each today's own component under today's permission
- * checks and build switches. Everything is fictional.
+ * checks and build switches. The encounter page has none of them (audit 9: the design's record page has no such card).
+ * Everything is fictional.
  */
 
 const api = vi.hoisted(() => ({
@@ -63,17 +64,18 @@ beforeEach(() => {
   api.recordChatAvailability.mockReturnValue(new Promise(() => {}))
 })
 
-async function openEncounter() {
-  renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-  await screen.findByRole('heading', { level: 2, name: 'Saved record' })
+/** The Consultation list, where today's chart sections are shown under the encounter table. */
+async function openList() {
+  renderPage(<ConsultWorkspace />, 'consult')
+  await screen.findByRole('table', { name: 'Encounters' })
   await act(async () => {})
 }
 
 const sections = () => document.querySelector('.hid-ehr-clinical-today')
 
-describe('Consultation record: today’s chart sections', () => {
+describe('Consultation: today’s chart sections', () => {
   it('shows "Reported by the patient" as today does, labelled as not clinically verified, in the design’s card', async () => {
-    await openEncounter()
+    await openList()
     const card = (await screen.findByRole('heading', { level: 2, name: 'Reported by the patient' })).closest('section')!
     expect(sections()?.contains(card)).toBe(true)
     expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
@@ -86,8 +88,8 @@ describe('Consultation record: today’s chart sections', () => {
   it('shows nothing when the read is refused (403) or not served (404), as today', async () => {
     for (const status of [403, 404]) {
       api.reportedHealthProfile.mockRejectedValueOnce(new HidApiError(status, 'No', { code: status === 403 ? 'FORBIDDEN' : 'NOT_FOUND' }))
-      const view = renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-      await screen.findByRole('heading', { level: 2, name: 'Saved record' })
+      const view = renderPage(<ConsultWorkspace />, 'consult')
+      await screen.findByRole('table', { name: 'Encounters' })
       await act(async () => {})
       expect(screen.queryByRole('heading', { name: 'Reported by the patient' })).toBeNull()
       view.unmount()
@@ -96,7 +98,7 @@ describe('Consultation record: today’s chart sections', () => {
 
   it('says when the service fails to answer, with today’s retry', async () => {
     api.reportedHealthProfile.mockRejectedValueOnce(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
-    await openEncounter()
+    await openList()
     expect(await screen.findByText('What the patient entered about their health could not be loaded.')).toBeTruthy()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Retry patient-reported health information' })) })
     expect(await screen.findByRole('heading', { level: 2, name: 'Reported by the patient' })).toBeTruthy()
@@ -104,37 +106,37 @@ describe('Consultation record: today’s chart sections', () => {
 
   it('reads nothing of them without ehr.note.read', async () => {
     staff.permissions = ['ehr.encounter.read', 'ehr.diagnosis.read']
-    await openEncounter()
+    await openList()
     expect(api.reportedHealthProfile).not.toHaveBeenCalled()
     expect(api.importedRecords).not.toHaveBeenCalled()
   })
 
   it('reads staff imported history only with ehr.imported-history.read, as today', async () => {
-    await openEncounter()
+    await openList()
     expect(api.importedHistory).not.toHaveBeenCalled()
   })
 
   it('reads staff imported history for the open patient with ehr.imported-history.read', async () => {
     staff.permissions = [...BASE, 'ehr.imported-history.read']
-    await openEncounter()
+    await openList()
     expect(api.importedHistory).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, null, expect.any(AbortSignal))
   })
 
   it('offers the patient assistant only where the build turns it on and the role may use it', async () => {
     staff.permissions = [...BASE, 'ehr.record-chat.use']
-    const off = renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-    await screen.findByRole('heading', { level: 2, name: 'Saved record' })
+    const off = renderPage(<ConsultWorkspace />, 'consult')
+    await screen.findByRole('table', { name: 'Encounters' })
     expect(screen.queryByRole('button', { name: 'Ask about this patient' })).toBeNull()
     off.unmount()
 
     builds.chat = true
-    await openEncounter()
+    await openList()
     expect(screen.getByRole('button', { name: 'Ask about this patient' })).toBeTruthy()
   })
 
   it('shows the imported medical history only where the build turns it on', async () => {
     builds.importedRecords = true
-    await openEncounter()
+    await openList()
     expect(api.importedRecords).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, 'direct-care', expect.any(AbortSignal))
     expect(screen.getByText('Loading imported medical history…')).toBeTruthy()
   })
@@ -167,6 +169,21 @@ describe('Consultation record: today’s chart sections', () => {
     await act(async () => {})
     expect(sections()).toBeNull()
     expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+  })
+
+  it('audit 9: shows none of them on the encounter page, which reads none of them', async () => {
+    staff.permissions = [...BASE, 'ehr.imported-history.read', 'ehr.record-chat.use']
+    builds.chat = true
+    builds.importedRecords = true
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    await screen.findByRole('heading', { level: 2, name: 'Saved record' })
+    await act(async () => {})
+    expect(sections()).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Reported by the patient' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Ask about this patient' })).toBeNull()
+    expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+    expect(api.importedHistory).not.toHaveBeenCalled()
+    expect(api.importedRecords).not.toHaveBeenCalled()
   })
 
   it('shows none of them for an emergency patient', async () => {
