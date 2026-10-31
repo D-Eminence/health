@@ -219,7 +219,7 @@ describe('Connected orders', () => {
     staff.roles = ['org_admin']
     open(ENCOUNTER_ID)
     expect(await screen.findByRole('button', { name: 'Create pharmacy record' })).toBeTruthy()
-    await screen.findByRole('list', { name: 'Orders from this encounter' })
+    // The sample steps render with the live ones (audit 12 removed the orders list this waited for).
     expect(screen.queryByRole('button', { name: 'Create radiology record' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Create referral network record' })).toBeNull()
   })
