@@ -92,6 +92,22 @@ describe('Help opens the support assistant', () => {
     expect(sent.filter(call => call.route === SUPPORT).map(call => call.body)).toEqual([{ text: 'How do I sign in?' }, { text: 'How do I switch facility?' }])
   })
 
+  it('keeps focus in the question while support replies, and reads the notice with it', async () => {
+    const { drawer } = await openHelp({ [SUPPORT]: [answer('Use Forgot password on the sign-in page.')] })
+    const question = drawer.getByRole('textbox', { name: 'Your question' }) as HTMLInputElement
+    expect(question.getAttribute('aria-describedby')?.split(' ').map(id => document.getElementById(id)?.textContent))
+      .toContain(NOTICE)
+    question.focus()
+    ask(drawer, 'How do I reset my password?')
+    // While the reply is on its way the box is read-only, not disabled, so focus stays in it (in the drawer).
+    expect(question.readOnly).toBe(true)
+    expect(question.disabled).toBe(false)
+    expect(document.activeElement).toBe(question)
+    expect(await drawer.findByText('Use Forgot password on the sign-in page.')).toBeDefined()
+    expect(question.readOnly).toBe(false)
+    expect(document.activeElement).toBe(question)
+  })
+
   it('says to wait when support-api is busy', async () => {
     const { drawer } = await openHelp({ [SUPPORT]: [() => problem(429, 'SUPPORT_RATE_LIMITED', 'Too many messages')] })
     ask(drawer, 'How do I sign in?')
@@ -107,6 +123,15 @@ describe('the privacy guard refuses before anything is sent', () => {
     ['an email address', 'Add ada.example@example.test to my team'],
     ['a phone number', 'Call the patient on 0803 123 4567'],
     ['an international phone number', 'Text +234 803 123 4567 about the result'],
+    // As people type them, without the hyphen or with other separators (normalizeHealthIdInput reads each as HID-ABC234).
+    ['a Health ID with a space', 'Why can\'t I open HID ABC234?'],
+    ['a Health ID in lower case', 'patient hid abc234 will not load'],
+    ['a Health ID with no hyphen', 'Open HIDABC234 for me'],
+    ['a Health ID after a colon', 'Record HID: ABC123 is locked'],
+    ['a Health ID with an en dash', 'HID – ABC234 is missing'],
+    ['a phone number with spaced dashes', 'Call the patient on 0803 - 123 - 4567'],
+    ['a phone number with slashes', 'Ring 0803/123/4567 after lunch'],
+    ['an email address with spaces round the @', 'Invite ada @ example.test please'],
   ])('%s', async (_, question) => {
     const { sent, drawer } = await openHelp({ [SUPPORT]: [answer('Never sent.')] })
     ask(drawer, question)
@@ -125,10 +150,15 @@ describe('the privacy guard refuses before anything is sent', () => {
   })
 
   it('reads each kind of personal detail, and leaves ordinary questions alone', () => {
-    for (const text of ['hid-abcdef23', 'NIN: 98765432109', 'me@clinic.example', '(0803) 123-4567', '+44 20 7946 0958']) {
+    for (const text of ['hid-abcdef23', 'NIN: 98765432109', 'me@clinic.example', '(0803) 123-4567', '+44 20 7946 0958',
+      'HID ABCDEF', 'HID_ABC234', 'Health ID ABC234', 'ＨＩＤ－ＡＢＣ２３４', 'HID AB\u200BC234', '0803\u200B123\u200B4567', '123 - 4567 - 8901', '0803–123–4567',
+      // A date that runs on into more digits is part of the number, not a date.
+      '0803.12.30.4567']) {
       expect({ text, refused: holdsPersonalDetails(text) }).toEqual({ text, refused: true })
     }
-    for (const text of ['How do I reset my password?', 'What is a HID- number?', 'Version 2.1 on 30/10/2026', 'Pay NGN 1,000,000']) {
+    for (const text of ['How do I reset my password?', 'What is a HID- number?', 'What is my HID number?', 'HIDE the menu',
+      'Version 2.1 on 30/10/2026', 'Pay NGN 1,000,000', 'I could not sign in on 2026-10-30 07:15, why?',
+      'Error at 31.10.2026 14:05', 'Between 09:00 and 17:30 on 30.10.2026']) {
       expect({ text, refused: holdsPersonalDetails(text) }).toEqual({ text, refused: false })
     }
   })

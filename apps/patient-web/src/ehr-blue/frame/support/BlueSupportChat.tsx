@@ -100,7 +100,10 @@ export function BlueSupportChat({ contact }: { readonly contact: string }) {
     <p id={`${id}-notice`} className="hid-ehr-blue-support-notice">{SUPPORT_PRIVACY_NOTICE}</p>
     <form className="hid-ehr-blue-support-form" onSubmit={event => void submit(event)}>
       <EhrField label="Your question">
-        <EhrInput ref={input} value={draft} maxLength={500} autoComplete="off" disabled={busy}
+        {/* Read-only, not disabled, while support replies: a disabled box would drop keyboard focus out of the drawer.
+            The Send button and flight.current still stop a second send. The notice above is read with the field. */}
+        <EhrInput ref={input} value={draft} maxLength={500} autoComplete="off" readOnly={busy}
+          aria-describedby={`${id}-notice`}
           onChange={event => { setDraft(event.target.value); if (error === PERSONAL_DETAILS_REFUSAL) setError(null) }} />
       </EhrField>
       <EhrButton type="submit" disabled={busy || !draft.trim()}>Send</EhrButton>
