@@ -283,13 +283,15 @@ export function isSampleWorkspace(id: string): id is SampleWorkspaceId {
 }
 
 /**
- * Connected hospital history order: the design's module order (catalog.ts), sample workspaces only. Record kinds a
- * ref field picks from map to the workspaces that hold them.
+ * Connected hospital history order: the design's module order (catalog.ts), audit item 17's list. Sample workspaces
+ * list their records; the live ones (triage, clinical, laboratory, pharmacy, nursing) list only the seed's fictional
+ * history rows (SEED_CONNECTED). Record kinds a ref field picks from map to the workspaces that hold them.
  */
-export const HISTORY_ORDER = [
-  'appointments', 'journey', 'radiology', 'inpatient', 'wards', 'emergency', 'maternity', 'surgery', 'icu', 'dental',
-  'referrals', 'bloodbank', 'telemedicine', 'ward-config', 'nursing-tasks',
-] as const
+export const HISTORY_ORDER: readonly string[] = [
+  'appointments', 'journey', 'triage', 'clinical', 'laboratory', 'radiology', 'pharmacy', 'inpatient', 'wards', 'nursing',
+  'emergency', 'maternity', 'surgery', 'icu', 'dental', 'referrals', 'bloodbank', 'telemedicine', 'ward-config',
+  'nursing-tasks',
+]
 
 export const REF_WORKSPACES: Readonly<Record<Exclude<SampleRefKind, 'encounter' | 'patient'>, readonly string[]>> = {
   bed: ['wards'],

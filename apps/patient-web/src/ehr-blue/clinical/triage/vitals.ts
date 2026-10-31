@@ -79,19 +79,20 @@ function shown(value: unknown): string {
 }
 
 /**
- * The measurements as the design's saved record lists them ("Bp 120/80", "Pulse 80", "Temperature 37.2",
- * "Spo2 98"), each only when recorded; the measurements the design has no key for follow, named the same way.
+ * The measurements in the design's saved record order (blood pressure "120/80", pulse, temperature, SpO2), each only
+ * when recorded; the measurements the design has no key for follow. Labels are written properly (the owner's
+ * decision), never the design's raw keys ("Bp", "Spo2").
  */
 export function measurementItems(values: VitalValues): KeyValue[] {
   const items: KeyValue[] = []
   const add = (label: string, value: string) => { if (value) items.push({ label, value }) }
   const systolic = shown(values.systolicMmhg)
   const diastolic = shown(values.diastolicMmhg)
-  add('Bp', systolic && diastolic ? `${systolic}/${diastolic}` : '')
+  add('Blood pressure', systolic && diastolic ? `${systolic}/${diastolic}` : '')
   add('Pulse', shown(values.pulseBpm))
   add('Temperature', shown(values.temperatureC))
-  add('Spo2', shown(values.oxygenSaturationPercent))
-  add('Respiratory Rate', shown(values.respiratoryRate))
+  add('SpO2', shown(values.oxygenSaturationPercent))
+  add('Respiratory rate', shown(values.respiratoryRate))
   add('Weight', shown(values.weightKg))
   add('Height', shown(values.heightCm))
   return items

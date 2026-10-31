@@ -129,10 +129,11 @@ function RecordPage({ definition, record, current }: { definition: SampleDefinit
           <HistoryCard
             empty=""
             items={history.map(entry => ({
-              key: `${entry.workspace.id}-${entry.record.id}`,
-              label: `${entry.workspace.title} · ${recordName(entry.record)}`,
-              href: href.to(entry.workspace.id, entry.record.id),
-              status: entry.record.status,
+              key: entry.key,
+              label: `${entry.title} · ${entry.name}`,
+              // A fictional connected row exists nowhere live: it opens its workspace's list, carrying nothing.
+              href: entry.recordId ? href.to(entry.workspace, entry.recordId) : href.to(entry.workspace),
+              status: entry.status,
             }))}
           />
         </div>

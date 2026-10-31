@@ -1,10 +1,10 @@
 import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
-import { EhrButton, EhrCard, EhrPageHeading } from '@hid/ui/ehr'
+import { EhrButton, EhrCard } from '@hid/ui/ehr'
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { ACCESS_ENDED, ChartProvider, NO_AUTHORIZED_PATIENT, OPEN_PATIENT_HOW, useAccessEnded } from '../parts/chart'
 import { formatWhen } from '../parts/format'
-import { Banner, ErrorBox, RecordNotFound } from '../parts/Notices'
+import { Banner, ErrorBox, ListHeading, RecordNotFound } from '../parts/Notices'
 import { patientFacts } from '../parts/PatientHeader'
 import { RecordTable, SearchField, type RecordRow } from '../parts/RecordTable'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
@@ -15,7 +15,7 @@ import {
 } from '../consent/access'
 import { PinAccess } from '../consent/PinAccess'
 import { CLOSED_NOTICE, PatientPage, accessLabel, patientDetails } from './PatientPage'
-import { ShareInvitationsForMe, SharedWithYou } from './SharingCards'
+import { usePatientSharing } from './SharingCards'
 
 /** Every part is on today's Health ID API: the Health ID lookup, the grant, encounters and patient sharing. */
 export const patientsStatus: EhrBluePageStatus = 'live'
@@ -24,7 +24,9 @@ export const patientsStatus: EhrBluePageStatus = 'live'
  * Patients: search by Health ID (today's governed access), the patient open now, that patient's page at
  * `patients/open`, and the patient PIN at `patients/pin` (as on today's Patients page, it needs no
  * identity.consent.write, which the frame asks for External record access). There is no list of every patient:
- * Health ID shows a patient only once this facility may see them.
+ * Health ID shows a patient only once this facility may see them. The list also holds the patients shared with this
+ * clinician and the invitations sent to them (today's sharing cards, audit 2). "Create record" is today's Patient
+ * registration page (/provider/registration, audit 1), which keeps its own checks; nothing of a patient goes with it.
  */
 export function PatientsWorkspace() {
   return (
@@ -113,16 +115,27 @@ function PatientList() {
     void open(sharedHid)
   }
 
+  const sharing = usePatientSharing({
+    facilityId: facility?.id, permissions, openUnavailable: openSharedUnavailable, busy, onOpen: openShared,
+  })
+
   /**
    * The PIN is a Patients page; a request is External record access, which the frame opens only with
-   * identity.consent.write, the permission sending a request needs: a role without it is not offered the step, so the
-   * Health ID is handed over only where the form can open and read it.
+   * identity.consent.write, the permission sending a request needs, and break-glass is Emergency's own page, which
+   * needs identity.break-glass.write: a role without the permission is not offered the step, so the Health ID is handed
+   * over only where the form can open and read it.
    */
-  function obtain(target: 'new' | 'pin') {
+  function obtain(target: 'new' | 'pin' | 'emergency') {
     if (!refused || !facility) return
     if (target === 'pin') {
       offerHealthId(refused.hid, facility.id, setActivePatient)
       navigate(href('pin'))
+      return
+    }
+    if (target === 'emergency') {
+      if (emergencyUnavailable) return
+      offerHealthId(refused.hid, facility.id, setActivePatient)
+      navigate(href.to('emergency', 'break-glass'))
       return
     }
     if (requestUnavailable) return
@@ -130,11 +143,12 @@ function PatientList() {
     navigate(href.to('consent', 'new'))
   }
 
-  const rows = useMemo<RecordRow[]>(() => {
-    if (!activePatient) return []
+  // The patient open now first (its link is their page), then those shared with this clinician and the invitations.
+  const openRow = useMemo<RecordRow | null>(() => {
+    if (!activePatient) return null
     const facts = patientFacts(activePatient)
     const expires = activePatient.lookup.authorization.expiresAt
-    return [{
+    return {
       id: 'open',
       name: facts.name,
       reference: activePatient.purpose === 'emergency' ? 'Emergency' : 'Direct care',
@@ -143,15 +157,16 @@ function PatientList() {
       status: accessLabel(activePatient),
       statusNote: expires ? `until ${formatWhen(expires)}` : undefined,
       details: patientDetails(activePatient, facts),
-    }]
+    }
   }, [activePatient])
+  const rows = useMemo<RecordRow[]>(() => (openRow ? [openRow, ...sharing.rows] : sharing.rows), [openRow, sharing.rows])
 
   let hidError: ReactNode = undefined
   if (problem) hidError = problem.alert ? <span key={attempt} role="alert">{problem.message}</span> : problem.message
 
   return (
     <>
-      <EhrPageHeading title="Patients" />
+      <ListHeading title="Patients" createHref={can('identity.registration.write') ? href.to('registration') : undefined} />
       {ended && !activePatient ? (
         <Banner tone="critical" title="Access to this patient ended">{ACCESS_ENDED}</Banner>
       ) : null}
@@ -190,7 +205,7 @@ function PatientList() {
                   variant="secondary"
                   disabled={emergencyUnavailable !== null}
                   aria-describedby={emergencyUnavailable ? 'emergency-access-unavailable' : undefined}
-                  onClick={() => { if (!emergencyUnavailable) navigate(href.to('emergency')) }}
+                  onClick={() => obtain('emergency')}
                 >
                   Emergency break-glass access
                 </EhrButton>
@@ -212,11 +227,13 @@ function PatientList() {
           emptyTitle={NO_AUTHORIZED_PATIENT}
           emptyMessage={OPEN_PATIENT_HOW}
         />
+        <div className="hid-ehr-clinical-patients-sharing-notes">
+          {/* With only shared patients or invitations listed, the list's empty state is not shown: it still says how a
+              patient is opened. */}
+          {!openRow && sharing.rows.length > 0 ? <p className="hid-ehr-clinical-note">{NO_AUTHORIZED_PATIENT}. {OPEN_PATIENT_HOW}</p> : null}
+          {sharing.notes}
+        </div>
       </EhrCard>
-      <div className="hid-ehr-clinical-patients-sharing">
-        <SharedWithYou facilityId={facility?.id} permissions={permissions} openUnavailable={openSharedUnavailable} busy={busy} onOpen={openShared} />
-        <ShareInvitationsForMe facilityId={facility?.id} permissions={permissions} />
-      </div>
     </>
   )
 }

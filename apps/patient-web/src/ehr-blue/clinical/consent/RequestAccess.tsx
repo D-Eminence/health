@@ -90,9 +90,9 @@ export function RequestAccess() {
     <>
       <RecordHeading title="New external record access" backHref={href()} />
       <EhrCard>
-        <p>Ask the patient to approve access. A pending request does not expose their record.</p>
         <div ref={form} onChangeCapture={normalizeHealthId}>
           <RecordForm
+            className="hid-ehr-clinical-consent-request-form"
             fields={FIELDS}
             initial={{ hid, scope: 'read_records', duration: DEFAULT_MINUTES }}
             submitLabel="Send access request"
