@@ -1,16 +1,20 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { isHidApiError } from '@hid/http'
 import { EhrButton, EhrCard, EhrDrawer, EhrEmptyState, EhrField, EhrSampleBanner, EhrSelect, EhrSkeleton } from '@hid/ui/ehr'
 import { facilityStaffApi, type Facility } from '../../staff/api'
 import { visibleNavigation } from '../../staff/navigation'
-import { useSampleHref } from '../frame/pageContext'
+import { isRouteMissing, isUnavailable, staffProblemText } from '../../staff/staffProblems'
+import { isDemoFacility } from '../blueFacilities'
+import { useOpenPages, useSampleHref } from '../frame/pageContext'
+import { basePath, pageHrefOf } from '../frame/pageHref'
 import { invoiceTotals, sampleRecords, sampleTitle, statusWords, type SampleRecord } from '../frame/sample/store'
 import type { EhrBluePage } from '../frame/types'
 
 /**
  * The design's Home cards (design/ehr-target src/dashboard.tsx), shared by each person's own Home and each demo
  * role's dashboard. Patient billing, the demo's People figure and Facility review are samples; People reads the
- * facility's staff live where today's sidebar lists Staff.
+ * facility's staff live at a demo facility where today's sidebar lists Staff.
  */
 
 export const MAX_SHORTCUTS = 6
@@ -62,41 +66,66 @@ export function Figure({ label, value, detail }: { readonly label: string; reado
   </div>
 }
 
-/** The design's People card: how many work here, and the way to Staff & access. */
-export function PeopleCard({ count, notice = false }: { readonly count: ReactNode; readonly notice?: boolean }) {
+/** The design's People card: how many work here (no figure without a count), and the way to Staff & access. */
+export function PeopleCard({ count, notice = false }: { readonly count?: ReactNode; readonly notice?: boolean }) {
   return <EhrCard title="People">
     {notice ? <EhrSampleBanner /> : null}
-    <strong className="hid-ehr-blue-stat-value">{count}</strong>
+    {count === undefined ? null : <strong className="hid-ehr-blue-stat-value">{count}</strong>}
     <p className="hid-ehr-blue-flush">Active staff in this branch</p>
-    <Link className="hid-ehr-blue-link" to="/provider/staff">Manage staff & access</Link>
+    <StaffLink />
   </EhrCard>
+}
+
+/**
+ * The way to Staff & access, only where this session may open the page: it refuses at a governed facility, and to
+ * anyone without workforce.manage.
+ */
+function StaffLink() {
+  const staff = useOpenPages().find(page => basePath(page.path) === 'staff')
+  return staff ? <Link className="hid-ehr-blue-link" to={pageHrefOf(staff)}>Manage staff & access</Link> : null
+}
+
+/** Why the staff could not be read, in today's Staff page's words (staff/routes/Staff.tsx). */
+function staffFailure(caught: unknown, facility: string): string {
+  if (isRouteMissing(caught)) return 'Adding staff isn’t available on Health ID yet. Please check again later.'
+  if (isHidApiError(caught) && caught.code === 'STAFF_MANAGEMENT_NOT_AVAILABLE') {
+    return `Health ID support manages who works at ${facility}. Contact Health ID support to add or remove staff.`
+  }
+  const text = staffProblemText(caught, { facility })
+  return isUnavailable(caught) ? text : `${facility}’s staff couldn’t be loaded. ${text}`
 }
 
 /** The design's demo figure for People, where no staff list is read. */
 export const SAMPLE_STAFF_COUNT = 16
 
+/** A facility's staff count, or what refused the read. */
+type StaffRead = { readonly facilityId: string } & ({ readonly count: number } | { readonly caught: unknown })
+
 /**
- * People on an administrator's own Home: the facility's staff, read as today's Staff page reads them, where today's
- * sidebar lists Staff (a facility that signed itself up, on Novu); elsewhere Health ID support manages who works there,
- * and the card shows the design's figure as a sample.
+ * People on an administrator's own Home, at a demo facility: the facility's staff, read as today's Staff page reads
+ * them, where today's sidebar lists Staff (a facility that signed itself up, on Novu); elsewhere Health ID support
+ * manages who works there, and the card shows the design's figure as a sample. At a real clinic the card shows no
+ * figure and reads nothing: a staff read is audited, and today's Overview makes none.
  */
 export function LivePeopleCard({ facility }: { readonly facility: Facility }) {
-  const live = visibleNavigation(facility).some(item => item.to === '/provider/staff')
-  const [read, setRead] = useState<{ readonly facilityId: string; readonly count: number | null } | null>(null)
+  const demo = isDemoFacility(facility.id)
+  const live = demo && visibleNavigation(facility).some(item => item.to === '/provider/staff')
+  const [read, setRead] = useState<StaffRead | null>(null)
   useEffect(() => {
     if (!live) return
     let active = true
     facilityStaffApi.read(facility.id).then(
       staff => { if (active) setRead({ facilityId: facility.id, count: staff.members.length }) },
-      () => { if (active) setRead({ facilityId: facility.id, count: null }) })
+      caught => { if (active) setRead({ facilityId: facility.id, caught }) })
     return () => { active = false }
   }, [live, facility.id])
+  if (!demo) return <PeopleCard />
   if (!live) return <PeopleCard count={SAMPLE_STAFF_COUNT} notice />
   const answer = read?.facilityId === facility.id ? read : null
   if (!answer) return <EhrCard title="People"><EhrSkeleton label="Loading staff" bars={2} /></EhrCard>
-  if (answer.count === null) return <EhrCard title="People">
-    <p className="hid-ehr-blue-flush">Staff could not be loaded.</p>
-    <Link className="hid-ehr-blue-link" to="/provider/staff">Manage staff & access</Link>
+  if ('caught' in answer) return <EhrCard title="People">
+    <p className="hid-ehr-blue-flush">{staffFailure(answer.caught, facility.name)}</p>
+    <StaffLink />
   </EhrCard>
   return <PeopleCard count={answer.count} />
 }

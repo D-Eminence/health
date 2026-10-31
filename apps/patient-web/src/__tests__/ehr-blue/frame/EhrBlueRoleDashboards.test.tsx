@@ -3,10 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { BLUE_PAGES } from '../../../ehr-blue/routes'
+import type * as BlueRoutes from '../../../ehr-blue/routes'
 import { BluePagesProvider } from '../../../ehr-blue/frame/pageContext'
 import { RoleViewProvider, type DemoRole } from '../../../ehr-blue/frame/roleView'
 import { RoleDashboard } from '../../../ehr-blue/home/RoleDashboard'
-import { DEMO_HOSPITAL, SESSION, facility, json, openStaffApp, serve, sessionAt, withFramePages } from './blueHarness'
+import {
+  DEMO_HOSPITAL, REAL_FACILITY, REQUESTS, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, withFramePages,
+} from './blueHarness'
 
 /**
  * Home and the demo roles' dashboards as the design draws them (audit items 3-7 and 13; design/ehr-target
@@ -198,6 +201,85 @@ describe('7. an administrator\'s own Home', () => {
     expect(card('Activity in period')).toBeDefined()
     expect(screen.queryByRole('heading', { level: 2, name: 'People' })).toBeNull()
     expect(screen.queryByRole('heading', { level: 2, name: 'Patient billing' })).toBeNull()
+  })
+})
+
+/** The frame's own pages and Staff & access, for a test of People's way there. */
+function withStaffPage() {
+  // This file imports the registry at its top: fresh modules, so the mocks apply also to a test run alone.
+  vi.resetModules()
+  vi.doMock('../../../ehr-blue/routes', async importOriginal => {
+    const actual = await importOriginal<typeof BlueRoutes>()
+    const frame = await import('../../../ehr-blue/frame/pages')
+    const home = await import('../../../ehr-blue/home/pages')
+    const { staffAccessPage } = await import('../../../ehr-blue/departments/staff/page')
+    return { ...actual, BLUE_PAGES: actual.collectPages({ './frame/pages.ts': frame, './home/pages.ts': home,
+      './departments/pages.ts': { pages: [staffAccessPage] } }) }
+  })
+}
+
+/** An administrator's facility, as one that signed itself up and that Health ID support has checked. */
+const selfSigned = (id: string, name: string, permissions: readonly string[]) => ({ ...facility(id, name, permissions, ['org_admin']),
+  selfService: { review: 'reviewed', organizationType: 'hospital' } }) as ReturnType<typeof facility>
+
+/** Opens Home at `current` and views it as a demo role, from the account menu. */
+async function viewAs(role: DemoRole, current: ReturnType<typeof facility>) {
+  serve({ [SESSION]: [sessionAt(current, [current])], [STAFF]: [() => json({ members: [] })] })
+  await openStaffApp('/provider')
+  await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
+  fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+  fireEvent.click(within(screen.getByRole('region', { name: 'Account' })).getByRole('button', { name: role }))
+  await screen.findByRole('heading', { level: 1, name: `Welcome, Demo ${role}` })
+}
+
+describe('7b. People links to Staff & access only where the session may open it', () => {
+  beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1'); withStaffPage() })
+
+  it('gives no link to a session without workforce.manage', async () => {
+    await viewAs('Hospital Admin', selfSigned(DEMO_HOSPITAL, 'Demo Hospital', []))
+    const people = within(card('People'))
+    expect(people.getByText('16')).toBeDefined()
+    expect(people.queryByRole('link', { name: 'Manage staff & access' })).toBeNull()
+  })
+
+  it('gives none at a governed facility, where Health ID support manages the staff', async () => {
+    await viewAs('Hospital Owner', facility(DEMO_HOSPITAL, 'Demo Hospital', ['workforce.manage'], ['org_admin']))
+    expect(within(card('People')).queryByRole('link', { name: 'Manage staff & access' })).toBeNull()
+  })
+
+  it('links to the page where the session may open it', async () => {
+    await viewAs('Hospital Admin', selfSigned(DEMO_HOSPITAL, 'Demo Hospital', ['workforce.manage']))
+    expect(within(card('People')).getByRole('link', { name: 'Manage staff & access' }).getAttribute('href')).toBe('/provider/staff')
+  })
+})
+
+describe('7c. People\'s live staff read', () => {
+  beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1'); withStaffPage() })
+
+  it('is never made at a real clinic: with the switch on, Home reads no staff and People shows no figure', async () => {
+    vi.doMock('../../../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: true }))
+    const clinic = selfSigned(REAL_FACILITY, 'Riverside Clinic (fictional)', ['workforce.manage', 'identity.consent.write'])
+    // The staff route answers, so a read would be seen here rather than as a broken page.
+    const sent = serve({ [SESSION]: [sessionAt(clinic, [clinic])], [REQUESTS]: [() => json([])], [STAFF]: [() => json({ members: [] })] })
+    await openStaffApp('/provider')
+    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
+    await waitFor(() => expect(sent.some(call => call.route === REQUESTS)).toBe(true))
+    expect(sent.some(call => call.route === STAFF)).toBe(false)
+    const people = card('People')
+    expect(people.querySelector('.hid-ehr-blue-stat-value')).toBeNull()
+    expect(within(people).queryByText(SAMPLE_NOTICE)).toBeNull()
+    expect(within(people).getByRole('link', { name: 'Manage staff & access' }).getAttribute('href')).toBe('/provider/staff')
+  })
+
+  it('says why it failed in today\'s Staff page\'s words', async () => {
+    const own = selfSigned(DEMO_HOSPITAL, 'Demo Hospital', ['workforce.manage'])
+    serve({ [SESSION]: [sessionAt(own, [own])], [STAFF]: [() => problem(403, 'STAFF_MANAGEMENT_NOT_AVAILABLE', 'Not available')] })
+    await openStaffApp('/provider')
+    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
+    const people = within(card('People'))
+    expect(await people.findByText('Health ID support manages who works at Demo Hospital. Contact Health ID support to add or remove staff.'))
+      .toBeDefined()
+    expect(people.getByRole('link', { name: 'Manage staff & access' }).getAttribute('href')).toBe('/provider/staff')
   })
 })
 
