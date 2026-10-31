@@ -26,10 +26,12 @@ export interface PharmacyCardProps {
   readonly when: string
   /** Under the card, outside its button: what was said about it, where it came from. */
   readonly below?: ReactNode
+  /** Beside the status: the bill (Paid, Unpaid ₦x) and stock (Out of stock), in words with an icon. */
+  readonly badges?: ReactNode
   readonly onOpen: () => void
 }
 
-export function PharmacyCard({ item, buttonId, status, tone, missing, patientFallback, when, below, onOpen }: PharmacyCardProps) {
+export function PharmacyCard({ item, buttonId, status, tone, missing, patientFallback, when, below, badges, onOpen }: PharmacyCardProps) {
   const form = drugFormOf(item)
   const { name, strength } = nameAndStrength(item.medication.display)
   const dose = doseText(item)
@@ -45,6 +47,7 @@ export function PharmacyCard({ item, buttonId, status, tone, missing, patientFal
             <Badge size="sm" tone={tone}>{statusWord(status)}</Badge>
             {missing ? <span className="inline-flex items-center gap-1 rounded-md bg-warn-soft px-2 py-0.5 text-[12px] font-semibold text-warn-ink">
               <TriangleAlert className="size-3.5" aria-hidden />{DOSE_MISSING}</span> : null}
+            {badges}
           </span>
           <span className="text-[19px] font-semibold leading-tight text-ink [overflow-wrap:break-word] sm:text-[21px]"><Breakable text={name} /></span>
           <span className="text-[14px] text-ink-2">{[strength, FORM_WORD[form]].filter(Boolean).join(' · ')}</span>

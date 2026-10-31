@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { EhrButton } from '@hid/ui/ehr'
-import { CircleCheck, Pill, Search } from 'lucide-react'
+import { CircleCheck, Pill, Plus, Search, Wallet } from 'lucide-react'
 import { PageState } from '../../../kasuwa/parts'
-import { Alert, FilterTabs, Input } from '../../../kasuwa/ui'
+import { Alert, Button, FilterTabs, Input } from '../../../kasuwa/ui'
 import { staffApi, type PharmacyWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import { cannotCompleteOffered, holdsReceivePermission, routeClosedForWork, wrongPatientOffered } from '../../../staff/orderRoutes'
@@ -27,6 +27,9 @@ import {
 import { PharmacyCard, PharmacyCards } from './PharmacyQueue'
 import { PharmacyRecord } from './PharmacyRecord'
 import { doseMissing, inTab, matchesItem, queueOrder, queueTone, routeAlert, statusOf, type PharmacyTab } from './pharmacyText'
+import { BillBadge } from '../commerce/BillBadge'
+import { StockLine, usePaymentSettings } from './pointOfCare'
+import { billOf, stockOf } from './pocFields'
 
 const LOAD_FAILED = 'Prescriptions could not be loaded. Please retry.'
 /** The design's list shows 50 records a page. */
@@ -76,6 +79,10 @@ export function Pharmacy() {
   // A dispensing or reversal being sent from the open record: Back to list waits for its outcome.
   const [recording, setRecording] = useState(false)
   const focus = useFocusById()
+  // The facility's payment setup (POINT_OF_CARE_SPEC §1): whether a bill must be paid before dispensing. Off (404) or
+  // unread, nothing waits for payment, as today.
+  const paymentSettings = usePaymentSettings(canRead ? facilityId : undefined)
+  const settings = paymentSettings.status === 'ready' ? paymentSettings.data : null
 
   // The rows shown: an order this pharmacy couldn't complete and later withdrew as the wrong person is no longer shown.
   const visible = items ? notCompleted.shown(items) : null
@@ -151,7 +158,10 @@ export function Pharmacy() {
 
   const routeClosed = (item: PharmacyWorkItem) => routeClosedForWork(item.orderRoute)
   const rows = queueOrder(visible ?? [], notDispensable)
-  const counts = { todo: rows.filter(item => inTab('todo', item)).length, dispensed: rows.filter(item => inTab('dispensed', item)).length, all: rows.length }
+  const counts = { todo: rows.filter(item => inTab('todo', item)).length, payment: rows.filter(item => inTab('payment', item)).length,
+    dispensed: rows.filter(item => inTab('dispensed', item)).length, all: rows.length }
+  // "Waiting for payment" only from a backend that sends bills on the work (POINT_OF_CARE_SPEC §3).
+  const billed = rows.some(item => billOf(item) !== undefined)
   const matching = rows.filter(item => inTab(tab, item) && matchesItem(search, item, statusOf(item, notDispensable(item.id))))
   const pages = Math.max(1, Math.ceil(matching.length / PAGE_SIZE))
   const current = Math.min(page, pages - 1)
@@ -173,13 +183,15 @@ export function Pharmacy() {
   const refresh = <RefreshButton loading={read.loading} onRefresh={read.refresh}>Refresh</RefreshButton>
   const emptyTab = tab === 'todo'
     ? { icon: CircleCheck, title: 'Nothing waiting to dispense', description: 'New prescriptions show here as soon as Pharmacy accepts them.' }
+    : tab === 'payment' ? { icon: Wallet, title: 'Nothing waiting for payment', description: 'Prescriptions with a bill still owed show here.' }
     : tab === 'dispensed' ? { icon: Pill, title: 'Nothing dispensed yet', description: 'Prescriptions you dispense move here.' }
       : { icon: Pill, title: 'No prescriptions yet', description: 'Prescriptions show here once they are accepted.' }
   return (
     <DeptPage title={selected ? <span id={`pharmacy-${selected.id}-title`} tabIndex={-1}>{selected.medication.display}</span>
       : <span id={HEADING} tabIndex={-1}>Pharmacy</span>}
       primaryAction={selected ? <EhrButton variant="secondary" aria-disabled={recording || undefined} onClick={back}>Back to list</EhrButton>
-        : undefined} secondaryActions={refresh}>
+        : permissions.includes('pharmacy.walk-in.create') ? <Button variant="primary" icon={Plus} to="/provider/pharmacy/new-sale">New sale</Button> : undefined}
+      secondaryActions={refresh}>
       {read.error && (listed || selected) && <Alert intent="error" title="Couldn’t refresh prescriptions"
         action={<EhrButton variant="secondary" size="sm" onClick={() => void read.refresh()}>Try again</EhrButton>}>{read.error} What is shown may be out of date.</Alert>}
       <SaidAboveTheList service="pharmacy" said={ended} facilityId={here} onClose={() => setEnded(null)} />
@@ -202,6 +214,7 @@ export function Pharmacy() {
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <FilterTabs label="Show prescriptions" value={tab} onChange={value => { setTab(value); setPage(0) }} options={[
             { value: 'todo', label: 'To dispense', count: counts.todo },
+            ...(billed || tab === 'payment' ? [{ value: 'payment' as const, label: 'Waiting for payment', count: counts.payment }] : []),
             { value: 'dispensed', label: 'Dispensed', count: counts.dispensed },
             { value: 'all', label: 'All', count: counts.all },
           ]} />
@@ -229,7 +242,13 @@ export function Pharmacy() {
               const status = statusOf(item, notDispensable(item.id))
               const text = selected ? null : said.rowSaid(item.orderRoute?.id)
               const alert = routeAlert(item.orderRoute, late)
+              const bill = billOf(item)
+              const stock = stockOf(item)
               return <PharmacyCard key={item.id} item={item} buttonId={`pharmacy-${item.id}-name`} status={status} tone={queueTone(status)}
+                badges={!item.dispensing && (bill !== undefined || (stock && stock.onHand <= 0)) ? <>
+                  {bill !== undefined ? <BillBadge bill={bill} /> : null}
+                  {stock && stock.onHand <= 0 ? <StockLine stock={stock} className="rounded-md bg-danger-soft px-2 py-0.5 text-[12px]" /> : null}
+                </> : undefined}
                 missing={!item.dispensing && doseMissing(item)} patientFallback={patientLabel(item)} when={dateText(item.acceptedAt)}
                 onOpen={() => open(item)}
                 below={item.orderRoute || alert ? <>
@@ -247,7 +266,7 @@ export function Pharmacy() {
           ids: new Set(current.facilityId === here ? current.ids : []).add(selected.id) }))}
         said={said.rowSaid(selected.orderRoute?.id)} holds={holds} crossFacilityWork={read.value?.crossFacilityWork}
         onChanged={read.refresh} onBusy={setRecording} onEnded={endedHere} onNotCompleted={notCompletedHere} onReread={said.reread}
-        next={nextItem ? nextItem.medication.display : null} onNext={openNext} onBack={back} />}
+        next={nextItem ? nextItem.medication.display : null} onNext={openNext} onBack={back} settings={settings} />}
     </DeptPage>
   )
 }

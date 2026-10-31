@@ -1,12 +1,13 @@
 import type { EhrBluePage } from './types'
-import { laboratoryPage } from './laboratory/page'
-import { pharmacyPage } from './pharmacy/page'
+import { labWalkInPage, laboratoryPage } from './laboratory/page'
+import { newSalePage, pharmacyPage, stockPage } from './pharmacy/page'
 import { migratePage } from './migrate/page'
 import { outreachPage } from './outreach/page'
 import { staffAccessPage } from './staff/page'
 import { auditPage } from './audit/page'
 import { facilityPage } from './facility/page'
 import { hrPage } from './hr/page'
+import { commercePages } from './commerce/page'
 import { samplePages } from './sample/pages'
 import './departments.css'
 
@@ -15,12 +16,16 @@ import './departments.css'
 // sample only, so the frame can list what is left.
 export const pages: EhrBluePage[] = [
   laboratoryPage,
+  labWalkInPage,
   pharmacyPage,
+  newSalePage,
+  stockPage,
   migratePage,
   outreachPage,
   staffAccessPage,
   auditPage,
   facilityPage,
   hrPage,
+  ...commercePages,
   ...samplePages,
 ]

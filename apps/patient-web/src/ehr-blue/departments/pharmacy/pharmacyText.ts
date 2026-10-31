@@ -4,6 +4,7 @@ import type { PharmacyWorkItem, WorkItemOrderRoute } from '../../../staff/api'
 import { routedWorkEndedText } from '../../../staff/orderRoutes'
 import { matchesSearch } from '../parts/format'
 import { patientLabel } from '../parts/routedWork'
+import { billOf, billOwing } from './pocFields'
 
 /** A work item's status as the design writes it: one lowercase word on its badge. */
 export type PharmacyStatus = 'accepted' | 'dispensed' | 'reversed' | 'not dispensable'
@@ -76,11 +77,15 @@ export function notDispensableText(item: PharmacyWorkItem): string {
       + 'handoff are needed.'
 }
 
-/** Which tab of the queue a prescription belongs to: waiting to be dispensed, or handed over. Reversed work is in All. */
-export type PharmacyTab = 'todo' | 'dispensed' | 'all'
+/**
+ * Which tab of the queue a prescription belongs to: waiting to be dispensed, waiting for payment (a bill owed, from a
+ * backend that sends bills: POINT_OF_CARE_SPEC §3), or handed over. Reversed work is in All.
+ */
+export type PharmacyTab = 'todo' | 'payment' | 'dispensed' | 'all'
 
 export function inTab(tab: PharmacyTab, item: PharmacyWorkItem): boolean {
   if (tab === 'todo') return !item.dispensing
+  if (tab === 'payment') return !item.dispensing && billOwing(billOf(item))
   if (tab === 'dispensed') return Boolean(item.dispensing && !item.dispensing.reversed)
   return true
 }

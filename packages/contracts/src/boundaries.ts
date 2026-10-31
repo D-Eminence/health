@@ -202,7 +202,13 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.patientReportedHealthProfile'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
-      'commercial.subscriptionCheckout', 'commercial.invoices'],
+      'commercial.subscriptionCheckout', 'commercial.invoices',
+      // Point of care (docs/POINT_OF_CARE_SPEC.md; proposed, 404 until served): payment setup, the price list, bills
+      // and their payments, receipts, and end of day.
+      'commercial.paymentSettings', 'commercial.catalogueItems', 'commercial.catalogueItem', 'commercial.bills',
+      'commercial.bill', 'commercial.billPayments', 'commercial.billPaymentVoid', 'commercial.billPaymentConfirm',
+      'commercial.billReceipt', 'commercial.billDefer', 'commercial.currentShift', 'commercial.shifts',
+      'commercial.shiftClose'],
   },
   'admin-web': {
     // Platform administration uses its own MFA-verified session (Stage 2A);

@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowRight, Check, CircleCheck, TriangleAlert, Undo2 } from 'lucide-react'
+import { ArrowRight, Check, CircleCheck, PackagePlus, PackageX, TriangleAlert, Undo2 } from 'lucide-react'
 import { FormActions, PatientBanner, Value } from '../../../kasuwa/parts'
 import { Badge, Button, Card, CardHeader, cx } from '../../../kasuwa/ui'
 import { useConfirm } from '../../clinical/parts/confirm'
@@ -23,6 +23,10 @@ import { DrugTile } from './DrugTile'
 import { drugFormOf, FORM_WORD, nameAndStrength } from './drugForm'
 import { Breakable } from './PharmacyQueue'
 import { DOSE_MISSING, doseMissing, doseText, labelText, notDispensableText, queueTone, statusOf, statusWord } from './pharmacyText'
+import type { PaymentSettings, WorkItemBill } from '../commerce/api'
+import { BillBadge } from '../commerce/BillBadge'
+import { PaidLine, PaymentStep, StockLine } from './pointOfCare'
+import { billOf, billOwing, paysFirst, stockOf } from './pocFields'
 
 /** The design's words under a form that was refused. */
 const RETRY_NOTE = 'Fix what’s marked, or try again with the same button. Nothing is saved until it says so.'
@@ -84,6 +88,11 @@ export interface PharmacyRecordProps {
   readonly next?: string | null
   readonly onNext?: () => void
   readonly onBack?: () => void
+  /**
+   * The facility's payment setup (POINT_OF_CARE_SPEC §1), or null while it is read or when payments aren't switched on:
+   * then nothing waits for payment, as today.
+   */
+  readonly settings?: PaymentSettings | null
 }
 
 /** What the record says once the medicine is handed over: the end of the flow, and the way on to the next one. */
@@ -96,7 +105,7 @@ interface Done { readonly quantity: number; readonly unit: string }
  * apart. The checks, requests and refusals are today's PharmacyAction (staff/routes/Operations.tsx), kept line for line.
  */
 export function PharmacyRecord({ facilityId, item, permissions, undispensable, onUndispensable, said, holds, crossFacilityWork,
-  onChanged, onBusy, onEnded, onNotCompleted, onReread, next = null, onNext, onBack }: PharmacyRecordProps) {
+  onChanged, onBusy, onEnded, onNotCompleted, onReread, next = null, onNext, onBack, settings = null }: PharmacyRecordProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -195,6 +204,14 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const ending = wrongPatientOffered(route, permissions, 'pharmacy')
   const status = statusOf(item, undispensable)
   const reversing = opened === 'reverse' && canReverse
+  // Point of care: the bill as the payment step last left it (paid or set to follow), else as the work item carries it.
+  const [cleared, setCleared] = useState<NonNullable<WorkItemBill> | null>(null)
+  const bill = cleared ?? billOf(item)
+  const waitsForPayment = canDispense && !done && paysFirst(settings, 'pharmacy') && billOwing(bill)
+  const stock = stockOf(item)
+  const outOfStock = canDispense && !done && stock !== null && stock.onHand <= 0
+  const canReceiveStock = permissions.includes('pharmacy.stock.manage')
+  const paymentHeading = `pharmacy-${item.id}-payment`
 
   function tick(step: CheckStep, on: boolean) {
     problems.clear()
@@ -228,6 +245,10 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
       <p className="m-0 text-[20px] font-semibold leading-tight text-ink [overflow-wrap:break-word]"><Breakable text={drugName} /></p>
       <p className="m-0 text-[16px] font-medium text-ink-2">{[strength, FORM_WORD[form], item.routeCode].filter(Boolean).join(' · ')}</p>
       <p className="m-0 text-[13px] text-ink-3">Accepted {dateText(item.acceptedAt)}</p>
+      {stock || (bill !== undefined && !waitsForPayment) ? <div className="mt-1 flex flex-wrap items-center gap-2">
+        {stock ? <StockLine stock={stock} /> : null}
+        {bill !== undefined && !waitsForPayment ? <BillBadge bill={bill} /> : null}
+      </div> : null}
     </div>
   </div>
 
@@ -248,9 +269,30 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
     </div>
   </Card>
 
-  const pick = canDispense && !done && <Card>
+  // Nothing on the shelf: dispensing would be refused (409 OUT_OF_STOCK), so the next step is said instead.
+  const empty = outOfStock && <Card className="ring-danger/40">
+    <CardHeader as="h2" title="Out of stock" icon={PackageX} iconTone="danger" titleId={`pharmacy-${item.id}-stock`}
+      description={`None on the shelf${stock ? ` (0 ${stock.unit})` : ''}.`} />
+    <div className="flex flex-col gap-3 p-5">
+      <p className="m-0 text-body text-ink">Tell the patient now. {route
+        ? `If it won’t be in soon, say you can’t complete it, so ${ordering} can send it elsewhere.`
+        : 'Receive stock if it has just come in, or advise them to buy it at another pharmacy.'}</p>
+      <FormActions sticky={false}>
+        {cannotComplete && route ? <Button onClick={() => focus(`pharmacy-${item.id}-cannot-complete-open`)}>Can’t complete this order</Button> : null}
+        {canReceiveStock ? <Button variant="primary" size="lg" icon={PackagePlus} to="/provider/pharmacy/stock/receive">Receive stock</Button> : null}
+      </FormActions>
+    </div>
+  </Card>
+
+  // Payment first (POINT_OF_CARE_SPEC §3): the payment step stands where Dispense would, until paid or set to follow.
+  const payment = waitsForPayment && !outOfStock && bill && settings && <PaymentStep facilityId={facilityId} summary={bill}
+    settings={settings} permissions={permissions} subject={banner} verb="dispense" headingId={paymentHeading}
+    onCleared={summary => { setCleared(summary); focus(`${checklistId}-picked`, true) }} />
+
+  const pick = canDispense && !done && !waitsForPayment && !outOfStock && <Card>
     <CardHeader as="h2" title="Pick and hand over" description="Tick each step as you do it." />
     <form id={`pharmacy-dispense-${item.id}`} aria-label="Dispense" noValidate onSubmit={event => void submit(event)} className="flex flex-col gap-5 p-5">
+      {cleared ? <PaidLine summary={cleared} /> : null}
       <fieldset id={checklistId} className="m-0 flex flex-col gap-2 border-0 p-0" aria-describedby={problems.error(checklistId) !== undefined ? `${checklistId}-error` : undefined}>
         <legend className="mb-2 p-0 text-[13px] font-medium text-ink-2">Checklist</legend>
         {steps.map(step => {
@@ -355,6 +397,8 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
       <div className="flex min-w-0 flex-col gap-4">
         {doneCard}
         {!done && <Card className="p-5">{drug}</Card>}
+        {empty}
+        {payment}
         {pick}
         {blocked}
         {handedOver}

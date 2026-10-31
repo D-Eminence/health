@@ -29,6 +29,12 @@ import {
 import { PatientBanner } from '../../../kasuwa/parts'
 import { AccessionForm, AccessionView, type LabSubject } from './accession'
 import { LabActionButton, LabActions, statusWord } from './labParts'
+import { Plus } from 'lucide-react'
+import { Button } from '../../../kasuwa/ui'
+import type { PaymentSettings, WorkItemBill } from '../commerce/api'
+import { BillBadge } from '../commerce/BillBadge'
+import { PaidLine, PaymentStep, usePaymentSettings } from '../pharmacy/pointOfCare'
+import { billOf, billOwing, outsideOf, paysFirst } from '../pharmacy/pocFields'
 
 /** The open work's id in the address (`?work=`), so Back and a refresh keep the place. */
 const WORK_PARAM = 'work'
@@ -117,6 +123,10 @@ export function Laboratory() {
   const said = useRowSaid('lab', read.value, list.refresh, (mode, route) => mode === 'wrong_patient'
     ? wrongPatientOffered(route, permissions, 'lab') : cannotCompleteOffered(route, permissions, 'lab', cannotServed))
   const [search, setSearch] = useState('')
+  // The facility's payment setup (POINT_OF_CARE_SPEC §1): whether a bill is paid before the sample is taken. Off (404)
+  // or unread, nothing waits for payment, as today.
+  const paymentSettings = usePaymentSettings(canRead ? facilityId : undefined)
+  const settings = paymentSettings.status === 'ready' ? paymentSettings.data : null
   const navigate = useNavigate()
   const location = useLocation()
   // Leaving a record (its Back, or the browser's) puts focus back on its row, once the list shows again.
@@ -190,10 +200,11 @@ export function Laboratory() {
         focus('lab-accession-title', true)
         void list.refresh()
       }}
-      onEnded={ending => endedHere(detail, ending)} onNotCompleted={notCompletedHere} onReread={said.reread} />}
+      onEnded={ending => endedHere(detail, ending)} onNotCompleted={notCompletedHere} onReread={said.reread} settings={settings} />}
     {/* The list stays mounted under a record, so orders waiting here and a lookup in progress keep their place. */}
     <div hidden={Boolean(detail)}>
-      <DeptPage title="Laboratory" secondaryActions={<RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh</RefreshButton>}>
+      <DeptPage title="Laboratory" secondaryActions={<RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh</RefreshButton>}
+        primaryAction={permissions.includes('lab.walk-in.create') ? <Button variant="primary" icon={Plus} to="/provider/laboratory/new-walk-in">New walk-in</Button> : undefined}>
         <StandaloneWorkNote facility={facility} kind="laboratory" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
         {mounted && facility && <DeptEmbedded className="hid-ehr-dept-laboratory-embedded"><IncomingOrders service="lab" facilityId={workFacility}
           facilityName={facility.name} probe={probe} watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer}
@@ -229,6 +240,8 @@ export function Laboratory() {
               patient: <QueuePatient patient={item.patient} fallback={patientLabel(item)} />,
               priority: item.priority,
               status: workStatus(item),
+              // The bill, from a backend that sends bills on the work (POINT_OF_CARE_SPEC §3): Paid, Unpaid ₦x, Bill follows.
+              flag: billOf(item) !== undefined ? <BillBadge bill={billOf(item)} /> : undefined,
               when: dateText(item.acceptedAt),
               onOpen: () => open(item),
               below: item.orderRoute ? <>
@@ -251,7 +264,7 @@ export function Laboratory() {
  * be worked. What an ending's refusal said stays here when the list read again no longer offers the form (`said`).
  */
 function WorkRecord({ facilityId, item, accessionId, accessionNumber, created, permissions, routed, closed, said, onBack, onListChanged, onCreated, onEnded,
-  onNotCompleted, onReread }: {
+  onNotCompleted, onReread, settings }: {
   readonly facilityId: string; readonly item: LabWorkItem; readonly accessionId: string | null | undefined
   readonly accessionNumber: string | null | undefined; readonly created?: string
   readonly permissions: readonly string[]; readonly routed: boolean; readonly closed: boolean; readonly said: string | null
@@ -259,22 +272,38 @@ function WorkRecord({ facilityId, item, accessionId, accessionNumber, created, p
   readonly onEnded: (ending: WrongPatientEnding) => void
   readonly onNotCompleted: (ending: Omit<CannotCompleteEnding, 'key'>) => void
   readonly onReread: (routeId: string, mode: OrderEndingMode, said?: string) => Promise<void>
+  /** The facility's payment setup, or null (unread, or payments not switched on: nothing waits for payment). */
+  readonly settings: PaymentSettings | null
 }) {
   const route = item.orderRoute
+  // Payment first (POINT_OF_CARE_SPEC §3): creating the accession and collecting the sample wait for the bill to be paid
+  // or set to follow; the payment step stands in their place.
+  const [cleared, setCleared] = useState<NonNullable<WorkItemBill> | null>(null)
+  const bill = cleared ?? billOf(item)
+  const samples = permissions.includes('lab.accession.create') || permissions.includes('lab.specimen.collect')
+  const waitsForPayment = samples && !routeClosedForWork(route) && paysFirst(settings, 'lab') && billOwing(bill)
+  const outside = outsideOf(item)
   const title = workTitle(item)
-  const prepare = !accessionId && permissions.includes('lab.accession.create') && !routeClosedForWork(route)
+  const prepare = !accessionId && permissions.includes('lab.accession.create') && !routeClosedForWork(route) && !waitsForPayment
   const ordering = route?.orderingFacilityName ?? 'The ordering facility'
   const cannotComplete = cannotCompleteOffered(route, permissions, 'lab', useCannotCompleteServed())
   const [preparing, setPreparing] = useState(false)
+  const focus = useFocusById()
   return <DeptPage title={<span id="lab-record-title" tabIndex={-1}>{title}</span>} onBack={onBack}>
     <DeptContextLine status={statusTitle(workStatus(item))} items={[`Accepted ${dateText(item.acceptedAt)}`]} />
     {/* Who the sample is for, in the same place on every record. */}
     {subjectOf(item).banner}
     {said && route && <DeptNotice id={`lab-${item.id}-said`} tone="critical" role="alert" tabIndex={-1}>{said}</DeptNotice>}
     {route && <div className="hid-ehr-dept-laboratory-routed"><RoutedWorkLines route={route} /></div>}
+    {waitsForPayment && bill && settings && <PaymentStep facilityId={facilityId} summary={bill} settings={settings}
+      permissions={permissions} subject={subjectOf(item).banner} verb="take the sample" headingId={`lab-${item.id}-payment`}
+      onCleared={summary => { setCleared(summary); focus(accessionId ? `lab-accession-title` : 'lab-record-title', true) }} />}
+    {cleared && <PaidLine summary={cleared} />}
+    {bill !== undefined && !waitsForPayment && !cleared ? <div className="flex items-center gap-2 text-[14px] text-ink-2">Bill: <BillBadge bill={bill} /></div> : null}
     <DeptRecordLayout
       main={<DeptSection title="Request"><DeptFacts facts={workFacts({ ...item, accessionNumber })} /></DeptSection>}
-      aside={<LabActions none={!prepare && !wrongPatientOffered(route, permissions, 'lab')}>
+      aside={<LabActions none={!prepare && !(waitsForPayment && !accessionId) && !wrongPatientOffered(route, permissions, 'lab')}>
+        {waitsForPayment && !accessionId && <DeptNotice tone="caution">Payment first. Once it is paid or set to follow, create the accession and take the sample.</DeptNotice>}
         {prepare && route && item.patient && <DeptNotice>{sampleCheckText(item.patient.fullName)}</DeptNotice>}
         {prepare && <LabActionButton open={preparing} onToggle={() => setPreparing(value => !value)}>Create accession</LabActionButton>}
         {wrongPatientOffered(route, permissions, 'lab') && <DeptEmbedded className="hid-ehr-dept-laboratory-endings">
@@ -294,6 +323,7 @@ function WorkRecord({ facilityId, item, accessionId, accessionNumber, created, p
       </LabActions>}
     />
     {accessionId && permissions.includes('lab.accession.read') && <AccessionView key={`${facilityId}-${accessionId}`} facilityId={facilityId}
-      id={accessionId} permissions={permissions} created={created} routed={routed} closed={closed} subject={subjectOf(item)} onChanged={onListChanged} />}
+      id={accessionId} permissions={permissions} created={created} routed={routed} closed={closed} subject={subjectOf(item)} onChanged={onListChanged}
+      collectBlocked={waitsForPayment} share={outside ? { email: outside.prescriberEmail, doctor: outside.prescriberName } : null} />}
   </DeptPage>
 }

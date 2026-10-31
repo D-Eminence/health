@@ -94,7 +94,8 @@ export function BlueFrame() {
     && inProduct(product, page.path) && (product === 'ehr' || page.path !== '')
     && (!session || (page.listed?.(session) ?? true))), [allowed, session, product])
   const match = matchBluePage(BLUE_PAGES, location.pathname)
-  const tabs = match ? pageTabs(allowed, match.page) : []
+  // A pharmacy or lab on its own lists a product's pages in the sidebar, so it draws no tabs above them as well.
+  const tabs = match && product === 'ehr' ? pageTabs(allowed, match.page) : []
   const shownTitle = match ? match.page.label : liveOnlyTitle(location.pathname) ?? 'Page not found'
   // Today's tab title names today's pages only: the blue page names itself once the workspace is open.
   useEffect(() => {
@@ -124,14 +125,19 @@ export function BlueFrame() {
 
   const name = session.actor.displayName ?? session.actor.email ?? 'Staff member'
   const roles = facility ? facility.roles.join(', ') || 'Staff' : 'Staff'
-  const groups = navigationGroups(listed.filter(page => !page.tabOf))
+  // In the EHR a page that joins another's tabs has no sidebar entry; in a single product (a pharmacy or lab on its own)
+  // each is listed by its tab name ("To dispense", "New sale", "Stock").
+  const groups = navigationGroups(product === 'ehr' ? listed.filter(page => !page.tabOf)
+    : listed.map(page => page.tabLabel ? { ...page, label: page.tabLabel } : page))
   // The groups a clinician opens all day stay open; the rest fold (Hick's Law), each opening while it holds the page.
-  const OPEN = new Set(['Front desk', 'Care'])
+  // A single product's own group is its whole job, so it stays open too.
+  const OPEN = new Set(['Front desk', 'Care', ...(product === 'ehr' ? [] : [listed.find(page => basePath(page.path) === info.home)?.group ?? ''])])
   const nav: NavGroup[] = groups.map(group => ({
     title: group.label,
     collapsible: Boolean(group.label),
     defaultOpen: OPEN.has(group.label ?? ''),
-    items: group.items.map(item => ({ to: item.href, label: item.label, icon: iconOf(item.icon), end: item.href === '/provider' })),
+    items: group.items.map(item => ({ to: item.href, label: item.label, icon: iconOf(item.icon), // A single product lists pages below its home (pharmacy/new-sale): its home is current only at its own address.
+      end: item.href === '/provider' || (product !== 'ehr' && item.href === `/provider/${info.home}`) })),
   }))
   const tabsFor = (path: string) => listed.find(page => page.path === path || page.path === `${path}/*`)
   const tab = (path: string, label: string, fallback: NavItem) => { const page = tabsFor(path); return page ? { to: pageHrefOf(page), label, icon: iconOf(page.icon) } : fallback }

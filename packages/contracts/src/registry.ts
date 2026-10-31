@@ -102,6 +102,8 @@ const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
  */
 const WEB_PUSH_NOTE = 'Novu: hid-system 0097 (B6); 404 before, and while push is not configured'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
+/** docs/POINT_OF_CARE_SPEC.md: proposed, not served by any hid-system release yet; callers treat a 404 as "not switched on". */
+const POINT_OF_CARE = 'Point of care (docs/POINT_OF_CARE_SPEC.md); not served by hid-system yet (404). Every POST takes Idempotency-Key.'
 const STAFF_CHAT_NOTE = 'Staff sessions holding ehr.record-chat.use, for direct care only (X-Purpose-Of-Use: direct-care, never break-glass). '
   + 'Off by default in hid-system (ADR-069, 0101): 503 RECORD_CHAT_DISABLED until RECORD_CHAT_STAFF_ENABLED and the platform control are on.'
 const RECORD_CHAT_NOTE = 'Patient sessions only (403 PATIENT_SESSION_REQUIRED otherwise). Off by default in hid-system '
@@ -829,6 +831,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
 
   r('lab.workItems','lab','/api/v1/lab/work-items',G,false,one('GET','lab.work-item.read'),WORK_LISTS_P4C),
   r('lab.workItem','lab','/api/v1/lab/work-items/:workItemId',G,false,one('GET','lab.work-item.read')),
+  // Point of care (docs/POINT_OF_CARE_SPEC.md): walk-in requests and results sent to outside doctors. Proposed; 404 until served.
+  proposed(r('lab.walkInRequests','lab','/api/v1/lab/walk-in-requests',P,false,one('POST','lab.walk-in.create'),POINT_OF_CARE)),
+  proposed(r('lab.resultShares','lab','/api/v1/lab/accessions/:accessionId/result-shares',P,false,one('POST','lab.result.share'),
+    `${POINT_OF_CARE} Body { email }; answers { shareId, sentTo, expiresAt }.`)),
   r('lab.imports','lab','/api/v1/lab/imports',P,false,one('POST','lab.import.write')),
   r('lab.import','lab','/api/v1/lab/imports/:importId',G,false,one('GET','lab.import.read')),
   r('lab.createAccession','lab','/api/v1/lab/work-items/:workItemId/accession',P,false,one('POST','lab.accession.create')),
@@ -872,6 +878,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('pharmacy.dispense','pharmacy','/api/v1/pharmacy/work-items/:workItemId/dispensings',P,false,one('POST','pharmacy.dispensing.create')),
   r('pharmacy.dispensing','pharmacy','/api/v1/pharmacy/dispensings/:dispensingId',G,false,one('GET','pharmacy.dispensing.read')),
   r('pharmacy.reverse','pharmacy','/api/v1/pharmacy/dispensings/:dispensingId/reversals',P,false,one('POST','pharmacy.dispensing.reverse')),
+  // Point of care (docs/POINT_OF_CARE_SPEC.md): walk-ins and stock at the pharmacy. Proposed; 404 until served.
+  proposed(r('pharmacy.walkInOrders','pharmacy','/api/v1/pharmacy/walk-in-orders',P,false,one('POST','pharmacy.walk-in.create'),POINT_OF_CARE)),
+  proposed(r('pharmacy.stock','pharmacy','/api/v1/pharmacy/stock',G,false,one('GET','pharmacy.stock.read'),POINT_OF_CARE)),
+  proposed(r('pharmacy.stockReceipts','pharmacy','/api/v1/pharmacy/stock/receipts',P,false,one('POST','pharmacy.stock.manage'),POINT_OF_CARE)),
+  proposed(r('pharmacy.stockAdjustments','pharmacy','/api/v1/pharmacy/stock/adjustments',P,false,one('POST','pharmacy.stock.manage'),
+    `${POINT_OF_CARE} Reason required.`)),
+  proposed(r('pharmacy.stockMovements','pharmacy','/api/v1/pharmacy/stock/:catalogueItemId/movements',G,false,one('GET','pharmacy.stock.read'),POINT_OF_CARE)),
   r('pharmacy.import','pharmacy','/api/v1/pharmacy/imports/:importId',G,false,one('GET','pharmacy.import.read')),
   // P4c: prescriptions other facilities send to this pharmacy, as Lab's.
   { ...proposed(r('pharmacy.orderRoutes','pharmacy','/api/v1/pharmacy/order-routes',G,false,one('GET','pharmacy.order-route.receive'),
@@ -919,6 +932,33 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('commercial.subscriptionCheckout','commercial','/api/v1/commercial/subscription/checkout',P,false,one('POST','billing.subscription.manage'),
     'Answers a Paystack authorizationUrl; payment is confirmed only by the server (webhook or verify).')),
   proposed(r('commercial.invoices','commercial','/api/v1/commercial/invoices',G,false,one('GET','billing.subscription.read'))),
+  // Point of care (docs/POINT_OF_CARE_SPEC.md): payments, price list and end of day at a facility. Proposed, not yet
+  // served by hid-system; every caller treats a 404 as "not switched on yet". Health ID records payments, never moves money.
+  proposed(r('commercial.paymentSettings','commercial','/api/v1/commercial/payment-settings',['GET','PUT'],false,
+    one('PUT','billing.settings.manage'), POINT_OF_CARE)),
+  proposed(r('commercial.catalogueItems','commercial','/api/v1/commercial/catalogue-items',GP,false,
+    {GET:['billing.catalogue.read'],POST:['billing.catalogue.manage']}, POINT_OF_CARE)),
+  proposed(r('commercial.catalogueItem','commercial','/api/v1/commercial/catalogue-items/:itemId',['PATCH'],false,
+    one('PATCH','billing.catalogue.manage'), `${POINT_OF_CARE} An image is uploaded through the files service, then PATCH { imageFileId }.`)),
+  proposed(r('commercial.bills','commercial','/api/v1/commercial/bills',GP,false,
+    {GET:['billing.bill.read'],POST:['billing.bill.create']}, POINT_OF_CARE)),
+  proposed(r('commercial.bill','commercial','/api/v1/commercial/bills/:billId',G,false,one('GET','billing.bill.read'), POINT_OF_CARE)),
+  proposed(r('commercial.billPayments','commercial','/api/v1/commercial/bills/:billId/payments',P,false,
+    one('POST','billing.payment.record'), `${POINT_OF_CARE} 409 OVERPAYMENT above dueKobo; a transfer is pending_check until confirmed.`)),
+  proposed(r('commercial.billPaymentVoid','commercial','/api/v1/commercial/bills/:billId/payments/:paymentId/void',P,false,
+    one('POST','billing.payment.void'), `${POINT_OF_CARE} Reason required.`)),
+  proposed(r('commercial.billPaymentConfirm','commercial','/api/v1/commercial/bills/:billId/payments/:paymentId/confirm',P,false,
+    one('POST','billing.payment.confirm'), POINT_OF_CARE)),
+  proposed(r('commercial.billReceipt','commercial','/api/v1/commercial/bills/:billId/receipt',G,false,
+    one('GET','billing.bill.read'), POINT_OF_CARE)),
+  proposed(r('commercial.billDefer','commercial','/api/v1/commercial/bills/:billId/defer',P,false,
+    one('POST','billing.bill.defer'), `${POINT_OF_CARE} Reason: emergency | inpatient.`)),
+  proposed(r('commercial.currentShift','commercial','/api/v1/commercial/shifts/current',G,false,
+    one('GET','billing.shift.manage'), POINT_OF_CARE)),
+  proposed(r('commercial.shifts','commercial','/api/v1/commercial/shifts',GP,false,
+    {GET:['billing.shift.manage'],POST:['billing.shift.manage']}, POINT_OF_CARE)),
+  proposed(r('commercial.shiftClose','commercial','/api/v1/commercial/shifts/:shiftId/close',P,false,
+    one('POST','billing.shift.manage'), POINT_OF_CARE)),
 
   r('admin.session','admin','/api/v1/admin/session',G,false,one('GET','platform.admin.access')),
   r('admin.overview','admin','/api/v1/admin/overview',G,false,one('GET','platform.admin.access')),

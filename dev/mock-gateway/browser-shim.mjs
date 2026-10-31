@@ -53,7 +53,15 @@ window.fetch = async (input, init = {}) => {
     if (method === 'DELETE') { previewPhoto = null; return new Response(JSON.stringify({ hasPhoto: false }), { status: 200, headers: { ...headers, 'Content-Type': 'application/json' } }) }
     if (method === 'GET' && previewPhoto) return new Response(previewPhoto, { status: 200, headers: { ...headers, 'Content-Type': previewPhoto.type } })
   }
-  const hit = respond(method, path, workspace)
+  // The request's JSON body and query, for the answers that use them (the point-of-care writes save what was sent).
+  let body
+  if (method !== 'GET' && method !== 'HEAD') {
+    try {
+      const text = typeof init.body === 'string' ? init.body : input instanceof Request ? await input.clone().text() : ''
+      body = text ? JSON.parse(text) : undefined
+    } catch { body = undefined }
+  }
+  const hit = respond(method, path, workspace, { body, query: url.searchParams })
   if (hit && workspace === 'patient' && method === 'GET' && path === '/identity/me' && hit.body) hit.body = { ...hit.body, hasPhoto: previewPhoto !== null }
   if (!hit) {
     const key = `${method} ${path}`

@@ -20,6 +20,7 @@ import { dateText } from '../parts/format'
 import { patientLabel } from '../parts/routedWork'
 import { useConfirm } from '../../clinical/parts/confirm'
 import { LabActionButton, LabActions, statusWord } from './labParts'
+import { ShareResult } from './ShareResult'
 
 /*
  * An accession and everything recorded on it: its samples' custody, their processing (analytical executions) and
@@ -34,6 +35,18 @@ const RoutedAccession = createContext(false)
 /** Who the lab work is for: their name, and their banner for the confirm sheet before a save (wrong-patient prevention). */
 export interface LabSubject { readonly name: string; readonly banner: ReactNode }
 const LabSubjectContext = createContext<LabSubject | null>(null)
+
+/**
+ * Point of care on the accession (POINT_OF_CARE_SPEC §3, §6): whether taking a sample waits for payment (the payment
+ * step above says what to do), and the referring doctor a published result can be sent to.
+ */
+interface LabPointOfCare {
+  readonly facilityId: string
+  readonly accessionId: string
+  readonly collectBlocked: boolean
+  readonly share: { readonly email?: string | null; readonly doctor?: string | null } | null
+}
+const LabPointOfCareContext = createContext<LabPointOfCare | null>(null)
 
 /** Before saving: the patient (compact banner) and what saving does, Confirm or Cancel. Resolves true with no subject. */
 function useConfirmLabPatient() {
@@ -196,10 +209,14 @@ function SpecimenActions({ facilityId, accessionId, specimen, permissions, onSta
   readonly facilityId: string; readonly accessionId: string; readonly specimen: LabSpecimen; readonly permissions: readonly string[]
   readonly onStarted: () => void; readonly onChanged: (message: string) => void; readonly onRefused: (error: unknown) => void
 }) {
-  const allowed = specimenSteps(specimen, permissions)
+  const poc = useContext(LabPointOfCareContext)
+  // Payment first: the sample is taken once the bill is paid or set to follow (the payment step above the record).
+  const waiting = Boolean(poc?.collectBlocked) && specimenSteps(specimen, permissions).includes('collect')
+  const allowed = specimenSteps(specimen, permissions).filter(action => !(waiting && action === 'collect'))
   const [open, setOpen] = useState<SpecimenActionKind | null>(null)
   const shown = open && allowed.includes(open) ? open : null
-  return <LabActions none={allowed.length === 0} title={<>{'Available actions '}<span className="hid-ehr-sr-only">for sample {specimen.specimenIdentifier}</span></>}>
+  return <LabActions none={allowed.length === 0 && !waiting} title={<>{'Available actions '}<span className="hid-ehr-sr-only">for sample {specimen.specimenIdentifier}</span></>}>
+    {waiting && <DeptNotice tone="caution">Payment first. Take payment or check with the cashier above, then collect the sample.</DeptNotice>}
     {allowed.map((action, index) => <LabActionButton key={action} id={index === 0 ? `lab-action-${specimen.id}` : undefined}
       open={shown === action} onToggle={() => setOpen(current => current === action ? null : action)}>{SPECIMEN_STEP[action]}</LabActionButton>)}
     {shown && <SpecimenStepForm key={shown} facilityId={facilityId} accessionId={accessionId} specimen={specimen} action={shown}
@@ -627,6 +644,11 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
   const shown = open === 'start' && offerStart ? 'start' : actions.find(entry => entry.key === open) ?? null
   const toggle = (key: string) => setOpen(current => current === key ? null : key)
   const readers = (items ?? []).filter(execution => execution.result && permissions.includes('lab.result.released.read'))
+  // A published result can go to the doctor who referred the patient (POINT_OF_CARE_SPEC §6).
+  const poc = useContext(LabPointOfCareContext)
+  const subject = useContext(LabSubjectContext)
+  const shareable = poc && permissions.includes('lab.result.share') && !error
+    ? (items ?? []).filter(execution => execution.result?.status === 'released') : []
   return <>
     <DeptRecordLayout
       main={<SpecimenCard specimen={specimen} actions={canRead && <EhrButton variant="secondary" size="sm" busy={loading}
@@ -664,6 +686,10 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
           onResultChanged={(value, message) => changedResult(shown.execution.id, value, message)} onRefused={recheckAccess} />}
       </LabActions>}
     />
+    {shareable.length > 0 && poc && <DeptSection title={<>Send result to the referring doctor<span className="hid-ehr-sr-only">: sample {specimen.specimenIdentifier}</span></>}>
+      {shareable.map(execution => <ShareResult key={execution.id} facilityId={poc.facilityId} accessionId={poc.accessionId} testName={execution.test.name}
+        email={poc.share?.email} doctor={poc.share?.doctor} subject={subject?.banner} />)}
+    </DeptSection>}
     {readers.map(execution => execution.result && <ResultHistory key={execution.id} facilityId={facilityId} result={execution.result}
       title={`${execution.test.name}, sample ${specimen.specimenIdentifier}`} onRefused={recheckAccess} />)}
   </>
@@ -694,12 +720,18 @@ const LAB_WRITE_PERMISSIONS: ReadonlySet<string> = new Set(['lab.specimen.collec
  * (`closed`: routeClosedForWork), it is shown to be read: every sample step, execution and result write is left out, as
  * the services refuse them, and it says so; what was recorded can still be read while the order lets it.
  */
-export function AccessionView({ facilityId, id, permissions: granted, created, routed = false, closed = false, subject, onChanged }: {
+export function AccessionView({ facilityId, id, permissions: granted, created, routed = false, closed = false, subject, onChanged,
+  collectBlocked = false, share = null }: {
   readonly facilityId: string; readonly id: string; readonly permissions: readonly string[]; readonly created?: string
   readonly routed?: boolean; readonly closed?: boolean; readonly onChanged: () => void
   /** Who the work is for, confirmed before a result is saved. */
   readonly subject?: LabSubject
+  /** Whether collecting a sample waits for payment (POINT_OF_CARE_SPEC §3). */
+  readonly collectBlocked?: boolean
+  /** The referring doctor of an outside order, to send a published result to (§6). */
+  readonly share?: { readonly email?: string | null; readonly doctor?: string | null } | null
 }) {
+  const pointOfCare = useMemo(() => ({ facilityId, accessionId: id, collectBlocked, share }), [facilityId, id, collectBlocked, share])
   const permissions = useMemo(() => closed ? granted.filter(permission => !LAB_WRITE_PERMISSIONS.has(permission)) : granted,
     [closed, granted])
   // An accession is shown only for the reload it came from, so a reload removes every
@@ -761,7 +793,7 @@ export function AccessionView({ facilityId, id, permissions: granted, created, r
       })
     return () => { active = false }
   }, [facilityId, id, revision, recheck])
-  return <LabSubjectContext.Provider value={subject ?? null}><RoutedAccession.Provider value={routed}>
+  return <LabPointOfCareContext.Provider value={pointOfCare}><LabSubjectContext.Provider value={subject ?? null}><RoutedAccession.Provider value={routed}>
     <DeptSection title="Accession" headingId="lab-accession-title" className="hid-ehr-dept-laboratory-accession"
       actions={<EhrButton id="lab-accession-refresh" variant="secondary" size="sm" busy={loading}
         onClick={() => { if (loading) return; setNotice(''); reload() }}>Refresh accession</EhrButton>}>
@@ -786,5 +818,5 @@ export function AccessionView({ facilityId, id, permissions: granted, created, r
               onRefused={specimenRefused} />} />}
       </div>
     })}
-  </RoutedAccession.Provider></LabSubjectContext.Provider>
+  </RoutedAccession.Provider></LabSubjectContext.Provider></LabPointOfCareContext.Provider>
 }
