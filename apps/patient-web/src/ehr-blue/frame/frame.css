@@ -618,10 +618,32 @@
   height: calc(100vh - 56px);
 }
 
-/* A drawer's scrim leaves the status bar undimmed, as the design's does: only where the page has the bar. */
+/* A drawer's dimming (the scrim's ::before, ehr.css) leaves the status bar undimmed, as the design's does: only where
+   the page has the bar. The clear scrim still covers the bar, so a press on it keeps focus in the drawer. */
 @media (min-width: 701px) {
-  .hid-ehr.hid-ehr-shell:has(.hid-ehr-blue-statusbar) .hid-ehr-scrim.hid-ehr-scrim-drawer {
+  .hid-ehr.hid-ehr-shell:has(.hid-ehr-blue-statusbar) .hid-ehr-scrim.hid-ehr-scrim-drawer::before {
     bottom: 56px;
+  }
+
+  /* The drawer ends above the status bar too, as the design's does, so the bar's chips stay in view. */
+  .hid-ehr.hid-ehr-shell:has(.hid-ehr-blue-statusbar) .hid-ehr-scrim.hid-ehr-scrim-drawer > .hid-ehr-drawer {
+    height: calc(100% - 56px);
+  }
+}
+
+/* Below the desktop width the Demo chip wraps anywhere in the top bar, so its panel opens under the whole bar (the
+   sticky bar is its containing block), inside the window, instead of under the chip and off the screen's edge. */
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-topbar .hid-ehr-popover:has(> .hid-ehr-blue-chip) {
+    position: static;
+  }
+
+  .hid-ehr .hid-ehr-topbar .hid-ehr-popover:has(> .hid-ehr-blue-chip) > .hid-ehr-popover-panel {
+    top: calc(100% + 4px);
+    left: 16px;
+    right: 16px;
+    width: auto;
+    max-width: none;
   }
 }
 

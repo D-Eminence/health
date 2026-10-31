@@ -70,6 +70,18 @@ describe('2. the demo\'s sample dashboards, and Choose workspace as the live fac
     expect(await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })).toBeDefined()
   })
 
+  it('names the tab Choose workspace, not today\'s Page not found', async () => {
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
+    const laboratory = facility(DEMO_LABORATORY, 'Demo Laboratory', [])
+    serve({ [SESSION]: [sessionAt(demo, [demo, laboratory])] })
+    await openStaffApp('/provider')
+    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
+    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Switch facility' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Choose your workspace' })).toBeDefined()
+    await waitFor(() => expect(document.title).toBe('Choose workspace · Health ID EHR'))
+  })
+
   it('does not list it for someone with one facility, and keeps only What\'s left in a demo\'s design review', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
