@@ -66,7 +66,9 @@ describe('BlueSignIn', () => {
     await waitFor(() => expect(staff.completeSignIn).toHaveBeenCalledWith(SESSION))
     // Without a Turnstile site key there is no token, as today.
     expect(staff.login).toHaveBeenCalledWith('demo.nurse@example.test', 'fictional-password-1', undefined)
-    expect(screen.getByTestId('where').textContent).toBe('/provider')
+    // The page navigates right after completeSignIn, but the router draws the new address on a later render: wait for
+    // it rather than read it at once, which failed on a loaded runner.
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider'))
   })
 
   it('shows and hides the password with the design\'s button', () => {
