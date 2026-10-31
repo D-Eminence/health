@@ -30,8 +30,11 @@ async function signedOutWithOpen(server: ReturnType<typeof createServer>, env: E
   rt.audit.recordOpen(PATIENT, 'encounters')
   const store = (await rt.storeForDiagnostics())!
   await until(async () => (await store.dump()).audit.length > 0)
+  // Let the idle audit flush that already passed canSend fail against the outage before C2 comes back.
+  await settle(rt)
   await rt.signOut({ online: false })
   rt.dispose()
+  expect((await store.dump()).audit.length).toBeGreaterThan(0)
   server.state.auditDown = false
 }
 
