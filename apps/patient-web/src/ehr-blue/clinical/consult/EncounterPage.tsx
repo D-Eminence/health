@@ -598,9 +598,10 @@ function noteValue(notes: RecordList<ClinicalRecord>, note: ClinicalRecord | nul
   return content || 'No note content is available.'
 }
 
+/** Each history list's failure (one the lists share, once): the documents and orders have no card of their own to say it. */
 function HistoryErrors({ lists }: { lists: readonly RecordList<unknown>[] }) {
-  const failure = lists.find(list => list.error)
-  return failure ? <ErrorBox>{failure.error}</ErrorBox> : null
+  const failures = [...new Set(lists.map(list => list.error).filter(Boolean))]
+  return <>{failures.map(failure => <ErrorBox key={failure}>{failure}</ErrorBox>)}</>
 }
 
 /**
@@ -646,24 +647,28 @@ function timeOf(value: string): number {
 
 /**
  * "Preserved versions & amendments", oldest first: every revision of the consultation note once it has more than one
- * ("{time} · {note status} · {reason}", as the nursing record names them), and, for a signed note, the version it was
- * signed as ("{signedAt} · draft · Sign note"), so a signed note shows the card even with one revision.
+ * ("{time} · {status} · {reason}", the status it was saved under, as the design records each version), and, for a
+ * signed note, the version it was signed as ("{signedAt} · draft · Sign note"), so a signed note shows the card even
+ * with one revision.
  */
 function versionItems(note: ClinicalRecord | null, revisions: readonly NoteRevision[] | null): VersionItem[] {
   if (!note || !revisions || revisions.length === 0) return []
   const status = statusLabel(recordStatus(note, 'unknown'))
+  const signedAt = field(note, 'signedAt')
+  const signed = timeOf(signedAt)
+  // A revision saved before signing was a draft's; one after it amends the signed note (EHR then marks it amended). A
+  // note with no signing time has only its own status to go by.
+  const savedAs = (revision: NoteRevision) => !signedAt ? status : timeOf(revision.createdAt) <= signed ? 'draft' : 'amended'
   const entries: { at: string; item: VersionItem }[] = revisions.length < 2 ? [] : revisions.map(revision => ({
     at: revision.createdAt,
     item: {
       key: revision.id,
-      summary: `${revision.createdAt} · ${status} · ${revision.changeReason}`,
+      summary: `${revision.createdAt} · ${savedAs(revision)} · ${revision.changeReason}`,
       items: [{ label: 'Content', value: revision.content }, { label: 'Recorded', value: formatWhen(revision.createdAt) }],
     },
   }))
-  const signedAt = field(note, 'signedAt')
   if (signedAt) {
     // What was signed: the newest revision recorded by then (the first, should none be).
-    const signed = timeOf(signedAt)
     const current = [...revisions].reverse().find(revision => timeOf(revision.createdAt) <= signed) ?? revisions[0]!
     entries.push({
       at: signedAt,

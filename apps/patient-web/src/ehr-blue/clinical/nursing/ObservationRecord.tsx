@@ -119,7 +119,9 @@ function Observation({ chart, encounter, note, reload }: {
   const [asking, setAsking] = useState<Asking | null>(null)
   const attempt = useRef<{ signature: string; key: string } | null>(null)
   const actionsId = `observation-${note.id}-actions`
+  const moreId = `observation-${note.id}-more`
   const focusActions = useFocusAfterChange(actionsId)
+  const focusMore = useFocusAfterChange(moreId)
   const revisions = useRevisions(chart, encounter.id, note)
   const reloads = useLatest(reload)
   const latest = revisions.state === 'shown' ? revisions.items.at(-1) ?? null : null
@@ -188,10 +190,15 @@ function Observation({ chart, encounter, note, reload }: {
   }
   const toggle = (action: Selected) => setSelected(current => current === action ? null : action)
   // A menu item always opens its form (a form already open stays, with what was typed), as the consultation page's
-  // menu does; the action buttons or the form's own submit close it.
+  // menu does; the action buttons, the form's own submit or its "Cancel" close it.
   const chooseMore = (id: string) => {
     const chosen = moreChanges.find(item => item.status === id)
     if (chosen) setSelected(chosen.status)
+  }
+  /** "Cancel" closes a form More actions opened, focus going back to the menu button (as on the consultation page). */
+  const cancelMore = () => {
+    setSelected(null)
+    focusMore()
   }
 
   const saved: KeyValue[] = [
@@ -221,6 +228,7 @@ function Observation({ chart, encounter, note, reload }: {
             </ActionList>
           ) : moreChanges.length === 0 ? <NoActions /> : null}
           <MoreActions
+            id={moreId}
             items={moreChanges.map(item => ({ id: item.status, label: item.label }))}
             selected={moreChanges.some(item => item.status === selected) ? selected : null}
             onSelect={chooseMore}
@@ -236,6 +244,7 @@ function Observation({ chart, encounter, note, reload }: {
               busyLabel="Updating…"
               validate={statusCheck}
               onSubmit={changeStatus(change.status, change.label)}
+              footer={MORE_CHANGES.has(change.status) ? <EhrButton variant="secondary" onClick={cancelMore}>Cancel</EhrButton> : undefined}
             />
           ) : null}
         </EhrCard>
