@@ -233,6 +233,13 @@ describe('the page entries', () => {
     const ROLE_SENTENCE = 'Your role at this facility doesn’t include the lab’s work list and results.'
     beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
 
+    /** The refusal at a lab page's address, which every page refused here has. */
+    function refusalOf(path: string) {
+      const refusal = labPages.find(page => page.path === path)?.refusal
+      if (!refusal) throw new Error(`No refusal at ${path}`)
+      return refusal
+    }
+
     /** The Laboratory's refusal as `permissions` reads it, at a facility that signed itself up when `selfService` says so. */
     function refusalAs(permissions: string[], selfService?: FakeFacility['selfService'], refusal = laboratoryPage.refusal) {
       as(permissions, selfService ? { selfService } : {})
@@ -248,7 +255,7 @@ describe('the page entries', () => {
     })
 
     it.each(['laboratory/work/*', 'laboratory/results/*'])('the same administrator at %s: the same step', path => {
-      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'laboratory' }, labPages.find(page => page.path === path)?.refusal))
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'laboratory' }, refusalOf(path)))
         .toBe(`${ROLE_SENTENCE} Add a laboratory scientist on the Staff page.`)
     })
 
@@ -270,6 +277,12 @@ describe('the page entries', () => {
 
     it('an administrator at a facility Health ID support manages: told to ask its administrator, as before', () => {
       expect(refusalAs(ADMINISTRATOR)).toBe(LAB_REFUSAL)
+    })
+
+    // Only Novu checks self-signed-up facilities (P4b), so on today's backend nobody is that facility's administrator.
+    it.each(['', 'main-v1'])('the administrator of a checked laboratory on today’s backend (%j): told to ask its administrator, as before', contract => {
+      vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'laboratory' })).toBe(LAB_REFUSAL)
     })
   })
 

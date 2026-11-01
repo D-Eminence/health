@@ -3,15 +3,22 @@ import type { Facility } from './api'
 import { roleInSentence, selfServiceReview, selfServiceType, type OrganizationType } from './staffAccess'
 
 /**
+ * The staff roles ROLE_LABELS (staffAccess.ts) names, the administrator's apart. A refusal names the role that does the
+ * work by those words, and roleInSentence shows a code it has no words for as the code, which no screen may show: so only
+ * these can be named. Add a role here once ROLE_LABELS names it, and to refusedWork.test.ts, which checks each has words.
+ */
+export type NamedRole = 'doctor' | 'clinician' | 'nurse' | 'lab' | 'pharmacist' | 'receptionist'
+
+/**
  * Work a role may not hold at a facility, as its refusal names it: the department (`name`), the `work` the role doesn't
- * include, the role (a staffAccess.ts role code) whose holders do that work, and the kinds of self-signed-up facility that
- * get it once Health ID support has checked them, the ones whose locked list names it (staff/routes/ReviewBanner.tsx
- * LOCKED). A facility of another kind is never promised it.
+ * include, the role whose holders do that work, and the kinds of self-signed-up facility that get it once Health ID
+ * support has checked them, the ones whose locked list names it (staff/routes/ReviewBanner.tsx LOCKED). A facility of
+ * another kind is never promised it.
  */
 export interface RefusedWork {
   readonly name: string
   readonly work: string
-  readonly doneBy: string
+  readonly doneBy: NamedRole
   readonly gets: ReadonlySet<OrganizationType>
 }
 

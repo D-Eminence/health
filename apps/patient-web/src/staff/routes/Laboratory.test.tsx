@@ -255,6 +255,12 @@ describe('Laboratory page access', () => {
     it('an administrator at a facility Health ID support manages: told to ask its administrator, as before', () => {
       expect(refusalAs(ADMINISTRATOR)).toBe(`${ROLE_SENTENCE} Ask your facility administrator.`)
     })
+
+    // Only Novu checks self-signed-up facilities (P4b), so on today's backend nobody is that facility's administrator.
+    it.each(['', 'main-v1'])('the administrator of a checked laboratory on today’s backend (%j): told to ask its administrator, as before', contract => {
+      vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'laboratory' })).toBe(`${ROLE_SENTENCE} Ask your facility administrator.`)
+    })
   })
 })
 
