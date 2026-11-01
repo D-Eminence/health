@@ -332,6 +332,9 @@ describe('Nursing observation record', () => {
     const form = await amendForm()
     // The units line is its own field, starting at the latest revision's.
     expect(control(form, 'Units / dose').value).toBe('demo')
+    // Today's fields: the content in a box, the reason on one line (Clinical.tsx:880-883).
+    expect(control(form, 'Content').tagName).toBe('TEXTAREA')
+    expect(control(form, 'Reason for revision').tagName).toBe('INPUT')
     type(form, 'Content', 'Corrected vitals observation')
     type(form, 'Reason for revision', 'Wrong patient bed')
     api.lookupPatient.mockClear()

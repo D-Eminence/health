@@ -3,6 +3,7 @@ import { useRef, useState, type ReactNode } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 import { staffApi, type ClinicalRecord, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
+import { REVISION_CONTENT_FIELD, REVISION_REASON_FIELD } from '../consult/encounters'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
 import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord, VersionsCard, type VersionItem } from '../parts/Detail'
 import { formatWhen, shortId } from '../parts/format'
@@ -17,9 +18,9 @@ import {
   useVisitRecord,
 } from '../triage/records'
 import {
-  AMEND_LABEL, CONTENT_EMPTY, DETAILS_LIMIT, LOADING_REVISIONS, NOTE_STATUS_UPDATED, NOTE_TRANSITIONS, NO_CONTENT, REFRESH_REVISIONS, RELOAD_NOTE,
-  RELOAD_RECORD, REVISION_FAILED, REVISION_RECORDED, STATUS_FAILED, TITLE, UNITS_LIMIT, composeObservation, isObservation, noteStatus,
-  observationItems, parseObservation, useRevisions, type NoteStatusChange, type Revisions,
+  AMEND_LABEL, CONTENT_EMPTY, DETAILS_LIMIT, LOADING_REVISIONS, NOTE_STATUS_UPDATED, NOTE_TRANSITIONS, NO_CONTENT, RECORDING, RECORD_REVISION,
+  REFRESH_REVISIONS, RELOAD_NOTE, RELOAD_RECORD, REVISION_FAILED, REVISION_RECORDED, STATUS_FAILED, TITLE, UNITS_LIMIT, composeObservation,
+  isObservation, noteStatus, observationItems, parseObservation, useRevisions, type NoteStatusChange, type Revisions,
 } from './observations'
 
 /** One nursing observation's page, or the chart's own state. */
@@ -69,13 +70,14 @@ function ObservationReader({ chart }: { chart: Chart }) {
 }
 
 /**
- * Today's note revision replaces the whole content, its units line included (Clinical.tsx NotePanel "Content"): the
- * units or dose is its own field here, starting at the latest revision's, so it can be corrected or cleared too.
+ * Today's revision form (Clinical.tsx:879-884), the Notes card's fields: "Content", then "Reason for revision" on one
+ * line. Today's revision replaces the whole content, its units line included: the units or dose is its own field here,
+ * starting at the latest revision's, so it can be corrected or cleared too.
  */
 const AMEND_FIELDS: readonly FieldDef[] = [
-  { key: 'note', label: 'Content', type: 'textarea', required: true, maxLength: DETAILS_LIMIT },
+  { ...REVISION_CONTENT_FIELD, key: 'note', maxLength: DETAILS_LIMIT },
   { key: 'units', label: 'Units / dose', maxLength: UNITS_LIMIT },
-  { key: 'reason', label: 'Reason for revision', type: 'textarea', required: true, maxLength: 500 },
+  REVISION_REASON_FIELD,
 ]
 
 /** Today's revision refusals, in place of the design's "Complete this field." for the same fields. */
@@ -247,8 +249,8 @@ function Observation({ chart, encounter, note, reload }: {
               key={`${note.id}-${String(note.rowVersion)}`}
               fields={AMEND_FIELDS}
               initial={{ units: parseObservation(latest?.content ?? '').units }}
-              submitLabel="Record revision"
-              busyLabel="Recording…"
+              submitLabel={RECORD_REVISION}
+              busyLabel={RECORDING}
               validate={amendCheck}
               onSubmit={amend}
             />
