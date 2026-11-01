@@ -10,12 +10,14 @@ import { ErrorBox, Loading } from '../parts/Notices'
 import { RecordForm, type FieldDef, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { Pager } from '../parts/RecordTable'
 import { StatusBadge } from '../parts/StatusBadge'
-import { LOADING_REVISIONS, NOTE_TRANSITIONS, NO_CONTENT, REFRESH_REVISIONS, isObservation, type NoteStatusChange } from '../nursing/observations'
+import {
+  LOADING_REVISIONS, NOTE_TRANSITIONS, NO_CONTENT, RECORDING, RECORD_REVISION, REFRESH_REVISIONS, isObservation, type NoteStatusChange,
+} from '../nursing/observations'
 import { useFocusAfterChange } from '../triage/records'
 import {
-  ADD_REVISION_LABEL, HIDE_NOTE, NOTES_TITLE, NOTE_STATUS_UPDATED, NO_NOTES, NO_NOTES_ON_PAGE, REASON_FIELD, RECORDING, RECORD_REVISION,
-  RELOAD_FAILED, RELOAD_NOTE, RELOAD_RECORD, REVIEW_NOTE, REVISION_CONTENT_FIELD, REVISION_FAILED, REVISION_REASON_FIELD,
-  REVISION_RECORDED, STATUS_FAILED, UPDATING, contentCheck, field, reasonCheck, recordStatus, refusedFieldErrors, rowVersion, text,
+  ADD_REVISION_LABEL, HIDE_NOTE, NOTES_TITLE, NOTE_STATUS_UPDATED, NO_NOTES, NO_NOTES_ON_PAGE, REASON_FIELD, RELOAD_FAILED, RELOAD_NOTE,
+  RELOAD_RECORD, REVIEW_NOTE, REVISION_CONTENT_FIELD, REVISION_FAILED, REVISION_REASON_FIELD, REVISION_RECORDED, STATUS_FAILED, UPDATING,
+  contentCheck, field, reasonCheck, recordStatus, refusedFieldErrors, rowVersion, text,
 } from './encounters'
 import { pagerProps, useRevisions, type RecordList } from './records'
 

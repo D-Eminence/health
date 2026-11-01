@@ -70,8 +70,6 @@ export const NO_NOTES_ON_PAGE = 'No clinical notes on this page.'
 export const REVIEW_NOTE = 'Review note content'
 export const HIDE_NOTE = 'Hide note content'
 export const ADD_REVISION_LABEL = 'Add a note revision'
-export const RECORD_REVISION = 'Record revision'
-export const RECORDING = 'Recording…'
 export const SAVE_DRAFT = 'Save draft'
 export const UPDATING = 'Updating…'
 
