@@ -46,13 +46,15 @@ function validityText(field: VitalField, validity: ValidityState): string | null
  * Today's vitals form in the design's form layout: a visit (when recording), the eight measurements with today's
  * steps and ranges, and a reason (when correcting). Today's refusals, in today's order: at least one measurement,
  * both blood pressure readings or neither, and for a correction a changed value and a reason of three characters.
- * The first problem takes focus; a field's problem clears as it changes.
+ * The first problem takes focus; a field's problem clears as it changes. The visit chosen stays chosen, and offered,
+ * while another page of visits is shown, as today's encounter being documented does (Clinical.tsx:1288-1292, :1795).
  */
 export function VitalsForm({ mode, visits = [], visitHint, current, groupLabel, hint, submitLabel, onSubmit, children }: {
   mode: 'record' | 'correct'
+  /** The visits on the page of visits shown. */
   visits?: readonly Encounter[]
-  /** Under the visit, given the visit chosen ('' when none). */
-  visitHint?: (encounterId: string) => ReactNode
+  /** Under the visit, given the visit chosen (null when none), which may be on another page. */
+  visitHint?: (chosen: Encounter | null) => ReactNode
   /** The values a correction starts from and must change. */
   current?: VitalValues
   groupLabel: string
@@ -64,7 +66,7 @@ export function VitalsForm({ mode, visits = [], visitHint, current, groupLabel, 
 }) {
   const id = useId()
   const groupErrorId = `${id}-values-error`
-  const [visit, setVisit] = useState('')
+  const [visit, setVisit] = useState<Encounter | null>(null)
   const [values, setValues] = useState(() => startValues(current))
   const [reason, setReason] = useState('')
   const [errors, setErrors] = useState<FieldErrors>({})
@@ -73,6 +75,10 @@ export function VitalsForm({ mode, visits = [], visitHint, current, groupLabel, 
   const sending = useRef(false)
   const controls = useRef(new Map<string, HTMLElement>())
   const order = ['visit', ...VITAL_FIELDS.map(field => field.name), 'reason']
+  // The visit chosen, as the page shown has it when it is there (today's selection, Clinical.tsx:1288-1292); one on
+  // another page is still offered, first.
+  const chosen = visit ? visits.find(encounter => encounter.id === visit.id) ?? visit : null
+  const options = chosen && !visits.includes(chosen) ? [chosen, ...visits] : visits
 
   const register = (key: string) => (element: HTMLElement | null) => {
     if (element) controls.current.set(key, element)
@@ -93,7 +99,7 @@ export function VitalsForm({ mode, visits = [], visitHint, current, groupLabel, 
   }
 
   const check = (): { problems: FieldErrors } | { input: VitalsInput } => {
-    if (mode === 'record' && !visit) return { problems: { visit: COMPLETE_FIELD } }
+    if (mode === 'record' && !chosen) return { problems: { visit: COMPLETE_FIELD } }
     const invalid: Record<string, string> = {}
     for (const field of VITAL_FIELDS) {
       const element = controls.current.get(field.name)
@@ -115,7 +121,7 @@ export function VitalsForm({ mode, visits = [], visitHint, current, groupLabel, 
       if (unchanged) return { problems: { [VALUES]: CHANGE_ONE } }
       if (reason.trim().length < 3) return { problems: { reason: REASON_SHORT } }
     }
-    return { input: { encounterId: visit, values: measurements, reason: reason.trim() } }
+    return { input: { encounterId: chosen?.id ?? '', values: measurements, reason: reason.trim() } }
   }
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -149,10 +155,14 @@ export function VitalsForm({ mode, visits = [], visitHint, current, groupLabel, 
       {hint ? <p className="hid-ehr-clinical-note">{hint}</p> : null}
       <div className="hid-ehr-clinical-form-grid">
         {mode === 'record' ? (
-          <EhrField label={<>Visit<span aria-hidden="true"> *</span></>} hint={visitHint?.(visit)} error={errors.visit}>
-            <EhrSelect ref={register('visit')} required value={visit} onChange={event => { setVisit(event.target.value); clear('visit') }}>
+          <EhrField label={<>Visit<span aria-hidden="true"> *</span></>} hint={visitHint?.(chosen)} error={errors.visit}>
+            <EhrSelect ref={register('visit')} required value={chosen?.id ?? ''} onChange={event => {
+              const value = event.target.value
+              setVisit(options.find(encounter => encounter.id === value) ?? null)
+              clear('visit')
+            }}>
               <option value="">Select…</option>
-              {visits.map(encounter => <option key={encounter.id} value={encounter.id}>{visitLabel(encounter)}</option>)}
+              {options.map(encounter => <option key={encounter.id} value={encounter.id}>{visitLabel(encounter)}</option>)}
             </EhrSelect>
           </EhrField>
         ) : null}
@@ -188,7 +198,7 @@ export function VitalsForm({ mode, visits = [], visitHint, current, groupLabel, 
           {errors[VALUES] ? <p id={groupErrorId} className="hid-ehr-clinical-field-error hid-ehr-clinical-triage-group-error">{errors[VALUES]}</p> : null}
         </div>
         {mode === 'correct' ? (
-          <EhrField className="hid-ehr-clinical-form-full" label={<>Reason<span aria-hidden="true"> *</span></>} error={errors.reason}>
+          <EhrField className="hid-ehr-clinical-form-full" label={<>Reason for correction<span aria-hidden="true"> *</span></>} error={errors.reason}>
             <EhrTextarea ref={register('reason')} required rows={3} maxLength={500} value={reason} onChange={event => { setReason(event.target.value); clear('reason') }} />
           </EhrField>
         ) : null}

@@ -55,7 +55,7 @@ const DOCUMENT = {
   id: 'doc-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, fileName: 'referral-letter.pdf', mediaType: 'application/pdf',
   sizeBytes: '20480', status: 'available', scanStatus: 'clean', createdAt: '2026-10-30T08:30:00.000Z',
 }
-const READ_ONLY = 'You can view this, but not change it. To add or change records, ask the patient to approve access that includes changes.'
+const READ_ONLY = 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'
 const ENDED = 'Open the patient again to keep working.'
 const STALE = new HidApiError(412, 'The record changed since it was read.', { code: 'PRECONDITION_FAILED' })
 
@@ -236,6 +236,33 @@ describe('Consultation record', () => {
     }
   })
 
+  it('gap: vitals past the encounter’s first page are reached with the history’s "Triage & Vitals" record pages, as today’s Vitals tab', async () => {
+    const later = { ...VITAL, id: 'vital-2', createdAt: '2026-10-29T08:05:00.000Z', pulseBpm: 88 }
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string, page?: { cursor?: string }) => {
+      if (kind !== 'vitals') return { items: records[kind] ?? [], nextCursor: null }
+      return page?.cursor === 'vitals-2' ? { items: [later], nextCursor: null } : { items: [VITAL], nextCursor: 'vitals-2' }
+    })
+    await openEncounter()
+    const pages = await history().findByRole('group', { name: 'Triage & Vitals' })
+    expect(within(pages).getByRole('navigation', { name: 'Record pages' })).toBeTruthy()
+    expect(within(pages).getByText('Page 1')).toBeTruthy()
+    expect(history().getByRole('link', { name: 'Vitals · vital-1' })).toBeTruthy()
+
+    fireEvent.click(within(pages).getByRole('button', { name: 'Next page' }))
+    const link = await history().findByRole('link', { name: 'Vitals · vital-2' })
+    expect(link.getAttribute('href')).toBe(`/provider/triage/${ENCOUNTER_ID}~vital-2`)
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { cursor: 'vitals-2', fresh: false })
+    expect(within(pages).getByText('Page 2')).toBeTruthy()
+    expect(history().queryByRole('link', { name: 'Vitals · vital-1' })).toBeNull()
+    expect(window.location.href).not.toContain('vitals-2')
+  })
+
+  it('shows no vitals pager while the encounter’s vitals fit on one page', async () => {
+    await openEncounter()
+    expect(history().getByRole('link', { name: 'Vitals · vital-1' })).toBeTruthy()
+    expect(history().queryByRole('group', { name: 'Triage & Vitals' })).toBeNull()
+  })
+
   it('item 1: offers "Write clinical note" while the encounter already has a note, with today’s note type, title and content', async () => {
     api.createRecord.mockResolvedValue({ id: 'note-2', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T09:00:00.000Z' })
     await openEncounter()
@@ -292,7 +319,7 @@ describe('Consultation record', () => {
     staff.permissions = ['ehr.encounter.read', 'ehr.encounter.write']
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
-    expect(screen.getByText('Your role here can’t see these records.')).toBeTruthy()
+    expect(screen.getByText('Your current facility role does not grant access to encounter records.')).toBeTruthy()
     expect(api.records).not.toHaveBeenCalled()
     expect(api.documents).not.toHaveBeenCalled()
   })
@@ -301,7 +328,7 @@ describe('Consultation record', () => {
     staff.permissions = ['ehr.encounter.read', 'ehr.vital.read']
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     expect(await screen.findByRole('link', { name: 'Vitals · vital-1' })).toBeTruthy()
-    expect(screen.queryByText('Your role here can’t see these records.')).toBeNull()
+    expect(screen.queryByText('Your current facility role does not grant access to encounter records.')).toBeNull()
   })
 
   it('item 7: signs the consultation note under the clinician’s typed reason, only after SIGN is typed, after the access re-check', async () => {

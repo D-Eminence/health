@@ -16,9 +16,9 @@ import {
   NO_COMPLAINT, NO_RECORD_ACCESS, RECORD_SAVED, RELOAD_FAILED, recordedAt, refusedFieldErrors, rowVersion, useFocusAfterChange, useLatest, useVisitRecord,
 } from './records'
 import {
-  AMEND_LABEL, CHANGED_SINCE, CORRECTION_FAILED, CORRECTION_HINT, CORRECTION_SAVED, CORRECTION_UNREAD, LOADING_CORRECTION, RELOAD_FIRST,
-  RETRACTED_SINCE, RETRACTED_TEXT, TITLE, VITAL_FIELDS, correctionNumber, currentValues, isRetracted, measurementItems, readCorrections,
-  reloadSentence, vitalStatus, type Corrections,
+  CHANGED_SINCE, CLOSE_CORRECTION, CORRECT_LABEL, CORRECTION_FAILED, CORRECTION_HINT, CORRECTION_SAVED, CORRECTION_UNREAD, LOADING_CORRECTION,
+  RELOAD_FIRST, RETRACTED_SINCE, RETRACTED_TEXT, SAVE_CORRECTION, TITLE, VITAL_FIELDS, correctionNumber, currentValues, isRetracted,
+  measurementItems, readCorrections, reloadSentence, vitalStatus, type Corrections,
 } from './vitals'
 import { VitalsForm, type VitalsInput } from './VitalsForm'
 
@@ -92,8 +92,8 @@ type Reload = () => Promise<{ readonly items: readonly ClinicalRecord[] } | { re
 
 /**
  * The design's record page for one vitals record: "Saved record" (the current values: the latest correction's, as
- * today), "Available actions" ("Amend observation": today's correction, with full replacement values; vitals have no
- * other live action, so there is no "More actions" menu), "Connected hospital history" (the visit, then the
+ * today), "Available actions" (today's "Correct these vitals", with full replacement values; vitals have no other live
+ * action, so there is no "More actions" menu), "Connected hospital history" (the visit, then the
  * encounter's records in the other workspaces: ConnectedHistory) and "Preserved versions & amendments" (what each
  * correction replaced).
  */
@@ -114,6 +114,18 @@ function VitalRecord({ chart, encounter, vital, reload }: {
   const focusActions = useFocusAfterChange(actionsId)
   const corrections = useVitalCorrections(chart, encounter.id, vital)
   const reloads = useLatest(reload)
+  // The vitals are read again after a change: no correction starts from the version shown until they are, as today's
+  // form is off while the records reload (Clinical.tsx:1811 disabled={recordsLoading}, :714, :748). Otherwise one
+  // opened in that window goes out with the old version and is refused as changed, right after the user's own save.
+  const [reloading, setReloading] = useState(false)
+  const readAgain = async () => {
+    setReloading(true)
+    try {
+      return await reloads.current()
+    } finally {
+      setReloading(false)
+    }
+  }
 
   const retracted = isRetracted(vital)
   const number = correctionNumber(vital)
@@ -121,6 +133,11 @@ function VitalRecord({ chart, encounter, vital, reload }: {
   const latest = corrections.state === 'shown' ? corrections.latest : null
   // A correction that cannot be read offers no correction (today's rule): nothing is changed from values not seen.
   const canAmend = chart.canWrite && chart.can('ehr.vital.write') && current !== null && !retracted
+  // While they are read again a closed correction does not open: the button says so (aria-disabled), keeps focus, and
+  // a press does nothing. It is greyed out, with no hover look, as today's UNAVAILABLE (staff/focus.ts:13; the action
+  // list's rule in clinical.css), and the card says "Loading records…" while they are read, as today's records card
+  // does (Clinical.tsx:1805). An open one can still be closed.
+  const locked = reloading && !open
 
   const amend = async ({ values, reason }: VitalsInput): Promise<SubmitOutcome> => {
     const expectedRowVersion = rowVersion(vital.rowVersion)
@@ -138,7 +155,7 @@ function VitalRecord({ chart, encounter, vital, reload }: {
       // form, built for the old version, goes.
       if (isHidApiError(caught) && (caught.status === 412 || caught.code === 'VITAL_NOT_AMENDABLE')) {
         attempt.current = null
-        const reloaded = await reloads.current()
+        const reloaded = await readAgain()
         const nowRetracted = caught.code === 'VITAL_NOT_AMENDABLE'
           || ('items' in reloaded && reloaded.items.some(item => item.id === vital.id && item.status === 'entered_in_error'))
         setOpen(false)
@@ -158,7 +175,7 @@ function VitalRecord({ chart, encounter, vital, reload }: {
     setOpen(false)
     setSuccess(CORRECTION_SAVED)
     focusActions()
-    const reloaded = await reloads.current()
+    const reloaded = await readAgain()
     if ('failed' in reloaded) setPageError(`${RELOAD_FAILED} ${reloaded.failed}`.trim())
   }
 
@@ -188,9 +205,11 @@ function VitalRecord({ chart, encounter, vital, reload }: {
         <EhrCard title={<span id={actionsId} className="hid-ehr-clinical-triage-focus" tabIndex={-1}>Available actions</span>}>
           {canAmend ? (
             <ActionList>
-              <EhrButton variant="secondary" aria-expanded={open} onClick={() => setOpen(value => !value)}>{AMEND_LABEL}</EhrButton>
+              <EhrButton variant="secondary" aria-expanded={open} aria-disabled={locked || undefined}
+                onClick={() => { if (!locked) setOpen(value => !value) }}>{open ? CLOSE_CORRECTION : CORRECT_LABEL}</EhrButton>
             </ActionList>
           ) : <NoActions />}
+          {reloading ? <p className="hid-ehr-clinical-note" role="status">Loading records…</p> : null}
           {canAmend && open && current ? (
             <VitalsForm
               key={`${vital.id}-${String(vital.rowVersion)}`}
@@ -198,7 +217,7 @@ function VitalRecord({ chart, encounter, vital, reload }: {
               current={current}
               hint={CORRECTION_HINT}
               groupLabel="Corrected vital measurements"
-              submitLabel={AMEND_LABEL}
+              submitLabel={SAVE_CORRECTION}
               onSubmit={amend}
             />
           ) : null}

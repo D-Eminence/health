@@ -225,16 +225,20 @@ export function SearchField({ label, value, onChange, placeholder = 'Search save
   )
 }
 
-/** "Previous page | Page n of m | Next page" (`total` unknown: "Page n"). */
-export function Pager({ page, total, onPrevious, onNext, busy = false }: {
+/**
+ * "Previous page | Page n of m | Next page" (`total` unknown: "Page n"). Its landmark is today's pager name
+ * (staff/routes/Clinical.tsx:367): "Record pages" unless it pages something else, as "Encounter pages" does (:1794).
+ */
+export function Pager({ page, total, onPrevious, onNext, busy = false, label = 'Record pages' }: {
   page: number
   total?: number
   onPrevious?: () => void
   onNext?: () => void
   busy?: boolean
+  label?: string
 }) {
   return (
-    <nav className="hid-ehr-clinical-pager" aria-label="Record pages">
+    <nav className="hid-ehr-clinical-pager" aria-label={label}>
       <EhrButton variant="secondary" disabled={!onPrevious} busy={busy} onClick={onPrevious}>Previous page</EhrButton>
       <span>{total ? `Page ${page} of ${total}` : `Page ${page}`}</span>
       <EhrButton variant="secondary" disabled={!onNext} busy={busy} onClick={onNext}>Next page</EhrButton>
