@@ -20,15 +20,24 @@ const IPAD_DESKTOP = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKi
 const INSTAGRAM_IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 300.0'
 
 const environment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-const usualActEnvironment = environment.IS_REACT_ACT_ENVIRONMENT
+// Read before each test rather than when the file loads, which is before any beforeAll that sets it.
+let usualActEnvironment: boolean | undefined
 let stop: () => void = () => {}
+/** Watching for the install section (installedOnArrival); one left watching by a failed test must not act in the next. */
+let watching: MutationObserver | undefined
 const defined: Array<[object, string]> = []
 function define(target: object, key: string, value: unknown) {
   Object.defineProperty(target, key, { configurable: true, value })
   defined.push([target, key])
 }
-beforeEach(() => { forgetInstallPrompt(); stop = listenForInstallPrompt(window) })
+beforeEach(() => {
+  usualActEnvironment = environment.IS_REACT_ACT_ENVIRONMENT
+  forgetInstallPrompt()
+  stop = listenForInstallPrompt(window)
+})
 afterEach(() => {
+  watching?.disconnect()
+  watching = undefined
   environment.IS_REACT_ACT_ENVIRONMENT = usualActEnvironment
   stop()
   for (const [target, key] of defined.splice(0)) Reflect.deleteProperty(target, key)
@@ -43,6 +52,23 @@ function offer(outcome: 'accepted' | 'dismissed' = 'accepted') {
   })
   act(() => { window.dispatchEvent(event) })
   return { event, choose }
+}
+
+/**
+ * Says the app has been installed the moment the install section is on the page: after the render that shows it
+ * commits and before React runs that render's effects, as findByRole can. Returns whether it has been said yet.
+ */
+function installedOnArrival() {
+  let installed = false
+  const observer = new MutationObserver(() => {
+    if (!screen.queryByRole('heading', { name: HEADING })) return
+    observer.disconnect()
+    act(() => { window.dispatchEvent(new Event('appinstalled')) })
+    installed = true
+  })
+  watching = observer
+  observer.observe(document.body, { childList: true, subtree: true })
+  return () => installed
 }
 
 /** The profile has been read and its sections are shown. */
@@ -99,21 +125,15 @@ describe('Install the Health ID app', () => {
 
   it('goes even when the app is installed the moment the section appears, before the page listens for it', async () => {
     offer()
-    const installed = new Promise<void>(resolve => {
-      const observer = new MutationObserver(() => {
-        if (!screen.queryByRole('heading', { name: HEADING })) return
-        observer.disconnect()
-        // As findByRole can: the section is on the page, so the event comes at once, while no one is listening yet.
-        act(() => { window.dispatchEvent(new Event('appinstalled')) })
-        resolve()
-      })
-      observer.observe(document.body, { childList: true, subtree: true })
-    })
+    const installed = installedOnArrival()
     // The profile is answered outside act, as a fetch's answer arrives: React shows the section in one task, and runs
-    // its effects (where useSyncExternalStore subscribes to the offer) in a later one.
+    // its effects (where useSyncExternalStore subscribes to the offer) in a later one, so the event comes while no one
+    // is listening yet. The flag changes no timing: it only stops React warning about that update, should the act
+    // environment be on.
     environment.IS_REACT_ACT_ENVIRONMENT = false
     page()
-    await installed
+    // Waited for with findBy's limit, so a section that is never shown fails here and says so.
+    await waitFor(() => expect(installed(), 'The install section was not shown.').toBe(true))
     // Once those effects run, useSyncExternalStore reads the offer again, finds it gone, and renders without the section.
     await waitFor(() => expect(screen.queryByRole('heading', { name: HEADING })).toBeNull())
   })
