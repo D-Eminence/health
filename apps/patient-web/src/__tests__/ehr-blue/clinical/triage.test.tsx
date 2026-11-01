@@ -40,7 +40,7 @@ const CORRECTIONS = [
   { id: 'correction-1', vitalId: VITAL_ID, correctionNo: 1, replacementValues: { systolicMmhg: 122, diastolicMmhg: 82, pulseBpm: 76 }, reason: 'Cuff too small', createdAt: '2026-10-30T08:10:00.000Z' },
   { id: 'correction-2', vitalId: VITAL_ID, correctionNo: 2, replacementValues: { systolicMmhg: 118, diastolicMmhg: 76, pulseBpm: 80 }, reason: 'Repeat reading', createdAt: '2026-10-30T08:20:00.000Z' },
 ]
-const READ_ONLY = 'You can view this, but not change it. To add or change records, ask the patient to approve access that includes changes.'
+const READ_ONLY = 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'
 const RECORD = `/${ENCOUNTER_ID}~${VITAL_ID}`
 const OBSERVATION_ID = 'c0000000-0000-4000-8000-000000000001'
 const LAB_ID = 'b0000000-0000-4000-8000-000000000001'
@@ -232,7 +232,7 @@ describe('Triage & Vitals list', () => {
     open()
     const ended = await screen.findByRole('alert')
     expect(ended.textContent).toContain('Access to this patient ended')
-    expect(ended.textContent).toContain('Open the patient again to keep working.')
+    expect(ended.textContent).toContain('Patient access has ended. Reopen the record through governed access.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.encounters).not.toHaveBeenCalled()
   })
@@ -241,7 +241,7 @@ describe('Triage & Vitals list', () => {
     staff.activePatient = null
     open()
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Find a patient' }).getAttribute('href')).toBe('/provider/patients')
+    expect(screen.getByRole('link', { name: 'Go to patient access →' }).getAttribute('href')).toBe('/provider/patients')
     expect(api.encounters).not.toHaveBeenCalled()
   })
 
@@ -615,7 +615,7 @@ describe('Triage & Vitals record', () => {
     api.lookupPatient.mockResolvedValue({ authorization: { decision: 'deny' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Amend observation' }))
     const ended = await screen.findByText('Access to this patient ended')
-    expect(ended.closest('[role="alert"]')?.textContent).toContain('Open the patient again to keep working.')
+    expect(ended.closest('[role="alert"]')?.textContent).toContain('Patient access has ended. Reopen the record through governed access.')
     expect(api.correctVital).not.toHaveBeenCalled()
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
   })

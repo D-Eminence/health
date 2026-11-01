@@ -50,8 +50,9 @@ export function encounterClosesRecords(): string {
   return usesNovuBackend() ? NOVU_ENCOUNTER_CLOSES_RECORDS : MAIN_ENCOUNTER_CLOSES_RECORDS
 }
 
+/** Today's refusal, word for word (staff/routes/Clinical.tsx:92-94). */
 export function retractionNotPermitted(status: string): string {
-  return `You can’t ${status === 'cancelled' ? 'cancel this consultation' : 'mark this consultation entered in error'}: it holds records your role can’t change. Nothing was changed. Ask a doctor or clinician to do it.`
+  return `You may not ${status === 'cancelled' ? 'cancel this encounter' : 'mark this encounter entered in error'}: it holds records that this change would also change, and your role may not change all of them. Nothing was changed. Ask a colleague whose role may change all of its records (usually a doctor or clinician) to make this change.`
 }
 
 /**
@@ -107,20 +108,29 @@ export const DIAGNOSIS_VERIFICATION_STATUSES: readonly StatusOption[] = [
   { value: 'differential', label: 'Differential' }, { value: 'confirmed', label: 'Confirmed' }, { value: 'refuted', label: 'Refuted' },
 ]
 
-/** The consultation's messages, in plain words. */
+/**
+ * The consultation's messages. NO_ENCOUNTERS, ENCOUNTER_CREATED, ENCOUNTER_STATUS_UPDATED, LOADING_ENCOUNTERS,
+ * ENCOUNTERS_FAILED and ENCOUNTER_CHANGED are today's, word for word (staff/routes/Clinical.tsx:1796, :1402, :1544,
+ * :1792, :1306 and :1530).
+ */
 export const RESTARTED = 'This list changed since it was opened, so it shows the newest entries again.'
-export const NO_ENCOUNTERS = 'No consultations for this patient here yet.'
+export const NO_ENCOUNTERS = 'No encounters are available for this patient and facility.'
 export const NO_COMPLAINT = 'No complaint recorded'
-export const ENCOUNTER_CREATED = 'Consultation started.'
+export const ENCOUNTER_CREATED = 'Encounter created.'
 export const RECORD_SAVED = 'Saved.'
 export const NOTE_STATUS_UPDATED = 'Note updated.'
-export const ENCOUNTER_STATUS_UPDATED = 'Consultation updated.'
+export const ENCOUNTER_STATUS_UPDATED = 'Encounter status updated.'
+export const LOADING_ENCOUNTERS = 'Loading encounters…'
 export const REVISION_RECORDED = 'Note changes saved.'
 export const DIAGNOSIS_UPDATED = 'Diagnosis updated.'
 export const REASON_SHORT = 'Give a reason of at least 3 characters.'
 /** Today's failed encounter read, word for word (staff/routes/Clinical.tsx:1306). */
 export const ENCOUNTERS_FAILED = 'Encounters could not be loaded.'
-export const ENCOUNTER_CHANGED = 'Someone changed this consultation while you had it open. It now shows its current status; choose the change again if it’s still needed.'
+export const ENCOUNTER_CHANGED = 'This encounter changed since it was loaded and now shows its current status. Choose the change again if it is still needed.'
+/** Today's refusal to change an encounter whose row version is unknown (staff/routes/Clinical.tsx:1510). */
+export const RELOAD_ENCOUNTER = 'Reload the encounter before changing its status.'
+/** Today's field label (staff/routes/Clinical.tsx:455). */
+export const ENCOUNTER_TYPE_LABEL = 'Encounter type'
 export const NOTES_ARE_DRAFTS = 'The note saves as a draft. Sign it on the consultation’s page.'
 export const NO_WRITE = 'Your access doesn’t allow changes to this patient’s records.'
 

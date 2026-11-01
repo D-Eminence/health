@@ -41,7 +41,7 @@ const ENCOUNTER = {
 }
 const SECOND = { ...ENCOUNTER, id: 'e2222222-0000-4000-8000-000000000002', status: 'completed', chiefComplaint: null }
 const NEW_ID = 'e1111111-0000-4000-8000-000000000003'
-const READ_ONLY = 'You can view this, but not change it. To add or change records, ask the patient to approve access that includes changes.'
+const READ_ONLY = 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -105,7 +105,7 @@ describe('Consultation list', () => {
     api.encounters.mockReturnValueOnce(page.promise)
     open()
     expect(screen.getByRole('heading', { level: 1, name: 'Consultation' })).toBeTruthy()
-    expect(await screen.findByText('Loading consultations…')).toBeTruthy()
+    expect(await screen.findByText('Loading encounters…')).toBeTruthy()
     await act(async () => page.resolve({ items: [ENCOUNTER, SECOND], nextCursor: null }))
 
     const table = await screen.findByRole('table', { name: 'Consultations' })
@@ -154,7 +154,7 @@ describe('Consultation list', () => {
   it('shows today’s empty sentence when the patient has no encounters', async () => {
     api.encounters.mockResolvedValue({ items: [], nextCursor: null })
     open()
-    expect(await screen.findByText('No consultations for this patient here yet.')).toBeTruthy()
+    expect(await screen.findByText('No encounters are available for this patient and facility.')).toBeTruthy()
     // Said once, as the empty list's title: no search was made, so nothing reads as a search that found nothing.
     expect(screen.queryByText('No matching records')).toBeNull()
     expect(screen.queryByText('Change your search.')).toBeNull()
@@ -173,6 +173,13 @@ describe('Consultation list', () => {
     api.encounters.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     open()
     expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+  })
+
+  it('parity words: today’s badge for direct care, and today’s sentence for a read that failed with no reason', async () => {
+    api.encounters.mockRejectedValue('offline')
+    open()
+    expect((await screen.findByRole('alert')).textContent).toBe('Encounters could not be loaded.')
+    expect(within(patientBanner()).getByText('Authorized')).toBeTruthy()
   })
 
   it('after a failed read, Refresh reads the list afresh after the access re-check, and the alert goes', async () => {
@@ -275,7 +282,7 @@ describe('Consultation list', () => {
   it('fails closed when write access cannot be confirmed', async () => {
     api.consentStatus.mockRejectedValue(new HidApiError(503, 'Identity is unavailable.', { code: 'UNAVAILABLE' }))
     open()
-    expect(await screen.findByText('We couldn’t check whether you can make changes, so changes are off. Refresh the page to try again.')).toBeTruthy()
+    expect(await screen.findByText('Write access could not be confirmed, so changes are unavailable. Refresh the page to try again.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'New consultation' })).toBeNull()
   })
 
@@ -284,8 +291,8 @@ describe('Consultation list', () => {
     open()
     const ended = await screen.findByRole('alert')
     expect(ended.textContent).toContain('Access to this patient ended')
-    expect(ended.textContent).toContain('Open the patient again to keep working.')
-    expect(within(ended).getByRole('link', { name: 'Find a patient' }).getAttribute('href')).toBe('/provider/patients')
+    expect(ended.textContent).toContain('Patient access has ended. Reopen the record through governed access.')
+    expect(within(ended).getByRole('link', { name: 'Go to patient access →' }).getAttribute('href')).toBe('/provider/patients')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.encounters).not.toHaveBeenCalled()
   })
@@ -300,7 +307,7 @@ describe('Consultation list', () => {
     expect(screen.getByText('No authorized patient.').parentElement!.textContent).toBe(
       'Clinical records require a current authorization for the selected facility. No authorized patient. Open a patient using an approved request, patient PIN, or documented emergency access.')
     expect(screen.queryByText(/Direct care access/)).toBeNull()
-    expect(screen.getByRole('link', { name: 'Find a patient' }).getAttribute('href')).toBe('/provider/patients')
+    expect(screen.getByRole('link', { name: 'Go to patient access →' }).getAttribute('href')).toBe('/provider/patients')
     expect(api.encounters).not.toHaveBeenCalled()
   })
 
@@ -395,7 +402,7 @@ describe('New consultation', () => {
   it('parity: says what starting an encounter requires, and takes the complaint in a textarea, as today', async () => {
     await openNew()
     expect(screen.getByText('Creating a clinical encounter requires current server authorization and a documented reason for care.')).toBeTruthy()
-    expect(screen.getByLabelText(labelled('Presenting complaint')).tagName).toBe('TEXTAREA')
+    expect(screen.getByLabelText(labelled('Chief complaint')).tagName).toBe('TEXTAREA')
   })
 
   it('says no allergies are recorded when the patient reported none', async () => {
@@ -447,8 +454,8 @@ describe('New consultation', () => {
     fireEvent.click(save)
     // Only the presenting complaint (the encounter type starts as Outpatient); the note's fields are optional.
     expect(screen.getAllByText('Complete this field.')).toHaveLength(1)
-    expect(document.activeElement).toBe(screen.getByLabelText(labelled('Presenting complaint')))
-    expect(screen.getByLabelText(labelled('Presenting complaint')).getAttribute('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(screen.getByLabelText(labelled('Chief complaint')))
+    expect(screen.getByLabelText(labelled('Chief complaint')).getAttribute('aria-invalid')).toBe('true')
     expect(api.createEncounter).not.toHaveBeenCalled()
     // A diagnosis needs its code system and code.
     fill('Diagnosis', 'Malaria')
@@ -458,7 +465,7 @@ describe('New consultation', () => {
 
   it('keeps today’s field limits', async () => {
     await openNew()
-    expect((screen.getByLabelText(labelled('Presenting complaint')) as HTMLInputElement).maxLength).toBe(4000)
+    expect((screen.getByLabelText(labelled('Chief complaint')) as HTMLInputElement).maxLength).toBe(4000)
     expect((screen.getByLabelText(labelled('Clinical note')) as HTMLTextAreaElement).maxLength).toBe(100000)
     expect((screen.getByLabelText(labelled('Diagnosis')) as HTMLInputElement).maxLength).toBe(500)
     expect((screen.getByLabelText(labelled('Code system')) as HTMLInputElement).maxLength).toBe(255)
@@ -473,8 +480,8 @@ describe('New consultation', () => {
       // Labelled without the required " *".
       expect(screen.getByLabelText(new RegExp(`^${label}$`))).toBe(field)
     }
-    fireEvent.change(screen.getByLabelText(labelled('Type of visit')), { target: { value: 'virtual' } })
-    fill('Presenting complaint', 'Cough')
+    fireEvent.change(screen.getByLabelText(labelled('Encounter type')), { target: { value: 'virtual' } })
+    fill('Chief complaint', 'Cough')
     fireEvent.click(save)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e1111111' })).toBeTruthy()
@@ -488,7 +495,7 @@ describe('New consultation', () => {
     for (const label of ['History', 'Examination', 'Clinical note', 'Follow-up']) {
       const view = open('/new')
       const save = await screen.findByRole('button', { name: 'Start consultation' })
-      fill('Presenting complaint', 'Cough')
+      fill('Chief complaint', 'Cough')
       fill(label, 'Fictional text.')
       fireEvent.click(save)
       expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e1111111' })).toBeTruthy()
@@ -506,8 +513,8 @@ describe('New consultation', () => {
 
   it('starts the encounter, writes its draft note and diagnosis, each after the access re-check, then opens it', async () => {
     const save = await openNew()
-    fireEvent.change(screen.getByLabelText(labelled('Type of visit')), { target: { value: 'virtual' } })
-    fill('Presenting complaint', 'Cough')
+    fireEvent.change(screen.getByLabelText(labelled('Encounter type')), { target: { value: 'virtual' } })
+    fill('Chief complaint', 'Cough')
     fill('History', 'Three days of cough.')
     fill('Examination', 'Chest clear.')
     fill('Diagnosis', 'Upper respiratory infection')
@@ -518,7 +525,7 @@ describe('New consultation', () => {
     // Enter in a field submits the form: the button is its submit button.
     fireEvent.submit(save.closest('form')!)
 
-    expect(await screen.findByText('Consultation started.')).toBeTruthy()
+    expect(await screen.findByText('Encounter created.')).toBeTruthy()
     expect(where()).toBeNull()
     expect(api.createEncounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID,
       { encounterType: 'virtual', status: 'in_progress', startedAt: expect.any(String), chiefComplaint: 'Cough' }, expect.any(String))
@@ -541,7 +548,7 @@ describe('New consultation', () => {
       code: 'VALIDATION_FAILED', details: [{ field: 'content', messages: ['content must be shorter than or equal to 100000 characters'] }],
     }))
     const save = await openNew()
-    fill('Presenting complaint', 'Cough')
+    fill('Chief complaint', 'Cough')
     fill('History', 'H')
     fill('Examination', 'E')
     fill('Clinical note', 'N')
@@ -550,8 +557,8 @@ describe('New consultation', () => {
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toBe('One or more request fields are invalid. Content must be shorter than or equal to 100000 characters.')
     expect(screen.getByLabelText(labelled('Clinical note')).getAttribute('aria-invalid')).toBe('true')
-    expect(screen.getByText('Consultation started. Outpatient · Cough. Save again to add the rest to it.')).toBeTruthy()
-    expect(screen.queryByLabelText(labelled('Presenting complaint'))).toBeNull()
+    expect(screen.getByText('Encounter created. Outpatient · Cough. Save again to add the rest to it.')).toBeTruthy()
+    expect(screen.queryByLabelText(labelled('Chief complaint'))).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Save the rest' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e1111111' })).toBeTruthy()
@@ -570,7 +577,7 @@ describe('New consultation', () => {
       return { id: `${kind}-1`, patientId: PATIENT_ID, encounterId, createdAt: '2026-10-30T09:00:00.000Z' }
     })
     const save = await openNew()
-    fill('Presenting complaint', 'Cough')
+    fill('Chief complaint', 'Cough')
     fill('History', 'H')
     fill('Examination', 'E')
     fill('Diagnosis', 'Upper respiratory infection')
@@ -581,7 +588,7 @@ describe('New consultation', () => {
 
     expect((await screen.findByRole('alert')).textContent).toBe('One or more request fields are invalid. Code must be shorter than or equal to 100 characters.')
     expect(screen.getByLabelText(labelled('Code')).getAttribute('aria-invalid')).toBe('true')
-    expect(screen.getByText('Consultation started. Outpatient · Cough. The draft note is saved; change it from the consultation’s page. Save again to add the rest to it.')).toBeTruthy()
+    expect(screen.getByText('Encounter created. Outpatient · Cough. The draft note is saved; change it from the consultation’s page. Save again to add the rest to it.')).toBeTruthy()
     // The saved note's fields are gone, so nothing typed there can be lost or sent as a second note.
     for (const label of ['History', 'Examination', 'Clinical note', 'Follow-up']) expect(screen.queryByLabelText(labelled(label))).toBeNull()
 
@@ -595,18 +602,27 @@ describe('New consultation', () => {
     expect(diagnoses[1]![4]).toMatchObject({ code: 'J06.9' })
   })
 
+  it('parity words: says today’s sentence when the encounter could not be created, with no reason given', async () => {
+    api.createEncounter.mockRejectedValueOnce('offline')
+    const save = await openNew()
+    fill('Chief complaint', 'Cough')
+    fireEvent.click(save)
+    expect((await screen.findByRole('alert')).textContent).toBe('Encounter could not be created.')
+    expect(api.createRecord).not.toHaveBeenCalled()
+  })
+
   it('shows a refused encounter at its field with today’s sentences', async () => {
     api.createEncounter.mockRejectedValueOnce(new HidApiError(400, 'One or more request fields are invalid.', {
       code: 'VALIDATION_FAILED', details: [{ field: 'chiefComplaint', messages: ['chiefComplaint should not be empty'] }],
     }))
     const save = await openNew()
-    fill('Presenting complaint', 'Cough')
+    fill('Chief complaint', 'Cough')
     fill('History', 'H')
     fill('Examination', 'E')
     fill('Clinical note', 'N')
     fireEvent.click(save)
     expect((await screen.findByRole('alert')).textContent).toBe('One or more request fields are invalid. Chief complaint should not be empty.')
-    expect(screen.getByLabelText(labelled('Presenting complaint')).getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByLabelText(labelled('Chief complaint')).getAttribute('aria-invalid')).toBe('true')
     expect(api.createRecord).not.toHaveBeenCalled()
   })
 
@@ -627,7 +643,7 @@ describe('New consultation', () => {
 
   it('ends access when the re-check before saving is refused', async () => {
     const save = await openNew()
-    fill('Presenting complaint', 'Cough')
+    fill('Chief complaint', 'Cough')
     fill('History', 'H')
     fill('Examination', 'E')
     fill('Clinical note', 'N')
@@ -635,7 +651,7 @@ describe('New consultation', () => {
     fireEvent.click(save)
     const ended = await screen.findByRole('alert')
     expect(ended.textContent).toContain('Access to this patient ended')
-    expect(ended.textContent).toContain('Open the patient again to keep working.')
+    expect(ended.textContent).toContain('Patient access has ended. Reopen the record through governed access.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.createEncounter).not.toHaveBeenCalled()
   })
