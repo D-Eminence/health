@@ -1,7 +1,5 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { CalendarCheck, PackageOpen, ReceiptText, ShoppingBag, SlidersHorizontal, Tags } from 'lucide-react'
-import { usesNovuBackend } from '../../../backendContract'
-import { selfServiceReview, selfServiceType } from '../../../staff/staffAccess'
 import type { EhrBluePage } from '../types'
 import { useBluePage } from '../../frame/pageContext'
 import { productOf } from '../../frame/product'
@@ -12,6 +10,7 @@ import { EndOfDay } from '../commerce/EndOfDay'
 import { PaymentSetup } from '../commerce/PaymentSetup'
 import { PriceList } from '../commerce/PriceList'
 import { Prescriptions } from './Pharmacy'
+import { pharmacyRefusalText } from './pharmacyText'
 import { Sales } from './Sales'
 import { Sell } from './Sell'
 import { StockPage } from './Stock'
@@ -23,29 +22,14 @@ import { StockPage } from './Stock'
 const GROUP = 'Pharmacy'
 const icon = (I: typeof ShoppingBag) => <I aria-hidden strokeWidth={1.8} />
 /**
- * The kinds of self-signed-up facility that get Pharmacy once Health ID support has checked them: the ones whose locked
- * list names it (staff/routes/ReviewBanner.tsx LOCKED). A laboratory, or another kind, is never promised it.
- */
-const GETS_PHARMACY: ReadonlySet<string> = new Set(['pharmacy', 'hospital', 'clinic'])
-
-/**
- * Opened by its address without the permission: today's refusal (staff/routes/Operations.tsx Pharmacy) in plain words,
- * and nothing is read. A role that may open another Pharmacy page (Sell, Stock, Sales & receipts…) is told only
- * prescriptions are not in it. The administrator of a facility that signed itself up (the only role there that manages
- * staff) is never told to ask the facility administrator, which they are. While Health ID support checks a facility
- * that will get Pharmacy, Pharmacy is locked for them too (the banner above says so): it opens after the check. Once
- * the facility is checked, they add a pharmacist on the Staff page. A facility that will not get Pharmacy has no step.
+ * Opened by its address without the permission: today's refusal in plain words (pharmacyRefusalText), and nothing is
+ * read. A role that may open another Pharmacy page (Sell, Stock, Sales & receipts…) is told only prescriptions are not
+ * in it.
  */
 function PharmacyUnavailable() {
   const { facility, permissions } = useDeptAccess()
   const otherPharmacyWork = pharmacyPages.some(page => page !== pharmacyPage && page.permission !== undefined && permissions.includes(page.permission))
-  const review = usesNovuBackend() ? selfServiceReview(facility) : null
-  const getsPharmacy = GETS_PHARMACY.has(selfServiceType(facility) ?? '')
-  const administrator = review !== null && permissions.includes('workforce.manage')
-  const next = !administrator ? ' Ask your facility administrator.' : review === 'reviewed' && getsPharmacy ? ' Add a pharmacist on the Staff page.' : ''
-  const message = review === 'pending' && getsPharmacy
-    ? 'Pharmacy opens once Health ID support has checked your facility.'
-    : `Your role at this facility doesn’t include ${otherPharmacyWork ? 'prescriptions' : 'pharmacy work'}.${next}`
+  const message = pharmacyRefusalText(otherPharmacyWork ? 'prescriptions' : 'pharmacy work', facility, permissions)
   return <DeptUnavailable title="Pharmacy unavailable" message={message} />
 }
 

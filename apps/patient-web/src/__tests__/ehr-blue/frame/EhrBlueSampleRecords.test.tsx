@@ -50,8 +50,9 @@ describe('a sample record\'s page', () => {
   })
 
   it('asks to confirm an action the design confirms, and to type the word for a refund', async () => {
-    await openDemo('/provider/patient-billing/5a110001')
-    expect(screen.getByRole('heading', { level: 1, name: 'DEMO-1' })).toBeDefined()
+    // DEMO-3 is the design's draft invoice (DEMO-1 is part paid, DEMO-2 issued).
+    await openDemo('/provider/patient-billing/5a110003')
+    expect(screen.getByRole('heading', { level: 1, name: 'DEMO-3' })).toBeDefined()
     expect(within(card('Saved record')).getByText('Total').nextElementSibling?.textContent).toBe('1000000')
     fireEvent.click(screen.getByRole('button', { name: 'Issue invoice' }))
     fireEvent.click(within(screen.getByRole('form', { name: 'Issue invoice' })).getByRole('button'))

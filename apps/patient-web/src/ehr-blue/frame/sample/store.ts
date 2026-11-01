@@ -69,6 +69,8 @@ const DESIGN_MODULE_VALUES: Record<string, Record<string, readonly string[]>> = 
     supplier: ['Fictional Medical Supplies Ltd', 'Example Surgical Ltd', 'Sample Pharma Distributors'],
     reason: ['Below the reorder level', 'Monthly restock', 'New ward opening (fictional)'],
   },
+  // Three NGN 10,000 invoices, as the design's billing dashboard counts them (with DESIGN_SEED_STATES below).
+  billing: { quantity: ['2', '2', '2'] },
   icu: {
     reason: ['Monitoring after abdominal surgery', 'Pneumonia needing high-flow oxygen', 'Sepsis needing close observation'],
     team: ['ICU team A (fictional)', 'ICU team B (fictional)', 'ICU team A (fictional)'],
@@ -172,6 +174,34 @@ function sampleValue(module: Module, field: Field, index: number): SampleValue {
   }
 }
 
+type SampleSteps = SampleRecord['steps']
+
+/**
+ * Where a workspace's seeded records stand, when the design's screenshots show them further on than the workspace's
+ * first status: DEMO-1 part paid (NGN 4,000 of 10,000, in cash), DEMO-2 issued, DEMO-3 a draft.
+ */
+const DESIGN_SEED_STATES: Record<string, readonly { readonly status: string; readonly steps: SampleSteps }[]> = {
+  billing: [
+    { status: 'partial', steps: [{ action: 'issue', fields: {} },
+      { action: 'pay', fields: { amount: '4000', method: 'Cash', reference: 'Receipt DEMO-1 (fictional)' } }] },
+    { status: 'issued', steps: [{ action: 'issue', fields: {} }] },
+    { status: 'draft', steps: [] },
+  ],
+}
+
+/** A fictional unit price for invoices, in minor units, as the design's service catalogue prices them. */
+export const SAMPLE_UNIT_PRICE = 500000
+
+/** An invoice's total, what has been paid (less refunds) and what is due, in minor units. All fictional. */
+export function invoiceTotals(record: SampleRecord): { readonly total: number; readonly paid: number; readonly due: number } {
+  const total = Number(record.fields.quantity || 1) * SAMPLE_UNIT_PRICE
+  const paid = record.steps.reduce((sum, step) => {
+    const amount = Number(step.fields.amount || 0) * 100
+    return step.action === 'pay' ? sum + amount : step.action === 'refund' ? sum - amount : sum
+  }, 0)
+  return { total, paid, due: total - paid }
+}
+
 /** An invoice is numbered when it is raised, as the design numbers them ("DEMO-1"). */
 function invoiceNumber(moduleId: string, number: number): Record<string, string> {
   return moduleId === 'billing' ? { number: `DEMO-${number}` } : {}
@@ -181,7 +211,7 @@ function seed(module: Module): SampleRecord[] {
   return Array.from({ length: 3 }, (_, index) => ({
     id: sampleId(module.id, index + 1),
     moduleId: module.id,
-    status: module.initial ?? 'active',
+    status: DESIGN_SEED_STATES[module.id]?.[index]?.status ?? module.initial ?? 'active',
     fields: {
       ...(module.patient ? { patient: FICTIONAL_PATIENTS[index]! } : {}),
       ...Object.fromEntries(module.fields.map(field => [field.key, sampleValue(module, field, index)])),
@@ -192,7 +222,7 @@ function seed(module: Module): SampleRecord[] {
     // A stock item starts with one received batch, so its adjust and transfer actions have a batch to pick.
     steps: module.id === 'inventory'
       ? [{ action: 'receive', fields: { lot: `DEMO-LOT-${index + 1}`, quantity: '96', expiry: '2030-01-01', reference: 'Receipt (fictional)' } }]
-      : [],
+      : DESIGN_SEED_STATES[module.id]?.[index]?.steps ?? [],
   }))
 }
 
