@@ -1029,6 +1029,20 @@ readable cookie Identity's sign-in sets for the whole sign-in (hid-system
   page as `#steps`. The page's script follows it there itself and passes the
   click on already prevented, since the page's own router still holds
   `/patients#steps`, which on the portal is another page.
+- Identity's cookies are SameSite Strict, so a browser that arrives from
+  another site (a link in webmail, a chat app or a search result, or one
+  another app opens in the installed app) sends none of them, and the edge
+  answers the landing page even to someone signed in there. So the page, and
+  the "not available" page below, first looks for a non-empty
+  `hid_access_csrf` in `document.cookie` by the edge's own rule
+  (`carriesCookie`, copied into the page) and, if it is there, asks for the
+  same address again with `location.replace`, leaving out any fragment
+  (`signInRecheck`). That request starts from the site itself, so the browser
+  sends the cookie and the edge answers as for anyone signed in. Like the edge,
+  the page never reads the cookie's value. A tab asks at most once in 10
+  seconds (noted in `sessionStorage`; where that cannot be read or written, it
+  does not ask), so a browser that shows scripts the cookie but does not send
+  it shows the landing page instead of loading it again and again.
 - Every answer at those front pages is `Cache-Control: private, no-store` with
   `Vary: Cookie`, so no browser or shared cache can hand one person's answer to
   another. Cloudflare does not cache a Worker's own answers (the Worker runs

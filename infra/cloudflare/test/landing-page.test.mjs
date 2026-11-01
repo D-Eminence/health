@@ -3,8 +3,9 @@ import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { createContext, runInContext } from 'node:vm'
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare'
-import { JSDOM } from 'jsdom'
+import { CookieJar, JSDOM } from 'jsdom'
 
 /**
  * A product site's front page in workerd, the runtime Cloudflare runs, as wrangler's own local runtime (Miniflare)
@@ -470,5 +471,136 @@ test('in the browser, the Health ID page on the portal scrolls to its own sectio
     assert.equal(tab.defaultPrevented, false)
   } finally {
     dom.window.close()
+  }
+})
+
+/**
+ * The script the edge adds to a page for someone not signed in, which asks the edge again when the browser holds
+ * the sign-in cookie but did not send it (SameSite=Strict, on arrival from another site).
+ */
+const RECHECK = /<script>(\(function\(carries\)[\s\S]*?)<\/script>/g
+
+function recheckOf(page) {
+  const scripts = [...page.matchAll(RECHECK)].map(match => match[1])
+  assert.equal(scripts.length, 1, 'the page carries the sign-in re-check once')
+  return scripts[0]
+}
+
+/**
+ * Runs the page's re-check as a browser would on loading the page, with `cookie` as the page's document.cookie, at
+ * `href`, at `now`, with `storage` as the tab's sessionStorage. It answers each address the page asked for again.
+ */
+function runRecheck(script, { cookie = '', href = 'https://app.healthidentitydirectory.com/', now = 1_800_000_000_000, storage = new Map() } = {}) {
+  const asked = []
+  const sessionStorage = storage instanceof Map
+    ? { getItem: key => storage.get(key) ?? null, setItem: (key, value) => { storage.set(key, String(value)) } }
+    : storage
+  runInContext(script, createContext({
+    document: { cookie },
+    location: { href, replace: address => { asked.push(address) } },
+    sessionStorage,
+    Date: { now: () => now },
+  }))
+  return asked
+}
+
+test('a page for someone not signed in carries the sign-in re-check, on the portal, on a product site, and when the public site is away', async () => {
+  const pages = {
+    portal: await (await portal.fetch('https://app.healthidentitydirectory.com/')).text(),
+    lab: await (await lab.fetch('https://lab.healthidentitydirectory.com/')).text(),
+    unavailable: await (await labWithoutBinding.fetch('https://lab.healthidentitydirectory.com/')).text(),
+  }
+  for (const [name, page] of Object.entries(pages)) {
+    const script = recheckOf(page)
+    const head = page.slice(0, page.indexOf('</head>'))
+    assert.ok(head.includes(script), `${name}: in the head`)
+    // Before the page's link script, which it needs nothing from: it holds its own copy of the edge's cookie rule.
+    if (name !== 'unavailable') assert.ok(head.indexOf(script) < head.indexOf('<script>(function(rewrite,site)'), name)
+    assert.match(script, /^\(function\(carries\)\{try\{if\(!carries\(document\.cookie,"hid_access_csrf"\)\)return;/, name)
+  }
+  // Someone signed in gets no such page: the workspace's entrance, or the portal's own build, untouched.
+  const signedIn = { headers: { cookie: 'hid_access_csrf=4f9c2b' }, redirect: 'manual' }
+  assert.equal((await lab.fetch('https://lab.healthidentitydirectory.com/', signedIn)).status, 302)
+  assert.equal(await (await portal.fetch('https://app.healthidentitydirectory.com/', signedIn)).text(), PORTAL_INDEX)
+})
+
+test('in the browser, a page shown to someone the browser holds signed in asks for its own address again, once', async () => {
+  const script = recheckOf(await (await portal.fetch('https://app.healthidentitydirectory.com/')).text())
+  // document.cookie as browsers give it: the sign-in cookie, alone or among others.
+  for (const cookie of ['hid_access_csrf=x', 'theme=dark; hid_access_csrf=4f9c2b', 'hid_access_csrf=4f9c2b; theme=dark', ' hid_access_csrf = x ']) {
+    const storage = new Map()
+    assert.deepEqual(runRecheck(script, { cookie, storage }), ['https://app.healthidentitydirectory.com/'], cookie)
+    assert.equal(storage.get('hid-front-page-recheck'), '1800000000000', cookie)
+  }
+  // Its address as it is, query and all, but never its fragment: a change of fragment alone would only scroll.
+  assert.deepEqual(runRecheck(script, { cookie: 'hid_access_csrf=x', href: 'https://app.healthidentitydirectory.com/?from=email#steps' }),
+    ['https://app.healthidentitydirectory.com/?from=email'])
+  assert.deepEqual(runRecheck(script, { cookie: 'hid_access_csrf=x', href: 'https://lab.healthidentitydirectory.com/index.html' }),
+    ['https://lab.healthidentitydirectory.com/index.html'])
+  // No sign-in cookie, an empty one, or only another name: the page stays, and notes nothing.
+  for (const cookie of ['', 'theme=dark', 'hid_access_csrf=', 'hid_access_csrf=""', 'hid_access_csrf= ""', 'hid_access_csrf',
+    'hid_access=eyJhbGciOi', 'hid_access_refresh=x', 'HID_ACCESS_CSRF=x', 'Hid_Access_Csrf=x', '__Host-hid_access_csrf=x',
+    'hid_access_csrf_old=x', 'xhid_access_csrf=x', 'theme=hid_access_csrf']) {
+    const storage = new Map()
+    assert.deepEqual(runRecheck(script, { cookie, storage }), [], cookie)
+    assert.equal(storage.size, 0, cookie)
+  }
+})
+
+test('in the browser, the page asks again at most once in ten seconds in a tab, and never where it cannot note it', async () => {
+  const script = recheckOf(await (await lab.fetch('https://lab.healthidentitydirectory.com/')).text())
+  const cookie = 'hid_access_csrf=x'
+  const href = 'https://lab.healthidentitydirectory.com/'
+  const storage = new Map()
+  const start = 1_800_000_000_000
+  assert.equal(runRecheck(script, { cookie, href, now: start, storage }).length, 1)
+  // The browser showed the page again (it did not send the cookie): no second ask within ten seconds.
+  assert.deepEqual(runRecheck(script, { cookie, href, now: start + 1, storage }), [])
+  assert.deepEqual(runRecheck(script, { cookie, href, now: start + 9_999, storage }), [])
+  // Ten seconds on, a new visit asks again, once.
+  assert.equal(runRecheck(script, { cookie, href, now: start + 10_000, storage }).length, 1)
+  assert.deepEqual(runRecheck(script, { cookie, href, now: start + 10_001, storage }), [])
+  // A clock put back behind the time noted does not stop it for good.
+  assert.equal(runRecheck(script, { cookie, href, now: start, storage }).length, 1)
+  // A note it cannot read as a time is no note.
+  assert.equal(runRecheck(script, { cookie, href, storage: new Map([['hid-front-page-recheck', 'soon']]) }).length, 1)
+  // Where the tab's storage cannot be read or written, it does not ask (so it cannot ask forever), and nothing throws.
+  const refuses = which => ({
+    getItem: () => { if (which === 'read') throw new Error('blocked'); return null },
+    setItem: () => { if (which === 'write') throw new Error('blocked') },
+  })
+  assert.deepEqual(runRecheck(script, { cookie, href, storage: refuses('read') }), [])
+  assert.deepEqual(runRecheck(script, { cookie, href, storage: refuses('write') }), [])
+})
+
+test('the page and the edge read the same cookies as a sign-in', async () => {
+  const script = recheckOf(await (await lab.fetch('https://lab.healthidentitydirectory.com/')).text())
+  for (const cookie of ['hid_access_csrf=4f9c2b', 'theme=dark; hid_access_csrf=4f9c2b', 'theme=dark, hid_access_csrf=4f9c2b',
+    '  hid_access_csrf = 4f9c2b  ', 'hid_access_csrf=4f9c2b; hid_access_csrf=', 'hid_access_csrf=; hid_access_csrf=4f9c2b',
+    'hid_access_csrf=', 'hid_access_csrf=""', 'hid_access_csrf= ; theme=dark', 'hid_access_csrf', 'hid_access=eyJhbGciOi',
+    'hid_access_refresh=x', 'HID_ACCESS_CSRF=4f9c2b', '__Host-hid_access_csrf=4f9c2b', 'hid_access_csrf_old=4f9c2b',
+    'theme=hid_access_csrf', 'a=b,hid_access_csrf=4f9c2b', 'a=b;;hid_access_csrf=4f9c2b']) {
+    const edge = await lab.fetch('https://lab.healthidentitydirectory.com/', { headers: { cookie }, redirect: 'manual' })
+    await edge.arrayBuffer()
+    const page = runRecheck(script, { cookie, href: 'https://lab.healthidentitydirectory.com/' })
+    assert.equal(page.length === 1, edge.status === 302, cookie)
+  }
+})
+
+test('in the browser, the page reads the tab\'s own cookies and storage, and leaves a stranger\'s tab as it was', async () => {
+  for (const [signedIn, cookies] of [[true, ['theme=dark', 'hid_access_csrf=4f9c2b; Secure; SameSite=Strict']], [false, ['theme=dark', 'hid_access=x; Secure']]]) {
+    const page = await (await portal.fetch('https://app.healthidentitydirectory.com/')).text()
+    const cookieJar = new CookieJar()
+    for (const cookie of cookies) cookieJar.setCookieSync(`${cookie}; Path=/`, 'https://app.healthidentitydirectory.com/')
+    const dom = new JSDOM(page.replace(/<script src[^>]*><\/script>/g, ''),
+      { url: 'https://app.healthidentitydirectory.com/', runScripts: 'dangerously', cookieJar })
+    try {
+      // The time it noted just before asking for the page again (jsdom loads no page for that).
+      const noted = dom.window.sessionStorage.getItem('hid-front-page-recheck')
+      if (signedIn) assert.match(noted ?? '', /^\d{13}$/)
+      else assert.equal(noted, null)
+    } finally {
+      dom.window.close()
+    }
   }
 })

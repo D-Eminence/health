@@ -70,8 +70,9 @@ right now" page and keeps every other address. After deploying, check in a
 private window that each product site's `/` shows its landing page with its own
 canonical address and the portal's `/` the patient page (canonical
 `https://www.staging.healthidentitydirectory.com/patients`); after signing in,
-that a product site's `/` opens its workspace and the portal's `/` the portal;
-and that the public site's `/products/<slug>` answers 308 to that product site
+that a product site's `/` opens its workspace and the portal's `/` the portal,
+also from a link in another site (for example in webmail), where the landing
+page asks once more from the site itself; and that the public site's `/products/<slug>` answers 308 to that product site
 while its `/patients` stays where it is.
 
 ## Developer handoff

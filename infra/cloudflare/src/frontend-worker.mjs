@@ -97,9 +97,17 @@ const FRONT_PAGE_PATHS = Object.freeze(['/', '/index.html'])
  * hid-system services/identity-api/src/auth/session-cookies.ts. 'hid_access' (HttpOnly) lasts 15 minutes and
  * 'hid_access_refresh' is sent to /api/v1/auth only; 'hid_access_csrf' is sent on every path and lasts as long as the
  * sign-in (up to 8 hours idle, 24 hours in all). The edge only looks for a non-empty one: it cannot and must not tell
- * whether that sign-in is still good. The app does, renewing it quietly or asking for a sign-in.
+ * whether that sign-in is still good. The app does, renewing it quietly or asking for a sign-in. All three are
+ * SameSite=Strict, so a browser arriving from another site sends none of them: see signInRecheck.
  */
 const SIGNED_IN_COOKIE = 'hid_access_csrf'
+
+/**
+ * How long a tab waits before its landing page asks the edge again for this site's front page (signInRecheck), and
+ * where it notes when it last did: in the tab's own storage for this site.
+ */
+const SIGN_IN_RECHECK_MS = 10000
+const SIGN_IN_RECHECK_KEY = 'hid-front-page-recheck'
 
 /** The products a facility signs up for on the portal's /provider/enroll (public-web APPLICATION_PRODUCTS). */
 const APPLICATION_PRODUCTS = Object.freeze(['ehr', 'migrate', 'laboratory', 'pharmacy'])
@@ -198,20 +206,52 @@ function landingOf(application, hosts) {
 }
 
 /**
- * Whether the request carries a non-empty SIGNED_IN_COOKIE: only its presence, never its value. A name differing in
- * any way (another cookie of the sign-in, another case, a prefix or suffix) is not it.
+ * Whether `cookies` (a Cookie header, or a page's document.cookie) holds a non-empty cookie named `name`: only its
+ * presence, never its value. A name differing in any way (another cookie of the sign-in, another case, a prefix or
+ * suffix) is not it. Browsers join cookies with "; "; cookies joined with ", " are read the same way.
+ *
+ * The edge asks it of a request (holdsSignIn) and the landing page, which carries it as its source text, asks it of
+ * document.cookie (signInRecheck), so both follow one rule. It holds nothing it does not define: no nested function,
+ * no name from outside.
  */
-function holdsSignIn(request) {
-  const header = request.headers.get('cookie')
-  if (!header) return false
-  // Browsers join cookies with "; "; a request whose Cookie headers were joined with ", " is read the same way.
-  for (const pair of header.split(/[;,]/)) {
-    const equals = pair.indexOf('=')
-    if (equals === -1 || pair.slice(0, equals).trim() !== SIGNED_IN_COOKIE) continue
-    const value = pair.slice(equals + 1).trim()
+function carriesCookie(cookies, name) {
+  if (!cookies) return false
+  var pairs = String(cookies).split(/[;,]/)
+  for (var i = 0; i < pairs.length; i++) {
+    var equals = pairs[i].indexOf('=')
+    if (equals === -1 || pairs[i].slice(0, equals).trim() !== name) continue
+    var value = pairs[i].slice(equals + 1).trim()
     if (value !== '' && value !== '""') return true
   }
   return false
+}
+
+/** Whether the request carries a non-empty SIGNED_IN_COOKIE (carriesCookie). */
+function holdsSignIn(request) {
+  return carriesCookie(request.headers.get('cookie'), SIGNED_IN_COOKIE)
+}
+
+/**
+ * A script the edge adds to the head of each page it answers at a front page to someone not signed in (the landing
+ * page, ahead of its link script, or the page saying it is not available). Identity's sign-in cookies are SameSite=Strict, so a browser sends none of them when
+ * someone arrives from another site (a link in webmail, a chat app or a search result, or one another app opens in the
+ * installed app): the edge sees no sign-in and answers this page, even to someone signed in here. The page can see the
+ * cookie (SIGNED_IN_COOKIE is readable), so where it holds one, by carriesCookie's rule, it asks for its own address
+ * again with location.replace, which leaves no history entry for this page. That request starts from this site, so
+ * the browser sends the cookie, and the edge answers as it does anyone signed in: the workspace's entrance on a product
+ * site, the portal on the portal. Like the edge, the page only looks for the cookie, never at its value.
+ *
+ * It asks at most once in SIGN_IN_RECHECK_MS in a tab (noted in sessionStorage before it asks), so a browser that shows
+ * its scripts the cookie but still does not send it shows this page instead of loading it forever; if the tab's
+ * storage cannot be read or written, it does not ask. The address's fragment is left out: a change of fragment alone
+ * only scrolls the page and asks the edge nothing.
+ */
+function signInRecheck() {
+  return `<script>(function(carries){try{if(!carries(document.cookie,${JSON.stringify(SIGNED_IN_COOKIE)}))return;`
+    + `var key=${JSON.stringify(SIGN_IN_RECHECK_KEY)},now=Date.now(),last=Number(sessionStorage.getItem(key));`
+    + `if(now-last>=0&&now-last<${SIGN_IN_RECHECK_MS})return;`
+    + 'sessionStorage.setItem(key,String(now));location.replace(location.href.split("#")[0])}catch{}})'
+    + `(${carriesCookie.toString()})</script>`
 }
 
 /** The product site whose landing page `pathname` is on the public site (/products/<slug>), or null. */
@@ -321,7 +361,7 @@ function landingScript(site) {
 function landingUnavailable(deployment) {
   const name = deployment.landing.name
   const body = `<!doctype html><html lang="en"><head><meta charset="utf-8">`
-    + `<meta name="viewport" content="width=device-width, initial-scale=1"><title>${name}</title></head>`
+    + `<meta name="viewport" content="width=device-width, initial-scale=1"><title>${name}</title>${signInRecheck()}</head>`
     + `<body style="font-family:system-ui,sans-serif;margin:0;padding:48px 24px;color:#101828">`
     + `<main style="max-width:560px;margin:0 auto"><h1 style="font-size:28px">This page is not available right now</h1>`
     + `<p style="font-size:17px;line-height:1.5">Please try again in a few minutes.</p>`
@@ -379,6 +419,7 @@ async function landingPage(request, deployment, environment) {
     .on('head', { element(element) {
       element.onEndTag(end => {
         end.before(`<link rel="canonical" href="${deployment.landing.canonical}">`, { html: true })
+        end.before(signInRecheck(), { html: true })
         end.before(landingScript(site), { html: true })
       })
     } })
@@ -389,7 +430,9 @@ async function landingPage(request, deployment, environment) {
 /**
  * A site's front page, decided by whether the browser holds a sign-in there (holdsSignIn). Someone not signed in sees
  * the landing page. Someone signed in goes to a product site's workspace entrance (one fixed address on this site,
- * nothing kept from the request), or is answered the patient portal as before. The two answers differ for the same
+ * nothing kept from the request), or is answered the patient portal as before. Someone signed in who arrives from
+ * another site sends no cookie and gets the landing page, which then asks again from this site (signInRecheck), so the
+ * browser sends the cookie and they get the same answer as anyone signed in. The two answers differ for the same
  * address, so neither is ever kept for anyone else: every answer is private and not to be stored, and varies with the
  * cookie. Cloudflare keeps none of a Worker's own answers in its cache (the Worker runs first on every request,
  * run_worker_first, and uses no cache here), so these headers speak to browsers and any cache in between.
