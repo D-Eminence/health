@@ -24,13 +24,14 @@ const SITE_STAGING = 'outreach.staging.healthidentitydirectory.com'
 
 describe(SITE, () => {
   it.each(['/provider/outreach', '/provider', '/provider/sign-in', '/provider/audit', '/provider/billing', '/provider/staff',
-    '/provider/staff/join', '/provider/institutions', '/'])('serves %s', path => {
+    '/provider/staff/join', '/provider/institutions', '/provider/patients', '/provider/patients/5a020001', '/provider/requests',
+    '/'])('serves %s', path => {
     expect(servedHere(path, SITE)).toBe(true)
     expect(servedHere(path, SITE_STAGING)).toBe(true)
   })
 
   it.each([
-    ['/provider/patients', 'https://ehr.healthidentitydirectory.com/provider/patients'],
+    ['/provider/registration', 'https://ehr.healthidentitydirectory.com/provider/registration'],
     ['/provider/laboratory', 'https://lab.healthidentitydirectory.com/provider/laboratory'],
     ['/provider/pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider/pharmacy'],
     ['/provider/migrate', 'https://migrate.healthidentitydirectory.com/provider/migrate'],
@@ -62,13 +63,27 @@ describe(SITE, () => {
 
   it('lists its own pages in today’s sidebar, and links to the sites that serve the rest', async () => {
     const sidebar = await openClassicOn(SITE)
-    expect(classicPages(sidebar)).toEqual(['Overview', 'Facility audit', 'Outreach', 'Plan & billing'])
+    expect(classicPages(sidebar)).toEqual(['Overview', 'Patient access', 'Access requests', 'Facility audit', 'Outreach', 'Plan & billing'])
     expect(siteLinks(sidebar)).toEqual([
       ['Hospital EHR', 'https://ehr.healthidentitydirectory.com/'],
       ['Laboratory', 'https://lab.healthidentitydirectory.com/'],
       ['Pharmacy', 'https://pharmacy.healthidentitydirectory.com/'],
       ['Migrate', 'https://migrate.healthidentitydirectory.com/'],
     ])
+  })
+
+  it('serves Patients and Access requests here, behind its own sign-in, and leaves Patient registration to the Hospital EHR', async () => {
+    await openPortalOn(SITE, '/provider/patients')
+    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(address()).toBe('/provider/sign-in?returnTo=%2Fprovider%2Fpatients')
+    expect(opened).not.toHaveBeenCalled()
+    expect(servedHere('/provider/requests', SITE)).toBe(true)
+    expect(servedHere('/provider/registration', SITE)).toBe(false)
+  })
+
+  it('offers Patients and Access requests only to a role holding their own permissions', async () => {
+    const sidebar = await openClassicOn(SITE, '/provider', [], ['outreach.registration.read'])
+    expect(classicPages(sidebar)).toEqual(['Overview', 'Outreach'])
   })
 
   it('opens the blue EHR at Demo Outreach as Outreach, with this site’s pages only', async () => {
@@ -101,7 +116,7 @@ describe(SITE_STAGING, () => {
   })
 
   it('sends the Hospital EHR’s pages to the staging EHR site', async () => {
-    await openPortalOn(SITE_STAGING, '/provider/patients')
-    await expectOpenedElsewhere(opened, 'https://ehr.staging.healthidentitydirectory.com/provider/patients')
+    await openPortalOn(SITE_STAGING, '/provider/registration')
+    await expectOpenedElsewhere(opened, 'https://ehr.staging.healthidentitydirectory.com/provider/registration')
   })
 })

@@ -61,13 +61,14 @@ describe('rightSiteHref', () => {
       .toBe('https://app.healthidentitydirectory.com//evil.example/records')
     expect(new URL(rightSiteHref(at('//evil.example/records'), 'lab.healthidentitydirectory.com')!).hostname)
       .toBe('app.healthidentitydirectory.com')
-    expect(new URL(rightSiteHref(at('/provider/patients', '?next=https://evil.example', '#@evil.example'),
+    expect(new URL(rightSiteHref(at('/provider/clinical', '?next=https://evil.example', '#@evil.example'),
       'lab.healthidentitydirectory.com')!).hostname).toBe('ehr.healthidentitydirectory.com')
   })
 
   it('reads the provider workspace’s pages whatever their case', () => {
-    expect(rightSiteHref(at('/Provider/Patients'), 'lab.healthidentitydirectory.com'))
-      .toBe('https://ehr.healthidentitydirectory.com/Provider/Patients')
+    expect(rightSiteHref(at('/Provider/Clinical'), 'lab.healthidentitydirectory.com'))
+      .toBe('https://ehr.healthidentitydirectory.com/Provider/Clinical')
+    expect(rightSiteHref(at('/PROVIDER/PATIENTS'), 'lab.healthidentitydirectory.com')).toBeNull()
     expect(rightSiteHref(at('/PROVIDER/LABORATORY'), 'lab.healthidentitydirectory.com')).toBeNull()
   })
 
@@ -79,6 +80,24 @@ describe('rightSiteHref', () => {
   it('never sends the admin pages anywhere: the admin site routes them', () => {
     expect(rightSiteHref(at('/admin/overview'), 'ehr.healthidentitydirectory.com')).toBeNull()
     expect(rightSiteHref(at('/admin'), 'app.healthidentitydirectory.com')).toBeNull()
+  })
+})
+
+describe('siteServing', () => {
+  // Patients and Access requests on every staff site, each behind its own permission (the classic portal offered both
+  // everywhere); registering a patient stays in the hospital EHR.
+  it.each(['lab', 'pharmacy', 'migrate', 'outreach', 'lab.staging', 'pharmacy.staging', 'migrate.staging', 'outreach.staging'])(
+    'serves Patients and Access requests on %s, and sends Patient registration to the EHR site', name => {
+      const hostname = `${name}.healthidentitydirectory.com`
+      for (const path of ['/provider/patients', '/provider/patients/5a020001', '/provider/requests', '/provider/requests/r-1']) {
+        expect(siteServing(path, hostname), `${path} on ${hostname}`).toBeNull()
+      }
+      expect(siteServing('/provider/registration', hostname)?.key).toBe('ehr')
+    })
+
+  it('sends Patients and Access requests from the main site to the EHR site, as every staff page', () => {
+    expect(siteServing('/provider/patients', 'app.healthidentitydirectory.com')?.key).toBe('ehr')
+    expect(siteServing('/provider/requests', 'staging.healthidentitydirectory.com')?.hostname).toBe('ehr.staging.healthidentitydirectory.com')
   })
 })
 

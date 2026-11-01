@@ -64,10 +64,10 @@ export async function expectOpenedElsewhere(opened: Mock, href: string) {
   expect(opened).toHaveBeenCalledWith(href)
 }
 
-/** Today's workspace at a fictional clinic holding every permission, on `hostname`; what it sent is in `sent`. */
-export async function openClassicOn(hostname: string, path = '/provider', sent: Sent[] = []) {
-  const clinic = facility(REAL_CLINIC, 'Fictional Clinic', EVERY_PERMISSION)
-  sent.push(...serve({ [SESSION]: [sessionAt(clinic, [clinic])], [REQUESTS]: [() => json([])] }))
+/** Today's workspace at a fictional clinic holding `permissions` (every one), on `hostname`; what it sent is in `sent`. */
+export async function openClassicOn(hostname: string, path = '/provider', sent: Sent[] = [], permissions: readonly string[] = EVERY_PERMISSION) {
+  const clinic = facility(REAL_CLINIC, 'Fictional Clinic', permissions)
+  serve({ [SESSION]: [sessionAt(clinic, [clinic])], [REQUESTS]: [() => json([])] }, sent)
   onSite(hostname, path)
   await openStaffApp(path)
   return screen.findByRole('complementary', { name: 'Provider navigation' })

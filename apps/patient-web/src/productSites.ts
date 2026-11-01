@@ -7,7 +7,8 @@ import type { StaffProductKey } from './productHostname'
  * - ehr is the hospital EHR, with the hospital's own laboratory, pharmacy, OCR, migration and outreach;
  * - lab, pharmacy, migrate and outreach each serve their own product;
  * - every staff site also serves what any facility needs: sign-in, the overview, the choice of facility, its staff and
- *   joining, its subscription, its audit, its profile and HR.
+ *   joining, its subscription, its audit, its profile and HR, and Patients and Access requests, each behind its own
+ *   permission. Registering a patient stays in the hospital EHR.
  * An address another site serves opens there. The admin site, and any host that is not a Health ID site (local,
  * preview), serve every address, as before.
  */
@@ -78,10 +79,14 @@ function siteIn(deployment: Deployment, key: SiteKey): Site {
 const MAIN_SITE_STAFF_PAGES: ReadonlySet<string> = new Set(['recover', 'enroll', 'invitation', 'join'])
 
 /**
- * On every staff site: sign-in, the overview, the choice of facility, staff and joining, subscription and audit, and
- * the pages the blue EHR keeps for every product (ehr-blue/frame/product.ts): the facility's profile and HR.
+ * On every staff site: sign-in, the overview, the choice of facility, staff and joining, subscription and audit, the
+ * pages the blue EHR keeps for every product (ehr-blue/frame/product.ts): the facility's profile and HR, and Patients
+ * and Access requests, which the classic portal offered on every site and each page still opens only with its own
+ * permission (the patient's own permission is still asked for). Patient registration ('registration') is not one: it
+ * stays in the hospital EHR.
  */
-const SHARED_STAFF_PAGES: ReadonlySet<string> = new Set(['', 'sign-in', 'institutions', 'staff', 'billing', 'audit', 'facility', 'hr'])
+const SHARED_STAFF_PAGES: ReadonlySet<string> = new Set(['', 'sign-in', 'institutions', 'staff', 'billing', 'audit', 'facility', 'hr',
+  'patients', 'requests'])
 
 /** Each product site's own pages. Every other staff page is the hospital EHR's. */
 const PRODUCT_PAGES: Readonly<Record<Exclude<StaffProductKey, 'ehr'>, readonly string[]>> = {
