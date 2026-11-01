@@ -8,6 +8,7 @@ import { useReloadAccessRequests } from '../frame/attention'
 import { useBluePages } from '../frame/pageContext'
 import { pageHrefOf } from '../frame/pageHref'
 import { pageAllowed } from '../frame/pageAccess'
+import { inProduct, productOf } from '../frame/product'
 import { useRoleView } from '../frame/roleView'
 import { sampleModule, sampleRecords, sampleVersion, subscribeSamples } from '../frame/sample/store'
 import { IncomingOrdersCard, loadLab, loadPharmacy, useIncomingServices, useWork, WrongPatientOrdersCard } from './liveCards'
@@ -51,17 +52,21 @@ export function BlueHome() {
   // Read once here (each read is audited) and shared by the stat tray and Today's work; before any early return.
   const access = useAccessRequests()
   const demo = isDemoFacility(facility?.id)
-  const labRead = useWork<LabWorkItem>(facility?.id ?? '', demo && permissions.includes('lab.work-item.read'), loadLab)
-  const rxRead = useWork<PharmacyWorkItem>(facility?.id ?? '', demo && permissions.includes('pharmacy.work-item.read'), loadPharmacy)
+  // Home offers this workspace's pages only, as the frame's menu and search do (product.ts). In a single product (a lab
+  // or an outreach team on its own) Home opens when the product's own page is not open to this session, and it offers
+  // none of the hospital's pages there: patient registration stays in the EHR. A hospital's EHR has them all.
+  const product = productOf(window.location.hostname, permissions)
+  const lab = permissions.includes('lab.work-item.read') && inProduct(product, 'laboratory')
+  const pharmacy = permissions.includes('pharmacy.work-item.read') && inProduct(product, 'pharmacy')
+  const labRead = useWork<LabWorkItem>(facility?.id ?? '', demo && lab, loadLab)
+  const rxRead = useWork<PharmacyWorkItem>(facility?.id ?? '', demo && pharmacy, loadPharmacy)
   // A sample dashboard is the demo's alone, even when chosen there before a switch to a clinic.
   if (role.viewing && demo) return <RoleDashboard role={role.viewing} />
   if (!session) return null
   const name = session.actor.displayName ?? 'colleague'
   const candidates = pages.filter(page => page.path !== '' && !page.group.startsWith('Design') && pageAllowed(page, session)
-    && (page.listed?.(session) ?? true))
+    && inProduct(product, page.path) && (page.listed?.(session) ?? true))
   const shortcuts = candidates.filter(page => (chosen ?? []).includes(page.path))
-  const lab = permissions.includes('lab.work-item.read')
-  const pharmacy = permissions.includes('pharmacy.work-item.read')
 
   const pending = access.state === 'ready' ? access.pending : 0
   const labItems = labRead.state === 'ready' ? labRead.items : []

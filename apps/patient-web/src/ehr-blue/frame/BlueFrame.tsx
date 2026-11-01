@@ -101,13 +101,13 @@ export function BlueFrame() {
   const allowed = useMemo(() => BLUE_PAGES.filter(page => pageAllowed(page, session, viewing)), [session, viewing])
   // What the sidebar and search offer: the allowed pages this session lists.
   // Only working screens are offered (the owner's decision of 2026-10-31): sample modules with fictional figures stay in
-  // the code for demos but are not listed in the sidebar or search. Home is always listed.
+  // the code for demos but are not listed in the sidebar or search.
   // A lab, pharmacy or outreach on its own sees only its product (product.ts); a hospital's EHR has them all.
   const product = productOf(window.location.hostname, permissions)
   const info = PRODUCTS[product]
   // Whether this session may open a single product's own page (its queue). When it may not, Home (the Overview) is its
-  // home instead, listed in the menu, as today's portal lands there (staff/navigation.ts staffLandingPath): the
-  // product's page would only refuse.
+  // home instead, as today's portal lands there (staff/navigation.ts staffLandingPath): the product's page would only
+  // refuse. So Home is always listed in the EHR, and in a single product only then, where /provider lands.
   const ownPage = product === 'ehr' ? undefined : BLUE_PAGES.find(page => basePath(page.path) === info.home)
   const ownPageOpen = ownPage !== undefined && pageAllowed(ownPage, session, viewing)
   const listed = useMemo(() => allowed.filter(page => (page.status !== 'sample' || page.path === '') && !INTERNAL_GROUPS.has(page.group)
@@ -159,9 +159,12 @@ export function BlueFrame() {
   const roles = facility ? facility.roles.join(', ') || 'Staff' : 'Staff'
   // In the EHR a page that joins another's tabs has no sidebar entry; in a single product (a pharmacy or lab on its own)
   // each is listed by its tab name ("To dispense", "New sale", "Stock").
-  // A single product's own pages come first (its menu), then anything else it holds (settings, insight).
+  // A single product's own pages come first (its menu), then anything else it holds (settings, insight). Home, listed
+  // there when the product's own page is not open to this session, leads both: it is where /provider landed.
   const own = (page: EhrBluePage) => basePath(page.path) === info.home || basePath(page.path).startsWith(`${info.home}/`)
-  const ordered = product === 'ehr' ? listed : [...listed.filter(own), ...listed.filter(page => !own(page))]
+  const isHome = (page: EhrBluePage) => page.path === ''
+  const ordered = product === 'ehr' ? listed
+    : [...listed.filter(isHome), ...listed.filter(own), ...listed.filter(page => !isHome(page) && !own(page))]
   const groups = navigationGroups(product === 'ehr' ? ordered.filter(page => !page.tabOf)
     : ordered.map(page => page.tabLabel ? { ...page, label: page.tabLabel } : page))
   // The groups a clinician opens all day stay open; the rest fold (Hick's Law), each opening while it holds the page.

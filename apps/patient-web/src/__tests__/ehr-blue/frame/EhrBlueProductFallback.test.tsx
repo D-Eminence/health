@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { LAB_WORK, REAL_FACILITY, SESSION, facility, homeHeading, json, openStaffApp, serve, sessionAt, where } from './blueHarness'
 
 /**
@@ -19,9 +19,12 @@ afterEach(() => { jsdom.reconfigure({ url: servedFrom }); vi.unstubAllGlobals();
 
 const many = <T,>(answer: T, count = 8): T[] => Array.from({ length: count }, () => answer)
 
-/** Opens the staff app at /provider on a product's site, for a person at a fictional clinic holding `permissions`. */
-async function openOn(host: string, permissions: readonly string[], routes: Record<string, (() => Response)[]> = {}) {
-  jsdom.reconfigure({ url: `https://${host}/provider` })
+/**
+ * Opens the staff app at /provider on a product's site, for a person at a fictional clinic holding `permissions`. With
+ * no host, it stays on the test's own address, which is no product's: the EHR's address, as on the main site.
+ */
+async function openOn(host: string | null, permissions: readonly string[], routes: Record<string, (() => Response)[]> = {}) {
+  if (host) jsdom.reconfigure({ url: `https://${host}/provider` })
   const clinic = facility(REAL_FACILITY, 'Riverside Diagnostics (fictional)', permissions, ['org_admin'])
   const sent = serve({ [SESSION]: [sessionAt(clinic, [clinic])], ...routes })
   await openStaffApp('/provider')
@@ -34,6 +37,11 @@ const firstTab = () => within(screen.getByRole('navigation', { name: 'Quick' }))
 
 /** A link in the sidebar's menu, by its name. */
 const menuLink = (name: string) => within(screen.getByRole('navigation', { name: 'Main navigation' })).queryByRole('link', { name })
+
+/** The sidebar menu's links' names, in order. */
+const menuNames = () => within(screen.getByRole('navigation', { name: 'Main navigation' })).getAllByRole('link').map(link => link.textContent)
+
+const CAMPAIGNS = 'GET /api/v1/outreach/registration-cases/campaigns'
 
 // Facility audit only: an administrator who holds none of the product's own permissions.
 const ADMIN_ONLY = ['audit.read']
@@ -62,14 +70,43 @@ describe('a product site whose own page this session may not open', () => {
     expect(firstTab().getAttribute('href')).toBe('/provider')
     expect(firstTab().textContent).toBe('Home')
   })
+
+  it('leads the menu with Home, where it landed, then the lab pages this role holds (a lab reception: new requests only)', async () => {
+    await openOn('lab.healthidentitydirectory.com', ['audit.read', 'lab.walk-in.create'])
+    await screen.findAllByRole('heading', { level: 1 })
+    expect(where()).toBe('/provider')
+    // The pages every product keeps (Audit & Compliance, under Insight) follow in their own folded group.
+    expect(menuNames().slice(0, 2)).toEqual(['Home', 'New request'])
+    expect(menuLink('New request')?.getAttribute('href')).toBe('/provider/laboratory/new')
+  })
+
+  it('on the EHR\'s address, a facility that runs only a lab (detected from its permissions) also lands on Home', async () => {
+    await openOn(null, ['lab.walk-in.create'])
+    await screen.findAllByRole('heading', { level: 1 })
+    expect(where()).toBe('/provider')
+    expect(screen.queryByRole('heading', { name: 'Laboratory unavailable' })).toBeNull()
+    expect(menuNames().slice(0, 2)).toEqual(['Home', 'New request'])
+  })
+
+  it('offers only this product\'s pages as Home\'s shortcuts: never patient registration, which stays in the EHR', async () => {
+    await openOn('lab.healthidentitydirectory.com', ['audit.read', 'identity.registration.write'])
+    await screen.findAllByRole('heading', { level: 1 })
+    expect(where()).toBe('/provider')
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    const drawer = await screen.findByRole('dialog', { name: 'Edit shortcuts' })
+    expect(within(drawer).getByRole('checkbox', { name: 'Audit & Compliance' })).toBeDefined()
+    expect(within(drawer).queryByRole('checkbox', { name: /Patient registration/ })).toBeNull()
+  })
 })
 
 describe('a product site whose own page this session may open', () => {
   it.each([
     ['lab.healthidentitydirectory.com', ['lab.work-item.read'], '/provider/laboratory/work', { [LAB_WORK]: many(() => json({ items: [] })) }],
     ['outreach.healthidentitydirectory.com', ['outreach.registration.read'], '/provider/outreach', {}],
+    // Campaign read alone opens Outreach too, as today's page does (outreach/page.tsx), though the menu does not list it.
+    ['outreach.healthidentitydirectory.com', ['outreach.campaign.read'], '/provider/outreach', { [CAMPAIGNS]: many(() => json([])) }],
     ['migrate.healthidentitydirectory.com', ['ocr.job.read'], '/provider/ocr', {}],
-  ] as const)('on %s, still opens the product\'s own page at /provider', async (host, permissions, page, routes) => {
+  ] as const)('on %s with %j, still opens the product\'s own page at /provider', async (host, permissions, page, routes) => {
     await openOn(host, permissions, routes)
     await waitFor(() => expect(where()).toBe(page))
     expect(screen.queryByRole('heading', { level: 1, name: homeHeading() })).toBeNull()
