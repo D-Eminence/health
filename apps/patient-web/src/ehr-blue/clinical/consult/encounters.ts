@@ -147,7 +147,7 @@ export function rowVersion(value: unknown): number | null {
  */
 export function fileSize(value: number | string | null | undefined): string {
   const count = value == null || value === '' ? NaN : Number(value)
-  return Number.isFinite(count) && count >= 0 ? `${Math.ceil(count / 1024).toLocaleString()} KiB` : 'Size unknown'
+  return Number.isFinite(count) && count >= 0 ? `${Math.ceil(count / 1024).toLocaleString()} KiB` : 'Size unavailable'
 }
 
 export function isoNow() { return new Date().toISOString() }

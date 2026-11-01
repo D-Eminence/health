@@ -580,7 +580,7 @@ describe('Consultation record: documents', () => {
     const opened = vi.spyOn(window, 'open').mockReturnValue(null)
     await openEncounter()
     const documents = within(card('Documents'))
-    expect(documents.getByText('PDF · 20 KiB · Checked')).toBeTruthy()
+    expect(documents.getByText('application/pdf · 20 KiB · scan: clean')).toBeTruthy()
     const checks = api.lookupPatient.mock.calls.length
     fireEvent.click(documents.getByRole('button', { name: 'Open file referral-letter.pdf' }))
     await waitFor(() => expect(opened).toHaveBeenCalledWith('https://storage.example.test/doc-1?signature=x', '_blank', 'noopener,noreferrer'))
@@ -607,7 +607,7 @@ describe('Consultation record: documents', () => {
     const row = async (fileName: string) => ((await within(card('Documents')).findByText(fileName)).closest('li') as HTMLElement).textContent
     expect(await row('empty-form.pdf')).toContain(' · 0 KiB · ')
     expect(await row('chest-film.tiff')).toContain(' · 1,536 KiB · ')
-    expect(await row('unsized-letter.pdf')).toContain(' · Size unknown · ')
+    expect(await row('unsized-letter.pdf')).toContain(' · Size unavailable · ')
     expect(within(card('Documents')).queryByText(/\d KB|\d MB/)).toBeNull()
   })
 
@@ -636,6 +636,7 @@ describe('Consultation record: documents', () => {
   it('checks the file, then uploads it after the access re-check', async () => {
     await openEncounter()
     const documents = within(card('Documents'))
+    expect(documents.getByText('Files are scanned before download becomes available.')).toBeTruthy()
     const upload = documents.getByRole('button', { name: 'Upload document' })
     expect(upload.getAttribute('type')).toBe('submit')
     fireEvent.click(upload)
@@ -648,7 +649,7 @@ describe('Consultation record: documents', () => {
     const file = new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })
     fireEvent.change(input, { target: { files: [file] } })
     fireEvent.click(upload)
-    expect(await documents.findByText('Uploaded. It can be opened once the virus check is done.')).toBeTruthy()
+    expect(await documents.findByText('Document uploaded. It can be opened once its virus scan is clean.')).toBeTruthy()
     expect(api.uploadDocument).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, file)
     expect(api.documents).toHaveBeenCalledTimes(2)
   })
