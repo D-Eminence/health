@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { DEMO_HOSPITAL, SESSION, openStaffApp, serve, where, type Sent } from '../frame/blueHarness'
+import { AGREEMENT_CHECK, DEMO_HOSPITAL, SESSION, openStaffApp, pageRoutes, serve, where, type Sent } from '../frame/blueHarness'
 import {
   RIVERSIDE, STAFF, eyebrow, heading, many, membership, nav, sessionWith, staffAnswer, stepButton, stepper, withOnboardingPages,
   type Review,
@@ -33,7 +33,8 @@ async function openSetup(path = '/provider/onboarding', review: Review = 'review
   return sent
 }
 
-const routes = (sent: readonly Sent[]) => sent.map(request => request.route)
+// What the setup asked for; the frame's agreement check (proposed) runs beside every page and is checked on its own.
+const routes = (sent: readonly Sent[]) => pageRoutes(sent)
 /** The Review step's rows, term to value. */
 const reviewFacts = () => Object.fromEntries([...document.querySelectorAll('.hid-ehr-onboarding-details dt')]
   .map(term => [term.textContent, term.nextElementSibling?.textContent]))
@@ -284,6 +285,8 @@ describe('steps 5 and 6, Staff and Roles', () => {
     press('Continue to billing')
     expect(eyebrow()).toBe('Step 7 of 9 · Billing')
     expect(routes(sent)).toEqual([SESSION, STAFF, STAFF])
+    // The administrator's workspace asked once whether a changed facility agreement needs agreeing to.
+    expect(sent.filter(request => request.route === AGREEMENT_CHECK)).toHaveLength(1)
   })
 })
 

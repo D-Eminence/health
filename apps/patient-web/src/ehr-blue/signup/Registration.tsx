@@ -5,28 +5,25 @@ import { AuthStepper } from '../../AuthLayout'
 import { organizationTypeLabel, organizationTypes, productLabel, productOptions, waitWords, type Product } from './enrollmentRules'
 import { Choices, ErrorWords } from './parts'
 import { CAC_STEP, PRODUCT_STEP, REGISTRATION_STEPS, REVIEW_STEP, shownSteps, type Enrollment } from './useEnrollment'
+import { ConsentChecks, type ConsentItem } from '../../agreements/ConsentChecks'
+import { FACILITY_AGREEMENT, facilityAgreeLabel } from '../../agreements/facilityAgreement'
 
 /**
- * The agreements, required before sending. Health ID records no acceptance, so the boxes say what the applicant has
- * read or will do; there is no Data Processing Agreement, so it has no box. The two documents are linked in the line
- * itself, so nothing else repeats them.
+ * The facility agreement, signed on the review: its short version, one tick, and the signer's full name typed as the
+ * signature (the administrator's name from the first step until it is changed here). Kept in React state while the page
+ * is open; recorded once the administrator's account exists (BlueProviderEnrollment.tsx), never in the start's request.
  */
-export const AGREEMENTS = [
-  ['terms', 'I have read the', 'Terms of Service'],
-  ['privacy', 'I have read the', 'Privacy Policy'],
-  ['ndpa', 'I will protect patients’ data and ask for their consent', null],
-  ['authorised', 'I am allowed to register this facility', null],
-] as const
-export type Agreement = (typeof AGREEMENTS)[number][0]
-export type Agreements = Readonly<Record<Agreement, boolean>>
-export const NO_AGREEMENTS: Agreements = { terms: false, privacy: false, ndpa: false, authorised: false }
-
-// The public site's legal pages, as the patient sign-up links them (routes/enrollment/Signup.tsx:92-93). Absolute: a
-// relative /terms on the portal's own origin opens the patient sign-in, not the legal page.
-const LEGAL_URLS: Readonly<Record<string, string>> = {
-  terms: 'https://healthidentitydirectory.com/terms',
-  privacy: 'https://healthidentitydirectory.com/privacy',
+export interface FacilitySigning {
+  readonly agreed: boolean
+  /** The name typed here; null until it is changed, when the first step's name stands. */
+  readonly signerName: string | null
 }
+export const NO_SIGNING: FacilitySigning = { agreed: false, signerName: null }
+
+/** The signature's name: the one typed here, or the administrator's from the first step. */
+export const signerOf = (signing: FacilitySigning, e: Pick<Enrollment, 'name'>) => signing.signerName ?? e.name.trim()
+
+const AGREE_ID = 'facility-agreement'
 
 /** The fixed ids of the controls Health ID takes, so a problem can point at one. */
 export const IDS = {
@@ -35,6 +32,7 @@ export const IDS = {
   type: 'hid-ehr-signup-type',
   cac: 'hid-ehr-signup-cac',
   product: 'hid-ehr-signup-product',
+  signer: 'hid-ehr-signup-signer',
 } as const
 
 const HEADING_ID = 'hid-ehr-signup-step-title'
@@ -67,23 +65,35 @@ function problemsOf(step: number, e: Enrollment): Problems {
 
 const FIRST: Record<Checked, string> = { name: IDS.name, email: IDS.email, cac: IDS.cac }
 
+/** What signing needs before Send: the tick, and a full name. */
+interface SigningProblems { readonly agree?: true; readonly name?: string }
+function signingProblems(signing: FacilitySigning, signer: string): SigningProblems {
+  const name = signer.trim()
+  return {
+    ...(signing.agreed ? {} : { agree: true as const }),
+    ...(!name ? { name: 'Enter your full name.' } : name.length < 2 ? { name: 'Enter at least two letters.' } : {}),
+  }
+}
+
 /**
  * Register a facility: one question a step, each named once by its heading (the stepper says only "Step 2 of 5").
  * Step 1 takes the administrator's name and email, step 2 the facility type, step 3 the CAC number, step 4 the product,
  * which a type with only one product is not asked (it is chosen already, and the review says which). The last step
- * lists the answers, each section with one Edit, and the four required agreements; Send runs today's start beside
- * today's security check.
+ * lists the answers, each section with one Edit, and the facility agreement to sign; Send runs today's start beside
+ * today's security check, with exactly today's request. Send stays enabled: a missing tick or name is said at its place.
  */
-export function Registration({ e, agreed, onAgree }: {
+export function Registration({ e, signing, onSigning }: {
   readonly e: Enrollment
-  readonly agreed: Agreements
-  readonly onAgree: (agreement: Agreement, value: boolean) => void
+  readonly signing: FacilitySigning
+  readonly onSigning: (next: FacilitySigning) => void
 }) {
   const stepHeading = useRef<HTMLHeadingElement>(null)
   const [problems, setProblems] = useState<Problems>({})
   const [incomplete, setIncomplete] = useState(false)
   // The field to focus after a Continue it stopped: the first one with a problem.
   const [fieldFocus, setFieldFocus] = useState<{ id: string } | null>(null)
+  const [signProblems, setSignProblems] = useState<SigningProblems>({})
+  const [agreeFocus, setAgreeFocus] = useState(0)
   const step = e.regStep
   const checking = e.availability === 'checking'
   const shown = shownSteps(e.organizationType)
@@ -100,6 +110,7 @@ export function Registration({ e, agreed, onAgree }: {
 
   function move(to: number) {
     setProblems({})
+    setSignProblems({})
     setIncomplete(false)
     e.setError(null)
     e.toStep(to)
@@ -116,7 +127,7 @@ export function Registration({ e, agreed, onAgree }: {
 
   /** Every step is checked again first; the first one missing something is shown. Then today's start. */
   function submit() {
-    if (e.busy || !allAgreed || !e.turnstileToken || e.retryIn > 0) return
+    if (e.busy || !e.turnstileToken || e.retryIn > 0) return
     for (let earlier = 0; earlier < REVIEW_STEP; earlier++) {
       const found = problemsOf(earlier, e)
       if (Object.keys(found).length) {
@@ -126,10 +137,21 @@ export function Registration({ e, agreed, onAgree }: {
         return
       }
     }
+    // The agreement, on this step: the first thing missing takes focus, and says why.
+    const unsigned = signingProblems(signing, signerOf(signing, e))
+    setSignProblems(unsigned)
+    if (unsigned.agree) { setAgreeFocus(value => value + 1); return }
+    if (unsigned.name) { setFieldFocus({ id: IDS.signer }); return }
     void e.start()
   }
 
-  const allAgreed = AGREEMENTS.every(([key]) => agreed[key])
+  const sign = (next: FacilitySigning) => {
+    onSigning(next)
+    setSignProblems(current => ({
+      ...(current.agree && !next.agreed ? { agree: true as const } : {}),
+      ...(current.name && next.signerName === signing.signerName ? { name: current.name } : {}),
+    }))
+  }
   const refusalAtCac = e.error?.at === 'cac' ? e.error : null
   const stepError = e.error && !refusalAtCac ? e.error : null
 
@@ -178,7 +200,8 @@ export function Registration({ e, agreed, onAgree }: {
           options={productOptions[e.organizationType].map(code => ({ value: code, label: productLabel(code) }))}
           onChange={value => e.setProductCode(value as Product)} />}
 
-        {step === REVIEW_STEP && <Review e={e} agreed={agreed} onAgree={onAgree} onEdit={move} />}
+        {step === REVIEW_STEP && <Review e={e} signing={signing} onSigning={sign} problems={signProblems} agreeFocus={agreeFocus}
+          onEdit={move} />}
 
         {stepError ? <p role="alert" className="hid-ehr-signup-alert"><ErrorWords error={stepError} /></p> : null}
 
@@ -189,7 +212,7 @@ export function Registration({ e, agreed, onAgree }: {
         <div className="hid-ehr-signup-actions">
           {at > 0 ? <EhrButton type="button" variant="secondary" onClick={() => move(shown[at - 1]!)}>Back</EhrButton> : null}
           {step === REVIEW_STEP
-            ? <EhrButton type="submit" busy={e.busy} disabled={!allAgreed || !e.turnstileToken || e.retryIn > 0}>
+            ? <EhrButton type="submit" busy={e.busy} disabled={!e.turnstileToken || e.retryIn > 0}>
               {e.busy ? 'Sending…' : 'Send'}
             </EhrButton>
             : <EhrButton type="submit">Continue</EhrButton>}
@@ -201,13 +224,17 @@ export function Registration({ e, agreed, onAgree }: {
   )
 }
 
-/** Check and send: the answers in one short list, one Edit a section, the agreements, and what Send does. */
-function Review({ e, agreed, onAgree, onEdit }: {
+/** Check and send: the answers in one short list, one Edit a section, the agreement to sign, and what Send does. */
+function Review({ e, signing, onSigning, problems, agreeFocus, onEdit }: {
   readonly e: Enrollment
-  readonly agreed: Agreements
-  readonly onAgree: (agreement: Agreement, value: boolean) => void
+  readonly signing: FacilitySigning
+  readonly onSigning: (next: FacilitySigning) => void
+  readonly problems: SigningProblems
+  readonly agreeFocus: number
   readonly onEdit: (step: number) => void
 }) {
+  const items: readonly ConsentItem[] = [{ id: AGREE_ID, label: facilityAgreeLabel(e.registering?.organizationName), required: true,
+    document: FACILITY_AGREEMENT, readLabel: 'Read the facility agreement' }]
   // Each section with the step that holds it; never a password. A product the type decides has no Edit: the type's has.
   const choosesProduct = productOptions[e.organizationType].length > 1
   const sections: ReadonlyArray<{ step: number; edit: string; rows: ReadonlyArray<readonly [string, string]> }> = [
@@ -246,16 +273,15 @@ function Review({ e, agreed, onAgree, onEdit }: {
           onClick={() => e.enterCodeInForce(carried)}>Use the details I gave before</EhrButton> : null}
       </div> : null}
 
-      <fieldset className="hid-ehr-signup-checks">
-        <legend className="hid-ehr-sr-only">Agreements</legend>
-        {AGREEMENTS.map(([key, words, link]) => (
-          <label key={key} className="hid-ehr-signup-check">
-            <input type="checkbox" required checked={agreed[key]} onChange={event => onAgree(key, event.target.checked)} />
-            <span>{words}{link ? <> <a className="hid-ehr-signup-link" href={LEGAL_URLS[key]} target="_blank"
-              rel="noopener">{link}</a></> : null}</span>
-          </label>
-        ))}
-      </fieldset>
+      <ConsentChecks idPrefix="hid-ehr-signup-agreement" summary={FACILITY_AGREEMENT} items={items} legend="Facility agreement"
+        checked={{ [AGREE_ID]: signing.agreed }} onChange={(_, value) => onSigning({ ...signing, agreed: value })}
+        errors={problems.agree ? [AGREE_ID] : []} focusRequest={agreeFocus} />
+      <div className="hid-ehr-signup-fields">
+        <EhrField label="Your full name" controlId={IDS.signer} hint="Typed as your signature." error={problems.name}>
+          <EhrInput required minLength={2} maxLength={200} autoComplete="name" value={signerOf(signing, e)}
+            onChange={event => onSigning({ ...signing, signerName: event.target.value })} />
+        </EhrField>
+      </div>
 
       <p className="hid-ehr-signup-hint">When you send, we check your CAC number and email a 6-digit code
         to {e.administratorEmail || 'you'}. There’s nothing to pay.</p>

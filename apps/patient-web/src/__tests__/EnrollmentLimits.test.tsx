@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { Enrollment } from '../routes/Enrollment'
 import { enterCode } from './codeBoxes'
+import { agreeToTerms } from './agreeToTerms'
 
 const api = vi.hoisted(() => ({
   enrollmentCurrent: vi.fn(), googleOnboarding: vi.fn(), enrollmentStart: vi.fn(), enrollmentContact: vi.fn(),
@@ -64,6 +65,7 @@ describe('enrollment limits', () => {
     api.enrollmentActivate.mockRejectedValue(new HidApiError(429, 'Too many enrollment requests; try again later', { code: 'ENROLLMENT_RATE_LIMITED' }))
     render(<MemoryRouter><Enrollment /></MemoryRouter>)
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
+    agreeToTerms()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Get my Health ID' })) })
     const hint = await screen.findByText(/Too many tries/)
     expect(hint.textContent).toMatch(/15 minutes/)

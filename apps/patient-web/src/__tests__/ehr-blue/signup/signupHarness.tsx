@@ -88,19 +88,18 @@ export const PRODUCT_NAMES: Readonly<Record<string, string>> = { ehr: 'Health ID
   pharmacy: 'Health ID Pharmacy', migrate: 'Health ID Migrate' }
 const ONE_PRODUCT = new Set(['laboratory', 'pharmacy'])
 
-export const AGREEMENT_LABELS = ['I have read the Terms of Service', 'I have read the Privacy Policy',
-  'I will protect patients’ data and ask for their consent', 'I am allowed to register this facility']
+/** The facility agreement's one box, before Identity has named the facility. */
+export const AGREEMENT_LABEL = 'I agree to this for this facility, and I’m allowed to sign for it'
 
+/** Ticks the facility agreement; the signer's name is the administrator's from the first step. */
 export function agreeToAll() {
-  for (const name of AGREEMENT_LABELS) {
-    const box = screen.getByRole('checkbox', { name }) as HTMLInputElement
-    if (!box.checked) fireEvent.click(box)
-  }
+  const box = screen.getByRole('checkbox', { name: AGREEMENT_LABEL }) as HTMLInputElement
+  if (!box.checked) fireEvent.click(box)
 }
 
 export const submitButton = () => button('Send')
 
-/** Ticks the agreements and sends: the review is the check, so no dialog asks again. */
+/** Ticks the agreement and sends: the review is the check, so no dialog asks again. */
 export async function submitRegistration() {
   agreeToAll()
   fireEvent.click(submitButton())

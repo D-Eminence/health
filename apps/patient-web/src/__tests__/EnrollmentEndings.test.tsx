@@ -3,6 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { json, press, problem, renderPortal, type Handler, shownText } from './portalHarness'
 import { enterCode } from './codeBoxes'
+import { agreeToTerms } from './agreeToTerms'
 
 vi.mock('../Turnstile', () => ({
   Turnstile: ({ onTokenChange }: { onTokenChange: (token: string | null) => void }) =>
@@ -40,7 +41,7 @@ async function submitNin() {
 async function toPassword() {
   await submitNin()
   fireEvent.change(await screen.findByLabelText('Password'), { target: { value: PASSWORD } })
-  await press(screen.getByRole('button', { name: 'Get my Health ID' }))
+  agreeToTerms(); await press(screen.getByRole('button', { name: 'Get my Health ID' }))
 }
 
 /**
@@ -113,7 +114,7 @@ describe('starting again after review', () => {
     await press(screen.getByRole('button', { name: 'Send code' }))
     await enterCode(await screen.findByLabelText('Code'), '123456')
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: PASSWORD } })
-    await press(screen.getByRole('button', { name: 'Get my Health ID' }))
+    agreeToTerms(); await press(screen.getByRole('button', { name: 'Get my Health ID' }))
     await screen.findByLabelText('National Identification Number (NIN)')
     start = () => json({ stage: 'verify_contact', requiredProfileFields: [] })
     await submitNin()

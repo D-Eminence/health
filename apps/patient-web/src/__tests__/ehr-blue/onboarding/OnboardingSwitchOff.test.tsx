@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import { onboardingPage } from '../../../ehr-blue/onboarding/page'
-import { DEMO_HOSPITAL, SESSION, openStaffApp, serve } from '../frame/blueHarness'
+import { DEMO_HOSPITAL, SESSION, openStaffApp, serve, pageRoutes } from '../frame/blueHarness'
 import { membership, nav, sessionWith, staffSession, withOnboardingPages } from './onboardingHarness'
 
 /*
@@ -31,6 +31,6 @@ describe('with the clinic switch off', () => {
     expect(within(nav()).queryByRole('link', { name: 'Facility setup' })).toBeNull()
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Facility setup')
     expect(screen.getByText('Facility setup is for a facility that signed itself up to Health ID.')).toBeDefined()
-    expect(sent.map(request => request.route)).toEqual([SESSION])
+    expect(pageRoutes(sent)).toEqual([SESSION])
   })
 })

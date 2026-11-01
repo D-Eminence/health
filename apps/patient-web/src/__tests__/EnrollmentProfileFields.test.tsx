@@ -3,6 +3,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { described, json, press, problem, renderPortal, type Handler, shownText } from './portalHarness'
 import { enterCode } from './codeBoxes'
+import { agreeToTerms } from './agreeToTerms'
 
 vi.mock('../Turnstile', () => ({
   Turnstile: ({ onTokenChange }: { onTokenChange: (token: string | null) => void }) =>
@@ -65,7 +66,7 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
     expect(activateButton().disabled).toBe(false)
     expect(activateButton().getAttribute('aria-describedby')).toBeNull()
 
-    await press(activateButton())
+    agreeToTerms(); await press(activateButton())
     expect(await screen.findByText('HID-ABCDEF23')).toBeTruthy()
     expect(activations(sent).map(request => request.body)).toEqual([{ password: PASSWORD, dateOfBirth: '1990-02-03', gender: 'intersex' }])
     expect(setItem).not.toHaveBeenCalled()
@@ -77,7 +78,7 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
     expect(screen.queryByLabelText('Date of birth')).toBeNull()
     expect(described(screen.getByLabelText('Gender'))).toContain('Your NIN record has no gender, so add it here.')
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: PASSWORD } })
-    await press(activateButton())
+    agreeToTerms(); await press(activateButton())
     await screen.findByText('HID-ABCDEF23')
     expect(activations(sent).map(request => request.body)).toEqual([{ password: PASSWORD, gender: 'female' }])
   })
@@ -90,7 +91,7 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: PASSWORD } })
     expect(screen.queryByLabelText('Date of birth')).toBeNull()
     expect(screen.queryByLabelText('Gender')).toBeNull()
-    await press(activateButton())
+    agreeToTerms(); await press(activateButton())
     await screen.findByText('HID-ABCDEF23')
     expect(activations(sent).map(request => request.body)).toEqual([{ password: PASSWORD }])
   })
@@ -112,7 +113,7 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
     const dob = await screen.findByLabelText('Date of birth')
     fireEvent.change(dob, { target: { value: '1899-12-31' } })
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: PASSWORD } })
-    await press(activateButton())
+    agreeToTerms(); await press(activateButton())
     await waitFor(() => expect(dob.getAttribute('aria-invalid')).toBe('true'))
     expect(described(dob)).toContain('Enter a real date of birth. It cannot be before 1 January 1900 or in the future.')
     expect(document.activeElement).toBe(dob)
@@ -128,7 +129,7 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
     fireEvent.change(screen.getByLabelText('Gender'), { target: { value: 'male' } })
     const password = screen.getByLabelText('Password')
     fireEvent.change(password, { target: { value: PASSWORD } })
-    await press(activateButton())
+    agreeToTerms(); await press(activateButton())
     await waitFor(() => expect(dob.getAttribute('aria-invalid')).toBe('true'))
     expect(described(dob)).toContain(detail)
     expect(document.activeElement).toBe(dob)
@@ -145,7 +146,7 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
         : problem(400, 'ENROLLMENT_PROFILE_REQUIRED', 'Enter your gender')), anonymous)
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: PASSWORD } })
     current = atPassword(['gender'])
-    await press(activateButton())
+    agreeToTerms(); await press(activateButton())
 
     const gender = await screen.findByLabelText('Gender')
     await waitFor(() => expect(document.activeElement).toBe(gender))
@@ -154,7 +155,7 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
     expect((screen.getByLabelText('Password') as HTMLInputElement).value).toBe(PASSWORD)
 
     fireEvent.change(gender, { target: { value: 'other' } })
-    await press(activateButton())
+    agreeToTerms(); await press(activateButton())
     await screen.findByText('HID-ABCDEF23')
     expect(activations(sent).map(request => request.body)).toEqual([{ password: PASSWORD }, { password: PASSWORD, gender: 'other' }])
   })
@@ -169,13 +170,13 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
     fireEvent.change(screen.getByLabelText('Gender'), { target: { value: 'female' } })
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: PASSWORD } })
     current = atPassword(['gender'])
-    await press(activateButton())
+    agreeToTerms(); await press(activateButton())
 
     await waitFor(() => expect(screen.queryByLabelText('Date of birth')).toBeNull())
     const gender = screen.getByLabelText('Gender') as HTMLSelectElement
     expect(gender.value).toBe('female')
     expect(shownText(screen.getByRole('alert'))).toBe(detail)
-    await press(activateButton())
+    agreeToTerms(); await press(activateButton())
     await screen.findByText('HID-ABCDEF23')
     expect(activations(sent).map(request => request.body)).toEqual([
       { password: PASSWORD, dateOfBirth: '1990-02-03', gender: 'female' }, { password: PASSWORD, gender: 'female' }])
@@ -186,7 +187,7 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
     fireEvent.change(await screen.findByLabelText('Date of birth'), { target: { value: '1990-02-03' } })
     fireEvent.change(screen.getByLabelText('Gender'), { target: { value: 'female' } })
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: PASSWORD } })
-    await press(activateButton())
+    agreeToTerms(); await press(activateButton())
     const ready = await screen.findByRole('heading', { name: 'Your Health ID is ready' })
     expect(within(ready.closest<HTMLElement>('[role="status"]')!).queryByText(/1990/)).toBeNull()
     expect(document.body.textContent).not.toContain('1990-02-03')
@@ -206,6 +207,7 @@ describe('sending the password step with Enter in the password field', () => {
     fireEvent.change(await screen.findByLabelText('Date of birth'), { target: { value: date } })
     const password = screen.getByLabelText('Password')
     fireEvent.change(password, { target: { value: PASSWORD } })
+    agreeToTerms()
     password.focus()
     await act(async () => { fireEvent.submit(password.closest('form')!) })
     return password

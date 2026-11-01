@@ -29,6 +29,8 @@ import { FacilityStep } from './enrollment/FacilityStep'
 import { AlreadyRegistered, RegistrationCompleted, RegistrationEnded } from './enrollment/Outcomes'
 import { PatientSignup } from './enrollment/Signup'
 import { signupEmailOf } from './enrollment/signupHandoff'
+import { usePatientConsent } from '../agreements/patientConsent'
+import { patientConsentRecord, recordQuietly } from '../agreements/records'
 
 /**
  * The stages of a registration. Since hid-system #84 (ADR-062) every start
@@ -284,6 +286,8 @@ export function Enrollment() {
   const [heldForHealthId, setHeldForHealthId] = useState(false)
   // The same, for the NIN route's Health ID (enrollment/Complete.tsx).
   const [signedInHere, setSignedInHere] = useState(false)
+  // The agreements, on the password step (the last before activation); recorded once activation signs the patient in.
+  const consent = usePatientConsent()
   /**
    * Whether an activation signed the patient in on this device. Its session is taken up as sign-in takes up its own
    * (session.tsx), with this page held first, so the render that finds the patient signed in still shows the Health ID.
@@ -730,8 +734,11 @@ export function Enrollment() {
     if (googleRequired && !googlePending) { setError('Connect Google again to finish.'); setFieldError(false); return }
     if (profileFields.includes('dateOfBirth') && !plausibleDateOfBirth(dateOfBirth)) {
       setProfileError('dateOfBirth'); setError(DATE_OF_BIRTH_RULE); setFieldError(true); setErrorAlert(fromField); stepFocus.focus()
+      consent.check(false)
       return
     }
+    // A required box left unticked is said under it, and focus moves to the first; nothing is sent.
+    if (consent.check(true).length) { clearError(); setProfileError(null); return }
     // Only the fields the record lacks are sent: Identity refuses one it gives.
     const profile: EnrollmentProfile = {
       ...(profileFields.includes('dateOfBirth') ? { dateOfBirth } : {}),
@@ -742,6 +749,7 @@ export function Enrollment() {
       const result = await api.enrollmentActivate(password, profile)
       // Taken up before the Health ID is shown, as sign-in takes up its session; never a refusal of the activation.
       const signedIn = await signedInByActivation(result)
+      if (signedIn) recordQuietly(() => api.recordConsents(patientConsentRecord(consent.checked), crypto.randomUUID()))
       setPassword(''); forgetProfile(); forgetRecordName()
       setHidCode(result.hidCode)
       setSignedInHere(signedIn)
@@ -919,7 +927,7 @@ export function Enrollment() {
       {ready && stage === 'password' && <PasswordStep {...stepProps} password={password} onPassword={setPassword} onSubmit={event => void submitPassword(event)}
         blocked={googleRequired && !googlePending} limitNote={stepHint === 'activation'}
         profileFields={profileFields} dateOfBirth={dateOfBirth} onDateOfBirth={setDateOfBirth} gender={gender} onGender={setGender}
-        errorField={fieldError ? profileError ?? 'password' : null} />}
+        errorField={fieldError ? profileError ?? 'password' : null} consent={consent} />}
       {/* Without the name (sent only within 15 minutes of the start), the way back to the NIN step is still offered. */}
       {ready && !recordName && differentNinOffered && RECORD_NAME_STAGES.includes(stage)
         && <Button variant="link" className="self-start" disabled={busy} onClick={() => void differentNin()}>Use a different NIN</Button>}

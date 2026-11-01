@@ -21,11 +21,16 @@ import { Hint, InputR, SelectR } from '../profileParts'
 import { STEP_UNAVAILABLE, refusedWith, registrationClosed, temporarilyUnavailable } from './problems'
 import { DEFAULT_PHONE_COUNTRY, PHONE_COUNTRIES, internationalPhone } from './phoneCountries'
 import { ExistingAccountAlert, existingAccount, type ExistingAccount } from './googleAccountExists'
+import { ConsentChecks } from '../../agreements/ConsentChecks'
+import { PATIENT_TERMS } from '../../agreements/patientTerms'
+import { PATIENT_CONSENT_ITEMS, usePatientConsent } from '../../agreements/patientConsent'
+import { patientConsentRecord, recordQuietly } from '../../agreements/records'
 
 /**
  * The patient sign-up without a NIN (an owner decision, 2026-10-27), as hid-1.0's
- * PatientAuth: the details, a password with the security check, a code sent to
- * the email, then the Health ID. The NIN is verified later, from the profile.
+ * PatientAuth: the details, a password with the security check and the agreements
+ * (the last step before the account is made), a code sent to the email, then the
+ * Health ID. The NIN is verified later, from the profile.
  * Shown by routes/Enrollment.tsx only while Identity's availability read says
  * `signup: true`; until then the NIN-first enrollment is shown as before.
  *
@@ -36,11 +41,11 @@ import { ExistingAccountAlert, existingAccount, type ExistingAccount } from './g
  * sign in.
  */
 type SignupStep = 'details' | 'password' | 'code' | 'done'
-type DetailsField = 'firstName' | 'lastName' | 'email' | 'phone' | 'gender' | 'hospitalCurrentlyUsing' | 'terms'
+type DetailsField = 'firstName' | 'lastName' | 'email' | 'phone' | 'gender' | 'hospitalCurrentlyUsing'
 type Field = DetailsField | 'password' | 'code'
 type FieldErrors = Partial<Record<Field, string>>
 
-const DETAILS_ORDER: readonly DetailsField[] = ['firstName', 'lastName', 'email', 'phone', 'gender', 'hospitalCurrentlyUsing', 'terms']
+const DETAILS_ORDER: readonly DetailsField[] = ['firstName', 'lastName', 'email', 'phone', 'gender', 'hospitalCurrentlyUsing']
 const PASSWORD_ORDER: readonly Field[] = ['password']
 
 const GENDER_LABELS: Record<SignupGender, string> = { female: 'Female', male: 'Male', other: 'Other' }
@@ -52,7 +57,6 @@ export const SIGNUP_PROBLEMS: Record<DetailsField, string> = {
   phone: 'Enter your phone number, like 0801 234 5678 for Nigeria. Or start with + and the country code.',
   gender: 'Select your gender.',
   hospitalCurrentlyUsing: 'Check the name of the hospital you currently use.',
-  terms: 'Agree to the Terms of Service and Privacy Policy to create an account.',
 }
 export const PASSWORD_RULE = 'Choose a password of at least 12 characters.'
 /** 409 PATIENT_EMAIL_ALREADY_REGISTERED; shown with a link to sign in. */
@@ -69,7 +73,7 @@ const resendWaitText = (seconds: number) => `A code was sent recently. You can a
 /** Identity's field names in a 400 VALIDATION_FAILED, to the fields of the details step. */
 const SERVER_FIELDS: Readonly<Record<string, DetailsField>> = {
   firstName: 'firstName', lastName: 'lastName', email: 'email', phone: 'phone', gender: 'gender',
-  hospitalCurrentlyUsing: 'hospitalCurrentlyUsing', termsAccepted: 'terms',
+  hospitalCurrentlyUsing: 'hospitalCurrentlyUsing',
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -87,13 +91,9 @@ interface Details {
   phoneCountry: string
   gender: SignupGender | ''
   hospitalCurrentlyUsing: string
-  terms: boolean
 }
-/** The agreement a patient accepts at sign-up, on the public site (hid-1.0's legal text). */
-export const TERMS_URL = 'https://healthidentitydirectory.com/terms'
-export const PRIVACY_URL = 'https://healthidentitydirectory.com/privacy'
 const EMPTY_DETAILS: Details = {
-  firstName: '', lastName: '', email: '', phone: '', phoneCountry: DEFAULT_PHONE_COUNTRY, gender: '', hospitalCurrentlyUsing: '', terms: false,
+  firstName: '', lastName: '', email: '', phone: '', phoneCountry: DEFAULT_PHONE_COUNTRY, gender: '', hospitalCurrentlyUsing: '',
 }
 
 function detailsProblems(details: Details): FieldErrors {
@@ -103,7 +103,6 @@ function detailsProblems(details: Details): FieldErrors {
   if (!EMAIL_PATTERN.test(details.email.trim())) problems.email = SIGNUP_PROBLEMS.email
   if (internationalPhone(details.phone, details.phoneCountry) === null) problems.phone = SIGNUP_PROBLEMS.phone
   if (!details.gender) problems.gender = SIGNUP_PROBLEMS.gender
-  if (!details.terms) problems.terms = SIGNUP_PROBLEMS.terms
   return problems
 }
 
@@ -168,6 +167,9 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
   const [googleToken, setGoogleToken] = useState<string | null>(null)
   const [googleResetKey, setGoogleResetKey] = useState(0)
   const [accountExists, setAccountExists] = useState<ExistingAccount | null>(null)
+  // The three boxes, on the password step: the last before the account is made. termsAccepted is sent only once both
+  // required boxes are ticked (the sign-up is not sent before), and the boxes are recorded once the patient is signed in.
+  const consent = usePatientConsent()
 
   /** A field's error goes once it is changed. */
   const dropError = (field: Field) => setFieldErrors(current => {
@@ -218,6 +220,7 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
     const result = await api.enrollmentActivate(password)
     // Taken up before the Health ID is shown, as sign-in takes up its session; never a refusal of the activation.
     const signedInHere = await signedInByActivation(result)
+    if (signedInHere) recordQuietly(() => api.recordConsents(patientConsentRecord(consent.checked), crypto.randomUUID()))
     setPassword(''); setCode('')
     setSignedIn(signedInHere); setHidCode(result.hidCode); setStep('done')
   }
@@ -240,11 +243,14 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
     if (busy) return
     // Typed once, with Show to check it (the review of 2026-10-31): there is no second field to match.
     const problems = passwordProblems(password)
+    // The boxes are checked with the password; focus goes to the password first, then to the first box missing.
+    const missing = consent.check(!problems.password)
     if (Object.keys(problems).length) {
       setNotice(null); setFieldErrors(problems); setError(fromField ? problems.password ?? null : null); setErrorAlert(true)
       stepFocus.focus()
       return
     }
+    if (missing.length) { setNotice(null); setFieldErrors({}); setError(null); return }
     if (!verified && !turnstileToken) return
     setBusy(true); clearMessages()
     try {
@@ -415,14 +421,6 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
         <HospitalPicker id="signup-hospital" inputRef={target('hospitalCurrentlyUsing', detailsFocus)} value={details.hospitalCurrentlyUsing}
           onChange={value => update('hospitalCurrentlyUsing', value)}
           invalid={invalid('hospitalCurrentlyUsing')} describedBy={errorId('hospitalCurrentlyUsing')} /></Field>
-      <div className="flex flex-col gap-1.5">
-        <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm text-ink"><input ref={target('terms', detailsFocus)} type="checkbox" className="mt-0.5 size-5 shrink-0 accent-[var(--color-brand-fill)]" checked={details.terms}
-          onChange={event => update('terms', event.target.checked)} aria-invalid={invalid('terms')} aria-describedby={describedBy('signup-terms-links', errorId('terms'))} />
-          I agree to the Terms of Service and Privacy Policy</label>
-        <p id="signup-terms-links" className="m-0 pl-8 text-[13px] text-ink-3">Read the <a href={TERMS_URL} target="_blank" rel="noopener" className="text-brand-ink underline underline-offset-2">Terms</a> and
-          the <a href={PRIVACY_URL} target="_blank" rel="noopener" className="text-brand-ink underline underline-offset-2">Privacy Policy</a> (new tab).</p>
-        {fieldErrors.terms && <p id="signup-terms-error" className="m-0 pl-8 text-xs font-medium text-danger-ink">{fieldErrors.terms}</p>}
-      </div>
       <Hint>You can add your NIN (National Identification Number) later, from your profile.</Hint>
       <Button type="submit" variant="primary" size="lg" block disabled={busy}>Continue</Button>
     </form>}
@@ -435,6 +433,8 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
           onChange={event => { setPassword(event.target.value); dropError('password') }}
           aria-invalid={invalid('password')} aria-describedby={describedBy('signup-password-hint', errorId('password'))} />
         <PasswordRules id="signup-password-hint" password={password} /></Field>
+      <ConsentChecks idPrefix="signup-consent" summary={PATIENT_TERMS} items={PATIENT_CONSENT_ITEMS} checked={consent.checked}
+        onChange={consent.onChange} errors={consent.errors} focusRequest={consent.focusRequest} />
       {!verified && <Turnstile action="patient-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />}
       {!verified && !turnstileToken && <Hint id="signup-check-needed">Complete the security check to continue.</Hint>}
       <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || (!verified && !turnstileToken)}

@@ -51,7 +51,15 @@ async function fillDetails({ email = 'ada@example.com', phone = '0801 234 5678' 
   type('First name', 'Ada'); type('Last name', 'Obi'); type('Email address', email); type('Phone number', phone)
   fireEvent.change(field('Gender'), { target: { value: 'female' } })
   type('Hospital you use (optional)', 'Lagos General')
-  fireEvent.click(screen.getByRole('checkbox', { name: 'I agree to the Terms of Service and Privacy Policy' }))
+}
+const TERMS = 'I agree to the Terms of use'
+const HEALTH_DATA = 'I agree to Health ID keeping my health records and sharing them only as I choose'
+const UPDATES = 'Send me occasional updates by email'
+const box = (name: string) => screen.getByRole('checkbox', { name }) as HTMLInputElement
+/** The two required boxes, on the password step (the last before the account is made). */
+function agree() {
+  if (!box(TERMS).checked) fireEvent.click(box(TERMS))
+  if (!box(HEALTH_DATA).checked) fireEvent.click(box(HEALTH_DATA))
 }
 async function toPassword() {
   await fillDetails()
@@ -61,6 +69,7 @@ async function toPassword() {
 /** The password is typed once, with Show to check it (the review of 2026-10-31: no second field to match). */
 async function sendPassword(password = PASSWORD) {
   type('Password', password)
+  agree()
   fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
   await press(screen.getByRole('button', { name: 'Create account' }))
 }
@@ -77,8 +86,8 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
 
     expect(await screen.findByRole('group', { name: 'Sign-up steps' })).toBeTruthy()
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
-    expect(screen.getByRole('link', { name: 'Terms' }).getAttribute('href')).toBe('https://healthidentitydirectory.com/terms')
-    expect(screen.getByRole('link', { name: 'Privacy Policy' }).getAttribute('href')).toBe('https://healthidentitydirectory.com/privacy')
+    // The agreements are on the last step before the account is made, not the details.
+    expect(screen.queryByRole('checkbox')).toBeNull()
     await toPassword()
     expect(document.activeElement).toBe(field('Password'))
     await sendPassword()
@@ -118,14 +127,66 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     expect(described(field('Email address'))).toContain('Enter your email address, like name@example.com.')
     expect(described(field('Phone number'))).toContain('Enter your phone number')
     expect(described(field('Gender'))).toBe('Select your gender.')
-    expect(described(screen.getByRole('checkbox', { name: 'I agree to the Terms of Service and Privacy Policy' })))
-      .toBe('Read the Terms and the Privacy Policy (new tab). | Agree to the Terms of Service and Privacy Policy to create an account.')
     expect(screen.queryByRole('heading', { name: 'Create a password' })).toBeNull()
     expect(sent.filter(request => request.method === 'POST')).toEqual([])
 
     // A field's mark goes once it is changed.
     type('Last name', 'Obi')
     expect(field('Last name').getAttribute('aria-invalid')).toBeNull()
+  })
+
+  it('lists the short version, then three unticked boxes, each row its label, with the agreement in a sheet', async () => {
+    renderPortal(<Enrollment />, gateway(happy), anonymous)
+    await toPassword()
+    expect(screen.getByText('Your health records belong to you.')).toBeTruthy()
+    expect(screen.getByText('We never sell your information.')).toBeTruthy()
+    expect(screen.getAllByRole('checkbox').map(input => input.closest('label')?.textContent)).toEqual([TERMS, HEALTH_DATA, UPDATES])
+    expect(screen.getAllByRole('checkbox').every(input => !(input as HTMLInputElement).checked)).toBe(true)
+    expect([box(TERMS).required, box(HEALTH_DATA).required, box(UPDATES).required]).toEqual([true, true, false])
+    // Nothing opens in a new tab: the agreement is a sheet over the form, which keeps what was typed.
+    expect(document.querySelector('a[target="_blank"]')).toBeNull()
+    type('Password', PASSWORD)
+    fireEvent.click(screen.getByRole('button', { name: 'Read the full agreement' }))
+    const sheet = screen.getByRole('dialog', { name: 'Health ID terms of use' })
+    expect(within(sheet).getByText('Version 1.0 · 1 November 2026')).toBeTruthy()
+    expect(within(sheet).getByRole('heading', { name: '6. Emergencies' })).toBeTruthy()
+    fireEvent.click(within(sheet).getAllByRole('button', { name: 'Close' }).at(-1)!)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect((field('Password') as HTMLInputElement).value).toBe(PASSWORD)
+  })
+
+  it('keeps Create account enabled, and says a missing box under it with focus on the first, sending nothing', async () => {
+    const { sent } = renderPortal(<Enrollment />, gateway(happy), anonymous)
+    await toPassword()
+    type('Password', PASSWORD)
+    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
+    fireEvent.click(box(HEALTH_DATA))
+    const create = screen.getByRole('button', { name: 'Create account' }) as HTMLButtonElement
+    expect(create.disabled).toBe(false)
+    await press(create)
+    expect(document.activeElement).toBe(box(TERMS))
+    expect(box(TERMS).getAttribute('aria-invalid')).toBe('true')
+    expect(described(box(TERMS))).toBe('Tick to agree before you continue.')
+    expect(box(HEALTH_DATA).getAttribute('aria-invalid')).toBeNull()
+    expect(box(UPDATES).getAttribute('aria-invalid')).toBeNull()
+    expect(sent.filter(request => request.path === `${BASE}/signup`)).toEqual([])
+    // Ticking it takes its error away; email updates, left unticked, never stops the sign-up.
+    fireEvent.click(box(TERMS))
+    expect(box(TERMS).getAttribute('aria-describedby')).toBeNull()
+    await press(screen.getByRole('button', { name: 'Create account' }))
+    await screen.findByLabelText('Code')
+    expect(sent.find(request => request.path === `${BASE}/signup`)?.body).toMatchObject({ termsAccepted: true })
+  })
+
+  it('marks the password first, and the boxes too, when both are missing', async () => {
+    renderPortal(<Enrollment />, gateway(happy), anonymous)
+    await toPassword()
+    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
+    type('Password', 'short')
+    await press(screen.getByRole('button', { name: 'Create account' }))
+    expect(document.activeElement).toBe(field('Password'))
+    expect(described(box(TERMS))).toBe('Tick to agree before you continue.')
+    expect(described(box(HEALTH_DATA))).toBe('Tick to agree before you continue.')
   })
 
   it('needs a password of at least 12 characters, typed once, and the security check', async () => {

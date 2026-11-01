@@ -8,6 +8,7 @@ import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptFacts } from '../parts/DeptRecord'
 import { countText } from '../parts/format'
+import { FacilityAgreementCard } from './FacilityAgreementCard'
 
 /*
  * Facility profile (target admin/facility.png), read-only: the working facility as today's staff session reports it
@@ -150,6 +151,8 @@ export function FacilityProfile() {
           ) },
         ]} />
       </DeptSection>
+      {/* The facility agreement its administrator signed (proposed GET identity/facility-agreements/current; 404: Read only). */}
+      <FacilityAgreementCard facilityId={facility.id} />
       <DeptSection title="Verification history">
         <p className="hid-ehr-dept-muted">{NOT_AVAILABLE}.</p>
       </DeptSection>

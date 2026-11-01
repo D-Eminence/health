@@ -20,6 +20,8 @@ export const DEMO_LABORATORY = '98d00002-0000-4000-8000-000000000002'
 export const REAL_FACILITY = 'f0000000-0000-4000-8000-000000000001'
 
 export const SESSION = 'GET /api/v1/auth/session'
+/** The frame's check for a changed facility agreement (proposed; FacilityAgreementCheck.tsx), for an administrator. */
+export const AGREEMENT_CHECK = 'GET /api/v1/identity/facility-agreements/current'
 export const REQUESTS = 'GET /api/v1/identity/access-requests'
 export const LAB_WORK = 'GET /api/v1/lab/work-items'
 export const PHARMACY_WORK = 'GET /api/v1/pharmacy/work-items'
@@ -37,6 +39,9 @@ export function sessionAt(current: ReturnType<typeof facility> | undefined, faci
     ...(selection ? { facilitySelection: selection } : {}),
   })
 }
+
+/** The routes the page itself asked for: every one but the frame's agreement check, which runs beside every page. */
+export const pageRoutes = (sent: readonly Sent[]) => sent.map(request => request.route).filter(route => route !== AGREEMENT_CHECK)
 
 export function serve(routes: Record<string, Answer[]>) {
   const sent: Sent[] = []

@@ -13,6 +13,7 @@ import {
   type EmailChangeStarted, type HealthFields, type HealthProfile, type PhoneChanged, type ProfileDetails,
 } from './profileParity'
 import { photoBody } from './photoImage'
+import { parsePatientConsents, type PatientConsentRecord, type PatientConsents } from './agreements/records'
 import {
   parseShareInvitations, parseShareProviders,
   type ShareCreated, type ShareInput, type ShareInvitationConfirmed, type ShareInvitationCreated, type ShareInvitationInput,
@@ -579,6 +580,20 @@ export function createPatientApi(sender: ApiClient) {
         termsAccepted: true, turnstileToken, turnstileAction: 'patient-enrollment',
       }, { headers: { 'Idempotency-Key': idempotencyKey } }),
     enrollmentBindGoogle: () => call<{ bound: true }>('POST', 'identity/patient-enrollments/google'),
+    /**
+     * What the patient agreed to, and whether a changed version needs their agreement again (PROPOSED, BACKEND-NEEDS.md
+     * "Consent and agreements"). Until a backend serves it, it answers 404: the profile then lists the current versions.
+     */
+    myConsents: async (signal?: AbortSignal): Promise<PatientConsents> =>
+      parsePatientConsents(await call<unknown>('GET', 'identity/me/consents', undefined, { signal, reportUnauthorized: false })),
+    /**
+     * Records the sign-up's boxes once the account exists and the patient is signed in (PROPOSED). One Idempotency-Key
+     * per attempt. Its answer is not read, and a refusal changes nothing on the page (agreements/records.ts recordQuietly).
+     */
+    recordConsents: (record: PatientConsentRecord, idempotencyKey: string) => call<unknown>('POST', 'identity/me/consents', {
+      items: record.items.map(item => ({ documentId: item.documentId, version: item.version, accepted: item.accepted })),
+      language: record.language, method: record.method,
+    }, { headers: { 'Idempotency-Key': idempotencyKey }, reportUnauthorized: false }),
     // The NIN holder step (ADR-062): no body; the code goes to the phone on the NIN record, never one typed here.
     enrollmentHolderCode: () =>
       call<{ challengeId: string; expiresInSeconds: number; resendAfterSeconds: number }>('POST', 'identity/patient-enrollments/holder'),

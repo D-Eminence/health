@@ -3,6 +3,7 @@ import { fireEvent, screen, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { json, press, problem, renderPortal, type Handler } from './portalHarness'
 import { enterCode } from './codeBoxes'
+import { agreeToTerms } from './agreeToTerms'
 
 vi.mock('../Turnstile', () => ({
   Turnstile: ({ onTokenChange }: { onTokenChange: (token: string | null) => void }) =>
@@ -66,6 +67,7 @@ describe('the name on the NIN record, under "NIN checked"', () => {
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
     expect(verified()?.textContent).toContain(NAME)
 
+    agreeToTerms()
     await press(screen.getByRole('button', { name: 'Get my Health ID' }))
     expect(await screen.findByText('HID-ABCDEF23')).toBeTruthy()
     expect(verified()).toBeNull()

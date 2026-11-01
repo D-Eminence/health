@@ -3,11 +3,12 @@
  * in-page preview shim (browser-shim.mjs). Sample data only. UI work only.
  */
 export const CSRF = 'mock-csrf'
-const options = { facility: 'blue', signup: false, enrol: 'open', activate: 'mfa' }
+const options = { facility: 'blue', signup: false, enrol: 'open', activate: 'mfa', reagree: false }
 /**
  * `facility`: 'blue' (Demo Hospital, blue EHR) or 'classic'. `signup`: the patient sign-up without a NIN is served.
  * `enrol`: 'open', 'closed' or 'unavailable', for patient and facility sign-up availability. `activate`: 'mfa' (main's
  * answer to a facility activation: an authenticator step follows) or 'session' (Novu's: signed in, "set up" next).
+ * `reagree`: the consent reads (proposed) answer needsAgreement, so the "We've updated our agreement" screen shows.
  */
 export function configure(next) { Object.assign(options, next) }
 
@@ -79,8 +80,32 @@ const SHARE_PROVIDERS = [
   { membershipId: 'm-3', clinicianName: 'Nurse Bisi Adeyemi', role: 'nurse', facilityName: 'Reddington Clinic', organizationName: '', newOnHealthId: false },
 ]
 
+// Consent and agreements (proposed, BACKEND-NEEDS.md): what the demo patient and facility agreed to, and, with ?reagree=1,
+// a changed version to agree to again. Agreeing again is kept in this page's memory.
+const AGREEMENT_CHANGES = [
+  'You can now share your card by email, and see each time it is opened.',
+  'We explain what happens in an emergency in plainer words.',
+  'Staff who help you sign up now confirm with a code sent to your phone.',
+]
+const agreedAgain = { patient: false, facility: false }
+const patientConsents = () => ({
+  items: [
+    { documentId: 'patient-terms', version: '1.0', accepted: true, acceptedAt: '2026-11-01T09:12:00.000Z', method: 'self' },
+    { documentId: 'health-data', version: '1.0', accepted: true, acceptedAt: '2026-11-01T09:12:00.000Z', method: 'self' },
+    { documentId: 'email-updates', version: '1.0', accepted: false, acceptedAt: '2026-11-01T09:12:00.000Z', method: 'self' },
+  ],
+  needsAgreement: options.reagree && !agreedAgain.patient,
+  changes: options.reagree && !agreedAgain.patient ? AGREEMENT_CHANGES : [],
+})
+const facilityAgreementCurrent = () => ({
+  documentId: 'facility-agreement', version: '1.0', signerName: 'Dr Amaka Eze', facilityName: 'Demo Hospital',
+  signedAt: '2026-11-01T10:30:00.000Z', needsAgreement: options.reagree && !agreedAgain.facility,
+  changes: options.reagree && !agreedAgain.facility ? [AGREEMENT_CHANGES[1]] : [],
+})
+
 function patientRoute(method, path) {
   if (method !== 'GET') {
+    if (path === '/identity/me/consents') { agreedAgain.patient = true; return [201, { recorded: true }] }
     if (/^\/identity\/me\/notifications\/[^/]+\/read$/.test(path)) return [200, { id: path.split('/')[4], readAt: iso() }]
     const decision = path.match(/^\/identity\/access-requests\/([^/]+)\/(approve|deny)$/)
     if (decision) { decided.set(decision[1], decision[2] === 'approve' ? 'approved' : 'denied'); return [200, { accessRequestId: decision[1], status: decided.get(decision[1]) }] }
@@ -98,6 +123,7 @@ function patientRoute(method, path) {
   switch (path) {
     case '/identity/me': return [200, patient.me]
     case '/identity/me/profile-details': return [200, patient.profileDetails]
+    case '/identity/me/consents': return [200, patientConsents()]
     case '/ehr/me/health-profile': return [200, patient.healthProfile]
     case '/ehr/me/records': return [200, patient.records]
     case '/identity/me/access-history': return [200, patient.accessHistory()]
@@ -144,7 +170,8 @@ const staffFacility = () => {
     id: classic ? CLASSIC_FACILITY_ID : DEMO_FACILITY_ID,
     membershipId: 'member-demo-1', organizationId: 'org-demo',
     name: classic ? 'Ikeja Clinic' : 'Demo Hospital', code: classic ? 'IKJ' : 'DEMO-H',
-    roles: ['doctor'], permissions: STAFF_PERMISSIONS, isPrimary: true,
+    // With ?reagree=1 the demo clinician is also the facility's administrator, who is asked to agree again.
+    roles: options.reagree ? ['org_admin', 'doctor'] : ['doctor'], permissions: STAFF_PERMISSIONS, isPrimary: true,
   }
 }
 const staffSession = () => {
@@ -207,6 +234,8 @@ const outreachCases = () => [
 
 function staffRoute(method, path) {
   if (method === 'POST' && path === '/auth/facility') return [200, staffSession()]
+  if (method === 'POST' && path === '/identity/facility-agreements') { agreedAgain.facility = true; return [201, { recorded: true }] }
+  if (method === 'GET' && path === '/identity/facility-agreements/current') return [200, facilityAgreementCurrent()]
   const dispense = method === 'POST' && /^\/pharmacy\/work-items\/([^/]+)\/dispensings$/.exec(path)
   if (dispense) {
     const id = decodeURIComponent(dispense[1])

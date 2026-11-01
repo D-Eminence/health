@@ -7,6 +7,7 @@ import { Recovery } from '../routes/Recovery'
 import { PrincipalRecovery } from '../routes/PrincipalRecovery'
 import { enterCode } from './codeBoxes'
 import { shownText } from './portalHarness'
+import { agreeToTerms } from './agreeToTerms'
 
 /**
  * Enrollment and password recovery show one step at a time (PA-02, PA-03,
@@ -362,6 +363,7 @@ describe('patient enrollment', () => {
 
     api.enrollmentActivate.mockResolvedValue({ hidCode: 'HID-ABCDEF23' })
     fireEvent.change(password, { target: { value: 'a-long-new-password' } })
+    agreeToTerms()
     await press('Get my Health ID')
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Your Health ID is ready' })))
     expect(screen.getByText('HID-ABCDEF23')).toBeTruthy()

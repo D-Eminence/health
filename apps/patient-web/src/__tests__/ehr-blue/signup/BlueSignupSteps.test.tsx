@@ -5,7 +5,7 @@ import { ORGANIZATION_TYPE_NOTES, organizationTypeNote } from '../../../staff/ro
 import { focusWhenShown } from '../../focusWhenShown'
 import { security } from './signupFakes'
 import {
-  actAgain, agreeToAll, AGREEMENT_LABELS, answer, button, choice, deferred, EMAIL, expectFocusOnStep, NAME, next, open, step,
+  actAgain, agreeToAll, AGREEMENT_LABEL, answer, button, choice, deferred, EMAIL, expectFocusOnStep, NAME, next, open, step,
   stepHeading, STEPS, submitButton, submitRegistration, SUPPORT, TabChannel, textbox, toForm, toReview,
 } from './signupHarness'
 
@@ -292,34 +292,66 @@ describe('step 5, Check and send', () => {
     await expectFocusOnStep(STEPS.account)
   })
 
-  it('shows the agreements as four lines with their links, and needs all four ticked before it can be sent', async () => {
+  it('shows the facility agreement’s short version, one unticked box and the signer’s name; Send stays enabled', async () => {
     await toReview()
-    expect(screen.getByRole('link', { name: 'Terms of Service' }).getAttribute('href'))
-      .toBe('https://healthidentitydirectory.com/terms')
-    expect(screen.getByRole('link', { name: 'Privacy Policy' }).getAttribute('href'))
-      .toBe('https://healthidentitydirectory.com/privacy')
-    // Nothing on the page says that the ticks are recorded: Health ID does not record them yet.
-    expect(document.body.textContent).not.toMatch(/record(ed)? (your|the) (agreement|acceptance)|we keep a record/i)
+    expect(screen.getByText('Patients trust you with their records. You promise to:')).toBeTruthy()
+    expect(screen.getByText('Only register a facility you are allowed to act for.')).toBeTruthy()
+    // The agreement opens in a sheet over the form, never a page or tab that would lose it.
+    expect(screen.queryAllByRole('link').filter(link => /terms|privacy|agreement/i.test(link.textContent ?? ''))).toEqual([])
+    expect(button('Read the facility agreement').getAttribute('type')).toBe('button')
     // Health ID has no Data Processing Agreement: no box and no paragraph name one.
     expect(document.body.textContent).not.toMatch(/Data Processing Agreement/)
-    expect(screen.getAllByRole('checkbox').map(box => box.closest('label')?.textContent)).toEqual(AGREEMENT_LABELS)
-    expect(screen.getAllByRole('checkbox').every(box => (box as HTMLInputElement).required)).toBe(true)
+    const box = screen.getByRole('checkbox', { name: AGREEMENT_LABEL }) as HTMLInputElement
+    expect(screen.getAllByRole('checkbox')).toEqual([box])
+    expect(box.checked).toBe(false)
+    expect(box.required).toBe(true)
+    // The whole row is the box's label.
+    expect(box.closest('label')?.textContent).toBe(AGREEMENT_LABEL)
+    // The signature is the administrator's name from the first step, and can be changed.
+    expect(textbox('Your full name').value).toBe(NAME)
     expect(document.querySelector('main')?.textContent).not.toContain('*')
-    expect(submitButton().disabled).toBe(true)
-    for (const name of AGREEMENT_LABELS.slice(0, 3)) fireEvent.click(screen.getByRole('checkbox', { name }))
-    expect(submitButton().disabled).toBe(true)
-    fireEvent.click(screen.getByRole('checkbox', { name: AGREEMENT_LABELS[3] }))
     expect(submitButton().disabled).toBe(false)
     expect(api.start).not.toHaveBeenCalled()
   })
 
-  it('keeps the ticks while the page is open, through an Edit and back', async () => {
+  it('says a missing tick under it, then a missing name at its field, moving focus to each, and sends nothing until both', async () => {
+    await toReview()
+    const box = screen.getByRole('checkbox', { name: AGREEMENT_LABEL }) as HTMLInputElement
+    fireEvent.click(submitButton())
+    expect(document.activeElement).toBe(box)
+    expect(box.getAttribute('aria-invalid')).toBe('true')
+    expect(document.getElementById(box.getAttribute('aria-describedby')!)?.textContent).toBe('Tick to agree before you continue.')
+    expect(api.start).not.toHaveBeenCalled()
+
+    fireEvent.click(box)
+    expect(box.getAttribute('aria-describedby')).toBeNull()
+    fireEvent.change(textbox('Your full name'), { target: { value: ' ' } })
+    fireEvent.click(submitButton())
+    const signer = textbox('Your full name')
+    expect(document.activeElement).toBe(signer)
+    expect(signer.getAttribute('aria-invalid')).toBe('true')
+    expect(signer.getAttribute('aria-describedby')?.split(' ').map(id => document.getElementById(id)?.textContent))
+      .toContain('Enter your full name.')
+    expect(api.start).not.toHaveBeenCalled()
+
+    fireEvent.change(signer, { target: { value: 'Ngozi Adeyemi' } })
+    fireEvent.click(submitButton())
+    await screen.findByRole('heading', { level: 1, name: 'Confirm your email' })
+    // Exactly today's request: the agreement and the signer's name are not part of it.
+    expect(api.start).toHaveBeenCalledWith(PAYLOAD)
+    expect(JSON.stringify(api.start.mock.calls)).not.toContain('Ngozi')
+  })
+
+  it('keeps the tick and the name while the page is open, through an Edit and back', async () => {
     await toReview()
     agreeToAll()
+    fireEvent.change(textbox('Your full name'), { target: { value: 'Ngozi Adeyemi' } })
     fireEvent.click(button('Edit product'))
     await step(STEPS.product)
     next()
     await step(STEPS.review)
+    expect((screen.getByRole('checkbox', { name: AGREEMENT_LABEL }) as HTMLInputElement).checked).toBe(true)
+    expect(textbox('Your full name').value).toBe('Ngozi Adeyemi')
     expect(submitButton().disabled).toBe(false)
   })
 })

@@ -16,7 +16,9 @@ import {
  */
 const api = vi.hoisted(() => ({ availability: vi.fn(), start: vi.fn(), verify: vi.fn(), profile: vi.fn(), activate: vi.fn(),
   withdraw: vi.fn() }))
-vi.mock('../../../staff/api', () => ({ providerEnrollmentApi: api, staffApi: {} }))
+// The facility agreement's record (proposed): sent once the administrator is signed in, never part of the sign-up's requests.
+const agreements = vi.hoisted(() => ({ record: vi.fn(), current: vi.fn() }))
+vi.mock('../../../staff/api', () => ({ providerEnrollmentApi: api, staffApi: {}, facilityAgreementApi: agreements }))
 const clinician = vi.hoisted(() => ({ availability: vi.fn() }))
 vi.mock('../../../staff/clinicianApplicationApi', () => ({ clinicianApplicationApi: clinician }))
 vi.mock('../../../staff/env', async () => {
@@ -41,6 +43,7 @@ beforeEach(() => {
   api.profile.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'NOT_FOUND' }))
   api.activate.mockResolvedValue(SESSION)
   api.withdraw.mockResolvedValue({ withdrawn: true })
+  agreements.record.mockResolvedValue({ recorded: true })
   clinician.availability.mockResolvedValue({ open: false })
 })
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers(); actAgain() })
@@ -365,6 +368,32 @@ describe('the ending, and the panels in place of a step', () => {
     expect(reload).toHaveBeenCalledTimes(1)
   })
 
+  it('records the facility agreement once the administrator is signed in, with the signer and a key of its own', async () => {
+    await toPassword()
+    // Nothing is recorded before the account exists: the start and the code carry no agreement.
+    expect(agreements.record).not.toHaveBeenCalled()
+    choosePassword()
+    await screen.findByRole('heading', { level: 1, name: 'Your facility is set up' })
+    await waitFor(() => expect(agreements.record).toHaveBeenCalledTimes(1))
+    expect(agreements.record).toHaveBeenCalledWith({ documentId: 'facility-agreement', version: '1.0', signerName: NAME,
+      facilityName: 'RC123456', language: 'en' }, expect.stringMatching(/^[0-9a-f-]{36}$/))
+    expect(JSON.stringify(api.start.mock.calls)).not.toContain('facility-agreement')
+    actAgain()
+    expect(agreements.record).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the ending as before when the agreement cannot be recorded (404, not served yet), and says nothing of it', async () => {
+    agreements.record.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'NOT_FOUND' }))
+    await toPassword()
+    choosePassword()
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Your facility is set up' })
+    await waitFor(() => expect(agreements.record).toHaveBeenCalledTimes(1))
+    actAgain()
+    expect(screen.getByRole('heading', { level: 1, name: 'Your facility is set up' })).toBe(heading)
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/agreement/i)
+  })
+
   it('outside production says to sign in to the Provider Portal next time', async () => {
     vi.stubGlobal('location', { ...window.location, hostname: 'localhost', reload: vi.fn() })
     await toReview({ type: 'laboratory' })
@@ -411,8 +440,9 @@ describe('the ending, and the panels in place of a step', () => {
     const heading = await screen.findByRole('heading', { level: 1, name: 'Your account may be ready' })
     expect(document.activeElement).toBe(heading)
     expect(screen.queryByText(/You’re signed in/)).toBeNull()
-    // No session was set, so the other tabs are told nothing.
+    // No session was set, so the other tabs are told nothing, and nothing is recorded from here.
     expect(TabChannel.posted).toEqual([])
+    expect(agreements.record).not.toHaveBeenCalled()
     expect(api.activate).toHaveBeenCalledTimes(1)
   })
 

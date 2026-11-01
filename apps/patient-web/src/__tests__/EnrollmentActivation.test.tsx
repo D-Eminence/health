@@ -5,6 +5,7 @@ import { HidApiError } from '@hid/http'
 import { Enrollment } from '../routes/Enrollment'
 import { enterCode } from './codeBoxes'
 import { shownText } from './portalHarness'
+import { agreeToTerms } from './agreeToTerms'
 
 const api = vi.hoisted(() => ({
   enrollmentCurrent: vi.fn(), googleOnboarding: vi.fn(), enrollmentStart: vi.fn(), enrollmentContact: vi.fn(),
@@ -63,7 +64,7 @@ describe('activation that needs the contact proved again', () => {
     api.enrollmentActivate.mockRejectedValueOnce(reverify()).mockResolvedValueOnce({ stage: 'active', hidCode: 'HID-ABCDEF23' })
     render(<MemoryRouter><Enrollment /></MemoryRouter>)
     fireEvent.change(await proveContact(), { target: { value: 'a-long-enough-password' } })
-    await press('Get my Health ID')
+    agreeToTerms(); await press('Get my Health ID')
 
     const contact = await screen.findByLabelText('Phone number') as HTMLInputElement
     await waitFor(() => expect(document.activeElement).toBe(contact))
@@ -79,7 +80,7 @@ describe('activation that needs the contact proved again', () => {
     expect(screen.queryByRole('alert')).toBeNull()
     expect(api.enrollmentContact).toHaveBeenCalledTimes(2)
     fireEvent.change(password, { target: { value: 'a-long-enough-password' } })
-    await press('Get my Health ID')
+    agreeToTerms(); await press('Get my Health ID')
     expect(await screen.findByText('HID-ABCDEF23')).toBeTruthy()
     expect(api.enrollmentActivate).toHaveBeenCalledTimes(2)
   })
@@ -92,7 +93,7 @@ describe('activation that needs the contact proved again', () => {
     api.enrollmentActivate.mockRejectedValue(refusal())
     render(<MemoryRouter><Enrollment /></MemoryRouter>)
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
-    await press('Get my Health ID')
+    agreeToTerms(); await press('Get my Health ID')
     expect(shownText(await screen.findByRole('alert'))).toBe(refusal().message)
     expect(screen.getByLabelText('Password')).toBeTruthy()
     expect(screen.queryByLabelText('Phone number')).toBeNull()
@@ -107,7 +108,7 @@ const REVERIFY_CONTACT = 'You confirmed your phone or email more than 30 minutes
 async function activateFromPassword() {
   render(<MemoryRouter><Enrollment /></MemoryRouter>)
   fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
-  await press('Get my Health ID')
+  agreeToTerms(); await press('Get my Health ID')
 }
 
 /**
@@ -127,7 +128,7 @@ describe('activation that finds the enrollment no longer at the password step', 
       .mockResolvedValueOnce({ stage: 'active', hidCode: 'HID-ABCDEF23' })
     await activateFromPassword()
     expect(shownText(await screen.findByRole('alert'))).toBe('We could not reach the service. Check your connection and try again.')
-    await press('Get my Health ID')
+    agreeToTerms(); await press('Get my Health ID')
 
     const contact = await screen.findByLabelText('Phone number')
     await waitFor(() => expect(document.activeElement).toBe(contact))
@@ -139,7 +140,7 @@ describe('activation that finds the enrollment no longer at the password step', 
     const password = await proveContact() as HTMLInputElement
     expect(password.value).toBe('')
     fireEvent.change(password, { target: { value: 'a-long-enough-password' } })
-    await press('Get my Health ID')
+    agreeToTerms(); await press('Get my Health ID')
     expect(await screen.findByText('HID-ABCDEF23')).toBeTruthy()
   })
 
@@ -176,7 +177,7 @@ describe('activation that finds the enrollment no longer at the password step', 
     expect(shownText(await screen.findByRole('alert'))).toBe('Enrollment is temporarily unavailable')
     expect(screen.getByLabelText('Password')).toBeTruthy()
 
-    await press('Get my Health ID')
+    agreeToTerms(); await press('Get my Health ID')
     expect(await screen.findByLabelText('Phone number')).toBeTruthy()
     expect(shownText(screen.getByRole('alert'))).toBe(REVERIFY_CONTACT)
     expect(api.enrollmentCurrent).toHaveBeenCalledTimes(3)
@@ -204,7 +205,7 @@ describe('the Health ID when it is shown', () => {
     render(<MemoryRouter><Enrollment /></MemoryRouter>)
     if (activate) {
       fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
-      await press('Get my Health ID')
+      agreeToTerms(); await press('Get my Health ID')
     }
     const ready = await screen.findByRole('heading', { name: 'Your Health ID is ready' })
     const shown = ready.closest<HTMLElement>('[role="status"]')!

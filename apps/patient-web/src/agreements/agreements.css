@@ -1,0 +1,25 @@
+/*
+ * The copy of an agreement that "Download copy" prints (printAgreement.ts): never shown on screen; in print, the only
+ * thing on the page, in black on white, so "Save as PDF" keeps just the agreement.
+ */
+.hid-agreement-print { display: none; }
+
+@media print {
+  body:has(> .hid-agreement-print) > :not(.hid-agreement-print) { display: none !important; }
+  html:has(.hid-agreement-print), body:has(> .hid-agreement-print) { background: #fff !important; overflow: visible !important; }
+  .hid-agreement-print {
+    display: block;
+    max-width: 44rem;
+    margin: 0 auto;
+    color: #000;
+    background: #fff;
+    font: 11pt/1.55 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+  .hid-agreement-print h1 { margin: 0 0 4pt; font-size: 18pt; line-height: 1.25; }
+  .hid-agreement-print h2 { margin: 14pt 0 4pt; font-size: 12pt; break-after: avoid; }
+  .hid-agreement-print p { margin: 0 0 6pt; }
+  .hid-agreement-print ul { margin: 0 0 6pt; padding-left: 16pt; }
+  .hid-agreement-print li { margin: 0 0 3pt; }
+  .hid-agreement-print .hid-agreement-print-meta { color: #000; font-size: 10pt; }
+  .hid-agreement-print section { break-inside: avoid; }
+}

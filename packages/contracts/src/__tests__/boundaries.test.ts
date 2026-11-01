@@ -815,6 +815,22 @@ describe('application boundaries', () => {
     }
   })
 
+  it('registers the consent and agreement routes as proposed: the patient\'s for the portal, the facility\'s for staff', () => {
+    const routes = [
+      ['identity.myConsents', '/api/v1/identity/me/consents', ['GET', 'POST'], 'patient-web', 'staff-web'],
+      ['identity.facilityAgreements', '/api/v1/identity/facility-agreements', ['POST'], 'staff-web', 'patient-web'],
+      ['identity.facilityAgreementCurrent', '/api/v1/identity/facility-agreements/current', ['GET'], 'staff-web', 'patient-web'],
+    ] as const
+    for (const [name, path, methods, app, other] of routes) {
+      expect(findEndpoint(name), name).toMatchObject({ path, methods, service: 'identity', status: 'proposed', auth: { kind: 'authenticated' } })
+      expect(() => assertEndpointAllowed(app, name), name).not.toThrow()
+      expect(() => assertEndpointAllowed(other, name), `${other}: ${name}`).toThrow(BoundaryViolationError)
+      expect(() => assertEndpointAllowed('public-web', name), `public-web: ${name}`).toThrow(BoundaryViolationError)
+    }
+    expect(assertRegisteredBrowserRequest('POST', '/api/v1/identity/me/consents').name).toBe('identity.myConsents')
+    expect(assertRegisteredBrowserRequest('GET', '/api/v1/identity/facility-agreements/current').name).toBe('identity.facilityAgreementCurrent')
+  })
+
   it('registers the profile parity routes (hid-1.0 parity B3, hid-system 0094) for the portal only, as proposed', () => {
     const routes = [
       ['identity.profileDetails', '/api/v1/identity/me/profile-details', ['GET', 'PUT']],

@@ -23,6 +23,7 @@ import { DENIED_NOTICE, RedirectNotice } from './RedirectNotice'
 import { useRoleView } from './roleView'
 import { AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
 import type { EhrBluePage } from './types'
+import { FacilityAgreementCheck } from './FacilityAgreementCheck'
 
 /**
  * The design's Clinical group holds 17 pages: too many to scan (Hick's Law, Miller's 7 ± 2). The sidebar splits it
@@ -238,6 +239,8 @@ export function BlueFrame() {
             {/* Fictional figures: only where the page itself is a sample. */}
             {match?.page.status === 'sample' ? <ConnectionStatus /> : null}
             <AccountSamplePanel panel={samplePanel} onClose={() => setSamplePanel(null)} />
+            {/* A changed facility agreement for its administrator to agree to (proposed; a 404 or fault shows nothing). */}
+            <FacilityAgreementCheck facility={facility} signerName={name} />
           </AppShell>
         </EhrAppShell>
       </AttentionProvider>
