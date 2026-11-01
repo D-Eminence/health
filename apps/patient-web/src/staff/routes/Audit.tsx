@@ -46,8 +46,9 @@ export function FacilityAudit() {
       if (active) setLoaded({ facilityId, cursor, page: next })
     }).catch(caught => {
       if (!active) return
+      // Refused on reading: the same words as the refusal below, so the page says one thing whichever refuses first.
       setProblem({ facilityId, cursor, message: isHidApiError(caught) && caught.status === 403
-        ? 'Your role here can’t see audit events. Ask your facility administrator if you need to.'
+        ? 'Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.'
         : plainErrorText(caught, 'Audit events could not be loaded.', { audience: 'facility' }) })
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
