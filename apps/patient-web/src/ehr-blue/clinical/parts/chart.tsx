@@ -1,6 +1,5 @@
 import { isHidApiError } from '@hid/http'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { SAY } from '../../../copy'
 import { PatientBanner } from '../../../kasuwa/parts'
 import { Alert, Button, EmptyState, type Tone } from '../../../kasuwa/ui'
 import { isAllowedPatientLookup, staffApi } from '../../../staff/api'
@@ -8,10 +7,10 @@ import type { ActivePatient } from '../../../staff/App'
 import { patientFacts, type PatientFacts } from './PatientHeader'
 import { useClinical, useWorkspaceHref } from './Workspace'
 
-/** The chart's wording, in plain words (copy.ts). */
+/** The chart's wording. ACCESS_ENDED and READ_ONLY are today's (staff/routes/Clinical.tsx:1254,1260 and :1771), word for word. */
 export const OPEN_FIRST = 'Open a patient first.'
-export const ACCESS_ENDED = 'Your access to this patient has ended. Open the patient again to keep working.'
-export const READ_ONLY = `${SAY.readOnly} To add or change records, ask the patient to approve access that includes changes.`
+export const ACCESS_ENDED = 'Patient access has ended. Reopen the record through governed access.'
+export const READ_ONLY = 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'
 export const WRITE_UNKNOWN = 'We couldn’t check whether you can make changes, so changes are off. Refresh the page to try again.'
 export const CHOOSE_FIRST = 'Choose a patient first.'
 export const CHOOSE_FIRST_DETAIL = 'Records show only for a patient you have access to at this facility.'
@@ -186,7 +185,7 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
   if (ended && !chart) {
     return (
       <Alert intent="error" title="Access to this patient ended" action={<Button size="sm" to={href.to('patients')}>Find a patient</Button>}>
-        Open the patient again to keep working.
+        {ACCESS_ENDED}
       </Alert>
     )
   }
