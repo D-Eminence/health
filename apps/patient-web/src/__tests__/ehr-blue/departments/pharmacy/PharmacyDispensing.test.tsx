@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import type { PharmacyWorkItem } from '../../../../staff/api'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
+import { MODULE_NOT_IN_SERVICE } from '../../../../ehr-blue/departments/parts/errors'
 import { DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 import {
   accepted, ALL, AMOXICILLIN, confirmPatient, CREATE, deferred, DISPENSING_READ, dispensed, expectNoFullPatientIds, fillDispensing,
@@ -45,6 +46,15 @@ const DISPENSING_VERSION_CONFLICT = 'Reversal must bind to the exact dispensing 
 const REASON = 'Full course dispensed at counter'
 /** What a failed dispensing or reversal says, as today's portal does: never the server's words. */
 const ACTION_FAILED = 'Pharmacy action could not be recorded.'
+/** The design's line under a failure that pressing the same button again can mend. */
+const RETRY_LINE = 'Fix what’s marked, or try again with the same button. Nothing is saved until it says so.'
+/** The refusals pressing again can't mend, each said in the page's own words with what to do instead. */
+const ROLE_CANNOT_DISPENSE = 'Your role at this facility doesn’t include dispensing medicines. Ask your facility administrator.'
+const ROLE_CANNOT_REVERSE = 'Your role at this facility doesn’t include reversing a dispensing. Ask your facility administrator.'
+const ALREADY_DISPENSED = 'This prescription is already recorded as dispensed. Go back to Prescriptions and refresh the list before you '
+  + 'hand anything over.'
+const CHANGED_SINCE_OPENED = 'This prescription changed after you opened it, and it may already be dispensed. Go back to Prescriptions, '
+  + 'refresh the list and open it again before you hand anything over.'
 
 function working(permissions: string[]) {
   session.facility = fakeFacility(permissions, { id: DEMO_PHARMACY_ID, name: 'Demo Pharmacy', roles: ['pharmacist'] })
@@ -171,10 +181,12 @@ describe('the dispensing reason', () => {
   })
 
   it.each([
-    ['the server’s own words', new HidApiError(403, ACCESS_DENIED, { code: 'PHARMACY_ACCESS_DENIED' }), [ACCESS_DENIED, 'PHARMACY_ACCESS_DENIED']],
+    ['the server’s own words', new HidApiError(500, 'Dispensing store write failed on replica 3', { code: 'INTERNAL_ERROR' }),
+      ['Dispensing store write failed', 'INTERNAL_ERROR']],
     ['the fields a 400 refused', new HidApiError(400, 'Request validation failed', { code: 'VALIDATION_FAILED',
       details: [{ field: 'quantityUnit', messages: ['quantityUnit must be shorter than or equal to 80 characters'] }] }),
     ['Request validation failed', 'Quantity unit', 'quantityUnit']],
+    ['a raw error’s words', new Error('Failed to fetch'), ['Failed to fetch']],
     ['no message at all', { status: 0 }, []],
   ])('says “Pharmacy action could not be recorded.” for a failure with %s, never the server’s words', async (_case, caught, unsaid) => {
     api.dispense.mockRejectedValueOnce(caught)
@@ -182,6 +194,7 @@ describe('the dispensing reason', () => {
     const form = dispenseWith({ quantity: '21', reason: REASON })
     await confirmPatient('Dispense')
     expect((await within(form).findByRole('alert')).textContent).toBe(ACTION_FAILED)
+    expect(within(form).getByText(RETRY_LINE)).toBeTruthy()
     for (const words of unsaid) expect(document.body.textContent).not.toContain(words)
   })
 })
@@ -318,17 +331,20 @@ describe('Dispense', () => {
   })
 
   it.each([
-    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED],
-    [409, 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED', 'A full dispensing is already recorded for this work item; partial dispensing is not supported'],
-    [412, 'PHARMACY_WORK_ITEM_VERSION_CONFLICT', WORK_ITEM_VERSION_CONFLICT],
-  ])('says a %i refusal in the form’s error box in plain words, with the retry line, and keeps the form', async (status, code, message) => {
+    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED, ROLE_CANNOT_DISPENSE],
+    [409, 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED', 'A full dispensing is already recorded for this work item; partial dispensing is not supported',
+      ALREADY_DISPENSED],
+    [412, 'PHARMACY_WORK_ITEM_VERSION_CONFLICT', WORK_ITEM_VERSION_CONFLICT, CHANGED_SINCE_OPENED],
+  ])('says a %i refusal in plain words with what to do instead, never “try again with the same button”, and keeps the form', async (status, code, message, text) => {
     api.dispense.mockRejectedValueOnce(new HidApiError(status, message, { code }))
     await openRecord(AMOXICILLIN)
     const form = dispenseWith({ quantity: '21', reason: REASON })
     await confirmPatient('Dispense')
-    expect((await within(form).findByRole('alert')).textContent).toBe(ACTION_FAILED)
+    expect((await within(form).findByRole('alert')).textContent).toBe(text)
     expect(document.body.textContent).not.toContain(message)
-    expect(within(form).getByText('Fix what’s marked, or try again with the same button. Nothing is saved until it says so.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain(code)
+    // Pressing again can't mend these, so the retry line would mislead.
+    expect(within(form).queryByText(RETRY_LINE)).toBeNull()
     expect(recorded()).toBe('')
     expect(recordStatus()).toBe('To dispense')
     expect(within(form).getByRole('button', { name: 'Dispense' }).getAttribute('aria-disabled')).toBeNull()
@@ -338,15 +354,28 @@ describe('Dispense', () => {
 
   it.each([
     ['work paused between facilities', new HidApiError(423, 'Paused', { code: 'CROSS_FACILITY_ORDERS_UNAVAILABLE' }),
-      'Health ID has paused work on orders from other facilities. Try again later.'],
+      'Health ID has paused work on orders from other facilities. Try again later.', true],
     ['a closed order', new HidApiError(409, 'Closed', { code: 'ORDER_ROUTE_CLOSED' }),
-      'This order from another facility is closed: it was cancelled, or its time for work has ended, so nothing more can be recorded on it. Refresh the list.'],
-  ])('says a refusal with %s plainly', async (_case, caught, text) => {
+      'This order from another facility is closed: it was cancelled, or its time for work has ended, so nothing more can be recorded on it. Refresh the list.', false],
+    ['a workspace not in service', new HidApiError(404, 'Route not found', { code: 'API_ROUTE_NOT_FOUND' }), MODULE_NOT_IN_SERVICE, false],
+    ['a fault between services', new HidApiError(503, 'Upstream workload identity refused', { code: 'PHARMACY_SERVICE_AUTH_UNAVAILABLE' }),
+      'A connection between Health ID services failed; retry in about 15 seconds.', true],
+    // The HTTP client's own failures, said in the page's words.
+    ['no connection', new HidApiError(0, 'We could not reach the service. Check your connection and try again.', { code: 'NETWORK_ERROR' }),
+      'We couldn’t reach Health ID. Check your internet connection and try again.', true],
+    ['no answer in time', new HidApiError(408, 'The request took too long. Please try again.', { code: 'REQUEST_TIMEOUT' }),
+      'Health ID took too long to answer, so this may already be recorded. Go back to Prescriptions and refresh the list to check before you try again.', false],
+    ['an ended session', new HidApiError(401, 'Session revoked by policy', { code: 'AUTHENTICATION_REQUIRED' }),
+      'Your session has ended. Sign in again to continue.', false],
+  ])('says a failure with %s plainly, with the retry line only where pressing again can help', async (_case, caught, text, retry) => {
     api.dispense.mockRejectedValueOnce(caught)
     await openRecord(AMOXICILLIN)
     const form = dispenseWith({ quantity: '21', reason: REASON })
     await confirmPatient('Dispense')
     expect((await within(form).findByRole('alert')).textContent).toBe(text)
+    expect(within(form).queryByText(RETRY_LINE) !== null).toBe(retry)
+    if (caught.message !== text) expect(document.body.textContent).not.toContain(caught.message)
+    expect(document.body.textContent).not.toContain(caught.code)
   })
 
   it('marks work whose prescription changed as not dispensable, and offers no dispensing for it', async () => {
@@ -400,7 +429,8 @@ describe('Dispense', () => {
     await openRecord(AMOXICILLIN)
     const form = dispenseWith({ quantity: '21', reason: REASON })
     await confirmPatient('Dispense')
-    expect((await within(form).findByRole('alert')).textContent).toBe(ACTION_FAILED)
+    expect((await within(form).findByRole('alert')).textContent).toBe(CHANGED_SINCE_OPENED)
+    expect(within(form).queryByText(RETRY_LINE)).toBeNull()
     // The picking view has no refresh of its own: back to the queue, read it again, and open the prescription again.
     fireEvent.click(back())
     const refresh = screen.getByRole('button', { name: 'Refresh' })
@@ -516,6 +546,8 @@ describe('Reverse dispensing', () => {
     const form = reverse(reason)
     await confirmPatient('Reverse dispensing')
     expect((await within(form).findByRole('alert')).textContent).toBe(ACTION_FAILED)
+    // Here the same button does mend it, so the retry line stays.
+    expect(within(form).getByText(RETRY_LINE)).toBeTruthy()
     fireEvent.click(within(form).getByRole('button', { name: 'Reverse dispensing' }))
     await confirmPatient('Reverse dispensing')
     await waitFor(() => expect(recorded()).toBe('Dispensing reversal recorded.'))
@@ -533,15 +565,16 @@ describe('Reverse dispensing', () => {
   })
 
   it.each([
-    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED],
-    [404, 'PHARMACY_DISPENSING_NOT_FOUND', 'Dispensing was not found'],
-  ])('does not reverse when the dispensing can’t be read (%i)', async (status, code, message) => {
+    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED, ROLE_CANNOT_REVERSE],
+    [404, 'PHARMACY_DISPENSING_NOT_FOUND', 'Dispensing was not found', ACTION_FAILED],
+  ])('does not reverse when the dispensing can’t be read (%i)', async (status, code, message, text) => {
     api.dispensing.mockRejectedValueOnce(new HidApiError(status, message, { code }))
     await openRecord(METFORMIN)
     const form = reverse('Medication returned unopened by the patient')
     await confirmPatient('Reverse dispensing')
-    expect((await within(form).findByRole('alert')).textContent).toBe(ACTION_FAILED)
+    expect((await within(form).findByRole('alert')).textContent).toBe(text)
     expect(document.body.textContent).not.toContain(message)
+    expect(document.body.textContent).not.toContain(code)
     expect(api.reverseDispensing).not.toHaveBeenCalled()
     expect(recordStatus()).toBe('Dispensed')
   })
@@ -567,7 +600,8 @@ describe('Reverse dispensing', () => {
     await within(otherActions()).findByRole('button', { name: 'Reverse dispensing' })
     const reversal = reverse('Dispensed against the wrong prescription')
     await confirmPatient('Reverse dispensing')
-    expect((await within(reversal).findByRole('alert')).textContent).toBe(ACTION_FAILED)
+    expect((await within(reversal).findByRole('alert')).textContent).toBe(ROLE_CANNOT_REVERSE)
+    expect(within(reversal).queryByText(RETRY_LINE)).toBeNull()
     expect(recorded()).toBe('')
     expect(api.reverseDispensing).toHaveBeenCalledWith(DEMO_PHARMACY_ID, 'dispensing-9', 1, 'Dispensed against the wrong prescription')
   })
@@ -596,7 +630,7 @@ describe('while a dispensing or reversal is sent', () => {
     expect(screen.getByRole('heading', { level: 1, name: AMOXICILLIN })).toBeTruthy()
     expect(document.activeElement).toBe(way)
     await act(async () => { recording.reject(new HidApiError(403, ACCESS_DENIED, { code: 'PHARMACY_ACCESS_DENIED' })) })
-    expect((await within(screen.getByRole('form', { name: 'Dispense' })).findByRole('alert')).textContent).toBe(ACTION_FAILED)
+    expect((await within(screen.getByRole('form', { name: 'Dispense' })).findByRole('alert')).textContent).toBe(ROLE_CANNOT_DISPENSE)
     expect(way.getAttribute('aria-disabled')).toBeNull()
     fireEvent.click(way)
     expect(await screen.findByRole('heading', { level: 1, name: 'Prescriptions' })).toBeTruthy()
