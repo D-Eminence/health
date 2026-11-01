@@ -28,7 +28,7 @@ describe('hospital imported medical history', () => {
     const view = render(<ImportedPatientHistory key="a" facilityId="facility-a" patientId="patient-a" purpose="direct-care" canDownload={false} verify={vi.fn()} />)
     await waitFor(() => expect(finish).toBeTypeOf('function'))
     view.rerender(<ImportedPatientHistory key="b" facilityId="facility-b" patientId="patient-b" purpose="direct-care" canDownload={false} verify={vi.fn()} />)
-    await screen.findByText('No imported medical history is available.')
+    await screen.findByText('No older records.')
     await act(async () => finish({ importedRecords: historyFixture, limit: 50 }))
     expect(screen.queryByText('Preserved report')).toBeNull()
   })

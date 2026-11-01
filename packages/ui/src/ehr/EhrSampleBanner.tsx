@@ -15,7 +15,6 @@ export interface EhrSampleBannerProps {
 export function EhrSampleBanner({ className }: EhrSampleBannerProps) {
   return (
     <p className={cx('hid-ehr-sample-banner', className)} data-ehr-sample="">
-      <span className="hid-ehr-sample-banner-mark" aria-hidden="true" />
       {EHR_SAMPLE_NOTICE}
     </p>
   )

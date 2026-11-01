@@ -54,7 +54,9 @@ describe('the frame\'s sample panels', () => {
   it('shows the sample status chip only on sample pages, saying it is a sample', async () => {
     await openDemo('/provider/whats-left')
     expect(screen.queryByRole('button', { name: /Needs attention/ })).toBeNull()
-    act(() => { fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('link', { name: 'Radiology' })) })
+    // Sample pages are no longer listed in the sidebar: the notifications drawer's sample activity opens one.
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }))
+    act(() => { fireEvent.click(within(screen.getByRole('dialog', { name: 'Notifications' })).getByRole('button', { name: 'Open Appointments record' })) })
     expect(await screen.findByRole('button', { name: 'Sample · Needs attention · 4 pending' })).toBeDefined()
     expect(screen.getByRole('button', { name: 'Sample · Needs attention · 4 pending' }).textContent).toBe('Sample · Needs attention · 4 pending')
   })
@@ -74,6 +76,7 @@ describe('the frame\'s sample panels', () => {
     await openDemo('/provider/whats-left')
     fireEvent.click(screen.getByRole('button', { name: 'Notifications' }))
     const drawer = screen.getByRole('dialog', { name: 'Notifications' })
+    // Each row names its record and opens it.
     expect(within(drawer).getByText('Appointments record created')).toBeDefined()
     fireEvent.click(within(drawer).getByRole('button', { name: 'Open Appointments record' }))
     await waitFor(() => expect(where()).toMatch(/^\/provider\/appointments\/[0-9a-f]{8}$/))

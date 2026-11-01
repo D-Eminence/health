@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
 import { formatWhen, shortId } from '../parts/format'
-import { Banner, ListHeading } from '../parts/Notices'
+import { ListHeading } from '../parts/Notices'
 import type { RecordRow } from '../parts/RecordTable'
 import { useWorkspaceHref } from '../parts/Workspace'
 import { ListCard } from '../triage/ListCard'
@@ -13,7 +13,7 @@ import { TITLE, isObservation, noteStatus } from './observations'
 /** The list page: the design's heading and table, or the chart's own state (no patient, access ended, emergency). */
 export function NursingList() {
   const chart = useChart()
-  if (chart && chart.purpose === 'direct-care') return <NursingRecords chart={chart} />
+  if (chart && chart.purpose === 'direct-care') return <ChartGate>{open => <NursingRecords chart={open} />}</ChartGate>
   return (
     <>
       <ListHeading title={TITLE} />
@@ -29,8 +29,7 @@ function NursingRecords({ chart }: { chart: Chart }) {
   const canCreate = reads && chart.canWrite && chart.can('ehr.note.write')
   return (
     <>
-      <EhrPageHeading title={TITLE} primaryAction={canCreate ? <EhrButton onClick={() => navigate(href('new'))}>Create record</EhrButton> : undefined} />
-      {chart.writeNotice ? <Banner tone="warning" title="Changes are unavailable">{chart.writeNotice}</Banner> : null}
+      <EhrPageHeading title={TITLE} primaryAction={canCreate ? <EhrButton onClick={() => navigate(href('new'))}>New observation</EhrButton> : undefined} />
       {reads ? <ObservationsTable chart={chart} /> : <EhrCard><p>{NO_RECORD_ACCESS}</p></EhrCard>}
     </>
   )
@@ -50,7 +49,7 @@ function ObservationsTable({ chart }: { chart: Chart }) {
     id: recordKey(encounter.id, record.id),
     name: shortId(record.id),
     reference: shortId(record.id),
-    context: chart.facts.name,
+    context: field(record, 'title'),
     status: noteStatus(record),
     updated: field(record, 'updatedAt') || record.createdAt,
     details: [
@@ -60,5 +59,5 @@ function ObservationsTable({ chart }: { chart: Chart }) {
     ],
   }))
 
-  return <ListCard title={TITLE} list={list} rows={rows} search={search} onSearch={setSearch} hrefFor={row => href(row.id)} />
+  return <ListCard title={TITLE} list={list} rows={rows} search={search} onSearch={setSearch} hrefFor={row => href(row.id)} contextHeader="Category" />
 }

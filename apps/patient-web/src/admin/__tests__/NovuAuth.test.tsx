@@ -71,7 +71,7 @@ it('opens the workspace only after the backend accepts its admin session and ref
   fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'staff@example.test' } })
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'fictional-password' } })
   fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
-  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('no platform administration access'))
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('This account can’t use platform administration.'))
   expect(screen.queryByRole('heading', { name: 'Overview' })).toBeNull()
 })
 

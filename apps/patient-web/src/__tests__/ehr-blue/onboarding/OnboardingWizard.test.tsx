@@ -215,7 +215,9 @@ describe('the sample steps send nothing', () => {
 
     // Home, then Facility setup again from the sidebar: a new visit, holding none of the last one's choices.
     fireEvent.click(within(nav()).getByRole('link', { name: 'Home' }))
-    await screen.findByRole('heading', { level: 1, name: /^Welcome/ })
+    await screen.findByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), / })
+    // Settings folds once its page is left: opened again from its heading.
+    fireEvent.click(within(nav()).getByRole('button', { name: 'Settings' }))
     fireEvent.click(within(nav()).getByRole('link', { name: 'Facility setup' }))
     await screen.findByRole('navigation', { name: 'Onboarding steps' })
     expect(eyebrow()).toBe('Step 1 of 9 · Facility')
@@ -315,7 +317,7 @@ describe('step 9, Launch', () => {
     press('Launch facility')
     await waitFor(() => expect(where()).toBe('/provider'))
     expect(info).toHaveBeenCalledWith('Health ID has no launch step yet. Your EHR is already open.')
-    expect(await screen.findByRole('heading', { level: 1, name: /^Welcome/ })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), / })).toBeDefined()
     // Whatever Home reads, the launch itself wrote nothing.
     expect(sent.slice(before).every(request => request.route.startsWith('GET '))).toBe(true)
     expect(sent.some(request => /onboarding|launch|setup/i.test(request.route))).toBe(false)

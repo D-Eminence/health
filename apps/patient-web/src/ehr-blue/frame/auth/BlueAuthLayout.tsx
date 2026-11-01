@@ -1,57 +1,44 @@
-import '@hid/ui/ehr.css'
-import './auth.css'
-import { useState, type ReactNode, type Ref } from 'react'
+import type { ReactNode, Ref } from 'react'
 import { Link } from 'react-router-dom'
-import { EhrInput, type EhrInputProps } from '@hid/ui/ehr'
-import { BrandLogo } from '../../../BrandLogo'
+import { AuthLayout } from '../../../AuthLayout'
 import {
   providerEnrollmentHref, STAFF_SIGN_IN_PATH, staffInvitationHref, staffRecoveryHref, staffSignInHref,
 } from '../../../productHostname'
 
 /**
- * The design's sign-in pages (screens/2-sign-in, 3-forgot-password, 4-staff-invitation): the form on the left, under
- * the logo, and the Hospital EHR's story on the right. The design's photograph is left out until its licence is known;
- * the story panel is drawn in the brand's blues. Shown only once the clinic switch is on (README.md).
+ * The Hospital EHR's sign-in, recovery and invitation pages, in the redesign's auth look: the shared AuthLayout (the
+ * same shell as every other sign-in), with the EHR's own row of ways in. `hid-ehr-blue-auth` marks the pages as the
+ * EHR's (shown once the clinic switch is on, README.md); it adds no styles of its own.
  */
 export interface BlueAuthLayoutProps {
   readonly title: ReactNode
-  /** The small capitals over the title ("HOSPITAL EHR"). */
-  readonly eyebrow?: string
+  readonly titleId: string
   readonly lede?: ReactNode
   /** 'p' while a step below has the page's h1 (the authenticator steps). */
   readonly titleAs?: 'h1' | 'p'
   readonly titleRef?: Ref<HTMLHeadingElement & HTMLParagraphElement>
-  /** The design's row of ways in under the form. */
+  /** The row of other ways in under the form. */
   readonly links?: boolean
-  /** The first sign-in screen's own layout: a narrower column and larger fields (auth.css). */
-  readonly signIn?: boolean
   readonly children: ReactNode
 }
 
-export function BlueAuthLayout({ title, eyebrow, lede, titleAs = 'h1', titleRef, links = true, signIn = false, children }: BlueAuthLayoutProps) {
-  const Title = titleAs
+export function BlueAuthLayout({ title, titleId, lede, titleAs = 'h1', titleRef, links = true, children }: BlueAuthLayoutProps) {
   return (
-    <div className={signIn ? 'hid-ehr hid-ehr-blue-auth hid-ehr-blue-auth-signin' : 'hid-ehr hid-ehr-blue-auth'}>
-      <main id="main-content" className="hid-ehr-blue-auth-panel">
-        <Link to={STAFF_SIGN_IN_PATH} className="hid-ehr-blue-auth-brand" aria-label="Health ID provider sign in">
-          <BrandLogo className="hid-ehr-blue-auth-logo" />
-        </Link>
-        <div className="hid-ehr-blue-auth-content">
-          {eyebrow ? <p className="hid-ehr-blue-auth-eyebrow">{eyebrow}</p> : null}
-          <Title ref={titleRef} tabIndex={-1} className="hid-ehr-blue-auth-title">{title}</Title>
-          {lede ? <p className="hid-ehr-blue-auth-lede">{lede}</p> : null}
-          {children}
-          {links ? <BlueAuthLinks /> : null}
-        </div>
-      </main>
-      <aside className="hid-ehr-blue-auth-story" aria-label="Health ID Hospital EHR">
-        <p className="hid-ehr-blue-auth-eyebrow">Health ID — Hospital EHR</p>
-        <p className="hid-ehr-blue-auth-story-title">More connected care.<br />More time for people.</p>
-        <p>Your hospital, patients and team in one connected workspace.</p>
-      </aside>
+    <div className="hid-ehr-blue-auth contents">
+      <AuthLayout brandTo={STAFF_SIGN_IN_PATH} brandLabel="Health ID provider sign in" title={title} titleId={titleId}
+        titleAs={titleAs} titleRef={titleRef} titleFocusable={titleAs === 'h1'} lede={lede}>
+        {children}
+        {links ? <BlueAuthLinks /> : null}
+      </AuthLayout>
     </div>
   )
 }
+
+/** Our plain body copy and quiet hints inside the auth panel. */
+export const NOTE = 'm-0 text-sm text-ink-2'
+export const HINT = 'm-0 text-[13px] text-ink-3'
+/** A text link with a 44px target. */
+export const LINK = 'inline-flex min-h-11 items-center font-medium text-brand-ink'
 
 /** A page of this portal, or of another Health ID site where this host's rules send the person (productHostname.ts). */
 export function SiteLink({ href, className, children }: { readonly href: string; readonly className?: string; readonly children: ReactNode }) {
@@ -70,27 +57,15 @@ export function authHrefs(hostname = window.location.hostname) {
   }
 }
 
-/** The design's row of ways in: Register a hospital · Sign in · Recover access · Accept invitation. */
+/** The other ways in: Register a hospital · Sign in · Recover access · Accept invitation. */
 export function BlueAuthLinks() {
   const hrefs = authHrefs()
   return (
-    <nav className="hid-ehr-blue-auth-links" aria-label="Other ways in">
-      <SiteLink href={hrefs.register}>Register a hospital</SiteLink>
-      <SiteLink href={hrefs.signIn}>Sign in</SiteLink>
-      <SiteLink href={hrefs.recover}>Recover access</SiteLink>
-      <SiteLink href={hrefs.invitation}>Accept invitation</SiteLink>
+    <nav className="flex flex-wrap gap-x-5 text-[13px]" aria-label="Other ways in">
+      <SiteLink className={LINK} href={hrefs.register}>Register a hospital</SiteLink>
+      <SiteLink className={LINK} href={hrefs.signIn}>Sign in</SiteLink>
+      <SiteLink className={LINK} href={hrefs.recover}>Recover access</SiteLink>
+      <SiteLink className={LINK} href={hrefs.invitation}>Accept invitation</SiteLink>
     </nav>
-  )
-}
-
-/** A password field with the design's show button, inside an EhrField like any other control. */
-export function BluePasswordInput({ toggleLabel = 'Show password', ...props }: Omit<EhrInputProps, 'type'> & { readonly toggleLabel?: string }) {
-  const [shown, setShown] = useState(false)
-  return (
-    <div className="hid-ehr-blue-password">
-      <EhrInput {...props} type={shown ? 'text' : 'password'} />
-      <button type="button" className="hid-ehr-blue-password-toggle" aria-label={toggleLabel} aria-pressed={shown}
-        onClick={() => setShown(value => !value)}>{shown ? 'Hide' : 'Show'}</button>
-    </div>
   )
 }

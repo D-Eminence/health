@@ -1,5 +1,8 @@
 import { useRef, useState, type FormEvent } from 'react'
-import { Button, Card, EmptyState, Field, Input, Select } from '@hid/ui'
+import { EmptyState, Field, Input, Select } from '@hid/ui'
+import { CircleCheck, RotateCcw, ShieldCheck } from 'lucide-react'
+import { Alert, Button as KButton, Card as KCard } from '../../kasuwa/ui'
+import { FormActions, FormPage, Step } from '../../kasuwa/parts'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type AssistedDocumentType, type AssistedVerificationInput } from '../api'
 import { useStaff } from '../App'
@@ -35,10 +38,10 @@ const DOCUMENT_TYPES: ReadonlyArray<readonly [AssistedDocumentType, string]> = [
 type Attestation = keyof AssistedVerificationInput['attestations']
 const ATTESTATIONS: ReadonlyArray<readonly [Attestation, string]> = [
   ['patientPresent', 'The patient is here in person.'],
-  ['originalDocumentSeen', 'I have seen the original document, not a copy or a photo of it.'],
-  ['photoMatchesPerson', 'The photo on the document matches the person in front of me.'],
-  ['codeShownOnPatientsOwnDevice', 'The desk code is shown on the patient’s own phone.'],
-  ['patientConsents', 'The patient agrees to this check against their NIN record.'],
+  ['originalDocumentSeen', 'I’ve seen the original ID, not a copy or photo.'],
+  ['photoMatchesPerson', 'The photo on the ID is this person.'],
+  ['codeShownOnPatientsOwnDevice', 'The code is on their own phone.'],
+  ['patientConsents', 'They agree to this check against their NIN.'],
 ]
 
 /** Identity's desk code alphabet (Crockford base32: no I, L, O or U). */
@@ -92,22 +95,22 @@ type Mismatch = { firstName?: string; lastName?: string; dateOfBirth?: string }
 
 const RESULT_WORDS: Record<FieldResult, string> = {
   match: 'matches',
-  no_match: 'does not match',
-  not_in_record: 'not on the NIN record, so not compared',
+  no_match: 'doesn’t match',
+  not_in_record: 'not on their NIN, so not checked',
 }
 
 function resultWords(field: keyof Mismatch, result: string | undefined, typedDateOfBirth: boolean): string {
   if (field === 'dateOfBirth' && result === 'no_match' && !typedDateOfBirth) {
-    return 'does not match. None was typed; type the date of birth on the document.'
+    return 'doesn’t match. None was typed; type the date on the ID.'
   }
   return result && Object.hasOwn(RESULT_WORDS, result) ? RESULT_WORDS[result as FieldResult] : 'no result given'
 }
 
-const DESK_CODE_ENTRY = 'Enter the 10-character desk code shown on the patient’s phone.'
-const DATE_OF_BIRTH_ENTRY = 'Enter the whole date of birth as written on the document, or clear the field if the document shows none.'
-const STALE = 'This desk code can no longer be checked: another check came first, or the patient has a new code. Ask the patient for the code on their phone now, then check again.'
-const RETRY = 'The check could not be completed. Press Check again without changing the details: it is sent as the same check, so it is not counted twice.'
-const RETRY_PROOF = 'The check is recorded, but the patient’s registration could not be moved on. Press Check again without changing the details within 10 minutes: it is not counted twice.'
+const DESK_CODE_ENTRY = 'Type the 10-character code on their phone.'
+const DATE_OF_BIRTH_ENTRY = 'Type the full date as it is on the ID, or leave it empty if there isn’t one.'
+const STALE = 'That code has changed. Ask for the code on their phone now, then check again.'
+const RETRY = 'That didn’t go through. Press Check again without changes. It won’t count twice.'
+const RETRY_PROOF = 'Saved, but their sign-up didn’t move on. Press Check again within 10 minutes, without changes.'
 
 /**
  * An answer that may or may not have been recorded: the same submission is sent again. A 503
@@ -133,8 +136,8 @@ export function InPersonCheck() {
   const { state } = useStaff()
   const facility = state.status === 'ready' ? state.session.actor.facility : undefined
   if (!facility || !facility.permissions.includes(ASSISTED_REGISTRATION_PERMISSION)) {
-    return <EmptyState titleAs="h1" title="In-person check unavailable"
-      description="Your role at this facility cannot check patients in person. Doctors, clinicians and nurses at a facility that takes part in registration can. Ask a platform administrator if your role should." />
+    return <EmptyState titleAs="h1" title="You can’t check patients in person here"
+      description="Doctors and nurses at a taking-part facility can. Ask your administrator." />
   }
   // Another facility starts afresh: nothing typed, answered or kept for a retry carries over.
   return <CheckDesk key={facility.id} facilityId={facility.id} />
@@ -164,15 +167,15 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
   /** Refuses what would not be accepted, at its field, before anything is sent. */
   function refused(form: HTMLFormElement): boolean {
     if (!normalizeDeskCode(values.deskCode)) { problems.refuse('in-person-desk-code', DESK_CODE_ENTRY); return true }
-    if (!values.documentType) { problems.refuse('in-person-document-type', 'Choose the document you checked.'); return true }
-    if (!values.firstName.trim()) { problems.refuse('in-person-first-name', 'Enter the first name as written on the document.'); return true }
-    if (!values.lastName.trim()) { problems.refuse('in-person-last-name', 'Enter the last name as written on the document.'); return true }
+    if (!values.documentType) { problems.refuse('in-person-document-type', 'Choose which ID you looked at.'); return true }
+    if (!values.firstName.trim()) { problems.refuse('in-person-first-name', 'Type the first name as it is on the ID.'); return true }
+    if (!values.lastName.trim()) { problems.refuse('in-person-last-name', 'Type the last name as it is on the ID.'); return true }
     if (dateOfBirthUnfinished(form) || (values.dateOfBirth && !/^\d{4}-\d{2}-\d{2}$/.test(values.dateOfBirth))) {
       problems.refuse('in-person-date-of-birth', DATE_OF_BIRTH_ENTRY); return true
     }
     const missing = ATTESTATIONS.find(([key]) => !values.attestations[key])
     if (missing) {
-      problems.refuse('in-person-attestations', 'Confirm all five statements. If any is not true, do not check this patient.', `in-person-${missing[0]}`)
+      problems.refuse('in-person-attestations', 'Tick all five. If any isn’t true, stop here.', `in-person-${missing[0]}`)
       return true
     }
     return false
@@ -218,7 +221,7 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
         focus('in-person-registered-title')
         return
       case 'DESK_CODE_NOT_FOUND':
-        problems.refuse('in-person-desk-code', message || 'No registration is waiting for this desk code. Ask the patient to show the code on their phone again.')
+        problems.refuse('in-person-desk-code', message || 'No sign-up is waiting for this code. Ask them to show the code again.')
         return
       case 'DESK_CODE_INVALID':
         problems.refuse('in-person-desk-code', message || DESK_CODE_ENTRY)
@@ -229,16 +232,16 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
       case 'ASSISTED_REGISTRATION_NOT_AUTHORIZED':
         // One answer for four causes (INTERFACE_CONTRACT.md at f9dbaf0): no sign-in confirmed with an authenticator, no
         // attested grant, an inactive membership or account, or a facility that does not take part. Each is named.
-        setError('You cannot register patients in person at this facility. Ask a platform administrator: the facility must take part, and you need an active account, a sign-in confirmed with your authenticator, an attested clinical grant and an active membership here.')
+        setError('You can’t check patients in person here. Ask Health ID support to set you up.')
         return
       case 'PERMISSION_DENIED':
-        setError('Your role at this facility cannot check patients in person. Ask a platform administrator.')
+        setError('Your role here can’t check patients in person. Ask your administrator.')
         return
       case 'ASSISTED_REGISTRATION_DISABLED':
         setError(`${message || 'Registration at a facility is not available.'} Nothing was recorded.`)
         return
       case 'IDEMPOTENCY_KEY_REUSED':
-        setError('This check was already sent with other details. Check the details, then send them again.')
+        setError('This was already sent with different details. Check them and try again.')
         return
       case 'ENROLLMENT_RECONCILIATION_REQUIRED':
       case 'ENROLLMENT_UNAVAILABLE':
@@ -246,7 +249,7 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
         return
       case 'VALIDATION_FAILED':
         problems.markRefused(form, caught)
-        setError(refusalText(caught, 'Some details were refused. Check them, then send them again.'))
+        setError(refusalText(caught, 'Some details weren’t accepted. Check them and try again.'))
         return
     }
     if (outcomeUnknown(caught)) { setError(RETRY); return }
@@ -261,94 +264,90 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
     focus('in-person-form-title')
   }
 
-  return <div className="staff-in-person">
-    <div className="staff-page-head">
-      <p className="staff-eyebrow">Identity operations</p>
-      <h1>In-person check</h1>
-      <p>Check a patient registering on their own phone who cannot receive the code sent to the phone on their NIN record. You check one original photo ID; Health ID compares the details with the NIN record and never shows you the record.</p>
-    </div>
-    <div className="staff-stack">
-      {stage.kind === 'verified' && <Card className="staff-card">
-        <h2 id="in-person-verified-title" tabIndex={-1}>Checked. The patient can continue on their phone.</h2>
-        <p>On their own phone they add a phone number or email, choose a password, and then see their Health ID. If the phone still shows the desk code, ask them to open their registration again on that phone.</p>
-        <Button tone="secondary" onClick={another}>Check another patient</Button>
-      </Card>}
+  // One column: the heading, each step and the button share one edge (alignment), and the steps are three short groups
+  // (chunking). The method is fixed (a government photo ID seen in person), so it is said, not offered as a choice.
+  return <FormPage title="Check a patient in person" description="For patients who can’t get a code on their NIN phone. You check their photo ID.">
 
-      {stage.kind === 'registered' && <Card className="staff-card">
-        <h2 id="in-person-registered-title" tabIndex={-1}>This person already has a Health ID</h2>
-        <p>{stage.detail}</p>
-        <p>Do not start a new registration for them. Their registration on the phone has ended; account recovery lets them sign in to the Health ID they have.</p>
-        <Button tone="secondary" onClick={another}>Check another patient</Button>
-      </Card>}
+    {stage.kind === 'verified' && <KCard>
+      <div className="flex flex-col items-center gap-3 px-5 py-8 text-center">
+        <span className="inline-flex size-12 items-center justify-center rounded-full bg-success-soft text-success-ink"><CircleCheck className="size-6" aria-hidden /></span>
+        <h2 id="in-person-verified-title" tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">Checked</h2>
+        <p className="m-0 max-w-sm text-sm text-ink-2">They can finish on their phone now. If it still shows the code, ask them to open their sign-up again.</p>
+        <KButton variant="primary" icon={RotateCcw} onClick={another}>Check another patient</KButton>
+      </div>
+    </KCard>}
 
-      {stage.kind === 'form' && <Card className="staff-card">
-        <h2 id="in-person-form-title" tabIndex={-1}>Check a patient</h2>
-        <form className="staff-form" noValidate onSubmit={event => void check(event)}>
-          <Field label="Desk code" htmlFor="in-person-desk-code" required error={problems.error('in-person-desk-code')}
-            hint="As the patient’s own phone shows it: 10 letters and digits. Spaces, hyphens and case do not matter.">
-            <Input {...problems.control('in-person-desk-code')} id="in-person-desk-code" name="deskCode" value={values.deskCode}
-              onChange={event => change({ deskCode: event.target.value })} autoComplete="off" autoCapitalize="characters"
-              spellCheck={false} maxLength={20} readOnly={busy} required />
-          </Field>
+    {stage.kind === 'registered' && <KCard>
+      <div className="flex flex-col gap-3 p-5">
+        <h2 id="in-person-registered-title" tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">They already have a Health ID</h2>
+        {stage.detail ? <p className="m-0 text-sm text-ink-2">{stage.detail}</p> : null}
+        <p className="m-0 text-sm text-ink-2">Don’t register them again. They can get back into their account with “Forgot password”.</p>
+        <div><KButton icon={RotateCcw} onClick={another}>Check another patient</KButton></div>
+      </div>
+    </KCard>}
 
-          <fieldset>
-            <legend>Method</legend>
-            <label className="staff-choice"><input type="radio" name="method" value="government_photo_id_in_person" checked readOnly />
-              Original government photo ID, checked in person</label>
-          </fieldset>
+    {stage.kind === 'form' && <form noValidate onSubmit={event => void check(event)} className="flex flex-col gap-4" aria-labelledby="in-person-form-title">
+      <h2 id="in-person-form-title" tabIndex={-1} className="sr-only">Check a patient</h2>
 
-          <Field label="Document checked" htmlFor="in-person-document-type" required error={problems.error('in-person-document-type')}>
-            <Select {...problems.control('in-person-document-type')} id="in-person-document-type" name="documentType" value={values.documentType}
-              onChange={event => change({ documentType: event.target.value as AssistedDocumentType | '' })} required>
-              <option value="">Choose the document</option>
-              {DOCUMENT_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </Select>
-          </Field>
+      <Step bodyClassName="staff-form" n={1} title="The code on their phone">
+        <Field label="Code" htmlFor="in-person-desk-code" required error={problems.error('in-person-desk-code')} hint="10 letters and numbers. Spaces and dashes don’t matter.">
+          <Input {...problems.control('in-person-desk-code')} id="in-person-desk-code" name="deskCode" value={values.deskCode} placeholder="ABCD-EFGH-JK"
+            onChange={event => change({ deskCode: event.target.value })} autoComplete="off" autoCapitalize="characters"
+            spellCheck={false} maxLength={20} readOnly={busy} required />
+        </Field>
+      </Step>
 
-          <fieldset id="in-person-document" name="document">
-            <legend>As written on the document</legend>
-            <div className="staff-form-row">
-              <Field label="First name" htmlFor="in-person-first-name" required error={problems.error('in-person-first-name')}>
-                <Input {...problems.control('in-person-first-name')} id="in-person-first-name" name="firstName" value={values.firstName}
-                  onChange={event => change({ firstName: event.target.value })} maxLength={100} autoComplete="off" spellCheck={false} readOnly={busy} required />
-              </Field>
-              <Field label="Last name" htmlFor="in-person-last-name" required error={problems.error('in-person-last-name')}>
-                <Input {...problems.control('in-person-last-name')} id="in-person-last-name" name="lastName" value={values.lastName}
-                  onChange={event => change({ lastName: event.target.value })} maxLength={100} autoComplete="off" spellCheck={false} readOnly={busy} required />
-              </Field>
-            </div>
-            <Field label="Date of birth (if the document shows one)" htmlFor="in-person-date-of-birth" error={problems.error('in-person-date-of-birth')}
-              hint="A check without it does not match a NIN record that has one.">
-              <Input {...problems.control('in-person-date-of-birth')} id="in-person-date-of-birth" name="dateOfBirth" type="date" value={values.dateOfBirth}
-                onChange={event => change({ dateOfBirth: event.target.value })} autoComplete="off" readOnly={busy} />
+      <Step bodyClassName="staff-form" n={2} title="Their photo ID" hint="The original, not a copy or a photo of it.">
+        <Field label="Which ID?" htmlFor="in-person-document-type" required error={problems.error('in-person-document-type')}>
+          <Select {...problems.control('in-person-document-type')} id="in-person-document-type" name="documentType" value={values.documentType}
+            onChange={event => change({ documentType: event.target.value as AssistedDocumentType | '' })} required>
+            <option value="">Choose</option>
+            {DOCUMENT_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </Select>
+        </Field>
+        <fieldset id="in-person-document" name="document" className="m-0 flex flex-col gap-4 border-0 p-0">
+          <legend className="mb-2 p-0 text-[13px] text-ink-3">Type the details exactly as they are on the ID.</legend>
+          <div className="staff-form-row">
+            <Field label="First name" htmlFor="in-person-first-name" required error={problems.error('in-person-first-name')}>
+              <Input {...problems.control('in-person-first-name')} id="in-person-first-name" name="firstName" value={values.firstName}
+                onChange={event => change({ firstName: event.target.value })} maxLength={100} autoComplete="off" spellCheck={false} readOnly={busy} required />
             </Field>
-          </fieldset>
+            <Field label="Last name" htmlFor="in-person-last-name" required error={problems.error('in-person-last-name')}>
+              <Input {...problems.control('in-person-last-name')} id="in-person-last-name" name="lastName" value={values.lastName}
+                onChange={event => change({ lastName: event.target.value })} maxLength={100} autoComplete="off" spellCheck={false} readOnly={busy} required />
+            </Field>
+          </div>
+          <Field label="Date of birth" htmlFor="in-person-date-of-birth" error={problems.error('in-person-date-of-birth')} hint="If the ID shows one. Without it, the check may not match.">
+            <Input {...problems.control('in-person-date-of-birth')} id="in-person-date-of-birth" name="dateOfBirth" type="date" value={values.dateOfBirth}
+              onChange={event => change({ dateOfBirth: event.target.value })} autoComplete="off" readOnly={busy} />
+          </Field>
+        </fieldset>
+      </Step>
 
-          <fieldset name="attestations" {...problems.group('in-person-attestations')}>
-            <legend>Confirm each statement</legend>
-            {ATTESTATIONS.map(([key, label]) => <label key={key} className="staff-choice">
-              <input type="checkbox" id={`in-person-${key}`} name={key} checked={values.attestations[key]}
-                onChange={event => attest(key, event.target.checked)} /> {label}
-            </label>)}
-            <GroupError field="in-person-attestations">{problems.error('in-person-attestations')}</GroupError>
-          </fieldset>
+      <Step bodyClassName="staff-form" n={3} title="Confirm">
+        <fieldset name="attestations" {...problems.group('in-person-attestations')} className="m-0 flex flex-col gap-1.5 border-0 p-0">
+          <legend className="sr-only">Confirm each statement</legend>
+          {ATTESTATIONS.map(([key, label]) => <label key={key} className="flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 text-sm text-ink ring-1 ring-line has-[:checked]:bg-brand-soft has-[:checked]:ring-brand-line">
+            <input type="checkbox" id={`in-person-${key}`} name={key} checked={values.attestations[key]} className="mt-0.5 size-4 accent-[var(--color-brand)]"
+              onChange={event => attest(key, event.target.checked)} /> {label}
+          </label>)}
+          <GroupError field="in-person-attestations">{problems.error('in-person-attestations')}</GroupError>
+        </fieldset>
+      </Step>
 
-          {/* Kept enabled while it runs, so focus stays on it; a second press does nothing. */}
-          <Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Checking…' : retrying ? 'Check again' : 'Check the details'}</Button>
-        </form>
-      </Card>}
-
-      {stage.kind === 'form' && mismatch && <Card className="staff-card">
-        <h2 id="in-person-mismatch-title" tabIndex={-1}>The details do not match the NIN record</h2>
-        <ul aria-label="Result for each detail">
+      {stage.kind === 'form' && mismatch && <Alert intent="warning" title="The details don’t match their NIN">
+        <ul className="m-0 mt-1 list-none p-0" aria-label="Result for each detail">
           <li>First name: {resultWords('firstName', mismatch.fields.firstName, mismatch.typedDateOfBirth)}</li>
           <li>Last name: {resultWords('lastName', mismatch.fields.lastName, mismatch.typedDateOfBirth)}</li>
           <li>Date of birth: {resultWords('dateOfBirth', mismatch.fields.dateOfBirth, mismatch.typedDateOfBirth)}</li>
         </ul>
-        <p>Check the document. If only spelling or spacing differs, such as a hyphen or a space in a name, type it the way the document allows and check again; each check counts toward the daily limit. Otherwise do not register this patient.</p>
-      </Card>}
+        <p className="m-0 mt-2">If only a space or hyphen differs, type it as the ID shows and check again. Otherwise, don’t register them.</p>
+      </Alert>}
+      {mismatch ? <span id="in-person-mismatch-title" tabIndex={-1} className="sr-only">The details don’t match their NIN</span> : null}
+      {error && <Alert intent="error" title="That didn’t work">{error}</Alert>}
 
-      {error && <div role="alert"><p className="staff-error">{error}</p></div>}
-    </div>
-  </div>
+      {/* Kept enabled while it runs, so focus stays on it; a second press does nothing. */}
+      <FormActions><KButton type="submit" variant="primary" icon={ShieldCheck} aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Checking…' : retrying ? 'Check again' : 'Check details'}</KButton></FormActions>
+    </form>}
+  </FormPage>
 }

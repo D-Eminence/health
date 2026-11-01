@@ -247,7 +247,7 @@ export function Dashboard() {
     [facility?.id, facility?.membershipId, permissions.join(' '), facility?.selfService?.review, facility?.selfService?.organizationType])
   if (!session) return null
   return <>
-    <div className="staff-page-head"><p className="staff-eyebrow">Provider workspace</p><h1>Good to see you, {session.actor.displayName?.split(' ')[0] ?? 'colleague'}.</h1><p>Working at {facility?.name ?? 'no selected facility'}. All clinical activity uses your current membership and is checked by the backend.</p></div>
+    <div className="staff-page-head"><p className="staff-eyebrow">Provider workspace</p><h1>Good to see you, {session.actor.displayName?.split(' ')[0] ?? 'colleague'}.</h1><p>Working at {facility?.name ?? 'no selected facility'}. All clinical activity uses your current membership and is checked by Health ID.</p></div>
     {!facility && <Card className="staff-card"><h2>Select a facility</h2><p>Choose your active facility above to open permitted workflows.</p></Card>}
     {facility && <div className="staff-grid">
       <Card className="staff-card"><h2>Active facility</h2><p>{facility.name}</p><Badge tone="information">{(usesNovuBackend() ? roleLabels(facility.roles) : facility.roles.join(', ')) || 'Staff'}</Badge></Card>
@@ -261,6 +261,6 @@ export function Dashboard() {
     </div>}
     <section className="staff-section"><h2>Workspaces</h2><div className="staff-grid">{modules.filter(module => permissions.includes(module.permission)).map(module => <Link className="staff-module" key={module.to} to={module.to}><strong>{module.title}</strong><span>{module.detail}</span><small>Open workspace →</small></Link>)}</div>{facility && !holdsClinicalModule(permissions) && <p className="staff-muted">Your active facility has no clinical module permissions. Ask an administrator to review your assignment.</p>}</section>
     {/* It leads only to Document OCR, which a role without ocr.job.read cannot open: OCR is closed at launch, and no role holds it (hid-system 0091). */}
-    {permissions.includes('ocr.job.read') && <Card className="staff-card staff-gap-card"><h2>Health ID Migrate</h2><p>Document capture, extraction, validation, and publication use the governed OCR API. Bulk import, project matching, and team operations need additional backend support.</p><Link to="/provider/ocr" className="staff-text-link">Open document workflow →</Link></Card>}
+    {permissions.includes('ocr.job.read') && <Card className="staff-card staff-gap-card"><h2>Health ID Migrate</h2><p>Document capture, extraction, validation, and publication.</p><Link to="/provider/ocr" className="staff-text-link">Open document workflow →</Link></Card>}
   </>
 }

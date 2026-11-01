@@ -1,17 +1,18 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
-import { EhrButton, EhrField, EhrInput } from '@hid/ui/ehr'
+import { PasswordInput } from '@hid/ui'
+import { Alert, Button, buttonClass } from '../../../kasuwa/ui'
 import { Turnstile } from '../../../Turnstile'
 import { createPrincipalRecoveryApi } from '../../../recoveryApi'
 import { STAFF_RECOVERY_PATH, staffRecoveryHref } from '../../../productHostname'
 import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../../../authSteps'
 import { CODE_BUDGET_HINT, useCodeBudgetNote, useResendWait } from '../../../routes/recoveryWait'
-import { authHrefs, BlueAuthLayout, BluePasswordInput, SiteLink } from './BlueAuthLayout'
+import { authHrefs, BlueAuthLayout, HINT, NOTE, SiteLink } from './BlueAuthLayout'
 
 type Step = 'start' | 'code' | 'password' | 'complete'
 
 /**
- * Staff password recovery as the design draws it (screens/3-forgot-password), working as today's does
+ * The Hospital EHR's staff password recovery, in the redesign's auth look, working as today's does
  * (routes/PrincipalRecovery.tsx, audience 'staff'): the work email with Turnstile, a neutral answer whether or not the
  * account exists, the six-digit code, then a new password of at least 12 characters. The challenge and its token live
  * in component memory only. On a site where staff do not reset, it points to the main site. App.tsx opens it at
@@ -41,8 +42,8 @@ export function BlueRecovery() {
   const mainSiteRecovery = staffRecoveryHref(window.location.hostname)
   if (mainSiteRecovery !== STAFF_RECOVERY_PATH) {
     return (
-      <BlueAuthLayout title="Recover account access" lede="Password resets are done on the main Health ID site.">
-        <a className="hid-ehr-button hid-ehr-button-primary hid-ehr-blue-auth-wide" href={mainSiteRecovery}>Reset your password on the main site</a>
+      <BlueAuthLayout title="Recover account access" titleId="blue-recovery-title" lede="You reset staff passwords on the main Health ID site.">
+        <a className={buttonClass({ variant: 'primary', size: 'lg', block: true })} href={mainSiteRecovery}>Reset your password on the main site</a>
       </BlueAuthLayout>
     )
   }
@@ -125,64 +126,69 @@ export function BlueRecovery() {
   const mismatch = confirmPassword !== '' && password !== confirmPassword && !password.startsWith(confirmPassword)
 
   return (
-    <BlueAuthLayout title="Recover account access" lede="Health ID — Hospital EHR">
-      {error ? <p id="blue-recovery-error" role={errorAlert ? 'alert' : undefined} className="hid-ehr-error hid-ehr-blue-auth-error">{error}</p> : null}
+    <BlueAuthLayout title="Recover account access" titleId="blue-recovery-title" lede="For staff accounts.">
+      {/* Every refusal is boxed; it is an alert unless it is about the field focus is moving to, which says it. */}
+      {error ? <Alert id="blue-recovery-error" intent="error" size="sm" live={errorAlert}>{error}</Alert> : null}
       {step === 'start' ? (
-        <form onSubmit={start} className="hid-ehr-blue-auth-form">
-          <p id="blue-recovery-start-hint" className="hid-ehr-blue-auth-note">Enter your work email. If an eligible account exists, we will send a code to its verified contact.</p>
-          <EhrField label="Work email">
-            <EhrInput ref={stepFocus.target} required type="email" autoComplete="username" maxLength={254} value={identifier}
+        <form onSubmit={start} className="staff-form">
+          <p id="blue-recovery-start-hint" className={NOTE}>Enter your work email. If an account exists, we send a code to its verified contact.</p>
+          <div className="auth-field-label">
+            <label htmlFor="blue-recovery-email">Work email</label>
+            <input id="blue-recovery-email" ref={stepFocus.target} required type="email" autoComplete="username" maxLength={254} value={identifier}
               onChange={event => setIdentifier(event.target.value)} aria-invalid={invalid}
               aria-describedby={describedBy('blue-recovery-start-hint', errorId)} />
-          </EhrField>
+          </div>
           <Turnstile action="staff-reset" onTokenChange={setTurnstileToken} resetKey={turnstileResetKey} />
-          <EhrButton type="submit" className="hid-ehr-blue-auth-wide" disabled={busy || !turnstileToken}>{busy ? 'Sending…' : 'Send recovery code'}</EhrButton>
+          <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !turnstileToken}>{busy ? 'Sending…' : 'Send recovery code'}</Button>
         </form>
       ) : null}
       {step === 'code' ? (
-        <form onSubmit={verify} className="hid-ehr-blue-auth-form">
-          <p id="blue-recovery-code-hint" className="hid-ehr-blue-auth-note">Enter the six digit code sent to your verified contact.</p>
-          <EhrField label="Recovery code">
-            <EhrInput ref={stepFocus.target} required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code}
+        <form onSubmit={verify} className="staff-form">
+          <p id="blue-recovery-code-hint" className={NOTE}>Enter the 6-digit code sent to your verified contact.</p>
+          <div className="auth-field-label">
+            <label htmlFor="blue-recovery-code">Recovery code</label>
+            <input id="blue-recovery-code" ref={stepFocus.target} required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code}
               onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} aria-invalid={invalid}
               aria-describedby={describedBy('blue-recovery-code-hint', errorId)} />
-          </EhrField>
-          <EhrButton type="submit" className="hid-ehr-blue-auth-wide" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</EhrButton>
-          {budget.shown ? <p className="hid-ehr-blue-auth-note">{CODE_BUDGET_HINT}</p> : null}
+          </div>
+          <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</Button>
+          {budget.shown ? <p className={HINT}>{CODE_BUDGET_HINT}</p> : null}
         </form>
       ) : null}
       {step === 'password' ? (
-        <form onSubmit={complete} className="hid-ehr-blue-auth-form">
-          <p id="blue-recovery-password-hint" className="hid-ehr-blue-auth-note">Choose a new password of at least 12 characters.</p>
-          <EhrField label="New password">
-            <BluePasswordInput toggleLabel="Show new password" ref={stepFocus.target} required autoComplete="new-password" minLength={12}
-              maxLength={256} value={password} onChange={event => setPassword(event.target.value)} aria-invalid={invalid}
-              aria-describedby={describedBy('blue-recovery-password-hint', errorId)} />
-          </EhrField>
-          <EhrField label="Confirm new password">
-            <BluePasswordInput toggleLabel="Show confirmed password" required autoComplete="new-password" minLength={12} maxLength={256}
-              value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} aria-invalid={mismatch || undefined}
-              aria-describedby={mismatch ? 'blue-recovery-mismatch' : undefined} />
-          </EhrField>
+        <form onSubmit={complete} className="staff-form">
+          <p id="blue-recovery-password-hint" className={NOTE}>Choose a new password of at least 12 characters.</p>
+          <div className="auth-field-label">
+            <label htmlFor="blue-recovery-password">New password</label>
+            <PasswordInput appearance="plain" id="blue-recovery-password" toggleLabel="Show new password" ref={stepFocus.target} required
+              autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => setPassword(event.target.value)}
+              aria-invalid={invalid} aria-describedby={describedBy('blue-recovery-password-hint', errorId)} />
+          </div>
+          <div className="auth-field-label">
+            <label htmlFor="blue-recovery-confirm">Confirm new password</label>
+            <PasswordInput appearance="plain" id="blue-recovery-confirm" toggleLabel="Show confirmed password" required autoComplete="new-password"
+              minLength={12} maxLength={256} value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)}
+              aria-invalid={mismatch || undefined} aria-describedby={mismatch ? 'blue-recovery-mismatch' : undefined} />
+          </div>
           {/* Always mounted, so the mismatch is announced once when it appears, not on each keystroke. */}
-          <div aria-live="polite">{mismatch ? <p id="blue-recovery-mismatch" className="hid-ehr-error">Passwords do not match.</p> : null}</div>
-          <EhrButton type="submit" className="hid-ehr-blue-auth-wide" disabled={busy || password.length < 12 || password !== confirmPassword}>
+          <div aria-live="polite">{mismatch ? <p id="blue-recovery-mismatch" className="m-0 text-[13px] font-medium text-danger-ink">Passwords do not match.</p> : null}</div>
+          <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || password.length < 12 || password !== confirmPassword}>
             {busy ? 'Saving…' : 'Reset password'}
-          </EhrButton>
+          </Button>
         </form>
       ) : null}
       {step === 'complete' ? (
-        <div role="status" className="hid-ehr-blue-auth-form">
-          <h2 ref={stepFocus.target} tabIndex={-1} className="hid-ehr-blue-auth-step-title">Password reset complete.</h2>
-          <SiteLink href={signIn} className="hid-ehr-button hid-ehr-button-primary hid-ehr-blue-auth-wide">Sign in</SiteLink>
+        <div role="status" className="staff-form">
+          <h2 ref={stepFocus.target} tabIndex={-1}>Password reset complete.</h2>
+          <SiteLink href={signIn} className={buttonClass({ variant: 'primary', size: 'lg', block: true })}>Sign in</SiteLink>
         </div>
       ) : null}
       {step === 'code' || step === 'password' ? (
-        <div className="hid-ehr-blue-auth-more">
-          <EhrButton variant="quiet" onClick={restart} disabled={busy}>Use a different work email</EhrButton>
-          <div role="status">{resend.ready ? <>
-            <p className="hid-ehr-blue-auth-note">No code, or a code refused? Start again with the same work email to get a new code.</p>
-            <EhrButton variant="quiet" onClick={restart} disabled={busy}>Start again for a new code</EhrButton>
+        <div className="flex flex-col items-start gap-1">
+          <Button variant="ghost" onClick={restart} disabled={busy}>Use a different work email</Button>
+          <div role="status" className="flex flex-col items-start gap-1">{resend.ready ? <>
+            <p className={HINT}>No code, or a code refused? Start again with the same work email to get a new code.</p>
+            <Button variant="ghost" onClick={restart} disabled={busy}>Start again for a new code</Button>
           </> : null}</div>
         </div>
       ) : null}

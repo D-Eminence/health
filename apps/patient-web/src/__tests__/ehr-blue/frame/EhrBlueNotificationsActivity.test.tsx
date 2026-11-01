@@ -45,7 +45,7 @@ describe('Recent activity, with every folder\'s pages', () => {
   it('shows no Recent activity to a role that may open none of its workspaces', async () => {
     await openDemo(['lab'])
     const drawer = openNotifications()
-    expect(drawer.queryByRole('heading', { name: 'Recent activity' })).toBeNull()
+    expect(drawer.queryByRole('heading', { name: /^Recent activity/ })).toBeNull()
     expect(drawer.queryByText(/record created$/)).toBeNull()
   })
 })

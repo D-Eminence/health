@@ -85,7 +85,7 @@ describe('the portal shell staging accepts', () => {
 
 describe('the launch build check refuses a shell staging refuses', () => {
   it.each([
-    ['a theme-color that is not a colour', built.replace('content="#086dd9"', 'content="url(https://evil.example/)"'), /theme-color/],
+    ['a theme-color that is not a colour', built.replace('content="#1570ef"', 'content="url(https://evil.example/)"'), /theme-color/],
     ['a web app manifest linked from another file', built.replace('href="/health-id.webmanifest"', 'href="/manifest.json"'), /as manifest/],
     ['an icon from another origin', built.replace('href="/icons/icon-48.png"', 'href="https://cdn.example.test/icon.png"'), /as icon/],
     ['an icon linked as the manifest', built.replace('href="/health-id.webmanifest"', 'href="/icons/icon-48.png"'), /as manifest/],

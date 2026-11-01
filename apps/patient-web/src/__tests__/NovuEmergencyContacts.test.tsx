@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { EmergencyContact } from '../api'
 import { EmergencyContactsCard } from '../routes/AccountSafety'
-import { described, json, press, problem, renderPortal, type Handler, type Sent } from './portalHarness'
+import { described, json, press, problem, renderPortal, shownText, type Handler, type Sent } from './portalHarness'
 import { enterCode } from './codeBoxes'
 
 /**
@@ -44,7 +44,7 @@ const heading = () => screen.getByRole('heading', { name: 'Emergency contacts' }
 
 async function fillNewContact(destination: string) {
   await press(await screen.findByRole('button', { name: 'Add emergency contact' }))
-  fireEvent.change(screen.getByRole('textbox', { name: 'Contact name' }), { target: { value: 'Ada Obi' } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Ada Obi' } })
   fireEvent.change(screen.getByRole('textbox', { name: /^(Email address|Phone number)$/ }), { target: { value: destination } })
 }
 
@@ -52,8 +52,8 @@ describe('what a contact is told', () => {
   it('says what #109\'s alert carries, and never the first name only', async () => {
     serve(on([contact()]))
     // One short line (the owner's decision of 2026-10-28): who, where and when, and never medical details.
-    const copy = (await screen.findByText(/verified contacts are told who opened it/)).textContent
-    expect(copy).toBe('If a health worker opens your record in an emergency, verified contacts are told who opened it, where and when. Never medical details.')
+    const copy = (await screen.findByText(/verified contacts are told who, where and when/)).textContent
+    expect(copy).toBe('If a health worker opens your records in an emergency, verified contacts are told who, where and when. Never your medical details.')
     expect(screen.queryByText(/first name/)).toBeNull()
   })
 })
@@ -67,10 +67,10 @@ describe('channels: only those Identity can deliver on now', () => {
     const field = screen.getByRole('textbox', { name: 'Email address' }) as HTMLInputElement
     expect(field.type).toBe('email')
     expect(described(field)).toBe('')
-    fireEvent.change(screen.getByRole('textbox', { name: 'Contact name' }), { target: { value: 'Ada Obi' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Ada Obi' } })
     fireEvent.change(field, { target: { value: ' ada@example.com ' } })
     await press(screen.getByRole('button', { name: 'Save contact' }))
-    expect(await screen.findByText('Contact added. Send a verification code so they can be notified in an emergency.')).toBeTruthy()
+    expect(await screen.findByText('Contact added. Now send them a code to verify them.')).toBeTruthy()
     expect(commands(sent)).toEqual([{ path: LIST, method: 'POST', body: { name: 'Ada Obi', relationship: 'relative', channel: 'email',
       destination: 'ada@example.com', notifyOnEmergencyAccess: true } }])
   })
@@ -84,7 +84,7 @@ describe('channels: only those Identity can deliver on now', () => {
     fireEvent.change(reach, { target: { value: 'sms' } })
     const phone = screen.getByRole('textbox', { name: 'Phone number' }) as HTMLInputElement
     expect(phone.type).toBe('tel')
-    expect(described(phone)).toBe('For example 0803 123 4567 or +234 803 123 4567.')
+    expect(described(phone)).toBe('Like 0803 123 4567 or +234 803 123 4567.')
   })
 
   it('reads availability again when a channel is refused on add, and offers only what is left', async () => {
@@ -95,10 +95,10 @@ describe('channels: only those Identity can deliver on now', () => {
     })
     await press(await screen.findByRole('button', { name: 'Add emergency contact' }))
     fireEvent.change(screen.getByRole('combobox', { name: 'How should we reach them?' }), { target: { value: 'sms' } })
-    fireEvent.change(screen.getByRole('textbox', { name: 'Contact name' }), { target: { value: 'Ada Obi' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Ada Obi' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Phone number' }), { target: { value: '0803 123 4567' } })
     await press(screen.getByRole('button', { name: 'Save contact' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('Emergency contacts cannot be reached by SMS yet, so this contact was not added.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('Contacts can’t be reached by SMS right now. This contact wasn’t added.')
     await waitFor(() => expect(screen.queryByRole('combobox', { name: 'How should we reach them?' })).toBeNull())
     expect((screen.getByRole('textbox', { name: 'Email address' }) as HTMLInputElement).value).toBe('')
     expect(reads(sent, AVAILABILITY)).toBe(2)
@@ -125,8 +125,9 @@ describe('the destination field', () => {
     save.disabled = false; save.blur(); save.disabled = true
     await act(async () => { answer(problem(400, code, detail)) })
     await waitFor(() => expect(field.getAttribute('aria-invalid')).toBe('true'))
-    expect(described(field)).toBe('Enter a valid email address.')
-    expect(screen.getByRole('alert').textContent).toBe('Enter a valid email address.')
+    // The card's error, which a kasuwa Alert opens with its intent, read as the field's description.
+    expect(described(field)).toBe('Error: Enter a valid email address.')
+    expect(shownText(screen.getByRole('alert'))).toBe('Enter a valid email address.')
     expect(document.activeElement).toBe(field)
     fireEvent.change(field, { target: { value: 'ada@example.com' } })
     expect(field.getAttribute('aria-invalid')).toBeNull()
@@ -142,9 +143,9 @@ describe('delivery switched off (409 EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE)', (
     })
     await fillNewContact('ada@example.com')
     await press(screen.getByRole('button', { name: 'Save contact' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('Emergency contacts are not available right now, so this contact was not added.')
-    expect(await screen.findByText('Verified · alerts are paused')).toBeTruthy()
-    expect(screen.queryByRole('textbox', { name: 'Contact name' })).toBeNull()
+    expect(shownText(await screen.findByRole('alert'))).toBe('Emergency contacts aren’t available right now. This contact wasn’t added.')
+    expect(await screen.findByText('Verified · alerts paused')).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Add emergency contact' })).toBeNull()
     expect(screen.queryByRole('button', { name: /^Edit/ })).toBeNull()
     expect(screen.getByRole('button', { name: /^Remove/ })).toBeTruthy()
@@ -160,9 +161,9 @@ describe('delivery switched off (409 EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE)', (
     })
     await fillNewContact('ada@example.com')
     await press(screen.getByRole('button', { name: 'Save contact' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('Emergency contacts are not available right now, so this contact was not added.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('Emergency contacts aren’t available right now. This contact wasn’t added.')
     await waitFor(() => expect(reads(sent, LIST)).toBe(2))
-    await waitFor(() => expect(screen.queryByText('You have no emergency contacts.')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('No emergency contacts yet.')).toBeNull())
     expect(screen.queryByRole('button')).toBeNull()
     await waitFor(() => expect(document.activeElement).toBe(heading()))
   })
@@ -173,14 +174,14 @@ describe('delivery switched off (409 EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE)', (
       backend.offer = OFF
       return problem(409, 'EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE', 'Emergency contact verification is not yet available')
     })
-    await press(await screen.findByRole('button', { name: 'Send verification code to Chidi Okafor, c•••@example.com' }))
-    expect((await screen.findByRole('alert')).textContent)
-      .toBe('Contact verification is not available yet. This contact stays unverified and will not be notified.')
-    await waitFor(() => expect(screen.queryByRole('button', { name: /^Send verification code/ })).toBeNull())
+    await press(await screen.findByRole('button', { name: 'Send code to Chidi Okafor, c•••@example.com' }))
+    expect(shownText(await screen.findByRole('alert')))
+      .toBe('Codes can’t be sent right now. They stay unverified and won’t be told in an emergency.')
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Send code/ })).toBeNull())
     expect(screen.queryByRole('button', { name: /^Edit/ })).toBeNull()
     expect(screen.getAllByRole('button', { name: /^Remove/ })).toHaveLength(2)
-    expect(screen.getByText('Verified · alerts are paused')).toBeTruthy()
-    expect(screen.queryByText(/will be notified in an emergency/)).toBeNull()
+    expect(screen.getByText('Verified · alerts paused')).toBeTruthy()
+    expect(screen.queryByText(/will be told in an emergency/)).toBeNull()
     await waitFor(() => expect(document.activeElement).toBe(heading()))
   })
 })
@@ -189,27 +190,27 @@ describe('sending a code', () => {
   it.each([
     ['422 EMERGENCY_CONTACT_VERIFICATION_UNDELIVERABLE', () => problem(422, 'EMERGENCY_CONTACT_VERIFICATION_UNDELIVERABLE',
       'The verification code could not be delivered to this contact'), contact(),
-    'The code could not be delivered to c•••@example.com. This contact stays unverified and will not be notified. If the email '
+    'The code didn’t reach c•••@example.com. They stay unverified and won’t be told in an emergency. If the email '
       + 'address is wrong, remove this contact and add it again.'],
-    ['503 UPSTREAM_UNAVAILABLE', upstream, contact(), 'The code could not be sent right now. This contact stays unverified and '
-      + 'will not be notified until it is verified. Try again later.'],
+    ['503 UPSTREAM_UNAVAILABLE', upstream, contact(), 'The code couldn’t be sent. They stay unverified and '
+      + 'won’t be told in an emergency. Try again later.'],
   ])('says what %s means, and keeps focus on Send', async (_label, answer, unverified, text) => {
     serve(on([unverified]), answer)
-    const send = await screen.findByRole('button', { name: /^Send verification code/ })
+    const send = await screen.findByRole('button', { name: /^Send code/ })
     await press(send)
-    expect((await screen.findByRole('alert')).textContent).toBe(text)
+    expect(shownText(await screen.findByRole('alert'))).toBe(text)
     expect(screen.queryByRole('textbox', { name: /Code from/ })).toBeNull()
     await waitFor(() => expect(document.activeElement).toBe(send))
   })
 
   it.each([
-    ['accepted', `A code was sent to c•••@example.com. Ask Chidi Okafor to read it to you. It expires ${shown('2026-10-24T10:05:00Z')}.`],
-    ['unknown', 'We could not confirm the code was delivered to c•••@example.com. If Chidi Okafor received it, ask them to read it to '
-      + `you. It expires ${shown('2026-10-24T10:05:00Z')}.`],
+    ['accepted', `Code sent to c•••@example.com. Ask Chidi Okafor to read it to you. It works until ${shown('2026-10-24T10:05:00Z')}.`],
+    ['unknown', 'We aren’t sure the code reached c•••@example.com. If Chidi Okafor got it, ask them to read it to '
+      + `you. It works until ${shown('2026-10-24T10:05:00Z')}.`],
   ])('says when a code delivered as %s expires', async (deliveryOutcome, text) => {
     serve(on([contact()]), () => json({ challengeId: 'b0000000-0000-4000-8000-000000000001', expiresAt: '2026-10-24T10:05:00Z',
       deliveryOutcome }, 202))
-    await press(await screen.findByRole('button', { name: /^Send verification code/ }))
+    await press(await screen.findByRole('button', { name: /^Send code/ }))
     expect(await screen.findByText(text)).toBeTruthy()
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: /Code from Chidi Okafor/ })))
   })
@@ -220,11 +221,11 @@ describe('sending a code', () => {
       backend.offer = { delivery: true, channels: ['email'] }
       return problem(409, 'EMERGENCY_CONTACT_CHANNEL_UNAVAILABLE', 'This contact cannot be reached on its channel yet')
     })
-    await press(await screen.findByRole('button', { name: /^Send verification code/ }))
-    expect((await screen.findByRole('alert')).textContent)
-      .toBe('Verification codes cannot be sent by SMS yet. This contact stays unverified and will not be notified.')
-    expect(await screen.findByText('Verification codes cannot be sent by SMS right now.')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /^Send verification code/ })).toBeNull()
+    await press(await screen.findByRole('button', { name: /^Send code/ }))
+    expect(shownText(await screen.findByRole('alert')))
+      .toBe('Codes can’t be sent by SMS right now. They stay unverified and won’t be told in an emergency.')
+    expect(await screen.findByText('Codes can’t be sent by SMS right now.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Send code/ })).toBeNull()
     expect(reads(sent, AVAILABILITY)).toBe(2)
     await waitFor(() => expect(document.activeElement).toBe(heading()))
   })
@@ -243,14 +244,16 @@ describe('sending a code', () => {
       backend.listed = after
       return refusal()
     })
-    await press(await screen.findByRole('button', { name: /^Send verification code/ }))
+    await press(await screen.findByRole('button', { name: /^Send code/ }))
     expect(await screen.findByRole('textbox', { name: /Code from Chidi Okafor/ })).toBeTruthy()
-    await press(screen.getByRole('button', { name: /^Send verification code/ }))
-    expect((await screen.findByRole('alert')).textContent).toBe(text)
+    // The redesign offers Send code again only once the code form is closed (Cancel): then a new code is asked for.
+    await press(screen.getByRole('button', { name: 'Cancel' }))
+    await press(screen.getByRole('button', { name: /^Send code/ }))
+    expect(shownText(await screen.findByRole('alert'))).toBe(text)
     await waitFor(() => expect(reads(sent, LIST)).toBe(2))
-    await waitFor(() => expect(screen.queryByText('Not verified · will not be notified')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('Not verified · won’t be told')).toBeNull())
     expect(screen.queryByRole('textbox', { name: /Code from/ })).toBeNull()
-    expect(screen.queryByRole('button', { name: /^Send verification code/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Send code/ })).toBeNull()
     await waitFor(() => expect(document.activeElement).toBe(heading()))
   })
 
@@ -261,11 +264,11 @@ describe('sending a code', () => {
       backend.listed = [contact()]
       return problem(422, 'EMERGENCY_CONTACT_VERIFICATION_UNDELIVERABLE', 'The verification code could not be delivered to this contact')
     })
-    expect(await screen.findByText(/A verification code is pending until/)).toBeTruthy()
-    const send = screen.getByRole('button', { name: /^Send verification code/ })
+    expect(await screen.findByText(/A code was sent and works until/)).toBeTruthy()
+    const send = screen.getByRole('button', { name: /^Send code/ })
     await press(send)
-    expect((await screen.findByRole('alert')).textContent).toContain('The code could not be delivered to c•••@example.com.')
-    await waitFor(() => expect(screen.queryByText(/A verification code is pending until/)).toBeNull())
+    expect((await screen.findByRole('alert')).textContent).toContain('The code didn’t reach c•••@example.com.')
+    await waitFor(() => expect(screen.queryByText(/A code was sent and works until/)).toBeNull())
     expect(reads(sent, LIST)).toBe(2)
     await waitFor(() => expect(document.activeElement).toBe(send))
   })
@@ -276,9 +279,9 @@ describe('sending a code', () => {
       contact({ contactId: ID2, name: 'Ngozi Eze', pendingVerification: { expiresAt: '2026-10-24T10:06:00Z', deliveryOutcome: 'accepted' } }),
     ]))
     const items = await screen.findAllByRole('listitem')
-    expect(within(items[0]!).getByText(`A verification code is pending until ${shown('2026-10-24T10:05:00Z')}. We could not confirm the `
-      + 'code was delivered. To enter a code here, send a new one.')).toBeTruthy()
-    expect(within(items[1]!).getByText(`A verification code is pending until ${shown('2026-10-24T10:06:00Z')}. To enter a code here, `
+    expect(within(items[0]!).getByText(`A code was sent and works until ${shown('2026-10-24T10:05:00Z')}. We aren’t sure it arrived. `
+      + 'To enter a code here, send a new one.')).toBeTruthy()
+    expect(within(items[1]!).getByText(`A code was sent and works until ${shown('2026-10-24T10:06:00Z')}. To enter a code here, `
       + 'send a new one.')).toBeTruthy()
   })
 })
@@ -296,16 +299,16 @@ describe('a contact with notifications off', () => {
       return json({ contactId: ID, status: 'verified' })
     })
     await fillNewContact('ada@example.com')
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Notify this contact if emergency access is used' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Tell them if my records are opened in an emergency' }))
     await press(screen.getByRole('button', { name: 'Save contact' }))
-    expect(await screen.findByText('Contact added. Notifications are off for this contact, so they will not be notified in an '
-      + 'emergency. To have them notified, send a verification code and turn notifications on in Edit.')).toBeTruthy()
-    await press(await screen.findByRole('button', { name: /^Send verification code/ }))
+    expect(await screen.findByText('Contact added. Alerts are off for this contact, so they won’t be told in an '
+      + 'emergency. To change this, verify them and turn alerts on in Edit.')).toBeTruthy()
+    await press(await screen.findByRole('button', { name: /^Send code/ }))
     await enterCode(await screen.findByRole('textbox', { name: /Code from Ada Obi/ }), '482913')
-    expect(await screen.findByText('Contact verified. Notifications are off for this contact, so they will not be notified in an '
-      + 'emergency. To have them notified, turn notifications on in Edit.')).toBeTruthy()
-    expect(await screen.findByText('Verified · notifications off')).toBeTruthy()
-    expect(screen.queryByText(/They will be notified/)).toBeNull()
+    expect(await screen.findByText('Contact verified. Alerts are off for this contact, so they won’t be told in an '
+      + 'emergency. To change this, turn alerts on in Edit.')).toBeTruthy()
+    expect(await screen.findByText('Verified · alerts off')).toBeTruthy()
+    expect(screen.queryByText(/They will be told/)).toBeNull()
   })
 })
 
@@ -318,13 +321,14 @@ describe('a channel switched off since contacts were added on it', () => {
       verified({ contactId: 'a0000000-0000-4000-8000-000000000003', name: 'Tunde Bello', destinationHint: 't•••@example.com' }),
     ], ['email']))
     const items = await screen.findAllByRole('listitem')
+    // The badge's look: one tone for who won't be told, another for who will (kasuwa Badge, warn and success).
     const status = (item: HTMLElement, text: string) => within(item).getByText(text).className
-    expect(status(items[0]!, 'Verified · alerts by SMS are paused')).toBe('patient-status-tag')
-    expect(status(items[1]!, 'Not verified · will not be notified')).toBe('patient-status-tag')
-    expect(within(items[1]!).getByText('Verification codes cannot be sent by SMS right now.')).toBeTruthy()
-    expect(within(items[1]!).queryByText(/A verification code is pending/)).toBeNull()
-    expect(status(items[2]!, 'Verified · will be notified in an emergency')).toBe('patient-status-tag patient-status-tag-ok')
-    expect(screen.queryByRole('button', { name: /^Send verification code/ })).toBeNull()
+    const notTold = status(items[0]!, 'Verified · SMS alerts paused')
+    expect(status(items[1]!, 'Not verified · won’t be told')).toBe(notTold)
+    expect(within(items[1]!).getByText('Codes can’t be sent by SMS right now.')).toBeTruthy()
+    expect(within(items[1]!).queryByText(/A code was sent and works until/)).toBeNull()
+    expect(status(items[2]!, 'Verified · will be told in an emergency')).not.toBe(notTold)
+    expect(screen.queryByRole('button', { name: /^Send code/ })).toBeNull()
     expect(screen.getAllByRole('button', { name: /^Edit/ })).toHaveLength(3)
     expect(screen.getAllByRole('button', { name: /^Remove/ })).toHaveLength(3)
   })
@@ -333,8 +337,8 @@ describe('a channel switched off since contacts were added on it', () => {
 describe('the last emergency alert', () => {
   it.each([
     // An attempt whose outcome is unknown is retried and may have reached the contact: only 'delivered' is certain.
-    ['delivered', 'delivered'], ['failed', 'not confirmed as delivered'], ['expired', 'not confirmed as delivered within 24 hours'],
-    ['pending', 'not yet confirmed as delivered'], ['suppressed', 'stopped, because notifications were turned off for this contact'],
+    ['delivered', 'delivered'], ['failed', 'not confirmed'], ['expired', 'not confirmed within 24 hours'],
+    ['pending', 'not confirmed yet'], ['suppressed', 'stopped, because alerts were turned off for this contact'],
   ])('says an alert %s as "%s"', async (status, outcome) => {
     serve(on([verified({ lastNotification: { status, createdAt: '2026-10-23T13:05:00Z' } })]))
     expect(await screen.findByText(`Last emergency alert (${shown('2026-10-23T13:05:00Z')}): ${outcome}`)).toBeTruthy()
@@ -342,7 +346,7 @@ describe('the last emergency alert', () => {
 
   it('says nothing for a contact never alerted', async () => {
     serve(on([verified()]))
-    await screen.findByText('Verified · will be notified in an emergency')
+    await screen.findByText('Verified · will be told in an emergency')
     expect(screen.queryByText(/Last emergency alert/)).toBeNull()
   })
 })
@@ -363,8 +367,8 @@ describe('a contact changed elsewhere (409 EMERGENCY_CONTACT_VERSION_CONFLICT)',
     await press(await screen.findByRole('button', { name: /^Edit/ }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Chidi Okafor-Eze' } })
     await press(screen.getByRole('button', { name: 'Save contact' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('This contact was changed in another window or on another device, so '
-      + 'your change was not saved. Its current details are shown now: edit it again if you still want to change it.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('This contact was changed somewhere else, so your change wasn’t saved. '
+      + 'Check the details below and edit again if needed.')
     expect(await screen.findByText('Chidi O.')).toBeTruthy()
     expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull()
     expect(reads(sent, LIST)).toBe(2)
@@ -389,14 +393,14 @@ describe('an edit the list no longer matches', () => {
     await press(await screen.findByRole('button', { name: /^Edit/ }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Chidi O.' } })
     await press(screen.getByRole('button', { name: 'Save contact' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('The emergency contact is unavailable')
-    expect(await screen.findByText('You have no emergency contacts.')).toBeTruthy()
+    expect(shownText(await screen.findByRole('alert'))).toBe('The emergency contact is unavailable')
+    expect(await screen.findByText('No emergency contacts yet.')).toBeTruthy()
     expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull()
     expect(reads(sent, LIST)).toBe(2)
     await waitFor(() => expect(document.activeElement).toBe(heading()))
   })
 
-  it('closes an edit open on a contact verified in this card, so Edit opens with its new version', async () => {
+  it('offers no code while an edit is open, and Edit opens a contact verified in this card with its new version', async () => {
     const backend = on([contact()])
     const { sent } = serve(backend, (path, _method, body) => {
       if (path.endsWith('/verification')) {
@@ -411,10 +415,14 @@ describe('an edit the list no longer matches', () => {
     })
     await press(await screen.findByRole('button', { name: /^Edit/ }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Chidi O.' } })
-    await press(screen.getByRole('button', { name: /^Send verification code/ }))
+    // The redesign offers no code while the edit is open, so a verification cannot change the version under it: the
+    // edit is cancelled first, and the code sent then.
+    expect(screen.queryByRole('button', { name: /^Send code/ })).toBeNull()
+    await press(screen.getByRole('button', { name: 'Cancel' }))
+    await press(screen.getByRole('button', { name: /^Send code/ }))
     await enterCode(await screen.findByRole('textbox', { name: /Code from Chidi Okafor/ }), '482913')
-    expect(await screen.findByText('Contact verified. They will be notified if emergency access to your record is used.')).toBeTruthy()
-    expect(await screen.findByText('Verified · will be notified in an emergency')).toBeTruthy()
+    expect(await screen.findByText('Contact verified. They will be told if your records are opened in an emergency.')).toBeTruthy()
+    expect(await screen.findByText('Verified · will be told in an emergency')).toBeTruthy()
     expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull()
 
     await press(screen.getByRole('button', { name: /^Edit/ }))
@@ -440,18 +448,18 @@ describe('delivery off with contacts (state B)', () => {
       return json({ contactId: ID, status: 'deactivated', replayed: false })
     })
     const items = await screen.findAllByRole('listitem')
-    expect(within(items[0]!).getByText('Not verified · will not be notified')).toBeTruthy()
-    expect(within(items[1]!).getByText('Verified · alerts are paused')).toBeTruthy()
-    expect(within(items[2]!).getByText('Verified · notifications off')).toBeTruthy()
-    expect(screen.getByText('Alerts are paused. You can only remove contacts for now.')).toBeTruthy()
-    expect(screen.queryByText(/will be notified in an emergency/)).toBeNull()
+    expect(within(items[0]!).getByText('Not verified · won’t be told')).toBeTruthy()
+    expect(within(items[1]!).getByText('Verified · alerts paused')).toBeTruthy()
+    expect(within(items[2]!).getByText('Verified · alerts off')).toBeTruthy()
+    expect(screen.getByText('Alerts are paused. For now you can only remove contacts.')).toBeTruthy()
+    expect(screen.queryByText(/will be told in an emergency/)).toBeNull()
     expect(screen.queryByText(/A verification code is pending/)).toBeNull()
-    for (const name of [/^Send verification code/, /^Edit/, /^Add emergency contact/]) expect(screen.queryByRole('button', { name })).toBeNull()
+    for (const name of [/^Send code/, /^Edit/, /^Add emergency contact/]) expect(screen.queryByRole('button', { name })).toBeNull()
     expect(screen.getAllByRole('button', { name: /^Remove/ })).toHaveLength(3)
 
     await press(screen.getByRole('button', { name: 'Remove Chidi Okafor, c•••@example.com' }))
-    await press(screen.getByRole('button', { name: 'Confirm removal' }))
-    expect(await screen.findByText('Contact removed. They will no longer be notified.')).toBeTruthy()
+    await press(screen.getByRole('button', { name: 'Yes, remove' }))
+    expect(await screen.findByText('Contact removed.')).toBeTruthy()
     await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(2))
     expect(commands(sent).map(request => request.path)).toEqual([`${LIST}/${ID}/deactivate`])
   })
@@ -496,7 +504,7 @@ describe('a failed read (state D)', () => {
     })
     await press(await screen.findByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(document.activeElement).toBe(heading()))
-    expect(screen.getByText('Emergency contacts are not available for your account right now.').closest('[role="status"]')).not.toBeNull()
+    expect(screen.getByText('Emergency contacts aren’t available for your account right now.').closest('[role="status"]')).not.toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.queryByRole('button')).toBeNull()
   })

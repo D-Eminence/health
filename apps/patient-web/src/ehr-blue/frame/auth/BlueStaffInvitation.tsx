@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import { EhrButton, EhrField, EhrInput } from '@hid/ui/ehr'
+import { PasswordInput } from '@hid/ui'
+import { Alert, Button, buttonClass } from '../../../kasuwa/ui'
 import { useDocumentTitle } from '../../../authSteps'
 import { Turnstile } from '../../../Turnstile'
 import {
@@ -12,10 +13,10 @@ import { staffInvitationApi, type StaffInvitationOpened, type StaffInvitationPro
 import { invitationLinkOf, type InvitationLink } from '../../../staff/invitationCapture'
 import { licenceBodyForRole, roleInSentence } from '../../../staff/staffAccess'
 import { isRouteMissing, joinProblemText } from '../../../staff/staffProblems'
-import { BlueAuthLayout, BluePasswordInput } from './BlueAuthLayout'
+import { BlueAuthLayout, NOTE } from './BlueAuthLayout'
 
 /*
- * Joining a facility by invitation as the design draws it (screens/4-staff-invitation), working as today's page does
+ * Joining a facility by invitation, in the redesign's auth look, working as today's page does
  * (staff/routes/StaffInvitation.tsx): the link from the email, or the email address and 6-digit code, proven with
  * Turnstile (action staff-invitation); who invited whom to what; a password for a new or dormant account; signed-in
  * acceptance on the person's own site for existing staff; and today's refusals. The page's private helpers are copied
@@ -62,12 +63,12 @@ function when(value: string | null | undefined): string | null {
 function FocusedHeading({ id, children }: { readonly id: string; readonly children: ReactNode }) {
   const heading = useRef<HTMLHeadingElement>(null)
   useLayoutEffect(() => { heading.current?.focus() }, [])
-  return <h2 id={id} ref={heading} tabIndex={-1} className="hid-ehr-blue-auth-step-title">{children}</h2>
+  return <h2 id={id} ref={heading} tabIndex={-1}>{children}</h2>
 }
 
 function SignInOnSite({ role, children }: { readonly role: string; readonly children: ReactNode }) {
   const host = staffHostForRole(role, window.location.hostname)
-  const className = 'hid-ehr-button hid-ehr-button-primary hid-ehr-blue-auth-wide'
+  const className = buttonClass({ variant: 'primary', size: 'lg', block: true })
   return host ? <a className={className} href={`https://${host}${STAFF_SIGN_IN_PATH}`}>{children}</a>
     : <Link className={className} to={STAFF_SIGN_IN_PATH}>{children}</Link>
 }
@@ -80,8 +81,8 @@ export function BlueStaffInvitation() {
   if (resolveStaffProductHostname(hostname)) return <Navigate to={{ pathname: STAFF_JOIN_PATH, hash: location.hash }} replace />
   if (isPlatformAdminHostname(hostname)) {
     return (
-      <BlueAuthLayout title="Accept your invitation" lede="Invitations are opened on the main Health ID site.">
-        <a className="hid-ehr-button hid-ehr-button-primary hid-ehr-blue-auth-wide" href={staffInvitationHref(hostname)}>Continue to the invitation page</a>
+      <BlueAuthLayout title="Accept your invitation" titleId="blue-invitation-title" lede="You open invitations on the main Health ID site.">
+        <a className={buttonClass({ variant: 'primary', size: 'lg', block: true })} href={staffInvitationHref(hostname)}>Continue to the invitation page</a>
       </BlueAuthLayout>
     )
   }
@@ -151,39 +152,42 @@ function InvitationSteps() {
   }
 
   return (
-    <BlueAuthLayout title={accepted ? 'You’ve joined.' : 'Accept your invitation'}
-      lede="Open the invitation your facility sent you, then set up your Health ID staff account.">
-      {error ? <p role="alert" className="hid-ehr-error">{error}</p> : null}
+    <BlueAuthLayout title={accepted ? 'You’ve joined.' : 'Accept your invitation'} titleId="blue-invitation-title"
+      lede="Open the invitation your facility sent, then set up your staff account.">
+      {error ? <Alert intent="error" size="sm">{error}</Alert> : null}
 
       {unavailable ? (
-        <section className="hid-ehr-blue-auth-form" aria-labelledby="blue-invitation-unavailable-title">
+        <section className="staff-form" aria-labelledby="blue-invitation-unavailable-title">
           <FocusedHeading id="blue-invitation-unavailable-title">Invitations aren’t available yet</FocusedHeading>
-          <p className="hid-ehr-blue-auth-note">Joining a facility by invitation isn’t available on Health ID yet. Please try again later.</p>
+          <p className={NOTE}>Joining a facility by invitation isn’t available on Health ID yet. Please try again later.</p>
         </section>
       ) : null}
 
       {!unavailable && !opened && !accepted ? (
-        <form className="hid-ehr-blue-auth-form" noValidate onSubmit={event => void open(event)}>
-          <h2 className="hid-ehr-blue-auth-step-title">{mode === 'link' ? 'Open your invitation' : 'Enter your invitation code'}</h2>
+        <form className="staff-form" noValidate onSubmit={event => void open(event)}>
+          <h2>{mode === 'link' ? 'Open your invitation' : 'Enter your invitation code'}</h2>
           {mode === 'link'
-            ? <p className="hid-ehr-blue-auth-note">Complete the security check, then select Continue to see who invited you.</p>
+            ? <p className={NOTE}>Complete the security check, then select Continue to see who invited you.</p>
             : <>
-              <p className="hid-ehr-blue-auth-note">Use the email address the invitation was sent to and the 6-digit code in the email.</p>
-              <EhrField label="Email address">
-                <EhrInput type="email" autoComplete="email" maxLength={254} value={email} onChange={event => setEmail(event.target.value)} />
-              </EhrField>
-              <EhrField label="Invitation code">
-                <EhrInput inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code}
+              <p className={NOTE}>Use the email address the invitation was sent to and the 6-digit code in the email.</p>
+              <div className="auth-field-label">
+                <label htmlFor="blue-invitation-email">Email address</label>
+                <input id="blue-invitation-email" type="email" autoComplete="email" maxLength={254} value={email}
+                  onChange={event => setEmail(event.target.value)} />
+              </div>
+              <div className="auth-field-label">
+                <label htmlFor="blue-invitation-code">Invitation code</label>
+                <input id="blue-invitation-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code}
                   onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} />
-              </EhrField>
+              </div>
             </>}
-          {fieldError ? <p role="alert" className="hid-ehr-error">{fieldError}</p> : null}
+          {fieldError ? <Alert intent="error" size="sm">{fieldError}</Alert> : null}
           <Turnstile action="staff-invitation" onTokenChange={setTurnstileToken} resetKey={resetKey} />
-          <EhrButton type="submit" className="hid-ehr-blue-auth-wide" disabled={busy || !turnstileToken}>{busy ? 'Opening…' : 'Continue'}</EhrButton>
+          <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !turnstileToken}>{busy ? 'Opening…' : 'Continue'}</Button>
           {link ? (
-            <EhrButton variant="quiet" onClick={() => { setError(''); setFieldError(''); setMode(mode === 'link' ? 'code' : 'link') }}>
+            <Button variant="ghost" className="self-start" onClick={() => { setError(''); setFieldError(''); setMode(mode === 'link' ? 'code' : 'link') }}>
               {mode === 'link' ? 'I have a code' : 'Use the link from the email'}
-            </EhrButton>
+            </Button>
           ) : null}
         </form>
       ) : null}
@@ -194,11 +198,11 @@ function InvitationSteps() {
       ) : null}
 
       {accepted && opened ? (
-        <section className="hid-ehr-blue-auth-form" aria-labelledby="blue-invitation-done-title">
+        <section className="staff-form" aria-labelledby="blue-invitation-done-title">
           <FocusedHeading id="blue-invitation-done-title">You’ve joined {accepted.facilityName}</FocusedHeading>
-          <p className="hid-ehr-blue-auth-note">{doneSentence(accepted.roleCode, opened.email)}</p>
+          <p className={NOTE}>{doneSentence(accepted.roleCode, opened.email)}</p>
           {licenceBodyForRole(accepted.roleCode)
-            ? <p className="hid-ehr-blue-auth-note">Your facility administrator vouched for your licence; Health ID records it.</p> : null}
+            ? <p className={NOTE}>Your facility administrator vouched for your licence; Health ID records it.</p> : null}
           <SignInOnSite role={accepted.roleCode}>Go to staff sign-in</SignInOnSite>
         </section>
       ) : null}
@@ -219,16 +223,16 @@ function Opened({ opened, link, busy, password, confirm, onPassword, onConfirm, 
 }) {
   const inviter = opened.inviterName ?? 'The facility administrator'
   const expires = when(opened.expiresAt)
-  const intro = <p className="hid-ehr-blue-auth-note">{inviter} invited you to join <strong>{opened.facilityName}</strong> as
+  const intro = <p className={NOTE}>{inviter} invited you to join <strong>{opened.facilityName}</strong> as
     {' '}{roleInSentence(opened.roleCode)}.{expires ? ` The invitation expires on ${expires}.` : ''}</p>
   const host = staffHostForRole(opened.roleCode, window.location.hostname)
   const site = host ?? 'the Provider Portal'
 
   if (opened.linkRequired) {
     return (
-      <section className="hid-ehr-blue-auth-form" aria-labelledby="blue-invitation-opened-title">
+      <section className="staff-form" aria-labelledby="blue-invitation-opened-title">
         <FocusedHeading id="blue-invitation-opened-title">Open the link in the email</FocusedHeading>{intro}
-        <p className="hid-ehr-blue-auth-note">Open the link in the invitation email to set your new password.</p>
+        <p className={NOTE}>Open the link in the invitation email to set your new password.</p>
       </section>
     )
   }
@@ -236,25 +240,27 @@ function Opened({ opened, link, busy, password, confirm, onPassword, onConfirm, 
   if (opened.accountCase === 'new' || opened.accountCase === 'dormant_staff') {
     const dormant = opened.accountCase === 'dormant_staff'
     return (
-      <form className="hid-ehr-blue-auth-form" noValidate onSubmit={onAccept} aria-labelledby="blue-invitation-opened-title">
+      <form className="staff-form" noValidate onSubmit={onAccept} aria-labelledby="blue-invitation-opened-title">
         <FocusedHeading id="blue-invitation-opened-title">{dormant ? 'Set a new password' : 'Choose a password'}</FocusedHeading>
         {intro}
-        <p id="blue-invitation-password-hint" className="hid-ehr-blue-auth-note">{dormant
+        <p id="blue-invitation-password-hint" className={NOTE}>{dormant
           ? `Your Health ID staff account ${opened.email} isn’t active at any facility now. Choose a new password of at least 12 `
             + `characters to use it at ${opened.facilityName}. Your old password will stop working.`
           : `Your Health ID staff account will use ${opened.email}. Choose a password of at least 12 characters.`}</p>
         {/* Lets a password manager save the new password with its email. */}
         <input type="email" hidden readOnly autoComplete="username" value={opened.email} />
-        <EhrField label="Password">
-          <BluePasswordInput autoComplete="new-password" minLength={12} maxLength={256} value={password}
+        <div className="auth-field-label">
+          <label htmlFor="blue-invitation-password">Password</label>
+          <PasswordInput appearance="plain" id="blue-invitation-password" autoComplete="new-password" minLength={12} maxLength={256} value={password}
             aria-describedby="blue-invitation-password-hint" onChange={event => onPassword(event.target.value)} />
-        </EhrField>
-        <EhrField label="Confirm password">
-          <BluePasswordInput toggleLabel="Show confirmed password" autoComplete="new-password" minLength={12} maxLength={256} value={confirm}
-            onChange={event => onConfirm(event.target.value)} />
-        </EhrField>
-        {fieldError ? <p role="alert" className="hid-ehr-error">{fieldError}</p> : null}
-        <EhrButton type="submit" className="hid-ehr-blue-auth-wide" disabled={busy}>{busy ? 'Joining…' : `Join ${opened.facilityName}`}</EhrButton>
+        </div>
+        <div className="auth-field-label">
+          <label htmlFor="blue-invitation-confirm">Confirm password</label>
+          <PasswordInput appearance="plain" id="blue-invitation-confirm" toggleLabel="Show confirmed password" autoComplete="new-password"
+            minLength={12} maxLength={256} value={confirm} onChange={event => onConfirm(event.target.value)} />
+        </div>
+        {fieldError ? <Alert intent="error" size="sm">{fieldError}</Alert> : null}
+        <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy}>{busy ? 'Joining…' : `Join ${opened.facilityName}`}</Button>
       </form>
     )
   }
@@ -262,20 +268,20 @@ function Opened({ opened, link, busy, password, confirm, onPassword, onConfirm, 
   if (opened.accountCase === 'existing_staff') {
     const join = `${host ? `https://${host}` : ''}${STAFF_JOIN_PATH}${link ? `#${link.invitationId}.${link.token}` : ''}`
     return (
-      <section className="hid-ehr-blue-auth-form" aria-labelledby="blue-invitation-opened-title">
+      <section className="staff-form" aria-labelledby="blue-invitation-opened-title">
         <FocusedHeading id="blue-invitation-opened-title">Sign in to accept</FocusedHeading>{intro}
-        <p className="hid-ehr-blue-auth-note">You already have a Health ID staff account. Sign in at {site} to accept. If you can’t sign
+        <p className={NOTE}>You already have a Health ID staff account. Sign in at {site} to accept. If you can’t sign
           in, reset your password there first.{link ? '' : ' Then enter the code from the invitation email.'}</p>
-        <a className="hid-ehr-button hid-ehr-button-primary hid-ehr-blue-auth-wide" href={join}>Sign in to accept</a>
+        <a className={buttonClass({ variant: 'primary', size: 'lg', block: true })} href={join}>Sign in to accept</a>
       </section>
     )
   }
 
   if (opened.accountCase === 'already_member') {
     return (
-      <section className="hid-ehr-blue-auth-form" aria-labelledby="blue-invitation-opened-title">
+      <section className="staff-form" aria-labelledby="blue-invitation-opened-title">
         <FocusedHeading id="blue-invitation-opened-title">You already work there</FocusedHeading>
-        <p className="hid-ehr-blue-auth-note">You already work at {opened.facilityName} on Health ID.</p>
+        <p className={NOTE}>You already work at {opened.facilityName} on Health ID.</p>
         <SignInOnSite role={opened.roleCode}>Go to staff sign-in</SignInOnSite>
       </section>
     )
@@ -283,18 +289,18 @@ function Opened({ opened, link, busy, password, confirm, onPassword, onConfirm, 
 
   if (opened.accountCase === 'patient_account') {
     return (
-      <section className="hid-ehr-blue-auth-form" aria-labelledby="blue-invitation-opened-title">
+      <section className="staff-form" aria-labelledby="blue-invitation-opened-title">
         <FocusedHeading id="blue-invitation-opened-title">Use a work email</FocusedHeading>{intro}
-        <p className="hid-ehr-blue-auth-note">This email belongs to a Health ID patient account. Staff accounts need their own email: ask
+        <p className={NOTE}>This email belongs to a Health ID patient account. Staff accounts need their own email: ask
           {' '}{opened.facilityName} to invite your work email.</p>
       </section>
     )
   }
 
   return (
-    <section className="hid-ehr-blue-auth-form" aria-labelledby="blue-invitation-opened-title">
+    <section className="staff-form" aria-labelledby="blue-invitation-opened-title">
       <FocusedHeading id="blue-invitation-opened-title">Contact Health ID support</FocusedHeading>{intro}
-      <p className="hid-ehr-blue-auth-note">This invitation can’t be accepted with this email’s account here. Contact Health ID
+      <p className={NOTE}>This invitation can’t be accepted with this email’s account here. Contact Health ID
         support<SupportLink />.</p>
     </section>
   )

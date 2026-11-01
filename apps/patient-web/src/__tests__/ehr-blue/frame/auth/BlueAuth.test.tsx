@@ -1,7 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { valueAt } from '../../../cssRules'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
@@ -85,10 +84,13 @@ describe('BlueSignIn', () => {
     staff.login.mockRejectedValueOnce(new HidApiError(401, 'Email or password is incorrect.', { code: 'INVALID_CREDENTIALS' }))
     open('/provider/sign-in', <BlueSignIn />)
     signInWith('demo.nurse@example.test', 'fictional-password-1')
-    expect((await screen.findByRole('alert')).textContent).toBe('Email or password is incorrect.')
+    // One alert (the redesign's boxed Alert, which names itself "Error:" to a screen reader), in Identity's words.
+    const refusal = await screen.findByRole('alert')
+    expect(refusal.textContent).toBe('Error: Email or password is incorrect.')
+    expect(refusal.getAttribute('data-intent')).toBe('error')
     staff.login.mockRejectedValueOnce(new HidApiError(403, 'Factor unproven', { code: 'STAFF_MFA_FACTOR_UNPROVEN' }))
     signInWith('demo.nurse@example.test', 'fictional-password-1')
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(STAFF_MFA_FACTOR_UNPROVEN))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(`Error: ${STAFF_MFA_FACTOR_UNPROVEN}`))
   })
 
   it('goes on to today\'s authenticator step, which takes the page\'s heading', async () => {
@@ -98,10 +100,11 @@ describe('BlueSignIn', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Verify it’s you' })).toBeDefined()
     expect(screen.queryByLabelText('Password')).toBeNull()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
-    // The step's heading and code field take the blue page's look (auth.css): its classes, inside the blue root.
+    // The step takes the redesign's provider sign-in look: its classes, inside the shared auth panel.
     const heading = screen.getByRole('heading', { level: 1, name: 'Verify it’s you' })
     expect(heading.classList.contains('hid-mfa-heading')).toBe(true)
-    expect(heading.closest('.hid-ehr.hid-ehr-blue-auth')).not.toBeNull()
+    expect(heading.closest('.staff-form.staff-mfa')).not.toBeNull()
+    expect(heading.closest('.hid-ehr-blue-auth .auth-panel')).not.toBeNull()
   })
 })
 
@@ -142,8 +145,8 @@ describe('BlueRecovery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
     expect(await screen.findByText('The code is invalid or has expired.')).toBeDefined()
     expect(screen.getByRole('textbox', { name: 'Recovery code' }).getAttribute('aria-invalid')).toBe('true')
-    // Boxed as the design's refusal by its own class, whether or not it is announced (role=alert is not on every path).
-    expect(screen.getByText('The code is invalid or has expired.').classList.contains('hid-ehr-blue-auth-error')).toBe(true)
+    // Boxed as a refusal (the redesign's Alert), whether or not it is announced (role=alert is not on every path).
+    expect(screen.getByText('The code is invalid or has expired.').closest('[data-intent="error"]')).not.toBeNull()
   })
 
   it('boxes a refused code the same when the form is sent with Enter', async () => {
@@ -155,7 +158,7 @@ describe('BlueRecovery', () => {
     const code = await screen.findByRole('textbox', { name: 'Recovery code' })
     fireEvent.change(code, { target: { value: '000000' } })
     fireEvent.submit(code.closest('form')!)
-    expect((await screen.findByText('The code is invalid or has expired.')).classList.contains('hid-ehr-blue-auth-error')).toBe(true)
+    expect((await screen.findByText('The code is invalid or has expired.')).closest('[data-intent="error"]')).not.toBeNull()
   })
 })
 
@@ -167,7 +170,7 @@ describe('BlueStaffInvitation', () => {
     open('/provider/invitation', <BlueStaffInvitation />)
     expect(screen.getByRole('heading', { level: 1, name: 'Accept your invitation' })).toBeDefined()
     fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
-    expect(screen.getByRole('alert').textContent).toBe('Enter the email address the invitation was sent to, and the 6-digit code from the email.')
+    expect(screen.getByRole('alert').textContent).toBe('Error: Enter the email address the invitation was sent to, and the 6-digit code from the email.')
     fireEvent.change(screen.getByRole('textbox', { name: 'Email address' }), { target: { value: 'New.Nurse@example.test' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Invitation code' }), { target: { value: '654321' } })
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
@@ -176,7 +179,7 @@ describe('BlueStaffInvitation', () => {
     expect(screen.getByText(/Demo Admin invited you to join/).textContent).toContain('Demo Hospital')
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'short' } })
     fireEvent.click(screen.getByRole('button', { name: 'Join Demo Hospital' }))
-    expect(screen.getByRole('alert').textContent).toBe('Choose a password of at least 12 characters.')
+    expect(screen.getByRole('alert').textContent).toBe('Error: Choose a password of at least 12 characters.')
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'a-fictional-passphrase' } })
     fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'a-fictional-passphrase' } })
     fireEvent.click(screen.getByRole('button', { name: 'Join Demo Hospital' }))
@@ -197,31 +200,19 @@ describe('BlueStaffInvitation', () => {
   })
 })
 
-describe('auth.css', () => {
-  it('colours the pages\' links with the brand, on the layout\'s own root', () => {
+describe('the redesign\'s look', () => {
+  it('draws every page in the shared auth layout, with no EHR stylesheet of its own', () => {
+    for (const [path, page] of [['/provider/sign-in', <BlueSignIn />], ['/provider/recover', <BlueRecovery />],
+      ['/provider/invitation', <BlueStaffInvitation />]] as const) {
+      const { unmount } = open(path, page)
+      expect(document.querySelector('.hid-ehr-blue-auth .auth-page .auth-panel')).not.toBeNull()
+      expect(document.querySelector('.hid-ehr')).toBeNull()
+      unmount()
+    }
     const here = dirname(fileURLToPath(import.meta.url))
-    const css = readFileSync(resolve(here, '../../../../ehr-blue/frame/auth/auth.css'), 'utf8')
-    // The root carries both classes, so the rule must not look for one inside the other.
-    expect(css).toMatch(/\.hid-ehr\.hid-ehr-blue-auth a \{\s*color: var\(--ehr-brand-dark\);/)
-    expect(css).not.toMatch(/\.hid-ehr \.hid-ehr-blue-auth a/)
-  })
-
-  const css = () => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../../ehr-blue/frame/auth/auth.css'), 'utf8')
-  const at = (selector: string, property: string) => valueAt(css(), selector, property, 1280)
-
-  it('gives the authenticator steps the design\'s step title and grey 48px field (screens/2-sign-in/03-verify-mfa)', () => {
-    expect(at('.hid-ehr.hid-ehr-blue-auth .hid-mfa-heading', 'font-size')).toBe('18px')
-    expect(at('.hid-ehr.hid-ehr-blue-auth .hid-mfa-heading', 'font-weight')).toBe('600')
-    const field = '.hid-ehr.hid-ehr-blue-auth .hid-ehr-blue-auth-form input:not([type="checkbox"])'
-    expect(at(field, 'min-height')).toBe('48px')
-    expect(at(field, 'background')).toBe('var(--ehr-surface-tint)')
-    expect(at(field, 'font-family')).toBe('var(--ehr-font-body)')
-  })
-
-  it('boxes a page refusal by its class as well as by role=alert', () => {
-    for (const selector of ['.hid-ehr.hid-ehr-blue-auth p.hid-ehr-error[role="alert"]', '.hid-ehr.hid-ehr-blue-auth p.hid-ehr-blue-auth-error']) {
-      expect(at(selector, 'border')).toBe('1px solid #e9bcb9')
-      expect(at(selector, 'background')).toBe('var(--ehr-danger-50)')
+    const folder = resolve(here, '../../../../ehr-blue/frame/auth')
+    for (const name of readdirSync(folder).filter(file => /\.tsx?$/.test(file))) {
+      expect(readFileSync(join(folder, name), 'utf8')).not.toMatch(/@hid\/ui\/ehr|\.css'/)
     }
   })
 })

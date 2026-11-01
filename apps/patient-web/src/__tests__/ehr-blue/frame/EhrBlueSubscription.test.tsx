@@ -21,7 +21,9 @@ const plan = (status: string, extra: Record<string, unknown> = {}) => () => json
 })
 const invoice = { id: 'inv-1', number: 'HID-0001', issuedAt: '2026-10-01T09:00:00Z', amount_minor: 2500000, currency: 'NGN', status: 'paid' }
 
-describe('with the clinic switch off (as it ships)', () => {
+describe('with the clinic switch off', () => {
+  // The switch ships on (clinicSwitch.ts); turned off, the frame keeps today's page.
+  beforeEach(() => { vi.doMock('../../../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: false })) })
   it('shows today\'s billing page in the frame', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', READ)
     serve({ [SESSION]: [sessionAt(demo, [demo])], [PLAN]: [plan('trialing', { trialEndsAt: '2026-11-13T09:00:00Z' }), plan('trialing',
@@ -39,7 +41,7 @@ describe('with the clinic switch on', () => {
   })
   const riverside = (permissions: readonly string[]) => facility(REAL_FACILITY, 'Riverside Teaching Hospital (fictional)', permissions)
 
-  it('draws the design\'s page in today\'s words: the plan, its detail, the facts and the invoices', async () => {
+  it('draws the redesign\'s page in today\'s words: the plan, its detail, the facts and the invoices', async () => {
     const at = riverside(READ)
     const trialing = plan('trialing', { trialEndsAt: '2026-11-13T09:00:00Z' })
     serve({ [SESSION]: [sessionAt(at, [at])], [PLAN]: [trialing, trialing], [INVOICES]: [() => json({ items: [invoice] })] })
@@ -50,19 +52,19 @@ describe('with the clinic switch on', () => {
     const hero = (await screen.findByRole('heading', { level: 2, name: 'Free trial' })).closest('section')!
     expect(within(hero).getByText('Health ID EHR')).toBeDefined()
     expect(within(hero).getByText(/^14 days left\. Your trial ends on /)).toBeDefined()
-    const facts = screen.getByRole('heading', { level: 2, name: 'Current plan' }).closest('.hid-ehr-card') as HTMLElement
+    const facts = screen.getByRole('heading', { level: 2, name: 'Current plan' }).closest('section') as HTMLElement
     expect(within(facts).getByText('Trial ends')).toBeDefined()
     expect(within(facts).getByText('Only your facility administrator can start a trial or pay.')).toBeDefined()
-    // The design's cards after Current plan: Renewal reminders, which Health ID does not send yet, and Subscription
+    // The cards after Current plan: Renewal reminders, which Health ID does not send yet, and Subscription
     // history, the invoices.
-    const reminders = screen.getByRole('heading', { level: 2, name: 'Renewal reminders' }).closest('.hid-ehr-card') as HTMLElement
+    const reminders = screen.getByRole('heading', { level: 2, name: 'Renewal reminders' }).closest('section') as HTMLElement
     expect(within(reminders).getByText('No renewal reminders yet.')).toBeDefined()
     expect(within(reminders).getByText(/does not send renewal reminders by email or text message yet/)).toBeDefined()
-    const history = screen.getByRole('heading', { level: 2, name: 'Subscription history' }).closest('.hid-ehr-card') as HTMLElement
+    const history = screen.getByRole('heading', { level: 2, name: 'Subscription history' }).closest('section') as HTMLElement
     const table = await within(history).findByRole('table', { name: 'Invoices' })
     expect(within(table).getByText('HID-0001')).toBeDefined()
     expect(within(table).getByText('Paid')).toBeDefined()
-    expect([...document.querySelectorAll('.hid-ehr-card-title')].map(title => title.textContent))
+    expect([...document.querySelectorAll('[data-subscription-card] h2')].map(title => title.textContent))
       .toEqual(['Current plan', 'Renewal reminders', 'Subscription history'])
     // Today's banner stays off its own page.
     expect(screen.queryByRole('link', { name: 'Choose a plan' })).toBeNull()
@@ -83,7 +85,7 @@ describe('with the clinic switch on', () => {
     serve({ [SESSION]: [sessionAt(at, [at])], [PLAN]: [plan('read_only'), plan('read_only')], [INVOICES]: [() => json({ items: [] })] })
     await openStaffApp('/provider/billing')
     const hero = (await screen.findByRole('heading', { level: 2, name: 'Read-only' })).closest('section')!
-    expect(hero.classList.contains('hid-ehr-blue-plan-urgent')).toBe(true)
+    expect(hero.getAttribute('data-urgent')).toBe('true')
     expect(within(hero).getByText('Your plan is not paid, so staff can view records but cannot add or change them. Pay to restore full access.'))
       .toBeDefined()
   })

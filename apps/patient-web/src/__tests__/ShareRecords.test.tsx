@@ -7,7 +7,7 @@ import { ShareRecords } from '../routes/ShareRecords'
 import { AccessPage } from '../routes/Portal'
 import { NOTIFICATION_SUBJECTS, notificationTitle } from '../routes/notificationTitles'
 import { forgetShareServed, shareServed } from '../shareServed'
-import { json, press, problem, renderPortal, type Handler } from './portalHarness'
+import { json, press, problem, renderPortal, shownText, type Handler } from './portalHarness'
 
 vi.mock('../backendContract', () => ({ usesNovuBackend: () => true }))
 beforeEach(() => { forgetShareServed() })
@@ -66,7 +66,7 @@ describe('the share flow', () => {
       if (path === '/identity/me/shares' && method === 'POST') return json(shared(), 201)
       return problem(404, 'NOT_FOUND', path)
     })
-    expect(await screen.findByRole('heading', { name: 'Find who to share with' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Who do you want to share with?' })).toBeTruthy()
     type('Name of the clinician or facility', '  lagos ')
     await press(screen.getByRole('button', { name: 'Search' }))
     const note = await screen.findByText('2 found for “lagos”. Choose who to share with.')
@@ -80,33 +80,37 @@ describe('the share flow', () => {
 
     fireEvent.click(screen.getByLabelText(/Dr Ada Obi/))
     await press(screen.getByRole('button', { name: 'Continue' }))
-    expect(focused()).toBe(screen.getByRole('heading', { name: 'Choose what they can do' }))
-    expect(screen.getByText(/Sharing with Dr Ada Obi at Lagos General/)).toBeTruthy()
+    // What they can do and for how long are one step: two choices about the same grant.
+    const access = screen.getByRole('heading', { name: 'What can they see, and for how long?' })
+    expect(focused()).toBe(access)
+    expect(access.nextElementSibling?.textContent).toBe('Sharing with Dr Ada Obi at Lagos General. You can end it sooner at any time.')
     fireEvent.click(screen.getByLabelText(/Clinical Collaboration/))
     expect(screen.getByText(/send your test requests or prescriptions to another facility/)).toBeTruthy()
-    await press(screen.getByRole('button', { name: 'Continue' }))
-    expect(focused()).toBe(screen.getByRole('heading', { name: 'Choose how long' }))
-    expect(screen.getAllByRole('radio').map(radio => radio.closest('label')?.textContent))
-      .toEqual(['24 hours', '7 days', '30 days', 'Until you end it (up to 1 year)'])
-    fireEvent.click(screen.getByLabelText('Until you end it (up to 1 year)'))
+    expect(within(screen.getByRole('group', { name: 'How long' })).getAllByRole('radio').map(radio => radio.closest('label')?.textContent))
+      .toEqual(['24 hours', '7 days', '30 days', 'Until I end it'])
+    fireEvent.click(screen.getByLabelText('Until I end it'))
+    expect(screen.getByText('Up to 1 year at most, never forever.')).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Continue' }))
     expect(focused()).toBe(screen.getByRole('heading', { name: 'Check and share' }))
     expect(screen.getByText('Dr Ada Obi, Doctor')).toBeTruthy()
+    expect(screen.getByText('They can also send your test requests or prescriptions to another facility.')).toBeTruthy()
 
     await press(screen.getByRole('button', { name: 'Share my records' }))
     const done = await screen.findByRole('heading', { name: 'Your records are shared' })
     expect(focused()).toBe(done)
-    expect(screen.getByText('Dr Ada Obi at Lagos General can see your records until you end it, up to 1 year.')).toBeTruthy()
+    expect(done.parentElement?.nextElementSibling?.textContent?.replace(/\s+/g, ' '))
+      .toBe('Your card is on its way to Dr Ada Obi at Lagos General. They can open your records until you end it, up to 1 year.')
     const post = sent.find(item => item.path === '/identity/me/shares')
     expect(post?.body).toEqual({ membershipId: providers[0]!.membershipId, level: 'clinical_collaboration', duration: 'until_revoked' })
     expect(headers.find(item => item.path === '/identity/me/shares')?.headers.get('Idempotency-Key')).toMatch(/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/)
-    expect(screen.getByRole('link', { name: 'Go to Access and consent' }).getAttribute('href')).toBe('/access')
+    expect(screen.getByRole('link', { name: 'See who has access' }).getAttribute('href')).toBe('/access')
   })
 
   it('asks for a recent sign-in in its own words, moves focus to the error, and sends the same key again', async () => {
     let attempt = 0
-    const { headers } = sharePage((path) => {
+    const { headers } = sharePage((path, method) => {
       if (path === '/identity/me/share-providers/search') return json({ items: providers })
+      if (path !== '/identity/me/shares' || method !== 'POST') return problem(404, 'NOT_FOUND', path)
       attempt += 1
       return attempt === 1 ? problem(403, 'PATIENT_RECENT_AUTH_REQUIRED', 'Sign in again.') : json(shared({ level: 'view_only', duration: '24h' }), 201)
     })
@@ -116,13 +120,14 @@ describe('the share flow', () => {
     fireEvent.click(await screen.findByLabelText(/Dr Ada Obi/))
     await press(screen.getByRole('button', { name: 'Continue' }))
     await press(screen.getByRole('button', { name: 'Continue' }))
-    await press(screen.getByRole('button', { name: 'Continue' }))
     await press(screen.getByRole('button', { name: 'Share my records' }))
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe('For your security, sign out, sign in again, and share within 10 minutes.')
-    expect(focused()).toBe(alert)
+    expect(shownText(alert)).toBe('For your security, sign out, sign in again, and share within 10 minutes.')
+    // Focus is on the error's place under the step, which holds the alert.
+    expect(focused()?.contains(alert)).toBe(true)
     await press(screen.getByRole('button', { name: 'Share my records' }))
-    expect(await screen.findByText(/can see your records until/)).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Your records are shared' })).toBeTruthy()
+    expect(screen.getByText(/They can open your\s+records until/)).toBeTruthy()
     const keys = headers.filter(item => item.path === '/identity/me/shares').map(item => item.headers.get('Idempotency-Key'))
     expect(keys).toHaveLength(2)
     expect(keys[0]).toBe(keys[1])
@@ -140,23 +145,22 @@ describe('the share flow', () => {
     expect(sent.some(item => item.path.startsWith('/identity/me/share-providers'))).toBe(false)
   })
 
-  // The level and duration steps lay out alike: unkeyed, React kept their Back button, which held focus.
-  it('moves focus to the step\'s heading on Back, from how long to what they can do and from the check to how long', async () => {
+  // Each step's root is keyed by the step: a Back button kept from the step before would hold focus.
+  it('moves focus to the step\'s heading on Back, from the access step to who and from the check to the access step', async () => {
     sharePage((path) => path === '/identity/me/share-providers/search' ? json({ items: providers }) : problem(404, 'NOT_FOUND', path))
     await screen.findByLabelText('Name of the clinician or facility')
     type('Name of the clinician or facility', 'ada')
     await press(screen.getByRole('button', { name: 'Search' }))
     fireEvent.click(await screen.findByLabelText(/Dr Ada Obi/))
     await press(screen.getByRole('button', { name: 'Continue' }))
-    await press(screen.getByRole('button', { name: 'Continue' }))
-    expect(focused()).toBe(screen.getByRole('heading', { name: 'Choose how long' }))
+    expect(focused()).toBe(screen.getByRole('heading', { name: 'What can they see, and for how long?' }))
     await press(screen.getByRole('button', { name: 'Back' }))
-    expect(focused()).toBe(screen.getByRole('heading', { name: 'Choose what they can do' }))
+    expect(focused()).toBe(screen.getByRole('heading', { name: 'Who do you want to share with?' }))
     await press(screen.getByRole('button', { name: 'Continue' }))
     await press(screen.getByRole('button', { name: 'Continue' }))
     expect(focused()).toBe(screen.getByRole('heading', { name: 'Check and share' }))
     await press(screen.getByRole('button', { name: 'Back' }))
-    expect(focused()).toBe(screen.getByRole('heading', { name: 'Choose how long' }))
+    expect(focused()).toBe(screen.getByRole('heading', { name: 'What can they see, and for how long?' }))
   })
 
   // Sent with Enter in the field, focus stays there and its description is not read again: the problem is an alert.
@@ -186,7 +190,7 @@ describe('the share flow', () => {
     expect(await screen.findByText('No one matched “nobody”. Check the spelling, or invite them by email.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
     await press(screen.getByRole('button', { name: 'Can’t find them? Invite them by email' }))
-    expect(focused()).toBe(screen.getByRole('heading', { name: 'Invite a provider by email' }))
+    expect(focused()).toBe(screen.getByRole('heading', { name: 'Invite them by email' }))
   })
 })
 
@@ -197,7 +201,7 @@ describe('inviting a provider by email', () => {
         deliveryOutcome: 'not_confirmed', replayed: false }, 201)
       : problem(404, 'NOT_FOUND', path))
     await press(await screen.findByRole('button', { name: 'Can’t find them? Invite them by email' }))
-    expect(screen.getByText('We’ll email them. Nothing is shared until they accept in Health ID and you confirm.')).toBeTruthy()
+    expect(screen.getByText('Nothing is shared until they join Health ID, accept, and you confirm.')).toBeTruthy()
     type('Their email address', 'not-an-email')
     await press(screen.getByRole('button', { name: 'Send invitation' }))
     const email = screen.getByLabelText('Their email address')
@@ -244,26 +248,28 @@ describe('inviting a provider by email', () => {
     type('Their email address', 'dr.new@example.com')
     await press(screen.getByRole('button', { name: 'Send invitation' }))
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe('You already invited this address. Cancel that invitation to send a new one.')
-    expect(focused()).toBe(alert)
+    expect(shownText(alert)).toBe('You already invited this address. Cancel that invitation to send a new one.')
+    expect(focused()?.contains(alert)).toBe(true)
   })
 })
 
-/** Access and consent against a gateway whose invitations list is `invitations`; history as given. */
-function accessPage(invitations: Handler, history: AccessHistory = { items: [] }, served = true) {
-  return renderPortal(<AccessPage />, (path, method, body) => {
+/** Access & sharing against a gateway whose invitations list is `invitations`; history as given. On "Who has access". */
+async function accessPage(invitations: Handler, history: AccessHistory = { items: [] }, served = true) {
+  const view = renderPortal(<AccessPage />, (path, method, body) => {
     if (path.startsWith(INVITATIONS)) return invitations(path, method, body)
     if (path === '/identity/me/access-history') return json(history)
     return json([])
   }, {}, { parityB4: served })
+  await press(within(screen.getByRole('navigation', { name: 'Access' })).getByRole('button', { name: /^Who has access/ }))
+  return view
 }
-const card = async () => (await screen.findByRole('heading', { name: 'Invitations to share' })).closest('.patient-card') as HTMLElement
+const card = async () => screen.findByRole('region', { name: 'Invitations to share' })
 
 describe('Access and consent with sharing', () => {
   it('offers "Share my records" and lists invitations, with Cancel for a pending one', async () => {
     let list = [invitation(), invitation({ invitationId: 'inv-2', inviteeEmail: 'x@example.com', inviteeName: null, status: 'pending',
       deliveryOutcome: 'not_confirmed' }), invitation({ invitationId: 'inv-3', status: 'expired' })]
-    const { sent } = accessPage((path, method) => {
+    const { sent } = await accessPage((path, method) => {
       if (method === 'POST' && path === `${INVITATIONS}/inv-1/cancel`) {
         list = list.map(item => item.invitationId === 'inv-1' ? { ...item, status: 'cancelled' } : item)
         return json({ invitationId: 'inv-1', status: 'cancelled', replayed: false })
@@ -271,15 +277,15 @@ describe('Access and consent with sharing', () => {
       return json({ items: list, limits: LIMITS })
     })
     const section = await card()
-    expect(screen.getByRole('link', { name: 'Share my records' }).getAttribute('href')).toBe('/access/share')
+    expect(screen.getByRole('link', { name: 'Share records' }).getAttribute('href')).toBe('/access/share')
     const rows = within(section).getAllByRole('listitem')
     expect(rows[0]!.textContent).toContain('Dr New (dr.new@example.com)')
     expect(rows[0]!.textContent).toContain('View Only · 7 days')
-    expect(rows[1]!.textContent).toContain('Delivery not confirmed')
+    expect(rows[1]!.textContent).toContain('We aren’t sure the email arrived')
     expect(rows[2]!.textContent).toContain('Expired')
     expect(within(rows[2]!).queryByRole('button')).toBeNull()
     expect(within(section).getByText('You can send 4 more invitations today.')).toBeTruthy()
-    expect(within(section).getByRole('link', { name: 'Invite a provider by email →' }).getAttribute('href')).toBe('/access/share?by=email')
+    expect(within(section).getByRole('link', { name: 'Invite' }).getAttribute('href')).toBe('/access/share?by=email')
 
     await press(within(rows[0]!).getByRole('button', { name: 'Cancel invitation to dr.new@example.com' }))
     expect(await within(section).findByText('Invitation cancelled.')).toBeTruthy()
@@ -292,7 +298,7 @@ describe('Access and consent with sharing', () => {
     const offer = { clinicianName: 'Dr Chidi Eze', role: 'doctor' as const, facilityName: 'Ikeja Hospital', organizationName: 'Ikeja Health',
       newOnHealthId: true }
     let confirms = 0
-    const { sent } = accessPage((path, method) => {
+    const { sent } = await accessPage((path, method) => {
       if (method === 'POST' && path.endsWith('/confirm')) {
         confirms += 1
         return confirms === 1 ? problem(403, 'PATIENT_RECENT_AUTH_REQUIRED', 'Sign in again.')
@@ -302,22 +308,22 @@ describe('Access and consent with sharing', () => {
       return json({ items: [invitation({ status: 'accepted', acceptedAt: '2026-10-28T08:00:00Z', offer })], limits: LIMITS })
     })
     const section = await card()
-    expect(section.textContent).toContain('Dr Chidi Eze, Doctor at Ikeja Hospital, Ikeja Health')
+    expect(section.textContent).toContain('Dr Chidi Eze, Doctor at Ikeja Hospital, Ikeja Health.')
     expect(within(section).getByText('New on Health ID')).toBeTruthy()
     expect(within(section).getByRole('button', { name: 'Decline the invitation to dr.new@example.com' })).toBeTruthy()
     await press(within(section).getByRole('button', { name: 'Confirm and share with Dr Chidi Eze' }))
-    expect((await within(section).findByRole('alert')).textContent).toBe('For your security, sign out, sign in again, and share within 10 minutes.')
+    expect(shownText(await within(section).findByRole('alert'))).toBe('For your security, sign out, sign in again, and share within 10 minutes.')
     await press(within(section).getByRole('button', { name: 'Confirm and share with Dr Chidi Eze' }))
     expect(await within(section).findByText(/Dr Chidi Eze at Ikeja Hospital can see your records until/)).toBeTruthy()
     expect(sent.filter(item => item.method === 'POST').map(item => item.path)).toEqual([`${INVITATIONS}/inv-1/confirm`, `${INVITATIONS}/inv-1/confirm`])
   })
 
   it('shows neither the card nor the button where sharing is not served (404), and says nothing', async () => {
-    accessPage(() => problem(404, 'NOT_FOUND', 'Cannot GET'), { items: [] }, false)
-    expect(await screen.findByText('No access grants are recorded.')).toBeTruthy()
+    await accessPage(() => problem(404, 'NOT_FOUND', 'Cannot GET'), { items: [] }, false)
+    expect(await screen.findByText('Facilities you approve or share with appear here, with when their access ends.')).toBeTruthy()
     await waitFor(() => expect(shareServed()).toBe(false))
     expect(screen.queryByRole('heading', { name: 'Invitations to share' })).toBeNull()
-    expect(screen.queryByRole('link', { name: 'Share my records' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Share records' })).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
@@ -325,15 +331,15 @@ describe('Access and consent with sharing', () => {
     const grant = (id: string, extra: Partial<AccessHistory['items'][number]>): AccessHistory['items'][number] => ({ consentGrantId: id,
       scope: 'read_records', purpose: 'direct-care', status: 'active', startsAt: '2026-10-28T10:00:00Z', expiresAt: '2027-10-28T10:00:00Z',
       reason: null, facilityName: 'Lagos General', patientRevocable: true, ...extra })
-    accessPage(() => json({ items: [], limits: LIMITS }), { items: [
+    await accessPage(() => json({ items: [], limits: LIMITS }), { items: [
       grant('g-1', { clinicianName: 'Dr Ada Obi', shareLevel: 'view_only', shareDuration: 'until_revoked' }),
       grant('g-2', { shareLevel: null, shareDuration: null, clinicianName: null }),
     ] })
-    const history = (await screen.findByRole('heading', { name: 'Access history' })).closest('.patient-card') as HTMLElement
+    const history = (await screen.findByRole('heading', { name: '2 facilities have access now' })).closest('section') as HTMLElement
     const rows = await within(history).findAllByRole('listitem')
     expect(rows[0]!.textContent).toContain('Dr Ada Obi at Lagos General')
     expect(rows[0]!.textContent).toContain('Shared by you · View Only · Until you end it')
-    expect(within(rows[0]!).getByRole('button', { name: /^Revoke access for Dr Ada Obi at Lagos General/ })).toBeTruthy()
+    expect(within(rows[0]!).getByRole('button', { name: /^End access for Dr Ada Obi at Lagos General/ })).toBeTruthy()
     expect(rows[1]!.textContent).not.toContain('Shared by you')
   })
 })
@@ -345,13 +351,13 @@ describe('the inbox notices of sharing', () => {
   it('names the facility, or stands in for it when the metadata lacks it', () => {
     expect(notificationTitle(notice('RECORDS_OPENED', { facilityName: 'Lagos General', accessKind: 'share' }, 'record-access')))
       .toBe('Lagos General opened your health records')
-    expect(notificationTitle(notice('RECORDS_OPENED', {}, 'record-access'))).toBe('A facility opened your health records')
+    expect(notificationTitle(notice('RECORDS_OPENED', {}, 'record-access'))).toBe('A hospital opened your health records')
     expect(notificationTitle(notice('SHARE_INVITATION_ACCEPTED', { facilityName: 'Ikeja Hospital' }, 'share-invitation')))
-      .toBe('A provider at Ikeja Hospital accepted your invitation: confirm it in Access and consent to share your records')
+      .toBe('A health worker at Ikeja Hospital accepted your invitation. Confirm it in Access & sharing')
     expect(notificationTitle(notice('SHARE_INVITATION_ACCEPTED', { facilityName: 42 }, 'share-invitation')))
-      .toBe('A provider at a facility accepted your invitation: confirm it in Access and consent to share your records')
+      .toBe('A health worker at a hospital accepted your invitation. Confirm it in Access & sharing')
     expect(notificationTitle(notice('SHARE_INVITATION_EXPIRED', {}, 'share-invitation')))
-      .toBe('An invitation you sent to share your records has expired')
+      .toBe('Your invitation to share your records has expired')
     expect(NOTIFICATION_SUBJECTS['record-access']).toBe('Record access')
     expect(NOTIFICATION_SUBJECTS['share-invitation']).toBe('Invitation to share')
   })

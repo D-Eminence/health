@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { adminApi, type AdminActor, type IntegrationCapability, type IntegrationEvent, type IntegrationProvider } from './api'
 import { failure } from './problems'
-import { ActionForm, Page, Refresh, ResourceView, Status, Table, date, has, label, useGovernedSubmit, useResource } from './ui'
+import { ActionForm, ConfirmAction, Page, Refresh, ResourceView, Status, Subject, Table, date, has, label, useGovernedSubmit, useResource } from './ui'
 
 /**
  * Dashboard-editable, non-secret provider settings. Mirrors hid-system
@@ -132,21 +132,23 @@ function ProviderDetails({ provider }: { provider: IntegrationProvider }) {
 function IntegrationAction({ provider, reload, actor }: {
   provider: IntegrationProvider; reload: () => void; actor: AdminActor
 }) {
-  const options = provider.availableActions.filter(action => action === 'enable' || action === 'pause')
-    .map(value => ({ value, title: label(value) }))
-  return <div className="admin-action-row">
-    {has(actor, 'platform.integration.manage') && options.length > 0 && <ActionForm title="Change provider state" options={options}
-      onSubmit={async (action, reason, idempotencyKey) => {
-        await adminApi.command(`/api/v1/admin/integrations/${encodeURIComponent(provider.provider)}/${action}`,
-          { reason }, { version: provider.version, idempotencyKey })
-        reload()
-      }} />}
-    {has(actor, 'platform.integration.test') && provider.availableActions.includes('test') && <ActionForm title="Test connection"
-      onSubmit={async (_, reason, idempotencyKey) => {
-        await adminApi.command(`/api/v1/admin/integrations/${encodeURIComponent(provider.provider)}/test`,
-          { reason }, { version: provider.version, idempotencyKey })
-        reload()
-      }} />}
+  const manage = has(actor, 'platform.integration.manage')
+  const run = (action: string) => async (reason: string, idempotencyKey: string) => {
+    await adminApi.command(`/api/v1/admin/integrations/${encodeURIComponent(provider.provider)}/${action}`,
+      { reason }, { version: provider.version, idempotencyKey })
+    reload()
+  }
+  const subject = <Subject name={provider.name} detail={`Now ${provider.enabled ? 'on' : 'paused'}`} />
+  return <div className="flex flex-wrap gap-2">
+    {manage && provider.availableActions.includes('enable') && <ConfirmAction label={`Turn on ${provider.name}`}
+      spec={{ title: `Turn on ${provider.name}?`, subject, effect: `Health ID can send through ${provider.name} again at once.`,
+        undo: 'You can pause it later from this page.', confirmLabel: 'Turn on', done: `${provider.name} is on.` }} onSubmit={run('enable')} />}
+    {manage && provider.availableActions.includes('pause') && <ConfirmAction label={`Pause ${provider.name}`} variant="danger"
+      spec={{ title: `Pause ${provider.name}?`, subject, effect: `Health ID stops sending through ${provider.name} at once.`,
+        undo: 'You can turn it back on from this page.', confirmLabel: 'Pause', destructive: true, done: `${provider.name} is paused.` }} onSubmit={run('pause')} />}
+    {has(actor, 'platform.integration.test') && provider.availableActions.includes('test') && <ConfirmAction label="Test connection"
+      spec={{ title: `Test ${provider.name}?`, subject, effect: `Health ID checks that it can reach ${provider.name}. Nothing is sent to patients.`,
+        confirmLabel: 'Run test', done: `${provider.name} was tested. Its health shows the result.` }} onSubmit={run('test')} />}
   </div>
 }
 
@@ -163,13 +165,25 @@ function CapabilityAction({ capability, actor, reload }: {
   // The backend refuses a fallback equal to the active provider, and accepts no provider to remove the fallback.
   const fallback = [...choices([capability.activeProvider, capability.fallbackProvider]),
     ...(capability.fallbackProvider ? [{ value: NO_FALLBACK, title: 'No fallback' }] : [])]
-  return <div className="admin-action-row">
-    {active.length > 0 && <ActionForm title="Select active provider" options={active} onSubmit={async (provider, reason, idempotencyKey) => {
+  const name = label(capability.capability)
+  return <div className="flex flex-wrap gap-2">
+    {active.length > 0 && <ActionForm title="Change provider" options={active}
+      subject={<Subject name={name} detail={`Now ${capability.activeProvider ? label(capability.activeProvider) : 'none'}`} />}
+      describe={choice => choice ? { title: `Use ${choice.title} for ${name.toLowerCase()}?`, effect: `${name} goes through ${choice.title} from now on.`,
+        undo: 'You can switch back from this page.', confirmLabel: `Use ${choice.title}`, done: `${name} now goes through ${choice.title}.` } : {}}
+      onSubmit={async (provider, reason, idempotencyKey) => {
       await adminApi.command(`/api/v1/admin/integrations/capabilities/${encodeURIComponent(capability.capability)}/selection`,
         { provider, reason }, { version: capability.version, idempotencyKey })
       reload()
     }} />}
-    {fallback.length > 0 && <ActionForm title="Change fallback provider" options={fallback} onSubmit={async (provider, reason, idempotencyKey) => {
+    {fallback.length > 0 && <ActionForm title="Change fallback" options={fallback}
+      subject={<Subject name={name} detail={`Fallback now ${capability.fallbackProvider ? label(capability.fallbackProvider) : 'none'}`} />}
+      describe={choice => choice ? choice.value === NO_FALLBACK
+        ? { title: 'Remove the fallback?', effect: `If the main provider fails, ${name.toLowerCase()} has nothing to fall back on.`, destructive: true,
+          undo: 'You can add one again from this page.', confirmLabel: 'Remove fallback', done: `${name} has no fallback now.` }
+        : { title: `Fall back to ${choice.title}?`, effect: `If the main provider fails, ${name.toLowerCase()} goes through ${choice.title}.`,
+          undo: 'You can change it again from this page.', confirmLabel: `Use ${choice.title}`, done: `${name} now falls back to ${choice.title}.` } : {}}
+      onSubmit={async (provider, reason, idempotencyKey) => {
       await adminApi.command(`/api/v1/admin/integrations/capabilities/${encodeURIComponent(capability.capability)}/fallback`,
         { provider: provider === NO_FALLBACK ? null : provider, reason }, { version: capability.version, idempotencyKey })
       reload()
@@ -180,13 +194,13 @@ function CapabilityAction({ capability, actor, reload }: {
 export function IntegrationsPage({ actor }: { actor: AdminActor }) {
   const resource = useResource(adminApi.integrations, 'Integration configuration could not be loaded.')
   return <Page eyebrow="Operations" title="Integrations"
-    description="Provider status, routing and non-secret settings. Credentials are never shown; they stay in deployment configuration."
+    description="Who sends Health ID’s emails and texts, and their settings. Passwords and keys are never shown here."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
     <ResourceView resource={resource} empty={catalog => catalog.items.length === 0 && catalog.capabilities.length === 0}>{catalog => <div className="admin-stack">
       <section className="admin-panel"><h2>Providers</h2>{catalog.items.length === 0 ? <p className="admin-note">No providers are configured.</p> :
         <div className="admin-tile-grid">{catalog.items.map(provider => <article className="admin-tile" key={provider.provider}>
-          <div className="admin-panel-head"><h3>{provider.name}</h3><Status value={provider.enabled ? 'enabled' : 'paused'} /></div>
-          <p>Health: <Status value={provider.health} /></p><p>Management: {label(provider.managementMode)}</p>
+          <div className="admin-panel-head"><h3>{provider.name}</h3><Status value={provider.enabled ? 'on' : 'paused'} text={provider.enabled ? 'On' : 'Paused'} /></div>
+          <p>Health: <Status value={provider.health} /></p><p>Managed {label(provider.managementMode).toLowerCase()}</p>
           <ProviderDetails provider={provider} />
           <IntegrationAction provider={provider} reload={resource.reload} actor={actor} />
           {has(actor, 'platform.integration.manage') && provider.availableActions.includes('configure')
@@ -195,7 +209,7 @@ export function IntegrationsPage({ actor }: { actor: AdminActor }) {
         </article>)}</div>}</section>
       <section className="admin-panel"><h2>Capability routing</h2>{catalog.capabilities.length === 0 ? <p className="admin-note">No capability routes are configured.</p> :
         <div className="admin-tile-grid">{catalog.capabilities.map(capability => <article className="admin-tile" key={capability.capability}>
-          <h3>{label(capability.capability)}</h3><p>Active: <strong>{capability.activeProvider ? label(capability.activeProvider) : 'None'}</strong></p>
+          <h3>{label(capability.capability)}</h3><p>Goes through: <strong>{capability.activeProvider ? label(capability.activeProvider) : 'None'}</strong></p>
           <p>Fallback: <strong>{capability.fallbackProvider ? label(capability.fallbackProvider) : 'None'}</strong></p>
           <CapabilityAction capability={capability} actor={actor} reload={resource.reload} />
         </article>)}</div>}</section>

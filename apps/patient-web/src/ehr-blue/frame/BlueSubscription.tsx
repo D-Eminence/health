@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import {
-  EhrBadge, EhrButton, EhrCard, EhrDataTable, EhrEmptyState, EhrPageHeading, type EhrBadgeTone,
-} from '@hid/ui/ehr'
+import { RotateCcw } from 'lucide-react'
+import { Alert, Badge, Button, Card, CardHeader, DescriptionList, EmptyState, PageHeader, cx, type Tone } from '../../kasuwa/ui'
+import { PageState } from '../../kasuwa/parts'
 import { billingApi } from '../../staff/api'
 import { useStaff } from '../../staff/App'
 import {
@@ -13,9 +13,12 @@ import { PRODUCT_LABELS, STATUS, statusDetail } from '../../staff/routes/Billing
 import { blueForAll } from '../blueFacilities'
 import { LivePage } from './LivePages'
 
-const TONE: Record<(typeof STATUS)[keyof typeof STATUS]['tone'], EhrBadgeTone> = {
-  success: 'positive', warning: 'caution', danger: 'critical', neutral: 'neutral', information: 'brand',
+const TONE: Record<(typeof STATUS)[keyof typeof STATUS]['tone'], Tone> = {
+  success: 'success', warning: 'warn', danger: 'danger', neutral: 'neutral', information: 'info',
 }
+
+const TITLE = 'Facility subscription'
+const EYEBROW = <p className="m-0 text-[13px] font-medium text-ink-3">Separate from patient billing</p>
 
 /**
  * /provider/billing in the blue EHR: today's page (LivePage) until the clinic switch is on, and the design's Facility
@@ -26,11 +29,10 @@ export function FacilitySubscriptionPage() {
 }
 
 /**
- * The design's Facility subscription (screens/6-subscription), on today's billing: the same reads (the plan and the
- * invoices), the same actions (start the free trial, pay through Paystack's checkout), the same return from Paystack and
- * today's words for every state and refusal (staff/routes/Billing.tsx). Its cards are the design's: Current plan,
- * Renewal reminders (Health ID sends none yet, and the card says so) and Subscription history (the invoices). The
- * design's simulated plan and its controls are not drawn.
+ * Facility subscription in the redesign's look, on today's billing: the same reads (the plan and the invoices), the
+ * same actions (start the free trial, pay through Paystack's checkout), the same return from Paystack and today's words
+ * for every state and refusal (staff/routes/Billing.tsx). Its cards: Current plan, Renewal reminders (Health ID sends
+ * none yet, and the card says so) and Subscription history (the invoices).
  */
 export function BlueSubscription() {
   const { state } = useStaff()
@@ -67,16 +69,15 @@ export function BlueSubscription() {
     return () => { active = false }
   }, [facilityId, canRead, reload])
 
-  if (!facility || !canRead) return <>
-    <EhrPageHeading title="Facility subscription" />
-    <EhrEmptyState title="Billing access unavailable" message="Your facility administrator manages the plan and billing for this facility." />
-  </>
+  if (!facility || !canRead) return <div className="flex flex-col gap-6">
+    <PageHeader title={TITLE} />
+    <EmptyState title="Billing access unavailable" description="Your facility administrator manages the plan and billing for this facility." />
+  </div>
 
-  if (subscription.kind === 'unavailable') return <>
-    <EhrPageHeading title="Facility subscription" />
-    <EhrEmptyState title="Billing isn't available yet"
-      message="Plans, free trials and payment are not switched on for Health ID yet. Your facility can keep using the Provider Portal in the meantime." />
-  </>
+  if (subscription.kind === 'unavailable') return <div className="flex flex-col gap-6">
+    <PageHeader title={TITLE} />
+    <EmptyState title="Billing isn't available yet" description="Plans, free trials and payment aren’t switched on yet." />
+  </div>
 
   async function startTrial() {
     if (busy) return
@@ -110,75 +111,97 @@ export function BlueSubscription() {
   const priceText = plan ? formatPrice(plan.price) : null
   const payable = plan !== null && canManage && canPayNow(plan) && plan.price !== null && plan.price.amount_minor !== null
   const actions = plan && canManage ? <>
-    {plan.status === 'none' && <EhrButton onClick={() => void startTrial()} disabled={busy !== null}>
-      {busy === 'trial' ? 'Starting your trial…' : `Start ${TRIAL_DAYS}-day free trial`}</EhrButton>}
-    {payable && <EhrButton variant={plan.status === 'none' ? 'secondary' : 'primary'} onClick={() => void payNow()} disabled={busy !== null}>
-      {busy === 'pay' ? 'Opening payment…' : 'Pay now'}</EhrButton>}
+    {payable && <Button variant={plan.status === 'none' ? 'secondary' : 'primary'} loading={busy === 'pay'} onClick={() => void payNow()}
+      disabled={busy !== null}>{busy === 'pay' ? 'Opening payment…' : 'Pay now'}</Button>}
+    {plan.status === 'none' && <Button variant="primary" loading={busy === 'trial'} onClick={() => void startTrial()} disabled={busy !== null}>
+      {busy === 'trial' ? 'Starting your trial…' : `Start ${TRIAL_DAYS}-day free trial`}</Button>}
   </> : null
   const urgent = plan !== null && (plan.status === 'past_due' || plan.status === 'read_only')
+  const reread = () => setReload(value => value + 1)
 
-  return <>
-    <EhrPageHeading eyebrow="Separate from patient billing" title="Facility subscription"
-      description="Your facility’s plan, free trial and invoices. Patients are never charged for Health ID." />
+  return <div className="@container flex flex-col gap-6">
+    <PageHeader eyebrow={EYEBROW} title={TITLE} description="Your facility’s plan, free trial and invoices. Patients are never charged for Health ID." />
 
-    {returnNote && plan && <p role="status" className="hid-ehr-blue-flush">
-      {plan.status === 'active' ? 'Payment received. Thank you.'
-        : 'We have not confirmed your payment yet. This page shows it once Paystack confirms it.'}
-      {plan.status !== 'active' && <> <EhrButton variant="quiet" size="sm" onClick={() => setReload(value => value + 1)}>Check again</EhrButton></>}
-    </p>}
+    {returnNote && plan && (plan.status === 'active'
+      ? <Alert intent="success">Payment received. Thank you.</Alert>
+      : <Alert intent="info" action={<Button size="sm" icon={RotateCcw} onClick={reread}>Check again</Button>}>
+        We have not confirmed your payment yet. This page shows it once Paystack confirms it.</Alert>)}
 
-    {subscription.kind === 'loading' && <p role="status" className="hid-ehr-blue-muted">Loading your plan…</p>}
-    {subscription.kind === 'error' && <div className="hid-ehr-blue-stack">
-      <p role="alert" className="hid-ehr-error">{subscription.message}</p>
-      <EhrButton variant="secondary" size="sm" onClick={() => setReload(value => value + 1)}>Try again</EhrButton>
-    </div>}
+    <PageState loading={subscription.kind === 'loading'} error={subscription.kind === 'error' ? subscription.message : null}
+      hasData={plan !== null} onRetry={reread} what="your plan" rows={2}>
+      {plan && <>
+        <Card aria-labelledby="blue-plan-title" data-urgent={urgent || undefined}
+          className={cx('flex flex-col gap-4 p-5 @2xl:flex-row @2xl:items-center @2xl:justify-between', urgent && 'ring-2 ring-danger/40')}>
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <p className="m-0 text-[13px] font-medium text-ink-3">{PRODUCT_LABELS[plan.productCode] ?? plan.productCode}</p>
+            <h2 id="blue-plan-title" className="m-0 text-title-2 text-ink">{STATUS[plan.status].label}</h2>
+            <p className="m-0 text-sm text-ink-2">{statusDetail(plan)}</p>
+          </div>
+          {actions ? <div className="flex flex-col gap-2 @md:flex-row @md:flex-wrap [&>*]:w-full @md:[&>*]:w-auto">{actions}</div> : null}
+        </Card>
 
-    {plan && <section aria-labelledby="hid-ehr-blue-plan-title" className={urgent ? 'hid-ehr-blue-plan hid-ehr-blue-plan-urgent' : 'hid-ehr-blue-plan'}>
-      <div className="hid-ehr-blue-plan-text">
-        <p className="hid-ehr-blue-plan-eyebrow">{PRODUCT_LABELS[plan.productCode] ?? plan.productCode}</p>
-        <h2 id="hid-ehr-blue-plan-title" className="hid-ehr-blue-plan-title">{STATUS[plan.status].label}</h2>
-        <p className="hid-ehr-blue-flush">{statusDetail(plan)}</p>
-      </div>
-      {actions ? <div className="hid-ehr-actions">{actions}</div> : null}
-    </section>}
+        <Card data-subscription-card="">
+          <CardHeader as="h2" title="Current plan" />
+          <DescriptionList items={[
+            ['Plan', PRODUCT_LABELS[plan.productCode] ?? plan.productCode],
+            ['Status', <Badge key="status" tone={TONE[STATUS[plan.status].tone]}>{STATUS[plan.status].label}</Badge>],
+            priceText ? ['Price', priceText] : null,
+            plan.trialEndsAt ? ['Trial ends', formatDate(plan.trialEndsAt)] : null,
+            plan.currentPeriodEndsAt ? ['Renews on', formatDate(plan.currentPeriodEndsAt)] : null,
+            plan.graceEndsAt ? ['Pay by', formatDate(plan.graceEndsAt)] : null,
+          ]} />
+          <div className="flex flex-col gap-3 border-t border-line px-5 py-4 empty:hidden">
+            {canManage && !plan.selfServePayment && plan.status !== 'active' &&
+              <p className="m-0 text-[13px] text-ink-3">This plan is priced by Health ID sales. Contact Health ID sales to pay for it.</p>}
+            {!canManage && plan.status !== 'active' && <p className="m-0 text-[13px] text-ink-3">Only your facility administrator can start a trial or pay.</p>}
+            {actionError && <Alert intent="error" size="sm">{actionError}</Alert>}
+            {payable && <p className="m-0 text-[13px] text-ink-3">Payment opens Paystack’s secure checkout.</p>}
+          </div>
+        </Card>
 
-    {plan && <EhrCard title="Current plan">
-      <dl className="hid-ehr-blue-facts">
-        <div className="hid-ehr-blue-fact"><dt>Plan</dt><dd>{PRODUCT_LABELS[plan.productCode] ?? plan.productCode}</dd></div>
-        <div className="hid-ehr-blue-fact"><dt>Status</dt><dd><EhrBadge tone={TONE[STATUS[plan.status].tone]}>{STATUS[plan.status].label}</EhrBadge></dd></div>
-        {priceText && <div className="hid-ehr-blue-fact"><dt>Price</dt><dd>{priceText}</dd></div>}
-        {plan.trialEndsAt && <div className="hid-ehr-blue-fact"><dt>Trial ends</dt><dd>{formatDate(plan.trialEndsAt)}</dd></div>}
-        {plan.currentPeriodEndsAt && <div className="hid-ehr-blue-fact"><dt>Renews on</dt><dd>{formatDate(plan.currentPeriodEndsAt)}</dd></div>}
-        {plan.graceEndsAt && <div className="hid-ehr-blue-fact"><dt>Pay by</dt><dd>{formatDate(plan.graceEndsAt)}</dd></div>}
-      </dl>
-      {canManage && !plan.selfServePayment && plan.status !== 'active' &&
-        <p className="hid-ehr-blue-muted">This plan is priced by Health ID sales. Contact Health ID sales to pay for it.</p>}
-      {!canManage && plan.status !== 'active' && <p className="hid-ehr-blue-muted">Only your facility administrator can start a trial or pay.</p>}
-      {actionError && <p role="alert" className="hid-ehr-error">{actionError}</p>}
-      {payable && <p className="hid-ehr-blue-muted">Payment opens Paystack’s secure checkout. Card details never pass through Health ID.</p>}
-    </EhrCard>}
+        {/* Health ID sends no renewal reminders yet, so the card says so, with no sample rows on a live page. */}
+        <Card data-subscription-card="">
+          <CardHeader as="h2" title="Renewal reminders" />
+          <div className="flex flex-col gap-1 px-5 py-4">
+            <p className="m-0 text-sm text-ink">No renewal reminders yet.</p>
+            <p className="m-0 text-[13px] text-ink-3">Health ID does not send renewal reminders by email or text message yet.</p>
+          </div>
+        </Card>
+      </>}
+    </PageState>
 
-    {/* The design's Renewal reminders: Health ID sends none yet, so the card says so, with no sample rows on a live page. */}
-    {plan && <EhrCard title="Renewal reminders">
-      <p className="hid-ehr-blue-flush">No renewal reminders yet.</p>
-      <p className="hid-ehr-blue-muted">Health ID does not send renewal reminders by email or text message yet. The dates above are your plan’s.</p>
-    </EhrCard>}
-
-    {/* The design's Subscription history: the facility's invoices, as today's billing page lists them. */}
-    <EhrCard title="Subscription history">
-      {invoices.kind === 'loading' && <p role="status" className="hid-ehr-blue-muted">Loading invoices…</p>}
-      {invoices.kind === 'error' && <p role="alert" className="hid-ehr-error">{invoices.message}</p>}
-      {invoices.kind === 'unavailable' && <p className="hid-ehr-blue-muted">Invoices are not available yet.</p>}
+    {/* The facility's invoices, as today's billing page lists them. */}
+    <Card data-subscription-card="">
+      <CardHeader as="h2" title="Subscription history" />
+      {invoices.kind === 'loading' && <p role="status" className="m-0 px-5 py-4 text-[13px] text-ink-3">Loading invoices…</p>}
+      {invoices.kind === 'error' && <div className="px-5 py-4"><Alert intent="error" size="sm">{invoices.message}</Alert></div>}
+      {invoices.kind === 'unavailable' && <p className="m-0 px-5 py-4 text-[13px] text-ink-3">Invoices aren’t available yet.</p>}
       {invoices.kind === 'ready' && (invoices.value.length === 0
-        ? <p className="hid-ehr-blue-muted">No invoices yet. Your first invoice appears here after you pay.</p>
-        : <EhrDataTable caption="Invoices" captionHidden rows={invoices.value} rowKey={invoice => invoice.id} columns={[
-          { id: 'number', header: 'Invoice', cell: invoice => invoice.number },
-          { id: 'date', header: 'Date', cell: invoice => formatDate(invoice.issuedAt) },
-          { id: 'amount', header: 'Amount', cell: invoice => formatMoney(invoice.amount_minor, invoice.currency) },
-          { id: 'status', header: 'Status', cell: invoice => <EhrBadge
-            tone={invoice.status === 'paid' ? 'positive' : invoice.status === 'open' ? 'caution' : 'neutral'}>
-            {invoice.status === 'paid' ? 'Paid' : invoice.status === 'open' ? 'Open' : 'Void'}</EhrBadge> },
-        ]} />)}
-    </EhrCard>
-  </>
+        ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3">No invoices yet. Your first one shows here after you pay.</p>
+        : <InvoiceTable invoices={invoices.value} />)}
+    </Card>
+  </div>
+}
+
+const CELL = 'px-5 py-3 align-middle @max-lg:flex @max-lg:items-center @max-lg:justify-between @max-lg:gap-4 @max-lg:px-0 @max-lg:py-1'
+
+/** The invoices: a table, each row a small card of labelled lines once the page is narrow. */
+function InvoiceTable({ invoices }: { readonly invoices: readonly Invoice[] }) {
+  return <div className="@container">
+    <table className="w-full border-collapse text-left text-sm @max-lg:block">
+      <caption className="sr-only">Invoices</caption>
+      <thead className="@max-lg:sr-only"><tr className="border-b border-line text-[13px] text-ink-3">
+        <th scope="col" className="px-5 py-2.5 font-medium">Invoice</th><th scope="col" className="px-5 py-2.5 font-medium">Date</th>
+        <th scope="col" className="px-5 py-2.5 font-medium">Amount</th><th scope="col" className="px-5 py-2.5 font-medium">Status</th>
+      </tr></thead>
+      <tbody className="divide-y divide-line @max-lg:block">{invoices.map(invoice => <tr key={invoice.id} className="@max-lg:block @max-lg:px-5 @max-lg:py-3">
+        <td className={cx(CELL, 'font-medium text-ink')}>{invoice.number}</td>
+        <td className={CELL}><span className="text-ink-3 @lg:sr-only">Date</span>{formatDate(invoice.issuedAt)}</td>
+        <td className={cx(CELL, 'tabular-nums')}><span className="text-ink-3 @lg:sr-only">Amount</span>{formatMoney(invoice.amount_minor, invoice.currency)}</td>
+        <td className={CELL}><span className="text-ink-3 @lg:sr-only">Status</span>
+          <Badge tone={invoice.status === 'paid' ? 'success' : invoice.status === 'open' ? 'warn' : 'neutral'}>
+            {invoice.status === 'paid' ? 'Paid' : invoice.status === 'open' ? 'Open' : 'Void'}</Badge></td>
+      </tr>)}</tbody>
+    </table>
+  </div>
 }

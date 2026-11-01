@@ -52,7 +52,7 @@ async function open(path: string) {
   return render(<MemoryRouter initialEntries={[path]}><Where /><App /></MemoryRouter>)
 }
 
-const blueRoot = () => document.querySelector('.hid-ehr.hid-ehr-blue-auth')
+const blueRoot = () => document.querySelector('.hid-ehr-blue-auth')
 
 describe('with the clinic switch off (as it ships)', () => {
   beforeEach(() => { switchTo(false) })
@@ -92,7 +92,7 @@ describe('with the clinic switch on', () => {
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'fictional passphrase for tests' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider'))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), Demo Clinician$/ })).toBeDefined()
     expect(document.querySelector('.hid-ehr.hid-ehr-shell')).not.toBeNull()
   })
 

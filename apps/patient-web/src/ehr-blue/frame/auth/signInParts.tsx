@@ -9,6 +9,7 @@ import { staffReturnPath } from '../../../staff/session'
 import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE } from '../../../staff/routes/StaffMfaSteps'
 import { usesNovuBackend } from '../../../backendContract'
 import { capturedStaffInvitation } from '../../../staff/invitationCapture'
+import { Alert } from '../../../kasuwa/ui'
 
 /*
  * Today's sign-in rules, as staff/routes/SignIn.tsx keeps them inside the page. They are copied here, word for word,
@@ -62,5 +63,5 @@ export function TurnstileChallenge({ onToken, resetKey }: { readonly onToken: (t
   }, [siteKey, resetKey])
 
   if (!siteKey) return null
-  return <div><div ref={host} />{error ? <p role="alert" className="hid-ehr-error">{error}</p> : null}</div>
+  return <div className="flex flex-col gap-2"><div ref={host} />{error ? <Alert intent="error" size="sm">{error}</Alert> : null}</div>
 }

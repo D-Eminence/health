@@ -31,7 +31,7 @@ function failure(reason: unknown): string {
   if (reason.status === 409) return 'Your records changed. Please ask your question again.'
   if (reason.status === 429) return 'Please wait before asking another question.'
   if (reason.code === 'CHAT_RECORD_SCOPE_EXCEEDED') return 'Your record history is too large for chat. Please use the Records page.'
-  if (reason.code === 'PATIENT_CHAT_DISABLED') return 'Record chat is not enabled yet.'
+  if (reason.code === 'PATIENT_CHAT_DISABLED') return 'Record chat is not available.'
   if (reason.code === 'REQUEST_TIMEOUT') return 'The reply took too long. Please try later.'
   return 'Record chat is unavailable. Please try later.'
 }

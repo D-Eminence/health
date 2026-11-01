@@ -39,7 +39,7 @@ describe('the portal\'s icon', () => {
   })
 
   it('takes its colour from the design tokens\' brand', () => {
-    expect(brand).toBe('#086dd9')
+    expect(brand).toBe('#1570ef')
     expect(shell).toContain(`<meta name="theme-color" content="${brand}" />`)
     expect(manifest.theme_color).toBe(brand)
   })
@@ -48,7 +48,7 @@ describe('the portal\'s icon', () => {
     // Exactly contract §11.1.
     expect(manifest).toEqual({
       id: '/', name: 'Health ID', short_name: 'Health ID', description: 'Your Health ID: your health records, and who can see them.',
-      start_url: '/', scope: '/', display: 'standalone', background_color: '#ffffff', theme_color: '#086dd9',
+      start_url: '/', scope: '/', display: 'standalone', background_color: '#ffffff', theme_color: '#1570ef',
       icons: [
         { src: '/icons/icon-48.png', sizes: '48x48', type: 'image/png' },
         { src: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },

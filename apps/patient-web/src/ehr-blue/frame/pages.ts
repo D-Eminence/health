@@ -73,7 +73,7 @@ export const pages: EhrBluePage[] = [
   sample('surgery', 'Clinical', 'Theatre & Procedures', 'scissors'),
   sample('icu', 'Clinical', 'ICU', 'monitor'),
   sample('dental', 'Clinical', 'Dental', 'tooth'),
-  live('requests', 'Clinical', 'External record access', 'lock', 'identity.consent.write'),
+  live('requests', 'Clinical', 'Access requests', 'lock', 'identity.consent.write'),
   sample('nursing-tasks', 'Clinical', 'Nursing tasks', 'check'),
 
   live('laboratory', 'Diagnostics', 'Laboratory', 'flask', 'lab.work-item.read'),
@@ -115,9 +115,10 @@ export const pages: EhrBluePage[] = [
   // Listed only at the demo facilities; everywhere, the account menu's Switch facility opens it.
   demoOnly(page('whats-left', 'Design review', 'What’s left', 'checklist', 'live', createElement(WhatsLeft))),
 
-  // The live facility switch: the account menu's Switch facility opens it, as a page of its own (EhrBlueApp). The
-  // design's sidebar has no entry for it.
-  { ...page('institutions', '', 'Choose workspace', 'building', 'live', createElement(ChooseWorkspacePage)), listed: () => false },
+  // The live facility switch (the account menu's Switch facility), beside Home: listed for whoever has more than one
+  // facility to choose from, as Switch facility is.
+  { ...page('institutions', '', 'Choose workspace', 'building', 'live', createElement(ChooseWorkspacePage)),
+    listed: session => session.actor.facilities.length > 1 },
 
   // The design's journeys, as an interactive tour: samples, asking for no password and sending nothing.
   demoOnly(page('tour', 'Design tour', 'Design tour', 'tour', 'sample', createElement(DesignTourIndex))),

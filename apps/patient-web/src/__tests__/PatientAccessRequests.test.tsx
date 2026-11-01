@@ -6,6 +6,8 @@ import { createApiClient } from '@hid/http'
 import { createPatientApi, type AccessRequest } from '../api'
 import { createTestSessionValue, SessionContext } from '../session'
 import { AccessPage } from '../routes/Portal'
+import { ToastProvider } from '../kasuwa/toast'
+import { described } from './portalHarness'
 
 /**
  * A patient's own access-request list, approval and denial are patient commands
@@ -51,8 +53,14 @@ function renderAccess(decided: () => AccessRequest) {
   })
   render(<MemoryRouter><SessionContext.Provider value={createTestSessionValue({
     kind: 'patient', subjectId: 'patient:subject', appRole: 'patient', assuranceLevel: 'aal1',
-  }, api)}><AccessPage /></SessionContext.Provider></MemoryRouter>)
+  }, api)}><ToastProvider><AccessPage /></ToastProvider></SessionContext.Provider></MemoryRouter>)
   return sent
+}
+
+/** Opens the request from Lagos General in its drawer, as the patient does with its row; returns the drawer. */
+async function review() {
+  fireEvent.click(await screen.findByRole('button', { name: /^Lagos General/ }))
+  return within(screen.getByRole('dialog', { name: 'Lagos General' }))
 }
 
 const reads = (sent: Sent[], suffix: string) => sent.filter(request => request.method === 'GET' && request.path.endsWith(suffix)).length
@@ -73,16 +81,21 @@ describe('patient access-request commands', () => {
 
   it('approves a pending request through the patient route, then reloads the requests and the history', async () => {
     const sent = renderAccess(() => ({ ...pending, status: 'approved', approvedAt: '2026-10-08T10:05:00Z' }))
-    const item = (await screen.findByText('Lagos General')).closest('li')!
-    fireEvent.click(within(item).getByRole('button', { name: /^Approve/ }))
+    const drawer = await review()
+    // Approve and Deny side by side, equally easy.
+    expect(drawer.getByRole('button', { name: /^Deny/ })).toBeTruthy()
+    fireEvent.click(drawer.getByRole('button', { name: /^Approve/ }))
 
-    expect(await screen.findByText('Request approved.')).toBeTruthy()
+    expect(await screen.findByText('Lagos General can see your records now.')).toBeTruthy()
     const approve = sent.find(request => request.method === 'POST')!
     expect(approve.path).toBe(`/api/v1/identity/access-requests/${REQUEST_ID}/approve`)
     expect(approve.headers.has('X-Purpose-Of-Use')).toBe(false)
+    expect(sent.filter(request => request.method === 'POST')).toHaveLength(1)
     await waitFor(() => expect(reads(sent, '/me/access-requests')).toBe(2))
     expect(reads(sent, '/me/access-history')).toBe(2)
     await waitFor(() => expect(screen.queryByRole('button', { name: /^Approve/ })).toBeNull())
+    // Focus goes to the requests' heading, which now says nothing waits.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Nothing waiting for you' })))
   })
 
   // P4c review (Identity, as main): approving needs a sign-in within 10 minutes and no OTP account recovery in the last
@@ -100,33 +113,54 @@ describe('patient access-request commands', () => {
     })
     render(<MemoryRouter><SessionContext.Provider value={createTestSessionValue({
       kind: 'patient', subjectId: 'patient:subject', appRole: 'patient', assuranceLevel: 'aal1',
-    }, api)}><AccessPage /></SessionContext.Provider></MemoryRouter>)
-    const item = (await screen.findByText('Lagos General')).closest('li')!
-    fireEvent.click(within(item).getByRole('button', { name: /^Approve/ }))
-    expect(await screen.findByText(detail)).toBeTruthy()
-    expect(screen.queryByText('Request approved.')).toBeNull()
+    }, api)}><ToastProvider><AccessPage /></ToastProvider></SessionContext.Provider></MemoryRouter>)
+    const drawer = await review()
+    // Pressed as a keyboard user does: focused, then activated (it is disabled while the request runs).
+    const approve = drawer.getByRole('button', { name: /^Approve/ })
+    approve.focus()
+    fireEvent.click(approve)
+    expect((await screen.findByRole('alert')).textContent).toContain(detail)
+    expect(screen.queryByText('Lagos General can see your records now.')).toBeNull()
     expect(sent.filter(request => request.method === 'POST')).toHaveLength(1)
-    expect(within(item).getByRole('button', { name: /^Approve/ })).toBeTruthy()
-    expect(within(item).getByRole('button', { name: /^Deny/ })).toBeTruthy()
+    // Still pending: the drawer stays with Approve and Deny, and focus is back on Approve.
+    await waitFor(() => expect(document.activeElement).toBe(drawer.getByRole('button', { name: /^Approve/ })))
+    expect(drawer.getByRole('button', { name: /^Deny/ })).toBeTruthy()
   })
 
   it('denies only with a reason of at least 3 characters, and sends that reason', async () => {
     const sent = renderAccess(() => ({ ...pending, status: 'denied', deniedAt: '2026-10-08T10:05:00Z', deniedReason: 'Not my clinic' }))
-    const item = (await screen.findByText('Lagos General')).closest('li')!
-    fireEvent.click(within(item).getByRole('button', { name: /^Deny/ }))
-    const reason = screen.getByRole('textbox', { name: 'Reason for denial' })
-    const confirm = screen.getByRole('button', { name: 'Confirm denial' }) as HTMLButtonElement
+    const drawer = await review()
+    fireEvent.click(drawer.getByRole('button', { name: /^Deny/ }))
+    // A quick reason is chosen already, one tap away; "Other" asks for the patient's own words.
+    expect((drawer.getByRole('radio', { name: 'I don’t know them' }) as HTMLInputElement).checked).toBe(true)
+    fireEvent.click(drawer.getByRole('radio', { name: 'Other…' }))
+    const reason = drawer.getByRole('textbox', { name: 'Your reason' })
+    const confirm = drawer.getByRole('button', { name: 'Deny' })
     fireEvent.change(reason, { target: { value: ' No ' } })
-    expect(confirm.disabled).toBe(true)
+    fireEvent.click(confirm)
+    await waitFor(() => expect(document.activeElement).toBe(reason))
+    expect(reason.getAttribute('aria-invalid')).toBe('true')
+    expect(described(reason)).toContain('Say why in a few words.')
+    expect(sent.some(request => request.method === 'POST')).toBe(false)
     fireEvent.change(reason, { target: { value: ' Not my clinic ' } })
     fireEvent.click(confirm)
 
-    expect(await screen.findByText('Request denied.')).toBeTruthy()
+    expect(await screen.findByText('Nothing was shared with Lagos General.')).toBeTruthy()
     const deny = sent.find(request => request.method === 'POST')!
     expect(deny.path).toBe(`/api/v1/identity/access-requests/${REQUEST_ID}/deny`)
     expect(deny.body).toEqual({ reason: 'Not my clinic' })
     expect(deny.headers.has('X-Purpose-Of-Use')).toBe(false)
     await waitFor(() => expect(reads(sent, '/me/access-requests')).toBe(2))
     expect(reads(sent, '/me/access-history')).toBe(2)
+  })
+
+  it('denies with a quick reason in one tap, sending its words', async () => {
+    const sent = renderAccess(() => ({ ...pending, status: 'denied', deniedAt: '2026-10-08T10:05:00Z', deniedReason: 'Not now' }))
+    const drawer = await review()
+    fireEvent.click(drawer.getByRole('button', { name: /^Deny/ }))
+    fireEvent.click(drawer.getByRole('radio', { name: 'Not now' }))
+    fireEvent.click(drawer.getByRole('button', { name: 'Deny' }))
+    expect(await screen.findByText('Nothing was shared with Lagos General.')).toBeTruthy()
+    expect(sent.filter(request => request.method === 'POST').map(request => request.body)).toEqual([{ reason: 'Not now' }])
   })
 })

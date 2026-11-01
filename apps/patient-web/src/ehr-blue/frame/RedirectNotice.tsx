@@ -1,4 +1,6 @@
+import { X } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { Alert, Button } from '../../kasuwa/ui'
 
 /** What Home says after the frame sends someone there from a page their role may not open (the design's words). */
 export const DENIED_NOTICE = 'Your current permissions no longer allow that page. Choose an authorized workflow.'
@@ -13,11 +15,9 @@ export function RedirectNotice() {
   const navigate = useNavigate()
   const notice = (location.state as { frameNotice?: unknown } | null)?.frameNotice
   if (typeof notice !== 'string') return null
-  return <div className="hid-ehr-blue-notice" role="status">
-    <p>{notice}</p>
-    <button type="button" aria-label="Dismiss notice"
-      onClick={() => navigate({ pathname: location.pathname, search: location.search, hash: location.hash }, { replace: true, state: null })}>
-      ×
-    </button>
-  </div>
+  return <Alert intent="info" className="hid-ehr-blue-redirect-notice"
+    action={<Button variant="ghost" size="sm" icon={X} aria-label="Dismiss notice"
+      onClick={() => navigate({ pathname: location.pathname, search: location.search, hash: location.hash }, { replace: true, state: null })} />}>
+    {notice}
+  </Alert>
 }

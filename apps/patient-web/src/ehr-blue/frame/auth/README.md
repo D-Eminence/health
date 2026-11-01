@@ -1,9 +1,10 @@
 # Blue sign-in pages
 
-The design's staff sign-in, password recovery and invitation pages
-(`design/ehr-target` `screens/2-sign-in`, `3-forgot-password` and
-`4-staff-invitation`), drawn in the blue EHR's look and working as today's
-pages do.
+The Hospital EHR's staff sign-in, password recovery and invitation pages,
+drawn in the redesign's auth look (the shared `AuthLayout`, Kasuwa buttons and
+alerts, light and dark) and working as today's pages do. The redesign is the
+final design, so the EHR design's own look (`design/ehr-target` screens 2–4)
+is not drawn; `hid-ehr-blue-auth` only marks the pages.
 
 | Page | Today's page it replaces | Address | Routed in |
 |---|---|---|---|
@@ -44,21 +45,11 @@ support and date helpers; `signInParts.tsx` and the top of
 `BlueStaffInvitation.tsx` copy them word for word. Moving each into one shared
 module is for the offline work, which owns `SignIn.tsx`.
 
-## Where they differ from the screenshots, and why
+## Where they differ from today's pages
 
-- **No photograph.** The story panel is drawn in the brand's blues. The
-  design's photo has no known licence.
-- **Today's sign-in steps.** These are password, Turnstile, then the
-  authenticator or its set-up. The design signs in with an emailed code from a
-  simulated inbox, which Health ID does not do.
-- **Show, not an eye.** The password toggle says "Show" / "Hide": the design's
-  eye icon is not in the EHR icon set.
-- **Work email.** The recovery page asks for a work email, not "Email or
-  phone", and its button says "Send recovery code", not "Generate recovery
-  code". Identity resets staff accounts by work email, and sends a code.
-- **The invitation opens on today's form** (email address and code). The
-  design opens one already loaded from its link.
-- **No demo footer.** The "Local demonstration · fictional records only" line
-  is left out: these are live pages.
-- **Live notes the design lacks** are drawn in its style: the MFA notice,
-  the clinician application entry, the main-site and EHR-site pointers.
+- **Today's sign-in steps.** Password, Turnstile, then the authenticator or
+  its set-up, drawn exactly as the redesign's provider sign-in draws them.
+- **Ways in.** The pages link to each other: register a hospital, sign in,
+  recover access, accept an invitation.
+- **Refusals are boxed.** Every refusal is a Kasuwa `Alert`; one about the
+  field focus is moving to is not announced twice.

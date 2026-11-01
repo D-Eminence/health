@@ -9,7 +9,6 @@ import { ActionList, DetailGrid, DetailMeta, SavedRecord, VersionsCard, type Ver
 import { formatWhen, shortId, statusLabel } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import { Banner, ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
-import { patientLine } from '../parts/PatientHeader'
 import type { SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
 import { ConnectedHistory } from './ConnectedHistory'
@@ -27,7 +26,7 @@ import { VitalsForm, type VitalsInput } from './VitalsForm'
 export function TriageRecord() {
   const href = useWorkspaceHref()
   const chart = useChart()
-  if (chart && chart.purpose === 'direct-care') return <TriageLoader chart={chart} />
+  if (chart && chart.purpose === 'direct-care') return <ChartGate>{open => <TriageLoader chart={open} />}</ChartGate>
   return (
     <>
       <RecordHeading title={TITLE} backHref={href()} />
@@ -173,13 +172,11 @@ function VitalRecord({ chart, encounter, vital, reload }: {
   return (
     <>
       <RecordHeading title={shortId(vital.id)} backHref={href()} />
-      {chart.writeNotice ? <Banner tone="warning" title="Changes are unavailable">{chart.writeNotice}</Banner> : null}
       {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
       <div className="hid-ehr-clinical-status" role="status">{success}</div>
       <DetailMeta
         status={vitalStatus(vital)}
         note={number > 0 ? `Corrected (correction ${number})` : undefined}
-        patient={patientLine(chart.facts)}
         saved={latest?.createdAt ?? recordedAt(vital)}
       />
       {retracted ? <Banner tone="warning" title="Entered in error">{RETRACTED_TEXT}</Banner> : null}
@@ -224,7 +221,7 @@ function versionItems(vital: ClinicalRecord, corrections: Corrections): VersionI
     const before = index === 0 ? null : corrections.items[index - 1]!
     return {
       key: correction.id,
-      summary: `${correction.createdAt} · ${status} · ${correction.reason}`,
+      summary: `${formatWhen(correction.createdAt)} · ${status} · ${correction.reason}`,
       items: [
         { label: 'Version', value: before ? `Corrected (correction ${before.correctionNo})` : 'Originally recorded' },
         ...measurementItems(before ? before.replacementValues : vital),

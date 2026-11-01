@@ -6,7 +6,7 @@ import { createTestSessionValue, SessionContext } from '../session'
 import { SignIn } from '../routes/SignIn'
 import { Enrollment } from '../routes/Enrollment'
 import { signupEmailOf, signupHandoff } from '../routes/enrollment/signupHandoff'
-import { json, patientApi, problem, type Handler } from './portalHarness'
+import { json, patientApi, problem, type Handler, shownText } from './portalHarness'
 
 vi.mock('../Turnstile', () => ({
   Turnstile: ({ onTokenChange }: { onTokenChange: (token: string | null) => void }) =>
@@ -56,11 +56,11 @@ describe('"Finish your sign-up" after a refused sign-in', () => {
   it('is offered under the error, and opens the sign-up with the email typed, carried outside the address', async () => {
     open(invalid())
     await signInWith('Ada@Example.com')
-    expect(screen.getByText('Invalid credentials')).toBeTruthy()
-    expect(screen.getByText(/Didn't finish signing up\?/).textContent).toBe('Didn\'t finish signing up? Finish creating your Health ID')
+    // The refusal, then the way to finish, in one line of the alert.
+    expect(screen.getByText(/Didn't finish signing up\?/).textContent).toBe('Invalid credentials Didn\'t finish signing up? Finish creating your Health ID')
     expect(finish()?.getAttribute('href')).toBe('/enroll')
     // In the same alert as the refusal, so a screen reader reads the way to finish with it.
-    expect(screen.getByRole('alert').textContent).toBe('Invalid credentialsDidn\'t finish signing up? Finish creating your Health ID')
+    expect(shownText(screen.getByRole('alert'))).toBe('Invalid credentials Didn\'t finish signing up? Finish creating your Health ID')
     expect(screen.getByRole('alert').contains(finish())).toBe(true)
 
     await act(async () => { fireEvent.click(finish()!) })

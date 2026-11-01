@@ -156,7 +156,8 @@ describe('clinician sign-up availability', () => {
     expect(screen.getByRole('status').textContent).toBe('Checking whether clinician sign-up is open…')
     expect(await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })).toBeTruthy()
     expect(screen.getByText("You can't apply as a clinician on Health ID yet. If you already have a provider account, sign in.")).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/provider/sign-in')
+    // The page's own way to sign in, and the redesign's top-bar link: both lead to provider sign-in.
+    expect(screen.getAllByRole('link', { name: 'Sign in' }).map(link => link.getAttribute('href'))).toEqual(['/provider/sign-in', '/provider/sign-in'])
     expect(screen.getByRole('link', { name: 'Check an application' }).getAttribute('href')).toBe('/provider/join/status')
     expect(screen.queryByRole('textbox', { name: 'Work email' })).toBeNull()
     expect(screen.queryByText("We couldn't check right now.")).toBeNull()
@@ -206,7 +207,8 @@ describe('clinician sign-up availability', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Apply as a doctor or nurse' })).toBeTruthy()
     expect(currentStep()).toBe('Email')
     await waitFor(() => expect(document.title).toBe('Clinician sign-up – Email · Health ID Provider'))
-    expect(screen.getByText(/A facility administrator account can't also hold a clinical role at the same facility/)).toBeTruthy()
+    // A facility administrator's account can't also hold a clinical role there: the redesign says it as one plain line.
+    expect(screen.getByText(/Use your own email address, not your facility's admin account\./)).toBeTruthy()
   })
 
   it('links to the main site on a staff product host, with no form and no request', async () => {
@@ -337,7 +339,8 @@ describe('the email steps', () => {
     await stepShown('Use a different email address')
     expect(screen.getByRole('alert').textContent).toBe('This email address already has a Health ID account.')
     expect(screen.getByText(/Clinician accounts need their own address/)).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/provider/sign-in')
+    // The page's own way to sign in, and the redesign's top-bar link: both lead to provider sign-in.
+    expect(screen.getAllByRole('link', { name: 'Sign in' }).map(link => link.getAttribute('href'))).toEqual(['/provider/sign-in', '/provider/sign-in'])
     expect(screen.getByRole('link', { name: 'Forgot your password?' }).getAttribute('href')).toBe('/provider/recover')
     expect(screen.getByRole('link', { name: 'Check an application' }).getAttribute('href')).toBe('/provider/join/status')
     press('Use a different email address')
@@ -750,8 +753,9 @@ describe('the authenticator, before any review', () => {
     await waitFor(() => expect(document.title).toBe('Clinician sign-up – Done · Health ID Provider'))
     for (const code of RECOVERY_CODES) expect(screen.queryByText(code)).toBeNull()
     const text = document.body.textContent ?? ''
-    expect(text).toContain("Your application is in HID's verification queue.")
-    expect(text).not.toMatch(/approved|verified/i)
+    expect(text).toContain('Health ID will call you for a short video check.')
+    // Nothing says the application is approved or verified; only that sign-in follows approval.
+    expect(text.replace("You can sign in once you're approved.", '')).not.toMatch(/approved|verified/i)
     expect(screen.getByRole('link', { name: 'View application status' }).getAttribute('href')).toBe('/provider/join/status')
   })
 

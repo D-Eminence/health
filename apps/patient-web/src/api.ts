@@ -136,6 +136,27 @@ export interface EnrollmentSignupDetails {
   hospitalCurrentlyUsing?: string
 }
 
+/** What the proposed identity/shared-cards/:token answers (BACKEND-NEEDS.md §2). */
+export interface SharedCardAnswer {
+  card: { fullName: string; hid: string; ninVerified: boolean | null; bloodGroup: string | null; genotype: string | null; allergies: string | null; photoUrl: string | null }
+  sharedBy: string
+  recipientEmail: string
+  level: string
+  duration: string
+  expiresAt: string
+  records: PatientRecords
+}
+
+/** What the patient enters for a record they add themselves (proposed: ehr/me/patient-entries). */
+export interface OwnRecordInput {
+  kind: 'visit' | 'test' | 'medicine' | 'diagnosis' | 'vaccination' | 'other'
+  title: string
+  facilityName: string | null
+  occurredOn: string
+  notes: string | null
+  attachments: Array<{ fileName: string; mediaType: string; sizeBytes: number; contentBase64: string }>
+}
+
 /** A participating facility as the public list shows it (ADR-063): no id. */
 export interface ParticipatingFacility {
   name: string
@@ -533,6 +554,17 @@ export function createPatientApi(sender: ApiClient) {
     // hid-system#68 (FE-4): whether a start would pass its checks made before a NIN is read.
     // Only `{ open: true }` means open (INTERFACE_CONTRACT.md, public patient enrollment).
     enrollmentAvailability: () => call<EnrollmentAvailability>('GET', 'identity/patient-enrollments/availability'),
+    /**
+     * A record the patient adds themselves (a visit, a result, a medicine), with where it happened and photos or files of
+     * the paper. PROPOSED: no backend serves it yet (logged in dev/mock-gateway/backend-needs and BACKEND-NEEDS.md); until
+     * one does it answers 404, and the page says nothing was saved. Kept as "added by you", never as a clinician's.
+     */
+    addOwnRecord: (entry: OwnRecordInput, signal?: AbortSignal) => call<{ id: string }>('POST', 'ehr/me/patient-entries', entry, { signal }),
+    /**
+     * The card a provider opens from the email a patient's share sends (PROPOSED, BACKEND-NEEDS.md §2): the patient's card
+     * and the records the share allows, for as long as the share lasts. No session: the link's token is the access.
+     */
+    sharedCard: (token: string, signal?: AbortSignal) => call<SharedCardAnswer>('GET', `identity/shared-cards/${encodeURIComponent(token)}`, undefined, { signal }),
     // ADR-063: public, by name and place only. Empty while the facility route is off.
     participatingFacilities: () => call<ParticipatingFacilities>('GET', 'identity/patient-enrollments/participating-facilities'),
     enrollmentStart: (nin: string, turnstileToken: string, idempotencyKey: string) =>

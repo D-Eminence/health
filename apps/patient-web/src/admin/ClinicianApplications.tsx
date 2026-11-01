@@ -1,4 +1,5 @@
 import { useCallback, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { FilterTabs } from '../kasuwa/ui'
 import { Link, useParams } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import {
@@ -203,11 +204,8 @@ export function ClinicianApplicationsPage({ actor }: { actor: AdminActor }) {
   return <Page eyebrow="People and access" title="Clinician applications"
     description="Doctors and nurses who applied by themselves. One Super Admin checks the licence, the person and their employment (step 1); a different Super Admin approves and gives access (step 2)."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <div className="admin-filter" role="group" aria-label="Application state">
-      {FILTERS.map(item => <button key={item.value} type="button" aria-pressed={state === item.value}
-        className={state === item.value ? 'admin-primary' : 'admin-secondary'}
-        onClick={() => setFilters({ state: item.value === 'open' ? '' : item.value })}>{item.title}</button>)}
-    </div>
+    <FilterTabs label="Application state" value={state as string} onChange={value => setFilters({ state: value === 'open' ? '' : value })}
+      options={FILTERS.map(item => ({ value: item.value as string, label: item.title }))} />
     <p className="admin-note">{REVIEW_NOTE}</p>
     <ResourceView resource={resource} empty={result => result.items.length === 0}>{() => <div className="admin-stack">
       <p className="admin-result-count">Showing {pages.items.length} applications, {state === 'open' ? 'oldest first' : 'newest first'}

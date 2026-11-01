@@ -44,14 +44,14 @@ describe('the in-person check page', () => {
     const links = within(navigation).getAllByRole('link').map(link => link.textContent)
     expect(links.indexOf('In-person check')).toBe(links.indexOf('Patient registration') + 1)
     fireEvent.click(within(navigation).getByRole('link', { name: 'In-person check' }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'In-person check' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Check a patient in person' })).toBeTruthy()
     await waitFor(() => expect(document.title).toBe('In-person check · Health ID Provider'))
   })
 
   it('is not offered to a role without the permission, and says why when opened', async () => {
     const calls = serve(['identity.patient.read'])
     await open('/provider/in-person-check')
-    expect(await screen.findByRole('heading', { level: 1, name: 'In-person check unavailable' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'You can’t check patients in person here' })).toBeTruthy()
     const navigation = screen.getByRole('complementary', { name: 'Provider navigation' })
     expect(within(navigation).queryByRole('link', { name: 'In-person check' })).toBeNull()
     expect(calls.some(call => call.includes('assisted-verifications'))).toBe(false)
