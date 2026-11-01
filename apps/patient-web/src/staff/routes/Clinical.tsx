@@ -19,6 +19,8 @@ import { RevisionList, skipsVersions } from '../labRevisions'
 import { routedChangeWarning, routedElsewhere, sendRefusal, withdrawRefusal } from '../orderRoutes'
 import { learnWrongPatientServed, useWrongPatientServed } from '../../wrongPatientServed'
 import { learnLateCorrectionFrom, useLateCorrectionServed } from '../../lateCorrectionServed'
+import { DEFAULT_DOCUMENT_TYPE, documentTypeLabel, documentTypeOf, documentTypeRefusalText, documentTypesHere, isDocumentType,
+  learnDocumentTypesFrom, useDocumentTypesServed, type DocumentType } from '../../documentTypes'
 import { choiceProblem, NO_DESTINATION, OrderDestinationFields, OrderRoutePanel, savedNotSent, SendToFacility, type DestinationChoice,
   type RouteContext } from './OrderRoutes'
 
@@ -947,17 +949,38 @@ function ReleasedResults({ facilityId, requestId, purpose = 'direct-care' }: { f
 
 // Since hid-system #59 only the account that created an upload intent completes it, with no delegated
 // completion, and the list shows every intent: one left `initiated` is never scanned (INTERFACE_CONTRACT.md §16).
+// The document types (the owner's rule, 31 Oct; documentTypes.ts) stay dormant until the document list answers
+// `documentTypes: true`: until then this is exactly today's page, and no upload names a type.
 function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verify }: { patientId: string; encounterId: string; facilityId: string; canWrite: boolean; canOcr: boolean; verify: () => Promise<void> }) {
   const { state } = useStaff()
   // The OCR handoff names who made it and where, since the history entry holding it outlives both.
   const actorId = state.status === 'ready' ? state.session.actor.id : undefined
+  // Whether the backend serves the document types, as its own answers have said (this list's among them).
+  const served = useDocumentTypesServed() === true
+  // The types a facility may upload on this host. Once served, a host that offers none (outreach. and the admin site:
+  // the owner's host list and the S3 CORS rule leave them out) gets no upload card; before that, today's card.
+  const types = documentTypesHere()
+  const canUpload = canWrite && (!served || types.length > 0)
+  // Once served, a choice of type where the host offers more than one; the host's one type is sent without a choice.
+  const offersType = served && types.length > 1
   const [items, setItems] = useState<DocumentRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const problems = useFieldProblems()
-  async function load() { setLoading(true); setError(''); try { setItems((await staffApi.documents(facilityId, patientId, encounterId)).items) } catch (caught) { setError(caught instanceof Error ? caught.message : 'Documents could not be loaded.') } finally { setLoading(false) } }
+  async function load() {
+    setLoading(true); setError('')
+    try {
+      const page = await staffApi.documents(facilityId, patientId, encounterId)
+      const listed = page.items
+      // The list's answer says whether the types are served (`documentTypes: true`).
+      learnDocumentTypesFrom(page)
+      setItems(listed)
+    }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Documents could not be loaded.') }
+    finally { setLoading(false) }
+  }
   useEffect(() => { void load() }, [facilityId, patientId, encounterId])
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -965,16 +988,33 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
     if (busy) return
     setError(''); setNotice(''); problems.clear()
     const formElement = event.currentTarget
-    const file = new FormData(formElement).get('document')
+    const form = new FormData(formElement)
+    const file = form.get('document')
     if (!(file instanceof File) || !file.size) return problems.refuse('clinical-document', 'Select a file first.')
     if (!['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'].includes(file.type) || file.size > 52_428_800) return problems.refuse('clinical-document', 'Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')
+    // A type is named only once the backend serves the types; before then the upload is exactly today's.
+    let documentType: DocumentType | undefined
+    if (served) {
+      const chosen = offersType ? form.get('documentType') : types[0]
+      if (!isDocumentType(chosen) || !types.includes(chosen)) return problems.refuse('clinical-document-type', 'Choose a document type.')
+      documentType = chosen
+    }
     setBusy(true)
     try {
-      await verify(); await staffApi.uploadDocument(facilityId, patientId, encounterId, file); await load(); formElement.reset()
+      await verify()
+      if (documentType === undefined) await staffApi.uploadDocument(facilityId, patientId, encounterId, file)
+      else await staffApi.uploadDocument(facilityId, patientId, encounterId, file, documentType)
+      await load(); formElement.reset()
       setNotice('Document uploaded. It can be opened once its virus scan is clean.')
     }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Document could not be uploaded.') }
+    // A lab result from a host other than the EHR, Lab or Migrate is refused (403 DOCUMENT_TYPE_NOT_ALLOWED_HERE).
+    catch (caught) { setError(documentTypeRefusalText(caught) ?? (caught instanceof Error ? caught.message : 'Document could not be uploaded.')) }
     finally { setBusy(false) }
+  }
+  // Once served, a listed document's type, before its media type, when it names one of the three.
+  function typeOf(item: DocumentRecord) {
+    const type = served && item.documentType != null ? documentTypeOf(item) : null
+    return type ? `${documentTypeLabel(type)} · ` : null
   }
   async function download(id: string) {
     setError('')
@@ -992,7 +1032,7 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
     }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Document could not be opened.') }
   }
-  return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{item.mediaType} · {fileSize(item.sizeBytes)}{item.status === 'initiated' ? '' : ` · scan: ${item.scanStatus}`}</p>{item.status === 'initiated' && <p className="staff-muted">Upload not completed; only the person who started it can finish it. Upload the file again.</p>}<Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean'}>Open file</Button>{canOcr && item.scanStatus === 'clean' && <Link to="/provider/ocr" state={{ ocrDocumentId: item.id, ocrPatientId: patientId, actorId, facilityId }} className="staff-text-link">Extract with OCR</Link>}</div>)}</div></Card>{canWrite && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}><Field label="Clinical document" htmlFor="clinical-document" error={problems.error('clinical-document')}><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required {...problems.control('clinical-document')} /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Uploading…' : 'Upload document'}</Button></form><div role="status">{notice && <p className="staff-success">{notice}</p>}</div></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
+  return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{typeOf(item)}{item.mediaType} · {fileSize(item.sizeBytes)}{item.status === 'initiated' ? '' : ` · scan: ${item.scanStatus}`}</p>{item.status === 'initiated' && <p className="staff-muted">Upload not completed; only the person who started it can finish it. Upload the file again.</p>}<Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean'}>Open file</Button>{canOcr && item.scanStatus === 'clean' && <Link to="/provider/ocr" state={{ ocrDocumentId: item.id, ocrPatientId: patientId, actorId, facilityId }} className="staff-text-link">Extract with OCR</Link>}</div>)}</div></Card>{canUpload && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}>{offersType && <Field label="Document type" htmlFor="clinical-document-type" error={problems.error('clinical-document-type')}><Select id="clinical-document-type" name="documentType" defaultValue={DEFAULT_DOCUMENT_TYPE} {...problems.control('clinical-document-type')}>{types.map(type => <option key={type} value={type}>{documentTypeLabel(type)}</option>)}</Select></Field>}<Field label={offersType ? 'File' : 'Clinical document'} htmlFor="clinical-document" error={problems.error('clinical-document')}><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required {...problems.control('clinical-document')} /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Uploading…' : 'Upload document'}</Button></form><div role="status">{notice && <p className="staff-success">{notice}</p>}</div></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
 }
 
 // What EHR's emergency summary sends of each section at most (patient-records.service.ts

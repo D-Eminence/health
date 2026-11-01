@@ -15,6 +15,7 @@ import { useCommerceRead } from '../commerce/useCommerceRead'
 import { DeptEmbedded } from '../parts/DeptEmbedded'
 import { DeptNotice } from '../parts/DeptNotice'
 import { RoutedWorkLines } from '../parts/routedWork'
+import { WorkItemDocuments } from '../parts/WorkItemDocuments'
 import { PaidLine, PaymentStep } from '../pharmacy/pointOfCare'
 import { billOf, billOwing, outsideOf, paysFirst } from '../pharmacy/pocFields'
 import { useLabRecord } from './labRecord'
@@ -208,6 +209,11 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         ['Waiting', waitedText(item.acceptedAt) ?? 'Not known'],
       ]} />
     </Card>
+
+    {/* Its result documents, beside what is known of the request, once the backend serves them (dormant until then):
+        never written once its order from another facility has closed. */}
+    <WorkItemDocuments kind="lab" facilityId={facilityId} workItemId={item.id} patientId={item.patientId} permissions={permissions}
+      writable={!closed} />
 
     {siblings.length > 0 ? <Card>
       <CardHeader as="h2" title="Also on this request" />

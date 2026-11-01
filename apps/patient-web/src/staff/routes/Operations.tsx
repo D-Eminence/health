@@ -25,6 +25,7 @@ import { LateCorrectionDone, LateWrongPatient, type LateCorrection } from './Lat
 import {
   CannotCompleteEndings, endingKey, OrderEndingActions, type CannotCompleteEnding, type OrderEndingMode,
 } from './CannotComplete'
+import { useLearnDocumentTypesServed, useWorkItemDocumentsOffered, WorkItemDocuments, workItemDocumentsTitleId } from './WorkItemDocuments'
 
 /**
  * OCR's answer when EHR, Lab or Pharmacy refused OCR's own workload identity
@@ -160,8 +161,10 @@ function RoutedWorkLines({ route }: { route: LabWorkItem['orderRoute'] }) {
  * backend that serves it, "We can't complete this order" while it is accepted (cannotCompleteOffered, D18). What a
  * refusal said stays beside the row's first line when the list read again no longer offers the form (`said`, UX-2).
  */
-function LabWorkRow({ facilityId, item, permissions, said, onOpen, onEnded, onNotCompleted, onReread }: {
+function LabWorkRow({ facilityId, item, permissions, said, onOpen, onDocuments, onEnded, onNotCompleted, onReread }: {
   facilityId: string; item: LabWorkItem; permissions: readonly string[]; said: string | null; onOpen: () => void
+  /** Opens the work item's result documents, once they are offered (documentTypes.ts); until then, nothing. */
+  onDocuments: (() => void) | null
   onEnded: (ending: WrongPatientEnding) => void
   onNotCompleted: (ending: Omit<CannotCompleteEnding, 'key'>) => void
   onReread: (routeId: string, mode: OrderEndingMode, said?: string) => Promise<void>
@@ -179,6 +182,7 @@ function LabWorkRow({ facilityId, item, permissions, said, onOpen, onEnded, onNo
     {item.accessionNumber && <p>Accession {item.accessionNumber}</p>}
     {prepare && route && item.patient && <p className="staff-muted">{sampleCheckText(item.patient.fullName)}</p>}
     {(open || prepare) && <Button tone="secondary" size="sm" onClick={onOpen}>{item.accessionId ? 'Open accession' : 'Prepare accession'}</Button>}
+    {onDocuments && <Button tone="secondary" size="sm" onClick={onDocuments}>Result documents</Button>}
     {wrongPatientOffered(route, permissions, 'lab') && <OrderEndingActions base={`lab-${item.id}`} service="lab"
       facilityId={facilityId} route={{ id: route.id, version: route.version, reference: route.reference }} title={title}
       patient={item.patient?.fullName ?? null} ordering={ordering}
@@ -894,7 +898,8 @@ export function Laboratory() {
   const canRead = permissions.includes('lab.work-item.read')
   const read = useFacilityRead(facilityId, canRead, useCallback(id => staffApi.labWorkItems(id), []))
   const list = { ...read, items: read.value ? read.value.items : null }
-  const [selection, setSelection] = useState<{ facilityId: string; item: LabWorkItem; created?: string } | null>(null)
+  // `documents`: chosen through its row's "Result documents" (documentTypes.ts), not "Open" or "Prepare accession".
+  const [selection, setSelection] = useState<{ facilityId: string; item: LabWorkItem; created?: string; documents?: true } | null>(null)
   // The chosen work, only while the list still holds it: work that has left the list (an order ended, here or elsewhere)
   // never shows its accession or its patient again, even once other work is listed (item 3).
   const selected = selection && selection.facilityId === facilityId
@@ -909,6 +914,10 @@ export function Laboratory() {
   useLearnWrongPatientServed(list.items)
   useLearnLateCorrectionServed(read.value)
   useLearnCannotCompleteServed(read.value)
+  // A work list answering `documentTypes: true` lets the chosen work show its result documents (documentTypes.ts). Until
+  // then nothing of them shows and nothing is read or sent: the page is exactly today's.
+  useLearnDocumentTypesServed(read.value)
+  const documents = useWorkItemDocumentsOffered('lab', permissions)
   // "Correct an order that has ended" (D17): for a member who receives lab requests from other facilities, once the
   // backend serves it; a laboratory that no longer receives may still hold past orders.
   const lateCorrection = useLateCorrectionServed() === true && holdsReceivePermission(facility, 'lab')
@@ -942,6 +951,16 @@ export function Laboratory() {
     if (!readsKept(ending.result)) setSelection(current => current?.item.orderRoute?.id === ending.result.route.id ? null : current)
     void list.refresh()
   }
+  // The chosen work's accession (or the form preparing one), as today. Work chosen for its result documents shows only
+  // what its row offers (B3): the form only for work without an accession whose order may still be worked, never on a
+  // closed order nor on work already accessioned that this member cannot open.
+  const prepareOffered = !selection?.documents || (!selected?.accessionId && !routeClosedForWork(selectedRoute))
+  const accessionPanel = selected?.accessionId && permissions.includes('lab.accession.read') ? <AccessionView key={`${facilityId}-${selected.accessionId}`} facilityId={facilityId} id={selected.accessionId} permissions={permissions} created={selection?.created} routed={Boolean(selectedRoute)} closed={routeClosedForWork(selectedRoute)} onChanged={() => void list.refresh()} /> : selected && permissions.includes('lab.accession.create') && prepareOffered ? <AccessionForm facilityId={facilityId} item={selected} onCreated={accession => { setSelection({ facilityId, item: { ...selected, accessionId: accession.id, accessionNumber: accession.accessionNumber }, created: `Accession ${accession.accessionNumber} created.` }); focus('lab-accession-title', true); void list.refresh() }} /> : null
+  // Once offered, the chosen work's result documents below it: never attached to once its order has closed. The work
+  // item's own patient is sent, and never shown.
+  const resultDocuments = documents && selected ? <WorkItemDocuments kind="lab" facilityId={facilityId} workItemId={selected.id}
+    patientId={selected.patientId} permissions={permissions} writable={!routeClosedForWork(selectedRoute)}
+    about={selected.testName ?? 'Lab test'} /> : null
   return <>
     <PageHead eyebrow="Provider workspace" title="Laboratory">{holds
       ? 'Tests ordered at this facility, and lab requests from other facilities once you accept them. A separate accession records the specimen chain of custody.'
@@ -964,14 +983,18 @@ export function Laboratory() {
     {list.items && list.items.length > 0 && <div className="staff-two-col"><div className="staff-list">{notCompleted.shown(list.items).map(item => <LabWorkRow key={item.id}
       facilityId={facilityId} item={item} permissions={permissions} said={said.rowSaid(item.orderRoute?.id)}
       onOpen={() => setSelection({ facilityId, item })} onEnded={ending => endedHere(item, ending)}
+      onDocuments={documents && item.patientId ? () => { setSelection({ facilityId, item, documents: true }); focus(workItemDocumentsTitleId('lab', item.id)) } : null}
       onNotCompleted={notCompletedHere} onReread={said.reread} />)}</div>
-      {selected?.accessionId && permissions.includes('lab.accession.read') ? <AccessionView key={`${facilityId}-${selected.accessionId}`} facilityId={facilityId} id={selected.accessionId} permissions={permissions} created={selection?.created} routed={Boolean(selectedRoute)} closed={routeClosedForWork(selectedRoute)} onChanged={() => void list.refresh()} /> : selected && permissions.includes('lab.accession.create') ? <AccessionForm facilityId={facilityId} item={selected} onCreated={accession => { setSelection({ facilityId, item: { ...selected, accessionId: accession.id, accessionNumber: accession.accessionNumber }, created: `Accession ${accession.accessionNumber} created.` }); focus('lab-accession-title', true); void list.refresh() }} /> : <Card className="staff-card"><h2>Choose work</h2><p>Open an accession or prepare a specimen for an accepted order.</p></Card>}
+      {resultDocuments ? <div className="staff-stack">{accessionPanel}{resultDocuments}</div>
+        : accessionPanel ?? <Card className="staff-card"><h2>Choose work</h2><p>Open an accession or prepare a specimen for an accepted order.</p></Card>}
     </div>}
   </>
 }
 
-function PharmacyAction({ facilityId, item, permissions, said, onChanged, onEnded, onNotCompleted, onReread }: { facilityId: string
+function PharmacyAction({ facilityId, item, permissions, said, documents, onChanged, onEnded, onNotCompleted, onReread }: { facilityId: string
   item: PharmacyWorkItem; permissions: string[]; said: string | null
+  /** Whether its prescription sheets are offered (documentTypes.ts): until then, nothing of them shows. */
+  documents: boolean
   onChanged: () => Promise<void>; onEnded: (ending: WrongPatientEnding) => void
   onNotCompleted: (ending: Omit<CannotCompleteEnding, 'key'>) => void
   onReread: (routeId: string, mode: OrderEndingMode, said?: string) => Promise<void> }) {
@@ -983,6 +1006,8 @@ function PharmacyAction({ facilityId, item, permissions, said, onChanged, onEnde
   // as accepted, but cannot be dispensed. The list cannot tell, so it is known only once a
   // dispensing is refused (409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE), which does not say which.
   const [undispensable, setUndispensable] = useState(false)
+  // Its prescription sheets, once offered: shown, and read, only when asked for.
+  const [sheets, setSheets] = useState(false)
   // Recording removes the form once the work list is read again: focus goes to the prescription.
   const focus = useFocusById()
   const problems = useFieldProblems()
@@ -1041,6 +1066,11 @@ function PharmacyAction({ facilityId, item, permissions, said, onChanged, onEnde
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was recorded is announced. */}
     <div id={`pharmacy-status-${item.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
+    {/* Its prescription sheets, once offered (dormant until then): never attached to once its order has closed. The work
+        item's own patient is sent, and never shown. */}
+    {documents && item.patientId && <Button tone="secondary" size="sm" aria-expanded={sheets} onClick={() => setSheets(open => !open)}>Prescription sheets</Button>}
+    {documents && item.patientId && sheets && <WorkItemDocuments kind="pharmacy" facilityId={facilityId} workItemId={item.id} patientId={item.patientId}
+      permissions={permissions} writable={!closed} />}
     {wrongPatientOffered(route, permissions, 'pharmacy') && <OrderEndingActions base={`pharmacy-${item.id}`}
       service="pharmacy" facilityId={facilityId} route={{ id: route.id, version: route.version, reference: route.reference }}
       title={item.medication.display} patient={item.patient?.fullName ?? null} ordering={ordering}
@@ -1064,6 +1094,10 @@ export function Pharmacy() {
   useLearnWrongPatientServed(list.items)
   useLearnLateCorrectionServed(read.value)
   useLearnCannotCompleteServed(read.value)
+  // A work list answering `documentTypes: true` lets each prescription offer its prescription sheets (documentTypes.ts).
+  // Until then nothing of them shows and nothing is read or sent: the page is exactly today's.
+  useLearnDocumentTypesServed(read.value)
+  const documents = useWorkItemDocumentsOffered('pharmacy', permissions)
   // "Correct an order that has ended" (D17), as on the Laboratory page.
   const lateCorrection = useLateCorrectionServed() === true && holdsReceivePermission(facility, 'pharmacy')
   const cannotServed = useCannotCompleteServed()
@@ -1100,7 +1134,7 @@ export function Pharmacy() {
     <WorkListCap count={list.items?.length ?? 0}><p className="staff-notice">Work whose prescription changed after Pharmacy accepted it cannot be dispensed, but it stays listed and counts toward these {WORK_LIST_CAP}.</p>
       {cannotServed === true && lateCorrection && <p className="staff-notice">{CAP_CANNOT_COMPLETE}</p>}</WorkListCap>
     <SaidAboveList id="pharmacy-said" text={said.listSaid} />
-    {list.items && list.items.length > 0 && <div className="staff-list">{notCompleted.shown(list.items).map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} onChanged={list.refresh}
+    {list.items && list.items.length > 0 && <div className="staff-list">{notCompleted.shown(list.items).map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} documents={documents} onChanged={list.refresh}
       said={said.rowSaid(item.orderRoute?.id)} onNotCompleted={notCompletedHere} onReread={said.reread}
       onEnded={ending => { said.clear(); setEnded({ facilityId, ending }); void list.refresh() }} />)}</div>}
   </>
