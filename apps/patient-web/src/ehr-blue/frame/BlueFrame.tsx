@@ -105,6 +105,9 @@ export function BlueFrame() {
   // A lab, pharmacy or outreach on its own sees only its product (product.ts); a hospital's EHR has them all.
   const product = productOf(window.location.hostname, permissions)
   const info = PRODUCTS[product]
+  // What sample links (Notifications' Recent activity, role dashboards, Facility setup) may point to: a page this product
+  // opens, so none of them leads to a page the frame sends to the product's Home (below).
+  const openHere = useMemo(() => allowed.filter(page => opensInProduct(product, page.path)), [allowed, product])
   const listed = useMemo(() => allowed.filter(page => (page.status !== 'sample' || page.path === '') && !INTERNAL_GROUPS.has(page.group)
     && inProduct(product, page.path) && (product === 'ehr' || page.path !== '')
     && (!session || (page.listed?.(session) ?? true))), [allowed, session, product])
@@ -123,8 +126,8 @@ export function BlueFrame() {
   if (product !== 'ehr' && /^\/provider\/?$/.test(location.pathname)) return <Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} />
   // On a single product's site, a page of the hospital EHR's (Patient registration, Consultation, a sample), typed or a
   // sign-in's return address, opens the product's Home instead (review, 2026-11-01): its menu never offers one. The
-  // page never mounts, so it reads nothing, and its query stays behind with it. An address no page takes is left to the
-  // frame below.
+  // page never mounts, so it reads nothing, and its query stays behind with it. What the product opens unlisted
+  // (product.ts) still opens; an address no page takes is left to the frame below.
   if (product !== 'ehr' && match && !opensInProduct(product, match.page.path)) return <Navigate replace to="/provider" />
 
   function leave() {
@@ -183,7 +186,7 @@ export function BlueFrame() {
   const facilityTab: NavItem = { to: '/provider/institutions', label: 'Facility', icon: Hospital }
 
   return (
-    <BluePagesProvider value={BLUE_PAGES}><OpenPagesProvider value={allowed}>
+    <BluePagesProvider value={BLUE_PAGES}><OpenPagesProvider value={openHere}>
       <AttentionProvider facilityId={facility?.id} permissions={permissions}>
         <EhrAppShell className="hid-ehr-host" sidebar={null} topBar={null}
           // While the session is checked, today's lock screen stands in for the page, as today's <main> hides.

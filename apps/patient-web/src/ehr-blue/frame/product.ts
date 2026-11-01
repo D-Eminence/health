@@ -67,17 +67,32 @@ export function inProduct(product: Product, path: string): boolean {
 }
 
 /**
- * Pages a single product opens at their address but does not list: the facility's subscription, where the billing
- * banner above every page leads ("Choose a plan", "Pay now": staff/routes/Billing.tsx).
+ * Pages a single product opens at their address but does not list, because something on every product's screens
+ * leads there, or because its staff need them:
+ *  - Facility subscription: the billing banner above every page leads there ("Choose a plan", "Pay now":
+ *    staff/routes/Billing.tsx).
+ *  - What's left: the Demo chip in the header leads there ("See what's left": TopBarParts.tsx). Its own `visible`
+ *    keeps it to the demo facilities.
+ *  - Facility setup: a facility that signed itself up works on its product's site (signup/AfterSubmit.tsx). Its own
+ *    `visible` keeps it to those facilities' staff managers.
+ *  - Patients and Access requests: a lab scientist or a pharmacist reaches a record only through a request the patient
+ *    approves (parity report 3.1 #7), and the Notifications drawer's "access requests waiting" leads there.
  */
-const OPENED_UNLISTED: ReadonlySet<string> = new Set(['billing'])
+const OPENED_UNLISTED: ReadonlySet<string> = new Set(['billing', 'whats-left', 'onboarding', 'patients', 'requests'])
+
+/**
+ * The products with a till of their own (Till / End of day). It leads to the money pages at their own addresses
+ * ("No tills yet" → Payment setup: commerce/EndOfDay.tsx), so those open there, unlisted, as commerce/page.tsx says.
+ */
+const TILLS: ReadonlySet<Product> = new Set<Product>(['lab', 'pharmacy'])
 
 /**
  * Whether this product's workspace opens a page at its address; the frame sends any other to the product's Home. Home
- * itself opens (it goes on to the product's own page), as do the pages the product lists. Every other page is the
- * hospital EHR's: Patient registration (the EHR's only, owner rule), Consultation, the samples and demo pages.
+ * itself opens (it goes on to the product's own page), as do the pages the product lists and those above. Every other
+ * page is the hospital EHR's: Patient registration (the EHR's only, owner rule), In-person check, Consultation,
+ * Emergency, the samples.
  */
 export function opensInProduct(product: Product, path: string): boolean {
   const base = basePath(path)
-  return base === '' || inProduct(product, path) || OPENED_UNLISTED.has(base)
+  return base === '' || inProduct(product, path) || OPENED_UNLISTED.has(base) || (TILLS.has(product) && COUNTER_PAGES.has(base))
 }
