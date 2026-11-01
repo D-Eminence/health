@@ -127,15 +127,19 @@ export function ShareInvitationsForMe({ facilityId, permissions }: { facilityId:
     }
   }
 
-  // Only when there is something to accept, or something to say about an accept: a role that cannot accept, or no
-  // invitations, shows nothing.
-  const items = load.state === 'ready' && load.value.eligible ? load.value.items : []
-  if (load.state === 'hidden' || (load.state === 'ready' && items.length === 0 && !error && !accepted)) return null
+  // As today's card (staff/routes/SharedPatients.tsx:145-148): a role that cannot accept is told why invitations sent
+  // to its email are not shown, and where they would be; an empty list says so. Hidden only while the list loads, for a
+  // role the route would refuse, and when it is not served (404).
+  if (load.state === 'hidden') return null
   if (load.state === 'failed') return <Alert intent="error" title="Couldn’t load your invitations">{load.message}</Alert>
+  const { eligible, items } = load.value
   return (
     <Card>
       <CardHeader as="h2" title="Invitations" description="From patients, to your email. They confirm after you accept." icon={Mail} iconTone="violet" />
-      {items.length > 0 ? <ul className="m-0 list-none divide-y divide-line p-0">
+      {!eligible ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3">Only a doctor, clinician or nurse at a facility Health ID has checked can accept
+        invitations. Your role here cannot, so invitations sent to your email are not shown. Switch to such a facility to see them.</p>
+      : items.length === 0 ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3">No invitations are waiting for your sign-in email.</p>
+      : <ul className="m-0 list-none divide-y divide-line p-0">
         {items.map(item => (
           <li key={item.invitationId} className="flex items-center gap-3 px-5 py-3">
             <span className="min-w-0 flex-1"><span className="block text-sm font-medium text-ink">{item.reference ? `Invitation ${item.reference}` : 'Invitation'}{item.inviteeName ? ` · to ${item.inviteeName}` : ''}</span>
@@ -146,7 +150,7 @@ export function ShareInvitationsForMe({ facilityId, permissions }: { facilityId:
               {accepting === item.invitationId ? 'Accepting…' : 'Accept'}</Button>
           </li>
         ))}
-      </ul> : null}
+      </ul>}
       {error ? <div ref={errorRef} tabIndex={-1} className="p-5 outline-none"><Alert intent="error" title="Couldn’t accept">{error}</Alert></div> : null}
       <div role="status" className="empty:hidden">{accepted ? <p ref={resultRef} tabIndex={-1} className="m-0 px-5 py-4 text-[13px] text-ink-2 outline-none">{accepted}</p> : null}</div>
     </Card>

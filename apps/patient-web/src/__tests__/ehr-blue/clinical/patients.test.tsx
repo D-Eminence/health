@@ -110,6 +110,9 @@ const findButton = () => screen.getByRole('button', { name: 'Find' }) as HTMLBut
 const REQUEST_UNAVAILABLE = 'Your role at this facility cannot ask patients for access: it needs identity.consent.write. Ask your organization administrator.'
 const EMERGENCY_UNAVAILABLE = 'Your role at this facility cannot activate emergency access: it also needs identity.break-glass.write. Ask your organization administrator.'
 const WRITES = ['ehr.encounter.write', 'ehr.vital.read', 'ehr.vital.write']
+const NONE_WAITING = 'No invitations are waiting for your sign-in email.'
+const NOT_ELIGIBLE = 'Only a doctor, clinician or nurse at a facility Health ID has checked can accept invitations. Your role here cannot, '
+  + 'so invitations sent to your email are not shown. Switch to such a facility to see them.'
 
 /** The way-in tiles: each is a button named by its title, then its hint. */
 const tile = (scope: HTMLElement, title: 'Ask the patient' | 'Use their Access PIN' | 'Emergency access') =>
@@ -569,10 +572,9 @@ describe('Patient sharing', () => {
     api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [] })
     open()
     expect(await screen.findByRole('heading', { name: 'Shared with you' })).toBeTruthy()
-    // No invitations waiting: that card does not show (a section shows only when it has something in it).
-    await act(async () => {})
+    // No invitations waiting: today's card says so (staff/routes/SharedPatients.tsx:148).
+    expect(await screen.findByText(NONE_WAITING)).toBeTruthy()
     expect(api.staffShareInvitations).toHaveBeenCalled()
-    expect(screen.queryByRole('heading', { name: 'Invitations' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: `Open ${PATIENT_NAME}’s record` }))
     expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
     expect(api.lookupPatient).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'direct-care')
@@ -683,6 +685,29 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
     expect(describedBy(button)).toBe(OPEN_SHARED_UNAVAILABLE)
     fireEvent.click(button)
     expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
+  it('parity: a role that cannot accept is told why its invitations are not shown, with no list (staff/routes/SharedPatients.tsx:146-147)', async () => {
+    api.staffShareInvitations.mockResolvedValue({ eligible: false, items: [INVITATION] })
+    open()
+    const invitations = (await screen.findByRole('heading', { level: 2, name: 'Invitations' })).closest('section')!
+    expect(within(invitations).getByText(NOT_ELIGIBLE)).toBeTruthy()
+    expect(within(invitations).queryByText(/AB12/)).toBeNull()
+    expect(within(invitations).queryByRole('button')).toBeNull()
+  })
+
+  it('parity: says when no invitation is waiting, and again once the last one is accepted (staff/routes/SharedPatients.tsx:148)', async () => {
+    api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [] })
+    const empty = open()
+    const invitations = (await screen.findByRole('heading', { level: 2, name: 'Invitations' })).closest('section')!
+    expect(within(invitations).getByText(NONE_WAITING)).toBeTruthy()
+    empty.unmount()
+    api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [INVITATION] })
+    api.acceptShareInvitation.mockResolvedValue(ACCEPT_ANSWER)
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept invitation AB12' }))
+    expect(await screen.findByText(ACCEPTED)).toBeTruthy()
+    expect(screen.getByText(NONE_WAITING)).toBeTruthy()
   })
 
   it('a refused Accept focuses today’s refusal and keeps a still-waiting invitation', async () => {
