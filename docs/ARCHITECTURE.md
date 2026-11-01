@@ -998,20 +998,44 @@ the `ocr` hosts, hid-system's legacy redirects to `migrate`, are not mapped. The
 Vite dev and preview servers answer the same hosts.
 
 Since 2026-11-01 (owner: every product is its own site, with its own landing
-page) the edge answers a product host's `/` itself, before the portal sees it:
-on `ehr`, `lab`, `pharmacy`, `migrate` and `outreach` it is that product's page
-from the public site (`/products/<slug>`), fetched from the public site's Worker
-through the `PUBLIC_SITE` service binding, with its links rewritten for the
-product site, its canonical address set to the product site's `/`, and the
-public site's own static files it loads (`/_next/static/`, `/brand/`,
-`/icon.png`, `/apple-icon.png`) served through the same binding wherever the
-product site has no file of its own. The public site answers `/products/<slug>`
-for those five with a 308 to the product site, and its own product links point
-there (`PRODUCT_SITE_SUBDOMAINS` in `apps/public-web/content/site.ts`). The
-gate above still sends a `/` the portal itself navigates to (in the browser) to
-the workspace; every `/provider` address is unchanged, and the patient portal's
-and the admin site's `/` are their own. Without its binding, a product site's
-`/` is a plain page saying it is not available right now, with a sign-in link.
+page) the edge answers the `/` (and `/index.html`) of each product host and of
+the patient portal itself, before the portal's own build sees it, and what it
+answers depends on whether the browser holds a sign-in there. It only looks for a non-empty `hid_access_csrf` cookie, the
+readable cookie Identity's sign-in sets for the whole sign-in (hid-system
+`services/identity-api/src/auth/session-cookies.ts`, `AUTH_COOKIE_NAME`
+`hid_access`); it never reads or checks it, and the app does the real check.
+
+- On `ehr`, `lab`, `pharmacy`, `migrate` and `outreach`, someone signed in is
+  sent (302) to `/provider`, the workspace's entrance. Anyone else sees that
+  product's page from the public site (`/products/<slug>`), fetched from the
+  public site's Worker through the `PUBLIC_SITE` service binding, with its
+  links rewritten for the product site (its sign-in opens `/provider`, which
+  asks for a sign-in itself), its canonical address set to the product site's
+  `/`, and the public site's own static files it loads (`/_next/static/`,
+  `/brand/`, `/icon.png`, `/apple-icon.png`) served through the same binding
+  wherever the product site has no file of its own. The public site answers
+  `/products/<slug>` for those five with a 308 to the product site, and its own
+  product links point there (`PRODUCT_SITE_SUBDOMAINS` in
+  `apps/public-web/content/site.ts`).
+- On the patient portal (`app`, and `staging`), someone signed in gets the
+  portal at `/`, as before. Anyone else sees the public site's `/patients` page
+  (the Health ID Identity landing page), served the same way, with its
+  canonical address left as `https://healthidentitydirectory.com/patients`,
+  which the public site keeps and does not redirect. Its "Sign in" opens
+  `/sign-in` and "Get your Health ID" `/enroll`; a link to the portal's `/` on
+  it opens `/sign-in`, since `/` would show a stranger the same page again.
+- Every answer at those front pages is `Cache-Control: private, no-store` with
+  `Vary: Cookie`, so no browser or shared cache can hand one person's answer to
+  another. Cloudflare does not cache a Worker's own answers (the Worker runs
+  first on every request), and the portal's push worker (`sw.js`) and the
+  public site's retiring `/service-worker.js` have no fetch handler, so neither
+  can answer `/` from a cache either.
+
+The gate above still sends a `/` the portal itself navigates to (in the
+browser) to the workspace; every `/provider` address, the API route and the
+admin site's `/` are unchanged. Without its binding, a site's `/` is, for
+someone not signed in, a plain page saying it is not available right now, with
+a sign-in link (`/provider`, or `/sign-in` on the portal).
 
 The backend's current Turnstile service permits all three general login
 actions (`patient-login`, `staff-login`, `admin-login`) together, and
