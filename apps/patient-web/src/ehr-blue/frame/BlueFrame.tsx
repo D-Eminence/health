@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { EhrAppShell, EhrModuleTabs, type EhrNavGroup, type EhrNavItem } from '@hid/ui/ehr'
-import { Activity, Check, Hospital, House, Search, ShieldCheck, UserPlus, UserRound } from 'lucide-react'
+import { Activity, Check, CircleHelp, Hospital, House, Search, ShieldCheck, UserPlus, UserRound } from 'lucide-react'
 import { AppShell, type NavGroup, type NavItem } from '../../kasuwa/AppShell'
 import { Alert, Badge, cx, type Icon } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
@@ -22,6 +22,7 @@ import { TODAY_PAGES } from './pages'
 import { DENIED_NOTICE, RedirectNotice } from './RedirectNotice'
 import { useRoleView } from './roleView'
 import { AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
+import { SupportChatDrawer, supportChatOffered } from './support/BlueSupportChat'
 import type { EhrBluePage } from './types'
 
 /**
@@ -197,6 +198,8 @@ export function BlueFrame() {
                   className="flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink hover:bg-hover">
                   <span className="min-w-0 flex-1 truncate">{f.name}</span>{f.id === facility?.id && <Check className="size-4 text-brand" aria-hidden />}</button></li>)}
                 <li><button type="button" onClick={() => { close(); setSamplePanel('profile') }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><UserRound className="size-4" aria-hidden />My profile</button></li>
+                {/* Help: the support assistant where this build offers it (the ehr build). */}
+                {supportChatOffered() ? <li><button type="button" onClick={() => { close(); setSamplePanel('help') }} className="flex w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-sm text-ink-2 hover:bg-hover"><CircleHelp className="size-4" aria-hidden />Help</button></li> : null}
               </ul>,
             }}
             nav={nav}
@@ -238,7 +241,9 @@ export function BlueFrame() {
             </div>
             {/* Fictional figures: only where the page itself is a sample. */}
             {match?.page.status === 'sample' ? <ConnectionStatus /> : null}
-            <AccountSamplePanel panel={samplePanel} onClose={() => setSamplePanel(null)} />
+            {/* Help opens the support assistant, never the sample panel: the menu offers Help only where the chat is served. */}
+            <AccountSamplePanel panel={samplePanel === 'help' && supportChatOffered() ? null : samplePanel} onClose={() => setSamplePanel(null)} />
+            <SupportChatDrawer open={samplePanel === 'help' && supportChatOffered()} onClose={() => setSamplePanel(null)} />
           </AppShell>
         </EhrAppShell>
       </AttentionProvider>
