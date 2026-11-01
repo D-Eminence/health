@@ -58,4 +58,13 @@ describe('facility audit review', () => {
     expect(screen.getByText('Audit access unavailable')).toBeTruthy()
     expect(mocks.facilityAudit).not.toHaveBeenCalled()
   })
+
+  it('says when a page held only request records, and still offers the older page', async () => {
+    mocks.facilityAudit.mockResolvedValueOnce({ items: [], nextBeforeSequenceId: '40' })
+    render(<FacilityAudit />)
+
+    expect(await screen.findByText('Nothing to show on this page')).toBeTruthy()
+    expect(screen.queryByText('No audit events')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Older page' })).toBeTruthy()
+  })
 })

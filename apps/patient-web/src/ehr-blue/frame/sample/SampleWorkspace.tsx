@@ -4,7 +4,7 @@ import {
 } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
-  EhrBadge, EhrButton, EhrCard, EhrDataTable, EhrDialog, EhrDrawer, EhrField, EhrInput, EhrPageHeading,
+  EhrBackButton, EhrBadge, EhrButton, EhrCard, EhrDataTable, EhrDialog, EhrDrawer, EhrField, EhrInput, EhrPageHeading,
   EhrSampleBanner, EhrSelect, EhrTextarea, type EhrDataTableColumn,
 } from '@hid/ui/ehr'
 import { useStaff } from '../../../staff/App'
@@ -73,7 +73,7 @@ export function SampleWorkspace({ moduleId }: SampleWorkspaceProps) {
 
 function BackToList({ base }: { readonly base: string }) {
   const navigate = useNavigate()
-  return <EhrButton variant="secondary" onClick={() => navigate(base)}>Back to list</EhrButton>
+  return <EhrBackButton label="Back to list" onClick={() => navigate(base)} />
 }
 
 function SampleList({ module, base }: { readonly module: Module; readonly base: string }) {
@@ -333,7 +333,7 @@ function SampleForm({ module, base }: { readonly module: Module; readonly base: 
 
   return (
     <>
-      <EhrPageHeading title={`New ${module.title.toLowerCase()}`} primaryAction={<BackToList base={base} />} />
+      <EhrPageHeading title={`New ${module.title.toLowerCase()}`} back={<BackToList base={base} />} />
       <EhrSampleBanner />
       <EhrCard>
         {module.patient ? (
@@ -422,7 +422,7 @@ function SampleDetail({ module, base, id }: { readonly module: Module; readonly 
 
   return (
     <>
-      <EhrPageHeading title={sampleTitle(record)} primaryAction={<BackToList base={base} />} />
+      <EhrPageHeading title={sampleTitle(record)} back={<BackToList base={base} />} />
       <EhrSampleBanner />
       <div className="hid-ehr-blue-record">
         <div ref={statusLine} tabIndex={-1} className="hid-ehr-blue-context-line">

@@ -156,7 +156,7 @@ describe('finding an ended order by its reference (C30)', () => {
     await find()
     expect(await within(area).findByText(/^No order with that reference was accepted here\. Check it with whoever gave it to you\.$/)).toBeTruthy()
     await find()
-    expect(await within(area).findByText('Correcting an ended order isn’t available yet. Phone the ordering facility, and tell '
+    expect(await within(area).findByText('Correcting an ended order isn’t set up for your facility. Phone the ordering facility, and tell '
       + 'Health ID support.')).toBeTruthy()
     expect(within(area).queryByText(/^No order with that reference/)).toBeNull()
   })
@@ -492,7 +492,7 @@ describe('the late form (C29)', () => {
     [new HidApiError(400, 'Bad', { code: 'VALIDATION_FAILED' }), /^Check what you entered: choose how and when you found out/],
     [new HidApiError(423, 'Paused', { code: 'CROSS_FACILITY_ORDERS_UNAVAILABLE' }), 'Health ID has paused work on orders from '
       + 'other facilities, so this can’t be done now. Try again when it resumes.'],
-    [new HidApiError(404, 'Missing', { code: 'NOT_FOUND' }), 'Withdrawing an ended order isn’t available yet. Phone General '
+    [new HidApiError(404, 'Missing', { code: 'NOT_FOUND' }), 'Withdrawing an ended order isn’t set up for your facility. Phone General '
       + 'Hospital, and tell Health ID support.'],
   ])('says a refused withdrawal in the laboratory’s words (%#)', async (error, words) => {
     routes.correctWrongPatient.mockRejectedValueOnce(error)

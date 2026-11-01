@@ -34,12 +34,14 @@ import { resolveStaffProductHostname, STAFF_JOIN_PATH } from '../productHostname
 import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
-import { resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
+import { blueForAll, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
 import './style.css'
 
 // The blue Hospital EHR (ehr-blue/blueFacilities.ts says for whom): loaded on demand, so no other facility downloads
 // it. "Use the classic EHR" brings this tab back to today's workspace until it reloads.
 const EhrBlueApp = lazy(() => import('../ehr-blue/EhrBlueApp'))
+// The blue EHR's sign-in, once the clinic switch is on (blueForAll): today's steps and words, in the design's look.
+const BlueSignIn = lazy(async () => ({ default: (await import('../ehr-blue/frame/auth/BlueSignIn')).BlueSignIn }))
 
 /** `reason`: why Identity ended the session, when it said (see StaffSessionEndReason). */
 type SessionState =
@@ -364,6 +366,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     startPeriod()
     away.current = null
     setLock(null)
+    // A session that ended without Sign out left the last person's choice of the classic EHR: the next starts on blue.
+    resetClassicEhr()
     setState({ status: 'ready', session })
     announceStaffSessionChange()
     askIfHeardWhileOpening()
@@ -751,7 +755,9 @@ export function App() {
   useState(() => usesNovuBackend() && captureStaffInvitationFragment())
   const novu = usesNovuBackend()
   return <StaffProvider><ProviderTitle /><Routes>
-    <Route path="sign-in" element={<SignIn />} />
+    <Route path="sign-in" element={blueForAll()
+      ? <Suspense fallback={<main className="staff-centered"><p role="status">Opening sign-in…</p></main>}><BlueSignIn /></Suspense>
+      : <SignIn />} />
     <Route element={<Gate><Shell /></Gate>}>
       <Route index element={<Dashboard />} />
       <Route path="patients" element={<Patients />} />

@@ -13,7 +13,7 @@ import { Page, useGovernedSubmit } from './ui'
  */
 const OPT_OUT_PROBLEMS: Readonly<Record<string, string>> = {
   VALIDATION_FAILED: 'Check the values: the email address or phone number is 5 to 254 characters, and the reason 8 to 500.',
-  PERMISSION_DENIED: 'Stopping alerts needs the platform.emergency-contact.manage permission. Ask a Super Admin.',
+  PERMISSION_DENIED: 'Your roles don’t allow this. Ask a Super Admin.',
 }
 const OPT_OUT = 'admin-opt-out'
 

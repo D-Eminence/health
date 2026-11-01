@@ -218,7 +218,7 @@ describe('wrong-patient reports in the Novu console', () => {
   it('says the list is not available from an Identity without it (today’s backend)', async () => {
     serve(READER, { 'GET /api/v1/admin/wrong-patient-reports': missing })
     await openAt('/admin/wrong-patient-reports')
-    expect((await screen.findByRole('alert')).textContent).toMatch(/^Wrong-patient reports are not available from this Identity yet\./)
+    expect((await screen.findByRole('alert')).textContent).toMatch(/Couldn’t load this.*Wrong-patient reports are not available from this Identity yet\./)
   })
 })
 
@@ -227,10 +227,9 @@ describe('wrong-patient reports elsewhere in the console', () => {
     const calls = serve(READER)
     await openAt('/admin/overview')
     const attention = await screen.findByRole('region', { name: 'Waiting for attention' })
-    const tile = (await within(attention).findByRole('link', { name: 'Wrong-patient reports' })).closest('article')!
-    expect(await within(tile).findByText('2')).toBeTruthy()
-    expect(tile.textContent).toContain('2 to review')
-    expect(within(tile).getByRole('link', { name: 'Wrong-patient reports' }).getAttribute('href')).toBe('/admin/wrong-patient-reports')
+    const row = await within(attention).findByRole('link', { name: /^Wrong-patient reports/ })
+    expect(row.textContent).toContain('2 to review')
+    expect(row.getAttribute('href')).toBe('/admin/wrong-patient-reports')
     expect(lists(calls)).toEqual(['?status=unreviewed'])
   })
 
@@ -239,12 +238,13 @@ describe('wrong-patient reports elsewhere in the console', () => {
     await openAt('/admin/overview')
     await screen.findByRole('heading', { name: 'Overview' })
     await waitFor(() => expect(lists(calls)).toHaveLength(1))
-    await waitFor(() => expect(screen.queryByText(/to review|Loading…/)).toBeNull())
+    await waitFor(() => expect(screen.queryByText(/\d+ to review/)).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('status', { name: 'Loading waiting work' })).toBeNull())
     expect(screen.queryByRole('region', { name: 'Waiting for attention' })?.textContent ?? '').not.toMatch(/Wrong-patient/)
     expect(document.body.textContent).not.toMatch(/not available from this Identity/)
     // Nor is the page listed in the navigation any more (D15: dormant until the backend serves it).
     await waitFor(() => expect(screen.queryAllByRole('link', { name: 'Wrong-patient reports' })).toHaveLength(0))
-    expect(screen.getAllByRole('navigation', { name: 'Platform areas' })).toHaveLength(2)
+    expect(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('link', { name: 'Overview' })).toBeTruthy()
   })
 
   it('keeps the page listed in the navigation where the backend serves the list', async () => {
@@ -252,10 +252,9 @@ describe('wrong-patient reports elsewhere in the console', () => {
     await openAt('/admin/overview')
     const attention = await screen.findByRole('region', { name: 'Waiting for attention' })
     await within(attention).findByText(/to review/)
-    // The sidebar and the narrow-screen navigation both list it.
-    const navigations = screen.getAllByRole('navigation', { name: 'Platform areas' })
-    expect(navigations).toHaveLength(2)
-    for (const navigation of navigations) expect(within(navigation).getByRole('link', { name: 'Wrong-patient reports' })).toBeTruthy()
+    // The navigation (one for every screen width) lists it.
+    const navigation = screen.getByRole('navigation', { name: 'Main navigation' })
+    expect(within(navigation).getByRole('link', { name: 'Wrong-patient reports' })).toBeTruthy()
   })
 
   it('counts a facility’s reports of the last 30 days on its page, only when its orders are shown', async () => {

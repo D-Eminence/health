@@ -1,4 +1,5 @@
 import { useCallback, useState, type FormEvent, type ReactNode } from 'react'
+import { FilterTabs } from '../kasuwa/ui'
 import { Link } from 'react-router-dom'
 import {
   adminApi, type AdminActor, type SelfServiceAdministratorAccess, type SelfServiceApplication, type SelfServiceFacility,
@@ -68,8 +69,7 @@ const REVIEW_REFRESHING = ['VERSION_CONFLICT', 'SELF_SERVICE_FACILITY_ALREADY_RE
 const REVIEW_PROBLEMS: Readonly<Record<string, string>> = {
   VERSION_CONFLICT: 'This sign-up changed after the list was loaded. The list has been refreshed: check it again before '
     + 'marking it reviewed.',
-  PERMISSION_DENIED: 'Marking a sign-up reviewed needs the platform.facility.manage and platform.facility.unlock '
-    + 'permissions. Ask a Super Admin.',
+  PERMISSION_DENIED: 'Your roles don’t allow this. Ask a Super Admin.',
   // Identity's DTO refuses a note outside 8 to 500 characters, or a missing choice, before its command does.
   VALIDATION_FAILED: 'Choose the administrator’s access and how you checked, and enter a note of 8 to 500 characters about '
     + 'what you checked.',
@@ -79,8 +79,7 @@ const ACCESS_FAILED = 'The administrator’s access could not be changed. Try ag
 const ACCESS_REFRESHING = ['VERSION_CONFLICT', 'SELF_SERVICE_FACILITY_NOT_FOUND', 'SELF_SERVICE_FACILITY_REVIEW_REQUIRES_ACTIVE'] as const
 const ACCESS_PROBLEMS: Readonly<Record<string, string>> = {
   VERSION_CONFLICT: 'This sign-up changed after the list was loaded. The list has been refreshed: check it again.',
-  PERMISSION_DENIED: 'Changing the administrator’s access needs the platform.facility.manage and platform.facility.unlock '
-    + 'permissions. Ask a Super Admin.',
+  PERMISSION_DENIED: 'Your roles don’t allow this. Ask a Super Admin.',
   VALIDATION_FAILED: 'Choose the administrator’s access and how you checked, and enter a reason of 8 to 500 characters.',
   SELF_SERVICE_FACILITY_REQUEST_INVALID: 'Choose the administrator’s access and how you checked, and enter a reason of 8 to '
     + '500 characters.',
@@ -90,8 +89,7 @@ const PROBATION_FAILED = 'The first-30-days limits could not be ended. Try again
 const PROBATION_REFRESHING = ['VERSION_CONFLICT', 'SELF_SERVICE_FACILITY_NOT_FOUND', 'SELF_SERVICE_PROBATION_ALREADY_ENDED'] as const
 const PROBATION_PROBLEMS: Readonly<Record<string, string>> = {
   VERSION_CONFLICT: 'This sign-up changed after the list was loaded. The list has been refreshed: check it again.',
-  PERMISSION_DENIED: 'Ending the limits needs the platform.facility.manage and platform.facility.unlock permissions. Ask a '
-    + 'Super Admin.',
+  PERMISSION_DENIED: 'Your roles don’t allow this. Ask a Super Admin.',
   SELF_SERVICE_FACILITY_REQUEST_INVALID: 'Enter a reason of 8 to 500 characters.',
   VALIDATION_FAILED: 'Enter a reason of 8 to 500 characters.',
 }
@@ -124,7 +122,7 @@ const RELEASE_REFRESHING = ['VERSION_CONFLICT', 'SELF_SERVICE_FACILITY_ALREADY_R
 const RELEASE_PROBLEMS: Readonly<Record<string, string>> = {
   VERSION_CONFLICT: 'This sign-up changed after the list was loaded. The list has been refreshed: check it again before '
     + 'releasing it.',
-  PERMISSION_DENIED: 'Releasing a sign-up needs the platform.facility.manage permission. Ask a Super Admin.',
+  PERMISSION_DENIED: 'Your roles don’t allow this. Ask a Super Admin.',
   SELF_SERVICE_FACILITY_REQUEST_INVALID: REASON_INVALID,
   VALIDATION_FAILED: REASON_INVALID,
 }
@@ -134,7 +132,7 @@ const REJECT_REFRESHING = ['VERSION_CONFLICT', 'SELF_SERVICE_APPLICATION_NOT_FOU
 const REJECT_PROBLEMS: Readonly<Record<string, string>> = {
   VERSION_CONFLICT: 'This sign-up changed after the list was loaded, for example its administrator confirmed the email. '
     + 'The list has been refreshed: check it again before rejecting it.',
-  PERMISSION_DENIED: 'Rejecting a sign-up needs the platform.facility.manage permission. Ask a Super Admin.',
+  PERMISSION_DENIED: 'Your roles don’t allow this. Ask a Super Admin.',
   SELF_SERVICE_FACILITY_REQUEST_INVALID: REASON_INVALID,
   VALIDATION_FAILED: REASON_INVALID,
 }
@@ -154,7 +152,7 @@ const PRODUCTS: ReadonlyArray<{ value: SelfServiceProduct; title: string }> = [
 const WAIVE_FAILED = 'The refusal could not be lifted. Try again.'
 // SELF_SERVICE_REFUSAL_NOT_FOUND has the console's own words (problems.ts).
 const WAIVE_PROBLEMS: Readonly<Record<string, string>> = {
-  PERMISSION_DENIED: 'Lifting a refusal needs the platform.facility.manage permission. Ask a Super Admin.',
+  PERMISSION_DENIED: 'Your roles don’t allow this. Ask a Super Admin.',
   SELF_SERVICE_FACILITY_REQUEST_INVALID: `${CAC_NUMBER_INVALID} Choose the product, and give a reason of 8 to 500 characters.`,
   VALIDATION_FAILED: `${CAC_NUMBER_INVALID} Choose the product, and give a reason of 8 to 500 characters.`,
 }
@@ -451,10 +449,9 @@ function SignUpCard({ facility, actor, onDone }: { facility: SelfServiceFacility
     {/* Once support has started stopping a sign-up, it says what the release still needs. */}
     {!released && canRelease && facilitySuspended !== accountDisabled && <p className="admin-note">To release this sign-up for
       the real company, also {facilitySuspended ? 'disable the administrator’s account' : 'suspend the facility'}.</p>}
-    {!released && !canRelease && <p className="admin-note">View only: reviewing or releasing a sign-up needs the
-      platform.facility.manage permission, and reviewing it also platform.facility.unlock.</p>}
-    {!released && canRelease && !canManage && <p className="admin-note">Reviewing a sign-up or changing its administrator’s
-      access also needs the platform.facility.unlock permission. Ask a Super Admin.</p>}
+    {!released && !canRelease && <p className="admin-note">Your roles don’t let you review or release sign-ups.</p>}
+    {!released && canRelease && !canManage && <p className="admin-note">Your roles don’t let you review a sign-up or change its
+      administrator’s access. Ask a Super Admin.</p>}
   </article>
 }
 
@@ -499,7 +496,7 @@ function OpenApplicationCard({ application, actor, onDone }: { application: Self
         refreshing={REJECT_REFRESHING} problems={REJECT_PROBLEMS} fallback={REJECT_FAILED}
         done={allowRetry => allowRetry ? `Rejected the sign-up for ${title}. Its applicant can start again at once.`
           : `Rejected the sign-up for ${title}.`} onDone={onDone} />
-      : <p className="admin-note">View only: rejecting a sign-up needs the platform.facility.manage permission.</p>}
+      : <p className="admin-note">Your roles don’t let you reject a sign-up.</p>}
   </article>
 }
 
@@ -670,12 +667,9 @@ export function SelfServiceFacilitiesPage({ actor }: { actor: AdminActor }) {
           <p>If it used another company’s CAC number, by mistake or not, also release it once the facility is suspended and
             the account disabled. That frees the CAC number and the legal name, so the real company can sign up.</p></div></div>
       </section>}
-    <div className="admin-filter" role="group" aria-label="Which sign-ups">
-      {VIEWS.map(item => <button key={item.value} type="button" aria-pressed={view === item.value}
-        className={view === item.value ? 'admin-primary' : 'admin-secondary'}
-        onClick={() => { setNotice(null); setSearch(null); setFilters({ state: item.value === 'unreviewed' ? '' : item.value }) }}>
-        {item.title}</button>)}
-    </div>
+    <FilterTabs label="Which sign-ups" value={view as string}
+      onChange={value => { setNotice(null); setSearch(null); setFilters({ state: value === 'unreviewed' ? '' : value }) }}
+      options={VIEWS.map(item => ({ value: item.value as string, label: item.title }))} />
     {view === 'open' && <SearchOpenApplications key={search ?? ''} search={search}
       onSearch={number => { setNotice(null); setSearch(number) }} />}
     {/* An invitation a facility sent (P4b), by the reference its email quotes. */}

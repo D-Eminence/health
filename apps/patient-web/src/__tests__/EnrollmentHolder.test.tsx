@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
-import { described, json, press, problem, renderPortal, type Handler, type Sent } from './portalHarness'
+import { described, json, press, problem, renderPortal, type Handler, type Sent, shownText } from './portalHarness'
 import { codeValue, enterCode as enterCodeInto } from './codeBoxes'
 
 vi.mock('../Turnstile', () => ({
@@ -50,7 +50,7 @@ const choice = () => screen.findByRole('heading', { name: 'Prove this NIN is you
 const codeStep = () => screen.findByRole('heading', { name: 'Enter the code we texted you' })
 
 async function startHolder() {
-  fireEvent.change(await screen.findByLabelText('National Identification Number'), { target: { value: NIN } })
+  fireEvent.change(await screen.findByLabelText('National Identification Number (NIN)'), { target: { value: NIN } })
   fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
   await press(screen.getByRole('button', { name: 'Continue' }))
   return choice()
@@ -85,12 +85,12 @@ describe('the NIN holder step: choosing a route', () => {
     const facility = screen.getByRole('region', { name: 'Register at a healthcare facility' })
     expect(facility.textContent).toContain('lost their SIM, changed their number, have no phone linked to their NIN, or can\'t get the code')
     expect(within(facility).getByRole('button', { name: 'Register at a facility' })).toBeTruthy()
-    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     expect(screen.queryByLabelText('Phone number')).toBeNull()
     expect(document.body.textContent).not.toContain(NIN)
     expect(document.body.textContent).not.toMatch(/identity (is |has been )?verified|NIN verified/i)
     expect(sent.filter(request => request.method === 'POST').map(request => request.path)).toEqual([BASE])
-    expect(screen.getByRole('list', { name: 'Enrollment steps' }).querySelector('[aria-current="step"]')?.textContent).toBe('Prove it\'s yours')
+    expect(screen.getByRole('list', { name: 'Enrollment steps' }).querySelector('[aria-current="step"]')?.lastChild?.textContent).toBe('Prove it\'s yours')
     expect(setItem).not.toHaveBeenCalled()
     expect(window.location.href).not.toContain(NIN)
   })
@@ -108,7 +108,7 @@ describe('the NIN holder step: choosing a route', () => {
     renderPortal(<Enrollment />, gateway({ start: () => json(holder({ available: true }, { available: false })) }), anonymous)
     await startHolder()
     const facility = screen.getByRole('region', { name: 'Register at a healthcare facility' })
-    expect(facility.textContent).toContain('Registering at a healthcare facility isn\'t available yet.')
+    expect(facility.textContent).toContain('Registering at a healthcare facility isn\'t available right now.')
     expect(within(facility).queryByRole('button')).toBeNull()
   })
 
@@ -122,7 +122,7 @@ describe('the NIN holder step: choosing a route', () => {
     const { headers } = renderPortal(<Enrollment />, gateway(), anonymous)
     await startHolder()
     await press(screen.getByRole('button', { name: 'Use a different NIN' }))
-    const nin = await screen.findByLabelText('National Identification Number')
+    const nin = await screen.findByLabelText('National Identification Number (NIN)')
     await waitFor(() => expect(document.activeElement).toBe(nin))
     expect((nin as HTMLInputElement).value).toBe('')
     await startHolder()
@@ -162,8 +162,9 @@ describe('the NIN holder step: the code texted to the phone on the NIN record', 
     await waitFor(() => expect(document.activeElement).toBe(contact))
     current = () => json({ stage: 'verify_contact', requiredProfileFields: ['gender'] })
     fireEvent.change(contact, { target: { value: '+2348000000000' } })
-    await press(screen.getByRole('button', { name: 'Send verification code' }))
-    await enterCode('654321')
+    await press(screen.getByRole('button', { name: 'Send code' }))
+    // The contact's code, in its own boxes (named "Code"; the holder's are "Verification code").
+    await enterCodeInto(await screen.findByLabelText('Code'), '654321')
     expect(await screen.findByLabelText('Gender')).toBeTruthy()
     expect(screen.queryByLabelText('Date of birth')).toBeNull()
   })
@@ -189,7 +190,7 @@ describe('the NIN holder step: the code texted to the phone on the NIN record', 
     await waitFor(() => expect(resend.disabled).toBe(false))
     expect(screen.getByText('You can ask for a new code now.').getAttribute('role')).toBe('status')
     await press(resend)
-    expect((await screen.findByRole('alert')).textContent).toBe('A code was sent recently. You can ask for a new code in 42 seconds.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('A code was sent recently. You can ask for a new code in 42 seconds.')
     expect((screen.getByRole('button', { name: 'Send a new code' }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.getByLabelText('Verification code')).toBeTruthy()
   })
@@ -204,7 +205,7 @@ describe('the NIN holder step: the code texted to the phone on the NIN record', 
     await press(screen.getByRole('button', { name: 'I can\'t get the code' }))
     await choice()
     await press(screen.getByRole('button', { name: 'Text me a code' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('A code was sent recently. You can ask for a new code in 25 seconds.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('A code was sent recently. You can ask for a new code in 25 seconds.')
     expect(await codeStep()).toBeTruthy()
     expect(sentTo(sent, 'holder')).toHaveLength(1)
   })
@@ -222,7 +223,7 @@ describe('the NIN holder step: the code texted to the phone on the NIN record', 
       } } }), { ...anonymous, signOut })
     await startHolder()
     await press(screen.getByRole('button', { name: 'Text me a code' }))
-    expect((await screen.findByRole('alert')).textContent).toBe(HOLDER_ROUTE_UNAVAILABLE)
+    expect(shownText(await screen.findByRole('alert'))).toBe(HOLDER_ROUTE_UNAVAILABLE)
     const online = screen.getByRole('region', { name: 'Get a code by text message' })
     expect(within(online).queryByRole('button', { name: 'Text me a code' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Register at a facility' })).toBeTruthy()
@@ -234,7 +235,7 @@ describe('the NIN holder step: the code texted to the phone on the NIN record', 
     renderPortal(<Enrollment />, gateway({ post: { holder: () => problem(429, 'NIN_HOLDER_ROUTE_LIMITED', HOLDER_ROUTE_LIMITED) } }), anonymous)
     await startHolder()
     await press(screen.getByRole('button', { name: 'Text me a code' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('This NIN can\'t be proved by a text message code now. Use a participating facility to register.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('This NIN can\'t be proved by a text message code now. Use a participating facility to register.')
     expect(within(screen.getByRole('region', { name: 'Get a code by text message' })).queryByRole('button')).toBeNull()
     expect(screen.getByRole('button', { name: 'Register at a facility' })).toBeTruthy()
   })
@@ -245,7 +246,7 @@ describe('the NIN holder step: the code texted to the phone on the NIN record', 
       { ...anonymous, signOut })
     await startHolder()
     await press(screen.getByRole('button', { name: 'Text me a code' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('We couldn\'t send the code just now. Try again later, or register at a participating facility. Each try counts toward this registration\'s 3 codes.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('We couldn\'t send the code just now. Try again later, or register at a participating facility. Each try counts toward this registration\'s 3 codes.')
     expect(screen.getByRole('button', { name: 'Text me a code' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Register at a facility' })).toBeTruthy()
     expect(signOut).not.toHaveBeenCalled()
@@ -266,7 +267,7 @@ describe('the NIN holder step: the code texted to the phone on the NIN record', 
     await toCode()
     await enterCode()
     const heading = await choice()
-    expect((await screen.findByRole('alert')).textContent).toBe('This NIN was already checked in person at a facility, in another registration. Finish that registration on the phone used at the facility: add a contact and choose a password there. Only if you can\'t, register at a facility and be checked again.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('This NIN was already checked in person at a facility, in another registration. Finish that registration on the phone used at the facility: add a contact and choose a password there. Only if you can\'t, register at a facility and be checked again.')
     await waitFor(() => expect(document.activeElement).toBe(heading))
     expect(screen.queryByRole('heading', { level: 2, name: 'Register at a healthcare facility' })).toBeNull()
     expect(document.body.textContent).not.toMatch(/desk code/)
@@ -286,7 +287,7 @@ describe('the NIN holder step: the code texted to the phone on the NIN record', 
     await toCode()
     await enterCode()
     expect(await choice()).toBeTruthy()
-    expect((await screen.findByRole('alert')).textContent).toBe(text)
+    expect(shownText(await screen.findByRole('alert'))).toBe(text)
     expect(screen.getByRole('button', { name: 'Register at a facility' })).toBeTruthy()
   })
 
@@ -298,7 +299,7 @@ describe('the NIN holder step: the code texted to the phone on the NIN record', 
     renderPortal(<Enrollment />, gateway({ post: { ...sending, 'holder/verify': refusal } }), { ...anonymous, signOut })
     await toCode()
     await enterCode()
-    expect((await screen.findByRole('alert')).textContent).toBe('Registration is temporarily unavailable. Try again in a few minutes.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('Registration is temporarily unavailable. Try again in a few minutes.')
     expect(codeValue(screen.getByLabelText('Verification code'))).toBe('123456')
     expect(signOut).not.toHaveBeenCalled()
   })
@@ -307,7 +308,7 @@ describe('the NIN holder step: the code texted to the phone on the NIN record', 
     renderPortal(<Enrollment />, gateway({ post: { holder: () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found') } }), anonymous)
     await startHolder()
     await press(screen.getByRole('button', { name: 'Text me a code' }))
-    expect(await screen.findByLabelText('National Identification Number')).toBeTruthy()
+    expect(await screen.findByLabelText('National Identification Number (NIN)')).toBeTruthy()
     expect(screen.getByRole('alert')).toBeTruthy()
   })
 })
@@ -324,7 +325,7 @@ describe('a NIN that already has a Health ID, said only after a correct code (ro
     expect(within(outcome).getByRole('link', { name: 'Recover your account' }).getAttribute('href')).toBe('/recover')
     expect(within(outcome).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
     expect(outcome.textContent).toContain('If you have never registered for a Health ID, contact Health ID support and quote this reference: corr-7f3a.')
-    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     expect(screen.queryByLabelText('Verification code')).toBeNull()
     expect(document.body.textContent).not.toContain(NIN)
   })
@@ -349,7 +350,7 @@ describe('the holder step after review', () => {
     renderPortal(<Enrollment />, gateway({ post: { holder: () => problem(409, 'NIN_HOLDER_ROUTE_UNAVAILABLE', HOLDER_ROUTE_UNAVAILABLE) } }), anonymous)
     await startHolder()
     await press(screen.getByRole('button', { name: 'Text me a code' }))
-    expect(await screen.findByLabelText('National Identification Number')).toBeTruthy()
+    expect(await screen.findByLabelText('National Identification Number (NIN)')).toBeTruthy()
     expect(screen.getByRole('alert').textContent).toMatch(/This registration is no longer open on this device/)
   })
 
@@ -358,7 +359,7 @@ describe('the holder step after review', () => {
     try {
       renderPortal(<Enrollment />, gateway({ post: { ...sending, 'holder/verify': () => json({ stage: 'verify_contact', requiredProfileFields: [] }) } }), anonymous)
       expect(await screen.findByRole('region', { name: 'Google enrollment' })).toBeTruthy()
-      fireEvent.change(screen.getByLabelText('National Identification Number'), { target: { value: NIN } })
+      fireEvent.change(screen.getByLabelText('National Identification Number (NIN)'), { target: { value: NIN } })
       // The NIN step's security check comes first; the second is Google's.
       fireEvent.click(screen.getAllByRole('button', { name: 'Complete check' })[0]!)
       await press(screen.getByRole('button', { name: 'Continue' }))

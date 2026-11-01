@@ -219,6 +219,27 @@ describe('presigned document upload', () => {
     expect(new Headers(calls[0]?.headers).get('x-amz-checksum-sha256')).toBe('checksum')
   })
 
+  // ehr-api's presigner (AWS SDK 3.1101.0) signs content-length, host and the encryption headers, and moves the
+  // checksum and metadata into the query; S3 refuses an x-amz-* header the signature does not cover.
+  it('does not send again as a header what the signed link already carries in its query', async () => {
+    const calls: { url: string; init: RequestInit }[] = []
+    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} })
+      return new Response(null, { status: 200 })
+    })
+    const url = 'https://docs.s3.eu-west-1.amazonaws.com/clinical/key?X-Amz-Algorithm=AWS4-HMAC-SHA256'
+      + '&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&x-amz-checksum-sha256=Y2hlY2tzdW0%3D&x-amz-meta-declared-sha256=abc'
+      + '&X-Amz-SignedHeaders=content-length%3Bhost%3Bx-amz-server-side-encryption&X-Amz-Signature=sig'
+    await uploadPresignedObject({ url, body: new Blob(['scan'], { type: 'image/jpeg' }), fetchImpl: fetchImpl as unknown as typeof fetch,
+      requiredHeaders: { 'content-type': 'image/jpeg', 'x-amz-checksum-sha256': 'Y2hlY2tzdW0=',
+        'x-amz-meta-declared-sha256': 'abc', 'x-amz-server-side-encryption': 'AES256' } })
+    const sent = new Headers(calls[0]?.init.headers)
+    expect([...sent.keys()].sort()).toEqual(['content-type', 'x-amz-server-side-encryption'])
+    expect(sent.get('x-amz-server-side-encryption')).toBe('AES256')
+    // The link itself is sent exactly as signed.
+    expect(calls[0]?.url).toBe(url)
+  })
+
   it('refuses plain http to this machine unless the caller allows it (a local environment)', async () => {
     const fetchImpl = vi.fn(async () => new Response(null, { status: 200 }))
     await expect(uploadPresignedObject({ url: 'http://localhost:4566/bucket/signed',

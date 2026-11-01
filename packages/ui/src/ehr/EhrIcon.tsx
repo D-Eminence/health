@@ -4,7 +4,6 @@
  */
 
 import { HugeiconsIcon } from '@hugeicons/react'
-import Home01Icon from '@hugeicons/core-free-icons/Home01Icon'
 import UserIcon from '@hugeicons/core-free-icons/UserIcon'
 import Calendar03Icon from '@hugeicons/core-free-icons/Calendar03Icon'
 import Route01Icon from '@hugeicons/core-free-icons/Route01Icon'
@@ -43,7 +42,6 @@ import Building03Icon from '@hugeicons/core-free-icons/Building03Icon'
 import PencilEdit01Icon from '@hugeicons/core-free-icons/PencilEdit01Icon'
 import CreditCardIcon from '@hugeicons/core-free-icons/CreditCardIcon'
 import FileVerifiedIcon from '@hugeicons/core-free-icons/FileVerifiedIcon'
-import Notification03Icon from '@hugeicons/core-free-icons/Notification03Icon'
 import Search01Icon from '@hugeicons/core-free-icons/Search01Icon'
 import CheckListIcon from '@hugeicons/core-free-icons/CheckListIcon'
 import DocumentValidationIcon from '@hugeicons/core-free-icons/DocumentValidationIcon'
@@ -54,8 +52,18 @@ import Wifi01Icon from '@hugeicons/core-free-icons/Wifi01Icon'
 import Logout03Icon from '@hugeicons/core-free-icons/Logout03Icon'
 import Cash01Icon from '@hugeicons/core-free-icons/Cash01Icon'
 
+/** An icon drawn as Hugeicons draw theirs: each element and its attributes, stroked in the text's colour. */
+const stroke = { stroke: 'currentColor', strokeLinecap: 'round', strokeLinejoin: 'round', strokeWidth: '1.5' } as const
+
+/** The design's own home and bell (design/ehr-target src/icons.tsx), on the same 24px grid as the rest. */
+const DesignHomeIcon = [['path', { d: 'M3 11 12 3l9 8v9a2 2 0 0 1-2 2h-4v-7H9v7H5a2 2 0 0 1-2-2z', ...stroke, key: '0' }]] as const
+const DesignBellIcon = [
+  ['path', { d: 'M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9', ...stroke, key: '0' }],
+  ['path', { d: 'M13.7 21a2 2 0 0 1-3.4 0', ...stroke, key: '1' }],
+] as const
+
 const ICONS = {
-  home: Home01Icon,
+  home: DesignHomeIcon,
   user: UserIcon,
   calendar: Calendar03Icon,
   route: Route01Icon,
@@ -94,7 +102,7 @@ const ICONS = {
   edit: PencilEdit01Icon,
   subscription: CreditCardIcon,
   review: FileVerifiedIcon,
-  bell: Notification03Icon,
+  bell: DesignBellIcon,
   search: Search01Icon,
   checklist: CheckListIcon,
   document: DocumentValidationIcon,

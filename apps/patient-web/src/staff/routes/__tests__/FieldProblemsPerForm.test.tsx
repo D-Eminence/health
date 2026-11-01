@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Outreach } from '../Operations'
 import { Registration } from '../Registration'
@@ -109,13 +110,14 @@ describe('outreach', () => {
 
 describe('registration', () => {
   it('a case ID refused at its field leaves the NIN form’s refusal at the NIN', async () => {
-    render(<Registration />)
-    const nin = await screen.findByLabelText(/^National Identity Number/)
+    render(<MemoryRouter><Registration /></MemoryRouter>)
+    const nin = await screen.findByLabelText(/^NIN \(11 digits\)/)
     fireEvent.change(nin, { target: { value: '123' } })
     fireEvent.submit(nin.closest('form')!)
     await waitFor(() => expectRefused(nin, 'Enter the 11 digit NIN.'))
 
-    const caseId = screen.getByRole('textbox', { name: 'Registration case ID' })
+    fireEvent.click(screen.getByText('Continue a registration'))
+    const caseId = screen.getByRole('textbox', { name: /^Registration ID/ })
     fireEvent.change(caseId, { target: { value: 'not-a-case' } })
     fireEvent.submit(caseId.closest('form')!)
     await waitFor(() => expectRefused(caseId, 'Enter a valid registration case ID.'))
@@ -128,19 +130,20 @@ describe('registration', () => {
     const second = 'c0000000-0000-4000-8000-000000000002'
     const pending = (caseId: string) => ({ caseId, status: 'pending_new_identity_approval', version: 1, candidateCount: 0 })
     api.registrationCase.mockResolvedValueOnce(pending(first)).mockResolvedValueOnce(pending(second))
-    render(<Registration />)
-    const caseId = await screen.findByRole('textbox', { name: 'Registration case ID' })
+    render(<MemoryRouter><Registration /></MemoryRouter>)
+    fireEvent.click(await screen.findByText('Continue a registration'))
+    const caseId = screen.getByRole('textbox', { name: /^Registration ID/ })
     fireEvent.change(caseId, { target: { value: first } })
     fireEvent.submit(caseId.closest('form')!)
-    const reason = await screen.findByLabelText(/^Approval reason/)
+    const reason = await screen.findByLabelText(/^Why \(for the record\)/)
     fireEvent.submit(reason.closest('form')!)
     // A slow CI runner can take longer than waitFor's one second to show the refusal (main run 38983273017 failed here once).
     await waitFor(() => expectRefused(reason, 'Enter a review reason between 8 and 500 characters.'), { timeout: 5000 })
 
     fireEvent.change(caseId, { target: { value: second } })
     fireEvent.submit(caseId.closest('form')!)
-    await screen.findByRole('heading', { name: `Case ${second}` }, { timeout: 5000 })
-    const next = screen.getByLabelText(/^Approval reason/)
+    await screen.findByText(second, {}, { timeout: 5000 })
+    const next = screen.getByLabelText(/^Why \(for the record\)/)
     expect(next.getAttribute('aria-invalid')).toBeNull()
     expect(document.getElementById('registration-approve-reason-error')).toBeNull()
   })
@@ -152,8 +155,9 @@ describe('registration', () => {
   it('a refusal made as soon as a case’s review form appears is kept', async () => {
     const caseId = 'c0000000-0000-4000-8000-000000000003'
     api.registrationCase.mockResolvedValueOnce({ caseId, status: 'pending_new_identity_approval', version: 1, candidateCount: 0 })
-    render(<Registration />)
-    const caseField = await screen.findByRole('textbox', { name: 'Registration case ID' })
+    render(<MemoryRouter><Registration /></MemoryRouter>)
+    fireEvent.click(await screen.findByText('Continue a registration'))
+    const caseField = screen.getByRole('textbox', { name: /^Registration ID/ })
     const submitted = new Promise<HTMLElement>(resolve => {
       const observer = new MutationObserver(() => {
         const reason = document.getElementById('registration-approve-reason')

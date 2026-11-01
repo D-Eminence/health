@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Alert, Button } from './kasuwa/ui'
+import { LoadingRows } from './kasuwa/parts'
 import { isHidApiError } from '@hid/http'
 import { ImportedHistory } from './ImportedHistory'
 import type { ImportedHistoryPage, ImportedHistorySharing, ImportedHistorySharingChange, ImportedMedicalRecord } from './importedRecords'
@@ -25,13 +27,13 @@ export function importedHistoryFailure(reason: unknown, audience: ImportedHistor
       case 'CONSENT_REQUIRED': return 'The patient has not given consent for this facility to read their record.'
       case 'DIRECT_CARE_PURPOSE_REQUIRED': return 'Imported medical history is read for direct care only.'
       case 'BREAK_GLASS_EXCLUDED': return 'Imported medical history is not shown under emergency access.'
-      case 'IMPORTED_HISTORY_UNAVAILABLE': return 'Imported medical history could not be read right now. Please try again.'
-      case 'INVALID_CURSOR': return 'The next page of imported medical history could not be read. Please reload it.'
+      case 'IMPORTED_HISTORY_UNAVAILABLE': return 'Older records can’t be loaded right now. Try again.'
+      case 'INVALID_CURSOR': return 'Couldn’t load more older records. Reload the page.'
       default:
     }
-    if (reason.status === 403) return audience === 'staff' ? 'You do not have access to this patient’s imported medical history.' : 'You do not have access to imported medical history.'
+    if (reason.status === 403) return audience === 'staff' ? 'You do not have access to this patient’s imported medical history.' : 'You can’t see these older records.'
   }
-  return 'Imported medical history could not be loaded.'
+  return 'Couldn’t load older records. Try again.'
 }
 
 export type ImportedHistoryState =
@@ -97,18 +99,18 @@ function ImportedHistoryBody({ state, more, loadMore, retry, audience, query, gr
   audience: ImportedHistoryAudience; query?: string; groupedByDay?: boolean
 }) {
   if (state.status === 'unavailable') return null
-  if (state.status === 'loading') return <p role="status">Loading imported medical history…</p>
-  if (state.status === 'error') return <section className="imported-history" aria-label="Imported medical history"><h2>Imported medical history</h2>
-    <p role="alert">{state.message}</p><button type="button" onClick={retry}>Retry imported history</button></section>
+  if (state.status === 'loading') return <LoadingRows rows={2} label="Loading older records" />
+  if (state.status === 'error') return <section className="imported-history" aria-label="Older health records"><h2>Older health records</h2>
+    <Alert intent="error" size="sm" title="Couldn’t load older records" action={<Button size="sm" onClick={retry}>Try again</Button>}>{state.message}</Alert></section>
   if (audience === 'staff' && state.shared === false) {
-    return <section className="imported-history" aria-label="Imported medical history"><h2>Imported medical history</h2>
+    return <section className="imported-history" aria-label="Older health records"><h2>Older health records</h2>
       <p role="status">This patient has not shared their imported medical history, or has none.</p></section>
   }
   return <>
     <ImportedHistory records={state.records} limit={state.limit} paged query={query} groupedByDay={groupedByDay} />
     {state.nextCursor && <div className="imported-history">
-      {more.error && <p role="alert">{more.error}</p>}
-      <button type="button" disabled={more.busy} onClick={loadMore}>{more.busy ? 'Loading more…' : 'Show more imported records'}</button>
+      {more.error && <Alert intent="error" size="sm">{more.error}</Alert>}
+      <Button size="sm" loading={more.busy} disabled={more.busy} onClick={loadMore}>{more.busy ? 'Loading more…' : 'Show more'}</Button>
     </div>}
   </>
 }
@@ -116,12 +118,12 @@ function ImportedHistoryBody({ state, more, loadMore, retry, audience, query, gr
 /** Why a change of the sharing choice was refused, from Identity's codes. */
 function sharingFailure(reason: unknown): string {
   if (isHidApiError(reason)) {
-    if (reason.code === 'PATIENT_RECENT_AUTH_REQUIRED') return 'Sharing needs a recent sign-in. Sign in again, then try again.'
-    if (reason.code === 'PATIENT_RECENT_RECOVERY_HOLD') return 'Sharing cannot be turned on in the 24 hours after you recover your account. Please try again later.'
-    if (reason.code === 'IMPORTED_HISTORY_SHARING_DISABLED') return 'Sharing imported medical history is not available yet.'
+    if (reason.code === 'PATIENT_RECENT_AUTH_REQUIRED') return 'For your safety, sign in again first, then try again.'
+    if (reason.code === 'PATIENT_RECENT_RECOVERY_HOLD') return 'You can’t turn on sharing for 24 hours after you recover your account. Try again later.'
+    if (reason.code === 'IMPORTED_HISTORY_SHARING_DISABLED') return 'Sharing older records isn’t available right now.'
     if (reason.status === 401) return 'Your session ended. Please sign in again.'
   }
-  return 'Your choice could not be saved. Please try again.'
+  return 'Couldn’t save your choice. Try again.'
 }
 
 export interface SharingApi {
@@ -152,25 +154,25 @@ export function ImportedHistorySharingCard({ api }: { api: SharingApi }) {
     return () => controller.abort()
   }, [api, attempt])
   if (state.status === 'unavailable' || state.status === 'loading') return null
-  if (state.status === 'error') return <div className="imported-history"><p role="alert">Your choice about sharing imported medical history could not be loaded.</p>
-    <button type="button" onClick={() => setAttempt(value => value + 1)}>Try again</button></div>
+  if (state.status === 'error') return <div className="imported-history"><Alert intent="error" size="sm" title="Couldn’t load your sharing choice"
+    action={<Button size="sm" onClick={() => setAttempt(value => value + 1)}>Try again</Button>} /></div>
   const change = async (shared: boolean) => {
     setBusy(true); setNotice(''); setError('')
     try {
       const result = await api.setImportedHistorySharing(shared)
       setState({ status: 'ready', shared: result.shared })
-      setNotice(result.shared ? 'Staff who treat you can now see your imported medical history.' : 'Staff can no longer see your imported medical history. This applies from their next request.')
+      setNotice(result.shared ? 'Health workers who treat you can now see your older records.' : 'Sharing stopped. Health workers can’t load your older records any more.')
     } catch (reason) { setError(sharingFailure(reason)) } finally { setBusy(false) }
   }
-  return <section className="imported-history" aria-label="Sharing imported medical history">
-    <h2>Sharing your imported medical history</h2>
+  return <section className="imported-history" aria-label="Sharing your older records">
+    <h2>Sharing your older records</h2>
     <p>{state.shared
-      ? 'You are sharing your imported medical history with the staff who treat you, at a facility you have given access to, for your care.'
-      : 'You see your imported medical history here. Staff who treat you can see it only if you choose to share it. You can stop sharing at any time.'}</p>
-    <button type="button" disabled={busy} onClick={() => void change(!state.shared)}>
-      {busy ? 'Saving…' : state.shared ? 'Stop sharing' : 'Share with staff who treat me'}</button>
-    <div role="status">{notice && <p>{notice}</p>}</div>
-    {error && <p role="alert">{error}</p>}
+      ? 'Health workers who treat you, at places you gave access to, can see these records.'
+      : 'Only you can see these records. You can share them with health workers who treat you, and stop at any time.'}</p>
+    <Button className="self-start" variant={state.shared ? 'secondary' : 'soft'} loading={busy} disabled={busy} onClick={() => void change(!state.shared)}>
+      {busy ? 'Saving…' : state.shared ? 'Stop sharing' : 'Share with health workers who treat me'}</Button>
+    <div role="status" className="empty:hidden">{notice && <Alert intent="success" size="sm" live={false}>{notice}</Alert>}</div>
+    {error && <Alert intent="error" size="sm">{error}</Alert>}
   </section>
 }
 

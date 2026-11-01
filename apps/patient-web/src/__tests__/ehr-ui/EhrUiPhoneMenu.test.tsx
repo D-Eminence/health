@@ -34,28 +34,46 @@ describe('EHR phone menu', () => {
     expect(panel.getAttribute('aria-modal')).toBe('true')
   })
 
-  it('opens as a modal panel: the same navigation, focus inside, the workspace inert', () => {
+  it('opens as a modal panel: the same navigation, focus on its first entry, the workspace inert', () => {
     const { panel } = openMenu()
     const nav = within(panel).getByRole('navigation', { name: 'Main navigation' })
     expect(within(nav).getByRole('link', { name: 'Patients' }).getAttribute('aria-current')).toBe('page')
     expect(within(nav).getByRole('button', { name: 'Care' }).getAttribute('aria-expanded')).toBe('true')
-    expect(panel.contains(document.activeElement)).toBe(true)
-    expect(document.activeElement).toBe(within(panel).getByRole('button', { name: 'Close menu' }))
+    // The list starts the panel, as the design's does: the title names the dialog without a header row.
+    expect(document.activeElement).toBe(within(nav).getByRole('button', { name: 'Care' }))
+    expect(within(panel).getByRole('heading', { level: 2, name: 'Menu' }).classList.contains('hid-ehr-sr-only')).toBe(true)
+    expect(panel.firstElementChild?.tagName).toBe('H2')
+    // Close follows the list, for whoever reaches it by Tab.
+    const close = within(panel).getByRole('button', { name: 'Close menu' })
+    expect(close.classList.contains('hid-ehr-phone-menu-close')).toBe(true)
+    expect(nav.compareDocumentPosition(close) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(workspace().getAttribute('inert')).toBe('')
     expect(panel.closest('[inert]')).toBeNull()
   })
 
   it('keeps Tab and Shift+Tab inside the panel', () => {
     const { panel } = openMenu()
-    const close = within(panel).getByRole('button', { name: 'Close menu' })
-    const last = within(panel).getByRole('link', { name: 'Facility settings' })
+    const first = within(panel).getByRole('button', { name: 'Care' })
+    const last = within(panel).getByRole('button', { name: 'Close menu' })
 
     last.focus()
     fireEvent.keyDown(last, { key: 'Tab' })
-    expect(document.activeElement).toBe(close)
+    expect(document.activeElement).toBe(first)
 
-    fireEvent.keyDown(close, { key: 'Tab', shiftKey: true })
+    fireEvent.keyDown(first, { key: 'Tab', shiftKey: true })
     expect(document.activeElement).toBe(last)
+  })
+
+  it('closes on a press outside the panel, where the top bar shows through, but not on one inside it', () => {
+    const { button, panel } = openMenu()
+    fireEvent.click(panel)
+    expect(screen.getByRole('dialog', { name: 'Menu' })).toBe(panel)
+    const scrim = panel.closest('.hid-ehr-scrim')!
+    expect(scrim.classList.contains('hid-ehr-scrim-menu')).toBe(true)
+    fireEvent.click(scrim)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(button)
+    expect(workspace().hasAttribute('inert')).toBe(false)
   })
 
   it('closes on Escape and returns focus to the menu button, inert cleared before focus moves', () => {

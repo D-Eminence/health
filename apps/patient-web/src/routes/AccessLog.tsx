@@ -1,4 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { Button, Card } from '../kasuwa/ui'
+import { LoadingRows } from '../kasuwa/parts'
+import { LoadProblem, Problem } from './profileParts'
 import { isHidApiError } from '@hid/http'
 import type { AccessLogAction, AccessLogEvent, AccessLogPage } from '../accessLog'
 import { useSession } from '../session'
@@ -14,9 +17,9 @@ import { useActionFocus, useRetryFocus } from './actionFocus'
 export const WHAT: Readonly<Record<AccessLogAction, string>> = {
   viewed: 'Viewed your record',
   changed: 'Changed your record',
-  access_granted: 'Was given access to your record',
+  access_granted: 'Got access to your record',
   access_ended: 'Access to your record ended',
-  emergency_access: 'Used emergency access to your record',
+  emergency_access: 'Opened your record in an emergency',
 }
 
 function when(value: string) {
@@ -30,9 +33,9 @@ export function accessLogActor(event: AccessLogEvent): string {
     case 'patient': return 'You'
     case 'support': return 'Health ID support'
     case 'system': return event.facilityName ?? 'Health ID'
-    case 'facility': return event.facilityName ?? event.actorName ?? 'A facility'
+    case 'facility': return event.facilityName ?? event.actorName ?? 'A health facility'
     case 'clinician': {
-      const clinician = event.actorName ?? 'A clinician'
+      const clinician = event.actorName ?? 'A health worker'
       return event.facilityName ? `${clinician} at ${event.facilityName}` : clinician
     }
   }
@@ -128,34 +131,38 @@ export function AccessLogCard() {
       if (shownPage.current !== from) { focusAfter(() => document.getElementById('access-log-more') ?? heading.current); return }
       setOlder({ events: [...older?.events ?? [], ...more.events], next: more.nextBefore })
       if (more.events.length === 0) {
-        setMoreNote(more.nextBefore ? 'No entries in this stretch of time. Show more to look further back.' : 'There are no older entries.')
+        setMoreNote(more.nextBefore ? 'Nothing found here. Tap Show more to look further back.' : 'There’s nothing older.')
       }
       // The first event added, or the button again when nothing new came, or the heading once there is nothing more.
       focusAfter(() => list.current?.querySelectorAll<HTMLElement>('li[tabindex]')[before]
         ?? document.getElementById('access-log-more') ?? heading.current)
     } catch (cause) {
-      setMoreError(isHidApiError(cause) ? cause.message : 'Older events could not be loaded.')
+      setMoreError(isHidApiError(cause) ? cause.message : 'Couldn’t load more. Try again.')
       focusAfter(() => document.getElementById('access-log-more'))
     } finally { setLoadingMore(false) }
   }
 
-  return <div className="patient-card" aria-busy={(first.loading && first.data !== null) || undefined}>
-    <h2 ref={heading} tabIndex={-1}>Who viewed or changed your record</h2>
-    <p className="patient-field-hint">Each time a clinician or facility opened or changed your health record, or was given or lost
-      access to it, newest first.</p>
-    {first.loading && first.data === null && <p role="status">Loading who viewed or changed your record…</p>}
-    {first.error && <div role="alert"><p>{first.error}</p>
-      <button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(first.reload)}>Try again</button></div>}
-    {page && !first.error && (events.length === 0 ? <p className="patient-empty">{next
-      ? 'No recent entries. Show more to look further back.' : 'No one has viewed or changed your record yet.'}</p>
-      : <ul ref={list} className="patient-list patient-access-log">{events.map(event => <li key={event.id} tabIndex={-1}><div>
-        <strong>{accessLogActor(event)}</strong>
-        <span>{WHAT[event.action]}</span>
-        <span><time dateTime={event.at}>{when(event.at)}</time></span>
-      </div></li>)}</ul>)}
-    {moreError && <p role="alert" className="patient-inline-error">{moreError}</p>}
-    <div role="status">{moreNote && <p className="patient-field-hint">{moreNote}</p>}</div>
-    {page && !first.error && next && <button id="access-log-more" type="button" className="patient-secondary-button"
-      disabled={loadingMore || first.loading} onClick={() => void showMore()}>{loadingMore ? 'Loading…' : 'Show more'}</button>}
-  </div>
+  return <Card aria-busy={(first.loading && first.data !== null) || undefined} aria-labelledby="access-log-heading">
+    <div className="border-b border-line px-5 py-4">
+      <h2 ref={heading} id="access-log-heading" tabIndex={-1} className="m-0 text-title-3 text-ink outline-none">Who viewed or changed your records</h2>
+      <p className="m-0 text-[13px] text-ink-3">Newest first.</p>
+    </div>
+    {first.loading && first.data === null && <LoadingRows rows={3} label="Loading activity" />}
+    {first.error && <div className="p-5"><LoadProblem what="activity" error={first.error} buttonRef={retryFocus.button} onRetry={() => retryFocus.retry(first.reload)} /></div>}
+    {page && !first.error && (events.length === 0 ? <p className="m-0 px-5 py-6 text-[13px] text-ink-3">{next
+      ? 'Nothing recent. Tap Show more to look further back.' : 'No one has viewed or changed your records yet.'}</p>
+      : <ul ref={list} className="m-0 list-none divide-y divide-line p-0">{events.map(event => <li key={event.id} tabIndex={-1} className="flex items-start gap-3 px-5 py-3.5 outline-none focus-visible:bg-subtle">
+        <div className="min-w-0 flex-1">
+          <p className="m-0 text-sm font-medium [overflow-wrap:anywhere] text-ink">{accessLogActor(event)}</p>
+          <p className="m-0 text-[13px] text-ink-3">{WHAT[event.action]}</p>
+        </div>
+        <time dateTime={event.at} className="shrink-0 text-[12px] text-ink-3">{when(event.at)}</time>
+      </li>)}</ul>)}
+    {(moreError || moreNote || (page && !first.error && next)) && <div className="flex flex-col items-start gap-2 border-t border-line px-5 py-3">
+      {moreError && <Problem>{moreError}</Problem>}
+      <div role="status" className="empty:hidden">{moreNote && <p className="m-0 text-[13px] text-ink-3">{moreNote}</p>}</div>
+      {page && !first.error && next && <Button id="access-log-more" size="sm" loading={loadingMore}
+        disabled={loadingMore || first.loading} onClick={() => void showMore()}>{loadingMore ? 'Loading…' : 'Show more'}</Button>}
+    </div>}
+  </Card>
 }

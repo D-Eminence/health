@@ -1,4 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { Alert, Button, Field, Input } from '../kasuwa/ui'
+import { Modal } from '../kasuwa/interactive'
 import { adminApi } from './api'
 import { failure, isProblem } from './problems'
 import { SIX_DIGIT_CODE_FIELD, isSixDigitCode, sixDigitCode } from '../mfa/codes'
@@ -6,12 +8,16 @@ import { SIX_DIGIT_CODE_FIELD, isSixDigitCode, sixDigitCode } from '../mfa/codes
 /** The administrator closed the confirmation: the action was not carried out. */
 export class StepUpCancelledError extends Error {
   constructor() {
-    super('Authenticator confirmation was cancelled, so the action was not carried out.')
+    super('You cancelled the code check, so nothing was changed.')
     this.name = 'StepUpCancelledError'
   }
 }
 
-export type RunWithStepUp = <T>(action: () => Promise<T>) => Promise<T>
+/**
+ * Runs a command, asking for an authenticator code if the backend requires one. `what` names the action the code
+ * protects, as a verb phrase ("suspend Demo Hospital"), so the dialog says what is being confirmed.
+ */
+export type RunWithStepUp = <T>(action: () => Promise<T>, what?: string) => Promise<T>
 
 const StepUpContext = createContext<RunWithStepUp | null>(null)
 
@@ -33,11 +39,13 @@ const STEP_UP_CODES = ['STEP_UP_REQUIRED', 'STEP_UP_EXPIRED'] as const
 export function StepUpProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
   const [expired, setExpired] = useState(false)
+  const [what, setWhat] = useState<string | undefined>(undefined)
   const pending = useRef<Pending | null>(null)
 
-  const confirm = useCallback((afterExpiry: boolean) => {
+  const confirm = useCallback((afterExpiry: boolean, action?: string) => {
     if (!pending.current) {
       setExpired(afterExpiry)
+      setWhat(action)
       let resolve!: () => void
       let reject!: (error: Error) => void
       const promise = new Promise<void>((onResolve, onReject) => { resolve = onResolve; reject = onReject })
@@ -47,12 +55,12 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
     return pending.current.promise
   }, [])
 
-  const run = useCallback<RunWithStepUp>(async action => {
+  const run = useCallback<RunWithStepUp>(async (action, label) => {
     try {
       return await action()
     } catch (error) {
       if (!STEP_UP_CODES.some(code => isProblem(error, code))) throw error
-      await confirm(isProblem(error, 'STEP_UP_EXPIRED'))
+      await confirm(isProblem(error, 'STEP_UP_EXPIRED'), label)
       return action()
     }
   }, [confirm])
@@ -73,7 +81,7 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
 
   return <StepUpContext.Provider value={run}>
     {children}
-    {open && <StepUpDialog expired={expired} onConfirmed={() => settle(true)} onCancel={() => settle(false)} />}
+    {open && <StepUpDialog expired={expired} what={what} onConfirmed={() => settle(true)} onCancel={() => settle(false)} />}
   </StepUpContext.Provider>
 }
 
@@ -83,7 +91,7 @@ export function useStepUp(): RunWithStepUp {
   return run
 }
 
-function StepUpDialog({ expired, onConfirmed, onCancel }: { expired: boolean; onConfirmed: () => void; onCancel: () => void }) {
+function StepUpDialog({ expired, what, onConfirmed, onCancel }: { expired: boolean; what?: string; onConfirmed: () => void; onCancel: () => void }) {
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -102,21 +110,19 @@ function StepUpDialog({ expired, onConfirmed, onCancel }: { expired: boolean; on
     } finally { setBusy(false) }
   }
 
-  return <div className="admin-dialog-backdrop">
-    <form className="admin-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-step-up-title"
-      onSubmit={event => void submit(event)} onKeyDown={event => { if (event.key === 'Escape' && !busy) onCancel() }}>
-      <h2 id="admin-step-up-title">Confirm it’s you</h2>
-      <p>This is a high-risk action. The server requires a code from your authenticator app from the last
-        5 minutes before it carries it out. Nothing has been changed yet.</p>
-      {expired && <p className="admin-note">Your last confirmation in this session is more than 5 minutes old.</p>}
-      <p className="admin-note">Recovery codes cannot confirm high-risk actions.</p>
-      <label>Authenticator code<input value={code} onChange={event => setCode(sixDigitCode(event.target.value))}
-        {...SIX_DIGIT_CODE_FIELD} required autoFocus /></label>
-      {error && <p role="alert" className="admin-error">{error}</p>}
-      <div className="admin-dialog-actions">
-        <button type="button" className="admin-secondary" onClick={onCancel} disabled={busy}>Cancel</button>
-        <button type="submit" className="admin-primary" disabled={busy || !valid}>{busy ? 'Checking…' : 'Confirm and continue'}</button>
-      </div>
+  return <Modal open size="sm" onClose={() => { if (!busy) onCancel() }} title="Confirm it’s you"
+    footer={<><Button onClick={onCancel} disabled={busy}>Cancel</Button>
+      <Button type="submit" form="admin-step-up-form" variant="primary" loading={busy} disabled={busy || !valid}>{busy ? 'Checking…' : 'Confirm and continue'}</Button></>}>
+    <form id="admin-step-up-form" onSubmit={event => void submit(event)} className="flex flex-col gap-4">
+      <p className="m-0 text-body text-ink">{what
+        ? <>To {what}, enter the 6-digit code from your authenticator app.</>
+        : <>Enter the 6-digit code from your authenticator app to continue.</>} Nothing has changed yet.</p>
+      {expired && <p className="m-0 text-caption text-ink-3">Your last code was more than 5 minutes ago.</p>}
+      <Field label="Authenticator code" htmlFor="admin-step-up-code" hint="Recovery codes can’t be used here.">
+        <Input id="admin-step-up-code" value={code} onChange={event => setCode(sixDigitCode(event.target.value))}
+          {...SIX_DIGIT_CODE_FIELD} required className="tracking-[.2em]" />
+      </Field>
+      {error && <Alert intent="error" size="sm">{error}</Alert>}
     </form>
-  </div>
+  </Modal>
 }

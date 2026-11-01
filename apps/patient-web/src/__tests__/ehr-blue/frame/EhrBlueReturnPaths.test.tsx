@@ -13,20 +13,25 @@ const ended = () => problem(401, 'AUTHENTICATION_REQUIRED', 'Valid authenticatio
 const many = <T,>(answer: T, count = 6): T[] => Array.from({ length: count }, () => answer)
 
 describe('the blue return list', () => {
-  it('names every page address the blue EHR serves that is not one of today\'s', async () => {
-    const [{ BLUE_PAGES }, { pageHrefOf }, { TODAY_PATHS }, { BLUE_RETURN_PATHS }, { NOVU_STAFF_RETURN_PATHS }] = await Promise.all([
+  it('names every page address the blue EHR serves that is not one of today\'s, and no design review page', async () => {
+    const [{ BLUE_PAGES }, { pageHrefOf }, { TODAY_PATHS, isDemoOnly }, { BLUE_RETURN_PATHS }, { NOVU_STAFF_RETURN_PATHS }] = await Promise.all([
       import('../../../ehr-blue/routes'), import('../../../ehr-blue/frame/pageHref'), import('../../../ehr-blue/frame/pages'),
       import('../../../ehr-blue/returnPaths'), import('../../../staff/session'),
     ])
     const today = new Set(['/provider', ...[...TODAY_PATHS].map(path => `/provider/${path}`), ...NOVU_STAFF_RETURN_PATHS])
-    const served = BLUE_PAGES.map(page => pageHrefOf(page)).filter(href => !today.has(href))
+    const served = BLUE_PAGES.filter(page => !isDemoOnly(page)).map(page => pageHrefOf(page)).filter(href => !today.has(href))
+    // The design review pages are there to leave out: only the demo facilities open them.
+    expect(BLUE_PAGES.filter(isDemoOnly).map(page => pageHrefOf(page))).toEqual(expect.arrayContaining(['/provider/whats-left', '/provider/tour']))
     // A page set that adds an address adds it here too, or a sign-in from that page goes to Home.
     expect([...BLUE_RETURN_PATHS].sort()).toEqual([...new Set(served)].sort())
   })
 
   it.each([
     ['/provider/appointments', '/provider/appointments'],
-    ['/provider/tour/sign-in', '/provider/tour/sign-in'],
+    ['/provider/laboratory/work', '/provider/laboratory/work'],
+    // Design review pages open only at the demo facilities: a clinic would be told the page is not open to it.
+    ['/provider/tour/sign-in', null],
+    ['/provider/whats-left', null],
     ['/provider/appointments/5a020001', null],
     ['/provider/appointments/', null],
     ['/provider/appointments?status=booked', null],
@@ -61,8 +66,9 @@ describe('signing in again from a blue page', () => {
     const again = await endOn('/provider/appointments')
     expect(again.getAttribute('href')).toBe('/provider/sign-in?returnTo=%2Fprovider%2Fappointments')
     fireEvent.click(again)
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Work email' }), { target: { value: 'demo.clinician@example.test' } })
-    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'fictional passphrase for tests' } })
+    // The blue sign-in, as every facility now has it (BLUE_FOR_ALL).
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Email' }), { target: { value: 'demo.clinician@example.test' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'fictional passphrase for tests' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     await waitFor(() => expect(where()).toBe('/provider/appointments'))
     expect(await screen.findByRole('heading', { level: 1, name: 'Appointments' })).toBeDefined()

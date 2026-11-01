@@ -63,6 +63,12 @@ const DESIGN_MODULE_VALUES: Record<string, Record<string, readonly string[]>> = 
       'Comfortable overnight, observations stable. Handed over to the day team.'],
     units: ['Not applicable', '500 mg', 'Not applicable'],
   },
+  // A purchase request's own reasons: not the clinical ones the shared table gives any "reason".
+  procurement: {
+    quantity: ['200', '50', '100'],
+    supplier: ['Fictional Medical Supplies Ltd', 'Example Surgical Ltd', 'Sample Pharma Distributors'],
+    reason: ['Below the reorder level', 'Monthly restock', 'New ward opening (fictional)'],
+  },
   icu: {
     reason: ['Monitoring after abdominal surgery', 'Pneumonia needing high-flow oxygen', 'Sepsis needing close observation'],
     team: ['ICU team A (fictional)', 'ICU team B (fictional)', 'ICU team A (fictional)'],

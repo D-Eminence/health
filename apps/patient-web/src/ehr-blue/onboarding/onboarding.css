@@ -1,0 +1,267 @@
+/*
+ * Facility setup (design screens/1-register-and-launch 14-22; the prototype's application.css .stepper, .form-grid,
+ * .department-grid, .checks and .details). Plain CSS: Tailwind does not scan ehr-blue. Every rule sits under .hid-ehr
+ * and uses this folder's prefix, hid-ehr-onboarding-.
+ */
+
+.hid-ehr .hid-ehr-onboarding {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.hid-ehr .hid-ehr-onboarding > .hid-ehr-page-heading,
+.hid-ehr .hid-ehr-onboarding > .hid-ehr-sample-banner {
+  margin-bottom: 0;
+}
+
+/* The stepper: one row of the design's secondary buttons, 12px, scrolling sideways on a narrow screen. */
+.hid-ehr .hid-ehr-onboarding-stepper {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0 0 6px;
+  overflow-x: auto;
+}
+
+.hid-ehr .hid-ehr-onboarding-stepper .hid-ehr-button {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+/* The step shown, as the screenshots draw it. */
+.hid-ehr .hid-ehr-onboarding-stepper .hid-ehr-button[aria-current='step'] {
+  border-color: var(--ehr-line-strong);
+  background: var(--ehr-surface-sunk);
+}
+
+.hid-ehr .hid-ehr-onboarding-step,
+.hid-ehr .hid-ehr-onboarding-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.hid-ehr .hid-ehr-onboarding-stack > .hid-ehr-sample-banner {
+  margin-bottom: 0;
+}
+
+.hid-ehr .hid-ehr-onboarding-text {
+  margin: 0;
+  color: var(--ehr-text);
+}
+
+.hid-ehr .hid-ehr-onboarding-text:empty {
+  display: none;
+}
+
+/*
+ * A status while it says nothing (the branch step's): out of the flow, so it adds no gap, but still rendered, so a
+ * screen reader already knows the live region and announces what it then says. Hidden with display: none, it would
+ * appear together with its words and often go unannounced.
+ */
+.hid-ehr .hid-ehr-onboarding-text.hid-ehr-onboarding-status:empty {
+  display: block;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.hid-ehr .hid-ehr-onboarding-link {
+  color: var(--ehr-brand);
+  text-decoration: none;
+}
+
+.hid-ehr .hid-ehr-onboarding-link:hover {
+  text-decoration: underline;
+}
+
+.hid-ehr .hid-ehr-onboarding-link:focus-visible,
+.hid-ehr .hid-ehr-onboarding-check-input:focus-visible,
+.hid-ehr .hid-ehr-onboarding-roles summary:focus-visible {
+  outline: var(--ehr-focus-ring-width) solid var(--ehr-focus-ring-color);
+  outline-offset: var(--ehr-focus-ring-offset);
+}
+
+/* The design's two-column form (18px apart, one column at 768px and narrower). */
+.hid-ehr .hid-ehr-onboarding-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.hid-ehr .hid-ehr-onboarding-full {
+  grid-column: 1 / -1;
+}
+
+.hid-ehr .hid-ehr-onboarding-half {
+  max-width: calc(50% - 9px);
+}
+
+.hid-ehr .hid-ehr-onboarding-problem {
+  margin: 0;
+  color: var(--ehr-critical);
+  font-size: 13px;
+}
+
+/* Checkboxes, their label beside them (the design's .checks). */
+.hid-ehr .hid-ehr-onboarding-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.hid-ehr .hid-ehr-onboarding-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ehr-ink);
+}
+
+.hid-ehr .hid-ehr-onboarding-check-input {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--ehr-brand);
+}
+
+/* The departments: bordered tiles, three across (two at 1000px and narrower, one on a phone). */
+.hid-ehr .hid-ehr-onboarding-departments {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-onboarding-department {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
+  align-items: start;
+  gap: 4px 8px;
+  padding: 12px;
+  border: 1px solid var(--ehr-line);
+  border-radius: var(--ehr-radius-md);
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-onboarding-department .hid-ehr-onboarding-check-input {
+  margin-top: 2px;
+}
+
+.hid-ehr .hid-ehr-onboarding-department strong {
+  color: var(--ehr-ink);
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-onboarding-department small {
+  grid-column: 1 / -1;
+  color: var(--ehr-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* The role templates: one disclosure row each, ruled below. */
+.hid-ehr .hid-ehr-onboarding-roles details {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--ehr-line);
+}
+
+.hid-ehr .hid-ehr-onboarding-roles summary {
+  color: var(--ehr-ink);
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-onboarding-roles details p {
+  margin: 8px 0 0;
+  color: var(--ehr-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* Today's Staff & access, inside a step. */
+.hid-ehr .hid-ehr-onboarding-embedded {
+  min-width: 0;
+}
+
+/* The review: the design's definition list (labels muted, 12px). */
+.hid-ehr .hid-ehr-onboarding-details {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr);
+  gap: 12px 18px;
+  margin: 0;
+}
+
+.hid-ehr .hid-ehr-onboarding-detail {
+  display: contents;
+}
+
+.hid-ehr .hid-ehr-onboarding-detail dt {
+  color: var(--ehr-muted);
+  font-size: 12px;
+}
+
+.hid-ehr .hid-ehr-onboarding-detail dd {
+  margin: 0;
+  color: var(--ehr-ink);
+  overflow-wrap: anywhere;
+}
+
+.hid-ehr .hid-ehr-onboarding-subheading {
+  margin: 0 0 8px;
+  color: var(--ehr-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* What stands before launch on Health ID itself, the facility check: the design's launch-blocker box (application.css .error). */
+.hid-ehr .hid-ehr-onboarding-blocker {
+  padding: 12px 16px;
+  border: 1px solid #e9bcb9;
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-danger-50);
+  color: var(--ehr-danger-text);
+}
+
+.hid-ehr .hid-ehr-onboarding-blocker p {
+  margin: 0;
+}
+
+@media (max-width: 1000px) {
+  .hid-ehr .hid-ehr-onboarding-departments {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-onboarding-grid,
+  .hid-ehr .hid-ehr-onboarding-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hid-ehr .hid-ehr-onboarding-half {
+    max-width: none;
+  }
+
+  .hid-ehr .hid-ehr-onboarding-details {
+    gap: 2px;
+  }
+
+  .hid-ehr .hid-ehr-onboarding-detail dd {
+    margin-bottom: 10px;
+  }
+}
+
+@media (max-width: 560px) {
+  .hid-ehr .hid-ehr-onboarding-departments {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

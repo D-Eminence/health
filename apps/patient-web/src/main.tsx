@@ -5,7 +5,11 @@ import { ToastProvider } from '@hid/ui'
 import { App } from './App'
 import { AppErrorBoundary } from './AppErrorBoundary'
 import { listenForInstallPrompt } from './installPrompt'
+import '@fontsource-variable/figtree'
 import './index.css'
+import { applySavedTheme } from './kasuwa/interactive'
+
+applySavedTheme()
 
 const container = document.getElementById('root')
 if (!container) throw new Error('Missing #root element')

@@ -5,6 +5,12 @@ import { HidApiError } from '@hid/http'
 import { ORGANIZATION_TYPE_NOTES, organizationTypeNote, ProviderEnrollment } from './ProviderEnrollment'
 import { focusWhenShown } from '../../__tests__/focusWhenShown'
 
+/** A step's name as read aloud: the redesign's number or tick beside it is hidden from assistive technology. */
+function stepLabel(item: Element): string {
+  return [...item.childNodes].filter(node => !(node instanceof Element && node.getAttribute('aria-hidden') === 'true'))
+    .map(node => node.textContent).join('')
+}
+
 /**
  * The portal's self-service provider enrollment (/provider/enroll), which the
  * public site's /provider/apply links to. hid-system's provider-enrollment
@@ -142,7 +148,7 @@ describe('provider enrollment', () => {
 
   it('keeps main\'s four steps and its authenticator wording, and asks no availability (main has none)', async () => {
     open()
-    expect([...screen.getByRole('list', { name: 'Provider enrollment steps' }).querySelectorAll('li')].map(item => item.textContent))
+    expect([...screen.getByRole('list', { name: 'Provider enrollment steps' }).querySelectorAll('li')].map(stepLabel))
       .toEqual(['Organization', 'Email confirmation', 'Password', 'Authenticator'])
     expect(screen.queryByText(/sign-ups get the Provider Portal for now/)).toBeNull()
     enterDetails()
@@ -235,7 +241,7 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
 
     await stepShown('Set up an authenticator app')
     expect(screen.getByText(/^Your provider account is active\./)).toBeTruthy()
-    expect(screen.getByRole('list', { name: 'Provider enrollment steps' }).querySelector('[aria-current="step"]')?.textContent).toBe('Authenticator')
+    expect(stepLabel(screen.getByRole('list', { name: 'Provider enrollment steps' }).querySelector('[aria-current="step"]')!)).toBe('Authenticator')
     // Activation is not a sign-in: nothing opens until the authenticator is set up.
     expect(reload).not.toHaveBeenCalled()
     expect(screen.queryByRole('heading', { name: 'Provider workspace' })).toBeNull()
@@ -349,7 +355,7 @@ describe('facility self sign-up on Novu (P4)', () => {
   beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
 
   const continueButton = () => screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement
-  const steps = () => [...screen.getByRole('list', { name: 'Provider enrollment steps' }).querySelectorAll('li')].map(item => item.textContent)
+  const steps = () => [...screen.getByRole('list', { name: 'Provider enrollment steps' }).querySelectorAll('li')].map(stepLabel)
 
   async function toDetails(entry?: string) {
     open(entry)

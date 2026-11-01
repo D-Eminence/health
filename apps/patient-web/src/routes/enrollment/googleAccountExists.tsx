@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { fallbackMessageForStatus, isHidApiError } from '@hid/http'
+import { Alert } from '../../kasuwa/ui'
 
 /**
  * Google on the sign-up page (POST auth/oidc/exchange with intent `enroll`) for a Google email that already belongs to
@@ -27,8 +28,5 @@ export function existingAccount(reason: unknown): ExistingAccount | null {
 
 /** The refusal, with the way to sign in, as one alert. */
 export function ExistingAccountAlert({ account }: { account: ExistingAccount }) {
-  return <div role="alert" className="auth-alert">
-    <p className="patient-inline-error">{account.text}</p>
-    <p className="patient-field-hint"><Link to="/sign-in">{account.link}</Link></p>
-  </div>
+  return <Alert intent="error">{account.text} <Link to="/sign-in">{account.link}</Link></Alert>
 }

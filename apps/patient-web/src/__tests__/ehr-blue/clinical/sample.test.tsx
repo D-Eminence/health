@@ -1,0 +1,666 @@
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { CONFIRM_BODY } from '../../../ehr-blue/clinical/parts/Detail'
+import { SAMPLE_NOTICE } from '../../../ehr-blue/clinical/parts/SampleBanner'
+import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
+import { SAMPLE_DEFINITIONS, SAMPLE_WORKSPACE_IDS } from '../../../ehr-blue/clinical/sample/definitions'
+import { FILE_TOO_LARGE } from '../../../ehr-blue/clinical/sample/SampleDetail'
+import { IDS } from '../../../ehr-blue/clinical/sample/seed'
+import { createSampleRecord, sampleState } from '../../../ehr-blue/clinical/sample/store'
+import { SampleCreate, SampleDetail, SampleList, SampleWorkspace, resetSampleStore, sampleStatus } from '../../../ehr-blue/clinical/sample/SampleWorkspace'
+import { BASE, FACILITY_ID, labelled, renderPage } from './harness'
+
+/**
+ * The sample engine: 14 sample-only workspaces (and the emergency board) drawn from one definition each, with
+ * fictional records in memory only. Nothing here may reach today's API: the staff/api mock records whether anything
+ * even imports it, and its staffApi throws when touched. The staff session's generation and the working facility
+ * are set per test, so the store can be seen starting again in another session or at another facility.
+ */
+
+const touched = vi.hoisted(() => ({ api: false }))
+const staff = vi.hoisted(() => ({
+  permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn(() => true), facilityId: null as string | null,
+}))
+const session = vi.hoisted(() => ({ generation: 1 }))
+
+vi.mock('../../../staff/api', () => {
+  touched.api = true
+  return {
+    staffApi: new Proxy({}, { get: (_target, name) => { if (name === 'then') return undefined; throw new Error(`staffApi.${String(name)} was called by a sample page`) } }),
+    isAllowedPatientLookup: () => false,
+  }
+})
+vi.mock('../../../staff/App', async () => {
+  const harness = await import('./harness')
+  return {
+    useStaff: () => {
+      const value = harness.staffValue(staff as never)
+      if (!staff.facilityId) return value
+      const { actor } = value.state.session
+      return { ...value, state: { ...value.state, session: { actor: { ...actor, facility: { ...actor.facility, id: staff.facilityId } } } } }
+    },
+  }
+})
+vi.mock('../../../staff/session', () => ({ staffSessionGeneration: () => session.generation }))
+
+const network = vi.fn()
+
+beforeEach(() => {
+  resetSampleStore()
+  session.generation = 1
+  staff.facilityId = null
+  document.title = 'Health ID'
+  vi.stubGlobal('fetch', network)
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+function open(id: string, rest = '') {
+  return renderPage(<SampleWorkspace id={id} />, id, rest)
+}
+
+function field(label: string, scope: HTMLElement = document.body) {
+  return within(scope).getByLabelText(labelled(label)) as HTMLInputElement
+}
+
+function heading() {
+  return screen.getByRole('heading', { level: 1 }).textContent
+}
+
+function actionsCard() {
+  return screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
+}
+
+function Where() {
+  return <p data-testid="elsewhere">{useLocation().pathname}</p>
+}
+
+/** Several sample workspaces under one router, as the frame mounts them. */
+function openMany(entry: string, ids: readonly string[]) {
+  return render(
+    <MemoryRouter initialEntries={[entry]}>
+      <Routes>
+        {ids.map(id => <Route key={id} path={`${BASE}/${id}/*`} element={<SampleWorkspace id={id} />} />)}
+        <Route path="*" element={<Where />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+describe('sample engine', () => {
+  it('is sample, and nothing reaches today’s API or the network', () => {
+    expect(sampleStatus).toBe('sample')
+    open('appointments')
+    fireEvent.click(screen.getByRole('button', { name: 'Quick view Review of results' }))
+    expect(touched.api).toBe(false)
+    expect(network).not.toHaveBeenCalled()
+  })
+
+  it('shows the sample notice exactly once on every sample workspace, above the sidebar label', () => {
+    for (const id of SAMPLE_WORKSPACE_IDS) {
+      const view = open(id)
+      expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
+      expect(document.querySelector('.hid-ehr-sample-banner[data-ehr-sample]')?.textContent).toBe(SAMPLE_NOTICE)
+      expect(heading()).toBe(SAMPLE_DEFINITIONS[id]!.title)
+      expect(screen.getByRole('button', { name: 'New record' })).toBeTruthy()
+      view.unmount()
+    }
+  })
+
+  it('lists the design’s fictional rows in five columns', () => {
+    open('appointments')
+    const table = screen.getByRole('table', { name: 'Appointments' })
+    const headers = within(table).getAllByRole('columnheader').map(cell => cell.textContent)
+    expect(headers.slice(0, 4)).toEqual(['Record', 'Patient / context', 'Status', 'Updated'])
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(rows.map(row => within(row).getByRole('link', { name: /^(?!Open)/ }).textContent)).toEqual([
+      'Review of results', 'Medication review', 'Patient requested another day', 'Antenatal review',
+    ])
+    expect(rows[0]!.textContent).toContain('0b048a1b')
+    expect(rows[0]!.textContent).toContain('Taylor Fiction')
+    expect(rows[0]!.textContent).toContain('Checked-in')
+    expect(within(rows[0]!).getByRole('link', { name: 'Open Review of results' }).getAttribute('href')).toBe(`${BASE}/appointments/${IDS.apptTaylor}`)
+  })
+
+  it('lists ICU admissions under Inpatient / Wards too, and a bed’s own name as its context', () => {
+    const view = open('inpatient')
+    expect(within(screen.getByRole('table')).getByRole('link', { name: 'Close monitoring (fictional)' })).toBeTruthy()
+    view.unmount()
+    open('wards')
+    const cells = within(within(screen.getByRole('table')).getAllByRole('row')[1]!).getAllByRole('cell')
+    expect(cells[0]!.textContent).toBe('Bed 17fe7785d')
+    expect(cells[1]!.textContent).toBe('Bed 1')
+  })
+
+  it('searches saved values and patient names; Clear search restores the list and returns focus', () => {
+    open('appointments')
+    const search = screen.getByRole('searchbox', { name: 'Search Appointments' }) as HTMLInputElement
+    expect(search.placeholder).toBe('Search saved records…')
+    expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull()
+
+    fireEvent.change(search, { target: { value: 'jordan' } })
+    expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(2)
+    fireEvent.change(search, { target: { value: 'MRN-000004' } })
+    expect(within(screen.getByRole('table')).getByRole('link', { name: 'Patient requested another day' })).toBeTruthy()
+
+    fireEvent.change(search, { target: { value: 'nothing like this' } })
+    expect(screen.getByText('No matching records')).toBeTruthy()
+    expect(screen.getByText('Change your search.')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(search.value).toBe('')
+    expect(document.activeElement).toBe(search)
+    expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(5)
+  })
+
+  it.each(['appointments', 'journey', 'radiology'])('item 12: shows the sample notice first in the record quick view on %s', id => {
+    open(id)
+    fireEvent.click(screen.getAllByRole('button', { name: /^Quick view / })[0]!)
+    const drawer = screen.getByRole('dialog', { name: 'Record quick view' })
+    const notice = within(drawer).getByText(SAMPLE_NOTICE)
+    const content = drawer.querySelector('.hid-ehr-clinical-quick')!
+    expect(content.firstElementChild).toBe(notice.closest('[data-ehr-sample]'))
+  })
+
+  it('opens the record quick view, which Escape closes, and Open full record goes to the record', async () => {
+    open('nursing-tasks')
+    fireEvent.click(screen.getByRole('button', { name: 'Quick view 4-hourly observations' }))
+    const drawer = screen.getByRole('dialog', { name: 'Record quick view' })
+    expect(within(drawer).getByRole('heading', { name: '4-hourly observations' })).toBeTruthy()
+    expect(drawer.textContent).toContain('Assigned to')
+    expect(drawer.textContent).toContain('Observation (fictional)')
+    fireEvent.keyDown(drawer, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Record quick view' })).toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Quick view Wound dressing check' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Record quick view' })).getByRole('button', { name: 'Open full record' }))
+    await waitFor(() => expect(heading()).toBe('Wound dressing check'))
+  })
+
+  it('pages over 50 records', () => {
+    for (let index = 0; index < 51; index += 1) createSampleRecord('ward-config', undefined, { name: `Fictional ward ${index + 1}` })
+    open('ward-config')
+    const pager = screen.getByRole('navigation', { name: 'Record pages' })
+    expect(pager.textContent).toContain('Page 1 of 2')
+    expect((within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(51)
+    fireEvent.click(within(pager).getByRole('button', { name: 'Next page' }))
+    expect(screen.getByRole('navigation', { name: 'Record pages' }).textContent).toContain('Page 2 of 2')
+    expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(4)
+  })
+
+  it('creates a patient record: the fields appear once a patient is chosen, required ones are checked', async () => {
+    open('appointments')
+    fireEvent.click(screen.getByRole('button', { name: 'New record' }))
+    expect(heading()).toBe('New appointments')
+    const patient = field('Patient') as unknown as HTMLSelectElement
+    expect(patient.tagName).toBe('SELECT')
+    expect(patient.options[0]!.textContent).toBe('Select registered patient')
+    expect(Array.from(patient.options).map(option => option.textContent)).toContain('Jordan Sample · LOCAL-902ae015')
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+
+    fireEvent.change(patient, { target: { value: sampleState().patients[2]!.id } })
+    const save = screen.getByRole('button', { name: 'Save' })
+    expect(save.getAttribute('type')).toBe('submit')
+    fireEvent.submit(save.closest('form')!)
+    expect(screen.getAllByText('Complete this field.')).toHaveLength(4)
+    expect(document.activeElement).toBe(field('Appointment time'))
+
+    fireEvent.change(field('Appointment time'), { target: { value: '2026-11-12T09:00' } })
+    fireEvent.change(field('Clinician'), { target: { value: '28c11bae-61a6-4843-9291-664517bfa63e' } })
+    fireEvent.change(field('Department'), { target: { value: 'Cardiology' } })
+    fireEvent.change(field('Reason'), { target: { value: 'Fictional heart check' } })
+    fireEvent.submit(save.closest('form')!)
+
+    await waitFor(() => expect(heading()).toBe('Fictional heart check'))
+    expect(screen.getByText('Jordan Sample · LOCAL-902ae015')).toBeTruthy()
+    expect(within(screen.getByRole('heading', { name: 'Saved record' }).closest('section')!).getByText('Cardiology')).toBeTruthy()
+    expect(screen.getByText('Booked')).toBeTruthy()
+  })
+
+  it('creates a record with no patient straight away, and Back to list returns', async () => {
+    open('wards', '/new')
+    expect(heading()).toBe('New wards & beds')
+    expect(screen.queryByLabelText(labelled('Patient'))).toBeNull()
+    const ward = field('Ward') as unknown as HTMLSelectElement
+    expect(Array.from(ward.options).map(option => option.textContent)).toEqual(['Select…', 'Example ward · active · be31b8', 'Female Medical Ward · active · a7fc95'])
+    fireEvent.change(field('Bed name'), { target: { value: 'Bed 3' } })
+    fireEvent.change(ward, { target: { value: IDS.wardFemale } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Save' }).closest('form')!)
+    await waitFor(() => expect(heading()).toBe('Bed 3'))
+    expect(screen.getByText('Available')).toBeTruthy()
+    expect(screen.getByText('Female Medical Ward')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'History' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    await waitFor(() => expect(heading()).toBe('Wards & Beds'))
+    expect(within(screen.getByRole('table')).getByRole('link', { name: 'Bed 3' })).toBeTruthy()
+  })
+
+  it('shows the design’s refusals when a booking clashes or an order’s encounter is unsigned', async () => {
+    const view = open('appointments', '/new')
+    fireEvent.change(field('Patient'), { target: { value: sampleState().patients[1]!.id } })
+    fireEvent.change(field('Appointment time'), { target: { value: '2026-11-04T10:15' } })
+    fireEvent.change(field('Clinician'), { target: { value: '28c11bae-61a6-4843-9291-664517bfa63e' } })
+    fireEvent.change(field('Department'), { target: { value: 'General Outpatient' } })
+    fireEvent.change(field('Reason'), { target: { value: 'Clash' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Save' }).closest('form')!)
+    expect((await screen.findByRole('alert')).textContent).toBe('Clinician already has an overlapping 30-minute appointment.')
+    expect(heading()).toBe('New appointments')
+    view.unmount()
+
+    open('radiology', '/new')
+    fireEvent.change(field('Patient'), { target: { value: sampleState().patients[3]!.id } })
+    const encounter = field('Encounter') as unknown as HTMLSelectElement
+    expect(Array.from(encounter.options).map(option => option.textContent)).toEqual(['Select…', '4fe5735c · draft · 4fe573'])
+    expect((field('Urgency') as unknown as HTMLSelectElement).value).toBe('Routine')
+    fireEvent.change(encounter, { target: { value: encounter.options[1]!.value } })
+    fireEvent.change(field('Modality'), { target: { value: 'Fictional scan' } })
+    fireEvent.change(field('Indication'), { target: { value: 'Fictional' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Save' }).closest('form')!)
+    expect((await screen.findByRole('alert')).textContent).toBe('Sign the encounter before issuing clinical orders.')
+  })
+
+  it('runs a one-step action, keeps the earlier version and links the new visit', async () => {
+    open('appointments', `/${IDS.apptJordan}`)
+    expect(heading()).toBe('Medication review')
+    const card = actionsCard()
+    expect(within(card).getAllByRole('button').map(button => button.textContent)).toEqual(['Reschedule', 'Check in', 'Cancel appointment', 'Mark no-show'])
+    fireEvent.click(within(card).getByRole('button', { name: 'Check in' }))
+    expect(within(card).getByRole('button', { name: 'Check in', expanded: true })).toBeTruthy()
+    const submit = within(card).getAllByRole('button', { name: 'Check in' }).find(button => button.getAttribute('type') === 'submit')!
+    fireEvent.submit(submit.closest('form')!)
+
+    await waitFor(() => expect(screen.getByText('Checked-in')).toBeTruthy())
+    expect(within(actionsCard()).getByText('Nothing more to do here.')).toBeTruthy()
+    expect(document.activeElement?.classList.contains('hid-ehr-clinical-sample-actions')).toBe(true)
+    const versions = screen.getByRole('heading', { name: 'Earlier versions' }).closest('section')!
+    expect(versions.textContent).toMatch(/\d{4}-\d{2}-\d{2}T[\d:.]+Z · booked · Check in/)
+    const history = screen.getByRole('heading', { name: 'History' }).closest('section')!
+    expect(within(history).getByText('Only records your role can see are listed.')).toBeTruthy()
+    expect(within(history).getByRole('link', { name: 'Patient visits · Medication review' })).toBeTruthy()
+    expect(within(history).getByRole('link', { name: 'Referral Network · Specialist review' }).getAttribute('href')).toBe(`${BASE}/referrals/${IDS.referral}`)
+  })
+
+  it('asks before cancelling; Cancel keeps the typed reason, confirming changes and renames the record', async () => {
+    open('appointments', `/${IDS.apptRiley}`)
+    fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Cancel appointment' }))
+    const form = () => within(actionsCard()).getAllByRole('button', { name: 'Cancel appointment' }).find(button => button.getAttribute('type') === 'submit')!.closest('form')!
+    fireEvent.submit(form())
+    expect(within(actionsCard()).getByText('Complete this field.')).toBeTruthy()
+    fireEvent.change(field('Reason', actionsCard()), { target: { value: 'Fictional clash' } })
+    fireEvent.submit(form())
+
+    const dialog = await screen.findByRole('alertdialog', { name: 'Cancel appointment?' })
+    expect(dialog.textContent).toContain(CONFIRM_BODY)
+    expect(within(dialog).queryByLabelText(/Type .* to confirm/)).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(field('Reason', actionsCard()).value).toBe('Fictional clash')
+    expect(screen.getByText('Booked')).toBeTruthy()
+
+    fireEvent.submit(form())
+    fireEvent.click(within(await screen.findByRole('alertdialog', { name: 'Cancel appointment?' })).getByRole('button', { name: 'Cancel appointment' }))
+    await waitFor(() => expect(heading()).toBe('Fictional clash'))
+    expect(screen.getByText('Cancelled')).toBeTruthy()
+    expect(screen.getByText(/· booked · Fictional clash$/)).toBeTruthy()
+  })
+
+  it('refuses an occupied bed, then admits to a bed made free', async () => {
+    const view = open('inpatient', `/${IDS.admitSam}`)
+    fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Admit and allocate bed' }))
+    const bed = field('Available bed', actionsCard()) as unknown as HTMLSelectElement
+    expect(Array.from(bed.options).map(option => option.textContent)).toEqual(['Select…', 'Bed 1 · occupied · 7fe778', 'Bed 2 · occupied · 359163'])
+    fireEvent.change(bed, { target: { value: IDS.bed1 } })
+    fireEvent.submit(bed.closest('form')!)
+    expect((await within(actionsCard()).findByRole('alert')).textContent).toBe('Bed is occupied, awaiting cleaning or in maintenance.')
+    view.unmount()
+
+    const created = createSampleRecord('wards', undefined, { name: 'Bed 9', ward: IDS.wardExample })
+    if (!('id' in created)) throw new Error(created.error)
+    open('inpatient', `/${IDS.admitSam}`)
+    fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Admit and allocate bed' }))
+    fireEvent.change(field('Available bed', actionsCard()), { target: { value: created.id } })
+    fireEvent.submit(field('Available bed', actionsCard()).closest('form')!)
+    await waitFor(() => expect(screen.getByText('Admitted')).toBeTruthy())
+    expect(within(screen.getByRole('heading', { name: 'Saved record' }).closest('section')!).getByText('Bed 9')).toBeTruthy()
+    expect(sampleState().records.find(record => record.id === created.id)!.status).toBe('occupied')
+  })
+
+  it('hands off to Nursing tasks with the patient and admission chosen', async () => {
+    openMany(`${BASE}/inpatient/${IDS.admitTaylor}`, ['inpatient', 'nursing-tasks'])
+    expect(screen.getByRole('heading', { name: 'Continue care' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Create nursing tasks' }))
+    await waitFor(() => expect(heading()).toBe('New nursing tasks'))
+    expect((field('Patient') as unknown as HTMLSelectElement).value).toBe(sampleState().patients[1]!.id)
+    expect((field('Admission') as unknown as HTMLSelectElement).value).toBe(IDS.admitTaylor)
+    expect(sampleState().handoff).toBeNull()
+  })
+
+  it('lists the same patient’s records in other workspaces as connected history (inpatient-3-detail1.png)', () => {
+    open('inpatient', `/${IDS.admitTaylor}`)
+    const history = screen.getByRole('heading', { name: 'History' }).closest('section')!
+    expect(within(history).getAllByRole('link').map(link => link.textContent)).toEqual([
+      'Appointments · Review of results', 'Patient visits · b57e94c9', 'Patient visits · Review of results', 'Triage & Vitals · 329417b6',
+      'Consultation · fd276688', 'Laboratory · Malaria parasite test', 'Laboratory · Blood culture', 'Radiology · Abdominal ultrasound',
+      'Pharmacy · fe7be2ce', 'Nursing observations · 637d9f70', 'Nursing observations · 76354f18', 'Dental · 503fafd8',
+      'Nursing tasks · 4-hourly observations', 'Nursing tasks · Wound dressing check',
+    ])
+    expect(within(history).getByRole('link', { name: 'Appointments · Review of results' }).getAttribute('href')).toBe(`${BASE}/appointments/${IDS.apptTaylor}`)
+  })
+
+  it('hand-off 09: the visit page as the design draws it, with the bare "Continue care" (its live hand-offs are not offered)', () => {
+    open('journey', `/${IDS.visitTaylor}`)
+    expect(heading()).toBe('b57e94c9')
+    expect(screen.getByText('Consulting')).toBeTruthy()
+    expect(screen.getByText('Taylor Fiction · LOCAL-aeac58e6')).toBeTruthy()
+    const saved = screen.getByRole('heading', { name: 'Saved record' }).closest('section')!
+    expect(Array.from(saved.querySelectorAll('dt')).map(term => term.textContent)).toEqual(['Complaint', 'Department', 'Clinician'])
+    expect(within(saved).getByText('Persistent fever and headache')).toBeTruthy()
+    const actions = actionsCard()
+    expect(within(actions).getAllByRole('button').map(button => button.textContent)).toEqual(['Assign / transfer queue', 'Complete visit'])
+    expect(within(actions).getByRole('heading', { level: 3, name: 'Continue care' })).toBeTruthy()
+    expect(within(actions).queryByRole('button', { name: 'Create triage & vitals' })).toBeNull()
+    expect(within(actions).queryByRole('button', { name: 'Create consultation' })).toBeNull()
+    expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
+  })
+
+  it('hand-off 02: New patient visits carries no patient in (a live patient never enters a sample); its fields appear once a fictional one is chosen', async () => {
+    open('journey', '/new')
+    expect(heading()).toBe('New patient visits')
+    const patient = field('Patient') as unknown as HTMLSelectElement
+    expect(patient.value).toBe('')
+    expect(patient.options[0]!.textContent).toBe('Select registered patient')
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+    fireEvent.change(patient, { target: { value: sampleState().patients[1]!.id } })
+    expect(patient.selectedOptions[0]!.textContent).toBe('Taylor Fiction · LOCAL-aeac58e6')
+    const form = screen.getByRole('button', { name: 'Save' }).closest('form')!
+    expect(Array.from(form.querySelectorAll('label')).map(label => label.textContent)).toEqual(['Presenting complaint *', 'Department *', 'Clinician'])
+    fireEvent.submit(form)
+    expect(screen.getAllByText('Complete this field.')).toHaveLength(2)
+    expect(document.activeElement).toBe(field('Presenting complaint'))
+    fireEvent.change(field('Presenting complaint'), { target: { value: 'Fictional cough' } })
+    const department = field('Department') as unknown as HTMLSelectElement
+    fireEvent.change(department, { target: { value: department.options[1]!.value } })
+    fireEvent.submit(form)
+    await waitFor(() => expect(screen.getByText('Waiting')).toBeTruthy())
+    expect(screen.getByRole('heading', { level: 3, name: 'Continue care' })).toBeTruthy()
+    expect(screen.getByText('Taylor Fiction · LOCAL-aeac58e6')).toBeTruthy()
+  })
+
+  it('shows a visit’s history only from records it started, and the journey footnote under the list', () => {
+    const view = open('journey')
+    expect(screen.getByText(/^Journey stages are derived from visits/)).toBeTruthy()
+    view.unmount()
+    // Hand-off 09: Taylor's visit b57e94c9 lists what was started from it: the sample ultrasound (scheduled) and, owner
+    // decision 3, the design's fictional triage, consultation, lab and pharmacy rows (never a live record).
+    const visit = open('journey', `/${IDS.visitTaylor}`)
+    const history = screen.getByRole('heading', { name: 'History' }).closest('section')!
+    expect(within(history).getAllByRole('link').map(link => link.textContent)).toEqual([
+      'Triage & Vitals · 329417b6', 'Consultation · fd276688', 'Laboratory · Malaria parasite test', 'Laboratory · Blood culture',
+      'Radiology · Abdominal ultrasound', 'Pharmacy · fe7be2ce',
+    ])
+    expect(within(history).getByRole('link', { name: 'Radiology · Abdominal ultrasound' }).getAttribute('href')).toBe(`${BASE}/radiology/${IDS.ultrasound}`)
+    expect(within(history).getByText('Scheduled')).toBeTruthy()
+    visit.unmount()
+    // Another visit of the same patient started nothing.
+    open('journey', `/${IDS.visitCheckedIn}`)
+    const other = screen.getByRole('heading', { name: 'History' }).closest('section')!
+    expect(within(other).queryAllByRole('link')).toHaveLength(0)
+  })
+
+  it('keeps every earlier version, each with its author and values', () => {
+    open('radiology', `/${IDS.xray}`)
+    const versions = screen.getByRole('heading', { name: 'Earlier versions' }).closest('section')!
+    const summaries = Array.from(versions.querySelectorAll('summary')).map(summary => summary.textContent)
+    expect(summaries).toEqual([
+      '2026-10-26T11:41:15.455Z · ordered · Schedule examination',
+      '2026-10-26T11:41:15.471Z · scheduled · Record examination',
+      '2026-10-26T11:41:15.489Z · examined · Attach local study',
+      '2026-10-26T11:41:15.505Z · study-attached · Draft report',
+      '2026-10-26T11:41:15.521Z · draft-report · Review report',
+      '2026-10-26T11:41:15.539Z · reviewed · Publish report',
+    ])
+    expect(versions.textContent).toContain('Author: Demo Doctor (fictional)')
+    const saved = screen.getByRole('heading', { name: 'Saved record' }).closest('section')!
+    expect(saved.textContent).toContain('Published at')
+    expect(within(saved).getByText('5f459730')).toBeTruthy()
+  })
+
+  /** A "Saved record" value by its label. */
+  function savedValue(label: string) {
+    const saved = screen.getByRole('heading', { name: 'Saved record' }).closest('section')!
+    const term = Array.from(saved.querySelectorAll('dt')).find(item => item.textContent === label)
+    return term?.nextElementSibling?.textContent
+  }
+
+  it.each([
+    ['telemedicine', IDS.telemedicine, '2026-10-26T11:41:14.563Z · booked · Enter local waiting room'],
+    ['maternity', IDS.maternity, '2026-10-26T11:41:14.490Z · enrolled · Antenatal observation'],
+    ['surgery', IDS.surgery, '2026-10-26T11:41:14.514Z · requested · Schedule procedure'],
+    ['dental', IDS.dental, '2026-10-26T11:41:14.538Z · booked · Record assessment'],
+    ['referrals', IDS.referral, '2026-10-26T11:41:14.585Z · draft · Send simulated referral'],
+    ['bloodbank', IDS.bloodScreened, '2026-10-26T11:41:15.258Z · quarantine · Record screening review'],
+    ['radiology', IDS.ultrasound, '2026-10-26T11:41:15.554Z · ordered · Schedule examination'],
+  ])('shows the design’s version time on the %s record', (id, recordId, summary) => {
+    open(id, `/${recordId}`)
+    const versions = screen.getByRole('heading', { name: 'Earlier versions' }).closest('section')!
+    expect(Array.from(versions.querySelectorAll('summary')).map(item => item.textContent)).toEqual([summary])
+  })
+
+  it('shows the design’s telemedicine id and Abdominal ultrasound values', () => {
+    const view = open('telemedicine')
+    const row = within(screen.getByRole('table')).getAllByRole('row')[1]!
+    expect(within(row).getByRole('link', { name: 'Open Remote follow-up' }).getAttribute('href')).toBe(`${BASE}/telemedicine/${IDS.telemedicine}`)
+    expect(row.textContent).toContain('9426ba7f')
+    view.unmount()
+
+    open('radiology', `/${IDS.ultrasound}`)
+    expect(heading()).toBe('Abdominal ultrasound')
+    expect(savedValue('Indication')).toBe('Abdominal pain')
+    expect(savedValue('Scheduled')).toBe('2026-11-03T09:30')
+    expect(savedValue('Urgency')).toBe('Routine')
+  })
+
+  it('attaches a study by choosing a file it never reads, refusing a large one', async () => {
+    open('radiology', `/${IDS.ultrasound}`)
+    fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Record examination' }))
+    fireEvent.change(field('Examination details', actionsCard()), { target: { value: 'Fictional exam' } })
+    fireEvent.submit(field('Examination details', actionsCard()).closest('form')!)
+    await waitFor(() => expect(screen.getByText('Examined')).toBeTruthy())
+
+    fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Attach local study' }))
+    const input = field('Image or PDF (max 2 MB)', actionsCard())
+    expect(input.type).toBe('file')
+    fireEvent.submit(input.closest('form')!)
+    expect(within(actionsCard()).getByText('Complete this field.')).toBeTruthy()
+    expect(document.activeElement).toBe(input)
+    await act(async () => {})
+
+    const large = new File(['x'], 'large.pdf', { type: 'application/pdf' })
+    Object.defineProperty(large, 'size', { value: 3 * 1024 * 1024 })
+    fireEvent.change(input, { target: { files: [large] } })
+    expect(within(actionsCard()).getByText(FILE_TOO_LARGE)).toBeTruthy()
+
+    fireEvent.change(input, { target: { files: [new File(['%PDF'], 'study.pdf', { type: 'application/pdf' })] } })
+    fireEvent.submit(input.closest('form')!)
+    await waitFor(() => expect(screen.getByText('Study-attached')).toBeTruthy())
+    expect(screen.getByText('Local PDF study chosen (sample: not uploaded)')).toBeTruthy()
+  })
+
+  it('records a delivery with a provisional newborn identity', async () => {
+    open('maternity', `/${IDS.maternity}`)
+    fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Record delivery' }))
+    fireEvent.change(field('Delivery record', actionsCard()), { target: { value: 'Fictional delivery' } })
+    fireEvent.change(field('Newborn name (creates provisional identity)', actionsCard()), { target: { value: 'Baby Demo' } })
+    fireEvent.submit(field('Delivery record', actionsCard()).closest('form')!)
+    await waitFor(() => expect(screen.getByText('Delivered')).toBeTruthy())
+    const saved = screen.getByRole('heading', { name: 'Saved record' }).closest('section')!
+    expect(saved.textContent).toContain('Newborn identity')
+    expect(sampleState().patients.find(patient => patient.name === 'Baby Demo')?.provisional).toBe(true)
+  })
+
+  it('shows the design’s missing-record page', () => {
+    open('surgery', '/not-a-record')
+    expect(heading()).toBe('Record not found')
+    expect(screen.getByText('This record doesn’t exist, or it belongs to another facility.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Back to list' })).toBeTruthy()
+  })
+
+  it('starts again from the seed on reset (as on reload)', () => {
+    createSampleRecord('ward-config', undefined, { name: 'Temporary ward' })
+    expect(sampleState().records.some(record => record.data.name === 'Temporary ward')).toBe(true)
+    act(() => resetSampleStore())
+    expect(sampleState().records.some(record => record.data.name === 'Temporary ward')).toBe(false)
+    open('ward-config')
+    expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(3)
+  })
+
+  /** "Temporary ward", saved through the create page; its list then has 3 rows below the header. */
+  async function saveTemporaryWard() {
+    const view = open('ward-config', '/new')
+    fireEvent.change(field('Ward name'), { target: { value: 'Temporary ward' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Save' }).closest('form')!)
+    await waitFor(() => expect(heading()).toBe('Temporary ward'))
+    view.unmount()
+  }
+
+  function wardNames() {
+    return within(screen.getByRole('table')).getAllByRole('row').slice(1).map(row => within(row).getByRole('link', { name: /^(?!Open)/ }).textContent)
+  }
+
+  it('keeps what was saved across its pages in the same staff session and facility', async () => {
+    await saveTemporaryWard()
+    open('ward-config')
+    expect(wardNames()).toEqual(['Example ward', 'Female Medical Ward', 'Temporary ward'])
+  })
+
+  it('starts again from the seed when a page reads it in another staff session', async () => {
+    await saveTemporaryWard()
+    session.generation = 2
+    open('ward-config')
+    expect(wardNames()).toEqual(['Example ward', 'Female Medical Ward'])
+    expect(sampleState().records.some(record => record.data.name === 'Temporary ward')).toBe(false)
+  })
+
+  it('starts again from the seed at another facility, typed newborn names and hand-offs included', async () => {
+    const view = open('maternity', `/${IDS.maternity}`)
+    fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Record delivery' }))
+    fireEvent.change(field('Delivery record', actionsCard()), { target: { value: 'Fictional delivery' } })
+    fireEvent.change(field('Newborn name (creates provisional identity)', actionsCard()), { target: { value: 'Baby Demo' } })
+    fireEvent.submit(field('Delivery record', actionsCard()).closest('form')!)
+    await waitFor(() => expect(screen.getByText('Delivered')).toBeTruthy())
+    view.unmount()
+    const other = openMany(`${BASE}/inpatient/${IDS.admitTaylor}`, ['inpatient'])
+    fireEvent.click(screen.getByRole('button', { name: 'Create nursing tasks' }))
+    expect(sampleState().handoff?.workspace).toBe('nursing-tasks')
+    other.unmount()
+
+    staff.facilityId = 'facility-demo-laboratory'
+    open('nursing-tasks', '/new')
+    const patient = field('Patient') as unknown as HTMLSelectElement
+    expect(patient.value).toBe('')
+    expect(Array.from(patient.options).map(option => option.textContent).some(text => text?.startsWith('Baby Demo'))).toBe(false)
+    expect(sampleState().patients.some(person => person.name === 'Baby Demo')).toBe(false)
+    expect(sampleState().records.find(record => record.id === IDS.maternity)!.status).toBe('observed')
+    expect(sampleState().handoff).toBeNull()
+
+    // Back at the first facility, it is still the seed: nothing comes back.
+    cleanup()
+    staff.facilityId = FACILITY_ID
+    open('maternity', `/${IDS.maternity}`)
+    expect(screen.getByText('Observed')).toBeTruthy()
+  })
+
+  it('names the tab after the workspace on its list, new and record pages, never the record or patient', async () => {
+    open('appointments')
+    expect(document.title).toBe('Appointments · Health ID EHR')
+    fireEvent.click(screen.getByRole('button', { name: 'New record' }))
+    await waitFor(() => expect(heading()).toBe('New appointments'))
+    expect(document.title).toBe('Appointments · Health ID EHR')
+    cleanup()
+    document.title = 'Health ID'
+    open('appointments', `/${IDS.apptTaylor}`)
+    expect(heading()).toBe('Review of results')
+    expect(document.title).toBe('Appointments · Health ID EHR')
+  })
+
+  it('puts "No further actions…" after the empty action list, as the design does', () => {
+    open('ward-config', `/${IDS.wardExample}`)
+    const sentence = within(actionsCard()).getByText('Nothing more to do here.')
+    const list = sentence.previousElementSibling as HTMLElement
+    expect(list.className).toBe('hid-ehr-clinical-action-list')
+    expect(list.childElementCount).toBe(0)
+  })
+
+  it('uses real controls only, so Tab follows the page and Enter submits', () => {
+    open('surgery', `/${IDS.surgery}`)
+    const controls = Array.from(document.querySelectorAll<HTMLElement>('a, button, input, select, textarea, summary'))
+    expect(controls.length).toBeGreaterThan(5)
+    for (const control of controls) expect(control.getAttribute('tabindex')).not.toBe('-1')
+    expect(document.querySelectorAll('[onclick], [role="button"]:not(button)')).toHaveLength(0)
+    fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Complete demo checklist' }))
+    const form = field('Checklist record (not clinical guidance)', actionsCard()).closest('form')!
+    expect(form.querySelector('button[type="submit"]')?.textContent).toBe('Complete demo checklist')
+  })
+})
+
+describe('the emergency board inside another workspace', () => {
+  function board(rest = '') {
+    return renderPage(
+      <Workspace path="emergency">
+        <Routes>
+          <Route index element={<SampleList id="emergency" />} />
+          <Route path="new" element={<SampleCreate id="emergency" />} />
+          <Route path=":recordId" element={<SampleDetail id="emergency" />} />
+        </Routes>
+      </Workspace>,
+      'emergency',
+      rest,
+    )
+  }
+
+  it('shows its own sample notice once, with the board’s list', () => {
+    board()
+    expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
+    expect(within(screen.getByRole('table', { name: 'Emergency' })).getByRole('link', { name: 'cfa650e2' })).toBeTruthy()
+  })
+
+  it('shows the design’s assessed record', () => {
+    board(`/${IDS.emergency}`)
+    const saved = screen.getByRole('heading', { name: 'Saved record' }).closest('section')!
+    const pairs = Array.from(saved.querySelectorAll('dt')).map(term => [term.textContent, term.nextElementSibling?.textContent])
+    expect(pairs).toEqual([
+      ['Complaint', 'Road traffic injury (fictional)'], ['Priority', 'Emergency'], ['Team', 'Doctor + Nurse'], ['Assessment', 'Local assessment recorded'],
+    ])
+    expect(screen.getByText('Assessed')).toBeTruthy()
+    expect(screen.getByText('Riley Demo · LOCAL-7554909a')).toBeTruthy()
+  })
+
+  it('records an arrival, its assessment and disposition', async () => {
+    board('/new')
+    expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
+    expect(heading()).toBe('New emergency')
+    fireEvent.change(field('Patient'), { target: { value: sampleState().patients[0]!.id } })
+    expect(field('Triage priority').value).toBe('Routine')
+    fireEvent.change(field('Presenting complaint'), { target: { value: 'Fictional fall' } })
+    fireEvent.change(field('Assigned clinician'), { target: { value: 'Demo Doctor' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Save' }).closest('form')!)
+    await waitFor(() => expect(screen.getByText('Arrived')).toBeTruthy())
+    expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
+
+    fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Record assessment' }))
+    fireEvent.change(field('Assessment', actionsCard()), { target: { value: 'Fictional assessment' } })
+    fireEvent.submit(field('Assessment', actionsCard()).closest('form')!)
+    await waitFor(() => expect(screen.getByText('Assessed')).toBeTruthy())
+
+    fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Record disposition' }))
+    fireEvent.change(field('Disposition', actionsCard()), { target: { value: 'Home' } })
+    fireEvent.change(field('Follow-up', actionsCard()), { target: { value: 'Clinic in a week' } })
+    fireEvent.submit(field('Disposition', actionsCard()).closest('form')!)
+    await waitFor(() => expect(screen.getByText('Completed')).toBeTruthy())
+    expect(touched.api).toBe(false)
+  })
+})

@@ -147,6 +147,8 @@ describe('organization applications', () => {
     mocks.api.applications.mockResolvedValue({ items: [application()] })
     open(['platform.identity-review.read'])
     const item = await card('Ikeja Care Ltd')
-    expect(within(item).getByText('View only.')).toBeTruthy()
+    // Nothing to do on it: no review actions at all.
+    expect(within(item).queryByRole('button')).toBeNull()
+    expect(within(item).queryByLabelText(/Reason/)).toBeNull()
   })
 })

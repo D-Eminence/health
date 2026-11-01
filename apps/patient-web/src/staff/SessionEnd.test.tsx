@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
+// Today's workspace at every facility, as real clinics have it until the clinic switch (ehr-blue/clinicSwitch.ts):
+// these tests cover the classic portal whatever BLUE_FOR_ALL is. The blue one is EhrBlueAtClinics.test.tsx's.
+vi.mock('../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: false }))
+
 /**
  * The provider workspace when its staff session ends mid-use. The real staff
  * App, API module and HTTP client run; only the network is replaced. hid-system

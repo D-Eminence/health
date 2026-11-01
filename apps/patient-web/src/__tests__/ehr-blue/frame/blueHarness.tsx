@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { vi } from 'vitest'
 import type * as BlueRoutes from '../../../ehr-blue/routes'
@@ -9,7 +9,7 @@ import type { EhrBluePage } from '../../../ehr-blue/frame/types'
  * is a 418 the test would see). Every account, facility and patient here is fictional.
  */
 export type Answer = () => Response | Promise<Response>
-export interface Sent { route: string; body: unknown }
+export interface Sent { route: string; body: unknown; headers: Headers }
 
 export const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 export const problem = (status: number, code: string, detail: string) =>
@@ -42,7 +42,7 @@ export function serve(routes: Record<string, Answer[]>) {
   const sent: Sent[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const route = `${String(init?.method ?? 'GET')} ${new URL(String(url)).pathname}`
-    sent.push({ route, body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined })
+    sent.push({ route, body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined, headers: new Headers(init?.headers) })
     const next = routes[route]?.shift()
     return next ? next() : json({ code: 'UNEXPECTED_REQUEST', detail: route }, 418)
   }))
@@ -55,7 +55,8 @@ function Where() {
 
 export const where = () => screen.getByTestId('where').textContent
 
-export async function openStaffApp(path: string) {
+/** Opens the staff app at `path`, or at an address with the history entry's state (as a page's navigate leaves it). */
+export async function openStaffApp(path: string | { pathname: string; state: unknown }) {
   const { App } = await import('../../../staff/App')
   return render(<MemoryRouter initialEntries={[path]}><Where /><Routes><Route path="/provider/*" element={<App />} /></Routes></MemoryRouter>)
 }
@@ -74,3 +75,15 @@ export function withFramePages(extra: () => readonly EhrBluePage[] = () => []) {
   })
 }
 
+
+/** Home's heading: the time of day's greeting and the person's name (kasuwa greeting()). */
+export const homeHeading = (name = 'Demo Clinician') => new RegExp(`^Good (morning|afternoon|evening), ${name}$`)
+
+/** The account menu is the sidebar's: the person's ⋯ button, which holds Sign out. */
+export const accountButton = (name = 'Demo Clinician') => screen.getByRole('button', { name: `${name}: account` })
+
+/** Switching facility is the sidebar's switcher: it lists the person's facilities, and one leads to Switch facility. */
+export function switchFacilityTo(current: string, next: string) {
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${current.replace(/[()]/g, '\\$&')}`) }))
+  fireEvent.click(screen.getByRole('button', { name: next }))
+}

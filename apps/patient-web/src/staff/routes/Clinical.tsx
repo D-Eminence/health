@@ -566,7 +566,7 @@ function RecordForm({ tab, onCreated, disabled, canSendToLab, routing, onCreateA
     {tab === 'diagnoses' && <><div className="staff-form-row"><Field label="Code system" htmlFor="diagnosis-system" error={f.system.error} required><Input id="diagnosis-system" name="codeSystem" placeholder="ICD-10" maxLength={255} required {...f.system.control} /></Field><Field label="Code" htmlFor="diagnosis-code" error={f.code.error} required><Input id="diagnosis-code" name="code" maxLength={100} required {...f.code.control} /></Field></div><Field label="Display" htmlFor="diagnosis-display" error={f.display.error} required><Input id="diagnosis-display" name="display" maxLength={500} required {...f.display.control} /></Field><div className="staff-form-row"><Field label="Clinical status" htmlFor="diagnosis-status"><Select id="diagnosis-status" name="clinicalStatus">{diagnosisClinicalStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field><Field label="Verification" htmlFor="diagnosis-verification"><Select id="diagnosis-verification" name="verificationStatus">{diagnosisVerificationStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field></div><Field label="Notes" htmlFor="diagnosis-notes" error={f.notes.error}><Textarea id="diagnosis-notes" name="notes" maxLength={4000} {...f.notes.control} /></Field></>}
     {tab === 'prescriptions' && <><Field label="Medication" htmlFor="medication" error={f.medication.error} required><Input id="medication" name="medicationDisplay" maxLength={500} required {...f.medication.control} /></Field><div className="staff-form-row"><Field label="Dose quantity" htmlFor="dose-quantity" error={f.dose.error}><Input id="dose-quantity" name="doseQuantity" type="number" min="0.0001" step="0.0001" {...f.dose.control} /></Field><Field label="Dose unit" htmlFor="dose-unit" error={f.unit.error}><Input id="dose-unit" name="doseUnit" placeholder="mg" maxLength={80} {...f.unit.control} /></Field></div><div className="staff-form-row"><Field label="Route code" htmlFor="route-code" error={f.route.error}><Input id="route-code" name="routeCode" placeholder="oral" maxLength={100} {...f.route.control} /></Field><Field label="Frequency" htmlFor="frequency" error={f.frequency.error} required><Input id="frequency" name="frequency" placeholder="Twice daily" maxLength={240} required {...f.frequency.control} /></Field></div><Field label="Instructions" htmlFor="instructions" error={f.instructions.error} required><Textarea id="instructions" name="instructions" maxLength={4000} required {...f.instructions.control} /></Field><p className="staff-muted">{prescriptionRouting
       ? 'This saves a draft. To send it to a pharmacy at another facility, use Send to a pharmacy on it in the list.'
-      : 'This creates an EHR draft. Pharmacy acceptance and dispensing are separate backend actions.'}</p></>}
+      : 'This creates an EHR draft. Pharmacy acceptance and dispensing are separate steps.'}</p></>}
     {tab === 'lab-requests' && <><div className="staff-form-row"><Field label="Test code system" htmlFor="test-system" error={f.testSystem.error} required><Input id="test-system" name="testCodeSystem" placeholder="LOINC" maxLength={255} required {...f.testSystem.control} /></Field><Field label="Test code" htmlFor="test-code" error={f.testCode.error} required><Input id="test-code" name="testCode" maxLength={100} required {...f.testCode.control} /></Field></div><Field label="Test display" htmlFor="test-display" error={f.testDisplay.error} required><Input id="test-display" name="testDisplay" maxLength={500} required {...f.testDisplay.control} /></Field><div className="staff-form-row"><Field label="Priority" htmlFor="test-priority"><Select id="test-priority" name="priority" value={priority} onChange={event => setPriority(event.target.value)}><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="asap">As soon as possible</option><option value="stat">Stat</option></Select></Field><Field label="Specimen type code" htmlFor="specimen-code" error={f.specimen.error}><Input id="specimen-code" name="specimenTypeCode" maxLength={100} {...f.specimen.control} /></Field></div><Field label="Clinical information" htmlFor="test-information" error={f.information.error}><Textarea id="test-information" name="clinicalInformation" maxLength={4000} {...f.information.control} /></Field><Field label="Request handling" htmlFor="lab-request-status" error={f.handling.error} required><Select id="lab-request-status" name="status" value={handling} onChange={event => { setHandling(event.target.value); setRouteErrors({}) }} required {...f.handling.control}
       aria-describedby={f.handling.error ? 'lab-request-status-error lab-request-draft-warning' : 'lab-request-draft-warning'}><option value="draft">Save EHR draft</option>{canSendToLab && <option value="active">{routable ? 'Create active request and send to this facility’s Lab' : 'Create active request and send to Lab'}</option>}
       {routable && <option value="route">Create and send to another laboratory</option>}</Select></Field>
@@ -1068,7 +1068,7 @@ function SummarySection<T extends { id: string }>({ title, items, cap, empty, no
       : items.length === 0 ? <p>{empty}</p>
         : <div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}>{render(item)}</div>)}</div>}
     {shortened && <p className="staff-muted">{truncated === undefined
-      ? `The backend sends only the ${cap} most recent; older ones are not shown.`
+      ? `Only the ${cap} most recent are shown.`
       : `Only the ${cap} most recent are shown; older ones exist and are not shown.`}</p>}
   </Card>
 }
@@ -1372,7 +1372,7 @@ export function Clinical() {
   }, [facility?.id, patientId, activePatient?.purpose, accessScope])
   const currentWriteAccess = writeAccess?.scope === accessScope ? writeAccess : null
 
-  if (!activePatient || !facility) return <><div className="staff-page-head"><p className="staff-eyebrow">Clinical record</p><h1>Choose a patient first.</h1><p>Clinical records require a current backend authorization for the selected facility.</p></div><EmptyState title="No authorized patient" description="Open a patient using an approved request, patient PIN, or documented emergency access." action={<Link className="staff-text-link" to="/provider/patients">Go to patient access →</Link>} /></>
+  if (!activePatient || !facility) return <><div className="staff-page-head"><p className="staff-eyebrow">Clinical record</p><h1>Choose a patient first.</h1><p>Clinical records require a current authorization for the selected facility.</p></div><EmptyState title="No authorized patient" description="Open a patient using an approved request, patient PIN, or documented emergency access." action={<Link className="staff-text-link" to="/provider/patients">Go to patient access →</Link>} /></>
   if (activePatient.purpose === 'emergency') return <EmergencySummary facilityId={facility.id}
     patientId={activePatient.lookup.patient.patientId} patientName={activePatient.lookup.patient.fullName ?? activePatient.hid}
     permissions={permissions} verify={verify} />
@@ -1399,7 +1399,7 @@ export function Clinical() {
     const result = await staffApi.createEncounter(facility.id, patientId, input, key)
     if (result?.id) setSelection(result)
     await loadEncounters({ fresh: true, select: result })
-    setSuccess('Encounter created by the backend.')
+    setSuccess('Encounter created.')
   }
 
   // Reads a page of the records list shown: the page asked for, or ('shown') the
@@ -1499,7 +1499,7 @@ export function Clinical() {
     const outcome: LabOutcome | null = !activeLab ? null : saved.labHandoff === undefined ? { accepted: true, text: 'Active lab request created and accepted by Lab.' }
       : saved.labHandoff?.state === 'accepted' ? { accepted: true, text: 'Active lab request created and accepted by Lab.' }
         : labHandoffOutcome(saved.labHandoff ?? null, 'created', canSendToLab)
-    if (!outcome || outcome.accepted) setSuccess(outcome?.text ?? 'Clinical record saved by the backend.')
+    if (!outcome || outcome.accepted) setSuccess(outcome?.text ?? 'Clinical record saved.')
     const items = await loadRecords(kind, FIRST_PAGE, true)
     if (outcome && !outcome.accepted) labWarning(outcome.text, typeof saved?.id === 'string' ? saved.id : undefined, items, outcome)
   }

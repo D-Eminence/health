@@ -264,6 +264,32 @@ function pageQuery(page: PageRequest) {
   return { query: { limit: 50, ...(page.cursor ? { cursor: page.cursor } : {}) }, ...(page.fresh ? { dedupe: false } : {}) }
 }
 
+/**
+ * The request log: one audit event per HTTP call, named by its method and route ("api.get./api/v1/…", resource
+ * "http-request"). Each sits beside the action it carried out, which has its own event in words (ehr.encounter.list,
+ * identity.authorization.check), so a facility's audit view leaves the routes out (owner, 2026-11-01). They stay
+ * recorded on the server.
+ */
+export function isRequestLogEvent(event: { readonly action: string; readonly resourceType: string | null }): boolean {
+  return event.resourceType === 'http-request' || event.action.startsWith('api.')
+}
+
+/** The page the facility audit read returns: seven fields per event, the request log left out, the cursor kept. */
+export function facilityAuditPageFrom(page: FacilityAuditPage): FacilityAuditPage {
+  return {
+    nextBeforeSequenceId: page.nextBeforeSequenceId,
+    items: page.items.filter(event => !isRequestLogEvent(event)).map(event => ({
+      sequenceId: event.sequenceId,
+      occurredAt: event.occurredAt,
+      correlationId: event.correlationId,
+      actorType: event.actorType,
+      action: event.action,
+      outcome: event.outcome,
+      resourceType: event.resourceType,
+    })),
+  }
+}
+
 /** Only fields needed for the provider review are retained from the audit response. */
 export interface FacilityAuditEvent {
   sequenceId: string
@@ -1744,18 +1770,7 @@ export const staffApi = {
       query: { limit: 50, ...(beforeSequenceId ? { beforeSequenceId } : {}) },
       headers: facilityHeaders(facilityId, 'healthcare-operations'),
     })
-    return {
-      nextBeforeSequenceId: page.nextBeforeSequenceId,
-      items: page.items.map(event => ({
-        sequenceId: event.sequenceId,
-        occurredAt: event.occurredAt,
-        correlationId: event.correlationId,
-        actorType: event.actorType,
-        action: event.action,
-        outcome: event.outcome,
-        resourceType: event.resourceType,
-      })),
-    }
+    return facilityAuditPageFrom(page)
   },
 
   registrationCapabilities: (facilityId: string) =>

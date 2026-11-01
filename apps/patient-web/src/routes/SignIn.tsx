@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { HEALTH_ID_PREFIX, isBlankHealthIdInput, signInPrincipal, signInPrincipalInput } from '@hid/contracts'
+import { isBlankHealthIdInput, signInPrincipal, signInPrincipalInput } from '@hid/contracts'
 import { fallbackMessageForStatus, isHidApiError, type HidApiError } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import { GoogleButton } from '../GoogleButton'
@@ -10,6 +10,7 @@ import { AuthLayout } from '../AuthLayout'
 import { useSession } from '../session'
 import { useDocumentTitle } from '../authSteps'
 import { signupHandoff } from './enrollment/signupHandoff'
+import { Alert, Button, Field, Input } from '../kasuwa/ui'
 
 const SUPPORT_EMAIL = 'support@healthidentitydirectory.com'
 /**
@@ -50,8 +51,8 @@ export function SignIn() {
   const { state, sessionError, otherPortalSession, signedOutElsewhere, signIn, acceptGoogleSession, api } = useSession()
   const navigate = useNavigate()
   useDocumentTitle('Sign in · Health ID')
-  // Starts at HID- (owner decision, 2026-10-27); an email or a phone number typed after it drops it (2026-10-28).
-  // Empty until focused, so a browser can still fill a saved sign-in; HID- as soon as the person starts.
+  // Empty, with "HID-" only in the placeholder (the review of 2026-10-31): a prefilled HID- got in the way of the
+  // people who sign in with an email or a phone number. One typed is still read as a Health ID (signInPrincipal).
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
@@ -107,30 +108,36 @@ export function SignIn() {
     }
   }
 
+  const googleOffered = Boolean(import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleClientId())
   return <AuthLayout brandTo="/"
     title="Welcome back." titleId="sign-in-title"
-    lede="Sign in to view your health information and manage who can see it.">
-    {/* One alert, so a screen reader reads the way to finish a sign-up with the refusal. The email typed goes with
-        the link in router state, never the URL, so the sign-up starts with it. */}
-    {(error || sessionError) && <div role="alert" className="auth-alert">
-      <p className="patient-inline-error">{error && refusal === 'suspended' ? withSupportLink(error) : error || sessionError}</p>
-      {error && refusal === 'unfinished' && <p className="patient-field-hint">Didn't finish signing up? <Link to="/enroll" state={signupHandoff(signInPrincipal(email))}>Finish creating your Health ID</Link></p>}
-      {error && refusal === 'google-not-registered' && <p className="patient-field-hint"><Link to="/enroll">Sign up for a Health ID</Link></p>}</div>}
-    {signedOutElsewhere && !error && <p role="alert" className="patient-inline-error">You were signed out because this browser's Health ID sign-in changed in another tab or window. Sign in again to continue.</p>}
-    {otherPortalSession && <div className="patient-session-note">
-      <p>A provider sign-in is active in this browser. Signing in here as a patient replaces it.</p>
-      <Link to="/provider">Go to the provider portal</Link>
-    </div>}
-    <form onSubmit={event => void submit(event)} className="patient-form">
-      <label>Email, phone or Health ID<input required autoComplete="username" value={email} onFocus={() => { if (!email) setEmail(HEALTH_ID_PREFIX) }} onChange={event => setEmail(signInPrincipalInput(event.target.value))} placeholder="you@example.com, 0803… or HID-…" /></label>
-      <div className="patient-field"><label htmlFor="sign-in-password">Password</label><PasswordInput appearance="plain" id="sign-in-password" required autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} minLength={6} /></div>
-      <div className="patient-form-aside"><Link to="/recover">Forgot password?</Link></div>
-      <Turnstile action="patient-login" onTokenChange={setTurnstileToken} resetKey={resetKey} />
-      <button type="submit" className="patient-primary-button" disabled={busy || !turnstileToken}>{busy ? 'Signing in…' : 'Sign in'}</button>
-    </form>
-    {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleClientId() && <div className="patient-auth-separator"><span>or continue with Google</span>
-      <GoogleButton text="signin_with" disabled={busy || !turnstileToken} onCredential={google}
-        disabledReason={turnstileToken ? undefined : 'Complete the security check to continue with Google.'} /></div>}
-    <p className="patient-auth-footer">New to Health ID? <Link to="/enroll">Get your Health ID</Link></p>
+    lede="Sign in to see your records and choose who sees them.">
+    <div className="flex flex-col gap-5">
+      {/* One alert, so a screen reader reads the way to finish a sign-up with the refusal. The email typed goes with
+          the link in router state, never the URL, so the sign-up starts with it. */}
+      {(error || sessionError) && <Alert intent="error">
+        {error && refusal === 'suspended' ? withSupportLink(error) : error || sessionError}
+        {error && refusal === 'unfinished' && <> Didn't finish signing up? <Link to="/enroll" state={signupHandoff(signInPrincipal(email))}>Finish creating your Health ID</Link></>}
+        {error && refusal === 'google-not-registered' && <> <Link to="/enroll">Sign up for a Health ID</Link></>}</Alert>}
+      {signedOutElsewhere && !error && <Alert intent="warning">You were signed out because this browser's Health ID sign-in changed in another tab. Sign in again to continue.</Alert>}
+      {otherPortalSession && <Alert intent="info" live={false}>A provider sign-in is active in this browser. Signing in here replaces it. <Link to="/provider">Go to the provider portal</Link></Alert>}
+      <form onSubmit={event => void submit(event)} className="flex flex-col gap-4">
+        <Field label="Email, phone or Health ID" htmlFor="sign-in-principal">
+          <Input id="sign-in-principal" required autoComplete="username" value={email} onChange={event => setEmail(signInPrincipalInput(event.target.value))}
+            placeholder="HID-…, you@example.com or 0803…" />
+        </Field>
+        <Field label="Password" htmlFor="sign-in-password">
+          <PasswordInput id="sign-in-password" required autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} minLength={6} />
+        </Field>
+        <Link to="/recover" className="-mt-2 self-end text-[13px] font-medium text-brand-ink">Forgot password?</Link>
+        <Turnstile action="patient-login" onTokenChange={setTurnstileToken} resetKey={resetKey} />
+        <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !turnstileToken}>{busy ? 'Signing in…' : 'Sign in'}</Button>
+      </form>
+      {googleOffered && <div className="flex flex-col gap-3">
+        <p className="m-0 flex items-center gap-3 text-[13px] text-ink-3 before:h-px before:flex-1 before:bg-line after:h-px after:flex-1 after:bg-line">or</p>
+        <GoogleButton text="signin_with" disabled={busy || !turnstileToken} onCredential={google}
+          disabledReason={turnstileToken ? undefined : 'Complete the security check to continue with Google.'} /></div>}
+      <p className="m-0 text-center text-sm text-ink-2">New to Health ID? <Link to="/enroll" className="font-medium text-brand-ink">Get your Health ID</Link></p>
+    </div>
   </AuthLayout>
 }
