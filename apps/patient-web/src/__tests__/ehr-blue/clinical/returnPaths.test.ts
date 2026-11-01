@@ -2,6 +2,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { isCompleteHealthId } from '@hid/contracts'
 import { describe, expect, it } from 'vitest'
 import { clinicalReturnPath } from '../../../ehr-blue/clinical/returnPaths'
 
@@ -53,9 +54,8 @@ describe('clinicalReturnPath: the pages a sign-in may come back to', () => {
     ['a vitals record, by its encounter and its id', `/provider/triage/${ENC}~${REC}`],
     ['a nursing record, by its encounter and its id', `/provider/nursing/${ENC}~${REC}`],
     ['an access request', `/provider/requests/${REQ}`],
-    ['an id of one character', '/provider/clinical/x'],
-    ['an id of 64 characters', `/provider/clinical/${'a'.repeat(64)}`],
-    ['ids with underscores', '/provider/triage/enc_1~rec_2'],
+    ['a UUID of another version (the shape is checked, not the version)', '/provider/clinical/018f3c1e-7b2a-7c3d-9e4f-0123456789ab'],
+    ['ids of digits only', '/provider/triage/00000000-0000-0000-0000-000000000000~12345678-9012-3456-7890-123456789012'],
   ])('keeps %s', (_name, path) => {
     expect(clinicalReturnPath(path)).toBe(path)
   })
@@ -92,7 +92,61 @@ describe('clinicalReturnPath: what is never kept', () => {
     '/provider/clinical/HID-ABCD', `/provider/clinical/x${HID}y`, `/provider/triage/${HID}~${REC}`, `/provider/nursing/${ENC}~${HID}`,
     `/provider/clinical/${ENC}/orders/pharmacy/${HID}`, `/provider/clinical/${HID}/orders/laboratory/${LAB}`, `/provider/requests/${HID}`,
     `/provider/requests/${HID}?status=pending`, `/provider/requests/${REQ}?status=${HID}`,
-  ])('a Health ID shape anywhere, though the id pattern alone would take it: %s', path => {
+  ])('a Health ID with its prefix anywhere: %s', path => {
+    expect(clinicalReturnPath(path)).toBeNull()
+  })
+
+  /**
+   * A Health ID typed as people type it: a doubled or moved separator, a mangled prefix, or no prefix at all, in any
+   * case. Each is a complete Health ID once normalized (@hid/contracts healthId.ts), and none is a record id.
+   */
+  const healthIdSpellings: ReadonlyArray<readonly [string, string]> = [
+    ['HID--ABCDEF', '/provider/clinical/HID--ABCDEF'],
+    ['H-ID-ABCDEF', '/provider/clinical/H-ID-ABCDEF'],
+    ['ZDEMAAA2', '/provider/clinical/ZDEMAAA2'],
+    ['zdemaaa2', '/provider/clinical/zdemaaa2'],
+    ['ZDEMAAA2', '/provider/triage/ZDEMAAA2~x'],
+    ['zdemaaa2', `/provider/triage/${ENC}~zdemaaa2`],
+    ['ZDEMAAA2', `/provider/nursing/ZDEMAAA2~${REC}`],
+    ['abc234', `/provider/clinical/${ENC}/orders/pharmacy/abc234`],
+    ['ABC234', `/provider/clinical/ABC234/orders/laboratory/${LAB}`],
+    ['ABC234', '/provider/requests/ABC234?status=pending'],
+    ['abcdef', '/provider/requests/abcdef'],
+    ['ABCDEFGH23456789ABCDEFGH23456789', '/provider/clinical/ABCDEFGH23456789ABCDEFGH23456789'],
+    ['abcdef23abcdef23abcdef23abcdef23', '/provider/clinical/abcdef23abcdef23abcdef23abcdef23'],
+  ]
+
+  it.each(healthIdSpellings)('a Health ID however it is typed, %s: %s', (typed, path) => {
+    expect(isCompleteHealthId(typed), typed).toBe(true)
+    expect(clinicalReturnPath(path)).toBeNull()
+  })
+
+  it.each([
+    '/provider/clinical/hid__abcdef', '/provider/clinical/HI-DABCDEF', '/provider/clinical/HID~ABCDEF', '/provider/triage/HID~ABCDEF',
+  ])('a Health ID with a prefix even the Health ID field would not take: %s', path => {
+    expect(clinicalReturnPath(path)).toBeNull()
+  })
+
+  it.each([
+    ['one character', '/provider/clinical/x'],
+    ['letters, digits and underscores', '/provider/triage/enc_1~rec_2'],
+    ['64 letters', `/provider/clinical/${'a'.repeat(64)}`],
+    ['a UUID in capitals', `/provider/clinical/${ENC.toUpperCase()}`],
+    ['a UUID with one capital', '/provider/clinical/E0000000-0000-4000-8000-000000000001'],
+    ['a UUID one character too long', `/provider/clinical/${ENC}0`],
+    ['a UUID one character short', `/provider/clinical/${ENC.slice(0, -1)}`],
+    ['a UUID with a group one too long', '/provider/clinical/e00000000-000-4000-8000-000000000001'],
+    ['a UUID without its hyphens', `/provider/clinical/${ENC.replaceAll('-', '')}`],
+    ['a UUID in braces', `/provider/clinical/{${ENC}}`],
+    ['a UUID with a letter past f', '/provider/clinical/g0000000-0000-4000-8000-000000000001'],
+    ['a UUID with underscores', `/provider/clinical/${ENC.replaceAll('-', '_')}`],
+    ['an order by a short id', `/provider/clinical/${ENC}/orders/pharmacy/rx-1`],
+    ['an order of an encounter in capitals', `/provider/clinical/${ENC.toUpperCase()}/orders/laboratory/${LAB}`],
+    ['a record by a short encounter id', `/provider/nursing/enc-1~${REC}`],
+    ['a record by a short record id', `/provider/triage/${ENC}~rec-1`],
+    ['an access request by a short id', '/provider/requests/req-1?status=pending'],
+    ['an access request in capitals', `/provider/requests/${REQ.toUpperCase()}`],
+  ])('an id that is not a lower-case UUID, %s: %s', (_name, path) => {
     expect(clinicalReturnPath(path)).toBeNull()
   })
 
@@ -181,11 +235,10 @@ describe('clinicalReturnPath: what is never kept', () => {
     expect(clinicalReturnPath(path)).toBeNull()
   })
 
-  it('an id over 64 characters, however long the address', () => {
-    expect(clinicalReturnPath(`/provider/clinical/${'a'.repeat(65)}`)).toBeNull()
-    expect(clinicalReturnPath(`/provider/triage/${'a'.repeat(64)}~${'b'.repeat(65)}`)).toBeNull()
-    expect(clinicalReturnPath(`/provider/clinical/${'a'.repeat(64)}/orders/laboratory/${'b'.repeat(64)}`)).not.toBeNull()
+  it('an id of any other length, however long the address', () => {
     expect(clinicalReturnPath(`/provider/clinical/${'a'.repeat(300)}`)).toBeNull()
+    expect(clinicalReturnPath(`/provider/triage/${ENC}~${REC}${'b'.repeat(300)}`)).toBeNull()
+    expect(clinicalReturnPath(`/provider/clinical/${ENC}/orders/laboratory/${LAB}`)).not.toBeNull()
   })
 
   it('anything that is not a string', () => {

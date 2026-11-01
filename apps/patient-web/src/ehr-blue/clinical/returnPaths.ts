@@ -21,14 +21,14 @@ const SAMPLE = [
   'referrals', 'telemedicine', 'bloodbank', 'ward-config',
 ] as const
 
-/** A record id as EHR and Identity issue them: opaque letters, digits, hyphens and underscores. */
-const ID = '([A-Za-z0-9_-]{1,64})'
-
 /**
- * The route words of the workspaces (forms, the open patient, the emergency summary, the orders part): never a record
- * id. Their pages hold nothing to come back to, or name the open patient or emergency access, so none is kept.
+ * A record id exactly as EHR and Identity issue them: a Postgres uuid in its canonical form, lower-case hex in groups
+ * of 8, 4, 4, 4 and 12 (ehr-api migrations 0004 encounters, vitals, clinical_notes, prescriptions, lab_requests; 0003
+ * identity.access_requests). Nothing else is an id here: a Health ID, with or without its prefix and however it is
+ * typed, is not this shape, and nor is a route word (`new`, `pin`, `open`, `summary`, `orders`), so a form, the open
+ * patient or the emergency summary never matches a record page.
  */
-const ROUTE_WORDS: ReadonlySet<string> = new Set(['new', 'pin', 'open', 'summary', 'orders'])
+const ID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 
 /** The access request list's Status filters: today's statuses, then its outcomes (consent/requests.ts statusFilter). */
 const STATUS_FILTERS: readonly AccessRequestStatus[] = ['pending', 'approved', 'denied', 'revoked', 'expired', 'active', 'closed']
@@ -36,9 +36,9 @@ const STATUS_FILTERS: readonly AccessRequestStatus[] = ['pending', 'approved', '
 type Shape = { readonly pattern: RegExp; readonly status?: true }
 
 /**
- * Every page that may be come back to, matched whole and case-sensitively, with no trailing slash. Ids are letters,
- * digits, hyphens and underscores only, so an encoded character, a backslash, a dot, a space or an empty segment never
- * matches; nor does a fragment, as `#` is in no shape or query.
+ * Every page that may be come back to, matched whole and case-sensitively, with no trailing slash. Ids are lower-case
+ * UUIDs only, so an encoded character, a backslash, a dot, a space or an empty segment never matches; nor does a
+ * fragment, as `#` is in no shape or query.
  */
 const SHAPES: readonly Shape[] = [
   // A workspace's list.
@@ -54,9 +54,9 @@ const SHAPES: readonly Shape[] = [
 ]
 
 /**
- * A Health ID anywhere, in any case, with or without its hyphen ("HID-ZDEMAAA2", "hid-zdemaaa2", "HIDZDEMAAA2"; older
- * ones have 4 or more characters, departments/pharmacy/Sell.tsx). Record ids are opaque, so one could be typed where
- * an id goes: such an address is never kept. EHR's ids are UUIDs, whose hex digits never spell "hid".
+ * A backstop: a Health ID with its prefix anywhere, in any case ("HID-ZDEMAAA2", "hid-zdemaaa2", "HIDZDEMAAA2"). The
+ * id shape above already refuses every Health ID, with its prefix or without (a UUID's letters are a to f, and a
+ * Health ID's body is not a UUID); this keeps the prefixed ones out should that shape ever be widened.
  */
 const HEALTH_ID_SHAPE = /hid[-_]?[a-z0-9]{4,}/i
 
@@ -74,12 +74,8 @@ export function clinicalReturnPath(path: string): string | null {
   if (typeof path !== 'string' || HEALTH_ID_SHAPE.test(path)) return null
   const [pathname = '', query, ...more] = path.split('?')
   if (more.length > 0) return null
-  for (const { pattern, status } of SHAPES) {
-    const ids = pattern.exec(pathname)?.slice(1)
-    if (!ids) continue
-    if (ids.some(id => ROUTE_WORDS.has(id))) return null
-    if (query === undefined) return path
-    return status && isStatusQuery(query) ? path : null
-  }
-  return null
+  const shape = SHAPES.find(({ pattern }) => pattern.test(pathname))
+  if (!shape) return null
+  if (query === undefined) return path
+  return shape.status && isStatusQuery(query) ? path : null
 }
