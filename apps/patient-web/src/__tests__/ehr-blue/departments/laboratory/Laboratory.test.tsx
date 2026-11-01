@@ -720,62 +720,147 @@ describe('testing and results', () => {
     expect(within(stageCard()).getByText('Waiting for someone who can enter results.')).toBeTruthy()
   })
 
-  it('checks a draft result with a note, then releases it, each confirmed', async () => {
+  // Verify and release are two actions, as on today's Laboratory page: each its own request, its own permission and
+  // its own typed reason, so the audit says why each was done.
+  it('verifies a draft result on its own, with its own typed reason, confirmed, and releases nothing with it', async () => {
     const result = draftResult()
     api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
     api.verifyLabResult.mockResolvedValue(verifiedResult())
-    api.releaseLabResult.mockResolvedValue(publishedResult())
     const card = await openReceived()
     expect(within(card).getByText('To check')).toBeTruthy()
     expect(within(card).getByText('7.1')).toBeTruthy()
     expect(within(card).getByText('Normal range 12.0-15.5')).toBeTruthy()
-    fireEvent.click(within(card).getByRole('button', { name: 'Check & release' }))
-    const sheet = await screen.findByRole('dialog', { name: 'Check & release' })
-    expect(within(sheet).getByText(/^Check the Hemoglobin result for/).textContent).toBe(`Check the Hemoglobin result for ${MASKED} and release it to their record?`)
-    fireEvent.click(within(sheet).getByRole('button', { name: 'Check & release' }))
-    const note = within(sheet).getByRole('textbox', { name: 'What you checked' })
-    expect(await refusalOf(note)).toBe('Say what you checked, like “Matches the sample and the range”.')
+    // Even to a member who may also release, a draft offers only Verify.
+    expect(within(card).queryByRole('button', { name: /release/i })).toBeNull()
+    fireEvent.click(within(card).getByRole('button', { name: 'Verify result version' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Verify result version' })
+    expect(within(sheet).getByRole('region', { name: `Patient: ${MASKED}` })).toBeTruthy()
+    expect(within(sheet).getByText(/^Verify version 1 /).textContent).toBe(`Verify version 1 of the Hemoglobin result for ${MASKED} after independent review?`)
+    expect(within(sheet).getByText(/^The person who entered it cannot verify it\./).textContent)
+      .toBe('The person who entered it cannot verify it. It is released in a separate step; until then only the lab sees it.')
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Verify result version' }))
+    const reason = within(sheet).getByRole('textbox', { name: 'Verification reason' })
+    expect(await refusalOf(reason)).toBe('Enter a reason for this decision.')
+    expect(document.activeElement).toBe(reason)
+    expect(reason.id).toBe('lab-verify-reason-execution-1')
     expect(api.verifyLabResult).not.toHaveBeenCalled()
-    fireEvent.change(note, { target: { value: ' Independent review ' } })
-    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Check & release' })) })
-    expect(await screen.findByText('Hemoglobin released. The patient can see it on their Health ID.')).toBeTruthy()
+    fireEvent.change(reason, { target: { value: ' Independent review ' } })
+    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Verify result version' })) })
+    expect(await screen.findByText('This exact result version was verified.')).toBeTruthy()
     expect(api.verifyLabResult).toHaveBeenCalledWith(DEMO_LABORATORY_ID, result, 'Independent review')
-    expect(api.releaseLabResult).toHaveBeenCalledWith(DEMO_LABORATORY_ID, verifiedResult(), 'Independent review')
-  })
-
-  it('only checks a draft result without lab.result.release, and leaves the release to someone who can', async () => {
-    api.labExecutions.mockResolvedValue({ items: [execution({ result: draftResult() })] })
-    api.verifyLabResult.mockResolvedValue(verifiedResult())
-    const card = await openReceived(PROCESSING.filter(permission => permission !== 'lab.result.release'))
-    fireEvent.click(within(card).getByRole('button', { name: 'Check result' }))
-    const sheet = await screen.findByRole('dialog', { name: 'Check result' })
-    fireEvent.change(within(sheet).getByRole('textbox', { name: 'What you checked' }), { target: { value: 'Review' } })
-    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Check result' })) })
-    expect(await screen.findByText('Hemoglobin checked. Someone who can release it does that next.')).toBeTruthy()
     expect(api.releaseLabResult).not.toHaveBeenCalled()
   })
 
-  it('releases a checked result, and offers no release without lab.result.release', async () => {
+  it('releases a verified result on its own, with its own typed reason, confirmed, and says the patient and the ordering clinic can now see it', async () => {
     const result = verifiedResult()
     api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
     api.releaseLabResult.mockResolvedValue(publishedResult())
     const card = await openReceived()
     expect(within(card).getByText('Checked, not released')).toBeTruthy()
-    fireEvent.click(within(card).getByRole('button', { name: 'Release result' }))
-    const sheet = await screen.findByRole('dialog', { name: 'Release result' })
-    fireEvent.change(within(sheet).getByRole('textbox', { name: 'What you checked' }), { target: { value: 'Reviewed' } })
-    expect(within(sheet).getByRole('textbox', { name: 'What you checked' }).id).toBe('lab-check-note-execution-1')
-    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Release result' })) })
-    expect(await screen.findByText('Hemoglobin released. The patient can see it on their Health ID.')).toBeTruthy()
+    expect(within(card).queryByRole('button', { name: /verify/i })).toBeNull()
+    fireEvent.click(within(card).getByRole('button', { name: 'Release result version' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Release result version' })
+    expect(within(sheet).getByRole('region', { name: `Patient: ${MASKED}` })).toBeTruthy()
+    expect(within(sheet).getByText(/^Release verified version 1 /).textContent)
+      .toBe(`Release verified version 1 of the Hemoglobin result for ${MASKED} to the patient and the ordering clinic?`)
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Release result version' }))
+    const reason = within(sheet).getByRole('textbox', { name: 'Release reason' })
+    expect(await refusalOf(reason)).toBe('Enter a reason for this decision.')
+    expect(document.activeElement).toBe(reason)
+    expect(reason.id).toBe('lab-release-reason-execution-1')
+    expect(api.releaseLabResult).not.toHaveBeenCalled()
+    fireEvent.change(reason, { target: { value: ' Reviewed for release ' } })
+    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Release result version' })) })
+    expect(await screen.findByText('This exact verified result version was released. The patient and the ordering clinic can now see it.')).toBeTruthy()
     expect(api.verifyLabResult).not.toHaveBeenCalled()
-    expect(api.releaseLabResult).toHaveBeenCalledWith(DEMO_LABORATORY_ID, result, 'Reviewed')
+    expect(api.releaseLabResult).toHaveBeenCalledWith(DEMO_LABORATORY_ID, result, 'Reviewed for release')
   })
 
-  it('waits for someone who can release a checked result', async () => {
+  it('releases in a second action once verified, with a reason typed for the release, not the verification’s', async () => {
+    api.labExecutions.mockResolvedValueOnce({ items: [execution({ result: draftResult() })] })
+      .mockResolvedValue({ items: [execution({ result: verifiedResult() })] })
+    api.verifyLabResult.mockResolvedValue(verifiedResult())
+    api.releaseLabResult.mockResolvedValue(publishedResult())
+    await openReceived()
+    fireEvent.click(within(stageCard()).getByRole('button', { name: 'Verify result version' }))
+    const verifying = await screen.findByRole('dialog', { name: 'Verify result version' })
+    fireEvent.change(within(verifying).getByRole('textbox', { name: 'Verification reason' }), { target: { value: 'Independent review' } })
+    await act(async () => { fireEvent.click(within(verifying).getByRole('button', { name: 'Verify result version' })) })
+    // The record is read again, and the verified result waits for its own release.
+    const release = await within(stageCard()).findByRole('button', { name: 'Release result version' })
+    expect(api.releaseLabResult).not.toHaveBeenCalled()
+    fireEvent.click(release)
+    const releasing = await screen.findByRole('dialog', { name: 'Release result version' })
+    const reason = within(releasing).getByRole('textbox', { name: 'Release reason' }) as HTMLTextAreaElement
+    expect(reason.value).toBe('')
+    fireEvent.change(reason, { target: { value: 'Ready for the clinic' } })
+    await act(async () => { fireEvent.click(within(releasing).getByRole('button', { name: 'Release result version' })) })
+    expect(await screen.findByText('This exact verified result version was released. The patient and the ordering clinic can now see it.')).toBeTruthy()
+    expect(api.verifyLabResult.mock.calls).toEqual([[DEMO_LABORATORY_ID, draftResult(), 'Independent review']])
+    expect(api.releaseLabResult.mock.calls).toEqual([[DEMO_LABORATORY_ID, verifiedResult(), 'Ready for the clinic']])
+  })
+
+  it('verifies without lab.result.release, and leaves the release to someone who can', async () => {
+    api.labExecutions.mockResolvedValueOnce({ items: [execution({ result: draftResult() })] })
+      .mockResolvedValue({ items: [execution({ result: verifiedResult() })] })
+    api.verifyLabResult.mockResolvedValue(verifiedResult())
+    await openReceived(PROCESSING.filter(permission => permission !== 'lab.result.release'))
+    fireEvent.click(within(stageCard()).getByRole('button', { name: 'Verify result version' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Verify result version' })
+    fireEvent.change(within(sheet).getByRole('textbox', { name: 'Verification reason' }), { target: { value: 'Review' } })
+    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Verify result version' })) })
+    expect(await screen.findByText('This exact result version was verified.')).toBeTruthy()
+    expect(await within(stageCard()).findByText('Waiting for someone who can release results.')).toBeTruthy()
+    expect(within(stageCard()).queryByRole('button', { name: /release/i })).toBeNull()
+    expect(api.releaseLabResult).not.toHaveBeenCalled()
+  })
+
+  it('waits for someone who can verify a draft result, even for a member who may release', async () => {
+    const canRelease = PROCESSING.filter(permission => permission !== 'lab.result.verify')
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: draftResult() })] })
+    const card = await openReceived(canRelease)
+    expect(within(card).getByText('Waiting for someone who can verify results.')).toBeTruthy()
+    expect(within(card).queryByRole('button', { name: /verify|release/i })).toBeNull()
+  })
+
+  it('offers Release with lab.result.release alone, without lab.result.verify', async () => {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: verifiedResult() })] })
+    const card = await openReceived(PROCESSING.filter(permission => permission !== 'lab.result.verify'))
+    expect(within(card).getByRole('button', { name: 'Release result version' })).toBeTruthy()
+  })
+
+  it('waits for someone who can release a verified result', async () => {
     api.labExecutions.mockResolvedValue({ items: [execution({ result: verifiedResult() })] })
     const card = await openReceived(PROCESSING.filter(permission => permission !== 'lab.result.release'))
     expect(within(card).getByText('Waiting for someone who can release results.')).toBeTruthy()
-    expect(within(card).queryByRole('button', { name: 'Release result' })).toBeNull()
+    expect(within(card).queryByRole('button', { name: /release/i })).toBeNull()
+  })
+
+  it.each([
+    ['a version conflict', problem(409, 'LAB_RESULT_VERSION_CONFLICT', 'Lab result version 1 is stale for result-1'),
+      'Error: Decision could not be recorded. Refresh before retrying.'],
+    ['a closed order from another facility', problem(409, 'ORDER_ROUTE_CLOSED', 'Order route 9C1B2D3E is closed'),
+      'Error: This order from another facility is closed: it was cancelled, or its time for work has ended, so nothing more can be '
+      + 'recorded on it. Refresh the list.'],
+    // Only on an order from another facility does a 404 for writing mean the order closed (see 'work from another facility').
+    ['a missing result on this laboratory’s own work', problem(404, 'LAB_RESULT_NOT_FOUND', 'Lab result result-1 was not found'),
+      'Error: Decision could not be recorded. Refresh before retrying.'],
+    // No answer came: refreshing offline can fail to load the page, so it says to check the connection.
+    ['a lost connection', new HidApiError(0, 'We could not reach the service. Check your connection and try again.', { code: 'NETWORK_ERROR' }),
+      'Error: Couldn’t reach Health ID. Check the connection and try again.'],
+    ['a timeout', new HidApiError(408, 'The request timed out.', { code: 'REQUEST_TIMEOUT' }),
+      'Error: Couldn’t reach Health ID. Check the connection and try again.'],
+  ])('says a refused release (%s) in the page’s own words, never the service’s', async (_, refusal, said) => {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: verifiedResult() })] })
+    api.releaseLabResult.mockRejectedValue(refusal)
+    const card = await openReceived()
+    fireEvent.click(within(card).getByRole('button', { name: 'Release result version' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Release result version' })
+    fireEvent.change(within(sheet).getByRole('textbox', { name: 'Release reason' }), { target: { value: 'Reviewed' } })
+    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Release result version' })) })
+    await waitFor(() => expect(alertsIn(card)).toEqual([said]))
+    expect(document.body.textContent).not.toContain(refusal.message)
+    expect(document.body.textContent).not.toContain(refusal.code)
   })
 
   it('offers to correct a released result only with lab.result.revise-released', async () => {
@@ -864,34 +949,60 @@ describe('testing and results', () => {
     expect(await within(stageCard()).findByRole('button', { name: 'Start test' })).toBeTruthy()
   })
 
-  it('hides the values when a refused check is followed by a refused re-read', async () => {
+  it('hides the values when a refused verify is followed by a refused re-read', async () => {
     api.labExecutions.mockResolvedValueOnce({ items: [execution({ result: draftResult() })] })
       .mockRejectedValue(problem(403, 'LAB_EXECUTION_ACCESS_DENIED', 'Lab execution/result access is not authorized'))
     api.verifyLabResult.mockRejectedValue(problem(403, 'LAB_OPERATION_ACCESS_DENIED', 'Lab operation is not authorized'))
     const card = await openReceived()
     expect(within(card).getByText('7.1')).toBeTruthy()
-    fireEvent.click(within(card).getByRole('button', { name: 'Check & release' }))
-    const sheet = await screen.findByRole('dialog', { name: 'Check & release' })
-    fireEvent.change(within(sheet).getByRole('textbox', { name: 'What you checked' }), { target: { value: 'Review' } })
-    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Check & release' })) })
+    fireEvent.click(within(card).getByRole('button', { name: 'Verify result version' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Verify result version' })
+    fireEvent.change(within(sheet).getByRole('textbox', { name: 'Verification reason' }), { target: { value: 'Review' } })
+    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Verify result version' })) })
     expect(await screen.findByText(DENIED)).toBeTruthy()
     expect(screen.queryByText('7.1')).toBeNull()
     expect(api.labExecutions).toHaveBeenCalledTimes(2)
     expect(api.releaseLabResult).not.toHaveBeenCalled()
   })
 
-  it('does not read again for a refusal answered on its merits (409)', async () => {
+  // The verify by the person who entered the result, as the backend handoff asks Lab to answer it (A12): refreshing
+  // never lets them verify, so the page says who must, not "Refresh before retrying".
+  it('does not read again for a refusal answered on its merits (409), and says it in the page’s words, not the service’s', async () => {
     api.labExecutions.mockResolvedValue({ items: [execution({ result: draftResult() })] })
-    api.verifyLabResult.mockRejectedValue(problem(409, 'LAB_RESULT_SELF_VERIFICATION', 'The person who entered a result cannot verify it'))
+    api.verifyLabResult.mockRejectedValue(problem(409, 'LAB_RESULT_VERIFIER_NOT_INDEPENDENT', 'Result verifier must be independent'))
     const card = await openReceived()
-    fireEvent.click(within(card).getByRole('button', { name: 'Check & release' }))
-    const sheet = await screen.findByRole('dialog', { name: 'Check & release' })
-    fireEvent.change(within(sheet).getByRole('textbox', { name: 'What you checked' }), { target: { value: 'Review' } })
-    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Check & release' })) })
-    expect((await within(card).findByRole('alert')).textContent).toContain('The person who entered a result cannot verify it')
+    fireEvent.click(within(card).getByRole('button', { name: 'Verify result version' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Verify result version' })
+    fireEvent.change(within(sheet).getByRole('textbox', { name: 'Verification reason' }), { target: { value: 'Review' } })
+    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Verify result version' })) })
+    await waitFor(() => expect(alertsIn(card)).toEqual(['Error: You entered this result, so someone else must verify it.']))
+    expect(document.body.textContent).not.toContain('Result verifier must be independent')
+    expect(document.body.textContent).not.toContain('LAB_RESULT_VERIFIER_NOT_INDEPENDENT')
     expect(api.labExecutions).toHaveBeenCalledTimes(1)
     expect(api.releaseLabResult).not.toHaveBeenCalled()
     expect(within(card).getByText('7.1')).toBeTruthy()
+  })
+
+  it.each([
+    ['one that covers both the person who entered it and a result no longer waiting (409)',
+      problem(409, 'LAB_RESULT_NOT_VERIFIABLE', 'Result verifier must be independent and result must be eligible'),
+      'Error: You can’t verify this result now. If you entered it, someone else must verify it. If not, it may have changed: '
+      + 'refresh to see it as it is.'],
+    // Lab's answer today for the person who entered it (docs/BACKEND_OWNER_HANDOFF.md A12): nothing says why, so today's sentence.
+    ['a server error (500)', problem(500, 'INTERNAL_SERVER_ERROR', 'Result verifier must be independent and result must be eligible'),
+      'Error: Decision could not be recorded. Refresh before retrying.'],
+  ])('says a refused verify (%s) in the page’s own words, never the service’s', async (_, refusal, said) => {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: draftResult() })] })
+    api.verifyLabResult.mockRejectedValue(refusal)
+    const card = await openReceived()
+    fireEvent.click(within(card).getByRole('button', { name: 'Verify result version' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Verify result version' })
+    fireEvent.change(within(sheet).getByRole('textbox', { name: 'Verification reason' }), { target: { value: 'Review' } })
+    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Verify result version' })) })
+    await waitFor(() => expect(alertsIn(stageCard())).toEqual([said]))
+    expect(document.body.textContent).not.toContain(refusal.message)
+    expect(document.body.textContent).not.toContain(refusal.code)
+    expect(api.releaseLabResult).not.toHaveBeenCalled()
   })
 })
 
@@ -974,6 +1085,27 @@ describe('work from another facility', () => {
     await answerSheet('Collect the sample', 'Collect sample')
     await waitFor(() => expect(alertsIn(stageCard())).toContain('Error: This order from another facility no longer lets you '
       + 'record on it: it has ended, or its time for work is over. You can still read what was recorded. Refresh the list.'))
+  })
+
+  // A 404 for writing on such an order means it closed, and the release says so in the page's words, not as a failed
+  // decision (on this laboratory's own work the same 404 says today's sentence: see 'testing and results').
+  it('says a release on an order that no longer lets this laboratory record is closed, never the service’s words', async () => {
+    as(PROCESSING)
+    api.labWorkItems.mockResolvedValue(answer([routed({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123', specimenStatuses: ['received'] })]))
+    api.labAccession.mockResolvedValue(accession([specimen('received')]))
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: verifiedResult() })] })
+    api.releaseLabResult.mockRejectedValue(problem(404, 'LAB_RESULT_NOT_FOUND', 'Lab result result-1 was not found'))
+    renderPage()
+    await openRecord()
+    fireEvent.click(await within(stageCard()).findByRole('button', { name: 'Release result version' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Release result version' })
+    fireEvent.change(within(sheet).getByRole('textbox', { name: 'Release reason' }), { target: { value: 'Reviewed' } })
+    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Release result version' })) })
+    await waitFor(() => expect(alertsIn(stageCard())).toEqual(['Error: This order from another facility no longer lets you '
+      + 'record on it: it has ended, or its time for work is over. You can still read what was recorded. Refresh the list.']))
+    expect(api.releaseLabResult).toHaveBeenCalledWith(DEMO_LABORATORY_ID, verifiedResult(), 'Reviewed')
+    expect(document.body.textContent).not.toContain('Lab result result-1 was not found')
+    expect(document.body.textContent).not.toContain('LAB_RESULT_NOT_FOUND')
   })
 
   it('shows an accession on an ended order to be read only', async () => {
