@@ -6,6 +6,7 @@ import { FormPage } from '../../../kasuwa/parts'
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { ChartProvider, useAccessEnded } from '../parts/chart'
 import { formatWhen } from '../parts/format'
+import { productOf } from '../../frame/product'
 import { RecordNotFound } from '../parts/Notices'
 import { patientFacts } from '../parts/PatientHeader'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
@@ -69,6 +70,10 @@ function PatientList() {
   const location = useLocation()
   const ended = useAccessEnded()
   const openPatient = useOpenPatient()
+  // Registration stays in the EHR only (the owner's decision): on a single product's site (lab., pharmacy., outreach.,
+  // migrate.) Find a patient offers no "Register a patient", whatever the role holds. The product is decided as the
+  // frame decides it (frame/product.ts), so this page and the menu always agree.
+  const registers = can('identity.registration.write') && productOf(window.location.hostname, permissions) === 'ehr'
   // Registration hands over the new Health ID (location state), so the next step is one press of Find; otherwise
   // today's field starts at HID- and is normalized as it changes.
   const [hid, setHid] = useState(() => { const handed = (location.state as { hid?: unknown } | null)?.hid; return typeof handed === 'string' ? handed : HEALTH_ID_PREFIX })
@@ -157,7 +162,7 @@ function PatientList() {
 
   return (
     <FormPage title="Find a patient" description="Search by Health ID to open their record, or to get access if you don’t have it yet."
-      actions={can('identity.registration.write') ? <Button to="/provider/registration" icon={UserPlus}>Register a patient</Button> : undefined}>
+      actions={registers ? <Button to="/provider/registration" icon={UserPlus}>Register a patient</Button> : undefined}>
       {ended && !activePatient ? <Alert intent="error" title="Access to this patient ended">Open the patient again to keep working.</Alert> : null}
 
       <Card>
