@@ -6,7 +6,8 @@ import { address, backToTestSite, openPortalOn } from '../sites/siteHarness'
  * Dark by default, through the whole chain: the build's VITE_HID_* variables, the portal's public configuration
  * (publicEnvironment.ts), packages/config's resolveEnvironment, the portal's env.ts, and the hand-off. No configuration
  * module is stood in for here. With VITE_HID_SSO unset, the signed-out staff and patient pages are today's sign-in
- * pages at today's addresses; set to 1, they hand off. The gateway and the product hosts are only names; nothing
+ * pages at today's addresses; set to 1, app.'s hand off, and the staff sites' stay today's until the staff hand-off is
+ * switched on (sso/staffHandOffSwitch.ts, as it ships). The gateway and the product hosts are only names; nothing
  * reaches them.
  */
 vi.mock('../../staff/clinicianApplicationApi', () => ({ clinicianApplicationApi: { availability: () => Promise.resolve({ open: false }) } }))
@@ -46,10 +47,19 @@ describe('VITE_HID_SSO', () => {
     expect(left).not.toHaveBeenCalled()
   })
 
-  it('set to 1, hands a signed-out page off', async () => {
+  it('set to 1, hands a signed-out page of app. off', async () => {
     vi.stubEnv('VITE_HID_SSO', '1')
-    await openPortalOn(EHR, '/provider/patients')
-    await waitFor(() => expect(left).toHaveBeenCalledWith('/api/v1/auth/sso/start?return_to=%2Fprovider%2Fpatients'))
+    await openPortalOn(APP, '/records')
+    await waitFor(() => expect(left).toHaveBeenCalledWith('/api/v1/auth/sso/start?return_to=%2Frecords'))
     expect(screen.queryByRole('heading', { name: 'Welcome back.' })).toBeNull()
+  })
+
+  it('set to 1, keeps today’s sign-in on a staff site while the staff hand-off is switched off (sso/staffHandOffSwitch.ts)', async () => {
+    vi.stubEnv('VITE_HID_SSO', '1')
+    const staff = await openPortalOn(EHR, '/provider/patients')
+    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(address()).toBe('/provider/sign-in?returnTo=%2Fprovider%2Fpatients')
+    expect(staff.filter(request => request.route.includes('/auth/sso/'))).toEqual([])
+    expect(left).not.toHaveBeenCalled()
   })
 })

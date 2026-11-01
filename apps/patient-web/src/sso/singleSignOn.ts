@@ -3,6 +3,7 @@ import type { StaffProductKey } from '../productHostname'
 import { siteOf, type Site } from '../productSites'
 import { isSafeReturnPath } from './handOff'
 import { leavePage } from './leave'
+import { STAFF_HAND_OFF } from './staffHandOffSwitch'
 
 /**
  * Whether single sign-on hands off on this page (contract v2): the build's VITE_HID_SSO setting is on, and this host is
@@ -24,19 +25,24 @@ export function portalHandsOff(): boolean {
 /** A staff product site, where the provider workspace signs in. */
 export type StaffSite = Site & { readonly key: StaffProductKey }
 
-/** The staff product site when the provider workspace hands off here (single sign-on on), else null. */
-export function staffHandOffSite(): StaffSite | null {
-  const site = singleSignOnSite()
+/**
+ * The staff product site when the provider workspace hands off here, else null: single sign-on on, and the staff
+ * hand-off switched on (staffHandOffSwitch.ts), which waits for the staff sign-out to end the provider's session.
+ */
+export function staffHandOffSite(hostname: string = window.location.hostname): StaffSite | null {
+  if (!STAFF_HAND_OFF) return null
+  const site = singleSignOnSite(hostname)
   return site && site.key !== 'web' ? { ...site, key: site.key } : null
 }
 
 /**
- * `path` (pathname and query) when single sign-on hands off here and a sign-in on this site may come back to it
- * (handOff.ts isSafeReturnPath), else null: always null while it is off. For the staff Gate and its session-ended page,
- * which carry only staff/session.ts's pages today, to carry a clinical record page too (their owner's change).
+ * `path` (pathname and query) when the provider workspace hands off here (staffHandOffSite) and a sign-in on this site
+ * may come back to it (handOff.ts isSafeReturnPath), else null: always null while either is off. For the staff Gate and
+ * its session-ended page, which carry only staff/session.ts's pages today, to carry a clinical record page too (their
+ * owner's change).
  */
 export function singleSignOnReturnPath(path: string, hostname: string = window.location.hostname): string | null {
-  return singleSignOnSite(hostname) && isSafeReturnPath(path, hostname) ? path : null
+  return staffHandOffSite(hostname) && isSafeReturnPath(path, hostname) ? path : null
 }
 
 /**

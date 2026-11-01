@@ -14,13 +14,16 @@ vi.mock('../../env', () => ({
 }))
 const left = vi.hoisted(() => vi.fn())
 vi.mock('../../sso/leave', () => ({ leavePage: left }))
+// The staff hand-off's switch (sso/staffHandOffSwitch.ts), on here unless a test says otherwise.
+const staffSwitch = vi.hoisted(() => ({ on: true }))
+vi.mock('../../sso/staffHandOffSwitch', () => ({ get STAFF_HAND_OFF() { return staffSwitch.on } }))
 
 const jsdom = (globalThis as unknown as { jsdom: { reconfigure(options: { url: string }): void } }).jsdom
 const servedFrom = window.location.href
 const onSite = (hostname: string) => jsdom.reconfigure({ url: `https://${hostname}/` })
 const END = 'https://auth.example.test/session/end?client_id=web'
 
-beforeEach(() => { left.mockClear(); environment.current = { ssoEnabled: false } })
+beforeEach(() => { left.mockClear(); environment.current = { ssoEnabled: false }; staffSwitch.on = true })
 afterEach(() => { jsdom.reconfigure({ url: servedFrom }); vi.resetModules() })
 
 async function load() {
@@ -46,6 +49,18 @@ describe('whether single sign-on hands off here', () => {
       expect(sso.singleSignOnSite()?.key).toBe(key)
       expect(sso.staffHandOffSite()).toMatchObject({ key, hostname: host })
       expect(sso.portalHandsOff()).toBe(false)
+    })
+
+  it.each(['ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com'])(
+    'never hands the provider workspace off on %s while the staff hand-off is switched off, and still hands app. off', async host => {
+      environment.current = { ssoEnabled: true }
+      staffSwitch.on = false
+      onSite(host)
+      const sso = await load()
+      expect(sso.singleSignOnSite()?.hostname).toBe(host)
+      expect(sso.staffHandOffSite()).toBeNull()
+      onSite('app.healthidentitydirectory.com')
+      expect(sso.portalHandsOff()).toBe(true)
     })
 
   it.each([
@@ -89,6 +104,13 @@ describe('the page a staff sign-in would come back to', () => {
     onSite('ehr.healthidentitydirectory.com')
     const sso = await load()
     expect(sso.singleSignOnReturnPath(path)).toBeNull()
+  })
+
+  it('is none while the staff hand-off is switched off', async () => {
+    environment.current = { ssoEnabled: true }
+    staffSwitch.on = false
+    onSite('ehr.healthidentitydirectory.com')
+    expect((await load()).singleSignOnReturnPath(RECORD)).toBeNull()
   })
 
   it('is none on another site’s page, and always none while single sign-on is off', async () => {

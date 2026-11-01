@@ -9,7 +9,9 @@ import { address, backToTestSite, onSite, openPortalOn, REFRESH, SESSION } from 
  * own host's /api/v1/auth/sso/start; unset, every sign-in page is today's. The portal is opened as each Health ID host
  * serves it, signed out, against a fake Identity; the browser's departure is the test's stand-in for sso/leave.ts. The
  * product hosts are only names here (jsdom's address), as in the sites tests; nothing reaches them. Every account,
- * record and address is fictional.
+ * record and address is fictional. The staff hand-off's switch (sso/staffHandOffSwitch.ts), off until the staff sign-out
+ * ends the provider's session, is stood in for here: on, unless a test says otherwise. staffSignOutHandOff.test.tsx runs
+ * it as it ships.
  */
 const environment = vi.hoisted(() => ({
   name: 'production', apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null, ssoEnabled: false,
@@ -23,9 +25,14 @@ const opened = vi.hoisted(() => vi.fn())
 vi.mock('../../openSite', () => ({ openSite: opened }))
 const left = vi.hoisted(() => vi.fn())
 vi.mock('../../sso/leave', () => ({ leavePage: left }))
+const staffSwitch = vi.hoisted(() => ({ on: true }))
+vi.mock('../../sso/staffHandOffSwitch', () => ({ get STAFF_HAND_OFF() { return staffSwitch.on } }))
 
 class TabChannel extends EventTarget { postMessage() {} close() {} }
-beforeEach(() => { opened.mockClear(); left.mockClear(); environment.ssoEnabled = false; vi.stubGlobal('BroadcastChannel', TabChannel) })
+beforeEach(() => {
+  opened.mockClear(); left.mockClear(); environment.ssoEnabled = false; staffSwitch.on = true
+  vi.stubGlobal('BroadcastChannel', TabChannel)
+})
 afterEach(() => { backToTestSite(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
 const APP = 'app.healthidentitydirectory.com'
@@ -158,6 +165,24 @@ describe('with single sign-on on, on a staff site', () => {
     expect(document.title).toBe('Signing out · Health ID')
     expect(screen.queryByRole('link', { name: 'Continue to sign in' })).toBeNull()
     expect(left.mock.calls).toEqual([[end]])
+  })
+})
+
+describe('with single sign-on on and the staff hand-off switched off, on a staff site', () => {
+  beforeEach(() => { environment.ssoEnabled = true; staffSwitch.on = false })
+
+  it.each([
+    [EHR, '/provider/patients', '/provider/sign-in?returnTo=%2Fprovider%2Fpatients'],
+    [LAB, '/provider', '/provider/sign-in?returnTo=%2Fprovider'],
+  ])('shows today’s sign-in on %s for %s, at today’s address', async (host, path, signInAddress) => {
+    const sent = await openSignedOut(host, path)
+    await expectTodaysSignIn(sent)
+    expect(address()).toBe(signInAddress)
+  })
+
+  it('still hands app. off', async () => {
+    await openSignedOut(APP, '/records')
+    await expectHandedOff(`${START}?return_to=%2Frecords`)
   })
 })
 
