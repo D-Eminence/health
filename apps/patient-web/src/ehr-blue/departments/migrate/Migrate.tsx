@@ -28,6 +28,14 @@ import { ConfirmForm, FormRefusal, ReviewForm, ReviewPublication, UUID_V4, statu
  */
 interface StepFocus { readonly targets: readonly string[]; readonly notice?: string; readonly confirmNext?: boolean }
 
+/**
+ * The refusal for a role without OCR job read, on this page and at its address (page.tsx). Screens name no permission
+ * (the owner's rule), so today's words, which named the one lacking, give way to a plain sentence. No role holds the OCR
+ * work (hid-system 0091), so nobody is told to ask anyone for it: it isn't available yet. It names the reading of scanned
+ * documents, not document capture: a clinician refused here may still add documents to a visit.
+ */
+export const NO_DOCUMENT_OCR = 'Reading scanned documents isn’t available at your facility yet.'
+
 /** A job this page has read, and when. */
 interface OpenedJob { readonly job: OcrJob; readonly readAt: string }
 
@@ -266,7 +274,7 @@ export function Migrate() {
 
   // The page opens as today's Migrate and Document OCR pages do: at a facility, with OCR job read.
   if (!facilityId || !canRead) return <DeptPage title="Document OCR">
-    <DeptNotice tone="critical" role="alert">Permission denied. This membership or branch cannot open this module: it needs OCR job read permission.</DeptNotice>
+    <DeptNotice tone="critical" role="alert">{NO_DOCUMENT_OCR}</DeptNotice>
   </DeptPage>
 
   const detail = view === 'detail' && canRead && visibleJob ? visibleJob : null
@@ -299,7 +307,7 @@ export function Migrate() {
       statusWords(row.job.status), row.job.provider, row.job.patientId]))
     const nothingFound = searched && !visibleJob && currentDocument !== ''
     if (!canRead) return <DeptSection title="Document OCR">
-      <DeptNotice tone="critical">Permission denied. Finding, creating and reviewing OCR jobs needs OCR job read permission.</DeptNotice>
+      <DeptNotice tone="critical">{NO_DOCUMENT_OCR}</DeptNotice>
     </DeptSection>
     return <>
       <DeptSearch label="Search Document OCR" value={search} onChange={setSearch}
