@@ -59,6 +59,10 @@ const thePage = () => within(document.querySelector<HTMLElement>('.hid-ehr-blue-
 
 const signInShown = () => screen.queryByRole('heading', { name: 'Welcome back.' }) !== null || document.querySelector('input[type="password"]') !== null
 
+/** The other sites the page itself offers to go on to ("Open …"), as [name, address]. */
+const onward = () => thePage().queryAllByRole('link').filter(link => /^Open /.test(link.textContent ?? ''))
+  .map(link => [link.textContent, link.getAttribute('href')])
+
 describe('off (VITE_HID_SSO unset): exactly today', () => {
   it('leaves from and back in the address, offers no way back, and links to the other sites’ roots', async () => {
     const shown = await arrive(LAB, '/provider/laboratory/work?from=ehr&back=%2Fprovider%2Fpatients', LABORATORY)
@@ -146,6 +150,8 @@ describe('on (VITE_HID_SSO=1): an account its facility gives nothing of this sit
     expect(page.getByRole('heading', { level: 1 })).toBe(heading)
     expect(page.getByText('You are signed in, but your role at Fictional Clinic does not include Pharmacy. An administrator at Fictional Clinic can give you access.')).toBeTruthy()
     expect(page.getByRole('link', { name: 'Back to Hospital EHR' }).getAttribute('href')).toBe('https://ehr.healthidentitydirectory.com/provider/patients')
+    // The way back is the one offered: the sites it could go on to stay in the sidebar.
+    expect(onward()).toEqual([])
     expect(signInShown()).toBe(false)
     // The page stays: no product page opens, sends the person Home or loops back here.
     expect(where()).toBe('/provider/pharmacy')
@@ -161,6 +167,27 @@ describe('on (VITE_HID_SSO=1): an account its facility gives nothing of this sit
     // Arrived by its address, not from another site: no way back to offer, and none made up.
     expect(screen.queryByRole('link', { name: /^Back to / })).toBeNull()
     expect(signInShown()).toBe(false)
+  })
+
+  it('without a way back in memory, offers the other sites whose product the account does use, and only those', async () => {
+    on()
+    // As after the sign-in hand-off's round trip, which leaves the page and its memory: no from or back to read.
+    await arrive(LAB, '/provider/laboratory/work', CLINICAL)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your account can\'t use Laboratory at this facility.' })).toBeTruthy()
+    // The Hospital EHR is open to clinical roles. Pharmacy is not: its menu page asks for nothing, which is no reason.
+    expect(onward()).toEqual([
+      ['Open Hospital EHR', 'https://ehr.healthidentitydirectory.com/provider?from=lab&back=%2Fprovider%2Flaboratory%2Fwork'],
+    ])
+    expect(screen.queryByRole('link', { name: /^Back to / })).toBeNull()
+    expect(signInShown()).toBe(false)
+  })
+
+  it('makes no way on up: an account no other site opens either gets no link', async () => {
+    on()
+    await arrive(EHR, '/provider', ['audit.read'])
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your account can\'t use Hospital EHR at this facility.' })).toBeTruthy()
+    expect(onward()).toEqual([])
+    expect(thePage().queryAllByRole('link')).toEqual([])
   })
 
   it('still opens the pages every staff site serves, where the roles allow them', async () => {

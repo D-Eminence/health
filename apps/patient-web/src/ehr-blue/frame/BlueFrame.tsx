@@ -5,6 +5,7 @@ import { Activity, ArrowLeft, Check, ExternalLink, Hospital, House, Search, Shie
 import { AppShell, type NavGroup, type NavItem } from '../../kasuwa/AppShell'
 import { Alert, Badge, Button, cx, EmptyState, type Icon } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
+import type { StaffSession } from '../../staff/api'
 import { ReviewBanner } from '../../staff/routes/ReviewBanner'
 import { BillingBanner } from '../../staff/routes/Billing'
 import { BrandLogo } from '../../BrandLogo'
@@ -92,6 +93,16 @@ export function otherSitesGroup(pages: readonly EhrBluePage[], backPath: string 
 }
 
 /**
+ * Of the other sites the sidebar links to, those whose product this session may use at its facility (pageAccess.ts
+ * productUsable): a site listed only for a page that asks for nothing (the pharmacy's menu) is left out.
+ */
+function usableSites(pages: readonly EhrBluePage[], session: StaffSession, hostname: string, backPath: string | null): UsableSite[] {
+  return otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf), hostname)
+    .filter(site => productUsable(BLUE_PAGES, session, site.hostname))
+    .map(site => ({ key: site.key, name: SITE_NAMES[site.key], href: switchHref(site, hostname, backPath) }))
+}
+
+/**
  * The page a link to another site says this one is: the blue page's own address, without anything below it (a record's
  * id stays here), else the address itself. siteSwitch.ts checks it again before any link carries it.
  */
@@ -118,16 +129,25 @@ function SwitchBackLink({ arrival }: { arrival: SwitchArrival }) {
     <ArrowLeft className="size-4 shrink-0" aria-hidden /><span className="truncate">Back to {arrival.name}</span></a>
 }
 
+/** Another staff site this session may use, as a link to it (siteSwitch.ts switchHref). */
+interface UsableSite { readonly key: Site['key']; readonly name: string; readonly href: string }
+
 /**
  * Signed in, at a facility whose roles give this person nothing of this site's product (pageAccess.ts productUsable):
- * the page says so, and offers the way back to the site they came from, never a sign-in. The pages every staff site
- * serves (staff, audit, subscription) still open from the sidebar where the roles allow them.
+ * the page says so, and offers the way back to the site they came from, never a sign-in. Without one in memory (an
+ * address typed, or the sign-in hand-off's round trip, which leaves the page), it offers the other staff sites whose
+ * product the same roles do open, so there is always a way on. The pages every staff site serves (staff, audit,
+ * subscription) still open from the sidebar where the roles allow them.
  */
-function ProductNotForAccount({ product, facility, arrival, choosing }: { product: string; facility: string; arrival: SwitchArrival | null; choosing: boolean }) {
+function ProductNotForAccount({ product, facility, arrival, usable, choosing }: {
+  product: string; facility: string; arrival: SwitchArrival | null; usable: readonly UsableSite[]; choosing: boolean
+}) {
+  const onward = arrival ? [] : usable
   return <EmptyState titleAs="h1" icon={ShieldX} title={`Your account can't use ${product} at this facility.`}
     description={`You are signed in, but your role at ${facility} does not include ${product}. An administrator at ${facility} can give you access.${choosing ? ' To work at another facility, choose it.' : ''}`}
-    action={arrival || choosing ? <div className="flex flex-wrap justify-center gap-2">
+    action={arrival || onward.length > 0 || choosing ? <div className="flex flex-wrap justify-center gap-2">
       {arrival ? <Button href={arrival.href} variant="primary">Back to {arrival.name}</Button> : null}
+      {onward.map((site, index) => <Button key={site.key} href={site.href} variant={index === 0 ? 'primary' : undefined}>Open {site.name}</Button>)}
       {choosing ? <Button to="/provider/institutions">Choose workspace</Button> : null}
     </div> : undefined} />
 }
@@ -220,7 +240,7 @@ export function BlueFrame() {
       choosing={session.actor.facilities.length > 1} />
     : cannotUse && here
     ? <ProductNotForAccount product={SITE_NAMES[here.key]} facility={facility?.name ?? 'this facility'} arrival={arrival}
-      choosing={session.actor.facilities.length > 1} />
+      usable={usableSites(allowed, session, hostname, backPath)} choosing={session.actor.facilities.length > 1} />
     : match
     ? pageAllowed(match.page, session, viewing) || todayRefuses
       ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
