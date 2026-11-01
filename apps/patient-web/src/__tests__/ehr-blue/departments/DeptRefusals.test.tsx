@@ -25,7 +25,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules()
 describe('a department page without its permission', () => {
   it.each([
     ['/provider/laboratory', 'Laboratory unavailable', LAB_REFUSAL],
-    ['/provider/pharmacy', 'Pharmacy unavailable', 'This facility membership needs pharmacy work-item read permission.'],
+    ['/provider/pharmacy', 'Pharmacy unavailable', 'Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.'],
     ['/provider/ocr', 'Document OCR unavailable', OCR_REFUSAL],
     ['/provider/audit', 'Audit access unavailable', 'Your active facility membership needs audit.read permission to review its events.'],
   ])('%s gives its own refusal, %s, and reads nothing', async (path, title, message) => {

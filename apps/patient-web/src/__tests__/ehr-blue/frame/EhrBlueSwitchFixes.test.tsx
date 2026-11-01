@@ -13,8 +13,8 @@ import {
 
 /**
  * What the blue EHR must get right before it opens for every clinic: design-only entries only at the demo facilities,
- * the classic EHR choice gone with the session that made it, today's no-permission sentence and refusals in today's
- * words, and the classic EHR keeping today's own pages. Every account, facility and patient here is fictional.
+ * the next sign-in opening the blue EHR, today's no-permission sentence and refusals in today's words, and no way back
+ * to the classic EHR, which is gone. Every account, facility and patient here is fictional.
  */
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 // The clinic switch as it ships, unless a test turns it on (switchedOn): a vi.doMock outlives the test that made it.
