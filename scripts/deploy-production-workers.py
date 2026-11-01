@@ -297,7 +297,12 @@ PROPAGATION_SECONDS = 90
 PROPAGATION_RETRY_SECONDS = 3
 PROPAGATION_CODES = frozenset({"WORKER_ASSET_NOT_YET_SERVED","WORKER_ASSET_UNREACHABLE","LIVE_HTML_BYTES_DIFFER",
     "LIVE_ENTRY_ASSET_BYTES_DIFFER","WORKER_DEEP_LINK_DIFFERS","PUBLIC_DEEP_LINK_DIFFERS","LANDING_PAGE_NOT_YET_SERVED",
-    "SIGNED_IN_FRONT_PAGE_NOT_YET_SERVED"})
+    "SIGNED_IN_FRONT_PAGE_NOT_YET_SERVED",
+    # A front page without its private headers can still be the previous version's, which answers the same bytes: a
+    # version from before the patient page answers a signed-in patient the portal's index.html, unchanged if the portal's
+    # build is, and one from before the signed-in front pages answers a stranger the same landing page. Only an answer
+    # still without them when the wait is over is this version's.
+    "FRONT_PAGE_CACHE_HEADERS_DIFFER"})
 
 def verify_assets(app,manifest_entry,landing=None):
     # landing: whether the version checked answers its front page with its landing page. A version this run uploads
@@ -353,9 +358,17 @@ def verify_live_assets(app,manifest_entry,landing=False):
             return error.headers.get("location")
         except (urllib.error.URLError, OSError, http.client.HTTPException):
             raise ReleaseError("WORKER_ASSET_UNREACHABLE") from None
+    def landing_page():
+        # The landing page as this version serves it to someone not signed in: from the public site, with this site's
+        # canonical address, which no version from before the landing pages writes (it answers its index.html).
+        page, headers = get("",front=True)
+        require(('<link rel="canonical" href="'+LANDING_CANONICAL[app]+'">').encode() in page, "LANDING_PAGE_NOT_YET_SERVED")
+        require(private_front_page(headers), "FRONT_PAGE_CACHE_HEADERS_DIFFER")
     # A site whose front page depends on a sign-in has its own index.html checked where it is always served: the
-    # portal's at its front page for someone signed in, a product site's at its staff sign-in.
+    # portal's at its front page for someone signed in, a product site's at its staff sign-in. The portal's stranger is
+    # checked first: only a version with the patient page answers that, while every version answers its index.html.
     if landing and app == "web":
+        landing_page()
         html, headers = get("",signed_in=True,front=True)
     else:
         html, headers = get("provider/sign-in" if landing else ""), None
@@ -364,7 +377,8 @@ def verify_live_assets(app,manifest_entry,landing=False):
         print(json.dumps({"app":app,"live_html_sha256":sha(html),"live_html_bytes":len(html),
             "analytics_beacon":b"cloudflareinsights" in html}), flush=True)
         raise ReleaseError("LIVE_HTML_BYTES_DIFFER")
-    # Only this version answers with this index.html, so its headers are this version's.
+    # Not only this version answers with this index.html: a previous one with the same portal build does too, without
+    # these headers, and is waited out (PROPAGATION_CODES).
     if headers is not None: require(private_front_page(headers), "FRONT_PAGE_CACHE_HEADERS_DIFFER")
     refs = AssetRefs(); refs.feed(html.decode("utf-8"))
     for path in refs.paths:
@@ -376,14 +390,10 @@ def verify_live_assets(app,manifest_entry,landing=False):
         require(matches(get("about"),manifest_entry["files"]["about.html"],html=True), "PUBLIC_DEEP_LINK_DIFFERS")
     checks = {"entry_assets_verified":len(refs.paths),"deep_link_verified":True}
     if landing:
-        # The landing page as this version serves it to someone not signed in: from the public site, with this site's
-        # canonical address, which only this version writes (the previous one answers its index.html until the edge
-        # serves this one).
-        page, headers = get("",front=True)
-        require(('<link rel="canonical" href="'+LANDING_CANONICAL[app]+'">').encode() in page, "LANDING_PAGE_NOT_YET_SERVED")
-        require(private_front_page(headers), "FRONT_PAGE_CACHE_HEADERS_DIFFER")
         if app != "web":
-            # Staff signed in there go to the workspace's entrance (the portal's signed-in front page is checked above).
+            # The landing page, then staff signed in there going to the workspace's entrance (the portal's two front
+            # pages are checked above).
+            landing_page()
             location = redirect_of_front_page()
             require(location is not None, "SIGNED_IN_FRONT_PAGE_NOT_YET_SERVED")
             require(location == "https://"+HOSTS[app]+"/provider", "SIGNED_IN_FRONT_PAGE_DIFFERS")

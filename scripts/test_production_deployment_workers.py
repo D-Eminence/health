@@ -47,10 +47,10 @@ class WorkerTests(unittest.TestCase):
                 paths = []
                 deep_link = 'about' if app == 'public' else 'admin/sign-in' if app == 'admin' else 'sign-in'
                 landing = app in w.LANDING_APPS
-                # A front page that depends on a sign-in: the portal's index.html is read at its front page for someone
-                # signed in, a product site's at its staff sign-in; then each front page is read for a stranger and,
-                # on a product site, for someone signed in. The cookie is only ever sent to "/".
-                expected = {'web': [('', True), ('entry.js', False), (deep_link, False), ('', False)]}.get(app,
+                # A front page that depends on a sign-in: the portal's is read for a stranger, then its index.html at
+                # its front page for someone signed in; a product site's index.html is read at its staff sign-in, then
+                # its front page for a stranger and for someone signed in. The cookie is only ever sent to "/".
+                expected = {'web': [('', False), ('', True), ('entry.js', False), (deep_link, False)]}.get(app,
                     [('provider/sign-in', False), ('entry.js', False), (deep_link, False), ('', False), ('', True)]
                     if landing else [('', False), ('entry.js', False), (deep_link, False)])
                 def open_request(request, timeout):
@@ -181,6 +181,10 @@ class WorkerTests(unittest.TestCase):
         result, clock = self.propagation('lab', {'': [previous, previous]})
         self.assertTrue(result['landing_page_verified'])
         self.assertEqual([line['waiting_for_edge'] for line in clock['printed']], ['LANDING_PAGE_NOT_YET_SERVED'] * 2)
+        # A previous version that already had the landing page, but not yet its private headers: waited out too.
+        result, clock = self.propagation('lab', {'': [(landing_page('lab'), 200, PAGE_HEADERS)] * 2})
+        self.assertTrue(result['landing_page_verified'])
+        self.assertEqual([line['waiting_for_edge'] for line in clock['printed']], ['FRONT_PAGE_CACHE_HEADERS_DIFFER'] * 2)
 
     def test_a_front_page_that_is_not_this_sites_landing_page_never_passes(self):
         previous = (b'<html><script src="/previous.js"></script></html>', 200, None)
@@ -197,24 +201,32 @@ class WorkerTests(unittest.TestCase):
 
     def test_the_portal_front_page_is_checked_for_a_signed_in_patient_and_for_a_stranger(self):
         previous = (b'<html><script src="/previous.js"></script></html>', 200, PAGE_HEADERS)
-        # Until the edge serves this version, a signed-in patient's "/" is the previous index.html, and a stranger's too.
+        # Until the edge serves this version, a stranger's "/" is the previous index.html, and a signed-in patient's too.
         result, clock = self.propagation('web', {('', True): [previous, previous], '': [previous]})
         self.assertTrue(result['landing_page_verified'])
         self.assertEqual([line['waiting_for_edge'] for line in clock['printed'] if 'waiting_for_edge' in line],
-                         ['LIVE_HTML_BYTES_DIFFER', 'LIVE_HTML_BYTES_DIFFER', 'LANDING_PAGE_NOT_YET_SERVED'])
+                         ['LANDING_PAGE_NOT_YET_SERVED', 'LIVE_HTML_BYTES_DIFFER', 'LIVE_HTML_BYTES_DIFFER'])
+        # The portal's build unchanged since the previous version: that version answers a signed-in patient this same
+        # index.html, with its plain page headers, while the edge still serves it here and there. Waited out.
+        html = b'<html><script src="/entry.js"></script></html>'
+        unchanged = (html, 200, PAGE_HEADERS)
+        result, clock = self.propagation('web', {('', True): [unchanged, unchanged]})
+        self.assertTrue(result['landing_page_verified'])
+        self.assertEqual([line['waiting_for_edge'] for line in clock['printed'] if 'waiting_for_edge' in line],
+                         ['FRONT_PAGE_CACHE_HEADERS_DIFFER'] * 2)
+        self.assertEqual(clock['sleeps'], [w.PROPAGATION_RETRY_SECONDS] * 2)
         # A stranger's "/" that is not the patient page with its own canonical address never passes.
         for answer in [previous, (landing_page('lab'), 200, FRONT_HEADERS)]:
             result, clock = self.propagation('web', {'': [answer] * 1000})
             self.assertEqual(str(result), 'LANDING_PAGE_NOT_YET_SERVED')
             self.assertEqual(sum(clock['sleeps']), w.PROPAGATION_SECONDS)
-        # Neither may be stored or shared: the new version's front page without its private headers fails at once.
-        html = b'<html><script src="/entry.js"></script></html>'
+        # Neither may be stored or shared: a front page still without its private headers when the wait is over fails.
         for key, answer in [(('', True), (html, 200, PAGE_HEADERS)), ('', (landing_page('web'), 200, PAGE_HEADERS)),
                             ('', (landing_page('web'), 200, dict(PAGE_HEADERS, **{'cache-control': 'no-store'})))]:
             with self.subTest(key=key, headers=answer[2]):
                 result, clock = self.propagation('web', {key: [answer] * 1000})
                 self.assertEqual(str(result), 'FRONT_PAGE_CACHE_HEADERS_DIFFER')
-                self.assertEqual(clock['sleeps'], [])
+                self.assertEqual(sum(clock['sleeps']), w.PROPAGATION_SECONDS)
         # A rollback to a release from before this change checks "/" as it was then: the portal, for anyone.
         # (A front page asked for with the cookie would fail here: it is never asked for.)
         result, clock = self.propagation('web', {'': [(html, 200, PAGE_HEADERS)], ('', True): [(b'', 500, None)]},
@@ -229,21 +241,22 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(result['landing_page_verified'])
         self.assertEqual([line['waiting_for_edge'] for line in clock['printed']], ['SIGNED_IN_FRONT_PAGE_NOT_YET_SERVED'] * 2)
         self.assertIn('SIGNED_IN_FRONT_PAGE_NOT_YET_SERVED', w.PROPAGATION_CODES)
-        # A redirect elsewhere, or one that could be stored or shared, fails at once.
+        # A redirect elsewhere fails at once; one that could be stored or shared, once the wait is over.
         elsewhere = dict(FRONT_HEADERS, location='https://lab.healthidentitydirectory.com/provider/sign-in')
-        for headers, code in [(elsewhere, 'SIGNED_IN_FRONT_PAGE_DIFFERS'),
-                              (PAGE_HEADERS, 'FRONT_PAGE_CACHE_HEADERS_DIFFER'),
-                              (dict(FRONT_HEADERS, vary='Accept-Encoding'), 'FRONT_PAGE_CACHE_HEADERS_DIFFER'),
-                              (dict(FRONT_HEADERS, **{'x-frame-options': 'SAMEORIGIN'}), 'WORKER_ASSET_REQUEST_FAILED')]:
+        for headers, code, waited in [(elsewhere, 'SIGNED_IN_FRONT_PAGE_DIFFERS', 0),
+                                      (PAGE_HEADERS, 'FRONT_PAGE_CACHE_HEADERS_DIFFER', w.PROPAGATION_SECONDS),
+                                      (dict(FRONT_HEADERS, vary='Accept-Encoding'), 'FRONT_PAGE_CACHE_HEADERS_DIFFER',
+                                       w.PROPAGATION_SECONDS),
+                                      (dict(FRONT_HEADERS, **{'x-frame-options': 'SAMEORIGIN'}), 'WORKER_ASSET_REQUEST_FAILED', 0)]:
             with self.subTest(code=code, headers=headers):
                 result, clock = self.propagation('lab', {('', True): [(b'', 'workspace', headers)] * 1000})
                 self.assertEqual(str(result), code)
-                self.assertEqual(clock['sleeps'], [])
-        # A stranger's landing page that could be stored fails at once, too.
+                self.assertEqual(sum(clock['sleeps']), waited)
+        # A stranger's landing page that could be stored fails too, once the wait is over.
         result, clock = self.propagation('lab', {'': [(landing_page('lab'), 200, PAGE_HEADERS)] * 1000})
         self.assertEqual(str(result), 'FRONT_PAGE_CACHE_HEADERS_DIFFER')
-        for code in ['SIGNED_IN_FRONT_PAGE_DIFFERS', 'FRONT_PAGE_CACHE_HEADERS_DIFFER']:
-            self.assertNotIn(code, w.PROPAGATION_CODES)
+        self.assertEqual(sum(clock['sleeps']), w.PROPAGATION_SECONDS)
+        self.assertNotIn('SIGNED_IN_FRONT_PAGE_DIFFERS', w.PROPAGATION_CODES)
 
     def test_a_timeout_reset_or_cut_off_answer_from_the_edge_is_waited_out(self):
         for status in ['timeout', 'reset', 'cut']:
