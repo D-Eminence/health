@@ -79,11 +79,15 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
   // Arrived from the create page: what it said is shown here whatever the read below finds, as today's page says it
   // beside the list after a create (Clinical.tsx createRecord), so a save or a "Do not create it again" is never lost.
-  const [afterCreate] = useState(() => flash?.orderId === orderId)
-  const [success, setSuccess] = useState(() => afterCreate && flash ? flash.success ?? '' : '')
-  const [pageError, setPageError] = useState(() => afterCreate && flash ? flash.error ?? '' : '')
+  const [created] = useState(() => flash?.orderId === orderId ? flash : null)
+  const afterCreate = created !== null
+  const [success, setSuccess] = useState(() => created?.success ?? '')
+  const [pageError, setPageError] = useState('')
   // The order is being read again after a change: no change may start from the version shown (today's recordsLoading).
   const [reloading, setReloading] = useState(false)
+  // Only the latest read of the order is kept, and only it lifts the lock: today's recordLoad sequence, shared by the
+  // first read and the reads after a change (Clinical.tsx:1319-1334, :1417, :1426, :1435, :1440).
+  const readSeq = useRef(0)
   const [selected, setSelected] = useState<string | null>(null)
   const [resultsOpen, setResultsOpen] = useState(false)
   const [resultsRevision, setResultsRevision] = useState(0)
@@ -110,34 +114,51 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
 
   const { facilityId, patientId } = chart
   useEffect(() => {
-    let active = true
-    // After a create the list is read afresh, as today's page reads it after a change (Clinical.tsx loadRecords).
+    const seq = ++readSeq.current
+    const latest = () => seq === readSeq.current
+    // After a create the list is read afresh, as today's page reads it after a change (Clinical.tsx loadRecords). This
+    // is the create's one read: a warning it left ends with what the read came to (reloadSentence), and a failed read
+    // is said there, not again ("The change was saved, …"), as today's labWarning and createAndSend replace it
+    // (Clinical.tsx:1437, :1447-1448, :1659-1667).
+    const warning = created?.warning
+    const warn = (read: Reload) => {
+      if (warning) setPageError(`${warning.text}${reloadSentence(read, warning.what, warning.listChanged)}`)
+    }
     readOrder(chartRef.current, encounterId, kind, orderId, afterCreate).then(
       read => {
-        if (!active) return
+        if (!latest()) return
+        warn(read.record ? [read.record] : [])
         setLoaded(read.record ? { status: 'ready', record: read.record, crossFacilityOrders: read.crossFacilityOrders } : { status: 'missing' })
+        setReloading(false)
       },
       caught => {
-        if (!active) return
-        setLoaded({ status: 'error', text: afterCreate ? `The change was saved, but the records could not be reloaded. ${refusalText(caught, '')}`.trim()
+        if (!latest()) return
+        warn('failed')
+        setLoaded({ status: 'error', text: warning ? '' : afterCreate ? `The change was saved, but the records could not be reloaded. ${refusalText(caught, '')}`.trim()
           : caught instanceof Error ? caught.message : 'Records could not be loaded.' })
+        setReloading(false)
       },
     )
-    return () => { active = false }
-  }, [facilityId, patientId, encounterId, kind, orderId, afterCreate])
+    return () => { readSeq.current += 1 }
+  }, [facilityId, patientId, encounterId, kind, orderId, afterCreate, created])
 
   /** The order read again after a change, as today's page re-reads its list: the rows, or 'failed'. */
   const reload = async (): Promise<Reload> => {
+    // Two reads can overlap (a withdrawal while a status change's read is out): an older answer is dropped (null, as
+    // today's), and the lock stays until the latest read lands.
+    const seq = ++readSeq.current
     setReloading(true)
     try {
       const read = await readOrder(chartRef.current, encounterId, kind, orderId, true)
+      if (seq !== readSeq.current) return null
       setLoaded(read.record ? { status: 'ready', record: read.record, crossFacilityOrders: read.crossFacilityOrders } : { status: 'missing' })
       return read.record ? [read.record] : []
     } catch (caught) {
+      if (seq !== readSeq.current) return null
       setPageError(`The change was saved, but the records could not be reloaded. ${refusalText(caught, '')}`.trim())
       return 'failed'
     } finally {
-      setReloading(false)
+      if (seq === readSeq.current) setReloading(false)
     }
   }
 
@@ -150,8 +171,9 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   )
 
   if (loaded.status === 'loading') return <Loading label="Loading records…" />
-  if (loaded.status === 'error') return <><RecordHeadingOnly title={info.title} back={back} />{said}<ErrorBox>{loaded.text}</ErrorBox></>
-  if (loaded.status === 'missing') return <>{said}<RecordNotFound backHref={back} /></>
+  if (loaded.status === 'error') return <><RecordHeadingOnly title={info.title} back={back} />{said}{loaded.text ? <ErrorBox>{loaded.text}</ErrorBox> : null}</>
+  // The page's heading first, then what the create said, as on the other states.
+  if (loaded.status === 'missing') return <><RecordNotFound backHref={back} />{said}</>
 
   const record = loaded.record
   const status = text(record.status)

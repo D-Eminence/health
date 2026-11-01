@@ -1192,7 +1192,8 @@ describe('blockers: what a create said is shown even when the saved order’s pa
     await confirmPatient(SEND_LAB(), 'Send lab request')
     expect(await screen.findByText('Lab request created in the EHR: its status is saved, but Lab refused it (LAB_TEST_UNKNOWN). Once that is resolved, '
       + 'use Send to Lab on the request. The list could not be reloaded; refresh it to see the request.')).toBeTruthy()
-    expect(screen.getByText('The change was saved, but the records could not be reloaded. EHR is unavailable.')).toBeTruthy()
+    // One read, said once: today's labWarning replaces loadRecords' own sentence (Clinical.tsx:1437, :1447-1448).
+    expect(screen.queryByText('The change was saved, but the records could not be reloaded. EHR is unavailable.')).toBeNull()
   })
 
   it('blocker: a lab request saved but not sent to another laboratory says so when its page cannot be read', async () => {
@@ -1211,7 +1212,152 @@ describe('blockers: what a create said is shown even when the saved order’s pa
     await confirmPatient(`Send this lab request (Haemoglobin) for ${PATIENT_NAME} to Demo Laboratory?`, 'Send lab request')
     expect(await screen.findByText('Saved as a draft. Not sent: Demo Laboratory can’t receive this order on Health ID at the moment. Choose another laboratory. '
       + 'The list could not be reloaded; refresh it to see the lab requests.')).toBeTruthy()
-    expect(screen.getByText('The change was saved, but the records could not be reloaded. EHR is unavailable.')).toBeTruthy()
+    // One read, said once: today's createAndSend replaces loadRecords' own sentence (Clinical.tsx:1437, :1666-1667).
+    expect(screen.queryByText('The change was saved, but the records could not be reloaded. EHR is unavailable.')).toBeNull()
+  })
+})
+
+/** The fresh reads of the lab requests list (the create page's, or the saved request's page's), counted. */
+function freshLabReads() {
+  return api.records.mock.calls.filter(call => call[3] === 'lab-requests' && (call[4] as { fresh?: boolean } | undefined)?.fresh === true).length
+}
+
+/** Submits the open form whose field this is (the create page's, or an order's change), whatever its button says. */
+function submitWith(label: string) {
+  fireEvent.submit(field(label).closest('form')!)
+}
+
+/**
+ * Review of the blockers: today's page reads the list once after a create and says once what that read came to
+ * (Clinical.tsx createRecord :1453-1505, labWarning :1447-1448, createAndSend :1659-1667). The saved request's page
+ * reads it afresh, so the create page does not read it too when it can open the request.
+ */
+describe('review: after a create the list is read once, and what the read came to is said once', () => {
+  async function sendElsewhere() {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    staff.permissions = [...READ_WRITE, 'ehr.order-route.send']
+    setLists([], [labRequest()], { crossFacilityOrders: true })
+    api.createRecord.mockResolvedValue(labRequest())
+    await labForm('route')
+    change('Search for the laboratory', 'Demo')
+    fireEvent.keyDown(field('Search for the laboratory'), { key: 'Enter' })
+    fireEvent.click(await screen.findByRole('radio', { name: /^Demo Laboratory/ }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: /^I confirm that Patient One agreed/ }))
+  }
+
+  const UNANSWERED = 'Saved. Health ID did not answer the send, so it may or may not have gone to Demo Laboratory: check the row below before sending it again.'
+
+  it('blocker: a send with no answer reads the list once, on the saved request’s page, which says it was reloaded', async () => {
+    routes.send.mockRejectedValue(new HidApiError(503, 'Health ID is unavailable.', { code: 'UNAVAILABLE' }))
+    await sendElsewhere()
+    const before = freshLabReads()
+    submitWith('Test code')
+    await confirmPatient(`Send this lab request (Haemoglobin) for ${PATIENT_NAME} to Demo Laboratory?`, 'Send lab request')
+    expect(await screen.findByText(`${UNANSWERED} The list was reloaded.`)).toBeTruthy()
+    expect(freshLabReads() - before).toBe(1)
+    expect(screen.queryByText(/could not be reloaded/)).toBeNull()
+  })
+
+  it('blocker: a send with no answer whose page cannot read the list says that once, not also that the list was reloaded', async () => {
+    routes.send.mockRejectedValue(new HidApiError(503, 'Health ID is unavailable.', { code: 'UNAVAILABLE' }))
+    await sendElsewhere()
+    api.records.mockRejectedValue(UNAVAILABLE())
+    submitWith('Test code')
+    await confirmPatient(`Send this lab request (Haemoglobin) for ${PATIENT_NAME} to Demo Laboratory?`, 'Send lab request')
+    expect(await screen.findByText(`${UNANSWERED} The list could not be reloaded; refresh it to see the lab requests.`)).toBeTruthy()
+    expect(screen.queryByText(/The list was reloaded\./)).toBeNull()
+    expect(screen.queryByText('The change was saved, but the records could not be reloaded. EHR is unavailable.')).toBeNull()
+  })
+
+  it('blocker: an active request Lab did not accept is read once, by its page', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.work-item.accept']
+    setLists([], [labRequest({ status: 'active' })])
+    api.createRecord.mockResolvedValue({ ...labRequest({ status: 'active' }), labHandoff: { state: 'failed', status: 409, code: 'LAB_TEST_UNKNOWN' } })
+    await labForm('active')
+    const before = freshLabReads()
+    submitWith('Test code')
+    await confirmPatient(SEND_LAB(), 'Send lab request')
+    expect(await screen.findByText('Lab request created in the EHR: its status is saved, but Lab refused it (LAB_TEST_UNKNOWN). Once that is resolved, '
+      + 'use Send to Lab on the request.')).toBeTruthy()
+    expect(freshLabReads() - before).toBe(1)
+  })
+
+  it('format: on a saved request’s page that does not find it, the page’s heading comes before what the create said', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.work-item.accept']
+    setLists([], [])
+    api.createRecord.mockRejectedValue(new HidApiError(409, `Lab request ${LAB} is saved and active in the EHR, but Lab refused it (LAB_TEST_UNKNOWN)`, { code: 'LAB_HANDOFF_REFUSED' }))
+    await labForm('active')
+    submitWith('Test code')
+    await confirmPatient(SEND_LAB(), 'Send lab request')
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Record not found' })
+    const said = screen.getByText(/^Lab request saved and active in the EHR, but Lab refused it/)
+    expect(heading.compareDocumentPosition(said) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+/**
+ * Review of the lock: two reads of an order can overlap (a withdrawal while a status change's read is out). Today's
+ * page keeps only the latest read, and only it lifts the lock (Clinical.tsx:1417, :1426, :1435, :1440).
+ */
+describe('review: only the latest read of an order is kept, and only it lifts the lock', () => {
+  /**
+   * An active lab request sent to Demo Laboratory, put on hold (read A held), then withdrawn (read B held). Read A
+   * answers it on hold and still sent (Cancel order offered); read B on hold and withdrawn, so this member, who may
+   * send requests to Lab, is offered Resume and send to Lab instead.
+   */
+  async function holdThenWithdraw() {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    staff.permissions = [...READ_WRITE, 'ehr.order-route.send', 'lab.work-item.accept']
+    setLists([], [labRequest({ status: 'active', rowVersion: 2, orderRoute: route() })], { crossFacilityOrders: true })
+    api.updateRecord.mockResolvedValue(labRequest({ status: 'on_hold', rowVersion: 3, orderRoute: route() }))
+    routes.withdraw.mockResolvedValue({ route: route({ effectiveState: 'withdrawn' }) })
+    await openOrder('laboratory', LAB)
+    const readA = deferred<unknown>()
+    const readB = deferred<unknown>()
+    fireEvent.click(screen.getByRole('button', { name: 'Put on hold' }))
+    change('Reason for change', 'Waiting for the patient')
+    const reads = api.records.mock.calls.length
+    api.records.mockImplementation(() => readA.promise)
+    submitWith('Reason for change')
+    expect(await screen.findByText('Lab request status updated.')).toBeTruthy()
+    await waitFor(() => expect(api.records.mock.calls.length).toBe(reads + 1))
+    api.records.mockImplementation(() => readB.promise)
+    fireEvent.change(field('Withdraw it from Demo Laboratory'), { target: { value: 'patient_request' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }))
+    expect(await screen.findByText('Withdrawn from Demo Laboratory. Patient One is told in the Health ID app.')).toBeTruthy()
+    await waitFor(() => expect(api.records.mock.calls.length).toBe(reads + 2))
+    const answerA = () => act(async () => { readA.answer({ items: [labRequest({ status: 'on_hold', rowVersion: 3, orderRoute: route() })], nextCursor: null, crossFacilityOrders: true }) })
+    const answerB = () => act(async () => {
+      readB.answer({ items: [labRequest({ status: 'on_hold', rowVersion: 4, orderRoute: route({ version: 2, effectiveState: 'withdrawn', resendAllowed: true }) })], nextCursor: null, crossFacilityOrders: true })
+    })
+    return { answerA, answerB }
+  }
+
+  it('gap: the first read to answer does not lift the lock while the later one is out', async () => {
+    const { answerA, answerB } = await holdThenWithdraw()
+    await answerA()
+    const cancel = screen.getByRole('button', { name: 'Cancel order' })
+    expect(cancel.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(cancel)
+    expect(cancel.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByLabelText(labelled('Reason for change'))).toBeNull()
+    await answerB()
+    expect(await screen.findByText('Withdrawn.')).toBeTruthy()
+    const resume = screen.getByRole('button', { name: 'Resume and send to Lab' })
+    expect(resume.getAttribute('aria-disabled')).toBeNull()
+    fireEvent.click(resume)
+    expect(resume.getAttribute('aria-expanded')).toBe('true')
+    expect(api.updateRecord).toHaveBeenCalledTimes(1)
+  })
+
+  it('gap: an older read that answers last does not replace the newer one', async () => {
+    const { answerA, answerB } = await holdThenWithdraw()
+    await answerB()
+    expect(await screen.findByText('Withdrawn.')).toBeTruthy()
+    await answerA()
+    expect(screen.getByText('Withdrawn.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Cancel order' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Resume and send to Lab' }).getAttribute('aria-disabled')).toBeNull()
   })
 })
 

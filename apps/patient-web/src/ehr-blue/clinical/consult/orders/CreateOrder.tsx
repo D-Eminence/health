@@ -12,7 +12,7 @@ import { useConfirm } from '../../parts/confirm'
 import { ErrorBox, Loading, RecordHeading } from '../../parts/Notices'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../../parts/RecordForm'
 import { useWorkspaceHref } from '../../parts/Workspace'
-import { KINDS, learnFrom, orderRights, patientWord, useFlash, type OrderKind } from './orders'
+import { KINDS, learnFrom, orderRights, patientWord, useFlash, type CreateWarning, type OrderKind } from './orders'
 import { DestinationFields, type RouteErrors } from './Routing'
 import {
   DOSE_NUMBER_TEXT, DOSE_PAIR, handoffNames, LAB_ACTIVE_NOTE, labDraftWarning, labHandoffOutcome, NO_CHANGES, PRESCRIPTION_HINT, PRESCRIPTION_ROUTING_HINT,
@@ -317,15 +317,23 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
     }
   }
 
-  /** Opens the saved request with what the create said, or says it here when the request can't be named. */
-  const open = (requestId: string | undefined, said: { success?: string; error?: string }) => {
+  /**
+   * Opens the saved request with what the create said, or says it here when the request can't be named. The saved
+   * request's page reads the list afresh and ends a warning with what that read came to; here, with no request to
+   * open, this page reads it (or has read it, `read`). Either way the list is read once after the create and the
+   * warning says once what the read came to, as today's (Clinical.tsx labWarning :1447-1448, createAndSend :1659-1667).
+   */
+  const open = async (requestId: string | undefined, said: { success: string } | { warning: CreateWarning }, read?: Reload) => {
     if (requestId) {
       setFlash({ orderId: requestId, ...said })
       navigate(href(encounterId, 'orders', 'laboratory', requestId))
       return
     }
-    if (said.success) setSuccess(said.success)
-    if (said.error) setPageError(said.error)
+    if ('success' in said) setSuccess(said.success)
+    else {
+      const { text, what, listChanged } = said.warning
+      setPageError(`${text}${reloadSentence(read ?? await reload(), what, listChanged)}`)
+    }
     reset()
   }
 
@@ -343,32 +351,29 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
         throw new Error(`${/[.!?]$/.test(said) ? said : `${said}.`} The lab request may have been saved and active even so: check the list before creating it again.${reloadSentence(items, 'lab requests', false)}`)
       }
       const named = handoffNames(caught.message)
-      const items = await reload()
-      const requestId = named.requestId ?? (Array.isArray(items) ? (items as SavedRecord[]).find(item => item.status === 'active'
-        && item.testCodeSystem === body.testCodeSystem && item.testCode === body.testCode)?.id : undefined)
       attempt.clear()
       const text = caught.code === 'LAB_HANDOFF_REFUSED'
         ? `Lab request saved and active in the EHR, but Lab refused it${named.code ? ` (${named.code})` : ''}, so the Laboratory does not have it. Do not create it again: once that is resolved, ${sendItFrom(canSendToLab)}.`
         : `Lab request saved and active in the EHR, but Lab did not confirm it, so the Laboratory may not have it. Do not create it again: to send it again, ${sendItFrom(canSendToLab)}.`
-      open(requestId, { error: `${text}${reloadSentence(items, 'request', false)}` })
-      return
+      const warning = { text, what: 'request', listChanged: false }
+      if (named.requestId) return open(named.requestId, { warning })
+      // A 502 names no request; the newest active one for this test heads the list read (Clinical.tsx:1480-1484).
+      const items = await reload()
+      const requestId = Array.isArray(items) ? (items as SavedRecord[]).find(item => item.status === 'active'
+        && item.testCodeSystem === body.testCodeSystem && item.testCode === body.testCode)?.id : undefined
+      return open(requestId, { warning }, items)
     }
     attempt.clear()
     if (activeLab && !saved) {
       await reload()
-      open(undefined, { success: 'Active lab request created; check it in the list.' })
-      return
+      return open(undefined, { success: 'Active lab request created; check it in the list.' })
     }
     const outcome: LabOutcome | null = !activeLab ? null : saved.labHandoff === undefined || saved.labHandoff?.state === 'accepted'
       ? { accepted: true, text: 'Active lab request created and accepted by Lab.' }
       : labHandoffOutcome(saved.labHandoff ?? null, 'created', canSendToLab)
     const savedId = typeof saved?.id === 'string' ? saved.id : undefined
-    if (!outcome || outcome.accepted) {
-      open(savedId, { success: outcome?.text ?? SAVED })
-      return
-    }
-    const items = await reload()
-    open(savedId, { error: `${outcome.text}${reloadSentence(items, 'request', outcome.listChanged === true)}` })
+    if (!outcome || outcome.accepted) return open(savedId, { success: outcome?.text ?? SAVED })
+    return open(savedId, { warning: { text: outcome.text, what: 'request', listChanged: outcome.listChanged === true } })
   }
 
   const createAndSend = async (body: Record<string, unknown>, key: string, destination: NonNullable<DestinationChoice['destination']>, attestationTextVersion: string) => {
@@ -389,17 +394,12 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
         else notSent = refusal.text
       }
     }
-    const items = await reload()
     if (unanswered) {
-      open(savedId, { error: `Saved. Health ID did not answer the send, so it may or may not have gone to ${destination.facilityName}: `
-        + `check the row below before sending it again.${reloadSentence(items, 'lab requests', true)}` })
-      return
+      return open(savedId, { warning: { text: `Saved. Health ID did not answer the send, so it may or may not have gone to ${destination.facilityName}: `
+        + 'check the row below before sending it again.', what: 'lab requests', listChanged: true } })
     }
-    if (notSent) {
-      open(savedId, { error: `${savedNotSent(notSent)}${reloadSentence(items, 'lab requests', false)}` })
-      return
-    }
-    open(savedId, { success: `Lab request created and sent to ${destination.facilityName}. It waits there until ${destination.facilityName} accepts it, and ${context.patient} is told in the Health ID app.` })
+    if (notSent) return open(savedId, { warning: { text: savedNotSent(notSent), what: 'lab requests', listChanged: false } })
+    return open(savedId, { success: `Lab request created and sent to ${destination.facilityName}. It waits there until ${destination.facilityName} accepts it, and ${context.patient} is told in the Health ID app.` })
   }
 
   const submit = async (values: FormValues): Promise<SubmitOutcome> => {

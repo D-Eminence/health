@@ -107,11 +107,22 @@ export function mayBeSent(record: ClinicalRecord): boolean {
   return (record.status === 'draft' || record.status === 'active') && route !== undefined && (route === null || route.resendAllowed)
 }
 
+/**
+ * A warning a create leaves for the saved order's page. That page reads the list afresh and ends the warning with what
+ * its read came to (reloadSentence `what`, `listChanged`), so the list is read once after a create and said once, as
+ * today's page does (Clinical.tsx labWarning :1447-1448, createAndSend :1659-1667).
+ */
+export interface CreateWarning {
+  readonly text: string
+  readonly what: string
+  readonly listChanged: boolean
+}
+
 /** A message one order page leaves for the next (after a create): held in memory only, never in the URL or router state. */
 export interface Flash {
   readonly orderId: string
   readonly success?: string
-  readonly error?: string
+  readonly warning?: CreateWarning
 }
 
 export const FlashContext = createContext<{ flash: Flash | null; setFlash: (flash: Flash | null) => void }>({
