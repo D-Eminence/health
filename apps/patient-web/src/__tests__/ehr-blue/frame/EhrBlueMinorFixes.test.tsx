@@ -10,9 +10,9 @@ import type { EhrBluePage } from '../../../ehr-blue/frame/types'
 import { DEMO_HOSPITAL, REAL_FACILITY, SESSION, accountButton, facility, openStaffApp, serve, sessionAt, where, withFramePages } from './blueHarness'
 
 /**
- * The review's minor items (7a-j): where "Use the classic EHR" lands, tab titles on today's own routes, Needs
- * attention's empty line, role dashboards' links, the frame's CSS, plausible sample readings and the administration
- * samples as the design draws them. Every account, facility and patient here is fictional.
+ * The review's minor items (7a-j): no "Use the classic EHR" (the blue page keeps its address), tab titles on today's
+ * own routes, Needs attention's empty line, role dashboards' links, the frame's CSS, plausible sample readings and the
+ * administration samples as the design draws them. Every account, facility and patient here is fictional.
  */
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 beforeEach(() => { withFramePages() })

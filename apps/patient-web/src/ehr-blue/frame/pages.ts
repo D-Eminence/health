@@ -132,7 +132,7 @@ export const pages: EhrBluePage[] = [
 
 /**
  * The addresses today's provider portal serves, where these live stand-ins show today's page (a clinical or department
- * page that replaces one keeps its address). "Use the classic EHR" stays on them.
+ * page that replaces one keeps its address).
  */
 export const TODAY_PATHS: ReadonlySet<string> = new Set(todayPaths)
 
