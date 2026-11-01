@@ -56,6 +56,7 @@ export const LAB_NOT_TOLD: Readonly<Record<string, string>> = {
 /** Today's form hints and notes, word for word (Clinical.tsx RecordForm :509, :568-569, :581, and SendToLab). */
 export const PRESCRIPTION_ROUTING_HINT = 'This saves a draft. To send it to a pharmacy at another facility, use Send to a pharmacy on it in the list.'
 export const PRESCRIPTION_HINT = 'This creates an EHR draft. Pharmacy acceptance and dispensing are separate steps.'
+/** Classic's both-or-neither rule for a dose (Clinical.tsx RecordForm :505-510), word for word. */
 export const DOSE_PAIR = 'Enter both dose quantity and dose unit, or leave both blank.'
 export const DOSE_NUMBER_TEXT = 'Enter the dose as a number, like 0.5 or 250 (up to 4 decimal places).'
 export const LAB_ACTIVE_NOTE = 'Active creation saves the request, then asks Lab to accept it. If Lab does not, the request stays saved and active, even when an error is shown: check the list before creating it again, then use Send to Lab on it there, or contact the laboratory if the EHR cannot send it.'
@@ -152,15 +153,20 @@ export function labSendRefusal(caught: unknown): LabSendRefusal {
   return { text: `This lab request was not sent to Lab: it was refused${code ? ` (${code})` : ''}. Contact the laboratory if the test is still needed.` }
 }
 
-/** Clinical.tsx `handoffPrescription`: the refusals that mean the prescription changed under the handoff. */
+/** Clinical.tsx `handoffPrescription`: what an IDEMPOTENCY_CONFLICT from Send to Pharmacy says. */
 export const PHARMACY_ALREADY_HOLDS = 'Pharmacy already holds work for this prescription, sent earlier, perhaps at an earlier version or with another reason, so it was not sent again. If the prescription changed since, contact the pharmacy: it may refuse to dispense the version it holds, and if it cannot dispense it, create a new prescription and send that.'
 
+/**
+ * Clinical.tsx `handoffPrescription`: the refusals that mean the prescription changed under the handoff, or that
+ * Pharmacy's own check of it refused it (hid-system 0100); each is answered by reading the order again.
+ */
 export function prescriptionChanged(caught: unknown): string | null {
   if (!isHidApiError(caught)) return null
   if (caught.code === 'PHARMACY_PRESCRIPTION_NOT_ELIGIBLE') return 'This prescription no longer matches what was sent (it was changed, put on hold or cancelled meanwhile), so Pharmacy did not accept it.'
-  if (caught.status === 412) return 'This prescription changed since it was loaded, so it was not sent to Pharmacy: check it, and send it again if it is still needed.'
-  if (caught.code === 'PRESCRIPTION_NOT_ELIGIBLE') return 'This prescription is no longer active, so it was not sent to Pharmacy.'
+  if (caught.status === 412 || caught.code === 'PRESCRIPTION_SOURCE_VERSION_MISMATCH') return 'This prescription changed since it was loaded, so it was not sent to Pharmacy: check it, and send it again if it is still needed.'
+  if (caught.code === 'PRESCRIPTION_NOT_ELIGIBLE' || caught.code === 'PRESCRIPTION_SOURCE_NOT_ACTIVE') return 'This prescription is no longer active, so it was not sent to Pharmacy.'
   if (caught.code === 'PRESCRIPTION_ROUTED') return 'This prescription was sent to a pharmacy at another facility, so this facility’s Pharmacy can’t take it.'
+  if (caught.code === 'PRESCRIPTION_SOURCE_NOT_FOUND' || caught.code === 'PRESCRIPTION_SOURCE_MISMATCH') return 'This prescription can’t be sent to Pharmacy as it is: check it, and try again if it is still needed.'
   return null
 }
 

@@ -32,6 +32,8 @@ export interface NavMenuItem {
   readonly description?: string
   /** Two-letter mark, shown for products. */
   readonly mark?: string
+  /** The product's slug, for a product: its link may be another site's front page (ROUTES.product). */
+  readonly product?: string
   /** Optional contextual preview used by desktop mega menus. */
   readonly preview?: { readonly src: string; readonly alt: string; readonly caption: string; readonly position?: string }
 }
@@ -275,7 +277,7 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
                     <div className="overflow-hidden"><div className="border-t border-line">
                       {entry.items.map(item => entry.presentation === 'mega' ? (
                         <Link key={item.href} href={item.href} onClick={() => setMenuOpen(false)} className="group flex min-h-16 items-center gap-3 border-b border-line px-1 text-[14px] font-medium text-ink transition-colors hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand motion-reduce:transition-none">
-                          <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-tint text-brand"><HealthIcon name={destinationIcon(item.href)} size={18} /></span>
+                          <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-tint text-brand"><HealthIcon name={destinationIcon(menuAddress(item))} size={18} /></span>
                           <span className="min-w-0 flex-1">{item.label}</span>
                           <HealthIcon name="arrow" size={16} className="pr-1 text-brand transition-transform duration-150 group-hover:translate-x-1 motion-reduce:transition-none" />
                         </Link>
@@ -391,7 +393,7 @@ function MegaNavMenu({
                     data-active={selected}
                     className="health-mega-menu-row"
                   >
-                    <span className="health-menu-icon"><HealthIcon name={destinationIcon(item.href)} size={21} /></span>
+                    <span className="health-menu-icon"><HealthIcon name={destinationIcon(menuAddress(item))} size={21} /></span>
                     <span>
                       <span className="flex items-center gap-2"><b>{item.label}</b><HealthIcon name="arrow" size={15} className="health-mega-menu-arrow" /></span>
                       {item.description ? <small>{item.description}</small> : null}
@@ -512,6 +514,7 @@ const PRODUCT_MENU: NavMenuEntry = {
     href: ROUTES.product(product.slug),
     description: product.summary,
     mark: product.mark,
+    product: product.slug,
     get preview() { return PRODUCT_PREVIEWS[product.slug] ?? PRODUCT_PREVIEWS.identity },
   })),
   all: { label: 'View all products', href: ROUTES.products },
@@ -601,6 +604,11 @@ export function PatientNav() {
   )
 }
 
+/** What a menu item is, by this site's own address for it: a product's page, even where its link is another site. */
+function menuAddress(item: NavMenuItem): string {
+  return item.product ? `/products/${item.product}` : item.href
+}
+
 function destinationIcon(href: string): HealthIconName {
   if (href.includes('patients')) return 'shield'
   if (href.includes('laboratory') || href.includes('diagnostic')) return 'laboratory'
@@ -612,7 +620,8 @@ function destinationIcon(href: string): HealthIconName {
 }
 
 function DestinationPreview({ item }: { item: NavMenuItem }) {
-  const product = item.href.startsWith('/products/') ? findProductDetail(item.href.split('/').pop() ?? '') : undefined
+  const address = menuAddress(item)
+  const product = address.startsWith('/products/') ? findProductDetail(address.split('/').pop() ?? '') : undefined
   if (product) return <div className="health-menu-dashboard"><ProductDashboard product={product} /></div>
-  return item.preview ? <Image src={item.preview.src} alt={item.preview.alt} fill sizes="700px" className="object-cover" style={{ objectPosition: item.preview.position ?? 'center' }} /> : <HealthIcon name={destinationIcon(item.href)} size={64} />
+  return item.preview ? <Image src={item.preview.src} alt={item.preview.alt} fill sizes="700px" className="object-cover" style={{ objectPosition: item.preview.position ?? 'center' }} /> : <HealthIcon name={destinationIcon(menuAddress(item))} size={64} />
 }
