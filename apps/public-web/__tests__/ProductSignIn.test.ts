@@ -1,18 +1,39 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { APP_ENTRY, PRODUCT_SITE_SUBDOMAINS, productSignInHref, productSiteHref } from '@/content/site'
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => '/products/laboratory',
+  redirect: vi.fn(),
+  notFound: vi.fn(),
+}))
+// The page's demo form reads the site's whole configuration, which is not what this test is about.
+vi.mock('@/components/shared/DemoDialog', () => ({ DemoDialog: () => null }))
+
+beforeEach(() => {
+  // The page's sections measure and watch themselves as the visitor scrolls, which jsdom does not do.
+  class Observer { observe() {} unobserve() {} disconnect() {} takeRecords() { return [] } }
+  vi.stubGlobal('ResizeObserver', Observer)
+  vi.stubGlobal('IntersectionObserver', Observer)
+  vi.stubGlobal('matchMedia', (query: string) => ({ matches: false, media: query, onchange: null,
+    addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false }))
+  // Nothing here may reach the network.
+  vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('This test makes no requests.'))))
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
+})
 
 /**
- * Each product page's Sign in goes to that product's own site (owner, 2026-11-01: each product its own sign-in), in
- * production and on staging; locally, the portal's own staff sign-in. Only the links change: the pages' design and words
- * stay as they are.
+ * Each product page's Sign in goes to that product's own site's staff sign-in (owner, 2026-11-01: each product its own
+ * sign-in): the site productSiteHref names for this build's deployment (health#108), whose front page is this same
+ * page. Where there is no product site (local development, or a page with no site of its own), the portal's own staff
+ * sign-in. The portal's address plays no part: this module was loaded with the local portal, and the product sites
+ * still follow NEXT_PUBLIC_HID_ENVIRONMENT alone. Only the link changes: the pages' design and words stay as they are.
  */
-afterEach(() => { vi.unstubAllEnvs(); vi.resetModules() })
-
-async function signInWith(portal: string) {
-  vi.stubEnv('NEXT_PUBLIC_HID_ENVIRONMENT', portal.startsWith('http://localhost') ? 'local' : 'production')
-  vi.stubEnv('NEXT_PUBLIC_HID_PORTAL_ORIGIN', portal)
-  return (await import('@/content/site')).productSignInHref
-}
-
 describe('a product page’s Sign in', () => {
   it.each([
     ['ehr', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
@@ -20,19 +41,49 @@ describe('a product page’s Sign in', () => {
     ['pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider/sign-in'],
     ['migrate', 'https://migrate.healthidentitydirectory.com/provider/sign-in'],
     ['outreach', 'https://outreach.healthidentitydirectory.com/provider/sign-in'],
-  ])('on %s opens %s in production', async (slug, href) => {
-    expect((await signInWith('https://app.healthidentitydirectory.com'))(slug)).toBe(href)
+  ])('on %s opens %s in production', (slug, href) => {
+    vi.stubEnv('NEXT_PUBLIC_HID_ENVIRONMENT', 'production')
+    expect(productSignInHref(slug)).toBe(href)
   })
 
-  it('opens the staging product site on staging', async () => {
-    expect((await signInWith('https://staging.healthidentitydirectory.com'))('laboratory')).toBe('https://lab.staging.healthidentitydirectory.com/provider/sign-in')
+  it.each([
+    ['ehr', 'https://ehr.staging.healthidentitydirectory.com/provider/sign-in'],
+    ['laboratory', 'https://lab.staging.healthidentitydirectory.com/provider/sign-in'],
+    ['pharmacy', 'https://pharmacy.staging.healthidentitydirectory.com/provider/sign-in'],
+    ['migrate', 'https://migrate.staging.healthidentitydirectory.com/provider/sign-in'],
+    ['outreach', 'https://outreach.staging.healthidentitydirectory.com/provider/sign-in'],
+  ])('on %s opens %s on staging', (slug, href) => {
+    vi.stubEnv('NEXT_PUBLIC_HID_ENVIRONMENT', 'staging')
+    expect(productSignInHref(slug)).toBe(href)
   })
 
-  it.each(['api', 'identity', 'toString', ''])('keeps the portal’s staff sign-in for %s, which has no product site', async slug => {
-    expect((await signInWith('https://app.healthidentitydirectory.com'))(slug)).toBe('https://app.healthidentitydirectory.com/provider/sign-in')
+  it.each([['local development', 'local'], ['no environment', undefined]])(
+    'keeps the portal’s staff sign-in for every product in %s, where this site serves the product pages itself',
+    (_name, environment) => {
+      vi.stubEnv('NEXT_PUBLIC_HID_ENVIRONMENT', environment)
+      for (const slug of Object.keys(PRODUCT_SITE_SUBDOMAINS)) expect(productSignInHref(slug)).toBe(APP_ENTRY.staffSignIn)
+    })
+
+  it.each(['production', 'staging'])('keeps the portal’s staff sign-in in %s for the pages with no product site', environment => {
+    vi.stubEnv('NEXT_PUBLIC_HID_ENVIRONMENT', environment)
+    for (const slug of ['identity', 'api', 'toString', '']) expect(productSignInHref(slug)).toBe(APP_ENTRY.staffSignIn)
   })
 
-  it('keeps the portal’s staff sign-in locally', async () => {
-    expect((await signInWith('http://localhost:3200'))('laboratory')).toBe('http://localhost:3200/provider/sign-in')
+  it.each(['production', 'staging'])('signs in on the product site’s own host in %s, for every product site', environment => {
+    vi.stubEnv('NEXT_PUBLIC_HID_ENVIRONMENT', environment)
+    for (const slug of Object.keys(PRODUCT_SITE_SUBDOMAINS)) {
+      const site = productSiteHref(slug)
+      expect(site, slug).not.toBeNull()
+      expect(new URL(productSignInHref(slug)).origin, slug).toBe(new URL(site ?? '').origin)
+    }
+  })
+
+  it('is the Sign in the product page’s navigation shows', async () => {
+    vi.stubEnv('NEXT_PUBLIC_HID_ENVIRONMENT', 'production')
+    const { default: ProductPage } = await import('../app/products/[slug]/page')
+    render(await ProductPage({ params: Promise.resolve({ slug: 'laboratory' }) }))
+    const signIn = screen.getAllByRole('link', { name: 'Sign in', hidden: true })
+    expect(signIn.length).toBeGreaterThan(0)
+    for (const link of signIn) expect(link.getAttribute('href')).toBe('https://lab.healthidentitydirectory.com/provider/sign-in')
   })
 })

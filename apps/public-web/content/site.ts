@@ -111,23 +111,17 @@ export const APP_ENTRY = {
   providerSignUp: `${PORTAL_ORIGIN}/provider/enroll`,
 } as const
 
-/** Each product page's own site (the portal's product hosts): ehr., lab., pharmacy., migrate. and outreach. */
-const PRODUCT_SITE_PREFIX: Readonly<Record<string, string>> = {
-  ehr: 'ehr', laboratory: 'lab', pharmacy: 'pharmacy', migrate: 'migrate', outreach: 'outreach',
-}
-
 /**
- * Where a product page's Sign in goes: that product's own site, where its staff sign in (each product its own sign-in,
- * owner 2026-11-01), beside the portal's main site in production and on staging. Locally, and for a page with no product
- * site, the portal's own staff sign-in.
+ * Where a product page's Sign in goes: the staff sign-in on that product's own site (each product its own sign-in,
+ * owner 2026-11-01), the same site productSiteHref names, so the page's Sign in and its front page are always one host.
+ * Where productSiteHref names no site (local development, or a page with no site of its own), the portal's own staff
+ * sign-in. Absolute even though the page is that site's own front page in production and on staging: the edge reads the
+ * page's addresses as this site's (frontend-worker.mjs, landingHref), so a relative /provider/sign-in would open this
+ * site's, which has none. The edge leaves an address on the product site's own host as it is.
  */
 export function productSignInHref(slug: string): string {
-  const prefix = Object.hasOwn(PRODUCT_SITE_PREFIX, slug) ? PRODUCT_SITE_PREFIX[slug] : undefined
-  const portal = new URL(PORTAL_ORIGIN).hostname
-  const host = !prefix ? null
-    : portal === 'app.healthidentitydirectory.com' ? `${prefix}.healthidentitydirectory.com`
-      : portal === 'staging.healthidentitydirectory.com' ? `${prefix}.staging.healthidentitydirectory.com` : null
-  return host ? `https://${host}/provider/sign-in` : APP_ENTRY.staffSignIn
+  const site = productSiteHref(slug)
+  return site ? new URL('provider/sign-in', site).href : APP_ENTRY.staffSignIn
 }
 
 export interface Audience {
