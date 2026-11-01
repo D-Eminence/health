@@ -10,7 +10,7 @@
  * Phones: a tab bar in thumb reach (two tabs, a raised ➕ when there is something to start, one tab, Menu). Menu is a page
  * of its own (#menu), so the Back button closes it.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { ChevronRight, ChevronsUpDown, LogOut, Menu as MenuIcon, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Plus, UserRound, X } from 'lucide-react'
 import { Avatar, cx, type Icon } from './ui'
@@ -84,7 +84,10 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
   const menu = hash === '#menu'
   const openMenu = () => navigate({ pathname, search, hash: 'menu' })
   const closeMenu = () => navigate(-1)
-  useEffect(() => { setSwitching(false); setCreating(false); setPersonMenu(false) }, [pathname])
+  // A move to another page closes the open menus. Done as the page changes, not in an effect: an effect also runs
+  // on mount, and would close a menu opened in the moment between the shell appearing and its effects running.
+  const [menusPath, setMenusPath] = useState(pathname)
+  if (menusPath !== pathname) { setMenusPath(pathname); setSwitching(false); setCreating(false); setPersonMenu(false) }
   const [folded, setFolded] = useState<Record<string, boolean>>({})
   const holdsCurrent = (group: NavGroup) => group.items.some(item => item.end ? pathname === item.to : pathname === item.to || pathname.startsWith(`${item.to}/`))
   const isOpen = (group: NavGroup) => !group.collapsible || !group.title ? true
