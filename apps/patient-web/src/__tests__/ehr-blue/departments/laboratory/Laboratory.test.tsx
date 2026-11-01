@@ -831,6 +831,31 @@ describe('testing and results', () => {
     await waitFor(() => expect(api.labResultHistory).toHaveBeenCalledTimes(2))
   })
 
+  // Today's Laboratory page offers the history only with lab.result.released.read (the server refuses it otherwise).
+  it('reads and shows the result history with lab.result.released.read alone, no step permission needed', async () => {
+    const result = publishedResult()
+    api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
+    api.labResultHistory.mockResolvedValue(result)
+    await openReceived([...ACCESSION, 'lab.execution.read', 'lab.result.released.read'])
+    const history = cardOf(/^Preserved versions & amendments/)
+    fireEvent.click(within(history).getByRole('button', { name: 'View result history' }))
+    expect(await within(history).findByText('Version 1 · released')).toBeTruthy()
+    expect(api.labResultHistory).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'result-1')
+  })
+
+  it('offers no result history, and never reads it, without lab.result.released.read', async () => {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: publishedResult() })] })
+    api.labResultHistory.mockResolvedValue(publishedResult())
+    const card = await openReceived(PROCESSING.filter(permission => permission !== 'lab.result.released.read'))
+    // The result itself is still there to read: only its history is left out.
+    expect(within(card).getByText('Hemoglobin')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /^Preserved versions & amendments/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'View result history' })).toBeNull()
+    expect(screen.queryByText('Every version of this result is kept. View the history to read them.')).toBeNull()
+    expect(screen.queryByText(/result history/i)).toBeNull()
+    expect(api.labResultHistory).not.toHaveBeenCalled()
+  })
+
   it('reads the record again when the history read is refused', async () => {
     api.labExecutions.mockResolvedValueOnce({ items: [execution({ result: publishedResult() })] })
       .mockRejectedValue(problem(403, 'LAB_EXECUTION_ACCESS_DENIED', 'Lab execution/result access is not authorized'))
@@ -986,6 +1011,25 @@ describe('work from another facility', () => {
     await waitFor(() => expect(api.labAccession).toHaveBeenCalled())
     expect(screen.getByText('This order from another facility has ended, so nothing more can be recorded on it. You can still read what was recorded.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Collect sample' })).toBeNull()
+  })
+
+  // An ended order takes away only the permissions that write; reading a result's history is not one of them, so it
+  // stays, as on today's Laboratory page.
+  it('still offers and reads the result history on an ended order, with lab.result.released.read', async () => {
+    as(PROCESSING)
+    const result = publishedResult()
+    api.labWorkItems.mockResolvedValue(answer([routed({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123', specimenStatuses: ['received'],
+      orderRoute: routeCard({ effectiveState: 'cancelled', access: 'read', endedKind: 'order_changed' }) as LabWorkItem['orderRoute'] })]))
+    api.labAccession.mockResolvedValue(accession([specimen('received')]))
+    api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
+    api.labResultHistory.mockResolvedValue(result)
+    renderPage()
+    await openRecord()
+    expect(screen.getByText('This order from another facility has ended, so nothing more can be recorded on it. You can still read what was recorded.')).toBeTruthy()
+    const history = (await screen.findByRole('heading', { name: /^Preserved versions & amendments/ })).closest('section') as HTMLElement
+    fireEvent.click(within(history).getByRole('button', { name: 'View result history' }))
+    expect(await within(history).findByText('Version 1 · released')).toBeTruthy()
+    expect(api.labResultHistory).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'result-1')
   })
 
   it('says work on orders from other facilities is paused', async () => {
