@@ -112,6 +112,14 @@ describe('Access requests list (once External record access)', () => {
     expect(document.body.textContent).not.toContain(PATIENT_HID)
   })
 
+  it('says, as classic did, that a pending request never grants record access, and nothing about another facility', async () => {
+    open()
+    // Classic's whole lede (AccessRequests.tsx:108), which ends with the pending-request sentence.
+    expect(screen.getByText('Requests are scoped to your active facility and staff account. A pending request never grants record access.')).toBeTruthy()
+    await list()
+    expect(document.body.textContent).not.toMatch(/another facility/i)
+  })
+
   // The quick view and "Create record" were replaced: each row opens its request; "Request" opens a new one.
   it('opens a request from its row, and Request goes to the new request', async () => {
     open()
