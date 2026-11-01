@@ -4,9 +4,11 @@ import { useEffect } from 'react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
+import { NursingWorkspace } from '../../../ehr-blue/clinical/nursing/NursingWorkspace'
 import { CHOOSE_FIRST } from '../../../ehr-blue/clinical/parts/chart'
 import { PatientsWorkspace } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
 import { clinicalReturnPath } from '../../../ehr-blue/clinical/returnPaths'
+import { TriageWorkspace } from '../../../ehr-blue/clinical/triage/TriageWorkspace'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup } from './harness'
 
 /**
@@ -48,6 +50,9 @@ const RX = 'b0000000-0000-4000-8000-000000000001'
 const LAB = 'c0000000-0000-4000-8000-000000000001'
 const OTHER_PATIENT = 'a0000000-0000-4000-8000-000000000002'
 const OTHER_ENCOUNTER = 'e2222222-0000-4000-8000-000000000002'
+const OTHER_FACILITY = 'facility-other-hospital'
+const VITAL_ID = 'f0000000-0000-4000-8000-000000000001'
+const NOTE_ID = 'c1000000-0000-4000-8000-000000000001'
 const NOT_FOUND = new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' })
 const PERMISSIONS = [
   'identity.patient.read', 'ehr.encounter.read', 'ehr.note.read', 'ehr.diagnosis.read', 'ehr.document.read', 'ehr.prescription.read', 'ehr.lab-request.read',
@@ -63,6 +68,16 @@ const PRESCRIPTION = {
 const LAB_REQUEST = {
   id: LAB, patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T09:05:00.000Z', testCodeSystem: 'LOINC', testCode: '718-7',
   testDisplay: 'Haemoglobin', priority: 'routine', specimenTypeCode: 'blood', clinicalInformation: 'Tired for two weeks', status: 'draft', rowVersion: 1,
+}
+
+const VITAL = {
+  id: VITAL_ID, patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, facilityId: FACILITY_ID, createdAt: '2026-10-30T08:05:00.000Z',
+  recordedAt: '2026-10-30T08:05:00.000Z', systolicMmhg: 120, diastolicMmhg: 80, pulseBpm: 72, temperatureC: '36.6', respiratoryRate: null,
+  oxygenSaturationPercent: null, weightKg: null, heightCm: null, source: 'manual', currentCorrectionNo: 0, rowVersion: '1',
+}
+const OBSERVATION = {
+  id: NOTE_ID, patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, facilityId: FACILITY_ID, createdAt: '2026-10-30T09:00:00.000Z',
+  noteType: 'Nursing observation', title: 'Vitals', content: 'Comfortable at rest', status: 'draft', rowVersion: '1',
 }
 
 let lists: Record<string, unknown[]>
@@ -105,6 +120,8 @@ function openAt(address: string) {
       <Routes>
         <Route path="/provider/clinical/*" element={<ConsultWorkspace />} />
         <Route path="/provider/patients/*" element={<PatientsWorkspace />} />
+        <Route path="/provider/triage/*" element={<TriageWorkspace />} />
+        <Route path="/provider/nursing/*" element={<NursingWorkspace />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -132,10 +149,12 @@ const ENCOUNTER_PAGE = `/provider/clinical/${ENCOUNTER_ID}`
 const PRESCRIPTION_PAGE = `/provider/clinical/${ENCOUNTER_ID}/orders/pharmacy/${RX}`
 const LAB_REQUEST_PAGE = `/provider/clinical/${ENCOUNTER_ID}/orders/laboratory/${LAB}`
 const PATIENT_PAGE = '/provider/patients/open'
+const VITALS_PAGE = `/provider/triage/${ENCOUNTER_ID}~${VITAL_ID}`
+const NURSING_PAGE = `/provider/nursing/${ENCOUNTER_ID}~${NOTE_ID}`
 
 describe('A clinical page reached by its address alone', () => {
   it('is an address a sign-in may come back to, by record ids only; the open patient’s page is not', () => {
-    for (const page of [ENCOUNTER_PAGE, PRESCRIPTION_PAGE, LAB_REQUEST_PAGE]) expect(clinicalReturnPath(page)).toBe(page)
+    for (const page of [ENCOUNTER_PAGE, PRESCRIPTION_PAGE, LAB_REQUEST_PAGE, VITALS_PAGE, NURSING_PAGE]) expect(clinicalReturnPath(page)).toBe(page)
     expect(clinicalReturnPath(PATIENT_PAGE)).toBeNull()
   })
 
@@ -143,6 +162,8 @@ describe('A clinical page reached by its address alone', () => {
     ['a consultation', ENCOUNTER_PAGE],
     ['a prescription', PRESCRIPTION_PAGE],
     ['a lab request', LAB_REQUEST_PAGE],
+    ['a vitals record', VITALS_PAGE],
+    ['a nursing record', NURSING_PAGE],
     ['the patient page', PATIENT_PAGE],
   ])('%s opens no patient and reads nothing: it asks for the patient first', async (_name, address) => {
     openAt(address)
@@ -159,6 +180,7 @@ describe('A clinical page reached by its address alone', () => {
   it.each([
     `/provider/clinical/${PATIENT_HID}`, `/provider/clinical/${ENCOUNTER_ID}/orders/pharmacy/${PATIENT_HID}`,
     `/provider/clinical/${PATIENT_HID}/orders/laboratory/${LAB}`, `/provider/patients/${PATIENT_HID}`, `/provider/patients/open?hid=${PATIENT_HID}`,
+    `/provider/triage/${PATIENT_HID}~${VITAL_ID}`, `/provider/nursing/${ENCOUNTER_ID}~${PATIENT_HID}`, '/provider/clinical/ZDEMAAA2',
   ])('opens nobody from a Health ID typed into the address, and would never come back to it: %s', async address => {
     openAt(address)
     await settle()
@@ -191,6 +213,10 @@ describe('A clinical page reached by its address alone', () => {
 describe('With the patient opened again, the page checks access on the server before it reads', () => {
   beforeEach(() => {
     staff.activePatient = activePatient()
+    staff.permissions = [...PERMISSIONS, 'ehr.vital.read']
+    lists.vitals = [VITAL]
+    lists['clinical-notes'] = [OBSERVATION]
+    api('vitalCorrections').mockResolvedValue([])
   })
 
   it('a consultation: the re-check, then the encounter', async () => {
@@ -211,6 +237,18 @@ describe('With the patient opened again, the page checks access on the server be
     expect(api('lookupPatient').mock.invocationCallOrder[0]!).toBeLessThan(api('records').mock.invocationCallOrder[0]!)
   })
 
+  it.each([
+    ['a vitals record', VITALS_PAGE, 'vitals', 'f0000000'],
+    ['a nursing record', NURSING_PAGE, 'clinical-notes', 'c1000000'],
+  ])('%s: the re-check, then the encounter, then the record', async (_name, address, kind, title) => {
+    openAt(address)
+    expect(await screen.findByRole('heading', { level: 1, name: title })).toBeTruthy()
+    expect(api('lookupPatient')).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'direct-care')
+    expect(api('encounter')).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID)
+    expect(api('records')).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, kind)
+    expect(api('lookupPatient').mock.invocationCallOrder[0]!).toBeLessThan(api('encounter').mock.invocationCallOrder[0]!)
+  })
+
   it('the patient page: the re-check, then this facility’s visits', async () => {
     openAt(PATIENT_PAGE)
     await waitFor(() => expect(api('encounters')).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID))
@@ -221,6 +259,8 @@ describe('With the patient opened again, the page checks access on the server be
     ['a consultation', ENCOUNTER_PAGE, 'encounter'],
     ['a prescription', PRESCRIPTION_PAGE, 'records'],
     ['a lab request', LAB_REQUEST_PAGE, 'records'],
+    ['a vitals record', VITALS_PAGE, 'encounter'],
+    ['a nursing record', NURSING_PAGE, 'encounter'],
   ])('%s: a refused re-check closes the patient and reads nothing', async (_name, address, read) => {
     api('lookupPatient').mockResolvedValue(deniedLookup)
     openAt(address)
@@ -228,7 +268,35 @@ describe('With the patient opened again, the page checks access on the server be
     await settle()
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api(read)).not.toHaveBeenCalled()
+    expect(api('records')).not.toHaveBeenCalled()
     expect(screen.queryByText(PATIENT_NAME)).toBeNull()
+  })
+
+  it.each([
+    ['a consultation', ENCOUNTER_PAGE],
+    ['a vitals record', VITALS_PAGE],
+    ['a nursing record', NURSING_PAGE],
+  ])('%s under an encounter of another patient or another facility is not shown', async (_name, address) => {
+    for (const stranger of [{ ...ENCOUNTER, patientId: OTHER_PATIENT }, { ...ENCOUNTER, facilityId: OTHER_FACILITY }]) {
+      api('encounter').mockResolvedValue(stranger)
+      const view = openAt(address)
+      expect(await screen.findByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
+      expect(api('lookupPatient').mock.invocationCallOrder.at(-1)!).toBeLessThan(api('encounter').mock.invocationCallOrder.at(-1)!)
+      expect(screen.queryByText(ENCOUNTER.chiefComplaint)).toBeNull()
+      view.unmount()
+    }
+  })
+
+  it.each([
+    ['a vitals record', VITALS_PAGE, 'vitals', VITAL],
+    ['a nursing record', NURSING_PAGE, 'clinical-notes', OBSERVATION],
+  ])('%s of another patient or another encounter is not shown under the open patient', async (_name, address, kind, record) => {
+    for (const stranger of [{ ...record, patientId: OTHER_PATIENT }, { ...record, encounterId: OTHER_ENCOUNTER }]) {
+      lists[kind] = [stranger]
+      const view = openAt(address)
+      expect(await screen.findByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
+      view.unmount()
+    }
   })
 
   it.each([
