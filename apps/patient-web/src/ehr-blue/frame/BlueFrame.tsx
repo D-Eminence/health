@@ -214,7 +214,8 @@ export function BlueFrame() {
               ...(tabsFor('patients') ? [{ to: '/provider/patients', label: 'Find a patient', hint: 'By Health ID, with their approval', icon: Search, main: true }] : []),
               ...(tabsFor('registration') ? [{ to: '/provider/registration', label: 'Register a patient', hint: 'New Health ID at the front desk', icon: UserPlus }] : []),
               ...(tabsFor('triage/*') || tabsFor('triage') ? [{ to: '/provider/triage', label: 'Record vitals', hint: 'Triage and observations', icon: Activity }] : []),
-              ...(tabsFor('requests/*') || tabsFor('requests') ? [{ to: '/provider/requests', label: 'Request record access', hint: 'From another facility', icon: ShieldCheck }] : []),
+              // Access requests ask the patient to share their record with this facility: nothing goes to another facility.
+              ...(tabsFor('requests/*') || tabsFor('requests') ? [{ to: '/provider/requests', label: 'Request record access', hint: 'Ask a patient to share their record here', icon: ShieldCheck }] : []),
             ] }}
           >
             <div ref={pageRef} className="hid-ehr-blue-page @container">
