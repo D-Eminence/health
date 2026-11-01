@@ -111,6 +111,10 @@ describe('A role\'s sample dashboard', () => {
     expect(screen.getByText('Sample only: not connected to Health ID yet. Nothing you do here is saved.')).toBeDefined()
     expect(screen.getByRole('heading', { name: 'Activity in period' })).toBeDefined()
     expect(screen.getByText('Laboratory created')).toBeDefined()
+    expect(screen.getByText('Blood Bank created')).toBeDefined()
+    // The design's heading action, and the redesign's way back to the person's own Home.
+    expect(screen.getByRole('button', { name: 'Customize shortcuts' })).toBeDefined()
     expect(screen.getByRole('button', { name: 'Back to my dashboard' })).toBeDefined()
+    expect(screen.queryByText(/dashboard, as the design shows it/)).toBeNull()
   })
 })
