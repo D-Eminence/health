@@ -189,7 +189,7 @@ describe('a host whose single sign-on sign-out Identity does not serve (404), wi
     const before = sent.length
     await signOut()
     expect(after(sent, before)).toEqual([SSO_LOGOUT, LOGOUT])
-    expect(sent.find(request => request.route === LOGOUT)!.headers.get('X-HID-Client')).toBe('patient-web')
+    for (const route of [SSO_LOGOUT, LOGOUT]) expect(sent.find(request => request.route === route)!.headers.get('X-HID-Client'), route).toBe('patient-web')
     expect(left).not.toHaveBeenCalled()
     const sso = await import('../../sso/singleSignOn')
     expect([sso.signedOutInThisPage(), sso.leavingAfterSignOut()]).toEqual([true, false])
