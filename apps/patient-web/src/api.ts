@@ -4,9 +4,11 @@ import {
   type ImportedHistorySharingChange, type ImportedMedicalRecord,
 } from './importedRecords'
 import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory } from '@hid/contracts'
-import { NO_RETRY, type ApiClient, type DownloadResult, type HidApiError, type RequestSpec, type RetryPolicy } from '@hid/http'
+import { isHidApiError, NO_RETRY, type ApiClient, type DownloadResult, type HidApiError, type RequestSpec, type RetryPolicy } from '@hid/http'
 import { createEhrService, createSupportService } from '@hid/api'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from './sessionRefreshTurn'
+import { endSessionHref } from './sso/handOff'
+import { portalHandsOff } from './sso/singleSignOn'
 import { ACCESS_LOG_PAGE_SIZE, parseAccessLog, type AccessLogPage } from './accessLog'
 import {
   parseEmailChangeStarted, parseHealthProfile, parsePhoneChanged, parseProfileDetails,
@@ -490,6 +492,20 @@ export function createPatientApi(sender: ApiClient) {
   // onUnauthorized is left to the final 401 of every other request.
   const judged = { reportUnauthorized: false } as const
 
+  // The sign-out with single sign-on on app. (sso/singleSignOn.ts): POST auth/sso/logout, which ends this sign-in as
+  // auth/logout does and answers the provider's end-session address (contract v2, item 4; sso/handOff.ts endSessionHref).
+  // Identity answers 404 where it is no route at all: its relying party is not configured, or does not count this host
+  // among its clients (SsoRouteGuard). There is then no provider session of this host's to end, and `otherwise` ends
+  // what there is (today's sign-out), answering no address: the page then asks for the next sign-in (leaveAfterSignOut).
+  const ssoLogout = async (otherwise: () => Promise<unknown>): Promise<string | null> => {
+    try { return endSessionHref(await call<unknown>('POST', 'auth/sso/logout', undefined, judged)) }
+    catch (error) {
+      if (!isHidApiError(error) || error.status !== 404) throw error
+      await otherwise()
+      return null
+    }
+  }
+
   const chatService = createEhrService({ app: 'patient-web', client })
 
   return {
@@ -542,9 +558,35 @@ export function createPatientApi(sender: ApiClient) {
     // question is handled as a refused sign-out. The sign-out judges the 401 of
     // either call (session.tsx restores the session and signs out again), so the
     // tab is not signed out here while the server session may still be live.
-    logout: (subject: string | undefined) => signOutInTurn(() => call<PatientSession>('GET', 'auth/session', undefined, judged).then(
-      session => session.actor?.kind === 'patient' && subject !== undefined && session.actor.subject === subject),
-    () => call<void>('POST', 'auth/logout', undefined, judged), { alwaysAsk: true }),
+    //
+    // With single sign-on on app. (sso/singleSignOn.ts), the same sign-out is POST auth/sso/logout, which also answers
+    // the provider's end-session address (contract v2, item 4): it is returned for session.tsx to leave for. Where
+    // Identity has no such route (404), today's sign-out, answering null (ssoLogout). Off, today's sign-out exactly,
+    // answering null.
+    logout: async (subject: string | undefined): Promise<string | null> => {
+      let endSession: string | null = null
+      await signOutInTurn(() => call<PatientSession>('GET', 'auth/session', undefined, judged).then(
+        session => session.actor?.kind === 'patient' && subject !== undefined && session.actor.subject === subject),
+      portalHandsOff()
+        ? async () => { endSession = await ssoLogout(() => call<void>('POST', 'auth/logout', undefined, judged)) }
+        : () => call<void>('POST', 'auth/logout', undefined, judged), { alwaysAsk: true })
+      return endSession
+    },
+    // With single sign-on on app.: a sign-out that found this patient's sign-in already gone from the browser (its
+    // refresh refused) still ends the provider's session, which may outlive it, so the next person at this browser is
+    // not signed in as this patient (contract v2, item 4). POST auth/sso/logout needs no live sign-in: with none left,
+    // Identity clears the cookies and answers the end-session address all the same. It takes the sign-out's turn and is
+    // sent only while the browser still holds no sign-in (the session question answers 401): one another window made
+    // meanwhile is left alone. Answers the address, or null: off, no such route on this host (404), or a sign-in found.
+    endSingleSignOn: async (): Promise<string | null> => {
+      if (!portalHandsOff()) return null
+      let endSession: string | null = null
+      await signOutInTurn(() => call<PatientSession>('GET', 'auth/session', undefined, judged).then(() => false, (error: unknown) => {
+        if (isHidApiError(error) && error.status === 401) return true
+        throw error
+      }), async () => { endSession = await ssoLogout(async () => undefined) }, { alwaysAsk: true })
+      return endSession
+    },
     googleNonce: () => call<{ nonce: string }>('GET', 'auth/google/nonce'),
     googleExchange: (idToken: string, turnstileToken: string, intent: 'sign_in' | 'enroll') =>
       inRefreshTurn(() => call<PatientSession | { stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY'; expiresAt: string }>(

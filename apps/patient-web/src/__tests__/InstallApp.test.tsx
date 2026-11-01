@@ -88,7 +88,9 @@ describe('Install the Health ID app', () => {
     page()
     expect(await screen.findByRole('heading', { name: HEADING })).toBeTruthy()
     act(() => { window.dispatchEvent(new Event('appinstalled')) })
-    expect(screen.queryByRole('heading', { name: HEADING })).toBeNull()
+    // The section re-renders once its subscription (an effect) has seen the change, which on a busy runner can come after
+    // the event: wait for it.
+    await waitFor(() => expect(screen.queryByRole('heading', { name: HEADING })).toBeNull())
   })
 
   it('on iPhone and iPad, says how to add it to the Home Screen', async () => {

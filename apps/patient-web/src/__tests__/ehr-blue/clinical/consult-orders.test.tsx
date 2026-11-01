@@ -873,7 +873,8 @@ describe('A lab request’s page', () => {
     expect(await screen.findByText('Lab accepted this lab request at its current version.')).toBeTruthy()
     expect(api.sendLabRequestToLab).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, LAB, 3, expect.any(String))
     expect(api.sendLabRequestToLab.mock.calls[1]![5]).toBe(api.sendLabRequestToLab.mock.calls[0]![5])
-    expect(api.lookupPatient).toHaveBeenCalledTimes(2)
+    // The page's own re-check before its first read, then one before each send.
+    expect(api.lookupPatient).toHaveBeenCalledTimes(3)
   })
 
   it('reads the request again when Lab says it is no longer active', async () => {
@@ -1020,7 +1021,8 @@ describe('Sending to another facility, and what it reported', () => {
     expect(await screen.findByText('Withdrawn from Demo Laboratory. Patient One is told in the Health ID app.')).toBeTruthy()
     expect(routes.withdraw).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab_request', LAB, expect.objectContaining({ id: ROUTE, version: 1 }), 'patient_request')
     expect(await screen.findByText('Withdrawn.')).toBeTruthy()
-    expect(api.lookupPatient).not.toHaveBeenCalled()
+    // Only the page's own re-check before its first read: the withdrawal makes none, as today.
+    expect(api.lookupPatient).toHaveBeenCalledTimes(1)
   })
 
   it('withdraws under read-only access too, as today', async () => {

@@ -64,7 +64,7 @@ export interface OrderRead {
 /**
  * One order of this encounter, found in today's records list (there is no single-record read): the newest page
  * first, then older pages until it is found. `fresh` re-reads past the client's de-duplication, as today's page
- * does after a change.
+ * does after a change. Null when it is not there, or is of another patient or encounter.
  */
 export async function readOrder(chart: Chart, encounterId: string, kind: OrderKind, orderId: string, fresh: boolean): Promise<OrderRead> {
   const recordKind = KINDS[kind].record
@@ -74,7 +74,9 @@ export async function readOrder(chart: Chart, encounterId: string, kind: OrderKi
   const crossFacilityOrders = learnFrom(answer)
   for (let pages = 1; ; pages += 1) {
     const found = (Array.isArray(answer?.items) ? answer.items : []).find(item => item.id === orderId)
-    if (found) return { record: found, crossFacilityOrders }
+    // The address names the consultation and the order, never the patient: one of another patient or consultation is
+    // not shown under the open patient (as encounters and visit records are checked).
+    if (found) return { record: found.patientId === chart.patientId && found.encounterId === encounterId ? found : null, crossFacilityOrders }
     if (!answer?.nextCursor || pages >= 40) return { record: null, crossFacilityOrders }
     answer = await staffApi.records(chart.facilityId, chart.patientId, encounterId, recordKind, { cursor: answer.nextCursor, fresh })
   }

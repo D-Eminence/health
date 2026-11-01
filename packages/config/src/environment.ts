@@ -34,6 +34,12 @@ export interface HidEnvironment {
   readonly sentryDsn: string | null
   /** True when this build may talk to real patient data. Drives extra guardrails. */
   readonly handlesRealData: boolean
+  /**
+   * Single sign-on on the sign-in site `auth.` (contract v2): whether a signed-out product page hands off to the
+   * product's own `/api/v1/auth/sso/start`, and its sign-out also ends the sign-in there. From the prefix's `SSO`
+   * (`VITE_HID_SSO`): off unless set to `1` (or `true`); unset, empty, `0` or `false` keep today's sign-in pages exactly.
+   */
+  readonly ssoEnabled: boolean
 }
 
 export class EnvironmentConfigError extends Error {
@@ -137,6 +143,10 @@ export function resolveEnvironment(raw: RawEnvironment, prefix: string): HidEnvi
   const supportChatEnabled = flag('SUPPORT_CHAT_ENABLED')
   const patientChatEnabled = flag('PATIENT_CHAT_ENABLED')
   const supportContact = readString(raw, key('SUPPORT_CONTACT'))
+  // Single sign-on: off unless asked for. Anything but the values below fails the configuration rather than guess.
+  const rawSso = raw[key('SSO')]
+  const ssoEnabled = rawSso === '1' || rawSso === 'true'
+  if (rawSso !== undefined && !['', '0', 'false', '1', 'true'].includes(rawSso)) issues.push(`${key('SSO')} must be 1 or 0 (or true or false)`)
   if (supportChatEnabled && supportContact !== 'mailto:support@healthidentitydirectory.com') {
     issues.push('Support chat requires the approved support contact')
   }
@@ -149,6 +159,6 @@ export function resolveEnvironment(raw: RawEnvironment, prefix: string): HidEnvi
     turnstileSiteKey: readString(raw, key('TURNSTILE_SITE_KEY')),
     sentryDsn: readString(raw, key('SENTRY_DSN')),
     handlesRealData: name !== 'local',
-    supportChatEnabled, patientChatEnabled, supportContact,
+    supportChatEnabled, patientChatEnabled, supportContact, ssoEnabled,
   })
 }

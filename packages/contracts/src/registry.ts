@@ -380,6 +380,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('auth.session','auth','/api/v1/auth/session',G,false,undefined,SELF_SERVICE_SESSION),
   r('auth.refresh','auth','/api/v1/auth/refresh',P,true,undefined,`Requires refresh cookie and CSRF header. ${SELF_SERVICE_SESSION}`),
   r('auth.logout','auth','/api/v1/auth/logout',P),
+  // A product's sign-out with single sign-on on auth. (ADR-070, contract v2 item 4); the browser never calls the start,
+  // callback or back-channel routes, which are navigations and server-to-server calls.
+  proposed(r('auth.ssoLogout','auth','/api/v1/auth/sso/logout',P,false,undefined,
+    'Single sign-on (ADR-070, proposed): not served by hid-system main, where it answers 404, as it does on a host that is '
+    + 'not a single sign-on client. Runs the sign-out of auth.logout, with its checks, then answers 200 { endSessionUrl }: '
+    + 'the provider\'s end-session address, for the browser to open.')),
   r('auth.facility','auth','/api/v1/auth/facility',P,false,undefined,SELF_SERVICE_SESSION),
   r('auth.otpStart','auth','/api/v1/auth/otp/start',P,true),
   r('auth.otpVerify','auth','/api/v1/auth/otp/verify',P,true),

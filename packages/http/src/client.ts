@@ -146,8 +146,12 @@ export interface ApiClientOptions {
 
 const DEFAULT_TIMEOUT_MS = 15_000
 
-/** The cookie session calls on which Identity reads `X-HID-Client`. */
-const NAMED_CLIENT_PATHS: ReadonlySet<string> = new Set(['/api/v1/auth/refresh', '/api/v1/auth/logout'])
+/**
+ * The cookie session calls on which Identity reads `X-HID-Client`. The product sign-out with single sign-on on
+ * (`/auth/sso/logout`, ADR-070) runs today's sign-out first, with the same check: a portal still ends only its own kind
+ * of sign-in.
+ */
+const NAMED_CLIENT_PATHS: ReadonlySet<string> = new Set(['/api/v1/auth/refresh', '/api/v1/auth/logout', '/api/v1/auth/sso/logout'])
 
 /** A deduplicated read and the callers still waiting for it. */
 interface SharedRead {
@@ -300,7 +304,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       // would block a cross-origin preflight.
       headers.set('X-Correlation-ID', requestId)
       // The staff and patient apps share the session cookies on one origin.
-      // Identity reads X-HID-Client on these two calls only (hid-system #39) and
+      // Identity reads X-HID-Client on these calls only (hid-system #39) and
       // refuses the other app's sign-in with 403 SESSION_CLIENT_MISMATCH, so
       // neither app rotates or ends the other's. It names this client and no
       // other, whatever a caller passed. Identity builds before #39 ignore it on
