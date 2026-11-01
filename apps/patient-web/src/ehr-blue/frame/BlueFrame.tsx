@@ -232,7 +232,7 @@ export function BlueFrame() {
                   onNavigate={follow}
                 />
               ) : null}
-              {/* A page that fails would take the frame with it, and the account menu's way back to the classic EHR. */}
+              {/* A page that fails would take the frame with it: the boundary keeps the sidebar and the account menu. */}
               <BluePageBoundary key={match?.page.keepsState ? match.page.path : location.pathname}>{content}</BluePageBoundary>
             </div>
             {/* Fictional figures: only where the page itself is a sample. */}
