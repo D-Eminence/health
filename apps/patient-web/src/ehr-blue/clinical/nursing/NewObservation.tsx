@@ -79,7 +79,7 @@ function NewObservationForm({ chart }: { chart: Chart }) {
                   {chart.can('ehr.encounter.write') ? <> <Link className="hid-ehr-clinical-link" to={href.to('consult', 'new')}>New consultation</Link></> : null}
                 </p>
               ) : null}
-              <RecordForm key={visits.map(encounter => encounter.id).join()} fields={fields} submitLabel="Save observation" onSubmit={submit} />
+              <RecordForm key={visits.map(encounter => encounter.id).join()} fields={fields} submitLabel="Save record" onSubmit={submit} />
             </>
           )
         ) : null}

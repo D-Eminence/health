@@ -338,7 +338,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   })
 
   // The note actions, once its content was read (today's rule): "Sign note" for a draft (the typed SIGN dialog) and
-  // "Amend signed note"; and "Write clinical note", today's note form, offered to a role that may read notes too. The
+  // "Amend signed note"; and "Add notes", today's note form, offered to a role that may read notes too. The
   // other live actions sit behind "More actions": today's consultation status changes, and "Mark note entered in error"
   // on this note (the Notes card keeps every note's own actions too), each with today's form, reason, call and messages.
   const actions: ActionDef[] = []

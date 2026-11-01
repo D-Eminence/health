@@ -61,10 +61,10 @@ export const NOTE_EIE_LABEL = 'Mark note entered in error'
 export const SIGN_LABEL = 'Sign note'
 export const AMEND_LABEL = 'Amend signed note'
 export const EDIT_DRAFT_LABEL = 'Edit draft'
-export const WRITE_NOTE_LABEL = 'Write note'
+export const WRITE_NOTE_LABEL = 'Add notes'
 
 /** The Notes card (today's Notes tab): every clinical note of the encounter that is not a nursing observation. */
-export const NOTES_TITLE = 'Clinical notes'
+export const NOTES_TITLE = 'Notes'
 export const NO_NOTES = 'No notes for this encounter.'
 export const NO_NOTES_ON_PAGE = 'No clinical notes on this page.'
 export const REVIEW_NOTE = 'Review note content'
@@ -110,15 +110,15 @@ export const RESTARTED = 'This list changed since it was opened, so it shows the
 export const NO_ENCOUNTERS = 'No consultations for this patient here yet.'
 export const NO_COMPLAINT = 'No complaint recorded'
 export const ENCOUNTER_CREATED = 'Consultation started.'
-export const RECORD_SAVED = 'Saved.'
-export const NOTE_STATUS_UPDATED = 'Note updated.'
+export const RECORD_SAVED = 'Clinical record saved.'
+export const NOTE_STATUS_UPDATED = 'Clinical note status updated.'
 export const ENCOUNTER_STATUS_UPDATED = 'Consultation updated.'
-export const REVISION_RECORDED = 'Note changes saved.'
+export const REVISION_RECORDED = 'A new note revision was recorded.'
 export const DIAGNOSIS_UPDATED = 'Diagnosis updated.'
 export const REASON_SHORT = 'Give a reason of at least 3 characters.'
 export const ENCOUNTER_CHANGED = 'Someone changed this consultation while you had it open. It now shows its current status; choose the change again if it’s still needed.'
-export const NOTES_ARE_DRAFTS = 'The note saves as a draft. Sign it on the consultation’s page.'
-export const NO_WRITE = 'Your access doesn’t allow changes to this patient’s records.'
+export const NOTES_ARE_DRAFTS = 'Notes are saved as drafts. Signing needs its own reviewed action.'
+export const NO_WRITE = 'This access does not permit changes to the patient record.'
 
 // EHR lists encounters and each record kind newest first, 50 to a page, with an opaque cursor for the next and no
 // total. A list keeps the cursors that led to the page shown, the first page's being none.

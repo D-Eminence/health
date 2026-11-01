@@ -334,7 +334,7 @@ describe('New consultation', () => {
     const context = await screen.findByRole('region', { name: 'Allergies' })
     expect(within(context).getByText('Penicillin (told us by the patient, not checked by a clinician).')).toBeTruthy()
     expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
-    expect(screen.getByText('The note saves as a draft. Sign it on the consultation’s page.')).toBeTruthy()
+    expect(screen.getByText('Notes are saved as drafts. Signing needs its own reviewed action.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Back to list' })).toBeTruthy()
   })
 

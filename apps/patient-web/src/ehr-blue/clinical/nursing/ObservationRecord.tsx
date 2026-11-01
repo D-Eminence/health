@@ -73,9 +73,9 @@ function ObservationReader({ chart }: { chart: Chart }) {
  * units or dose is its own field here, starting at the latest revision's, so it can be corrected or cleared too.
  */
 const AMEND_FIELDS: readonly FieldDef[] = [
-  { key: 'note', label: 'Corrected record', type: 'textarea', required: true, maxLength: DETAILS_LIMIT },
+  { key: 'note', label: 'Content', type: 'textarea', required: true, maxLength: DETAILS_LIMIT },
   { key: 'units', label: 'Units / dose', maxLength: UNITS_LIMIT },
-  { key: 'reason', label: 'Reason', type: 'textarea', required: true, maxLength: 500 },
+  { key: 'reason', label: 'Reason for revision', type: 'textarea', required: true, maxLength: 500 },
 ]
 
 /** Today's revision refusals, in place of the design's "Complete this field." for the same fields. */
@@ -247,7 +247,8 @@ function Observation({ chart, encounter, note, reload }: {
               key={`${note.id}-${String(note.rowVersion)}`}
               fields={AMEND_FIELDS}
               initial={{ units: parseObservation(latest?.content ?? '').units }}
-              submitLabel={AMEND_LABEL}
+              submitLabel="Record revision"
+              busyLabel="Recording…"
               validate={amendCheck}
               onSubmit={amend}
             />

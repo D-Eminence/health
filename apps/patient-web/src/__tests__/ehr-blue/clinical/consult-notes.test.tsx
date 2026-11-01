@@ -109,7 +109,7 @@ function card(title: string) {
 
 /** One note's row in the Notes card, by its title. */
 function noteRow(title: string) {
-  return within(within(card('Clinical notes')).getByText(title).closest('li') as HTMLElement)
+  return within(within(card('Notes')).getByText(title).closest('li') as HTMLElement)
 }
 
 /** Opens a note's content (today's "Review note content") and waits for its revisions. */
@@ -138,7 +138,7 @@ function many(prefix: string, count: number, make: (index: number) => Record<str
 describe('Consultation record: the Notes card (item 1)', () => {
   it('item 1: lists every clinical note of the encounter, the older one included, and leaves nursing observations out', async () => {
     await openEncounter()
-    const notes = within(card('Clinical notes'))
+    const notes = within(card('Notes'))
     expect(notes.getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['Consultation note', 'Admission note'])
     expect(notes.queryByText('Vitals')).toBeNull()
     expect(noteRow('Admission note').getByText(/^Admission · Recorded 29 Oct 2026, /)).toBeTruthy()
@@ -178,7 +178,7 @@ describe('Consultation record: the Notes card (item 1)', () => {
     pages['clinical-notes'] = { '': { items: [NOTE, OBSERVATION, { ...OLDER, status: 'signed', rowVersion: 6 }], nextCursor: null } }
     fireEvent.click(confirm)
 
-    expect(await screen.findByText('Note updated.')).toBeTruthy()
+    expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
     expect(api.updateRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', 'note-0',
       { expectedRowVersion: 5, changeReason: 'Admission reviewed', status: 'signed' })
     expect(api.lookupPatient.mock.calls.length).toBe(checks + 1)
@@ -206,7 +206,7 @@ describe('Consultation record: the Notes card (item 1)', () => {
     expect(within(dialog()).queryByLabelText(/Type .* to confirm/)).toBeNull()
     pages['clinical-notes'] = { '': { items: [NOTE, { ...OLDER, status: 'entered_in_error', rowVersion: 6 }], nextCursor: null } }
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
-    expect(await screen.findByText('Note updated.')).toBeTruthy()
+    expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
     expect(api.updateRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', 'note-0',
       { expectedRowVersion: 5, changeReason: 'Wrong patient', status: 'entered_in_error' })
     await waitFor(() => expect(noteRow('Admission note').getByText('Entered in error')).toBeTruthy())
@@ -258,7 +258,7 @@ describe('Consultation record: the Notes card (item 1)', () => {
     expect(api.lookupPatient.mock.invocationCallOrder.at(-1)!).toBeLessThan(api.addNoteRevision.mock.invocationCallOrder[0]!)
     revisions['note-0'] = [...revisions['note-0']!, { id: 'rev-0b', revisionNo: 2, content: 'Admitted with fever and chills (fictional).', changeReason: 'Symptom added', createdAt: '2026-10-30T09:00:00.000Z' }]
     fireEvent.click(row.getByRole('button', { name: 'Record revision' }))
-    expect(await row.findByText('Note changes saved.')).toBeTruthy()
+    expect(await row.findByText('A new note revision was recorded.')).toBeTruthy()
     expect(api.addNoteRevision).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'note-0',
       { expectedRowVersion: 5, changeReason: 'Symptom added', content: 'Admitted with fever and chills (fictional).' }, expect.any(String))
     expect(api.addNoteRevision.mock.calls[1]![5]).toBe(api.addNoteRevision.mock.calls[0]![5])
@@ -292,7 +292,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     const second = many('note-p2', 3, index => ({ noteType: 'Progress', title: `Older progress note ${index}`, status: 'signed', rowVersion: 1 }))
     pages['clinical-notes'] = { '': { items: first, nextCursor: 'notes-cursor-2' }, 'notes-cursor-2': { items: second, nextCursor: null } }
     await openEncounter()
-    const notes = () => within(card('Clinical notes'))
+    const notes = () => within(card('Notes'))
     expect(notes().getAllByRole('listitem')).toHaveLength(50)
     const pager = () => within(notes().getByRole('navigation', { name: 'Record pages' }))
     expect(pager().getByText('Page 1')).toBeTruthy()
@@ -324,7 +324,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     const history = () => within(card('History'))
     expect(history().getByRole('link', { name: 'Nursing observations · b1c6ef36' })).toBeTruthy()
     expect(history().queryByText('Nursing observations · b2d7f047')).toBeNull()
-    const notes = () => within(card('Clinical notes'))
+    const notes = () => within(card('Notes'))
     fireEvent.click(within(notes().getByRole('navigation', { name: 'Record pages' })).getByRole('button', { name: 'Next page' }))
     expect(await notes().findByText('Older progress note 1')).toBeTruthy()
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: 'notes-cursor-2', fresh: false })
@@ -342,7 +342,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     const second = many('note-p2', 3, index => ({ noteType: 'Progress', title: `Older progress note ${index}`, status: 'signed', rowVersion: 1 }))
     pages['clinical-notes'] = { '': { items: first, nextCursor: 'notes-cursor-2' }, 'notes-cursor-2': { items: second, nextCursor: null } }
     await openEncounter()
-    const pager = () => within(within(card('Clinical notes')).getByRole('navigation', { name: 'Record pages' }))
+    const pager = () => within(within(card('Notes')).getByRole('navigation', { name: 'Record pages' }))
     expect(pager().getByRole('status').textContent).toBe('Page 1')
     const previous = pager().getByRole('button', { name: 'Previous page' }) as HTMLButtonElement
     const next = pager().getByRole('button', { name: 'Next page' }) as HTMLButtonElement
@@ -356,7 +356,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     act(() => { next.focus() })
     fireEvent.click(next)
     await waitFor(() => expect(pager().getByRole('status').textContent).toBe('Page 2'))
-    expect(await within(card('Clinical notes')).findByText('Older progress note 1')).toBeTruthy()
+    expect(await within(card('Notes')).findByText('Older progress note 1')).toBeTruthy()
     // The last page: "Next page" is the same button, still focused, unavailable; pressing it reads nothing.
     expect(pager().getByRole('button', { name: 'Next page' })).toBe(next)
     expect(document.activeElement).toBe(next)
@@ -376,18 +376,18 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     fireEvent.change(saved.getByLabelText(labelled('Clinical note')), { target: { value: 'History\nCough for four days.' } })
     fireEvent.change(saved.getByLabelText(labelled('Reason for revision')), { target: { value: 'Duration corrected' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
-    expect(await screen.findByText('Note changes saved.', { exact: false })).toBeTruthy()
+    expect(await screen.findByText('A new note revision was recorded.', { exact: false })).toBeTruthy()
     await waitFor(() => expect(within(card('Note')).queryByText('Cough for three days.', { exact: false })).toBeNull())
     expect(within(card('Actions')).queryByRole('button', { name: 'Sign note' })).toBeNull()
     expect(within(card('Note')).getAllByRole('alert').length).toBeGreaterThan(0)
   })
 
-  it('follow-up 3: offers no "Write clinical note" to a role that may write notes but not read them', async () => {
+  it('follow-up 3: offers no "Add notes" to a role that may write notes but not read them', async () => {
     staff.permissions = ALL.filter(permission => permission !== 'ehr.note.read')
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
     await within(card('Documents')).findByText('referral-letter.pdf')
-    expect(within(card('Actions')).queryByRole('button', { name: 'Write clinical note' })).toBeNull()
+    expect(within(card('Actions')).queryByRole('button', { name: 'Add notes' })).toBeNull()
     expect(api.noteRevisions).not.toHaveBeenCalled()
   })
 
@@ -467,7 +467,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
 
   it('item 6: shows no pager while a list has one page', async () => {
     await openEncounter()
-    for (const title of ['Clinical notes', 'Diagnoses', 'Documents']) {
+    for (const title of ['Notes', 'Diagnoses', 'Documents']) {
       expect(within(card(title)).queryByRole('navigation', { name: 'Record pages' })).toBeNull()
     }
   })
@@ -498,7 +498,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
       'notes-cursor-2': new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }),
     }
     await openEncounter()
-    const notes = () => within(card('Clinical notes'))
+    const notes = () => within(card('Notes'))
     fireEvent.click(within(notes().getByRole('navigation', { name: 'Record pages' })).getByRole('button', { name: 'Next page' }))
     expect((await notes().findByRole('alert')).textContent).toBe('The page could not be loaded. EHR is unavailable.')
     expect(notes().getByText('Progress note 49')).toBeTruthy()
