@@ -17,7 +17,8 @@ const ROLE_LABELS: Readonly<Record<string, string>> = {
 }
 
 export function roleLabel(code: string): string {
-  return ROLE_LABELS[code] ?? code
+  // A role with no words yet is 'Staff', never its internal key (owner's rule, 1 Nov 2026).
+  return ROLE_LABELS[code] ?? 'Staff'
 }
 
 /** Each role's words once, in the order given ("Facility administrator, Doctor"). */
@@ -27,6 +28,7 @@ export function roleLabels(codes: readonly string[]): string {
 
 /** The role in a sentence: "a doctor", "a laboratory scientist". */
 export function roleInSentence(code: string): string {
+  if (!Object.hasOwn(ROLE_LABELS, code)) return 'a member of staff'
   const word = roleLabel(code).toLowerCase()
   return `${/^[aeiou]/.test(word) ? 'an' : 'a'} ${word}`
 }

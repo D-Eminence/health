@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { isBlankHealthIdInput, signInPrincipal, signInPrincipalInput } from '@hid/contracts'
-import { fallbackMessageForStatus, isHidApiError, type HidApiError } from '@hid/http'
+import { isHidApiError, PlainError, plainErrorText } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import { GoogleButton } from '../GoogleButton'
 import { googleClientId } from '../googleClient'
@@ -24,21 +24,21 @@ const suspended = (reason: unknown) => isHidApiError(reason) && reason.code === 
 /**
  * Google sign-in for a Google account not linked yet (hid-system, owner decision 2026-10-28): Identity links it when
  * Google says its email is verified and exactly one patient account has that verified email. With none, 404
- * GOOGLE_NOT_REGISTERED, and the page offers the sign-up; with more than one, 409 GOOGLE_LINK_REQUIRED. Identity's
- * own words are shown; these stand in only if a problem came without them. GOOGLE_LINK_REQUIRED's are always ours:
- * Identity's say to link Google from Settings, which the portal no longer has (the owner's decision of 2026-10-28).
+ * GOOGLE_NOT_REGISTERED, and the page offers the sign-up; with more than one, 409 GOOGLE_LINK_REQUIRED. The website's
+ * own words are always shown, never Identity's (owner's rule, 1 Nov 2026).
  */
 export const GOOGLE_NOT_REGISTERED = 'This Google account is not registered on Health ID. Use Sign Up first.'
 export const GOOGLE_LINK_REQUIRED = 'This Google account can’t be linked automatically. Sign in with your email or Health ID and password.'
-const STAND_INS: Readonly<Record<string, string>> = { ACCOUNT_SUSPENDED, GOOGLE_NOT_REGISTERED }
+const GOOGLE_DENIED = 'Google sign-in couldn’t be completed for this account. Sign in with your email or Health ID and password.'
+const SIGN_IN_CODES: Readonly<Record<string, string>> = { ACCOUNT_SUSPENDED, GOOGLE_NOT_REGISTERED, GOOGLE_LINK_REQUIRED, GOOGLE_SIGN_IN_DENIED: GOOGLE_DENIED }
+const SIGN_IN_STATUSES: Readonly<Partial<Record<number, string>>> = {
+  401: 'That email, phone, Health ID or password isn’t right. Try again.',
+}
 const googleNotRegistered = (reason: unknown) => isHidApiError(reason) && reason.code === 'GOOGLE_NOT_REGISTERED'
 
-/** Identity's words for a refused sign-in: its own, or ours for a problem that came without them. */
-const refusalText = (reason: HidApiError) => {
-  if (reason.code === 'GOOGLE_LINK_REQUIRED') return GOOGLE_LINK_REQUIRED
-  const standIn = reason.code !== undefined && Object.hasOwn(STAND_INS, reason.code) ? STAND_INS[reason.code] : undefined
-  return standIn && reason.message === fallbackMessageForStatus(reason.status) ? standIn : reason.message
-}
+/** A refused sign-in in plain words: ours for the codes we know, never Identity's own text. */
+const refusalText = (reason: unknown, fallback: string, statuses = SIGN_IN_STATUSES) =>
+  plainErrorText(reason, fallback, { codes: SIGN_IN_CODES, statuses })
 
 /** The suspension's text, with the support address in it as a link to write to. */
 function withSupportLink(text: string) {
@@ -79,7 +79,7 @@ export function SignIn() {
       await signIn(signInPrincipal(email), password, turnstileToken)
       navigate('/', { replace: true })
     } catch (reason) {
-      setError(isHidApiError(reason) ? refusalText(reason) : 'Sign-in could not be completed. Please try again.')
+      setError(refusalText(reason, 'Sign-in could not be completed. Please try again.'))
       setRefusal(suspended(reason) ? 'suspended' : isHidApiError(reason) && reason.status === 401 ? 'unfinished' : null)
     } finally {
       setTurnstileToken(null)
@@ -95,11 +95,11 @@ export function SignIn() {
     setRefusal(null)
     try {
       const result = await api.googleExchange(idToken, turnstileToken, 'sign_in')
-      if (!('actor' in result)) throw new Error('This Google account is not linked to a patient account.')
+      if (!('actor' in result)) throw new PlainError('This Google account is not linked to a patient account.')
       acceptGoogleSession(result)
       navigate('/', { replace: true })
     } catch (reason) {
-      setError(isHidApiError(reason) ? refusalText(reason) : reason instanceof Error ? reason.message : 'Google sign-in could not be completed.')
+      setError(refusalText(reason, 'Google sign-in could not be completed.', { 401: GOOGLE_DENIED }))
       setRefusal(suspended(reason) ? 'suspended' : googleNotRegistered(reason) ? 'google-not-registered' : null)
     } finally {
       setTurnstileToken(null)

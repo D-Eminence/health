@@ -293,7 +293,7 @@ describe('pages that load once', () => {
     expect(focused()).toBe(account)
     await act(async () => { answer.resolve(json({})) })
 
-    expect((await screen.findByRole('alert')).textContent).toContain('Sign-out is unavailable right now.')
+    expect((await screen.findByRole('alert')).textContent).toContain('Health ID isn’t available right now. Please try again in a few minutes.')
     await waitFor(() => expect(focused()).toBe(account))
   })
 })

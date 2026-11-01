@@ -33,5 +33,15 @@ export {
   shouldRetry,
 } from './retry'
 export type { RetryPolicy } from './retry'
+export {
+  PLAIN,
+  PlainError,
+  isConnectionFailure,
+  isPlainError,
+  isStoppedRequest,
+  plainErrorText,
+  plainStatusText,
+} from './plain'
+export type { PlainAudience, PlainErrorOptions } from './plain'
 export { assertSignedStorageUrl, uploadPresignedObject } from './upload'
 export type { PresignedUpload, PresignedUploadOptions, SignedStorageUrlOptions } from './upload'

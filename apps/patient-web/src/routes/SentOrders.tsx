@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Card } from '../kasuwa/ui'
 import { LoadingRows } from '../kasuwa/parts'
 import { Problem, Saved } from './profileParts'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { ItemName } from '../ItemName'
 import { useSession } from '../session'
 import type { PatientOrderRoute } from '../api'
@@ -227,7 +227,7 @@ function stopProblem(error: unknown, receiving: string): { text: string; reload:
   }
   if (!isHidApiError(error) || error.status === 0 || error.status >= 500) return { reload: true,
     text: 'We didn’t get an answer, so it may not have stopped. Check the list below.' }
-  return { reload: false, text: error.message || 'Couldn’t stop it. Try again.' }
+  return { reload: false, text: plainErrorText(error, 'Couldn’t stop it. Try again.') }
 }
 
 export function SentOrdersCard() {

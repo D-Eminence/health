@@ -10,6 +10,7 @@ import { forgetWrongPatientServed } from '../../../../wrongPatientServed'
 import { Laboratory } from '../../../../ehr-blue/departments/laboratory/Laboratory'
 import { labPages, laboratoryPage } from '../../../../ehr-blue/departments/laboratory/page'
 import { DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { SAID_CHANGED, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_UNAVAILABLE } from '../../../said'
 
 /**
  * The Laboratory's work list and requests as the owner rebuilt them (laboratory/work by stage tabs, a request at
@@ -198,12 +199,25 @@ afterEach(() => {
   forgetReceiving(); forgetCannotCompleteServed(); forgetLateCorrectionServed(); forgetWrongPatientServed()
 })
 
+/** The Laboratory's refusal at its addresses, in the words of the Pharmacy's. */
+const LAB_REFUSAL = 'Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator.'
+/** A permission's name, Identity's code or the old "membership needs … permission" words: none belongs on a screen. */
+const PERMISSION_WORDS = /permission|membership|work-item|lab\.work-item\.read/i
+
 describe('the page entries', () => {
-  it('keeps the hospital’s Laboratory entry, with today’s refusal at its address', () => {
+  it('keeps the hospital’s Laboratory entry, refusing at its address in plain words that name no permission', () => {
     expect(laboratoryPage).toMatchObject({ path: 'laboratory', group: 'Diagnostics', label: 'Laboratory', permission: 'lab.work-item.read', status: 'live' })
     renderDept(<>{laboratoryPage.refusal}</>)
     expect(screen.getByRole('heading', { level: 1, name: 'Laboratory unavailable' })).toBeTruthy()
-    expect(screen.getByText('This facility membership needs lab work-item read permission.')).toBeTruthy()
+    expect(screen.getByText(LAB_REFUSAL)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
+  })
+
+  it.each(['laboratory/work/*', 'laboratory/results/*'])('refuses %s in the same plain words', path => {
+    renderDept(<>{labPages.find(page => page.path === path)?.refusal}</>)
+    expect(screen.getByRole('heading', { level: 1, name: 'Laboratory unavailable' })).toBeTruthy()
+    expect(screen.getByText(LAB_REFUSAL)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
   })
 
   it('lists the lab’s pages in order, each with the permission it needs', () => {
@@ -283,7 +297,8 @@ describe('the work list', () => {
     renderPage()
     const alert = await screen.findByRole('alert')
     expect(within(alert).getByText('Couldn’t load the work list')).toBeTruthy()
-    expect(within(alert).getByText('The service is temporarily unavailable. Please try again shortly.')).toBeTruthy()
+    expect(within(alert).getByText(SAID_UNAVAILABLE)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('The service is temporarily unavailable')
     expect(screen.queryByText('Nothing in Waiting for sample')).toBeNull()
     fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
     expect(await findCard('Haemoglobin')).toBeTruthy()
@@ -293,7 +308,8 @@ describe('the work list', () => {
   it('says the module is not in service when the gateway has no Lab route', async () => {
     api.labWorkItems.mockRejectedValue(problem(404, 'API_ROUTE_NOT_FOUND', 'Not found'))
     renderPage()
-    expect((await screen.findByRole('alert')).textContent).toMatch(/This workspace is not in service on this Health ID deployment/)
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_NOT_TURNED_ON)
+    expect(document.body.textContent).not.toContain('deployment')
   })
 
   it('shows each request as a card with its one next action, masked patients only', async () => {
@@ -485,7 +501,8 @@ describe('collecting the first sample (the accession is made with it)', () => {
     fireEvent.change(reasonBox(), { target: { value: 'Suspected anaemia' } })
     fireEvent.click(within(card).getByRole('button', { name: 'Collect sample' }))
     await answerSheet('Collect the sample', 'Collect sample')
-    expect((await within(card).findByRole('alert')).textContent).toContain('Lab work item is not accessionable at this facility')
+    expect((await within(card).findByRole('alert')).textContent).toContain('The sample could not be recorded.')
+    expect(document.body.textContent).not.toContain('Lab work item is not accessionable at this facility')
     expect(api.labAccession).not.toHaveBeenCalled()
     expect(api.transitionSpecimen).not.toHaveBeenCalled()
   })
@@ -501,7 +518,8 @@ describe('collecting the first sample (the accession is made with it)', () => {
     fireEvent.change(reasonBox(), { target: { value: 'Suspected anaemia' } })
     fireEvent.click(within(card).getByRole('button', { name: 'Collect sample' }))
     await answerSheet('Collect the sample', 'Collect sample')
-    expect((await within(card).findByRole('alert')).textContent).toContain('The service is temporarily unavailable.')
+    expect((await within(card).findByRole('alert')).textContent).toContain(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('The service is temporarily unavailable.')
     fireEvent.click(within(card).getByRole('button', { name: 'Collect sample' }))
     await answerSheet('Collect the sample', 'Collect sample')
     expect(await screen.findByText('Sample collected. Print the label.')).toBeTruthy()
@@ -539,7 +557,8 @@ describe('the accession', () => {
     renderPage()
     await openRecord()
     const alert = (await screen.findByText('Couldn’t load this request')).closest('[role="alert"]') as HTMLElement
-    expect(within(alert).getByText('Lab operation is not authorized')).toBeTruthy()
+    expect(within(alert).getByText(SAID_REFUSED)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Lab operation is not authorized')
     expect(screen.queryByRole('button', { name: 'Collect sample' })).toBeNull()
     fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
     expect(await screen.findByRole('button', { name: 'Collect sample' })).toBeTruthy()
@@ -577,7 +596,8 @@ describe('sample custody', () => {
     api.transitionSpecimen.mockRejectedValue(problem(412, 'VERSION_CONFLICT', 'Specimen changed since it was loaded'))
     fireEvent.click(within(stageCard()).getByRole('button', { name: 'Collect sample' }))
     await answerSheet('Collect the sample', 'Collect sample')
-    expect((await within(stageCard()).findByRole('alert')).textContent).toContain('Specimen changed since it was loaded')
+    expect((await within(stageCard()).findByRole('alert')).textContent).toContain(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('Specimen changed since it was loaded')
     expect(api.labAccession).toHaveBeenCalledTimes(1)
   })
 
@@ -888,7 +908,8 @@ describe('testing and results', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Check & release' })
     fireEvent.change(within(sheet).getByRole('textbox', { name: 'What you checked' }), { target: { value: 'Review' } })
     await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Check & release' })) })
-    expect((await within(card).findByRole('alert')).textContent).toContain('The person who entered a result cannot verify it')
+    expect((await within(card).findByRole('alert')).textContent).toContain('The person who entered a result can’t check it. Ask a colleague to check it.')
+    expect(document.body.textContent).not.toContain('LAB_RESULT_SELF_VERIFICATION')
     expect(api.labExecutions).toHaveBeenCalledTimes(1)
     expect(api.releaseLabResult).not.toHaveBeenCalled()
     expect(within(card).getByText('7.1')).toBeTruthy()

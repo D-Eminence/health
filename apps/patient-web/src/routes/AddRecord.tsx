@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Camera, FileText, FlaskConical, HeartPulse, ImagePlus, Lock, NotebookPen, Pill, Stethoscope, Syringe, Trash2, Upload } from 'lucide-react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { Drawer } from '../kasuwa/interactive'
 import { useToast } from '../kasuwa/toast'
 import { Alert, Button, Field, IconChip, Input, Textarea, cx, type Icon } from '../kasuwa/ui'
@@ -110,7 +110,7 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
     } catch (cause) {
       setNotSaved(isHidApiError(cause) && cause.status === 404
         ? { title: 'Couldn’t add your record', message: 'This isn’t set up for your account. Contact support. What you entered is still here.' }
-        : { title: 'Couldn’t add your record', message: isHidApiError(cause) ? cause.message : SAY.tryAgain })
+        : { title: 'Couldn’t add your record', message: plainErrorText(cause, SAY.tryAgain) })
     } finally { setBusy(false) }
   }
 

@@ -19,6 +19,7 @@ import { useBluePages, useSampleHref } from './pageContext'
 import { SampleWorkspace } from './sample/SampleWorkspace'
 import { basePath, pageHrefOf } from './pageHref'
 import type { EhrBluePage } from './types'
+import { PLAIN, plainErrorText } from '@hid/http'
 
 /**
  * The top bar's controls (design: screens/panels). Search finds a patient by Health ID, or goes to a page; the bell says
@@ -202,7 +203,7 @@ export function AccountMenu({ onSample }: {
     setError('')
     setSigningOut(true)
     try { await signOut() }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Sign-out could not be completed.') }
+    catch (caught) { setError(plainErrorText(caught, PLAIN.signOutFailed)) }
     finally { setSigningOut(false) }
   }
 

@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
+import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_NETWORK, SAID_NOT_TURNED_ON, SAID_REFUSED, SAID_TRY_SHORTLY, SAID_UNAVAILABLE } from '../../../said'
 
 /*
  * The blue Outreach page as the owner redesigned it: registrations as cards (filtered by what still needs doing), a
@@ -113,9 +114,10 @@ describe('who can open Outreach', () => {
   it('refuses a membership with no outreach read permission, and reads nothing', async () => {
     session.permissions = ['outreach.registration.write', 'outreach.campaign.write']
     renderPage()
-    // Today's words (staff/routes/Operations.tsx Outreach): "Outreach unavailable" and the permission it needs.
+    // Today's heading, and in plain words what the role doesn't include: no permission is named (owner's rule).
     expect(heading().textContent).toBe('Outreach unavailable')
-    expect(screen.getByText('This facility membership needs outreach campaign or registration read permission.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility doesn’t include outreach campaigns or registration cases. Ask your facility administrator.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/permission|membership|outreach\.(campaign|registration)\.read/i)
     expect(screen.queryByRole('button', { name: 'New registration' })).toBeNull()
     expect(api.outreachCases).not.toHaveBeenCalled()
     expect(api.outreachCampaigns).not.toHaveBeenCalled()
@@ -192,18 +194,16 @@ describe('the list', () => {
   })
 
   it.each([
-    ['a refusal, in its own words', new HidApiError(403, 'This membership cannot read registration cases.', { code: 'FORBIDDEN' }),
-      'This membership cannot read registration cases.'],
-    ['a module that is off', new HidApiError(404, 'Not found.', { code: 'API_ROUTE_NOT_FOUND' }),
-      'This workspace is not in service on this Health ID deployment: its work cannot be loaded or changed here, and refreshing will not help.'],
-    ['a fault between services', new HidApiError(503, 'Upstream.', { code: 'EHR_SERVICE_AUTH_UNAVAILABLE' }),
-      'A connection between Health ID services failed; retry in about 15 seconds.'],
+    ['a refusal, in plain words', new HidApiError(403, 'This membership cannot read registration cases.', { code: 'FORBIDDEN' }), SAID_REFUSED],
+    ['a module that is off', new HidApiError(404, 'Not found.', { code: 'API_ROUTE_NOT_FOUND' }), SAID_NOT_TURNED_ON],
+    ['a fault between services', new HidApiError(503, 'Upstream.', { code: 'EHR_SERVICE_AUTH_UNAVAILABLE' }), SAID_TRY_SHORTLY],
     ['an unknown failure', 'offline', 'Registration cases could not be loaded. Refresh to try again.'],
   ])('says %s when cases cannot be read', async (_name, error, message) => {
     api.outreachCases.mockRejectedValue(error)
     renderPage()
     await waitFor(() => expect(alertTexts().some(text => text.includes(message))).toBe(true))
     expect(alertTexts().find(text => text.includes(message))).toContain('Couldn’t load registrations')
+    if (error instanceof HidApiError) expect(document.body.textContent).not.toContain(error.message)
     expect(screen.queryByText('No registrations yet')).toBeNull()
   })
 
@@ -341,7 +341,8 @@ describe('campaigns, read only', () => {
     expect(await screen.findByText('No members yet')).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Back to list' }))
     await press(card(await campaignsList(), 'Demo follow-up'))
-    expect((await screen.findByRole('alert')).textContent).toContain('Members of this campaign cannot be read here.')
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain('Members of this campaign cannot be read here.')
     const reads = api.outreachCampaignMembers.mock.calls.filter(call => call[1] === 'campaign-2').length
     await press(screen.getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(api.outreachCampaignMembers.mock.calls.filter(call => call[1] === 'campaign-2')).toHaveLength(reads + 1))
@@ -471,7 +472,8 @@ describe('creating a registration case', () => {
     await press(fill(await openNew(), { fullName: 'Patient One', age: '34' }))
     await press(formBack())
     await act(async () => { refuse(new HidApiError(503, 'Outreach is unavailable.', { code: 'SERVICE_UNAVAILABLE' })) })
-    expect((await screen.findByRole('alert')).textContent).toBe('Outreach is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('Outreach is unavailable.')
     expect(heading().textContent).toBe('New registration')
     expect(formBack().getAttribute('aria-disabled')).toBeNull()
   })
@@ -492,7 +494,8 @@ describe('creating a registration case', () => {
     const form = await openNew()
     const save = fill(form, { fullName: 'Patient One', sex: 'female', age: '34' })
     await press(save)
-    expect((await screen.findByRole('alert')).textContent).toBe('The network request failed.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_NETWORK)
+    expect(document.body.textContent).not.toContain('The network request failed.')
     expect(screen.getByText('Correct the issue or retry using the same button. No success is reported until saved.')).toBeTruthy()
     // The form keeps what was entered.
     expect((within(form).getByLabelText(/^Full name/) as HTMLInputElement).value).toBe('Patient One')
@@ -530,7 +533,8 @@ describe('creating a registration case', () => {
     }))
     renderPage()
     await press(fill(await openNew(), { fullName: 'Patient One', age: '34' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('Some details were refused. Full name must be shorter than or equal to 200 characters.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('Full name must be')
   })
 
   it('says a failure with no words of its own plainly', async () => {
@@ -716,10 +720,8 @@ describe('a registration case', () => {
   })
 
   it.each([
-    ['a version conflict', new HidApiError(409, 'This registration case has changed. Refresh it and try again.', { code: 'VERSION_CONFLICT' }),
-      'This registration case has changed. Refresh it and try again.'],
-    ['a patient this membership may not open', new HidApiError(403, 'You do not have access to this patient.', { code: 'FORBIDDEN' }),
-      'You do not have access to this patient.'],
+    ['a version conflict', new HidApiError(409, 'This registration case has changed. Refresh it and try again.', { code: 'VERSION_CONFLICT' }), SAID_CHANGED],
+    ['a patient this membership may not open', new HidApiError(403, 'You do not have access to this patient.', { code: 'FORBIDDEN' }), SAID_REFUSED],
     ['an unknown failure', 'offline', 'The patient could not be linked. Check your access to this patient, then refresh the case.'],
   ])('says %s, keeps the form, and reads the case again for the next attempt', async (_name, error, message) => {
     api.linkExistingOutreachCase.mockRejectedValue(error)
@@ -728,6 +730,7 @@ describe('a registration case', () => {
     await press(linkOpener())
     const form = await link(PATIENT, 'Same name and phone as the record')
     expect((await within(form).findByRole('alert')).textContent).toBe(message)
+    if (error instanceof HidApiError) expect(document.body.textContent).not.toContain(error.message)
     expect(within(form).getByText('The case has been read again, so a retry uses its latest version. Check the details, then retry using the same button. No success is reported until saved.')).toBeTruthy()
     expect(screen.queryByText('Patient linked')).toBeNull()
     await waitFor(() => expect(api.outreachCases).toHaveBeenCalledTimes(2))
@@ -762,7 +765,8 @@ describe('a registration case', () => {
     await press(linkOpener())
     await link(PATIENT, 'Same name and phone as the record')
     await waitFor(() => expect(screen.queryByRole('form', { name: 'Link existing patient' })).toBeNull())
-    expect(screen.getByRole('alert').textContent).toBe('This registration case has already been resolved.')
+    expect(screen.getByRole('alert').textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('This registration case has already been resolved.')
     expect(screen.getByRole('heading', { name: 'Nothing more to do' })).toBeTruthy()
     expect(screen.queryByText('Patient linked')).toBeNull()
   })

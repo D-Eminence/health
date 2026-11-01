@@ -39,6 +39,11 @@ export const COMMAND_FAILED = 'Something went wrong. Please try again.'
 export const CLOSE_REASON = 'Clinician closed completed patient access'
 export const ACCESS_CLOSED = 'Your access has ended.'
 export const CLOSE_FAILED = 'Couldn’t end your access. Please try again.'
+/** A close refused because the access had already ended (409 CONSENT_COMMAND_CONFLICT, 404 CONSENT_RESOURCE_NOT_FOUND). */
+export const CLOSE_REFUSALS: Readonly<Record<string, string>> = {
+  CONSENT_COMMAND_CONFLICT: 'This access had already ended.',
+  CONSENT_RESOURCE_NOT_FOUND: 'This access had already ended.',
+}
 
 /**
  * The break-glass duration today's client sends (staff/api.ts breakGlass: durationMinutes 30). The design's
@@ -87,18 +92,13 @@ export function whoToAsk(administrator: Administrator): string {
   return 'Ask your organization administrator.'
 }
 
-/** Patients.tsx:65-78: why the role cannot take `action`, or null when it holds every permission its routes need. */
+/** Patients.tsx:65-78: why the role cannot take `action`, or null when it holds every permission its routes need. (in plain words: never a permission's name). */
 export function actionUnavailable({ routes, action }: AccessAction, permissions: readonly string[], administrator: Administrator = null): string | null {
   const needs = routes.map(item => ({ ...item, required: findEndpoint(item.route)?.permissions?.[item.method] ?? [] }))
-  if (needs.some(item => item.required.length === 0)) return `This portal cannot ${action} here.`
-  const required = new Set(needs.flatMap(item => item.required))
-  const missing = needs.flatMap(item => {
-    const lacking = item.required.filter(permission => !permissions.includes(permission))
-    return lacking.length ? [`${lacking.join(' and ')}${item.purpose ? ` ${item.purpose}` : ''}`] : []
-  })
-  const missingCount = [...required].filter(permission => !permissions.includes(permission)).length
-  return missing.length === 0 ? null
-    : `Your role at this facility cannot ${action}: it ${missingCount < required.size ? 'also ' : ''}needs ${missing.join(', and ')}. ${whoToAsk(administrator)}`
+  if (needs.some(item => item.required.length === 0)) return `You can’t ${action} here.`
+  // Never the permission's own name (owner's rule, 1 Nov 2026): the role can't, and who to ask.
+  const lacking = needs.some(item => item.required.some(permission => !permissions.includes(permission)))
+  return lacking ? `Your role here can’t ${action}. ${whoToAsk(administrator)}` : null
 }
 
 /**

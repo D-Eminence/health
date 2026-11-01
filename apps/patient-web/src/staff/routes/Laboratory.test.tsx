@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import type { LabAccession, LabExecution, LabResult, LabResultRevision, LabSpecimen, LabWorkItem, staffApi } from '../api'
 import { Laboratory } from './Operations'
+import { SAID_CHANGED, SAID_NOT_FOUND, SAID_REFUSED, SAID_UNAVAILABLE, said } from '../../__tests__/said'
 
 /**
  * The provider Laboratory page: accepted work, specimen accession and custody,
@@ -193,12 +194,13 @@ beforeEach(() => {
 })
 
 describe('Laboratory page access', () => {
-  it('shows the unavailable state and loads nothing without lab work-item read permission', () => {
+  it('shows the unavailable state, in plain words that name no permission, and loads nothing without lab work-item read permission', () => {
     staff.permissions = ['lab.accession.read', 'lab.execution.read', 'lab.result.verify']
     render(<Laboratory />)
 
     expect(screen.getByRole('heading', { name: 'Laboratory unavailable' })).toBeTruthy()
-    expect(screen.getByText('This facility membership needs lab work-item read permission.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/permission|membership|work-item|lab\.work-item\.read/i)
     expect(screen.queryByRole('heading', { name: 'Laboratory' })).toBeNull()
     expect(api.labWorkItems).not.toHaveBeenCalled()
   })
@@ -241,7 +243,8 @@ describe('Laboratory work-item list', () => {
     api.labWorkItems.mockResolvedValue({ items: [workItem()] })
     render(<Laboratory />)
 
-    expect((await screen.findByRole('alert')).textContent).toBe('The service is temporarily unavailable. Please try again shortly.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('The service is temporarily unavailable. Please try again shortly.')
     expect(screen.queryByRole('heading', { name: 'No accepted lab work' })).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh work' }))
@@ -341,7 +344,8 @@ describe('Laboratory accession creation', () => {
     fireEvent.change(within(card).getByRole('textbox', { name: 'Reason' }), { target: { value: 'Suspected iron deficiency anaemia' } })
     fireEvent.click(within(card).getByRole('button', { name: 'Create accession' }))
 
-    expect((await within(card).findByRole('alert')).textContent).toBe('Lab work item is not accessionable at this facility')
+    expect((await within(card).findByRole('alert')).textContent).toBe('Accession could not be created.')
+    expect(document.body.textContent).not.toContain('Lab work item is not accessionable at this facility')
     expect(api.labAccession).not.toHaveBeenCalled()
     const retry = within(card).getByRole('button', { name: 'Create accession' }) as HTMLButtonElement
     await waitFor(() => expect(retry.disabled).toBe(false))
@@ -380,7 +384,8 @@ describe('Laboratory accession view', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Open accession' }))
     const card = sectionOf('Specimen accession')
 
-    expect((await within(card).findByRole('alert')).textContent).toBe(error.message)
+    expect((await within(card).findByRole('alert')).textContent).toBe(said(error))
+    expect(document.body.textContent).not.toContain(error.message)
     expect(within(card).queryByText('Venous blood · SPC-000123')).toBeNull()
     expect(within(card).queryByRole('combobox', { name: 'Next step' })).toBeNull()
 
@@ -398,7 +403,8 @@ describe('Laboratory accession view', () => {
 
     await clickWhenEnabled(within(card).getByRole('button', { name: 'Refresh accession' }))
 
-    expect((await within(card).findByRole('alert')).textContent).toBe('Lab operation is not authorized')
+    expect((await within(card).findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain('Lab operation is not authorized')
     expect(api.labAccession).toHaveBeenCalledTimes(2)
     expect(within(card).queryByText('Venous blood · SPC-000123')).toBeNull()
     expect(within(card).queryByText('Accession ACC-2026-000123')).toBeNull()
@@ -512,7 +518,8 @@ describe('Laboratory specimen custody', () => {
 
     fireEvent.click(within(card).getByRole('button', { name: 'Record step' }))
 
-    expect((await within(card).findByRole('alert')).textContent).toBe('Specimen changed since it was loaded')
+    expect((await within(card).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('Specimen changed since it was loaded')
     expect(api.labAccession).toHaveBeenCalledTimes(1)
     expect(within(card).getByText('required')).toBeTruthy()
   })
@@ -571,7 +578,8 @@ describe('Laboratory analytical execution', () => {
     fireEvent.change(await within(panel).findByRole('textbox', { name: 'Reason' }), { target: { value: 'Routine full blood count' } })
     fireEvent.click(within(panel).getByRole('button', { name: 'Start execution' }))
 
-    expect((await within(panel).findByRole('alert')).textContent).toBe('Only the expected received specimen version can begin execution')
+    expect((await within(panel).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('Only the expected received specimen version can begin execution')
     expect(api.startLabExecution).toHaveBeenCalledWith(FACILITY, specimen('received'), 'Routine full blood count', '')
     expect(within(panel).queryByText('Analytical execution started.')).toBeNull()
     expect(api.labExecutions).toHaveBeenCalledTimes(1)
@@ -603,7 +611,8 @@ describe('Laboratory analytical execution', () => {
 
     fireEvent.click(await within(panel).findByRole('button', { name: 'Complete execution' }))
 
-    expect((await within(panel).findByRole('alert')).textContent).toBe('Execution changed or is not in progress')
+    expect((await within(panel).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('Execution changed or is not in progress')
     expect(api.completeLabExecution).toHaveBeenCalledWith(FACILITY, running, '')
     expect(within(panel).queryByText('Analytical execution was completed.')).toBeNull()
     expect(within(panel).getByText('in progress')).toBeTruthy()
@@ -716,7 +725,8 @@ describe('Laboratory manual result entry', () => {
     fireEvent.change(within(panel).getByRole('spinbutton', { name: 'Numeric value' }), { target: { value: '13.4' } })
     fireEvent.click(within(panel).getByRole('button', { name: 'Record unverified result' }))
 
-    expect((await within(panel).findByRole('alert')).textContent).toBe('Result requires expected completed execution version')
+    expect((await within(panel).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('Result requires expected completed execution version')
     expect(within(panel).queryByText('An unverified result was recorded.')).toBeNull()
     expect(api.labExecutions).toHaveBeenCalledTimes(1)
     await waitFor(() => expect((within(panel).getByRole('button', { name: 'Record unverified result' }) as HTMLButtonElement).disabled).toBe(false))
@@ -853,7 +863,8 @@ describe('Laboratory result verification and release', () => {
     fireEvent.change(await within(panel).findByRole('textbox', { name: 'Verification reason' }), { target: { value: 'Independent review against QC run' } })
     fireEvent.click(within(panel).getByRole('button', { name: 'Verify result version' }))
 
-    expect((await within(panel).findByRole('alert')).textContent).toBe('Result version changed since review')
+    expect((await within(panel).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('Result version changed since review')
     expect(within(panel).queryByText('This exact result version was verified.')).toBeNull()
     expect(within(panel).getByText('entered unverified')).toBeTruthy()
     expect(api.labExecutions).toHaveBeenCalledTimes(1)
@@ -868,7 +879,8 @@ describe('Laboratory result verification and release', () => {
     fireEvent.change(await within(panel).findByRole('textbox', { name: 'Release reason' }), { target: { value: 'Clinically reviewed for release' } })
     fireEvent.click(within(panel).getByRole('button', { name: 'Release result version' }))
 
-    expect((await within(panel).findByRole('alert')).textContent).toBe('Exact result version is not verified')
+    expect((await within(panel).findByRole('alert')).textContent).toBe('Decision could not be recorded. Refresh before retrying.')
+    expect(document.body.textContent).not.toContain('Exact result version is not verified')
     expect(api.releaseLabResult).toHaveBeenCalledWith(FACILITY, verified, 'Clinically reviewed for release')
     expect(within(panel).queryByText('This exact verified result version was released.')).toBeNull()
     expect(within(panel).getByText('verified not released')).toBeTruthy()
@@ -985,7 +997,8 @@ describe('Laboratory result history', () => {
 
     fireEvent.click(await within(panel).findByRole('button', { name: 'View result history' }))
 
-    expect((await within(panel).findByRole('alert')).textContent).toBe(IDENTITY_UNAVAILABLE)
+    expect((await within(panel).findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain(IDENTITY_UNAVAILABLE)
     expect(within(panel).queryByText('Version 1')).toBeNull()
     expect(within(panel).queryByText('Version 2')).toBeNull()
   })
@@ -999,7 +1012,8 @@ describe('Laboratory result history', () => {
 
     await clickWhenEnabled(within(panel).getByRole('button', { name: 'Refresh history' }))
 
-    expect((await within(panel).findByRole('alert')).textContent).toBe(IDENTITY_UNAVAILABLE)
+    expect((await within(panel).findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain(IDENTITY_UNAVAILABLE)
     expect(within(panel).queryByText('Version 1')).toBeNull()
     expect(within(panel).queryByText('Version 2')).toBeNull()
     expect(within(panel).queryByText(`Reason: ${TRANSCRIPTION_FIX}`)).toBeNull()
@@ -1219,7 +1233,8 @@ describe('Laboratory result access denied', () => {
 
       await waitFor(() => expect(api.labExecutions).toHaveBeenCalledTimes(2))
       await executionsSettled(panel)
-      expect((await within(panel).findByRole('alert')).textContent).toBe(RESULT_ACCESS_REFUSED)
+      expect((await within(panel).findByRole('alert')).textContent).toBe(SAID_REFUSED)
+      expect(document.body.textContent).not.toContain(RESULT_ACCESS_REFUSED)
       expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
       expect(within(panel).getByText(visibleValue)).toBeTruthy()
       expect(within(panel).queryByText('This exact result version was verified.')).toBeNull()
@@ -1280,7 +1295,8 @@ describe('Laboratory result access denied', () => {
 
       fireEvent.click(within(panel).getByRole('button', { name: 'View result history' }))
 
-      expect((await within(panel).findByRole('alert')).textContent).toBe('Lab result was not found')
+      expect((await within(panel).findByRole('alert')).textContent).toBe(SAID_NOT_FOUND)
+      expect(document.body.textContent).not.toContain('Lab result was not found')
       // A later explicit refresh is the second load, so the 404 caused no re-check.
       await refreshExecutions(panel)
       await waitFor(() => expect(api.labExecutions).toHaveBeenCalledTimes(2))
@@ -1429,7 +1445,8 @@ describe('Laboratory result access denied', () => {
 
         fireEvent.click(within(panel).getByRole('button', { name: 'View result history' }))
 
-        expect((await within(panel).findByRole('alert')).textContent).toBe('Lab result was not found')
+        expect((await within(panel).findByRole('alert')).textContent).toBe(SAID_NOT_FOUND)
+        expect(document.body.textContent).not.toContain('Lab result was not found')
         expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
         expect(within(panel).getByText(visibleValue)).toBeTruthy()
         expect(api.labExecutions).not.toHaveBeenCalled()
@@ -1543,7 +1560,8 @@ describe('Laboratory result access denied', () => {
 
       await waitFor(() => expect(api.labExecutions).toHaveBeenCalledTimes(2))
       await executionsSettled(panel)
-      expect((await within(panel).findByRole('alert')).textContent).toBe(IDENTITY_UNAVAILABLE)
+      expect((await within(panel).findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+      expect(document.body.textContent).not.toContain(IDENTITY_UNAVAILABLE)
       expect(screen.queryByText(UNVERIFIED)).toBeNull()
       expect(within(panel).getByText(visibleValue)).toBeTruthy()
     })
@@ -1570,7 +1588,8 @@ describe('Laboratory result access denied', () => {
       expect(within(other).getByText('9.9 mmol/L · low')).toBeTruthy()
       await act(async () => { confirming.resolve(resultLoad()) })
       await executionsSettled(first)
-      expect(within(first).getByRole('alert').textContent).toBe(RESULT_ACCESS_REFUSED)
+      expect(within(first).getByRole('alert').textContent).toBe(SAID_REFUSED)
+      expect(document.body.textContent).not.toContain(RESULT_ACCESS_REFUSED)
       expect(within(first).getByText(visibleValue)).toBeTruthy()
       expect(within(other).getByText('9.9 mmol/L · low')).toBeTruthy()
       expect(within(other).queryByRole('alert')).toBeNull()
@@ -1588,7 +1607,8 @@ describe('Laboratory result access denied', () => {
       fireEvent.change(within(panel).getByRole('textbox', { name: 'Release reason' }), { target: { value: 'Clinically reviewed for release' } })
       fireEvent.click(within(panel).getByRole('button', { name: 'Release result version' }))
 
-      expect((await within(panel).findByRole('alert')).textContent).toBe('Exact result version is not verified')
+      expect((await within(panel).findByRole('alert')).textContent).toBe('Decision could not be recorded. Refresh before retrying.')
+      expect(document.body.textContent).not.toContain('Exact result version is not verified')
       // An explicit refresh is the second load, so the 409 caused no re-check.
       api.labExecutions.mockResolvedValue({ items: [execution({ result: verifiedResult() })] })
       await refreshExecutions(panel)
@@ -1666,7 +1686,8 @@ describe('Laboratory result access denied', () => {
 
       fireEvent.click(within(panel).getByRole('button', { name: 'View result history' }))
 
-      expect((await within(panel).findByRole('alert')).textContent).toBe('Lab result was not found')
+      expect((await within(panel).findByRole('alert')).textContent).toBe(SAID_NOT_FOUND)
+      expect(document.body.textContent).not.toContain('Lab result was not found')
       expect(within(panel).getByText(visibleValue)).toBeTruthy()
       expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
       expect(screen.queryByText(UNVERIFIED)).toBeNull()
@@ -2115,7 +2136,8 @@ describe('Laboratory result access denied', () => {
 
       await waitFor(() => expect(api.labExecutions).toHaveBeenCalledTimes(2))
       await executionsSettled(panel)
-      expect((await within(panel).findByRole('alert')).textContent).toBe(failure().message)
+      expect((await within(panel).findByRole('alert')).textContent).toBe(said(failure()))
+      expect(document.body.textContent).not.toContain(failure().message)
       expect(within(panel).getByRole('button', { name: 'Start execution' })).toBeTruthy()
       expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
       expect(screen.queryByText(UNVERIFIED)).toBeNull()
@@ -2128,7 +2150,8 @@ describe('Laboratory result access denied', () => {
       const panel = await openExecutionPanel(actions)
       fireEvent.change(await within(panel).findByRole('textbox', { name: 'Reason' }), { target: { value: 'Begin analysis' } })
       fireEvent.click(within(panel).getByRole('button', { name: 'Start execution' }))
-      expect(await within(panel).findByText(notExecutable)).toBeTruthy()
+      expect(await within(panel).findByText(SAID_CHANGED)).toBeTruthy()
+      expect(document.body.textContent).not.toContain(notExecutable)
 
       await refreshExecutions(panel)
       await expectUnverified(panel)
@@ -2177,9 +2200,10 @@ describe('Laboratory result access denied', () => {
       }
 
       /** The pending specimen's step form still shows its error and the notes typed into it. */
-      function expectStepFailureShown(card: HTMLElement, message: string) {
+      function expectStepFailureShown(card: HTMLElement, failure: HidApiError) {
         const form = formOf(within(card).getByRole('button', { name: 'Record step' }))
-        expect(within(form).getByRole('alert').textContent).toBe(message)
+        expect(within(form).getByRole('alert').textContent).toBe(said(failure))
+        expect(document.body.textContent).not.toContain(failure.message)
         expect(valueOf(within(form).getByRole('textbox', { name: 'Notes or condition' }))).toBe(notes)
       }
 
@@ -2207,7 +2231,7 @@ describe('Laboratory result access denied', () => {
         await accessionSettled(card)
         await executionsSettled(card)
         expect(api.labExecutions).toHaveBeenCalledTimes(2)
-        expectStepFailureShown(card, failure().message)
+        expectStepFailureShown(card, failure())
         expect(screen.queryByText(UNVERIFIED)).toBeNull()
         expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
       })
@@ -2225,7 +2249,7 @@ describe('Laboratory result access denied', () => {
         await expectUnverified(panel)
         await accessionSettled(card)
         expect(api.labExecutions).toHaveBeenCalledTimes(2)
-        expectStepFailureShown(card, 'Lab operation is not authorized')
+        expectStepFailureShown(card, operationRefused())
       })
 
       it('keeps the results on screen while the re-check reads them again', async () => {
@@ -2264,7 +2288,7 @@ describe('Laboratory result access denied', () => {
         await accessionSettled(card)
         expect(api.labAccession).toHaveBeenCalledTimes(3)
         expect(api.labExecutions).toHaveBeenCalledTimes(3)
-        expectStepFailureShown(card, 'Lab operation is not authorized')
+        expectStepFailureShown(card, operationRefused())
       })
 
       it('shows what the server recorded when a step went through but its answer was lost', async () => {
@@ -2314,9 +2338,10 @@ describe('Laboratory result access denied', () => {
           expect(await within(card).findByText(visibleValue)).toBeTruthy()
         } else {
           await act(async () => { newer.reject(problem(404, 'LAB_ACCESSION_NOT_FOUND', accessionGone)) })
-          expect(within(card).getByRole('alert').textContent).toBe(accessionGone)
+          expect(within(card).getByRole('alert').textContent).toBe(SAID_NOT_FOUND)
           await act(async () => { older.resolve(current()) })
-          expect(within(card).getByRole('alert').textContent).toBe(accessionGone)
+          expect(within(card).getByRole('alert').textContent).toBe(SAID_NOT_FOUND)
+          expect(document.body.textContent).not.toContain(accessionGone)
           expect(within(card).queryByText('Venous blood · SPC-000123')).toBeNull()
           expectNoResultValues()
         }
@@ -2333,7 +2358,8 @@ describe('Laboratory result access denied', () => {
 
         await collectPendingSpecimen(card)
 
-        await waitFor(() => expect(within(card).getByRole('alert').textContent).toBe(accessionGone))
+        await waitFor(() => expect(within(card).getByRole('alert').textContent).toBe(SAID_NOT_FOUND))
+        expect(document.body.textContent).not.toContain(accessionGone)
         expect(api.labAccession).toHaveBeenCalledTimes(2)
         expectNoResultValues()
         expect(within(card).queryByRole('heading', { name: 'Analytical execution' })).toBeNull()
@@ -2361,7 +2387,7 @@ describe('Laboratory result access denied', () => {
         await accessionSettled(card)
         expect(within(panel).queryByText('Hemoglobin · LOINC 718-7')).toBeNull()
         expect(api.labExecutions).not.toHaveBeenCalled()
-        expectStepFailureShown(card, failure().message)
+        expectStepFailureShown(card, failure())
 
         // An explicit refresh starts over: the panel mounts afresh and offers a start again.
         await clickWhenEnabled(within(card).getByRole('button', { name: 'Refresh accession' }))
@@ -2417,7 +2443,8 @@ describe('Laboratory result access denied', () => {
 
         await collectPendingSpecimen(card)
 
-        expect(await within(card).findByText('Specimen changed since it was loaded')).toBeTruthy()
+        expect(await within(card).findByText(SAID_CHANGED)).toBeTruthy()
+        expect(document.body.textContent).not.toContain('Specimen changed since it was loaded')
         expect(api.labExecutions).toHaveBeenCalledTimes(1)
         // An explicit refresh is the second accession load, so the 412 caused no reload.
         await clickWhenEnabled(within(card).getByRole('button', { name: 'Refresh accession' }))

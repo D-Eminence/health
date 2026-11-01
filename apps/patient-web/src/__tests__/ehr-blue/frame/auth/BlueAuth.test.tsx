@@ -80,13 +80,14 @@ describe('BlueSignIn', () => {
     expect(screen.getByRole('button', { name: 'Show password' }).getAttribute('aria-pressed')).toBe('true')
   })
 
-  it('says a refusal in Identity\'s words, and in the portal\'s own for the authenticator', async () => {
+  it('says a refusal in plain words, never Identity\'s, and in the portal\'s own for the authenticator', async () => {
     staff.login.mockRejectedValueOnce(new HidApiError(401, 'Email or password is incorrect.', { code: 'INVALID_CREDENTIALS' }))
     open('/provider/sign-in', <BlueSignIn />)
     signInWith('demo.nurse@example.test', 'fictional-password-1')
     // One alert (the redesign's boxed Alert, which names itself "Error:" to a screen reader), in Identity's words.
     const refusal = await screen.findByRole('alert')
-    expect(refusal.textContent).toBe('Error: Email or password is incorrect.')
+    expect(refusal.textContent).toBe('Error: That email address or password isn’t right. Try again.')
+    expect(document.body.textContent).not.toContain('Email or password is incorrect.')
     expect(refusal.getAttribute('data-intent')).toBe('error')
     staff.login.mockRejectedValueOnce(new HidApiError(403, 'Factor unproven', { code: 'STAFF_MFA_FACTOR_UNPROVEN' }))
     signInWith('demo.nurse@example.test', 'fictional-password-1')
@@ -143,10 +144,10 @@ describe('BlueRecovery', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Send recovery code' }))
     fireEvent.change(await screen.findByRole('textbox', { name: 'Recovery code' }), { target: { value: '000000' } })
     fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
-    expect(await screen.findByText('The code is invalid or has expired.')).toBeDefined()
+    expect(await screen.findByText('That code is wrong or has expired. Check the latest message, or start again for a new code.')).toBeDefined()
     expect(screen.getByRole('textbox', { name: 'Recovery code' }).getAttribute('aria-invalid')).toBe('true')
     // Boxed as a refusal (the redesign's Alert), whether or not it is announced (role=alert is not on every path).
-    expect(screen.getByText('The code is invalid or has expired.').closest('[data-intent="error"]')).not.toBeNull()
+    expect(screen.getByText('That code is wrong or has expired. Check the latest message, or start again for a new code.').closest('[data-intent="error"]')).not.toBeNull()
   })
 
   it('boxes a refused code the same when the form is sent with Enter', async () => {
@@ -158,7 +159,7 @@ describe('BlueRecovery', () => {
     const code = await screen.findByRole('textbox', { name: 'Recovery code' })
     fireEvent.change(code, { target: { value: '000000' } })
     fireEvent.submit(code.closest('form')!)
-    expect((await screen.findByText('The code is invalid or has expired.')).closest('[data-intent="error"]')).not.toBeNull()
+    expect((await screen.findByText('That code is wrong or has expired. Check the latest message, or start again for a new code.')).closest('[data-intent="error"]')).not.toBeNull()
   })
 })
 

@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Ocr } from '../Operations'
+import { SAID_UNAVAILABLE } from '../../../__tests__/said'
 
 /**
  * OCR allows one patient confirmation per job version: its outbox event is keyed
@@ -56,7 +57,8 @@ describe('confirming the source patient of an OCR job', () => {
     const button = await confirmationForm()
 
     fireEvent.click(button)
-    expect((await screen.findByRole('alert')).textContent).toContain('Service unavailable')
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('Service unavailable')
     api.findOcrJob.mockResolvedValue({ job: confirmed })
     fireEvent.click(button)
 
@@ -101,7 +103,8 @@ describe('confirming the source patient of an OCR job', () => {
     api.findOcrJob.mockRejectedValue(new HidApiError(503, 'Service unavailable', { code: 'SERVICE_UNAVAILABLE' }))
     fireEvent.click(button)
 
-    expect((await screen.findByRole('alert')).textContent).toContain('Service unavailable')
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('Service unavailable')
     expect(screen.queryByText(/so the job was reloaded/)).toBeNull()
   })
 
@@ -124,7 +127,8 @@ describe('confirming the source patient of an OCR job', () => {
     api.findOcrJob.mockClear()
     fireEvent.click(button)
 
-    expect((await screen.findByRole('alert')).textContent).toContain('does not match')
+    expect((await screen.findByRole('alert')).textContent).toBe('The patient you chose doesn’t match the patient on the document. Check the patient and try again.')
+    expect(document.body.textContent).not.toContain('canonical source document')
     expect(api.findOcrJob).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Confirm source patient' })).toBeTruthy()
   })

@@ -1,5 +1,5 @@
-import { isHidApiError } from '@hid/http'
 import type { RegistrationCase } from '../../../staff/api'
+import { registrationErrorText } from '../../../staff/registrationFlow'
 
 /*
  * Today's Patient registration page (staff/routes/Registration.tsx), its rules and every word it says, ported here
@@ -19,9 +19,9 @@ export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 export const COMPLETED: ReadonlySet<RegistrationCase['status']> = new Set<RegistrationCase['status']>(
   ['approved_new_identity', 'linked_existing', 'resolved_existing_identity'])
 
-/** A refusal's own message, or the step's fallback (Registration.tsx 12-14). Not refusalText: today says no more. */
+/** A refusal in plain words, or the step's own fallback (Registration.tsx 12-14). Never Identity's own text. */
 export function safeError(error: unknown, fallback: string) {
-  return isHidApiError(error) ? error.message : fallback
+  return registrationErrorText(error, fallback)
 }
 
 /** The case's status in words (Registration.tsx 16-26). */

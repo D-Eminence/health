@@ -6,6 +6,7 @@ import { HidApiError } from '@hid/http'
 import { Ocr } from '../Operations'
 import { useFocusOnPageChange } from '../../../pageFocus'
 import { focusWhenShown } from '../../../__tests__/focusWhenShown'
+import { SAID_UNAVAILABLE } from '../../../__tests__/said'
 
 /**
  * OCR-A11Y-01 (WCAG 2.4.3 Focus Order, 4.1.3 Status Messages). Each OCR step
@@ -181,13 +182,13 @@ describe('OCR-A11Y-01: focus and status after each OCR step', () => {
   it('publish: moves focus to the review and publication history and says the publication was recorded', async () => {
     api.ocrValidations.mockResolvedValue({ items: [validation] })
     await findJob(confirmed)
-    const publish = await screen.findByRole('button', { name: 'Publish to DOCUMENT ONLY' })
+    const publish = await screen.findByRole('button', { name: 'Publish as validated document' })
     api.publishOcrValidation.mockResolvedValue({ id: 'publication-1', status: 'published' })
     api.ocrPublications.mockResolvedValue({ items: [{ id: 'publication-1', status: 'published', targetDomain: 'DOCUMENT_ONLY' }] })
     await press(publish)
     await waitFor(() => expect(focused()).toBe(heading('Review and publication history')))
     expect(statusRegion().textContent).toBe('Publication recorded.')
-    expect(screen.queryByRole('button', { name: /^Publish to/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Publish as/ })).toBeNull()
   })
 
   it('a step whose reload then fails: says the step was recorded and gives focus back to finding the job', async () => {
@@ -198,7 +199,8 @@ describe('OCR-A11Y-01: focus and status after each OCR step', () => {
     await press(screen.getByRole('button', { name: 'Validate extraction' }))
     await waitFor(() => expect(focused()).toBe(screen.getByRole('button', { name: 'Find job' })))
     expect(statusRegion().textContent).toBe('Review recorded.')
-    expect(screen.getByRole('alert').textContent).toContain('could not complete')
+    expect(screen.getByRole('alert').textContent).toContain(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('could not complete')
   })
 })
 
@@ -293,7 +295,8 @@ describe('OCR-A11Y-01: a refused request gives focus back to the control that se
     api.validateOcrJob.mockRejectedValue(unavailable())
     const submit = screen.getByRole('button', { name: 'Validate extraction' })
     await press(submit)
-    expect((await screen.findByRole('alert')).textContent).toContain('could not complete')
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('could not complete')
     await waitFor(() => expect(focused()).toBe(submit))
     expect((screen.getByLabelText(/^Review reason/) as HTMLTextAreaElement).value).toBe('Checked against the scanned page')
     expect(statusRegion().textContent).toBe('')
@@ -312,11 +315,11 @@ describe('OCR-A11Y-01: a refused request gives focus back to the control that se
   it('publish', async () => {
     api.ocrValidations.mockResolvedValue({ items: [validation] })
     await findJob(confirmed)
-    const publish = await screen.findByRole('button', { name: 'Publish to DOCUMENT ONLY' })
+    const publish = await screen.findByRole('button', { name: 'Publish as validated document' })
     api.publishOcrValidation.mockRejectedValue(unavailable())
     await press(publish)
     await screen.findByRole('alert')
-    await waitFor(() => expect(focused()).toBe(screen.getByRole('button', { name: 'Publish to DOCUMENT ONLY' })))
+    await waitFor(() => expect(focused()).toBe(screen.getByRole('button', { name: 'Publish as validated document' })))
   })
 
   it('create', async () => {

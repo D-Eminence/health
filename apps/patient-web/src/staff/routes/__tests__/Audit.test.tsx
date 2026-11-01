@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { HidApiError } from '@hid/http'
 import { FacilityAudit } from '../Audit'
 
 const mocks = vi.hoisted(() => ({
@@ -56,7 +57,25 @@ describe('facility audit review', () => {
     render(<FacilityAudit />)
 
     expect(screen.getByText('Audit access unavailable')).toBeTruthy()
+    // In plain words, naming no permission (owner's rule: no codes on screen).
+    expect(screen.getByText('Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('audit.read')
     expect(mocks.facilityAudit).not.toHaveBeenCalled()
+  })
+
+  it('asks for a facility before one is chosen, requesting nothing', () => {
+    mocks.useStaff.mockReturnValue({ state: { status: 'ready', session: { actor: { facility: undefined } } } })
+    render(<FacilityAudit />)
+    expect(screen.getByText('Choose the facility you are working at to review its audit events.')).toBeTruthy()
+    expect(mocks.facilityAudit).not.toHaveBeenCalled()
+  })
+
+  it('says a refused read in the refusal\'s own plain words, never the server\'s text or code', async () => {
+    mocks.facilityAudit.mockRejectedValueOnce(new HidApiError(403, 'Missing permission audit.read for facility-1', { code: 'PERMISSION_DENIED' }))
+    render(<FacilityAudit />)
+
+    expect(await screen.findByText('Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/audit\.read|PERMISSION_DENIED|Missing permission|facility-1|403/)
   })
 
   it('says when a page held only request records, and still offers the older page', async () => {

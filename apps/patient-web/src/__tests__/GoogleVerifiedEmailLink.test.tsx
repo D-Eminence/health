@@ -78,11 +78,11 @@ describe('Google sign-in for an account not linked yet', () => {
     expect(within(alert).getByRole('link', { name: 'Sign up for a Health ID' })).toBeTruthy()
   })
 
-  it('says an older Identity\'s refusal as it did (401 GOOGLE_SIGN_IN_DENIED)', async () => {
+  it('says an older Identity\'s refusal in plain words (401 GOOGLE_SIGN_IN_DENIED)', async () => {
     openSignIn(exchange(() => problem(401, 'GOOGLE_SIGN_IN_DENIED', 'Google sign-in could not be completed for this HID account')))
     await google()
     const alert = await screen.findByRole('alert')
-    expect(shownText(alert)).toBe('Google sign-in could not be completed for this HID account')
+    expect(shownText(alert)).toBe('Google sign-in couldn’t be completed for this account. Sign in with your email or Health ID and password.')
     expect(within(alert).queryByRole('link')).toBeNull()
   })
 })

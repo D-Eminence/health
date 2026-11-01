@@ -1,4 +1,4 @@
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, PlainError, plainErrorText } from '@hid/http'
 import { EhrBackButton, EhrButton, EhrCard, EhrPageHeading } from '@hid/ui/ehr'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -33,7 +33,7 @@ const ROUTE_TITLE_ID = 'order-route-title'
 const actionId = (id: string) => `order-action-${id}`
 
 /** Today's Send to Lab refusal, and whether pressing again is the same send (the key is kept). */
-class LabSendError extends Error {
+class LabSendError extends PlainError {
   constructor(message: string, readonly retry: boolean) { super(message) }
 }
 
@@ -111,7 +111,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
         if (!active) return
         setLoaded(read.record ? { status: 'ready', record: read.record, crossFacilityOrders: read.crossFacilityOrders } : { status: 'missing' })
       },
-      caught => { if (active) setLoaded({ status: 'error', text: caught instanceof Error ? caught.message : 'Records could not be loaded.' }) },
+      caught => { if (active) setLoaded({ status: 'error', text: plainErrorText(caught, 'Records could not be loaded.', { audience: 'facility' }) }) },
     )
     return () => { active = false }
   }, [facilityId, patientId, encounterId, kind, orderId])
@@ -173,7 +173,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
 
   async function changeStatus(next: string, why: string) {
     const expectedRowVersion = rowVersion(record.rowVersion)
-    if (!expectedRowVersion) throw new Error('Reload the record before changing its status.')
+    if (!expectedRowVersion) throw new PlainError('Reload the record before changing its status.')
     const toLab = lab && next === 'active'
     setSuccess('')
     if (toLab) setPageError('')
@@ -190,14 +190,14 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
 
   async function handoffPrescription(why: string, key: string) {
     const expectedRowVersion = rowVersion(record.rowVersion)
-    if (!expectedRowVersion) throw new Error('Reload the prescription before sending it to Pharmacy.')
+    if (!expectedRowVersion) throw new PlainError('Reload the prescription before sending it to Pharmacy.')
     setSuccess('')
     await chart.verify()
     try {
       await staffApi.acceptPrescription(chart.facilityId, chart.patientId, encounterId, record.id, expectedRowVersion, why, key)
     } catch (caught) {
       if (!isHidApiError(caught)) throw caught
-      if (caught.code === 'IDEMPOTENCY_CONFLICT') throw new Error(PHARMACY_ALREADY_HOLDS)
+      if (caught.code === 'IDEMPOTENCY_CONFLICT') throw new PlainError(PHARMACY_ALREADY_HOLDS)
       const changed = prescriptionChanged(caught)
       if (!changed) throw caught
       setSelected(null)
@@ -234,7 +234,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
 
   async function sendOrder(destination: OrderDestination, attestationTextVersion: string, key: string) {
     const expectedRowVersion = rowVersion(record.rowVersion)
-    if (!expectedRowVersion) throw new Error('Reload the list before sending it.')
+    if (!expectedRowVersion) throw new PlainError('Reload the list before sending it.')
     setSuccess('')
     setPageError('')
     await chart.verify()
@@ -337,7 +337,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
           } catch (caught) {
             const retry = caught instanceof LabSendError ? caught.retry : true
             if (!retry) labAttempt.current = null
-            return { formError: caught instanceof Error ? caught.message : 'The lab request could not be sent to Lab.' }
+            return { formError: plainErrorText(caught, 'The lab request could not be sent to Lab.', { audience: 'facility' }) }
           }
         }}
       >

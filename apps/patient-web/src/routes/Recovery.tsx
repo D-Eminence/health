@@ -6,7 +6,7 @@ import { PasswordInput } from '@hid/ui'
 import { Turnstile } from '../Turnstile'
 import { AuthLayout } from '../AuthLayout'
 import { useSession } from '../session'
-import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
+import { describedBy, isFieldProblem, recoveryRefusal, useDocumentTitle, useStepFocus } from '../authSteps'
 import { CodeBoxes, codeComplete } from '../CodeBoxes'
 import { CODE_BUDGET_HINT, useCodeBudgetNote, useResendWait } from './recoveryWait'
 import { Alert, Button, Field } from '../kasuwa/ui'
@@ -47,7 +47,7 @@ export function Recovery() {
     catch (reason) {
       if (isHidApiError(reason) && reason.code === 'OTP_INVALID_OR_EXPIRED') budget.refused(signInPrincipal(identifier))
       const aboutField = isFieldProblem(reason, stepCodes)
-      setError(isHidApiError(reason) ? reason.message : 'We could not complete that step. Please try again.')
+      setError(recoveryRefusal(reason))
       setFieldError(aboutField)
       setErrorAlert(!aboutField || fromField)
     } finally { setBusy(false); stepFocus.focus() }

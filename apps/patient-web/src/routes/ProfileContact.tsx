@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import type { PatientProfile } from '../api'
 import { useSession } from '../session'
@@ -34,7 +34,7 @@ type Step = { kind: 'idle' } | { kind: 'email'; pending?: PendingEmail; verify?:
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /**
- * What a refused change means, in Identity's words where the contract gives them (hid-system 0094). A wrong password is
+ * What a refused change means, in our own plain words (hid-system 0094), never Identity's text. A wrong password is
  * rate limited; a contact another account holds is refused with no further detail, so nothing is learned about it.
  */
 export const CONTACT_REFUSALS: Readonly<Record<string, { message: string; field: Field }>> = {
@@ -43,17 +43,18 @@ export const CONTACT_REFUSALS: Readonly<Record<string, { message: string; field:
   PASSWORD_REQUIRED: { message: 'Set a password first, then you can change these.', field: null },
   OTP_INVALID_OR_EXPIRED: { message: 'That code is wrong or has expired. Try again, or send a new code.', field: 'code' },
   PATIENT_RECENT_AUTH_REQUIRED: { message: SAY.signInAgain, field: null },
+  CONTACT_CODE_UNDELIVERABLE: { message: 'We couldn’t send a code to that address. Check it and try again.', field: 'value' },
 }
 
 function refusal(cause: unknown, step: Step['kind']): { message: string; field: Field } {
   if (!isHidApiError(cause)) return { message: 'Couldn’t save the change. Try again.', field: null }
   const known = CONTACT_REFUSALS[cause.code]
   if (known) return known
-  // Identity says how long: "Wait a moment before asking for another code.", "Try again in 15 minutes."
-  if (cause.code === 'CONTACT_CHANGE_RATE_LIMITED' && cause.message) return { message: cause.message, field: null }
-  if (cause.status === 429) return { message: 'Too many tries. Wait a few minutes, then try again.', field: null }
-  if (cause.status === 400 || cause.status === 422) return { message: cause.message, field: step === 'email-code' ? 'code' : 'value' }
-  return { message: cause.message, field: null }
+  if (cause.code === 'CONTACT_CHANGE_RATE_LIMITED' || cause.status === 429) return { message: 'Too many tries. Wait a few minutes, then try again.', field: null }
+  if (cause.status === 400 || cause.status === 422) return step === 'email-code'
+    ? { message: 'That code isn’t right. Check it and try again.', field: 'code' }
+    : { message: 'Check the email address or phone number and try again.', field: 'value' }
+  return { message: plainErrorText(cause, 'Couldn’t save the change. Try again.'), field: null }
 }
 
 function minutes(seconds: number) {

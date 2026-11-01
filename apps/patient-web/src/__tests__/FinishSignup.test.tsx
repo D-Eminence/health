@@ -57,10 +57,10 @@ describe('"Finish your sign-up" after a refused sign-in', () => {
     open(invalid())
     await signInWith('Ada@Example.com')
     // The refusal, then the way to finish, in one line of the alert.
-    expect(screen.getByText(/Didn't finish signing up\?/).textContent).toBe('Invalid credentials Didn\'t finish signing up? Finish creating your Health ID')
+    expect(screen.getByText(/Didn't finish signing up\?/).textContent).toBe('That email, phone, Health ID or password isn’t right. Try again. Didn\'t finish signing up? Finish creating your Health ID')
     expect(finish()?.getAttribute('href')).toBe('/enroll')
     // In the same alert as the refusal, so a screen reader reads the way to finish with it.
-    expect(shownText(screen.getByRole('alert'))).toBe('Invalid credentials Didn\'t finish signing up? Finish creating your Health ID')
+    expect(shownText(screen.getByRole('alert'))).toBe('That email, phone, Health ID or password isn’t right. Try again. Didn\'t finish signing up? Finish creating your Health ID')
     expect(screen.getByRole('alert').contains(finish())).toBe(true)
 
     await act(async () => { fireEvent.click(finish()!) })

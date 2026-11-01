@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { findEndpoint, type EndpointMethod } from '@hid/contracts'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { Badge, Button, Card } from '@hid/ui'
 import { staffApi } from '../api'
 import { UNAVAILABLE, useFocusById } from '../focus'
@@ -28,7 +28,7 @@ type Load<T> = { readonly state: 'hidden' } | { readonly state: 'failed'; readon
 
 function loadFailure(caught: unknown, fallback: string): Load<never> {
   if (isHidApiError(caught) && caught.status === 404) return { state: 'hidden' }
-  return { state: 'failed', message: isHidApiError(caught) && caught.message ? caught.message : fallback }
+  return { state: 'failed', message: plainErrorText(caught, fallback, { audience: 'facility' }) }
 }
 
 /** Reads one card's list for the facility, again when the facility changes; nothing for a role the route would refuse. */
@@ -98,9 +98,8 @@ function acceptProblem(caught: unknown): string {
     if (caught.code === 'SHARE_INVITATION_NOT_PENDING') return 'This invitation has already been accepted, cancelled or has ended.'
     if (caught.code === 'SHARE_PERMISSION_DENIED') return 'Sharing is not available for your account at this facility.'
     if (caught.status === 404) return 'Accepting invitations is not available right now.'
-    if (caught.message) return caught.message
   }
-  return 'The invitation could not be accepted. Please try again.'
+  return plainErrorText(caught, 'The invitation could not be accepted. Please try again.', { audience: 'facility' })
 }
 
 /** S2 with Accept (S3): the invitations to share sent to this clinician's verified sign-in email. No patient is named. */

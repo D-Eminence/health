@@ -40,7 +40,8 @@ describe('staff and admin password recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Complete staff-reset security check 0' }))
     fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
 
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'We could not complete that step. Please try again.')
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'We couldn’t complete that step. Please try again.')
+    expect(screen.getByRole('alert').textContent).not.toContain('Gateway unavailable')
     expect((screen.getByRole('textbox', { name: 'Work email' }) as HTMLInputElement).value).toBe('clinician@example.test')
     expect(screen.getByRole('button', { name: 'Complete staff-reset security check 1' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Send recovery code' })).toHaveProperty('disabled', true)

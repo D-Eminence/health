@@ -4,12 +4,12 @@ import { PatientImportedHistory } from '../ImportedHistoryPage'
 import { getEnvironment } from '../env'
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
 import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart } from 'lucide-react'
 import { AppShell, type NavGroup } from '../kasuwa/AppShell'
 import { Avatar, Badge, Button, buttonClass, Card, CardHeader, EmptyState, Field, FilterTabs, IconChip, Input, PageHeader, SectionHeader, cx, statusTone, timeAgo, type Icon } from '../kasuwa/ui'
 import { PageState } from '../kasuwa/parts'
-import { SAY, WORDS } from '../copy'
+import { PATIENT_REFUSALS, SAY, WORDS } from '../copy'
 import { useAccountDeletionServed } from '../accountDeletionServed'
 import { ButtonR, Hint, InputR, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
 import { HealthIdCard } from './HealthIdCard'
@@ -117,7 +117,7 @@ export function PortalShell() {
     setSigningOut(true); setError(null)
     try { await signOut(); navigate('/sign-in', { replace: true }) }
     catch (reason) {
-      setError(isHidApiError(reason) ? reason.message : 'Sign-out failed. Please try again.')
+      setError(plainErrorText(reason, PLAIN.signOutFailed))
     } finally { setSigningOut(false) }
   }
 
@@ -569,7 +569,7 @@ export function AccessPage() {
       else toast.success({ title: 'Denied', message: `Nothing was shared with ${facility}.` })
       focusAfter(() => requestsHeading.current)
     } catch (cause) {
-      toast.error({ title: 'That didn’t go through', message: isHidApiError(cause) ? cause.message : 'The request could not be updated.' })
+      toast.error({ title: 'That didn’t go through', message: plainErrorText(cause, 'The request could not be updated.', { codes: PATIENT_REFUSALS }) })
       focusAfter(() => document.getElementById(decision === 'approve' ? `approve-${id}` : `deny-reason-${id}`)
         ?? document.querySelector<HTMLElement>('input[name="deny-reason-choice"]:checked'))
     } finally { setWorking(null) }
@@ -586,7 +586,7 @@ export function AccessPage() {
       toast.success({ title: 'Access ended', message: `${who ? grantee(who) : 'They'} can no longer see your records.` })
       focusAfter(() => historyHeading.current)
     } catch (cause) {
-      toast.error({ title: 'Couldn’t end access', message: isHidApiError(cause) ? cause.message : SAY.tryAgain })
+      toast.error({ title: 'Couldn’t end access', message: plainErrorText(cause, SAY.tryAgain, { codes: PATIENT_REFUSALS }) })
       focusAfter(byId(`revoke-reason-${grantId}`))
     } finally { setRevokeBusy(false) }
   }
@@ -770,7 +770,7 @@ export function NotificationsPage() {
     // The row changes from unread to read: that is the result, so no toast says it again.
     try { await api.markNotificationRead(id); await notifications.reload(); void settle(); focusAfter(() => heading.current) }
     catch (cause) {
-      toast.error({ title: 'Couldn’t mark it as read', message: isHidApiError(cause) ? cause.message : 'Notification could not be updated.' })
+      toast.error({ title: 'Couldn’t mark it as read', message: plainErrorText(cause, 'Notification could not be updated.') })
       focusAfter(() => document.getElementById(`mark-read-${id}`))
     } finally { setWorking(null) }
   }
@@ -838,7 +838,7 @@ function ImportedNotificationsCard() {
       void settle()
       focusAfter(() => heading.current)
     } catch (cause) {
-      setError(isHidApiError(cause) ? cause.message : 'Couldn’t mark it as read. Try again.')
+      setError(plainErrorText(cause, 'Couldn’t mark it as read. Try again.'))
       focusAfter(() => document.getElementById(`mark-imported-read-${id}`))
     } finally { setWorking(null) }
   }
@@ -849,7 +849,7 @@ function ImportedNotificationsCard() {
       setOlder(current => [...current, ...page])
       if (page.length < IMPORTED_NOTIFICATIONS_PAGE) setOlderEnd(true)
     } catch (cause) {
-      setError(isHidApiError(cause) ? cause.message : 'Couldn’t load older notifications. Try again.')
+      setError(plainErrorText(cause, 'Couldn’t load older notifications. Try again.'))
     } finally { setWorking(null); focusAfter(() => document.getElementById('imported-notifications-older') ?? heading.current) }
   }
 
@@ -878,9 +878,10 @@ function ImportedNotificationsCard() {
  * so 'sign in again' alone does not say how, as on account deletion.
  */
 function pinProblem(cause: unknown, fallback: string) {
-  if (!isHidApiError(cause)) return fallback
-  return cause.code === 'PATIENT_RECENT_AUTH_REQUIRED'
-    ? SAY.signInAgain : cause.message
+  return plainErrorText(cause, fallback, { codes: {
+    PATIENT_RECENT_AUTH_REQUIRED: SAY.signInAgain,
+    PATIENT_RECENT_RECOVERY_HOLD: 'For your safety, you can’t change your Access PIN for 24 hours after you recover your account.',
+  }, statuses: { 400: 'Your PIN must be 4 to 8 digits.' } })
 }
 
 /**

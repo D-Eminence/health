@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import { Alert, Button, buttonClass } from '../../../kasuwa/ui'
 import { useStaff } from '../../../staff/App'
@@ -12,7 +12,7 @@ import { ClinicianSignUpEntry, PageLink } from '../../../staff/clinician/Clinici
 import { CLINICIAN_STATUS_PATH, STAFF_RECOVERY_PATH, staffRecoveryHref, staffSignInHref } from '../../../productHostname'
 import { servesClinicianApplications } from '../../../backendContract'
 import { authHrefs, BlueAuthLayout, HINT, LINK, NOTE, SiteLink } from './BlueAuthLayout'
-import { getStaffLandingPath, passwordRefusal, TurnstileChallenge } from './signInParts'
+import { getStaffLandingPath, passwordRefusal, SIGN_IN_FAILED, TurnstileChallenge } from './signInParts'
 
 function BlueMfaButton({ primary, className, type = 'button', ...rest }: { primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return <button type={type} {...rest} className={buttonClass({ variant: primary ? 'primary' : 'ghost', size: primary ? 'lg' : 'md', block: primary, className })} />
@@ -83,7 +83,7 @@ export function BlueSignIn() {
   }
 
   function finish(session: StaffSession) {
-    try { completeSignIn(session) } catch (caught) { restart(caught instanceof Error ? caught.message : 'Sign in failed.'); return }
+    try { completeSignIn(session) } catch (caught) { restart(plainErrorText(caught, SIGN_IN_FAILED, { audience: 'facility' })); return }
     navigate(getStaffLandingPath(location.search, session))
   }
 

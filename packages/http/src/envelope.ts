@@ -10,8 +10,6 @@
  * place in the frontend that knows the wire shape.
  */
 
-import { fallbackMessageForStatus } from './errors'
-
 type UnknownRecord = Record<string, unknown>
 
 function isRecord(value: unknown): value is UnknownRecord {
@@ -46,7 +44,12 @@ export function unwrapData<T>(payload: unknown): T {
 
 export interface ParsedErrorEnvelope {
   readonly status: number
-  readonly message: string
+  /**
+   * The server's own words (`detail`, else `message`, else `error.message`, else a plain `error`), or null when it sent
+   * none or only transport noise. Never shown: the client keeps it as HidApiError.detail, and the error's message is
+   * the frontend's own plain sentence.
+   */
+  readonly detail: string | null
   readonly code: string | null
   readonly requestId: string | null
   readonly retryable: boolean | null
@@ -132,18 +135,17 @@ export function parseErrorEnvelope(
   // Some handlers nest the failure under `error`.
   const nested = record && isRecord(record.error) ? record.error : null
 
-  const message =
+  const detail =
     readNonEmptyString(record?.detail) ??
     readNonEmptyString(record?.message) ??
     readNonEmptyString(nested?.message) ??
-    readNonEmptyString(record?.error) ??
-    fallbackMessageForStatus(options.status)
+    readNonEmptyString(record?.error)
 
   const retryableValue = record?.retryable ?? nested?.retryable
 
   return {
     status: options.status,
-    message,
+    detail: detail === null || isLowSignalMessage(detail) ? null : detail,
     code: readNonEmptyString(record?.code) ?? readNonEmptyString(nested?.code),
     requestId:
       readNonEmptyString(record?.correlationId) ??
@@ -161,8 +163,8 @@ export function parseErrorEnvelope(
 }
 
 /**
- * Rejects messages that are transport noise rather than something a user can
- * act on, so the caller can substitute a status-appropriate fallback.
+ * Messages that are transport noise rather than anything a program could read (an HTML error page, a gateway's
+ * generic words), so they are not kept as a HidApiError's detail. Nothing the server sends is shown either way.
  */
 export function isLowSignalMessage(message: string): boolean {
   const lower = message.trim().toLowerCase()

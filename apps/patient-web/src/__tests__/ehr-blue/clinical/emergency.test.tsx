@@ -6,6 +6,7 @@ import { EMERGENCY_ACCESS, actionUnavailable } from '../../../ehr-blue/clinical/
 import { EmergencyWorkspace, emergencyStatus } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
 import { SAMPLE_NOTICE } from '../../../ehr-blue/clinical/parts/SampleBanner'
 import { SampleCreate, SampleDetail, SampleList } from '../../../ehr-blue/clinical/sample/SampleWorkspace'
+import { SAID_REFUSED } from '../../said'
 import { DEMO_HOSPITAL_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage } from './harness'
 
 /**
@@ -351,12 +352,13 @@ describe('recording emergency access', () => {
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
   })
 
-  it('shows a refused lookup as it is', async () => {
+  it('shows a refused lookup in plain words', async () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
     open()
     fill()
     await record()
-    expect((await screen.findByRole('alert')).textContent).toContain('Patient access is not authorized')
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain('Patient access is not authorized')
     expect(staff.setActivePatient).not.toHaveBeenCalled()
   })
 
@@ -365,7 +367,8 @@ describe('recording emergency access', () => {
     open()
     fill()
     await record()
-    expect((await screen.findByRole('alert')).textContent).toContain('Stopped because the session it belonged to ended.')
+    expect((await screen.findByRole('alert')).textContent).toContain('This was stopped before it finished. Please try again.')
+    expect(document.body.textContent).not.toContain('Stopped because the session it belonged to ended.')
     expect(api.lookupPatient).not.toHaveBeenCalled()
     expect(staff.setActivePatient).not.toHaveBeenCalled()
   })
@@ -377,8 +380,8 @@ describe('recording emergency access', () => {
       `${FACILITY_NAME} is new to Health ID: emergency access is limited to 5 times a day in its first 30 days. Contact Health ID support to lift the limit.`],
     ['400 INVALID_CONSENT_COMMAND', new HidApiError(400, 'The consent command failed integrity validation', { code: 'INVALID_CONSENT_COMMAND' }),
       'Emergency access isn’t set up for your facility, so the record was not opened. Contact support.'],
-    ['any other refusal, as it is', new HidApiError(403, 'Break-glass access is not authorized', { code: 'CONSENT_COMMAND_DENIED' }),
-      'Break-glass access is not authorized'],
+    ['any other refusal, in plain words', new HidApiError(403, 'Break-glass access is not authorized', { code: 'CONSENT_COMMAND_DENIED' }),
+      SAID_REFUSED],
   ])('says what a %s means, and looks nothing up', async (_name, refusal, said) => {
     api.breakGlass.mockRejectedValue(refusal)
     open()
@@ -387,6 +390,7 @@ describe('recording emergency access', () => {
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain(FAILED_TITLE)
     expect(alert.textContent).toContain(said)
+    expect(alert.textContent).not.toContain(refusal.message)
     expect(alert.closest('form')).toBe(submitButton().form)
     expect(session.untilStaffSessionReady).not.toHaveBeenCalled()
     expect(api.lookupPatient).not.toHaveBeenCalled()
@@ -426,27 +430,25 @@ describe('recording emergency access', () => {
 describe('a role that cannot activate emergency access', () => {
   const reason = () => document.getElementById(submitButton().getAttribute('aria-describedby') ?? '')?.textContent ?? ''
 
-  it('is not offered the button, and is told exactly what it lacks', async () => {
+  it('is not offered the button, and is told plainly that its role can’t, never a permission’s name', async () => {
     staff.permissions = ['identity.patient.read', 'identity.break-glass.write']
     open()
     expect(submitButton().disabled).toBe(true)
-    expect(reason()).toBe('Your role at this facility cannot activate emergency access: it also needs identity.consent.write, and '
-      + 'ehr.encounter.read and ehr.note.read to read the emergency summary. Ask your organization administrator.')
+    expect(reason()).toBe('Your role here can’t activate emergency access. Ask your organization administrator.')
+    expect(document.body.textContent).not.toMatch(/identity\.|ehr\.[a-z-]+\.read/)
     fill()
     await act(async () => { fireEvent.submit(submitButton().form!) })
     expect(api.breakGlass).not.toHaveBeenCalled()
   })
 
   it.each([
-    ['identity.consent.write', 'identity.consent.write'],
-    ['identity.break-glass.write', 'identity.break-glass.write'],
-    ['identity.patient.read', 'identity.patient.read to open the record'],
-    ['ehr.note.read', 'ehr.note.read to read the emergency summary'],
-  ])('without %s, names it', (missing, named) => {
+    ['identity.consent.write'], ['identity.break-glass.write'], ['identity.patient.read'], ['ehr.note.read'],
+  ])('without %s, says the role can’t, without naming the permission', missing => {
     staff.permissions = EMERGENCY_PERMISSIONS.filter(permission => permission !== missing)
     open()
     expect(submitButton().disabled).toBe(true)
-    expect(reason()).toContain(`also needs ${named}.`)
+    expect(reason()).toBe('Your role here can’t activate emergency access. Ask your organization administrator.')
+    expect(reason()).not.toContain(missing)
   })
 
   it('at a self-signed-up facility, tells its administrator who gives clinical access', () => {
@@ -462,8 +464,7 @@ describe('a role that cannot activate emergency access', () => {
     ['reviewed', 'You are this facility’s administrator. Health ID support gives your own role clinical access; ask them, or invite a colleague who holds this role.'],
   ] as const)('ends with today’s words for an administrator whose facility review is %s', (review, ending) => {
     const said = actionUnavailable(EMERGENCY_ACCESS, ['workforce.manage'], review)
-    expect(said?.startsWith('Your role at this facility cannot activate emergency access: it needs ')).toBe(true)
-    expect(said?.endsWith(ending)).toBe(true)
+    expect(said).toBe(`Your role here can’t activate emergency access. ${ending}`)
   })
 
   it('offers the button with every permission', () => {

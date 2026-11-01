@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Badge, Button, Card, EmptyState, Field, Input, Select } from '@hid/ui'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { staffApi, type FacilityAuditPage } from '../api'
 import { useStaff } from '../App'
 
@@ -46,14 +46,17 @@ export function FacilityAudit() {
       if (active) setLoaded({ facilityId, cursor, page: next })
     }).catch(caught => {
       if (!active) return
+      // Refused on reading: the same words as the refusal below, so the page says one thing whichever refuses first.
       setProblem({ facilityId, cursor, message: isHidApiError(caught) && caught.status === 403
-        ? 'Your current facility membership cannot review audit events.'
-        : caught instanceof Error ? caught.message : 'Audit events could not be loaded.' })
+        ? 'Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.'
+        : plainErrorText(caught, 'Audit events could not be loaded.', { audience: 'facility' }) })
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [facilityId, allowed, cursor, reload])
 
-  if (!facility || !allowed) return <EmptyState titleAs="h1" title="Audit access unavailable" description="Your active facility membership needs audit.read permission to review its events." />
+  // With no facility chosen there is no role here to speak of: ask for the facility, as the blue page does.
+  if (!facility) return <EmptyState titleAs="h1" title="Audit access unavailable" description="Choose the facility you are working at to review its audit events." />
+  if (!allowed) return <EmptyState titleAs="h1" title="Audit access unavailable" description="Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator." />
 
   const query = search.trim().toLocaleLowerCase()
   const visible = page?.items.filter(event =>

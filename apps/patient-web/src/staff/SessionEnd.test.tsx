@@ -874,7 +874,7 @@ describe('refusals that do not end the session', () => {
     await open('/provider/patients')
     await openPatientRecord()
 
-    expect((await screen.findByRole('alert')).textContent).toBe('Patient access is not authorized')
+    expect((await screen.findByRole('alert')).textContent).toBe('You don’t have access to do this. Ask your facility administrator if you need it.')
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
     expect(screen.queryByText(SESSION_ENDED)).toBeNull()
     expect(calls).not.toContain(REFRESH)
@@ -888,7 +888,7 @@ describe('refusals that do not end the session', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Emergency reason' }), { target: { value: 'Unconscious on arrival' } })
     fireEvent.click(screen.getByRole('button', { name: 'Activate emergency access' }))
 
-    expect((await screen.findByRole('alert')).textContent).toBe('Emergency access is not permitted')
+    expect((await screen.findByRole('alert')).textContent).toBe('You don’t have access to do this. Ask your facility administrator if you need it.')
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
     expect(screen.queryByText(SESSION_ENDED)).toBeNull()
   })
@@ -1047,7 +1047,7 @@ describe('signing out', () => {
   it('says so, and keeps the workspace, when the server never confirms the sign-out', async () => {
     const calls = await openAndSignOut({ [LOGOUT]: [ended(), ended(), ended()], [REFRESH]: [json(staffSession()), json(staffSession())] })
 
-    expect((await screen.findByRole('alert')).textContent).toBe('Sign-out could not be completed. Try again.')
+    expect((await screen.findByRole('alert')).textContent).toBe('We couldn’t sign you out. Please try again.')
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Welcome back.' })).toBeNull()
     expect(authCalls(calls)).toEqual([LOGOUT, REFRESH, LOGOUT, REFRESH, LOGOUT])
@@ -1209,7 +1209,7 @@ describe('the workspace while the server is asked', () => {
     await open('/provider/patients')
     await openPatientRecord()
 
-    expect((await screen.findByRole('alert')).textContent).toBe('Patient access is not authorized')
+    expect((await screen.findByRole('alert')).textContent).toBe('You don’t have access to do this. Ask your facility administrator if you need it.')
     await expectWorkspaceOpen()
     expect(calls.filter(call => call === SESSION)).toHaveLength(1)
   })
@@ -1558,7 +1558,7 @@ describe('a patient account in the same browser', () => {
     await open('/provider/patients')
     await openPatientRecord()
 
-    expect((await screen.findByRole('alert')).textContent).toBe('This operation requires workforce authorization')
+    expect((await screen.findByRole('alert')).textContent).toBe('You don’t have access to do this. Ask your facility administrator if you need it.')
     await expectWorkspaceOpen()
     expect(calls.filter(call => call === SESSION)).toHaveLength(2)
   })
@@ -1570,11 +1570,13 @@ describe('a patient account in the same browser', () => {
     ['CSRF_VALIDATION_FAILED', 'CSRF validation failed'],
     ['ORIGIN_DENIED', 'Origin is not allowed'],
   ])('does not take an unrelated 403 (%s) as a sign of another account', async (code, detail) => {
+    // Said in plain words, never the server's own (owner's rule, 1 Nov 2026).
     const calls = serve({ [SESSION]: [json(staffSession())], [LOOKUP]: [problem(403, code, detail)] })
     await open('/provider/patients')
     await openPatientRecord()
 
-    expect((await screen.findByRole('alert')).textContent).toBe(detail)
+    expect((await screen.findByRole('alert')).textContent).toBe('You don’t have access to do this. Ask your facility administrator if you need it.')
+    expect(screen.getByRole('alert').textContent).not.toContain(detail)
     await expectWorkspaceOpen()
     expect(calls.filter(call => call === SESSION)).toHaveLength(1)
     expect(calls).not.toContain(REFRESH)
@@ -1971,7 +1973,7 @@ describe('the session review before landing', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
 
-    expect((await screen.findByRole('alert')).textContent).toContain('Sign-out could not be completed')
+    expect((await screen.findByRole('alert')).textContent).toContain('We couldn’t sign you out. Please try again.')
     expect(calls).not.toContain(LOGOUT)
   })
 

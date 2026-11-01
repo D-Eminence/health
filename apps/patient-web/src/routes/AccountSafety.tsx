@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import {
   EMERGENCY_CONTACT_RELATIONSHIPS, type AccountDeletionBlockedReason, type AccountDeletionRequested, type AccountDeletionStatus,
   type EmergencyContact, type EmergencyContactChannel, type EmergencyContactRelationship, type EmergencyContactsAvailability,
@@ -18,7 +18,7 @@ import { ProfileSection } from './ProfileSection'
 import { Alert, Badge, Button, Card, Field, Input, Select } from '../kasuwa/ui'
 import { LoadingRows } from '../kasuwa/parts'
 import { UserPlus } from 'lucide-react'
-import { SAY } from '../copy'
+import { PATIENT_REFUSALS, SAY } from '../copy'
 import { Actions, ButtonR, Hint, InputR, LoadProblem, Problem, Saved } from './profileParts'
 
 /*
@@ -43,8 +43,15 @@ function days(seconds: number) {
   return value === 1 ? '1 day' : `${value} days`
 }
 
+/** A contact the list no longer matches: said so, and the list is read again by the caller. */
+const CONTACT_REFUSALS: Readonly<Record<string, string>> = {
+  EMERGENCY_CONTACT_NOT_FOUND: 'This contact was removed. The list below is up to date.',
+  EMERGENCY_CONTACT_ALREADY_VERIFIED: 'This contact is already verified. The list below is up to date.',
+}
+
+/** A refused step in plain words (never Identity's own text), or the step's own `fallback`. */
 function problem(cause: unknown, fallback: string) {
-  return isHidApiError(cause) ? cause.message : fallback
+  return plainErrorText(cause, fallback, { codes: { ...PATIENT_REFUSALS, ...CONTACT_REFUSALS } })
 }
 
 function problemCode(cause: unknown): string | undefined {
@@ -61,7 +68,8 @@ function watDateTime(value: string | null | undefined) {
 
 /**
  * A refused deletion step, in the card's own words for the two sign-in rules (contract §3.1): a sign-in more than 10
- * minutes old, and (hid-system 0096 on Novu) an account recovered in the last 24 hours. Any other refusal says its detail.
+ * minutes old, and (hid-system 0096 on Novu) an account recovered in the last 24 hours. Any other refusal is said in
+ * plain words (problem), never Identity's own text.
  */
 function deletionProblem(cause: unknown, fallback: string) {
   switch (problemCode(cause)) {

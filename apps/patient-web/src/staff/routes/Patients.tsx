@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   HEALTH_ID_PREFIX, findEndpoint, isBlankHealthIdInput, isCompleteHealthId, normalizeHealthIdInput, type EndpointMethod,
 } from '@hid/contracts'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, PlainError, plainErrorText } from '@hid/http'
 import { Badge, Button, Card, Field, Input, Select, Textarea } from '@hid/ui'
 import { usesNovuBackend } from '../../backendContract'
 import { isAllowedPatientLookup, staffApi } from '../api'
@@ -66,15 +66,10 @@ function actionUnavailable({ routes, action }: Action, permissions: readonly str
   administrator: 'pending' | 'reviewed' | null = null): string | null {
   const needs = routes.map(item => ({ ...item, required: findEndpoint(item.route)?.permissions?.[item.method] ?? [] }))
   // A route the registry does not describe is never offered.
-  if (needs.some(item => item.required.length === 0)) return `This portal cannot ${action} here.`
-  const required = new Set(needs.flatMap(item => item.required))
-  const missing = needs.flatMap(item => {
-    const lacking = item.required.filter(permission => !permissions.includes(permission))
-    return lacking.length ? [`${lacking.join(' and ')}${item.purpose ? ` ${item.purpose}` : ''}`] : []
-  })
-  const missingCount = [...required].filter(permission => !permissions.includes(permission)).length
-  return missing.length === 0 ? null
-    : `Your role at this facility cannot ${action}: it ${missingCount < required.size ? 'also ' : ''}needs ${missing.join(', and ')}. ${whoToAsk(administrator)}`
+  if (needs.some(item => item.required.length === 0)) return `You can’t ${action} here.`
+  // Never the permission's own name (owner's rule, 1 Nov 2026): the role can't, and who to ask.
+  const lacking = needs.some(item => item.required.some(permission => !permissions.includes(permission)))
+  return lacking ? `Your role here can’t ${action}. ${whoToAsk(administrator)}` : null
 }
 
 /** Why `normalized` is not a Health ID, or null when it is one. */
@@ -135,11 +130,11 @@ export function Patients() {
   }
 
   async function openPatient(purpose: 'direct-care' | 'emergency', candidate = normalized) {
-    if (!facility) throw new Error('Select an active facility first.')
+    if (!facility) throw new PlainError('Select an active facility first.')
     const lookup = await staffApi.lookupPatient(facility.id, candidate, purpose)
     if (!isAllowedPatientLookup(lookup)) {
       setActivePatient(null)
-      throw new Error('Health ID has not granted access to this patient. Request approval, verify their PIN, or use documented emergency access when justified.')
+      throw new PlainError('Health ID has not granted access to this patient. Request approval, verify their PIN, or use documented emergency access when justified.')
     }
     // A lookup answered after the session or facility changed opens nothing.
     if (setActivePatient({ hid: candidate, lookup, purpose })) navigate('/provider/clinical')
@@ -153,7 +148,7 @@ export function Patients() {
     if (!healthIdAccepted()) return
     setBusy(true)
     try { await openPatient('direct-care') }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Patient access could not be verified.') }
+    catch (caught) { setError(plainErrorText(caught, 'Patient access could not be verified.', { audience: 'facility' })) }
     finally { setBusy(false) }
   }
 
@@ -172,7 +167,7 @@ export function Patients() {
     // ready: it waits while that session is checked, and never opens once it ended.
     const sentIn = staffSessionGeneration()
     try {
-      if (!facility) throw new Error('Select a facility first.')
+      if (!facility) throw new PlainError('Select a facility first.')
       if (mode === 'request') {
         const request = await staffApi.requestAccess(facility.id, normalized, scope, reason.trim(), 60)
         setMessage(`Request ${request.accessRequestId} is ${request.status}. The patient must approve before records are available.`)
@@ -190,23 +185,23 @@ export function Patients() {
           // hid-system #111 (0085 seeds `emergency`; Identity checks break_glass_enabled): a platform
           // administrator switched emergency access off, or the emergency purpose was deactivated.
           if (isHidApiError(caught) && caught.status === 423 && caught.code === 'BREAK_GLASS_DISABLED') {
-            throw new Error('Emergency access is switched off for Health ID right now, so the record was not opened. Ask your Health ID administrator.')
+            throw new PlainError('Emergency access is switched off for Health ID right now, so the record was not opened. Ask your Health ID administrator.')
           }
           // Novu since P4b: a facility that signed itself up may activate emergency access 5 times a day in its first 30
           // days after Health ID support's check, until support ends the limits.
           if (isHidApiError(caught) && caught.status === 429 && caught.code === 'EMERGENCY_PROBATION_LIMITED') {
-            throw new Error(`${facility.name} is new to Health ID: emergency access is limited to 5 times a day in its first `
+            throw new PlainError(`${facility.name} is new to Health ID: emergency access is limited to 5 times a day in its first `
               + '30 days. Contact Health ID support to lift the limit.')
           }
           if (isHidApiError(caught) && caught.status === 400 && caught.code === 'INVALID_CONSENT_COMMAND') {
-            throw new Error('Emergency access may not be enabled for this deployment: Identity refused it (INVALID_CONSENT_COMMAND). Ask your Health ID administrator to enable it.')
+            throw new PlainError('Emergency access may not be turned on for your facility yet, so the record was not opened. Ask your Health ID administrator to turn it on.')
           }
           throw caught
         }
         await untilStaffSessionReady(sentIn)
         await openPatient('emergency')
       }
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'The access command failed.') }
+    } catch (caught) { setError(plainErrorText(caught, 'The access command failed.', { audience: 'facility' })) }
     finally { setBusy(false) }
   }
 
@@ -215,7 +210,7 @@ export function Patients() {
     if (busy) return
     clearFeedback(); setBusy(true)
     try { await openPatient('direct-care', sharedHid) }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Patient access could not be verified.') }
+    catch (caught) { setError(plainErrorText(caught, 'Patient access could not be verified.', { audience: 'facility' })) }
     finally { setBusy(false) }
   }
 
@@ -226,7 +221,7 @@ export function Patients() {
       await staffApi.closeGrant(facility.id, grantId, 'Clinician closed completed patient access'); setActivePatient(null); setMessage('Access was closed.')
       focus('patients-title', true)
     }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Grant could not be closed.') }
+    catch (caught) { setError(plainErrorText(caught, 'Grant could not be closed.', { audience: 'facility' })) }
     finally { setBusy(false) }
   }
 

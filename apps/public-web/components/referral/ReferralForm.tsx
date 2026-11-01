@@ -1,7 +1,7 @@
 'use client'
 
 import { useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { Button, cx } from '@hid/ui'
 import { TurnstileWidget } from '@/components/shared/TurnstileWidget'
 import { submitDemoRequest } from '@/lib/commercial-api'
@@ -118,7 +118,7 @@ export function ReferralForm({ lede }: { readonly lede?: string }) {
         setErrors(referrerRefused)
         focusFirst(referrerRefused, REFERRER_FIELDS)
       } else {
-        setSubmitError(reason instanceof Error ? reason.message : 'Your referral could not be sent. Please try again.')
+        setSubmitError(plainErrorText(reason, 'Your referral could not be sent. Please try again.'))
       }
     } finally {
       setPending(false)

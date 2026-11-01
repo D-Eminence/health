@@ -5,6 +5,7 @@ import { HidApiError } from '@hid/http'
 import { AccessRequests } from '../AccessRequests'
 import { Clinical } from '../Clinical'
 import { Patients } from '../Patients'
+import { SAID_UNAVAILABLE } from '../../../__tests__/said'
 
 /**
  * The governed-access loop: the clinician's own request list, closing the
@@ -80,7 +81,8 @@ describe('the clinician’s access requests', () => {
     api.listAccessRequests.mockRejectedValue(new HidApiError(403, 'The consent command is not authorized',
       { code: 'CONSENT_COMMAND_DENIED' }))
     render(<AccessRequests />)
-    expect((await screen.findByRole('alert')).textContent).toMatch(/cannot list access requests/)
+    expect((await screen.findByRole('alert')).textContent).toBe('Your role here can’t see access requests. Ask your facility administrator if you need to.')
+    expect(document.body.textContent).not.toContain('The consent command is not authorized')
   })
 })
 
@@ -176,7 +178,8 @@ describe('closing the grant that opened a record', () => {
     render(<MemoryRouter><Patients /></MemoryRouter>)
     const close = screen.getByRole('button', { name: 'Close my grant' }) as HTMLButtonElement
     expect(close.disabled).toBe(true)
-    expect(document.getElementById(close.getAttribute('aria-describedby') ?? '')?.textContent).toMatch(/identity\.consent\.write/)
+    expect(document.getElementById(close.getAttribute('aria-describedby') ?? '')?.textContent).toMatch(/^Your role here can’t /)
+    expect(document.body.textContent).not.toContain('identity.consent.write')
     fireEvent.click(close)
     expect(api.closeGrant).not.toHaveBeenCalled()
   })
@@ -243,13 +246,15 @@ describe('an open record whose access has ended', () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(status, message))
     render(<MemoryRouter><Clinical /></MemoryRouter>)
     await waitFor(() => expect(staff.setActivePatient).toHaveBeenCalledWith(null))
-    expect(await screen.findByText(/Patient access has ended/)).toBeTruthy()
+    expect(await screen.findByText('Your access to this patient has ended. Open the patient again to keep working.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain(message)
   })
 
   it('keeps the record open when the access check could not be made', async () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(503, 'Identity is unavailable', { code: 'IDENTITY_SERVICE_UNAVAILABLE' }))
     render(<MemoryRouter><Clinical /></MemoryRouter>)
-    expect(await screen.findByText('Identity is unavailable')).toBeTruthy()
+    expect(await screen.findByText(SAID_UNAVAILABLE)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Identity is unavailable')
     expect(staff.setActivePatient).not.toHaveBeenCalled()
   })
 })

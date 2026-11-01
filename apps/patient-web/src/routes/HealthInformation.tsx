@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { useSession } from '../session'
 import { describedBy } from '../authSteps'
 import type { ImportedHealthProfile } from '../importedRecords'
@@ -13,6 +13,8 @@ import { useShownOnceServed, type ProfileResource } from './ProfileCoverage'
 import { ProfileSection } from './ProfileSection'
 import { Button, Field, Select, Textarea } from '../kasuwa/ui'
 import { Hint, LoadProblem, Problem, Saved } from './profileParts'
+
+const CHECK_DETAILS = 'Check the details you entered and try again.'
 
 /** What each health field is called, as hid-1.0's biodata named them; the sixth is its "Medical notes for my care team". */
 export const HEALTH_LABELS: Readonly<Record<keyof HealthFields, string>> = {
@@ -155,7 +157,7 @@ function HealthInformationForm({ resource, fromHid1, children }: {
         focusAfter(() => heading.current)
         return
       }
-      setError(isHidApiError(cause) ? cause.message : 'Couldn’t save. Try again.')
+      setError(plainErrorText(cause, 'Couldn’t save. Try again.', { statuses: { 400: CHECK_DETAILS, 422: CHECK_DETAILS } }))
       focusAfter(() => document.getElementById('health-bloodGroup'))
     } finally { setBusy(false) }
   }

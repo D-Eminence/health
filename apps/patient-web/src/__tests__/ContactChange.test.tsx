@@ -163,8 +163,8 @@ describe('changing the email', () => {
   })
 
   it.each([
-    ['in Identity\'s words where it says how long', problem(429, 'CONTACT_CHANGE_RATE_LIMITED', 'Too many incorrect passwords. Try again in 15 minutes.'),
-      'Too many incorrect passwords. Try again in 15 minutes.'],
+    ['in plain words, never Identity\'s, when Identity says how long', problem(429, 'CONTACT_CHANGE_RATE_LIMITED', 'Too many incorrect passwords. Try again in 15 minutes.'),
+      'Too many tries. Wait a few minutes, then try again.'],
     ['plainly otherwise', problem(429, 'RATE_LIMITED', 'Too many requests'), 'Too many tries. Wait a few minutes, then try again.'],
   ])('says a rate limit %s', async (_label, answer, message) => {
     renderPortal(<ProfilePage />, gateway({ start: () => answer.clone() }), {}, { parityB3: true })
@@ -241,7 +241,7 @@ describe('asking for a new code', () => {
     expect(changes(sent).map(request => request.path)).toEqual([CHANGES, CHANGES, `${CHANGES}/change-2/verify`])
   })
 
-  it('goes back to the code already sent when Identity refuses a new one for now, in Identity\'s words', async () => {
+  it('goes back to the code already sent when Identity refuses a new one for now, in plain words', async () => {
     let refuse = false
     const { sent } = renderPortal(<ProfilePage />, gateway({
       start: () => refuse ? problem(429, 'CONTACT_CHANGE_RATE_LIMITED', 'Wait a moment before asking for another code.') : undefined,
@@ -253,7 +253,7 @@ describe('asking for a new code', () => {
     type('Current password', 'Secret-pass-1')
     await press(screen.getByRole('button', { name: 'Send code' }))
     expect(shownText(await screen.findByRole('alert')))
-      .toBe('Wait a moment before asking for another code. The code we sent to n•••@example.com still works. Enter it here.')
+      .toBe('Too many tries. Wait a few minutes, then try again. The code we sent to n•••@example.com still works. Enter it here.')
     const first = screen.getByRole('textbox', { name: /Digit 1 of 6/ })
     await waitFor(() => expect(document.activeElement).toBe(first))
     expect(screen.queryByLabelText('Current password')).toBeNull()
@@ -266,8 +266,8 @@ describe('asking for a new code', () => {
     ['409 CONTACT_UNAVAILABLE', () => problem(409, 'CONTACT_UNAVAILABLE', 'refused'),
       'That email address or phone number can’t be used. The code we sent to n•••@example.com no longer works.'],
     ['422 CONTACT_CODE_UNDELIVERABLE', () => problem(422, 'CONTACT_CODE_UNDELIVERABLE', 'The code could not be sent to that address.'),
-      'The code could not be sent to that address. The code we sent to n•••@example.com no longer works.'],
-    ['a failure with no answer', () => { throw new TypeError('Failed to fetch') }, 'We could not reach the service. Check your connection and try again.'],
+      'We couldn’t send a code to that address. Check it and try again. The code we sent to n•••@example.com no longer works.'],
+    ['a failure with no answer', () => { throw new TypeError('Failed to fetch') }, 'We couldn’t reach Health ID. Check your connection and try again.'],
   ])('no longer offers the code already sent once a new one fails with %s, as Identity may have ended it', async (_label, answer, message) => {
     let next: (() => Response) | undefined
     const { sent } = renderPortal(<ProfilePage />, gateway({ start: () => next?.() }), {}, { parityB3: true })
@@ -283,11 +283,11 @@ describe('asking for a new code', () => {
     expect(screen.queryByRole('button', { name: 'Enter the code already sent' })).toBeNull()
     expect(screen.queryByText(/still works/)).toBeNull()
 
-    // Identity counts that start toward its wait: the wait is said in its words, with no code offered.
+    // Identity counts that start toward its wait: the wait is said in plain words, with no code offered.
     next = () => problem(429, 'CONTACT_CHANGE_RATE_LIMITED', 'Wait a moment before asking for another code.')
     type('Current password', 'Secret-pass-1')
     await press(screen.getByRole('button', { name: 'Send code' }))
-    await waitFor(() => expect(shownText(screen.getByRole('alert'))).toBe('Wait a moment before asking for another code.'))
+    await waitFor(() => expect(shownText(screen.getByRole('alert'))).toBe('Too many tries. Wait a few minutes, then try again.'))
     expect(screen.queryByRole('textbox', { name: /Digit 1 of 6/ })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Enter the code already sent' })).toBeNull()
     expect(changes(sent).some(request => request.path.endsWith('/verify'))).toBe(false)

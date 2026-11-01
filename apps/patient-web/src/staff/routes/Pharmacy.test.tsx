@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import type { PharmacyWorkItem, staffApi } from '../api'
 import { Pharmacy } from './Operations'
+import { SAID_CHANGED, SAID_NOT_FOUND, SAID_REFUSED, SAID_UNAVAILABLE } from '../../__tests__/said'
 
 /**
  * The provider Pharmacy page: the accepted-prescription work list, full
@@ -164,9 +165,14 @@ beforeEach(() => {
 })
 
 describe('Pharmacy page access', () => {
-  function expectUnavailable() {
+  // Screens name no permission (the owner's rule): at a facility, what the role there doesn't include, in the blue
+  // Pharmacy's words; before a facility is chosen there is no role yet, so it asks for one.
+  const NO_PHARMACY_WORK = 'Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.'
+  const CHOOSE_FACILITY = 'Choose a facility under “Working at” first.'
+  function expectUnavailable(sentence: string) {
     expect(screen.getByRole('heading', { name: 'Pharmacy unavailable' })).toBeTruthy()
-    expect(screen.getByText('This facility membership needs pharmacy work-item read permission.')).toBeTruthy()
+    expect(screen.getByText(sentence)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/permission|membership|work-item|pharmacy\.work-item\.read/i)
     expect(screen.queryByRole('heading', { name: 'Pharmacy' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Refresh work' })).toBeNull()
     expect(api.pharmacyWorkItems).not.toHaveBeenCalled()
@@ -179,7 +185,7 @@ describe('Pharmacy page access', () => {
     staff.permissions = [DISPENSING_CREATE, DISPENSING_READ, DISPENSING_REVERSE]
     render(<Pharmacy />)
 
-    expectUnavailable()
+    expectUnavailable(NO_PHARMACY_WORK)
   })
 
   it.each([
@@ -190,7 +196,7 @@ describe('Pharmacy page access', () => {
     arrange()
     render(<Pharmacy />)
 
-    expectUnavailable()
+    expectUnavailable(CHOOSE_FACILITY)
   })
 })
 
@@ -239,7 +245,8 @@ describe('accepted prescription work list', () => {
       .mockResolvedValueOnce({ items: [accepted] })
     render(<Pharmacy />)
 
-    expect((await screen.findByRole('alert')).textContent).toBe(WORK_UNAVAILABLE)
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain(WORK_UNAVAILABLE)
     expect(screen.queryByRole('heading', { name: 'No accepted prescriptions' })).toBeNull()
     expect(screen.queryByRole('status')).toBeNull()
     expect(screen.queryByText(AMOXICILLIN)).toBeNull()
@@ -257,7 +264,8 @@ describe('accepted prescription work list', () => {
     api.pharmacyWorkItems.mockRejectedValueOnce(new HidApiError(403, message, { code: 'PERMISSION_DENIED' }))
     render(<Pharmacy />)
 
-    expect((await screen.findByRole('alert')).textContent).toBe(message)
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain(message)
     for (const medication of [AMOXICILLIN, METFORMIN, SALBUTAMOL]) expect(screen.queryByText(medication)).toBeNull()
     expect(document.body.textContent).not.toContain('Patient ••••')
     expect(screen.queryByRole('heading', { name: 'No accepted prescriptions' })).toBeNull()
@@ -304,7 +312,8 @@ describe('accepted prescription work list', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh work' }))
 
-    expect((await screen.findByRole('alert')).textContent).toBe(WORK_UNAVAILABLE)
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain(WORK_UNAVAILABLE)
     expect(screen.getByText(AMOXICILLIN)).toBeTruthy()
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
   })
@@ -540,10 +549,11 @@ describe('full dispensing', () => {
   })
 
   it.each([
-    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED],
-    [409, 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED', 'A full dispensing is already recorded for this work item; partial dispensing is not supported'],
-    [412, 'PHARMACY_WORK_ITEM_VERSION_CONFLICT', WORK_ITEM_VERSION_CONFLICT],
-  ])('shows a %i dispensing failure without a success notice', async (status, code, message) => {
+    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED, SAID_REFUSED],
+    [409, 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED', 'A full dispensing is already recorded for this work item; partial dispensing is not supported',
+      'Pharmacy action could not be recorded.'],
+    [412, 'PHARMACY_WORK_ITEM_VERSION_CONFLICT', WORK_ITEM_VERSION_CONFLICT, SAID_CHANGED],
+  ])('shows a %i dispensing failure without a success notice, in plain words', async (status, code, message, shown) => {
     api.dispense.mockRejectedValueOnce(new HidApiError(status, message, { code }))
     render(<Pharmacy />)
     const item = await findItem(AMOXICILLIN)
@@ -551,7 +561,8 @@ describe('full dispensing', () => {
     fillDispensing(item, { quantity: '21', reason: 'Full course dispensed at counter' })
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
 
-    expect((await within(item).findByRole('alert')).textContent).toBe(message)
+    expect((await within(item).findByRole('alert')).textContent).toBe(shown)
+    expect(document.body.textContent).not.toContain(message)
     expect(within(item).queryByText('Dispensing recorded.')).toBeNull()
     expect(within(item).getByText('Accepted')).toBeTruthy()
     expect(within(item).getByRole('button', { name: 'Record full dispensing' }).hasAttribute('disabled')).toBe(false)
@@ -613,7 +624,8 @@ describe('full dispensing', () => {
 
     fillDispensing(item, { quantity: '21', reason })
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
-    expect((await within(item).findByRole('alert')).textContent).toBe(WORK_ITEM_VERSION_CONFLICT)
+    expect((await within(item).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain(WORK_ITEM_VERSION_CONFLICT)
 
     const refresh = screen.getByRole('button', { name: 'Refresh work' })
     fireEvent.click(refresh)
@@ -643,7 +655,8 @@ describe('full dispensing', () => {
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
 
     await waitFor(() => expect(confirmation(item)).toBe('Dispensing recorded.'))
-    expect((await screen.findByRole('alert')).textContent).toBe(WORK_UNAVAILABLE)
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain(WORK_UNAVAILABLE)
     expect(within(item).queryByRole('alert')).toBeNull()
     expect(screen.getByText(AMOXICILLIN)).toBeTruthy()
     // The reload failed, so the page still shows the last list it loaded rather than guessing.
@@ -733,7 +746,8 @@ describe('dispensing reversal', () => {
 
     fillReversal(item, reason)
     fireEvent.click(within(item).getByRole('button', { name: 'Reverse dispensing' }))
-    expect((await within(item).findByRole('alert')).textContent).toBe(DISPENSING_VERSION_CONFLICT)
+    expect((await within(item).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain(DISPENSING_VERSION_CONFLICT)
 
     fireEvent.click(within(item).getByRole('button', { name: 'Reverse dispensing' }))
 
@@ -781,7 +795,8 @@ describe('dispensing reversal', () => {
     fillReversal(item, 'Medication returned unopened by the patient')
     fireEvent.click(within(item).getByRole('button', { name: 'Reverse dispensing' }))
 
-    expect((await within(item).findByRole('alert')).textContent).toBe(DISPENSING_VERSION_CONFLICT)
+    expect((await within(item).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain(DISPENSING_VERSION_CONFLICT)
     expect(within(item).queryByText('Dispensing reversal recorded.')).toBeNull()
     expect(within(item).getByText('Dispensed')).toBeTruthy()
     expect(within(item).getByRole('button', { name: 'Reverse dispensing' }).hasAttribute('disabled')).toBe(false)
@@ -790,9 +805,9 @@ describe('dispensing reversal', () => {
   })
 
   it.each([
-    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED],
-    [404, 'PHARMACY_DISPENSING_NOT_FOUND', 'Dispensing was not found'],
-  ])('does not attempt the reversal when the current dispensing cannot be read (%i)', async (status, code, message) => {
+    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED, SAID_REFUSED],
+    [404, 'PHARMACY_DISPENSING_NOT_FOUND', 'Dispensing was not found', SAID_NOT_FOUND],
+  ])('does not attempt the reversal when the current dispensing cannot be read (%i)', async (status, code, message, shown) => {
     api.dispensing.mockRejectedValueOnce(new HidApiError(status, message, { code }))
     render(<Pharmacy />)
     const item = await findItem(METFORMIN)
@@ -800,7 +815,8 @@ describe('dispensing reversal', () => {
     fillReversal(item, 'Medication returned unopened by the patient')
     fireEvent.click(within(item).getByRole('button', { name: 'Reverse dispensing' }))
 
-    expect((await within(item).findByRole('alert')).textContent).toBe(message)
+    expect((await within(item).findByRole('alert')).textContent).toBe(shown)
+    expect(document.body.textContent).not.toContain(message)
     expect(within(item).queryByText('Dispensing reversal recorded.')).toBeNull()
     expect(within(item).getByText('Dispensed')).toBeTruthy()
     expect(within(item).getByRole('button', { name: 'Reverse dispensing' }).hasAttribute('disabled')).toBe(false)
@@ -830,7 +846,8 @@ describe('dispensing reversal', () => {
     fillReversal(item, reason)
     fireEvent.click(within(item).getByRole('button', { name: 'Reverse dispensing' }))
 
-    expect((await within(item).findByRole('alert')).textContent).toBe(ACCESS_DENIED)
+    expect((await within(item).findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain(ACCESS_DENIED)
     expect(confirmation(item)).toBe('')
     expect(within(item).queryByText('Dispensing recorded.')).toBeNull()
     expect(api.dispensing).toHaveBeenCalledWith(FACILITY, 'dispensing-9')

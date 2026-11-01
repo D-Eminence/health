@@ -68,7 +68,8 @@ describe('DemoDialog', () => {
     fillValidRequest()
     fireEvent.click(screen.getByRole('button', { name: 'Send request' }))
 
-    expect((await screen.findByRole('alert')).textContent).toBe('The service is temporarily unavailable. Please try again shortly.')
+    // The form's own plain words, never the server's.
+    expect((await screen.findByRole('alert')).textContent).toBe('Health ID isn’t available right now. Please try again in a few minutes.')
     expect(screen.queryByText('Demo request received')).toBeNull()
     await waitFor(() => expect((screen.getByRole('button', { name: 'Send request' }) as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(screen.getByRole('button', { name: 'Send request' }))

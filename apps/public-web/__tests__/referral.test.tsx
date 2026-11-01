@@ -196,11 +196,12 @@ describe('referral form', () => {
     })
   })
 
-  it('keeps the backend’s message when the refused field is not one the referrer typed', async () => {
+  it('says a refused field the referrer did not type in the form’s own words, never the backend’s', async () => {
     submitDemoRequest.mockRejectedValueOnce(refused('sourcePage'))
     render(<ReferralForm />)
     await sendFilled()
-    expect(await screen.findByText('One or more request fields are invalid.')).toBeTruthy()
+    expect(await screen.findByText('Your referral could not be sent. Please try again.')).toBeTruthy()
+    expect(screen.queryByText(/request fields|sourcePage/)).toBeNull()
     expect(screen.getByText('Step 2 of 2')).toBeTruthy()
   })
 })

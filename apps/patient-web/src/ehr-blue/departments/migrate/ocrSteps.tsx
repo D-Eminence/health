@@ -2,14 +2,15 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { EhrBadge, EhrButton, EhrField, EhrInput, EhrSelect, EhrTextarea, type EhrBadgeTone } from '@hid/ui/ehr'
 import {
-  staffApi, type LabImport, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation,
-  type OcrValidationInput, type PharmacyImport,
+  staffApi, type LabAbnormalFlag, type LabImport, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain,
+  type OcrValidation, type OcrValidationInput, type PharmacyImport,
 } from '../../../staff/api'
 import { FieldInputError, problemText, refusal, type FieldProblem } from '../../../staff/fieldProblem'
 import { useFocusById } from '../../../staff/focus'
 import { DeptNotice } from '../parts/DeptNotice'
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
+import { FLAG_WORDS } from '../laboratory/labText'
 
 /*
  * The steps of an OCR job as today's Document OCR page takes them (staff/routes/Operations.tsx Ocr): review an
@@ -184,7 +185,8 @@ export function ConfirmForm({ facilityId, job, onChanged }: {
         await onChanged('The source patient of this job was already confirmed, so the job was reloaded.')
         return
       }
-      setError(errorText(caught, 'The patient confirmation was not recorded.'))
+      setError(isHidApiError(caught) && caught.code === 'OCR_PATIENT_MISMATCH' ? 'The patient you chose doesn’t match the patient on the document. Check the patient and try again.'
+        : errorText(caught, 'The patient confirmation was not recorded.'))
       focus('ocr-confirm-submit', true)
     }
     finally { setBusy(false) }
@@ -226,10 +228,23 @@ export const PUBLICATION_RETRY_WAIT = 'OCR allows another attempt about 15 secon
 /** A publication request this page sent: the Idempotency-Key it goes with, and when OCR takes a failed one again. */
 export interface PublicationAttempt { readonly key: string; retryAt: number }
 
+/**
+ * What a failed publication says, in place of OCR's stored failure code and summary: those are the services' own words
+ * ("Owning clinical service is temporarily unavailable (EHR_SERVICE_UNAVAILABLE)"), never shown (owner's rule, 1 Nov
+ * 2026). Whether it can be tried again follows, from the code, in the page's own words. A final failure is one the
+ * owning service refused, so nothing was added. One OCR attempts again claims nothing about the record: OCR stores a
+ * timeout or server error as OWNING_SERVICE_UNAVAILABLE, which can come after the owning service saved the write, and
+ * REQUEST_IN_PROGRESS while it is still working on it (docs/OPEN-QUESTIONS.md, failed publications). Told nothing was
+ * added there, someone could enter the evidence again by hand.
+ */
+const PUBLICATION_FAILED = 'Nothing was added to the patient’s record.'
+const PUBLICATION_UNFINISHED = 'Publishing to the patient’s record didn’t finish: it may have been added even so. Check the patient’s record before adding anything by hand.'
+
 function publicationRefusal(caught: unknown) {
   // OCR answers it also after the last attempt (INTERFACE_CONTRACT.md, OCR publication).
   if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_IN_PROGRESS') return 'OCR did not start another attempt: one is still running, it is too soon after the last one, or no attempts remain.'
-  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_TERMINAL') return 'The owning service refused this publication, so it cannot be retried.'
+  // The part of the record it was going to refused it for good: said as what it means for the person, not as a service.
+  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_TERMINAL') return 'This couldn’t be added to the patient’s record, and it can’t be tried again.'
   return errorText(caught, 'The validated evidence was not published.')
 }
 
@@ -240,9 +255,28 @@ const publishedAs: Partial<Record<OcrTargetDomain, string>> = {
   DOCUMENT_ONLY: 'Kept as a validated document in the patient\'s record.',
 }
 
+/**
+ * A flag Lab stored with an imported observation, in the Laboratory's plain words ("possibly critical", never Lab's
+ * critical_candidate); nothing for normal or not set. A flag Lab may add later is said as flagged, never as its code.
+ */
+function flagText(abnormalFlag: string | null | undefined) {
+  if (!abnormalFlag || abnormalFlag === 'normal' || abnormalFlag === 'unknown') return ''
+  return Object.hasOwn(FLAG_WORDS, abnormalFlag) ? `flagged ${FLAG_WORDS[abnormalFlag as LabAbnormalFlag].toLowerCase()}` : 'flagged'
+}
+
+/**
+ * The owning domain a review names, in the words the review form offers it: for the review's title and its Publish
+ * button, never OCR's code (DOCUMENT_ONLY, UNCLASSIFIED). A domain OCR may add later is said as not classified.
+ */
+const DOMAIN_WORDS: Readonly<Record<OcrTargetDomain, string>> = {
+  EHR: 'Clinical note', LAB: 'Historical lab evidence', PHARMACY: 'Historical medication evidence', DOCUMENT_ONLY: 'Validated document',
+  UNCLASSIFIED: 'Not classified',
+}
+const domainText = (domain: string) => Object.hasOwn(DOMAIN_WORDS, domain) ? DOMAIN_WORDS[domain as OcrTargetDomain] : DOMAIN_WORDS.UNCLASSIFIED
+
 function observationText(item: LabImport['observations'][number]) {
   const result = [item.value && `${item.value}${item.unit ? ` ${item.unit}` : ''}`, item.valueText].filter(Boolean).join(' · ')
-  const flag = item.abnormalFlag && item.abnormalFlag !== 'normal' && item.abnormalFlag !== 'unknown' ? `flagged ${item.abnormalFlag}` : ''
+  const flag = flagText(item.abnormalFlag)
   // Lab stores every imported observation as 'reported' today, but a status it may add later is said, never hidden.
   const status = item.status && item.status !== 'reported' ? item.status.replaceAll('_', ' ') : ''
   return [result ? `${item.testName}: ${result}` : item.testName, item.referenceRange && `reference ${item.referenceRange}`, flag, status].filter(Boolean).join(' · ')
@@ -315,9 +349,10 @@ function PublicationStatus({ facilityId, publication, permissions, canPublish, r
   readonly facilityId: string; readonly publication: OcrPublication; readonly permissions: readonly string[]; readonly canPublish: boolean; readonly retryHere: boolean
 }) {
   const failed = publication.status === 'failed'
+  const retryable = RETRYABLE_PUBLICATION_FAILURES.includes(publication.failureCode ?? '')
   const attempts = failed && publication.attemptCount != null && publication.maxAttempts != null ? ` · Attempt ${publication.attemptCount} of ${publication.maxAttempts}` : ''
   const unfinished = 'OCR has not finished this publication. Refresh the job status to see whether it has.'
-  const failedText = !RETRYABLE_PUBLICATION_FAILURES.includes(publication.failureCode ?? '') ? 'It cannot be retried.'
+  const failedText = !retryable ? 'It cannot be retried.'
     : !attemptsLeft(publication) ? 'The publication attempt limit has been reached. It cannot be retried.'
       : retryHere ? PUBLICATION_RETRY_WAIT
         : canPublish ? 'It can be retried only from the page where Publish was pressed, before that page is reloaded or left.' : ''
@@ -327,8 +362,8 @@ function PublicationStatus({ facilityId, publication, permissions, canPublish, r
       : canPublish ? `${unfinished} If it has stopped, it can be resumed only from the page where Publish was pressed, before that page is reloaded or left.`
         : unfinished
   return <div className="hid-ehr-dept-migrate-publication">
-    <p>Publication <EhrBadge tone={statusTone(publication.status)}>{statusWords(publication.status)}</EhrBadge>{publication.failureCode ? ` · ${publication.failureCode}` : ''}{attempts}</p>
-    {failed && publication.failureSummary && <p>{publication.failureSummary}</p>}
+    <p>Publication <EhrBadge tone={statusTone(publication.status)}>{statusWords(publication.status)}</EhrBadge>{attempts}</p>
+    {failed && <p>{retryable ? PUBLICATION_UNFINISHED : PUBLICATION_FAILED}</p>}
     {failed && failedText && <p className="hid-ehr-dept-muted">{failedText}</p>}
     {(publication.status === 'pending' || publication.status === 'processing') && <p className="hid-ehr-dept-muted">{unfinishedText}</p>}
     {publication.status === 'published' && <PublishedEvidence facilityId={facilityId} publication={publication} permissions={permissions} />}
@@ -439,7 +474,7 @@ export function ReviewPublication({ actorId, facilityId, validation, confirmatio
   const action = next(publications)
   return <li className="hid-ehr-dept-migrate-review">
     <div className="hid-ehr-dept-row-main">
-      <p className="hid-ehr-dept-row-title">{`Review ${validation.version} · ${validation.targetDomain}`}
+      <p className="hid-ehr-dept-row-title">{`Review ${validation.version} · ${domainText(validation.targetDomain)}`}
         <EhrBadge tone={statusTone(validation.disposition)}>{statusWords(validation.disposition)}</EhrBadge></p>
       <p className="hid-ehr-dept-muted">{validation.reason} · {dateText(validation.reviewedAt)}</p>
       {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
@@ -449,7 +484,7 @@ export function ReviewPublication({ actorId, facilityId, validation, confirmatio
         permissions={permissions} canPublish={request !== undefined} retryHere={action === retryId} />)}
     </div>
     {(action === publishId || action === retryId) && <div className="hid-ehr-dept-row-actions">
-      {action === publishId && <EhrButton id={publishId} size="sm" busy={busy} onClick={() => void publish()}>{busy ? 'Working…' : `Publish to ${validation.targetDomain.replace('_', ' ')}`}</EhrButton>}
+      {action === publishId && <EhrButton id={publishId} size="sm" busy={busy} onClick={() => void publish()}>{busy ? 'Working…' : `Publish as ${domainText(validation.targetDomain).toLowerCase()}`}</EhrButton>}
       {action === retryId && <EhrButton id={retryId} size="sm" busy={busy} onClick={() => void publish(true)}>{busy ? 'Working…' : 'Retry publication'}</EhrButton>}
     </div>}
   </li>

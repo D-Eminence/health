@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 
 /**
  * Keyboard focus for the auth forms that show one step at a time: enrollment
@@ -63,6 +63,23 @@ export function sentFromField(event: { currentTarget: EventTarget | null }): boo
 
 /** Refusals sent as 400 that are not about the value typed: the security check, the request's own key. */
 const NOT_ABOUT_THE_VALUE = new Set(['TURNSTILE_REQUIRED', 'IDEMPOTENCY_KEY_INVALID'])
+
+/** A password-reset step's own words, for the patient and staff resets alike. Never Identity's own text. */
+export const RECOVERY_FAILED = 'We couldn’t complete that step. Please try again.'
+const RECOVERY_CODES: Readonly<Record<string, string>> = {
+  OTP_INVALID_OR_EXPIRED: 'That code is wrong or has expired. Check the latest message, or start again for a new code.',
+  TURNSTILE_REQUIRED: 'Please complete the security check, then try again.',
+  IDEMPOTENCY_KEY_INVALID: RECOVERY_FAILED,
+}
+const RECOVERY_STATUSES: Readonly<Partial<Record<number, string>>> = {
+  400: 'Check what you entered and try again.',
+  422: 'Check what you entered and try again.',
+}
+
+/** What a refused password-reset step says, in plain words. */
+export function recoveryRefusal(reason: unknown, audience: 'patient' | 'facility' = 'patient'): string {
+  return plainErrorText(reason, RECOVERY_FAILED, { codes: RECOVERY_CODES, statuses: RECOVERY_STATUSES, audience })
+}
 
 /**
  * Whether a refused step is about the value in its field: a malformed or

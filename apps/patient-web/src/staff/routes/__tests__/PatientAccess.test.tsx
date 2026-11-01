@@ -58,21 +58,23 @@ describe('emergency access is offered only to a role the backend will let use it
   const submit = () => screen.getByRole('button', { name: 'Activate emergency access' }) as HTMLButtonElement
   const reason = () => document.getElementById(submit().getAttribute('aria-describedby') ?? '')?.textContent ?? ''
 
-  it('is unavailable with identity.break-glass.write alone, and says it also needs identity.consent.write', () => {
+  // A missing permission is never named (owner's rule, 1 Nov 2026): the role can't, and who to ask.
+  it('is unavailable with identity.break-glass.write alone, and says so without naming a permission', () => {
     staff.permissions = ['identity.patient.read', 'identity.break-glass.write']
     renderPatients()
     fireEvent.click(method('Emergency'))
     expect(submit().disabled).toBe(true)
-    expect(reason()).toMatch(/identity\.consent\.write/)
-    expect(reason()).not.toMatch(/identity\.break-glass\.write/)
+    expect(reason()).toMatch(/^Your role here can’t activate emergency access\. /)
+    expect(reason()).not.toMatch(/identity\.|ehr\./)
   })
 
-  it('is unavailable with identity.consent.write alone, and says it needs identity.break-glass.write', () => {
+  it('is unavailable with identity.consent.write alone, and says so without naming a permission', () => {
     staff.permissions = ['identity.patient.read', 'identity.consent.write']
     renderPatients()
     fireEvent.click(method('Emergency'))
     expect(submit().disabled).toBe(true)
-    expect(reason()).toMatch(/identity\.break-glass\.write/)
+    expect(reason()).toMatch(/^Your role here can’t activate emergency access\. /)
+    expect(reason()).not.toMatch(/identity\.|ehr\./)
   })
 
   it('is available, with nothing to explain, when the role holds both and what the record it opens needs', () => {
@@ -92,20 +94,19 @@ describe('emergency access is offered only to a role the backend will let use it
     renderPatients()
     fireEvent.click(method('Emergency'))
     expect(submit().disabled).toBe(true)
-    expect(reason()).toMatch(/identity\.patient\.read/)
-    expect(reason()).not.toMatch(/identity\.consent\.write|identity\.break-glass\.write|ehr\./)
+    expect(reason()).toMatch(/^Your role here can’t activate emergency access\. /)
+    expect(reason()).not.toMatch(/identity\.|ehr\./)
     fireEvent.click(submit())
     expect(api.breakGlass).not.toHaveBeenCalled()
   })
 
-  it('is unavailable without the emergency summary’s read permissions, and names them', () => {
+  it('is unavailable without the emergency summary’s read permissions, and says so without naming them', () => {
     staff.permissions = ['identity.patient.read', 'identity.consent.write', 'identity.break-glass.write', 'ehr.encounter.read']
     renderPatients()
     fireEvent.click(method('Emergency'))
     expect(submit().disabled).toBe(true)
-    expect(reason()).toMatch(/ehr\.note\.read/)
-    expect(reason()).toMatch(/emergency summary/)
-    expect(reason()).not.toMatch(/ehr\.encounter\.read/)
+    expect(reason()).toMatch(/^Your role here can’t activate emergency access\. /)
+    expect(reason()).not.toMatch(/identity\.|ehr\./)
   })
 
   it('offers the PIN only with identity.patient.read too, which opens the record once the PIN is verified', () => {
@@ -115,8 +116,8 @@ describe('emergency access is offered only to a role the backend will let use it
     const pin = screen.getByRole('button', { name: 'Verify PIN and open' }) as HTMLButtonElement
     expect(pin.disabled).toBe(true)
     const why = document.getElementById(pin.getAttribute('aria-describedby') ?? '')?.textContent
-    expect(why).toMatch(/identity\.patient\.read/)
-    expect(why).not.toMatch(/identity\.patient-access-pin\.verify/)
+    expect(why).toMatch(/^Your role here can’t /)
+    expect(why).not.toMatch(/identity\.|ehr\./)
     fireEvent.click(pin)
     expect(api.verifyPin).not.toHaveBeenCalled()
   })
@@ -126,11 +127,13 @@ describe('emergency access is offered only to a role the backend will let use it
     renderPatients()
     const request = screen.getByRole('button', { name: 'Send access request' }) as HTMLButtonElement
     expect(request.disabled).toBe(true)
-    expect(document.getElementById(request.getAttribute('aria-describedby') ?? '')?.textContent).toMatch(/identity\.consent\.write/)
+    expect(document.getElementById(request.getAttribute('aria-describedby') ?? '')?.textContent).toMatch(/^Your role here can’t send access requests\. /)
+    expect(document.body.textContent).not.toMatch(/identity\.consent\.write/)
     fireEvent.click(method('Patient PIN'))
     const pin = screen.getByRole('button', { name: 'Verify PIN and open' }) as HTMLButtonElement
     expect(pin.disabled).toBe(true)
-    expect(document.getElementById(pin.getAttribute('aria-describedby') ?? '')?.textContent).toMatch(/identity\.patient-access-pin\.verify/)
+    expect(document.getElementById(pin.getAttribute('aria-describedby') ?? '')?.textContent).toMatch(/^Your role here can’t /)
+    expect(document.body.textContent).not.toMatch(/identity\.patient-access-pin\.verify/)
   })
 })
 

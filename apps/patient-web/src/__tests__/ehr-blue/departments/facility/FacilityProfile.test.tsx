@@ -92,8 +92,9 @@ describe('Facility profile: the target’s sections, read-only', () => {
     expect(valueOf('Facility name', facts)).toBe('Demo Hospital')
     expect(valueOf('Facility type', facts)).toBe('Not reported')
     expect(valueOf('Facility code', facts)).toBe('DEMO-HOSP')
-    // Today's Overview card words the roles: codes as they are on main, Health ID's words on Novu.
-    expect(valueOf('Your roles here', facts)).toBe('org_admin')
+    // The roles in words on every backend, never their internal keys (owner's rule, 1 Nov 2026).
+    expect(valueOf('Your roles here', facts)).toBe('Facility administrator')
+    expect(document.body.textContent).not.toContain('org_admin')
     expect(valueOf('Your primary facility', facts)).toBe('Yes')
 
     const summary = within(facts).getByText('3 permissions')

@@ -243,7 +243,7 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
       ? problem(403, 'TURNSTILE_FAILED', 'The security check failed. Try again.') : happy(path, method, body)), anonymous)
     await toPassword()
     await sendPassword()
-    expect(shownText(await screen.findByRole('alert'))).toBe('The security check failed. Try again.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('Please complete the security check again, then try again.')
     expect((screen.getByRole('button', { name: 'Create account' }) as HTMLButtonElement).disabled).toBe(true)
   })
 

@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { AuditCompliance } from '../../../../ehr-blue/departments/audit/AuditCompliance'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { SAID_NETWORK, SAID_TRY_SHORTLY, SAID_UNAVAILABLE } from '../../../said'
 
 /**
  * Audit & Compliance in the blue EHR (target admin/audit.png): today's facility audit read (staff/routes/Audit.tsx)
@@ -310,28 +311,29 @@ describe('Audit & Compliance: refusals and failures', () => {
   })
 
   it.each([
-    ['a refusal with a message', new HidApiError(500, 'The audit service is unavailable.', { code: 'INTERNAL_ERROR' }), 'The audit service is unavailable.'],
-    ['a failure between services', new HidApiError(503, 'x', { code: 'EHR_SERVICE_AUTH_UNAVAILABLE' }),
-      'A connection between Health ID services failed; retry in about 15 seconds.'],
+    ['a refusal with a message', new HidApiError(500, 'The audit service is unavailable.', { code: 'INTERNAL_ERROR' }), SAID_UNAVAILABLE],
+    ['a failure between services', new HidApiError(503, 'x', { code: 'EHR_SERVICE_AUTH_UNAVAILABLE' }), SAID_TRY_SHORTLY],
     ['a failure with no message', 'boom', 'Audit events could not be loaded. Try again.'],
   ])('says %s, with Try again', async (_, refusal, words) => {
     api.facilityAudit.mockRejectedValueOnce(refusal)
     renderDept(<AuditCompliance />)
     const alert = await screen.findByRole('alert')
     expect(within(alert).getByText(words)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/audit service|INTERNAL_ERROR|SERVICE_AUTH/)
     expect(within(alert).getByRole('button', { name: 'Try again' })).toBeTruthy()
     expect(screen.queryByRole('list')).toBeNull()
   })
 
   it('moves focus to Try again when an older page fails, with Newer events still offered', async () => {
-    api.facilityAudit.mockResolvedValueOnce(pageOf([event('51')], '51')).mockRejectedValueOnce(new Error('Health ID did not answer.'))
+    api.facilityAudit.mockResolvedValueOnce(pageOf([event('51')], '51')).mockRejectedValueOnce(new TypeError('Failed to fetch'))
     renderDept(<AuditCompliance />)
     const olderButton = await screen.findByRole('button', { name: 'Older events' })
     olderButton.focus()
     fireEvent.click(olderButton)
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('Health ID did not answer.')
+    expect(alert.textContent).toContain(SAID_NETWORK)
+    expect(alert.textContent).not.toContain('Failed to fetch')
     expect(document.activeElement).toBe(within(alert).getByRole('button', { name: 'Try again' }))
     expect(button('Newer events')).toBeTruthy()
     expect(api.facilityAudit).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, '51')
@@ -342,7 +344,7 @@ describe('Audit & Compliance: refusals and failures', () => {
     renderDept(<AuditCompliance />)
 
     expect(screen.getByRole('heading', { level: 1, name: 'Audit & Compliance' })).toBeTruthy()
-    expect(screen.getByRole('status').textContent).toBe('Your current permissions at Demo Hospital don’t allow audit review. Choose an authorized workflow.')
+    expect(screen.getByRole('status').textContent).toBe('Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.')
     expect(screen.queryByRole('list')).toBeNull()
     expect(api.facilityAudit).not.toHaveBeenCalled()
     expect(api.touched).toEqual([])

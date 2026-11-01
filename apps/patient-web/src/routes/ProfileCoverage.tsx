@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { useSession } from '../session'
 import { describedBy } from '../authSteps'
 import { COVERAGE_TEXT_LIMIT, oneLine, sentText, type ProfileDetails } from '../profileParity'
@@ -10,6 +10,8 @@ import { ProfileSection } from './ProfileSection'
 import { Button, Field, Input } from '../kasuwa/ui'
 import { WORDS } from '../copy'
 import { LoadProblem, Problem, Saved } from './profileParts'
+
+const CHECK_DETAILS = 'Check the details you entered and try again.'
 
 /** A profile resource as usePatientResource gives it: null data is "not served" (404) once it has loaded. */
 export interface ProfileResource<T> {
@@ -84,7 +86,7 @@ function CoverageForm({ resource }: { resource: ProfileResource<ProfileDetails |
         focusAfter(() => document.getElementById('coverage-heading'))
         return
       }
-      setError(isHidApiError(cause) ? cause.message : 'Couldn’t save. Try again.')
+      setError(plainErrorText(cause, 'Couldn’t save. Try again.', { statuses: { 400: CHECK_DETAILS, 422: CHECK_DETAILS } }))
       focusAfter(() => document.getElementById('coverage-hospital'))
     } finally { setBusy(false) }
   }

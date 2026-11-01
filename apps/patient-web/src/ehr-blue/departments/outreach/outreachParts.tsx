@@ -24,9 +24,11 @@ export const REASON_LENGTH = 'Enter at least 8 characters.'
 
 /** No working facility: nothing at a facility can be opened. */
 export const NO_FACILITY = 'No facility is selected. Choose the facility you are working at to open Outreach.'
-/** The membership reads neither campaigns nor registration cases here. */
-/** Today's words (staff/routes/Operations.tsx Outreach): a membership with neither campaign nor registration read. */
-export const NO_READ_PERMISSION = 'This facility membership needs outreach campaign or registration read permission.'
+/**
+ * A role that reads neither campaigns nor registration cases here. Screens name no permission (the owner's rule), so
+ * today's words, which named the one lacking, give way to the plain sentence the Pharmacy's refusal uses.
+ */
+export const NO_READ_PERMISSION = 'Your role at this facility doesn’t include outreach campaigns or registration cases. Ask your facility administrator.'
 /** Under a refused link: the case was read again, so the next attempt is checked against its latest version. */
 export const LINK_RETRY_NOTE = 'The case has been read again, so a retry uses its latest version. Check the details, then retry using the same button. No success is reported until saved.'
 

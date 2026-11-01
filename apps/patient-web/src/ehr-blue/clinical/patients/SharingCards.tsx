@@ -1,4 +1,4 @@
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { Mail, Share2 } from 'lucide-react'
 import { Alert, Badge, Button, Card, CardHeader } from '../../../kasuwa/ui'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -29,7 +29,7 @@ function useCardLoad<T>(facilityId: string | undefined, allowed: boolean, read: 
       (caught: unknown) => {
         if (controller.signal.aborted) return
         if (isHidApiError(caught) && caught.status === 404) setLoad({ state: 'hidden' })
-        else setLoad({ state: 'failed', message: isHidApiError(caught) && caught.message ? caught.message : fallbackNow })
+        else setLoad({ state: 'failed', message: plainErrorText(caught, fallbackNow, { audience: 'facility' }) })
       })
     return () => controller.abort()
   }, [facilityId, allowed])
@@ -83,9 +83,8 @@ function acceptProblem(caught: unknown): string {
     if (caught.code === 'SHARE_INVITATION_NOT_PENDING') return 'This invitation has already been accepted, cancelled or has ended.'
     if (caught.code === 'SHARE_PERMISSION_DENIED') return 'Sharing is not available for your account at this facility.'
     if (caught.status === 404) return 'Accepting invitations is not available right now.'
-    if (caught.message) return caught.message
   }
-  return 'The invitation could not be accepted. Please try again.'
+  return plainErrorText(caught, 'The invitation could not be accepted. Please try again.', { audience: 'facility' })
 }
 
 /** "Invitations": invitations sent to this clinician's sign-in email, with Accept; no patient is named. */

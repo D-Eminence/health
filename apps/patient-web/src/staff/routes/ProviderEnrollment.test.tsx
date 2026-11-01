@@ -1770,7 +1770,7 @@ describe('provider enrollment on main keeps Identity’s words for a refused act
       + 'to finish setting up your facility.')
   })
 
-  it('shows a 401 at activation as it is, at the password step (no Novu sign-in after activation there)', async () => {
+  it('says a 401 at activation in plain words, at the password step (no Novu sign-in after activation there)', async () => {
     api.activate.mockRejectedValueOnce(new HidApiError(401, 'Organization profile completion session is invalid or expired',
       { code: 'AUTHENTICATION_REQUIRED' }))
     open()
@@ -1780,7 +1780,7 @@ describe('provider enrollment on main keeps Identity’s words for a refused act
     fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create provider account' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('Organization profile completion session is invalid or expired')
+    expect((await screen.findByRole('alert')).textContent).toBe('This sign-up has timed out. Please start again.')
     expect(screen.getByLabelText('Password')).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Your account may already be ready' })).toBeNull()
   })

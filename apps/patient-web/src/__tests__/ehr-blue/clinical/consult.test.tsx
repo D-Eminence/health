@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'rea
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace, consultStatus } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
 import { BASE, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
+import { SAID_FIELDS_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
 /**
  * Consultation, the list and "New consultation": the open patient's encounters (today's paging, the access re-check
@@ -160,13 +161,15 @@ describe('Consultation list', () => {
   it('shows a refused read as an alert', async () => {
     api.encounters.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     open()
-    expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
   })
 
   it('after a failed read, Refresh reads the list afresh after the access re-check, and the alert goes', async () => {
     api.encounters.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     open()
-    expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     const checks = api.lookupPatient.mock.calls.length
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
     expect(await screen.findByRole('table', { name: 'Consultations' })).toBeTruthy()
@@ -193,7 +196,8 @@ describe('Consultation list', () => {
     // A failed page read is an alert; the page shown stays.
     api.encounters.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     fireEvent.click(within(pager).getByRole('button', { name: 'Previous page' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('The page could not be loaded. EHR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(`The page could not be loaded. ${SAID_UNAVAILABLE}`)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(within(pager).getByText('Page 2')).toBeTruthy()
 
     // Refresh re-reads the page shown; a stale cursor starts again from the newest.
@@ -487,7 +491,8 @@ describe('New consultation', () => {
     fireEvent.click(save)
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe('One or more request fields are invalid. Content must be shorter than or equal to 100000 characters.')
+    expect(alert.textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('request fields are invalid')
     expect(screen.getByLabelText(labelled('Clinical note')).getAttribute('aria-invalid')).toBe('true')
     expect(screen.getByText('Consultation started. Outpatient · Cough. Save again to add the rest to it.')).toBeTruthy()
     expect(screen.queryByLabelText(labelled('Presenting complaint'))).toBeNull()
@@ -518,7 +523,8 @@ describe('New consultation', () => {
     fill('Clinical note', 'N')
     fireEvent.click(save)
 
-    expect((await screen.findByRole('alert')).textContent).toBe('One or more request fields are invalid. Code must be shorter than or equal to 100 characters.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('request fields are invalid')
     expect(screen.getByLabelText(labelled('Code')).getAttribute('aria-invalid')).toBe('true')
     expect(screen.getByText('Consultation started. Outpatient · Cough. The draft note is saved; change it from the consultation’s page. Save again to add the rest to it.')).toBeTruthy()
     // The saved note's fields are gone, so nothing typed there can be lost or sent as a second note.
@@ -544,7 +550,8 @@ describe('New consultation', () => {
     fill('Examination', 'E')
     fill('Clinical note', 'N')
     fireEvent.click(save)
-    expect((await screen.findByRole('alert')).textContent).toBe('One or more request fields are invalid. Chief complaint should not be empty.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('request fields are invalid')
     expect(screen.getByLabelText(labelled('Presenting complaint')).getAttribute('aria-invalid')).toBe('true')
     expect(api.createRecord).not.toHaveBeenCalled()
   })

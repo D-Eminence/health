@@ -9,6 +9,7 @@ import { AttentionProvider, useReloadAccessRequests } from '../../../ehr-blue/fr
 import { AttentionLines, TodayCard } from '../../../ehr-blue/home/liveCards'
 import { RoleDashboard } from '../../../ehr-blue/home/RoleDashboard'
 import { RoleViewProvider } from '../../../ehr-blue/frame/roleView'
+import { SAID_REFUSED } from '../../said'
 
 /** Home's live cards with the staff API mocked: loading, empty, error and refusal states, in today's words. */
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
@@ -58,7 +59,7 @@ describe('Needs attention: access requests', () => {
   it('says a refusal in today\'s words', async () => {
     vi.mocked(staffApi.listAccessRequests).mockRejectedValue(refused('PERMISSION_DENIED', 'Denied'))
     inRouter(<Attention permissions={['identity.consent.write']} />)
-    expect(await screen.findByText('Your role at this facility cannot list access requests. Ask an administrator to review your assignment.')).toBeDefined()
+    expect(await screen.findByText('Your role here can’t see access requests. Ask your facility administrator if you need to.')).toBeDefined()
   })
 })
 
@@ -100,7 +101,8 @@ describe('Today: laboratory and pharmacy work', () => {
     vi.mocked(staffApi.pharmacyWorkItems).mockRejectedValue(refused('PERMISSION_DENIED', 'This membership cannot read pharmacy work.'))
     inRouter(<TodayCard facilityId={FACILITY_ID} lab={false} pharmacy />)
     expect(await screen.findByText('Pharmacy work could not be loaded')).toBeDefined()
-    expect(screen.getByText('This membership cannot read pharmacy work.')).toBeDefined()
+    expect(screen.getByText(SAID_REFUSED)).toBeDefined()
+    expect(document.body.textContent).not.toContain('This membership cannot read pharmacy work.')
   })
 })
 

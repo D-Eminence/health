@@ -1,4 +1,4 @@
-import { assertSignedStorageUrl } from '@hid/http'
+import { assertSignedStorageUrl, plainErrorText } from '@hid/http'
 import { EhrButton, EhrCard, EhrField, EhrInput } from '@hid/ui/ehr'
 import { useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
@@ -61,7 +61,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       await untilStaffSessionReady(sentIn)
       window.open(result.url, '_blank', 'noopener,noreferrer')
     } catch (caught) {
-      setError(caught instanceof Error && caught.message ? caught.message : 'Document could not be opened.')
+      setError(plainErrorText(caught, 'Document could not be opened.', { audience: 'facility' }))
     } finally {
       setOpening(null)
     }
@@ -88,7 +88,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       setNotice('Uploaded. It can be opened once the virus check is done.')
       if (failure !== null) setError(`${RELOAD_FAILED} ${failure}`.trim())
     } catch (caught) {
-      setError(caught instanceof Error && caught.message ? caught.message : 'Document could not be uploaded.')
+      setError(plainErrorText(caught, 'Document could not be uploaded.', { audience: 'facility' }))
     } finally {
       sending.current = false
       setUploading(false)

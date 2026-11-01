@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useSession } from './session'
 import { focusLost } from './pageFocus'
 import { googleClientId } from './googleClient'
+import { PlainError, plainErrorText } from '@hid/http'
 
 interface CredentialResponse { credential?: string }
 declare global {
@@ -25,7 +26,7 @@ function loadGoogle(): Promise<void> {
     script.src = 'https://accounts.google.com/gsi/client'
     script.async = true
     script.onload = () => resolve()
-    script.onerror = () => reject(new Error('Google sign-in is unavailable.'))
+    script.onerror = () => reject(new PlainError('Google sign-in is unavailable.'))
     document.head.appendChild(script)
   }).catch(error => { scriptPromise = null; throw error })
   return scriptPromise!
@@ -58,7 +59,7 @@ export function GoogleButton({ text, disabled, disabledReason, onCredential }: {
     void (async () => {
       try {
         const nonce = (await api.googleNonce()).nonce
-        if (!nonce || nonce.length < 32) throw new Error('Google sign-in could not start.')
+        if (!nonce || nonce.length < 32) throw new PlainError('Google sign-in could not start.')
         await loadGoogle()
         if (!active || !window.google || !host.current) return
         window.google.accounts.id.initialize({ client_id: clientId, nonce, auto_select: false, ux_mode: 'popup',
@@ -77,7 +78,7 @@ export function GoogleButton({ text, disabled, disabledReason, onCredential }: {
         // eslint-disable-next-line no-restricted-syntax -- not an effect's delay: this runs once the nonce and Google's script have loaded, straight after renderButton has drawn the new button, and the region was there all along.
         if (attempt > 0 && focusLost()) region.current?.focus()
       } catch (reason) {
-        if (active) setError(reason instanceof Error ? reason.message : 'Google sign-in is unavailable.')
+        if (active) setError(plainErrorText(reason, 'Google sign-in is unavailable.'))
       }
     })()
     return () => { active = false; host.current?.replaceChildren() }

@@ -129,7 +129,7 @@ describe('ProviderCompletionForm', () => {
     expect(focused).toBe(element)
   })
 
-  it('shows the reason the backend gave for refusing the details', async () => {
+  it('says a refusal of the details in the form’s own words, never the backend’s', async () => {
     getProfile.mockReset().mockResolvedValue(profile)
     saveProfile.mockReset().mockRejectedValueOnce(new HidApiError(409, 'Application changed; reload before retrying',
       { code: 'VERSION_CONFLICT' }))
@@ -138,10 +138,11 @@ describe('ProviderCompletionForm', () => {
       { target: { value: '12 Marina Road, Lagos' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save missing details' }))
 
-    expect((await screen.findByRole('alert')).textContent).toBe('Application changed; reload before retrying')
+    expect((await screen.findByRole('alert')).textContent).toBe('This application changed while you were working. Refresh the page and try again.')
+    expect(screen.getByRole('alert').textContent).not.toMatch(/reload before retrying|VERSION_CONFLICT/)
   })
 
-  it('shows a refused email code as the backend words it', async () => {
+  it('says a refused email code in plain words', async () => {
     verify.mockReset().mockRejectedValueOnce(new HidApiError(401, 'The confirmation code is invalid or expired',
       { code: 'ORGANIZATION_COMPLETION_CODE_INVALID' }))
     render(<ProviderCompletionForm initialProduct="laboratory" />)
@@ -151,7 +152,7 @@ describe('ProviderCompletionForm', () => {
     fireEvent.change(await screen.findByRole('textbox', { name: 'Email code' }), { target: { value: '654321' } })
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect((await screen.findByRole('alert')).textContent).toBe('The confirmation code is invalid or expired')
+    expect((await screen.findByRole('alert')).textContent).toBe('That code is wrong or has expired. Check the latest email, or ask for a new code.')
   })
 
   // hid-system organization-applications.controller.ts and
@@ -186,7 +187,7 @@ describe('ProviderCompletionForm', () => {
       .toBe('The code request could not be completed. Check your details and try again later.')
   })
 
-  it('shows a security-check refusal and a rate limit as the backend words them', async () => {
+  it('says a security-check refusal and a rate limit in plain words', async () => {
     start.mockReset()
       .mockRejectedValueOnce(new HidApiError(403, 'The security check expired or was already used',
         { code: 'TURNSTILE_EXPIRED_OR_REPLAYED' }))
@@ -196,11 +197,11 @@ describe('ProviderCompletionForm', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'CAC registration identifier' }), { target: { value: 'RC123456' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Administrator email' }), { target: { value: 'admin@example.org' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send email code' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('The security check expired or was already used')
+    expect((await screen.findByRole('alert')).textContent).toBe('Please complete the security check again, then try again.')
 
     await waitFor(() => expect((screen.getByRole('button', { name: 'Send email code' }) as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(screen.getByRole('button', { name: 'Send email code' }))
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Application request limit reached; try again later'))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Too many tries. Please wait a few minutes and try again.'))
   })
 
   it('keeps its own wording for a service failure, whose detail the backend withholds', async () => {

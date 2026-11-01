@@ -3,6 +3,7 @@ import { HidApiError } from '@hid/http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, activePatient, allowedLookup, labelled, renderPage } from './harness'
+import { SAID_CHANGED, SAID_UNAVAILABLE } from '../../said'
 
 /**
  * Consultation, one encounter: the Notes card (every clinical note of the encounter, each with today's NotePanel
@@ -249,7 +250,8 @@ describe('Consultation record: the Notes card (item 1)', () => {
     await waitFor(() => expect(submitIn(row, 'Mark entered in error').getAttribute('aria-disabled')).toBeNull())
     fireEvent.click(submitIn(row, 'Mark entered in error'))
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
-    expect((await row.findByRole('alert')).textContent).toBe('The record changed since it was read.')
+    expect((await row.findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('The record changed since it was read.')
   })
 
   it('item 1: records a revision of an older note after the access re-check, with today’s checks, reusing the key on retry', async () => {
@@ -272,7 +274,8 @@ describe('Consultation record: the Notes card (item 1)', () => {
     api.addNoteRevision.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     const checks = api.lookupPatient.mock.calls.length
     fireEvent.click(row.getByRole('button', { name: 'Record revision' }))
-    expect((await row.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await row.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(api.lookupPatient.mock.calls.length).toBe(checks + 1)
     expect(api.lookupPatient.mock.invocationCallOrder.at(-1)!).toBeLessThan(api.addNoteRevision.mock.invocationCallOrder[0]!)
     revisions['note-0'] = [...revisions['note-0']!, { id: 'rev-0b', revisionNo: 2, content: 'Admitted with fever and chills (fictional).', changeReason: 'Symptom added', createdAt: '2026-10-30T09:00:00.000Z' }]
@@ -292,7 +295,8 @@ describe('Consultation record: the Notes card (item 1)', () => {
     })
     await openEncounter()
     fireEvent.click(noteRow('Admission note').getByRole('button', { name: 'Review note content' }))
-    expect((await noteRow('Admission note').findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await noteRow('Admission note').findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(noteRow('Admission note').queryByRole('button', { name: 'Sign note' })).toBeNull()
     expect(noteRow('Admission note').queryByRole('button', { name: 'Add a note revision' })).toBeNull()
   })
@@ -480,7 +484,8 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     await openEncounter()
     const notes = () => within(card('Clinical notes'))
     fireEvent.click(within(notes().getByRole('navigation', { name: 'Record pages' })).getByRole('button', { name: 'Next page' }))
-    expect((await notes().findByRole('alert')).textContent).toBe('The page could not be loaded. EHR is unavailable.')
+    expect((await notes().findByRole('alert')).textContent).toBe(`The page could not be loaded. ${SAID_UNAVAILABLE}`)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(notes().getByText('Progress note 49')).toBeTruthy()
     expect(within(notes().getByRole('navigation', { name: 'Record pages' })).getByText('Page 1')).toBeTruthy()
   })

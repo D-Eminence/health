@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ClipboardList, Clock, Eye, FileText, FlaskConical, HeartPulse, Lock, Mail, NotebookPen, Pill, Stethoscope } from 'lucide-react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import type { PatientRecords, SharedCardAnswer } from '../api'
 import { Button, Card, CardHeader, EmptyState, cx, type Icon } from '../kasuwa/ui'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
@@ -134,7 +134,7 @@ export function SharedCardPage() {
     const controller = new AbortController()
     api.sharedCard(token, controller.signal).then(answer => setState({ answer }), (cause: unknown) => {
       if (controller.signal.aborted) return
-      setState({ gone: isHidApiError(cause) && cause.status !== 404 ? cause.message : 'This card has ended or was taken back by the patient.' })
+      setState({ gone: isHidApiError(cause) && cause.status !== 404 ? plainErrorText(cause, 'This card couldn’t be opened. Please try again.') : 'This card has ended or was taken back by the patient.' })
     })
     return () => controller.abort()
   }, [api, token])

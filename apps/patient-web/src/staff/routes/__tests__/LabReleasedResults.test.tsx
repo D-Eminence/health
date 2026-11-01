@@ -134,14 +134,19 @@ describe('released Lab results of a lab request', () => {
     })
 
     it.each([
-      ['404 LAB_WORK_ITEM_NOT_FOUND', new HidApiError(404, 'Lab work item was not found', { code: 'LAB_WORK_ITEM_NOT_FOUND' }), /Lab has no work item for this request that you can see/],
-      ['404 from a Lab without the route', new HidApiError(404, 'Not Found', { code: 'NOT_FOUND' }), /not available from this Lab service/],
-      ['403 LAB_EXECUTION_ACCESS_DENIED', new HidApiError(403, 'Lab execution/result access is not authorized', { code: 'LAB_EXECUTION_ACCESS_DENIED' }), /Access denied/],
-      ['403 PERMISSION_DENIED', new HidApiError(403, 'Permission denied', { code: 'PERMISSION_DENIED' }), /Access denied/],
-    ])('says what a refusal means (%s)', async (_case, refusal, says) => {
+      ['404 LAB_WORK_ITEM_NOT_FOUND', new HidApiError(404, 'Lab work item was not found', { code: 'LAB_WORK_ITEM_NOT_FOUND' }),
+        'The laboratory hasn’t accepted this request here yet, or your access to this patient doesn’t cover it.'],
+      ['404 from a Lab without the route', new HidApiError(404, 'Not Found', { code: 'NOT_FOUND' }), 'This laboratory doesn’t share results here yet.'],
+      ['403 LAB_EXECUTION_ACCESS_DENIED', new HidApiError(403, 'Lab execution/result access is not authorized', { code: 'LAB_EXECUTION_ACCESS_DENIED' }),
+        'You can’t see this test’s results here.'],
+      ['403 PERMISSION_DENIED', new HidApiError(403, 'Permission denied', { code: 'PERMISSION_DENIED' }), 'You can’t see this test’s results here.'],
+    ])('says what a refusal means, in plain words (%s)', async (_case, refusal, says) => {
       api.labReleasedResultsForOrder.mockRejectedValue(refusal)
       await openResults()
-      expect((await screen.findByRole('alert')).textContent).toMatch(says)
+      expect((await screen.findByRole('alert')).textContent).toBe(says)
+      // Never Lab's own words or its code (owner's rule, 1 Nov 2026).
+      expect(document.body.textContent).not.toContain(refusal.message)
+      expect(document.body.textContent).not.toContain(refusal.code)
     })
   })
 })

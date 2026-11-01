@@ -88,7 +88,7 @@ export function staffAskFailure(reason: unknown, historyLimit: number): ChatFail
       case 'VALIDATION_FAILED':
         return { message: 'Your question could not be sent. Please shorten it and remove unusual characters.' }
       case 'CONSENT_REQUIRED':
-        return { message: 'Patient access has ended or changed. Reopen the patient through governed access.', accessEnded: true }
+        return { message: 'Your access to this patient has ended or changed. Open the patient again to continue.', accessEnded: true }
       case 'BREAK_GLASS_EXCLUDED':
         return { message: 'Record chat is not available under emergency access. Use the emergency summary.', accessEnded: true }
       case 'PURPOSE_OF_USE_REQUIRED':

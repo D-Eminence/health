@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { assertSignedStorageUrl, isHidApiError } from '@hid/http'
+import { assertSignedStorageUrl, isHidApiError, PlainError, plainErrorText } from '@hid/http'
 import { EhrBadge, EhrButton, EhrDataTable, EhrEmptyState, EhrField, EhrInput, EhrSelect, EhrSkeleton } from '@hid/ui/ehr'
 import { isAllowedPatientLookup, staffApi, type DocumentRecord, type Encounter, type Page } from '../../../staff/api'
 import { useStaff } from '../../../staff/App'
@@ -73,7 +73,7 @@ function PatientDocuments({ facilityId, permissions, onExtract, onAccessEnded }:
   const { activePatient, setActivePatient } = useStaff()
   const patientId = activePatient?.lookup.patient.patientId
   const verify = useCallback(async () => {
-    if (!activePatient) throw new Error('Open a patient through approved access first.')
+    if (!activePatient) throw new PlainError('Open a patient through approved access first.')
     let result: Awaited<ReturnType<typeof staffApi.lookupPatient>>
     try {
       result = await staffApi.lookupPatient(facilityId, activePatient.hid, activePatient.purpose)
@@ -81,13 +81,13 @@ function PatientDocuments({ facilityId, permissions, onExtract, onAccessEnded }:
       // The backend refuses a lookup once access has ended (403) or the patient is unavailable (404); the record closes.
       if (isHidApiError(caught) && (caught.status === 403 || caught.status === 404)) {
         onAccessEnded(); setActivePatient(null)
-        throw new Error(ACCESS_ENDED)
+        throw new PlainError(ACCESS_ENDED)
       }
       throw caught
     }
     if (!isAllowedPatientLookup(result) || result.patient.patientId !== patientId) {
       onAccessEnded(); setActivePatient(null)
-      throw new Error(ACCESS_ENDED)
+      throw new PlainError(ACCESS_ENDED)
     }
   }, [facilityId, activePatient, patientId, setActivePatient, onAccessEnded])
 
@@ -186,7 +186,7 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try { setItems((await staffApi.documents(facilityId, patientId, encounterId)).items) }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Documents could not be loaded.') }
+    catch (caught) { setError(plainErrorText(caught, 'Documents could not be loaded.', { audience: 'facility' })) }
     finally { setLoading(false) }
   }, [facilityId, patientId, encounterId])
   useEffect(() => { void load() }, [load])
@@ -209,7 +209,7 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
       await verify(); await staffApi.uploadDocument(facilityId, patientId, encounterId, file); await load(); formElement.reset()
       setNotice('Document uploaded. It can be opened once its virus scan is clean.')
     }
-    catch (caught) { setUploadError(caught instanceof Error ? caught.message : 'The document was not uploaded.'); focus('migrate-document-submit', true) }
+    catch (caught) { setUploadError(plainErrorText(caught, 'The document was not uploaded.', { audience: 'facility' })); focus('migrate-document-submit', true) }
     finally { setBusy(false) }
   }
   async function download(id: string) {
@@ -225,7 +225,7 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
       await untilStaffSessionReady(sentIn)
       window.open(result.url, '_blank', 'noopener,noreferrer')
     }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'The document could not be opened.') }
+    catch (caught) { setError(plainErrorText(caught, 'The document could not be opened.', { audience: 'facility' })) }
   }
   return <>
     {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}

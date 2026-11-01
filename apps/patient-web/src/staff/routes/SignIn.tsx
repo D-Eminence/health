@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { Field, Input, PasswordInput } from '@hid/ui'
 import { Alert, Button, buttonClass } from '../../kasuwa/ui'
 import { getEnvironment } from '../env'
@@ -37,15 +37,25 @@ const STAFF_MFA_LOOK: StaffMfaLook = {
   Button: StaffMfaButton,
 }
 
+/** The sign-in step's own words: a refused password, and anything else that stopped it. Never Identity's text. */
+const SIGN_IN_FAILED = 'We couldn’t sign you in. Check your connection and try again.'
+const SIGN_IN_CODES: Readonly<Record<string, string>> = {
+  NO_ACTIVE_FACILITY_MEMBERSHIP: 'You aren’t active at any facility yet. Ask your facility administrator for access.',
+}
+const SIGN_IN_STATUSES: Readonly<Partial<Record<number, string>>> = {
+  400: 'Check your email address and password, then try again.',
+  401: 'That email address or password isn’t right. Try again.',
+}
+
 /**
  * What the page says for a refused password step: the portal's words for the
  * refusals of a right password that mean something for staff sign-in with an
- * authenticator, and otherwise Identity's own.
+ * authenticator, and otherwise plain words (never Identity's own text).
  */
 function passwordRefusal(caught: unknown): string {
   if (isHidApiError(caught) && caught.code === 'STAFF_MFA_FACTOR_UNPROVEN') return STAFF_MFA_FACTOR_UNPROVEN
   if (isHidApiError(caught) && caught.code === 'MFA_UNAVAILABLE') return STAFF_MFA_UNAVAILABLE
-  return caught instanceof Error ? caught.message : 'Sign in failed.'
+  return plainErrorText(caught, SIGN_IN_FAILED, { codes: SIGN_IN_CODES, statuses: SIGN_IN_STATUSES, audience: 'facility' })
 }
 
 /**
@@ -157,7 +167,7 @@ export function SignIn() {
 
   function finish(session: StaffSession) {
     try { completeSignIn(session) }
-    catch (caught) { restart(caught instanceof Error ? caught.message : 'Sign in failed.'); return }
+    catch (caught) { restart(plainErrorText(caught, SIGN_IN_FAILED, { audience: 'facility' })); return }
     navigate(getStaffLandingPath(location.search, session))
   }
 

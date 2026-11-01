@@ -23,6 +23,7 @@ import { DENIED_NOTICE, RedirectNotice } from './RedirectNotice'
 import { useRoleView } from './roleView'
 import { AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
 import type { EhrBluePage } from './types'
+import { PLAIN, plainErrorText } from '@hid/http'
 
 /**
  * The design's Clinical group holds 17 pages: too many to scan (Hick's Law, Miller's 7 ± 2). The sidebar splits it
@@ -127,7 +128,7 @@ export function BlueFrame() {
     setSignOutError('')
     setSigningOut(true)
     signOut()
-      .catch((caught: unknown) => setSignOutError(caught instanceof Error ? caught.message : 'Sign-out could not be completed.'))
+      .catch((caught: unknown) => setSignOutError(plainErrorText(caught, PLAIN.signOutFailed)))
       .finally(() => setSigningOut(false))
   }
 

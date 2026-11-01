@@ -1,4 +1,4 @@
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { staffApi, type ClinicalRecord, type Encounter, type Page, type RecordKind } from '../../../staff/api'
 import { refusalSentences, refusalText, refusedFields } from '../../../staff/fieldProblem'
@@ -175,7 +175,7 @@ export function usePatientRecords(chart: Chart, kind: RecordKind | null, keep: (
               .map(record => ({ encounter, record }))
           },
           (caught: unknown) => {
-            failure ||= caught instanceof Error ? caught.message : RECORDS_FAILED
+            failure ||= plainErrorText(caught, RECORDS_FAILED, { audience: 'facility' })
             return []
           },
         )

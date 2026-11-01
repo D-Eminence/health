@@ -94,7 +94,7 @@ const FRESH_FIRST_PAGE = ['facility-1', PATIENT, ENCOUNTER, 'lab-requests', { cu
 
 describe('creating an active lab request that Lab did not take', () => {
   it.each([
-    ['refused', new HidApiError(409, `Lab request ${REQUEST} is saved and active in the EHR, but Lab refused it (LAB_ACCESS_DENIED); send it to Lab again once that is resolved`, { code: 'LAB_HANDOFF_REFUSED' }), /Lab refused it \(LAB_ACCESS_DENIED\)/],
+    ['refused', new HidApiError(409, `Lab request ${REQUEST} is saved and active in the EHR, but Lab refused it (LAB_ACCESS_DENIED); send it to Lab again once that is resolved`, { code: 'LAB_HANDOFF_REFUSED' }), /the laboratory didn’t accept it/],
     ['did not confirm', new HidApiError(502, 'The service could not complete the request.', { code: 'LAB_HANDOFF_UNCONFIRMED' }), /Lab did not confirm it/],
   ])('shows a request Lab %s as saved and active, reloads the list and clears the form', async (_case, refusal, says) => {
     api.createRecord.mockImplementation(async () => { records['lab-requests'] = [labRequest('active')]; throw refusal })
@@ -104,6 +104,8 @@ describe('creating an active lab request that Lab did not take', () => {
     expect(status.closest('[role="alert"]')).toBe(status)
     expect(status.textContent).toMatch(says)
     expect(status.textContent).toMatch(/Send to Lab/)
+    // Lab's code and the service's own words are never shown (owner's rule, 1 Nov 2026).
+    expect(document.body.textContent).not.toMatch(/LAB_ACCESS_DENIED|LAB_HANDOFF|could not complete the request/)
     expect(document.body.textContent).not.toMatch(UUID)
     expect(api.records).toHaveBeenLastCalledWith(...FRESH_FIRST_PAGE)
     // The form is cleared, so the request is not created a second time.
@@ -166,14 +168,15 @@ describe('creating an active lab request that Lab did not take', () => {
   })
 
   it.each([
-    ['Lab\'s 403 passed back by an older EHR', new HidApiError(403, 'Lab does not allow this actor to accept the EHR order', { code: 'LAB_ACCESS_DENIED' }), /^Lab does not allow this actor to accept the EHR order\. /],
-    ['Lab unavailable, passed back by an older EHR', new HidApiError(503, 'The service could not complete the request.', { code: 'LAB_SERVICE_UNAVAILABLE' }), /^The service could not complete the request\. /],
-    ['no answer', new HidApiError(0, 'The service did not answer.', { code: 'NETWORK_ERROR' }), /^The service did not answer\. /],
+    ['Lab\'s 403 passed back by an older EHR', new HidApiError(403, 'Lab does not allow this actor to accept the EHR order', { code: 'LAB_ACCESS_DENIED' }), /^You don’t have access to do this\. Ask your facility administrator if you need it\. /],
+    ['Lab unavailable, passed back by an older EHR', new HidApiError(503, 'The service could not complete the request.', { code: 'LAB_SERVICE_UNAVAILABLE' }), /^Health ID isn’t available right now\. Please try again in a few minutes\. /],
+    ['no answer', new HidApiError(0, 'The service did not answer.', { code: 'NETWORK_ERROR' }), /^We couldn’t reach Health ID\. Check your connection and try again\. /],
   ])('says an active create refused otherwise than by a handoff (%s) may have been saved, reloads the list and keeps the form', async (_case, refusal, says) => {
     api.createRecord.mockImplementation(async () => { records['lab-requests'] = [labRequest('active')]; throw refusal })
     const form = await createActiveRequest()
     const said = await within(form).findByRole('alert')
     expect(said.textContent).toMatch(says)
+    expect(said.textContent).not.toContain(refusal.message)
     expect(said.textContent).toMatch(/The lab request may have been saved and active even so: check the list before creating it again\.$/)
     expect(api.records).toHaveBeenLastCalledWith(...FRESH_FIRST_PAGE)
     expect(await screen.findByText('Haemoglobin', { selector: 'strong' })).toBeTruthy()
@@ -201,7 +204,8 @@ describe('creating an active lab request that Lab did not take', () => {
       details: [{ field: 'testDisplay', messages: ['testDisplay must be shorter than or equal to 500 characters'] }] }))
     const form = await createActiveRequest()
     const said = await within(form).findByRole('alert')
-    expect(said.textContent).toMatch(/^One or more request fields are invalid\. Test display must be shorter/)
+    expect(said.textContent).toMatch(/^Some details weren’t accepted\. Check the details you entered and try again\./)
+    expect(document.body.textContent).not.toMatch(/request fields are invalid|testDisplay|Test display must be/)
     expect(said.textContent).not.toMatch(/may have been saved/)
     expect(within(form).getByLabelText(labelled('Test display')).getAttribute('aria-invalid')).toBe('true')
   })
@@ -317,8 +321,9 @@ describe('activating or resuming a lab request', () => {
   ])('says a request %s from %s that Lab refused (%i %s) was refused, to be sent once that is resolved', async (done, from, status, code) => {
     await activate({ state: 'failed', status, code }, from)
     const said = await screen.findByText(new RegExp(`^Lab request ${done} in the EHR`))
-    expect(said.textContent).toMatch(new RegExp(`Lab refused it \\(${code}\\)`))
-    expect(said.textContent).toMatch(/once that is resolved, use Send to Lab on the request\.$/i)
+    expect(said.textContent).toMatch(/the laboratory didn’t accept it/)
+    expect(said.textContent).not.toContain(code)
+    expect(said.textContent).toMatch(/Contact the laboratory, then use Send to Lab on the request\.$/i)
     expect(said.textContent).not.toMatch(/did not confirm|did not accept/)
     expect(screen.queryByText(/accepted by Lab/)).toBeNull()
     const send = await screen.findByRole('button', { name: 'Send to Lab' })
@@ -333,7 +338,8 @@ describe('activating or resuming a lab request', () => {
   ])('says a request %s from %s that Lab did not confirm (%i %s) may not be in the Laboratory, and offers to send it again', async (done, from, status, code) => {
     await activate({ state: 'failed', status, code }, from)
     const said = await screen.findByText(new RegExp(`^Lab request ${done} in the EHR`))
-    expect(said.textContent).toMatch(new RegExp(`Lab did not confirm it \\(${code}\\), so the Laboratory may not have it: `))
+    expect(said.textContent).toMatch(/Lab did not confirm it, so the Laboratory may not have it: /)
+    expect(said.textContent).not.toContain(code)
     expect(said.textContent).toMatch(/Send to Lab/)
     expect(said.textContent).not.toMatch(/refused/)
     expect(screen.queryByText(/accepted by Lab/)).toBeNull()

@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { EhrButton, EhrField, EhrInput, EhrSelect, type EhrBadgeTone } from '@hid/ui/ehr'
 import { staffApi, type AssistedDocumentType } from '../../../staff/api'
 import { useStaff } from '../../../staff/App'
@@ -131,7 +131,6 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
   /** InPersonCheck.tsx:205-255: each answer, said where today's page says it, in today's words. */
   function answer(caught: unknown, form: HTMLFormElement, typedDateOfBirth: boolean, checked: string) {
     const code = isHidApiError(caught) ? caught.code : ''
-    const message = caught instanceof Error ? caught.message : ''
     switch (code) {
       case 'ASSISTED_VERIFICATION_NOT_MATCHED': {
         const fields = isHidApiError(caught) && caught.fields ? caught.fields : {}
@@ -141,14 +140,14 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
       }
       case 'NIN_ALREADY_REGISTERED':
         setValues(EMPTY)
-        setStage({ kind: 'registered', detail: message, checked })
+        setStage({ kind: 'registered', detail: '', checked })
         focus('in-person-registered-title')
         return
       case 'DESK_CODE_NOT_FOUND':
-        problems.refuse('in-person-desk-code', message || DESK_CODE_NOT_FOUND)
+        problems.refuse('in-person-desk-code', DESK_CODE_NOT_FOUND)
         return
       case 'DESK_CODE_INVALID':
-        problems.refuse('in-person-desk-code', message || DESK_CODE_ENTRY)
+        problems.refuse('in-person-desk-code', DESK_CODE_ENTRY)
         return
       case 'ASSISTED_VERIFICATION_STALE':
         problems.refuse('in-person-desk-code', STALE)
@@ -162,7 +161,7 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
         setError(PERMISSION_DENIED)
         return
       case 'ASSISTED_REGISTRATION_DISABLED':
-        setError(`${message || DISABLED_FALLBACK} ${NOTHING_RECORDED}`)
+        setError(`${DISABLED_FALLBACK} ${NOTHING_RECORDED}`)
         return
       case 'IDEMPOTENCY_KEY_REUSED':
         setError(KEY_REUSED)
@@ -177,8 +176,8 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
         return
     }
     if (outcomeUnknown(caught)) { setError(RETRY); return }
-    // Any other refusal says what Identity said: a 4xx detail is written for the person using the client.
-    setError(message || NOT_COMPLETED)
+    // Any other refusal in plain words: never Identity's own text (owner's rule, 1 Nov 2026).
+    setError(plainErrorText(caught, NOT_COMPLETED, { codes: { ASSISTED_VERIFICATION_LIMITED: 'The daily limit of in-person checks has been reached. Try again later.' }, audience: 'facility' }))
   }
 
   /** InPersonCheck.tsx:257-262. */
@@ -204,7 +203,7 @@ function CheckDesk({ facilityId }: { readonly facilityId: string }) {
       <Page>
         <Outcome status="already registered" tone="caution" titleId="in-person-registered-title" title={REGISTERED_TITLE}
           checked={stage.checked} onAnother={another} patientsHref={patientsHref}>
-          <p>{stage.detail}</p>
+          {stage.detail ? <p>{stage.detail}</p> : null}
           <p>{REGISTERED_NEXT}</p>
         </Outcome>
       </Page>

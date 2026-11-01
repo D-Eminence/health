@@ -1,4 +1,5 @@
 import { PHONE_COUNTRIES } from './routes/enrollment/phoneCountries'
+import { PlainError } from '@hid/http'
 
 /**
  * hid-1.0 patient parity B3 (owner decisions of 2026-10-28, and the lead's for the wave): what the profile's coverage,
@@ -124,7 +125,7 @@ export function parseReportedHealthProfile(value: unknown): ReportedHealthProfil
 
 export function parseEmailChangeStarted(value: unknown): EmailChangeStarted {
   const changeId = record(value) && typeof value.changeId === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value.changeId) ? value.changeId : null
-  if (!record(value) || changeId === null) throw new Error('The code could not be sent. Try again.')
+  if (!record(value) || changeId === null) throw new PlainError('The code could not be sent. Try again.')
   return {
     changeId,
     maskedContact: textOrNull(value.maskedContact, 254) ?? 'your new email address',

@@ -7,19 +7,17 @@ type Focus = (element: HTMLElement | null) => void
  * 409 NIN_ALREADY_REGISTERED, which Identity says only after the NIN holder is
  * proved: by a correct code (POST .../holder/verify), or at activation when the
  * NIN was bound since (hid-system #84, ADR-062). Account recovery, never a
- * second identity, and Health ID support with the reference for someone who
- * never registered (Health-id alignment row 8). Nothing names the NIN, a Health
- * ID or a contact.
+ * second identity, and Health ID support for someone who never registered
+ * (Health-id alignment row 8). Nothing names the NIN, a Health ID, a contact or
+ * a correlation id (owner's rule, 1 Nov 2026).
  */
-export function AlreadyRegistered({ focusTarget, reference }: { focusTarget: Focus; reference: string | null }) {
+export function AlreadyRegistered({ focusTarget }: { focusTarget: Focus }) {
   return <section className="flex flex-col gap-4 text-sm text-ink-2 [&_h2]:m-0 [&_h2]:text-title-2 [&_h2]:text-ink [&_h2]:outline-none [&_p]:m-0" aria-labelledby="enroll-registered-title">
     <h2 id="enroll-registered-title" ref={focusTarget} tabIndex={-1}>This NIN already has a Health ID</h2>
     <p>We can't create another Health ID for this NIN. Use account recovery to get back into it.</p>
     <Link className={buttonClass({ variant: 'primary', size: 'lg', block: true })} to="/recover">Recover your account</Link>
     <Link className={buttonClass({ size: 'lg', block: true })} to="/sign-in">Sign in</Link>
-    <p>{reference
-      ? <>If you have never registered for a Health ID, contact Health ID support and quote this reference: <span className="font-mono font-semibold text-ink">{reference}</span>.</>
-      : 'If you have never registered for a Health ID, contact Health ID support.'}</p>
+    <p>If you have never registered for a Health ID, contact Health ID support.</p>
   </section>
 }
 
