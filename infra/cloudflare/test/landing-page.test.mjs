@@ -51,7 +51,9 @@ const PATIENTS_PAGE = '<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8
   + '<main id="main"><a href="https://app.healthidentitydirectory.com/enroll">Create your Health ID</a>'
   + '<a href="https://app.healthidentitydirectory.com/sign-in">I already have a Health ID</a>'
   + '<a href="https://app.healthidentitydirectory.com/">Open Health ID</a>'
-  + '<a href="/products/laboratory">Laboratory</a><a href="/providers">For providers</a></main>'
+  + '<a href="/products/laboratory">Laboratory</a><a href="/providers">For providers</a>'
+  // The module showcase's Identity card (content/module-showcase.ts), whose call to action is sign-up.
+  + '<a class="module-showcase-cta" href="https://app.healthidentitydirectory.com/enroll">Get your Health ID</a></main>'
   + '<footer><a href="/privacy">Privacy</a><a href="mailto:support@healthidentitydirectory.com">Email us</a></footer>'
   + '</body></html>'
 
@@ -243,9 +245,14 @@ test('the patient portal shows a stranger the Health ID page from the public sit
     ['Open Health ID', 'https://app.healthidentitydirectory.com/sign-in'],
     ['Laboratory', 'https://lab.healthidentitydirectory.com/'],
     ['For providers', 'https://healthidentitydirectory.com/providers'],
+    ['Get your Health ID', 'https://app.healthidentitydirectory.com/enroll'],
     ['Privacy', 'https://healthidentitydirectory.com/privacy'],
     ['Email us', 'mailto:support@healthidentitydirectory.com'],
   ])
+  // Every "Get your Health ID" is a step to sign-up, the Identity card's too: never the main site's copy of this page.
+  const getYourHealthId = linksOf(page).filter(([text]) => /get your health id/i.test(text))
+  assert.equal(getYourHealthId.length, 2)
+  for (const [, href] of getYourHealthId) assert.equal(href, 'https://app.healthidentitydirectory.com/enroll')
   // Its canonical address stays the public site's patient page, once, in its head.
   const head = page.slice(0, page.indexOf('</head>'))
   assert.deepEqual(page.match(/<link[^>]*\brel="[^"]*canonical[^"]*"[^>]*>/gi),
