@@ -19,11 +19,12 @@ import { Results } from './Results'
  */
 const GROUP = 'Laboratory'
 /**
- * The refusal at the Laboratory's addresses for a role without lab work. Screens name no permission (the owner's rule),
- * so today's words, which named the one lacking, give way to the plain sentence the Pharmacy's refusal now uses.
+ * The refusal at the Laboratory's entry, Work list and Results for a role that can't read the lab's work. Screens name
+ * no permission (the owner's rule), so today's words, which named the one lacking, give way to the plain sentence the
+ * Pharmacy's refusal now uses. It names only what is refused: a role may still raise a New request without it.
  */
 const LabUnavailable = () => <DeptUnavailable title="Laboratory unavailable"
-  message="Your role at this facility doesn’t include lab work. Ask your facility administrator." />
+  message="Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator." />
 const icon = (I: typeof Plus) => <I aria-hidden strokeWidth={1.8} />
 
 /** Listed in a hospital's sidebar only: a lab on its own lists its six pages instead. */

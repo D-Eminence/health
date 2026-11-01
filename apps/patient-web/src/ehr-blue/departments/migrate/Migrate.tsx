@@ -31,9 +31,10 @@ interface StepFocus { readonly targets: readonly string[]; readonly notice?: str
 /**
  * The refusal for a role without OCR job read, on this page and at its address (page.tsx). Screens name no permission
  * (the owner's rule), so today's words, which named the one lacking, give way to the plain sentence the Pharmacy's
- * refusal now uses.
+ * refusal now uses. It names the OCR work, not document capture: a clinician refused here may still add documents
+ * to a visit.
  */
-export const NO_DOCUMENT_CAPTURE = 'Your role at this facility doesn’t include document capture. Ask your facility administrator.'
+export const NO_DOCUMENT_OCR = 'Your role at this facility doesn’t include turning scanned documents into records. Ask your facility administrator.'
 
 /** A job this page has read, and when. */
 interface OpenedJob { readonly job: OcrJob; readonly readAt: string }
@@ -273,7 +274,7 @@ export function Migrate() {
 
   // The page opens as today's Migrate and Document OCR pages do: at a facility, with OCR job read.
   if (!facilityId || !canRead) return <DeptPage title="Document OCR">
-    <DeptNotice tone="critical" role="alert">{NO_DOCUMENT_CAPTURE}</DeptNotice>
+    <DeptNotice tone="critical" role="alert">{NO_DOCUMENT_OCR}</DeptNotice>
   </DeptPage>
 
   const detail = view === 'detail' && canRead && visibleJob ? visibleJob : null
@@ -306,7 +307,7 @@ export function Migrate() {
       statusWords(row.job.status), row.job.provider, row.job.patientId]))
     const nothingFound = searched && !visibleJob && currentDocument !== ''
     if (!canRead) return <DeptSection title="Document OCR">
-      <DeptNotice tone="critical">{NO_DOCUMENT_CAPTURE}</DeptNotice>
+      <DeptNotice tone="critical">{NO_DOCUMENT_OCR}</DeptNotice>
     </DeptSection>
     return <>
       <DeptSearch label="Search Document OCR" value={search} onChange={setSearch}

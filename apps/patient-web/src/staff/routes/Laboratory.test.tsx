@@ -193,12 +193,13 @@ beforeEach(() => {
 })
 
 describe('Laboratory page access', () => {
-  it('shows the unavailable state and loads nothing without lab work-item read permission', () => {
+  it('shows the unavailable state, in plain words that name no permission, and loads nothing without lab work-item read permission', () => {
     staff.permissions = ['lab.accession.read', 'lab.execution.read', 'lab.result.verify']
     render(<Laboratory />)
 
     expect(screen.getByRole('heading', { name: 'Laboratory unavailable' })).toBeTruthy()
-    expect(screen.getByText('This facility membership needs lab work-item read permission.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/permission|membership|work-item|lab\.work-item\.read/i)
     expect(screen.queryByRole('heading', { name: 'Laboratory' })).toBeNull()
     expect(api.labWorkItems).not.toHaveBeenCalled()
   })

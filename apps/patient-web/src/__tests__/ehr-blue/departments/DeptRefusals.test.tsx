@@ -8,8 +8,8 @@ import { DEMO_HOSPITAL, SESSION, facility, openStaffApp, serve, sessionAt } from
  * staff/routes/Operations.tsx and Audit.tsx, or the plain sentence that replaced them), not the frame's "not open to you
  * here", and reads nothing but the session. Every account is fictional.
  */
-const LAB_REFUSAL = 'Your role at this facility doesn’t include lab work. Ask your facility administrator.'
-const OCR_REFUSAL = 'Your role at this facility doesn’t include document capture. Ask your facility administrator.'
+const LAB_REFUSAL = 'Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator.'
+const OCR_REFUSAL = 'Your role at this facility doesn’t include turning scanned documents into records. Ask your facility administrator.'
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 beforeEach(() => {
   vi.doMock('../../../ehr-blue/routes', async importOriginal => {
@@ -28,7 +28,7 @@ describe('a department page without its permission', () => {
     ['/provider/pharmacy', 'Pharmacy unavailable', 'This facility membership needs pharmacy work-item read permission.'],
     ['/provider/ocr', 'Document OCR unavailable', OCR_REFUSAL],
     ['/provider/audit', 'Audit access unavailable', 'Your active facility membership needs audit.read permission to review its events.'],
-  ])('%s says today\'s %s and reads nothing', async (path, title, message) => {
+  ])('%s gives its own refusal, %s, and reads nothing', async (path, title, message) => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['ehr.encounter.read'])
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp(path)

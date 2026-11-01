@@ -199,7 +199,7 @@ afterEach(() => {
 })
 
 /** The Laboratory's refusal at its addresses, in the words of the Pharmacy's. */
-const LAB_REFUSAL = 'Your role at this facility doesn’t include lab work. Ask your facility administrator.'
+const LAB_REFUSAL = 'Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator.'
 /** A permission's name, Identity's code or the old "membership needs … permission" words: none belongs on a screen. */
 const PERMISSION_WORDS = /permission|membership|work-item|lab\.work-item\.read/i
 
