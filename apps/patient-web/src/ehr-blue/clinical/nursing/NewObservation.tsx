@@ -35,7 +35,8 @@ function NewObservationForm({ chart }: { chart: Chart }) {
   const reads = chart.can('ehr.note.read')
   const writes = chart.can('ehr.note.write')
   const canCreate = reads && chart.canWrite && writes
-  // Vital signs go to Triage & Vitals (a link only for a role that can record them there).
+  // Vital signs go to Triage & Vitals: a link for a role that can record them there, and for any other role, words that
+  // send it to a colleague instead of to a page that would refuse it.
   const recordsVitals = chart.can('ehr.vital.read') && chart.can('ehr.vital.write')
   const list = usePatientRecords(chart, null)
   const attempt = useRef<{ signature: string; key: string } | null>(null)
@@ -83,9 +84,9 @@ function NewObservationForm({ chart }: { chart: Chart }) {
                 </p>
               ) : null}
               <p className="hid-ehr-clinical-note">
-                To record BP, pulse, temperature or other vital signs, use {recordsVitals
-                  ? <Link className="hid-ehr-clinical-link" to={href.to('triage', 'new')}>{TRIAGE_TITLE}</Link>
-                  : TRIAGE_TITLE}.
+                {recordsVitals
+                  ? <>To record BP, pulse, temperature or other vital signs, use <Link className="hid-ehr-clinical-link" to={href.to('triage', 'new')}>{TRIAGE_TITLE}</Link>.</>
+                  : `BP, pulse, temperature and other vital signs aren’t recorded here. Your role can’t record them in ${TRIAGE_TITLE}, so ask a colleague who can.`}
               </p>
               <RecordForm key={visits.map(encounter => encounter.id).join()} fields={fields} submitLabel="Save observation" onSubmit={submit} />
             </>

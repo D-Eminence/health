@@ -264,11 +264,17 @@ describe('New nursing observations', () => {
     expect(link.getAttribute('href')).toBe('/provider/triage/new')
   })
 
-  it('says where vital signs go without a link when the role cannot record vitals', async () => {
+  it.each([
+    ['can read vitals but not record them', [...ALL]],
+    ['has no vitals access at all', ALL.filter(permission => permission !== 'ehr.vital.read')],
+  ])('sends a nurse whose role %s to a colleague, not to Triage & Vitals, which would refuse them', async (_role, permissions) => {
+    staff.permissions = permissions
     await openNew()
-    const pointer = screen.getByText(/^To record BP, pulse, temperature or other vital signs, use/)
-    expect(pointer.textContent).toBe('To record BP, pulse, temperature or other vital signs, use Triage & Vitals.')
+    const pointer = screen.getByText(/vital signs aren’t recorded here/)
+    expect(pointer.textContent).toBe('BP, pulse, temperature and other vital signs aren’t recorded here. Your role can’t record them in '
+      + 'Triage & Vitals, so ask a colleague who can.')
     expect(within(pointer).queryByRole('link')).toBeNull()
+    expect(screen.queryByText(/use Triage & Vitals/)).toBeNull()
   })
 
   it('still shows an earlier observation saved under "Vitals", in the list and on its page', async () => {
