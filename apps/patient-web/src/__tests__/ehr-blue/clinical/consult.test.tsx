@@ -303,9 +303,10 @@ describe('Consultation list', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Consultation' })).toBeTruthy()
     expect(screen.getByText('Clinical record')).toBeTruthy()
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()
-    // Today's sentences (staff/routes/Clinical.tsx:1375), none dropped.
+    // Today's sentences (staff/routes/Clinical.tsx:1375), none dropped: "No authorized patient" and "documented" are
+    // today's, the rest keeps the redesign's words.
     expect(screen.getByText('No authorized patient.').parentElement!.textContent).toBe(
-      'Clinical records require a current authorization for the selected facility. No authorized patient. Open a patient using an approved request, patient PIN, or documented emergency access.')
+      'Records show only for a patient you have access to at this facility. No authorized patient. Open a patient with an approved request, the patient’s PIN, or documented emergency access.')
     expect(screen.queryByText(/Direct care access/)).toBeNull()
     expect(screen.getByRole('link', { name: 'Go to patient access →' }).getAttribute('href')).toBe('/provider/patients')
     expect(api.encounters).not.toHaveBeenCalled()
