@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EmergencyWorkspace } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
+import { statusWords } from '../../../ehr-blue/clinical/parts/format'
 import { NO_ACTIONS } from '../../../ehr-blue/clinical/parts/Notices'
 import { DEFAULT_ACTION_PERMISSION, SAMPLE_DEFINITIONS, SAMPLE_WORKSPACE_IDS } from '../../../ehr-blue/clinical/sample/definitions'
 import { IDS } from '../../../ehr-blue/clinical/sample/seed'
@@ -115,12 +116,20 @@ function continueCare() {
 }
 
 function historyCard() {
-  return screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section') as HTMLElement
+  return screen.getByRole('heading', { name: 'History' }).closest('section') as HTMLElement
 }
 
 /** Each history row as "{link} [{status}]". */
 function historyRows() {
-  return Array.from(historyCard().querySelectorAll('li')).map(row => `${row.querySelector('a')?.textContent} [${row.querySelector('.hid-ehr-clinical-badge')?.textContent}]`)
+  return Array.from(historyCard().querySelectorAll('li')).map(row => {
+    const link = row.querySelector('a')?.textContent ?? ''
+    return `${link} [${(row.textContent ?? '').slice(link.length).trim()}]`
+  })
+}
+
+/** Rows written with the record's status key ("[checked-in]"), as the badge words it ("[Checked in]"). */
+function worded(rows: readonly string[]) {
+  return rows.map(row => row.replace(/\[([^\]]*)\]$/, (_match, status: string) => `[${statusWords(status)}]`))
 }
 
 /** Each action's verb, as design/ehr-target src/catalog.ts gives it (null: none; the design then checks "edit"). */
@@ -160,9 +169,8 @@ describe('audit 16: sample record pages follow the design’s roles', () => {
     expect(screen.queryByRole('button', { name: 'Simulate recipient acceptance' })).toBeNull()
     expect(actionLabels()).toEqual([])
     expect(within(actionsCard()).getByText(NO_ACTIONS)).toBeTruthy()
-    expect(NO_ACTIONS).toBe('No further actions for your permission and this record state.')
     // The capture is a Doctor's: every connected row still shows.
-    expect(historyRows()).toEqual([
+    expect(historyRows()).toEqual(worded([
       'Appointments · Medication review [booked]',
       'Patient visits · 203099a6 [consulting]',
       'Triage & Vitals · cbcf4b88 [completed]',
@@ -171,7 +179,7 @@ describe('audit 16: sample record pages follow the design’s roles', () => {
       'Radiology · Chest X-ray [published]',
       'Pharmacy · 71785d4b [reviewed]',
       'Telemedicine · Remote follow-up [waiting]',
-    ])
+    ]))
   })
 
   it('audit 16: a Receptionist’s Continue care offers no target it may not create, and the heading still shows (journey-3-detail.png)', () => {
@@ -211,13 +219,13 @@ describe('audit 16: sample record pages follow the design’s roles', () => {
     signedInAs('receptionist')
     const appointment = open('appointments', `/${IDS.apptTaylor}`)
     expect(within(actionsCard()).getByText(NO_ACTIONS)).toBeTruthy()
-    expect(within(historyCard()).getByText('Only records available to your current permissions are listed.')).toBeTruthy()
+    expect(within(historyCard()).getByText('Only records your role can see are listed.')).toBeTruthy()
     // The live modules' fictional rows (Triage & Vitals, Consultation, Laboratory, Pharmacy, Nursing observations) go too.
-    expect(historyRows()).toEqual(['Patient visits · b57e94c9 [consulting]', 'Patient visits · Review of results [waiting]'])
+    expect(historyRows()).toEqual(worded(['Patient visits · b57e94c9 [consulting]', 'Patient visits · Review of results [waiting]']))
     appointment.unmount()
 
     open('journey', `/${IDS.visitTaylor}`)
-    expect(within(historyCard()).getByText('Only records available to your current permissions are listed.')).toBeTruthy()
+    expect(within(historyCard()).getByText('Only records your role can see are listed.')).toBeTruthy()
     expect(historyRows()).toEqual([])
   })
 
@@ -251,13 +259,13 @@ describe('audit 16: sample record pages follow the design’s roles', () => {
 
   it('audit 16: a Radiology Reporter sees no Create record on Radiology (radiology-1-list.png), and the design’s actions and history on its records', () => {
     const doctor = open('radiology')
-    expect(screen.getByRole('button', { name: 'Create record' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'New record' })).toBeTruthy()
     doctor.unmount()
 
     viewingAs('Radiology Reporter')
     const list = open('radiology')
     expect(screen.getByRole('heading', { level: 1, name: 'Radiology' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'New record' })).toBeNull()
     const table = within(screen.getByRole('table', { name: 'Radiology' }))
     for (const name of ['Open Chest X-ray', 'Open Abdominal ultrasound']) expect(table.getByRole('link', { name })).toBeTruthy()
     list.unmount()
@@ -314,12 +322,13 @@ describe('audit 16: sample record pages follow the design’s roles', () => {
       const list = open(id)
       // The list's heading is drawn (SampleHome's, or the Emergency page's above its board), so a missing Create record
       // is the role gate's doing.
-      expect(screen.getByRole('heading', { level: 1, name: definition.title })).toBeTruthy()
+      expect(screen.getByRole('heading', { level: 1, name: id === 'emergency' ? 'Emergency access' : definition.title })).toBeTruthy()
       if (id === 'emergency') {
+        expect(screen.queryByRole('link', { name: 'New board entry' })).toBeNull()
         const board = within(screen.getByRole('table', { name: definition.title }))
         for (const record of listedRecords(sampleState(), definition)) expect(board.getByRole('link', { name: `Open ${recordName(record)}` })).toBeTruthy()
       }
-      expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'New record' })).toBeNull()
       list.unmount()
       for (const record of listedRecords(sampleState(), definition)) {
         pages += 1

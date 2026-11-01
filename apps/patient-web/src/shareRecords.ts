@@ -18,7 +18,7 @@ export const SHARE_LEVELS: ReadonlyArray<{ value: ShareLevel; label: string; des
 ]
 
 /** D1: a write grant also lets the clinician send orders to another facility (P4c), so the page says so under it. */
-export const COLLABORATION_WARNING = 'Can also add to your records and send your test requests or prescriptions to another facility.'
+export const COLLABORATION_WARNING = 'They can also send your test requests or prescriptions to another facility.'
 
 export const SHARE_DURATIONS: ReadonlyArray<{ value: ShareDuration; label: string }> = [
   { value: '24h', label: '24 hours' },

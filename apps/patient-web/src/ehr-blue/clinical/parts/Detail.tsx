@@ -75,7 +75,7 @@ export interface HistoryItem {
  * "Connected hospital history": records of the same patient this user may see, each with its status. An empty
  * `empty` draws nothing when there are none. `children` come before the rows (notices, pagers), `footer` after them.
  */
-export function HistoryCard({ items, empty = 'No other records for this patient yet.', children, footer }: {
+export function HistoryCard({ items, empty = 'Nothing else for this patient yet.', children, footer }: {
   items: readonly HistoryItem[]
   empty?: string
   children?: ReactNode
@@ -83,8 +83,8 @@ export function HistoryCard({ items, empty = 'No other records for this patient 
 }) {
   const id = useId()
   return (
-    <EhrCard title="Connected hospital history">
-      <p>Only records available to your current permissions are listed.</p>
+    <EhrCard title="History">
+      <p>Only records your role can see are listed.</p>
       {children}
       {items.length === 0 ? (empty ? <p>{empty}</p> : null) : (
         <ul className="hid-ehr-clinical-history-list">
@@ -132,7 +132,7 @@ export interface VersionItem {
 }
 
 /** "Preserved versions & amendments": one disclosure per earlier version. */
-export function VersionsCard({ versions, title = 'Preserved versions & amendments' }: { versions: readonly VersionItem[]; title?: string }) {
+export function VersionsCard({ versions, title = 'Earlier versions' }: { versions: readonly VersionItem[]; title?: string }) {
   if (versions.length === 0) return null
   return (
     <EhrCard title={title}>
@@ -147,7 +147,7 @@ export function VersionsCard({ versions, title = 'Preserved versions & amendment
   )
 }
 
-export const CONFIRM_BODY = 'Review the entered details before continuing. This action changes the saved record and is recorded in its history.'
+export const CONFIRM_BODY = 'Check the details first. This changes the saved record; the change is kept in its history.'
 
 /**
  * The design's decision dialog: "{label}?", the history sentence, "Cancel" and the action. `word` ("SIGN",

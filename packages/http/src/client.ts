@@ -42,6 +42,11 @@ export type AuthRequirement =
   /** Never attach a token (public endpoints such as sign-in or availability). */
   | 'none'
 
+/** A multipart body, sent as is: the browser writes its Content-Type and boundary. */
+function isFormData(body: unknown): body is FormData {
+  return typeof FormData !== 'undefined' && body instanceof FormData
+}
+
 export interface RequestSpec {
   readonly method: HttpMethod
   /** Gateway-relative path, e.g. `/patients-me`. Joined onto the configured base URL. */
@@ -307,7 +312,8 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       headers.set('X-HID-Client', options.clientId)
     }
 
-    if (spec.body !== undefined) headers.set('Content-Type', 'application/json')
+    // A multipart body (FormData) sets its own Content-Type, with the boundary.
+    if (spec.body !== undefined && !isFormData(spec.body)) headers.set('Content-Type', 'application/json')
 
     const requirement: AuthRequirement = spec.auth ?? 'required'
     if (cookieMode) {
@@ -349,7 +355,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       response = await fetchImpl(url.toString(), {
         method: spec.method,
         headers,
-        body: spec.body === undefined ? undefined : JSON.stringify(spec.body),
+        body: spec.body === undefined ? undefined : isFormData(spec.body) ? spec.body : JSON.stringify(spec.body),
         signal: attemptSignal.signal,
         // Clinical data is never served from the HTTP cache.
         cache: 'no-store',

@@ -256,8 +256,8 @@ describe('orders between facilities in the Novu console', () => {
     fireEvent.click(within(row).getByText('Close', { selector: 'summary' }))
     expect(within(row).getByText(ASK_THEM_FIRST)).toBeTruthy()
     expect(within(row).getByText(LATE_CASE)).toBeTruthy()
-    // The sidebar and the narrow-screen navigation both list it.
-    expect(screen.getAllByRole('link', { name: 'Wrong-patient reports' })).toHaveLength(2)
+    // The navigation (one for every screen width) lists it.
+    expect(within(screen.getByRole('navigation', { name: 'Main navigation' })).getAllByRole('link', { name: 'Wrong-patient reports' })).toHaveLength(1)
   })
 
   it('keeps Close the remedy on an Identity without the wrong-patient report, and stops listing its page (D15)', async () => {
@@ -265,7 +265,8 @@ describe('orders between facilities in the Novu console', () => {
     // stays the way to end its access.
     serve(SUPPORT)
     await openAt('/admin/order-routes')
-    expect(await screen.findAllByRole('link', { name: 'Wrong-patient reports' })).toHaveLength(2)
+    const nav = await screen.findByRole('navigation', { name: 'Main navigation' })
+    expect(await within(nav).findAllByRole('link', { name: 'Wrong-patient reports' })).toHaveLength(1)
     const row = await findByReference()
     fireEvent.click(within(row).getByText('Close', { selector: 'summary' }))
     expect(within(row).queryByText(ASK_THEM_FIRST)).toBeNull()

@@ -1,7 +1,7 @@
-import { EhrBadge } from '@hid/ui/ehr'
-import { statusLabel } from './format'
+import { Badge, statusTone } from '../../../kasuwa/ui'
+import { statusWords } from './format'
 
-/** A record status in the design's single blue tint ("signed", "checked-in", "in progress"). */
+/** A record status in words with its tone (the shared status map), never colour alone: "Signed", "In Progress". */
 export function StatusBadge({ status }: { status: string }) {
-  return <EhrBadge className="hid-ehr-clinical-badge">{statusLabel(status)}</EhrBadge>
+  return <Badge size="sm" tone={statusTone(status)}>{statusWords(status)}</Badge>
 }

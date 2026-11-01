@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { valueAt } from '../cssRules'
-import { declarations, ehrCss, ehrCssWithoutComments, ehrRules, resolveVars, token } from './ehrCss'
+import { declarations, ehrCss, ehrCssWithoutComments, ehrRules, resolveVars, token, valueInContainer } from './ehrCss'
 
 /**
  * ehr.css is scoped: every rule sits under .hid-ehr and names only hid-ehr-*
@@ -57,12 +57,15 @@ describe('ehr.css scope', () => {
     expect(ehrCss).not.toMatch(/\.waya-/)
   })
 
-  it('contains none of :root, html, body, *, @theme, @layer, !important or data: URLs', () => {
+  it('contains none of :root, html, body, *, @theme, @layer, !important, or any data: URL but an inline SVG image', () => {
     expect(ehrCssWithoutComments).not.toMatch(/:root\b/)
     expect(ehrCssWithoutComments).not.toMatch(/@theme\b/)
     expect(ehrCssWithoutComments).not.toMatch(/@layer\b/)
     expect(ehrCssWithoutComments).not.toMatch(/!\s*important/)
-    expect(ehrCssWithoutComments).not.toMatch(/data:/)
+    // The empty-state illustration is an inline SVG drawn as a mask; no other data: URL (fonts, raster images) may ride in.
+    const dataUrls = [...ehrCssWithoutComments.matchAll(/url\(\s*(['"]?)(data:[^,]*),/g)].map(match => match[2])
+    expect(ehrCssWithoutComments.match(/data:/g)?.length ?? 0).toBe(dataUrls.length)
+    expect(dataUrls.filter(header => header !== 'data:image/svg+xml')).toEqual([])
     for (const part of selectors.flatMap(compounds)) {
       expect(part).not.toMatch(/^(html|body)\b/)
       expect(part).not.toContain('*')
@@ -139,7 +142,8 @@ describe('ehr.css behaviour', () => {
     expect(valueAt(ehrCss, '.hid-ehr .hid-ehr-scrim', 'inset', PHONE)).toBe('0')
     expect(valueAt(ehrCss, '.hid-ehr .hid-ehr-scrim', 'position', PHONE)).toBe('fixed')
     expect(resolved('.hid-ehr .hid-ehr-scrim', 'z-index', DESKTOP)).toBe(token('z-overlay'))
-    expect(resolved('.hid-ehr .hid-ehr-scrim', 'background', DESKTOP)).toBe('#0b1b2e66')
+    expect(resolved('.hid-ehr .hid-ehr-scrim', 'background', DESKTOP)).toBe(token('scrim'))
+    expect(token('scrim')).toBe('#10182873')
   })
 
   it('keeps the sidebar and top bar below the popover and overlay layers', () => {
@@ -154,9 +158,9 @@ describe('ehr.css behaviour', () => {
     }
   })
 
-  it('sizes the chrome: sidebar 247px (60px collapsed), top bar 76px, at least 64px on phones and wrapping there', () => {
-    expect(resolved('.hid-ehr .hid-ehr-sidebar', 'width', DESKTOP)).toBe('247px')
-    expect(resolved('.hid-ehr .hid-ehr-sidebar.hid-ehr-sidebar-collapsed', 'width', DESKTOP)).toBe('60px')
+  it('sizes the chrome: sidebar 264px (64px collapsed), top bar 76px, at least 64px on phones and wrapping there', () => {
+    expect(resolved('.hid-ehr .hid-ehr-sidebar', 'width', DESKTOP)).toBe('264px')
+    expect(resolved('.hid-ehr .hid-ehr-sidebar.hid-ehr-sidebar-collapsed', 'width', DESKTOP)).toBe('64px')
     expect(resolved('.hid-ehr .hid-ehr-topbar', 'height', DESKTOP)).toBe('76px')
     expect(resolved('.hid-ehr .hid-ehr-topbar', 'height', 769)).toBe('76px')
     for (const width of [PHONE, 768]) {
@@ -186,31 +190,33 @@ describe('ehr.css behaviour', () => {
     expect(valueAt(ehrCss, '.hid-ehr .hid-ehr-scrim.hid-ehr-scrim-drawer', 'align-items', 701)).toBeUndefined()
   })
 
-  it('sets the page title in Playfair Display 400 at 40px, 34px and 24px', () => {
+  it('sets the page title in the display face at 600, 30px, stepping down to 28px and 24px as the content narrows', () => {
     const title = '.hid-ehr .hid-ehr-page-title'
-    expect(resolved(title, 'font-family', DESKTOP)).toBe("'Playfair Display', Georgia, serif")
-    expect(valueAt(ehrCss, title, 'font-weight', DESKTOP)).toBe('400')
-    expect(resolved(title, 'font-size', DESKTOP)).toBe('40px')
-    expect(resolved(title, 'font-size', 1000)).toBe('34px')
-    expect(resolved(title, 'font-size', 768)).toBe('24px')
-    expect(resolved(title, 'font-size', PHONE)).toBe('24px')
+    expect(resolved(title, 'font-family', DESKTOP)).toBe(token('font-display'))
+    expect(valueAt(ehrCss, title, 'font-weight', DESKTOP)).toBe('600')
+    expect(valueInContainer(title, 'font-size', 1000)).toBe('30px')
+    expect(valueInContainer(title, 'font-size', 760)).toBe('28px')
+    expect(valueInContainer(title, 'font-size', 640)).toBe('24px')
+    expect(valueInContainer(title, 'font-size', PHONE)).toBe('24px')
   })
 
   it('gives controls the design\'s border and a not-allowed cursor when disabled', () => {
-    expect(resolved('.hid-ehr .hid-ehr-control', 'border', DESKTOP)).toBe('1px solid #c6c6cc')
+    expect(resolved('.hid-ehr .hid-ehr-control', 'border', DESKTOP)).toBe(`1px solid ${token('control-border')}`)
+    expect(token('control-border')).toBe('#7d8799')
     expect(valueAt(ehrCss, '.hid-ehr .hid-ehr-control:disabled', 'cursor', DESKTOP)).toBe('not-allowed')
     expect(valueAt(ehrCss, '.hid-ehr .hid-ehr-button:disabled', 'cursor', DESKTOP)).toBe('not-allowed')
   })
 
-  it('sizes buttons 40px and 30px high with a 6px radius', () => {
+  it('sizes buttons 40px and 30px high with a 10px radius', () => {
     expect(valueAt(ehrCss, '.hid-ehr .hid-ehr-button', 'min-height', DESKTOP)).toBe('40px')
     expect(valueAt(ehrCss, '.hid-ehr .hid-ehr-button.hid-ehr-button-sm', 'min-height', DESKTOP)).toBe('30px')
-    expect(resolved('.hid-ehr .hid-ehr-button', 'border-radius', DESKTOP)).toBe('6px')
+    expect(resolved('.hid-ehr .hid-ehr-button', 'border-radius', DESKTOP)).toBe('10px')
   })
 
-  it('styles the table header and cells from the reference', () => {
+  it('styles the table header and cells from the reference, the header on the plain surface (no grey band)', () => {
     const header = '.hid-ehr .hid-ehr-table-header'
-    expect(resolved(header, 'background', DESKTOP)).toBe(token('surface-tint'))
+    expect(resolved(header, 'background', DESKTOP)).toBe(token('surface'))
+    expect(token('surface')).toBe('#ffffff')
     expect(valueAt(ehrCss, header, 'font-size', DESKTOP)).toBe('10px')
     expect(valueAt(ehrCss, header, 'font-weight', DESKTOP)).toBe('500')
     expect(resolved(header, 'color', DESKTOP)).toBe(token('muted'))

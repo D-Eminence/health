@@ -127,11 +127,11 @@ describe('unified authenticated portal routes', () => {
     calls.patientEnrollmentCurrent.mockRejectedValueOnce(new Error('Network unavailable'))
     open('/enroll')
 
-    expect(await screen.findByText('We could not check for an enrollment in progress. Try again before starting.')).toBeTruthy()
-    expect(screen.queryByRole('textbox', { name: 'National Identification Number' })).toBeNull()
+    expect(await screen.findByText('We couldn’t check for a sign-up in progress. Try again before starting.')).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: 'National Identification Number (NIN)' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
 
-    expect(await screen.findByRole('textbox', { name: 'National Identification Number' })).toBeTruthy()
+    expect(await screen.findByRole('textbox', { name: 'National Identification Number (NIN)' })).toBeTruthy()
     expect(calls.patientEnrollmentCurrent).toHaveBeenCalledTimes(2)
   })
 
@@ -146,7 +146,7 @@ describe('unified authenticated portal routes', () => {
     await waitFor(() => expect(document.activeElement).toBe(second))
     await act(async () => { fireEvent.click(second) })
 
-    const nin = await screen.findByRole('textbox', { name: 'National Identification Number' })
+    const nin = await screen.findByRole('textbox', { name: 'National Identification Number (NIN)' })
     await waitFor(() => expect(document.activeElement).toBe(nin))
   })
 
@@ -169,7 +169,7 @@ describe('unified authenticated portal routes', () => {
     open('/profile')
 
     await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/sign-in'))
-    expect(await screen.findByText('A provider sign-in is active in this browser. Signing in here as a patient replaces it.')).toBeTruthy()
+    expect(await screen.findByText(/^A provider sign-in is active in this browser\. Signing in here replaces it\./)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Go to the provider portal' }).getAttribute('href')).toBe('/provider')
     expect(screen.queryByText(/could not check your session/)).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
@@ -190,7 +190,7 @@ describe('unified authenticated portal routes', () => {
     expect(screen.getByRole('link', { name: 'Go to the provider portal' }).getAttribute('href')).toBe('/provider')
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
     expect(screen.queryByText(/could not check for an enrollment/)).toBeNull()
-    expect(screen.queryByRole('textbox', { name: 'National Identification Number' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'National Identification Number (NIN)' })).toBeNull()
   })
 
   it('checks again once the provider portal was signed out elsewhere, as the note asks, and opens the NIN step', async () => {
@@ -205,7 +205,7 @@ describe('unified authenticated portal routes', () => {
     check.focus()
     await act(async () => { fireEvent.click(check) })
 
-    const nin = await screen.findByRole('textbox', { name: 'National Identification Number' })
+    const nin = await screen.findByRole('textbox', { name: 'National Identification Number (NIN)' })
     await waitFor(() => expect(document.activeElement).toBe(nin))
     expect(screen.queryByText(/Sign out of the provider portal/)).toBeNull()
     expect(calls.patientEnrollmentCurrent).toHaveBeenCalledTimes(2)
@@ -225,7 +225,7 @@ describe('unified authenticated portal routes', () => {
     const note = await screen.findByRole('group', { name: /This browser is still signed in to Health ID\./ })
     await waitFor(() => expect(document.activeElement).toBe(note))
     expect(screen.queryByRole('alert')).toBeNull()
-    expect(screen.queryByRole('textbox', { name: 'National Identification Number' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'National Identification Number (NIN)' })).toBeNull()
   })
 
   it('opens the patient portal, where the patient can sign out, once checking again finds the patient signed in elsewhere', async () => {
@@ -239,6 +239,8 @@ describe('unified authenticated portal routes', () => {
     calls.patientSession.mockResolvedValue({ actor: { kind: 'patient', subject: 'subject-a', patientId: 'patient-a', accountId: 'account-a' } })
     await act(async () => { fireEvent.click(check) })
     await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/'))
+    // Sign out is in the person's ⋯ menu.
+    fireEvent.click(await screen.findByRole('button', { name: /: account$/ }))
     expect(await screen.findByRole('button', { name: 'Sign out' })).toBeTruthy()
   })
 
@@ -253,7 +255,7 @@ describe('unified authenticated portal routes', () => {
     // A link to the portal would only reach sign-in: this tab has no patient session to open it with.
     expect(screen.queryByRole('link', { name: 'Go to the patient portal' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
-    expect(screen.queryByRole('textbox', { name: 'National Identification Number' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'National Identification Number (NIN)' })).toBeNull()
   })
 
   it('opens provider sign in directly under /provider', async () => {

@@ -12,9 +12,11 @@ export interface RecordRow {
   readonly name: string
   /** Under the link; the first eight characters of `id` by default. */
   readonly reference?: string
-  /** "Patient / context". */
+  /** "Patient / context", or the column `contextHeader` names; also searched. */
   readonly context: string
   readonly contextSub?: string
+  /** Drawn in place of `context` (values with units and flags); `context` stays the searchable text. */
+  readonly summary?: ReactNode
   readonly status: string
   /** A short note after the badge. */
   readonly statusNote?: string
@@ -46,10 +48,14 @@ export interface RowOpenAction {
 
 /**
  * The design's record table: Record, Patient / context, Status, Updated, then "Quick view" and "Open →". The quick
- * view is the design's "Record quick view" drawer. A row opens through its link, its action (`open`), or not at all.
+ * view is the design's "Record quick view" drawer. Below 1024px each row is a card (title and status on the first
+ * line, the context, when it was updated, then its two actions), so nothing scrolls sideways (owner, 2026-10-31). A row
+ * opens through its link, its action (`open`), or not at all.
  */
-export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitle = 'No matching records', emptyMessage, emptyAction, notice }: {
+export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitle = 'No matching records', emptyMessage, emptyAction, contextHeader = 'Patient / context', notice }: {
   caption: string
+  /** The second column's heading. In one patient's chart it names what the row holds, never the patient again. */
+  contextHeader?: string
   rows: readonly RecordRow[]
   hrefFor: (row: RecordRow) => string
   loading?: boolean
@@ -119,10 +125,10 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
     },
     {
       id: 'context',
-      header: 'Patient / context',
+      header: contextHeader,
       cell: row => (
         <>
-          {row.context}
+          {row.summary ?? row.context}
           {row.contextSub ? <span className="hid-ehr-clinical-cell-sub">{row.contextSub}</span> : null}
         </>
       ),
@@ -156,6 +162,7 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
         caption={caption}
         captionHidden
         className="hid-ehr-clinical-list-table"
+        stack="lg"
         columns={columns}
         rows={rows}
         rowKey={row => row.id}

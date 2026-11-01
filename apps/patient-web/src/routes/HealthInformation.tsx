@@ -11,18 +11,20 @@ import { useActionFocus, useRetryFocus } from './actionFocus'
 import { ItemName } from '../ItemName'
 import { useShownOnceServed, type ProfileResource } from './ProfileCoverage'
 import { ProfileSection } from './ProfileSection'
+import { Button, Field, Select, Textarea } from '../kasuwa/ui'
+import { Hint, LoadProblem, Problem, Saved } from './profileParts'
 
 /** What each health field is called, as hid-1.0's biodata named them; the sixth is its "Medical notes for my care team". */
 export const HEALTH_LABELS: Readonly<Record<keyof HealthFields, string>> = {
   bloodGroup: 'Blood group', genotype: 'Genotype', allergies: 'Allergies', currentMedications: 'Current medications',
-  chronicConditions: 'Chronic conditions', medicalNotes: 'Medical notes for my care team',
+  chronicConditions: 'Long-term conditions', medicalNotes: 'Notes for my doctors',
 }
 
 const TEXT_HINTS: Readonly<Record<HealthTextField, string>> = {
-  allergies: 'Medicines, foods or anything else you react to, and how.',
-  currentMedications: 'What you take now, with the dose if you know it.',
-  chronicConditions: 'Long-term conditions such as diabetes, hypertension, asthma or sickle cell disease.',
-  medicalNotes: 'Anything else you want the people caring for you to know.',
+  allergies: 'Medicines, foods or other things you react to, and what happens.',
+  currentMedications: 'Medicines you take now, with the dose if you know it.',
+  chronicConditions: 'Like diabetes, high blood pressure, asthma or sickle cell.',
+  medicalNotes: 'Anything else your doctors and nurses should know.',
 }
 
 interface Draft {
@@ -70,9 +72,9 @@ const sameFields = (a: HealthFields, b: HealthFields) => HEALTH_FIELDS.every(fie
 const startOf = (saved: HealthProfile, fromHid1: ImportedHealthProfile | null): Draft =>
   neverSaved(saved) && fromHid1 ? draftFromImported(fromHid1) : draftOf(saved)
 
-const CONFLICT = 'Your health information was changed somewhere else (in another window, perhaps), so this was not saved. '
-  + 'The latest is shown now: make your change again.'
-const TOO_LONG = 'Your health information is too long to save. Shorten the longer fields, then save again.'
+const CONFLICT = 'Your health information was changed somewhere else, so this wasn’t saved. '
+  + 'The latest is shown now. Make your change again.'
+const TOO_LONG = 'This is too long to save. Shorten the longer answers, then save again.'
 
 function savedOn(value: string | null) {
   if (!value) return null
@@ -144,7 +146,7 @@ function HealthInformationForm({ resource, fromHid1, children }: {
     setBusy(true); setError(null); setNotice(null)
     try {
       resource.replace(await api.saveHealthProfile(body))
-      setNotice('Your health information was saved.')
+      setNotice('Health information saved.')
       focusAfter(() => heading.current)
     } catch (cause) {
       if (isHidApiError(cause) && cause.code === 'VERSION_CONFLICT') {
@@ -153,42 +155,42 @@ function HealthInformationForm({ resource, fromHid1, children }: {
         focusAfter(() => heading.current)
         return
       }
-      setError(isHidApiError(cause) ? cause.message : 'Your health information could not be saved. Try again.')
+      setError(isHidApiError(cause) ? cause.message : 'Couldn’t save. Try again.')
       focusAfter(() => document.getElementById('health-bloodGroup'))
     } finally { setBusy(false) }
   }
 
   const when = savedOn(saved?.updatedAt ?? null)
   // A read that failed is said in the heading too: the card's alert is not seen while it is closed.
-  return <ProfileSection id="health-information" title="Health information" state={resource.error ? 'Could not load' : null}
+  return <ProfileSection id="health-information" title="Health information" state={resource.error ? 'Could not load' : when ? `Saved ${when}` : null}
     busy={resource.loading} headingRef={heading}>
-    <p id="health-hint" className="patient-field-hint">Clinicians with access see this marked as reported by you.</p>
-    {resource.error && <div role="alert"><p>{resource.error}</p>
-      <button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(resource.reload)}>Try again <ItemName>loading your health information</ItemName></button></div>}
-    {seeded && <p className="patient-field-hint">Filled in from hid-1.0. Check, then save to keep them.</p>}
-    {when && <p className="patient-field-hint">Last saved {when}.</p>}
-    {error && <p id="health-error" role="alert" className="patient-inline-error">{error}</p>}
-    <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
-    {saved && draft && <form className="patient-form" onSubmit={event => void save(event)}>
-      <div className="patient-health-selects">
-        <label>{HEALTH_LABELS.bloodGroup}<select id="health-bloodGroup" value={draft.bloodGroup}
-          onChange={event => set('bloodGroup', event.target.value as Draft['bloodGroup'])} aria-describedby={describedBy(error && 'health-error')}>
-          <option value="">Not stated</option>
-          {BLOOD_GROUPS.map(value => <option key={value} value={value}>{value}</option>)}
-        </select></label>
-        <label>{HEALTH_LABELS.genotype}<select id="health-genotype" value={draft.genotype}
-          onChange={event => set('genotype', event.target.value as Draft['genotype'])}>
-          <option value="">Not stated</option>
-          {GENOTYPES.map(value => <option key={value} value={value}>{value}</option>)}
-        </select></label>
+    <Hint id="health-hint">{seeded ? 'Filled in from your old Health ID account. Check it, then save to keep it.' : 'Doctors and nurses you share with see that you wrote this.'}</Hint>
+    {resource.error && <LoadProblem what="your health information" error={resource.error} buttonRef={retryFocus.button}
+      onRetry={() => retryFocus.retry(resource.reload)} name={<ItemName>loading your health information</ItemName>} />}
+    <Saved>{notice}</Saved>
+    {saved && draft && <form className="flex flex-col gap-4" onSubmit={event => void save(event)}>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label={HEALTH_LABELS.bloodGroup} htmlFor="health-bloodGroup">
+          <Select id="health-bloodGroup" value={draft.bloodGroup}
+            onChange={event => set('bloodGroup', event.target.value as Draft['bloodGroup'])} aria-describedby={describedBy(error && 'health-error')}>
+            <option value="">Not stated</option>
+            {BLOOD_GROUPS.map(value => <option key={value} value={value}>{value}</option>)}
+          </Select>
+        </Field>
+        <Field label={HEALTH_LABELS.genotype} htmlFor="health-genotype">
+          <Select id="health-genotype" value={draft.genotype} onChange={event => set('genotype', event.target.value as Draft['genotype'])}>
+            <option value="">Not stated</option>
+            {GENOTYPES.map(value => <option key={value} value={value}>{value}</option>)}
+          </Select>
+        </Field>
       </div>
-      {HEALTH_TEXT_FIELDS.map(field => <div key={field} className="patient-field">
-        <label>{HEALTH_LABELS[field]}<textarea id={`health-${field}`} rows={3} maxLength={HEALTH_TEXT_LIMIT} value={draft[field]}
+      {HEALTH_TEXT_FIELDS.map(field => <Field key={field} label={HEALTH_LABELS[field]} htmlFor={`health-${field}`} hintId={`health-${field}-hint`} hint={TEXT_HINTS[field]}>
+        <Textarea id={`health-${field}`} rows={3} maxLength={HEALTH_TEXT_LIMIT} value={draft[field]}
           onChange={event => set(field, multiLine(event.target.value).slice(0, HEALTH_TEXT_LIMIT))}
-          aria-describedby={`health-${field}-hint`} /></label>
-        <p id={`health-${field}-hint`} className="patient-field-hint">{TEXT_HINTS[field]} At most {HEALTH_TEXT_LIMIT.toLocaleString('en-NG')} characters.</p>
-      </div>)}
-      <button type="submit" className="patient-primary-button" disabled={busy || !changed}>{busy ? 'Saving…' : 'Save health information'}</button>
+          aria-describedby={`health-${field}-hint`} />
+      </Field>)}
+      {error && <Problem id="health-error">{error}</Problem>}
+      <Button type="submit" variant="primary" className="self-start" loading={busy} disabled={busy || !changed}>{busy ? 'Saving…' : 'Save health information'}</Button>
     </form>}
     {children}
   </ProfileSection>

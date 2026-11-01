@@ -1,16 +1,6 @@
-import { Link } from 'react-router-dom'
 import { HealthIdCode } from '../HealthIdCode'
+import { Button } from '../../kasuwa/ui'
 
-/**
- * The HID is shown only here (hid-system#68, N2(a) and N2(b)): the activation
- * response expires the enrollment cookie, and if that response is lost
- * GET /current shows the HID for 15 minutes after activation only. Until it is
- * also sent to the verified contact, a patient who verified only a phone signs
- * in and resets their password with it.
- */
-const SAVE_HID = 'Save your Health ID now: write it down or keep it somewhere safe. This page may not show it again once you leave or reload it, and never more than 15 minutes after activation.'
-/** Signed in by the activation: the profile shows the Health ID from now on. */
-const SAVE_HID_SIGNED_IN = 'Save your Health ID now: write it down or keep it somewhere safe. You can also find it on your profile.'
 /**
  * Said wherever an activation signed the patient in (POST .../activate `signedIn: true`, hid-system, owner decision
  * 2026-10-28): on a shared device, the person who signed up stays signed in until they sign out.
@@ -18,8 +8,11 @@ const SAVE_HID_SIGNED_IN = 'Save your Health ID now: write it down or keep it so
 export const SIGNED_IN_ON_THIS_DEVICE = 'You are signed in on this device. If other people use it, sign out when you finish.'
 
 /**
- * The activated Health ID. Nothing is stored; it is copied only when the patient asks. When the activation signed the
- * patient in, "Proceed to profile" opens the portal (hid-1.0 PatientAuth.tsx); otherwise the patient signs in.
+ * "Your Health ID is ready": the one screen every way of signing up ends on (the sign-up, the NIN route). The HID is
+ * shown only here (hid-system#68, N2(a) and N2(b)): the activation response expires the enrollment cookie, and if that
+ * response is lost GET /current shows the HID for 15 minutes after activation only. Nothing is stored; it is copied
+ * only when the patient asks. One sentence, then one action: "Go to my Health ID" when the activation signed the
+ * patient in (it opens the portal), otherwise Sign in.
  */
 export function Complete({ focusTarget, hidCode, signedIn = false, onProceed }: {
   focusTarget: (element: HTMLElement | null) => void
@@ -28,18 +21,14 @@ export function Complete({ focusTarget, hidCode, signedIn = false, onProceed }: 
   signedIn?: boolean
   onProceed?: () => void
 }) {
-  return <div className="patient-success" role="status" aria-atomic="false">
-    <h2 ref={focusTarget} tabIndex={-1}>Your Health ID is ready.</h2>
+  const inNow = signedIn && onProceed !== undefined
+  return <div className="flex flex-col gap-4" role="status" aria-atomic="false">
+    <h2 ref={focusTarget} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">Your Health ID is ready</h2>
     <HealthIdCode code={hidCode} copyButton />
-    {signedIn && onProceed ? <>
-      <p>{SAVE_HID_SIGNED_IN}</p>
-      <p>Sign in with your verified email or Health ID and your password. With a verified phone number, your Health ID is how you sign in and reset your password.</p>
-      <p>{SIGNED_IN_ON_THIS_DEVICE}</p>
-      <button type="button" className="patient-primary-button" onClick={onProceed}>Proceed to profile</button>
-    </> : <>
-      <p>{SAVE_HID}</p>
-      <p>Sign in with your verified email or Health ID and new password. With a verified phone number, your Health ID is how you sign in and reset your password.</p>
-      <Link className="patient-primary-button" to="/sign-in">Sign in</Link>
-    </>}
+    <p className="m-0 text-sm text-ink-2">{inNow ? 'Write it down: you sign in with it and your password.'
+      : 'Write it down now: this page may not show it again.'}</p>
+    {inNow ? <Button variant="primary" size="lg" block onClick={onProceed}>Go to my Health ID</Button>
+      : <Button to="/sign-in" variant="primary" size="lg" block>Sign in</Button>}
+    {inNow && <p className="m-0 text-[13px] text-ink-3">{SIGNED_IN_ON_THIS_DEVICE}</p>}
   </div>
 }

@@ -182,4 +182,10 @@ export default tseslint.config(
     files: ['scripts/**/*.mjs', 'infra/cloudflare/**/*.mjs', '*.config.{js,ts,mjs}', 'apps/*/*.config.{ts,mjs}'],
     rules: { 'no-restricted-syntax': 'off', 'no-undef': 'off' },
   },
+  {
+    // Dev-only UI tooling (mock gateway and the static preview build): never part of a release, and the
+    // preview config builds the portal itself, so it may import the portal's Vite config.
+    files: ['dev/**/*.{mjs,ts}'],
+    rules: { 'no-restricted-syntax': 'off', 'no-undef': 'off', 'no-restricted-imports': 'off' },
+  },
 )

@@ -77,7 +77,7 @@ export function useLiveStaff(facility: Facility | undefined, waiting = false): L
   if (!current || current.status === 'loading') return { kind: 'loading' }
   if (current.status === 'failed') {
     const { caught } = current
-    if (isRouteMissing(caught)) return { kind: 'notice', tone: 'info', message: 'Staff records aren’t available on Health ID yet. Check again later.' }
+    if (isRouteMissing(caught)) return { kind: 'notice', tone: 'info', message: 'Staff records aren’t set up for your facility. Contact support.' }
     if (isHidApiError(caught) && caught.code === 'STAFF_MANAGEMENT_NOT_AVAILABLE') return notAvailable
     return { kind: 'failed', retry: reload, read: current, message: isUnavailable(caught) ? staffProblemText(caught, { facility: facility.name })
       : `${facility.name}’s staff couldn’t be loaded. ${staffProblemText(caught, { facility: facility.name })}` }

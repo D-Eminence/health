@@ -229,7 +229,7 @@ describe('new facility sign-ups', () => {
     fireEvent.click(within(item).getByRole('link', { name: 'Users & roles' }))
     await waitFor(() => expect(mocks.api.principals).toHaveBeenCalledWith('bola@ikejacare.example', { page: 1 }, expect.anything()))
     expect(screen.getByTestId('location').textContent).toBe('/admin/principals')
-    expect((screen.getByLabelText('Search users') as HTMLInputElement).value).toBe('bola@ikejacare.example')
+    expect((screen.getByLabelText('Name or email') as HTMLInputElement).value).toBe('bola@ikejacare.example')
   })
 
   it('hides Mark reviewed without platform.facility.manage, and each link without its page’s permission', async () => {
@@ -237,8 +237,7 @@ describe('new facility sign-ups', () => {
     open(<SelfServiceFacilitiesPage actor={actor(['platform.admin.access', 'platform.identity-review.read'])} />)
     const item = await card('IKEJA CARE LIMITED')
     expect(within(item).queryByText('Mark reviewed')).toBeNull()
-    expect(within(item).getByText('View only: reviewing or releasing a sign-up needs the platform.facility.manage permission, '
-      + 'and reviewing it also platform.facility.unlock.')).toBeTruthy()
+    expect(within(item).getByText('Your roles don’t let you review or release sign-ups.')).toBeTruthy()
     expect(within(item).queryByRole('link')).toBeNull()
     expect(mocks.api.reviewSelfServiceFacility).not.toHaveBeenCalled()
   })
@@ -403,8 +402,7 @@ describe('releasing a sign-up', () => {
     const item = await card('IKEJA CARE LIMITED')
     expect(releaseSummary(item)).toBeNull()
     expect(within(item).queryByText(/^To release this sign-up/)).toBeNull()
-    expect(within(item).getByText('View only: reviewing or releasing a sign-up needs the platform.facility.manage permission, '
-      + 'and reviewing it also platform.facility.unlock.')).toBeTruthy()
+    expect(within(item).getByText('Your roles don’t let you review or release sign-ups.')).toBeTruthy()
   })
 
   it('shows a released sign-up as released, with its reason, and offers nothing more on it', async () => {
@@ -412,13 +410,13 @@ describe('releasing a sign-up', () => {
       releasedByAccountId: 'admin-9', releaseReason: 'The company confirmed by phone it did not sign up.' })] })
     open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />, '/admin/self-service-facilities?state=all')
     const item = await card('IKEJA CARE LIMITED')
-    expect(within(item).getByText('Released', { selector: '.admin-status' })).toBeTruthy()
+    expect(within(item).getByText('Released', { selector: '.admin-status *' })).toBeTruthy()
     expect(within(item).getByText('Released', { selector: 'dt' }).nextElementSibling?.textContent).not.toBe('Not available')
     expect(within(item).getByText('Release reason: The company confirmed by phone it did not sign up.')).toBeTruthy()
     expect(within(item).queryByText('Mark reviewed')).toBeNull()
     expect(releaseSummary(item)).toBeNull()
     expect(within(item).queryByText(/^If it looks wrong/)).toBeNull()
-    expect(within(item).queryByText(/^View only/)).toBeNull()
+    expect(within(item).queryByText(/^Your roles don’t let you/)).toBeNull()
     // A released sign-up is not waiting for review.
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('New facility sign-ups (0 to review)')
   })
@@ -717,7 +715,7 @@ describe('open applications', () => {
     await openView(['platform.admin.access', 'platform.identity-review.read'])
     const item = await card('SURULERE PHARMACY LTD')
     expect(within(item).queryByText('Reject', { selector: 'summary' })).toBeNull()
-    expect(within(item).getByText('View only: rejecting a sign-up needs the platform.facility.manage permission.')).toBeTruthy()
+    expect(within(item).getByText('Your roles don’t let you reject a sign-up.')).toBeTruthy()
   })
 
   it('says so when this Identity has no list of open applications', async () => {
@@ -800,7 +798,7 @@ describe('lifting a refusal', () => {
       + 'the product.'],
     ['VALIDATION_FAILED', 400, 'Enter a CAC registration number: RC, BN or IT followed by 4 to 20 digits. Choose the product, '
       + 'and give a reason of 8 to 500 characters.'],
-    ['PERMISSION_DENIED', 403, 'Lifting a refusal needs the platform.facility.manage permission. Ask a Super Admin.'],
+    ['PERMISSION_DENIED', 403, 'Your roles don’t allow this. Ask a Super Admin.'],
   ])('keeps %s on the form, in its own words', async (code, status, text) => {
     mocks.api.waiveSelfServiceRefusals.mockRejectedValueOnce(new HidApiError(status, 'Identity’s own detail', { code }))
     await openWaiver()
@@ -831,7 +829,8 @@ describe('Users & roles opened without a handed-over search', () => {
     render(<MemoryRouter initialEntries={['/admin/principals']}><StepUpProvider><Routes>
       <Route path="/admin/principals" element={<PrincipalsPage actor={actor(REVIEWER)} />} />
     </Routes></StepUpProvider></MemoryRouter>)
-    expect(await screen.findByText('Enter at least two characters to search.')).toBeTruthy()
+    expect(await screen.findByText('Search to find a user')).toBeTruthy()
+    expect(screen.getByText('Enter at least 2 characters.')).toBeTruthy()
     expect(mocks.api.principals).not.toHaveBeenCalled()
   })
 })
@@ -1024,8 +1023,8 @@ describe('full access after review (P4b)', () => {
     open(<SelfServiceFacilitiesPage actor={actor(releaser)} />)
     const item = await card('IKEJA CARE LIMITED')
     expect(within(item).queryByText('Mark reviewed', { selector: 'summary' })).toBeNull()
-    expect(within(item).getByText('Reviewing a sign-up or changing its administrator’s access also needs the '
-      + 'platform.facility.unlock permission. Ask a Super Admin.')).toBeTruthy()
+    expect(within(item).getByText('Your roles don’t let you review a sign-up or change its administrator’s access. '
+      + 'Ask a Super Admin.')).toBeTruthy()
     expect(within(await card('Stopped Clinic')).getByText('Release this sign-up', { selector: 'summary' })).toBeTruthy()
   })
 

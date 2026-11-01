@@ -30,7 +30,7 @@ vi.mock('../../../../staff/api', () => ({
   staffApi: api.recorder('staffApi'), facilityStaffApi: api.recorder('facilityStaffApi'), orderRoutesApi: api.recorder('orderRoutesApi'),
 }))
 
-const NOT_AVAILABLE = 'Not available in Health ID yet'
+const NOT_AVAILABLE = 'Not recorded'
 const PERMISSIONS = ['audit.read', 'workforce.manage', 'identity.patient.read']
 const HOSPITAL = fakeFacility(PERMISSIONS, { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital', roles: ['org_admin'], code: 'DEMO-HOSP' })
 
@@ -61,7 +61,7 @@ describe('Facility profile: the target’s sections, read-only', () => {
       .toEqual(['Facility presence policy', 'Operations & regulatory details', 'Profile change history'])
 
     const details = section('Hospital details & picture')
-    expect(within(details).getByText(`This profile is read-only. Details Health ID does not hold yet show “${NOT_AVAILABLE}”.`)).toBeTruthy()
+    expect(within(details).getByText('This profile is read-only.')).toBeTruthy()
     expect(valueOf('Hospital name', details)).toBe('Demo Hospital')
     for (const label of ['Enable facility presence', 'Allow staff to appear offline', 'Away after inactivity (minutes)',
       'Critical alert sounds bypass do not disturb and quiet hours', 'Hospital profile picture or logo', 'Hospital phone',

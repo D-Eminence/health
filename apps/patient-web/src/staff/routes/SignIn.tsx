@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import { Button, Field, Input, PasswordInput } from '@hid/ui'
+import { Field, Input, PasswordInput } from '@hid/ui'
+import { Alert, Button, buttonClass } from '../../kasuwa/ui'
 import { getEnvironment } from '../env'
 import { useStaff } from '../App'
 import type { StaffLoginChallenge, StaffSession } from '../api'
@@ -22,17 +23,17 @@ import { capturedStaffInvitation } from '../invitationCapture'
  * Said when Identity ended the sign-in for want of an authenticator
  * (403 STAFF_MFA_REQUIRED, hid-system #71): here, and on the session-ended screen.
  */
-export const STAFF_MFA_NOTICE = 'Health ID now asks staff for a code from an authenticator app at sign-in. '
+export const STAFF_MFA_NOTICE = 'Staff now need a code from an authenticator app to sign in. '
   + 'Sign in again to set one up, or to use the one you have.'
 
-function StaffMfaButton({ primary, ...rest }: { primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <Button tone={primary ? 'primary' : 'quiet'} {...rest} />
+function StaffMfaButton({ primary, className, type = 'button', ...rest }: { primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button type={type} {...rest} className={buttonClass({ variant: primary ? 'primary' : 'ghost', block: primary, className })} />
 }
 
 /** The authenticator steps, drawn as the rest of the provider sign-in page is. */
 const STAFF_MFA_LOOK: StaffMfaLook = {
   headingAs: 'h1',
-  classNames: { step: 'staff-form staff-mfa', note: 'staff-muted', error: 'staff-error', status: 'staff-success' },
+  classNames: { step: 'staff-form staff-mfa', note: 'm-0 text-[13px] text-ink-3', error: 'm-0 text-[13px] font-medium text-danger-ink', status: 'm-0 text-[13px] text-success-ink' },
   Button: StaffMfaButton,
 }
 
@@ -95,7 +96,7 @@ function TurnstileChallenge({ onToken, resetKey }: { onToken: (token: string) =>
   }, [siteKey, resetKey])
 
   if (!siteKey) return null
-  return <div><div ref={host} />{error && <p role="alert" className="staff-error">{error}</p>}</div>
+  return <div><div ref={host} />{error && <p role="alert" className="m-0 text-[13px] font-medium text-danger-ink">{error}</p>}</div>
 }
 
 export function SignIn() {
@@ -124,10 +125,10 @@ export function SignIn() {
   // hid-system accepts; a form here would always be refused.
   const elsewhere = staffSignInHref(window.location.hostname)
   if (elsewhere) return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
-    title="Sign in on the EHR site." titleId="staff-sign-in-title"
-    lede="Provider staff sign in at ehr.healthidentitydirectory.com, with the staff account assigned to your facility.">
-    <p><a className="patient-primary-button" href={elsewhere}>Continue to provider sign in</a></p>
-    <ClinicianSignUpEntry className="staff-muted" />
+    title="Staff sign in is on the provider site." titleId="staff-sign-in-title"
+    lede="Use your work account at ehr.healthidentitydirectory.com.">
+    <p><a className={buttonClass({ variant: 'primary', block: true })} href={elsewhere}>Go to staff sign in</a></p>
+    <ClinicianSignUpEntry className="m-0 text-[13px] text-ink-3" />
   </AuthLayout>
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -174,22 +175,22 @@ export function SignIn() {
       ? { to: enrollHref, label: 'Set up your facility' } : { href: enrollHref, label: 'Set up your facility' }}
     title="Welcome back." titleId="staff-sign-in-title" titleAs={challenge ? 'p' : 'h1'}
     titleRef={heading} titleFocusable={!challenge}
-    lede="Sign in with the staff account assigned to your facility. Health ID verifies your permissions and facility.">
+    lede="Sign in with your work account.">
     {challenge ? <StaffMfaSteps challenge={challenge} look={STAFF_MFA_LOOK}
       calls={{ verify: verifyMfa, sendEnrollmentCode, startEnrollment, activate: activateEnrollment }}
-      doneLabel="Continue to the Provider Portal" onSignedIn={finish} onRestart={restart} restartLabel="Start again" /> : <>
-      {mfaRequired && <p role="status" className="staff-notice">{STAFF_MFA_NOTICE}</p>}
+      doneLabel="Continue" onSignedIn={finish} onRestart={restart} restartLabel="Start again" /> : <>
+      {mfaRequired && <Alert intent="info" size="sm">{STAFF_MFA_NOTICE}</Alert>}
       <form className="staff-form" onSubmit={event => void submit(event)}>
         <Field label="Work email" htmlFor="staff-email" required><Input id="staff-email" type="email" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} required /></Field>
         <Field label="Password" htmlFor="staff-password" required><PasswordInput id="staff-password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></Field>
         <TurnstileChallenge onToken={setToken} resetKey={turnstileResetKey} />
-        {error && <p className="staff-error" role="alert">{error}</p>}
-        {error && noFacility && servesClinicianApplications() && <p className="staff-muted">Applied as a doctor or nurse? You can sign in once two HID administrators
-          have approved your application. <PageLink path={CLINICIAN_STATUS_PATH}>Check your clinician application</PageLink>.</p>}
-        <Button type="submit" disabled={busy || !!siteKey && !token}>{busy ? 'Signing in…' : 'Sign in'}</Button>
+        {error && <p className="m-0 text-[13px] font-medium text-danger-ink" role="alert">{error}</p>}
+        {error && noFacility && servesClinicianApplications() && <p className="m-0 text-[13px] text-ink-3">Applied as a doctor or nurse? You can sign in
+          once your application is approved. <PageLink path={CLINICIAN_STATUS_PATH}>Check your application</PageLink>.</p>}
+        <Button type="submit" variant="primary" block loading={busy} disabled={busy || !!siteKey && !token}>{busy ? 'Signing in…' : 'Sign in'}</Button>
       </form>
       <RecoveryLink />
-      <ClinicianSignUpEntry className="staff-muted" />
+      <ClinicianSignUpEntry className="m-0 text-[13px] text-ink-3" />
     </>}
   </AuthLayout>
 }
@@ -201,9 +202,9 @@ export function SignIn() {
 function RecoveryLink() {
   const href = staffRecoveryHref(window.location.hostname)
   const central = href !== STAFF_RECOVERY_PATH
-  return <p className="staff-muted">
+  return <p className="m-0 text-[13px] text-ink-3">
     {central ? <a href={href}>Forgot your password?</a> : <Link to={href}>Forgot your password?</Link>}
-    {central && ' Password resets are done on the main Health ID site.'}
-    {' '}For a new staff account, contact your facility administrator.
+    {central && ' You reset it on the main Health ID site.'}
+    {' '}Need a staff account? Ask your facility administrator.
   </p>
 }

@@ -4,6 +4,7 @@ import { HidApiError } from '@hid/http'
 import type { AdminActor, CommercialPrice, CommercialProduct, PricingCatalog } from '../api'
 import { PricingPage } from '../Pages'
 import { StepUpProvider } from '../StepUp'
+import { ToastProvider } from '../../kasuwa/toast'
 
 /**
  * The pricing catalogue drives the prices the public website shows. hid-system
@@ -26,7 +27,7 @@ const actor = (permissions: string[]): AdminActor => ({ accountId: 'admin-1', su
 const MANAGE = ['platform.pricing.manage']
 
 function open(permissions: string[]) {
-  render(<StepUpProvider><PricingPage actor={actor(permissions)} /></StepUpProvider>)
+  render(<ToastProvider><StepUpProvider><PricingPage actor={actor(permissions)} /></StepUpProvider></ToastProvider>)
 }
 
 /** The form inside the disclosure whose summary reads `title`. */
@@ -42,7 +43,7 @@ describe('pricing catalogue', () => {
     expect(await screen.findByText('Amount available on request')).toBeTruthy()
     expect(screen.getByText('1,250,000 minor NGN units · Monthly · facility')).toBeTruthy()
     expect(screen.queryByText('Edit price')).toBeNull()
-    expect(screen.queryByText('Change product status')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Change status' })).toBeNull()
   })
 
   it('sets a fixed price in whole minor units with its version, one key across step-up, then reloads', async () => {
@@ -102,13 +103,14 @@ describe('pricing catalogue', () => {
     mocks.api.command.mockResolvedValueOnce({ version: 3 })
     open(MANAGE)
     await screen.findByText('Amount available on request')
-    const status = form('Change product status')
-    const choices = status.getByLabelText('New value') as HTMLSelectElement
+    fireEvent.click(screen.getByRole('button', { name: 'Change status' }))
+    const choices = within(screen.getByRole('dialog')).getByLabelText('Change to') as HTMLSelectElement
     expect([...choices.options].map(option => option.value)).toEqual(['coming_soon', 'draft', 'retired'])
     fireEvent.change(choices, { target: { value: 'coming_soon' } })
+    const status = within(screen.getByRole('dialog', { name: 'Change Health ID EHR?' }))
     fireEvent.change(status.getByLabelText('Reason for this change'), { target: { value: 'Pausing new sign-ups' } })
-    fireEvent.click(status.getByRole('button', { name: 'Confirm change' }))
-    expect(await status.findByText('Saved. Current information is being refreshed.')).toBeTruthy()
+    fireEvent.click(status.getByRole('button', { name: 'Make it coming soon' }))
+    expect(await screen.findByText('Health ID EHR is now coming soon.')).toBeTruthy()
     expect(mocks.api.command).toHaveBeenCalledWith('/api/v1/admin/pricing/products/ehr',
       { name: 'Health ID EHR', status: 'coming_soon', reason: 'Pausing new sign-ups' }, { version: 2, idempotencyKey: 'key-1' })
     await waitFor(() => expect(mocks.api.pricing).toHaveBeenCalledTimes(2))

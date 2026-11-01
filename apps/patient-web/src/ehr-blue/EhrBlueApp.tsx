@@ -1,15 +1,12 @@
 import '@hid/ui/ehr.css'
 import './frame/frame.css'
 import { useLayoutEffect } from 'react'
-import { useLocation } from 'react-router-dom'
 import { useStaff } from '../staff/App'
 import { facilityChoiceNeeded } from '../staff/facilitySelection'
 import { BlueFrame } from './frame/BlueFrame'
 import { ChooseWorkspace } from './frame/ChooseWorkspace'
 import { RoleViewProvider } from './frame/roleView'
 import { resetSamples } from './frame/sample/store'
-
-const SWITCH_PATH = '/provider/institutions'
 
 /**
  * The blue Hospital EHR, for staff at a blue facility (blueFacilities.ts: every facility once the clinical and the
@@ -19,14 +16,11 @@ const SWITCH_PATH = '/provider/institutions'
  */
 export default function EhrBlueApp() {
   const { state, lock } = useStaff()
-  const location = useLocation()
   // Sample records are this person's at this facility: they go when either changes, and on sign-out.
   const owner = state.status === 'ready' ? `${state.session.actor.id}|${state.session.actor.facility?.id ?? ''}` : ''
   useLayoutEffect(() => () => resetSamples(), [owner])
   if (state.status !== 'ready') return null
-  // Asked before any page opens, or the account menu's Switch facility: a page of its own, outside the frame.
-  const question = (state.facilityLost ? 'lost' : facilityChoiceNeeded(state.session))
-    || (location.pathname.replace(/\/+$/, '').toLowerCase() === SWITCH_PATH ? 'switch' : null)
+  const question = state.facilityLost ? 'lost' : facilityChoiceNeeded(state.session)
   if (question) {
     return (
       <div className="hid-ehr hid-ehr-blue-standalone">

@@ -52,7 +52,7 @@ describe('Needs attention: access requests', () => {
     expect(screen.getByRole('status').textContent).toBe('Loading access requests')
     const link = await screen.findByRole('link', { name: '1 pending access request' })
     expect(link.getAttribute('href')).toBe('/provider/requests')
-    expect(screen.getByText('External record access · pending')).toBeDefined()
+    expect(screen.getByText('Access request · waiting')).toBeDefined()
   })
 
   it('says a refusal in today\'s words', async () => {

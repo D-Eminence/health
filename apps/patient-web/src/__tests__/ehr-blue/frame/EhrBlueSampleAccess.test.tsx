@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { designGrants, designRolesOf, moduleOf, sampleCan } from '../../../ehr-blue/frame/sampleAccess'
 import { pages as framePages } from '../../../ehr-blue/frame/pages'
 import type { StaffSession } from '../../../staff/api'
-import { DEMO_HOSPITAL, REAL_FACILITY, SESSION, facility, openStaffApp, serve, sessionAt, where, withFramePages } from './blueHarness'
+import { DEMO_HOSPITAL, REAL_FACILITY, SESSION, facility, homeHeading, openStaffApp, serve, sessionAt, where, withFramePages } from './blueHarness'
 
 /**
  * Who may open a sample workspace: the design's role mapping (design/ehr-target src/catalog.ts permissions(role)), for
@@ -17,7 +17,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules()
 
 const NOTICE = 'Your current permissions no longer allow that page. Choose an authorized workflow.'
 const nav = () => screen.getByRole('navigation', { name: 'Main navigation' })
-const groupsOf = () => within(nav()).getAllByRole('button').map(button => button.firstChild?.textContent)
+const groupsOf = () => within(nav()).queryAllByRole('button').map(button => button.firstChild?.textContent)
 const linksOf = () => within(nav()).getAllByRole('link').map(link => link.textContent)
 function sessionWith(roles: readonly string[], at = DEMO_HOSPITAL): StaffSession {
   const current = facility(at, 'Demo Hospital', [], roles)
@@ -88,24 +88,32 @@ describe('the design\'s grants', () => {
 })
 
 describe('the sidebar follows the design\'s roles', () => {
-  it('shows a receptionist Patients, Appointments and Patient visits, and no finance or administration', async () => {
-    await openAs(['receptionist'])
-    const links = linksOf()
-    expect(links).toEqual(expect.arrayContaining(['Appointments', 'Patient visits']))
-    for (const name of ['Patient billing', 'Inpatient / Wards', 'Maternity', 'Shifts & Roster', 'Facility review', 'Radiology']) {
-      expect(links).not.toContain(name)
-    }
+  // Only working screens are listed (the owner's decision of 2026-10-31), so the design's roles decide a sample by address.
+  it('opens a receptionist Appointments and Patient visits, and sends finance and administration Home', async () => {
+    await openAs(['receptionist'], '/provider/appointments')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Appointments' })).toBeDefined()
+    expect(screen.queryByText(NOTICE)).toBeNull()
+    for (const name of ['Appointments', 'Patient visits', 'Patient billing', 'Facility review', 'Radiology']) expect(linksOf()).not.toContain(name)
     expect(groupsOf()).not.toContain('Finance')
     expect(groupsOf()).not.toContain('People')
+    openFromWhatsLeft('Patient visits')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Patient visits' })).toBeDefined()
+    expect(screen.queryByText(NOTICE)).toBeNull()
+    for (const label of ['Patient billing', 'Inpatient / Wards', 'Maternity', 'Shifts & Roster', 'Facility review', 'Radiology']) {
+      openFromWhatsLeft(label)
+      expect(await screen.findByText(NOTICE)).toBeDefined()
+      expect({ label, at: where() }).toEqual({ label, at: '/provider' })
+    }
   })
 
-  it('leaves Choose workspace out of the sidebar and keeps Patient registration and In-person check, live as today', async () => {
+  it('lists Choose workspace beside Home for whoever has a facility to switch to, and Patient registration and In-person check, live as today', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.registration.write', 'identity.patient.assisted_registration'])
     const annex = facility(REAL_FACILITY, 'Riverside Annex (fictional)', [])
     serve({ [SESSION]: [sessionAt(demo, [demo, annex])] })
     await openStaffApp('/provider/registration')
     await screen.findByRole('navigation', { name: 'Main navigation' })
-    expect(linksOf()).not.toContain('Choose workspace')
+    // The redesign's sidebar lists the live facility switch beside Home (EhrBlueSwitchReview).
+    expect(linksOf()).toContain('Choose workspace')
     // Listed until Patients › Create record is their way in.
     expect(linksOf()).toEqual(expect.arrayContaining(['Patient registration', 'In-person check']))
     expect(where()).toBe('/provider/registration')
@@ -113,22 +121,16 @@ describe('the sidebar follows the design\'s roles', () => {
     expect(document.querySelector('.hid-ehr-blue-live')).not.toBeNull()
   })
 
-  it('shows the Cashier\'s sidebar while Home is viewed as a Cashier, and sends a page it lacks to Home with the notice', async () => {
-    await openAs(['clinician'])
-    expect(linksOf()).toContain('Appointments')
-    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Cashier' }))
-    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Cashier' })
-    // As admin/denied-route-redirect.png: Home, Finance and Insight (then the demo's own design review and tour).
-    expect(groupsOf()).toEqual(['Finance', 'Insight', 'Design review', 'Design tour'])
-    expect(linksOf().slice(0, 4)).toEqual(['Home', 'Patient billing', 'Insurance & Claims', 'Reports & Analytics'])
-    expect(linksOf()).not.toContain('Appointments')
-
+  // The redesign offers no demo role dashboards (EhrBlueSwitchReview): a Billing Officer's own roles decide instead.
+  it('opens a Billing Officer Patient billing, and sends a page it lacks to Home with the notice', async () => {
+    await openAs(['billing'], '/provider/patient-billing')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Patient billing' })).toBeDefined()
+    expect(screen.queryByText(NOTICE)).toBeNull()
     // What's left links every page, Appointments included.
     openFromWhatsLeft('Appointments')
     expect(await screen.findByText(NOTICE)).toBeDefined()
     expect(where()).toBe('/provider')
-    expect(screen.getByRole('heading', { level: 1, name: 'Welcome, Demo Cashier' })).toBeDefined()
+    expect(screen.getByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
   })
 })
 
@@ -137,7 +139,7 @@ describe('Home in place of a refused or unknown page', () => {
     const sent = await openAs(['receptionist'], '/provider/patient-billing')
     expect(await screen.findByText(NOTICE)).toBeDefined()
     expect(where()).toBe('/provider')
-    const notice = screen.getByText(NOTICE).closest('.hid-ehr-blue-notice')!
+    const notice = screen.getByText(NOTICE).closest('.hid-ehr-blue-redirect-notice')!
     // Above the heading.
     expect(notice.compareDocumentPosition(screen.getByRole('heading', { level: 1 })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     fireEvent.click(within(notice as HTMLElement).getByRole('button', { name: 'Dismiss notice' }))
@@ -155,13 +157,13 @@ describe('Home in place of a refused or unknown page', () => {
     await openStaffApp({ pathname: '/provider/patients', state: { notice: 'closed' } })
     await screen.findByRole('navigation', { name: 'Main navigation' })
     expect(where()).toBe('/provider/patients')
-    expect(document.querySelector('.hid-ehr-blue-notice')).toBeNull()
+    expect(document.querySelector('.hid-ehr-blue-redirect-notice')).toBeNull()
   })
 
   it('opens Home for an address that is no page, without the notice', async () => {
     await openAs(['receptionist'], '/provider/not-a-page')
     await waitFor(() => expect(where()).toBe('/provider'))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
     expect(screen.queryByText(NOTICE)).toBeNull()
   })
 })
@@ -189,12 +191,9 @@ describe('useSampleCan', () => {
     expect(await screen.findByText('patients.create true · billing.view false')).toBeDefined()
   })
 
-  it('answers for the demo role whose Home is being viewed', async () => {
-    await openProbe(['receptionist'], '/provider')
-    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Cashier' }))
-    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Cashier' })
-    openFromWhatsLeft('Probe (fictional)')
+  // The demo role view has no control in the redesign; designRolesOf's own test covers it. Another role answers otherwise.
+  it('answers for another person\'s design roles: a Billing Officer\'s', async () => {
+    await openProbe(['billing'], '/provider/probe')
     expect(await screen.findByText('patients.create false · billing.view true')).toBeDefined()
   })
 })

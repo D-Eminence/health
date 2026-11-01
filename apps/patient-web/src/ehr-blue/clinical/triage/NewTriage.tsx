@@ -6,10 +6,9 @@ import { staffApi, type VitalMeasurements } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { isDemoFacility } from '../../blueFacilities'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
-import { formatWhen, statusLabel } from '../parts/format'
+import { formatWhen, statusWords } from '../parts/format'
 import { KeyValueList } from '../parts/KeyValueList'
-import { Banner, ErrorBox, Loading, RecordHeading } from '../parts/Notices'
-import { patientLine } from '../parts/PatientHeader'
+import { ErrorBox, Loading, RecordHeading } from '../parts/Notices'
 import type { SubmitOutcome } from '../parts/RecordForm'
 import { SampleBanner } from '../parts/SampleBanner'
 import { useWorkspaceHref } from '../parts/Workspace'
@@ -24,7 +23,7 @@ import { VitalsForm, type VitalsInput } from './VitalsForm'
 export function NewTriage() {
   const href = useWorkspaceHref()
   const chart = useChart()
-  if (chart && chart.purpose === 'direct-care') return <NewTriageForm chart={chart} />
+  if (chart && chart.purpose === 'direct-care') return <ChartGate>{open => <NewTriageForm chart={open} />}</ChartGate>
   return (
     <>
       <RecordHeading title={NEW_TITLE} backHref={href()} />
@@ -74,7 +73,7 @@ function NewTriageForm({ chart }: { chart: Chart }) {
       return (
         <>
           {NO_ENCOUNTERS}
-          {chart.can('ehr.encounter.write') ? <> <Link className="hid-ehr-clinical-link" to={href.to('consult', 'new')}>Create consultation</Link></> : null}
+          {chart.can('ehr.encounter.write') ? <> <Link className="hid-ehr-clinical-link" to={href.to('consult', 'new')}>New consultation</Link></> : null}
         </>
       )
     }
@@ -85,19 +84,13 @@ function NewTriageForm({ chart }: { chart: Chart }) {
   return (
     <>
       <RecordHeading title={NEW_TITLE} backHref={href()} />
-      {chart.writeNotice ? <Banner tone="warning" title="Changes are unavailable">{chart.writeNotice}</Banner> : null}
       {!reads ? <ErrorBox>{NO_RECORD_ACCESS}</ErrorBox> : chart.canWrite && !writes ? <ErrorBox>{NO_CREATE}</ErrorBox> : null}
       <EhrCard>
-        <EhrField label={<>Patient<span aria-hidden="true"> *</span></>}>
-          <EhrSelect value="open" required onChange={() => undefined}>
-            <option value="open">{patientLine(chart.facts)}</option>
-          </EhrSelect>
-        </EhrField>
         <PatientContext chart={chart} prior={reads ? list.records : []} />
         {list.error ? <ErrorBox>{list.error}</ErrorBox> : null}
         {canCreate ? (
-          list.encounters === null ? (list.loading ? <Loading label="Loading encounters…" /> : null) : (
-            <VitalsForm mode="record" visits={visits} visitHint={visitHint} groupLabel="Vital measurements" submitLabel="Save record" onSubmit={submit}>
+          list.encounters === null ? (list.loading ? <Loading label="Loading consultations…" /> : null) : (
+            <VitalsForm mode="record" visits={visits} visitHint={visitHint} groupLabel="Vital measurements" submitLabel="Save vitals" onSubmit={submit}>
               {/* Sample fields inside a live form: only at the demo facilities, where nothing real is recorded. */}
               {isDemoFacility(chart.facilityId) ? <SampleTriage /> : null}
             </VitalsForm>
@@ -167,15 +160,14 @@ function PatientContext({ chart, prior }: { chart: Chart; prior: readonly VisitR
 
   return (
     <section className="hid-ehr-clinical-context-block" aria-labelledby="triage-patient-context">
-      <h2 id="triage-patient-context">Patient context</h2>
-      <p>{chart.facts.name}</p>
+      <h2 id="triage-patient-context">Allergies and earlier vitals</h2>
       {!reads || reported.state === 'loading' || reported.state === 'hidden' ? null : (
         <p>
           {reported.state === 'shown'
-            ? `Recorded allergies: ${reported.allergies} (patient-reported: entered by the patient in their Health ID portal, not clinically verified).`
+            ? `Allergies: ${reported.allergies} (told us by the patient, not checked by a clinician).`
             : reported.state === 'failed'
-              ? 'Recorded allergies: what the patient entered about their health could not be loaded. Confirm with the patient.'
-              : 'Recorded allergies: None recorded. Confirm with the patient.'}
+              ? 'Allergies: what the patient told us couldn’t be loaded. Confirm with the patient.'
+              : 'Allergies: none recorded. Confirm with the patient.'}
         </p>
       )}
       {(prior ?? []).map(({ encounter, record }) => {
@@ -186,7 +178,7 @@ function PatientContext({ chart, prior }: { chart: Chart; prior: readonly VisitR
           : [{ label: 'Correction', value: LOADING_CORRECTION }]
         return (
           <details key={`${encounter.id}-${record.id}`} className="hid-ehr-clinical-version">
-            <summary>{`Triage · ${statusLabel(vitalStatus(record))} · ${formatWhen(recordedAt(record))}`}</summary>
+            <summary>{`Vitals · ${statusWords(vitalStatus(record))} · ${formatWhen(recordedAt(record))}`}</summary>
             <KeyValueList items={items} />
           </details>
         )

@@ -218,9 +218,9 @@ describe('an order ended as accepted for the wrong person', () => {
       + 'facilities, so this can’t be done now. Try again when it resumes, and tell Health ID support now. Don’t ask support to '
       + 'close the order: closing it stops you withdrawing anything you sent back.')
     expect(say(problem(404, 'ORDER_ROUTE_NOT_FOUND'))).toEqual({ reload: true, text: 'This order was not found here. Refresh the list.' })
-    expect(say(problem(404, 'API_ROUTE_NOT_FOUND'))).toEqual({ text: 'Ending an order for the wrong person isn’t available yet. '
+    expect(say(problem(404, 'API_ROUTE_NOT_FOUND'))).toEqual({ text: 'Ending an order for the wrong person isn’t set up for your facility. '
       + 'Tell Health ID support, and phone General Hospital.' })
-    expect(say(problem(404, 'NOT_FOUND')).text).toMatch(/^Ending an order for the wrong person isn’t available yet\./)
+    expect(say(problem(404, 'NOT_FOUND')).text).toMatch(/^Ending an order for the wrong person isn’t set up for your facility\./)
     expect(say(problem(409, 'IDEMPOTENCY_KEY_REUSED'))).toMatchObject({ reload: true })
     expect(say(problem(400, 'ORDER_ROUTE_INVALID')).text).toMatch(/^Check what you entered/)
     expect(say(problem(503, 'ORDER_ROUTE_UNAVAILABLE'))).toEqual({ reload: true, unanswered: true,
@@ -696,8 +696,8 @@ describe('“We can’t complete this order”: the receiving facility’s words
       + 'close it. If many orders are affected, phone Health ID support now.')
     expect(refused(409, 'IDEMPOTENCY_KEY_REUSED')).toEqual({ reload: true, text: 'This was already sent with other details. The list '
       + 'has been refreshed: check whether the order has ended.' })
-    expect(refused(404, 'API_ROUTE_NOT_FOUND')).toEqual({ missing: true, text: 'Ending an order you can’t complete isn’t available '
-      + 'yet: phone General Hospital.' })
+    expect(refused(404, 'API_ROUTE_NOT_FOUND')).toEqual({ missing: true, text: 'Ending an order you can’t complete isn’t set up for your facility'
+      + ': phone General Hospital.' })
     expect(refused(404, 'ORDER_ROUTE_NOT_FOUND')).toEqual({ reload: true, text: 'This order was not found here. Refresh the list.' })
     expect(refused(423, 'CROSS_FACILITY_ORDERS_UNAVAILABLE')).toEqual({ text: 'Health ID has paused work on orders from other '
       + 'facilities, so this can’t be done now. Try again when it resumes, and phone General Hospital if it is urgent.' })

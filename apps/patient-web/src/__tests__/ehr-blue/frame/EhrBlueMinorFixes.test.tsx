@@ -7,7 +7,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { parse } from '../../cssRules'
 import type * as StaffApp from '../../../staff/App'
 import type { EhrBluePage } from '../../../ehr-blue/frame/types'
-import { DEMO_HOSPITAL, REAL_FACILITY, SESSION, facility, openStaffApp, serve, sessionAt, where, withFramePages } from './blueHarness'
+import { DEMO_HOSPITAL, REAL_FACILITY, SESSION, accountButton, facility, openStaffApp, serve, sessionAt, where, withFramePages } from './blueHarness'
 
 /**
  * The review's minor items (7a-j): where "Use the classic EHR" lands, tab titles on today's own routes, Needs
@@ -22,34 +22,36 @@ const here = dirname(fileURLToPath(import.meta.url))
 const frameRule = (selector: string) =>
   parse(readFileSync(resolve(here, '../../../ehr-blue/frame/frame.css'), 'utf8')).find(rule => rule.selectors.includes(selector))?.body
 
-async function chooseClassic() {
-  fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Use the classic EHR' }))
-  expect(await screen.findByRole('complementary', { name: 'Provider navigation' })).toBeDefined()
+/** The classic EHR was removed (one EHR for every facility): the account menu no longer offers it. */
+function offersNoClassic() {
+  fireEvent.click(accountButton())
+  expect(screen.getByRole('button', { name: 'Sign out' })).toBeDefined()
+  expect(screen.queryByRole('button', { name: 'Use the classic EHR' })).toBeNull()
+  expect(screen.queryByRole('complementary', { name: 'Provider navigation' })).toBeNull()
 }
 
-describe('a. "Use the classic EHR" keeps an address only where today serves that exact address', () => {
+describe('a. there is no "Use the classic EHR": the blue page keeps its address', () => {
   // A clinical page that takes the Patients stand-in's place, with records below it, as Ola's pages will.
   const chart: EhrBluePage = {
     path: 'patients/*', group: 'Clinical', label: 'Patients', status: 'live', permission: 'identity.patient.read', element: <p>Fictional patient chart</p>,
   }
   beforeEach(() => { withFramePages(() => [chart]) })
 
-  it('opens today\'s Overview from a record below one of today\'s pages, which today\'s router does not serve', async () => {
+  it('keeps a record below one of today\'s pages open, and offers no way back to the classic EHR', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.patient.read'])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp('/provider/patients/p-0000aa11bb22')
     expect(await screen.findByText('Fictional patient chart')).toBeDefined()
-    await chooseClassic()
-    expect(where()).toBe('/provider')
+    offersNoClassic()
+    expect(where()).toBe('/provider/patients/p-0000aa11bb22')
   })
 
-  it('stays on today\'s page at its own address', async () => {
+  it('stays on the page at its own address', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.patient.read'])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp('/provider/patients/')
     expect(await screen.findByText('Fictional patient chart')).toBeDefined()
-    await chooseClassic()
+    offersNoClassic()
     expect(where()).toBe('/provider/patients/')
   })
 })
@@ -83,7 +85,7 @@ describe('b. today\'s own routes keep today\'s tab title inside the blue frame',
 })
 
 describe('c. Needs attention says nothing needs attention only when it lists nothing', () => {
-  const NOTHING = 'Nothing needs your attention here.'
+  const NOTHING = 'All clear'
 
   async function home(activePatient: StaffApp.ActivePatient | null) {
     const riverside = facility(REAL_FACILITY, 'Riverside Teaching Hospital (fictional)', ['identity.patient.read'])
@@ -101,7 +103,7 @@ describe('c. Needs attention says nothing needs attention only when it lists not
     render(<MemoryRouter><RoleViewProvider><AttentionProvider facilityId={riverside.id} permissions={riverside.permissions}>
       <BlueHome />
     </AttentionProvider></RoleViewProvider></MemoryRouter>)
-    return within(screen.getByRole('heading', { name: 'Needs attention' }).closest('.hid-ehr-card') as HTMLElement)
+    return within(screen.getByRole('region', { name: 'Needs attention' }))
   }
 
   it('says so when there are no access requests to count and no patient open', async () => {
@@ -113,7 +115,7 @@ describe('c. Needs attention says nothing needs attention only when it lists not
   it('lists the open patient, and does not also say nothing needs attention', async () => {
     const open = { hid: 'HID-DEMO-001', purpose: 'direct-care', lookup: { patient: { fullName: 'Alex Example' } } } as unknown as StaffApp.ActivePatient
     const card = await home(open)
-    expect(card.getByRole('link', { name: 'Alex Example' }).getAttribute('href')).toBe('/provider/clinical')
+    expect(card.getByRole('link', { name: /^Alex Example/ }).getAttribute('href')).toBe('/provider/clinical')
     expect(card.queryByText(NOTHING)).toBeNull()
   })
 })

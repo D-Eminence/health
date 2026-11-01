@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Activity, Blocks, Building2, CircleDollarSign, ClipboardCheck, FileCheck2, LayoutDashboard, Lock, Megaphone, PhoneOff, Route as RouteIcon, ScanFace, ScrollText, ShieldCheck, ShieldX, SlidersHorizontal, Stethoscope, TriangleAlert, UserPlus, Users, Compass } from 'lucide-react'
+import { AppShell, type NavItem } from '../kasuwa/AppShell'
+import { Alert, Badge, Button, EmptyState, type Icon } from '../kasuwa/ui'
+import { ToastProvider } from '../kasuwa/toast'
 import { isHidApiError } from '@hid/http'
 import {
   adminApi, adminSessionAccount, closeAdminSession, setAdminSessionAccount, type AdminActor, type AdminSession,
@@ -23,7 +27,7 @@ import { SecurityPage } from './SecurityPage'
 import {
   clearSessionWindow, currentSessionWindow, onSessionEnded, onSessionWindow, reportSessionEnded, type SessionEndReason,
 } from './session-window'
-import { isServed, navigationItemFor, visibleNavigation } from './navigation'
+import { isServed, navigationItemFor, visibleNavigation, type NavigationSection } from './navigation'
 import { useWrongPatientServed } from '../wrongPatientServed'
 import { AdminSignIn } from './SignIn'
 import { NovuAdminSignIn } from './NovuSignIn'
@@ -35,15 +39,13 @@ import './style.css'
 
 /** The server's PLATFORM_SESSION_EXPIRED / PLATFORM_SESSION_REVOKED, or the reading of its reported expiry. */
 export const SESSION_ENDED_MESSAGES: Readonly<Record<SessionEndReason, string>> = {
-  expired: 'Your platform session expired after 15 minutes without activity or at its 8-hour limit. Sign in again to continue.',
-  revoked: 'Your platform session was ended before it expired: it was signed out or revoked from another session or by '
-    + 'another administrator, your account or roles changed, or your authenticator was reset. Sign in again, and tell your '
-    + 'security team if you did not expect this.',
-  switched: 'Platform administration in this browser is now signed in as another administrator, so your workspace was '
-    + 'closed. Sign in again to continue.',
+  expired: 'You were signed out after 15 minutes without activity, or after 8 hours. Sign in again to continue.',
+  revoked: 'You were signed out from another session or by another administrator, or your roles or authenticator '
+    + 'changed. Sign in again. Tell your security team if you didn’t expect this.',
+  switched: 'Another administrator signed in on this browser, so you were signed out here. Sign in again to continue.',
 }
-const NO_ACCESS = 'This account has no platform administration access.'
-const SIGNED_OUT = 'You have signed out of platform administration.'
+const NO_ACCESS = 'This account can’t use platform administration.'
+const SIGNED_OUT = 'You’ve signed out.'
 
 /** A tab back in view after this long asks the server whose session the browser holds. */
 const RECHECK_AFTER_HIDDEN_MS = 60_000
@@ -57,19 +59,36 @@ function Area({ path, actor, children }: { path: string; actor: AdminActor; chil
   const item = navigationItemFor(path)
   if (item && !isServed(item)) return <NotFound />
   if (item?.visible(actor)) return <>{children}</>
-  return <section className="admin-message admin-forbidden" role="alert" aria-labelledby="admin-forbidden-title">
-    <h1 id="admin-forbidden-title">Access denied</h1>
-    <p>Your platform account does not have permission for {item ? item.title : 'this area'}. Ask a Super Admin if you
-      need it; access is granted through platform roles.</p>
-    <Link to="/admin/overview">Go to overview</Link>
+  return <section role="alert" aria-labelledby="admin-forbidden-title">
+    <h1 id="admin-forbidden-title" className="sr-only">You can’t open this page</h1>
+    <EmptyState icon={ShieldX} title={`You can’t open ${item ? item.title : 'this page'}`}
+      description="Your roles don’t include it. Ask a Super Admin if you need it."
+      action={<Button to="/admin/overview">Go to overview</Button>} />
   </section>
 }
 
 function NotFound() {
-  return <section className="admin-message" aria-labelledby="admin-not-found-title">
-    <h1 id="admin-not-found-title">Page not found</h1>
-    <p>This platform page is unavailable.</p><Link to="/admin/overview">Go to overview</Link>
+  return <section aria-labelledby="admin-not-found-title">
+    <h1 id="admin-not-found-title" className="sr-only">Page not found</h1>
+    <EmptyState icon={Compass} title="Page not found" description="This page doesn’t exist."
+      action={<Button to="/admin/overview">Go to overview</Button>} />
   </section>
+}
+
+/** Groups long enough to fold (Hick's law): they open while they hold the current page. */
+const FOLDING_GROUPS: ReadonlySet<string> = new Set(['Operations', 'Commercial'])
+/** The phone tabs, in order of preference: the first three this administrator may open. */
+const TAB_PREFERENCE = ['/admin/overview', '/admin/facilities', '/admin/principals', '/admin/audit', '/admin/approvals', '/admin/applications']
+const TAB_LABELS: Readonly<Record<string, string>> = { '/admin/principals': 'Users', '/admin/applications': 'Applications' }
+
+/** The phone tabs from the same visible navigation as the sidebar, so a tab never leads to a page this account can't open. */
+function phoneTabs(sections: readonly NavigationSection[]): readonly [NavItem, NavItem, NavItem] {
+  const items = sections.flatMap(section => section.items)
+  const ordered = [...TAB_PREFERENCE.flatMap(path => items.filter(item => item.path === path)), ...items.filter(item => !TAB_PREFERENCE.includes(item.path))]
+  const tabs = ordered.slice(0, 3).map(item => ({ to: item.path, label: TAB_LABELS[item.path] ?? item.title, icon: ADMIN_ICONS[item.path] ?? LayoutDashboard }))
+  // Every administrator can open Overview; an account with fewer than three areas repeats nothing it can't open.
+  while (tabs.length < 3) tabs.push({ to: `/admin/overview#${tabs.length}`, label: 'Overview', icon: LayoutDashboard })
+  return [tabs[0]!, tabs[1]!, tabs[2]!]
 }
 
 /** Names the browser tab after the current area. */
@@ -258,9 +277,9 @@ export function App() {
   }
 
   // Each screen is a main landmark holding its status or alert: a role on the main element itself would replace the landmark.
-  if (checking) return <main className="admin-message"><BrandLogo className="admin-state-logo" /><p role="status">Checking your platform session…</p></main>
-  if (checkError) return <main className="admin-message"><BrandLogo className="admin-state-logo" /><h1>Session unavailable</h1>
-    <p role="alert">{checkError}</p><button type="button" className="admin-primary" onClick={() => setCheckRevision(value => value + 1)}>Try again</button></main>
+  if (checking) return <main className="admin-message"><BrandLogo className="admin-state-logo" /><p role="status">Checking your sign-in…</p></main>
+  if (checkError) return <main className="admin-message"><BrandLogo className="admin-state-logo" /><h1>Couldn’t check your sign-in</h1>
+    <p role="alert">{checkError}</p><Button variant="primary" onClick={() => setCheckRevision(value => value + 1)}>Try again</Button></main>
   if (!session) return usesNovuBackend()
     ? <NovuAdminSignIn onSignedIn={signedInNow} notice={notice} />
     : <AdminSignIn onSignedIn={signedInNow} notice={notice} />
@@ -268,32 +287,22 @@ export function App() {
   const sections = visibleNavigation(actor)
 
   return (
-    <StepUpProvider>
-      <div className="admin-app">
-        <a className="admin-skip" href="#admin-main">Skip to content</a>
-        <aside className="admin-sidebar" aria-label="Platform administration">
-          <div className="admin-brand"><BrandLogo /><small>Platform</small></div>
-          <nav className="admin-nav" aria-label="Platform areas">
-            {sections.map(section => <div className="admin-nav-section" key={section.title}>
-              <p className="admin-nav-heading">{section.title}</p>
-              <ul>{section.items.map(item => <li key={item.path}>
-                <NavLink to={item.path} className={({ isActive }) => `admin-nav-link${isActive ? ' active' : ''}`}>
-                  {item.title}
-                </NavLink></li>)}</ul>
-            </div>)}
-          </nav>
-          <div className="admin-sidebar-footer"><span>{actor.displayName || actor.email || 'Platform administrator'}</span>
-            <button type="button" disabled={signingOut} onClick={() => void signOut()}>Sign out</button></div>
-        </aside>
-        <div className="admin-main-wrap">
-          <header className="admin-mobile-header"><Link to="/admin/overview" className="admin-mobile-logo"><BrandLogo /><span>Platform</span></Link>
-            <button type="button" disabled={signingOut} onClick={() => void signOut()}>Sign out</button></header>
-          <nav className="admin-mobile-nav" aria-label="Platform areas">
-            {sections.flatMap(section => section.items).map(item => <NavLink key={item.path} to={item.path}>{item.title}</NavLink>)}
-          </nav>
-          <main id="admin-main" className="admin-main">
+    <ToastProvider><StepUpProvider>
+      <AppShell
+        brand={<Link to="/admin/overview" aria-label="Health ID platform home" className="inline-flex items-center gap-2.5 no-underline"><BrandLogo className="h-7 w-auto" /><Badge tone="violet" size="sm">Admin</Badge></Link>}
+        switcher={{ name: 'Health ID platform', subtitle: actor.platformRoles.map(role => role.replace(/^platform_/, '').replace(/_/g, ' ')).join(', ') || 'Administrator',
+          avatar: <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-violet text-white"><ShieldCheck className="size-5" /></span> }}
+        nav={sections.map(section => ({ title: section.title === 'Platform' ? undefined : section.title, collapsible: FOLDING_GROUPS.has(section.title),
+          items: section.items.map(item => ({ to: item.path, label: item.title, icon: ADMIN_ICONS[item.path] ?? LayoutDashboard })) }))}
+        person={{ name: actor.displayName || actor.email || 'Platform administrator', detail: actor.email || 'Platform', profileTo: has(actor, 'platform.admin.access') ? '/admin/security' : undefined }}
+        onSignOut={() => void signOut()}
+        signingOut={signingOut}
+        skipLink="Skip to content"
+        headerStart={<Link to="/admin/overview" aria-label="Health ID platform home" className="inline-flex items-center gap-2 no-underline lg:hidden"><BrandLogo className="h-7 w-auto" /><Badge tone="violet" size="sm">Admin</Badge></Link>}
+        tabs={phoneTabs(sections)}>
+          <div id="admin-main" className="admin-main @container">
             <SessionWarning />
-            {signOutError ? <p role="alert" className="admin-error">{signOutError}</p> : null}
+            {signOutError ? <Alert intent="error" className="mb-4">{signOutError}</Alert> : null}
             <Routes>
               <Route index element={<Navigate to="/admin/overview" replace />} />
               <Route path="sign-in" element={<Navigate to="/admin/overview" replace />} />
@@ -319,11 +328,20 @@ export function App() {
               <Route path="demos" element={<Area path="/admin/demos" actor={actor}><DemosPage actor={actor} /></Area>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
-          </main>
-        </div>
-      </div>
-    </StepUpProvider>
+          </div>
+      </AppShell>
+    </StepUpProvider></ToastProvider>
   )
+}
+
+/** Each platform area's icon, by path. */
+const ADMIN_ICONS: Readonly<Record<string, Icon>> = {
+  '/admin/overview': LayoutDashboard, '/admin/applications': FileCheck2, '/admin/self-service-facilities': UserPlus,
+  '/admin/facilities': Building2, '/admin/order-routes': RouteIcon, '/admin/wrong-patient-reports': TriangleAlert,
+  '/admin/principals': Users, '/admin/emergency-contacts': PhoneOff, '/admin/approvals': ClipboardCheck,
+  '/admin/reviews': ScanFace, '/admin/clinicians': Stethoscope, '/admin/audit': ScrollText, '/admin/security': Lock,
+  '/admin/operations': Activity, '/admin/integrations': Blocks, '/admin/controls': SlidersHorizontal,
+  '/admin/pricing': CircleDollarSign, '/admin/demos': Megaphone,
 }
 
 /** Warn before the idle or absolute expiry the server last reported. */
@@ -362,12 +380,8 @@ export function SessionWarning() {
     } finally { setBusy(false) }
   }
 
-  return <div className="admin-warning admin-session-warning" role="alert">
-    {atLimit
-      ? <p>Your session reaches its 8-hour limit at {ends}. Save your work; you will need to sign in again.</p>
-      : <p>For security, your session ends at {ends} unless you continue working.</p>}
-    {!atLimit && <button type="button" className="admin-secondary" disabled={busy} onClick={() => void stay()}>
-      {busy ? 'Extending…' : 'Stay signed in'}</button>}
-    {error && <p className="admin-error">{error}</p>}
-  </div>
+  return <div className="mb-4 flex flex-col gap-2"><Alert intent="warning" title={atLimit ? `You’ll be signed out at ${ends}` : `You’ll be signed out at ${ends} if you stay idle`}
+    action={atLimit ? undefined : <Button size="sm" loading={busy} disabled={busy} onClick={() => void stay()}>{busy ? 'Extending…' : 'Stay signed in'}</Button>}>
+    {atLimit ? 'Sessions last at most 8 hours. Save your work.' : null}
+  </Alert>{error && <Alert intent="error" size="sm">{error}</Alert>}</div>
 }

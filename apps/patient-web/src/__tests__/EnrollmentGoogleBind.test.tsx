@@ -43,14 +43,14 @@ describe('linking Google to an enrollment in progress', () => {
     api.enrollmentBindGoogle.mockResolvedValue({ bound: true })
     render(<MemoryRouter><Enrollment /></MemoryRouter>)
 
-    expect(await screen.findByRole('heading', { name: 'Activate your account' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Choose a password' })).toBeTruthy()
     fireEvent.click(screen.getAllByRole('button', { name: 'Complete check' }).at(-1)!)
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign up with Google' })) })
 
     expect(api.enrollmentBindGoogle).toHaveBeenCalledTimes(1)
-    expect(await screen.findByRole('heading', { name: 'Activate your account' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Choose a password' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Where should we send your code?' })).toBeNull()
-    expect(screen.getByText('Google identity confirmed for this enrollment.')).toBeTruthy()
+    expect(screen.getByText('Google confirmed your account for this sign-up.')).toBeTruthy()
   })
 })
 
@@ -59,15 +59,15 @@ describe('checking for an enrollment in progress', () => {
     api.enrollmentCurrent.mockRejectedValue(new HidApiError(404, 'No enrollment'))
     api.googleOnboarding.mockRejectedValue(new HidApiError(403, 'Request origin is not allowed', { code: 'ORIGIN_DENIED' }))
     render(<MemoryRouter><Enrollment /></MemoryRouter>)
-    expect(await screen.findByLabelText('National Identification Number')).toBeTruthy()
-    expect(screen.queryByText(/could not check for an enrollment in progress/)).toBeNull()
+    expect(await screen.findByLabelText('National Identification Number (NIN)')).toBeTruthy()
+    expect(screen.queryByText(/couldn’t check for a sign-up in progress/)).toBeNull()
   })
 
   it('does not start while the enrollment’s own progress is unknown', async () => {
     api.enrollmentCurrent.mockRejectedValue(new HidApiError(503, 'Unavailable'))
     api.googleOnboarding.mockRejectedValue(new HidApiError(404, 'No Google onboarding'))
     render(<MemoryRouter><Enrollment /></MemoryRouter>)
-    expect(await screen.findByText(/could not check for an enrollment in progress/)).toBeTruthy()
-    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(await screen.findByText(/couldn’t check for a sign-up in progress/)).toBeTruthy()
+    expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
   })
 })

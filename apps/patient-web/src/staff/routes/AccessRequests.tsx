@@ -93,7 +93,7 @@ export function AccessRequests() {
     // Reload either way, then report the close (the reload clears earlier messages).
     await load()
     if (failure) setError(failure)
-    else setNotice('Access was closed by the backend.')
+    else setNotice('Access was closed.')
     focus('access-requests-title', true)
   }
 
@@ -119,7 +119,7 @@ export function AccessRequests() {
     {/* Mounted throughout, so what a close says is announced. */}
     <div id="access-requests-status" role="status">{notice ? <p className="staff-success">{notice}</p> : loading && !requests && <p className="staff-muted">Loading requests…</p>}</div>
     {requests && requests.length === 0 && <EmptyState title={status ? `No access requests: ${FILTER_LABELS[status].toLowerCase()}` : 'No access requests'} description="Requests you send for this facility will appear here." />}
-    {requests && requests.length > 0 && <Card className="staff-table-wrap"><table className="staff-table"><thead><tr><th>Requested</th><th>Patient context</th><th>Scope</th><th>Reason</th><th>Status</th></tr></thead><tbody>{requests.map(request => <tr key={request.accessRequestId}><td>{new Date(request.requestedAt).toLocaleString()}</td><td>Patient ••••{request.patientId.slice(-4)}</td><td>{request.scope.replace('_', ' ')}</td><td>{request.reason}</td><td><Badge tone={outcome(request).tone}>{outcome(request).label}</Badge>
+    {requests && requests.length > 0 && <Card className="staff-table-wrap"><table className="staff-table"><thead><tr><th>Requested</th><th>Patient context</th><th>Scope</th><th>Reason</th><th>Status</th></tr></thead><tbody>{requests.map(request => <tr key={request.accessRequestId}><td data-label="Requested">{new Date(request.requestedAt).toLocaleString()}</td><td data-label="Patient context">Patient ••••{request.patientId.slice(-4)}</td><td data-label="Scope">{request.scope.replace('_', ' ')}</td><td data-label="Reason">{request.reason}</td><td data-label="Status"><Badge tone={outcome(request).tone}>{outcome(request).label}</Badge>
       {request.authorizationMethod && <small className="staff-muted"> {request.authorizationMethod === 'patient_access_pin' ? 'Patient PIN' : 'Patient approval'}</small>}
       {request.effectiveStatus === 'active' && request.grantExpiresAt && <small className="staff-muted"> until {new Date(request.grantExpiresAt).toLocaleString()}</small>}
       {request.status === 'denied' && request.deniedReason && <small className="staff-muted"> {request.deniedReason}</small>}

@@ -6,6 +6,7 @@ import { CLINICIAN_REGULATOR_OF, clinicianApplicationApi, type ClinicianApplicat
   type ClinicianProfession } from '../clinicianApplicationApi'
 import { PROFESSION_CHOICE, REGULATOR_NAME, SIGNUP_CLOSED_KEPT, codeOf, lagosToday, refusalCopy } from './copy'
 import { fieldError, type Problem } from './ui'
+import { buttonClass } from '../../kasuwa/ui'
 
 /**
  * The licence and facility of an application (sign-up's "Your details", and
@@ -221,14 +222,14 @@ function FacilitySearch({ value, onChange, error, onRefused, searchesUsed, onSea
       <Input id={FIELD.facility} type="search" autoComplete="off" maxLength={80} value={value.query}
         onChange={event => { const query = event.target.value; onChange(current => ({ ...current, query })) }} onKeyDown={enter} />
     </Field>
-    <button type="button" className="patient-secondary-button" onClick={() => void search()} disabled={searching || spent || !canSearch}>
+    <button type="button" className={buttonClass({ variant: 'secondary' })} onClick={() => void search()} disabled={searching || spent || !canSearch}>
       {searching ? 'Searching…' : 'Search facilities'}</button>
     <p role="status" className="patient-field-hint">{searching ? 'Searching…' : results === null ? null
       : <span key={answered}>{count === 0 ? 'No verified facility matches that name.' : count === 1 ? '1 facility found.' : `${count} facilities found.`}</span>}</p>
     {refused && <p role="alert" className="patient-inline-error">{refused}</p>}
     {spent && <div className="clinician-search-spent">
       <p role="alert" className="patient-inline-error">{searchesUsed.message}</p>
-      {searchesUsed.action && <button type="button" className="patient-secondary-button" onClick={searchesUsed.action.onClick}>
+      {searchesUsed.action && <button type="button" className={buttonClass({ variant: 'secondary' })} onClick={searchesUsed.action.onClick}>
         {searchesUsed.action.label}</button>}
     </div>}
     {value.facility && !results?.some(facility => facility.facilityId === value.facility?.facilityId) &&

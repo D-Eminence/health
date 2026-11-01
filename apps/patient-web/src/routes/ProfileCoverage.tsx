@@ -7,6 +7,9 @@ import { HospitalPicker } from './enrollment/HospitalPicker'
 import { useActionFocus, useRetryFocus } from './actionFocus'
 import { ItemName } from '../ItemName'
 import { ProfileSection } from './ProfileSection'
+import { Button, Field, Input } from '../kasuwa/ui'
+import { WORDS } from '../copy'
+import { LoadProblem, Problem, Saved } from './profileParts'
 
 /** A profile resource as usePatientResource gives it: null data is "not served" (404) once it has loaded. */
 export interface ProfileResource<T> {
@@ -17,11 +20,11 @@ export interface ProfileResource<T> {
   replace: (value: T) => void
 }
 
-const CONFLICT = 'Your coverage details were changed somewhere else (in another window, perhaps), so these were not saved. '
-  + 'The latest details are shown now: make your change again.'
+const CONFLICT = 'These details were changed somewhere else, so yours weren’t saved. '
+  + 'The latest is shown now. Make your change again.'
 
 /**
- * "Coverage" on the profile (hid-1.0 parity B3): the hospital the patient uses now, with the sign-up's hospital
+ * "Insurance & hospital" (once "Coverage") on the profile (hid-1.0 parity B3): the hospital the patient uses now, with the sign-up's hospital
  * suggestions, and their HMO's name as free text, as hid-1.0 had them. Saved against the version read. Not shown where
  * Identity does not serve them (404).
  */
@@ -72,7 +75,7 @@ function CoverageForm({ resource }: { resource: ProfileResource<ProfileDetails |
         hospitalCurrentlyUsing: sentText(hospital), hmoName: sentText(hmo), expectedVersion: saved.rowVersion,
       })
       resource.replace(answer)
-      setNotice('Your coverage details were saved.')
+      setNotice('Saved.')
       focusAfter(() => document.getElementById('coverage-heading'))
     } catch (cause) {
       if (isHidApiError(cause) && cause.code === 'VERSION_CONFLICT') {
@@ -81,30 +84,30 @@ function CoverageForm({ resource }: { resource: ProfileResource<ProfileDetails |
         focusAfter(() => document.getElementById('coverage-heading'))
         return
       }
-      setError(isHidApiError(cause) ? cause.message : 'Your coverage details could not be saved. Try again.')
+      setError(isHidApiError(cause) ? cause.message : 'Couldn’t save. Try again.')
       focusAfter(() => document.getElementById('coverage-hospital'))
     } finally { setBusy(false) }
   }
 
   // A read that failed is said in the heading too: the card's alert is not seen while it is closed.
-  return <ProfileSection id="coverage" title="Coverage" state={resource.error ? 'Could not load' : null} busy={resource.loading}
+  return <ProfileSection id="coverage" title={WORDS.insurance} state={resource.error ? 'Could not load' : null} busy={resource.loading}
     headingRef={heading} headingId="coverage-heading">
-    <p className="patient-field-hint">Your hospital and HMO, for the people caring for you.</p>
-    {resource.error && <div role="alert"><p>{resource.error}</p>
-      <button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(resource.reload)}>Try again <ItemName>loading your coverage details</ItemName></button></div>}
-    {error && <p id="coverage-error" role="alert" className="patient-inline-error">{error}</p>}
-    <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
-    {saved && <form className="patient-form" onSubmit={event => void save(event)}>
-      <div className="patient-field"><label htmlFor="coverage-hospital">Hospital you currently use</label>
+    {resource.error && <LoadProblem what="these details" error={resource.error} buttonRef={retryFocus.button}
+      onRetry={() => retryFocus.retry(resource.reload)} name={<ItemName>loading your insurance and hospital</ItemName>} />}
+    <Saved>{notice}</Saved>
+    {saved && <form className="flex flex-col gap-4" onSubmit={event => void save(event)}>
+      <Field label="Hospital you use now" htmlFor="coverage-hospital" hintId="coverage-hospital-hint" hint="Start typing, then pick it from the list.">
         <HospitalPicker id="coverage-hospital" value={hospital} maxLength={COVERAGE_TEXT_LIMIT}
           onChange={value => { setHospital(oneLine(value).slice(0, COVERAGE_TEXT_LIMIT)); setNotice(null) }}
-          describedBy={describedBy('coverage-hospital-hint', error && 'coverage-error')} /></div>
-      <p id="coverage-hospital-hint" className="patient-field-hint">Start typing to choose from Nigeria’s health facilities, or type its name.</p>
-      <label>HMO name<input id="coverage-hmo" autoComplete="off" maxLength={COVERAGE_TEXT_LIMIT} value={hmo}
-        onChange={event => { setHmo(oneLine(event.target.value).slice(0, COVERAGE_TEXT_LIMIT)); setNotice(null) }}
-        aria-describedby={describedBy('coverage-hmo-hint', error && 'coverage-error')} /></label>
-      <p id="coverage-hmo-hint" className="patient-field-hint">Your health insurance, if any. Leave a field empty to clear it.</p>
-      <button type="submit" className="patient-primary-button" disabled={busy || !changed}>{busy ? 'Saving…' : 'Save coverage'}</button>
+          describedBy={describedBy('coverage-hospital-hint', error && 'coverage-error')} />
+      </Field>
+      <Field label="HMO (health insurance)" htmlFor="coverage-hmo" optional hintId="coverage-hmo-hint" hint="Leave empty if you have none.">
+        <Input id="coverage-hmo" autoComplete="off" maxLength={COVERAGE_TEXT_LIMIT} value={hmo}
+          onChange={event => { setHmo(oneLine(event.target.value).slice(0, COVERAGE_TEXT_LIMIT)); setNotice(null) }}
+          aria-describedby={describedBy('coverage-hmo-hint', error && 'coverage-error')} />
+      </Field>
+      {error && <Problem id="coverage-error">{error}</Problem>}
+      <Button type="submit" variant="primary" className="self-start" loading={busy} disabled={busy || !changed}>{busy ? 'Saving…' : 'Save'}</Button>
     </form>}
   </ProfileSection>
 }

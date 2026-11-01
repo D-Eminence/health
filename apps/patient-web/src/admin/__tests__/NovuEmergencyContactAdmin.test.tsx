@@ -176,7 +176,7 @@ describe('a facility\'s alert phone number', () => {
     open(<FacilityDetailPage actor={actor([])} />)
     const section = await alertPhone()
     expect(section.getByText(NOT_SET)).toBeTruthy()
-    expect(section.getByText('Changing it needs the platform.facility.manage permission.')).toBeTruthy()
+    expect(section.getByText('Your roles don’t let you change it.')).toBeTruthy()
     expect(section.queryByLabelText('Facility phone number')).toBeNull()
   })
 

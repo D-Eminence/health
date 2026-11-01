@@ -170,9 +170,11 @@ export function AuditCompliance() {
           {loading && !page && <EhrSkeleton label="Loading audit events" />}
           {/* A page already shown stays while it is read again; the read is still said, as today's page says every read. */}
           {loading && page && <p role="status" className="hid-ehr-sr-only">Loading audit events</p>}
-          {!loading && page?.items.length === 0 && (cursors.length > 1
-            ? <EhrEmptyState title="No older events" message={`There are no earlier audit events at ${facility.name}.`} />
-            : <EhrEmptyState title="No audit events yet" message={`Events at ${facility.name} appear here once they are recorded.`} />)}
+          {!loading && page?.items.length === 0 && (page.nextBeforeSequenceId
+            ? <EhrEmptyState title="Nothing to show on this page" message="This page held only request records, which aren’t shown here. Use Older events to look further back." />
+            : cursors.length > 1
+              ? <EhrEmptyState title="No older events" message={`There are no earlier audit events at ${facility.name}.`} />
+              : <EhrEmptyState title="No audit events yet" message={`Events at ${facility.name} appear here once they are recorded.`} />)}
           {!loading && page && page.items.length > 0 && visible.length === 0 && (
             <EhrEmptyState title="No matching events" message="Change the search or outcome, or look at another page." />
           )}

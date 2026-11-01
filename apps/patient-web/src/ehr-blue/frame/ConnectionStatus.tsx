@@ -15,7 +15,7 @@ export function ConnectionStatus() {
   return (
     <div className="hid-ehr-blue-statusbar">
       <EhrPopover
-        trigger={<><span className="hid-ehr-blue-status-dot" aria-hidden="true" />{CHIP}</>}
+        trigger={CHIP}
         triggerLabel={CHIP}
         label="Connection and sync status"
         placement="above"

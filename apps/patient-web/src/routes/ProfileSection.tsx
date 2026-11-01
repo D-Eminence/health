@@ -1,4 +1,6 @@
 import { createContext, useContext, type ReactNode, type Ref } from 'react'
+import { ChevronDown } from 'lucide-react'
+import { Card, cx } from '../kasuwa/ui'
 
 /** Which of a page's sections are open, and opening or closing one (useOpenSections in sectionFocus.ts). */
 export interface OpenSections {
@@ -18,7 +20,7 @@ export const OpenSectionsContext = createContext<OpenSections | null>(null)
  * card that ends with focus on its heading still does. Outside the profile (no OpenSectionsContext), it is the card it
  * was, open, under a plain heading.
  */
-export function ProfileSection({ id, title, state, className, busy, headingRef, headingId, children }: {
+export function ProfileSection({ id, title, state, className, busy, headingRef, headingId, tone, children }: {
   /** The card's id, which a link to it names after # (sectionFocus.ts). */
   id: string
   title: string
@@ -27,29 +29,30 @@ export function ProfileSection({ id, title, state, className, busy, headingRef, 
   busy?: boolean
   headingRef?: Ref<HTMLHeadingElement>
   headingId?: string
+  /** 'danger' for a section whose action can't be undone (Delete account). */
+  tone?: 'danger'
   children: ReactNode
 }) {
   const sections = useContext(OpenSectionsContext)
-  const card = className ? `patient-card ${className}` : 'patient-card'
+  const body = <div className="flex flex-col gap-4 border-t border-line p-5">{children}</div>
   if (!sections) {
-    return <div className={card} id={id} aria-busy={busy || undefined}>
-      <h2 ref={headingRef} id={headingId} tabIndex={-1}>{title}</h2>
-      {children}
-    </div>
+    return <Card id={id} aria-busy={busy || undefined} className={className}>
+      <h2 ref={headingRef} id={headingId} tabIndex={-1} className={cx('m-0 px-5 py-4 text-title-3 outline-none', tone === 'danger' ? 'text-danger-ink' : 'text-ink')}>{title}</h2>
+      {body}
+    </Card>
   }
   const open = sections.isOpen(id)
-  return <div className={card} id={id} aria-busy={busy || undefined}>
-    <h2 ref={headingRef} id={headingId} tabIndex={-1} className="patient-section-heading">
-      <button type="button" className="patient-section-toggle" aria-expanded={open} aria-controls={`${id}-content`}
-        aria-describedby={state ? `${id}-state` : undefined} onClick={() => sections.toggle(id)}>
-        <span className="patient-section-title">{title}</span>
+  return <Card id={id} aria-busy={busy || undefined} className={className}>
+    <h2 ref={headingRef} id={headingId} tabIndex={-1} className="m-0 outline-none">
+      <button type="button" aria-expanded={open} aria-controls={`${id}-content`}
+        aria-describedby={state ? `${id}-state` : undefined} onClick={() => sections.toggle(id)}
+        className="flex min-h-14 w-full cursor-pointer items-center gap-3 border-0 bg-transparent px-5 py-3 text-left font-[inherit] hover:bg-subtle focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--focus-ring-color)]">
+        <span className={cx('min-w-0 flex-1 text-title-3', tone === 'danger' ? 'text-danger-ink' : 'text-ink')}>{title}</span>
         {/* Read as the button's description, so the heading is named by its title alone. */}
-        {state && <span id={`${id}-state`} className="patient-section-state" aria-hidden="true">{state}</span>}
-        <svg className="patient-section-chevron" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false">
-          <path d="M5 7.5 10 12.5 15 7.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        {state && <span id={`${id}-state`} className="shrink-0 text-[13px] font-normal text-ink-3" aria-hidden="true">{state}</span>}
+        <ChevronDown aria-hidden="true" className={cx('size-5 shrink-0 text-ink-3 transition-transform', open && 'rotate-180')} />
       </button>
     </h2>
-    <div id={`${id}-content`} className="patient-section-body" hidden={!open}>{children}</div>
-  </div>
+    <div id={`${id}-content`} hidden={!open}>{body}</div>
+  </Card>
 }

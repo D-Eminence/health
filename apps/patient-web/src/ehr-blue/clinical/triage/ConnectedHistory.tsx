@@ -70,13 +70,14 @@ export function ConnectedHistory({ chart, encounter, owner }: { chart: Chart; en
       status: noteStatus(record),
     })),
   ]
-  const failure = lists.find(list => list.error)
+  // Every list's failure (one they share, once), so a refused read is not hidden by another.
+  const failures = [...new Set(lists.map(list => list.error).filter(Boolean))]
 
   return (
     <HistoryCard items={items}>
       {/* The first read of a list; a page move says so on its pager (busy), as the encounter page's history does. */}
       {lists.some(list => list.items === null && list.loading) ? <p role="status">{HISTORY_LOADING}</p> : null}
-      {failure ? <ErrorBox>{failure.error}</ErrorBox> : null}
+      {failures.map(failure => <ErrorBox key={failure}>{failure}</ErrorBox>)}
       {/* Each list pages on its own, 50 to a page, as today's records tabs do: a record past the first page is reached here. */}
       <HistoryPages title={TRIAGE_TITLE} list={vitals} />
       <HistoryPages title={KINDS.laboratory.title} list={labs} />

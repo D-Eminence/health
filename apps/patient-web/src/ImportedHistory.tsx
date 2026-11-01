@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
+import { Download } from 'lucide-react'
+import { Alert, Button } from './kasuwa/ui'
 import type { ImportedAttachmentDownload, ImportedMedicalRecord, ImportedRecordVersion } from './importedRecords'
 import { dayWords, groupByDay as byDay, matchesQuery, textOf } from './routes/recordSearch'
 import './imported-history.css'
 
 function date(value: string) {
   const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'Date unavailable' : parsed.toLocaleDateString('en-NG', { dateStyle: 'medium' })
+  return Number.isNaN(parsed.getTime()) ? 'No date' : parsed.toLocaleDateString('en-NG', { dateStyle: 'medium' })
 }
 function label(value: string) {
   const labels: Record<string, string> = {
-    medication_name: 'Medication', prescribing_provider: 'Prescribed by', start_date: 'Start date', end_date: 'End date',
+    medication_name: 'Medicine', prescribing_provider: 'Prescribed by', start_date: 'Start date', end_date: 'End date',
   }
   if (Object.hasOwn(labels, value)) return labels[value]!
   const text = value.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim()
@@ -35,7 +37,7 @@ function InformationValue({ value }: { value: unknown }) {
     ? new Date(text).toLocaleDateString('en-NG', { dateStyle: 'medium', timeZone: 'UTC' }) : text
   return <span className="imported-history-value">{display}</span>
 }
-const originLabel = (record: ImportedMedicalRecord) => record.origin === 'patient-provided' ? 'Patient reported' : 'Provider authored'
+const originLabel = (record: ImportedMedicalRecord) => record.origin === 'patient-provided' ? 'Added by patient' : 'From a doctor or hospital'
 
 /**
  * Everything the card shows of a record, for the patient's search: its title, kind, date and the day heading it is
@@ -92,14 +94,14 @@ export function ImportedHistory({ records, limit, download, allowLocalHttp = fal
       const result = await download(fileId, request.signal)
       if (request.signal.aborted) return
       let url: URL
-      try { url = new URL(result.url) } catch { throw new Error('The attachment link is invalid.') }
+      try { url = new URL(result.url) } catch { throw new Error('This file link doesn’t work. Try again later.') }
       const local = allowLocalHttp && url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
-      if ((url.protocol !== 'https:' && !local) || url.username || url.password) throw new Error('The attachment link is invalid.')
+      if ((url.protocol !== 'https:' && !local) || url.username || url.password) throw new Error('This file link doesn’t work. Try again later.')
       const link = document.createElement('a')
       link.href = url.toString(); link.target = '_blank'; link.rel = 'noopener noreferrer'; link.referrerPolicy = 'no-referrer'
       link.click()
     } catch (caught) {
-      if (!request.signal.aborted) setError(caught instanceof Error ? caught.message : 'The attachment could not be opened.')
+      if (!request.signal.aborted) setError(caught instanceof Error ? caught.message : 'Couldn’t open the file. Try again.')
     } finally {
       if (!request.signal.aborted) { controller.current = null; setBusy(null) }
     }
@@ -111,31 +113,31 @@ export function ImportedHistory({ records, limit, download, allowLocalHttp = fal
   const card = (record: ImportedMedicalRecord) => {
     const current = record.versions.find(version => version.id === record.currentVersionId)!
     return <article className="imported-history-card" key={record.id}>
-      <header><Title>{record.title || 'Imported medical record'}</Title><span className="imported-history-origin">{originLabel(record)}</span></header>
+      <header><Title>{record.title || 'Older health record'}</Title><span className="imported-history-origin">{originLabel(record)}</span></header>
       <p>{[record.infoType || record.category ? label(record.infoType || record.category!) : '', date(record.createdAt)].filter(Boolean).join(' · ')}</p>
       <VersionContent version={current} level={innerLevel} />
       {record.versions.length > 1 && <details><summary>Previous versions</summary>{record.versions.filter(version => version.id !== record.currentVersionId)
         .map(version => <div key={version.id}><Inner>Version {version.versionNo} · {date(version.createdAt)}</Inner><VersionContent version={version} level={innerLevel} /></div>)}</details>}
-      {record.files.length > 0 && <div><Inner>Attachments</Inner><ul>{record.files.map(file => <li key={file.id}>
-        <span>{file.fileName || 'Attachment'}</span>{file.accessStatus === 'available'
-          ? download ? <button type="button" disabled={busy !== null} onClick={() => void openFile(file.id)}>
-            {busy === file.id ? 'Opening…' : `Download ${file.fileName || 'attachment'}`}</button> : <span>Document access permission required.</span>
-          : <span>{file.accessStatus === 'rejected' ? 'Download unavailable: file failed safety verification.' : 'Download pending safety verification.'}</span>}
+      {record.files.length > 0 && <div><Inner>Files</Inner><ul>{record.files.map(file => <li key={file.id}>
+        <span>{file.fileName || 'File'}</span>{file.accessStatus === 'available'
+          ? download ? <Button size="sm" icon={Download} loading={busy === file.id} disabled={busy !== null} onClick={() => void openFile(file.id)}>
+            {busy === file.id ? 'Opening…' : <>Download{' '}<span className="sr-only">{file.fileName || 'file'}</span></>}</Button> : <span>You can’t open this file here.</span>
+          : <span>{file.accessStatus === 'rejected' ? 'This file can’t be opened. It failed our safety check.' : 'This file is still being checked for safety.'}</span>}
       </li>)}</ul></div>}
     </article>
   }
   const shown = matchingImported(records, query)
   const searching = shown !== records
-  return <section className="imported-history" aria-label="Imported medical history">
-    <h2>Imported medical history</h2>
-    <p>Medical information preserved from the previous Health ID system.</p>
-    {error && <p role="alert">{error}</p>}
-    {records.length === 0 ? <p>No imported medical history is available.</p>
-      : shown.length === 0 ? <p>No imported records match your search.</p>
+  return <section className="imported-history" aria-label="Older health records">
+    <h2>Older health records</h2>
+    <p>From the old Health ID system.</p>
+    {error && <Alert intent="error" size="sm">{error}</Alert>}
+    {records.length === 0 ? <p>No older records.</p>
+      : shown.length === 0 ? <p>No older records match your search.</p>
       : groupedByDay ? byDay(shown, record => record.createdAt).map(group => <div className="imported-history-day" key={group.day ?? 'undated'}>
-        <h3 className="patient-day-heading">{group.label}</h3><div className="imported-history-list">{group.items.map(card)}</div></div>)
+        <h3 className="m-0 rounded-md bg-subtle px-3 py-2 text-overline text-ink-3">{group.label}</h3><div className="imported-history-list">{group.items.map(card)}</div></div>)
       : <div className="imported-history-list">{shown.map(card)}</div>}
-    {records.length > 0 && <p>{searching ? `${shown.length} of the ${records.length} imported ${records.length === 1 ? 'record' : 'records'} shown match your search.`
-      : paged ? `Showing ${records.length} imported ${records.length === 1 ? 'record' : 'records'}, newest first.` : `Showing up to ${limit} imported records, newest first.`}</p>}
+    {records.length > 0 && <p>{searching ? `${shown.length} of ${records.length} older ${records.length === 1 ? 'record' : 'records'} match your search.`
+      : paged ? `Showing ${records.length} older ${records.length === 1 ? 'record' : 'records'}, newest first.` : `Showing up to ${limit} older records, newest first.`}</p>}
   </section>
 }

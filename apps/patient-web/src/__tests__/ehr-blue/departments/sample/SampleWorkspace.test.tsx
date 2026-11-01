@@ -6,6 +6,7 @@ import { renderDept } from '../harness'
 import {
   actionButtons, guardBrowser, heading, noticeUnderHeading, renderSample, SAMPLE_TEXT, savedFacts, statusBadge, where,
 } from './sampleHarness'
+import { dateText } from '../../../../ehr-blue/departments/parts/format'
 
 /*
  * The sample workspaces' engine (parts/sample), through real definitions: the design's list, create form, record
@@ -57,7 +58,7 @@ describe('the list', () => {
     expect(within(first).getByText('58b3ab2d')).toBeDefined()
     expect(within(first).getByText('Patient One')).toBeDefined()
     expect(within(first).getByText('partial').classList.contains('hid-ehr-badge')).toBe(true)
-    expect(within(first).getByText(new Date('2026-10-26T11:41:16.298Z').toLocaleString())).toBeDefined()
+    expect(within(first).getByText(dateText('2026-10-26T11:41:16.298Z'))).toBeDefined()
     expect(within(first).getByRole('button', { name: 'Quick view' })).toBeDefined()
     expect(within(first).getByRole('button', { name: 'Open' })).toBeDefined()
     expect(screen.getAllByRole('row')).toHaveLength(4)
@@ -115,7 +116,7 @@ describe('the list', () => {
     fireEvent.click(opener)
     const drawer = screen.getByRole('dialog', { name: 'Record quick view' })
     expect(within(drawer).getByRole('heading', { level: 3 }).textContent).toBe('DEMO-1')
-    expect(within(drawer).getByText(`Last updated ${new Date('2026-10-26T11:41:16.298Z').toLocaleString()}`)).toBeDefined()
+    expect(within(drawer).getByText(`Last updated ${dateText('2026-10-26T11:41:16.298Z')}`)).toBeDefined()
     const terms = within(drawer).getAllByRole('term').map(term => term.textContent)
     expect(terms).toEqual(['Service', 'Quantity', 'Source', 'Number', 'Unit Cents', 'Total Cents', 'Amount', 'Method', 'Reference'])
     const close = within(drawer).getByRole('button', { name: 'Close' })
@@ -246,7 +247,7 @@ describe('the record view', () => {
     const notice = noticeUnderHeading()
     const context = document.querySelector('.hid-ehr-dept-context')!
     expect(notice.nextElementSibling).toBe(context)
-    expect(context.textContent).toBe(`draftPatient Three · HID-DEMO-003Saved ${new Date('2026-10-26T11:41:16.000Z').toLocaleString()}`)
+    expect(context.textContent).toBe(`draftPatient Three · HID-DEMO-003Saved ${dateText('2026-10-26T11:41:16.000Z')}`)
     expect(savedFacts()).toMatchObject({ Service: 'General consultation', Quantity: '1', Source: 'SERVICE-003', Number: 'DEMO-3' })
     expect(screen.getByText('Totals above are integer minor currency units (cents / kobo). All payments are fictional.')).toBeDefined()
     expect(screen.getByRole('button', { name: 'Print' })).toBeDefined()
