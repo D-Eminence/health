@@ -251,7 +251,9 @@ export function BlueFrame() {
               ...(tabsFor('patients') ? [{ to: '/provider/patients', label: 'Find a patient', hint: 'By Health ID, with their approval', icon: Search, main: true }] : []),
               ...(tabsFor('registration') ? [{ to: '/provider/registration', label: 'Register a patient', hint: 'New Health ID at the front desk', icon: UserPlus }] : []),
               ...(tabsFor('triage/*') || tabsFor('triage') ? [{ to: '/provider/triage', label: 'Record vitals', hint: 'Triage and observations', icon: Activity }] : []),
-              ...(tabsFor('requests/*') || tabsFor('requests') ? [{ to: '/provider/requests', label: 'Request record access', hint: 'From another facility', icon: ShieldCheck }] : []),
+              // Access requests ask the patient to share their record with this facility: nothing goes to another facility.
+              // Said as the page and copy.ts say it ("Ask a patient"), not "Request record access".
+              ...(tabsFor('requests/*') || tabsFor('requests') ? [{ to: '/provider/requests', label: 'Ask a patient for access', hint: 'Ask a patient to share their record here', icon: ShieldCheck }] : []),
             ] }}
           >
             <div ref={pageRef} className="hid-ehr-blue-page @container">
@@ -268,7 +270,7 @@ export function BlueFrame() {
                   onNavigate={follow}
                 />
               ) : null}
-              {/* A page that fails would take the frame with it, and the account menu's way back to the classic EHR. */}
+              {/* A page that fails would take the frame with it: the boundary keeps the sidebar and the account menu. */}
               <BluePageBoundary key={match?.page.keepsState ? match.page.path : location.pathname}>{content}</BluePageBoundary>
             </div>
             {/* Fictional figures: only where the page itself is a sample. */}
