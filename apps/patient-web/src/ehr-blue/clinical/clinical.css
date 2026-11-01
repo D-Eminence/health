@@ -322,6 +322,18 @@
   width: 100%;
 }
 
+/* An action that cannot run yet keeps focus (aria-disabled, not disabled), so the kit's :disabled look misses it:
+   greyed out, with no hover look, as today's UNAVAILABLE (staff/focus.ts:11-13). */
+.hid-ehr .hid-ehr-clinical-action-list > .hid-ehr-button[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.hid-ehr .hid-ehr-clinical-action-list > .hid-ehr-button.hid-ehr-button-secondary[aria-disabled='true']:hover:not(:disabled) {
+  border-color: var(--ehr-line-strong);
+  background: var(--ehr-surface);
+}
+
 /* "More actions": one full-width outline button at the end of Available actions, its menu under it. */
 .hid-ehr .hid-ehr-clinical-more {
   position: relative;

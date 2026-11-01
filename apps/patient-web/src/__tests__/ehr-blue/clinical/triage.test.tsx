@@ -439,8 +439,9 @@ describe('New triage & vitals', () => {
     const form = await openNew()
     const visit = input(form, 'Visit') as unknown as HTMLSelectElement
     fireEvent.change(visit, { target: { value: ENCOUNTER_ID } })
-    const pages = screen.getByRole('group', { name: 'Encounter pages' })
-    expect(within(pages).getByRole('navigation', { name: 'Record pages' })).toBeTruthy()
+    // The landmark has today's pager name (Clinical.tsx:1794), so a screen reader's landmark list says what it pages.
+    const pages = screen.getByRole('navigation', { name: 'Encounter pages' })
+    expect(screen.queryByRole('navigation', { name: 'Record pages' })).toBeNull()
     api.lookupPatient.mockClear()
     fireEvent.click(within(pages).getByRole('button', { name: 'Next page' }))
     expect(await within(pages).findByText('Page 2')).toBeTruthy()
@@ -451,7 +452,12 @@ describe('New triage & vitals', () => {
     // Page 2's visit is offered; the one chosen stays chosen, and today's sentence says it is on another page.
     expect(Array.from(visit.options).map(option => option.value)).toEqual(['', ENCOUNTER_ID, second.id])
     expect(visit.value).toBe(ENCOUNTER_ID)
-    expect(described(visit)).toContain(`Presenting complaint: Fever, headache The encounter being documented, ambulatory started ${formatWhen(ENCOUNTER.startedAt)}, is on another page.`)
+    const elsewhere = `The encounter being documented, ambulatory started ${formatWhen(ENCOUNTER.startedAt)}, is on another page.`
+    expect(described(visit)).toBe(`Presenting complaint: Fever, headache ${elsewhere}`)
+    // Each is a line of its own, as today's sentence is (Clinical.tsx:1795), not run on after the complaint.
+    const hint = document.getElementById(visit.getAttribute('aria-describedby')!)!
+    expect(within(hint).getByText('Presenting complaint: Fever, headache').className).toBe('block')
+    expect(within(hint).getByText(elsewhere).className).toBe('block')
     type(form, 'Pulse (bpm)', '90')
     fireEvent.submit(form)
     await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
@@ -463,7 +469,7 @@ describe('New triage & vitals', () => {
     api.encounters.mockImplementation(async (_f: string, _p: string, page: { cursor?: string }) =>
       page.cursor ? { items: [second], nextCursor: null } : { items: [ENCOUNTER], nextCursor: 'cursor-2' })
     const form = await openNew()
-    fireEvent.click(within(screen.getByRole('group', { name: 'Encounter pages' })).getByRole('button', { name: 'Next page' }))
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Encounter pages' })).getByRole('button', { name: 'Next page' }))
     const visit = input(form, 'Visit') as unknown as HTMLSelectElement
     await waitFor(() => expect(Array.from(visit.options).map(option => option.value)).toEqual(['', second.id]))
     fireEvent.change(visit, { target: { value: second.id } })
@@ -625,6 +631,8 @@ describe('Triage & Vitals record', () => {
     fireEvent.submit(form)
     expect(await screen.findByText('Vital correction saved.')).toBeTruthy()
     await waitFor(() => expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { fresh: true }))
+    // The page says why, in today's words while the records reload (Clinical.tsx:1805).
+    expect(within(actions()).getByRole('status').textContent).toBe('Loading records…')
 
     // Still the version from before the correction: the button says it is unavailable, and a press opens nothing.
     const amend = screen.getByRole('button', { name: 'Correct these vitals' })
@@ -637,6 +645,7 @@ describe('Triage & Vitals record', () => {
     expect(await screen.findByText('Corrected (correction 1)')).toBeTruthy()
     const again = await screen.findByRole('button', { name: 'Correct these vitals' })
     expect(again.getAttribute('aria-disabled')).toBeNull()
+    expect(within(actions()).queryByRole('status')).toBeNull()
     fireEvent.click(again)
     expect(input(screen.getByRole('button', { name: 'Save correction' }).closest('form')!, 'Pulse (bpm)').value).toBe('78')
     expect(api.correctVital).toHaveBeenCalledTimes(1)
@@ -725,6 +734,41 @@ describe('Triage & Vitals record', () => {
     type(form, 'Reason for correction', 'Repeat reading')
     fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
     expect(await screen.findByText('These vitals were marked entered in error since they were loaded, so the correction was not saved. The list could not be reloaded; refresh it to see the vitals.')).toBeTruthy()
+  })
+
+  it('gap: opens no correction while the vitals are read again after a 412, so none goes out with the refused version', async () => {
+    api.correctVital.mockRejectedValueOnce(new HidApiError(412, 'Precondition failed', { code: 'ROW_VERSION_MISMATCH' }))
+    await openRecord()
+    const form = await amendForm()
+    type(form, 'Pulse (bpm)', '78')
+    // The reason by its role and the button by aria-expanded, so this test holds with either commit's words.
+    fireEvent.change(within(form).getByRole('textbox'), { target: { value: 'Repeat reading' } })
+    const reread = deferred<{ items: unknown[]; nextCursor: null }>()
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string, page?: { fresh?: boolean }) =>
+      page?.fresh ? reread.promise : { items: kind === 'vitals' ? vitals : others[kind] ?? [], nextCursor: null })
+    fireEvent.submit(form)
+    await waitFor(() => expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { fresh: true }))
+
+    // Refused and read again: the form, its own submit still running, can be closed...
+    const toggle = within(actions()).getAllByRole('button').find(button => button.hasAttribute('aria-expanded'))!
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    // ...but none opens on the version EHR refused: the button says it is unavailable, the page says why, and a press
+    // opens nothing.
+    expect(toggle.getAttribute('aria-disabled')).toBe('true')
+    expect(within(actions()).getByRole('status').textContent).toBe('Loading records…')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByRole('group', { name: 'Corrected vital measurements' })).toBeNull()
+
+    await act(async () => reread.resolve({ items: [{ ...VITAL, rowVersion: '2' }], nextCursor: null }))
+    expect(await screen.findByText('These vitals changed since they were loaded, so the correction was not saved: check them, and correct them again if it is still needed. The list was reloaded.')).toBeTruthy()
+    expect(toggle.getAttribute('aria-disabled')).toBeNull()
+    expect(within(actions()).queryByRole('status')).toBeNull()
+    fireEvent.click(toggle)
+    expect(screen.getByRole('group', { name: 'Corrected vital measurements' })).toBeTruthy()
+    expect(api.correctVital).toHaveBeenCalledTimes(1)
   })
 
   it('offers no amendment under a read-only grant', async () => {

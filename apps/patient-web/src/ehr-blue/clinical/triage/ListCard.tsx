@@ -50,13 +50,14 @@ export function ListCard({ list, rows, search, onSearch, hrefFor, title, pending
 /**
  * Today's paging over the patient's encounters, 50 to a page (staff/routes/Clinical.tsx:1793-1794): the list's notice,
  * then the pager, each move re-checking access first. Shown only while there is more than one page, or something to
- * say. With `label`, it is a group of that name (the create page's "Encounter pages", beside its visit picker).
+ * say. `label` names the pager's landmark, as today's Pager takes one (Clinical.tsx:367): the create page's is today's
+ * "Encounter pages" (:1794), beside its visit picker; without one it is the shared "Record pages".
  */
 export function VisitPages({ list, label }: { list: PatientRecords; label?: string }) {
   const { cursors, next, loading, load, notice } = list
   const paged = cursors.length >= 2 || next !== null
   if (!paged && !notice) return null
-  const pages = (
+  return (
     <>
       {notice ? (
         notice.alert ? <ErrorBox>{notice.text}</ErrorBox> : <p className="hid-ehr-clinical-note" role="status">{notice.text}</p>
@@ -65,11 +66,11 @@ export function VisitPages({ list, label }: { list: PatientRecords; label?: stri
         <Pager
           page={cursors.length}
           busy={loading}
+          label={label}
           onPrevious={cursors.length >= 2 ? () => void load({ cursors: cursors.slice(0, -1), paging: true }) : undefined}
           onNext={next ? () => void load({ cursors: [...cursors, next], paging: true }) : undefined}
         />
       ) : null}
     </>
   )
-  return label ? <div role="group" aria-label={label}>{pages}</div> : pages
 }

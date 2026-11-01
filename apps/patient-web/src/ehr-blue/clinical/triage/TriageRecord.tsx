@@ -134,7 +134,9 @@ function VitalRecord({ chart, encounter, vital, reload }: {
   // A correction that cannot be read offers no correction (today's rule): nothing is changed from values not seen.
   const canAmend = chart.canWrite && chart.can('ehr.vital.write') && current !== null && !retracted
   // While they are read again a closed correction does not open: the button says so (aria-disabled), keeps focus, and
-  // a press does nothing. An open one can still be closed.
+  // a press does nothing. It is greyed out, with no hover look, as today's UNAVAILABLE (staff/focus.ts:13; the action
+  // list's rule in clinical.css), and the card says "Loading records…" while they are read, as today's records card
+  // does (Clinical.tsx:1805). An open one can still be closed.
   const locked = reloading && !open
 
   const amend = async ({ values, reason }: VitalsInput): Promise<SubmitOutcome> => {
@@ -207,6 +209,7 @@ function VitalRecord({ chart, encounter, vital, reload }: {
                 onClick={() => { if (!locked) setOpen(value => !value) }}>{open ? CLOSE_CORRECTION : CORRECT_LABEL}</EhrButton>
             </ActionList>
           ) : <NoActions />}
+          {reloading ? <p className="hid-ehr-clinical-note" role="status">Loading records…</p> : null}
           {canAmend && open && current ? (
             <VitalsForm
               key={`${vital.id}-${String(vital.rowVersion)}`}

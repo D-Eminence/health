@@ -80,7 +80,9 @@ function NewTriageForm({ chart }: { chart: Chart }) {
       )
     }
     const complaint = `Presenting complaint: ${chosen.chiefComplaint || NO_COMPLAINT}`
-    return visits.some(encounter => encounter.id === chosen.id) ? complaint : `${complaint} ${onAnotherPage(chosen)}`
+    if (visits.some(encounter => encounter.id === chosen.id)) return complaint
+    // Today's sentence is a line of its own (Clinical.tsx:1795), not run on after the complaint.
+    return <><span className="block">{complaint}</span> <span className="block">{onAnotherPage(chosen)}</span></>
   }
 
   return (
