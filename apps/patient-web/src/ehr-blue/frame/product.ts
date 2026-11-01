@@ -8,7 +8,7 @@ import { basePath } from './pageHref'
  * Which Health ID product this workspace is (the owner's decision of 2026-10-31). A hospital may run everything: the
  * EHR with its laboratory, pharmacy and outreach inside it. A pharmacy, a laboratory or an outreach team may run only
  * its own product. Then it gets a focused workspace: its own name, its queue as home, and none of the hospital's
- * clinical places.
+ * clinical places but finding a patient and asking for their record.
  *
  * Decided from what the backend already gives:
  *  - The product's own address (lab., pharmacy., outreach., migrate.: productHostname.ts) is that product.
@@ -28,8 +28,13 @@ export const PRODUCTS: Readonly<Record<Product, ProductInfo>> = {
   migrate: { name: 'Migrate', icon: ScanText, home: 'ocr', prefix: 'ocr.' },
 }
 
-/** Pages every product keeps: running the facility itself (its people, its audit trail, its profile). */
-const SHARED: ReadonlySet<string> = new Set(['staff', 'audit', 'facility', 'hr', 'institutions'])
+/**
+ * Pages every product keeps: running the facility itself (its people, its audit trail, its profile), and Patients and
+ * Access requests. A lab scientist or a pharmacist reaches a patient's record only through a request the patient
+ * approves, and the classic portal listed both pages on every site, by permission (staff/navigation.ts). Each still
+ * needs its own permission; the EHR's other clinical pages, registration among them, stay out.
+ */
+const SHARED: ReadonlySet<string> = new Set(['staff', 'audit', 'facility', 'hr', 'institutions', 'patients', 'requests'])
 
 const SINGLE: readonly Exclude<Product, 'ehr'>[] = ['lab', 'pharmacy', 'outreach', 'migrate']
 
