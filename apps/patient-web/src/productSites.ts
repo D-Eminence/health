@@ -131,6 +131,20 @@ export function servedHere(pathname: string, hostname: string = window.location.
 }
 
 /**
+ * Whether `pathname` is one of this staff site's own product pages: a page under /provider it serves that is neither
+ * one every staff site serves (the overview, sign-in, the choice of facility, staff, subscription, audit, profile, HR)
+ * nor one of the main site's public staff pages. On ehr that is every other page; on lab, the laboratory's. False on
+ * any host that is not a staff site.
+ */
+export function ownProductPage(pathname: string, hostname: string): boolean {
+  const here = siteOf(hostname)
+  const page = providerPage(pathname)
+  if (!here || here.key === 'web' || page === null) return false
+  if (SHARED_STAFF_PAGES.has(page) || MAIN_SITE_STAFF_PAGES.has(page)) return false
+  return siteServing(pathname, hostname) === null
+}
+
+/**
  * The address of a page on the site that serves it, with its query and fragment, or null when this host serves it.
  * The host is one of the fixed hostnames above; nothing of the request but the page's own address is kept.
  */
