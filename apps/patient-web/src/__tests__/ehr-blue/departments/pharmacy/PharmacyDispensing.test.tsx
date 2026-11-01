@@ -4,6 +4,7 @@ import { HidApiError } from '@hid/http'
 import type { PharmacyWorkItem } from '../../../../staff/api'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
 import { MODULE_NOT_IN_SERVICE } from '../../../../ehr-blue/departments/parts/errors'
+import { pharmacyPage } from '../../../../ehr-blue/departments/pharmacy/page'
 import { DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 import {
   accepted, ALL, AMOXICILLIN, confirmPatient, CREATE, deferred, DISPENSING_READ, dispensed, expectNoFullPatientIds, fillDispensing,
@@ -633,6 +634,93 @@ describe('Reverse dispensing', () => {
     await openRecord(METFORMIN)
     fireEvent.click(within(otherActions()).getByRole('button', { name: 'Reverse dispensing', expanded: false }))
     expect(screen.getAllByRole('form').map(form => form.getAttribute('aria-label'))).toEqual(['Reverse dispensing'])
+  })
+})
+
+/**
+ * A dispensing or reversal refused for the role says Pharmacy's own refusal (pharmacy/page.tsx PharmacyUnavailable),
+ * with the work refused in it: everyone is told to ask the facility administrator, except the administrator of a facility
+ * that signed itself up, who is that administrator. Never the server's words, and never the retry line.
+ */
+describe('a refusal for the role, in the words of Pharmacy’s own refusal', () => {
+  const MANAGES_STAFF = 'workforce.manage'
+  afterEach(() => { vi.unstubAllEnvs() })
+
+  /** A member of a facility that signed itself up, on Novu: Health ID support has checked it, or is checking it. */
+  function selfSignedUp(review: 'pending' | 'reviewed', organizationType: string, permissions: string[], roles = ['org_admin']) {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    session.facility = fakeFacility(permissions, { id: DEMO_PHARMACY_ID, name: 'Demo Pharmacy', roles,
+      selfService: { review, organizationType } })
+  }
+
+  async function refusedDispensing() {
+    api.dispense.mockRejectedValueOnce(new HidApiError(403, ACCESS_DENIED, { code: 'PHARMACY_ACCESS_DENIED' }))
+    await openRecord(AMOXICILLIN)
+    const form = dispenseWith({ quantity: '21', reason: REASON })
+    await confirmPatient('Dispense')
+    return form
+  }
+
+  async function refusedReversal() {
+    api.reverseDispensing.mockRejectedValueOnce(new HidApiError(403, ACCESS_DENIED, { code: 'PHARMACY_ACCESS_DENIED' }))
+    await openRecord(METFORMIN)
+    const form = reverse('Medication returned unopened by the patient')
+    await confirmPatient('Reverse dispensing')
+    return form
+  }
+
+  async function said(form: HTMLElement, text: string) {
+    expect((await within(form).findByRole('alert')).textContent).toBe(text)
+    expect(within(form).queryByText(RETRY_LINE)).toBeNull()
+    expect(document.body.textContent).not.toContain(ACCESS_DENIED)
+    expect(document.body.textContent).not.toMatch(/PHARMACY_ACCESS_DENIED|permission|pharmacy\.\w|workforce/)
+  }
+
+  it.each([
+    ['dispensing', refusedDispensing, 'dispensing medicines'],
+    ['a reversal', refusedReversal, 'reversing a dispensing'],
+  ])('tells the administrator of a pharmacy Health ID support has checked the step that is theirs when %s is refused', async (_case, refused, work) => {
+    selfSignedUp('reviewed', 'pharmacy', [...ALL, MANAGES_STAFF])
+    const form = await refused()
+    await said(form, `Your role at this facility doesn’t include ${work}. Add a pharmacist on the Staff page.`)
+    expect(document.body.textContent).not.toMatch(/Ask your facility administrator/)
+  })
+
+  it('gives the administrator of a facility that will not get Pharmacy no step, rather than asking themselves', async () => {
+    selfSignedUp('reviewed', 'other', [...ALL, MANAGES_STAFF])
+    await said(await refusedDispensing(), 'Your role at this facility doesn’t include dispensing medicines.')
+    expect(document.body.textContent).not.toMatch(/Ask your facility administrator|Add a pharmacist/)
+  })
+
+  it('says Pharmacy opens after the check while Health ID support checks a facility that will get it', async () => {
+    selfSignedUp('pending', 'pharmacy', [...ALL, MANAGES_STAFF])
+    await said(await refusedReversal(), 'Pharmacy opens once Health ID support has checked your facility.')
+  })
+
+  it.each([
+    ['anyone else at a checked pharmacy', () => selfSignedUp('reviewed', 'pharmacy', ALL, ['pharmacist'])],
+    ['the administrator of a facility Health ID support manages', () => {
+      vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+      working([...ALL, MANAGES_STAFF])
+    }],
+    ['a facility administrator on today’s backend, which has no self sign-up', () => {
+      session.facility = fakeFacility([...ALL, MANAGES_STAFF], { id: DEMO_PHARMACY_ID, name: 'Demo Pharmacy', roles: ['org_admin'],
+        selfService: { review: 'reviewed', organizationType: 'pharmacy' } })
+    }],
+  ])('still tells %s to ask the facility administrator', async (_case, member) => {
+    member()
+    await said(await refusedDispensing(), ROLE_CANNOT_DISPENSE)
+  })
+
+  it.each([
+    ['the administrator of a checked pharmacy', () => selfSignedUp('reviewed', 'pharmacy', [...ALL, MANAGES_STAFF])],
+    ['anyone else there', () => selfSignedUp('reviewed', 'pharmacy', ALL, ['pharmacist'])],
+  ])('says word for word what Pharmacy’s own refusal says to %s, with the work refused', async (_case, member) => {
+    member()
+    const page = renderDept(<>{pharmacyPage.refusal}</>)
+    const refusalText = screen.getByText(/^Your role at this facility doesn’t include pharmacy work\./).textContent ?? ''
+    page.unmount()
+    await said(await refusedDispensing(), refusalText.replace('pharmacy work', 'dispensing medicines'))
   })
 })
 

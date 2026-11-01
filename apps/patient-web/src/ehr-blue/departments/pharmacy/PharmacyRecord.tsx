@@ -12,6 +12,7 @@ import { cannotCompleteOffered, handOverCheckText, routeClosedForWork, wrongPati
 import { OrderEndingActions, type CannotCompleteEnding, type OrderEndingMode } from '../../../staff/routes/CannotComplete'
 import type { WrongPatientEnding } from '../../../staff/routes/WrongPatient'
 import { useCannotCompleteServed } from '../../../cannotCompleteServed'
+import { useDeptAccess } from '../parts/access'
 import { DeptEmbedded } from '../parts/DeptEmbedded'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptFacts, type DeptFact } from '../parts/DeptRecord'
@@ -22,7 +23,7 @@ import { statusTitle } from '../parts/WorkQueue'
 import { DrugTile } from './DrugTile'
 import { drugFormOf, FORM_WORD, nameAndStrength } from './drugForm'
 import { Breakable } from './PharmacyQueue'
-import { DOSE_MISSING, doseMissing, doseText, labelText, notDispensableText, queueTone, statusOf, statusWord } from './pharmacyText'
+import { DOSE_MISSING, doseMissing, doseText, labelText, notDispensableText, pharmacyRefusalText, queueTone, statusOf, statusWord } from './pharmacyText'
 import type { PaymentSettings, WorkItemBill } from '../commerce/api'
 import { BillBadge } from '../commerce/BillBadge'
 import { PaidLine, PaymentStep, StockLine } from './pointOfCare'
@@ -40,11 +41,13 @@ interface Failure { readonly text: string; readonly retry: boolean }
  * What a failed dispensing or reversal says. Screens never repeat the server's words, so the refusals that change what
  * the pharmacist does next are said in the page's own words by their code, as are the HTTP client's own failures. Where
  * pressing again can't help, the sentence says what to do instead and the retry line is left out: a medicine already
- * recorded as handed over must never look like a passing glitch. The page's sentences for a closed order, paused work, a
- * workspace not in service or a fault between services also go by code (errorText), given the error without the
- * server's message or the fields it names. Anything else says ACTION_FAILED.
+ * recorded as handed over must never look like a passing glitch. A refusal for the role says Pharmacy's own refusal
+ * with the work refused (`refusedFor`, pharmacyRefusalText), so a facility's own administrator is never told to ask
+ * themselves. The page's sentences for a closed order, paused work, a workspace not in service or a fault between
+ * services also go by code (errorText), given the error without the server's message or the fields it names. Anything
+ * else says ACTION_FAILED.
  */
-function failureOf(caught: unknown, reverse: boolean): Failure {
+function failureOf(caught: unknown, reverse: boolean, refusedFor: (work: string) => string): Failure {
   if (!isHidApiError(caught)) return { text: ACTION_FAILED, retry: true }
   switch (caught.code) {
     case 'NETWORK_ERROR': return { text: 'We couldn’t reach Health ID. Check your internet connection and try again.', retry: true }
@@ -52,8 +55,7 @@ function failureOf(caught: unknown, reverse: boolean): Failure {
     case 'REQUEST_TIMEOUT': return { text: 'Health ID took too long to answer, so this may already be recorded. Go back to Prescriptions '
       + 'and refresh the list to check before you try again.', retry: false }
     case 'AUTHENTICATION_REQUIRED': return { text: 'Your session has ended. Sign in again to continue.', retry: false }
-    case 'PHARMACY_ACCESS_DENIED': return { text: `Your role at this facility doesn’t include ${reverse ? 'reversing a dispensing' : 'dispensing medicines'}. `
-      + 'Ask your facility administrator.', retry: false }
+    case 'PHARMACY_ACCESS_DENIED': return { text: refusedFor(reverse ? 'reversing a dispensing' : 'dispensing medicines'), retry: false }
     case 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED': return { text: 'This prescription is already recorded as dispensed. Go back to '
       + 'Prescriptions and refresh the list before you hand anything over.', retry: false }
     case 'PHARMACY_WORK_ITEM_VERSION_CONFLICT':
@@ -143,6 +145,8 @@ interface Done { readonly quantity: number; readonly unit: string }
  */
 export function PharmacyRecord({ facilityId, item, permissions, undispensable, onUndispensable, said, holds, crossFacilityWork,
   onChanged, onBusy, onEnded, onNotCompleted, onReread, next = null, onNext, onBack, settings = null }: PharmacyRecordProps) {
+  // Who is signed in here: a refusal for the role names the step that is theirs (pharmacyRefusalText).
+  const { facility } = useDeptAccess()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<Failure | null>(null)
   const [success, setSuccess] = useState('')
@@ -225,7 +229,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
         // Its dispensing form goes, so the work continues at the prescription.
         onUndispensable()
         focus(title, true)
-      } else setError(failureOf(caught, reverse))
+      } else setError(failureOf(caught, reverse, work => pharmacyRefusalText(work, facility, permissions)))
     }
     finally { setBusy(false); onBusy(false) }
   }
