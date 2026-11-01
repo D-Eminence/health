@@ -19,6 +19,8 @@ const IPAD_DESKTOP = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKi
 /** Instagram's built-in browser (a WKWebView): no "Safari/" token, and no Share > Add to Home Screen. */
 const INSTAGRAM_IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 300.0'
 
+const environment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+const usualActEnvironment = environment.IS_REACT_ACT_ENVIRONMENT
 let stop: () => void = () => {}
 const defined: Array<[object, string]> = []
 function define(target: object, key: string, value: unknown) {
@@ -27,6 +29,7 @@ function define(target: object, key: string, value: unknown) {
 }
 beforeEach(() => { forgetInstallPrompt(); stop = listenForInstallPrompt(window) })
 afterEach(() => {
+  environment.IS_REACT_ACT_ENVIRONMENT = usualActEnvironment
   stop()
   for (const [target, key] of defined.splice(0)) Reflect.deleteProperty(target, key)
 })
@@ -88,7 +91,31 @@ describe('Install the Health ID app', () => {
     page()
     expect(await screen.findByRole('heading', { name: HEADING })).toBeTruthy()
     act(() => { window.dispatchEvent(new Event('appinstalled')) })
-    expect(screen.queryByRole('heading', { name: HEADING })).toBeNull()
+    // Waited for, not checked at once: findByRole answers as soon as the section is on the page, which on a busy
+    // runner can be before React has run that render's effects, where useSyncExternalStore starts listening. The
+    // section then goes once they run (the next test), so a check made at once failed now and then in full runs.
+    await waitFor(() => expect(screen.queryByRole('heading', { name: HEADING })).toBeNull())
+  })
+
+  it('goes even when the app is installed the moment the section appears, before the page listens for it', async () => {
+    offer()
+    const installed = new Promise<void>(resolve => {
+      const observer = new MutationObserver(() => {
+        if (!screen.queryByRole('heading', { name: HEADING })) return
+        observer.disconnect()
+        // As findByRole can: the section is on the page, so the event comes at once, while no one is listening yet.
+        act(() => { window.dispatchEvent(new Event('appinstalled')) })
+        resolve()
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+    })
+    // The profile is answered outside act, as a fetch's answer arrives: React shows the section in one task, and runs
+    // its effects (where useSyncExternalStore subscribes to the offer) in a later one.
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    page()
+    await installed
+    // Once those effects run, useSyncExternalStore reads the offer again, finds it gone, and renders without the section.
+    await waitFor(() => expect(screen.queryByRole('heading', { name: HEADING })).toBeNull())
   })
 
   it('on iPhone and iPad, says how to add it to the Home Screen', async () => {
