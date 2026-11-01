@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
+import { WRITE_NOTE_LABEL } from '../../../ehr-blue/clinical/consult/encounters'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, activePatient, allowedLookup, labelled, renderPage } from './harness'
 
 /**
@@ -382,12 +383,13 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     expect(within(card('Note')).getAllByRole('alert').length).toBeGreaterThan(0)
   })
 
-  it('follow-up 3: offers no "Add notes" to a role that may write notes but not read them', async () => {
+  it('follow-up 3: offers no note form to a role that may write notes but not read them', async () => {
     staff.permissions = ALL.filter(permission => permission !== 'ehr.note.read')
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
     await within(card('Documents')).findByText('referral-letter.pdf')
-    expect(within(card('Actions')).queryByRole('button', { name: 'Add notes' })).toBeNull()
+    // The note form's own button, whichever words it has.
+    expect(within(card('Actions')).queryByRole('button', { name: WRITE_NOTE_LABEL })).toBeNull()
     expect(api.noteRevisions).not.toHaveBeenCalled()
   })
 

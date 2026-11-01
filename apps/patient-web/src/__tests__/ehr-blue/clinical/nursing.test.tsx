@@ -893,4 +893,36 @@ describe('Nursing observation record', () => {
     ])
     expect(within(history()).queryByRole('link')).toBeNull()
   })
+
+  it('blocker: opens and acts on an observation past its visit’s first notes page, as today’s record read reads every page', async () => {
+    // EHR lists a visit's notes 50 to a page, newest first: this observation is on the second page.
+    let second: unknown[] = [NOTE]
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string, page?: { cursor?: string; fresh?: boolean }) => {
+      if (kind !== 'clinical-notes') return { items: others[kind] ?? [], nextCursor: null }
+      return page?.cursor === 'notes-2' ? { items: second, nextCursor: null } : { items: [CONSULTATION], nextCursor: 'notes-2' }
+    })
+    api.updateRecord.mockImplementation(async (_f: string, _p: string, _e: string, _k: string, _n: string, input: { status: string }) => {
+      const changed = { ...NOTE, status: input.status, rowVersion: '3' }
+      second = [changed]
+      return changed
+    })
+    const noteReads = () => api.records.mock.calls.filter(call => call[3] === 'clinical-notes').map(call => call.slice(4))
+    await openRecord()
+    // Today's page reads, both pages: the first plain, the next by its cursor.
+    expect(noteReads()).toEqual([[], [{ cursor: 'notes-2', fresh: false }]])
+    expect(await within(saved()).findByText('Fictional vitals observation')).toBeTruthy()
+
+    // Signing it reads every page again, fresh, so the page shows the signed note.
+    const { submit } = await statusForm('Sign note', 'Reviewed with the nurse in charge')
+    fireEvent.click(submit)
+    fireEvent.change(within(dialog()).getByLabelText('Type SIGN to confirm'), { target: { value: 'SIGN' } })
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Sign note' }))
+    // The note shows as signed only once the second page was read again.
+    expect(await screen.findByText('Signed')).toBeTruthy()
+    expect(api.updateRecord.mock.calls[0]).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', NOTE_ID,
+      { expectedRowVersion: 2, changeReason: 'Reviewed with the nurse in charge', status: 'signed' }])
+    expect(noteReads().slice(2)).toEqual([[{ fresh: true }], [{ cursor: 'notes-2', fresh: true }]])
+    // The signed note's revisions are read again; then it offers what a signed note offers.
+    await waitFor(() => expect(actionNames()).toEqual(['Amend observation']))
+  })
 })
