@@ -64,6 +64,7 @@ const PERMISSIONS_BY_APP = Object.freeze({
  * public site's Worker through the PUBLIC_SITE service binding, and the public site sends /products/<slug> to the
  * product site (308), so each page has one address. Each product site's own page, by deployment app name.
  * apps/public-web/content/site.ts (PRODUCT_SITE_SUBDOMAINS) names the same five, for the public site's own links.
+ * Someone signed in there goes from "/" to the workspace instead (frontPage).
  */
 const PRODUCT_LANDING_PAGES = Object.freeze({
   ehr: Object.freeze({ slug: 'ehr', name: 'Health ID EHR' }),
@@ -72,6 +73,22 @@ const PRODUCT_LANDING_PAGES = Object.freeze({
   ocr: Object.freeze({ slug: 'migrate', name: 'Health ID Migrate' }),
   outreach: Object.freeze({ slug: 'outreach', name: 'Health ID Outreach' }),
 })
+
+/** The workspace's entrance on a product site, where its landing page's sign-in leads; it asks for a sign-in itself. */
+const STAFF_WORKSPACE_PATH = '/provider'
+
+/** The addresses of a site's front page. */
+const FRONT_PAGE_PATHS = Object.freeze(['/', '/index.html'])
+
+/**
+ * The cookie whose presence says a browser holds a sign-in on this site. Identity's sign-in sets three host-only
+ * cookies, named from its AUTH_COOKIE_NAME ('hid_access' by default, unchanged in production Terraform): see
+ * hid-system services/identity-api/src/auth/session-cookies.ts. 'hid_access' (HttpOnly) lasts 15 minutes and
+ * 'hid_access_refresh' is sent to /api/v1/auth only; 'hid_access_csrf' is sent on every path and lasts as long as the
+ * sign-in (up to 8 hours idle, 24 hours in all). The edge only looks for a non-empty one: it cannot and must not tell
+ * whether that sign-in is still good. The app does, renewing it quietly or asking for a sign-in.
+ */
+const SIGNED_IN_COOKIE = 'hid_access_csrf'
 
 /** The products a facility signs up for on the portal's /provider/enroll (public-web APPLICATION_PRODUCTS). */
 const APPLICATION_PRODUCTS = Object.freeze(['ehr', 'migrate', 'laboratory', 'pharmacy'])
@@ -139,13 +156,45 @@ function configuredDeployment(environment) {
     application,
     expectedHost,
     hosts: profile.hosts,
-    landing: Object.hasOwn(PRODUCT_LANDING_PAGES, application) ? PRODUCT_LANDING_PAGES[application] : null,
+    landing: landingOf(application, profile.hosts),
     migrateOrigin: `https://${profile.hosts.ocr}`,
     portalOrigin: `https://${profile.hosts.web}`,
     publicOrigin: `https://${profile.hosts.public}`,
     origin: new URL(profile.apiOrigin),
     originAuthToken: environment.ORIGIN_AUTH_TOKEN,
   }
+}
+
+/**
+ * What a site answers at its front page ("/"), or null where that is its own app's, as before (the patient portal,
+ * the public site, the admin site). To someone not signed in there: the public site's page at `path`, with
+ * `canonical` as its address and `name` on the page that says it is not available. To someone signed in: the staff
+ * workspace's entrance.
+ */
+function landingOf(application, hosts) {
+  if (Object.hasOwn(PRODUCT_LANDING_PAGES, application)) {
+    const page = PRODUCT_LANDING_PAGES[application]
+    return Object.freeze({ path: `/products/${page.slug}`, name: page.name, canonical: `https://${hosts[application]}/`,
+      signIn: STAFF_WORKSPACE_PATH, signedIn: 'workspace' })
+  }
+  return null
+}
+
+/**
+ * Whether the request carries a non-empty SIGNED_IN_COOKIE: only its presence, never its value. A name differing in
+ * any way (another cookie of the sign-in, another case, a prefix or suffix) is not it.
+ */
+function holdsSignIn(request) {
+  const header = request.headers.get('cookie')
+  if (!header) return false
+  // Browsers join cookies with "; "; a request whose Cookie headers were joined with ", " is read the same way.
+  for (const pair of header.split(/[;,]/)) {
+    const equals = pair.indexOf('=')
+    if (equals === -1 || pair.slice(0, equals).trim() !== SIGNED_IN_COOKIE) continue
+    const value = pair.slice(equals + 1).trim()
+    if (value !== '' && value !== '""') return true
+  }
+  return false
 }
 
 /** The product site whose landing page `pathname` is on the public site (/products/<slug>), or null. */
@@ -160,7 +209,8 @@ function productSiteOf(pathname, deployment) {
  * site, so its addresses are the public site's: a link to another public page opens on the public site; a product's
  * page opens on that product's own site; "Setup Your Facility" opens the portal's facility sign-up, where Identity
  * accepts its security check (productHostname.ts, providerEnrollmentHref); staff sign-in opens this product site's
- * own. Anything else (mailto:, the patient portal, a link within the page) is left as it is.
+ * workspace entrance, which asks for a sign-in itself. Anything else (mailto:, the patient portal, a link within the
+ * page) is left as it is.
  *
  * The same function rewrites the page's links at the edge and, copied into the page as its source text, the links
  * the page draws itself in the browser (its menus), so it holds nothing it does not define: no nested function, no
@@ -182,20 +232,20 @@ export function landingHref(href, site) {
     }
     return target.href
   }
-  if (target.origin === site.portalOrigin && target.pathname === '/provider/sign-in') return site.signIn
+  if (target.origin === site.portalOrigin && target.pathname === '/provider/sign-in') return site.staffSignIn
   return href
 }
 
-/** What landingHref needs for this product site, all fixed by the deployment: nothing from a request. */
+/** What landingHref needs for this site, all fixed by the deployment: nothing from a request. */
 function landingSite(deployment) {
   const products = {}
   for (const [app, page] of Object.entries(PRODUCT_LANDING_PAGES)) products[page.slug] = `https://${deployment.hosts[app]}/`
   return {
-    page: `${deployment.publicOrigin}/products/${deployment.landing.slug}`,
+    page: `${deployment.publicOrigin}${deployment.landing.path}`,
     publicOrigin: deployment.publicOrigin,
     portalOrigin: deployment.portalOrigin,
     products,
-    signIn: `https://${deployment.expectedHost}/provider/sign-in`,
+    staffSignIn: `https://${deployment.expectedHost}${deployment.landing.signIn}`,
     enroll: `${deployment.portalOrigin}/provider/enroll`,
     applicationProducts: APPLICATION_PRODUCTS,
   }
@@ -227,12 +277,12 @@ function landingUnavailable(deployment) {
     + `<body style="font-family:system-ui,sans-serif;margin:0;padding:48px 24px;color:#101828">`
     + `<main style="max-width:560px;margin:0 auto"><h1 style="font-size:28px">This page is not available right now</h1>`
     + `<p style="font-size:17px;line-height:1.5">Please try again in a few minutes.</p>`
-    + `<p style="font-size:17px;line-height:1.5"><a href="/provider/sign-in">Sign in to ${name}</a></p>`
+    + `<p style="font-size:17px;line-height:1.5"><a href="${deployment.landing.signIn}">Sign in to ${name}</a></p>`
     + `<p style="font-size:17px;line-height:1.5"><a href="${deployment.publicOrigin}/">Go to the Health ID website</a></p>`
     + `</main></body></html>`
   return withSecurityHeaders(new Response(body, {
     status: 503,
-    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'retry-after': '60' },
+    headers: { 'content-type': 'text/html; charset=utf-8', 'retry-after': '60' },
   }), false, 'public', '/')
 }
 
@@ -254,14 +304,14 @@ function publicSiteBinding(environment) {
   return binding && typeof binding.fetch === 'function' ? binding : null
 }
 
-/** This product site's front page: its landing page from the public site, with its links rewritten for this site. */
+/** This site's landing page: its page from the public site, with its links rewritten for this site. */
 async function landingPage(request, deployment, environment) {
   const binding = publicSiteBinding(environment)
   if (!binding) return landingUnavailable(deployment)
   let source
   try {
-    // None of the visitor's headers, validators included: a browser's copy is of this site's rewritten page.
-    source = await binding.fetch(publicSiteRequest(request, deployment, `/products/${deployment.landing.slug}`,
+    // None of the visitor's headers, cookie and validators included: the page is the same for every stranger.
+    source = await binding.fetch(publicSiteRequest(request, deployment, deployment.landing.path,
       { accept: 'text/html', [LANDING_SITE_HEADER]: deployment.expectedHost }))
   } catch {
     return landingUnavailable(deployment)
@@ -269,9 +319,7 @@ async function landingPage(request, deployment, environment) {
   const type = source.headers.get('content-type') ?? ''
   if (source.status !== 200 || !/^text\/html\s*(?:;|$)/i.test(type)) return landingUnavailable(deployment)
   // A new response: none of the public site's validators (this body differs from its file) and never a cookie.
-  const page = new Response(request.method === 'HEAD' ? null : source.body, {
-    status: 200, headers: { 'content-type': type, 'cache-control': 'public, max-age=0, must-revalidate' },
-  })
+  const page = new Response(request.method === 'HEAD' ? null : source.body, { status: 200, headers: { 'content-type': type } })
   const site = landingSite(deployment)
   const rewritten = request.method === 'HEAD' ? page : new HTMLRewriter()
     .on('a[href]', { element(element) {
@@ -286,12 +334,32 @@ async function landingPage(request, deployment, environment) {
     } })
     .on('head', { element(element) {
       element.onEndTag(end => {
-        end.before(`<link rel="canonical" href="https://${deployment.expectedHost}/">`, { html: true })
+        end.before(`<link rel="canonical" href="${deployment.landing.canonical}">`, { html: true })
         end.before(landingScript(site), { html: true })
       })
     } })
     .transform(page)
   return withSecurityHeaders(rewritten, false, 'public', '/')
+}
+
+/**
+ * A site's front page, decided by whether the browser holds a sign-in there (holdsSignIn). Someone not signed in sees
+ * the landing page. Someone signed in goes to the workspace's entrance (one fixed address on this site, nothing kept
+ * from the request). The two answers differ for the same address, so neither is ever kept for anyone else: every
+ * answer is private and not to be stored, and varies with the cookie. Cloudflare keeps none of a Worker's own answers
+ * in its cache (the Worker runs first on every request, run_worker_first, and uses no cache here), so these headers
+ * speak to browsers and any cache in between.
+ */
+async function frontPage(request, url, deployment, environment) {
+  const response = holdsSignIn(request)
+    ? withSecurityHeaders(Response.redirect(`https://${deployment.expectedHost}${STAFF_WORKSPACE_PATH}`, 302),
+      false, deployment.application, url.pathname)
+    : await landingPage(request, deployment, environment)
+  response.headers.set('cache-control', 'private, no-store')
+  const vary = response.headers.get('vary')
+  if (!vary) response.headers.set('vary', 'Cookie')
+  else if (!vary.split(',').some(name => name.trim().toLowerCase() === 'cookie')) response.headers.set('vary', `${vary}, Cookie`)
+  return response
 }
 
 function isPublicStaticPath(pathname) {
@@ -479,8 +547,8 @@ export function createFrontendWorker() {
       const redirect = applicationRouteRedirect(request, url, deployment)
       if (redirect) return withSecurityHeaders(redirect, false, deployment.application, url.pathname)
       const read = request.method === 'GET' || request.method === 'HEAD'
-      if (deployment.landing && read && (url.pathname === '/' || url.pathname === '/index.html')) {
-        return landingPage(request, deployment, environment)
+      if (deployment.landing && read && FRONT_PAGE_PATHS.includes(url.pathname)) {
+        return frontPage(request, url, deployment, environment)
       }
       const assetResponse = await environment.ASSETS.fetch(request)
       if (deployment.landing && read && isPublicStaticPath(url.pathname) && !ownsFile(url.pathname, assetResponse)) {

@@ -37,6 +37,9 @@ const LABORATORY_PAGE = '<!DOCTYPE html><html lang="en"><head><meta charSet="utf
   + '<a href="mailto:support@healthidentitydirectory.com">Email us</a></footer>'
   + '<script>self.__next_f.push([1,"a:[\\"$\\",\\"a\\",null,{\\"href\\":\\"/pricing\\"}]"])</script></body></html>'
 
+/** The patient portal's own index.html, which every product site serves at its other addresses. */
+const PORTAL_INDEX = '<!doctype html><div id="root"></div>'
+
 const PUBLIC_FILES = {
   '/products/laboratory': ['text/html; charset=utf-8', LABORATORY_PAGE],
   '/_next/static/chunks/main-app.js': ['application/javascript', 'console.log("public site")'],
@@ -54,7 +57,7 @@ export default { async fetch(request) {
   const file = files[url.pathname]
   if (file) return new Response(file[1], { headers: { 'content-type': file[0], etag: '"' + url.pathname.length + '"' } })
   return ${notFound === 'spa'
-    ? `new Response('<!doctype html><div id="root"></div>', { headers: { 'content-type': 'text/html; charset=utf-8' } })`
+    ? `new Response(${JSON.stringify(PORTAL_INDEX)}, { headers: { 'content-type': 'text/html; charset=utf-8' } })`
     : `new Response('<p>Not found</p>', { status: 404, headers: { 'content-type': 'text/html' } })`}
 } }`
 }
@@ -111,7 +114,8 @@ test('the lab site\'s front page is the Laboratory page, its links rewritten for
     Laboratory: 'https://lab.healthidentitydirectory.com/',
     API: 'https://healthidentitydirectory.com/products/api',
     Providers: 'https://healthidentitydirectory.com/providers#products',
-    'Sign in': 'https://lab.healthidentitydirectory.com/provider/sign-in',
+    // The workspace's entrance on this site, which asks for a sign-in itself.
+    'Sign in': 'https://lab.healthidentitydirectory.com/provider',
     'Setup Your Facility': 'https://app.healthidentitydirectory.com/provider/enroll?product=laboratory',
     'Book a demo': '#demo',
     Blog: 'https://healthidentitydirectory.com/blog?tag=a&amp;page=2',
@@ -167,6 +171,25 @@ test('a page that names its own canonical address carries the lab site\'s instea
   } finally {
     await own.dispose()
   }
+})
+
+test('lab sends staff signed in there from its front page to the workspace, in the real runtime', async () => {
+  const before = (await seen(publicAssets)).length
+  for (const path of ['/', '/index.html?utm_source=email']) {
+    const response = await lab.fetch(`https://lab.healthidentitydirectory.com${path}`,
+      { headers: { cookie: 'theme=dark; hid_access_csrf=4f9c2b' }, redirect: 'manual' })
+    assert.equal(response.status, 302)
+    assert.equal(response.headers.get('location'), 'https://lab.healthidentitydirectory.com/provider')
+    assert.equal(response.headers.get('cache-control'), 'private, no-store')
+    assert.equal(response.headers.get('vary'), 'Cookie')
+  }
+  // The public site was not asked.
+  assert.equal((await seen(publicAssets)).length, before)
+  // Its landing page, too, is private and varies with the cookie.
+  const landing = await lab.fetch('https://lab.healthidentitydirectory.com/')
+  assert.equal(landing.headers.get('cache-control'), 'private, no-store')
+  assert.equal(landing.headers.get('vary'), 'Cookie')
+  await landing.text()
 })
 
 test('the public site sends its Laboratory page to the lab site, and keeps its own pages', async () => {

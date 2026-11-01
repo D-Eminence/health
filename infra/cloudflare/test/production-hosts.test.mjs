@@ -12,8 +12,11 @@ function env(app, host) {
 }
 
 test('production serves public apex and patient app separately', async () => {
+  const signedIn = { headers: { cookie: 'hid_access_csrf=4f9c2b' } }
   for (const [app, host] of [['public', 'healthidentitydirectory.com'], ['web', 'app.healthidentitydirectory.com']]) {
-    assert.equal((await worker.fetch(new Request(`https://${host}/`), env(app, host))).status, 200)
+    const response = await worker.fetch(new Request(`https://${host}/`, signedIn), env(app, host))
+    assert.equal(response.status, 200)
+    assert.equal(await response.text(), 'page')
   }
   assert.equal((await worker.fetch(new Request('https://healthidentitydirectory.com/'),
     env('web', 'app.healthidentitydirectory.com'))).status, 421)
@@ -37,6 +40,7 @@ test('provider recovery goes to patient app, not the public website', async () =
 
 test('production product sites open their own landing page; the public site sends its product pages there', async () => {
   globalThis.HTMLRewriter ??= class { on() { return this } transform(response) { return response } }
+  const signedIn = { headers: { cookie: 'theme=dark; hid_access_csrf=4f9c2b' } }
   const products = { ehr: ['ehr', 'ehr'], lab: ['lab', 'laboratory'], pharmacy: ['pharmacy', 'pharmacy'],
     ocr: ['migrate', 'migrate'], outreach: ['outreach', 'outreach'] }
   for (const [app, [subdomain, slug]] of Object.entries(products)) {
@@ -49,12 +53,19 @@ test('production product sites open their own landing page; the public site send
     const root = await worker.fetch(new Request(`https://${host}/`), config)
     assert.equal(root.status, 200)
     assert.equal(asked, `https://healthidentitydirectory.com/products/${slug}`)
+    // Staff signed in there go to the workspace's entrance instead.
+    const workspace = await worker.fetch(new Request(`https://${host}/?next=https://evil.example`, signedIn), config)
+    assert.equal(workspace.status, 302)
+    assert.equal(workspace.headers.get('location'), `https://${host}/provider`)
     const moved = await worker.fetch(new Request(`https://healthidentitydirectory.com/products/${slug}`),
       env('public', 'healthidentitydirectory.com'))
     assert.equal(moved.status, 308)
     assert.equal(moved.headers.get('location'), `https://${host}/`)
   }
-  // The patient portal's front page is its own.
-  const portal = await worker.fetch(new Request('https://app.healthidentitydirectory.com/'), env('web', 'app.healthidentitydirectory.com'))
-  assert.equal(await portal.text(), 'page')
+  // The patient portal's front page is its own, signed in or not.
+  for (const init of [{}, signedIn]) {
+    const portal = await worker.fetch(new Request('https://app.healthidentitydirectory.com/', init),
+      env('web', 'app.healthidentitydirectory.com'))
+    assert.equal(await portal.text(), 'page')
+  }
 })
