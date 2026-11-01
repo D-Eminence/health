@@ -100,8 +100,9 @@ describe('Verify your NIN, on the profile', () => {
     expect(ninField().getAttribute('aria-invalid')).toBeNull()
   })
 
-  // The order the refusal tests above once raced on: Delete account's read has failed, and says so, before Verify NIN
-  // is pressed. The refusal is still said in this section, which keeps its form.
+  // Delete account's read has failed, and says so, before Verify NIN is pressed, so two sections each show an alert.
+  // The refusal is still said in this section, which keeps its form. (The refusal rows above stay steady for other
+  // reasons: their gateway answers Delete account's read, and they look only inside this section.)
   it('says its refusal in its own section, while another section says it could not load', async () => {
     const refusing = gateway({ ninVerified: false }, () => problem(503, 'QOREID_PATIENT_NIN_BINDING_DISABLED', 'refused'))
     renderPortal(<ProfilePage />, (path, method, body) => path === DELETION && method === 'GET'
@@ -113,6 +114,10 @@ describe('Verify your NIN, on the profile', () => {
     fillDateOfBirth()
     await press(screen.getByRole('button', { name: 'Verify NIN' }))
     expect(shownText(await within(section).findByRole('alert'))).toBe('You can’t verify your NIN here right now. Try again later.')
+    // Delete account's alert is still there beside it: the two-alert page this test is for.
+    expect(shownText(within(sectionCard('Delete account')).getByRole('alert'))).toMatch(/^Couldn’t load this/)
+    expect(screen.getAllByRole('alert')).toHaveLength(2)
+    expect(screen.getByRole('heading', { name: 'Verify your NIN' })).toBeTruthy()
     expect(ninField().getAttribute('aria-invalid')).toBeNull()
   })
 
