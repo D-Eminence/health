@@ -1741,12 +1741,17 @@ export function Clinical() {
       // Whether it can still dispense that work depends on migration 0080, which no response shows.
       if (caught.code === 'IDEMPOTENCY_CONFLICT') throw new PlainError('Pharmacy already holds work for this prescription, sent earlier, perhaps at an earlier version or with another reason, so it was not sent again. If the prescription changed since, contact the pharmacy: it may refuse to dispense the version it holds, and if it cannot dispense it, create a new prescription and send that.')
       // The prescription changed under the handoff: what was shown is read again, and the form, built for the old version, goes.
+      // hid-system 0100: Pharmacy checks the prescription itself as it accepts it, and answers one that changed or stopped
+      // meanwhile (409 PRESCRIPTION_SOURCE_VERSION_MISMATCH, _NOT_ACTIVE) as the EHR's own refusals are said, and one it
+      // cannot find or that does not match (404 PRESCRIPTION_SOURCE_NOT_FOUND, 422 PRESCRIPTION_SOURCE_MISMATCH) plainly.
       const changed = caught.code === 'PHARMACY_PRESCRIPTION_NOT_ELIGIBLE'
         ? 'This prescription no longer matches what was sent (it was changed, put on hold or cancelled meanwhile), so Pharmacy did not accept it.'
-        : caught.status === 412 ? 'This prescription changed since it was loaded, so it was not sent to Pharmacy: check it, and send it again if it is still needed.'
-          : caught.code === 'PRESCRIPTION_NOT_ELIGIBLE' ? 'This prescription is no longer active, so it was not sent to Pharmacy.'
+        : caught.status === 412 || caught.code === 'PRESCRIPTION_SOURCE_VERSION_MISMATCH' ? 'This prescription changed since it was loaded, so it was not sent to Pharmacy: check it, and send it again if it is still needed.'
+          : caught.code === 'PRESCRIPTION_NOT_ELIGIBLE' || caught.code === 'PRESCRIPTION_SOURCE_NOT_ACTIVE' ? 'This prescription is no longer active, so it was not sent to Pharmacy.'
             // Novu since P4c: it is sent to (or was accepted by) a pharmacy at another facility.
-            : caught.code === 'PRESCRIPTION_ROUTED' ? 'This prescription was sent to a pharmacy at another facility, so this facility’s Pharmacy can’t take it.' : null
+            : caught.code === 'PRESCRIPTION_ROUTED' ? 'This prescription was sent to a pharmacy at another facility, so this facility’s Pharmacy can’t take it.'
+              : caught.code === 'PRESCRIPTION_SOURCE_NOT_FOUND' || caught.code === 'PRESCRIPTION_SOURCE_MISMATCH'
+                ? 'This prescription can’t be sent to Pharmacy as it is: check it, and try again if it is still needed.' : null
       if (!changed) throw caught
       const items = await loadRecords('prescriptions', 'shown', true)
       setError(`${changed}${reloadSentence(items, 'prescription', true)}`)

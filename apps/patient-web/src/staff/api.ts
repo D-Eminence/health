@@ -1926,6 +1926,11 @@ export const staffApi = {
     input: { expectedRowVersion: number; changeReason: string; replacementValues: VitalMeasurements }, idempotencyKey?: string) =>
     client.post<VitalCorrection>(`${encounterPath(patientId, encounterId)}/vitals/${encodeURIComponent(vitalId)}/corrections`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
+  // Sends an active prescription to this facility's Pharmacy at the version read. Besides the EHR's own refusals (412,
+  // 409 PRESCRIPTION_NOT_ELIGIBLE, PRESCRIPTION_ROUTED), the EHR passes Pharmacy's on unchanged, among them, from
+  // hid-system 0100, its check of the prescription: 404 PRESCRIPTION_SOURCE_NOT_FOUND, 409 PRESCRIPTION_SOURCE_NOT_ACTIVE
+  // or PRESCRIPTION_SOURCE_VERSION_MISMATCH, 422 PRESCRIPTION_SOURCE_MISMATCH. Both callers (Clinical.tsx and the blue
+  // OrderPage.tsx, through words.ts prescriptionChanged) read the prescription again and say these in words.
   acceptPrescription: (facilityId: string, patientId: string, encounterId: string,
     prescriptionId: string, expectedRowVersion: number, reason: string, idempotencyKey?: string) =>
     client.post<unknown>(`${encounterPath(patientId, encounterId)}/prescriptions/${encodeURIComponent(prescriptionId)}/pharmacy-work-item`,
