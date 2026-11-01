@@ -109,6 +109,13 @@ describe('Access requests list (once External record access)', () => {
     expect(document.body.textContent).not.toContain(PATIENT_HID)
   })
 
+  it('says, as classic did, that a pending request never grants record access, and nothing about another facility', async () => {
+    open()
+    expect(screen.getByText('The requests you sent to patients from this facility. A pending request never grants record access.')).toBeTruthy()
+    await list()
+    expect(document.body.textContent).not.toMatch(/another facility/i)
+  })
+
   // The quick view and "Create record" were replaced: each row opens its request; "Ask a patient" opens a new one.
   it('opens a request from its row, and Ask a patient goes to the new request', async () => {
     open()

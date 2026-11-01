@@ -478,8 +478,8 @@ describe('New pharmacy (prescription)', () => {
     expect(options('Unit')).toEqual(['Select…', 'mg', 'g', 'mcg', 'mL', 'units', 'tablet(s)', 'capsule(s)', 'drop(s)', 'puff(s)', 'Other…'])
     expect(screen.queryByLabelText(labelled('Other unit'))).toBeNull()
     fireEvent.click(save)
-    // Medicine, dose, unit, how often and instructions are required.
-    expect(screen.getAllByText('Complete this field.')).toHaveLength(5)
+    // Medicine, how often and instructions are required, as in classic; the dose and its unit are optional, together.
+    expect(screen.getAllByText('Complete this field.')).toHaveLength(3)
     expect(document.activeElement).toBe(field('Medicine'))
     change('Medicine', 'Amoxicillin')
     change('How often', 'Twice daily')
@@ -487,7 +487,7 @@ describe('New pharmacy (prescription)', () => {
     change('Dose', '500')
     // Enter in a field submits the form: a dose without its unit is refused at the unit.
     fireEvent.submit(field('How often').closest('form')!)
-    expect(await screen.findByText('Enter the dose and pick its unit.')).toBeTruthy()
+    expect(await screen.findByText('Enter both the dose and its unit, or leave both blank.')).toBeTruthy()
     expect(field('Unit').getAttribute('aria-invalid')).toBe('true')
     expect(screen.queryByText('Complete this field.')).toBeNull()
     // A dose is a number with at most four decimal places.
@@ -496,10 +496,10 @@ describe('New pharmacy (prescription)', () => {
     fireEvent.submit(field('How often').closest('form')!)
     expect(await screen.findByText('Enter the dose as a number, like 0.5 or 250 (up to 4 decimal places).')).toBeTruthy()
     expect(field('Dose').getAttribute('aria-invalid')).toBe('true')
-    // "Other…" asks for the unit, up to today's 80 characters.
+    // "Other…" asks for the unit, up to today's 80 characters (needed only with a dose).
     change('Unit', 'other')
     expect(field('Other unit').maxLength).toBe(80)
-    expect(field('Other unit').required).toBe(true)
+    expect(field('Other unit').required).toBe(false)
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(api.createRecord).not.toHaveBeenCalled()
   })
@@ -573,6 +573,106 @@ describe('New pharmacy (prescription)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
     const actions = await screen.findByRole('region', { name: 'Available actions' })
     expect(within(actions).getByRole('button', { name: 'New prescription' })).toBeTruthy()
+  })
+})
+
+describe('A prescription with no dose (a cream, or "as directed"), as classic allowed', () => {
+  const PAIR = 'Enter both the dose and its unit, or leave both blank.'
+
+  async function form() {
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    return screen.findByRole('button', { name: 'Save prescription' })
+  }
+
+  function fillWithoutDose(medicine = 'Hydrocortisone 1% cream') {
+    change('Medicine', medicine)
+    change('How often', 'Twice daily')
+    change('Instructions', 'Apply thinly to the rash')
+  }
+
+  it('saves with the dose and unit left blank, and sends no dose, as classic did', async () => {
+    const save = await form()
+    // Dose and unit are optional (no asterisk); medicine, how often and instructions stay required, as in classic.
+    expect(field('Dose').required).toBe(false)
+    expect(field('Unit').required).toBe(false)
+    expect(field('How often').required).toBe(true)
+    expect(field('Instructions').required).toBe(true)
+    fillWithoutDose()
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX('Hydrocortisone 1% cream'), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
+    const [facility, patient, encounter, kind, body] = api.createRecord.mock.calls[0]!
+    expect([facility, patient, encounter, kind]).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions'])
+    // What goes to Health ID: no dose and no unit at all (and no route), exactly as classic's blank dose.
+    expect(JSON.parse(JSON.stringify(body))).toEqual({
+      medicationDisplay: 'Hydrocortisone 1% cream', frequency: 'Twice daily', instructions: 'Apply thinly to the rash', status: 'draft',
+    })
+  })
+
+  it('refuses a dose without its unit, and a unit without a dose, with the paired sentence', async () => {
+    const save = await form()
+    fillWithoutDose()
+    change('Dose', '1')
+    fireEvent.click(save)
+    expect(await screen.findByText(PAIR)).toBeTruthy()
+    expect(field('Unit').getAttribute('aria-invalid')).toBe('true')
+    expect(screen.queryByText('Complete this field.')).toBeNull()
+    change('Dose', '')
+    change('Unit', 'g')
+    fireEvent.click(save)
+    expect(await screen.findByText(PAIR)).toBeTruthy()
+    expect(field('Dose').getAttribute('aria-invalid')).toBe('true')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(api.createRecord).not.toHaveBeenCalled()
+  })
+
+  it('asks for the other unit only when a dose is given', async () => {
+    const save = await form()
+    fillWithoutDose()
+    change('Unit', 'other')
+    // "Other…" with no dose and no unit typed is still a prescription with no dose.
+    expect(field('Other unit').required).toBe(false)
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX('Hydrocortisone 1% cream'), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(JSON.stringify(api.createRecord.mock.calls[0]![4]))).not.toHaveProperty('doseUnit')
+  })
+
+  it('refuses a dose with "Other…" picked and no unit typed, at the other unit', async () => {
+    const save = await form()
+    fillWithoutDose()
+    change('Dose', '2')
+    change('Unit', 'other')
+    fireEvent.click(save)
+    expect(await screen.findByText(PAIR)).toBeTruthy()
+    expect(field('Other unit').getAttribute('aria-invalid')).toBe('true')
+    expect(api.createRecord).not.toHaveBeenCalled()
+    change('Other unit', 'sachet(s)')
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX('Hydrocortisone 1% cream'), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
+    expect(api.createRecord.mock.calls[0]![4]).toMatchObject({ doseQuantity: 2, doseUnit: 'sachet(s)' })
+  })
+
+  it('offers New prescription only where the saved prescription can be read back, as classic did', async () => {
+    staff.permissions = ['ehr.encounter.read', 'ehr.prescription.write', 'ehr.lab-request.read', 'ehr.lab-request.write']
+    open(ENCOUNTER_ID)
+    await screen.findByRole('button', { name: 'New lab request' })
+    expect(screen.queryByRole('button', { name: 'New prescription' })).toBeNull()
+  })
+
+  it('offers New lab request only where the saved request can be read back, as classic did', async () => {
+    staff.permissions = ['ehr.encounter.read', 'ehr.prescription.read', 'ehr.prescription.write', 'ehr.lab-request.write']
+    open(ENCOUNTER_ID)
+    await screen.findByRole('button', { name: 'New prescription' })
+    expect(screen.queryByRole('button', { name: 'New lab request' })).toBeNull()
+  })
+
+  it('refuses the create page by its address without the read permission, so a real save never looks like a failure', async () => {
+    staff.permissions = ['ehr.encounter.read', 'ehr.prescription.write']
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    expect((await screen.findByRole('alert')).textContent).toBe('Your role can’t add this order.')
+    expect(screen.queryByRole('button', { name: 'Save prescription' })).toBeNull()
   })
 })
 

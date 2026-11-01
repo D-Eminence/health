@@ -35,7 +35,7 @@ import { blueForAll, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '
 import './style.css'
 
 // The blue Hospital EHR (ehr-blue/blueFacilities.ts says for whom): loaded on demand, so no other facility downloads
-// it. "Use the classic EHR" brings this tab back to today's workspace until it reloads.
+// it.
 const EhrBlueApp = lazy(() => import('../ehr-blue/EhrBlueApp'))
 // The blue EHR's sign-in, once the clinic switch is on (blueForAll): today's steps and words, in the design's look.
 const BlueSignIn = lazy(async () => ({ default: (await import('../ehr-blue/frame/auth/BlueSignIn')).BlueSignIn }))
@@ -363,7 +363,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     startPeriod()
     away.current = null
     setLock(null)
-    // A session that ended without Sign out left the last person's choice of the classic EHR: the next starts on blue.
+    // The next person starts on the blue EHR (the old classic-EHR flag, which nothing sets now, is cleared).
     resetClassicEhr()
     setState({ status: 'ready', session })
     announceStaffSessionChange()
@@ -392,7 +392,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     away.current = null
     setState({ status: 'signed-out', session: null })
     setLock(null)
-    // "Use the classic EHR" was this person's choice: the next one starts on the blue EHR.
+    // The next person starts on the blue EHR (the old classic-EHR flag, which nothing sets now, is cleared).
     resetClassicEhr()
     announceStaffSessionChange()
   }

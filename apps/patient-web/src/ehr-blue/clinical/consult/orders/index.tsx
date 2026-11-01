@@ -179,8 +179,9 @@ export function EncounterOrders({ chart, encounter }: { chart: Chart; encounter:
   const sampleCan = useSampleCan()
   if (chart.purpose !== 'direct-care') return null
 
-  const createRx = chart.canWrite && chart.can(KINDS.pharmacy.write)
-  const createLab = chart.canWrite && chart.can(KINDS.laboratory.write)
+  // As in classic, each create sits with its list: offered only where the saved order can be read back.
+  const createRx = chart.canWrite && readRx && chart.can(KINDS.pharmacy.write)
+  const createLab = chart.canWrite && readLab && chart.can(KINDS.laboratory.write)
   const lists = [
     ...(readRx ? [{ kind: 'pharmacy' as const, list: prescriptions }] : []),
     ...(readLab ? [{ kind: 'laboratory' as const, list: labs }] : []),

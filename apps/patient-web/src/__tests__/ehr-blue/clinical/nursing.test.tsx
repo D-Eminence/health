@@ -236,7 +236,8 @@ describe('New nursing observations', () => {
     expect(screen.queryByLabelText(labelled('Patient'))).toBeNull()
     expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
     const category = control(form, 'Category') as unknown as HTMLSelectElement
-    expect(Array.from(category.options).map(option => option.textContent)).toEqual(['Select…', 'Vitals', 'Medication administration', 'Handover', 'Care task'])
+    // Vital signs are not a nursing note: they are recorded in Triage & Vitals (see the next test).
+    expect(Array.from(category.options).map(option => option.textContent)).toEqual(['Select…', 'Medication administration', 'Handover', 'Care task'])
     type(form, 'Visit', ENCOUNTER_ID)
     type(form, 'Category', 'Medication administration')
     type(form, 'What you observed or gave', 'Gave paracetamol by mouth')
@@ -253,6 +254,39 @@ describe('New nursing observations', () => {
     const saved = screen.getByRole('heading', { level: 2, name: 'Saved record' }).closest('section')!
     expect(await within(saved).findByText('Gave paracetamol by mouth')).toBeTruthy()
     expect(within(saved).getByText('500 mg')).toBeTruthy()
+  })
+
+  it('offers no "Vitals" category and points the nurse to Triage & Vitals for vital signs', async () => {
+    staff.permissions = [...ALL, 'ehr.vital.write']
+    const form = await openNew()
+    const category = control(form, 'Category') as unknown as HTMLSelectElement
+    expect(Array.from(category.options).map(option => option.value)).not.toContain('Vitals')
+    const pointer = screen.getByText(/^To record BP, pulse, temperature or other vital signs, use/)
+    expect(pointer.textContent).toBe('To record BP, pulse, temperature or other vital signs, use Triage & Vitals.')
+    const link = within(pointer).getByRole('link', { name: 'Triage & Vitals' })
+    expect(link.getAttribute('href')).toBe('/provider/triage/new')
+  })
+
+  it.each([
+    ['can read vitals but not record them', [...ALL]],
+    ['has no vitals access at all', ALL.filter(permission => permission !== 'ehr.vital.read')],
+  ])('sends a nurse whose role %s to a colleague, not to Triage & Vitals, which would refuse them', async (_role, permissions) => {
+    staff.permissions = permissions
+    await openNew()
+    const pointer = screen.getByText(/vital signs aren’t recorded here/)
+    expect(pointer.textContent).toBe('BP, pulse, temperature and other vital signs aren’t recorded here. Your role can’t record them in '
+      + 'Triage & Vitals, so ask a colleague who can.')
+    expect(within(pointer).queryByRole('link')).toBeNull()
+    expect(screen.queryByText(/use Triage & Vitals/)).toBeNull()
+  })
+
+  it('still shows an earlier observation saved under "Vitals", in the list and on its page', async () => {
+    open()
+    const table = await screen.findByRole('table')
+    expect(within(table).getByText('Vitals')).toBeTruthy()
+    fireEvent.click(within(table).getByRole('link', { name: 'c0000000' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'c0000000' })).toBeTruthy()
+    expect(screen.getAllByText('Vitals').length).toBeGreaterThan(0)
   })
 
   it('checks the required fields, and shows a server refusal at its field; a retry reuses the key', async () => {

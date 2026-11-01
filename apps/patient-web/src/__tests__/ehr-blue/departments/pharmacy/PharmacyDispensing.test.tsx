@@ -43,6 +43,10 @@ const ACCESS_DENIED = 'Pharmacy access is not authorized'
 const WORK_ITEM_VERSION_CONFLICT = 'Dispensing must bind to the exact accepted work-item version'
 const DISPENSING_VERSION_CONFLICT = 'Reversal must bind to the exact dispensing version'
 const REASON = 'Full course dispensed at counter'
+/** A cream prescribed with no dose and no unit, as classic and the EHR allow; accepted after Amoxicillin. */
+const CREAM: PharmacyWorkItem = { ...accepted, id: 'f6a7b8c9-work-item-6', acceptedAt: '2026-10-08T10:00:00.000Z',
+  medication: { display: 'Hydrocortisone 1% cream' }, doseQuantity: null, doseUnit: null, routeCode: 'topical',
+  frequency: 'Twice daily', instructions: 'Apply thinly to the rash' }
 
 function working(permissions: string[]) {
   session.facility = fakeFacility(permissions, { id: DEMO_PHARMACY_ID, name: 'Demo Pharmacy', roles: ['pharmacist'] })
@@ -116,6 +120,14 @@ describe('the picking view', () => {
     await openRecord(AMOXICILLIN)
     expect(within(pickCard()).getByText(/^Can’t dispense: dose missing\. Ask the prescriber/)).toBeTruthy()
     expect(within(pickCard()).getByText('Dose and how often confirmed with the prescriber')).toBeTruthy()
+  })
+
+  it('labels a prescription saved with no dose and no unit from its route, how often and instructions', async () => {
+    api.pharmacyWorkItems.mockResolvedValue({ items: [accepted, CREAM] })
+    await openRecord(CREAM.medication.display)
+    expect(within(pickCard()).getByText('On the label').nextElementSibling?.textContent).toBe('Apply on the skin Twice daily. Apply thinly to the rash.')
+    expect(within(pickCard()).queryByText(/Can’t dispense/)).toBeNull()
+    expect(within(pickCard()).getByText('Label written and checked with the patient')).toBeTruthy()
   })
 
   it('refuses until every step is ticked, at the checklist with focus on the first left, and sends nothing', async () => {
@@ -196,6 +208,15 @@ describe('Dispense', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Ibuprofen 400 mg tablet' })).toBeTruthy()
     expect(screen.getByTestId('where').textContent).toBe(`${PRESCRIPTIONS}/${second.id}`)
     await waitFor(() => expect(document.activeElement?.id).toBe(`pharmacy-${second.id}-title`))
+  })
+
+  it('offers a prescription saved with no dose and no unit as the next one', async () => {
+    api.pharmacyWorkItems.mockResolvedValue({ items: [accepted, CREAM] })
+    await openRecord(AMOXICILLIN)
+    dispenseWith({ quantity: '21', reason: REASON })
+    await confirmPatient('Dispense')
+    await screen.findByRole('heading', { name: 'Dispensed' })
+    expect(screen.getByText(`Next: ${CREAM.medication.display}`)).toBeTruthy()
   })
 
   it('records the unit the pharmacist enters instead of the prescribed one', async () => {

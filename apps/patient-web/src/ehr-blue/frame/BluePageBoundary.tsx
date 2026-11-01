@@ -4,15 +4,13 @@ import { focusLost } from '../../pageFocus'
 
 interface BluePageBoundaryProps {
   readonly children: ReactNode
-  /** "Use the classic EHR", as the account menu offers it. */
-  readonly onClassic?: () => void
   /** What Reload does: the page's own reload, unless a test says otherwise. */
   readonly reload?: () => void
 }
 
 /**
  * What a blue page that fails to render leaves, inside the frame: the sidebar, the top bar and the account menu stay,
- * so staff can go elsewhere or back to the classic EHR. It says what today's app says when a page fails
+ * so staff can go elsewhere. It says what today's app says when a page fails
  * (AppErrorBoundary) and, like it, shows nothing of the failure, whose message may hold anything the page held. The
  * frame gives it the page's address as its key, so going to another page tries again.
  */

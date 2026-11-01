@@ -137,11 +137,12 @@ function many(prefix: string, count: number, make: (index: number) => Record<str
 }
 
 describe('Consultation record: the Notes card (item 1)', () => {
-  it('item 1: lists every clinical note of the encounter, the older one included, and leaves nursing observations out', async () => {
+  it('item 1: lists every clinical note of the encounter, the older one and the nursing notes included, as classic did', async () => {
     await openEncounter()
     const notes = within(card('Clinical notes'))
-    expect(notes.getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['Consultation note', 'Admission note'])
-    expect(notes.queryByText('Vitals')).toBeNull()
+    expect(notes.getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['Consultation note', 'Vitals', 'Admission note'])
+    // A nursing note says it is one, under its title.
+    expect(noteRow('Vitals').getByText(/^Nursing observation · Recorded 30 Oct 2026, /)).toBeTruthy()
     expect(noteRow('Admission note').getByText(/^Admission · Recorded 29 Oct 2026, /)).toBeTruthy()
     expect(noteRow('Admission note').getByText('Draft')).toBeTruthy()
     // Its content is read only when asked for, as today.
@@ -153,6 +154,24 @@ describe('Consultation record: the Notes card (item 1)', () => {
     expect(noteRow('Admission note').getByRole('button', { name: 'Hide note content' }).getAttribute('aria-expanded')).toBe('true')
     // The Saved record still summarises the newest note.
     expect(savedValues()).toMatchObject({ 'Note status': 'draft', Note: 'History\nCough for three days.' })
+  })
+
+  it('shows a visit’s nursing notes to the doctor when they are its only notes, and says "No notes" only when there are none', async () => {
+    const handover = { ...OBSERVATION, id: 'b2c6ef36-0000-4000-8000-000000000002', title: 'Handover', status: 'draft' }
+    pages['clinical-notes'] = { '': { items: [OBSERVATION, handover], nextCursor: null } }
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
+    const notes = () => within(card('Clinical notes'))
+    await waitFor(() => expect(notes().getAllByRole('listitem')).toHaveLength(2))
+    expect(notes().getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['Vitals', 'Handover'])
+    expect(notes().queryByText('No notes for this encounter.')).toBeNull()
+  })
+
+  it('says "No notes for this encounter." when the visit has no notes at all', async () => {
+    pages['clinical-notes'] = { '': { items: [], nextCursor: null } }
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
+    expect(await within(card('Clinical notes')).findByText('No notes for this encounter.')).toBeTruthy()
   })
 
   it('item 1: signs an older note under the clinician’s typed reason after SIGN is typed, after the access re-check', async () => {

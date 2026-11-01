@@ -19,7 +19,10 @@ export interface PharmacyCardProps {
   readonly buttonId: string
   readonly status: PharmacyStatus
   readonly tone: Tone
-  /** The dose or how often is missing on work not yet dispensed: "Can't dispense: dose missing". */
+  /**
+   * The dose or how often is missing on work not yet dispensed: "Can't dispense: dose missing". Only then is "Dose not
+   * recorded" drawn as a warning: no dose and no unit (a cream, "as directed") is complete.
+   */
   readonly missing: boolean
   readonly patientFallback: string
   /** When it was accepted, as the record says it: shown on hover; the card says how long it has waited. */
@@ -52,7 +55,7 @@ export function PharmacyCard({ item, buttonId, status, tone, missing, patientFal
           <span className="text-[19px] font-semibold leading-tight text-ink break-words @sm:text-[21px]"><Breakable text={name} /></span>
           <span className="text-[14px] text-ink-2">{[strength, FORM_WORD[form]].filter(Boolean).join(' · ')}</span>
           <span className="mt-1 text-[15px] font-medium text-ink tabular break-words">
-            {dose ?? <span className="text-warn-ink">Dose not recorded</span>}
+            {dose ?? <span className={missing ? 'text-warn-ink' : 'text-ink-2'}>Dose not recorded</span>}
             <span className="text-ink-3"> · </span>
             {item.frequency?.trim() || <span className="text-warn-ink">How often not recorded</span>}
           </span>
