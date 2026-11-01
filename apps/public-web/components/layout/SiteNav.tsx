@@ -561,9 +561,11 @@ const _RESOURCES_MENU: NavMenuEntry = {
 }
 
 /** Navigation for the provider side of the site. */
-export function ProviderNav({ preserveDemoAction = false, applicationProduct }: {
+export function ProviderNav({ preserveDemoAction = false, applicationProduct, signInHref = APP_ENTRY.staffSignIn }: {
   preserveDemoAction?: boolean
   applicationProduct?: ApplicationProductCode
+  /** Where Sign in goes: a product page's own product site (productSignInHref), else the portal's staff sign-in. */
+  signInHref?: string
 } = {}) {
   return (
     <SiteNav
@@ -575,7 +577,7 @@ export function ProviderNav({ preserveDemoAction = false, applicationProduct }: 
         { type: 'link', label: 'Blog', href: ROUTES.blog },
         { type: 'link', label: 'Contact', href: ROUTES.contact },
       ]}
-      signInHref={APP_ENTRY.staffSignIn}
+      signInHref={signInHref}
       signInLabel="Sign in"
       action={preserveDemoAction
         ? { label: 'Book a demo', href: '#demo' }
