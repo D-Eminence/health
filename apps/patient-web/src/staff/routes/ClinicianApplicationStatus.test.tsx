@@ -103,7 +103,7 @@ async function throughEmail() {
   press('Send code')
   await headingFocused('Enter the 6-digit code')
   type(textbox('6-digit code'), '123456')
-  press('Verify email')
+  press('Confirm email')
 }
 
 async function listShown(current = account()) {
@@ -117,7 +117,7 @@ describe('opening the status page', () => {
     api.current.mockRejectedValueOnce(problem(401, 'CLINICIAN_APPLICATION_SESSION_INVALID'))
     open()
     expect(await screen.findByRole('heading', { level: 1, name: 'Check your clinician application' })).toBeTruthy()
-    expect(screen.getByText("Enter the email address you applied with. We'll send it a code. This doesn't sign you in to the provider portal.")).toBeTruthy()
+    expect(screen.getByText("Enter the email address you applied with. We'll send it a code. This doesn't sign you in to the provider site.")).toBeTruthy()
     expect(screen.getByRole('textbox', { name: 'Work email' })).toBeTruthy()
     await waitFor(() => expect(document.title).toBe('Clinician application · Health ID Provider'))
   })
@@ -125,7 +125,7 @@ describe('opening the status page', () => {
   it('asks for the authenticator code when the page is open but not yet verified', async () => {
     api.current.mockRejectedValueOnce(problem(403, 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED'))
     open()
-    expect(await screen.findByRole('heading', { name: 'Enter a code from your authenticator app' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Enter a code from your code app' })).toBeTruthy()
     expect(screen.queryByRole('textbox', { name: 'Work email' })).toBeNull()
   })
 
@@ -153,10 +153,10 @@ describe('opening the status page', () => {
   it('still says the page closed when one was open and a later read finds it gone', async () => {
     api.authenticator.verify.mockRejectedValueOnce(problem(409, 'CLINICIAN_APPLICATION_AUTHENTICATOR_READY'))
     await throughEmail()
-    await headingFocused('Enter a code from your authenticator app')
+    await headingFocused('Enter a code from your code app')
     api.current.mockRejectedValueOnce(problem(401, 'CLINICIAN_APPLICATION_SESSION_INVALID'))
-    type(textbox('Authenticator code'), '445566')
-    press('Verify')
+    type(textbox('Sign-in code'), '445566')
+    press('Continue')
     expect(await screen.findByText('For your security, this page closed after 30 minutes. Enter your email to continue.')).toBeTruthy()
     expect(screen.getByRole('textbox', { name: 'Work email' })).toBeTruthy()
   })
@@ -178,7 +178,7 @@ describe('opening the status page', () => {
     // The page's account was disabled or is no longer active: reading again cannot help.
     api.current.mockRejectedValueOnce(problem(403, 'CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE'))
     open()
-    expect((await screen.findByRole('alert')).textContent).toBe("This account can't be used for clinician applications. Contact HID support.")
+    expect((await screen.findByRole('alert')).textContent).toBe("This account can't be used for clinician applications. Contact Health ID support.")
     expect(screen.getByRole('textbox', { name: 'Work email' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
     expect(api.current).toHaveBeenCalledTimes(1)
@@ -198,14 +198,14 @@ describe('the email code and the authenticator', () => {
     await throughEmail()
     expect(api.sendStatusCode).toHaveBeenCalledWith('ada@example.test', 'clinician-application-status-check-0')
     expect(api.verifyStatusCode).toHaveBeenCalledWith('status-challenge', 'ada@example.test', '123456')
-    await headingFocused('Enter a code from your authenticator app')
+    await headingFocused('Enter a code from your code app')
   })
 
   it('verifies a code from the authenticator, then shows the applications', async () => {
     await throughEmail()
-    await headingFocused('Enter a code from your authenticator app')
-    type(textbox('Authenticator code'), '445566')
-    press('Verify')
+    await headingFocused('Enter a code from your code app')
+    type(textbox('Sign-in code'), '445566')
+    press('Continue')
     await headingFocused('Your clinician applications', 1)
     expect(api.authenticator.verify).toHaveBeenCalledWith({ code: '445566' })
     expect(screen.getByRole('article', { name: FACILITY.name })).toBeTruthy()
@@ -213,10 +213,10 @@ describe('the email code and the authenticator', () => {
 
   it('takes one recovery code instead', async () => {
     await throughEmail()
-    await headingFocused('Enter a code from your authenticator app')
-    press('Use a recovery code instead')
-    type(textbox('Recovery code'), ' ABCDE-FGHJK ')
-    press('Verify')
+    await headingFocused('Enter a code from your code app')
+    press('Use a backup code instead')
+    type(textbox('Backup code'), ' ABCDE-FGHJK ')
+    press('Continue')
     await headingFocused('Your clinician applications', 1)
     expect(api.authenticator.verify).toHaveBeenCalledWith({ recoveryCode: 'ABCDE-FGHJK' })
   })
@@ -224,17 +224,17 @@ describe('the email code and the authenticator', () => {
   it('opens the authenticator setup when the account has none, and lets the person see the applications first', async () => {
     api.verifyStatusCode.mockResolvedValueOnce({ next: 'authenticator_setup', expiresAt: '2026-10-15T09:30:00.000Z' })
     await throughEmail()
-    await headingFocused('Set up your authenticator')
+    await headingFocused('Set up sign-in codes')
     api.current.mockResolvedValueOnce(account({ stage: 'enrolment_required', canApply: false,
       applyRefusal: 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED', applications: [view({ state: 'awaiting_authenticator' })] }))
-    expect(screen.getByText(/Set up an authenticator app to send your application for review. First we'll email a 6-digit code to ada@example.test/)).toBeTruthy()
+    expect(screen.getByText(/Set up a code app on your phone \(like Google Authenticator\) to send your application for review. First we'll email a 6-digit code to ada@example.test/)).toBeTruthy()
     press('See your applications first')
     await headingFocused('Your clinician applications', 1)
-    expect(within(article(FACILITY.name)).getByText('Waiting for your authenticator')).toBeTruthy()
+    expect(within(article(FACILITY.name)).getByText('Waiting for your sign-in codes')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Apply to another facility' })).toBeNull()
-    expect(screen.getByText('Set up your authenticator before applying to another facility.')).toBeTruthy()
-    fireEvent.click(within(article(FACILITY.name)).getByRole('button', { name: 'Set up authenticator' }))
-    await headingFocused('Set up your authenticator')
+    expect(screen.getByText('Set up your code app before applying to another facility.')).toBeTruthy()
+    fireEvent.click(within(article(FACILITY.name)).getByRole('button', { name: 'Set up sign-in codes' }))
+    await headingFocused('Set up sign-in codes')
     press('Email me a code')
     await headingFocused('Enter the code we emailed you')
   })
@@ -253,18 +253,18 @@ describe('the email code and the authenticator', () => {
 
   it.each([
     ['an application HID is reviewing', [view()],
-      "Your account has no authenticator app set up. HID can't go on with your applications until you set one up."],
-    ['only closed applications', [view({ state: 'withdrawn', canWithdraw: false })], 'Your account has no authenticator app set up.'],
+      "Your account has no code app set up. Health ID can't go on with your applications until you set one up."],
+    ['only closed applications', [view({ state: 'withdrawn', canWithdraw: false })], 'Your account has no code app set up.'],
   ])('offers to set up the authenticator from the list when the account needs one and no application waits for it (%s)',
     async (_case, applications, copy) => {
       // An authenticator reset after submitting, or applications closed while they waited for one: none shows the card's button.
       await listShown(account({ stage: 'enrolment_required', canApply: false,
         applyRefusal: 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED', applications }))
       expect(screen.getByText(copy)).toBeTruthy()
-      expect(screen.getByText('Set up your authenticator before applying to another facility.')).toBeTruthy()
-      expect(screen.getAllByRole('button', { name: 'Set up authenticator' })).toHaveLength(1)
-      press('Set up authenticator')
-      await headingFocused('Set up your authenticator')
+      expect(screen.getByText('Set up your code app before applying to another facility.')).toBeTruthy()
+      expect(screen.getAllByRole('button', { name: 'Set up sign-in codes' })).toHaveLength(1)
+      press('Set up sign-in codes')
+      await headingFocused('Set up sign-in codes')
       press('Email me a code')
       await headingFocused('Enter the code we emailed you')
     })
@@ -272,14 +272,14 @@ describe('the email code and the authenticator', () => {
   it('offers one way to set up the authenticator when an application waits for it', async () => {
     await listShown(account({ stage: 'enrolment_required', canApply: false, applyRefusal: 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED',
       applications: [view({ state: 'awaiting_authenticator' }), view({ applicationId: 'a2', facility: { id: OTHER.facilityId, name: OTHER.name } })] }))
-    expect(within(article(FACILITY.name)).getByRole('button', { name: 'Set up authenticator' })).toBeTruthy()
-    expect(screen.getAllByRole('button', { name: 'Set up authenticator' })).toHaveLength(1)
+    expect(within(article(FACILITY.name)).getByRole('button', { name: 'Set up sign-in codes' })).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Set up sign-in codes' })).toHaveLength(1)
     expect(screen.queryByText(/Your account has no authenticator app set up/)).toBeNull()
   })
 
   it.each([
-    ['set up', 'authenticator_setup', 'Set up your authenticator'],
-    ['verified', 'authenticator_verify', 'Enter a code from your authenticator app'],
+    ['set up', 'authenticator_setup', 'Set up sign-in codes'],
+    ['verified', 'authenticator_verify', 'Enter a code from your code app'],
   ] as const)('offers to close the page while the authenticator is to be %s', async (_case, next, heading) => {
     api.verifyStatusCode.mockResolvedValueOnce({ next, expiresAt: '2026-10-15T09:30:00.000Z' })
     await throughEmail()
@@ -297,7 +297,7 @@ describe('the email code and the authenticator', () => {
     let refuse: (reason: unknown) => void = () => {}
     api.authenticator.sendEmailCode.mockReturnValueOnce(new Promise((_resolve, reject) => { refuse = reject }))
     await throughEmail()
-    await headingFocused('Set up your authenticator')
+    await headingFocused('Set up sign-in codes')
     press('Email me a code')
     press('Close this page')
     expect(await screen.findByText('This page is closed.')).toBeTruthy()
@@ -310,12 +310,12 @@ describe('the email code and the authenticator', () => {
     api.verifyStatusCode.mockRejectedValueOnce(problem(401, 'CLINICIAN_APPLICATION_CODE_INVALID'))
     await throughEmail()
     await waitFor(() => expect(document.activeElement).toBe(textbox('6-digit code')))
-    expect(screen.getByText('That code is wrong or has expired.')).toBeTruthy()
+    expect(screen.getByText('That code is wrong or too old.')).toBeTruthy()
     expect(textbox('6-digit code').value).toBe('')
   })
 
   it.each([
-    ['STAFF_MFA_FACTOR_UNPROVEN', 403, 'Your authenticator was set up at platform sign-in. Contact HID support to reset it.'],
+    ['STAFF_MFA_FACTOR_UNPROVEN', 403, 'Your code app was set up for admin sign-in. Contact Health ID support to reset it.'],
     ['CLINICIAN_APPLICATION_RATE_LIMITED', 429, 'Too many attempts from your network. Try again later.'],
     ['PLATFORM_MAINTENANCE', 503, 'Health ID is under maintenance. Try again later.'],
     ['CLINICIAN_APPLICATION_UNAVAILABLE', 503, "We couldn't check the code right now. Try again."],
@@ -331,10 +331,10 @@ describe('the email code and the authenticator', () => {
   it('sends an account whose authenticator is set up at staff sign-in to provider sign-in, with no code step', async () => {
     api.verifyStatusCode.mockRejectedValueOnce(problem(403, 'CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED'))
     await throughEmail()
-    await headingFocused("Your authenticator can't be set up here")
+    await headingFocused("Sign-in codes can't be set up here")
     expect(screen.getByRole('alert').textContent)
-      .toBe('Your authenticator was reset. Sign in to the provider portal to set it up again, or contact HID support.')
-    expect(screen.getByRole('link', { name: 'Sign in to the provider portal' }).getAttribute('href')).toBe('/provider/sign-in')
+      .toBe('Your sign-in codes were reset. Sign in to the provider site to set them up again, or contact Health ID support.')
+    expect(screen.getByRole('link', { name: 'Sign in to the provider site' }).getAttribute('href')).toBe('/provider/sign-in')
     expect(screen.queryByRole('textbox', { name: '6-digit code' })).toBeNull()
     // Another address can still be checked from here.
     press('Check another email address')
@@ -359,22 +359,22 @@ describe('the applications', () => {
   const rejected = (decisionCode: string) => view({ state: 'rejected', decidedAt: '2026-10-20T10:00:00.000Z', decisionCode, canWithdraw: false })
 
   it.each([
-    [view({ state: 'awaiting_authenticator' }), 'Waiting for your authenticator',
-      "Set up your authenticator app to send this application for review. We can't review it until you do. We keep applications open for 30 days (until 14 November 2026)."],
+    [view({ state: 'awaiting_authenticator' }), 'Waiting for your sign-in codes',
+      "Set up your code app to send this application for review. We can't review it until you do. We keep applications open for 30 days (until 14 November 2026)."],
     [view(), 'Received', "Application received. Health ID will check your licence with MDCN, call you to confirm it's you, and check with Lagos General Hospital that you work there. You can sign in once it's approved."],
     [view({ state: 'under_review' }), 'Licence checked', 'Your licence has been checked. One more check, then you can sign in.'],
-    [approved('active'), 'Approved', 'Approved on 20 October 2026. You can sign in to the provider portal as a doctor at Lagos General Hospital with your password and authenticator app.'],
-    [approved('lapsed'), 'Approved', 'Approved on 20 October 2026. Your access at Lagos General Hospital is paused because its licence check has expired. Contact HID support to renew it.'],
+    [approved('active'), 'Approved', 'Approved on 20 October 2026. You can sign in to the provider site as a doctor at Lagos General Hospital with your password and code app.'],
+    [approved('lapsed'), 'Approved', 'Approved on 20 October 2026. Your access at Lagos General Hospital is paused because its licence check is out of date. Contact Health ID support to renew it.'],
     [approved('ended'), 'Approved', 'Approved on 20 October 2026. Your access at Lagos General Hospital has ended.'],
-    [approved('account_unavailable'), 'Approved', "Approved on 20 October 2026. Your account can't sign in at the moment. Contact HID support."],
+    [approved('account_unavailable'), 'Approved', "Approved on 20 October 2026. Your account can't sign in at the moment. Contact Health ID support."],
     [rejected('licence_not_verified'), 'Not approved', 'We could not confirm your licence on the MDCN register.'],
     [rejected('licence_not_current'), 'Not approved', 'Your licence is not current on the MDCN register.'],
     [rejected('details_mismatch'), 'Not approved', "The licence details you gave don't match the MDCN register. Apply again with the details exactly as on your licence."],
     [rejected('employment_not_confirmed'), 'Not approved', 'Lagos General Hospital did not confirm that you work there.'],
     [rejected('facility_not_available'), 'Not approved', 'Lagos General Hospital cannot accept new clinicians on Health ID at the moment.'],
     [rejected('duplicate'), 'Not approved', 'You already have access, or another application, for this facility.'],
-    [rejected('existing_account'), 'Not approved', 'This licence already belongs to another Health ID account. Sign in with that account, or contact HID support to add this facility to it.'],
-    [rejected('other'), 'Not approved', 'Your application was not approved. Contact HID support for details.'],
+    [rejected('existing_account'), 'Not approved', 'This licence already belongs to another Health ID account. Sign in with that account, or contact Health ID support to add this facility to it.'],
+    [rejected('other'), 'Not approved', 'Your application was not approved. Contact Health ID support for details.'],
     [view({ state: 'withdrawn', canWithdraw: false }), 'Withdrawn', 'You withdrew this application.'],
     [view({ state: 'expired', canWithdraw: false }), 'Closed', "This application closed because it wasn't decided within 30 days. You can apply again."],
   ])('says what %# means in fixed words', async (application, badge, copy) => {
@@ -392,17 +392,17 @@ describe('the applications', () => {
     await listShown(account({ applications: [rejected('identity_not_confirmed')], canApply: false,
       applyRefusal: 'CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE' }))
     const shown = article(FACILITY.name)
-    expect(within(shown).getByText('We could not confirm that this licence belongs to you. Contact HID support if you think this is wrong.')).toBeTruthy()
+    expect(within(shown).getByText('We could not confirm that this licence belongs to you. Contact Health ID support if you think this is wrong.')).toBeTruthy()
     expect(within(shown).queryByText('You can apply again once the problem is fixed.')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Apply to another facility' })).toBeNull()
-    expect(screen.getByText("This account can't apply for a clinical role. Contact HID support.")).toBeTruthy()
+    expect(screen.getByText("This account can't apply for a clinical role. Contact Health ID support.")).toBeTruthy()
   })
 
   it('offers sign-in only for an approved, active application', async () => {
     await listShown(account({ applications: [approved('active'), { ...approved('lapsed'), applicationId: 'a2',
       facility: { id: OTHER.facilityId, name: OTHER.name } }] }))
-    expect(within(article(FACILITY.name)).getByRole('link', { name: 'Sign in to the provider portal' }).getAttribute('href')).toBe('/provider/sign-in')
-    expect(within(article(OTHER.name)).queryByRole('link', { name: 'Sign in to the provider portal' })).toBeNull()
+    expect(within(article(FACILITY.name)).getByRole('link', { name: 'Sign in to the provider site' }).getAttribute('href')).toBe('/provider/sign-in')
+    expect(within(article(OTHER.name)).queryByRole('link', { name: 'Sign in to the provider site' })).toBeNull()
   })
 
   it('withdraws in a dialog that holds and returns focus, with the version shown, then reloads', async () => {
@@ -413,7 +413,7 @@ describe('the applications', () => {
     fireEvent.click(withdraw)
     const dialog = await screen.findByRole('dialog', { name: 'Withdraw this application?' })
     expect(dialog.getAttribute('aria-modal')).toBe('true')
-    expect(within(dialog).getByText('HID will stop reviewing it. You can apply again later.')).toBeTruthy()
+    expect(within(dialog).getByText('Health ID will stop reviewing it. You can apply again later.')).toBeTruthy()
     const keep = within(dialog).getByRole('button', { name: 'Keep application' })
     const confirm = within(dialog).getByRole('button', { name: 'Withdraw application' })
     await waitFor(() => expect(document.activeElement).toBe(keep))
@@ -506,7 +506,7 @@ describe('the applications', () => {
     fireEvent.click(within(article(FACILITY.name)).getByRole('button', { name: /Withdraw/ }))
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Withdraw application' }))
     await headingFocused('Check your clinician application', 1)
-    expect(screen.getByRole('alert').textContent).toBe("This account can't be used for clinician applications. Contact HID support.")
+    expect(screen.getByRole('alert').textContent).toBe("This account can't be used for clinician applications. Contact Health ID support.")
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(screen.queryByRole('article')).toBeNull()
     expect(screen.getByRole('textbox', { name: 'Work email' })).toBeTruthy()
@@ -620,7 +620,7 @@ describe('applying to another facility', () => {
     press('Search facilities')
     fireEvent.click(await screen.findByRole('radio', { name: /Lagos Island Clinic/ }))
     fireEvent.click(screen.getByRole('checkbox', { name: /accurate, and this licence is mine/ }))
-    fireEvent.click(screen.getByRole('checkbox', { name: /HID may check my licence with Nursing and Midwifery Council of Nigeria \(NMCN\)/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Health ID may check my licence with Nursing and Midwifery Council of Nigeria \(NMCN\)/ }))
   }
 
   it('sends the licence and facility with a key, then shows the new application', async () => {
@@ -629,7 +629,7 @@ describe('applying to another facility', () => {
     api.current.mockResolvedValueOnce(account({ applications: [view({ applicationId: 'a2', facility: { id: OTHER.facilityId, name: OTHER.name } }), view()] }))
     press('Send application')
     await waitFor(() => expect(screen.getByRole('status').textContent)
-      .toBe("Your application to Lagos Island Clinic was sent. It is in HID's verification queue."))
+      .toBe("Your application to Lagos Island Clinic was sent. Health ID will check it soon."))
     expect(api.apply).toHaveBeenCalledWith({ profession: 'nurse', regulator: 'NMCN', licenceNumber: 'NMCN 778899', licenceValidUntil: VALID_UNTIL,
       facilityId: OTHER.facilityId, declarations: { accurate: true, verificationConsent: true } }, 'apply-key-1')
     expect(screen.getByRole('article', { name: OTHER.name })).toBeTruthy()
@@ -640,7 +640,7 @@ describe('applying to another facility', () => {
     api.current.mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE'))
     press('Send application')
     expect((await screen.findByRole('alert')).textContent).toBe("We couldn't load your application right now. Try again.")
-    expect(screen.getByRole('status').textContent).toBe("Your application to Lagos Island Clinic was sent. It is in HID's verification queue.")
+    expect(screen.getByRole('status').textContent).toBe("Your application to Lagos Island Clinic was sent. Health ID will check it soon.")
     expect(within(article(OTHER.name)).getByText('Received')).toBeTruthy()
     expect(article(FACILITY.name)).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Apply to another facility' })).toBeNull()
@@ -651,8 +651,8 @@ describe('applying to another facility', () => {
     ['CLINICIAN_APPLICATION_MEMBERSHIP_EXISTS', 409, 'You already work at this facility on Health ID.'],
     ['CLINICIAN_APPLICATION_ALREADY_OPEN', 409, 'You already have an open application for this facility.'],
     ['CLINICIAN_APPLICATION_LIMIT_REACHED', 409, 'You have too many applications open. Wait for a decision or withdraw one.'],
-    ['CLINICIAN_APPLICATION_FACILITY_BUSY', 409, 'This facility has many applications waiting. Try again in a few days or contact HID support.'],
-    ['CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE', 403, "This account can't apply for a clinical role. Contact HID support."],
+    ['CLINICIAN_APPLICATION_FACILITY_BUSY', 409, 'This facility has many applications waiting. Try again in a few days or contact Health ID support.'],
+    ['CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE', 403, "This account can't apply for a clinical role. Contact Health ID support."],
     // A quota of the network or of Health ID, or (since hid-system 9e981e4) the platform's daily cap met as the application is created.
     ['CLINICIAN_APPLICATION_RATE_LIMITED', 429, 'Too many applications have been sent, from your network or to Health ID today. '
       + 'Your details are still here; try again later.'],
@@ -788,7 +788,7 @@ describe('applying to another facility', () => {
     expect(api.endSession).not.toHaveBeenCalled()
     await act(async () => { answer({ ...view({ applicationId: 'a2', facility: { id: OTHER.facilityId, name: OTHER.name } }), replayed: false }) })
     await waitFor(() => expect(screen.getByRole('status').textContent)
-      .toBe("Your application to Lagos Island Clinic was sent. It is in HID's verification queue."))
+      .toBe("Your application to Lagos Island Clinic was sent. Health ID will check it soon."))
     expect((screen.getByRole('button', { name: 'Close this page' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
@@ -837,9 +837,9 @@ describe('nothing kept in the browser', () => {
   it('writes nothing to local or session storage and puts nothing identifying in the address', async () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem')
     await throughEmail()
-    await headingFocused('Enter a code from your authenticator app')
-    type(textbox('Authenticator code'), '445566')
-    press('Verify')
+    await headingFocused('Enter a code from your code app')
+    type(textbox('Sign-in code'), '445566')
+    press('Continue')
     await headingFocused('Your clinician applications', 1)
     expect(setItem).not.toHaveBeenCalled()
     expect(screen.getByTestId('where').textContent).toBe('/provider/join/status')

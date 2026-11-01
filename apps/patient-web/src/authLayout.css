@@ -1,187 +1,191 @@
 /*
- * The shared sign-in, sign-up and recovery shell (AuthLayout).
- *
- * A quiet two-column page: the title and step progress on the left, one form
- * on the right with no card around it. Blue is kept for the primary action and
- * the selected choice. The forms inside keep their own markup; the rules under
- * .auth-panel give them one calm look. Stacks to one column on narrow screens.
+ * The one sign-in, sign-up and recovery shell (AuthLayout.tsx), for every portal, in the app's final design: the
+ * page's own white (pure black in dark mode, tokens.css), hairlines between areas, the brand top-left and the theme
+ * toggle top-right, one centred column of at most 26rem, the title on the form's edge in the app's title style, and
+ * from 1024px a quiet panel for the page's audience. Blue is kept for the one primary action. Forms inside keep their
+ * markup; the rules under .auth-panel give the older ones (patient-form, staff-form, admin-auth-form) the Kasuwa look.
  */
 
+/* The sign-in, sign-up and recovery pages are set in Inter (owner decision, 1 Nov 2026); the signed-in app keeps
+   Figtree. Redefining the font tokens here carries Inter to every control inside, Tailwind's font classes included. */
 .auth-page {
+  --font-sans: 'Inter Variable', Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: var(--font-sans);
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv11', 'ss01';
+  display: flex;
   min-height: 100svh;
-  background: var(--color-surface);
+  flex-direction: column;
+  background: var(--color-page);
   color: var(--color-ink);
 }
+/* The EHR kit names its own font (Figtree) on .hid-ehr, and a control does not inherit a font by default: both are
+   pointed at Inter here, so every button, field and list on these pages is set in it. */
+.auth-page .hid-ehr { --ehr-font-body: var(--font-sans); --ehr-font-display: var(--font-sans); }
+.auth-page :is(button, input, select, textarea) { font-family: inherit; }
 
-.auth-bar,
-.auth-body {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding-right: max(16px, env(safe-area-inset-right, 0px));
-  padding-left: max(16px, env(safe-area-inset-left, 0px));
-}
-
+/* ---- Top bar: brand left, the one other way in and the theme toggle right ---- */
 .auth-bar {
   display: flex;
+  min-height: 64px;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding-block: 28px;
+  gap: 8px;
+  padding: 10px max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px));
+  border-bottom: 1px solid var(--color-line);
 }
-
-.auth-brand { display: inline-flex; }
+@media (min-width: 640px) { .auth-bar { padding-inline: 24px; } }
+.auth-bar-spacer { flex: 1; }
+.auth-brand { display: inline-flex; min-height: 44px; align-items: center; border-radius: var(--radius-sm); }
 .auth-brand img { display: block; width: auto; height: 26px; }
-
 .auth-bar-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
   color: var(--color-ink);
   font-size: 14px;
   font-weight: 500;
   text-decoration: none;
 }
-.auth-bar-link:hover { color: var(--color-brand); }
+.auth-bar-link:hover { background: var(--color-surface-hover); }
+.auth-bar :is(a, button):focus-visible { outline: 2px solid var(--focus-ring-color); outline-offset: 2px; }
 
-.auth-body {
+/* ---- The column, and the audience panel beside it on wide screens ---- */
+.auth-columns { display: grid; flex: 1; }
+@media (min-width: 1024px) { .auth-columns-panel { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+
+.auth-center {
   display: flex;
-  flex-wrap: wrap;
-  gap: 48px 120px;
-  padding-block: 56px 120px;
+  justify-content: center;
+  padding: 32px max(16px, env(safe-area-inset-right, 0px)) 56px max(16px, env(safe-area-inset-left, 0px));
 }
+@media (min-width: 640px) { .auth-center { align-items: center; padding: 56px 24px 72px; } }
 
-.auth-intro {
+.auth-column {
   display: flex;
-  flex: 1 1 300px;
-  flex-direction: column;
-  gap: 16px;
+  width: 100%;
+  max-width: 26rem;
   min-width: 0;
-  max-width: 380px;
+  flex-direction: column;
+  gap: 24px;
 }
+
+.auth-intro { display: flex; flex-direction: column; gap: 8px; }
 
 .auth-title {
   margin: 0;
-  font-family: var(--font-display);
-  font-size: clamp(36px, 5vw, 48px);
-  font-weight: 400;
-  line-height: 1.05;
-  letter-spacing: -0.02em;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 32px;
+  letter-spacing: -0.015em;
   text-wrap: balance;
 }
 .auth-title:focus { outline: none; }
 
-.auth-lede {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 15px;
-  line-height: 1.6;
-}
+.auth-lede { margin: 0; color: var(--color-muted); font-size: 15px; line-height: 1.5; }
 
-.auth-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  margin: 32px 0 0;
-  padding: 0;
-  list-style: none;
-  color: var(--color-faint);
-  font-size: 14px;
-}
+/* One stepper for every multi-step flow: "Step 2 of 4 · Email" over a thin bar. */
+.auth-stepper { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.auth-stepper-text { margin: 0; color: var(--color-muted); font-size: 13px; font-weight: 500; }
+.auth-stepper-bar { height: 4px; overflow: hidden; border-radius: var(--radius-pill); background: var(--color-line); }
+.auth-stepper-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--color-brand-fill); transition: width 0.3s ease; }
+@media (prefers-reduced-motion: reduce) { .auth-stepper-bar > span { transition: none; } }
 
-.auth-steps li {
-  display: flex;
+.auth-aside { display: none; }
+@media (min-width: 1024px) {
+  .auth-aside {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 56px 48px;
+    border-left: 1px solid var(--color-line);
+  }
+}
+.auth-aside-body { display: flex; width: 100%; max-width: 400px; flex-direction: column; gap: 24px; }
+.auth-aside-line { margin: 0; color: var(--color-muted); font-size: 15px; line-height: 1.5; text-align: center; text-wrap: balance; }
+.auth-aside-title { margin: 0; color: var(--color-ink); font-size: 18px; font-weight: 600; line-height: 26px; }
+.auth-aside-points { display: flex; flex-direction: column; gap: 16px; margin: 0; padding: 0; list-style: none; color: var(--color-muted); font-size: 15px; }
+.auth-aside-points li { display: flex; align-items: center; gap: 12px; }
+.auth-aside-icon {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  flex: none;
   align-items: center;
-  gap: 14px;
-}
-
-.auth-steps li::before {
-  box-sizing: border-box;
-  width: 8px;
-  height: 8px;
-  flex: 0 0 auto;
-  border: 1px solid var(--color-line-control);
+  justify-content: center;
   border-radius: var(--radius-pill);
-  content: '';
+  color: var(--color-brand);
+  box-shadow: inset 0 0 0 1px var(--color-line);
 }
-
-.auth-steps li[aria-current] { color: var(--color-ink); font-weight: 500; }
-.auth-steps li[aria-current]::before { border-color: var(--color-brand); background: var(--color-brand); }
 
 /* ---- The panel and the forms inside it ---- */
-
-.auth-panel {
-  display: flex;
-  flex: 1 1 440px;
-  flex-direction: column;
-  gap: 28px;
-  min-width: 0;
-  max-width: 520px;
-  font-size: 15px;
-}
-
+.auth-panel { display: flex; min-width: 0; flex-direction: column; gap: 24px; font-size: 15px; }
 .auth-panel > * { margin-block: 0; }
 
-.auth-panel :is(.patient-form, .staff-form, .auth-form) {
+/* Every control is at least 44px tall (Fitts, WCAG 2.5.5), Kasuwa's own included. */
+.auth-panel :is(input:not([type='checkbox']):not([type='radio']):not([type='hidden']), select) { min-height: 44px; }
+
+.auth-panel :is(.patient-form, .staff-form, .auth-form, .admin-auth-form) {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 20px;
   margin: 0;
 }
 
-.auth-panel :is(.patient-form, .staff-form) h2,
-.auth-panel :is(.patient-success, .staff-form) :is(h1, h2) {
+.auth-panel :is(.patient-form, .staff-form, .admin-auth-form) h2,
+.auth-panel :is(.patient-success, .staff-form, .admin-auth-form) :is(h1, h2) {
   margin: 0;
   color: var(--color-ink);
   font-family: var(--font-sans);
   font-size: 18px;
   font-weight: 600;
-  letter-spacing: 0;
+  line-height: 26px;
+  letter-spacing: -0.01em;
 }
 
 /* Labels: quiet, above their control. (A shared Field's label holds only its text.) */
-.auth-panel .staff-form label {
-  color: var(--color-muted);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.auth-panel .patient-form label,
+.auth-panel :is(.staff-form, .patient-form, .admin-auth-form) label { color: var(--color-muted); font-size: 13px; font-weight: 500; }
+/* A label that wraps its control stacks the two; a label beside its control (a Field's) stays one line, its "*" too. */
+.auth-panel :is(.patient-form, .admin-auth-form) label:has(input:not([type='checkbox']):not([type='radio']), select, textarea),
 .auth-panel .auth-field-label {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   color: var(--color-muted);
   font-size: 13px;
   font-weight: 500;
 }
-
-.auth-panel .patient-form .patient-checkbox,
-.auth-panel .staff-form .patient-checkbox {
+.auth-panel :is(.patient-form, .staff-form) .patient-checkbox {
   flex-direction: row;
   align-items: center;
   gap: 10px;
+  min-height: 44px;
   color: var(--color-ink);
   font-size: 14px;
 }
 
-.auth-panel :is(.patient-form, .staff-form) :is(input:not([type='checkbox']):not([type='radio']), select) {
+/* The older forms' fields, drawn as Kasuwa's: a hairline control boundary, 10px corners, a blue ring on focus. */
+.auth-panel :is(.patient-form, .staff-form, .admin-auth-form) :is(input:not([type='checkbox']):not([type='radio']), select):not([class*='ring-']) {
   box-sizing: border-box;
   width: 100%;
-  height: 48px;
-  min-height: 48px;
+  height: 44px;
   padding: 0 14px;
-  border: 1px solid var(--color-line-control);
-  border-radius: 8px;
+  border: 0;
+  border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-ink);
+  box-shadow: inset 0 0 0 1px var(--color-line-control);
   font: inherit;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 400;
 }
-
-.auth-panel :is(.patient-form, .staff-form) :is(input, select):focus {
-  border-color: var(--color-ink);
+.auth-panel :is(.patient-form, .staff-form, .admin-auth-form) :is(input, select):not([class*='ring-']):focus {
   outline: none;
-  box-shadow: none;
+  box-shadow: inset 0 0 0 1px var(--color-brand), var(--shadow-focus);
 }
-
 .auth-panel :is(.patient-form, .staff-form) input::placeholder { color: var(--color-faint); }
 
 /* A six-digit code (CodeBoxes.tsx): a box a digit, not the column's full-width field. */
@@ -190,7 +194,7 @@
   flex: 1 1 0;
   width: auto;
   min-width: 0;
-  max-width: 56px;
+  max-width: 52px;
   height: 52px;
   min-height: 52px;
   padding: 0;
@@ -199,37 +203,43 @@
   font-weight: 500;
 }
 
-/* The one primary action fills the column. */
+/* The older forms' one primary action: Kasuwa's primary, filling the column. */
 .auth-panel :is(.patient-form, .patient-success) .patient-primary-button,
-.auth-panel .staff-form button[type='submit'],
-.auth-panel .auth-primary {
+.auth-panel .staff-form button[type='submit']:not([class*='bg-']),
+.auth-panel .auth-primary:not([class*='bg-']),
+.auth-panel .admin-auth-form .admin-primary {
   width: 100%;
-  min-height: 50px;
-  border-radius: 8px;
+  min-height: 48px;
+  border: 0;
+  border-radius: var(--radius-lg, 12px);
+  background-color: var(--color-brand-fill);
+  color: #fff;
   font-size: 15px;
   font-weight: 500;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 16%), 0 1px 2px rgb(16 24 40 / 12%);
 }
+.auth-panel :is(.patient-form, .patient-success) .patient-primary-button:hover:not(:disabled),
+.auth-panel .staff-form button[type='submit']:not([class*='bg-']):hover:not(:disabled),
+.auth-panel .admin-auth-form .admin-primary:hover:not(:disabled) { background-color: var(--color-brand-fill-hover); }
+.auth-panel .patient-secondary-button { min-height: 44px; border-radius: var(--radius-md); }
 
-.auth-panel .patient-text-button { align-self: flex-start; font-size: 14px; font-weight: 500; }
+.auth-panel .patient-text-button { align-self: flex-start; min-height: 44px; font-size: 14px; font-weight: 500; }
 
-.auth-panel :is(.patient-field-hint, .staff-muted) {
-  margin: 0;
-  color: var(--color-faint);
-  font-size: 13px;
-  line-height: 1.6;
-}
+.auth-panel :is(.patient-field-hint, .staff-muted) { margin: 0; color: var(--color-faint); font-size: 13px; line-height: 1.5; }
 
 .auth-panel .patient-form-aside { margin-top: -8px; text-align: right; font-size: 13px; }
-.auth-panel .patient-form-aside a { font-weight: 500; text-decoration: none; }
+.auth-panel .patient-form-aside a { display: inline-flex; min-height: 44px; align-items: center; font-weight: 500; text-decoration: none; }
 
 .auth-panel :is(.patient-inline-error, .patient-inline-success, .staff-notice) {
   margin: 0;
-  border-left: 0;
-  border-radius: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-notice-line);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--color-notice);
   font-size: 14px;
 }
-
-.auth-panel .staff-notice { padding: 12px 14px; }
+.auth-panel .patient-inline-error { color: var(--color-intent-error); }
+.auth-panel .patient-inline-success { color: var(--color-intent-success); }
 /* An error with what to do about it, read as one alert. */
 .auth-panel .auth-alert { display: flex; flex-direction: column; gap: 12px; }
 .auth-panel .staff-error { font-size: 13px !important; }
@@ -245,241 +255,55 @@
 }
 
 /* Another way in (Google), set off by a hairline. */
-.auth-panel .patient-auth-separator {
-  margin: 0;
-  padding-top: 24px;
-  border-top: 1px solid var(--color-line);
-}
+.auth-panel .patient-auth-separator { margin: 0; padding-top: 24px; border-top: 1px solid var(--color-line); }
 
 /* "Already have…?" and similar lines close the panel, quietly. */
-.auth-panel .patient-auth-footer {
-  margin: 0;
-  color: var(--color-faint);
-  font-size: 13px;
-}
+.auth-panel .patient-auth-footer { margin: 0; color: var(--color-faint); font-size: 14px; }
 .auth-panel .patient-auth-footer a { font-weight: 500; }
 
-@media (max-width: 720px) {
-  .auth-bar { padding-block: 20px; }
-  .auth-body { padding-block: 24px 72px; }
-  .auth-intro, .auth-panel { max-width: none; }
-  .auth-steps { flex-direction: row; flex-wrap: wrap; gap: 10px 20px; margin-top: 16px; font-size: 13px; }
-}
-
 /* Step hints written as page copy inside a form. */
-.auth-panel :is(.patient-form, .patient-success) .patient-page-copy {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 15px;
-  line-height: 1.6;
-}
+.auth-panel :is(.patient-form, .patient-success) .patient-page-copy { margin: 0; color: var(--color-muted); font-size: 15px; line-height: 1.5; }
 
-/* Platform administration's sign-in steps. */
-.auth-panel .admin-auth-form {
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-  margin: 0;
-}
+.auth-panel .admin-auth-form > p { margin: 0; color: var(--color-muted); font-size: 14px; line-height: 1.5; }
+.auth-panel .admin-warning { margin: 0; border-radius: var(--radius-lg, 12px); }
+.auth-panel .admin-auth-form > p a { display: inline-flex; min-height: 44px; align-items: center; color: var(--color-brand); font-size: 14px; font-weight: 500; }
 
-.auth-panel .admin-auth-form h1 {
-  margin: 0;
-  color: var(--color-ink);
-  font-family: var(--font-sans);
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: 0;
-}
+/* Platform sign-in: each step's own h1 is the page's title (AuthLayout has none), in the title style. */
+.auth-panel .admin-auth-form h1 { font-size: 24px; line-height: 32px; letter-spacing: -0.015em; text-wrap: balance; }
+.auth-panel .admin-auth-form h1 + p { margin-top: -12px; }
+.auth-panel .admin-link { display: inline-flex; min-height: 44px; align-items: center; align-self: flex-start; font-size: 14px; text-decoration: none; }
+.auth-panel .admin-note { margin: 0; color: var(--color-faint); font-size: 13px; line-height: 1.5; }
 
-.auth-panel .admin-auth-form > p { margin: 0; color: var(--color-muted); font-size: 14px; line-height: 1.6; }
+/* A text button (Kasuwa's link variant) still has a 44px target here. */
+.auth-panel :is(a, button)[class*='!h-auto'] { min-height: 44px; }
 
-.auth-panel .admin-auth-form label {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  color: var(--color-muted);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.auth-panel .admin-auth-form :is(input:not([type='checkbox']):not([type='radio']), select) {
-  box-sizing: border-box;
-  width: 100%;
-  height: 48px;
-  padding: 0 14px;
-  border: 1px solid var(--color-line-control);
-  border-radius: 8px;
+/* A six-digit code (CodeBoxes.tsx) in any form here: a hairline box a digit, a blue ring on focus. */
+.auth-panel .patient-code-field legend { color: var(--color-muted); font-size: 13px; font-weight: 500; }
+.auth-panel .patient-code-boxes input {
+  height: 52px;
+  border: 0;
+  border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-ink);
+  box-shadow: inset 0 0 0 1px var(--color-line-control);
   font: inherit;
-  font-size: 15px;
-}
-
-.auth-panel .admin-auth-form :is(input, select):focus { border-color: var(--color-ink); outline: none; }
-
-.auth-panel .admin-auth-form .admin-primary {
-  width: 100%;
-  min-height: 50px;
-  border-radius: 8px;
-  font-size: 15px;
+  font-size: 20px;
   font-weight: 500;
 }
+.auth-panel .patient-code-boxes input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--color-brand), var(--shadow-focus); }
+.auth-panel .patient-code-boxes input[aria-invalid='true'] { box-shadow: inset 0 0 0 1px var(--color-danger, #d92d20); }
 
-.auth-panel .admin-warning { margin: 0; border-radius: 8px; }
-.auth-panel .admin-auth-form > p a { color: var(--color-brand); font-size: 13px; font-weight: 500; }
+/* A step that is the page's heading itself (the authenticator steps after "Welcome back"): the title style. */
+.auth-panel h1.hid-mfa-heading,
+.auth-panel :is(.staff-form, .patient-form) h1 { font-size: 24px; line-height: 32px; letter-spacing: -0.015em; text-wrap: balance; }
+.auth-panel .hid-mfa-heading:focus { outline: none; }
+.auth-panel .admin-recovery h1 { margin: 0; color: var(--color-ink); font-size: 24px; font-weight: 600; line-height: 32px; letter-spacing: -0.015em; }
+/* A label beside its control (a shared Field's) is one line, its required "*" included. */
+.auth-panel .patient-form label:not(:has(input, select, textarea)) { display: block; }
 
-/* ==========================================================================
-   Rebuild: paytrail's sign-in world (source of truth: paytrail auth-layout.js and the .auth-skin rules in
-   app/globals.css). Warm paper, a dot-matrix field, the Orbitron display face, a paper card for the form, pill
-   buttons, and on wide screens a Health ID card printing out of its slot.
-   ========================================================================== */
-@font-face {
-  font-family: 'Orbitron';
-  src: url('./assets/fonts/orbitron-700.woff2') format('woff2');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
+/* A password field (PasswordInput) keeps room at its end for the show/hide eye inside it: the older forms' padding
+   above would otherwise run the text under the eye. The eye takes the field's corner radius and focus ring. */
+.auth-panel :is(.patient-form, .staff-form, .admin-auth-form) input:not([type='checkbox']):not([type='radio']):not([class*='ring-']):has(+ button[aria-controls]) {
+  padding-right: 48px;
 }
-
-.auth-skin {
-  --color-canvas: var(--color-hero);
-  --color-surface: var(--color-hero-paper);
-  --color-subtle: var(--color-hero-tint);
-  --color-tray: var(--color-hero-tint);
-  --color-hover: var(--color-hero-tint);
-  --color-line: var(--color-hero-line);
-  --color-line-strong: color-mix(in srgb, var(--color-hero-line) 65%, var(--color-hero-ink-2));
-  --color-line-control: color-mix(in srgb, var(--color-hero-line) 40%, var(--color-hero-ink-2));
-  --color-ink: var(--color-hero-ink);
-  --color-text: var(--color-hero-ink);
-  --color-muted: var(--color-hero-ink-2);
-  --color-ink-2: var(--color-hero-ink-2);
-  --color-faint: color-mix(in srgb, var(--color-hero-ink-2) 92%, var(--color-hero-ink));
-  --color-ink-3: var(--color-faint);
-  --color-brand: #175cd3;
-  --color-brand-hover: #1765e6;
-  --shadow-focus: 0 0 0 4px rgb(23 92 211 / 0.16);
-  position: relative;
-  isolation: isolate;
-  min-height: 100svh;
-  overflow-x: hidden;
-  background: var(--color-hero);
-  color: var(--color-hero-ink);
-}
-
-/* The dot field: a fixed grid of round dots, and a slow cloud of blue drifting through it. */
-.auth-dots {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background-image: radial-gradient(color-mix(in srgb, var(--color-hero-ink) 16%, transparent) 1.1px, transparent 1.6px);
-  background-size: 14px 14px;
-  -webkit-mask-image: radial-gradient(60% 55% at var(--auth-x, 30%) var(--auth-y, 40%), #000 0%, rgb(0 0 0 / 35%) 55%, transparent 100%);
-  mask-image: radial-gradient(60% 55% at var(--auth-x, 30%) var(--auth-y, 40%), #000 0%, rgb(0 0 0 / 35%) 55%, transparent 100%);
-  animation: auth-drift 18s ease-in-out infinite alternate;
-}
-.auth-dots::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(28% 30% at 22% 38%, rgb(23 92 211 / 14%), transparent 70%);
-}
-@property --auth-x { syntax: '<percentage>'; inherits: false; initial-value: 30%; }
-@property --auth-y { syntax: '<percentage>'; inherits: false; initial-value: 40%; }
-@keyframes auth-drift { from { --auth-x: 22%; --auth-y: 34%; } to { --auth-x: 40%; --auth-y: 58%; } }
-
-.auth-columns { display: grid; min-height: 100svh; }
-@media (min-width: 1024px) { .auth-columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
-
-.auth-aside { display: none; flex-direction: column; padding: 32px 48px; }
-@media (min-width: 1024px) { .auth-aside { display: flex; } }
-.auth-aside-body { margin-block: auto; padding-block: 40px; text-align: center; }
-.auth-aside-overline { margin: 0; color: var(--color-hero-accent); font-size: 13px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; }
-.auth-aside-headline { max-width: 460px; margin: 16px auto 0; font-family: 'Orbitron', var(--font-sans); font-size: clamp(30px, 3vw, 42px); font-weight: 700; font-synthesis: none; letter-spacing: -0.02em; line-height: 1.05; }
-
-.auth-main { display: flex; flex-direction: column; padding: 24px 16px; }
-@media (min-width: 640px) { .auth-main { padding: 24px 40px; } }
-.auth-skin .auth-bar { display: flex; max-width: none; align-items: center; gap: 12px; margin: 0; padding: 0; }
-.auth-bar-spacer { flex: 1; }
-.auth-brand-mobile { display: inline-flex; }
-@media (min-width: 1024px) { .auth-brand-mobile { visibility: hidden; } }
-.auth-skin .auth-bar-link { display: inline-flex; height: 40px; align-items: center; padding: 0 16px; border-radius: 999px; color: var(--color-hero-ink); font-weight: 600; box-shadow: inset 0 0 0 1px var(--color-hero-line); }
-.auth-skin .auth-bar-link:hover { background: var(--color-hero-tint); color: var(--color-hero-ink); }
-.auth-theme { border-radius: 999px !important; }
-
-.auth-center { display: flex; width: 100%; max-width: 480px; flex: 1; flex-direction: column; justify-content: center; gap: 18px; margin: 0 auto; padding-block: 40px; }
-.auth-card {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  padding: 24px;
-  border-radius: 26px;
-  background: color-mix(in srgb, var(--color-hero-paper) 92%, transparent);
-  box-shadow: 0 1px 2px rgb(20 16 8 / 5%), 0 30px 60px -34px rgb(20 16 8 / 45%), inset 0 0 0 1px rgb(0 0 0 / 5%);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-}
-@media (min-width: 640px) { .auth-card { padding: 36px; } }
-:root[data-theme='dark'] .auth-card { box-shadow: 0 30px 60px -30px rgb(0 0 0 / 70%), inset 0 0 0 1px rgb(255 255 255 / 6%); }
-
-.auth-skin .auth-intro { max-width: none; flex: none; gap: 10px; }
-.auth-skin .auth-title { font-family: 'Orbitron', var(--font-sans); font-size: 28px; font-weight: 700; font-synthesis: none; line-height: 1.05; letter-spacing: -0.02em; color: var(--color-hero-ink); }
-.auth-skin .auth-lede { color: var(--color-hero-ink-2); font-size: 14px; }
-.auth-skin .auth-panel { max-width: none; flex: none; gap: 22px; font-size: 14px; }
-
-/* Steps: numbered pills, done ones ticked. */
-.auth-skin .auth-steps { flex-direction: row; flex-wrap: wrap; gap: 6px; margin: 0 0 6px; font-size: 12px; }
-.auth-skin .auth-steps li { gap: 6px; padding: 3px 10px 3px 3px; border-radius: 999px; background: var(--color-hero-tint); color: var(--color-hero-ink-2); }
-.auth-skin .auth-steps li::before { display: none; }
-.auth-step-dot { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; border-radius: 50%; background: var(--color-hero-paper); font-size: 11px; font-weight: 700; }
-.auth-skin .auth-steps li[aria-current] { background: #175cd3; color: #fff; }
-.auth-skin .auth-steps li[aria-current] .auth-step-dot { background: #fff; color: #175cd3; }
-.auth-skin .auth-steps li[data-done] .auth-step-dot { background: var(--color-success); color: #fff; }
-
-/* Fields: paytrail's auth fields, 14px corners on the paper. */
-.auth-skin .auth-panel :is(.patient-form, .staff-form, .admin-auth-form) :is(input:not([type='checkbox']):not([type='radio']), select) {
-  height: 48px; border: 0; border-radius: 14px; background: var(--color-hero); box-shadow: inset 0 0 0 1px var(--color-line-strong);
-}
-.auth-skin .auth-panel :is(.patient-form, .staff-form, .admin-auth-form) :is(input, select):focus { box-shadow: inset 0 0 0 1px #175cd3, var(--shadow-focus); }
-.auth-skin .auth-panel :is(.patient-form, .staff-form) .patient-code-boxes input:not([type='checkbox']):not([type='radio']) { border-radius: 12px; }
-
-/* The one action: paytrail's blue pill with its glow. */
-.auth-skin .auth-panel :is(.patient-form, .patient-success) .patient-primary-button,
-.auth-skin .auth-panel .staff-form button[type='submit'],
-.auth-skin .auth-panel .auth-primary,
-.auth-skin .auth-panel .admin-auth-form .admin-primary {
-  border: 0; border-radius: 999px; background: #175cd3; color: #fff; font-weight: 600;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 28%), 0 1px 2px rgb(10 30 80 / 25%), 0 14px 30px -14px rgb(23 92 211 / 70%);
-  transition: transform 0.2s, background-color 0.2s;
-}
-.auth-skin .auth-panel :is(.patient-form, .patient-success) .patient-primary-button:hover:not(:disabled),
-.auth-skin .auth-panel .staff-form button[type='submit']:hover:not(:disabled) { background: #1765e6; transform: translateY(-1px); }
-:root[data-theme='dark'] .auth-skin .auth-panel .patient-primary-button { background: #2563eb; }
-.auth-skin .auth-panel .patient-secondary-button { border-radius: 999px; }
-.auth-skin .auth-panel :is(.patient-inline-error, .patient-inline-success, .staff-notice) { border: 1px solid var(--color-notice-line); border-radius: 12px; background: var(--color-notice); }
-.auth-skin .auth-panel .patient-inline-error { color: var(--color-intent-error); }
-.auth-skin .auth-panel .patient-inline-success { color: var(--color-intent-success); }
-
-.auth-trust { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 0; color: var(--color-hero-ink-2); font-size: 12.5px; }
-
-/* The Health ID card that prints out of its slot (paytrail's welcome receipt). */
-.auth-printer { width: 100%; max-width: 380px; margin: 40px auto 0; }
-.auth-printer-slot { position: relative; z-index: 1; display: flex; height: 48px; align-items: center; justify-content: space-between; padding: 0 20px; border-radius: 16px; background: var(--color-hero-ink); color: var(--color-hero); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; box-shadow: 0 18px 40px -20px rgb(20 16 8 / 60%); }
-.auth-printer-status { display: inline-flex; align-items: center; gap: 8px; }
-.auth-printer-led { width: 6px; height: 6px; border-radius: 50%; background: #5a9dff; animation: auth-led 1.4s ease-in-out infinite; }
-@keyframes auth-led { 50% { opacity: 0.3; } }
-.auth-printer-out { margin: -8px 16px 0; overflow: hidden; }
-.auth-print { animation: auth-print 1.6s cubic-bezier(.22, .9, .3, 1) .25s both; filter: drop-shadow(0 18px 30px rgb(20 16 8 / 14%)); }
-@keyframes auth-print { from { transform: translateY(-100%); } to { transform: translateY(0); } }
-.auth-print-card { padding: 28px 24px 22px; border-radius: 0 0 18px 18px; background: linear-gradient(160deg, #0f2a55 0%, #101828 70%); color: #fff; text-align: left; font-size: 12px; }
-.auth-print-head { display: flex; align-items: center; justify-content: space-between; color: rgb(255 255 255 / 70%); font-size: 10.5px; font-weight: 600; letter-spacing: 0.18em; }
-.auth-print-chip { width: 34px; height: 26px; border-radius: 6px; background: linear-gradient(135deg, #f6d27a, #c9973a); box-shadow: inset 0 0 0 1px rgb(0 0 0 / 15%); }
-.auth-print-id { margin: 18px 0 14px; font-family: 'Orbitron', var(--font-sans); font-size: 22px; font-weight: 700; letter-spacing: 0.04em; }
-.auth-print-card ul { display: grid; gap: 7px; margin: 0; padding: 14px 0; border-block: 1px dashed rgb(255 255 255 / 22%); list-style: none; }
-.auth-print-card li { display: flex; align-items: baseline; gap: 8px; color: rgb(255 255 255 / 88%); }
-.auth-print-leader { flex: 1; min-width: 12px; transform: translateY(-3px); border-bottom: 1px dotted rgb(255 255 255 / 25%); }
-.auth-print-tick { color: #84b6ff; }
-.auth-print-foot { display: flex; justify-content: space-between; margin-top: 12px; color: rgb(255 255 255 / 60%); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; }
-
-@media (prefers-reduced-motion: reduce) { .auth-dots, .auth-print, .auth-printer-led { animation: none; } }
+.auth-panel :is(.patient-form, .staff-form, .admin-auth-form) input + button[aria-controls][aria-pressed] { border-radius: 0 var(--radius-md) var(--radius-md) 0; }

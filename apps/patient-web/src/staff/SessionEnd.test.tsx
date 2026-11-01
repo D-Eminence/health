@@ -357,7 +357,7 @@ describe('a refused request while the server still accepts the session', () => {
     await open('/provider')
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     await signIn()
     expect(await screen.findByRole('button', { name: 'Sign out' })).toBeTruthy()
 
@@ -518,7 +518,7 @@ describe('signing in again', () => {
     fireEvent.click(screen.getByRole('link', { name: 'Sign in again' }))
 
     expect(where()).toBe('/provider/sign-in?returnTo=%2Fprovider%2Flaboratory')
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     await signIn()
     await waitFor(() => expect(where()).toBe('/provider/laboratory'))
     expect(await screen.findByRole('heading', { name: 'Laboratory' })).toBeTruthy()
@@ -718,7 +718,7 @@ describe('late answers after the session ended', () => {
       expect((screen.getByRole('combobox', { name: 'Working at' }) as HTMLSelectElement).value).toBe('facility-1')
     } else if (action === 'sign-out') {
       // The person asked to sign out and the session is gone: they reach sign-in.
-      expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     } else {
       await expectSessionEnded()
     }
@@ -834,7 +834,7 @@ describe('late answers after the session ended', () => {
 
     await act(async () => { leaving.respond(ended()) })
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     expect(calls.slice(before)).toEqual([])
   })
 
@@ -848,7 +848,7 @@ describe('late answers after the session ended', () => {
 
     await act(async () => { leaving.respond(signedOut()) })
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     expect(screen.queryByText(SESSION_ENDED)).toBeNull()
   })
 
@@ -857,12 +857,12 @@ describe('late answers after the session ended', () => {
     const calls = serve({ [SESSION]: [json(staffSession())], [REQUESTS]: [read.answer], [LOGOUT]: [signedOut()], [REFRESH]: [refreshCookieGone()] })
     await open('/provider')
     fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }))
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
 
     await act(async () => { read.respond(ended()) })
     await settle()
 
-    expect(screen.getByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     expect(screen.queryByText(SESSION_ENDED)).toBeNull()
     expect(calls.filter(call => call === SESSION)).toHaveLength(1)
   })
@@ -993,7 +993,7 @@ describe('repeated refusals', () => {
     await open('/provider/laboratory')
     await expectSessionEnded()
     fireEvent.click(screen.getByRole('link', { name: 'Sign in again' }))
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     const before = calls.length
 
     const { reportStaffSessionEnded } = await import('./session')
@@ -1001,7 +1001,7 @@ describe('repeated refusals', () => {
     await settle()
 
     expect(where()).toBe('/provider/sign-in?returnTo=%2Fprovider%2Flaboratory')
-    expect(screen.getByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     expect(calls.length).toBe(before)
   })
 })
@@ -1011,7 +1011,7 @@ describe('opening the workspace with a session that already ended (reload, new t
     const calls = serve({ [SESSION]: [ended()], [REFRESH]: [refreshCookieGone()] })
     await open('/provider/laboratory')
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     expect(screen.queryByText('Session unavailable')).toBeNull()
     expect(screen.queryByText(/CSRF/)).toBeNull()
     expect(calls).toEqual([SESSION, REFRESH])
@@ -1032,7 +1032,7 @@ describe('signing out', () => {
   it('ends the server session even after the access token expired, by restoring it first', async () => {
     const calls = await openAndSignOut({ [LOGOUT]: [ended(), signedOut()], [REFRESH]: [json(staffSession())] })
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     expect(authCalls(calls)).toEqual([LOGOUT, REFRESH, LOGOUT])
     expect(screen.queryByText(SESSION_ENDED)).toBeNull()
   })
@@ -1040,7 +1040,7 @@ describe('signing out', () => {
   it('restores the session again when another refresh rotated it before the sign-out arrived', async () => {
     const calls = await openAndSignOut({ [LOGOUT]: [ended(), ended(), signedOut()], [REFRESH]: [json(staffSession()), json(staffSession())] })
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     expect(authCalls(calls)).toEqual([LOGOUT, REFRESH, LOGOUT, REFRESH, LOGOUT])
   })
 
@@ -1049,7 +1049,7 @@ describe('signing out', () => {
 
     expect((await screen.findByRole('alert')).textContent).toBe('Sign-out could not be completed. Try again.')
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: 'Welcome back.' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Welcome back' })).toBeNull()
     expect(authCalls(calls)).toEqual([LOGOUT, REFRESH, LOGOUT, REFRESH, LOGOUT])
   })
 
@@ -1062,13 +1062,13 @@ describe('signing out', () => {
     await act(async () => { switched.respond(json(atIkeja())) })
     await act(async () => { leaving.respond(signedOut()) })
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
   })
 
   it('signs out when the server had already ended the session', async () => {
     await openAndSignOut({ [LOGOUT]: [ended()], [REFRESH]: [refreshCookieGone()] })
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
@@ -1077,7 +1077,7 @@ describe('signing out', () => {
 
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: 'Welcome back.' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Welcome back' })).toBeNull()
     expect(authCalls(calls)).toEqual([LOGOUT])
   })
 
@@ -1128,7 +1128,7 @@ describe('signing out', () => {
 
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: 'Welcome back.' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Welcome back' })).toBeNull()
     expect(authCalls(calls)).toEqual([LOGOUT, REFRESH])
   })
 })
@@ -1201,7 +1201,7 @@ describe('the workspace while the server is asked', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
   })
 
   it('does not lock the workspace for a 403', async () => {
@@ -1248,7 +1248,7 @@ describe('another account in the same browser', () => {
     expect(await screen.findByText('0 pending requests')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     expect(calls.filter(call => call.startsWith('POST /api/v1/auth/'))).toEqual([LOGOUT, REFRESH])
   })
 
@@ -1651,7 +1651,7 @@ describe('protected steps that follow another while the session is checked', () 
     expect(calls).not.toContain(COMPLETE)
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     expect(await upload).toBe('REQUEST_CANCELLED')
     expect(calls).not.toContain(COMPLETE)
   })
@@ -1957,7 +1957,7 @@ describe('the session review before landing', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     expect(calls).not.toContain(LOGOUT)
   })
 
@@ -1986,7 +1986,7 @@ describe('the session review before landing', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
 
-    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     expect(calls.filter(call => call === LOGOUT)).toHaveLength(1)
   })
 })

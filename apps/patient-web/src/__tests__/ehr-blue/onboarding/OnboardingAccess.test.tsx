@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, within } from '@testing-library/react'
 import { onboardingPage } from '../../../ehr-blue/onboarding/page'
-import { DEMO_HOSPITAL, SESSION, openStaffApp, serve } from '../frame/blueHarness'
+import { DEMO_HOSPITAL, SESSION, openStaffApp, serve, pageRoutes } from '../frame/blueHarness'
 import {
   RIVERSIDE, STAFF, eyebrow, heading, many, membership, nav, sessionWith, staffAnswer, staffSession,
   withOnboardingPages,
@@ -79,7 +79,7 @@ describe('in the frame', () => {
     expect(within(nav()).queryByRole('link', { name: 'Facility setup' })).toBeNull()
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Facility setup')
     expect(screen.getByText(sentence)).toBeDefined()
-    expect(screen.queryByRole('navigation', { name: 'Onboarding steps' })).toBeNull()
+    expect(screen.queryByRole('navigation', { name: 'Setup steps' })).toBeNull()
     expect(screen.queryByText(/is not open to you here/)).toBeNull()
 
     fireEvent.keyDown(document, { key: 'k', ctrlKey: true })
@@ -87,7 +87,7 @@ describe('in the frame', () => {
     fireEvent.change(within(search).getByRole('searchbox', { name: 'Health ID or page' }), { target: { value: 'Facility setup' } })
     expect(within(search).queryByRole('link', { name: /Facility setup/ })).toBeNull()
     // Only the session was asked for: nothing about the staff or the facility's setup.
-    expect(sent.map(request => request.route)).toEqual([SESSION])
+    expect(pageRoutes(sent)).toEqual([SESSION])
   })
 
   it('says the same at a demo facility that did not sign itself up', async () => {

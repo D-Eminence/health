@@ -35,19 +35,19 @@ export function HolderCodeStep(props: HolderCodeStepProps) {
   return <form onSubmit={onSubmit} className="flex flex-col gap-4 [&_h2]:m-0 [&_h2]:text-title-2 [&_h2]:text-ink [&_h2]:outline-none">
     <h2 ref={codeError ? undefined : focusTarget} tabIndex={-1}>Enter the code we texted you</h2>
     <p id="enroll-holder-code-hint" className="m-0 text-[13px] text-ink-3">
-      We sent a 6-digit code to the phone number linked to your NIN.{minutes !== null && ` It expires in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`}
+      We sent a 6-digit code to the phone number linked to your NIN.{minutes !== null && ` It works for ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`}
     </p>
-    <CodeBoxes id="enroll-holder-code" label="Verification code" value={code} onChange={onCode} inputRef={codeError ? focusTarget : undefined}
+    <CodeBoxes id="enroll-holder-code" label="Code" value={code} onChange={onCode} inputRef={codeError ? focusTarget : undefined}
       busy={busy} invalid={codeError ? true : undefined} describedBy={describedBy('enroll-holder-code-hint', codeError && errorId)} />
     {incomplete && <p id="enroll-holder-code-needed" className="m-0 text-[13px] text-ink-3">Enter the 6-digit code to continue.</p>}
     <button type="submit" className={buttonClass({ variant: 'primary', size: 'lg', block: true })} disabled={busy || incomplete}
-      aria-describedby={incomplete ? 'enroll-holder-code-needed' : undefined}>{busy ? 'Checking…' : 'Verify code'}</button>
+      aria-describedby={incomplete ? 'enroll-holder-code-needed' : undefined}>{busy ? 'Checking…' : 'Check code'}</button>
     <button type="button" className={buttonClass({ variant: 'link', className: 'self-start' })} disabled={busy || !resendReady} onClick={onResend}
       aria-describedby={resendReady ? undefined : 'enroll-resend-wait'}>Send a new code</button>
     {!resendReady && <p id="enroll-resend-wait" className="m-0 text-[13px] text-ink-3">A new code can be sent {resendWaitSeconds} seconds after the last one.</p>}
     {/* Mounted throughout, so a new code being on offer is announced once, politely. */}
     <p role="status" className="m-0 text-[13px] text-ink-3">{resendReady ? 'You can ask for a new code now.' : ''}</p>
-    <p className="m-0 text-[13px] text-ink-3">This registration can get up to {HOLDER_CODES_PER_REGISTRATION} codes.</p>
+    <p className="m-0 text-[13px] text-ink-3">You can get up to {HOLDER_CODES_PER_REGISTRATION} codes for this sign-up.</p>
     <button type="button" className={buttonClass({ variant: 'link', className: 'self-start' })} disabled={busy} onClick={onOtherWay}>I can't get the code</button>
     <button type="button" className={buttonClass({ variant: 'link', className: 'self-start' })} disabled={busy} onClick={onDifferentNin}>Use a different NIN</button>
   </form>

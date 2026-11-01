@@ -12,7 +12,7 @@ export interface StaffProblemContext {
 }
 
 export const STAFF_UNAVAILABLE = 'Staff management is temporarily unavailable. Please try again in a few minutes.'
-export const JOIN_UNAVAILABLE = 'Joining a facility is temporarily unavailable. Please try again in a few minutes.'
+export const JOIN_UNAVAILABLE = 'Joining a facility isn’t working right now. Please try again in a few minutes.'
 
 /** The refusals after which the Staff page reads its list again: it was out of date. */
 export const STAFF_REFRESHING: readonly string[] = ['VERSION_CONFLICT', 'FACILITY_REVIEW_PENDING', 'FACILITY_ALREADY_REVIEWED',
@@ -85,7 +85,7 @@ export function staffProblemText(caught: unknown, context: StaffProblemContext):
     case 'IDEMPOTENCY_KEY_REQUIRED': return 'That didn’t go through. Please try again.'
     default: break
   }
-  if (caught.status === 429) return 'Too many attempts. Please wait a few minutes and try again.'
+  if (caught.status === 429) return 'Too many tries. Wait a few minutes and try again.'
   return 'That didn’t work. Please try again.'
 }
 
@@ -101,15 +101,15 @@ export function joinProblemText(caught: unknown, facility: string | null): strin
     case 'STAFF_INVITATION_CODE_INVALID': return 'That code doesn’t match. Check the email.'
     case 'STAFF_INVITATION_LOCKED': return `This link has been tried too often. Ask ${theFacility} to send the invitation again.`
     case 'STAFF_INVITATION_SUPERSEDED': return 'A newer invitation was sent. Use the latest email.'
-    case 'STAFF_INVITATION_EXPIRED': return `This invitation has expired. Ask ${theFacility} to send it again.`
+    case 'STAFF_INVITATION_EXPIRED': return `This invitation is too old. Ask ${theFacility} to send it again.`
     case 'STAFF_INVITATION_WITHDRAWN': return `This invitation is no longer available: ${theFacility} withdrew it, or can’t `
       + 'take new staff on Health ID right now. Ask the facility about it.'
     case 'STAFF_INVITATION_ALREADY_ACCEPTED': return 'This invitation has already been accepted. Sign in to use it.'
-    case 'STAFF_INVITATION_REQUIRES_SIGN_OUT': return 'This browser is signed in to Health ID, for example as a patient. Sign '
+    case 'STAFF_INVITATION_REQUIRES_SIGN_OUT': return 'Someone is signed in to Health ID on this device, for example as a patient. Sign '
       + 'out, or open the link in a private window.'
-    case 'STAFF_INVITATION_SESSION_INVALID': return 'This step has expired. Continue again to set your password.'
+    case 'STAFF_INVITATION_SESSION_INVALID': return 'This step timed out. Continue again to set your password.'
     case 'STAFF_INVITATIONS_UNAVAILABLE': return 'Joining is paused by Health ID. Try again later.'
-    case 'STAFF_INVITATION_RATE_LIMITED': return 'Too many invitations have been opened from your network. Please try again '
+    case 'STAFF_INVITATION_RATE_LIMITED': return 'Too many invitations opened from your internet connection. Please try again '
       + 'in an hour.'
     case 'STAFF_INVITATION_ACCOUNT_EXISTS': case 'STAFF_INVITATION_ACCOUNT_CHANGED': return 'Your Health ID account changed '
       + 'while you were joining. Open the invitation again from the email.'
@@ -128,7 +128,7 @@ export function joinProblemText(caught: unknown, facility: string | null): strin
   }
   if (caught.code.startsWith('TURNSTILE_') && caught.code.endsWith('_MISMATCH')) return 'The security check was made for '
     + 'another Health ID site. Open the link in the invitation email again.'
-  if (caught.code.startsWith('TURNSTILE_')) return 'The security check didn’t go through. Please complete it again, then retry.'
-  if (caught.status === 429) return 'Too many attempts. Please wait a few minutes and try again.'
+  if (caught.code.startsWith('TURNSTILE_')) return 'The security check didn’t work. Please do it again, then try again.'
+  if (caught.status === 429) return 'Too many tries. Wait a few minutes and try again.'
   return 'That didn’t work. Please try again.'
 }

@@ -1,3 +1,4 @@
+import { CircleCheck } from 'lucide-react'
 import { HealthIdCode } from '../HealthIdCode'
 import { Button } from '../../kasuwa/ui'
 
@@ -12,7 +13,7 @@ export const SIGNED_IN_ON_THIS_DEVICE = 'You are signed in on this device. If ot
  * shown only here (hid-system#68, N2(a) and N2(b)): the activation response expires the enrollment cookie, and if that
  * response is lost GET /current shows the HID for 15 minutes after activation only. Nothing is stored; it is copied
  * only when the patient asks. One sentence, then one action: "Go to my Health ID" when the activation signed the
- * patient in (it opens the portal), otherwise Sign in.
+ * patient in (it opens the portal), otherwise Sign in. Its heading is the page's h1 (the layout draws no title then).
  */
 export function Complete({ focusTarget, hidCode, signedIn = false, onProceed }: {
   focusTarget: (element: HTMLElement | null) => void
@@ -23,7 +24,8 @@ export function Complete({ focusTarget, hidCode, signedIn = false, onProceed }: 
 }) {
   const inNow = signedIn && onProceed !== undefined
   return <div className="flex flex-col gap-4" role="status" aria-atomic="false">
-    <h2 ref={focusTarget} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">Your Health ID is ready</h2>
+    <CircleCheck aria-hidden="true" className="size-10 text-success" strokeWidth={1.6} />
+    <h1 id="enroll-title" ref={focusTarget} tabIndex={-1} className="m-0 text-title-1 text-ink outline-none">Your Health ID is ready</h1>
     <HealthIdCode code={hidCode} copyButton />
     <p className="m-0 text-sm text-ink-2">{inNow ? 'Write it down: you sign in with it and your password.'
       : 'Write it down now: this page may not show it again.'}</p>

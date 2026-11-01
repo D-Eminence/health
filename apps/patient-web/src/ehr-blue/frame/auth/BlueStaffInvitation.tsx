@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } fro
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
+import { PasswordRules } from '../../../PasswordRules'
 import { Alert, Button, buttonClass } from '../../../kasuwa/ui'
 import { useDocumentTitle } from '../../../authSteps'
 import { Turnstile } from '../../../Turnstile'
@@ -81,7 +82,7 @@ export function BlueStaffInvitation() {
   if (resolveStaffProductHostname(hostname)) return <Navigate to={{ pathname: STAFF_JOIN_PATH, hash: location.hash }} replace />
   if (isPlatformAdminHostname(hostname)) {
     return (
-      <BlueAuthLayout title="Accept your invitation" titleId="blue-invitation-title" lede="You open invitations on the main Health ID site.">
+      <BlueAuthLayout title="Accept your invitation" titleId="blue-invitation-title" lede="Invitations open on the main Health ID site.">
         <a className={buttonClass({ variant: 'primary', size: 'lg', block: true })} href={staffInvitationHref(hostname)}>Continue to the invitation page</a>
       </BlueAuthLayout>
     )
@@ -152,14 +153,13 @@ function InvitationSteps() {
   }
 
   return (
-    <BlueAuthLayout title={accepted ? 'You’ve joined.' : 'Accept your invitation'} titleId="blue-invitation-title"
-      lede="Open the invitation your facility sent, then set up your staff account.">
+    <BlueAuthLayout title="Accept your invitation" titleId="blue-invitation-title" links={!accepted}>
       {error ? <Alert intent="error" size="sm">{error}</Alert> : null}
 
       {unavailable ? (
         <section className="staff-form" aria-labelledby="blue-invitation-unavailable-title">
-          <FocusedHeading id="blue-invitation-unavailable-title">Invitations aren’t available yet</FocusedHeading>
-          <p className={NOTE}>Joining a facility by invitation isn’t available on Health ID yet. Please try again later.</p>
+          <FocusedHeading id="blue-invitation-unavailable-title">Invitations can’t be opened right now</FocusedHeading>
+          <p className={NOTE}>Please try again later.</p>
         </section>
       ) : null}
 
@@ -167,7 +167,7 @@ function InvitationSteps() {
         <form className="staff-form" noValidate onSubmit={event => void open(event)}>
           <h2>{mode === 'link' ? 'Open your invitation' : 'Enter your invitation code'}</h2>
           {mode === 'link'
-            ? <p className={NOTE}>Complete the security check, then select Continue to see who invited you.</p>
+            ? <p className={NOTE}>Continue to see who invited you.</p>
             : <>
               <p className={NOTE}>Use the email address the invitation was sent to and the 6-digit code in the email.</p>
               <div className="auth-field-label">
@@ -202,7 +202,7 @@ function InvitationSteps() {
           <FocusedHeading id="blue-invitation-done-title">You’ve joined {accepted.facilityName}</FocusedHeading>
           <p className={NOTE}>{doneSentence(accepted.roleCode, opened.email)}</p>
           {licenceBodyForRole(accepted.roleCode)
-            ? <p className={NOTE}>Your facility administrator vouched for your licence; Health ID records it.</p> : null}
+            ? <p className={NOTE}>Your facility administrator confirmed your licence. Health ID keeps a note of it.</p> : null}
           <SignInOnSite role={accepted.roleCode}>Go to staff sign-in</SignInOnSite>
         </section>
       ) : null}
@@ -243,22 +243,23 @@ function Opened({ opened, link, busy, password, confirm, onPassword, onConfirm, 
       <form className="staff-form" noValidate onSubmit={onAccept} aria-labelledby="blue-invitation-opened-title">
         <FocusedHeading id="blue-invitation-opened-title">{dormant ? 'Set a new password' : 'Choose a password'}</FocusedHeading>
         {intro}
-        <p id="blue-invitation-password-hint" className={NOTE}>{dormant
-          ? `Your Health ID staff account ${opened.email} isn’t active at any facility now. Choose a new password of at least 12 `
-            + `characters to use it at ${opened.facilityName}. Your old password will stop working.`
-          : `Your Health ID staff account will use ${opened.email}. Choose a password of at least 12 characters.`}</p>
+        <p id="blue-invitation-account-hint" className={NOTE}>{dormant
+          ? `Your staff account ${opened.email} isn’t in use at any facility now. Choose a new password to use it at `
+            + `${opened.facilityName}. Your old password will stop working.`
+          : `Your staff account will use ${opened.email}.`}</p>
         {/* Lets a password manager save the new password with its email. */}
         <input type="email" hidden readOnly autoComplete="username" value={opened.email} />
         <div className="auth-field-label">
           <label htmlFor="blue-invitation-password">Password</label>
           <PasswordInput appearance="plain" id="blue-invitation-password" autoComplete="new-password" minLength={12} maxLength={256} value={password}
-            aria-describedby="blue-invitation-password-hint" onChange={event => onPassword(event.target.value)} />
+            aria-describedby="blue-invitation-account-hint blue-invitation-password-hint" onChange={event => onPassword(event.target.value)} />
         </div>
         <div className="auth-field-label">
           <label htmlFor="blue-invitation-confirm">Confirm password</label>
           <PasswordInput appearance="plain" id="blue-invitation-confirm" toggleLabel="Show confirmed password" autoComplete="new-password"
             minLength={12} maxLength={256} value={confirm} onChange={event => onConfirm(event.target.value)} />
         </div>
+        <PasswordRules id="blue-invitation-password-hint" password={password} confirm={confirm} />
         {fieldError ? <Alert intent="error" size="sm">{fieldError}</Alert> : null}
         <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy}>{busy ? 'Joining…' : `Join ${opened.facilityName}`}</Button>
       </form>

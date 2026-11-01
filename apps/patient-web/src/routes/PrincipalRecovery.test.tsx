@@ -38,20 +38,20 @@ describe('staff and admin password recovery', () => {
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: 'clinician@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete staff-reset security check 0' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send code' }))
 
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'We could not complete that step. Please try again.')
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Something went wrong. Please try again.')
     expect((screen.getByRole('textbox', { name: 'Work email' }) as HTMLInputElement).value).toBe('clinician@example.test')
     expect(screen.getByRole('button', { name: 'Complete staff-reset security check 1' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Send recovery code' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: 'Send code' })).toHaveProperty('disabled', true)
 
     fireEvent.click(screen.getByRole('button', { name: 'Complete staff-reset security check 1' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
-    expect(await screen.findByLabelText('Recovery code')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Send code' }))
+    expect(await screen.findByLabelText('Code')).toBeTruthy()
     expect(calls.start).toHaveBeenLastCalledWith('clinician@example.test', 'siteverify-token')
 
-    fireEvent.change(screen.getByLabelText('Recovery code'), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
+    fireEvent.change(screen.getByLabelText('Code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Check code' }))
     expect(await screen.findByLabelText('New password')).toBeTruthy()
     expect(calls.verify).toHaveBeenCalledWith('challenge-1', '123456')
 
@@ -59,7 +59,7 @@ describe('staff and admin password recovery', () => {
     fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'long-enough-password' } })
     fireEvent.click(screen.getByRole('button', { name: 'Reset password' }))
 
-    await waitFor(() => expect(screen.getByText('Password reset complete.')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Your password is reset.')).toBeTruthy())
     expect(calls.complete).toHaveBeenCalledWith('challenge-1', 'verification-token', 'long-enough-password')
     expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/provider/sign-in')
   })
@@ -72,17 +72,17 @@ describe('staff and admin password recovery', () => {
     open('staff', '/provider/recover')
 
     const ehr = 'https://ehr.healthidentitydirectory.com/provider/sign-in'
-    expect(screen.getByRole('link', { name: 'Back to provider sign in' }).getAttribute('href')).toBe(ehr)
+    expect(screen.getByRole('link', { name: 'Back to sign in' }).getAttribute('href')).toBe(ehr)
     fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'nurse@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: /Complete staff-reset security check/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
-    fireEvent.change(await screen.findByLabelText('Recovery code'), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send code' }))
+    fireEvent.change(await screen.findByLabelText('Code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Check code' }))
     fireEvent.change(await screen.findByLabelText('New password'), { target: { value: 'correct horse battery' } })
     fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'correct horse battery' } })
     fireEvent.click(screen.getByRole('button', { name: 'Reset password' }))
 
-    await screen.findByText('Password reset complete.')
+    await screen.findByText('Your password is reset.')
     expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe(ehr)
   })
 
@@ -96,14 +96,14 @@ describe('staff and admin password recovery', () => {
     for (const link of screen.getAllByRole('link')) expect(link.getAttribute('href')).toBe('/provider/sign-in')
     fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'nurse@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: /Complete staff-reset security check/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
-    fireEvent.change(await screen.findByLabelText('Recovery code'), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send code' }))
+    fireEvent.change(await screen.findByLabelText('Code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Check code' }))
     fireEvent.change(await screen.findByLabelText('New password'), { target: { value: 'correct horse battery' } })
     fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'correct horse battery' } })
     fireEvent.click(screen.getByRole('button', { name: 'Reset password' }))
 
-    await screen.findByText('Password reset complete.')
+    await screen.findByText('Your password is reset.')
     for (const link of screen.getAllByRole('link')) expect(link.getAttribute('href')).toBe('/provider/sign-in')
   })
 
@@ -119,7 +119,7 @@ describe('staff and admin password recovery', () => {
 
     expect(screen.queryByLabelText('Work email')).toBeNull()
     expect(screen.queryByRole('button', { name: /security check/ })).toBeNull()
-    expect(screen.getByText(/Password resets are done on the main Health ID site/)).toBeTruthy()
+    expect(screen.getByText(/Staff reset passwords on the main Health ID site/)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Reset your password on the main site' }).getAttribute('href')).toBe(href)
     expect(calls.start).not.toHaveBeenCalled()
   })
@@ -134,6 +134,6 @@ describe('staff and admin password recovery', () => {
   it('uses the admin reset action and returns to platform sign in', () => {
     open('admin')
     expect(screen.getByRole('button', { name: 'Complete admin-reset security check 0' })).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Back to platform sign in' }).getAttribute('href')).toBe('/admin/sign-in')
+    expect(screen.getByRole('link', { name: 'Back to sign in' }).getAttribute('href')).toBe('/admin/sign-in')
   })
 })

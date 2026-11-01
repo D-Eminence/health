@@ -83,8 +83,9 @@ describe('showing the password', () => {
     show(<Enrollment />)
     await screen.findByRole('heading', { name: 'Choose a password' })
     const password = typeAndShow('Password')
-    // Still described by the step's hint.
+    // Still described by the step's hint: now the password rules, ticked as they are met.
     expect(password.getAttribute('aria-describedby')).toBe('enroll-password-hint')
+    expect(document.getElementById('enroll-password-hint')?.textContent).toContain('At least 12 characters (done)')
   })
 
   it('patient password reset: the one new password field has its own named toggle', async () => {
@@ -108,9 +109,9 @@ describe('showing the password', () => {
     show(<PrincipalRecovery audience="staff" />)
     fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'nurse@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
-    fireEvent.change(await screen.findByLabelText('Recovery code'), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send code' }))
+    fireEvent.change(await screen.findByLabelText('Code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Check code' }))
     await screen.findByLabelText('New password')
     typeAndShow('New password', 'Show new password')
     const confirm = screen.getByLabelText('Confirm new password') as HTMLInputElement

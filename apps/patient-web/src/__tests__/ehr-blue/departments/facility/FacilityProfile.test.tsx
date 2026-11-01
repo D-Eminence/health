@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { HidApiError } from '@hid/http'
 import { MemoryRouter } from 'react-router-dom'
 import { FacilityProfile } from '../../../../ehr-blue/departments/facility/FacilityProfile'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
@@ -7,7 +8,8 @@ import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, fakeFacility, renderDept, type Fa
 /**
  * Facility profile in the blue EHR (target admin/facility.png), read-only: the working facility as the staff session
  * reports it (name, code, the member's roles and permissions there, primary, and Health ID support's check of a
- * facility that signed itself up), with every target field Health ID does not hold marked as such. It reads nothing.
+ * facility that signed itself up), with every target field Health ID does not hold marked as such. It reads nothing but
+ * the facility agreement (proposed GET identity/facility-agreements/current), for its Agreement card.
  */
 const session = vi.hoisted(() => ({ facility: undefined as unknown }))
 vi.mock('../../../../staff/App', async () => {
@@ -26,8 +28,11 @@ const api = vi.hoisted(() => {
   })
   return { touched, recorder }
 })
+// The Agreement card's own read (proposed): not served, unless a test says otherwise.
+const agreement = vi.hoisted(() => ({ current: vi.fn(), record: vi.fn() }))
 vi.mock('../../../../staff/api', () => ({
   staffApi: api.recorder('staffApi'), facilityStaffApi: api.recorder('facilityStaffApi'), orderRoutesApi: api.recorder('orderRoutesApi'),
+  facilityAgreementApi: agreement,
 }))
 
 const NOT_AVAILABLE = 'Not recorded'
@@ -45,6 +50,8 @@ const verification = () => screen.getByRole('status')
 
 beforeEach(() => {
   api.touched.length = 0
+  agreement.current.mockReset()
+  agreement.current.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'NOT_FOUND' }))
   session.facility = HOSPITAL
   vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'main-v1')
 })
@@ -56,7 +63,7 @@ describe('Facility profile: the target’s sections, read-only', () => {
 
     expect(screen.getAllByRole('heading', { level: 1 }).map(heading => heading.textContent)).toEqual(['Facility profile'])
     expect(screen.getAllByRole('heading', { level: 2 }).map(heading => heading.textContent))
-      .toEqual(['Hospital details & picture', 'Facility details', 'Verification history'])
+      .toEqual(['Hospital details & picture', 'Facility details', 'Agreement', 'Verification history'])
     expect(screen.getAllByRole('heading', { level: 3 }).map(heading => heading.textContent))
       .toEqual(['Facility presence policy', 'Operations & regulatory details', 'Profile change history'])
 
@@ -77,10 +84,11 @@ describe('Facility profile: the target’s sections, read-only', () => {
     const avatar = within(details).getByText('DH')
     expect(avatar.getAttribute('aria-hidden')).toBe('true')
 
-    // Nothing to fill in or save: no field, checkbox, upload or button.
-    for (const role of ['textbox', 'checkbox', 'combobox', 'spinbutton', 'button', 'link'] as const) {
+    // Nothing to fill in or save: no field, checkbox, upload or button, but Read for the facility agreement.
+    for (const role of ['textbox', 'checkbox', 'combobox', 'spinbutton', 'link'] as const) {
       expect(screen.queryAllByRole(role), role).toEqual([])
     }
+    expect(screen.getAllByRole('button').map(button => button.textContent)).toEqual(['Read'])
     expect(document.querySelectorAll('input, select, textarea, [tabindex]')).toHaveLength(0)
     expect(api.touched).toEqual([])
   })
@@ -134,6 +142,31 @@ describe('Facility profile: the target’s sections, read-only', () => {
     expect(screen.getByText('Choose the facility you are working at to see its profile.')).toBeTruthy()
     expect(screen.queryByRole('heading', { level: 2 })).toBeNull()
     expect(api.touched).toEqual([])
+  })
+})
+
+describe('Facility profile: the Agreement card', () => {
+  it('shows who signed the facility agreement, when, and which version, with Read and Download copy', async () => {
+    agreement.current.mockResolvedValue({ version: '1.0', signerName: 'Dr Amaka Eze', facilityName: 'Demo Hospital',
+      signedAt: '2026-11-01T10:30:00.000Z', needsAgreement: false, changes: [] })
+    renderDept(<FacilityProfile />)
+    const card = section('Agreement')
+    await waitFor(() => expect(valueOf('Signed by', card)).toBe('Dr Amaka Eze'))
+    expect(agreement.current).toHaveBeenCalledWith(DEMO_HOSPITAL_ID)
+    expect(valueOf('Date', card)).toBe('1 November 2026')
+    expect(valueOf('Version', card)).toBe('1.0')
+    expect(within(card).getAllByRole('button').map(button => button.textContent)).toEqual(['Read', 'Download copy'])
+    fireEvent.click(within(card).getByRole('button', { name: 'Read' }))
+    expect(screen.getByRole('dialog', { name: 'Health ID facility agreement' })).toBeTruthy()
+  })
+
+  it('offers Read alone, and says nothing about why, while the read answers 404', async () => {
+    renderDept(<FacilityProfile />)
+    await waitFor(() => expect(agreement.current).toHaveBeenCalledTimes(1))
+    const card = section('Agreement')
+    expect(within(card).getAllByRole('button').map(button => button.textContent)).toEqual(['Read'])
+    expect(within(card).queryByText('Signed by')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })
 

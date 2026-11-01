@@ -42,6 +42,8 @@ import { ProfileCompletionCard } from './ProfileCompletion'
 import { ContactDetails } from './ProfileContact'
 import { usePatientPhoto } from './ProfilePhoto'
 import { CoverageCard } from './ProfileCoverage'
+import { ProfileAgreements } from './ProfileAgreements'
+import { PatientAgreementCheck } from '../agreements/PatientAgreementCheck'
 import { HealthInformationCard } from './HealthInformation'
 import { ShareInvitationsCard } from './ShareInvitations'
 import { useShareProbe } from './ShareRecords'
@@ -128,6 +130,8 @@ export function PortalShell() {
         <Outlet />
       </div>
       <SignOutToast error={error} />
+      {/* A changed agreement to agree to (proposed; a 404 or fault shows nothing). */}
+      <PatientAgreementCheck />
     </PatientChrome>
   </ProfileChangeProvider></UnreadNotificationsProvider></ToastProvider>
 }
@@ -280,6 +284,8 @@ export function ProfilePage() {
           {imported && <ImportedHealthCard profile={imported} />}
           {/* Once verified, the card's badge says so; the section is only for doing it. */}
           {(ninOffered || !ninVerifiedOf(shown)) && <NinVerificationCard profile={shown} onVerified={profile.reload} />}
+          {/* What the patient agreed to (proposed GET identity/me/consents; a 404 lists the current versions, Read only). */}
+          <ProfileAgreements deletionOffered={deletion !== false} />
         </OpenSectionsContext.Provider>
         {/* This device's settings (moved here from Notifications). Shown only when one of them has something to offer. */}
         <section aria-labelledby="profile-settings" className="flex flex-col gap-3 [&:not(:has([data-setting]))]:hidden">

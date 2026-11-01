@@ -1,40 +1,29 @@
-import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { EhrButton, EhrDialog, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
+import { useLayoutEffect, useRef, useState, type FormEvent } from 'react'
+import { EhrButton, EhrField, EhrInput } from '@hid/ui/ehr'
 import { Turnstile } from '../../Turnstile'
+import { AuthStepper } from '../../AuthLayout'
 import { organizationTypeLabel, organizationTypes, productLabel, productOptions, waitWords, type Product } from './enrollmentRules'
-import { PasswordField } from './PasswordField'
-import { ErrorWords, Required } from './parts'
-import { CAC_STEP, REGISTRATION_STEPS, REVIEW_STEP, type Enrollment } from './useEnrollment'
-
-/** What every design field Health ID does not take says: shown, disabled, never sent or kept. */
-export const NOT_COLLECTED = 'Not collected by Health ID yet'
+import { Choices, ErrorWords } from './parts'
+import { CAC_STEP, PRODUCT_STEP, REGISTRATION_STEPS, REVIEW_STEP, shownSteps, type Enrollment } from './useEnrollment'
+import { ConsentChecks, type ConsentItem } from '../../agreements/ConsentChecks'
+import { FACILITY_AGREEMENT, facilityAgreeLabel } from '../../agreements/facilityAgreement'
 
 /**
- * The design's agreements (facility-fields.ts step 5), required before submitting. Health ID records no acceptance, so
- * the boxes say what the applicant has read; there is no Data Processing Agreement, so it has no box.
+ * The facility agreement, signed on the review: its short version, one tick, and the signer's full name typed as the
+ * signature (the administrator's name from the first step until it is changed here). Kept in React state while the page
+ * is open; recorded once the administrator's account exists (BlueProviderEnrollment.tsx), never in the start's request.
  */
-export const AGREEMENTS = [
-  ['terms', 'I have read the Terms of Service'],
-  ['privacy', 'I have read the Privacy Policy'],
-  ['ndpa', 'I acknowledge data protection and patient consent responsibilities'],
-  ['authorised', 'I am authorised to register this facility'],
-] as const
-export type Agreement = (typeof AGREEMENTS)[number][0]
-export type Agreements = Readonly<Record<Agreement, boolean>>
-export const NO_AGREEMENTS: Agreements = { terms: false, privacy: false, ndpa: false, authorised: false }
+export interface FacilitySigning {
+  readonly agreed: boolean
+  /** The name typed here; null until it is changed, when the first step's name stands. */
+  readonly signerName: string | null
+}
+export const NO_SIGNING: FacilitySigning = { agreed: false, signerName: null }
 
-// The public site's legal pages, as the patient sign-up links them (routes/enrollment/Signup.tsx:92-93). Absolute: a
-// relative /terms on the portal's own origin opens the patient sign-in, not the legal page.
-const TERMS_URL = 'https://healthidentitydirectory.com/terms'
-const PRIVACY_URL = 'https://healthidentitydirectory.com/privacy'
+/** The signature's name: the one typed here, or the administrator's from the first step. */
+export const signerOf = (signing: FacilitySigning, e: Pick<Enrollment, 'name'>) => signing.signerName ?? e.name.trim()
 
-// The design's own options for fields Health ID does not take (facility-fields.ts, model.ts:349-365).
-const ROLES = ['Owner', 'Medical Director', 'Administrator', 'Other authorised representative']
-const OWNERSHIP = ['Public', 'Private', 'Faith-based', 'NGO']
-const CARE_LEVELS = ['Primary', 'Secondary', 'Tertiary']
-const YES_NO = ['Yes', 'No']
-const DEPARTMENTS = ['General Outpatient', 'Emergency', 'Inpatient', 'Laboratory', 'Pharmacy', 'Maternity', 'Pediatrics',
-  'Radiology', 'Dental', 'Physiotherapy', 'Dialysis', 'Oncology', 'Cardiology', 'ICU', 'Theatre']
+const AGREE_ID = 'facility-agreement'
 
 /** The fixed ids of the controls Health ID takes, so a problem can point at one. */
 export const IDS = {
@@ -43,12 +32,14 @@ export const IDS = {
   type: 'hid-ehr-signup-type',
   cac: 'hid-ehr-signup-cac',
   product: 'hid-ehr-signup-product',
+  signer: 'hid-ehr-signup-signer',
 } as const
+
+const HEADING_ID = 'hid-ehr-signup-step-title'
 
 type Checked = 'name' | 'email' | 'cac'
 type Problems = Partial<Record<Checked, string>>
 
-const REQUIRED = 'This field is required.'
 // The WHATWG's valid e-mail address, as the browser checks type="email".
 const EMAIL = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
 // Today's CAC pattern (ProviderEnrollment.tsx:1038).
@@ -59,73 +50,54 @@ function problemsOf(step: number, e: Enrollment): Problems {
   const problems: Problems = {}
   if (step === 0) {
     const name = e.name.trim()
-    if (!name) problems.name = REQUIRED
-    else if (name.length < 2) problems.name = 'Enter at least two characters.'
+    if (!name) problems.name = 'Enter your full name.'
+    else if (name.length < 2) problems.name = 'Enter at least two letters.'
     const email = e.email.trim()
-    if (!email) problems.email = REQUIRED
-    else if (!EMAIL.test(email)) problems.email = 'Enter a valid email address.'
+    if (!email) problems.email = 'Enter your email address.'
+    else if (!EMAIL.test(email)) problems.email = 'Enter an email address like name@example.com.'
   }
   if (step === CAC_STEP) {
-    if (!e.cac) problems.cac = REQUIRED
-    else if (!CAC.test(e.cac)) problems.cac = 'Enter the number on your CAC certificate: RC, BN or IT, then its digits, for example RC123456.'
+    if (!e.cac) problems.cac = 'Enter your CAC number.'
+    else if (!CAC.test(e.cac)) problems.cac = 'Start with RC, BN or IT, then the digits, like RC123456.'
   }
   return problems
 }
 
 const FIRST: Record<Checked, string> = { name: IDS.name, email: IDS.email, cac: IDS.cac }
 
-/** A design field Health ID does not take: shown, disabled, unnamed, never sent or kept. */
-function NotCollected({ label, full, hint = NOT_COLLECTED, children }: {
-  readonly label: string
-  readonly full?: boolean
-  readonly hint?: string
-  readonly children: ReactNode
-}) {
-  return <EhrField label={label} hint={hint} className={full ? 'hid-ehr-signup-full' : undefined}>{children}</EhrField>
-}
-
-function Options({ list }: { readonly list: readonly string[] }) {
-  return <><option value="">Select…</option>{list.map(option => <option key={option}>{option}</option>)}</>
-}
-
-/** The design's progress: "Step N of 5 · name", the bar, and the five names with the current one marked. */
-function Progress({ step }: { readonly step: number }) {
-  return (
-    <div className="hid-ehr-signup-progress" role="group" aria-label="Registration progress">
-      <p id="hid-ehr-signup-progress-label" className="hid-ehr-signup-progress-label">
-        Step {step + 1} of {REGISTRATION_STEPS.length} · {REGISTRATION_STEPS[step]}
-      </p>
-      <progress className="hid-ehr-signup-progress-bar" max={REGISTRATION_STEPS.length} value={step + 1}
-        aria-labelledby="hid-ehr-signup-progress-label" />
-      <ol className="hid-ehr-signup-progress-steps">
-        {REGISTRATION_STEPS.map((name, index) => (
-          <li key={name} aria-current={index === step ? 'step' : undefined}>{index + 1}. {name}</li>
-        ))}
-      </ol>
-    </div>
-  )
+/** What signing needs before Send: the tick, and a full name. */
+interface SigningProblems { readonly agree?: true; readonly name?: string }
+function signingProblems(signing: FacilitySigning, signer: string): SigningProblems {
+  const name = signer.trim()
+  return {
+    ...(signing.agreed ? {} : { agree: true as const }),
+    ...(!name ? { name: 'Enter your full name.' } : name.length < 2 ? { name: 'Enter at least two letters.' } : {}),
+  }
 }
 
 /**
- * Register your facility (design screens 02-07): the design's five steps over today's one details form. Step 1 takes
- * the administrator's name and email, step 2 the facility type (today's five), step 3 the CAC number, step 4 the
- * product (today's one per type); step 5 reviews them, shows the agreements and their four required boxes, and submits
- * beside today's security check. Submitting asks first (07), then runs today's start. Every other design field is shown
- * disabled and is never sent or kept.
+ * Register a facility: one question a step, each named once by its heading (the stepper says only "Step 2 of 5").
+ * Step 1 takes the administrator's name and email, step 2 the facility type, step 3 the CAC number, step 4 the product,
+ * which a type with only one product is not asked (it is chosen already, and the review says which). The last step
+ * lists the answers, each section with one Edit, and the facility agreement to sign; Send runs today's start beside
+ * today's security check, with exactly today's request. Send stays enabled: a missing tick or name is said at its place.
  */
-export function Registration({ e, agreed, onAgree }: {
+export function Registration({ e, signing, onSigning }: {
   readonly e: Enrollment
-  readonly agreed: Agreements
-  readonly onAgree: (agreement: Agreement, value: boolean) => void
+  readonly signing: FacilitySigning
+  readonly onSigning: (next: FacilitySigning) => void
 }) {
   const stepHeading = useRef<HTMLHeadingElement>(null)
   const [problems, setProblems] = useState<Problems>({})
   const [incomplete, setIncomplete] = useState(false)
-  const [confirming, setConfirming] = useState(false)
   // The field to focus after a Continue it stopped: the first one with a problem.
   const [fieldFocus, setFieldFocus] = useState<{ id: string } | null>(null)
+  const [signProblems, setSignProblems] = useState<SigningProblems>({})
+  const [agreeFocus, setAgreeFocus] = useState(0)
   const step = e.regStep
   const checking = e.availability === 'checking'
+  const shown = shownSteps(e.organizationType)
+  const at = Math.max(0, shown.indexOf(step))
 
   // A step change (Continue, Back, Edit, a refusal that returns to a step) moves focus to the step's heading, in the
   // commit that shows it. Not on the first showing of the form.
@@ -138,6 +110,7 @@ export function Registration({ e, agreed, onAgree }: {
 
   function move(to: number) {
     setProblems({})
+    setSignProblems({})
     setIncomplete(false)
     e.setError(null)
     e.toStep(to)
@@ -149,12 +122,12 @@ export function Registration({ e, agreed, onAgree }: {
     const found = problemsOf(step, e)
     const first = (Object.keys(FIRST) as Checked[]).find(key => found[key])
     if (first) { setProblems(found); setFieldFocus({ id: FIRST[first] }); return }
-    move(step + 1)
+    move(shown[at + 1] ?? REVIEW_STEP)
   }
 
-  /** The design re-checks every step first and returns to the first one missing something. */
+  /** Every step is checked again first; the first one missing something is shown. Then today's start. */
   function submit() {
-    if (e.busy || !allAgreed || !e.turnstileToken || e.retryIn > 0) return
+    if (e.busy || !e.turnstileToken || e.retryIn > 0) return
     for (let earlier = 0; earlier < REVIEW_STEP; earlier++) {
       const found = problemsOf(earlier, e)
       if (Object.keys(found).length) {
@@ -164,219 +137,154 @@ export function Registration({ e, agreed, onAgree }: {
         return
       }
     }
-    setConfirming(true)
+    // The agreement, on this step: the first thing missing takes focus, and says why.
+    const unsigned = signingProblems(signing, signerOf(signing, e))
+    setSignProblems(unsigned)
+    if (unsigned.agree) { setAgreeFocus(value => value + 1); return }
+    if (unsigned.name) { setFieldFocus({ id: IDS.signer }); return }
+    void e.start()
   }
 
-  const allAgreed = AGREEMENTS.every(([key]) => agreed[key])
+  const sign = (next: FacilitySigning) => {
+    onSigning(next)
+    setSignProblems(current => ({
+      ...(current.agree && !next.agreed ? { agree: true as const } : {}),
+      ...(current.name && next.signerName === signing.signerName ? { name: current.name } : {}),
+    }))
+  }
   const refusalAtCac = e.error?.at === 'cac' ? e.error : null
   const stepError = e.error && !refusalAtCac ? e.error : null
 
+  if (checking) {
+    return <>
+      <h1 className="hid-ehr-signup-title">Register a facility</h1>
+      <p role="status" className="hid-ehr-signup-lede">Checking that sign-up is open…</p>
+    </>
+  }
+
   return (
     <>
-      <p className="hid-ehr-signup-eyebrow">A workspace for your facility</p>
-      <h1 className="hid-ehr-page-title hid-ehr-signup-title">Register your facility</h1>
-      <p className="hid-ehr-signup-intro">Tell us about your facility. Verify your CAC registration, confirm your email and choose
-        a password. Your administrator account is ready straight away.</p>
+      <AuthStepper label="Sign-up progress" named={false}
+        steps={shown.map(index => ({ label: REGISTRATION_STEPS[index]!, current: index === step }))} />
+      <form className="hid-ehr-signup-form" noValidate onSubmit={next} aria-labelledby={HEADING_ID}>
+        <h1 id={HEADING_ID} ref={stepHeading} tabIndex={-1} className="hid-ehr-signup-title">{REGISTRATION_STEPS[step]}</h1>
+        {step === 0 ? <p className="hid-ehr-signup-lede">Register your clinic, hospital, lab or pharmacy. You’ll manage its
+          {' '}Health ID account.</p> : null}
+        {incomplete ? <p role="alert" className="hid-ehr-signup-alert">Fill in this step before you send.</p> : null}
 
-      {checking ? <p role="status" className="hid-ehr-signup-status">Checking that facility sign-up is open…</p> : <>
-        <Progress step={step} />
-        <form className="hid-ehr-signup-form" noValidate onSubmit={next} aria-labelledby="hid-ehr-signup-step-title">
-          <h2 id="hid-ehr-signup-step-title" ref={stepHeading} tabIndex={-1} className="hid-ehr-signup-step-title">
-            {REGISTRATION_STEPS[step]}
-          </h2>
-          {incomplete ? <p role="alert" className="hid-ehr-signup-alert">Complete this section before submitting.</p> : null}
+        {step === 0 && <div className="hid-ehr-signup-fields">
+          <EhrField label="Full name" controlId={IDS.name} error={problems.name}>
+            <EhrInput required minLength={2} maxLength={200} autoComplete="name" value={e.name}
+              onChange={event => e.setName(event.target.value)} />
+          </EhrField>
+          <EhrField label="Email" controlId={IDS.email} error={problems.email}>
+            <EhrInput type="email" required maxLength={254} autoComplete="email" value={e.email}
+              onChange={event => e.setEmail(event.target.value)} />
+          </EhrField>
+        </div>}
 
-          {step === 0 && <div className="hid-ehr-signup-grid">
-            <EhrField label={<Required>Full name</Required>} controlId={IDS.name} error={problems.name}>
-              <EhrInput required minLength={2} maxLength={200} autoComplete="name" value={e.name}
-                onChange={event => e.setName(event.target.value)} />
-            </EhrField>
-            <NotCollected label="Phone"><EhrInput type="tel" disabled /></NotCollected>
-            <EhrField label={<Required>Email</Required>} controlId={IDS.email} error={problems.email}>
-              <EhrInput type="email" required maxLength={254} autoComplete="email" value={e.email}
-                onChange={event => e.setEmail(event.target.value)} />
-            </EhrField>
-            <PasswordField label="Password" controlId="hid-ehr-signup-password-later" disabled
-              hint="You choose your password after confirming your email." />
-            <PasswordField label="Confirm password" controlId="hid-ehr-signup-confirm-later" disabled
-              toggleLabel="Show password confirmation"
-              hint="You choose your password after confirming your email." />
-            <NotCollected label="Role at the facility"><EhrSelect disabled><Options list={ROLES} /></EhrSelect></NotCollected>
-          </div>}
+        {step === 1 && <Choices name="hid-ehr-signup-type" labelledBy={HEADING_ID} value={e.organizationType}
+          options={organizationTypes.map(option => ({ value: option.value, label: option.label }))}
+          onChange={value => e.setType(value)} note={e.productNote} noteId="hid-ehr-signup-type-note" />}
 
-          {step === 1 && <div className="hid-ehr-signup-grid">
-            <NotCollected label="Facility name"
-              hint={`${NOT_COLLECTED}: your facility’s registered name comes from its CAC record.`}>
-              <EhrInput disabled />
-            </NotCollected>
-            <EhrField label={<Required>Facility type</Required>} controlId={IDS.type}>
-              <EhrSelect required value={e.organizationType}
-                onChange={event => e.setType(event.target.value as typeof e.organizationType)}>
-                {organizationTypes.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </EhrSelect>
-            </EhrField>
-            <NotCollected label="Ownership"><EhrSelect disabled><Options list={OWNERSHIP} /></EhrSelect></NotCollected>
-            <NotCollected label="Level of care"><EhrSelect disabled><Options list={CARE_LEVELS} /></EhrSelect></NotCollected>
-            <NotCollected label="Address"><EhrInput disabled /></NotCollected>
-            <NotCollected label="State"><EhrSelect disabled><Options list={[]} /></EhrSelect></NotCollected>
-            <NotCollected label="Local government area"><EhrSelect disabled><Options list={[]} /></EhrSelect></NotCollected>
-            <NotCollected label="GPS pin (latitude, longitude)"><EhrInput disabled /></NotCollected>
-            <NotCollected label="Facility phone"><EhrInput type="tel" disabled /></NotCollected>
-            <NotCollected label="Facility email"><EhrInput type="email" disabled /></NotCollected>
-            <NotCollected label="Bed count"><EhrInput type="number" disabled /></NotCollected>
-            <NotCollected label="Operating hours"><EhrInput disabled /></NotCollected>
-            <NotCollected label="24-hour emergency"><EhrSelect disabled><Options list={YES_NO} /></EhrSelect></NotCollected>
-            <NotCollected label="Departments" full>
-              <EhrSelect multiple disabled className="hid-ehr-signup-multiple">
-                {DEPARTMENTS.map(department => <option key={department}>{department}</option>)}
-              </EhrSelect>
-            </NotCollected>
-            <NotCollected label="Services offered" full><EhrTextarea rows={3} disabled /></NotCollected>
-          </div>}
+        {step === CAC_STEP && <div className="hid-ehr-signup-fields">
+          <EhrField label="CAC number" controlId={IDS.cac} hint="From your business registration certificate."
+            error={problems.cac ?? (refusalAtCac ? <span role="alert"><ErrorWords error={refusalAtCac} /></span> : undefined)}>
+            <EhrInput required value={e.cac} onChange={event => e.setCac(event.target.value)}
+              autoCapitalize="characters" autoComplete="off" spellCheck={false}
+              pattern="(RC|BN|IT)[0-9]{4,20}" maxLength={22} placeholder="RC123456" />
+          </EhrField>
+        </div>}
 
-          {step === CAC_STEP && <div className="hid-ehr-signup-grid">
-            <NotCollected label="State Ministry of Health licence number"><EhrInput disabled /></NotCollected>
-            <NotCollected label="National facility registry ID (optional)"><EhrInput disabled /></NotCollected>
-            <EhrField label={<Required>CAC registration number</Required>} controlId={IDS.cac}
-              hint="We check your CAC against the official registry, and Health ID support checks every new facility within one working day."
-              error={problems.cac ?? (refusalAtCac ? <span role="alert"><ErrorWords error={refusalAtCac} /></span> : undefined)}>
-              <EhrInput required value={e.cac} onChange={event => e.setCac(event.target.value)}
-                autoCapitalize="characters" autoComplete="off" spellCheck={false}
-                pattern="(RC|BN|IT)[0-9]{4,20}" maxLength={22} placeholder="RC123456" />
-            </EhrField>
-            <NotCollected label="Medical Director’s full name"><EhrInput disabled /></NotCollected>
-            <NotCollected label="MDCN number"><EhrInput disabled /></NotCollected>
-            <NotCollected label="NHIA accreditation (optional)"><EhrInput disabled /></NotCollected>
-            <NotCollected label="Operating licence (image/PDF, max 2 MB)" full><EhrInput type="file" disabled /></NotCollected>
-            <NotCollected label="CAC certificate (image/PDF, max 2 MB)" full><EhrInput type="file" disabled /></NotCollected>
-            <NotCollected label="Proof of address (image/PDF, max 2 MB)" full><EhrInput type="file" disabled /></NotCollected>
-          </div>}
+        {step === PRODUCT_STEP && <Choices name="hid-ehr-signup-product" labelledBy={HEADING_ID} value={e.productCode}
+          options={productOptions[e.organizationType].map(code => ({ value: code, label: productLabel(code) }))}
+          onChange={value => e.setProductCode(value as Product)} />}
 
-          {step === 3 && <>
-            <p className="hid-ehr-signup-muted">Your facility starts with one Health ID product. The products a facility can
-              choose depend on its type.</p>
-            <div className="hid-ehr-signup-grid">
-              <NotCollected label="Expected number of staff"><EhrInput type="number" disabled /></NotCollected>
-              <EhrField label={<Required>Product to start with</Required>} controlId={IDS.product} hint={e.productNote}
-                className="hid-ehr-signup-full">
-                <EhrSelect required value={e.productCode} onChange={event => e.setProductCode(event.target.value as Product)}>
-                  {productOptions[e.organizationType].map(code => <option key={code} value={code}>{productLabel(code)}</option>)}
-                </EhrSelect>
-              </EhrField>
-              <NotCollected label="Migrating existing records?"><EhrSelect disabled><Options list={YES_NO} /></EhrSelect></NotCollected>
-              <NotCollected label="Need interoperability with other facilities?">
-                <EhrSelect disabled><Options list={YES_NO} /></EhrSelect>
-              </NotCollected>
-            </div>
-          </>}
+        {step === REVIEW_STEP && <Review e={e} signing={signing} onSigning={sign} problems={signProblems} agreeFocus={agreeFocus}
+          onEdit={move} />}
 
-          {step === REVIEW_STEP && <Review e={e} agreed={agreed} onAgree={onAgree} onEdit={move} />}
+        {stepError ? <p role="alert" className="hid-ehr-signup-alert"><ErrorWords error={stepError} /></p> : null}
 
-          {stepError ? <p role="alert" className="hid-ehr-signup-alert"><ErrorWords error={stepError} /></p> : null}
-
-          <div className="hid-ehr-signup-actions">
-            {step === REVIEW_STEP ? <>
-              <div className="hid-ehr-signup-turnstile">
-                <Turnstile action="provider-enrollment" onTokenChange={e.setTurnstileToken} resetKey={e.resetKey} />
-              </div>
-              <EhrButton type="submit" busy={e.busy} disabled={!allAgreed || !e.turnstileToken || e.retryIn > 0}>
-                {e.busy ? 'Verifying CAC…' : 'Submit facility for verification'}
-              </EhrButton>
-            </> : <EhrButton type="submit">Continue</EhrButton>}
-          </div>
-          {step === REVIEW_STEP && e.retryIn > 0 && !e.busy ? <p className="hid-ehr-hint">{e.carried
-            ? 'You can continue with your changes in ' : 'You can try again in '}{waitWords(e.retryIn)}.</p> : null}
-        </form>
-
-        <div className="hid-ehr-signup-controls">
-          {step > 0 ? <EhrButton variant="secondary" onClick={() => move(step - 1)}>Back</EhrButton> : null}
-          <EhrButton variant="secondary" disabled aria-describedby="hid-ehr-signup-later-note">Save &amp; continue later</EhrButton>
-          <p id="hid-ehr-signup-later-note" className="hid-ehr-hint">Not available yet: Health ID doesn’t save drafts of a
-            registration.</p>
+        {step === REVIEW_STEP ? <div className="hid-ehr-signup-turnstile">
+          <Turnstile action="provider-enrollment" onTokenChange={e.setTurnstileToken} resetKey={e.resetKey} />
+        </div> : null}
+        {/* Back, then the one primary: rightmost from 640px, at the bottom on a phone. */}
+        <div className="hid-ehr-signup-actions">
+          {at > 0 ? <EhrButton type="button" variant="secondary" onClick={() => move(shown[at - 1]!)}>Back</EhrButton> : null}
+          {step === REVIEW_STEP
+            ? <EhrButton type="submit" busy={e.busy} disabled={!e.turnstileToken || e.retryIn > 0}>
+              {e.busy ? 'Sending…' : 'Send'}
+            </EhrButton>
+            : <EhrButton type="submit">Continue</EhrButton>}
         </div>
-
-        <EhrDialog open={confirming} title="Submit this registration?"
-          description="Check the details above, then submit. Health ID checks your CAC registration number and emails you a six digit code."
-          confirmLabel="Confirm and submit"
-          onCancel={() => setConfirming(false)}
-          onConfirm={() => { setConfirming(false); void e.start() }} />
-      </>}
+        {step === REVIEW_STEP && e.retryIn > 0 && !e.busy ? <p className="hid-ehr-signup-hint">{e.carried
+          ? 'You can send your changes in ' : 'You can try again in '}{waitWords(e.retryIn)}.</p> : null}
+      </form>
     </>
   )
 }
 
-/** Step 5, Agreements (design screen 06): each section with its Edit, the agreements, and today's waits and panels. */
-function Review({ e, agreed, onAgree, onEdit }: {
+/** Check and send: the answers in one short list, one Edit a section, the agreement to sign, and what Send does. */
+function Review({ e, signing, onSigning, problems, agreeFocus, onEdit }: {
   readonly e: Enrollment
-  readonly agreed: Agreements
-  readonly onAgree: (agreement: Agreement, value: boolean) => void
+  readonly signing: FacilitySigning
+  readonly onSigning: (next: FacilitySigning) => void
+  readonly problems: SigningProblems
+  readonly agreeFocus: number
   readonly onEdit: (step: number) => void
 }) {
-  // Only what has a value, as the design lists it; never a password.
-  const sections: ReadonlyArray<ReadonlyArray<readonly [string, string]>> = [
-    [['Full name', e.name.trim()], ['Email', e.administratorEmail]],
-    [['Facility type', organizationTypeLabel(e.organizationType)]],
-    [['CAC registration number', e.cac]],
-    [['Product', productLabel(e.productCode)]],
+  const items: readonly ConsentItem[] = [{ id: AGREE_ID, label: facilityAgreeLabel(e.registering?.organizationName), required: true,
+    document: FACILITY_AGREEMENT, readLabel: 'Read the facility agreement' }]
+  // Each section with the step that holds it; never a password. A product the type decides has no Edit: the type's has.
+  const choosesProduct = productOptions[e.organizationType].length > 1
+  const sections: ReadonlyArray<{ step: number; edit: string; rows: ReadonlyArray<readonly [string, string]> }> = [
+    { step: 0, edit: 'Edit name and email', rows: [['Name', e.name.trim()], ['Email', e.administratorEmail]] },
+    { step: 1, edit: 'Edit facility type', rows: [['Facility type', organizationTypeLabel(e.organizationType)],
+      ...(choosesProduct ? [] : [['Product', productLabel(e.productCode)] as const])] },
+    { step: CAC_STEP, edit: 'Edit CAC number', rows: [['CAC number', e.cac]] },
+    ...(choosesProduct ? [{ step: PRODUCT_STEP, edit: 'Edit product', rows: [['Product', productLabel(e.productCode)] as const] }] : []),
   ]
   const kept = e.kept
   const carried = e.carried
   return (
     <>
       <div className="hid-ehr-signup-summary">
-        {sections.map((rows, index) => {
-          const section = REGISTRATION_STEPS[index]!
-          return (
-            <details key={section} open={index === 0}>
-              <summary>{section}</summary>
-              <EhrButton variant="secondary" onClick={() => onEdit(index)}>Edit {section.toLowerCase()}</EhrButton>
-              <dl className="hid-ehr-signup-facts">
-                {rows.filter(([, value]) => value).map(([label, value]) => (
-                  <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
-                ))}
-              </dl>
-            </details>
-          )
-        })}
+        {sections.map(section => (
+          <div key={section.step} className="hid-ehr-signup-section">
+            <dl className="hid-ehr-signup-facts">
+              {section.rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+            </dl>
+            <EhrButton variant="quiet" className="hid-ehr-signup-edit" aria-label={section.edit}
+              onClick={() => onEdit(section.step)}>Edit</EhrButton>
+          </div>
+        ))}
       </div>
 
-      <p className="hid-ehr-signup-info">No payment is taken at sign-up. When you submit, we check your CAC registration
-        number against the official registry and email a six digit code to {e.administratorEmail || 'your email address'}.</p>
-
-      <details className="hid-ehr-signup-agreements">
-        <summary>Read the agreements</summary>
-        <p><strong>Terms of Service:</strong> read the <a className="hid-ehr-signup-link" href={TERMS_URL} target="_blank"
-          rel="noopener">Health ID Terms of Service</a> (opens in a new tab).</p>
-        <p><strong>Privacy Policy:</strong> read the <a className="hid-ehr-signup-link" href={PRIVACY_URL} target="_blank"
-          rel="noopener">Health ID Privacy Policy</a> (opens in a new tab).</p>
-        <p><strong>Data protection and patient consent:</strong> Facility users acknowledge responsibility for appropriate
-          data protection and patient consent.</p>
-      </details>
-
-      <fieldset className="hid-ehr-signup-checks">
-        <legend className="hid-ehr-sr-only">Agreements</legend>
-        {AGREEMENTS.map(([key, label]) => (
-          <label key={key} className="hid-ehr-signup-check">
-            <input type="checkbox" required checked={agreed[key]} onChange={event => onAgree(key, event.target.checked)} />
-            <span className="hid-ehr-signup-required" aria-hidden="true">*</span>
-            <span>{label}</span>
-          </label>
-        ))}
-      </fieldset>
-
       {kept ? <div className="hid-ehr-signup-note">
-        <p>A sign-up for {kept.cacRegistrationNumber} was started with {kept.administratorEmail}, and only that email can
-          {' '}finish it until 24 hours after it started. You can still correct the CAC number.</p>
-        <EhrButton variant="secondary" size="sm" onClick={() => e.firstEmail(kept)}>Use the email I first gave</EhrButton>
+        <p>A sign-up for {kept.cacRegistrationNumber} was started with {kept.administratorEmail}. Until 24 hours after it
+          {' '}started, only that email can finish it. You can still correct the CAC number.</p>
+        <EhrButton variant="secondary" onClick={() => e.firstEmail(kept)}>Use the email I first gave</EhrButton>
       </div> : null}
 
       {carried ? <div className="hid-ehr-signup-note">
-        <p>A new facility type or administrator name takes effect only with a new code. The code already sent is for the
-          {' '}facility type {organizationTypeLabel(carried.carries.organizationType)}, with {carried.carries.administratorName} as
-          {' '}administrator.</p>
-        {carried.enterableUntil > e.now ? <EhrButton variant="secondary" size="sm"
+        <p>A new facility type or name needs a new code. The code we already sent is for {organizationTypeLabel(
+          carried.carries.organizationType)}, with {carried.carries.administratorName} as administrator.</p>
+        {carried.enterableUntil > e.now ? <EhrButton variant="secondary"
           onClick={() => e.enterCodeInForce(carried)}>Use the details I gave before</EhrButton> : null}
       </div> : null}
+
+      <ConsentChecks idPrefix="hid-ehr-signup-agreement" summary={FACILITY_AGREEMENT} items={items} legend="Facility agreement"
+        checked={{ [AGREE_ID]: signing.agreed }} onChange={(_, value) => onSigning({ ...signing, agreed: value })}
+        errors={problems.agree ? [AGREE_ID] : []} focusRequest={agreeFocus} />
+      <div className="hid-ehr-signup-fields">
+        <EhrField label="Your full name" controlId={IDS.signer} hint="Typed as your signature." error={problems.name}>
+          <EhrInput required minLength={2} maxLength={200} autoComplete="name" value={signerOf(signing, e)}
+            onChange={event => onSigning({ ...signing, signerName: event.target.value })} />
+        </EhrField>
+      </div>
+
+      <p className="hid-ehr-signup-hint">When you send, we check your CAC number and email a 6-digit code
+        to {e.administratorEmail || 'you'}. There’s nothing to pay.</p>
     </>
   )
 }

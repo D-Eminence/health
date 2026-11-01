@@ -74,7 +74,7 @@ function Where() {
 async function openSignIn(path = '/provider/sign-in') {
   const { App } = await import('./App')
   render(<MemoryRouter initialEntries={[path]}><Where /><Routes><Route path="/provider/*" element={<App />} /></Routes></MemoryRouter>)
-  expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
 }
 
 function signIn() {
@@ -96,15 +96,15 @@ describe('the password step', () => {
   })
 
   it.each([
-    ['mfa_required', 'Verify it’s you'],
-    ['mfa_enrollment_required', 'Set up an authenticator app'],
+    ['mfa_required', 'Confirm it’s you'],
+    ['mfa_enrollment_required', 'Set up sign-in codes'],
   ] as const)('asks for the second step Identity names (%s), opening nothing yet', async (status, step) => {
     const calls = serve({ [SESSION]: [ended], [REFRESH]: [ended], [LOGIN]: [challenge(status)] })
     await openSignIn()
     signIn()
 
     expect(await screen.findByRole('heading', { name: step })).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: 'Welcome back.' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Welcome back' })).toBeNull()
     expect(screen.getByTestId('where').textContent).toBe('/provider/sign-in')
     expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
     expect(calls).toEqual([SESSION, REFRESH, LOGIN])

@@ -67,8 +67,8 @@ export const OPEN_SIGN_UP_MS = DAY_MS
 // ProviderEnrollment.tsx:154-158
 export const START_UNAVAILABLE = 'We couldn’t finish checking your details just now. Please try again in a minute. '
   + 'If an email with a code arrives meanwhile, ignore it: you’ll get a new code when you try again.'
-export const STEP_UNAVAILABLE = 'Facility sign-up is temporarily unavailable. Please try again in a few minutes.'
-export const CAC_CHECK_BUSY = 'We couldn’t check your CAC registration number just now. Please try again in a minute.'
+export const STEP_UNAVAILABLE = 'Facility sign-up isn’t working right now. Please try again in a few minutes.'
+export const CAC_CHECK_BUSY = 'We couldn’t check your CAC number just now. Please try again in a minute.'
 export const OFFLINE = 'We couldn’t reach Health ID. Check your internet connection and try again.'
 
 // ProviderEnrollment.tsx:160
@@ -98,7 +98,7 @@ export type Refusal =
  * 423 for that reason (P4). (ProviderEnrollment.tsx:178-256, verbatim)
  */
 export function refusalOf(reason: unknown, step: Step, activationUncertain: boolean, novu: boolean): Refusal {
-  if (!isHidApiError(reason)) return { kind: 'message', text: 'We could not complete facility sign-up. Please try again.' }
+  if (!isHidApiError(reason)) return { kind: 'message', text: 'Something went wrong with facility sign-up. Please try again.' }
   const { status, code } = reason
   if (status === 423 && code === 'PROVIDER_ENROLLMENT_UNAVAILABLE') return { kind: 'closed' }
   const starting = step === 'start' || step === 'resend'
@@ -128,43 +128,43 @@ export function refusalOf(reason: unknown, step: Step, activationUncertain: bool
           + 'also be this facility’s administrator. Signing up again with another email for the same CAC number won’t work '
           + 'either.' }
     if (code === 'ORGANIZATION_REVIEW_REQUIRED') return { kind: 'help', title: 'Health ID needs to check this organization',
-      text: 'This organization can’t be set up automatically. It may already be registered with Health ID, for example '
+      text: 'We can’t set up this organization by ourselves. It may already be on Health ID, for example '
         + 'for another product.' }
   }
   if (code === 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT') return { kind: 'message',
-    text: 'This browser is signed in to Health ID, for example to a patient account. Sign out of Health ID first, or '
+    text: 'Someone is signed in to Health ID on this device, for example to a patient account. Sign out first, or '
       + 'open this page in a private (incognito) window, then try again.' }
   // Novu answers this for a CAC number and product already registered, held by a governed application or by an open
   // sign-up with another email, closed on the way, or whose sign-up from this email or network support closed in the
   // last 7 days (0086, A8 and R15; a lapse refuses no one). Only support can say which, so the page promises no wait.
   if (code === 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW' && novu) return { kind: 'message', support: 'cac',
-    text: 'This organization can’t be set up automatically right now: its CAC number may already be linked to Health '
-      + 'ID, another sign-up for it may be in progress, or Health ID support may have recently closed a sign-up for it.' }
+    text: 'We can’t set up this organization by ourselves right now. Its CAC number may already be on Health '
+      + 'ID, someone else may be signing it up, or Health ID support may have recently closed a sign-up for it.' }
   if (code === 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW' || code === 'ORGANIZATION_REVIEW_REQUIRED') return { kind: 'message',
-    support: 'cac', text: 'This organization needs a check by Health ID before it can be set up, for example because '
-      + 'its CAC number is already linked to Health ID or another sign-up for it is in progress.' }
+    support: 'cac', text: 'Health ID must check this organization before it can be set up. For example, '
+      + 'its CAC number may already be on Health ID, or someone else may be signing it up.' }
   if (code === 'PROVIDER_ALREADY_REGISTERED') return { kind: 'message', support: 'plain',
-    text: 'This organization is already registered with Health ID. If you are its administrator, sign in instead.' }
+    text: 'This organization is already on Health ID. If you are its administrator, sign in instead.' }
   if (code === 'PROVIDER_CAC_PROFILE_INCOMPLETE') return { kind: 'message', support: 'cac',
-    text: 'We couldn’t set up your organization automatically from its CAC record: the record is missing details we '
+    text: 'We couldn’t set up your organization from its CAC record. The record is missing details we '
       + 'need, or it doesn’t show the company as active.' }
-  if (code === 'CAC_NOT_VERIFIED') return { kind: 'message', text: 'We couldn’t verify this CAC registration number. '
+  if (code === 'CAC_NOT_VERIFIED') return { kind: 'message', text: 'We couldn’t check this CAC number. '
     + 'Check the number on your CAC certificate (it starts with RC, BN or IT) and try again.' }
   if (code === 'APPLICATION_RATE_LIMITED') return { kind: 'message',
-    text: 'There have been too many sign-up attempts from your network. Please try again later.' }
+    text: 'Too many sign-up tries from your internet connection. Please try again later.' }
   if (code === 'VERIFICATION_QUOTA_EXCEEDED') return { kind: 'message',
-    text: 'The limit on CAC checks has been reached for now. Please try again later.' }
+    text: 'We can’t check more CAC numbers for now. Please try again later.' }
   if (code === 'VERSION_CONFLICT') return { kind: 'message',
     text: 'Your sign-up changed while we were working on it. Please try again.' }
   if (code === 'ORGANIZATION_COMPLETION_CODE_INVALID') return { kind: 'message',
-    text: 'That code isn’t right, or it has expired. Check the latest email from Health ID and try again, or send a new code.' }
+    text: 'That code is wrong or too old. Check the latest email from Health ID and try again, or send a new code.' }
   if (code === 'ORIGIN_DENIED') return { kind: 'message',
     text: 'This site isn’t allowed to send facility sign-ups. Open Set up your facility from healthidentitydirectory.com and try again.' }
   if (code.startsWith('TURNSTILE_') && code.endsWith('_MISMATCH')) return { kind: 'message',
     text: 'The security check was made for another Health ID site. Open Set up your facility from '
       + 'healthidentitydirectory.com and try again.' }
   if (code.startsWith('TURNSTILE_')) return { kind: 'message',
-    text: 'The security check didn’t go through. Please complete it again, then retry.' }
+    text: 'The security check didn’t work. Please do it again, then try again.' }
   if (code === 'PROVIDER_ENROLLMENT_DENIED') return { kind: 'message', text: STEP_UNAVAILABLE }
   if (code === 'VALIDATION_FAILED') return { kind: 'message', text: 'Some of the details weren’t accepted. Check them and try again.' }
   return { kind: 'message', text: reason.message }

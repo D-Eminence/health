@@ -2,6 +2,7 @@ import { useLayoutEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { isHidApiError, retryAfterSeconds } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
+import { PasswordRules } from '../../PasswordRules'
 import { SIGNUP_GENDERS, type EnrollmentActivation, type EnrollmentSignupDetails, type SignupGender } from '../../api'
 import { AuthLayout } from '../../AuthLayout'
 import { GoogleButton } from '../../GoogleButton'
@@ -20,11 +21,16 @@ import { Hint, InputR, SelectR } from '../profileParts'
 import { STEP_UNAVAILABLE, refusedWith, registrationClosed, temporarilyUnavailable } from './problems'
 import { DEFAULT_PHONE_COUNTRY, PHONE_COUNTRIES, internationalPhone } from './phoneCountries'
 import { ExistingAccountAlert, existingAccount, type ExistingAccount } from './googleAccountExists'
+import { ConsentChecks } from '../../agreements/ConsentChecks'
+import { PATIENT_TERMS } from '../../agreements/patientTerms'
+import { PATIENT_CONSENT_ITEMS, usePatientConsent } from '../../agreements/patientConsent'
+import { patientConsentRecord, recordQuietly } from '../../agreements/records'
 
 /**
  * The patient sign-up without a NIN (an owner decision, 2026-10-27), as hid-1.0's
- * PatientAuth: the details, a password with the security check, a code sent to
- * the email, then the Health ID. The NIN is verified later, from the profile.
+ * PatientAuth: the details, a password with the security check and the agreements
+ * (the last step before the account is made), a code sent to the email, then the
+ * Health ID. The NIN is verified later, from the profile.
  * Shown by routes/Enrollment.tsx only while Identity's availability read says
  * `signup: true`; until then the NIN-first enrollment is shown as before.
  *
@@ -35,11 +41,11 @@ import { ExistingAccountAlert, existingAccount, type ExistingAccount } from './g
  * sign in.
  */
 type SignupStep = 'details' | 'password' | 'code' | 'done'
-type DetailsField = 'firstName' | 'lastName' | 'email' | 'phone' | 'gender' | 'hospitalCurrentlyUsing' | 'terms'
+type DetailsField = 'firstName' | 'lastName' | 'email' | 'phone' | 'gender' | 'hospitalCurrentlyUsing'
 type Field = DetailsField | 'password' | 'code'
 type FieldErrors = Partial<Record<Field, string>>
 
-const DETAILS_ORDER: readonly DetailsField[] = ['firstName', 'lastName', 'email', 'phone', 'gender', 'hospitalCurrentlyUsing', 'terms']
+const DETAILS_ORDER: readonly DetailsField[] = ['firstName', 'lastName', 'email', 'phone', 'gender', 'hospitalCurrentlyUsing']
 const PASSWORD_ORDER: readonly Field[] = ['password']
 
 const GENDER_LABELS: Record<SignupGender, string> = { female: 'Female', male: 'Male', other: 'Other' }
@@ -47,28 +53,27 @@ const GENDER_LABELS: Record<SignupGender, string> = { female: 'Female', male: 'M
 export const SIGNUP_PROBLEMS: Record<DetailsField, string> = {
   firstName: 'Enter your first name.',
   lastName: 'Enter your last name.',
-  email: 'Enter a valid email address, like name@example.com.',
-  phone: 'Enter a valid phone number for the country chosen, like 0801 234 5678 for Nigeria, or start it with + and the country code.',
+  email: 'Enter your email address, like name@example.com.',
+  phone: 'Enter your phone number, like 0801 234 5678 for Nigeria. Or start with + and the country code.',
   gender: 'Select your gender.',
   hospitalCurrentlyUsing: 'Check the name of the hospital you currently use.',
-  terms: 'Agree to the Terms of Service and Privacy Policy to create an account.',
 }
 export const PASSWORD_RULE = 'Choose a password of at least 12 characters.'
 /** 409 PATIENT_EMAIL_ALREADY_REGISTERED; shown with a link to sign in. */
 export const EMAIL_TAKEN = 'This email address already has a Health ID account.'
 /** 409 PATIENT_PHONE_ALREADY_REGISTERED. */
 export const PHONE_TAKEN = 'This phone number already has a Health ID account. Sign in instead, or use another phone number.'
-const CODE_REFUSED = 'That code is wrong or has expired. Check the latest email, or send a new code.'
+const CODE_REFUSED = 'That code is wrong or too old. Check the latest email, or send a new code.'
 const CHECK_DETAILS = 'Some details need checking. They are marked below.'
 /** 404 ENROLLMENT_NOT_FOUND after the details were sent: the sign-up's cookie expired or was ended here. */
-export const SIGNUP_ENDED = 'This sign-up is no longer open on this device. It may have expired, or ended when someone signed in or out in this browser. Check your details and continue to start again.'
+export const SIGNUP_ENDED = 'This sign-up is no longer open on this device. It may have timed out, or someone signed in or out on this device. Check your details and continue to start again.'
 const GOOGLE_FILLED = 'Google details added. Check them and complete the form to continue.'
-const GOOGLE_UNREAD = 'We could not read your details from Google. Enter them below.'
+const GOOGLE_UNREAD = 'We couldn’t get your details from Google. Enter them below.'
 const resendWaitText = (seconds: number) => `A code was sent recently. You can ask for a new code in ${seconds} seconds.`
 /** Identity's field names in a 400 VALIDATION_FAILED, to the fields of the details step. */
 const SERVER_FIELDS: Readonly<Record<string, DetailsField>> = {
   firstName: 'firstName', lastName: 'lastName', email: 'email', phone: 'phone', gender: 'gender',
-  hospitalCurrentlyUsing: 'hospitalCurrentlyUsing', termsAccepted: 'terms',
+  hospitalCurrentlyUsing: 'hospitalCurrentlyUsing',
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -86,13 +91,9 @@ interface Details {
   phoneCountry: string
   gender: SignupGender | ''
   hospitalCurrentlyUsing: string
-  terms: boolean
 }
-/** The agreement a patient accepts at sign-up, on the public site (hid-1.0's legal text). */
-export const TERMS_URL = 'https://healthidentitydirectory.com/terms'
-export const PRIVACY_URL = 'https://healthidentitydirectory.com/privacy'
 const EMPTY_DETAILS: Details = {
-  firstName: '', lastName: '', email: '', phone: '', phoneCountry: DEFAULT_PHONE_COUNTRY, gender: '', hospitalCurrentlyUsing: '', terms: false,
+  firstName: '', lastName: '', email: '', phone: '', phoneCountry: DEFAULT_PHONE_COUNTRY, gender: '', hospitalCurrentlyUsing: '',
 }
 
 function detailsProblems(details: Details): FieldErrors {
@@ -102,7 +103,6 @@ function detailsProblems(details: Details): FieldErrors {
   if (!EMAIL_PATTERN.test(details.email.trim())) problems.email = SIGNUP_PROBLEMS.email
   if (internationalPhone(details.phone, details.phoneCountry) === null) problems.phone = SIGNUP_PROBLEMS.phone
   if (!details.gender) problems.gender = SIGNUP_PROBLEMS.gender
-  if (!details.terms) problems.terms = SIGNUP_PROBLEMS.terms
   return problems
 }
 
@@ -167,6 +167,9 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
   const [googleToken, setGoogleToken] = useState<string | null>(null)
   const [googleResetKey, setGoogleResetKey] = useState(0)
   const [accountExists, setAccountExists] = useState<ExistingAccount | null>(null)
+  // The three boxes, on the password step: the last before the account is made. termsAccepted is sent only once both
+  // required boxes are ticked (the sign-up is not sent before), and the boxes are recorded once the patient is signed in.
+  const consent = usePatientConsent()
 
   /** A field's error goes once it is changed. */
   const dropError = (field: Field) => setFieldErrors(current => {
@@ -217,6 +220,7 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
     const result = await api.enrollmentActivate(password)
     // Taken up before the Health ID is shown, as sign-in takes up its session; never a refusal of the activation.
     const signedInHere = await signedInByActivation(result)
+    if (signedInHere) recordQuietly(() => api.recordConsents(patientConsentRecord(consent.checked), crypto.randomUUID()))
     setPassword(''); setCode('')
     setSignedIn(signedInHere); setHidCode(result.hidCode); setStep('done')
   }
@@ -230,7 +234,7 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
       if (fromField) sayError(reason.message)
       return
     }
-    sayRefusal(reason, 'We could not create your account just now. Try again.')
+    sayRefusal(reason, 'We couldn’t create your account just now. Try again.')
   }
 
   const submitPassword = async (event: FormEvent) => {
@@ -239,11 +243,14 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
     if (busy) return
     // Typed once, with Show to check it (the review of 2026-10-31): there is no second field to match.
     const problems = passwordProblems(password)
+    // The boxes are checked with the password; focus goes to the password first, then to the first box missing.
+    const missing = consent.check(!problems.password)
     if (Object.keys(problems).length) {
       setNotice(null); setFieldErrors(problems); setError(fromField ? problems.password ?? null : null); setErrorAlert(true)
       stepFocus.focus()
       return
     }
+    if (missing.length) { setNotice(null); setFieldErrors({}); setError(null); return }
     if (!verified && !turnstileToken) return
     setBusy(true); clearMessages()
     try {
@@ -264,7 +271,7 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
       if (refusedWith(reason, 409, 'PATIENT_PHONE_ALREADY_REGISTERED')) return backToDetails({ phone: PHONE_TAKEN }, null)
       const refused = serverDetailsProblems(reason)
       if (Object.keys(refused).length) return backToDetails(refused, null)
-      sayRefusal(reason, 'We could not start your sign-up just now. Try again.')
+      sayRefusal(reason, 'We couldn’t start your sign-up just now. Try again.')
     } finally {
       // Each security check is used once: a new one is needed for another attempt.
       setTurnstileToken(null); setResetKey(value => value + 1); setBusy(false); stepFocus.focus()
@@ -286,7 +293,7 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
       else if (enrollmentEnded(reason)) backToDetails({}, SIGNUP_ENDED)
       else if (isHidApiError(reason) && (reason.code === 'OTP_INVALID' || reason.status === 422)) {
         setFieldErrors({ code: CODE_REFUSED }); setError(fromField ? CODE_REFUSED : null); setErrorAlert(true)
-      } else sayRefusal(reason, 'We could not check the code just now. Try again.')
+      } else sayRefusal(reason, 'We couldn’t check the code just now. Try again.')
     } finally { setBusy(false); stepFocus.focus() }
   }
 
@@ -303,7 +310,7 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
       else if (refusedWith(reason, 429, 'OTP_RESEND_COOLDOWN')) {
         const wait = Math.max(1, Math.ceil(retryAfterSeconds(reason) ?? 60))
         beginResendWait(wait); sayError(resendWaitText(wait))
-      } else sayRefusal(reason, 'We could not send a new code just now. Try again.')
+      } else sayRefusal(reason, 'We couldn’t send a new code just now. Try again.')
     } finally { setBusy(false); stepFocus.focus() }
   }
 
@@ -359,10 +366,11 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
   const steps = step === 'done' ? undefined : ([['Your details', 'details'], ['Password', 'password'], ['Email code', 'code']] as const)
     .map(([label, at]) => ({ label, current: step === at }))
   const googleOffered = Boolean(googleClientId()) && step === 'details'
-  const stepTitle = 'm-0 text-title-2 text-ink'
+  // Each step's heading names its form for a screen reader; on screen the stepper above the title already says it.
+  const stepTitle = 'sr-only'
 
-  return <AuthLayout brandTo="/" title="Create your Health ID." titleId="enroll-title"
-    lede="Your records, from every hospital, in your control."
+  return <AuthLayout brandTo="/" title={step === 'done' ? null : 'Create your Health ID'} titleId="enroll-title"
+    panelLabelledBy={step === 'done' ? 'enroll-title' : undefined}
     steps={steps} stepsLabel="Sign-up steps">
     <div className="flex flex-col gap-5">
     {error && <Alert intent="error" id="signup-error" live={errorAlert}>{error}</Alert>}
@@ -413,26 +421,20 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
         <HospitalPicker id="signup-hospital" inputRef={target('hospitalCurrentlyUsing', detailsFocus)} value={details.hospitalCurrentlyUsing}
           onChange={value => update('hospitalCurrentlyUsing', value)}
           invalid={invalid('hospitalCurrentlyUsing')} describedBy={errorId('hospitalCurrentlyUsing')} /></Field>
-      <div className="flex flex-col gap-1.5">
-        <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm text-ink"><input ref={target('terms', detailsFocus)} type="checkbox" className="mt-0.5 size-5 shrink-0 accent-[var(--color-brand-fill)]" checked={details.terms}
-          onChange={event => update('terms', event.target.checked)} aria-invalid={invalid('terms')} aria-describedby={describedBy('signup-terms-links', errorId('terms'))} />
-          I agree to the Terms of Service and Privacy Policy</label>
-        <p id="signup-terms-links" className="m-0 pl-8 text-[13px] text-ink-3">Read the <a href={TERMS_URL} target="_blank" rel="noopener" className="text-brand-ink">Terms</a> and
-          the <a href={PRIVACY_URL} target="_blank" rel="noopener" className="text-brand-ink">Privacy Policy</a> (new tab).</p>
-        {fieldErrors.terms && <p id="signup-terms-error" className="m-0 pl-8 text-xs font-medium text-danger-ink">{fieldErrors.terms}</p>}
-      </div>
-      <Hint>You can verify your NIN later, from your profile.</Hint>
+      <Hint>You can add your NIN (National Identification Number) later, from your profile.</Hint>
       <Button type="submit" variant="primary" size="lg" block disabled={busy}>Continue</Button>
     </form>}
 
     {step === 'password' && <form onSubmit={event => void submitPassword(event)} className="flex flex-col gap-4" noValidate aria-labelledby="signup-password-title">
       <h2 id="signup-password-title" className={stepTitle}>Create a password</h2>
-      {verified && <Hint>Your email is verified. Create your account to get your Health ID.</Hint>}
-      <Field label="Password" htmlFor="signup-password" hintId="signup-password-hint" hint={`${PASSWORD_RULE} Tap Show to check it.`}
-        errorId={errorId('password')} error={fieldError('password')}>
+      {verified && <Hint>Your email is confirmed. Create your account to get your Health ID.</Hint>}
+      <Field label="Password" htmlFor="signup-password" errorId={errorId('password')} error={fieldError('password')}>
         <PasswordInput id="signup-password" ref={target('password', passwordFocus)} required autoComplete="new-password" minLength={12} maxLength={256} value={password}
           onChange={event => { setPassword(event.target.value); dropError('password') }}
-          aria-invalid={invalid('password')} aria-describedby={describedBy('signup-password-hint', errorId('password'))} /></Field>
+          aria-invalid={invalid('password')} aria-describedby={describedBy('signup-password-hint', errorId('password'))} />
+        <PasswordRules id="signup-password-hint" password={password} /></Field>
+      <ConsentChecks idPrefix="signup-consent" summary={PATIENT_TERMS} items={PATIENT_CONSENT_ITEMS} checked={consent.checked}
+        onChange={consent.onChange} errors={consent.errors} focusRequest={consent.focusRequest} />
       {!verified && <Turnstile action="patient-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />}
       {!verified && !turnstileToken && <Hint id="signup-check-needed">Complete the security check to continue.</Hint>}
       <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || (!verified && !turnstileToken)}
@@ -447,7 +449,7 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
       <CodeBoxes id="signup-code" label="Code" value={code} onChange={value => { setCode(value); setFieldErrors({}) }}
         inputRef={stepFocus.target} busy={busy} invalid={invalid('code')} describedBy={describedBy('signup-code-hint', errorId('code'))} />
       {fieldErrors.code && <p id="signup-code-error" className="m-0 text-xs font-medium text-danger-ink">{fieldErrors.code}</p>}
-      <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Verify code'}</Button>
+      <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Check code'}</Button>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button variant="link" disabled={busy || !resend.ready} onClick={() => void sendCodeAgain()}
           aria-describedby={resend.ready ? undefined : 'signup-resend-wait'}>Send code again</Button>

@@ -1,16 +1,19 @@
 import '@hid/ui/ehr.css'
 import './signup.css'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useDocumentTitle } from '../../authSteps'
 import { usesNovuBackend } from '../../backendContract'
 import { PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref } from '../../productHostname'
 import { ProviderEnrollment } from '../../staff/routes/ProviderEnrollment'
-import { ClosedPanel, CodeStep, FacilityReady, HelpPanel, MaybeActive, PasswordStep, Submitted, UnavailablePanel } from './AfterSubmit'
+import { ClosedPanel, CodeStep, FacilityReady, HelpPanel, MaybeActive, PasswordStep, UnavailablePanel } from './AfterSubmit'
 import { isProduct } from './enrollmentRules'
-import { NO_AGREEMENTS, Registration, type Agreements } from './Registration'
+import { NO_SIGNING, Registration, type FacilitySigning } from './Registration'
 import { SignupShell } from './SignupShell'
-import { useEnrollment } from './useEnrollment'
+import { useEnrollment, type Enrollment } from './useEnrollment'
+import { signerOf } from './Registration'
+import { facilityAgreementApi } from '../../staff/api'
+import { facilityAgreementRecord, recordQuietly } from '../../agreements/records'
 
 /**
  * /provider/enroll once the clinic switch is on (App.tsx, BLUE_FOR_ALL): today's facility sign-up in the design's
@@ -31,35 +34,54 @@ export function BlueProviderEnrollment() {
 
 /** Today's EnrollOnMainSite (staff/routes/ProviderEnrollment.tsx:438-449), in the design's look. */
 function EnrollOnMainSite({ href }: { readonly href: string }) {
-  useDocumentTitle('Provider enrollment · Health ID Provider')
+  useDocumentTitle('Facility sign-up · Health ID Provider')
   const [params] = useSearchParams()
   const product = params.get('product')
   const target = isProduct(product) ? `${href}?product=${product}` : href
   return (
     <SignupShell centered onMainSite={false}>
-      <h1 className="hid-ehr-page-title hid-ehr-signup-title">Register your facility</h1>
-      <p className="hid-ehr-signup-lede">Facility sign-up is done on the main Health ID site.</p>
-      <a className="hid-ehr-button hid-ehr-signup-wide" href={target}>Continue to facility sign-up</a>
+      <h1 className="hid-ehr-signup-title">Register a facility</h1>
+      <p className="hid-ehr-signup-lede">Facilities sign up on the main Health ID site.</p>
+      <div className="hid-ehr-signup-actions"><a className="hid-ehr-button" href={target}>Go to facility sign-up</a></div>
     </SignupShell>
   )
 }
 
 function BlueEnrollmentSteps() {
-  useDocumentTitle('Provider enrollment · Health ID Provider')
+  useDocumentTitle('Facility sign-up · Health ID Provider')
   const e = useEnrollment()
-  // The four agreements: React state only, kept while the page is open (Health ID does not record them yet).
-  const [agreed, setAgreed] = useState<Agreements>(NO_AGREEMENTS)
+  // The facility agreement: React state only while the page is open; recorded once the account exists (below).
+  const [signing, setSigning] = useState<FacilitySigning>(NO_SIGNING)
+  useRecordSigning(e, signing)
   const registration = !e.closed && e.availability !== 'unavailable' && (e.availability === 'checking' || e.stage === 'details')
   return (
     <SignupShell centered={!registration}>
       {e.closed ? <ClosedPanel />
         : e.availability === 'unavailable' ? <UnavailablePanel e={e} />
-          : registration ? <Registration e={e} agreed={agreed} onAgree={(key, value) => setAgreed(now => ({ ...now, [key]: value }))} />
-            : e.stage === 'otp' ? (e.submitted ? <Submitted e={e} /> : <CodeStep e={e} />)
+          : registration ? <Registration e={e} signing={signing} onSigning={setSigning} />
+            : e.stage === 'otp' ? <CodeStep e={e} />
               : e.stage === 'password' ? <PasswordStep e={e} />
                 : e.stage === 'done' ? <FacilityReady e={e} />
                   : e.stage === 'sign-in' ? <MaybeActive e={e} />
                     : <HelpPanel e={e} />}
     </SignupShell>
   )
+}
+
+/**
+ * Records the facility agreement once, when activation has made the administrator's account and signed them in (stage
+ * 'done': Novu answers with the session). Before that there is no account to record it against, so nothing is kept in
+ * the browser; a sign-up that ends without a session (an authenticator step, or "may already be ready") records nothing
+ * here, and the backend records it at account creation instead (BACKEND-NEEDS.md). A refusal or 404 changes nothing.
+ */
+function useRecordSigning(e: Enrollment, signing: { agreed: boolean; signerName: string | null }) {
+  const recorded = useRef(false)
+  const done = e.stage === 'done'
+  const signer = signerOf(signing, e)
+  const facilityName = e.registering?.organizationName ?? e.cacNumber
+  useEffect(() => {
+    if (!done || recorded.current || !signing.agreed) return
+    recorded.current = true
+    recordQuietly(() => facilityAgreementApi.record(facilityAgreementRecord(signer, facilityName), crypto.randomUUID()))
+  }, [done, signing.agreed, signer, facilityName])
 }

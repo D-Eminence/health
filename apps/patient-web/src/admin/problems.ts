@@ -24,11 +24,11 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
   // Multi-factor authentication. The backend gives a replayed code the same
   // answer as a wrong one, by design.
   MFA_REQUIRED: 'An enrolled authenticator is required for this action.',
-  MFA_INVALID_CODE: 'That code was not accepted. Each code works only once, so wait for the next code in your authenticator app.',
-  MFA_CODE_REQUIRED: 'Enter either an authenticator code or a recovery code.',
-  MFA_CHALLENGE_INVALID: 'This sign-in attempt expired or ran out of attempts. Sign in again.',
-  MFA_RATE_LIMITED: 'Too many incorrect codes. Verification is locked for up to 15 minutes; try again later.',
-  MFA_UNAVAILABLE: 'Administrator MFA is temporarily unavailable, so platform sign-in cannot be completed. Contact platform operations.',
+  MFA_INVALID_CODE: 'That code didn’t work. Each code works only once, so wait for the next code in your code app.',
+  MFA_CODE_REQUIRED: 'Enter a code from your code app or a backup code.',
+  MFA_CHALLENGE_INVALID: 'This sign-in timed out or had too many tries. Sign in again.',
+  MFA_RATE_LIMITED: 'Too many wrong codes. Wait 15 minutes and try again.',
+  MFA_UNAVAILABLE: 'Admin sign-in codes aren’t working right now, so you can’t sign in. Contact the Health ID team.',
   MFA_NOT_ENROLLED: 'This administrator has no authenticator to reset.',
   // A first platform enrolment of an account with an eligible staff membership (hid-system #71): no factor is created.
   MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED: 'This account also works at a facility, so its authenticator is set up at staff sign-in. '

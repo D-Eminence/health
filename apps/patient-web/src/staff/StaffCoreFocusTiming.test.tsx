@@ -199,7 +199,7 @@ describe('the clinician pages\' email steps (EmailCode)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send code' }))
     await screen.findByRole('heading', { name: 'Enter the 6-digit code' })
     fireEvent.change(screen.getByLabelText(/^6-digit code/), { target: { value: '123456' } })
-    await press('Verify email')
+    await press('Confirm email')
     const shown = focusWhenShown(() => screen.queryByText('That code was not accepted.'))
     answer(() => checked.reject(new HidApiError(400, 'Invalid code', { code: 'CLINICIAN_APPLICATION_CODE_INVALID' })))
     const { focused } = await shown

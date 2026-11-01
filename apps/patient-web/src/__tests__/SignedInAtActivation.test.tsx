@@ -52,16 +52,20 @@ interface Options {
   nin?: boolean
   /** The session read after the activation: the patient's, or refused. */
   readAfter?: 'patient' | 'refused'
+  /** The answer to the agreements' record (proposed): recorded, or not served yet. */
+  consents?: 'recorded' | 'not-served'
 }
 
 /** Identity: what was sent, in order, as `METHOD /path` without /api/v1. */
-function identity({ activation, nin = false, readAfter = 'patient' }: Options) {
+function identity({ activation, nin = false, readAfter = 'patient', consents = 'recorded' }: Options) {
   const sent: string[] = []
+  const bodies = new Map<string, unknown>()
   let cookies = false
   vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const method = init?.method ?? 'GET'
     const path = new URL(String(url)).pathname.replace('/api/v1', '')
     sent.push(`${method} ${path}`)
+    if (typeof init?.body === 'string') bodies.set(`${method} ${path}`, JSON.parse(init.body))
     switch (`${method} ${path}`) {
       case 'GET /auth/session':
         return cookies && readAfter === 'patient' ? json({ actor: PATIENT, expiresAt: '2026-10-28T10:15:00.000Z' })
@@ -78,10 +82,12 @@ function identity({ activation, nin = false, readAfter = 'patient' }: Options) {
       case `POST ${BASE}/activate`:
         cookies = activation.signedIn === true
         return json(activation)
+      case 'POST /identity/me/consents': return consents === 'recorded' ? json({ recorded: true }, 201)
+        : problem(404, 'NOT_FOUND', 'Cannot POST /api/v1/identity/me/consents')
       default: return problem(500, 'UNEXPECTED', `${method} ${path}`)
     }
   }))
-  return { sent }
+  return { sent, bodies }
 }
 
 /** Every page the router showed, in order: a redirect to the overview, however brief, is in it. */
@@ -116,16 +122,22 @@ async function press(name: string) {
   await act(async () => { fireEvent.click(button) })
 }
 
+/** The two required boxes on the last step before the account is made; email updates is left as it is. */
+function agree() {
+  fireEvent.click(screen.getByRole('checkbox', { name: 'I agree to the Terms of use' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'I agree to Health ID keeping my health records and sharing them only as I choose' }))
+}
+
 /** The sign-up without a NIN, from its details to the email code, which activates. */
 async function signUp() {
   await screen.findByRole('heading', { name: 'Your details' })
   type('First name', 'Ada'); type('Last name', 'Obi'); type('Email address', 'ada@example.com'); type('Phone number', '08012345678')
   fireEvent.change(field('Gender'), { target: { value: 'female' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: 'I agree to the Terms of Service and Privacy Policy' }))
   await press('Continue')
   // Typed once, with Show to check it (the review of 2026-10-31).
   await screen.findByRole('heading', { name: 'Create a password' })
   type('Password', PASSWORD)
+  agree()
   fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
   await press('Create account')
   await enterCode(await screen.findByLabelText('Code'), '123456')
@@ -134,6 +146,7 @@ async function signUp() {
 /** The NIN route, from its password step. */
 async function activateNinRoute() {
   fireEvent.change(await screen.findByLabelText('Password'), { target: { value: PASSWORD } })
+  agree()
   await press('Get my Health ID')
 }
 
@@ -157,7 +170,9 @@ describe.each([
     expect(within(done).queryByRole('link', { name: /Sign in/ })).toBeNull()
     // Signed in as sign-in signs in: the session read once after the activation, taken up, the other tabs told.
     expect(session()).toBe('authenticated')
-    expect(sent.slice(sent.indexOf(`POST ${BASE}/activate`))).toEqual([`POST ${BASE}/activate`, 'GET /auth/session'])
+    // The agreements are recorded once the patient is signed in, after the session is taken up.
+    await waitFor(() => expect(sent.slice(sent.indexOf(`POST ${BASE}/activate`)))
+      .toEqual([`POST ${BASE}/activate`, 'GET /auth/session', 'POST /identity/me/consents']))
     expect(TabChannel.posted).toEqual(['changed'])
     // The Health ID stays: the session did not open the overview first.
     expect(visited).toEqual(['/enroll'])
@@ -166,6 +181,37 @@ describe.each([
     expect(await screen.findByRole('heading', { name: 'Profile page' })).toBeTruthy()
     expect(visited).toEqual(['/enroll', '/profile'])
     expect(session()).toBe('authenticated')
+  })
+
+  it('records the three boxes once, as ticked, with the version, language and method', async () => {
+    const { sent, bodies } = identity({ activation: { stage: 'active', hidCode: 'HID-NEW234', signedIn: true }, nin })
+    openEnrollment()
+    await waitFor(() => expect(session()).toBe('anonymous'))
+    await activate()
+    await shown()
+    await waitFor(() => expect(bodies.get('POST /identity/me/consents')).toEqual({ items: [
+      { documentId: 'patient-terms', version: '1.0', accepted: true },
+      { documentId: 'health-data', version: '1.0', accepted: true },
+      { documentId: 'email-updates', version: '1.0', accepted: false },
+    ], language: 'en', method: 'self' }))
+    expect(sent.filter(route => route === 'POST /identity/me/consents')).toHaveLength(1)
+    // Nothing about the agreements was added to the account's own requests.
+    expect(JSON.stringify(bodies.get(`POST ${BASE}/activate`))).not.toMatch(/consent|terms|agree/i)
+  })
+
+  it('shows the Health ID as before, and says nothing, when the record is not served yet (404)', async () => {
+    const { sent } = identity({ activation: { stage: 'active', hidCode: 'HID-NEW234', signedIn: true }, nin, consents: 'not-served' })
+    openEnrollment()
+    await waitFor(() => expect(session()).toBe('anonymous'))
+    await activate()
+    const done = await shown()
+    await waitFor(() => expect(sent).toContain('POST /identity/me/consents'))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(within(done).getByText('HID-NEW234')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(session()).toBe('authenticated')
+    await press('Go to my Health ID')
+    expect(await screen.findByRole('heading', { name: 'Profile page' })).toBeTruthy()
   })
 
   it.each([
@@ -225,7 +271,7 @@ describe('a reload of the Health ID after the activation signed the patient in',
     // The enrollment check has answered; the session read has not.
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.length).toBe(4))
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
-    expect(screen.getByRole('status', { name: 'Checking for an enrollment in progress' })).toBeTruthy()
+    expect(screen.getByRole('status', { name: 'Checking for a sign-up in progress' })).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
 
     await act(async () => { answerSession() })

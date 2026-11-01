@@ -115,7 +115,7 @@ describe('unified authenticated portal routes', () => {
   it('opens the public list of participating facilities at /enroll/facilities without a sign-in', async () => {
     open('/enroll/facilities')
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Register at a healthcare facility' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sign up at a health facility' })).toBeTruthy()
     expect(await screen.findByRole('region', { name: 'What to bring' })).toBeTruthy()
     expect(screen.getByTestId('portal-path').textContent).toBe('/enroll/facilities')
     expect(calls.patientParticipatingFacilities).toHaveBeenCalledOnce()
@@ -169,8 +169,8 @@ describe('unified authenticated portal routes', () => {
     open('/profile')
 
     await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/sign-in'))
-    expect(await screen.findByText(/^A provider sign-in is active in this browser\. Signing in here replaces it\./)).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Go to the provider portal' }).getAttribute('href')).toBe('/provider')
+    expect(await screen.findByText(/^A provider is signed in on this device\. Signing in here will sign them out\./)).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Go to the provider site' }).getAttribute('href')).toBe('/provider')
     expect(screen.queryByText(/could not check your session/)).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
     expect(calls.patientSession).toHaveBeenCalledOnce()
@@ -184,10 +184,10 @@ describe('unified authenticated portal routes', () => {
     open('/enroll')
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe('A provider sign-in is active in this browser. Sign out of the provider portal before starting a new Health ID.')
+    expect(alert.textContent).toBe('A provider is signed in on this device. Sign out of the provider site before you start a new Health ID.')
     // The alert is the message: the note's link and button are not inside it.
     expect(within(alert).queryAllByRole('link')).toEqual([])
-    expect(screen.getByRole('link', { name: 'Go to the provider portal' }).getAttribute('href')).toBe('/provider')
+    expect(screen.getByRole('link', { name: 'Go to the provider site' }).getAttribute('href')).toBe('/provider')
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
     expect(screen.queryByText(/could not check for an enrollment/)).toBeNull()
     expect(screen.queryByRole('textbox', { name: 'National Identification Number (NIN)' })).toBeNull()
@@ -198,7 +198,7 @@ describe('unified authenticated portal routes', () => {
     calls.patientEnrollmentCurrent.mockRejectedValueOnce(new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
       { code: 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT' }))
     open('/enroll')
-    expect((await screen.findByRole('alert')).textContent).toContain('A provider sign-in is active in this browser.')
+    expect((await screen.findByRole('alert')).textContent).toContain('A provider is signed in on this device.')
 
     // The provider signs out in another tab; the next checks find no sign-in and no enrollment.
     const check = screen.getByRole('button', { name: 'Check again' })
@@ -222,7 +222,7 @@ describe('unified authenticated portal routes', () => {
 
     await waitFor(() => expect(calls.patientEnrollmentCurrent).toHaveBeenCalledTimes(2))
     // Focus moves to the note, which is read there once: it is not also an alert.
-    const note = await screen.findByRole('group', { name: /This browser is still signed in to Health ID\./ })
+    const note = await screen.findByRole('group', { name: /Someone is still signed in to Health ID on this device\./ })
     await waitFor(() => expect(document.activeElement).toBe(note))
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.queryByRole('textbox', { name: 'National Identification Number (NIN)' })).toBeNull()
@@ -250,8 +250,8 @@ describe('unified authenticated portal routes', () => {
     open('/enroll')
 
     expect((await screen.findByRole('alert')).textContent)
-      .toBe('This browser is still signed in to Health ID. Sign out of the patient or provider portal before starting a new Health ID.')
-    expect(screen.getByText('If a patient is signed in, Check again opens the patient portal, where you can sign out.')).toBeTruthy()
+      .toBe('Someone is still signed in to Health ID on this device. Sign them out before you start a new Health ID.')
+    expect(screen.getByText('If a patient is signed in, Check again opens their Health ID, where you can sign out.')).toBeTruthy()
     // A link to the portal would only reach sign-in: this tab has no patient session to open it with.
     expect(screen.queryByRole('link', { name: 'Go to the patient portal' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
@@ -272,7 +272,7 @@ describe('unified authenticated portal routes', () => {
   it('opens provider password recovery without requiring an existing session', async () => {
     open('/provider/recover')
 
-    expect(await screen.findByRole('heading', { name: 'Reset your password.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Reset your password' })).toBeTruthy()
     expect(screen.getByTestId('portal-path').textContent).toBe('/provider/recover')
     expect(calls.staffSession).not.toHaveBeenCalled()
     expect(calls.patientSession).not.toHaveBeenCalled()
@@ -314,7 +314,7 @@ describe('unified authenticated portal routes', () => {
   it('opens platform password recovery without requiring an existing session', async () => {
     open('/admin/recover')
 
-    expect(await screen.findByRole('heading', { name: 'Reset your password.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Reset your password' })).toBeTruthy()
     expect(screen.getByTestId('portal-path').textContent).toBe('/admin/recover')
     expect(calls.adminSession).not.toHaveBeenCalled()
     expect(calls.patientSession).not.toHaveBeenCalled()
@@ -476,7 +476,7 @@ describe('the staff invitation page', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     open('/provider/invitation')
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Join your facility.' }, { timeout: 5000 })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Join your facility' }, { timeout: 5000 })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Enter your invitation code' })).toBeTruthy()
     expect(screen.getByTestId('portal-path').textContent).toBe('/provider/invitation')
     expect(calls.staffSession).not.toHaveBeenCalled()
@@ -490,7 +490,7 @@ describe('the staff invitation page', () => {
     open('/provider/invitation')
 
     await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/provider/sign-in'), { timeout: 5000 })
-    expect(screen.queryByRole('heading', { name: 'Join your facility.' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Join your facility' })).toBeNull()
     expect(calls.staffSession).toHaveBeenCalled()
   })
 })

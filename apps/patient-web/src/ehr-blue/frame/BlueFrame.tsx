@@ -23,6 +23,7 @@ import { DENIED_NOTICE, RedirectNotice } from './RedirectNotice'
 import { useRoleView } from './roleView'
 import { AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
 import type { EhrBluePage } from './types'
+import { FacilityAgreementCheck } from './FacilityAgreementCheck'
 
 /**
  * The design's Clinical group holds 17 pages: too many to scan (Hick's Law, Miller's 7 ± 2). The sidebar splits it
@@ -168,7 +169,8 @@ export function BlueFrame() {
     title: group.label,
     collapsible: Boolean(group.label),
     defaultOpen: OPEN.has(group.label ?? ''),
-    items: group.items.map(item => ({ to: item.href, label: item.label, icon: iconOf(item.icon), // A single product lists pages below its home (pharmacy/new-sale): its home is current only at its own address.
+    // One entry per address: two pages that open the same place (Home and a page whose address is Home's) list once.
+    items: group.items.filter((item, index, all) => all.findIndex(other => other.href === item.href) === index).map(item => ({ to: item.href, label: item.label, icon: iconOf(item.icon), // A single product lists pages below its home (pharmacy/new-sale): its home is current only at its own address.
       end: item.href === '/provider' || (product !== 'ehr' && item.href === `/provider/${info.home}`) })),
   }))
   const tabsFor = (path: string) => listed.find(page => page.path === path || page.path === `${path}/*`)
@@ -237,6 +239,8 @@ export function BlueFrame() {
             {/* Fictional figures: only where the page itself is a sample. */}
             {match?.page.status === 'sample' ? <ConnectionStatus /> : null}
             <AccountSamplePanel panel={samplePanel} onClose={() => setSamplePanel(null)} />
+            {/* A changed facility agreement for its administrator to agree to (proposed; a 404 or fault shows nothing). */}
+            <FacilityAgreementCheck facility={facility} signerName={name} />
           </AppShell>
         </EhrAppShell>
       </AttentionProvider>

@@ -3,6 +3,7 @@ import { fireEvent, screen, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { json, press, problem, renderPortal, type Handler } from './portalHarness'
 import { enterCode } from './codeBoxes'
+import { agreeToTerms } from './agreeToTerms'
 
 vi.mock('../Turnstile', () => ({
   Turnstile: ({ onTokenChange }: { onTokenChange: (token: string | null) => void }) =>
@@ -41,12 +42,11 @@ async function submitNin(nin = NIN) {
   await press(screen.getByRole('button', { name: 'Continue' }))
 }
 
-const CHECK = 'Check that this is your name before you continue. If it is not, the NIN you typed may be wrong. '
-  + 'Check it on your NIN slip or in the NIMC app, then select Use a different NIN. For help, contact Health ID support.'
-/** The panel headed "NIN verified" (RecordName.tsx), or null. */
-const verified = () => screen.queryByText('NIN verified')?.parentElement ?? null
+const CHECK = 'Not your name? The NIN you typed may be wrong. Check your NIN slip or the NIMC app, then use a different NIN.'
+/** The panel headed "NIN checked" (RecordName.tsx), or null. */
+const verified = () => screen.queryByText('NIN checked')?.parentElement ?? null
 
-describe('the name on the NIN record, under "NIN verified"', () => {
+describe('the name on the NIN record, under "NIN checked"', () => {
   it('is shown once the NIN is checked, describes the contact field, and stays until activation', async () => {
     renderPortal(<Enrollment />, gateway({ stage: 'verify_contact', recordName: NAME }), anonymous)
     await submitNin()
@@ -67,6 +67,7 @@ describe('the name on the NIN record, under "NIN verified"', () => {
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
     expect(verified()?.textContent).toContain(NAME)
 
+    agreeToTerms()
     await press(screen.getByRole('button', { name: 'Get my Health ID' }))
     expect(await screen.findByText('HID-ABCDEF23')).toBeTruthy()
     expect(verified()).toBeNull()
@@ -114,9 +115,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
   const OTHER_NIN = '10987654321'
   const OTHER_NAME = 'Bola Fixture Adeyemi'
   const UNKNOWN_NIN = '19999999999'
-  const STOP = 'Check that this is your name before you continue. If it is not, stop here: the NIN you typed may be wrong. '
-    + 'Check it on your NIN slip or in the NIMC app. This registration closes by itself within 24 hours, and you can then start '
-    + 'again with the right NIN. For help sooner, contact Health ID support.'
+  const STOP = 'Not your name? Stop here and check your NIN slip or the NIMC app. This sign-up closes by itself within 24 hours. Then start again with the right NIN.'
   const names: Record<string, string> = { [NIN]: NAME, [OTHER_NIN]: OTHER_NAME }
   const button = () => screen.queryByRole('button', { name: 'Use a different NIN' })
   type Headers = ReturnType<typeof renderPortal>['headers']
@@ -273,9 +272,9 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
   const SOON = new Date(Math.floor((Date.now() + 20 * 60 * 1000) / 60_000) * 60_000).toISOString()
   const PAST = new Date(Date.now() - 60 * 1000).toISOString()
   const at = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-  const TIED = (until: string) => `You continued with Google for this registration, so a different NIN can be used here only after ${until}. `
+  const TIED = (until: string) => `You continued with Google for this sign-up, so a different NIN can be used here only after ${until}. `
     + 'If the name is not yours, stop here and come back then.'
-  const TIED_UNNAMED = (until: string) => `You continued with Google for this registration, so a different NIN can be used here only ${until}. `
+  const TIED_UNNAMED = (until: string) => `You continued with Google for this sign-up, so a different NIN can be used here only ${until}. `
     + 'If you meant to use a different NIN, stop here and come back then.'
   const PENDING = 'Google confirmed your account for this sign-up.'
   /**
@@ -362,7 +361,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
       return gateway({ stage: 'verify_contact' })(path, method, body)
     }, anonymous)
     await screen.findByLabelText('Phone number')
-    const google = within(screen.getByRole('region', { name: 'Google enrollment' }))
+    const google = within(screen.getByRole('region', { name: 'Sign up with Google' }))
     fireEvent.click(google.getByRole('button', { name: 'Complete check' }))
     await press(google.getByRole('button', { name: 'Sign up with Google' }))
     expect(await screen.findByText(PENDING)).toBeTruthy()
@@ -419,7 +418,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     await press(button()!)
     expect((await screen.findByLabelText('National Identification Number (NIN)') as HTMLInputElement).value).toBe('')
     expect(screen.queryByText(PENDING)).toBeNull()
-    expect(screen.queryByText('Reconnect the Google account used to start this enrollment.')).toBeNull()
+    expect(screen.queryByText('Connect again the Google account you used to start this sign-up.')).toBeNull()
   })
 
   it('keeps a Google sign-up pending in this browser that is not tied to the registration left', async () => {
@@ -435,10 +434,10 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     const ended = { stage: 'verify_contact', googleOnboardingRequired: true, googleOnboardingExpiresAt: PAST }
     const { sent } = renderPortal(<Enrollment />, pressedWith(ended, () => json(ended)), anonymous)
     await screen.findByLabelText('Phone number')
-    expect(screen.getByText('Reconnect the Google account used to start this enrollment.')).toBeTruthy()
+    expect(screen.getByText('Connect again the Google account you used to start this sign-up.')).toBeTruthy()
     await press(button()!)
     expect((await screen.findByLabelText('National Identification Number (NIN)') as HTMLInputElement).value).toBe('')
-    expect(screen.queryByText('Reconnect the Google account used to start this enrollment.')).toBeNull()
+    expect(screen.queryByText('Connect again the Google account you used to start this sign-up.')).toBeNull()
     await submitNin()
     await screen.findByLabelText('Phone number')
     expect(screen.queryByText('Reconnect Google before continuing.')).toBeNull()
@@ -449,7 +448,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     renderPortal(<Enrollment />, pressedWith({ stage: 'verify_contact' }, () => problem(503, 'SERVICE_UNAVAILABLE', 'Unavailable')), anonymous)
     await screen.findByLabelText('Phone number')
     await press(button()!)
-    expect(await screen.findByText('We could not check this registration just now, so you are still on it. Try again.')).toBeTruthy()
+    expect(await screen.findByText('We couldn’t check this sign-up just now, so you are still on it. Try again.')).toBeTruthy()
     expect(screen.getByLabelText('Phone number')).toBeTruthy()
     expect(button()).toBeTruthy()
   })
@@ -459,6 +458,6 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     await screen.findByLabelText('Phone number')
     await press(button()!)
     expect(await screen.findByLabelText('National Identification Number (NIN)')).toBeTruthy()
-    expect(screen.getByText(/This registration is no longer open on this device/)).toBeTruthy()
+    expect(screen.getByText(/This sign-up is no longer open on this device/)).toBeTruthy()
   })
 })

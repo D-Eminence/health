@@ -44,10 +44,10 @@ const staffSession = () => json({ actor: { id: 'staff-1', email: 'ada@example.te
   roles: ['clinician'], permissions: [], facilities: [facility('facility-1', 'Lagos General'), facility('facility-2', 'Ikeja Clinic')],
   facility: facility('facility-1', 'Lagos General') }, expiresAt: '2026-10-14T12:00:00.000Z', facilitySelection: 'selected' })
 
-const SIGN_IN = 'Welcome back.'
+const SIGN_IN = 'Welcome back'
 const SESSION_ENDED = 'Your session has ended'
 const UNCONFIRMED = 'We could not confirm your session'
-const NOTICE = 'Staff now need a code from an authenticator app to sign in. Sign in again to set one up, or to use the one you have.'
+const NOTICE = 'Staff now sign in with a code app on your phone (like Google Authenticator). Sign in again to set one up, or to use the one you have.'
 
 /** Serves each `METHOD /path` from its own queue and records every request. */
 function serve(routes: Record<string, Answer[]>) {

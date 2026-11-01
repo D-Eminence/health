@@ -99,18 +99,18 @@ describe('opening an invitation', () => {
     ['STAFF_INVITATION_CODE_INVALID', 401, 'That code doesn’t match. Check the email.'],
     ['STAFF_INVITATION_LOCKED', 429, 'This link has been tried too often. Ask the facility to send the invitation again.'],
     ['STAFF_INVITATION_SUPERSEDED', 410, 'A newer invitation was sent. Use the latest email.'],
-    ['STAFF_INVITATION_EXPIRED', 410, 'This invitation has expired. Ask the facility to send it again.'],
+    ['STAFF_INVITATION_EXPIRED', 410, 'This invitation is too old. Ask the facility to send it again.'],
     ['STAFF_INVITATION_WITHDRAWN', 410, 'This invitation is no longer available: the facility withdrew it, or can’t take new staff '
       + 'on Health ID right now. Ask the facility about it.'],
     ['STAFF_INVITATION_ALREADY_ACCEPTED', 409, 'This invitation has already been accepted. Sign in to use it.'],
-    ['STAFF_INVITATION_REQUIRES_SIGN_OUT', 409, 'This browser is signed in to Health ID, for example as a patient. Sign out, or '
+    ['STAFF_INVITATION_REQUIRES_SIGN_OUT', 409, 'Someone is signed in to Health ID on this device, for example as a patient. Sign out, or '
       + 'open the link in a private window.'],
     ['STAFF_INVITATIONS_UNAVAILABLE', 423, 'Joining is paused by Health ID. Try again later.'],
-    ['STAFF_INVITATION_RATE_LIMITED', 429, 'Too many invitations have been opened from your network. Please try again in an hour.'],
+    ['STAFF_INVITATION_RATE_LIMITED', 429, 'Too many invitations opened from your internet connection. Please try again in an hour.'],
     ['TURNSTILE_CONTEXT_MISMATCH', 403, 'The security check was made for another Health ID site. Open the link in the invitation '
       + 'email again.'],
-    ['TURNSTILE_REJECTED', 403, 'The security check didn’t go through. Please complete it again, then retry.'],
-    ['UPSTREAM_UNAVAILABLE', 503, 'Joining a facility is temporarily unavailable. Please try again in a few minutes.'],
+    ['TURNSTILE_REJECTED', 403, 'The security check didn’t work. Please do it again, then try again.'],
+    ['UPSTREAM_UNAVAILABLE', 503, 'Joining a facility isn’t working right now. Please try again in a few minutes.'],
   ])('says %s in its own words, and a new security check is needed', async (code, status, text) => {
     api.open.mockRejectedValueOnce(new HidApiError(status, 'Identity’s detail', { code }))
     open(linkAddress)
@@ -165,7 +165,7 @@ describe('what the invited person does next', () => {
     expect(api.accept).toHaveBeenCalledWith('a-long-enough-password')
     expect(screen.getByText('You can now sign in at ehr.healthidentitydirectory.com with ngozi@ikejacare.example and your new '
       + 'password.')).toBeTruthy()
-    expect(screen.getByText('Your facility administrator vouched for your licence; Health ID records it.')).toBeTruthy()
+    expect(screen.getByText('Your facility administrator confirmed your licence. Health ID keeps a note of it.')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Go to staff sign-in' }).getAttribute('href')).toBe('https://ehr.healthidentitydirectory.com/provider/sign-in')
   })
 
@@ -183,7 +183,7 @@ describe('what the invited person does next', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Join Ikeja Care' }))
     expect(await screen.findByText(`You can now sign in at ${host} with ngozi@ikejacare.example and your new password.`)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Go to staff sign-in' }).getAttribute('href')).toBe(`https://${host}/provider/sign-in`)
-    expect(Boolean(screen.queryByText('Your facility administrator vouched for your licence; Health ID records it.'))).toBe(vouched)
+    expect(Boolean(screen.queryByText('Your facility administrator confirmed your licence. Health ID keeps a note of it.'))).toBe(vouched)
   })
 
   it('outside production, sends them to this portal’s sign-in', async () => {
@@ -199,8 +199,8 @@ describe('what the invited person does next', () => {
   it('says the account’s old password stops working when a dormant staff account sets a new one', async () => {
     await openWith({ accountCase: 'dormant_staff' })
     expect(await screen.findByRole('heading', { name: 'Set a new password' })).toBeTruthy()
-    expect(screen.getByText(/isn’t active at any facility now/).textContent).toBe('Your Health ID staff account '
-      + 'ngozi@ikejacare.example isn’t active at any facility now. Choose a new password of at least 12 characters to use it at '
+    expect(screen.getByText(/isn’t in use at any facility now/).textContent).toBe('Your staff account '
+      + 'ngozi@ikejacare.example isn’t in use at any facility now. Choose a new password to use it at '
       + 'Ikeja Care. Your old password will stop working.')
   })
 
@@ -254,7 +254,7 @@ describe('what the invited person does next', () => {
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
     fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'a-long-enough-password' } })
     fireEvent.click(screen.getByRole('button', { name: 'Join Ikeja Care' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('This step has expired. Continue again to set your password.')
+    expect((await screen.findByRole('alert')).textContent).toBe('This step timed out. Continue again to set your password.')
     expect(screen.getByRole('heading', { name: 'Open your invitation' })).toBeTruthy()
   })
 

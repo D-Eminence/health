@@ -23,7 +23,7 @@ export function FacilityStep({ facility, onNext }: { readonly facility: Facility
           <NotCollectedField label="Address" />
           <NotCollectedField label="City" />
           <NotCollectedField label="State" />
-          <NotCollectedField label="Optional registration number" />
+          <NotCollectedField label="CAC number (optional)" />
           <NotCollectedField label="Optional facility logo" type="file" />
           <div className="hid-ehr-onboarding-full"><EhrButton type="submit">Continue</EhrButton></div>
         </form>

@@ -50,6 +50,8 @@ describe('busy regions while content loads (PR-03)', () => {
     renderPortal(<ProfilePage />, path => path === '/identity/me' ? json(profile)
       // hid-system main serves no availability read: the read held is the list's, and the deletion read has its own answer.
       : path.endsWith('/availability') ? problem(404, 'NOT_FOUND', `Cannot GET /api/v1${path}`)
+        // The Agreements' read (proposed): not served.
+        : path === '/identity/me/consents' ? problem(404, 'NOT_FOUND', `Cannot GET /api/v1${path}`)
         : path === '/identity/me/emergency-contacts' ? contacts.promise : deletion.promise, {}, { at: '/profile#account-deletion' })
 
     for (const text of ['Loading your contacts…', 'Checking your account…']) {

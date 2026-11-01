@@ -81,7 +81,7 @@ describe('the facility’s designation for registration in person (hid-system #8
     expect(section.queryByRole('radio', { name: /Suspended/ })).toBeNull()
     fillLocation()
     fireEvent.click(section.getByRole('button', { name: 'Designate facility' }))
-    fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
+    fireEvent.change(await screen.findByLabelText('Sign-in code'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm and continue' }))
     expect(await section.findByText('Saved. Patients can now be checked in person here while registration at a facility is switched on.')).toBeTruthy()
     const body = { status: 'active', addressLine: '12 Marina Road', town: 'Ikeja', lga: 'Ikeja', state: 'Lagos',
@@ -220,7 +220,7 @@ describe('the facility’s designation for registration in person (hid-system #8
     await section.findByText('This facility does not take part in registration in person.')
     fillLocation()
     fireEvent.click(section.getByRole('button', { name: 'Designate facility' }))
-    fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
+    fireEvent.change(await screen.findByLabelText('Sign-in code'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm and continue' }))
     expect(await section.findByRole('button', { name: 'Save designation' })).toBeTruthy()
     await waitFor(() => expect(document.activeElement).toBe(section.getByRole('heading', { name: 'Registration in person' })))

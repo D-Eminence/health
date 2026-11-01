@@ -18,10 +18,23 @@ import {
  */
 const NOVU = true
 
-/** The five registration steps of the design (facility-fields.ts registrationSteps). */
-export const REGISTRATION_STEPS = ['Your account', 'Facility details', 'Regulatory identity', 'Platform setup', 'Agreements'] as const
+/**
+ * The registration's steps, each named by its one heading: the question it asks, in plain words. The order is the one
+ * the start needs: the facility type decides which products can be chosen.
+ */
+export const REGISTRATION_STEPS = ['Your name and email', 'What kind of facility is it?', 'Your CAC number',
+  'Which Health ID do you need?', 'Check and send'] as const
 export const CAC_STEP = 2
+export const PRODUCT_STEP = 3
 export const REVIEW_STEP = 4
+
+/**
+ * The steps shown for a facility type: a type with one product (a laboratory, a pharmacy) is not asked which one. That
+ * product is chosen already (setType), so the start sends the same product either way.
+ */
+export function shownSteps(type: OrganizationType): readonly number[] {
+  return productOptions[type].length > 1 ? [0, 1, CAC_STEP, PRODUCT_STEP, REVIEW_STEP] : [0, 1, CAC_STEP, REVIEW_STEP]
+}
 
 /** A message for the administrator; `at: 'cac'` puts it at the CAC field (a refusal about the organization's number). */
 export interface EnrollmentError {
@@ -35,10 +48,10 @@ export type Stage = 'details' | 'otp' | 'password' | 'sign-in' | 'done' | 'help'
 /**
  * Today's facility sign-up (staff/routes/ProviderEnrollment.tsx EnrollmentSteps, lines 451-978), unchanged underneath:
  * the same state, the same calls to providerEnrollmentApi, the same waits, refusals and panels, ported line for line
- * with the Novu branches taken. What the blue flow adds is where things are shown: the registration's five steps
- * (`regStep`), the "Registration submitted" screen before the code (`submitted`), and a request to move focus to the
- * step heading (`headingFocus`), which the page carries out in a layout effect. Everything is React state: nothing is
- * kept anywhere else.
+ * with the Novu branches taken. What the blue flow adds is where things are shown: the registration's steps
+ * (`regStep`), whether the code step follows a Send (`submitted`: it then says the CAC number was checked), and a
+ * request to move focus to the step heading (`headingFocus`), which the page carries out in a layout effect.
+ * Everything is React state: nothing is kept anywhere else.
  */
 export function useEnrollment() {
   const navigate = useNavigate()
@@ -109,7 +122,7 @@ export function useEnrollment() {
   const [registering, setRegistering] = useState<Registering | null>(null)
   const [registeringFailed, setRegisteringFailed] = useState(false)
 
-  // Blue: the registration step shown, the "Registration submitted" screen, and requests to focus the step heading.
+  // Blue: the registration step shown, whether the code step follows a Send, and requests to focus the step heading.
   const [regStep, setRegStep] = useState(0)
   const [submitted, setSubmitted] = useState(false)
   const [headingFocus, setHeadingFocus] = useState(0)
@@ -199,7 +212,7 @@ export function useEnrollment() {
       return
     }
     if (refusal.kind === 'session-expired') {
-      setError({ text: 'Your sign-up session has expired. Check your details and select Continue to get a new code.' })
+      setError({ text: 'Your sign-up timed out. Check your details and select Continue to get a new code.' })
       setChallengeId(''); setCodeValue(''); setPassword(''); setRegistering(null); setRegisteringFailed(false)
       // An answer that did not say whether it sent a code: a start within resendAfterSeconds of the last code sends none.
       if (!codesReported) holdFor(codeFor, resendAt)
@@ -518,7 +531,7 @@ export function useEnrollment() {
       setUnapplied(null)
     }
     startAgain(CAC_STEP)
-    const check = 'Check your details, and the CAC registration number on your CAC certificate. Correct them, then select '
+    const check = 'Check your details, and the CAC number on your CAC certificate. Correct them, then select '
       + 'Continue. No account has been created.'
     setError(outcome === 'withdrawn'
       ? { text: `${check} We’ve closed that sign-up, so the CAC number you entered is free again.` }

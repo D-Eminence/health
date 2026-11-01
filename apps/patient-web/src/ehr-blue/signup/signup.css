@@ -1,222 +1,243 @@
 /*
- * The blue facility registration (design screens/1-register-and-launch 02-09): the design's split registration shell
- * (application.css 470-612, redesign.css 75-88) over @hid/ui/ehr.css. Every rule sits under .hid-ehr and names only
- * hid-ehr-signup-* classes, or kit classes inside one of them. Tailwind does not scan ehr-blue: plain CSS only.
+ * Facility sign-up (Novu): the controls of @hid/ui/ehr.css inside the shared sign-in layout's one centred column
+ * (AuthLayout, authLayout.css), which gives the page its white (black in dark mode) and Inter. Every rule sits under
+ * .hid-ehr and names only hid-ehr-signup-* classes, or kit classes inside one of them. Tailwind does not scan
+ * ehr-blue: plain CSS only. Colours are the layout's tokens (--color-*), so light and dark follow the page.
  */
 
 .hid-ehr.hid-ehr-signup {
   box-sizing: border-box;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  min-height: 100vh;
-  background: var(--ehr-surface);
-  color: var(--ehr-text);
-}
-
-/* ---- Form panel ------------------------------------------------------------ */
-
-.hid-ehr .hid-ehr-signup-panel {
-  box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  gap: 24px;
   min-width: 0;
-  min-height: 100vh;
-  padding: 40px;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 15px;
+  line-height: 1.5;
 }
 
-/* Screens 08 and 09 (redesign.css: .auth-form-panel 40px 64px). */
-.hid-ehr .hid-ehr-signup-panel.hid-ehr-signup-panel-centered {
-  padding: 40px 64px;
-}
-
-.hid-ehr .hid-ehr-signup-panel:focus {
-  outline: none;
-}
-
-.hid-ehr .hid-ehr-signup-brand {
-  align-self: flex-start;
-  display: inline-block;
-  border-radius: var(--ehr-radius-md);
-}
-
-.hid-ehr .hid-ehr-signup-logo {
-  display: block;
-  width: 112px;
-  height: auto;
-}
-
-.hid-ehr .hid-ehr-signup-content {
-  box-sizing: border-box;
-  flex: 1;
-  width: 100%;
-  max-width: 620px;
-  margin: 32px 0;
-  padding-left: 10px;
-}
-
-/* Screens 08 and 09: a narrower column, centred both ways. */
-.hid-ehr .hid-ehr-signup-content.hid-ehr-signup-centered {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  max-width: 440px;
-  margin: 32px auto;
-  padding-left: 0;
-}
-
-.hid-ehr .hid-ehr-signup-eyebrow {
-  margin: 8px 0 0;
-  color: var(--ehr-text);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
+/* The page's one heading: the step's question, in the layout's title style. */
 .hid-ehr .hid-ehr-signup-title {
-  margin: 10px 0 16px;
-  font-size: 44px;
-  line-height: 1.15;
-  color: var(--ehr-text);
-}
-
-.hid-ehr .hid-ehr-signup-title:focus {
-  outline: none;
-}
-
-.hid-ehr .hid-ehr-signup-intro,
-.hid-ehr .hid-ehr-signup-lede {
-  margin: 0 0 16px;
-  color: var(--ehr-muted);
-  line-height: 1.6;
-}
-
-.hid-ehr .hid-ehr-signup-status {
-  margin: 28px 0;
-  color: var(--ehr-muted);
-}
-
-.hid-ehr .hid-ehr-signup-muted {
-  margin: 0 0 20px;
-  color: var(--ehr-muted);
-  line-height: 1.6;
-}
-
-/* ---- Progress -------------------------------------------------------------- */
-
-.hid-ehr .hid-ehr-signup-progress {
-  margin: 28px 0;
-  color: var(--ehr-muted);
-}
-
-.hid-ehr .hid-ehr-signup-progress-label {
   margin: 0;
-  color: var(--ehr-ink);
-  font-size: 13px;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 24px;
   font-weight: 600;
+  line-height: 32px;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
 }
 
-.hid-ehr .hid-ehr-signup-progress-bar {
-  appearance: none;
-  display: block;
-  width: 100%;
-  height: 3px;
-  margin: 14px 0;
-  border: 0;
-  border-radius: 2px;
-  background: var(--ehr-line-strong);
-  color: var(--ehr-brand);
-  accent-color: var(--ehr-brand);
-  overflow: hidden;
-}
+.hid-ehr .hid-ehr-signup-title:focus { outline: none; }
 
-.hid-ehr .hid-ehr-signup-progress-bar::-webkit-progress-bar {
-  background: var(--ehr-line-strong);
-}
-
-.hid-ehr .hid-ehr-signup-progress-bar::-webkit-progress-value {
-  background: var(--ehr-brand);
-}
-
-.hid-ehr .hid-ehr-signup-progress-bar::-moz-progress-bar {
-  background: var(--ehr-brand);
-}
-
-.hid-ehr .hid-ehr-signup-progress-steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
+.hid-ehr .hid-ehr-signup-lede {
   margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 11px;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
 }
 
-.hid-ehr .hid-ehr-signup-progress-steps li[aria-current='step'] {
-  color: var(--ehr-brand);
-  font-weight: 700;
+.hid-ehr .hid-ehr-signup-hint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
-/* ---- Steps and fields ------------------------------------------------------ */
+/* ---- A step: heading, one line, the fields, the buttons ----------------------- */
 
 .hid-ehr .hid-ehr-signup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
   margin: 0;
 }
 
-.hid-ehr .hid-ehr-signup-step-title {
-  margin: 24px 0 16px;
-  color: var(--ehr-text);
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1.3;
-}
+.hid-ehr .hid-ehr-signup-form > .hid-ehr-signup-title + .hid-ehr-signup-lede { margin-top: -16px; }
 
-.hid-ehr .hid-ehr-signup-step-title:focus {
-  outline: none;
-}
-
-.hid-ehr .hid-ehr-signup-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px 16px;
-}
-
-.hid-ehr .hid-ehr-signup-grid .hid-ehr-signup-full {
-  grid-column: 1 / -1;
-}
-
-.hid-ehr .hid-ehr-signup-stack {
+.hid-ehr .hid-ehr-signup-fields {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin: 24px 0;
+  gap: 20px;
 }
 
-/* The design's 48px tinted inputs (redesign.css: .auth-form-panel input). */
+.hid-ehr.hid-ehr-signup .hid-ehr-label {
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* 44px controls on the page's own background, with a boundary that reaches 3:1. */
 .hid-ehr.hid-ehr-signup .hid-ehr-control {
-  min-height: 48px;
-  background: var(--ehr-surface-tint);
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  border-color: var(--color-line-control);
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-size: 16px;
 }
 
-/* Placeholder text on those tinted inputs: the muted ink, which keeps 4.5:1 on surface-tint. */
-.hid-ehr.hid-ehr-signup .hid-ehr-control::placeholder {
-  color: var(--ehr-muted);
+.hid-ehr.hid-ehr-signup .hid-ehr-control::placeholder { color: var(--ehr-muted); }
+
+.hid-ehr.hid-ehr-signup .hid-ehr-hint { color: var(--color-muted); font-size: 13px; }
+
+.hid-ehr .hid-ehr-signup-alert {
+  margin: 0;
+  color: var(--color-intent-error);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
-.hid-ehr.hid-ehr-signup .hid-ehr-control:disabled {
-  background: var(--ehr-surface-sunk);
+.hid-ehr .hid-ehr-signup-link {
+  color: var(--color-brand);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
 }
 
-.hid-ehr.hid-ehr-signup .hid-ehr-control.hid-ehr-textarea {
-  min-height: 84px;
+/* ---- One choice from a short list: rows of radio buttons ------------------------ */
+
+.hid-ehr .hid-ehr-signup-choices {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-line-control);
+  border-radius: var(--radius-md, 10px);
 }
 
-.hid-ehr.hid-ehr-signup .hid-ehr-control.hid-ehr-signup-multiple {
-  min-height: 110px;
+.hid-ehr .hid-ehr-signup-choice {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  color: var(--color-ink);
+  cursor: pointer;
 }
 
-.hid-ehr .hid-ehr-signup-required {
-  color: var(--ehr-ink);
+.hid-ehr .hid-ehr-signup-choice + .hid-ehr-signup-choice { border-top: 1px solid var(--color-line); }
+.hid-ehr .hid-ehr-signup-choice:hover { background: var(--color-surface-hover); }
+.hid-ehr .hid-ehr-signup-choice:has(input:checked) { font-weight: 500; }
+
+.hid-ehr .hid-ehr-signup-choice input,
+.hid-ehr .hid-ehr-signup-check input {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--color-brand-fill);
 }
+
+/* ---- Check and send ------------------------------------------------------------- */
+
+.hid-ehr .hid-ehr-signup-summary {
+  border-top: 1px solid var(--color-line);
+}
+
+.hid-ehr .hid-ehr-signup-section {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.hid-ehr .hid-ehr-signup-facts { flex: 1; min-width: 0; margin: 0; }
+
+.hid-ehr .hid-ehr-signup-facts > div {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.hid-ehr .hid-ehr-signup-facts dt { color: var(--color-muted); font-size: 14px; }
+
+.hid-ehr .hid-ehr-signup-facts dd {
+  margin: 0;
+  color: var(--color-ink);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 400px) {
+  .hid-ehr .hid-ehr-signup-facts > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+
+.hid-ehr.hid-ehr-signup .hid-ehr-button.hid-ehr-signup-edit,
+.hid-ehr.hid-ehr-signup .hid-ehr-button.hid-ehr-signup-inline {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 8px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-brand);
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.hid-ehr.hid-ehr-signup .hid-ehr-button.hid-ehr-signup-inline { margin-left: -8px; }
+
+.hid-ehr.hid-ehr-signup .hid-ehr-button.hid-ehr-signup-edit:hover:not(:disabled),
+.hid-ehr.hid-ehr-signup .hid-ehr-button.hid-ehr-signup-inline:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--color-surface-hover);
+}
+
+.hid-ehr .hid-ehr-signup-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.hid-ehr .hid-ehr-signup-check {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 12px;
+  color: var(--color-ink);
+  font-size: 15px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+/* Set apart, to be read before going on: details an open sign-up keeps, and the organization a sign-up registers. */
+.hid-ehr .hid-ehr-signup-note,
+.hid-ehr .hid-ehr-signup-registering {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg, 12px);
+  color: var(--color-ink);
+}
+
+.hid-ehr .hid-ehr-signup-note p,
+.hid-ehr .hid-ehr-signup-registering p { margin: 0; overflow-wrap: anywhere; }
+
+/* ---- The code step's "No code?" ----------------------------------------------- */
+
+.hid-ehr .hid-ehr-signup-resend {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.hid-ehr .hid-ehr-signup-resend > div { width: 100%; }
+
+/* ---- Password ----------------------------------------------------------------- */
 
 .hid-ehr .hid-ehr-signup-password {
   position: relative;
@@ -233,333 +254,63 @@
 .hid-ehr .hid-ehr-signup-password > .hid-ehr-signup-password-toggle {
   grid-area: 1 / 1;
   justify-self: end;
-  margin-right: 4px;
-  color: var(--ehr-muted);
+  width: 44px;
+  height: 44px;
+  color: var(--color-muted);
 }
 
-.hid-ehr .hid-ehr-signup-password-toggle[aria-pressed='true'] {
-  color: var(--ehr-brand);
-}
+.hid-ehr .hid-ehr-signup-password-toggle[aria-pressed='true'] { color: var(--color-brand); }
 
-.hid-ehr .hid-ehr-signup-alert {
-  margin: 16px 0 0;
-  color: var(--ehr-critical);
-  font-size: 13px;
-  line-height: 1.5;
-}
+/* ---- Buttons: Back, then the one primary ------------------------------------------ */
 
-.hid-ehr .hid-ehr-signup-link {
-  color: var(--ehr-brand-dark);
-  text-decoration: underline;
-}
-
-/* ---- Actions --------------------------------------------------------------- */
-
-.hid-ehr .hid-ehr-signup-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  margin-top: 24px;
-}
-
-.hid-ehr .hid-ehr-signup-actions .hid-ehr-button,
-.hid-ehr .hid-ehr-signup-controls .hid-ehr-button {
-  min-height: 48px;
-}
-
-.hid-ehr .hid-ehr-signup-actions .hid-ehr-signup-turnstile {
-  flex-basis: 100%;
-}
-
-.hid-ehr .hid-ehr-signup-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 20px 0;
-}
-
-.hid-ehr .hid-ehr-signup-controls .hid-ehr-hint {
-  flex-basis: 100%;
-}
-
-.hid-ehr .hid-ehr-signup-wide {
-  width: 100%;
-  min-height: 48px;
-}
-
-.hid-ehr .hid-ehr-signup-turnstile {
-  min-width: 0;
-  max-width: 100%;
-}
+.hid-ehr .hid-ehr-signup-turnstile { min-width: 0; max-width: 100%; }
 
 .hid-ehr .hid-ehr-signup-turnstile .patient-inline-error {
   margin: 8px 0 0;
-  color: var(--ehr-critical);
+  color: var(--color-intent-error);
   font-size: 13px;
 }
 
-.hid-ehr .hid-ehr-signup-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  margin: 0;
-  font-size: 12px;
-}
+.hid-ehr.hid-ehr-signup .hid-ehr-button { min-height: 44px; font-size: 15px; }
 
-.hid-ehr .hid-ehr-signup-links a {
-  color: var(--ehr-brand-dark);
-  text-decoration: none;
-}
-
-.hid-ehr .hid-ehr-signup-links a:hover {
-  text-decoration: underline;
-}
-
-.hid-ehr .hid-ehr-signup-footer {
-  color: var(--ehr-muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.hid-ehr .hid-ehr-signup-footer p {
-  margin: 4px 0 0;
-}
-
-.hid-ehr .hid-ehr-signup-footer a {
-  color: var(--ehr-brand-dark);
-}
-
-/* ---- Step 5: review and agreements ----------------------------------------- */
-
-.hid-ehr .hid-ehr-signup-summary details {
-  padding: 16px 0;
-  border-bottom: 1px solid var(--ehr-line);
-}
-
-.hid-ehr .hid-ehr-signup-summary summary,
-.hid-ehr .hid-ehr-signup-agreements summary {
-  color: var(--ehr-text);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.hid-ehr .hid-ehr-signup-summary details > .hid-ehr-button {
-  margin: 10px 0 4px;
-}
-
-.hid-ehr .hid-ehr-signup-facts {
-  margin: 8px 0 0;
-}
-
-.hid-ehr .hid-ehr-signup-facts > div {
-  display: grid;
-  grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr);
-  gap: 12px 18px;
-  padding: 6px 0;
-}
-
-.hid-ehr .hid-ehr-signup-facts dt {
-  color: var(--ehr-muted);
-  font-size: 12px;
-}
-
-.hid-ehr .hid-ehr-signup-facts dd {
-  margin: 0;
-  color: var(--ehr-ink);
-  overflow-wrap: anywhere;
-}
-
-.hid-ehr .hid-ehr-signup-info {
-  margin: 16px 0 0;
-  padding: 12px 16px;
-  border-radius: var(--ehr-radius-md);
-  background: var(--ehr-tint);
-  color: var(--ehr-text);
-  line-height: 1.6;
-}
-
-.hid-ehr .hid-ehr-signup-agreements {
-  padding: 20px 0;
-  border-bottom: 1px solid var(--ehr-line);
-  line-height: 1.6;
-}
-
-.hid-ehr .hid-ehr-signup-agreements p {
-  margin: 12px 0 0;
-}
-
-.hid-ehr .hid-ehr-signup-checks {
+/* At the bottom, full width, primary last on a phone; in a row, primary rightmost, from 640px. */
+.hid-ehr .hid-ehr-signup-actions {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin: 20px 0 0;
-  padding: 0;
-  border: 0;
-}
-
-.hid-ehr .hid-ehr-signup-check {
-  display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 12px;
-  color: var(--ehr-ink);
-  font-size: 13px;
-  line-height: 1.5;
-  cursor: pointer;
 }
 
-.hid-ehr .hid-ehr-signup-check input {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  margin: 0;
-  accent-color: var(--ehr-brand);
+.hid-ehr .hid-ehr-signup-actions > :is(.hid-ehr-button, a) { width: 100%; min-height: 48px; }
+
+@media (min-width: 640px) {
+  .hid-ehr .hid-ehr-signup-actions { flex-direction: row; justify-content: flex-end; align-items: center; }
+  .hid-ehr .hid-ehr-signup-actions > :is(.hid-ehr-button, a) { width: auto; min-width: 7.5rem; }
 }
 
+.hid-ehr .hid-ehr-signup-actions > .hid-ehr-button:focus-visible,
+.hid-ehr .hid-ehr-signup-actions > a:focus-visible,
+.hid-ehr .hid-ehr-signup-choice:has(input:focus-visible),
 .hid-ehr .hid-ehr-signup-check input:focus-visible,
-.hid-ehr .hid-ehr-signup-summary summary:focus-visible,
-.hid-ehr .hid-ehr-signup-agreements summary:focus-visible,
-.hid-ehr .hid-ehr-signup-links a:focus-visible,
-.hid-ehr .hid-ehr-signup-link:focus-visible,
-.hid-ehr .hid-ehr-signup-brand:focus-visible {
-  outline: var(--ehr-focus-ring-width) solid var(--ehr-focus-ring-color);
-  outline-offset: var(--ehr-focus-ring-offset);
+.hid-ehr .hid-ehr-signup-link:focus-visible {
+  outline: 2px solid var(--focus-ring-color, var(--color-brand));
+  outline-offset: 2px;
 }
 
-.hid-ehr .hid-ehr-signup-note {
-  margin: 16px 0 0;
-  padding: 12px 16px;
-  border: 1px solid var(--ehr-line-strong);
-  border-radius: var(--ehr-radius-xl);
-  background: var(--ehr-surface-tint);
+.hid-ehr .hid-ehr-signup-choice:has(input:focus-visible) { outline-offset: -2px; }
+
+/* The footer line under the column ("Doctor or nurse? Sign up as a clinician"). */
+.hid-ehr .hid-ehr-signup-footer-line {
+  margin: 8px 0 0;
+  color: var(--color-muted);
+  font-size: 14px;
+  text-align: center;
 }
 
-.hid-ehr .hid-ehr-signup-note p {
-  margin: 0 0 10px;
-}
-
-/* ---- After submitting: the code, the password ------------------------------ */
-
-.hid-ehr .hid-ehr-signup-resend {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin: 8px 0 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--ehr-line);
-}
-
-.hid-ehr .hid-ehr-signup-subtitle {
-  margin: 0;
-  color: var(--ehr-ink);
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.hid-ehr .hid-ehr-signup-resend p {
-  margin: 0;
-}
-
-.hid-ehr .hid-ehr-signup-registering {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 12px 16px;
-  border-radius: var(--ehr-radius-md);
-  background: var(--ehr-tint);
-  color: var(--ehr-text);
-  line-height: 1.6;
-}
-
-.hid-ehr .hid-ehr-signup-registering p {
-  margin: 0;
-}
-
-.hid-ehr .hid-ehr-signup-centered > .hid-ehr-button + .hid-ehr-button,
-.hid-ehr .hid-ehr-signup-centered > .hid-ehr-signup-links {
-  margin-top: 16px;
-}
-
-/* ---- Brand panel ------------------------------------------------------------ */
-
-/* As the design's screens draw it: the full height of the page, its story at the foot. The design's clinician photo is
-   not in the repository, so the panel keeps its dark-to-light wash without it. */
-.hid-ehr .hid-ehr-signup-visual {
-  position: relative;
-  min-width: 0;
-  min-height: 100vh;
-  background: linear-gradient(180deg, #c9d3de 0%, #7d8ea2 40%, #2b3e55 78%, #0b1b2e 100%);
-  color: #ffffff;
-}
-
-.hid-ehr .hid-ehr-signup-story {
-  position: absolute;
-  right: 48px;
-  bottom: 64px;
-  left: 48px;
-}
-
-.hid-ehr .hid-ehr-signup-story-eyebrow {
-  margin: 0;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.hid-ehr .hid-ehr-signup-story-title {
-  margin: 20px 0;
-  font-family: var(--ehr-font-display);
-  font-size: 46px;
-  font-weight: 400;
-  line-height: 1.18;
-  letter-spacing: -0.035em;
-}
-
-.hid-ehr .hid-ehr-signup-story-text {
-  max-width: 340px;
-  margin: 0;
-  color: #d7e4f3;
-  line-height: 1.6;
-}
-
-/* ---- Widths ------------------------------------------------------------------ */
-
-@media (max-width: 900px) {
-  .hid-ehr.hid-ehr-signup {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .hid-ehr .hid-ehr-signup-visual {
-    display: none;
-  }
-}
-
-@media (max-width: 768px) {
-  .hid-ehr .hid-ehr-signup-panel,
-  .hid-ehr .hid-ehr-signup-panel.hid-ehr-signup-panel-centered {
-    padding: 24px 16px;
-  }
-
-  .hid-ehr .hid-ehr-signup-content {
-    padding-left: 0;
-  }
-
-  .hid-ehr .hid-ehr-signup-title {
-    font-size: 32px;
-  }
-
-  .hid-ehr .hid-ehr-signup-progress-steps {
-    display: none;
-  }
-
-  .hid-ehr .hid-ehr-signup-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .hid-ehr .hid-ehr-signup-facts > div {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 2px;
-  }
+.hid-ehr .hid-ehr-signup-footer-line a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  color: var(--color-brand);
+  font-weight: 500;
 }

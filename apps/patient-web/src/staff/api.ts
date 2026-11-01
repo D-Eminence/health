@@ -17,6 +17,7 @@ import {
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { heldByOtherPortal } from '../sessionChange'
 import { staffLoginAction } from '../productHostname'
+import { parseFacilityAgreement, type FacilityAgreementCurrent, type FacilityAgreementRecord } from '../agreements/records'
 
 export interface Facility {
   id: string
@@ -1658,6 +1659,24 @@ export const facilityStaffApi = {
       { expectedVersion: member.version, role: input.role, ...licenceFields(input), attested: true, reason: input.reason,
         currentPassword: input.currentPassword },
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+}
+
+/**
+ * The facility agreement (PROPOSED, BACKEND-NEEDS.md "Consent and agreements"): recorded once the administrator's
+ * account exists and holds a session (the sign-up's activation, or Agree again in the workspace), and read back for the
+ * Facility profile's Agreement card and the agreement-changed screen. Until a backend serves them they answer 404, which
+ * changes nothing: the card shows Read only, and no screen asks.
+ */
+export const facilityAgreementApi = {
+  /** One Idempotency-Key per attempt. With `facilityId`, the working facility (Agree again in the workspace). */
+  record: (record: FacilityAgreementRecord, idempotencyKey: string, facilityId?: string) =>
+    client.post<unknown>('/api/v1/identity/facility-agreements',
+      { documentId: record.documentId, version: record.version, signerName: record.signerName, facilityName: record.facilityName,
+        language: record.language },
+      { headers: { ...(facilityId ? facilityHeaders(facilityId, 'healthcare-operations') : {}), ...keyHeaders(idempotencyKey) }, retry: NO_RETRY }),
+  current: async (facilityId: string): Promise<FacilityAgreementCurrent> => parseFacilityAgreement(
+    await client.get<unknown>('/api/v1/identity/facility-agreements/current',
+      { headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false, retry: NO_RETRY })),
 }
 
 /** The licence fields of a role: both, or none for a receptionist (Identity refuses a licence there). */

@@ -306,7 +306,7 @@ describe('step 1: verify the licence and the person (A3)', () => {
     expect(submit.disabled).toBe(false)
     fireEvent.click(submit)
     const dialog = await screen.findByRole('dialog')
-    fireEvent.change(within(dialog).getByLabelText('Authenticator code'), { target: { value: '654321' } })
+    fireEvent.change(within(dialog).getByLabelText('Sign-in code'), { target: { value: '654321' } })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm and continue' }))
 
     const notice = await screen.findByText('Step 1 recorded. A different Super Admin must now approve it.')

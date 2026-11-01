@@ -158,7 +158,7 @@ describe('patient password reset', () => {
   it('drops the prefix for a phone number, sends it without its spacing, and says the code goes to the account\'s email', async () => {
     show(<Recovery />)
     expect(document.getElementById('recovery-start-hint')?.textContent)
-      .toBe('We’ll send a code to the verified email on your account.')
+      .toBe('We’ll send a code to the email on your account.')
     fireEvent.change(field(), { target: { value: 'HID-0' } })
     expect(field().value).toBe('0')
     fireEvent.change(field(), { target: { value: '(0803) 123 4567' } })

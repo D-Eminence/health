@@ -46,7 +46,7 @@ const ANNEX = 'f0000000-0000-4000-8000-000000000002'
 const many = <T,>(answer: T, count = 8): T[] => Array.from({ length: count }, () => answer)
 const ended = () => problem(401, 'AUTHENTICATION_REQUIRED', 'Valid authentication is required')
 const mfaRequired = () => problem(403, 'STAFF_MFA_REQUIRED', 'Sign in again with your authenticator code to continue')
-const MFA_NOTICE = 'Staff now need a code from an authenticator app to sign in. Sign in again to set one up, or to use the one you have.'
+const MFA_NOTICE = 'Staff now sign in with a code app on your phone (like Google Authenticator). Sign in again to set one up, or to use the one you have.'
 const allowedLookup = () => json({ authorization: { decision: 'allow', consentGrantId: 'grant-1', scope: 'read_records' },
   patient: { patientId: PATIENT_ID, hid: PATIENT_HID, fullName: PATIENT_NAME } })
 

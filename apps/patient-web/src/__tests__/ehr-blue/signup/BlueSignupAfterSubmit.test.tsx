@@ -5,18 +5,20 @@ import { ORGANIZATION_TYPE_NOTES } from '../../../staff/routes/ProviderEnrollmen
 import { focusWhenShown } from '../../focusWhenShown'
 import { security } from './signupFakes'
 import {
-  actAgain, answer, button, choosePassword, deferred, EMAIL, expectFocusOnStep, NAME, open, step, submitRegistration, SUPPORT,
+  actAgain, answer, button, choosePassword, deferred, EMAIL, expectFocusOnStep, NAME, open, step, STEPS, submitRegistration, SUPPORT,
   TabChannel, textbox, toCode, TOLD, toPassword, toReview, verifyWith,
 } from './signupHarness'
 
 /**
- * After the blue registration is submitted: Registration submitted (design 08), the email code (09) with today's
- * "Didn't get the code?", today's password step after the code with the CAC record's name and "This isn't my
- * organization", today's panels, and today's ending. Every person, facility and address here is fictional.
+ * After the blue registration is sent: Confirm your email (straight after Send, saying once that the CAC number was
+ * checked) with today's new-code rules, Choose a password with the CAC record's name and "This isn't my facility",
+ * today's panels, and today's ending, each one heading, one line, and one primary button. Every person, facility and address here is fictional.
  */
 const api = vi.hoisted(() => ({ availability: vi.fn(), start: vi.fn(), verify: vi.fn(), profile: vi.fn(), activate: vi.fn(),
   withdraw: vi.fn() }))
-vi.mock('../../../staff/api', () => ({ providerEnrollmentApi: api, staffApi: {} }))
+// The facility agreement's record (proposed): sent once the administrator is signed in, never part of the sign-up's requests.
+const agreements = vi.hoisted(() => ({ record: vi.fn(), current: vi.fn() }))
+vi.mock('../../../staff/api', () => ({ providerEnrollmentApi: api, staffApi: {}, facilityAgreementApi: agreements }))
 const clinician = vi.hoisted(() => ({ availability: vi.fn() }))
 vi.mock('../../../staff/clinicianApplicationApi', () => ({ clinicianApplicationApi: clinician }))
 vi.mock('../../../staff/env', async () => {
@@ -41,30 +43,32 @@ beforeEach(() => {
   api.profile.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'NOT_FOUND' }))
   api.activate.mockResolvedValue(SESSION)
   api.withdraw.mockResolvedValue({ withdrawn: true })
+  agreements.record.mockResolvedValue({ recorded: true })
   clinician.availability.mockResolvedValue({ open: false })
 })
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers(); actAgain() })
 
-const code = () => textbox('Verification code')
+const code = () => textbox('Code')
 const hint = () => document.querySelector('.hid-ehr-signup-lede')?.textContent
 
-describe('Registration submitted, then the email code', () => {
-  it('goes from Registration submitted to the code, its heading focused, with today’s hint', async () => {
+describe('Confirm your email', () => {
+  it('goes from Send straight to the code, its heading focused, saying once that the CAC number was checked', async () => {
     await toCode()
-    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: 'Enter your verification code' }))
-    expect(hint()).toBe(`Enter the six digit code sent to ${EMAIL}.`)
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: 'Confirm your email' }))
+    expect(hint()).toBe(`We checked your CAC number. Enter the 6-digit code we sent to ${EMAIL}.`)
+    expect(screen.getAllByRole('heading')).toHaveLength(1)
     expect(code().getAttribute('autocomplete')).toBe('one-time-code')
     expect(code().getAttribute('inputmode')).toBe('numeric')
   })
 
   it('takes digits only, six at most, and verifies today’s challenge with them', async () => {
     await toCode()
-    expect(button('Verify code').disabled).toBe(true)
+    expect(button('Confirm').disabled).toBe(true)
     fireEvent.change(code(), { target: { value: '12a 34-56789' } })
     expect(code().value).toBe('123456')
-    expect(button('Verify code').disabled).toBe(false)
-    fireEvent.click(button('Verify code'))
-    await screen.findByRole('heading', { level: 1, name: 'Create your provider account' })
+    expect(button('Confirm').disabled).toBe(false)
+    fireEvent.click(button('Confirm'))
+    await screen.findByRole('heading', { level: 1, name: 'Choose a password' })
     expect(api.verify).toHaveBeenCalledWith('challenge-1', '123456')
     expect(api.profile).toHaveBeenCalledTimes(1)
   })
@@ -73,13 +77,13 @@ describe('Registration submitted, then the email code', () => {
     api.verify.mockRejectedValueOnce(new HidApiError(401, 'Invalid', { code: 'ORGANIZATION_COMPLETION_CODE_INVALID' }))
     await toCode()
     await verifyWith('654321')
-    expect((await screen.findByRole('alert')).textContent).toBe('That code isn’t right, or it has expired. Check the latest email '
+    expect((await screen.findByRole('alert')).textContent).toBe('That code is wrong or too old. Check the latest email '
       + 'from Health ID and try again, or send a new code.')
-    expect(screen.getByRole('heading', { level: 1, name: 'Enter your verification code' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Confirm your email' })).toBeTruthy()
   })
 
   it.each([
-    [503, 'UPSTREAM_UNAVAILABLE', 'Facility sign-up is temporarily unavailable. Please try again in a few minutes.'],
+    [503, 'UPSTREAM_UNAVAILABLE', 'Facility sign-up isn’t working right now. Please try again in a few minutes.'],
     [0, 'NETWORK_ERROR', 'We couldn’t reach Health ID. Check your internet connection and try again.'],
   ])('a verify refused with %s %s says so in today’s words', async (status, reason, words) => {
     api.verify.mockRejectedValueOnce(new HidApiError(status, 'Gateway words', { code: reason }))
@@ -93,7 +97,7 @@ describe('Registration submitted, then the email code', () => {
     api.start.mockResolvedValueOnce({ accepted: true, codeSent: false, challengeId: 'challenge-1', expiresInSeconds: 500,
       resendAfterSeconds: 40 })
     await toCode()
-    expect(hint()).toBe(`We didn’t send a new code, because one was sent to ${EMAIL} less than a minute ago. Enter the six digit `
+    expect(hint()).toBe(`We sent a code to ${EMAIL} less than a minute ago, so we didn’t send another. Enter the 6-digit `
       + 'code from that email.')
   })
 
@@ -101,35 +105,36 @@ describe('Registration submitted, then the email code', () => {
     api.start.mockResolvedValueOnce({ accepted: true, codeSent: false, challengeId: 'challenge-1', expiresInSeconds: 500,
       resendAfterSeconds: 3600 })
     await toCode()
-    expect(hint()).toBe('We didn’t send a new code, because we’ve sent as many as we can for now. Enter the six digit code from '
-      + `the latest email Health ID sent to ${EMAIL}.`)
-    expect(screen.getByText('We’ve sent as many codes as we can for now. Use the code in the latest email from Health ID, or ask '
-      + 'for a new one in 60 minutes.')).toBeTruthy()
-    expect(button('Resend code').disabled).toBe(true)
+    expect(hint()).toBe('We’ve sent as many codes as we can for now. Enter the 6-digit code from '
+      + `the latest email we sent to ${EMAIL}.`)
+    // The limit is said once, above; the wait says only when.
+    expect(screen.getByText('Use the code in the latest email, or ask for a new one in 60 minutes.')).toBeTruthy()
+    expect(screen.getAllByText(/as many codes as we can/)).toHaveLength(1)
+    expect(button('Send a new code').disabled).toBe(true)
   })
 })
 
-describe('Didn’t get the code?', () => {
+describe('a new code', () => {
   it('waits as Identity says before another code, then resends today’s start with a fresh security check', async () => {
     api.start.mockResolvedValueOnce({ accepted: true, codeSent: true, challengeId: 'challenge-1', resendAfterSeconds: 0 })
     await toCode()
-    const resend = within(screen.getByRole('region', { name: 'Didn’t get the code?' }))
-    expect(resend.getByText('Check your spam or junk folder first. A new code replaces the last one.')).toBeTruthy()
+    const resend = within(document.querySelector<HTMLElement>('.hid-ehr-signup-resend')!)
+    expect(resend.getByText('No code? Check your spam folder, or get a new one. A new code replaces the last.')).toBeTruthy()
     expect(resend.getByRole('button', { name: 'Complete the security check' }).getAttribute('data-turnstile-action'))
       .toBe('provider-enrollment')
     api.start.mockResolvedValueOnce({ accepted: true, codeSent: true, challengeId: 'challenge-2', resendAfterSeconds: 60 })
     fireEvent.change(code(), { target: { value: '12' } })
-    fireEvent.click(button('Resend code'))
+    fireEvent.click(button('Send a new code'))
     expect((await screen.findByText(`We’ve sent a new code to ${EMAIL}.`)).closest('[role="status"]')).toBeTruthy()
     expect(api.start).toHaveBeenCalledTimes(2)
     expect(api.start).toHaveBeenLastCalledWith({ productCode: 'ehr', organizationType: 'hospital',
       cacRegistrationNumber: 'RC123456', administratorName: NAME, administratorEmail: EMAIL, turnstileToken: 'token-1' })
     expect(code().value).toBe('')
     expect(screen.getByText(/^You can ask for a new code in (60|59) seconds\.$/)).toBeTruthy()
-    expect(button('Resend code').disabled).toBe(true)
+    expect(button('Send a new code').disabled).toBe(true)
     // The new code is the one verified.
     await verifyWith()
-    await screen.findByRole('heading', { level: 1, name: 'Create your provider account' })
+    await screen.findByRole('heading', { level: 1, name: 'Choose a password' })
     expect(api.verify).toHaveBeenLastCalledWith('challenge-2', '123456')
   })
 
@@ -137,8 +142,10 @@ describe('Didn’t get the code?', () => {
     api.start.mockResolvedValueOnce({ accepted: true, codeSent: true, challengeId: 'challenge-1', resendAfterSeconds: 0 })
     await toCode()
     api.start.mockResolvedValueOnce({ accepted: true, codeSent: false, challengeId: 'challenge-1', resendAfterSeconds: 30 })
-    fireEvent.click(button('Resend code'))
-    expect(await screen.findByText('We didn’t send a new code: the code in the latest email from Health ID still works.')).toBeTruthy()
+    // The security check answers once the step has been shown (here at once; a person takes longer).
+    await waitFor(() => expect(button('Send a new code').disabled).toBe(false))
+    fireEvent.click(button('Send a new code'))
+    expect(await screen.findByText('We didn’t send a new code: the code in the latest email still works.')).toBeTruthy()
   })
 
   it('sends no new code without the security check', async () => {
@@ -146,22 +153,21 @@ describe('Didn’t get the code?', () => {
     await toCode()
     security.auto = false
     // Back and forth, so the check is asked again and this time not answered.
-    fireEvent.click(button('Change unverified email'))
-    await step('Your account')
+    fireEvent.click(button('Use a different email'))
+    await step(STEPS.account)
     for (let index = 0; index < 4; index++) fireEvent.click(button('Continue'))
-    await step('Agreements')
+    await step(STEPS.review)
     fireEvent.click(button('Complete the security check'))
     await submitRegistration()
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue to verification' }))
-    await screen.findByRole('heading', { level: 1, name: 'Enter your verification code' })
-    expect(button('Resend code').disabled).toBe(true)
-    fireEvent.click(button('Resend code'))
+    await screen.findByRole('heading', { level: 1, name: 'Confirm your email' })
+    expect(button('Send a new code').disabled).toBe(true)
+    fireEvent.click(button('Send a new code'))
     expect(api.start).toHaveBeenCalledTimes(2)
   })
 
   it.each([
-    [429, 'APPLICATION_RATE_LIMITED', 'There have been too many sign-up attempts from your network. Please try again later.', 1],
-    [409, 'CAC_NOT_VERIFIED', 'We couldn’t verify this CAC registration number. Check the number on your CAC certificate (it '
+    [429, 'APPLICATION_RATE_LIMITED', 'Too many sign-up tries from your internet connection. Please try again later.', 1],
+    [409, 'CAC_NOT_VERIFIED', 'We couldn’t check this CAC number. Check the number on your CAC certificate (it '
       + 'starts with RC, BN or IT) and try again.', 1],
     [503, 'UPSTREAM_UNAVAILABLE', 'We couldn’t finish checking your details just now. Please try again in a minute. If an email '
       + 'with a code arrives meanwhile, ignore it: you’ll get a new code when you try again.', 2],
@@ -169,36 +175,38 @@ describe('Didn’t get the code?', () => {
     api.start.mockResolvedValueOnce({ accepted: true, codeSent: true, challengeId: 'challenge-1', resendAfterSeconds: 0 })
     await toCode()
     api.start.mockRejectedValueOnce(new HidApiError(status, 'Identity’s own words', { code: reason }))
-    fireEvent.click(button('Resend code'))
+    await waitFor(() => expect(button('Send a new code').disabled).toBe(false))
+    fireEvent.click(button('Send a new code'))
     expect((await screen.findByRole('alert')).textContent).toBe(words)
-    expect(screen.getByRole('heading', { level: 1, name: 'Enter your verification code' })).toBeTruthy()
-    expect(screen.queryByRole('group', { name: 'Registration progress' })).toBeNull()
+    expect(screen.getByRole('heading', { level: 1, name: 'Confirm your email' })).toBeTruthy()
+    expect(screen.queryByRole('group', { name: 'Sign-up progress' })).toBeNull()
     expect(api.availability).toHaveBeenCalledTimes(asked)
     if (asked === 2) {
       // An outage may have sent a code: a new one waits a minute.
       expect(screen.getByText(/^You can ask for a new code in (60|59) seconds\.$/)).toBeTruthy()
-      expect(button('Resend code').disabled).toBe(true)
+      expect(button('Send a new code').disabled).toBe(true)
     }
   })
 
-  it('“Change unverified email” goes back to Your account with every detail kept, its heading focused', async () => {
+  it('“Use a different email” goes back to Your account with every detail kept, its heading focused', async () => {
     await toCode()
-    fireEvent.click(button('Change unverified email'))
-    const heading = await step('Your account')
+    fireEvent.click(button('Use a different email'))
+    const heading = await step(STEPS.account)
     expect(document.activeElement).toBe(heading)
     expect(textbox('Full name').value.trim()).toBe(NAME)
     expect(textbox('Email').value.trim().toLowerCase()).toBe(EMAIL)
   })
 })
 
-describe('Create your provider account (today’s password step, after the code)', () => {
+describe('Choose a password (today’s password step, after the code)', () => {
   it('shows the CAC number to check when Identity has no profile, and today’s hint', async () => {
     await toPassword()
-    expect(document.getElementById('hid-ehr-signup-registering')?.textContent).toBe('You’re registering the organization with '
-      + 'CAC number RC123456. Check that this is your organization’s number before you create the account.')
-    expect(document.getElementById('hid-ehr-signup-password-hint')?.textContent).toBe('Choose a password of at least 12 '
-      + `characters. You’ll use it with ${EMAIL} to sign in. Once your account is created, you go straight into the Provider `
-      + 'Portal as your facility’s administrator.')
+    expect(document.getElementById('hid-ehr-signup-registering')?.textContent).toBe('You’re registering the facility with '
+      + 'CAC number RC123456.')
+    expect(document.getElementById('hid-ehr-signup-account-hint')?.textContent).toBe(`You’ll sign in with ${EMAIL} and this `
+      + 'password.')
+    expect(document.getElementById('hid-ehr-signup-password-hint')?.textContent).toContain('At least 12 characters (not yet)')
+    expect(screen.getByLabelText('Password').getAttribute('aria-describedby')).toContain('hid-ehr-signup-account-hint')
     expect(screen.getByLabelText('Password').getAttribute('aria-describedby')).toContain('hid-ehr-signup-password-hint')
     const username = document.querySelector('input[autocomplete="username"]') as HTMLInputElement
     expect(username.value).toBe(EMAIL)
@@ -210,8 +218,7 @@ describe('Create your provider account (today’s password step, after the code)
       productCode: 'ehr', organizationType: 'hospital', administratorName: NAME, administratorEmail: EMAIL })
     await toPassword()
     expect(document.getElementById('hid-ehr-signup-registering')?.textContent).toBe('You’re registering Demo Hospital Limited, '
-      + `CAC number RC123456, as a hospital, with ${NAME} as its administrator. Check that this is your organization before `
-      + 'you create the account.')
+      + `CAC number RC123456, as a hospital, with ${NAME} as its administrator.`)
     expect(screen.getByText('Demo Hospital Limited').tagName).toBe('STRONG')
   })
 
@@ -219,10 +226,10 @@ describe('Create your provider account (today’s password step, after the code)
     api.profile.mockRejectedValueOnce(new HidApiError(401, 'Expired', { code: 'ORGANIZATION_COMPLETION_SESSION_INVALID' }))
     await toCode()
     await verifyWith()
-    await expectFocusOnStep('Your account')
-    expect((await screen.findByRole('alert')).textContent).toBe('Your sign-up session has expired. Check your details and select '
+    await expectFocusOnStep(STEPS.account)
+    expect((await screen.findByRole('alert')).textContent).toBe('Your sign-up timed out. Check your details and select '
       + 'Continue to get a new code.')
-    expect(screen.queryByRole('heading', { level: 1, name: 'Create your provider account' })).toBeNull()
+    expect(screen.queryByRole('heading', { level: 1, name: 'Choose a password' })).toBeNull()
     expect(textbox('Email').value.trim().toLowerCase()).toBe(EMAIL)
   })
 
@@ -231,20 +238,20 @@ describe('Create your provider account (today’s password step, after the code)
     await toCode()
     await verifyWith()
     expect(await screen.findByRole('heading', { level: 1, name: 'Facility sign-up isn’t open right now' })).toBeTruthy()
-    expect(screen.queryByRole('heading', { level: 1, name: 'Create your provider account' })).toBeNull()
+    expect(screen.queryByRole('heading', { level: 1, name: 'Choose a password' })).toBeNull()
   })
 
   it('says to sign out first when reading the name finds this browser signed in, and stays at the password', async () => {
     api.profile.mockRejectedValueOnce(new HidApiError(409, 'Sign out', { code: 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT' }))
     await toPassword()
-    expect(screen.getByRole('alert').textContent).toBe('This browser is signed in to Health ID, for example to a patient account. '
-      + 'Sign out of Health ID first, or open this page in a private (incognito) window, then try again.')
+    expect(screen.getByRole('alert').textContent).toBe('Someone is signed in to Health ID on this device, for example to a patient account. '
+      + 'Sign out first, or open this page in a private (incognito) window, then try again.')
   })
 
   it('offers to try the name again when reading it failed', async () => {
     api.profile.mockRejectedValueOnce(new HidApiError(503, 'Down', { code: 'UPSTREAM_UNAVAILABLE' }))
     await toPassword()
-    expect(screen.getByText(/^We couldn’t load your organization’s registered name just now\./)).toBeTruthy()
+    expect(screen.getByText(/^We couldn’t load its registered name\./)).toBeTruthy()
     api.profile.mockResolvedValueOnce({ organizationName: 'Demo Hospital Limited', registrationNumber: 'RC123456',
       productCode: 'ehr', organizationType: 'hospital', administratorName: NAME, administratorEmail: EMAIL })
     fireEvent.click(button('Try again'))
@@ -258,9 +265,9 @@ describe('Create your provider account (today’s password step, after the code)
     expect(password.maxLength).toBe(256)
     expect(password.getAttribute('autocomplete')).toBe('new-password')
     fireEvent.change(password, { target: { value: 'too-short' } })
-    expect(button('Create provider account').disabled).toBe(true)
+    expect(button('Create account').disabled).toBe(true)
     choosePassword('a-long-enough-password', 'a-different-password')
-    expect(screen.getByText('Passwords do not match.')).toBeTruthy()
+    expect(screen.getByText('The passwords don’t match.')).toBeTruthy()
     expect(api.activate).not.toHaveBeenCalled()
     choosePassword()
     await screen.findByRole('heading', { level: 1, name: 'Your facility is set up' })
@@ -285,17 +292,17 @@ describe('Create your provider account (today’s password step, after the code)
     await waitFor(() => expect(password.type).toBe('password'))
   })
 
-  it('“This isn’t my organization” closes the sign-up and returns to Regulatory identity, nothing created', async () => {
+  it('“This isn’t my facility” closes the sign-up and returns to the CAC number, nothing created', async () => {
     await toPassword()
-    fireEvent.click(button('This isn’t my organization'))
-    const heading = await step('Regulatory identity')
+    fireEvent.click(button('This isn’t my facility'))
+    const heading = await step(STEPS.cac)
     await waitFor(() => expect(document.activeElement).toBe(heading))
     expect(api.withdraw).toHaveBeenCalledTimes(1)
     expect(api.activate).not.toHaveBeenCalled()
-    expect((await screen.findByRole('alert')).textContent).toBe('Check your details, and the CAC registration number on your CAC '
+    expect((await screen.findByRole('alert')).textContent).toBe('Check your details, and the CAC number on your CAC '
       + 'certificate. Correct them, then select Continue. No account has been created. We’ve closed that sign-up, so the CAC '
       + 'number you entered is free again.')
-    expect(textbox('CAC registration number').value).toBe('RC123456')
+    expect(textbox('CAC number').value).toBe('RC123456')
   })
 
   it.each([
@@ -304,9 +311,9 @@ describe('Create your provider account (today’s password step, after the code)
   ])('when the sign-up can’t be closed (%s), says the number is held for up to 24 hours', async (status, reason, lead) => {
     api.withdraw.mockRejectedValueOnce(new HidApiError(status, 'Words', { code: reason }))
     await toPassword()
-    fireEvent.click(button('This isn’t my organization'))
-    await step('Regulatory identity')
-    expect((await screen.findByRole('alert')).textContent).toBe(`${lead}Check your details, and the CAC registration number on `
+    fireEvent.click(button('This isn’t my facility'))
+    await step(STEPS.cac)
+    expect((await screen.findByRole('alert')).textContent).toBe(`${lead}Check your details, and the CAC number on `
       + 'your CAC certificate. Correct them, then select Continue. No account has been created. For up to 24 hours, nobody '
       + `else can sign up with the CAC number you entered. If it belongs to another company, tell Health ID support at ${SUPPORT}, `
       + 'and give that number, so they can free it.')
@@ -315,20 +322,20 @@ describe('Create your provider account (today’s password step, after the code)
   it('shows the closed panel when sign-up closed before the sign-up could be withdrawn (423)', async () => {
     api.withdraw.mockRejectedValueOnce(new HidApiError(423, 'Closed', { code: 'PROVIDER_ENROLLMENT_UNAVAILABLE' }))
     await toPassword()
-    fireEvent.click(button('This isn’t my organization'))
+    fireEvent.click(button('This isn’t my facility'))
     const heading = await screen.findByRole('heading', { level: 1, name: 'Facility sign-up isn’t open right now' })
     expect(document.activeElement).toBe(heading)
     expect(screen.queryByLabelText('Password')).toBeNull()
-    expect(screen.queryByRole('group', { name: 'Registration progress' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Sign-up progress' })).toBeNull()
   })
 
   it('stays at the password when this browser is signed in to Health ID', async () => {
     api.withdraw.mockRejectedValueOnce(new HidApiError(409, 'Sign out', { code: 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT' }))
     await toPassword()
-    fireEvent.click(button('This isn’t my organization'))
-    expect((await screen.findByRole('alert')).textContent).toBe('This browser is signed in to Health ID, for example to a patient '
-      + 'account. Sign out of Health ID first, or open this page in a private (incognito) window, then try again.')
-    expect(screen.getByRole('heading', { level: 1, name: 'Create your provider account' })).toBeTruthy()
+    fireEvent.click(button('This isn’t my facility'))
+    expect((await screen.findByRole('alert')).textContent).toBe('Someone is signed in to Health ID on this device, for example to a patient '
+      + 'account. Sign out first, or open this page in a private (incognito) window, then try again.')
+    expect(screen.getByRole('heading', { level: 1, name: 'Choose a password' })).toBeTruthy()
   })
 })
 
@@ -346,32 +353,58 @@ describe('the ending, and the panels in place of a step', () => {
     const { element, focused } = await shown
     expect(focused).toBe(element)
     actAgain()
-    expect(screen.getByText('You’re signed in as your facility’s administrator.')).toBeTruthy()
-    expect(screen.getByText(`Next time, sign in at ehr.healthidentitydirectory.com with ${EMAIL} and the password you just chose.`))
-      .toBeTruthy()
-    expect(screen.getByText(ORGANIZATION_TYPE_NOTES.hospital)).toBeTruthy()
+    // One heading, one line, one button: what the type opens was said where the type was chosen.
+    expect(element.nextElementSibling?.textContent).toBe(`You’re signed in. Next time, sign in at ehr.healthidentitydirectory.com `
+      + `with ${EMAIL}.`)
+    expect(screen.queryByText(ORGANIZATION_TYPE_NOTES.hospital)).toBeNull()
+    expect(screen.getAllByRole('button').filter(control => control.closest('#main-content'))).toHaveLength(1)
     expect(TabChannel.posted).toEqual([TOLD])
     expect(reload).not.toHaveBeenCalled()
     // The whole sign-up lived in the page's memory: nothing in browser storage, no cookie written by the page.
     expect(kept).not.toHaveBeenCalled()
     expect(document.cookie).toBe('')
-    fireEvent.click(button('Continue to the Provider Portal'))
+    fireEvent.click(button('Open the Provider Portal'))
     expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
     expect(reload).toHaveBeenCalledTimes(1)
   })
 
-  it('outside production says to sign in to the Provider Portal next time, with the laboratory’s note', async () => {
+  it('records the facility agreement once the administrator is signed in, with the signer and a key of its own', async () => {
+    await toPassword()
+    // Nothing is recorded before the account exists: the start and the code carry no agreement.
+    expect(agreements.record).not.toHaveBeenCalled()
+    choosePassword()
+    await screen.findByRole('heading', { level: 1, name: 'Your facility is set up' })
+    await waitFor(() => expect(agreements.record).toHaveBeenCalledTimes(1))
+    expect(agreements.record).toHaveBeenCalledWith({ documentId: 'facility-agreement', version: '1.0', signerName: NAME,
+      facilityName: 'RC123456', language: 'en' }, expect.stringMatching(/^[0-9a-f-]{36}$/))
+    expect(JSON.stringify(api.start.mock.calls)).not.toContain('facility-agreement')
+    actAgain()
+    expect(agreements.record).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the ending as before when the agreement cannot be recorded (404, not served yet), and says nothing of it', async () => {
+    agreements.record.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'NOT_FOUND' }))
+    await toPassword()
+    choosePassword()
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Your facility is set up' })
+    await waitFor(() => expect(agreements.record).toHaveBeenCalledTimes(1))
+    actAgain()
+    expect(screen.getByRole('heading', { level: 1, name: 'Your facility is set up' })).toBe(heading)
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/agreement/i)
+  })
+
+  it('outside production says to sign in to the Provider Portal next time', async () => {
     vi.stubGlobal('location', { ...window.location, hostname: 'localhost', reload: vi.fn() })
     await toReview({ type: 'laboratory' })
     await submitRegistration()
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue to verification' }))
-    await screen.findByRole('heading', { level: 1, name: 'Enter your verification code' })
+    await screen.findByRole('heading', { level: 1, name: 'Confirm your email' })
     await verifyWith()
-    await screen.findByRole('heading', { level: 1, name: 'Create your provider account' })
+    await screen.findByRole('heading', { level: 1, name: 'Choose a password' })
     choosePassword()
     await screen.findByRole('heading', { level: 1, name: 'Your facility is set up' })
-    expect(screen.getByText(`Next time, sign in to the Provider Portal with ${EMAIL} and the password you just chose.`)).toBeTruthy()
-    expect(screen.getByText(ORGANIZATION_TYPE_NOTES.laboratory)).toBeTruthy()
+    expect(screen.getByText(`You’re signed in. Next time, sign in to the Provider Portal with ${EMAIL}.`)).toBeTruthy()
+    expect(screen.queryByText(ORGANIZATION_TYPE_NOTES.laboratory)).toBeNull()
   })
 
   it('offers a new start with another email when the email already has an account (the email emptied)', async () => {
@@ -384,8 +417,8 @@ describe('the ending, and the panels in place of a step', () => {
       + 'example a patient account or a staff account, so it can’t also be this facility’s administrator. This sign-up has been '
       + 'closed, so you can start again at once with another email address for the administrator. If you need help, contact '
       + `Health ID support at ${SUPPORT}.`)
-    fireEvent.click(button('Start again with another email'))
-    await expectFocusOnStep('Your account')
+    fireEvent.click(button('Use another email'))
+    await expectFocusOnStep(STEPS.account)
     expect(textbox('Email').value).toBe('')
     expect(textbox('Full name').value.trim()).toBe(NAME)
   })
@@ -395,8 +428,8 @@ describe('the ending, and the panels in place of a step', () => {
     await toPassword()
     choosePassword()
     const heading = await screen.findByRole('heading', { level: 1, name: 'Health ID needs to check this organization' })
-    expect(heading.nextElementSibling?.textContent).toBe('This organization can’t be set up automatically. It may already be '
-      + `registered with Health ID, for example for another product. Contact Health ID support at ${SUPPORT} to finish setting up `
+    expect(heading.nextElementSibling?.textContent).toBe('We can’t set up this organization by ourselves. It may already be '
+      + `on Health ID, for example for another product. Contact Health ID support at ${SUPPORT} to finish setting up `
       + 'your facility.')
   })
 
@@ -404,11 +437,12 @@ describe('the ending, and the panels in place of a step', () => {
     api.activate.mockResolvedValueOnce({ ...SESSION, status: 'mfa_enrollment_required' })
     await toPassword()
     choosePassword()
-    const heading = await screen.findByRole('heading', { level: 1, name: 'Your account may already be ready' })
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Your account may be ready' })
     expect(document.activeElement).toBe(heading)
-    expect(screen.queryByText('You’re signed in as your facility’s administrator.')).toBeNull()
-    // No session was set, so the other tabs are told nothing.
+    expect(screen.queryByText(/You’re signed in/)).toBeNull()
+    // No session was set, so the other tabs are told nothing, and nothing is recorded from here.
     expect(TabChannel.posted).toEqual([])
+    expect(agreements.record).not.toHaveBeenCalled()
     expect(api.activate).toHaveBeenCalledTimes(1)
   })
 
@@ -417,7 +451,7 @@ describe('the ending, and the panels in place of a step', () => {
     await toPassword()
     vi.stubGlobal('location', { ...window.location, hostname: 'app.healthidentitydirectory.com', reload: vi.fn() })
     choosePassword()
-    await screen.findByRole('heading', { level: 1, name: 'Your account may already be ready' })
+    await screen.findByRole('heading', { level: 1, name: 'Your account may be ready' })
     expect(screen.getByRole('link', { name: 'Sign in to the Provider Portal' }).getAttribute('href'))
       .toBe('https://ehr.healthidentitydirectory.com/provider/sign-in')
   })
@@ -426,10 +460,10 @@ describe('the ending, and the panels in place of a step', () => {
     api.activate.mockRejectedValueOnce(new HidApiError(401, 'Unauthorized', { code: 'AUTHENTICATION_REQUIRED' }))
     await toPassword()
     choosePassword()
-    const heading = await screen.findByRole('heading', { level: 1, name: 'Your account may already be ready' })
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Your account may be ready' })
     expect(document.activeElement).toBe(heading)
-    expect(heading.nextElementSibling?.textContent).toBe(`We couldn’t confirm that your facility was set up, but it may have been. `
-      + `Sign in with ${EMAIL} and the password you chose. If you can’t sign in, contact Health ID support at ${SUPPORT}.`)
+    expect(heading.nextElementSibling?.textContent).toBe('We couldn’t confirm it, but your facility may be set up. '
+      + `Sign in with ${EMAIL} and the password you chose. If you can’t, contact Health ID support at ${SUPPORT}.`)
     expect(screen.getByRole('link', { name: 'Sign in to the Provider Portal' }).getAttribute('href')).toBe('/provider/sign-in')
   })
 
@@ -437,9 +471,9 @@ describe('the ending, and the panels in place of a step', () => {
     api.activate.mockRejectedValueOnce(new HidApiError(401, 'Expired', { code: 'ORGANIZATION_COMPLETION_SESSION_INVALID' }))
     await toPassword()
     choosePassword()
-    const heading = await step('Your account')
+    const heading = await step(STEPS.account)
     expect(document.activeElement).toBe(heading)
-    expect((await screen.findByRole('alert')).textContent).toBe('Your sign-up session has expired. Check your details and select '
+    expect((await screen.findByRole('alert')).textContent).toBe('Your sign-up timed out. Check your details and select '
       + 'Continue to get a new code.')
     expect(textbox('Email').value.trim().toLowerCase()).toBe(EMAIL)
   })
@@ -448,11 +482,11 @@ describe('the ending, and the panels in place of a step', () => {
     api.activate.mockRejectedValueOnce(new HidApiError(503, 'Down', { code: 'UPSTREAM_UNAVAILABLE' }))
     await toPassword()
     choosePassword()
-    expect((await screen.findByRole('alert')).textContent).toBe('Facility sign-up is temporarily unavailable. Please try again in '
+    expect((await screen.findByRole('alert')).textContent).toBe('Facility sign-up isn’t working right now. Please try again in '
       + 'a few minutes.')
     api.activate.mockRejectedValueOnce(new HidApiError(401, 'Expired', { code: 'ORGANIZATION_COMPLETION_SESSION_INVALID' }))
     choosePassword()
-    expect(await screen.findByRole('heading', { level: 1, name: 'Your account may already be ready' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your account may be ready' })).toBeTruthy()
   })
 
   it('shows the closed panel, focused, when Identity says sign-up is closed, and no form', async () => {
@@ -464,22 +498,21 @@ describe('the ending, and the panels in place of a step', () => {
     const { element, focused } = await shown
     expect(focused).toBe(element)
     actAgain()
-    expect(element.nextElementSibling?.textContent).toBe('Hospitals, laboratories and pharmacies can’t sign themselves up on '
-      + `Health ID at the moment. To register your facility, contact Health ID support at ${SUPPORT}.`)
-    expect(screen.getByText('If your facility already uses Health ID, sign in instead.')).toBeTruthy()
+    expect(element.nextElementSibling?.textContent).toBe('Facilities can’t sign themselves up at the moment. To register your '
+      + `facility, contact Health ID support at ${SUPPORT}. If your facility already uses Health ID, sign in instead.`)
     expect(screen.queryByRole('textbox')).toBeNull()
-    expect(screen.queryByRole('group', { name: 'Registration progress' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Sign-up progress' })).toBeNull()
   })
 
   it('says sign-up is temporarily unavailable when Identity could not tell, and asks again on Try again', async () => {
     api.availability.mockResolvedValueOnce({ open: false, reason: 'unavailable' })
     open()
-    const heading = await screen.findByRole('heading', { level: 1, name: 'Facility sign-up is temporarily unavailable' })
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Facility sign-up isn’t working right now' })
     expect(document.activeElement).toBe(heading)
-    expect(heading.nextElementSibling?.textContent).toBe('We can’t take facility sign-ups just now because of a problem on our '
-      + `side. Please try again in a few minutes. If this keeps happening, contact Health ID support at ${SUPPORT}.`)
+    expect(heading.nextElementSibling?.textContent).toBe('This is a problem on our side. Please try again in a few minutes. '
+      + `If this keeps happening, contact Health ID support at ${SUPPORT}.`)
     fireEvent.click(button('Try again'))
-    await step('Your account')
+    await step(STEPS.account)
     expect(api.availability).toHaveBeenCalledTimes(2)
   })
 
@@ -489,6 +522,6 @@ describe('the ending, and the panels in place of a step', () => {
   ])('shows the form when the availability read fails with %s: the start answers for itself', async (_, reason) => {
     api.availability.mockRejectedValueOnce(reason)
     open()
-    await step('Your account')
+    await step(STEPS.account)
   })
 })

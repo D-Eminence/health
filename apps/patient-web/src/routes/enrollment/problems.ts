@@ -28,6 +28,6 @@ export function temporarilyUnavailable(reason: unknown) {
 }
 
 /** Identity's own text for a NIN lookup that could not be completed (ADR-062), also said for any start outage. */
-export const NIN_CHECK_UNAVAILABLE = 'We could not check your NIN now. Try again later.'
+export const NIN_CHECK_UNAVAILABLE = 'We couldn’t check your NIN now. Try again later.'
 /** Any other step's outage: the step is kept. */
-export const STEP_UNAVAILABLE = 'Registration is temporarily unavailable. Try again in a few minutes.'
+export const STEP_UNAVAILABLE = 'Sign-up isn’t working right now. Try again in a few minutes.'

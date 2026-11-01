@@ -40,14 +40,14 @@ function gateway({ current = () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pend
 const startKeys = (headers: Array<{ path: string; method: string; headers: Headers }>) =>
   headers.filter(request => request.path === BASE && request.method === 'POST').map(request => request.headers.get('Idempotency-Key'))
 const deskCodes = (sent: Sent[]) => sent.filter(request => request.path === `${BASE}/facility-code`)
-const facilityStage = () => screen.findByRole('heading', { level: 2, name: 'Register at a healthcare facility' })
+const facilityStage = () => screen.findByRole('heading', { level: 2, name: 'Sign up at a health facility' })
 
 async function toFacility() {
   fireEvent.change(await screen.findByLabelText('National Identification Number (NIN)'), { target: { value: NIN } })
   fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
   await press(screen.getByRole('button', { name: 'Continue' }))
-  await screen.findByRole('heading', { name: 'Prove this NIN is yours' })
-  await press(screen.getByRole('button', { name: 'Register at a facility' }))
+  await screen.findByRole('heading', { name: 'Show this NIN is yours' })
+  await press(screen.getByRole('button', { name: 'Sign up at a facility' }))
   return facilityStage()
 }
 
@@ -66,9 +66,9 @@ describe('registering at a healthcare facility', () => {
     const heading = await toFacility()
     await waitFor(() => expect(document.activeElement).toBe(heading))
     const stage = heading.closest('section')!
-    expect(stage.textContent).toContain('A staff member at a participating facility must check your identity in person before your registration can be finished. Nothing has been verified yet.')
+    expect(stage.textContent).toContain('A staff member at a facility that works with Health ID must check who you are, in person. Nothing has been checked yet.')
     expect(within(await screen.findByRole('region', { name: 'What to bring' })).getAllByRole('listitem').map(item => item.textContent)).toEqual(WHAT_TO_BRING)
-    expect(screen.getByRole('region', { name: 'Participating facilities' }).textContent).toContain('Synthetic General Hospital')
+    expect(screen.getByRole('region', { name: 'Facilities that work with Health ID' }).textContent).toContain('Synthetic General Hospital')
     expect(deskCodes(sent)).toEqual([])
     const get = screen.getByRole('button', { name: 'Get my desk code' })
     expect(described(get)).toContain('You\'ll show this code to the staff member at the facility.')
@@ -108,7 +108,7 @@ describe('registering at a healthcare facility', () => {
     await press(screen.getByRole('button', { name: 'I have been checked' }))
     const contact = await screen.findByLabelText('Phone number')
     await waitFor(() => expect(document.activeElement).toBe(contact))
-    expect(screen.getByText('Your identity was checked at the facility. Now add a contact we can send a code to.').closest('[role="status"]')).toBeTruthy()
+    expect(screen.getByText('Your identity was checked at the facility. Now add a phone number or email we can send a code to.').closest('[role="status"]')).toBeTruthy()
     expect(document.body.textContent).not.toContain('K7M2Q')
     fireEvent.change(contact, { target: { value: '+2348000000000' } })
     await press(screen.getByRole('button', { name: 'Send code' }))
@@ -131,11 +131,11 @@ describe('registering at a healthcare facility', () => {
     await screen.findByRole('heading', { name: 'Your desk code' })
     current = () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')
     await press(screen.getByRole('button', { name: 'I have been checked' }))
-    const heading = await screen.findByRole('heading', { name: 'This registration has ended' })
+    const heading = await screen.findByRole('heading', { name: 'This sign-up has ended' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
     const outcome = heading.closest('section')!
-    expect(outcome.textContent).toContain('If the staff member told you this NIN already has a Health ID, use account recovery to get back into it.')
-    expect(within(outcome).getByRole('link', { name: 'Recover your account' }).getAttribute('href')).toBe('/recover')
+    expect(outcome.textContent).toContain('If the staff member told you this NIN already has a Health ID, reset your password to get back into it.')
+    expect(within(outcome).getByRole('link', { name: 'Reset your password' }).getAttribute('href')).toBe('/recover')
     expect(within(outcome).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
     expect(document.body.textContent).not.toMatch(/same NIN/)
     await press(within(outcome).getByRole('button', { name: 'Start again' }))
@@ -144,7 +144,7 @@ describe('registering at a healthcare facility', () => {
     fireEvent.change(nin, { target: { value: NIN } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     await press(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findByRole('heading', { name: 'Prove this NIN is yours' })
+    await screen.findByRole('heading', { name: 'Show this NIN is yours' })
     expect(sent.filter(request => request.path === BASE)).toHaveLength(1)
     expect(startKeys(headers)[0]).toMatch(/^[0-9a-f-]{36}$/)
   })
@@ -184,7 +184,7 @@ describe('registering at a healthcare facility', () => {
     fireEvent.change(await screen.findByLabelText('National Identification Number (NIN)'), { target: { value: NIN } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     await press(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findByRole('heading', { name: 'Prove this NIN is yours' })
+    await screen.findByRole('heading', { name: 'Show this NIN is yours' })
     const keys = startKeys(headers)
     expect(keys).toHaveLength(2)
     expect(keys[0]).not.toBe(keys[1])
@@ -196,8 +196,8 @@ describe('registering at a healthcare facility', () => {
       current = () => json({ stage: 'verify_contact', requiredProfileFields: [] })
       return problem(409, 'ENROLLMENT_STAGE_INVALID', 'This registration is past the step that proves you hold the NIN')
     } } }), anonymous)
-    await screen.findByRole('heading', { name: 'Prove this NIN is yours' })
-    await press(screen.getByRole('button', { name: 'Register at a facility' }))
+    await screen.findByRole('heading', { name: 'Show this NIN is yours' })
+    await press(screen.getByRole('button', { name: 'Sign up at a facility' }))
     await facilityStage()
     await press(screen.getByRole('button', { name: 'Get my desk code' }))
     expect(await screen.findByLabelText('Phone number')).toBeTruthy()
@@ -210,7 +210,7 @@ describe('registering at a healthcare facility', () => {
     await screen.findByRole('heading', { name: 'Your desk code' })
     current = () => problem(503, 'ENROLLMENT_UNAVAILABLE', 'The service could not complete the request.')
     await press(screen.getByRole('button', { name: 'I have been checked' }))
-    expect(shownText(await screen.findByRole('alert', {}, { timeout: 5000 }))).toBe('Registration is temporarily unavailable. Try again in a few minutes.')
+    expect(shownText(await screen.findByRole('alert', {}, { timeout: 5000 }))).toBe('Sign-up isn’t working right now. Try again in a few minutes.')
     expect(screen.getByRole('heading', { name: 'Your desk code' })).toBeTruthy()
     expect(signOut).not.toHaveBeenCalled()
     expect(sent.filter(request => request.path.startsWith('/auth/') && request.path !== '/auth/google/onboarding')).toEqual([])
@@ -220,7 +220,7 @@ describe('registering at a healthcare facility', () => {
     renderPortal(<Enrollment />, gateway({ current: () => json(withCode()) }), anonymous)
     await screen.findByRole('heading', { name: 'Your desk code' })
     await press(screen.getByRole('button', { name: 'Get a code by text message instead' }))
-    expect(await screen.findByRole('heading', { name: 'Prove this NIN is yours' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Show this NIN is yours' })).toBeTruthy()
   })
 })
 
@@ -230,7 +230,7 @@ describe('the facility stage after review', () => {
       post: { 'facility-code': () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found') } }), anonymous)
     await screen.findByRole('heading', { name: 'Your desk code' })
     await press(screen.getByRole('button', { name: 'Get a new desk code' }))
-    expect(await screen.findByRole('heading', { name: 'This registration has ended' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'This sign-up has ended' })).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/Enter your NIN to start again/)
   })
 
@@ -240,8 +240,8 @@ describe('the facility stage after review', () => {
     await screen.findByRole('heading', { name: 'Your desk code' })
     current = () => json(holder({ available: true }, { available: false }))
     await press(screen.getByRole('button', { name: 'I have been checked' }))
-    expect(shownText(await screen.findByRole('alert'))).toBe('Registration at a facility is not available now, so no check can be recorded. Try again later, or get a code by text message if you can.')
-    expect(await screen.findByRole('heading', { name: 'Prove this NIN is yours' })).toBeTruthy()
+    expect(shownText(await screen.findByRole('alert'))).toBe('Signing up at a facility isn\'t possible right now. Try again later, or get a code by text message if you can.')
+    expect(await screen.findByRole('heading', { name: 'Show this NIN is yours' })).toBeTruthy()
   })
 })
 
@@ -275,14 +275,14 @@ describe('the facility stage when the enrollment cookie is lost', () => {
     // Someone signed in elsewhere in this browser: Identity refuses the step until they sign out.
     current = () => problem(409, 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT', 'Sign out before starting or continuing a new Health ID enrollment')
     await press(screen.getByRole('button', { name: 'I have been checked' }))
-    expect(await screen.findByText(/continue it by entering the same NIN before reloading this page/)).toBeTruthy()
+    expect(await screen.findByText(/To continue it, enter the same NIN before you refresh this page/)).toBeTruthy()
     // Signing out expired the enrollment cookie; the staff member had recorded the check.
     current = NOT_FOUND
     await press(screen.getByRole('button', { name: 'Check again' }))
     const nin = await screen.findByLabelText('National Identification Number (NIN)')
     await waitFor(() => expect(document.activeElement).toBe(nin))
-    expect(screen.getByRole('alert').textContent).toMatch(/ended when someone signed in or out in this browser\. Enter your NIN to start again\.$/)
-    expect(screen.queryByRole('heading', { name: 'This registration has ended' })).toBeNull()
+    expect(screen.getByRole('alert').textContent).toMatch(/ended when someone signed in or out on this device\. Enter your NIN to start again\.$/)
+    expect(screen.queryByRole('heading', { name: 'This sign-up has ended' })).toBeNull()
     start = checked
     await sameNinAgain()
     expect(await screen.findByLabelText('Phone number')).toBeTruthy()
@@ -304,10 +304,10 @@ describe('the facility stage when the enrollment cookie is lost', () => {
     await screen.findByRole('heading', { name: 'Your desk code' })
     current = NOT_FOUND
     await press(screen.getByRole('button', { name: action }))
-    const heading = await screen.findByRole('heading', { name: 'This registration has ended' })
+    const heading = await screen.findByRole('heading', { name: 'This sign-up has ended' })
     const outcome = heading.closest('section')!
-    expect(outcome.textContent).toContain('Otherwise it may have expired after 24 hours, or ended when someone signed in or out in this browser.')
-    expect(outcome.textContent).toContain('Select Start again and enter your NIN without reloading this page: a registration that is still open continues where it stopped.')
+    expect(outcome.textContent).toContain('Otherwise it may have run out after 24 hours, or ended when someone signed in or out on this device.')
+    expect(outcome.textContent).toContain('Select Start again and enter your NIN without refreshing this page. A sign-up that is still open continues where it stopped.')
     await press(within(outcome).getByRole('button', { name: 'Start again' }))
     const nin = await screen.findByLabelText('National Identification Number (NIN)')
     await waitFor(() => expect(document.activeElement).toBe(nin))
@@ -339,7 +339,7 @@ describe('the facility check confirmation', () => {
     await press(screen.getByRole('button', { name: 'I have been checked' }))
     const contact = await screen.findByLabelText('Phone number')
     await waitFor(() => expect(document.activeElement).toBe(contact))
-    const text = 'Your identity was checked at the facility. Now add a contact we can send a code to.'
+    const text = 'Your identity was checked at the facility. Now add a phone number or email we can send a code to.'
     const region = screen.getByText(text).closest('[role="status"]')
     expect(regions).toContain(region)
     expect(described(contact)).toContain(text)

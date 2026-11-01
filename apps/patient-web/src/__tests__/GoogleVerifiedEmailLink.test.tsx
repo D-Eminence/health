@@ -54,7 +54,7 @@ describe('Google sign-in for an account not linked yet', () => {
     openSignIn(exchange(() => problem(404, 'GOOGLE_NOT_REGISTERED', GOOGLE_NOT_REGISTERED)))
     await google()
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('This Google account is not registered on Health ID. Use Sign Up first.')
+    expect(alert.textContent).toContain('This Google account has no Health ID yet. Sign up first.')
     expect(within(alert).getByRole('link', { name: 'Sign up for a Health ID' }).getAttribute('href')).toBe('/enroll')
     expect(screen.queryByText(/Didn't finish signing up\?/)).toBeNull()
   })

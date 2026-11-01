@@ -101,6 +101,8 @@ const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
  * on a backend before 0097, each route answers 404, which the portal takes as not offered (the section is hidden).
  */
 const WEB_PUSH_NOTE = 'Novu: hid-system 0097 (B6); 404 before, and while push is not configured'
+/** Consent and agreements (BACKEND-NEEDS.md): not served by hid-system yet; the portal takes a 404 as "nothing recorded". */
+const CONSENT_NOTE = 'Proposed (BACKEND-NEEDS.md, Consent and agreements); not served by hid-system yet (404).'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
 /** docs/POINT_OF_CARE_SPEC.md: proposed, not served by any hid-system release yet; callers treat a 404 as "not switched on". */
 const POINT_OF_CARE = 'Point of care (docs/POINT_OF_CARE_SPEC.md); not served by hid-system yet (404). Every POST takes Idempotency-Key.'
@@ -447,6 +449,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'action is viewed, changed, access_granted, access_ended or emergency_access; actorKind clinician, facility, patient, '
     + 'support or system. Refused attempts and record contents are never sent.')),
   r('identity.accessPin','identity','/api/v1/identity/me/access-pin',['POST','DELETE']),
+  // Consent and agreements (BACKEND-NEEDS.md): what a patient agreed to at sign-up, and whether a changed version needs
+  // their agreement again. Not served yet: a 404 shows the current versions (Read only) and asks nothing again.
+  proposed(r('identity.myConsents','identity','/api/v1/identity/me/consents',GP,false,undefined,
+    `${CONSENT_NOTE} Patient sessions only. POST (CSRF, Idempotency-Key) { items: [{ documentId: patient-terms | health-data | `
+    + 'email-updates, version, accepted }], language: en, method: self } once the account exists and is signed in; GET '
+    + 'answers { items: [{ documentId, version, accepted, acceptedAt, method }], needsAgreement, changes: string[] (at most 3) }.')),
   r('identity.verifyNin','identity','/api/v1/identity/me/verification/nin',P),
   // hid-1.0 patient parity B3 (hid-system 0094 on staging-novu-ci-20261005): the profile's coverage, photo and contact
   // details. GET identity.me gains email, emailVerified, phone, phoneVerified and hasPhoto there.
@@ -537,6 +545,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('identity.assistedVerifications','identity','/api/v1/identity/assisted-verifications',P,false,
     one('POST','identity.patient.assisted_registration'),
     'Body { deskCode, method, documentType, document, attestations }; 200 { outcome: verified }. The same key replays the stored outcome.'),
+  // The facility agreement (BACKEND-NEEDS.md, "Consent and agreements"), signed by the administrator at sign-up.
+  proposed(r('identity.facilityAgreements','identity','/api/v1/identity/facility-agreements',P,false,undefined,
+    `${CONSENT_NOTE} Staff sessions (the administrator's, from activation on). CSRF, Idempotency-Key; X-Facility-ID when signed `
+    + 'again from the workspace. { documentId: facility-agreement, version, signerName, facilityName, language: en }.')),
+  proposed(r('identity.facilityAgreementCurrent','identity','/api/v1/identity/facility-agreements/current',G,false,undefined,
+    `${CONSENT_NOTE} Staff sessions, X-Facility-ID, healthcare operations. { version, signerName, facilityName, signedAt, `
+    + 'needsAgreement, changes: string[] (at most 3) }; needsAgreement only for an administrator.')),
   // P4b: a self-signed-up facility's own staff, managed by its administrator (the Staff page).
   proposed(r('identity.facilityStaff','identity','/api/v1/identity/facility-staff',G,false,one('GET','workforce.manage'),
     `${STAFF_ROUTE} Allowed before support's review. 200 { facility { id, name, organizationType, reviewState, `

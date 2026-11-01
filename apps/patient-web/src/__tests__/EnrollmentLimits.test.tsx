@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { Enrollment } from '../routes/Enrollment'
 import { enterCode } from './codeBoxes'
+import { agreeToTerms } from './agreeToTerms'
 
 const api = vi.hoisted(() => ({
   enrollmentCurrent: vi.fn(), googleOnboarding: vi.fn(), enrollmentStart: vi.fn(), enrollmentContact: vi.fn(),
@@ -52,7 +53,7 @@ describe('enrollment limits', () => {
     await enterCode(await screen.findByLabelText('Code'), '000000')
     await screen.findByText(/every code is refused, even a correct one/)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Get another code or change contact' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Get another code, or use another phone or email' }))
     fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348000000000' } })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send code' })) })
     await screen.findByLabelText('Code')
@@ -64,9 +65,10 @@ describe('enrollment limits', () => {
     api.enrollmentActivate.mockRejectedValue(new HidApiError(429, 'Too many enrollment requests; try again later', { code: 'ENROLLMENT_RATE_LIMITED' }))
     render(<MemoryRouter><Enrollment /></MemoryRouter>)
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
+    agreeToTerms()
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Get my Health ID' })) })
-    const hint = await screen.findByText(/too many activation attempts/)
+    const hint = await screen.findByText(/Too many tries/)
     expect(hint.textContent).toMatch(/15 minutes/)
-    expect(hint.textContent).toMatch(/enrollment is kept/)
+    expect(hint.textContent).toMatch(/sign-up is kept/)
   })
 })

@@ -51,20 +51,20 @@ function typeCode(label: string, value: string) {
 async function verifyRefused(caught: HidApiError) {
   api.authenticator.verify.mockRejectedValueOnce(caught)
   show('verify')
-  await stepShown('Enter a code from your authenticator app')
-  typeCode('Authenticator code', '123456')
-  fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+  await stepShown('Enter a code from your code app')
+  typeCode('Sign-in code', '123456')
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
   await waitFor(() => expect(api.authenticator.verify).toHaveBeenCalledTimes(1))
 }
 
 describe('a code the applicant typed (0088 answers on P6-P8)', () => {
   it.each([
     ['401 MFA_INVALID_CODE', problem(401, 'MFA_INVALID_CODE'),
-      'That code was not accepted. Each code works once: wait for the next code in your authenticator app, then try again.'],
-    ['400 MFA_CODE_REQUIRED', problem(400, 'MFA_CODE_REQUIRED'), 'Enter either an authenticator code or a recovery code.'],
+      'That code didn’t work. Each code works once. Wait for the next code in your code app, then try again.'],
+    ['400 MFA_CODE_REQUIRED', problem(400, 'MFA_CODE_REQUIRED'), 'Enter a code from your code app or a backup code.'],
   ])('clears and focuses the field on %s, says why there, and stays', async (_case, caught, words) => {
     await verifyRefused(caught)
-    const field = screen.getByLabelText(/^Authenticator code/) as HTMLInputElement
+    const field = screen.getByLabelText(/^Sign-in code/) as HTMLInputElement
     await waitFor(() => expect(document.activeElement).toBe(field))
     expect(field.value).toBe('')
     expect(field.getAttribute('aria-invalid')).toBe('true')
@@ -76,9 +76,9 @@ describe('a code the applicant typed (0088 answers on P6-P8)', () => {
   it('says codes are refused for a while on 429 MFA_RATE_LIMITED, with no countdown, and stays', async () => {
     await verifyRefused(problem(429, 'MFA_RATE_LIMITED'))
     expect((await screen.findByRole('alert')).textContent)
-      .toBe('Too many incorrect codes. Codes are refused for up to 15 minutes, even a correct one. Try again later.')
+      .toBe('Too many wrong codes. No code works for up to 15 minutes, not even the right one. Try again later.')
     expect(screen.queryByText(/\d+:\d\d|seconds? left|minutes? left/)).toBeNull()
-    expect(screen.getByRole('heading', { name: 'Enter a code from your authenticator app' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Enter a code from your code app' })).toBeTruthy()
     expect(handlers.onEnded).not.toHaveBeenCalled()
   })
 
@@ -89,22 +89,22 @@ describe('a code the applicant typed (0088 answers on P6-P8)', () => {
   ])('keeps the step and the code typed through %s: an outage ends nothing', async (_case, caught) => {
     api.authenticator.verify.mockRejectedValueOnce(caught)
     show('verify')
-    await stepShown('Enter a code from your authenticator app')
-    typeCode('Authenticator code', '123456')
-    fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+    await stepShown('Enter a code from your code app')
+    typeCode('Sign-in code', '123456')
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect((await screen.findByRole('alert')).textContent).toBe("We couldn't complete this step right now. Try again in a few minutes.")
-    expect((screen.getByLabelText(/^Authenticator code/) as HTMLInputElement).value).toBe('123456')
+    expect((screen.getByLabelText(/^Sign-in code/) as HTMLInputElement).value).toBe('123456')
     expect(handlers.onEnded).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await waitFor(() => expect(handlers.onReady).toHaveBeenCalledWith(ACCOUNT))
     expect(api.authenticator.verify).toHaveBeenLastCalledWith({ code: '123456' })
   })
 
   it('opens the step again on 401 MFA_CHALLENGE_INVALID, saying it expired, and never ends the page', async () => {
     await verifyRefused(problem(401, 'MFA_CHALLENGE_INVALID'))
-    await stepShown('Start the authenticator step')
-    expect(screen.getByRole('alert').textContent).toBe('This step expired. Start it again.')
+    await stepShown('Start the sign-in code step')
+    expect(screen.getByRole('alert').textContent).toBe('This step timed out. Start it again.')
     expect(handlers.onEnded).not.toHaveBeenCalled()
   })
 
@@ -125,17 +125,17 @@ describe('the emailed proof before the setup (P5, P6)', () => {
   it('says the account has no address to confirm with (409 MFA_ENROLLMENT_PROOF_UNAVAILABLE), and offers nothing more', async () => {
     api.authenticator.sendEmailCode.mockRejectedValueOnce(problem(409, 'MFA_ENROLLMENT_PROOF_UNAVAILABLE'))
     show('enrol')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
-    await stepShown("Your authenticator can't be set up here")
-    expect(screen.getByRole('alert').textContent).toBe('There is no email address on this account to confirm the setup. Contact HID support.')
+    await stepShown("Sign-in codes can't be set up here")
+    expect(screen.getByRole('alert').textContent).toBe('This account has no email address to confirm it’s you. Contact Health ID support.')
     expect(screen.queryByRole('button')).toBeNull()
   })
 
   it('stays and says to try again when the code could not be emailed (503 MFA_ENROLLMENT_CODE_UNDELIVERABLE)', async () => {
     api.authenticator.sendEmailCode.mockRejectedValueOnce(problem(503, 'MFA_ENROLLMENT_CODE_UNDELIVERABLE'))
     show('enrol')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
     expect((await screen.findByRole('alert')).textContent).toBe('The code could not be sent to your email. Try again in a few minutes.')
     expect(screen.getByRole('button', { name: 'Email me a code' })).toBeTruthy()
@@ -144,34 +144,34 @@ describe('the emailed proof before the setup (P5, P6)', () => {
   it('says too many codes were asked for (429 MFA_RATE_LIMITED), with no countdown', async () => {
     api.authenticator.sendEmailCode.mockRejectedValueOnce(problem(429, 'MFA_RATE_LIMITED'))
     show('enrol')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('Too many codes were asked for. Wait up to 15 minutes, then try again.')
+    expect((await screen.findByRole('alert')).textContent).toBe('Too many codes asked for. Wait 15 minutes and try again.')
   })
 
   it('asks for a new emailed code when the setup was started without one (403 MFA_ENROLLMENT_PROOF_REQUIRED)', async () => {
     api.authenticator.start.mockRejectedValueOnce(problem(403, 'MFA_ENROLLMENT_PROOF_REQUIRED'))
     show('enrol')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
     await stepShown('Enter the code we emailed you')
     typeCode('Email code', '654321')
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     expect(screen.getByRole('alert').textContent).toBe('Confirm it is you first: ask for a code by email, then enter it.')
   })
 
   it('starts the step again when this setup was already confirmed by email (409 MFA_ENROLLMENT_PROOF_COMPLETE)', async () => {
     api.authenticator.sendEmailCode.mockRejectedValueOnce(problem(409, 'MFA_ENROLLMENT_PROOF_COMPLETE'))
     show('enrol')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
-    await stepShown('Start the authenticator step')
+    await stepShown('Start the sign-in code step')
     expect(screen.getByRole('alert').textContent)
       .toBe('This setup was already confirmed by email but not finished. Start it again to continue.')
 
     fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     expect(api.authenticator.reopen).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
     await stepShown('Enter the code we emailed you')
@@ -182,12 +182,12 @@ describe('the emailed proof before the setup (P5, P6)', () => {
 describe('an activation whose answer was lost (P7)', () => {
   async function toSetup() {
     show('enrol')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
     await stepShown('Enter the code we emailed you')
     typeCode('Email code', '654321')
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    await stepShown('Add Health ID to your authenticator app')
+    await stepShown('Add Health ID to your code app')
   }
 
   it('says the recovery codes cannot be shown again when the activation went through unseen (409 ..._AUTHENTICATOR_READY)', async () => {
@@ -195,13 +195,13 @@ describe('an activation whose answer was lost (P7)', () => {
     api.authenticator.activate.mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
       .mockRejectedValueOnce(problem(409, 'CLINICIAN_APPLICATION_AUTHENTICATOR_READY'))
     await toSetup()
-    typeCode('Authenticator code', '112233')
-    fireEvent.click(screen.getByRole('button', { name: 'Activate authenticator' }))
+    typeCode('Sign-in code', '112233')
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on sign-in codes' }))
     expect((await screen.findByRole('alert')).textContent).toBe("We couldn't complete this step right now. Try again in a few minutes.")
-    fireEvent.click(screen.getByRole('button', { name: 'Activate authenticator' }))
-    await stepShown('Your authenticator is set up')
-    expect(screen.getByRole('alert').textContent).toBe("Your authenticator app is already set up. If you didn't see and save its "
-      + "recovery codes, Health ID can't show them again: keep your authenticator app safe, and contact HID support if you lose it.")
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on sign-in codes' }))
+    await stepShown('Your sign-in codes are set up')
+    expect(screen.getByRole('alert').textContent).toBe("Your code app is already set up. If you didn't save your backup codes, "
+      + "Health ID can't show them again. Keep your phone safe, and contact Health ID support if you lose it.")
     expect(handlers.onReady).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Continue to your application' }))
     expect(handlers.onReady).toHaveBeenCalledWith(null)
@@ -217,12 +217,12 @@ describe('an activation whose answer was lost (P7)', () => {
     api.authenticator.verify.mockRejectedValueOnce(ready)
     show(start)
     if (start === 'enrol') {
-      await stepShown('Set up your authenticator')
+      await stepShown('Set up sign-in codes')
       fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
     } else {
-      await stepShown('Enter a code from your authenticator app')
-      typeCode('Authenticator code', '123456')
-      fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+      await stepShown('Enter a code from your code app')
+      typeCode('Sign-in code', '123456')
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     }
     await waitFor(() => expect(handlers.onReady).toHaveBeenCalledWith(null))
     expect(screen.queryByText(/recovery codes, Health ID can't show them again/)).toBeNull()
@@ -233,19 +233,19 @@ describe('an account that sets its authenticator up only at staff sign-in (403 C
   it('says so at activation, never as an outage, and offers nothing more', async () => {
     api.authenticator.activate.mockRejectedValueOnce(problem(403, 'CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED'))
     show('enrol')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
     await stepShown('Enter the code we emailed you')
     typeCode('Email code', '654321')
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    await stepShown('Add Health ID to your authenticator app')
-    typeCode('Authenticator code', '112233')
-    fireEvent.click(screen.getByRole('button', { name: 'Activate authenticator' }))
-    await stepShown("Your authenticator can't be set up here")
+    await stepShown('Add Health ID to your code app')
+    typeCode('Sign-in code', '112233')
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on sign-in codes' }))
+    await stepShown("Sign-in codes can't be set up here")
     expect(screen.getByRole('alert').textContent)
-      .toBe('Your authenticator was reset. Sign in to the provider portal to set it up again, or contact HID support.')
+      .toBe('Your sign-in codes were reset. Sign in to the provider site to set them up again, or contact Health ID support.')
     // The way on is staff sign-in, where the authenticator is set up again.
-    expect(screen.getByRole('link', { name: 'Sign in to the provider portal' }).getAttribute('href')).toBe('/provider/sign-in')
+    expect(screen.getByRole('link', { name: 'Sign in to the provider site' }).getAttribute('href')).toBe('/provider/sign-in')
     expect(screen.queryByRole('button')).toBeNull()
     expect(handlers.onEnded).not.toHaveBeenCalled()
   })
@@ -254,28 +254,28 @@ describe('an account that sets its authenticator up only at staff sign-in (403 C
 describe('opening the step again (P9)', () => {
   it.each([
     ['403 STAFF_MFA_FACTOR_UNPROVEN', problem(403, 'STAFF_MFA_FACTOR_UNPROVEN'),
-      'Your authenticator was set up at platform sign-in. Contact HID support to reset it.'],
+      'Your code app was set up for admin sign-in. Contact Health ID support to reset it.'],
     ['403 CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE', problem(403, 'CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE'),
-      "This account can't apply for a clinical role. Contact HID support."],
+      "This account can't apply for a clinical role. Contact Health ID support."],
     // An approved clinician, or a facility's staff member, whose authenticator was reset sets it up again only at staff sign-in.
     ['403 CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED', problem(403, 'CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED'),
-      'Your authenticator was reset. Sign in to the provider portal to set it up again, or contact HID support.'],
+      'Your sign-in codes were reset. Sign in to the provider site to set them up again, or contact Health ID support.'],
   ])('says what %s means and offers nothing more', async (_case, caught, words) => {
     api.authenticator.reopen.mockRejectedValueOnce(caught)
     show('reopen')
-    await stepShown('Start the authenticator step')
+    await stepShown('Start the sign-in code step')
     fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
-    await stepShown("Your authenticator can't be set up here")
+    await stepShown("Sign-in codes can't be set up here")
     expect(screen.getByRole('alert').textContent).toBe(words)
     // Only staff sign-in can help an account that sets its authenticator up there.
-    expect(screen.queryByRole('link', { name: 'Sign in to the provider portal' }) !== null)
+    expect(screen.queryByRole('link', { name: 'Sign in to the provider site' }) !== null)
       .toBe(_case.includes('STAFF_SIGN_IN_REQUIRED'))
   })
 
   it('says the step was started too many times (429 MFA_RATE_LIMITED), and stays', async () => {
     api.authenticator.reopen.mockRejectedValueOnce(problem(429, 'MFA_RATE_LIMITED'))
     show('reopen')
-    await stepShown('Start the authenticator step')
+    await stepShown('Start the sign-in code step')
     fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
     expect((await screen.findByRole('alert')).textContent)
       .toBe('This step was started too many times. Wait up to 15 minutes, then start it again.')
@@ -285,9 +285,9 @@ describe('opening the step again (P9)', () => {
   it('goes to the code when the account already has an authenticator', async () => {
     api.authenticator.reopen.mockResolvedValueOnce({ purpose: 'verify', expiresAt: '2026-10-15T09:20:00.000Z' })
     show('reopen')
-    await stepShown('Start the authenticator step')
+    await stepShown('Start the sign-in code step')
     fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
-    await stepShown('Enter a code from your authenticator app')
+    await stepShown('Enter a code from your code app')
   })
 })
 
@@ -325,7 +325,7 @@ describe('focus as soon as what follows an answer is shown', () => {
     const sent = deferred<{ accepted: true; channel: 'email'; expiresAt: string }>()
     api.authenticator.sendEmailCode.mockReturnValueOnce(sent.promise)
     show('enrol')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     await press('Email me a code')
     const shown = focusWhenShown(() => screen.queryByRole('heading', { name: 'Enter the code we emailed you' }))
     answer(() => sent.resolve({ accepted: true, channel: 'email', expiresAt: '2026-10-15T09:10:00.000Z' }))
@@ -337,15 +337,15 @@ describe('focus as soon as what follows an answer is shown', () => {
     const activated = deferred<typeof ACCOUNT & { recoveryCodes: string[] }>()
     api.authenticator.activate.mockReturnValueOnce(activated.promise)
     show('enrol')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
     await stepShown('Enter the code we emailed you')
     typeCode('Email code', '654321')
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    await stepShown('Add Health ID to your authenticator app')
-    typeCode('Authenticator code', '112233')
-    await press('Activate authenticator')
-    const shown = focusWhenShown(() => screen.queryByRole('heading', { name: 'Save your recovery codes' }))
+    await stepShown('Add Health ID to your code app')
+    typeCode('Sign-in code', '112233')
+    await press('Turn on sign-in codes')
+    const shown = focusWhenShown(() => screen.queryByRole('heading', { name: 'Save your backup codes' }))
     answer(() => activated.resolve({ ...ACCOUNT, recoveryCodes: ['ABCDE-FGHJK', 'MNPQR-STVWX'] }))
     const { element, focused } = await shown
     expect(focused).toBe(element)
@@ -355,12 +355,12 @@ describe('focus as soon as what follows an answer is shown', () => {
     const verified = deferred<typeof ACCOUNT>()
     api.authenticator.verify.mockReturnValueOnce(verified.promise)
     show('verify')
-    await stepShown('Enter a code from your authenticator app')
-    typeCode('Authenticator code', '123456')
-    await press('Verify')
-    const shown = focusWhenShown(() => screen.queryByText(/^That code was not accepted\. Each code works once/))
+    await stepShown('Enter a code from your code app')
+    typeCode('Sign-in code', '123456')
+    await press('Continue')
+    const shown = focusWhenShown(() => screen.queryByText(/^That code didn’t work\. Each code works once/))
     answer(() => verified.reject(problem(401, 'MFA_INVALID_CODE')))
     const { focused } = await shown
-    expect(focused).toBe(screen.getByLabelText(/^Authenticator code/))
+    expect(focused).toBe(screen.getByLabelText(/^Sign-in code/))
   })
 })

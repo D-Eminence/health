@@ -20,7 +20,7 @@ export function stepEyebrow(index: number): string {
 }
 
 /** On every design field Health ID does not take: shown, disabled, never sent or kept. */
-export const NOT_COLLECTED = 'Not collected by Health ID yet'
+export const NOT_COLLECTED = 'Health ID doesn’t save this yet'
 
 /** The design's required-field message (src/ui.tsx:248). */
 export const MISSING = 'Complete this field.'
@@ -47,7 +47,7 @@ export function facilityCheckDone(facility: string): string {
 }
 
 /** Said, as a status, when "Launch facility" opens Home: there is nothing to launch on Health ID. */
-export const NO_LAUNCH_STEP = 'Health ID has no launch step yet. Your EHR is already open.'
+export const NO_LAUNCH_STEP = 'Health ID has no launch step yet. Your records system is already open.'
 
 /** The design's facility types (src/model.ts:366-375). */
 export const FACILITY_TYPES = ['Clinic', 'Specialist Clinic', 'Diagnostic Centre', 'Maternity Centre', 'Community Hospital',
@@ -59,11 +59,11 @@ export const DEPARTMENTS = ['General Outpatient', 'Emergency', 'Inpatient', 'Lab
 
 /** The line under each department (src/admin.tsx:604-612). */
 export function departmentLine(department: string): string {
-  if (department === 'Laboratory') return 'Orders, samples and results; invite lab staff.'
-  if (department === 'Pharmacy') return 'Prescription fulfilment; configure stock and pharmacy staff.'
-  if (department === 'Inpatient' || department === 'ICU') return 'Admissions and nursing; configure wards and beds.'
-  if (department === 'Radiology') return 'Studies and reports; assign radiology reporting permission.'
-  return 'Appointments, triage, care records and department-specific context.'
+  if (department === 'Laboratory') return 'Orders, samples and results. Invite lab staff.'
+  if (department === 'Pharmacy') return 'Give out medicines. Set up stock and pharmacy staff.'
+  if (department === 'Inpatient' || department === 'ICU') return 'Admissions and nursing. Set up wards and beds.'
+  if (department === 'Radiology') return 'Scans and reports. Choose who can write scan reports.'
+  return 'Appointments, triage, care records and notes for each department.'
 }
 
 /** The departments a type suggests (src/admin.tsx:547-552). */

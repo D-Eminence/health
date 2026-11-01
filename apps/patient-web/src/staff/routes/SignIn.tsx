@@ -23,7 +23,7 @@ import { capturedStaffInvitation } from '../invitationCapture'
  * Said when Identity ended the sign-in for want of an authenticator
  * (403 STAFF_MFA_REQUIRED, hid-system #71): here, and on the session-ended screen.
  */
-export const STAFF_MFA_NOTICE = 'Staff now need a code from an authenticator app to sign in. '
+export const STAFF_MFA_NOTICE = 'Staff now sign in with a code app on your phone (like Google Authenticator). '
   + 'Sign in again to set one up, or to use the one you have.'
 
 function StaffMfaButton({ primary, className, type = 'button', ...rest }: { primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -45,7 +45,7 @@ const STAFF_MFA_LOOK: StaffMfaLook = {
 function passwordRefusal(caught: unknown): string {
   if (isHidApiError(caught) && caught.code === 'STAFF_MFA_FACTOR_UNPROVEN') return STAFF_MFA_FACTOR_UNPROVEN
   if (isHidApiError(caught) && caught.code === 'MFA_UNAVAILABLE') return STAFF_MFA_UNAVAILABLE
-  return caught instanceof Error ? caught.message : 'Sign in failed.'
+  return caught instanceof Error ? caught.message : 'We couldn’t sign you in. Please try again.'
 }
 
 /**
@@ -65,7 +65,7 @@ function getStaffLandingPath(search: string, session: StaffSession): string {
   return product ? staffLandingPath(product, session) : '/provider'
 }
 
-const CHALLENGE_UNAVAILABLE = 'Human verification could not load. Refresh the page and try again.'
+const CHALLENGE_UNAVAILABLE = 'The security check didn’t load. Refresh the page and try again.'
 
 function TurnstileChallenge({ onToken, resetKey }: { onToken: (token: string) => void; resetKey: number }) {
   const siteKey = getEnvironment().turnstileSiteKey
@@ -125,7 +125,7 @@ export function SignIn() {
   // hid-system accepts; a form here would always be refused.
   const elsewhere = staffSignInHref(window.location.hostname)
   if (elsewhere) return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
-    title="Staff sign in is on the provider site." titleId="staff-sign-in-title"
+    title="Sign in on the provider site" titleId="staff-sign-in-title"
     lede="Use your work account at ehr.healthidentitydirectory.com.">
     <p><a className={buttonClass({ variant: 'primary', block: true })} href={elsewhere}>Go to staff sign in</a></p>
     <ClinicianSignUpEntry className="m-0 text-[13px] text-ink-3" />
@@ -157,7 +157,7 @@ export function SignIn() {
 
   function finish(session: StaffSession) {
     try { completeSignIn(session) }
-    catch (caught) { restart(caught instanceof Error ? caught.message : 'Sign in failed.'); return }
+    catch (caught) { restart(caught instanceof Error ? caught.message : 'We couldn’t sign you in. Please try again.'); return }
     navigate(getStaffLandingPath(location.search, session))
   }
 
@@ -173,7 +173,7 @@ export function SignIn() {
   return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
     headerLink={enrollHref === PROVIDER_ENROLLMENT_PATH
       ? { to: enrollHref, label: 'Set up your facility' } : { href: enrollHref, label: 'Set up your facility' }}
-    title="Welcome back." titleId="staff-sign-in-title" titleAs={challenge ? 'p' : 'h1'}
+    title="Welcome back" titleId="staff-sign-in-title" titleAs={challenge ? 'p' : 'h1'}
     titleRef={heading} titleFocusable={!challenge}
     lede="Sign in with your work account.">
     {challenge ? <StaffMfaSteps challenge={challenge} look={STAFF_MFA_LOOK}
@@ -203,7 +203,7 @@ function RecoveryLink() {
   const href = staffRecoveryHref(window.location.hostname)
   const central = href !== STAFF_RECOVERY_PATH
   return <p className="m-0 text-[13px] text-ink-3">
-    {central ? <a href={href}>Forgot your password?</a> : <Link to={href}>Forgot your password?</Link>}
+    {central ? <a href={href}>Forgot password?</a> : <Link to={href}>Forgot password?</Link>}
     {central && ' You reset it on the main Health ID site.'}
     {' '}Need a staff account? Ask your facility administrator.
   </p>

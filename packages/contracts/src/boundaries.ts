@@ -140,7 +140,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.contactChangeVerify',
       // Sharing with a clinician and invitations by email (hid-system 0095, Novu only; a backend before it answers 404).
       'identity.shareProviderSearch', 'identity.shares', 'identity.shareInvitations', 'identity.shareInvitationCancel',
-      'identity.shareInvitationConfirm', 'identity.sharedCard'],
+      'identity.shareInvitationConfirm', 'identity.sharedCard',
+      // What the patient agreed to, and agreeing again to a changed version (proposed; 404 until served).
+      'identity.myConsents'],
     access: ['access.patientRequests', 'access.approve', 'access.deny', 'access.revokeMyGrant'],
     // Imported history (#94) and patient record chat (#95, ADR-068) are patient-only routes.
     ehr: ['ehr.myRecords', 'ehr.myPatientEntries', 'ehr.myImportedHistory', 'ehr.patientChatAvailability', 'ehr.patientChat', 'ehr.patientChatHistory',
@@ -186,7 +188,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.orderDestinations',
       // Patients who shared their record with the clinician, and invitations to share by email, with Accept (hid-system
       // 0095, Novu only; a backend before it answers 404).
-      'identity.sharedWithMe', 'identity.staffShareInvitations', 'identity.staffShareInvitationAccept'],
+      'identity.sharedWithMe', 'identity.staffShareInvitations', 'identity.staffShareInvitationAccept',
+      // The facility agreement, signed at sign-up and read on the Facility profile (proposed; 404 until served).
+      'identity.facilityAgreements', 'identity.facilityAgreementCurrent'],
     access: ['access.staffRequests', 'access.breakGlass', 'access.verifyPin', 'access.closeOwnGrant'],
     ehr: ['ehr.importedHistory', 'ehr.staffPatientChatAvailability', 'ehr.staffPatientChat', 'ehr.staffPatientChatHistory', 'ehr.staffPatientChatSource',
       'ehr.importedRecords', 'ehr.importedAttachment', 'ehr.emergencyRecords', 'ehr.encounters', 'ehr.encounter', 'ehr.vitals', 'ehr.vital',

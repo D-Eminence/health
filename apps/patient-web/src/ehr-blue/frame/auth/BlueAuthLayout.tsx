@@ -1,14 +1,14 @@
 import type { ReactNode, Ref } from 'react'
 import { Link } from 'react-router-dom'
-import { AuthLayout } from '../../../AuthLayout'
+import { AuthLayout, type AuthStep } from '../../../AuthLayout'
 import {
   providerEnrollmentHref, STAFF_SIGN_IN_PATH, staffInvitationHref, staffRecoveryHref, staffSignInHref,
 } from '../../../productHostname'
 
 /**
- * The Hospital EHR's sign-in, recovery and invitation pages, in the redesign's auth look: the shared AuthLayout (the
- * same shell as every other sign-in), with the EHR's own row of ways in. `hid-ehr-blue-auth` marks the pages as the
- * EHR's (shown once the clinic switch is on, README.md); it adds no styles of its own.
+ * The Hospital EHR's sign-in, recovery and invitation pages: the shared AuthLayout (the same shell as every other
+ * sign-in), with the provider panel, and "Back to sign in" under the pages that are not the sign-in. `hid-ehr-blue-auth`
+ * marks the pages as the EHR's (shown once the clinic switch is on, README.md); it adds no styles of its own.
  */
 export interface BlueAuthLayoutProps {
   readonly title: ReactNode
@@ -17,18 +17,21 @@ export interface BlueAuthLayoutProps {
   /** 'p' while a step below has the page's h1 (the authenticator steps). */
   readonly titleAs?: 'h1' | 'p'
   readonly titleRef?: Ref<HTMLHeadingElement & HTMLParagraphElement>
-  /** The row of other ways in under the form. */
+  /** A multi-step flow's steps, for the shared stepper. */
+  readonly steps?: readonly AuthStep[]
+  readonly stepsLabel?: string
+  /** "Back to sign in" under the form. */
   readonly links?: boolean
   readonly children: ReactNode
 }
 
-export function BlueAuthLayout({ title, titleId, lede, titleAs = 'h1', titleRef, links = true, children }: BlueAuthLayoutProps) {
+export function BlueAuthLayout({ title, titleId, lede, titleAs = 'h1', titleRef, steps, stepsLabel, links = true, children }: BlueAuthLayoutProps) {
   return (
     <div className="hid-ehr-blue-auth contents">
-      <AuthLayout brandTo={STAFF_SIGN_IN_PATH} brandLabel="Health ID provider sign in" title={title} titleId={titleId}
-        titleAs={titleAs} titleRef={titleRef} titleFocusable={titleAs === 'h1'} lede={lede}>
+      <AuthLayout brandTo={STAFF_SIGN_IN_PATH} brandLabel="Health ID provider sign in" audience="provider" title={title} titleId={titleId}
+        titleAs={titleAs} titleRef={titleRef} titleFocusable={titleAs === 'h1'} lede={lede} steps={steps} stepsLabel={stepsLabel}>
         {children}
-        {links ? <BlueAuthLinks /> : null}
+        {links ? <BackToSignIn /> : null}
       </AuthLayout>
     </div>
   )
@@ -57,15 +60,7 @@ export function authHrefs(hostname = window.location.hostname) {
   }
 }
 
-/** The other ways in: Register a hospital · Sign in · Recover access · Accept invitation. */
-export function BlueAuthLinks() {
-  const hrefs = authHrefs()
-  return (
-    <nav className="flex flex-wrap gap-x-5 text-[13px]" aria-label="Other ways in">
-      <SiteLink className={LINK} href={hrefs.register}>Register a hospital</SiteLink>
-      <SiteLink className={LINK} href={hrefs.signIn}>Sign in</SiteLink>
-      <SiteLink className={LINK} href={hrefs.recover}>Recover access</SiteLink>
-      <SiteLink className={LINK} href={hrefs.invitation}>Accept invitation</SiteLink>
-    </nav>
-  )
+/** The way back from recovery and invitations: one link, "Back to sign in". */
+export function BackToSignIn() {
+  return <p className="m-0"><SiteLink className={LINK} href={authHrefs().signIn}>Back to sign in</SiteLink></p>
 }

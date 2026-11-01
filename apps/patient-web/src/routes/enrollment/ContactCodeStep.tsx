@@ -25,12 +25,12 @@ interface ContactCodeStepProps extends StepProps {
 /** The code sent to the contact. */
 export function ContactCodeStep({ focusTarget, busy, invalid, errorId, maskedContact, code, onCode, onSubmit, onAnotherCode, budgetNote }: ContactCodeStepProps) {
   return <form onSubmit={onSubmit} className="flex flex-col gap-4">
-    <h2 className="m-0 text-title-2 text-ink">Enter the code</h2><p id="enroll-code-hint" className="m-0 text-sm text-ink-2">We sent a 6-digit code to {maskedContact || 'your contact'}.</p>
+    <h2 className="m-0 text-title-2 text-ink">Enter the code</h2><p id="enroll-code-hint" className="m-0 text-sm text-ink-2">We sent a 6-digit code to {maskedContact || 'your phone or email'}.</p>
     <CodeBoxes id="enroll-code" label="Code" value={code} onChange={onCode} inputRef={focusTarget} busy={busy}
       invalid={invalid} describedBy={describedBy('enroll-code-hint', errorId)} />
-    <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Verify code'}</Button>
+    <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Check code'}</Button>
     {/* The note on a refused code is about that code: a new one starts without it. */}
-    <Button variant="link" className="self-start" disabled={busy} onClick={onAnotherCode}>Get another code or change contact</Button>
+    <Button variant="link" className="self-start" disabled={busy} onClick={onAnotherCode}>Get another code, or use another phone or email</Button>
     {budgetNote && <p className="m-0 text-[13px] text-ink-3">{CODE_BUDGET_HINT}</p>}
   </form>
 }

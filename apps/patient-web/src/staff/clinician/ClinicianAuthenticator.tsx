@@ -24,7 +24,7 @@ import { buttonClass } from '../../kasuwa/ui'
  * recovery codes when the person continues.
  */
 
-const EXPIRED = 'This step expired. Start it again.'
+const EXPIRED = 'This step timed out. Start it again.'
 const UNAVAILABLE = "We couldn't complete this step right now. Try again in a few minutes."
 
 type Step =
@@ -46,18 +46,18 @@ type StepName = 'send' | 'email-code' | 'activate' | 'verify' | 'recovery' | 're
 const INVALID_CODE: Record<StepName, string> = {
   send: UNAVAILABLE,
   'email-code': 'That code was not accepted. Check the latest email from Health ID (each new code replaces the one before), then try again.',
-  activate: 'That code was not accepted. Check that you added the setup key shown here, then enter the next code the app shows.',
-  verify: 'That code was not accepted. Each code works once: wait for the next code in your authenticator app, then try again.',
-  recovery: 'That recovery code was not accepted. Each recovery code works once: check it, or use another.',
+  activate: 'That code didn’t work. Check that you added the key shown here, then enter the next code the app shows.',
+  verify: 'That code didn’t work. Each code works once. Wait for the next code in your code app, then try again.',
+  recovery: 'That backup code didn’t work. Each backup code works once. Check it, or use another.',
   reopen: UNAVAILABLE,
 }
 
 const RATE_LIMITED: Record<StepName, string> = {
-  send: 'Too many codes were asked for. Wait up to 15 minutes, then try again.',
-  'email-code': 'Too many attempts. Wait up to 15 minutes, then try again.',
-  activate: 'Too many incorrect codes. Codes are refused for up to 15 minutes, even a correct one. Try again later.',
-  verify: 'Too many incorrect codes. Codes are refused for up to 15 minutes, even a correct one. Try again later.',
-  recovery: 'Too many incorrect codes. Codes are refused for up to 15 minutes, even a correct one. Try again later.',
+  send: 'Too many codes asked for. Wait 15 minutes and try again.',
+  'email-code': 'Too many tries. Wait 15 minutes and try again.',
+  activate: 'Too many wrong codes. No code works for up to 15 minutes, not even the right one. Try again later.',
+  verify: 'Too many wrong codes. No code works for up to 15 minutes, not even the right one. Try again later.',
+  recovery: 'Too many wrong codes. No code works for up to 15 minutes, not even the right one. Try again later.',
   reopen: 'This step was started too many times. Wait up to 15 minutes, then start it again.',
 }
 
@@ -84,14 +84,14 @@ function outcomeOf(caught: unknown, step: StepName): Outcome {
     case 'CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED':
       return { then: 'step', step: { kind: 'blocked', message: STAFF_SIGN_IN_REQUIRED, signIn: true }, message: null }
     case 'MFA_ENROLLMENT_PROOF_UNAVAILABLE': return { then: 'step', step: { kind: 'blocked',
-      message: 'There is no email address on this account to confirm the setup. Contact HID support.' }, message: null }
+      message: 'This account has no email address to confirm it’s you. Contact Health ID support.' }, message: null }
     // The email proof of this challenge was already used, by a start whose answer never arrived: a new challenge (P9) needs a new proof.
     case 'MFA_ENROLLMENT_PROOF_COMPLETE': return { then: 'step', step: { kind: 'reopen' },
       message: 'This setup was already confirmed by email but not finished. Start it again to continue.' }
     case 'MFA_ENROLLMENT_PROOF_REQUIRED':
       return { then: 'step', step: { kind: 'enrol' }, message: 'Confirm it is you first: ask for a code by email, then enter it.' }
     case 'MFA_INVALID_CODE': return { then: 'stay', field: true, message: INVALID_CODE[step] }
-    case 'MFA_CODE_REQUIRED': return { then: 'stay', field: true, message: 'Enter either an authenticator code or a recovery code.' }
+    case 'MFA_CODE_REQUIRED': return { then: 'stay', field: true, message: 'Enter a code from your code app or a backup code.' }
     case 'MFA_RATE_LIMITED': return { then: 'stay', field: false, message: RATE_LIMITED[step] }
     case 'MFA_ENROLLMENT_CODE_UNDELIVERABLE':
       return { then: 'stay', field: false, message: 'The code could not be sent to your email. Try again in a few minutes.' }
@@ -226,14 +226,14 @@ function EnrolStep({ carried, onMoved, context, email, skip, onSent }: StepProps
   }
 
   return <section className="patient-form" aria-labelledby="clinician-mfa-enrol-title">
-    <StepHeading id="clinician-mfa-enrol-title" focus>Set up your authenticator</StepHeading>
+    <StepHeading id="clinician-mfa-enrol-title" focus>Set up sign-in codes</StepHeading>
     {context === 'signup'
-      ? <p className="patient-field-hint">One more step: set up an authenticator app. First we'll email another 6-digit code to {email} to
+      ? <p className="patient-field-hint">One more step: set up a code app on your phone (like Google Authenticator). First we'll email another 6-digit code to {email} to
         confirm it's you setting it up. We can't review your application until this is done.</p>
-      : <p className="patient-field-hint">Set up an authenticator app to send your application for review. First we'll email a 6-digit code
+      : <p className="patient-field-hint">Set up a code app on your phone (like Google Authenticator) to send your application for review. First we'll email a 6-digit code
         to {email} to confirm it's you setting it up.</p>}
-    <p className="patient-field-hint">You'll need an authenticator app on your phone. When Health ID calls you, we'll ask you to read a code
-      from it. You'll also use it to sign in once you're approved.</p>
+    <p className="patient-field-hint">When Health ID calls you, we'll ask you to read a code from your code
+      app. You'll also use it to sign in once you're approved.</p>
     <StepError error={problems.error} />
     <PrimaryButton id="clinician-mfa-send" onClick={() => void send()} disabled={pending}>{pending ? 'Sending…' : 'Email me a code'}</PrimaryButton>
     {skip && <TextButton onClick={skip.onSkip} disabled={pending}>{skip.label}</TextButton>}
@@ -302,24 +302,24 @@ function SetupStep({ carried, onMoved, setup, onActivated }: StepProps & {
   }
 
   return <form className="patient-form" aria-labelledby="clinician-mfa-setup-title" aria-busy={pending} onSubmit={event => void submit(event)}>
-    <StepHeading id="clinician-mfa-setup-title" focus>Add Health ID to your authenticator app</StepHeading>
+    <StepHeading id="clinician-mfa-setup-title" focus>Add Health ID to your code app</StepHeading>
     <ol className="hid-mfa-setup">
-      <li>In your authenticator app, add an account and scan this QR code.
+      <li>In your code app, add an account and scan this square code.
         <OtpauthQr uri={setup.otpauthUri} className="hid-mfa-qr" /></li>
-      <li>Can't scan it? Enter this setup key instead. On a phone with the app installed you can
-        instead <a href={setup.otpauthUri}>open it in your authenticator app</a>.
+      <li>Can't scan it? Type in this key instead. On a phone with the app installed you can
+        instead <a href={setup.otpauthUri}>open it in your code app</a>.
         <code className="hid-mfa-key">{formatSetupKey(setup.secret)}</code>
         <small>Time-based · {setup.algorithm} · {setup.digits} digits · every {setup.periodSeconds} seconds. The key is shown only during
           this setup.</small></li>
       <li>Enter the 6-digit code the app now shows.</li>
     </ol>
     <StepError error={problems.error} />
-    <Field label="Authenticator code" htmlFor={control} error={problemText(problems.problem, control)} required>
+    <Field label="Sign-in code" htmlFor={control} error={problemText(problems.problem, control)} required>
       <Input id={control} value={code} onChange={event => setCode(sixDigitCode(event.target.value))} {...SIX_DIGIT_CODE_FIELD} maxLength={6}
         required {...problemProps(problems.problem, control)} /></Field>
     <Deadline expiresAt={setup.expiresAt} />
     <button type="submit" className={buttonClass({ variant: 'primary', block: true })} disabled={pending || !isSixDigitCode(code)}>
-      {pending ? 'Activating…' : 'Activate authenticator'}</button>
+      {pending ? 'Activating…' : 'Turn on sign-in codes'}</button>
   </form>
 }
 
@@ -376,20 +376,20 @@ function VerifyStep({ carried, onMoved, onVerified }: StepProps & { onVerified(a
   }
 
   return <form className="patient-form" aria-labelledby="clinician-mfa-verify-title" aria-busy={pending} onSubmit={event => void submit(event)}>
-    <StepHeading id="clinician-mfa-verify-title" focus>Enter a code from your authenticator app</StepHeading>
-    <p className="patient-field-hint">{mode === 'totp' ? 'Open the authenticator app you set up for Health ID and enter the 6-digit code it shows.'
-      : 'Enter one of your recovery codes. Each recovery code works once.'}</p>
+    <StepHeading id="clinician-mfa-verify-title" focus>Enter a code from your code app</StepHeading>
+    <p className="patient-field-hint">{mode === 'totp' ? 'Open the code app you set up for Health ID and enter the 6-digit code it shows.'
+      : 'Enter one of your backup codes. Each one works once.'}</p>
     <StepError error={problems.error} />
     {mode === 'totp'
-      ? <Field label="Authenticator code" htmlFor="clinician-mfa-code" error={problemText(problems.problem, 'clinician-mfa-code')} required>
+      ? <Field label="Sign-in code" htmlFor="clinician-mfa-code" error={problemText(problems.problem, 'clinician-mfa-code')} required>
         <Input id="clinician-mfa-code" value={code} onChange={event => setCode(sixDigitCode(event.target.value))} {...SIX_DIGIT_CODE_FIELD}
           maxLength={6} required {...problemProps(problems.problem, 'clinician-mfa-code')} /></Field>
-      : <Field label="Recovery code" htmlFor="clinician-mfa-recovery-code" error={problemText(problems.problem, 'clinician-mfa-recovery-code')} required>
+      : <Field label="Backup code" htmlFor="clinician-mfa-recovery-code" error={problemText(problems.problem, 'clinician-mfa-recovery-code')} required>
         <Input id="clinician-mfa-recovery-code" value={recoveryCode} onChange={event => setRecoveryCode(event.target.value)} autoComplete="off"
           spellCheck={false} maxLength={16} required {...problemProps(problems.problem, 'clinician-mfa-recovery-code')} /></Field>}
-    <button type="submit" className={buttonClass({ variant: 'primary', block: true })} disabled={pending || !valid}>{pending ? 'Verifying…' : 'Verify'}</button>
-    <TextButton onClick={switchMode} disabled={pending}>{mode === 'totp' ? 'Use a recovery code instead' : 'Use my authenticator app instead'}</TextButton>
-    <p className="patient-field-hint">Lost your authenticator and your recovery codes? Contact HID support: it can't be reset from this page.</p>
+    <button type="submit" className={buttonClass({ variant: 'primary', block: true })} disabled={pending || !valid}>{pending ? 'Checking…' : 'Continue'}</button>
+    <TextButton onClick={switchMode} disabled={pending}>{mode === 'totp' ? 'Use a backup code instead' : 'Use my code app instead'}</TextButton>
+    <p className="patient-field-hint">Lost your phone and your backup codes? Contact Health ID support. It can't be reset from this page.</p>
   </form>
 }
 
@@ -406,9 +406,9 @@ function ReopenStep({ carried, onMoved, onOpened }: StepProps & { onOpened(purpo
   }
 
   return <section className="patient-form" aria-labelledby="clinician-mfa-reopen-title">
-    <StepHeading id="clinician-mfa-reopen-title" focus>Start the authenticator step</StepHeading>
+    <StepHeading id="clinician-mfa-reopen-title" focus>Start the sign-in code step</StepHeading>
     <StepError error={problems.error} />
-    <p className="patient-field-hint">Each authenticator step is open for a few minutes. Start it again to continue; your application is kept.</p>
+    <p className="patient-field-hint">This step stays open for a few minutes. Start it again to continue. Your application is kept.</p>
     <PrimaryButton id="clinician-mfa-reopen" onClick={() => void reopen()} disabled={pending}>{pending ? 'Starting…' : 'Start again'}</PrimaryButton>
   </section>
 }
@@ -420,17 +420,17 @@ function ReopenStep({ carried, onMoved, onOpened }: StepProps & { onOpened(purpo
  */
 function CodesUnseenStep({ doneLabel, onDone }: { doneLabel: string; onDone(): void }) {
   return <section className="patient-form" aria-labelledby="clinician-mfa-codes-unseen-title">
-    <StepHeading id="clinician-mfa-codes-unseen-title" focus>Your authenticator is set up</StepHeading>
-    <p role="alert">Your authenticator app is already set up. If you didn't see and save its recovery codes, Health ID can't show
-      them again: keep your authenticator app safe, and contact HID support if you lose it.</p>
+    <StepHeading id="clinician-mfa-codes-unseen-title" focus>Your sign-in codes are set up</StepHeading>
+    <p role="alert">Your code app is already set up. If you didn't save your backup codes, Health ID can't show
+      them again. Keep your phone safe, and contact Health ID support if you lose it.</p>
     <PrimaryButton onClick={onDone}>{doneLabel}</PrimaryButton>
   </section>
 }
 
 function BlockedStep({ message, signIn }: { message: string; signIn: boolean }) {
   return <section className="patient-form" aria-labelledby="clinician-mfa-blocked-title">
-    <StepHeading id="clinician-mfa-blocked-title" focus>Your authenticator can't be set up here</StepHeading>
+    <StepHeading id="clinician-mfa-blocked-title" focus>Sign-in codes can't be set up here</StepHeading>
     <p role="alert" className="patient-inline-error">{message}</p>
-    {signIn && <div><Link className={buttonClass({ variant: 'primary', block: true })} to="/provider/sign-in">Sign in to the provider portal</Link></div>}
+    {signIn && <div><Link className={buttonClass({ variant: 'primary', block: true })} to="/provider/sign-in">Sign in to the provider site</Link></div>}
   </section>
 }

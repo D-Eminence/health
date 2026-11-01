@@ -1,5 +1,5 @@
 import { expect } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { BlueProviderEnrollment } from '../../../ehr-blue/signup/BlueProviderEnrollment'
 
@@ -27,11 +27,23 @@ export function open(entry = '/provider/enroll') {
 export const textbox = (name: string) => screen.getByRole('textbox', { name }) as HTMLInputElement
 export const combobox = (name: string) => screen.getByRole('combobox', { name }) as HTMLSelectElement
 export const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement
-export const stepHeading = () => screen.getByRole('heading', { level: 2, name: /^(Your account|Facility details|Regulatory identity|Platform setup|Agreements)$/ })
+/** Each step's one heading, the page's h1: the question it asks. */
+export const STEPS = {
+  account: 'Your name and email',
+  type: 'What kind of facility is it?',
+  cac: 'Your CAC number',
+  product: 'Which Health ID do you need?',
+  review: 'Check and send',
+} as const
+export const stepHeading = () => screen.getByRole('heading', { level: 1, name: new RegExp(`^(${Object.values(STEPS)
+  .map(name => name.replace('?', '\\?')).join('|')})$`) })
 
 export async function step(name: string) {
-  return screen.findByRole('heading', { level: 2, name })
+  return screen.findByRole('heading', { level: 1, name })
 }
+
+/** A choice on the facility type or product step: a radio button named by its option. */
+export const choice = (name: string) => screen.getByRole('radio', { name }) as HTMLInputElement
 
 /** Waits for step `name`, and checks focus is on its heading. */
 export async function expectFocusOnStep(name: string) {
@@ -46,72 +58,76 @@ export function next() {
 /** The registration, open at Your account. */
 export async function toForm(entry?: string) {
   open(entry)
-  await step('Your account')
+  await step(STEPS.account)
 }
 
-/** Every step filled as an administrator would, ending on Agreements. */
+/** Every step filled as an administrator would, ending on Check and send. */
 export async function toReview({ entry, type, product }: { entry?: string; type?: string; product?: string } = {}) {
   await toForm(entry)
   fireEvent.change(textbox('Full name'), { target: { value: `  ${NAME} ` } })
   fireEvent.change(textbox('Email'), { target: { value: ' Admin@Demo-Hospital.Example.TEST ' } })
   next()
-  await step('Facility details')
-  if (type) fireEvent.change(combobox('Facility type'), { target: { value: type } })
+  await step(STEPS.type)
+  if (type) fireEvent.click(choice(TYPE_NAMES[type]!))
   next()
-  await step('Regulatory identity')
-  fireEvent.change(textbox('CAC registration number'), { target: { value: 'rc 123 456' } })
+  await step(STEPS.cac)
+  fireEvent.change(textbox('CAC number'), { target: { value: 'rc 123 456' } })
   next()
-  await step('Platform setup')
-  if (product) fireEvent.change(combobox('Product to start with'), { target: { value: product } })
-  next()
-  await step('Agreements')
-}
-
-export const AGREEMENT_LABELS = ['I have read the Terms of Service', 'I have read the Privacy Policy',
-  'I acknowledge data protection and patient consent responsibilities', 'I am authorised to register this facility']
-
-export function agreeToAll() {
-  for (const name of AGREEMENT_LABELS) {
-    const box = screen.getByRole('checkbox', { name }) as HTMLInputElement
-    if (!box.checked) fireEvent.click(box)
+  // A type with one product (a laboratory, a pharmacy) is not asked which: the review comes next.
+  if (!type || !ONE_PRODUCT.has(type)) {
+    await step(STEPS.product)
+    if (product) fireEvent.click(choice(PRODUCT_NAMES[product]!))
+    next()
   }
+  await step(STEPS.review)
 }
 
-export const submitButton = () => button('Submit facility for verification')
+export const TYPE_NAMES: Readonly<Record<string, string>> = { hospital: 'Hospital', clinic: 'Clinic', laboratory: 'Laboratory',
+  pharmacy: 'Pharmacy', other: 'Other healthcare provider' }
+export const PRODUCT_NAMES: Readonly<Record<string, string>> = { ehr: 'Health ID EHR', laboratory: 'Health ID Laboratory',
+  pharmacy: 'Health ID Pharmacy', migrate: 'Health ID Migrate' }
+const ONE_PRODUCT = new Set(['laboratory', 'pharmacy'])
 
-/** Ticks the agreements, submits, and accepts in the dialog. */
+/** The facility agreement's one box, before Identity has named the facility. */
+export const AGREEMENT_LABEL = 'I agree to this for this facility, and I’m allowed to sign for it'
+
+/** Ticks the facility agreement; the signer's name is the administrator's from the first step. */
+export function agreeToAll() {
+  const box = screen.getByRole('checkbox', { name: AGREEMENT_LABEL }) as HTMLInputElement
+  if (!box.checked) fireEvent.click(box)
+}
+
+export const submitButton = () => button('Send')
+
+/** Ticks the agreement and sends: the review is the check, so no dialog asks again. */
 export async function submitRegistration() {
   agreeToAll()
   fireEvent.click(submitButton())
-  const dialog = await screen.findByRole('alertdialog', { name: 'Submit this registration?' })
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm and submit' }))
 }
 
-/** Through the "Registration submitted" screen to the code. */
+/** Straight from Send to the code. */
 export async function toCode() {
   await toReview()
   await submitRegistration()
-  await screen.findByRole('heading', { level: 1, name: 'Facility registration submitted' })
-  fireEvent.click(button('Continue to verification'))
-  await screen.findByRole('heading', { level: 1, name: 'Enter your verification code' })
+  await screen.findByRole('heading', { level: 1, name: 'Confirm your email' })
 }
 
 export async function verifyWith(code = '123456') {
-  fireEvent.change(textbox('Verification code'), { target: { value: code } })
-  fireEvent.click(button('Verify code'))
+  fireEvent.change(textbox('Code'), { target: { value: code } })
+  fireEvent.click(button('Confirm'))
 }
 
 /** Through the code to the password step. */
 export async function toPassword() {
   await toCode()
   await verifyWith()
-  await screen.findByRole('heading', { level: 1, name: 'Create your provider account' })
+  await screen.findByRole('heading', { level: 1, name: 'Choose a password' })
 }
 
 export function choosePassword(password = 'a-long-enough-password', confirm = password) {
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: password } })
   fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: confirm } })
-  fireEvent.click(button('Create provider account'))
+  fireEvent.click(button('Create account'))
 }
 
 /**

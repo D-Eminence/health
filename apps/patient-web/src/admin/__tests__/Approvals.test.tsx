@@ -53,7 +53,7 @@ describe('two-person approvals', () => {
     expect(mocks.approvals).toHaveBeenCalledWith('pending', {}, expect.anything())
     expect(screen.getByText('For Chidi Operator · c@example.test')).toBeTruthy()
     decide('Approve')
-    fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
+    fireEvent.change(await screen.findByLabelText('Sign-in code'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm and continue' }))
 
     expect(await screen.findByText('Approved. Chidi Operator is now a Super Admin.')).toBeTruthy()

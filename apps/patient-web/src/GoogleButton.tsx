@@ -25,7 +25,7 @@ function loadGoogle(): Promise<void> {
     script.src = 'https://accounts.google.com/gsi/client'
     script.async = true
     script.onload = () => resolve()
-    script.onerror = () => reject(new Error('Google sign-in is unavailable.'))
+    script.onerror = () => reject(new Error('Google sign-in isn’t working right now.'))
     document.head.appendChild(script)
   }).catch(error => { scriptPromise = null; throw error })
   return scriptPromise!
@@ -58,13 +58,13 @@ export function GoogleButton({ text, disabled, disabledReason, onCredential }: {
     void (async () => {
       try {
         const nonce = (await api.googleNonce()).nonce
-        if (!nonce || nonce.length < 32) throw new Error('Google sign-in could not start.')
+        if (!nonce || nonce.length < 32) throw new Error('Google sign-in didn’t start. Please try again.')
         await loadGoogle()
         if (!active || !window.google || !host.current) return
         window.google.accounts.id.initialize({ client_id: clientId, nonce, auto_select: false, ux_mode: 'popup',
           callback: result => {
-            if (!result.credential) { setError('Google did not return an identity.'); return }
-            void callback.current(result.credential).catch(() => setError('Google sign-in could not be completed.')).finally(() => {
+            if (!result.credential) { setError('Google didn’t send your details. Please try again.'); return }
+            void callback.current(result.credential).catch(() => setError('We couldn’t sign you in with Google.')).finally(() => {
               if (active) setAttempt(value => value + 1)
             })
           } })
@@ -77,7 +77,7 @@ export function GoogleButton({ text, disabled, disabledReason, onCredential }: {
         // eslint-disable-next-line no-restricted-syntax -- not an effect's delay: this runs once the nonce and Google's script have loaded, straight after renderButton has drawn the new button, and the region was there all along.
         if (attempt > 0 && focusLost()) region.current?.focus()
       } catch (reason) {
-        if (active) setError(reason instanceof Error ? reason.message : 'Google sign-in is unavailable.')
+        if (active) setError(reason instanceof Error ? reason.message : 'Google sign-in isn’t working right now.')
       }
     })()
     return () => { active = false; host.current?.replaceChildren() }

@@ -32,7 +32,7 @@ const health: HealthProfile = { bloodGroup: 'O+', genotype: 'AA', allergies: nul
 const hid1 = { content: { blood_group: 'O+', genotype: 'AA', allergies: 'Penicillin' }, updatedAt: '2025-11-03T09:00:00Z' }
 
 /** Every section the profile has, in the order it shows them. 8 of the 12 completion items are done (67%). */
-const SECTIONS = ['About you', 'Insurance & hospital', 'Health information', 'From your old Health ID account', 'Verify your NIN']
+const SECTIONS = ['About you', 'Insurance & hospital', 'Health information', 'From your old Health ID account', 'Verify your NIN', 'Agreements']
 const HMO = 'HMO (health insurance) (optional)'
 const NIN = 'NIN (11 digits)'
 
@@ -378,7 +378,7 @@ describe('a link to a section of the profile', () => {
     await waitFor(() => expect(document.activeElement).toBe(title))
     // Main sends no hid-1.0 health details, so there is no section for them.
     expect(screen.getAllByRole('heading', { level: 2 })).toEqual(['Finish your profile', 'About you', 'Insurance & hospital', 'Health information',
-      'Verify your NIN', 'Settings'].map(name => heading(name)))
+      'Verify your NIN', 'Agreements', 'Settings'].map(name => heading(name)))
     expect(isOpen('Health information')).toBe(true)
     expect(within(content('Health information')).queryByRole('combobox', { name: 'Blood group' })).toBeNull()
     expect(within(content('Health information')).getByRole('button', { name: 'Add emergency contact' })).toBeTruthy()

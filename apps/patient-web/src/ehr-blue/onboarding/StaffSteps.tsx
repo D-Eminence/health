@@ -13,8 +13,8 @@ export function StaffStep({ shiftAssignment }: { readonly shiftAssignment: strin
   return <>
     <div className="hid-ehr-onboarding-embedded"><StaffAccess /></div>
     {shiftAssignment ? <>
-      <p className="hid-ehr-onboarding-text">Reporting hierarchies are optional. Shifts can be configured now or after launch.</p>
-      <p className="hid-ehr-onboarding-text"><Link className="hid-ehr-onboarding-link" to={shiftAssignment}>Create a shift assignment</Link></p>
+      <p className="hid-ehr-onboarding-text">Who reports to whom is optional. You can set shifts now or after launch.</p>
+      <p className="hid-ehr-onboarding-text"><Link className="hid-ehr-onboarding-link" to={shiftAssignment}>Add a shift</Link></p>
     </> : null}
   </>
 }
@@ -29,10 +29,10 @@ export function StaffStep({ shiftAssignment }: { readonly shiftAssignment: strin
  */
 export function RolesStep() {
   return <>
-    <EhrCard title="Role templates and permission scopes">
+    <EhrCard title="Roles and what each can do">
       <div className="hid-ehr-onboarding-stack">
         <EhrSampleBanner />
-        <p className="hid-ehr-onboarding-text">Administrative ownership never grants clinical signing, prescribing or dispensing rights.
+        <p className="hid-ehr-onboarding-text">Being an owner or admin never lets someone sign clinical notes, prescribe or dispense.
           Health ID’s own roles are the ones Staff & access offers below.</p>
         <div className="hid-ehr-onboarding-roles">
           {ROLE_TEMPLATES.map(role => (

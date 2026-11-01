@@ -71,28 +71,28 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
   return (
     <section className="mx-auto flex w-full max-w-xl flex-col gap-6 py-4" aria-labelledby="hid-ehr-blue-chooser-title">
       <div>
-        <p className="m-0 text-overline text-ink-3">Health ID · Hospital EHR</p>
-        <h1 id="hid-ehr-blue-chooser-title" ref={heading} tabIndex={-1} className="m-0 mt-1 text-title-1 text-ink outline-none" aria-describedby="hid-ehr-blue-chooser-why">
+        <h1 id="hid-ehr-blue-chooser-title" ref={heading} tabIndex={-1} className="m-0 text-title-1 text-ink outline-none" aria-describedby="hid-ehr-blue-chooser-why">
           {reason === 'switch' ? 'Switch facility' : 'Where are you working today?'}
         </h1>
         <p id="hid-ehr-blue-chooser-why" className="m-0 mt-1.5 text-sm text-ink-2">
-          {WHY[reason]} Patients, records and requests are those of the facility you choose.
+          {WHY[reason]}
           {activePatient && reason === 'switch' ? ' The open patient record will close.' : ''}
         </p>
       </div>
-      <ul className="m-0 flex list-none flex-col gap-1.5 rounded-2xl bg-tray p-1.5">
+      {/* One list on the page's own background, rows parted by hairlines; no row's button outranks another's. */}
+      <ul className="m-0 flex list-none flex-col divide-y divide-line overflow-hidden rounded-2xl p-0 ring-1 ring-line">
         {actor.facilities.map(facility => {
           const roles = (usesNovuBackend() ? roleLabels(facility.roles) : facility.roles.join(', ')) || 'Staff'
           const here = facility.id === current
           return (
-            <li key={facility.id} className="flex items-center gap-3 rounded-xl bg-surface p-4 ring-1 ring-line">
+            <li key={facility.id} className="flex items-center gap-3 p-4">
               <IconChip icon={Hospital} tone={here ? 'success' : 'brand'} />
               <div className="min-w-0 flex-1">
                 <h2 className="m-0 truncate text-title-3 text-ink">{facility.name}</h2>
                 <p className="m-0 mt-0.5 text-[13px] text-ink-3 capitalize">{roles}</p>
               </div>
               {here ? <Badge tone="success" size="sm">You’re here</Badge> : (
-                <Button variant="primary" size="sm" iconRight={ArrowRight} loading={busy === facility.id} disabled={busy !== null && busy !== facility.id}
+                <Button size="md" iconRight={ArrowRight} loading={busy === facility.id} disabled={busy !== null && busy !== facility.id}
                   aria-label={`Work at ${facility.name}`} onClick={() => void choose(facility.id, facility.name)}>
                   {busy === facility.id ? 'Opening…' : 'Work here'}
                 </Button>

@@ -21,7 +21,7 @@ vi.mock('../Turnstile', () => ({
 }))
 
 const NIN = '12345678901'
-const ENDED = /This registration is no longer open on this device/
+const ENDED = /This sign-up is no longer open on this device/
 const notFound = () => new HidApiError(404, 'No pending enrollment was found', { code: 'ENROLLMENT_NOT_FOUND' })
 const signOutFirst = () => new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
   { code: 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT' })
@@ -88,7 +88,7 @@ describe('an enrollment that ended on this device', () => {
   it('says, where it asks for a sign-out, that signing out ends an enrollment in progress here', async () => {
     api.enrollmentCurrent.mockRejectedValue(signOutFirst())
     render(<MemoryRouter><Enrollment /></MemoryRouter>)
-    expect(await screen.findByText(/Signing out also ends an enrollment in progress on this device/)).toBeTruthy()
-    expect(screen.getByText(/continue it by entering the same NIN before reloading this page/)).toBeTruthy()
+    expect(await screen.findByText(/Signing out also ends a sign-up in progress on this device/)).toBeTruthy()
+    expect(screen.getByText(/To continue it, enter the same NIN before you refresh this page/)).toBeTruthy()
   })
 })

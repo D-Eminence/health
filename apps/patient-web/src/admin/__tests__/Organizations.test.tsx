@@ -55,7 +55,7 @@ describe('organization applications', () => {
     expect(reject.disabled).toBe(true)
     fireEvent.change(within(item).getByLabelText('Reason for your decision'), { target: { value: 'Duplicate of an approved organization' } })
     fireEvent.click(reject)
-    fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
+    fireEvent.change(await screen.findByLabelText('Sign-in code'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm and continue' }))
     expect(await screen.findByText('Application rejected. The applicant was not given access.')).toBeTruthy()
     expect(mocks.api.rejectApplication).toHaveBeenCalledTimes(2)

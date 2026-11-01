@@ -216,9 +216,9 @@ describe('Profile completion, on the profile', () => {
     expect(screen.queryByRole('heading', { name: /^(Finish your profile|Profile complete)$/ })).toBeNull()
     expect(document.getElementById('profile-completion')).toBeNull()
     // Only the profile, and what the parts moved from Settings read for themselves (the emergency contacts in Health
-    // information, Delete account): nothing for the completion.
+    // information, Delete account), and the Agreements' own read: nothing for the completion.
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
-    expect(sent.filter(request => !/^\/identity\/me(\/emergency-contacts(\/availability)?|\/account-deletion)?$/.test(request.path))).toEqual([])
+    expect(sent.filter(request => !/^\/identity\/me(\/emergency-contacts(\/availability)?|\/account-deletion|\/consents)?$/.test(request.path))).toEqual([])
   })
 })
 

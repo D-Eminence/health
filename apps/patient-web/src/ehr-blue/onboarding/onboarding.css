@@ -15,6 +15,11 @@
   margin-bottom: 0;
 }
 
+/* "Step 3 of 9 · Departments" over a thin bar, as every multi-step flow shows it (AuthLayout's stepper). */
+.hid-ehr .hid-ehr-onboarding-progress { display: flex; flex-direction: column; gap: 8px; }
+.hid-ehr .hid-ehr-onboarding-bar { display: block; width: min(100%, 26rem); height: 4px; overflow: hidden; border-radius: 999px; background: var(--ehr-line); }
+.hid-ehr .hid-ehr-onboarding-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--ehr-brand); }
+
 /* The stepper: one row of the design's secondary buttons, 12px, scrolling sideways on a narrow screen. */
 .hid-ehr .hid-ehr-onboarding-stepper {
   display: flex;

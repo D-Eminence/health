@@ -27,17 +27,17 @@ export function NovuAdminSignIn({ onSignedIn, notice }: {
       await adminApi.novuLogin(email.trim(), password, token ?? '')
       setPassword('')
       try { await onSignedIn() }
-      catch (caught) { setError(caught instanceof Error ? caught.message : 'Platform administration could not be opened.') }
-    } catch (caught) { setError(failure(caught, 'Sign-in could not be completed.')) }
+      catch (caught) { setError(caught instanceof Error ? caught.message : 'We couldn’t open the admin area.') }
+    } catch (caught) { setError(failure(caught, 'We couldn’t sign you in.')) }
     finally { setPending(false); setToken(null); setResetKey(value => value + 1) }
   }
 
   return <AuthLayout brandTo="/admin/sign-in" brandLabel="Health ID platform administration"
-    title="Platform administration." titleId="admin-sign-in-title" titleAs="p"
-    lede="Access is limited to accounts with platform permissions.">
+    audience="admin" title={null} titleId="admin-sign-in-title" panelLabelledBy="admin-sign-in-title">
     {notice && <p role="status" className="admin-warning">{notice}</p>}
     <form onSubmit={event => void submit(event)} className="admin-auth-form">
-      <h1>Administration sign in</h1>
+      <h1 id="admin-sign-in-title">Administration sign in</h1>
+      <p>For Health ID admins.</p>
       <label>Email<input type="email" autoComplete="username" required value={email} onChange={event => setEmail(event.target.value)} /></label>
       <div className="admin-field"><label htmlFor="admin-password">Password</label><PasswordInput appearance="plain"
         id="admin-password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} /></div>

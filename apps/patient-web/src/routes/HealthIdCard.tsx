@@ -164,7 +164,7 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
  * follows it (through CSS variables, never React state). `medallion` replaces the portrait with a control (the photo
  * picker); `onAllergies` makes the allergies a button.
  */
-export function CardFace({ name, hid, verified, facts, allergies, onAllergies, medallion, face, label = 'Patient card', still = false }: {
+export function CardFace({ name, hid, verified, facts, allergies, onAllergies, medallion, face, label, still = false }: {
   name: string
   hid: ReactNode
   verified: boolean | null
@@ -213,7 +213,7 @@ export function CardFace({ name, hid, verified, facts, allergies, onAllergies, m
 
       {/* The top: the logo and what the card is. */}
       <img src={logoSrc} alt="Health ID" width={890} height={264} className="absolute top-[7.2cqw] left-[7.5cqw] h-[5.6cqw] w-auto brightness-0 invert" />
-      <span className="absolute top-[8.2cqw] right-[7.5cqw] text-[3cqw] leading-none font-medium tracking-[.12em] text-white/80 uppercase">{label}</span>
+      {label ? <span className="absolute top-[8.2cqw] right-[7.5cqw] text-[3cqw] leading-none font-medium tracking-[.12em] text-white/80 uppercase">{label}</span> : null}
 
       {/* The chip and the contactless mark, where a card has them. */}
       <span aria-hidden="true" className="absolute top-[19.5cqw] left-[7.5cqw] h-[8.6cqw] w-[11.2cqw] overflow-hidden rounded-[1.6cqw] [background:linear-gradient(135deg,#eef2f6_0%,#b9c2cc_40%,#e6ebf0_62%,#a7b0bb_100%)] shadow-[inset_0_0_0_1px_rgba(40,50,60,.35),0_1px_2px_rgba(0,0,0,.4)]">

@@ -42,7 +42,7 @@ function qrPath(text: string): { size: number; d: string } | null {
 export function OtpauthQr({ uri, className }: { uri: string; className?: string }) {
   const drawn = useMemo(() => qrPath(uri), [uri])
   if (!drawn) return null
-  return <svg className={className} role="img" aria-label="QR code of the setup key, for your authenticator app"
+  return <svg className={className} role="img" aria-label="Square code to scan with your code app"
     viewBox={`0 0 ${drawn.size} ${drawn.size}`} width={200} height={200} shapeRendering="crispEdges">
     <rect width={drawn.size} height={drawn.size} fill="#fff" />
     <path d={drawn.d} fill="#000" />

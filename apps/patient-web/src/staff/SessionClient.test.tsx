@@ -86,7 +86,7 @@ async function settle() {
 const routes = (sent: Sent[]) => sent.map(call => call.route)
 const auth = (sent: Sent[]) => routes(sent).filter(route => route.startsWith('POST /api/v1/auth/'))
 const client = (sent: Sent[], route: string) => sent.filter(call => call.route === route).map(call => call.headers.get('X-HID-Client'))
-const SIGNED_OUT = 'Welcome back.'
+const SIGNED_OUT = 'Welcome back'
 const SESSION_ENDED = 'Your session has ended'
 
 describe('the provider portal names itself on its cookie refresh and sign-out', () => {

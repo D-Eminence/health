@@ -101,7 +101,7 @@ async function stepShown(name: string) {
 const textbox = (name: string) => screen.getByRole('textbox', { name }) as HTMLInputElement
 const press = (name: string) => fireEvent.click(screen.getByRole('button', { name }))
 const type = (field: HTMLElement, value: string) => fireEvent.change(field, { target: { value } })
-const currentStep = () => screen.getByRole('list', { name: 'Clinician sign-up steps' }).querySelector('[aria-current="step"]')?.textContent
+const currentStep = () => screen.getByRole('group', { name: 'Clinician sign-up steps' }).textContent?.split(' · ')[1]
 
 async function toCode(email = ' Ada@Example.TEST ') {
   open()
@@ -114,7 +114,7 @@ async function toCode(email = ' Ada@Example.TEST ') {
 async function toDetails() {
   await toCode()
   type(textbox('6-digit code'), '123456')
-  press('Verify email')
+  press('Confirm email')
   await stepShown('Your details')
 }
 
@@ -132,21 +132,21 @@ async function toPassword() {
   await toDetails()
   await fillDetails()
   press('Continue')
-  await stepShown('Password and declarations')
+  await stepShown('Password and agreements')
 }
 
 function fillPassword(password = 'a-long-enough-password', confirm = password) {
   type(screen.getByLabelText(/^Password\*?$/), password)
   type(screen.getByLabelText(/^Confirm password\*?$/), confirm)
   fireEvent.click(screen.getByRole('checkbox', { name: /accurate, and this licence is mine/ }))
-  fireEvent.click(screen.getByRole('checkbox', { name: /HID may check my licence/ }))
+  fireEvent.click(screen.getByRole('checkbox', { name: /Health ID may check my licence/ }))
 }
 
 async function toAuthenticator() {
   await toPassword()
   fillPassword()
   press('Submit application')
-  await stepShown('Set up your authenticator')
+  await stepShown('Set up sign-in codes')
 }
 
 describe('clinician sign-up availability', () => {
@@ -154,27 +154,27 @@ describe('clinician sign-up availability', () => {
     api.availability.mockResolvedValueOnce({ open: false })
     open()
     expect(screen.getByRole('status').textContent).toBe('Checking whether clinician sign-up is open…')
-    expect(await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })).toBeTruthy()
-    expect(screen.getByText("You can't apply as a clinician on Health ID yet. If you already have a provider account, sign in.")).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Clinician sign-up is closed for now' })).toBeTruthy()
+    expect(screen.getByText('If you already have a provider account, sign in.')).toBeTruthy()
     // The page's own way to sign in, and the redesign's top-bar link: both lead to provider sign-in.
     expect(screen.getAllByRole('link', { name: 'Sign in' }).map(link => link.getAttribute('href'))).toEqual(['/provider/sign-in', '/provider/sign-in'])
     expect(screen.getByRole('link', { name: 'Check an application' }).getAttribute('href')).toBe('/provider/join/status')
     expect(screen.queryByRole('textbox', { name: 'Work email' })).toBeNull()
     expect(screen.queryByText("We couldn't check right now.")).toBeNull()
-    await waitFor(() => expect(document.title).toBe("Clinician sign-up isn't open yet · Health ID Provider"))
+    await waitFor(() => expect(document.title).toBe('Clinician sign-up is closed for now · Health ID Provider'))
   })
 
   it('treats a 404 as not open, with no retry', async () => {
     api.availability.mockRejectedValueOnce(problem(404, 'NOT_FOUND'))
     open()
-    expect(await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Clinician sign-up is closed for now' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
   })
 
   it('says it could not check on an outage, and checks again on Retry', async () => {
     api.availability.mockRejectedValueOnce(problem(503, 'PLATFORM_CONTROL_UNAVAILABLE'))
     open()
-    expect(await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Clinician sign-up is closed for now' })).toBeTruthy()
     expect(screen.getByText("We couldn't check right now.")).toBeTruthy()
     press('Retry')
     expect(await screen.findByRole('textbox', { name: 'Work email' })).toBeTruthy()
@@ -197,7 +197,7 @@ describe('clinician sign-up availability', () => {
     const first = await screen.findByText("We couldn't check right now.")
     press('Retry')
     await waitFor(() => expect(api.availability).toHaveBeenCalledTimes(2))
-    await stepShown("Clinician sign-up isn't open yet")
+    await stepShown('Clinician sign-up is closed for now')
     expect(screen.getByRole('alert')).not.toBe(first)
     expect(screen.getByRole('alert').textContent).toBe("We couldn't check right now.")
   })
@@ -208,7 +208,7 @@ describe('clinician sign-up availability', () => {
     expect(currentStep()).toBe('Email')
     await waitFor(() => expect(document.title).toBe('Clinician sign-up – Email · Health ID Provider'))
     // A facility administrator's account can't also hold a clinical role there: the redesign says it as one plain line.
-    expect(screen.getByText(/Use your own email address, not your facility's admin account\./)).toBeTruthy()
+    expect(screen.getByText(/Use your own email, not your facility’s admin account\./)).toBeTruthy()
   })
 
   it('links to the main site on a staff product host, with no form and no request', async () => {
@@ -240,7 +240,7 @@ describe('the email steps', () => {
     ['TURNSTILE_REQUIRED', 400, 'Complete the security check again.'],
     ['CLINICIAN_APPLICATION_RATE_LIMITED', 429, 'Too many sign-up attempts from your network. Try again later.'],
     ['PLATFORM_MAINTENANCE', 503, 'Health ID is under maintenance. Try again later.'],
-    ['CLINICIAN_APPLICATION_REQUIRES_SIGN_OUT', 409, "You're signed in to Health ID in this browser. Sign out, then come back to apply."],
+    ['CLINICIAN_APPLICATION_REQUIRES_SIGN_OUT', 409, "You're signed in to Health ID on this device. Sign out, then come back to apply."],
     ['CLINICIAN_APPLICATION_UNAVAILABLE', 503, "We couldn't send a code right now. Try again in a few minutes."],
   ])('says why a send was refused (%s), keeps the address and asks for a new check', async (code, status, message) => {
     api.sendCode.mockRejectedValueOnce(problem(status, code))
@@ -263,10 +263,10 @@ describe('the email steps', () => {
     type(await screen.findByRole('textbox', { name: 'Work email' }), 'ada@example.test')
     press('Complete check')
     press('Send code')
-    expect(await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Clinician sign-up is closed for now' })).toBeTruthy()
   })
 
-  it.each([['send', 'Send code'], ['check', 'Verify email']] as const)(
+  it.each([['send', 'Send code'], ['check', 'Confirm email']] as const)(
     'takes focus to the not-open screen and says why when sign-up closes at the %s', async (call, button) => {
       if (call === 'send') {
         api.sendCode.mockRejectedValueOnce(problem(503, 'CLINICIAN_SIGNUP_CLOSED'))
@@ -279,7 +279,7 @@ describe('the email steps', () => {
         type(textbox('6-digit code'), '123456')
       }
       press(button)
-      const heading = await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })
+      const heading = await screen.findByRole('heading', { level: 1, name: 'Clinician sign-up is closed for now' })
       await waitFor(() => expect(document.activeElement).toBe(heading))
       expect(screen.getByRole('alert').textContent).toBe("New clinician applications aren't open right now.")
       expect(screen.queryByRole('textbox', { name: 'Work email' })).toBeNull()
@@ -288,7 +288,7 @@ describe('the email steps', () => {
   it('neither takes focus nor alerts when the page opens with sign-up closed', async () => {
     api.availability.mockResolvedValueOnce({ open: false })
     open()
-    const heading = await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Clinician sign-up is closed for now' })
     expect(document.activeElement).not.toBe(heading)
     expect(screen.queryByRole('alert')).toBeNull()
   })
@@ -297,10 +297,10 @@ describe('the email steps', () => {
     api.verifyCode.mockRejectedValueOnce(problem(401, 'CLINICIAN_APPLICATION_CODE_INVALID'))
     await toCode()
     type(textbox('6-digit code'), '111111')
-    press('Verify email')
+    press('Confirm email')
     await waitFor(() => expect(document.activeElement).toBe(textbox('6-digit code')))
     expect(textbox('6-digit code').value).toBe('')
-    expect(screen.getByText('That code is wrong or has expired. Check your latest email or send a new code.')).toBeTruthy()
+    expect(screen.getByText('That code is wrong or too old. Check your latest email or send a new code.')).toBeTruthy()
     expect(textbox('6-digit code').getAttribute('aria-invalid')).toBe('true')
     expect(api.verifyCode).toHaveBeenCalledWith('challenge-1', 'ada@example.test', '111111')
   })
@@ -320,7 +320,7 @@ describe('the email steps', () => {
     await waitFor(() => expect(screen.getByRole('status').textContent)
       .toBe("If this address can be used, we've sent a 6-digit code to ada@example.test. It expires in 10 minutes."))
     type(textbox('6-digit code'), '222222')
-    press('Verify email')
+    press('Confirm email')
     await waitFor(() => expect(api.verifyCode).toHaveBeenCalledWith('challenge-2', 'ada@example.test', '222222'))
   })
 
@@ -335,13 +335,13 @@ describe('the email steps', () => {
     api.verifyCode.mockRejectedValueOnce(problem(409, 'CLINICIAN_EMAIL_IN_USE'))
     await toCode()
     type(textbox('6-digit code'), '123456')
-    press('Verify email')
+    press('Confirm email')
     await stepShown('Use a different email address')
     expect(screen.getByRole('alert').textContent).toBe('This email address already has a Health ID account.')
     expect(screen.getByText(/Clinician accounts need their own address/)).toBeTruthy()
     // The page's own way to sign in, and the redesign's top-bar link: both lead to provider sign-in.
     expect(screen.getAllByRole('link', { name: 'Sign in' }).map(link => link.getAttribute('href'))).toEqual(['/provider/sign-in', '/provider/sign-in'])
-    expect(screen.getByRole('link', { name: 'Forgot your password?' }).getAttribute('href')).toBe('/provider/recover')
+    expect(screen.getByRole('link', { name: 'Forgot password?' }).getAttribute('href')).toBe('/provider/recover')
     expect(screen.getByRole('link', { name: 'Check an application' }).getAttribute('href')).toBe('/provider/join/status')
     press('Use a different email address')
     await stepShown('Your work email')
@@ -374,7 +374,7 @@ describe('your details', () => {
     const choices = within(screen.getByRole('group', { name: 'Choose your facility' })).getAllByRole('radio')
     expect(choices).toHaveLength(2)
     expect(screen.getByText("My facility isn't listed")).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'provider enrollment' }).getAttribute('href')).toBe('/provider/enroll')
+    expect(screen.getByRole('link', { name: 'facility sign-up' }).getAttribute('href')).toBe('/provider/enroll')
   })
 
   it('keeps what was changed while a facility search was running', async () => {
@@ -397,10 +397,10 @@ describe('your details', () => {
     expect((screen.getByLabelText(/^Licence valid until/) as HTMLInputElement).value).toBe(LATER)
     expect((screen.getByRole('radio', { name: /Lagos Island Clinic/ }) as HTMLInputElement).checked).toBe(true)
     press('Continue')
-    await stepShown('Password and declarations')
+    await stepShown('Password and agreements')
     fillPassword()
     press('Submit application')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     expect(api.submit).toHaveBeenCalledWith(expect.objectContaining({ profession: 'nurse', regulator: 'NMCN', licenceNumber: 'NMCN/778899',
       licenceValidUntil: LATER, facilityId: OTHER.facilityId }), 'submission-key-1')
   })
@@ -448,7 +448,7 @@ describe('your details', () => {
     press('Send code')
     await stepShown('Enter the 6-digit code')
     type(textbox('6-digit code'), '123456')
-    press('Verify email')
+    press('Confirm email')
     await stepShown('Your details')
     expect(textbox('Licence or registration number').value).toBe('MDCN/12345')
     expect((screen.getByRole('radio', { name: /Lagos General Hospital/ }) as HTMLInputElement).checked).toBe(true)
@@ -466,10 +466,10 @@ describe('your details', () => {
     press('Search facilities')
     await screen.findByRole('button', { name: 'Confirm email again' })
     press('Continue')
-    await stepShown('Password and declarations')
+    await stepShown('Password and agreements')
     fillPassword()
     press('Submit application')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     expect(api.submit).toHaveBeenCalledWith(expect.objectContaining({ facilityId: FACILITY.facilityId }), 'submission-key-1')
   })
 
@@ -515,7 +515,7 @@ describe('your details', () => {
     // Lagos today + 5 years is the last date Identity takes.
     type(date, '2031-10-16')
     press('Continue')
-    await stepShown('Password and declarations')
+    await stepShown('Password and agreements')
   })
 
   it('keeps the five-year limit on a real date when today in Lagos is 29 February', async () => {
@@ -540,7 +540,7 @@ describe('the password, declarations and submit', () => {
     expect(within(summary).getAllByRole('link').map(link => link.textContent)).toEqual([
       'Choose a password of at least 12 characters.', 'Type the same password again.',
       'Confirm that the information is accurate and the licence is yours.', 'Agree to the licence, identity and employment checks.'])
-    expect(screen.getByText(/HID may check my licence with Medical and Dental Council of Nigeria \(MDCN\), contact me by video call/)).toBeTruthy()
+    expect(screen.getByText(/Health ID may check my licence with Medical and Dental Council of Nigeria \(MDCN\), contact me by video call/)).toBeTruthy()
     expect(screen.getByText(/contact Lagos General Hospital to confirm that I work there/)).toBeTruthy()
     expect(api.submit).not.toHaveBeenCalled()
   })
@@ -549,13 +549,13 @@ describe('the password, declarations and submit', () => {
     await toPassword()
     fillPassword()
     press('Submit application')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     expect(api.submit).toHaveBeenCalledTimes(1)
     expect(api.submit).toHaveBeenCalledWith({ email: 'ada@example.test', fullName: 'Ada Obi', password: 'a-long-enough-password',
       profession: 'doctor', regulator: 'MDCN', licenceNumber: 'MDCN/12345', licenceValidUntil: VALID_UNTIL,
       facilityId: FACILITY.facilityId, declarations: { accurate: true, verificationConsent: true } }, 'submission-key-1')
     expect(document.body.innerHTML).not.toContain('a-long-enough-password')
-    expect(currentStep()).toBe('Authenticator')
+    expect(currentStep()).toBe('Sign-in codes')
   })
 
   it('keeps everything on an outage and sends the same submission again with its key', async () => {
@@ -571,7 +571,7 @@ describe('the password, declarations and submit', () => {
     type(screen.getByLabelText(/^Password\*?$/), 'a-long-enough-password')
     type(screen.getByLabelText(/^Confirm password\*?$/), 'a-long-enough-password')
     press('Submit application')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     expect(api.submit.mock.calls.map(call => call[1])).toEqual(['submission-key-1', 'submission-key-1'])
   })
 
@@ -616,7 +616,7 @@ describe('the password, declarations and submit', () => {
     type(screen.getByLabelText(/^Password\*?$/), 'a-long-enough-password')
     type(screen.getByLabelText(/^Confirm password\*?$/), 'a-long-enough-password')
     press('Submit application')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     expect(api.submit.mock.calls.map(call => call[1])).toEqual(['submission-key-1', 'submission-key-1'])
     const said = screen.getByText('Your application was already received from your earlier attempt, with the password you entered then.')
     expect(said.getAttribute('role')).toBe('status')
@@ -637,11 +637,11 @@ describe('the password, declarations and submit', () => {
     await stepShown('Your details')
     type(textbox('Licence or registration number'), 'MDCN/54321')
     press('Continue')
-    await stepShown('Password and declarations')
+    await stepShown('Password and agreements')
     type(screen.getByLabelText(/^Password\*?$/), 'a-long-enough-password')
     type(screen.getByLabelText(/^Confirm password\*?$/), 'a-long-enough-password')
     press('Submit application')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     expect(api.submit.mock.calls.map(call => call[1])).toEqual(['submission-key-1', 'submission-key-2'])
   })
 
@@ -664,7 +664,7 @@ describe('the password, declarations and submit', () => {
     press('Send code')
     await stepShown('Enter the 6-digit code')
     type(textbox('6-digit code'), '123456')
-    press('Verify email')
+    press('Confirm email')
     await stepShown('Your details')
     expect(textbox('Licence or registration number').value).toBe('MDCN/12345')
     expect(textbox('Full name as on your licence').value).toBe('  Ada   Obi ')
@@ -683,13 +683,13 @@ describe('the password, declarations and submit', () => {
   })
 
   it.each([
-    ['CLINICIAN_APPLICATION_FACILITY_BUSY', 409, 'This facility has many applications waiting. Try again in a few days or contact HID support.'],
+    ['CLINICIAN_APPLICATION_FACILITY_BUSY', 409, 'This facility has many applications waiting. Try again in a few days or contact Health ID support.'],
     // A quota of the network or of Health ID, or (since hid-system 9e981e4) the platform's daily cap met as the application is created.
     ['CLINICIAN_APPLICATION_RATE_LIMITED', 429, 'Too many applications have been sent, from your network or to Health ID today. '
       + 'Your details are still here; try again later.'],
     ['PLATFORM_MAINTENANCE', 503, 'Health ID is under maintenance. Your details are still here; try again later.'],
     ['CLINICIAN_SIGNUP_CLOSED', 503, "New clinician applications aren't open right now. Your details are still here; try again later."],
-    ['CLINICIAN_APPLICATION_REQUIRES_SIGN_OUT', 409, "You're signed in to Health ID in this browser. Sign out, then come back to apply."],
+    ['CLINICIAN_APPLICATION_REQUIRES_SIGN_OUT', 409, "You're signed in to Health ID on this device. Sign out, then come back to apply."],
     ['PASSWORD_INVALID', 400, 'Choose a password of 12 to 256 characters.'],
   ])('says why a submit was refused (%s) and stays', async (code, status, message) => {
     api.submit.mockRejectedValueOnce(problem(status, code))
@@ -697,7 +697,7 @@ describe('the password, declarations and submit', () => {
     fillPassword()
     press('Submit application')
     expect((await screen.findByRole('alert')).textContent).toBe(message)
-    expect(screen.getByRole('heading', { name: 'Password and declarations' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Password and agreements' })).toBeTruthy()
   })
 
   it.each([
@@ -731,22 +731,22 @@ describe('the password, declarations and submit', () => {
 describe('the authenticator, before any review', () => {
   it('sets it up with an emailed code, a QR code and its first code, shows the recovery codes once, then says what happens next', async () => {
     await toAuthenticator()
-    expect(screen.getByText(/One more step: set up an authenticator app. First we'll email another 6-digit code to ada@example.test/)).toBeTruthy()
+    expect(screen.getByText(/One more step: set up a code app on your phone \(like Google Authenticator\)\. First we'll email another 6-digit code to ada@example.test/)).toBeTruthy()
     press('Email me a code')
     await stepShown('Enter the code we emailed you')
     type(textbox('Email code'), '654321')
     press('Continue')
-    await stepShown('Add Health ID to your authenticator app')
+    await stepShown('Add Health ID to your code app')
     expect(api.authenticator.start).toHaveBeenCalledWith('654321')
-    expect(screen.getByRole('img', { name: 'QR code of the setup key, for your authenticator app' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: 'Square code to scan with your code app' })).toBeTruthy()
     expect(screen.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeTruthy()
-    type(textbox('Authenticator code'), '112233')
-    press('Activate authenticator')
-    await stepShown('Save your recovery codes')
+    type(textbox('Sign-in code'), '112233')
+    press('Turn on sign-in codes')
+    await stepShown('Save your backup codes')
     expect(api.authenticator.activate).toHaveBeenCalledWith('112233')
     expect(document.body.textContent).not.toContain(SECRET.slice(0, 4) + ' ' + SECRET.slice(4, 8))
     for (const code of RECOVERY_CODES) expect(screen.getByText(code)).toBeTruthy()
-    fireEvent.click(screen.getByRole('checkbox', { name: 'I have stored these recovery codes somewhere safe' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I have saved these backup codes somewhere safe' }))
     press('Continue to your application')
     await stepShown('Application submitted')
     expect(currentStep()).toBe('Done')
@@ -763,10 +763,10 @@ describe('the authenticator, before any review', () => {
     api.authenticator.sendEmailCode.mockRejectedValueOnce(problem(401, 'MFA_CHALLENGE_INVALID'))
     await toAuthenticator()
     press('Email me a code')
-    await stepShown('Start the authenticator step')
-    expect(screen.getByRole('alert').textContent).toBe('This step expired. Start it again.')
+    await stepShown('Start the sign-in code step')
+    expect(screen.getByRole('alert').textContent).toBe('This step timed out. Start it again.')
     press('Start again')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
     expect(api.authenticator.reopen).toHaveBeenCalledTimes(1)
   })
 
@@ -775,9 +775,9 @@ describe('the authenticator, before any review', () => {
     await toPassword()
     fillPassword()
     press('Submit application')
-    await stepShown('Start the authenticator step')
+    await stepShown('Start the sign-in code step')
     press('Start again')
-    await stepShown('Set up your authenticator')
+    await stepShown('Set up sign-in codes')
   })
 
   it('stays on the step through an outage, and never leaves the page', async () => {
@@ -785,7 +785,7 @@ describe('the authenticator, before any review', () => {
     await toAuthenticator()
     press('Email me a code')
     expect((await screen.findByRole('alert')).textContent).toBe("We couldn't complete this step right now. Try again in a few minutes.")
-    expect(screen.getByRole('heading', { name: 'Set up your authenticator' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Set up sign-in codes' })).toBeTruthy()
     expect(screen.getByTestId('where').textContent).toBe('/provider/join')
   })
 
@@ -794,7 +794,7 @@ describe('the authenticator, before any review', () => {
     await toAuthenticator()
     press('Email me a code')
     expect((await screen.findByRole('alert')).textContent)
-      .toBe('Your authenticator was set up at platform sign-in. Contact HID support to reset it.')
+      .toBe('Your code app was set up for admin sign-in. Contact Health ID support to reset it.')
   })
 
   it('sends the person to the status page when the application page has closed', async () => {
@@ -814,11 +814,11 @@ describe('closing the page once the application is submitted', () => {
     await stepShown('Enter the code we emailed you')
     type(textbox('Email code'), '654321')
     press('Continue')
-    await stepShown('Add Health ID to your authenticator app')
-    type(textbox('Authenticator code'), '112233')
-    press('Activate authenticator')
-    await stepShown('Save your recovery codes')
-    fireEvent.click(screen.getByRole('checkbox', { name: 'I have stored these recovery codes somewhere safe' }))
+    await stepShown('Add Health ID to your code app')
+    type(textbox('Sign-in code'), '112233')
+    press('Turn on sign-in codes')
+    await stepShown('Save your backup codes')
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I have saved these backup codes somewhere safe' }))
     press('Continue to your application')
     await stepShown('Application submitted')
   }
@@ -858,7 +858,7 @@ describe('closing the page at the authenticator step', () => {
     await waitFor(() => expect(document.activeElement).toBe(closed))
     expect(closed.getAttribute('role')).toBe('status')
     expect(api.endSession).toHaveBeenCalledTimes(1)
-    expect(screen.queryByRole('heading', { name: 'Set up your authenticator' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Set up sign-in codes' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Close this page' })).toBeNull()
     expect(screen.getByRole('link', { name: 'Check your application' }).getAttribute('href')).toBe('/provider/join/status')
   })
@@ -869,7 +869,7 @@ describe('closing the page at the authenticator step', () => {
     press('Close this page')
     expect((await screen.findByRole('alert')).textContent).toBe("This page couldn't be closed right now. Try again.")
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close this page' })))
-    expect(screen.getByRole('heading', { name: 'Set up your authenticator' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Set up sign-in codes' })).toBeTruthy()
   })
 
   it('has focus on “This page is closed” as soon as it is shown', async () => {
@@ -903,10 +903,10 @@ describe('closing the page at the authenticator step', () => {
     expect(screen.getByRole('button', { name: 'Close this page' })).toBeTruthy()
     type(textbox('Email code'), '654321')
     press('Continue')
-    await stepShown('Add Health ID to your authenticator app')
-    type(textbox('Authenticator code'), '112233')
-    press('Activate authenticator')
-    await stepShown('Save your recovery codes')
+    await stepShown('Add Health ID to your code app')
+    type(textbox('Sign-in code'), '112233')
+    press('Turn on sign-in codes')
+    await stepShown('Save your backup codes')
     expect(screen.queryByRole('button', { name: 'Close this page' })).toBeNull()
   })
 })

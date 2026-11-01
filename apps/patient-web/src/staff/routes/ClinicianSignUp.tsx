@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Field, PasswordInput } from '@hid/ui'
+import { PasswordRules } from '../../PasswordRules'
 import { useDocumentTitle } from '../../authSteps'
 import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_RECOVERY_PATH, clinicianMainSiteHref } from '../../productHostname'
 import { servesClinicianApplications } from '../../backendContract'
@@ -12,6 +13,7 @@ import { Declarations, DetailsFields, EMPTY_DETAILS, applicationDetails, declara
 import { EmailCode } from '../clinician/EmailCode'
 import { APPLICATIONS_LIMITED, FACILITY_UNAVAILABLE, PROFESSION_NAME, REGULATOR_NAME, SIGNUP_CLOSED, SIGNUP_CLOSED_KEPT,
   SIGNUP_SEARCHES_USED, codeOf, codeSentCopy, formatDate, isUnavailable, refusalCopy } from '../clinician/copy'
+import { AuthStepper } from '../../AuthLayout'
 import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, StepHeading, TextButton, fieldError, shownError,
   type Problem } from '../clinician/ui'
 import { buttonClass } from '../../kasuwa/ui'
@@ -29,7 +31,7 @@ import { buttonClass } from '../../kasuwa/ui'
 
 type Step = 'email' | 'code' | 'details' | 'password' | 'authenticator' | 'done'
 const STEPS: ReadonlyArray<readonly [Step, string]> = [['email', 'Email'], ['code', 'Code'], ['details', 'Your details'],
-  ['password', 'Password'], ['authenticator', 'Authenticator'], ['done', 'Done']]
+  ['password', 'Password'], ['authenticator', 'Sign-in codes'], ['done', 'Done']]
 const label = (step: Step) => STEPS.find(([name]) => name === step)![1]
 
 /** Another screen in place of the step: the address has an account, the email proof expired, or the page closed. */
@@ -80,7 +82,7 @@ function SignUp() {
   const submission = useRef<{ key: string; fingerprint: string } | null>(null)
 
   useDocumentTitle(availability === 'loading' ? 'Clinician sign-up · Health ID Provider'
-    : availability !== 'open' ? "Clinician sign-up isn't open yet · Health ID Provider"
+    : availability !== 'open' ? 'Clinician sign-up is closed for now · Health ID Provider'
       : `Clinician sign-up – ${label(step)} · Health ID Provider`)
 
   // In the commit that shows the refusal, not an effect a task later: a check made as soon as it is shown finds the focus moved.
@@ -243,9 +245,9 @@ function SignUp() {
   }
   if (availability !== 'open') {
     return <ClinicianFrame labelledBy="clinician-signup-title">
-      <StepHeading id="clinician-signup-title" level={1} focus={moved}>Clinician sign-up isn't open yet</StepHeading>
+      <StepHeading id="clinician-signup-title" level={1} focus={moved}>Clinician sign-up is closed for now</StepHeading>
       {moved && availability === 'closed' && <p role="alert" className="patient-inline-error">{SIGNUP_CLOSED}</p>}
-      <p className="patient-page-copy">You can't apply as a clinician on Health ID yet. If you already have a provider account, sign in.</p>
+      <p className="patient-page-copy">If you already have a provider account, sign in.</p>
       {availability === 'failed' && <div className="clinician-panel">
         <p role="alert" className="patient-inline-error">We couldn't check right now.</p>
         {/* The check replaces this screen, Retry with it: what is shown next (a step, or this screen again) takes focus. */}
@@ -262,13 +264,9 @@ function SignUp() {
   const facilityName = details.facility?.name ?? 'your facility'
 
   return <ClinicianFrame labelledBy="clinician-signup-title">
+    <AuthStepper label="Clinician sign-up steps" steps={STEPS.map(([name, text]) => ({ label: text, current: name === step }))} />
     <h1 id="clinician-signup-title" className="patient-page-title">Apply as a doctor or nurse</h1>
-    <p className="patient-page-copy">Apply to work as a doctor or nurse on Health ID. You'll set up an authenticator app as you apply.
-      Health ID checks your licence and calls you to confirm it's you. Use your own email address, not your facility's admin account.</p>
-
-    <ol className="patient-step-list clinician-steps" aria-label="Clinician sign-up steps">
-      {STEPS.map(([name, text]) => <li key={name} aria-current={name === step ? 'step' : undefined}>{text}</li>)}
-    </ol>
+    <p className="patient-page-copy">Use your own email, not your facility’s admin account. We check your licence and call you to confirm it’s you.</p>
 
     {screen === 'in-use' && <section className="clinician-panel" aria-labelledby="clinician-in-use-title">
       <StepHeading id="clinician-in-use-title" focus>Use a different email address</StepHeading>
@@ -277,7 +275,7 @@ function SignUp() {
         different email.</p>
       <ul className="clinician-links">
         <li><Link to="/provider/sign-in">Sign in</Link></li>
-        <li><Link to={STAFF_RECOVERY_PATH}>Forgot your password?</Link></li>
+        <li><Link to={STAFF_RECOVERY_PATH}>Forgot password?</Link></li>
         <li><Link to={CLINICIAN_STATUS_PATH}>Check an application</Link></li>
       </ul>
       <div><PrimaryButton onClick={differentEmail}>Use a different email address</PrimaryButton></div>
@@ -296,14 +294,14 @@ function SignUp() {
 
     {screen === 'ended' && <section className="clinician-panel" aria-labelledby="clinician-ended-title">
       <StepHeading id="clinician-ended-title" focus>This page has closed</StepHeading>
-      <p>For your security, this page closed after 30 minutes. Your application is saved: check your application to finish setting up
-        your authenticator. HID can't review it until you do.</p>
+      <p>For your safety, this page closed after 30 minutes. Your application is saved. Check your application to finish setting up
+        your code app. Health ID can't review it until you do.</p>
       <div><Link className={buttonClass({ variant: 'primary', block: true })} to={CLINICIAN_STATUS_PATH}>Check your application</Link></div>
     </section>}
 
     {screen === 'steps' && (step === 'email' || step === 'code') && <EmailCode key={emailRound} idPrefix="clinician-signup"
       action="clinician-application" email={email} onEmail={setEmail} focusFirst={moved}
-      copy={{ emailHeading: 'Your work email', codeInvalid: 'That code is wrong or has expired. Check your latest email or send a new code.',
+      copy={{ emailHeading: 'Your work email', codeInvalid: 'That code is wrong or too old. Check your latest email or send a new code.',
         sent: codeSentCopy,
         emailIntro: <p className="patient-field-hint">We'll send a 6-digit code to confirm it. Use an address only you can read: it becomes
           your provider sign-in.</p> }}
@@ -324,18 +322,19 @@ function SignUp() {
 
     {screen === 'steps' && step === 'password' && <form className="patient-form" aria-labelledby="clinician-password-title" noValidate
       aria-busy={busy} onSubmit={event => void submit(event)}>
-      <StepHeading id="clinician-password-title" focus>Password and declarations</StepHeading>
+      <StepHeading id="clinician-password-title" focus>Password and agreements</StepHeading>
       <p className="patient-field-hint">Choose the password you'll sign in with once your access is turned on. All fields are required.</p>
       <StepError error={error} />
       <ErrorSummary problems={problems} focusKey={summaryKey} />
-      <Field label="Password" htmlFor="clinician-password" hint="At least 12 characters." error={fieldError(problems, 'clinician-password')} required>
+      <Field label="Password" htmlFor="clinician-password" error={fieldError(problems, 'clinician-password')} required>
         <PasswordInput id="clinician-password" autoComplete="new-password" maxLength={256} value={password}
-          onChange={event => setPassword(event.target.value)} />
+          aria-describedby="clinician-password-rules" onChange={event => setPassword(event.target.value)} />
       </Field>
       <Field label="Confirm password" htmlFor="clinician-password-confirm" error={fieldError(problems, 'clinician-password-confirm')} required>
         <PasswordInput id="clinician-password-confirm" toggleLabel="Show confirmed password" autoComplete="new-password" maxLength={256} value={confirm}
           onChange={event => setConfirm(event.target.value)} />
       </Field>
+      <PasswordRules id="clinician-password-rules" password={password} confirm={confirm} />
       <Declarations accurate={accurate} consent={consent} onAccurate={setAccurate} onConsent={setConsent} regulator={regulator}
         facility={facilityName} problems={problems} />
       <div className="clinician-actions">
@@ -360,7 +359,7 @@ function SignUp() {
       </div>} />}
     {screen === 'steps' && step === 'authenticator' && pageState === 'closed' && <section className="clinician-panel">
       <p id="clinician-signup-closed" tabIndex={-1} role="status" className="patient-inline-success">This page is closed on this device.
-        Your application is saved: to set up your authenticator, enter your email on the status page. HID can't review your
+        Your application is saved. To set up your code app, enter your email on the status page. Health ID can't review your
         application until you do.</p>
       <div><Link className={buttonClass({ variant: 'primary', block: true })} to={CLINICIAN_STATUS_PATH}>Check your application</Link></div>
     </section>}
@@ -372,7 +371,7 @@ function SignUp() {
         <dt>Profession</dt><dd>{PROFESSION_NAME[submitted.profession] ?? submitted.profession}</dd>
         {formatDate(submitted.expiresAt) && <><dt>Kept open until</dt><dd>{formatDate(submitted.expiresAt)}</dd></>}
       </dl>
-      <p className="patient-page-copy">Health ID will call you for a short video check. Have your photo ID and your authenticator app
+      <p className="patient-page-copy">Health ID will call you for a short video check. Have your photo ID and your code app
         ready. You can sign in once you're approved. We keep applications open for 30 days.</p>
       <div><Link className={buttonClass({ variant: 'primary', block: true })} to={CLINICIAN_STATUS_PATH}>View application status</Link></div>
       <p className="patient-page-copy">This page stays open on this device for up to 30 minutes, so your application can be checked here
@@ -386,7 +385,7 @@ function SignUp() {
     </section>}
 
     <p className="patient-auth-footer">Already applied? <Link to={CLINICIAN_STATUS_PATH}>Check an application's status</Link>.
-      {' '}Have provider access? <Link to="/provider/sign-in">Sign in to the provider portal</Link>.</p>
+      {' '}Have provider access? <Link to="/provider/sign-in">Sign in to the provider site</Link>.</p>
   </ClinicianFrame>
 }
 

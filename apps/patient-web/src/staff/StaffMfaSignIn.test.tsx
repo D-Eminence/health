@@ -51,10 +51,10 @@ const codeSent = () => json({ accepted: true, channel: 'email', expiresAt: '2026
 const RECOVERY_CODES = ['ABCDE-FGHJK', 'MNPQR-STVWX', '01234-56789']
 const activated = () => json({ ...sessionBody, recoveryCodes: RECOVERY_CODES })
 
-const CHALLENGE_SPENT = 'This sign-in step expired or ran out of attempts. Sign in again.'
-const FACTOR_UNPROVEN = 'This authenticator was set up for Health ID admin sign-in, so it can’t be used here. '
+const CHALLENGE_SPENT = 'This step timed out or had too many tries. Sign in again.'
+const FACTOR_UNPROVEN = 'This code app was set up for Health ID admin sign-in, so it can’t be used here. '
   + 'Ask Health ID support to reset it, then sign in here to set it up again.'
-const MFA_UNAVAILABLE = 'Staff sign-in with an authenticator is temporarily unavailable. '
+const MFA_UNAVAILABLE = 'Staff sign-in codes aren’t working right now. '
   + 'Try again later, or contact your administrator if this continues.'
 
 /** Serves each `METHOD /path` from its own queue and records every request with its body. */
@@ -90,7 +90,7 @@ function Where() {
 async function openSignIn(path = '/provider/sign-in') {
   const { App } = await import('./App')
   render(<MemoryRouter initialEntries={[path]}><Where /><Routes><Route path="/provider/*" element={<App />} /></Routes></MemoryRouter>)
-  expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
 }
 
 function signIn() {
@@ -149,12 +149,12 @@ describe('the authenticator code (mfa_required)', () => {
     await openSignIn('/provider/sign-in?returnTo=%2Fprovider%2Frequests')
     signIn()
 
-    await stepShown('Verify it’s you')
-    expect(screen.getByText('Enter the 6-digit code from your authenticator app.')).toBeTruthy()
+    await stepShown('Confirm it’s you')
+    expect(screen.getByText('Enter the 6-digit code from your code app.')).toBeTruthy()
     expect(screen.getByText(/^This step expires at /)).toBeTruthy()
     expect(screen.queryByLabelText(/^Password/)).toBeNull()
-    type('Authenticator code', '12a34 56')
-    expect(field('Authenticator code').value).toBe('123456')
+    type('Sign-in code', '12a34 56')
+    expect(field('Sign-in code').value).toBe('123456')
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
 
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider/requests'))
@@ -169,13 +169,13 @@ describe('the authenticator code (mfa_required)', () => {
       [VERIFY]: [() => json(sessionBody)], [REQUESTS]: [() => json([])] })
     await openSignIn()
     signIn()
-    await stepShown('Verify it’s you')
+    await stepShown('Confirm it’s you')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Use a recovery code instead' }))
-    await waitFor(() => expect(document.activeElement).toBe(field('Recovery code')))
-    expect(screen.getByText('Enter one of your recovery codes. Each recovery code works once.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Use a backup code instead' }))
+    await waitFor(() => expect(document.activeElement).toBe(field('Backup code')))
+    expect(screen.getByText('Enter one of your backup codes. Each one works once.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Verify' })).toHaveProperty('disabled', true)
-    type('Recovery code', ' abcde-fghjk ')
+    type('Backup code', ' abcde-fghjk ')
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
 
     expect(await screen.findByRole('button', { name: 'Sign out' })).toBeTruthy()
@@ -187,20 +187,20 @@ describe('the authenticator code (mfa_required)', () => {
       [VERIFY]: [problem(401, 'MFA_INVALID_CODE', 'The code is not valid')] })
     await openSignIn()
     signIn()
-    await stepShown('Verify it’s you')
-    type('Authenticator code', '123456')
+    await stepShown('Confirm it’s you')
+    type('Sign-in code', '123456')
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
 
-    const message = 'That code was not accepted. Each code works once: wait for the next code in your authenticator app, then try again.'
+    const message = 'That code didn’t work. Each code works once. Wait for the next code in your code app, then try again.'
     expect(await screen.findByText(message)).toBeTruthy()
-    const code = field('Authenticator code')
+    const code = field('Sign-in code')
     expect(code.value).toBe('')
     expect(code.getAttribute('aria-invalid')).toBe('true')
     const described = (code.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent)
     expect(described).toContain(message)
     // Said in the field's error colour, not the step's grey. Focus moving to the field says it, so it is no live region.
     expect(expectFieldError('staff-mfa-code', message).getAttribute('role')).toBeNull()
-    expect(pageDeclares(screen.getByText('Enter the 6-digit code from your authenticator app.'), 'color')).toEqual(['var(--color-muted)'])
+    expect(pageDeclares(screen.getByText('Enter the 6-digit code from your code app.'), 'color')).toEqual(['var(--color-muted)'])
     await waitFor(() => expect(document.activeElement).toBe(code))
     // A 401 on a sign-in step is never refreshed, nor taken for the end of a session.
     expect(calls).toEqual([SESSION, REFRESH, LOGIN, VERIFY])
@@ -212,13 +212,13 @@ describe('the authenticator code (mfa_required)', () => {
       [VERIFY]: [problem(401, 'MFA_INVALID_CODE')] })
     await openSignIn()
     signIn()
-    await stepShown('Verify it’s you')
-    const code = field('Authenticator code')
+    await stepShown('Confirm it’s you')
+    const code = field('Sign-in code')
     code.focus()
-    type('Authenticator code', '123456')
+    type('Sign-in code', '123456')
     fireEvent.submit(code)
 
-    const message = 'That code was not accepted. Each code works once: wait for the next code in your authenticator app, then try again.'
+    const message = 'That code didn’t work. Each code works once. Wait for the next code in your code app, then try again.'
     expect(await alertText()).toBe(message)
     expect(document.activeElement).toBe(code)
     // The alert is the field's error, in its error colour.
@@ -230,12 +230,12 @@ describe('the authenticator code (mfa_required)', () => {
       [VERIFY]: [problem(429, 'MFA_RATE_LIMITED')] })
     await openSignIn()
     signIn()
-    await stepShown('Verify it’s you')
-    type('Authenticator code', '123456')
+    await stepShown('Confirm it’s you')
+    type('Sign-in code', '123456')
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
 
-    expect(await alertText()).toBe('Too many incorrect codes. Codes are refused for up to 15 minutes, even a correct one. Try again later.')
-    expect(screen.getByRole('heading', { name: 'Verify it’s you' })).toBeTruthy()
+    expect(await alertText()).toBe('Too many wrong codes. No code works for up to 15 minutes, not even the right one. Try again later.')
+    expect(screen.getByRole('heading', { name: 'Confirm it’s you' })).toBeTruthy()
   })
 
   it.each([
@@ -246,11 +246,11 @@ describe('the authenticator code (mfa_required)', () => {
       [VERIFY]: [problem(status, code)] })
     await openSignIn()
     signIn()
-    await stepShown('Verify it’s you')
-    type('Authenticator code', '123456')
+    await stepShown('Confirm it’s you')
+    type('Sign-in code', '123456')
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
 
-    await stepShown('Welcome back.')
+    await stepShown('Welcome back')
     expect(await alertText()).toBe(message)
     // The work email is kept; the password is asked for again.
     expect((screen.getByRole('textbox', { name: 'Work email' }) as HTMLInputElement).value).toBe('ada@example.test')
@@ -263,12 +263,12 @@ describe('the authenticator code (mfa_required)', () => {
       [VERIFY]: [problem(503, 'MFA_UNAVAILABLE')] })
     await openSignIn()
     signIn()
-    await stepShown('Verify it’s you')
-    type('Authenticator code', '123456')
+    await stepShown('Confirm it’s you')
+    type('Sign-in code', '123456')
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
 
     expect(await alertText()).toBe(MFA_UNAVAILABLE)
-    expect(screen.getByRole('heading', { name: 'Verify it’s you' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Confirm it’s you' })).toBeTruthy()
     expect(calls).toEqual([SESSION, REFRESH, LOGIN, VERIFY])
   })
 
@@ -276,11 +276,11 @@ describe('the authenticator code (mfa_required)', () => {
     serve({ [SESSION]: [ended], [REFRESH]: [ended], [LOGIN]: [challenge('mfa_required')] })
     await openSignIn()
     signIn()
-    await stepShown('Verify it’s you')
+    await stepShown('Confirm it’s you')
 
-    expect(screen.getByText(/^Lost your authenticator and your recovery codes\? Ask Health ID support to reset it/)).toBeTruthy()
+    expect(screen.getByText(/^Lost your phone and your backup codes\? Ask Health ID support to reset your/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
-    await stepShown('Welcome back.')
+    await stepShown('Welcome back')
     expect(screen.queryByRole('alert')).toBeNull()
   })
 })
@@ -292,7 +292,7 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
     await openSignIn('/provider/sign-in?returnTo=%2Fprovider%2Frequests')
     signIn()
 
-    await stepShown('Set up an authenticator app')
+    await stepShown('Set up sign-in codes')
     expect(screen.getByText('You can ask for up to 5 codes in 15 minutes.')).toBeTruthy()
     expect(screen.getByText(/^Finish setting up by /)).toBeTruthy()
     // Nothing is sent until asked: each code counts against the account's budget.
@@ -304,16 +304,16 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
     type('Email code', '654321')
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await stepShown('Add Health ID to your authenticator app')
+    await stepShown('Add Health ID to your code app')
     expect(sent(START)).toEqual([{ emailCode: '654321' }])
-    expect(screen.getByRole('img', { name: 'QR code of the setup key, for your authenticator app' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: 'Square code to scan with your code app' })).toBeTruthy()
     expect(screen.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'open it in your authenticator app' }).getAttribute('href')).toBe(OTPAUTH)
+    expect(screen.getByRole('link', { name: 'open it in your code app' }).getAttribute('href')).toBe(OTPAUTH)
     expect(screen.getByText(/Time-based · SHA1 · 6 digits · every 30 seconds\./)).toBeTruthy()
-    type('Authenticator code', '123456')
-    fireEvent.click(screen.getByRole('button', { name: 'Activate authenticator' }))
+    type('Sign-in code', '123456')
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on sign-in codes' }))
 
-    await stepShown('Save your recovery codes')
+    await stepShown('Save your backup codes')
     expect(sent(ACTIVATE)).toEqual([{ code: '123456' }])
     // The browser holds the new session while the codes are shown: the other tabs are told at once.
     expect(TabChannel.posted).toEqual(['changed'])
@@ -323,7 +323,7 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
     expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
     const proceed = screen.getByRole('button', { name: 'Continue' })
     expect(proceed).toHaveProperty('disabled', true)
-    fireEvent.click(screen.getByLabelText('I have stored these recovery codes somewhere safe'))
+    fireEvent.click(screen.getByLabelText('I have saved these backup codes somewhere safe'))
     fireEvent.click(proceed)
 
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider/requests'))
@@ -339,7 +339,7 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
       [EMAIL_CODE]: [codeSent, codeSent] })
     await openSignIn()
     signIn()
-    await stepShown('Set up an authenticator app')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
     await stepShown('Enter the code we emailed you')
 
@@ -354,13 +354,13 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
       [EMAIL_CODE]: [codeSent], [START]: [problem(401, 'MFA_INVALID_CODE')] })
     await openSignIn()
     signIn()
-    await stepShown('Set up an authenticator app')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
     await stepShown('Enter the code we emailed you')
     type('Email code', '654321')
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    const message = 'That code was not accepted. Check the latest email from Health ID (each new code replaces the one before), then try again.'
+    const message = 'That code didn’t work. Check the latest email from Health ID (each new code replaces the one before), then try again.'
     expect(await screen.findByText(message)).toBeTruthy()
     expectFieldError('staff-mfa-email-code', message)
     expect(field('Email code').value).toBe('')
@@ -372,11 +372,11 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
       [EMAIL_CODE]: [problem(503, 'MFA_ENROLLMENT_CODE_UNDELIVERABLE'), codeSent] })
     await openSignIn()
     signIn()
-    await stepShown('Set up an authenticator app')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
 
-    expect(await alertText()).toBe('The code could not be sent to your work email. Try again in a few minutes; '
-      + 'if this continues, contact your administrator.')
+    expect(await alertText()).toBe('We couldn’t send the code to your work email. Try again in a few minutes. '
+      + 'If this keeps happening, contact your administrator.')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
     await stepShown('Enter the code we emailed you')
   })
@@ -386,10 +386,10 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
       [EMAIL_CODE]: [problem(429, 'MFA_RATE_LIMITED')] })
     await openSignIn()
     signIn()
-    await stepShown('Set up an authenticator app')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
 
-    expect(await alertText()).toBe('Too many codes were asked for. You can ask for up to 5 in 15 minutes; try again later.')
+    expect(await alertText()).toBe('Too many codes asked for. You can ask for 5 in 15 minutes. Try again later.')
   })
 
   it('stops, offering no send, for an account without an email address (409 MFA_ENROLLMENT_PROOF_UNAVAILABLE)', async () => {
@@ -397,11 +397,11 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
       [EMAIL_CODE]: [problem(409, 'MFA_ENROLLMENT_PROOF_UNAVAILABLE')] })
     await openSignIn()
     signIn()
-    await stepShown('Set up an authenticator app')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
 
-    expect(await alertText()).toBe('There is no work email address on this account to send a code to, so an authenticator '
-      + 'cannot be set up here. Contact your facility administrator.')
+    expect(await alertText()).toBe('There is no work email address on this account to send a code to, so sign-in codes '
+      + 'can’t be set up here. Contact your facility administrator.')
     expect(screen.queryByRole('button', { name: 'Email me a code' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Start again' })).toBeTruthy()
   })
@@ -411,13 +411,13 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
       [EMAIL_CODE]: [problem(409, 'MFA_ENROLLMENT_PROOF_COMPLETE')], [START]: [enrollment] })
     await openSignIn()
     signIn()
-    await stepShown('Set up an authenticator app')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
 
-    await waitFor(() => expect(screen.getByText('Your work email address is confirmed for this setup. '
-      + 'Continue to add Health ID to your authenticator app.')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Your work email is confirmed. '
+      + 'Continue to add Health ID to your code app.')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Begin setup' }))
-    await stepShown('Add Health ID to your authenticator app')
+    await stepShown('Add Health ID to your code app')
     expect(sent(START)).toEqual([{}])
   })
 
@@ -426,13 +426,13 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
       [EMAIL_CODE]: [codeSent], [START]: [problem(403, 'MFA_ENROLLMENT_PROOF_REQUIRED')] })
     await openSignIn()
     signIn()
-    await stepShown('Set up an authenticator app')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
     await stepShown('Enter the code we emailed you')
     type('Email code', '654321')
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await stepShown('Set up an authenticator app')
+    await stepShown('Set up sign-in codes')
     expect(await alertText()).toBe('Confirm it is you first: ask for a code by email, then enter it.')
     expect(screen.getByRole('button', { name: 'Email me a code' })).toBeTruthy()
   })
@@ -442,19 +442,19 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
       [EMAIL_CODE]: [codeSent], [START]: [enrollment], [ACTIVATE]: [problem(401, 'MFA_INVALID_CODE')] })
     await openSignIn()
     signIn()
-    await stepShown('Set up an authenticator app')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
     await stepShown('Enter the code we emailed you')
     type('Email code', '654321')
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    await stepShown('Add Health ID to your authenticator app')
-    type('Authenticator code', '123456')
-    fireEvent.click(screen.getByRole('button', { name: 'Activate authenticator' }))
+    await stepShown('Add Health ID to your code app')
+    type('Sign-in code', '123456')
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on sign-in codes' }))
 
-    const message = 'That code was not accepted. Check that you added the setup key shown here, then enter the next code the app shows.'
+    const message = 'That code didn’t work. Check that you added the key shown here, then enter the next code the app shows.'
     expect(await screen.findByText(message)).toBeTruthy()
     expectFieldError('staff-mfa-activation-code', message)
-    expect(field('Authenticator code').value).toBe('')
+    expect(field('Sign-in code').value).toBe('')
     expect(screen.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeTruthy()
     expect(TabChannel.posted).toEqual([])
   })
@@ -464,16 +464,16 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
       [EMAIL_CODE]: [codeSent], [START]: [enrollment], [ACTIVATE]: [problem(401, 'MFA_CHALLENGE_INVALID')] })
     await openSignIn()
     signIn()
-    await stepShown('Set up an authenticator app')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
     await stepShown('Enter the code we emailed you')
     type('Email code', '654321')
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    await stepShown('Add Health ID to your authenticator app')
-    type('Authenticator code', '123456')
-    fireEvent.click(screen.getByRole('button', { name: 'Activate authenticator' }))
+    await stepShown('Add Health ID to your code app')
+    type('Sign-in code', '123456')
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on sign-in codes' }))
 
-    await stepShown('Welcome back.')
+    await stepShown('Welcome back')
     expect(await alertText()).toBe(CHALLENGE_SPENT)
     expect(document.body.textContent).not.toContain('JBSW Y3DP')
   })
@@ -489,7 +489,7 @@ describe('the password step\'s own refusals', () => {
     signIn()
 
     expect(await alertText()).toBe(message)
-    expect(screen.getByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     expect(calls).toEqual([SESSION, REFRESH, LOGIN])
   })
 })
@@ -499,11 +499,11 @@ it('opens nothing when the workspace cannot take the session verify answered wit
     [VERIFY]: [() => json({ actor: { kind: 'patient', id: 'patient-1', roles: [], permissions: [], facilities: [] } })] })
   await openSignIn()
   signIn()
-  await stepShown('Verify it’s you')
-  type('Authenticator code', '123456')
+  await stepShown('Confirm it’s you')
+  type('Sign-in code', '123456')
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify' })) })
 
-  await stepShown('Welcome back.')
+  await stepShown('Welcome back')
   expect(await alertText()).toBe('A staff account is required for this portal.')
   expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
 })

@@ -25,9 +25,9 @@ export const codeSentCopy = (email: string) =>
 export const statusCodeSentCopy = (email: string) =>
   `If this address has a clinician application, we've sent a 6-digit code to ${email}. It expires in 10 minutes.`
 
-export const FACTOR_UNPROVEN = 'Your authenticator was set up at platform sign-in. Contact HID support to reset it.'
+export const FACTOR_UNPROVEN = 'Your code app was set up for admin sign-in. Contact Health ID support to reset it.'
 export const MAINTENANCE = 'Health ID is under maintenance. Try again later.'
-export const REQUIRES_SIGN_OUT = "You're signed in to Health ID in this browser. Sign out, then come back to apply."
+export const REQUIRES_SIGN_OUT = "You're signed in to Health ID on this device. Sign out, then come back to apply."
 export const SECURITY_CHECK = 'Complete the security check again.'
 export const SECURITY_CHECK_UNAVAILABLE = "The security check isn't available right now. Try again in a few minutes."
 export const SIGNUP_CLOSED = "New clinician applications aren't open right now."
@@ -55,16 +55,16 @@ export const SIGNUP_SEARCHES_USED = "You've used all the facility searches for t
 export const STATUS_SEARCHES_USED = "You've used all the facility searches for this page. To search again, close this page, "
   + "then enter your email for a new code; what you've typed here isn't kept."
 export const FACILITY_UNAVAILABLE = "This facility can't accept clinicians on Health ID right now. Choose another or ask your facility administrator."
-export const FACILITY_BUSY = 'This facility has many applications waiting. Try again in a few days or contact HID support.'
-export const ACCOUNT_INELIGIBLE = "This account can't apply for a clinical role. Contact HID support."
+export const FACILITY_BUSY = 'This facility has many applications waiting. Try again in a few days or contact Health ID support.'
+export const ACCOUNT_INELIGIBLE = "This account can't apply for a clinical role. Contact Health ID support."
 /** The page's account was disabled or is no longer active (403 CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE on a read or a withdrawal). */
-export const ACCOUNT_UNAVAILABLE = "This account can't be used for clinician applications. Contact HID support."
+export const ACCOUNT_UNAVAILABLE = "This account can't be used for clinician applications. Contact Health ID support."
 /**
  * An approved clinician, or a facility's staff member, whose authenticator was
  * reset sets it up again only at staff sign-in (403
  * CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED): Identity's own fixed words.
  */
-export const STAFF_SIGN_IN_REQUIRED = 'Your authenticator was reset. Sign in to the provider portal to set it up again, or contact HID support.'
+export const STAFF_SIGN_IN_REQUIRED = 'Your sign-in codes were reset. Sign in to the provider site to set them up again, or contact Health ID support.'
 export const PAGE_EXPIRED = 'For your security, this page closed after 30 minutes. Enter your email to continue.'
 export const APPLICATION_CHANGED = 'This application changed; here is its current state.'
 
@@ -133,7 +133,7 @@ export function formatDate(value: string | null | undefined): string | null {
 }
 
 export const STATE_LABEL: Readonly<Record<ClinicianApplicationState, string>> = {
-  awaiting_authenticator: 'Waiting for your authenticator',
+  awaiting_authenticator: 'Waiting for your sign-in codes',
   submitted: 'Received',
   under_review: 'Licence checked',
   approved: 'Approved',
@@ -150,13 +150,13 @@ const DECISION_COPY: Readonly<Record<ClinicianDecisionCode, (view: DecisionSubje
   licence_not_current: view => `Your licence is not current on the ${view.regulator.code} register.`,
   details_mismatch: view => `The licence details you gave don't match the ${view.regulator.code} register. `
     + 'Apply again with the details exactly as on your licence.',
-  identity_not_confirmed: () => 'We could not confirm that this licence belongs to you. Contact HID support if you think this is wrong.',
+  identity_not_confirmed: () => 'We could not confirm that this licence belongs to you. Contact Health ID support if you think this is wrong.',
   employment_not_confirmed: view => `${view.facility.name} did not confirm that you work there.`,
   facility_not_available: view => `${view.facility.name} cannot accept new clinicians on Health ID at the moment.`,
   duplicate: () => 'You already have access, or another application, for this facility.',
   existing_account: () => 'This licence already belongs to another Health ID account. Sign in with that account, '
-    + 'or contact HID support to add this facility to it.',
-  other: () => 'Your application was not approved. Contact HID support for details.',
+    + 'or contact Health ID support to add this facility to it.',
+  other: () => 'Your application was not approved. Contact Health ID support for details.',
 }
 
 /**
@@ -168,19 +168,19 @@ export function decisionCopy(code: ClinicianDecisionCode, subject: DecisionSubje
 }
 
 const ACCESS_COPY: Readonly<Record<ClinicianAccessState, (view: ClinicianApplicationView, decided: string) => string>> = {
-  active: (view, decided) => `Approved on ${decided}. You can sign in to the provider portal as a ${PROFESSION_NAME[view.profession]} `
-    + `at ${view.facility.name} with your password and authenticator app.`,
-  lapsed: (view, decided) => `Approved on ${decided}. Your access at ${view.facility.name} is paused because its licence check has expired. `
-    + 'Contact HID support to renew it.',
+  active: (view, decided) => `Approved on ${decided}. You can sign in to the provider site as a ${PROFESSION_NAME[view.profession]} `
+    + `at ${view.facility.name} with your password and code app.`,
+  lapsed: (view, decided) => `Approved on ${decided}. Your access at ${view.facility.name} is paused because its licence check is out of date. `
+    + 'Contact Health ID support to renew it.',
   ended: (view, decided) => `Approved on ${decided}. Your access at ${view.facility.name} has ended.`,
-  account_unavailable: (_view, decided) => `Approved on ${decided}. Your account can't sign in at the moment. Contact HID support.`,
+  account_unavailable: (_view, decided) => `Approved on ${decided}. Your account can't sign in at the moment. Contact Health ID support.`,
 }
 
 /** What an application's state means for the applicant, in fixed words (design §8). */
 export function stateCopy(view: ClinicianApplicationView): string[] {
   switch (view.state) {
     case 'awaiting_authenticator':
-      return ['Set up your authenticator app to send this application for review. We can\'t review it until you do. '
+      return ['Set up your code app to send this application for review. We can\'t review it until you do. '
         + `We keep applications open for 30 days (until ${formatDate(view.expiresAt) ?? 'the end of that time'}).`]
     case 'submitted':
       return [`Application received. Health ID will check your licence with ${view.regulator.code}, call you to confirm it's you, `
@@ -201,5 +201,5 @@ export function stateCopy(view: ClinicianApplicationView): string[] {
     case 'withdrawn': return ['You withdrew this application.']
     case 'expired': return ['This application closed because it wasn\'t decided within 30 days. You can apply again.']
   }
-  return ['This application\'s state can\'t be shown here. Contact HID support.']
+  return ['This application\'s state can\'t be shown here. Contact Health ID support.']
 }

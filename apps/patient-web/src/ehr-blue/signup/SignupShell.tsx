@@ -1,19 +1,13 @@
 import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
-import { BrandLogo } from '../../BrandLogo'
-import { STAFF_INVITATION_PATH, STAFF_RECOVERY_PATH, STAFF_SIGN_IN_PATH, staffInvitationHref, staffRecoveryHref } from '../../productHostname'
+import { AuthLayout } from '../../AuthLayout'
+import { STAFF_SIGN_IN_PATH } from '../../productHostname'
 import { ClinicianSignUpEntry } from '../../staff/clinician/ClinicianSignUpEntry'
 
-/** A link to this site's own page, or to the main site's from a staff product host (the fixed addresses productHostname gives). */
-function PageLink({ path, href, children }: { path: string; href: string; children: ReactNode }) {
-  return href === path ? <Link to={path}>{children}</Link> : <a href={href}>{children}</a>
-}
-
 /**
- * The design's registration shell (screens 02-09): the form panel on the left, with the logo, the content and the row
- * of other ways in, and the brand panel on the right (hidden on narrow screens). `centered` draws the narrower,
- * vertically centred column of the screens after the registration (08 Registration submitted, 09 the code). Its own
- * `.hid-ehr` root carries the blue tokens and fonts: the sign-up runs before any session, outside the blue frame.
+ * The registration's shell: the shared sign-in layout (AuthLayout, the same as every other signed-out page) with the
+ * provider panel and "Sign in" in its top bar, and no title of its own: each screen carries its h1. Its `.hid-ehr` root
+ * carries the blue kit's tokens for the controls inside: the sign-up runs before any session, outside the blue frame.
+ * `centered` marks the short screens after the registration (the code, the password); the column is the same.
  */
 export function SignupShell({ children, centered = false, onMainSite = true }: {
   readonly children: ReactNode
@@ -21,37 +15,13 @@ export function SignupShell({ children, centered = false, onMainSite = true }: {
   /** False on a staff product host, which offers only Sign in, as today's page there does. */
   readonly onMainSite?: boolean
 }) {
-  const hostname = window.location.hostname
   return (
-    <div className="hid-ehr hid-ehr-signup">
-      <main id="main-content" className={centered ? 'hid-ehr-signup-panel hid-ehr-signup-panel-centered' : 'hid-ehr-signup-panel'}>
-        <Link to={STAFF_SIGN_IN_PATH} className="hid-ehr-signup-brand" aria-label="Health ID provider sign in">
-          <BrandLogo className="hid-ehr-signup-logo" />
-        </Link>
-        <div className={centered ? 'hid-ehr-signup-content hid-ehr-signup-centered' : 'hid-ehr-signup-content'}>
-          {children}
-          <p className="hid-ehr-signup-links">
-            <Link to={STAFF_SIGN_IN_PATH}>Sign in</Link>
-            {onMainSite ? <>
-              <PageLink path={STAFF_RECOVERY_PATH} href={staffRecoveryHref(hostname)}>Recover access</PageLink>
-              <PageLink path={STAFF_INVITATION_PATH} href={staffInvitationHref(hostname)}>Accept invitation</PageLink>
-            </> : null}
-          </p>
-        </div>
-        {onMainSite ? <div className="hid-ehr-signup-footer">
-          {/* Today's footer (ProviderEnrollment.tsx:1176-1183, Novu), where the design has its footer line. */}
-          <p>Provider enrollment sets up a facility and its administrator’s account. Once Health ID support has checked the
-            facility, its administrator adds the doctors, nurses and other staff on the Staff page.</p>
-          <ClinicianSignUpEntry className="hid-ehr-signup-footer-line" />
-        </div> : null}
-      </main>
-      <div className="hid-ehr-signup-visual">
-        <div className="hid-ehr-signup-story">
-          <p className="hid-ehr-signup-story-eyebrow">Health ID — Hospital EHR</p>
-          <p className="hid-ehr-signup-story-title">More connected care.<br />More time for people.</p>
-          <p className="hid-ehr-signup-story-text">Your facility, patients and team in one connected workspace.</p>
-        </div>
+    <AuthLayout brandTo={STAFF_SIGN_IN_PATH} brandLabel="Health ID provider sign in" audience="provider"
+      headerLink={{ to: STAFF_SIGN_IN_PATH, label: 'Sign in' }} title={null} titleId="hid-ehr-signup-title">
+      <div id="main-content" className={centered ? 'hid-ehr hid-ehr-signup hid-ehr-signup-centered' : 'hid-ehr hid-ehr-signup'}>
+        {children}
+        {onMainSite ? <ClinicianSignUpEntry className="hid-ehr-signup-footer-line" /> : null}
       </div>
-    </div>
+    </AuthLayout>
   )
 }

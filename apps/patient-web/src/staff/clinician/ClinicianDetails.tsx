@@ -147,7 +147,7 @@ export function DetailsFields({ value, onChange, problems, fullName, onFullName,
       {professionError && <p id="clinician-profession-error" className="clinician-field-error">{professionError}</p>}
       <p id="clinician-regulator" className="patient-field-hint">
         {regulator ? <>Regulator: <strong>{REGULATOR_NAME[regulator]}</strong>. </> : 'Your regulator follows from your profession. '}
-        Other professions can't apply here yet. Ask your facility to contact HID.</p>
+        Other professions can't apply here yet. Ask your facility to contact Health ID.</p>
     </fieldset>
 
     <Field label="Licence or registration number" htmlFor={FIELD.licenceNumber} error={fieldError(problems, FIELD.licenceNumber)}
@@ -218,14 +218,14 @@ function FacilitySearch({ value, onChange, error, onRefused, searchesUsed, onSea
   const count = results?.length ?? 0
   return <div className="clinician-search">
     <Field label="Your facility" htmlFor={FIELD.facility} error={error}
-      hint="Search for the verified facility you work at: type at least 3 letters of its name." required>
+      hint="Find the facility you work at. Type at least 3 letters of its name." required>
       <Input id={FIELD.facility} type="search" autoComplete="off" maxLength={80} value={value.query}
         onChange={event => { const query = event.target.value; onChange(current => ({ ...current, query })) }} onKeyDown={enter} />
     </Field>
     <button type="button" className={buttonClass({ variant: 'secondary' })} onClick={() => void search()} disabled={searching || spent || !canSearch}>
       {searching ? 'Searching…' : 'Search facilities'}</button>
     <p role="status" className="patient-field-hint">{searching ? 'Searching…' : results === null ? null
-      : <span key={answered}>{count === 0 ? 'No verified facility matches that name.' : count === 1 ? '1 facility found.' : `${count} facilities found.`}</span>}</p>
+      : <span key={answered}>{count === 0 ? 'No facility on Health ID matches that name.' : count === 1 ? '1 facility found.' : `${count} facilities found.`}</span>}</p>
     {refused && <p role="alert" className="patient-inline-error">{refused}</p>}
     {spent && <div className="clinician-search-spent">
       <p role="alert" className="patient-inline-error">{searchesUsed.message}</p>
@@ -243,8 +243,8 @@ function FacilitySearch({ value, onChange, error, onRefused, searchesUsed, onSea
     </fieldset>}
     <details className="clinician-help">
       <summary>My facility isn't listed</summary>
-      <p>Only facilities verified on Health ID are listed. Ask your facility's administrator to set the facility up on Health ID
-        first (<Link to="/provider/enroll">provider enrollment</Link>), then search again.</p>
+      <p>Only facilities already on Health ID are listed. Ask your facility's administrator to set the facility up on Health ID
+        first (<Link to="/provider/enroll">facility sign-up</Link>), then search again.</p>
     </details>
   </div>
 }
@@ -266,7 +266,7 @@ export function Declarations({ accurate, consent, onAccurate, onConsent, regulat
     <label className="clinician-choice">
       <input id={FIELD.consent} type="checkbox" checked={consent} onChange={event => onConsent(event.target.checked)}
         aria-invalid={consentError ? true : undefined} aria-describedby={consentError ? `${FIELD.consent}-error` : undefined} />
-      HID may check my licence with {regulator}, contact me by video call to confirm my identity, and contact {facility} to confirm
+      Health ID may check my licence with {regulator}, contact me by video call to confirm my identity, and contact {facility} to confirm
       that I work there.</label>
     {consentError && <p id={`${FIELD.consent}-error`} className="clinician-field-error">{consentError}</p>}
   </fieldset>

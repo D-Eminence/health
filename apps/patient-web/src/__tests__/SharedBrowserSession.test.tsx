@@ -190,7 +190,7 @@ describe('one browser, both portals (hid-system #39 contract)', () => {
     await openPatientTab()
 
     fireEvent.click(providerTab().getByRole('button', { name: 'Sign out' }))
-    expect(await providerTab().findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await providerTab().findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     await settle()
 
     expect(identity.sent.filter(call => call.route === 'POST /api/v1/auth/logout')).toEqual([{ route: 'POST /api/v1/auth/logout', client: 'staff-web' }])
@@ -547,8 +547,8 @@ describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', ()
     await anotherTab()
 
     expect(shownText(await screen.findByRole('alert')))
-      .toBe('You were signed out because this browser\'s Health ID sign-in changed in another tab. Sign in again to continue.')
-    expect(screen.getByRole('heading', { level: 1, name: 'Welcome back.' })).toBeTruthy()
+      .toBe('You were signed out because someone signed in or out on this device in another tab. Sign in again to continue.')
+    expect(screen.getByRole('heading', { level: 1, name: 'Welcome back' })).toBeTruthy()
     expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()
   })
 
@@ -559,14 +559,14 @@ describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', ()
     identity.signIn('staff')
     const { App } = await import('../App')
     render(<MemoryRouter initialEntries={['/sign-in']}><App /></MemoryRouter>)
-    const note = /^A provider sign-in is active in this browser\. Signing in here replaces it\./
+    const note = /^A provider is signed in on this device\. Signing in here will sign them out\./
     expect(await screen.findByText(note)).toBeTruthy()
 
     identity.signOutElsewhere()
     await anotherTab()
 
     await waitFor(() => expect(screen.queryByText(note)).toBeNull())
-    expect(screen.getByRole('heading', { level: 1, name: 'Welcome back.' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Welcome back' })).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
@@ -581,7 +581,7 @@ describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', ()
     identity.lapse()
     await act(async () => { becomeVisible() })
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back' })).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.queryByText(/changed in another tab/)).toBeNull()
     expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()

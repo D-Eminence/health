@@ -115,3 +115,73 @@ view that ends in a done state. These are not in the API (`/api/v1/outreach/regi
    but `staff/api.ts` has no calls for them and campaign governance isn't decided, so campaigns stay read only.
 6. **Member names**: `GET …/campaigns/:id/members` returns membership IDs only; the campaign view can only show
    "Membership abc12345". Send the member's display name.
+
+## Consent and agreements
+
+Sign-up now asks for agreement the way clickwrap should be done: the short version on screen, the full text a tap away,
+every box unticked to start. Patients tick **Terms of use** (required), **keeping and sharing my health records only as
+I choose** (required, asked on its own because health information is special personal data under the NDPA 2023) and
+**occasional updates by email** (optional). A facility's administrator ticks one box for the **facility agreement** and
+types their full name as the signature. The texts are versioned in `apps/patient-web/src/agreements/` (version 1.0,
+1 November 2026; legal must approve them before release). Today nothing records acceptance; the UI is built against
+these proposed routes (registered as `proposed` in `packages/contracts/src/registry.ts`) and shows nothing when they
+answer 404.
+
+### Routes
+
+1. **`POST /api/v1/identity/me/consents`** (patient session, CSRF, `Idempotency-Key` per attempt). Sent once after the
+   account is created and the activation signed the patient in, and again when they agree to a changed version:
+   ```json
+   { "items": [{ "documentId": "patient-terms", "version": "1.0", "accepted": true },
+               { "documentId": "health-data", "version": "1.0", "accepted": true },
+               { "documentId": "email-updates", "version": "1.0", "accepted": false }],
+     "language": "en", "method": "self" }
+   ```
+   Answer `201` (body not read). Agreeing again sends only the two required items.
+2. **`GET /api/v1/identity/me/consents`** (patient session): `{ items: [{ documentId, version, accepted, acceptedAt,
+   method }], needsAgreement: boolean, changes: string[] }`. Profile → Agreements lists it; `needsAgreement: true` shows
+   "We've updated our agreement" after sign-in, with `changes` as up to three plain-word lines.
+3. **`POST /api/v1/identity/facility-agreements`** (the administrator's staff session from activation on; CSRF,
+   `Idempotency-Key`; `X-Facility-ID` when signed again from the workspace):
+   `{ documentId: "facility-agreement", version, signerName, facilityName, language: "en" }`. Answer `201`.
+4. **`GET /api/v1/identity/facility-agreements/current`** (staff session, `X-Facility-ID`, healthcare operations):
+   `{ version, signerName, facilityName, signedAt, needsAgreement, changes: string[] }`, shown on Facility profile →
+   Agreement. `needsAgreement` only for the facility's administrator.
+
+### Record at account creation
+
+The sign-ups have no session until the very end, and the UI keeps nothing in the browser to send later. So the
+acceptance should also be **recorded at account creation**: the patient sign-up already sends `termsAccepted: true`
+(only when both required boxes are ticked) and the NIN route's activation follows the same ticks; Identity should store
+the versions current at that moment. A facility sign-up that ends without a session (main's authenticator step, or
+"your account may already be ready") sends no `POST`; Identity should record the facility agreement when the
+organization is created, with the administrator's name from the start as signer.
+
+### What to store
+
+Who (account id; for a facility, the organization and the signer's account), when (server time), the document id and
+version, accepted or not, language, method (`self` or `assisted`), the typed signer name and facility name, and the
+device (user agent) and IP address. Never overwrite: each agreement or withdrawal is a new row.
+
+### Copies by email
+
+- Patient: an email with the short version and a link to the full text of the version agreed to.
+- Facility: a PDF of the signed agreement (signer, facility, date, version) to the signer's email.
+
+### Re-agree on change
+
+A new version of any document sets `needsAgreement` for everyone who agreed to an earlier one, with `changes` written
+in plain words (at most three lines). The workspace keeps working while it is unanswered; the screen asks again at the
+next sign-in.
+
+### Withdrawing
+
+Withdrawing is as easy as giving: Access → stop sharing (existing consent-grant revocation) and Delete account
+(existing). It stops new sharing at once, doesn't undo care already given, and records required by law are kept. The
+email-updates choice should be changeable from the profile once stored (`POST …/me/consents` with `accepted: false`).
+
+### Assisted consent
+
+When staff sign someone up (a walk-in at the desk, outreach in the field), the method is `assisted`: staff explain the
+agreement, and the patient confirms with a **code sent to their own phone**. Where that isn't possible, staff record
+that they read it to the patient, and the record says so.

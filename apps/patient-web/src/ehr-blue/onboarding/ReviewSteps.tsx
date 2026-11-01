@@ -30,7 +30,7 @@ export function ReviewStep({ facility, setup, onNext }: {
 }) {
   const { billing } = setup
   return (
-    <EhrCard title="Review your configuration">
+    <EhrCard title="Check your choices">
       <div className="hid-ehr-onboarding-stack">
         <FacilityCheckBlocker facility={facility} />
         <EhrSampleBanner />
@@ -55,9 +55,9 @@ export function ReviewStep({ facility, setup, onNext }: {
               {[branch.name, branch.address, branch.departments.join(', ')].filter(Boolean).join(' · ')}</p>
           ))}
         </div>
-        <p className="hid-ehr-onboarding-text">Optional after launch: staff invitations, service pricing, wards and beds, inventory and
-          professional credential records.</p>
-        <div><EhrButton onClick={onNext}>Review launch requirements</EhrButton></div>
+        <p className="hid-ehr-onboarding-text">You can do these after launch: invite staff, set prices, add wards and beds, add stock
+          and add staff licences.</p>
+        <div><EhrButton onClick={onNext}>Check what’s needed to launch</EhrButton></div>
       </div>
     </EhrCard>
   )

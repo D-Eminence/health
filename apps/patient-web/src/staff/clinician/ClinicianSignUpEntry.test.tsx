@@ -6,7 +6,7 @@ import { ClinicianSignUpEntry } from './ClinicianSignUpEntry'
 
 /**
  * The way into clinician self sign-up from the provider pages: offered only
- * while Identity says intake is open, otherwise a plain "not open yet".
+ * while Identity says intake is open; otherwise only the status page, with no "not open yet".
  */
 const api = vi.hoisted(() => ({ availability: vi.fn() }))
 vi.mock('../clinicianApplicationApi', () => ({ clinicianApplicationApi: api }))
@@ -30,12 +30,12 @@ describe('the clinician sign-up entry', () => {
   it.each([
     ['closed', () => api.availability.mockResolvedValueOnce({ open: false })],
     ['an outage', () => api.availability.mockRejectedValueOnce(new HidApiError(503, 'Unavailable', { code: 'PLATFORM_CONTROL_UNAVAILABLE' }))],
-  ])('says sign-up is not open yet when %s, and still links the status page', async (_case, answer) => {
+  ])('offers no sign-up when %s, and still links the status page', async (_case, answer) => {
     answer()
     show()
-    expect(await screen.findByText(/Clinician sign-up isn't open yet\./)).toBeTruthy()
+    expect((await screen.findByRole('link', { name: 'Check your application' })).getAttribute('href')).toBe('/provider/join/status')
     expect(screen.queryByRole('link', { name: 'Sign up as a clinician' })).toBeNull()
-    expect(screen.getByRole('link', { name: 'Check your application' }).getAttribute('href')).toBe('/provider/join/status')
+    expect(screen.queryByText(/open yet/)).toBeNull()
   })
 
   it('offers nothing until Identity has answered', () => {
