@@ -1,6 +1,8 @@
 # One staff sign-in: OpenID Connect, a server per product (draft)
 
-Status: draft. The frontend half is in this branch, behind the build switch `VITE_HID_CENTRAL_SIGN_IN` (off). The server half is the backend owner's; this note is its contract. Nothing changes for anyone while the switch is off.
+Status: draft. The frontend half is in this branch, behind the build switch `VITE_HID_CENTRAL_SIGN_IN` (off). Nothing changes for anyone while the switch is off.
+
+Owner decisions (1 Nov 2026): one sign-in through `auth.` with OpenID Connect; a separate server-side session on each product site; no cookie shared across the whole domain. identity-api uses the certified `oidc-provider`, and the product side the certified `openid-client`. The coordinator builds the `auth.` server; this branch is the product side's page half, and this note the contract between them.
 
 The target: one sign-in at `auth.` for the staff products (`ehr.`, `lab.`, `pharmacy.`, `outreach.`, `migrate.`). A person signed in on one product opens another without a sign-in screen, and comes back to the page they asked for. It follows hid-system `CODEX.md` §38: server-managed sessions behind each product's own server (backend-for-frontend), host-only cookies.
 
@@ -93,12 +95,12 @@ The silent handoff (requirement 3) is step 2's `prompt=none` with a full-page re
   - `auth.`'s session: `__Host-` prefix, `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Domain`.
   - Product sessions stay as they are: host-only.
 - **CSRF tokens and Origin checks stay.** All subdomains are the same site, so `SameSite` alone protects nothing between them.
-- **Signing in isn't permission.** Each product still applies its own role and facility checks. Each product keeps its own facility choice.
+- **Signing in isn't permission.** Each product still applies its own role and facility checks, and keeps its own facility choice. In the EHR, which is the whole hospital system, department staff see only their own module's part of a patient's record and clinical staff the whole record; the patient's permission (consent, PIN or emergency access) is still required (owner, 1 Nov).
 - **Time limits.** Idle and absolute timeouts apply. Break-glass and admin work ask the person to sign in again (`max_age` / `acr`).
 - **`admin.`** is not part of it: either its own client with a required second factor, or its own sign-in as today. It never gets the staff session.
 - **Patients (`app.`)** are not part of it.
 - **Turnstile.** `auth.` needs its own accepted action. Product hosts no longer show a password form.
-- **Library.** Use a certified OpenID provider library in identity-api. That's the backend owner's call, since it adds a dependency.
+- **Libraries.** identity-api uses the certified `oidc-provider`; each product's server uses the certified `openid-client` for the authorization-code flow with PKCE, the token exchange, ID-token checks and back-channel logout (owner, 1 Nov).
 - **HSTS** with `includeSubDomains` on the root.
 
 ## 6. What this branch holds (frontend)
@@ -120,8 +122,9 @@ The silent handoff (requirement 3) is step 2's `prompt=none` with a full-page re
 
 ## 7. Open decisions
 
-- **Novu's identity-api.** It's the production backend and would be the OpenID provider, but its code is outside both repos.
+- **The product side's server endpoints** (start, callback, back-channel logout) and each product's session: who builds them, and in which service. Production's product APIs run on Novu, outside both repos.
 - **hid-system `main-v1` has one API host.** "A server per product" there needs per-host proxies, as production's edge already has.
 - **Other tabs on other products.** They learn of a sign-out at their next request (a 401), and when the tab comes back into view (the existing recheck). A cross-origin push would need more.
 - **How exact the return is.** Requirement 4 asks for the precise page. Today's rule returns to the page only, never a record or a query in an address. A return to a record would need the full path kept server-side against `state`, never in the URL. That's the owner's call.
-- **Edge and DNS (coordinator).** `auth.` needs its own deployment: host, edge worker and certificate.
+- **Edge and DNS (coordinator).** `auth.` needs its own deployment: host, edge worker and certificate. The coordinator builds the edge; nothing here changes `infra/cloudflare/src/frontend-worker.mjs`.
+- **No hand-off of the department pages.** The EHR keeps the laboratory, pharmacy, Migrate and outreach pages in its workspace, and they also run as their own sites (owner, 1 Nov): the switch changes only how sign-in happens.

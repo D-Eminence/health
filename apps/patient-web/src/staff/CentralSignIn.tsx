@@ -20,7 +20,8 @@ export function CentralSignIn() {
   if (!next) return null
   if (state.status === 'ready') return <Leaving href={next} />
   if (state.status === 'loading') return <Centered><h1>Checking your sign-in…</h1></Centered>
-  if (state.status === 'error') return <Centered><h1>Sign-in unavailable</h1><p>{state.error}</p><Button onClick={() => void refresh()}>Try again</Button></Centered>
+  // Plain words only (owner): never the server's text, a code or an address.
+  if (state.status === 'error') return <Centered><h1>Sign-in unavailable</h1><p>We couldn’t check your sign-in. Please try again.</p><Button onClick={() => void refresh()}>Try again</Button></Centered>
   // Signed out, or a session that ended (signed out on another staff site): the sign-in. Once it completes, the session
   // is ready, and the line above takes the person on.
   return <Suspense fallback={<Centered><h1>Opening sign-in…</h1></Centered>}><BlueSignIn leavesAfterSignIn /></Suspense>

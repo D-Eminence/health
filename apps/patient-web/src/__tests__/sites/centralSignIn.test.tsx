@@ -89,6 +89,14 @@ describe('the auth. site', () => {
     expect(sent.some(request => request.route === LOGIN)).toBe(true)
   })
 
+  it('says in plain words when the sign-in cannot be checked, never the server’s own text', async () => {
+    const failing = () => problem(503, 'UPSTREAM_TIMEOUT', 'Gateway timeout at identity-api /api/v1/auth/session (ref 7f3a)')
+    await openAuthAt(`/signin?request=${REQUEST}`, { [SESSION]: [failing, failing, failing], [REFRESH]: [failing, failing] })
+    expect(await screen.findByText('We couldn’t check your sign-in. Please try again.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/UPSTREAM_TIMEOUT|identity-api|\/api\/v1|7f3a|Gateway timeout/)
+    expect(opened).not.toHaveBeenCalled()
+  })
+
   it('takes no address from its query: it goes to the Hospital EHR instead', async () => {
     await openAuthAt(`/signin?request=${encodeURIComponent('https://example.com/callback')}&return_to=${encodeURIComponent('https://example.com/')}`,
       { [SESSION]: [sessionAt(demo, [demo])] })
