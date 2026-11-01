@@ -182,7 +182,7 @@ function initials(name: string): string {
 
 /**
  * The account menu, as the design draws it (screens/panels/account-menu.png). The frame's own account controls are the
- * sidebar person's menu (Sign out, facility switch); there is one EHR for everyone, so no classic EHR here.
+ * sidebar person's menu (Sign out, facility switch).
  */
 export function AccountMenu({ onSample }: {
   readonly onSample?: (panel: 'profile' | 'preferences' | 'help') => void
