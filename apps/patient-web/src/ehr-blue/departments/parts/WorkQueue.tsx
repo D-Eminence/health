@@ -36,7 +36,8 @@ const RANK: Readonly<Record<string, number>> = { stat: 0, asap: 1, urgent: 2 }
  * work with no priority keeps the order it had.
  */
 export function urgencyRank(priority: string | null | undefined): number {
-  return RANK[(priority ?? '').toLowerCase()] ?? 3
+  const key = (priority ?? '').toLowerCase()
+  return Object.hasOwn(RANK, key) ? RANK[key]! : 3
 }
 
 /** Whether a priority puts work ahead of routine work, and marks it: stat, as soon as possible, or urgent. */

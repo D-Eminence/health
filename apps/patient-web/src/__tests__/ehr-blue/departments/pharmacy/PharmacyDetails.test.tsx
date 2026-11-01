@@ -106,6 +106,13 @@ describe('priority', () => {
     expect(within(row('Routine medicine')).queryByText('Routine')).toBeNull()
   })
 
+  it('reads a priority it does not know as routine', () => {
+    const odd = item('w-odd', 'Odd medicine', '2026-10-08T07:00:00.000Z', { priority: 'constructor' })
+    const urgent = item('w-urgent', 'Urgent medicine', '2026-10-08T09:00:00.000Z', { priority: 'URGENT' })
+    const later = item('w-later', 'Later medicine', '2026-10-08T10:00:00.000Z')
+    expect(queueOrder([later, odd, urgent], () => false).map(entry => entry.id)).toEqual(['w-urgent', 'w-odd', 'w-later'])
+  })
+
   it('never puts an urgent prescription already dispensed ahead of work still to do', () => {
     const done = { ...dispensed, priority: 'stat' }
     const waiting = item('w-waiting', 'Waiting medicine', '2026-10-09T10:00:00.000Z')
@@ -136,6 +143,7 @@ describe('strength and form', () => {
       .toEqual({ form: 'inhaler', name: 'Salbutamol inhaler', strength: '100 mcg' })
     expect(drugOf({ medication: { display: 'Metformin 500 mg tablets', strength: null, doseForm: 'suppository' }, doseUnit: null, routeCode: 'oral' }))
       .toEqual({ form: 'tablet', name: 'Metformin tablets', strength: '500 mg' })
+    expect(drugOf({ medication: { display: 'Metformin 500 mg tablets', doseForm: 'constructor' }, doseUnit: null, routeCode: 'oral' }).form).toBe('tablet')
   })
 
   it('never hides a strength written in the name that differs from the prescriber\'s', () => {
@@ -182,6 +190,7 @@ describe('how long, and how much to hand over', () => {
     expect(durationText({ duration: { value: 1, unit: 'week' } })).toBe('1 week')
     expect(durationText({ duration: { value: 3, unit: 'Month' } })).toBe('3 months')
     expect(durationText({ duration: { value: 7, unit: 'fortnight' } })).toBeNull()
+    expect(durationText({ duration: { value: 7, unit: 'constructor' } })).toBeNull()
     expect(durationText({ duration: { value: 0, unit: 'day' } })).toBeNull()
     expect(durationText({ duration: { value: 2.5, unit: 'day' } })).toBeNull()
     expect(durationText({ duration: null })).toBeNull()

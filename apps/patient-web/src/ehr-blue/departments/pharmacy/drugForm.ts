@@ -26,8 +26,8 @@ const RULES: ReadonlyArray<readonly [DrugForm, RegExp]> = [
 
 export function drugFormOf(item: Pick<PharmacyWorkItem, 'medication' | 'doseUnit' | 'routeCode'>): DrugForm {
   // The prescriber's own choice when it is sent; a value not on the list is ignored, as if not sent.
-  const sent = SENT_FORM[item.medication.doseForm?.trim().toLowerCase() ?? '']
-  if (sent) return sent
+  const chosen = item.medication.doseForm?.trim().toLowerCase() ?? ''
+  if (Object.hasOwn(SENT_FORM, chosen)) return SENT_FORM[chosen]!
   // The medicine's own name first ("Salbutamol 100 mcg inhaler"), then its unit and route ("2 puffs", "oral").
   for (const text of [item.medication.display, item.doseUnit ?? '', item.routeCode ?? '']) {
     const lower = text.toLowerCase()

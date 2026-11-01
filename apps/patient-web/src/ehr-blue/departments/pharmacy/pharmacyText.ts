@@ -64,7 +64,8 @@ const DURATION_UNIT: Readonly<Record<string, readonly [string, string]>> = { day
  */
 export function durationText(item: Pick<PharmacyWorkItem, 'duration'>): string | null {
   const value = item.duration?.value
-  const unit = DURATION_UNIT[item.duration?.unit?.trim().toLowerCase() ?? '']
+  const key = item.duration?.unit?.trim().toLowerCase() ?? ''
+  const unit = Object.hasOwn(DURATION_UNIT, key) ? DURATION_UNIT[key] : undefined
   if (!unit || typeof value !== 'number' || !Number.isInteger(value) || value < 1) return null
   return `${value} ${unit[value === 1 ? 0 : 1]}`
 }
