@@ -91,7 +91,7 @@ const NO_PHARMACY_WORK = 'Your role at this facility doesn’t include pharmacy 
 const AWAITING_REVIEW = ['workforce.manage', 'audit.read', 'outreach.registration.read', 'outreach.registration.write', 'outreach.campaign.read', 'outreach.campaign.write']
 
 describe('the pharmacy. site settles on a page whatever the role holds', () => {
-  it('neither permission (a pharmacy\'s administrator before Health ID\'s check): Prescriptions, which says plainly why it is closed', async () => {
+  it('neither permission (a non-pharmacist on that site): Prescriptions, which says plainly why it is closed', async () => {
     const landed = await settle(PHARMACY, ['workforce.manage'])
     expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
     expect(screen.getByText(NO_PHARMACY_WORK)).toBeTruthy()
