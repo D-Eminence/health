@@ -14,7 +14,11 @@ import { DEMO_HOSPITAL, DEMO_LABORATORY, REAL_FACILITY, SESSION, facility, openS
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 const jsdom = (globalThis as unknown as { jsdom: { reconfigure(options: { url: string }): void } }).jsdom
 const servedFrom = window.location.href
-afterEach(() => { jsdom.reconfigure({ url: servedFrom }); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
+// withFramePages registers the frame's own registry for one test, but vi.resetModules does not drop a vi.doMock: without
+// the doUnmock, a case on the real registry that runs after one on the frame's would get the frame's registry instead.
+afterEach(() => {
+  jsdom.reconfigure({ url: servedFrom }); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.doUnmock('../../../ehr-blue/routes'); vi.resetModules()
+})
 
 const DEMO_PHARMACY = '98d00002-0000-4000-8000-000000000003'
 const DEMO_OUTREACH = '98d00002-0000-4000-8000-000000000004'
