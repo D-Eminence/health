@@ -214,6 +214,12 @@
   cursor: not-allowed;
 }
 
+/* ...and keeps its resting look on hover: it is no longer :disabled, so ehr.css's secondary hover would still tint it. */
+.hid-ehr .hid-ehr-clinical-pager .hid-ehr-button.hid-ehr-button-secondary[aria-disabled='true']:not([aria-busy='true']):hover {
+  border-color: var(--ehr-line-strong);
+  background: var(--ehr-surface);
+}
+
 /* The table region (or its empty state) under the search field. */
 .hid-ehr .hid-ehr-clinical-list-table {
   margin-top: 18px;
