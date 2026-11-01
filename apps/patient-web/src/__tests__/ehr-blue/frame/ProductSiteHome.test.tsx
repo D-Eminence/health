@@ -4,16 +4,20 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as ProductHostname from '../../../productHostname'
 import { BlueFrame } from '../../../ehr-blue/frame/BlueFrame'
+import { DEMO_PHARMACY_ID } from '../departments/harness'
 
 /**
  * Signing in on a product's own site (pharmacy., lab., outreach., migrate.) opens /provider, which the frame takes to
  * that product's first page. Whatever the role holds, the page settles: it never goes back to /provider and round
  * again. The product pages themselves are stand-ins here (what is tested is where the frame lands); each refusal is
- * the real one. Every account and facility is fictional.
+ * the real one. Sell and the pharmacy's other counter pages show at the demo facilities only until Health ID serves
+ * their routes (departments/commerce/served.ts), so the cases that open them are at Demo Pharmacy, and each has its
+ * case at a real facility, where the pharmacy opens on Prescriptions. Every account and facility is fictional.
  */
 
 const host = vi.hoisted(() => ({ name: 'ehr.healthidentitydirectory.com' }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], selfService: undefined as { review: string; organizationType: string } | undefined }))
+const staff = vi.hoisted(() => ({ permissions: [] as string[], selfService: undefined as { review: string; organizationType: string } | undefined,
+  facility: { id: '', name: '' } }))
 
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 vi.mock('../../../productHostname', async importOriginal => {
@@ -22,7 +26,7 @@ vi.mock('../../../productHostname', async importOriginal => {
 })
 vi.mock('../../../staff/App', () => ({
   useStaff: () => {
-    const facility = { id: 'f0000000-0000-4000-8000-0000000000c1', membershipId: 'member-1', organizationId: 'org-1', name: 'Corner Pharmacy (fictional)',
+    const facility = { id: staff.facility.id, membershipId: 'member-1', organizationId: 'org-1', name: staff.facility.name,
       roles: ['facility_admin'], permissions: staff.permissions, isPrimary: true, ...(staff.selfService ? { selfService: staff.selfService } : {}) }
     return {
       state: { status: 'ready', session: { actor: { id: 'staff-1', email: 'admin@example.test', displayName: 'Demo Admin', roles: [], permissions: [],
@@ -45,6 +49,11 @@ vi.mock('../../../ehr-blue/departments/migrate/Migrate', async importOriginal =>
   ...await importOriginal<object>(), Migrate: () => <h1>Document OCR (stand-in)</h1>,
 }))
 
+/** A real facility: Health ID does not serve the point-of-care routes there yet, so it has no Sell. */
+const REAL = { id: 'f0000000-0000-4000-8000-0000000000c1', name: 'Corner Pharmacy (fictional)' }
+/** One of the four demo facilities, where Sell and the other counter pages show. */
+const DEMO = { id: DEMO_PHARMACY_ID, name: 'Demo Pharmacy' }
+
 /** Every address the app went to, in order. */
 let trail: string[] = []
 
@@ -65,6 +74,7 @@ beforeEach(() => {
   host.name = 'ehr.healthidentitydirectory.com'
   staff.permissions = []
   staff.selfService = undefined
+  staff.facility = REAL
 })
 afterEach(() => { vi.unstubAllEnvs() })
 
@@ -142,7 +152,8 @@ describe('the pharmacy. site settles on a page whatever the role holds', () => {
     expect(screen.getByText(NO_PHARMACY_WORK)).toBeTruthy()
   })
 
-  it('other pharmacy pages but neither (Stock, Sales & receipts): Prescriptions, which says only prescriptions are not in the role', async () => {
+  it('other pharmacy pages but neither (Stock, Sales & receipts), at a demo facility: Prescriptions, which says only prescriptions are not in the role', async () => {
+    staff.facility = DEMO
     const landed = await settle(PHARMACY, ['pharmacy.stock.read', 'billing.bill.read'])
     expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
     expect(screen.getByText('Your role at this facility doesn’t include prescriptions. Ask your facility administrator.')).toBeTruthy()
@@ -150,13 +161,15 @@ describe('the pharmacy. site settles on a page whatever the role holds', () => {
     expect(screen.getByRole('link', { name: 'Stock' })).toBeTruthy()
   })
 
-  it('a seller who opens Prescriptions by its address is told only prescriptions are not in the role', async () => {
+  it('a seller at a demo facility who opens Prescriptions by its address is told only prescriptions are not in the role', async () => {
+    staff.facility = DEMO
     const landed = await settle(PHARMACY, [WALK_IN], '/provider/pharmacy/prescriptions')
     expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
     expect(screen.getByText('Your role at this facility doesn’t include prescriptions. Ask your facility administrator.')).toBeTruthy()
   })
 
-  it('walk-in sales only: Sell', async () => {
+  it('walk-in sales only, at a demo facility: Sell', async () => {
+    staff.facility = DEMO
     expect(await settle(PHARMACY, [WALK_IN])).toEqual({ where: '/provider/pharmacy/sell', heading: 'Sell (stand-in)' })
   })
 
@@ -164,13 +177,44 @@ describe('the pharmacy. site settles on a page whatever the role holds', () => {
     expect(await settle(PHARMACY, [READ])).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Prescriptions (stand-in)' })
   })
 
-  it('both: Sell, as on that site today', async () => {
+  it('both, at a demo facility: Sell, as on that site today', async () => {
+    staff.facility = DEMO
     expect(await settle(PHARMACY, [WALK_IN, READ])).toEqual({ where: '/provider/pharmacy/sell', heading: 'Sell (stand-in)' })
   })
 
-  it('a Sell address the role cannot open comes back to a page that settles', async () => {
+  it('a Sell address the role cannot open at a demo facility comes back to a page that settles', async () => {
+    staff.facility = DEMO
     const landed = await settle(PHARMACY, [], '/provider/pharmacy/sell')
     expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
+  })
+})
+
+describe('at a real facility, where Health ID does not serve Sell yet, the pharmacy. site settles on Prescriptions', () => {
+  it('walk-in sales only: Prescriptions, which says plainly why it is closed', async () => {
+    const landed = await settle(PHARMACY, [WALK_IN])
+    expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
+    expect(screen.queryByRole('link', { name: 'Sell' })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/work-item|walk-in|permission|pharmacy\.\w/)
+  })
+
+  it('both: Prescriptions, with no Sell in the menu', async () => {
+    expect(await settle(PHARMACY, [WALK_IN, READ])).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Prescriptions (stand-in)' })
+    expect(screen.queryByRole('link', { name: 'Sell' })).toBeNull()
+  })
+
+  it('other pharmacy pages but neither (Stock, Sales & receipts): Prescriptions, with none of those pages in the menu', async () => {
+    const landed = await settle(PHARMACY, ['pharmacy.stock.read', 'billing.bill.read'])
+    expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
+    expect(screen.queryByRole('link', { name: 'Stock' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Sales & receipts' })).toBeNull()
+  })
+
+  it.each([[[]], [[WALK_IN]]])('the Sell address, with %j, says Sell is part of the demo only and stays there', async permissions => {
+    const landed = await settle(PHARMACY, permissions, '/provider/pharmacy/sell')
+    expect(landed).toEqual({ where: '/provider/pharmacy/sell', heading: 'Sell' })
+    expect(screen.getByText('Sell is part of the Health ID demo only')).toBeTruthy()
+    expect(screen.getByText('It is not available at Corner Pharmacy (fictional).')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Sell (stand-in)' })).toBeNull()
   })
 })
 
@@ -180,9 +224,20 @@ describe('the EHR site keeps its Pharmacy address as it was', () => {
     [[WALK_IN], '/provider/pharmacy/sell', 'Sell (stand-in)'],
     [[READ], '/provider/pharmacy/prescriptions', 'Prescriptions (stand-in)'],
     [[WALK_IN, READ], '/provider/pharmacy/prescriptions', 'Prescriptions (stand-in)'],
-  ])('with %j, /provider/pharmacy opens %s', async (permissions, where, heading) => {
+  ])('at a demo facility, with %j, /provider/pharmacy opens %s', async (permissions, where, heading) => {
+    staff.facility = DEMO
     // A clinical permission keeps the facility in the EHR, as a hospital is.
     expect(await settle('ehr.healthidentitydirectory.com', ['ehr.encounter.read', ...permissions], '/provider/pharmacy')).toEqual({ where, heading })
+  })
+
+  it.each([
+    [[], 'Pharmacy unavailable'],
+    [[WALK_IN], 'Pharmacy unavailable'],
+    [[READ], 'Prescriptions (stand-in)'],
+    [[WALK_IN, READ], 'Prescriptions (stand-in)'],
+  ])('at a real facility, with %j, /provider/pharmacy opens Prescriptions (%s): Sell is not served there yet', async (permissions, heading) => {
+    expect(await settle('ehr.healthidentitydirectory.com', ['ehr.encounter.read', ...permissions], '/provider/pharmacy'))
+      .toEqual({ where: '/provider/pharmacy/prescriptions', heading })
   })
 })
 
