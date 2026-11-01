@@ -268,6 +268,28 @@ describe('Ask the patient for access (once New external record access)', () => {
     expect(screen.getByText('Waiting for the patient', { selector: 'p' })).toBeTruthy()
   })
 
+  it('says a Health ID refused from Enter in its own field as an alert, new for each refusal, and sends nothing', async () => {
+    open('/new')
+    const field = screen.getByLabelText(labelled('Health ID'))
+    const form = field.closest('form')!
+    fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
+    // Sent from elsewhere: focus moves to the field, whose description says why. No alert as well.
+    fireEvent.submit(form)
+    expect(await screen.findByText('Enter the patient’s Health ID.')).toBeTruthy()
+    expect(document.activeElement).toBe(field)
+    expect(screen.queryByRole('alert')).toBeNull()
+    // Sent from the field itself (Enter): focus stays, so the refusal is an alert (today's Patients.tsx:132,237).
+    fireEvent.submit(form)
+    const first = await screen.findByRole('alert')
+    expect(first.textContent).toBe('Enter the patient’s Health ID.')
+    expect(document.activeElement).toBe(field)
+    // Refused again: a new alert, so it is said again.
+    fireEvent.submit(form)
+    await waitFor(() => expect(screen.getByRole('alert')).not.toBe(first))
+    expect(screen.getByRole('alert').textContent).toBe('Enter the patient’s Health ID.')
+    expect(api.requestAccess).not.toHaveBeenCalled()
+  })
+
   it('takes a Health ID offered from Patients once', async () => {
     offerHealthId(PATIENT_HID, FACILITY_ID, staff.setActivePatient)
     open('/new')
@@ -503,6 +525,34 @@ describe('An access request’s page', () => {
     expect(staff.setActivePatient).not.toHaveBeenCalled()
     // The grant is still listed as active: Close access is offered again, and closes at once.
     expect(screen.getByRole('button', { name: 'Close access' })).toBeTruthy()
+  })
+
+  it('says a refused close even when the list cannot be read again, in place of the list’s refusal', async () => {
+    api.closeGrant.mockRejectedValue(new HidApiError(409, 'Conflict', { code: 'CONSENT_COMMAND_CONFLICT' }))
+    open('/r0000000-0000-4000-8000-000000000002')
+    const button = await screen.findByRole('button', { name: 'Close access' })
+    // The read after the close fails.
+    api.listAccessRequests.mockRejectedValue(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    fireEvent.click(button)
+    expect(await screen.findByText('This access had already ended. The list has been refreshed.')).toBeTruthy()
+    // Today's one alert: the close refusal takes the list error's place (AccessRequests.tsx:94-95,118).
+    const alerts = screen.getAllByRole('alert')
+    expect(alerts).toHaveLength(1)
+    expect(shownText(alerts[0]!)).toContain('Couldn’t close access')
+    expect(shownText(alerts[0]!)).toContain('This access had already ended. The list has been refreshed.')
+    expect(api.listAccessRequests).toHaveBeenCalledTimes(2)
+    expect(staff.setActivePatient).not.toHaveBeenCalled()
+  })
+
+  it('says a refused close when the list read after it no longer holds the request', async () => {
+    api.closeGrant.mockRejectedValue(new HidApiError(409, 'Conflict', { code: 'CONSENT_COMMAND_CONFLICT' }))
+    open('/r0000000-0000-4000-8000-000000000002')
+    const button = await screen.findByRole('button', { name: 'Close access' })
+    api.listAccessRequests.mockResolvedValue([request(), DENIED])
+    fireEvent.click(button)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
+    expect(shownText(await screen.findByRole('alert'))).toContain('This access had already ended. The list has been refreshed.')
+    expect(api.listAccessRequests).toHaveBeenCalledTimes(2)
   })
 
   it('shows the request loading, and a list refusal in today’s words', async () => {

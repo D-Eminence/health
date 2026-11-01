@@ -110,14 +110,19 @@ export function RequestDetail() {
     </div>
   )
 
+  // A refused close is said whatever the read after it found: today's page reads again, then puts the refusal in its one
+  // alert, in place of any list error (AccessRequests.tsx:94-95,118).
+  const refusedClose = failure ? <Alert intent="error" title="Couldn’t close access">{failure}</Alert> : null
+
   // A request just sent is confirmed ("Request sent.") even while the list is read, cannot be read, or lacks it. The
   // page and its heading stay the same element while the request loads, so the focus the frame gave the heading stays.
   if (!request) {
-    if (!list.error && list.requests !== null) return <><RecordNotFound backHref={href()} />{statusRegion}</>
+    if (!list.error && list.requests !== null) return <><RecordNotFound backHref={href()} />{refusedClose}{statusRegion}</>
     return <FormPage title="Access request" back={{ to: href(), label: 'Back to access requests' }}>
       {statusRegion}
-      {list.error ? <Alert intent="error" title="Couldn’t load this request" action={<Button size="sm" onClick={() => void list.load()}>Try again</Button>}>{list.error}</Alert>
-        : <Card><LoadingRows rows={3} label="Loading this request" /></Card>}
+      {list.error ? <Alert intent="error" title={failure ? 'Couldn’t close access' : 'Couldn’t load this request'}
+        action={<Button size="sm" onClick={() => void list.load()}>Try again</Button>}>{failure || list.error}</Alert>
+        : <>{refusedClose}<Card><LoadingRows rows={3} label="Loading this request" /></Card></>}
     </FormPage>
   }
 
@@ -131,7 +136,7 @@ export function RequestDetail() {
       {ended ? <Alert intent="error" title="Access to this patient ended"
         action={<Button size="sm" to={href.to('patients')}>Find a patient</Button>}>{ACCESS_ENDED}</Alert> : null}
       {statusRegion}
-      {failure ? <Alert intent="error" title="Couldn’t close access">{failure}</Alert> : null}
+      {refusedClose}
       {list.error ? <Alert intent="error" title="Couldn’t refresh this request">{list.error}</Alert> : null}
       <StateNote request={request} />
       <Card>
