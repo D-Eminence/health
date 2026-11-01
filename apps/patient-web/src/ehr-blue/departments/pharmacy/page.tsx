@@ -1,5 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { CalendarCheck, PackageOpen, ReceiptText, ShoppingBag, SlidersHorizontal, Tags } from 'lucide-react'
+import { usesNovuBackend } from '../../../backendContract'
+import { selfServiceReview, selfServiceType } from '../../../staff/staffAccess'
 import type { EhrBluePage } from '../types'
 import { useBluePage } from '../../frame/pageContext'
 import { productOf } from '../../frame/product'
@@ -20,12 +22,38 @@ import { StockPage } from './Stock'
  */
 const GROUP = 'Pharmacy'
 const icon = (I: typeof ShoppingBag) => <I aria-hidden strokeWidth={1.8} />
-/** Opened by its address without the permission: today's own words (staff/routes/Operations.tsx Pharmacy), and nothing is read. */
-const pharmacyUnavailable = <DeptUnavailable title="Pharmacy unavailable" message="This facility membership needs pharmacy work-item read permission." />
+/**
+ * The kinds of self-signed-up facility that get Pharmacy once Health ID support has checked them: the ones whose locked
+ * list names it (staff/routes/ReviewBanner.tsx LOCKED). A laboratory, or another kind, is never promised it.
+ */
+const GETS_PHARMACY: ReadonlySet<string> = new Set(['pharmacy', 'hospital', 'clinic'])
+
+/**
+ * Opened by its address without the permission: today's refusal (staff/routes/Operations.tsx Pharmacy) in plain words,
+ * and nothing is read. A role that may open another Pharmacy page (Sell, Stock, Sales & receipts…) is told only
+ * prescriptions are not in it. The administrator of a facility that signed itself up (the only role there that manages
+ * staff) is never told to ask the facility administrator, which they are. While Health ID support checks a facility
+ * that will get Pharmacy, Pharmacy is locked for them too (the banner above says so): it opens after the check. Once
+ * the facility is checked, they add a pharmacist on the Staff page. A facility that will not get Pharmacy has no step.
+ */
+function PharmacyUnavailable() {
+  const { facility, permissions } = useDeptAccess()
+  const otherPharmacyWork = pharmacyPages.some(page => page !== pharmacyPage && page.permission !== undefined && permissions.includes(page.permission))
+  const review = usesNovuBackend() ? selfServiceReview(facility) : null
+  const getsPharmacy = GETS_PHARMACY.has(selfServiceType(facility) ?? '')
+  const administrator = review !== null && permissions.includes('workforce.manage')
+  const next = !administrator ? ' Ask your facility administrator.' : review === 'reviewed' && getsPharmacy ? ' Add a pharmacist on the Staff page.' : ''
+  const message = review === 'pending' && getsPharmacy
+    ? 'Pharmacy opens once Health ID support has checked your facility.'
+    : `Your role at this facility doesn’t include ${otherPharmacyWork ? 'prescriptions' : 'pharmacy work'}.${next}`
+  return <DeptUnavailable title="Pharmacy unavailable" message={message} />
+}
 
 /**
  * The old addresses, so nothing breaks: /pharmacy opens the counter in a pharmacy and Prescriptions in a hospital (or
- * whichever the role may open), /pharmacy?rx=<id> the prescription, /pharmacy/new-sale the counter.
+ * whichever the role may open), /pharmacy?rx=<id> the prescription, /pharmacy/new-sale the counter. A role that may
+ * open neither goes to Prescriptions, which says why: never to Sell, which would send it back to /provider, and on the
+ * pharmacy. site /provider comes back here.
  */
 function PharmacyHome() {
   const { rest } = useBluePage()
@@ -35,7 +63,7 @@ function PharmacyHome() {
   const reads = permissions.includes('pharmacy.work-item.read')
   const rx = new URLSearchParams(search).get('rx')
   const below = rest.replace(/\/+$/, '')
-  const sellFirst = productOf(window.location.hostname, permissions) === 'pharmacy' ? sells || !reads : sells && !reads
+  const sellFirst = productOf(window.location.hostname, permissions) === 'pharmacy' ? sells : sells && !reads
   const to = rx ? `prescriptions/${encodeURIComponent(rx)}` : below === 'new-sale' ? 'sell' : sellFirst ? 'sell' : 'prescriptions'
   return <Navigate replace to={`/provider/pharmacy/${to}`} />
 }
@@ -45,7 +73,7 @@ export const pharmacyPages: EhrBluePage[] = [
   { path: 'pharmacy/*', group: GROUP, label: 'Pharmacy', status: 'live', icon: <PillIcon />, element: <PharmacyHome />, listed: () => false },
   { path: 'pharmacy/sell', group: GROUP, label: 'Sell', permission: 'pharmacy.walk-in.create', status: 'live', icon: icon(ShoppingBag), element: <Sell /> },
   { path: 'pharmacy/prescriptions/*', group: GROUP, label: 'Prescriptions', permission: 'pharmacy.work-item.read', status: 'live', keepsState: true,
-    icon: <PillIcon />, element: <Prescriptions />, refusal: pharmacyUnavailable },
+    icon: <PillIcon />, element: <Prescriptions />, refusal: <PharmacyUnavailable /> },
   { path: 'pharmacy/sales/*', group: GROUP, label: 'Sales & receipts', permission: 'billing.bill.read', status: 'live', keepsState: true,
     icon: icon(ReceiptText), element: <Sales /> },
   { path: 'pharmacy/stock/*', group: GROUP, label: 'Stock', permission: 'pharmacy.stock.read', status: 'live', icon: icon(PackageOpen), element: <StockPage /> },
