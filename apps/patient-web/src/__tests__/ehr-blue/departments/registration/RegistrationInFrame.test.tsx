@@ -51,12 +51,13 @@ describe('Patient registration in the frame', () => {
     expect(sent.filter(call => call.route === CAPABILITIES).length).toBeGreaterThan(0)
   })
 
-  it('without identity registration write, shows today\'s refusal at the address and reads nothing', async () => {
+  it('without identity registration write, refuses at the address in plain words that name no permission, and reads nothing', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.registration.approve'], ['records_officer'])
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [CAPABILITIES]: many(enabled) })
     await openStaffApp('/provider/registration')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Registration unavailable' })).toBeDefined()
-    expect(screen.getByText('This facility membership needs identity registration write permission.')).toBeDefined()
+    const title = await screen.findByRole('heading', { level: 1, name: 'Registration unavailable' })
+    expect(screen.getByText('Your role at this facility doesn’t include registering patients. Ask your facility administrator.')).toBeDefined()
+    expect(title.closest('.hid-ehr-dept')?.textContent).not.toMatch(/permission|membership|registration write|identity\.registration\.write/i)
     expect(screen.queryByText(/is not open to you here$/)).toBeNull()
     expect(within(nav()).queryByRole('link', { name: 'Patient registration' })).toBeNull()
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })

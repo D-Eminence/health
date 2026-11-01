@@ -1,5 +1,6 @@
 import { isHidApiError } from '@hid/http'
 import type { RegistrationCase } from '../../../staff/api'
+import type { RefusedWork } from '../../../staff/refusedWork'
 
 /*
  * Today's Patient registration page (staff/routes/Registration.tsx), its rules and every word it says, ported here
@@ -46,9 +47,17 @@ export function candidatesText(registration: RegistrationCase) {
 
 // ---- The page and its refusal -----------------------------------------------------------------------------------
 
-/** Registration.tsx 215: the page's own refusal, also the frame's at the address. */
+/** Registration.tsx 215: the heading of the page's own refusal, also the frame's at the address. */
 export const UNAVAILABLE_TITLE = 'Registration unavailable'
-export const UNAVAILABLE_MESSAGE = 'This facility membership needs identity registration write permission.'
+/**
+ * The work the refusal names, in a sentence refusedWorkText (staff/refusedWork.ts) writes by who reads it. Screens name
+ * no permission (the owner's rule), so it replaces today's words, which named the one lacking. The front desk registers
+ * patients, so a facility's own administrator is told to add a receptionist. Registration stays in the EHR (the owner's
+ * rule): of the kinds of facility that sign themselves up, only a hospital or a clinic runs the EHR, so only they get it.
+ */
+export const REGISTRATION_WORK: RefusedWork = {
+  name: 'Patient registration', work: 'registering patients', doneBy: 'receptionist', gets: new Set(['hospital', 'clinic']),
+}
 
 /** Registration.tsx 218: the page head. Today's title ends in a full stop; the design's headings have none. */
 export const EYEBROW = 'Identity operations'
