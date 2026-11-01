@@ -56,8 +56,13 @@ const published = { ...publication, status: 'published', attemptCount: 2, maxAtt
 const ehrUnavailable = () => new HidApiError(503, 'EHR service is unavailable', { code: 'EHR_SERVICE_UNAVAILABLE' })
 /** What a publication OCR has not finished says when this page holds its key. */
 const RESUME_HERE = 'OCR has not finished this publication. If it has stopped, Retry publication resumes it; if it is still running, OCR says so.'
-/** What a failed publication says, in place of OCR's stored failure code and summary, which are never shown. */
+/** What a final failed publication says, in place of OCR's stored failure code and summary, which are never shown. */
 const PUBLICATION_FAILED = 'Nothing was added to the patient’s record.'
+/**
+ * What a failed publication OCR attempts again says instead: the owning service may have saved it before a timeout, or
+ * may still be working on it, so the page claims nothing about the record.
+ */
+const PUBLICATION_UNFINISHED = 'Publishing to the patient’s record didn’t finish: it may have been added even so. Check the patient’s record before adding anything by hand.'
 /** OCR's stored failure codes and summaries in these tests: none belongs on a screen. */
 const SERVER_FAILURE_WORDS = /OWNING_SERVICE_UNAVAILABLE|EHR_SERVICE_UNAVAILABLE|ENCOUNTER_NOT_FOUND|temporarily unavailable|owning (clinical )?(service|domain)/i
 
@@ -102,11 +107,11 @@ describe('publishing validated OCR evidence', () => {
   it('sends a key it holds, and sends it again when the same publication is pressed again after a refusal', async () => {
     api.publishOcrValidation.mockRejectedValueOnce(new HidApiError(503, 'The service could not complete the request.', { code: 'SERVICE_UNAVAILABLE' }))
     await openJob()
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     await screen.findByRole('alert')
     // Nothing was recorded, so Publish is offered again: the same request, with the same key.
     api.publishOcrValidation.mockResolvedValueOnce(published)
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     await waitFor(() => expect(api.publishOcrValidation).toHaveBeenCalledTimes(2))
     expect(api.publishOcrValidation.mock.calls[0]!.slice(0, 4)).toEqual(['facility-1', validation, 'confirmation-1', 'create_imported_clinical_note'])
     expect(typeof keys()[0]).toBe('string')
@@ -117,16 +122,18 @@ describe('publishing validated OCR evidence', () => {
     api.publishOcrValidation.mockRejectedValueOnce(ehrUnavailable())
     await openJob()
     api.ocrPublications.mockResolvedValue({ items: [unavailableAt(1)] })
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     expect((await screen.findByRole('alert')).textContent).toContain(SAID_UNAVAILABLE)
     expect(document.body.textContent).not.toContain('EHR service is unavailable')
 
     const retry = await screen.findByRole('button', { name: 'Retry publication' })
     expect(api.ocrPublications).toHaveBeenCalledTimes(2)
-    expect(screen.queryByRole('button', { name: 'Publish to EHR' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Publish as clinical note' })).toBeNull()
     expect(screen.getByText(/Attempt 1 of 3/)).toBeTruthy()
     // The failure in plain words, never OCR's stored summary or failure code (owner's rule: no server text or codes).
-    expect(screen.getByText(PUBLICATION_FAILED)).toBeTruthy()
+    // The owning service may have saved it before its answer was lost, so the page never says nothing was added.
+    expect(screen.getByText(PUBLICATION_UNFINISHED)).toBeTruthy()
+    expect(screen.queryByText(PUBLICATION_FAILED)).toBeNull()
     expect(document.body.textContent).not.toMatch(SERVER_FAILURE_WORDS)
     // Focus, lost with the Publish button, goes to the control that continues the work.
     await waitFor(() => expect(document.activeElement).toBe(retry))
@@ -144,7 +151,7 @@ describe('publishing validated OCR evidence', () => {
     api.publishOcrValidation.mockRejectedValueOnce(ehrUnavailable())
     await openJob()
     api.ocrPublications.mockResolvedValue({ items: [unavailableAt(1)] })
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     await screen.findByRole('button', { name: 'Retry publication' })
 
     await press(screen.getByRole('button', { name: 'Refresh status' }))
@@ -159,7 +166,7 @@ describe('publishing validated OCR evidence', () => {
     api.publishOcrValidation.mockRejectedValueOnce(ehrUnavailable())
     await openJob()
     api.ocrPublications.mockResolvedValue({ items: [unavailableAt(1)] })
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     const retry = await screen.findByRole('button', { name: 'Retry publication' })
 
     // OCR's clock decides: it can still answer that the attempt has not been started.
@@ -180,7 +187,7 @@ describe('publishing validated OCR evidence', () => {
       { code: `${service}_SERVICE_AUTH_UNAVAILABLE` }))
     await openJob()
     api.ocrPublications.mockResolvedValue({ items: [unavailableAt(1)] })
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     expect((await screen.findByRole('alert')).textContent).toBe(SAID_TRY_SHORTLY)
     expect(document.body.textContent).not.toContain('between Health ID services')
     expect(screen.queryByText(/refused the OCR service identity/)).toBeNull()
@@ -192,13 +199,13 @@ describe('publishing validated OCR evidence', () => {
     api.publishOcrValidation.mockRejectedValueOnce(ehrUnavailable())
     await openJob()
     api.ocrPublications.mockResolvedValue({ items: [unavailableAt(1)] })
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     await screen.findByRole('button', { name: 'Retry publication' })
 
     signedIn.actorId = 'staff-2'
     await press(screen.getByRole('button', { name: 'Refresh status' }))
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry publication' })).toBeNull())
-    expect(screen.queryByRole('button', { name: 'Publish to EHR' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Publish as clinical note' })).toBeNull()
     expect(screen.getByText(/can be retried only from the page where Publish was pressed/)).toBeTruthy()
 
     signedIn.actorId = 'staff-1'
@@ -212,10 +219,10 @@ describe('publishing validated OCR evidence', () => {
     await openJob()
     // Another request made the publication, and it failed: it is not this page's to retry.
     api.ocrPublications.mockResolvedValue({ items: [unavailableAt(1)] })
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('This review already has a publication request, shown below.'))
     await screen.findByText(/Attempt 1 of 3/)
-    expect(screen.queryByRole('button', { name: 'Publish to EHR' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Publish as clinical note' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Retry publication' })).toBeNull()
     expect(screen.getByText('It can be retried only from the page where Publish was pressed, before that page is reloaded or left.')).toBeTruthy()
   })
@@ -225,12 +232,12 @@ describe('publishing validated OCR evidence', () => {
       { code: 'OCR_ALREADY_PUBLISHED' }))
     await openJob()
     api.ocrPublications.mockRejectedValue(new HidApiError(503, 'The service could not complete the request.', { code: 'SERVICE_UNAVAILABLE' }))
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([
       'This review already has a publication request.', SAID_UNAVAILABLE]))
       expect(document.body.textContent).not.toContain('The service could not complete the request.')
     // The history shown is out of date, and OCR would refuse Publish: neither is offered.
-    expect(screen.queryByRole('button', { name: 'Publish to EHR' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Publish as clinical note' })).toBeNull()
   })
 
   it('gives focus back to Publish, still shown, when a refused request\'s history cannot be read again', async () => {
@@ -238,14 +245,14 @@ describe('publishing validated OCR evidence', () => {
     api.publishOcrValidation.mockReturnValueOnce(new Promise((_resolve, reject) => { refuse = reject }))
     await openJob()
     api.ocrPublications.mockRejectedValue(new HidApiError(503, 'The service could not complete the request.', { code: 'SERVICE_UNAVAILABLE' }))
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     // As in Chromium, focus leaves the disabled button while the request runs.
     const elsewhere = document.body.appendChild(document.createElement('button'))
     elsewhere.focus()
     elsewhere.remove()
     expect(document.activeElement).toBe(document.body)
     await act(async () => { refuse(new HidApiError(503, 'EHR service is unavailable', { code: 'EHR_SERVICE_UNAVAILABLE' })) })
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Publish to EHR' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Publish as clinical note' })))
   })
 
   it('a failed publication found on opening the job, with no key on this page, cannot be retried from here and says so', async () => {
@@ -253,15 +260,28 @@ describe('publishing validated OCR evidence', () => {
     await openJob()
     expect(await screen.findByText('It can be retried only from the page where Publish was pressed, before that page is reloaded or left.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Retry publication' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Publish to EHR' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Publish as clinical note' })).toBeNull()
+  })
+
+  // REQUEST_IN_PROGRESS: the owning service still has a request in flight under this key, so it may yet be added.
+  it('a failed publication the owning service may still be working on claims nothing about the record', async () => {
+    api.ocrPublications.mockResolvedValue({ items: [{ ...unavailableAt(1), failureCode: 'REQUEST_IN_PROGRESS',
+      failureSummary: 'Owning service request is still in progress (REQUEST_IN_PROGRESS)' }] })
+    await openJob()
+    expect(await screen.findByText(PUBLICATION_UNFINISHED)).toBeTruthy()
+    expect(screen.queryByText(PUBLICATION_FAILED)).toBeNull()
+    expect(document.body.textContent).not.toMatch(/REQUEST_IN_PROGRESS|still in progress|Nothing was added/)
   })
 
   it('offers no retry once the attempts are used up', async () => {
     api.publishOcrValidation.mockRejectedValueOnce(ehrUnavailable())
     await openJob()
     api.ocrPublications.mockResolvedValue({ items: [unavailableAt(3)] })
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     expect(await screen.findByText('The publication attempt limit has been reached. It cannot be retried.')).toBeTruthy()
+    // The last attempt may still have been saved, so it claims nothing about the record either.
+    expect(screen.getByText(PUBLICATION_UNFINISHED)).toBeTruthy()
+    expect(screen.queryByText(PUBLICATION_FAILED)).toBeNull()
     expect(screen.queryByRole('button', { name: 'Retry publication' })).toBeNull()
   })
 
@@ -273,14 +293,14 @@ describe('publishing validated OCR evidence', () => {
     api.publishOcrValidation.mockRejectedValueOnce(new HidApiError(404, 'Encounter was not found', { code: 'ENCOUNTER_NOT_FOUND' }))
     await openJob()
     api.ocrPublications.mockResolvedValue({ items: [refusedByEhr] })
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(SAID_NOT_FOUND))
     expect(document.body.textContent).not.toContain('Encounter was not found')
     expect(await screen.findByText(PUBLICATION_FAILED)).toBeTruthy()
     expect(document.body.textContent).not.toMatch(SERVER_FAILURE_WORDS)
     expect(screen.getByText('It cannot be retried.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Retry publication' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Publish to EHR' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Publish as clinical note' })).toBeNull()
   })
 
   it('says a publication cannot be retried when OCR answers OCR_PUBLICATION_TERMINAL to the same request sent again', async () => {
@@ -288,26 +308,26 @@ describe('publishing validated OCR evidence', () => {
     api.publishOcrValidation.mockRejectedValueOnce(lostAnswer())
     await openJob()
     api.ocrPublications.mockRejectedValueOnce(new HidApiError(503, 'The service could not complete the request.', { code: 'SERVICE_UNAVAILABLE' }))
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     await screen.findByText(SAID_UNAVAILABLE)
 
     api.publishOcrValidation.mockRejectedValueOnce(new HidApiError(409, 'Publication failed terminally and requires corrected validation evidence',
       { code: 'OCR_PUBLICATION_TERMINAL' }))
     api.ocrPublications.mockResolvedValue({ items: [refusedByEhr] })
-    await press(screen.getByRole('button', { name: 'Publish to EHR' }))
+    await press(screen.getByRole('button', { name: 'Publish as clinical note' }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('This couldn’t be added to the patient’s record, and it can’t be tried again.'))
     expect(document.body.textContent).not.toMatch(/owning service|failed terminally|OCR_PUBLICATION_TERMINAL/)
     expect(keys()).toHaveLength(2)
     expect(keys()[1]).toBe(keys()[0])
     expect(screen.queryByRole('button', { name: 'Retry publication' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Publish to EHR' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Publish as clinical note' })).toBeNull()
   })
 
   it('does not say a publication was recorded unless OCR answers that it was published', async () => {
     api.publishOcrValidation.mockResolvedValueOnce({ ...unavailableAt(1), status: 'processing' })
     await openJob()
     api.ocrPublications.mockResolvedValue({ items: [{ ...unavailableAt(1), status: 'processing', failureCode: null, failureSummary: null }] })
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     expect(await screen.findByText(RESUME_HERE)).toBeTruthy()
     expect(screen.queryByText('Publication recorded.')).toBeNull()
   })
@@ -319,7 +339,7 @@ describe('publishing validated OCR evidence', () => {
     // The page's clock stands still, so the wait it says does not depend on how long the test takes.
     const start = Date.now()
     const clock = vi.spyOn(Date, 'now').mockReturnValue(start)
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     const retry = await screen.findByRole('button', { name: 'Retry publication' })
     expect(screen.getByText('OCR allows another attempt about 15 seconds after a failure.')).toBeTruthy()
 
@@ -354,7 +374,7 @@ describe('publishing validated OCR evidence', () => {
     api.publishOcrValidation.mockRejectedValueOnce(refusal)
     await openJob()
     api.ocrPublications.mockResolvedValue({ items: [{ ...publication, status, attemptCount, maxAttempts: 3, failureCode: null, failureSummary: null }] })
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     const retry = await screen.findByRole('button', { name: 'Retry publication' })
     expect(screen.getByText(RESUME_HERE)).toBeTruthy()
     await waitFor(() => expect(document.activeElement).toBe(retry))
@@ -383,7 +403,7 @@ describe('publishing validated OCR evidence', () => {
     await openJob()
     // OCR claims a publication again only while attempt_count < max_attempts (ocr.service.ts executePublication).
     api.ocrPublications.mockResolvedValue({ items: [{ ...publication, status: 'processing', attemptCount: 3, maxAttempts: 3 }] })
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     expect(await screen.findByText('OCR has not finished this publication. Refresh the job status to see whether it has. '
       + 'This is its last attempt: if it has stopped, it cannot be resumed.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Retry publication' })).toBeNull()
@@ -411,7 +431,7 @@ describe('publishing validated OCR evidence', () => {
     api.publishOcrValidation.mockRejectedValueOnce(lostAnswer())
     await openJob()
     api.ocrPublications.mockResolvedValue({ items: [published] })
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     expect(await screen.findByText('Publication recorded.')).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
     // The job is read again, as after any publication.
@@ -424,7 +444,7 @@ describe('publishing validated OCR evidence', () => {
     await openJob()
     let answer: (value: unknown) => void = () => {}
     api.ocrPublications.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
-    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await press(await screen.findByRole('button', { name: 'Publish as clinical note' }))
     await waitFor(() => expect(api.ocrPublications).toHaveBeenCalledTimes(2))
     expect(screen.queryByRole('alert')).toBeNull()
     await act(async () => { answer({ items: [unavailableAt(1)] }) })
@@ -582,6 +602,19 @@ describe('OCR-04: what a publication produced', () => {
     expect(document.body.textContent).not.toContain('Lab access is not authorized')
   })
 
+  // Lab's code for it is critical_candidate: the page says it as routed results do.
+  it('says a possibly critical imported observation in plain words, never by Lab\'s flag code', async () => {
+    permissions.value = ['ocr.job.read', 'lab.import.read']
+    lab()
+    api.labImport.mockResolvedValue({ id: IMPORT, status: 'accepted', observations: [
+      { id: 'observation-1', ordinal: 1, testName: 'Potassium', value: '6.9', unit: 'mmol/L', abnormalFlag: 'critical_candidate' },
+    ] })
+    await openJob()
+    await press(await screen.findByRole('button', { name: 'Imported lab evidence' }))
+    expect(await screen.findByText('Potassium: 6.9 mmol/L · flagged possibly critical')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/critical_candidate|critical candidate/)
+  })
+
   it.each([
     ['EHR', 'create_imported_clinical_note', 'clinical-note', 'Published as a clinical note in the patient\'s record.'],
     ['DOCUMENT_ONLY', 'retain_validated_document', 'document', 'Kept as a validated document in the patient\'s record.'],
@@ -590,5 +623,28 @@ describe('OCR-04: what a publication produced', () => {
     await openJob()
     expect(await screen.findByText(label)).toBeTruthy()
     expect(document.body.textContent).not.toContain(IMPORT)
+  })
+})
+
+describe('a review names its owning domain in words', () => {
+  it.each([
+    ['EHR', 'Clinical note'],
+    ['LAB', 'Historical lab evidence'],
+    ['PHARMACY', 'Historical medication evidence'],
+    ['DOCUMENT_ONLY', 'Validated document'],
+  ])('a %s review reads "%s", and its Publish button says so, never OCR\'s code', async (targetDomain, words) => {
+    api.ocrValidations.mockResolvedValue({ items: [{ ...validation, targetDomain }] })
+    await openJob()
+    expect(await screen.findByText(`Review 1 · ${words}`)).toBeTruthy()
+    expect(screen.getByRole('button', { name: `Publish as ${words.toLowerCase()}` })).toBeTruthy()
+    const review = screen.getByText(`Review 1 · ${words}`).closest('.staff-list-item')
+    expect(review?.textContent).not.toMatch(/\b(EHR|LAB|PHARMACY|DOCUMENT[_ ]ONLY)\b/)
+  })
+
+  it('a rejected review reads "Not classified", never UNCLASSIFIED', async () => {
+    api.ocrValidations.mockResolvedValue({ items: [{ ...validation, disposition: 'rejected', targetDomain: 'UNCLASSIFIED', candidateType: 'unclassified' }] })
+    await openJob()
+    expect(await screen.findByText('Review 1 · Not classified')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('UNCLASSIFIED')
   })
 })

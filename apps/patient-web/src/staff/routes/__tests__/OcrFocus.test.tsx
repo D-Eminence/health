@@ -182,13 +182,13 @@ describe('OCR-A11Y-01: focus and status after each OCR step', () => {
   it('publish: moves focus to the review and publication history and says the publication was recorded', async () => {
     api.ocrValidations.mockResolvedValue({ items: [validation] })
     await findJob(confirmed)
-    const publish = await screen.findByRole('button', { name: 'Publish to DOCUMENT ONLY' })
+    const publish = await screen.findByRole('button', { name: 'Publish as validated document' })
     api.publishOcrValidation.mockResolvedValue({ id: 'publication-1', status: 'published' })
     api.ocrPublications.mockResolvedValue({ items: [{ id: 'publication-1', status: 'published', targetDomain: 'DOCUMENT_ONLY' }] })
     await press(publish)
     await waitFor(() => expect(focused()).toBe(heading('Review and publication history')))
     expect(statusRegion().textContent).toBe('Publication recorded.')
-    expect(screen.queryByRole('button', { name: /^Publish to/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Publish as/ })).toBeNull()
   })
 
   it('a step whose reload then fails: says the step was recorded and gives focus back to finding the job', async () => {
@@ -315,11 +315,11 @@ describe('OCR-A11Y-01: a refused request gives focus back to the control that se
   it('publish', async () => {
     api.ocrValidations.mockResolvedValue({ items: [validation] })
     await findJob(confirmed)
-    const publish = await screen.findByRole('button', { name: 'Publish to DOCUMENT ONLY' })
+    const publish = await screen.findByRole('button', { name: 'Publish as validated document' })
     api.publishOcrValidation.mockRejectedValue(unavailable())
     await press(publish)
     await screen.findByRole('alert')
-    await waitFor(() => expect(focused()).toBe(screen.getByRole('button', { name: 'Publish to DOCUMENT ONLY' })))
+    await waitFor(() => expect(focused()).toBe(screen.getByRole('button', { name: 'Publish as validated document' })))
   })
 
   it('create', async () => {
