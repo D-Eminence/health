@@ -168,7 +168,8 @@ export function BlueFrame() {
     title: group.label,
     collapsible: Boolean(group.label),
     defaultOpen: OPEN.has(group.label ?? ''),
-    items: group.items.map(item => ({ to: item.href, label: item.label, icon: iconOf(item.icon), // A single product lists pages below its home (pharmacy/new-sale): its home is current only at its own address.
+    // One entry per address: two pages that open the same place (Home and a page whose address is Home's) list once.
+    items: group.items.filter((item, index, all) => all.findIndex(other => other.href === item.href) === index).map(item => ({ to: item.href, label: item.label, icon: iconOf(item.icon), // A single product lists pages below its home (pharmacy/new-sale): its home is current only at its own address.
       end: item.href === '/provider' || (product !== 'ehr' && item.href === `/provider/${info.home}`) })),
   }))
   const tabsFor = (path: string) => listed.find(page => page.path === path || page.path === `${path}/*`)
