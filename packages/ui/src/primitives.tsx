@@ -305,9 +305,11 @@ export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
 export function Badge({ tone = 'neutral', className, children, ...rest }: BadgeProps) {
   const tones: Record<BadgeTone, string> = {
     neutral: 'border-line-strong bg-surface-tint text-muted',
-    information: 'border-brand-border bg-brand-tint text-brand',
+    // The darker brand ink: plain brand on its tint is 4.2:1, under the 4.5:1 small text needs.
+    information: 'border-brand-border bg-brand-tint text-brand-ink',
     success: 'border-positive/20 bg-positive/10 text-positive-ink',
-    warning: 'border-caution/20 bg-caution/10 text-caution-ink',
+    // An opaque fill: caution at 10% over the grey and blue tints left its ink under 4.5:1.
+    warning: 'border-caution/20 bg-warn-soft text-caution-ink',
     danger: 'border-critical/20 bg-critical/10 text-critical',
   }
 

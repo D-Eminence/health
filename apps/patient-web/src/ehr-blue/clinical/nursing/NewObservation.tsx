@@ -1,11 +1,10 @@
-import { EhrCard, EhrField, EhrSelect } from '@hid/ui/ehr'
+import { EhrCard } from '@hid/ui/ehr'
 import { useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { staffApi } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
-import { Banner, ErrorBox, Loading, RecordHeading } from '../parts/Notices'
-import { patientLine } from '../parts/PatientHeader'
+import { ErrorBox, Loading, RecordHeading } from '../parts/Notices'
 import { RecordForm, type FieldDef, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
 import {
@@ -17,7 +16,7 @@ import { CATEGORIES, DETAILS_LIMIT, NEW_TITLE, NOTE_TYPE, UNITS_LIMIT, composeOb
 export function NewObservation() {
   const href = useWorkspaceHref()
   const chart = useChart()
-  if (chart && chart.purpose === 'direct-care') return <NewObservationForm chart={chart} />
+  if (chart && chart.purpose === 'direct-care') return <ChartGate>{open => <NewObservationForm chart={open} />}</ChartGate>
   return (
     <>
       <RecordHeading title={NEW_TITLE} backHref={href()} />
@@ -41,9 +40,9 @@ function NewObservationForm({ chart }: { chart: Chart }) {
 
   const fields: FieldDef[] = [
     { key: 'visit', label: 'Visit', required: true, choices: visits.map(encounter => ({ value: encounter.id, label: visitLabel(encounter) })) },
-    { key: 'category', label: 'Observation category', required: true, options: CATEGORIES },
-    { key: 'note', label: 'Observation / administration details', type: 'textarea', required: true, maxLength: DETAILS_LIMIT },
-    { key: 'units', label: 'Units / dose if applicable', maxLength: UNITS_LIMIT },
+    { key: 'category', label: 'Category', required: true, options: CATEGORIES },
+    { key: 'note', label: 'What you observed or gave', type: 'textarea', required: true, maxLength: DETAILS_LIMIT },
+    { key: 'units', label: 'Dose and unit, if you gave something', maxLength: UNITS_LIMIT },
   ]
 
   const submit = async (values: FormValues): Promise<SubmitOutcome> => {
@@ -68,25 +67,19 @@ function NewObservationForm({ chart }: { chart: Chart }) {
   return (
     <>
       <RecordHeading title={NEW_TITLE} backHref={href()} />
-      {chart.writeNotice ? <Banner tone="warning" title="Changes are unavailable">{chart.writeNotice}</Banner> : null}
       {!reads ? <ErrorBox>{NO_RECORD_ACCESS}</ErrorBox> : chart.canWrite && !writes ? <ErrorBox>{NO_CREATE}</ErrorBox> : null}
       <EhrCard>
-        <EhrField label={<>Patient<span aria-hidden="true"> *</span></>}>
-          <EhrSelect value="open" required onChange={() => undefined}>
-            <option value="open">{patientLine(chart.facts)}</option>
-          </EhrSelect>
-        </EhrField>
         {list.error ? <ErrorBox>{list.error}</ErrorBox> : null}
         {canCreate ? (
-          list.encounters === null ? (list.loading ? <Loading label="Loading encounters…" /> : null) : (
+          list.encounters === null ? (list.loading ? <Loading label="Loading consultations…" /> : null) : (
             <>
               {visits.length === 0 ? (
                 <p className="hid-ehr-clinical-note">
                   {NO_ENCOUNTERS}
-                  {chart.can('ehr.encounter.write') ? <> <Link className="hid-ehr-clinical-link" to={href.to('consult', 'new')}>Create consultation</Link></> : null}
+                  {chart.can('ehr.encounter.write') ? <> <Link className="hid-ehr-clinical-link" to={href.to('consult', 'new')}>New consultation</Link></> : null}
                 </p>
               ) : null}
-              <RecordForm key={visits.map(encounter => encounter.id).join()} fields={fields} submitLabel="Save record" onSubmit={submit} />
+              <RecordForm key={visits.map(encounter => encounter.id).join()} fields={fields} submitLabel="Save observation" onSubmit={submit} />
             </>
           )
         ) : null}

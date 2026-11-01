@@ -14,6 +14,7 @@ import { ACCOUNT_UNAVAILABLE, APPLICATIONS_LIMITED, APPLICATION_CHANGED, APPLY_R
   refusalCopy, stateCopy, statusCodeSentCopy } from '../clinician/copy'
 import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, StepHeading, TextButton, shownError,
   type Problem } from '../clinician/ui'
+import { buttonClass } from '../../kasuwa/ui'
 
 /**
  * The clinician application status page at /provider/join/status (hid-system
@@ -262,7 +263,7 @@ function StatusPage() {
         <StepHeading id="clinician-status-staff-title" focus>Your authenticator can't be set up here</StepHeading>
         <p role="alert" className="patient-inline-error">{STAFF_SIGN_IN_REQUIRED}</p>
         <div className="clinician-actions">
-          <Link className="patient-primary-button" to="/provider/sign-in">Sign in to the provider portal</Link>
+          <Link className={buttonClass({ variant: 'primary', block: true })} to="/provider/sign-in">Sign in to the provider portal</Link>
           <TextButton onClick={() => toForm(null)}>Check another email address</TextButton>
         </div>
       </section>
@@ -365,8 +366,8 @@ function ApplicationCard({ view, stage, onSetUp, onWithdraw }: {
     <div className="clinician-actions">
       {view.state === 'awaiting_authenticator' && stage === 'enrolment_required' &&
         <PrimaryButton onClick={onSetUp}>Set up authenticator</PrimaryButton>}
-      {active && <Link className="patient-primary-button" to="/provider/sign-in">Sign in to the provider portal</Link>}
-      {view.canWithdraw && <button type="button" className="patient-secondary-button" onClick={onWithdraw}>
+      {active && <Link className={buttonClass({ variant: 'primary', block: true })} to="/provider/sign-in">Sign in to the provider portal</Link>}
+      {view.canWithdraw && <button type="button" className={buttonClass({ variant: 'secondary' })} onClick={onWithdraw}>
         Withdraw<span className="patient-visually-hidden"> application to {view.facility.name}</span></button>}
     </div>
   </article>
@@ -411,9 +412,9 @@ function WithdrawDialog({ view, busy, error, onConfirm, onCancel }: {
       <p>Application to {view.facility.name}.</p>
       <StepError error={error} />
       <div className="clinician-actions">
-        <button type="button" className="patient-danger-button" onClick={onConfirm} aria-disabled={busy || undefined}>
+        <button type="button" className={buttonClass({ variant: 'destructive' })} onClick={onConfirm} aria-disabled={busy || undefined}>
           {busy ? 'Withdrawing…' : 'Withdraw application'}</button>
-        <button ref={keep} type="button" className="patient-secondary-button" onClick={onCancel} disabled={busy}>Keep application</button>
+        <button ref={keep} type="button" className={buttonClass({ variant: 'secondary' })} onClick={onCancel} disabled={busy}>Keep application</button>
       </div>
     </div>
   </div>
@@ -524,8 +525,8 @@ function ApplyAnother({ account, onApplied, takeOver, onWorking, onClosed }: {
   const regulator = details.profession ? REGULATOR_NAME[CLINICIAN_REGULATOR_OF[details.profession]] : 'your regulator'
   return <form className="patient-form" aria-labelledby="clinician-apply-title" aria-busy={busy} noValidate onSubmit={event => void send(event)}>
     <StepHeading id="clinician-apply-title" focus>Apply to another facility</StepHeading>
-    <p className="patient-field-hint">All fields are required. Give them exactly as they are on your practising licence. Two HID
-      administrators review each application.</p>
+    <p className="patient-field-hint">All fields are required. Give them exactly as they are on your practising licence. Health ID
+      checks each application.</p>
     <StepError error={error} />
     <ErrorSummary problems={problems} focusKey={summaryKey} />
     <DetailsFields value={details} onChange={setDetails} problems={problems}
@@ -534,7 +535,7 @@ function ApplyAnother({ account, onApplied, takeOver, onWorking, onClosed }: {
     <Declarations accurate={accurate} consent={consent} onAccurate={setAccurate} onConsent={setConsent} regulator={regulator}
       facility={details.facility?.name ?? 'the facility'} problems={problems} />
     <div className="clinician-actions">
-      <button id={SEND} type="submit" className="patient-primary-button" disabled={busy}>{busy ? 'Sending…' : 'Send application'}</button>
+      <button id={SEND} type="submit" className={buttonClass({ variant: 'primary', block: true })} disabled={busy}>{busy ? 'Sending…' : 'Send application'}</button>
       <TextButton onClick={() => { setApplying(false); focusOn(APPLY_OPEN) }} disabled={busy}>Cancel</TextButton>
     </div>
   </form>

@@ -1,47 +1,42 @@
 import { isHidApiError } from '@hid/http'
 import { EhrButton, EhrCard } from '@hid/ui/ehr'
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
-import { staffApi, type ClinicalRecord, type DocumentRecord, type Encounter, type NoteRevision } from '../../../staff/api'
+import { staffApi, type ClinicalRecord, type Encounter, type NoteRevision } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
 import {
   ActionList, ConfirmAction, DetailGrid, DetailMeta, HistoryCard, SavedRecord, VersionsCard, type HistoryItem, type VersionItem,
 } from '../parts/Detail'
-import { formatWhen, shortId } from '../parts/format'
+import { formatWhen, shortId, statusLabel, statusWords } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
-import { MoreActions, type MoreActionItem } from '../parts/MoreActions'
-import { Banner, ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
-import { patientLine } from '../parts/PatientHeader'
+import { MoreActions } from '../parts/MoreActions'
+import { ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
 import { COMPLETE_FIELD, RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
 import { NOTE_TRANSITIONS, isObservation, noteStatus as observationStatus } from '../nursing/observations'
 import { NO_RECORD_ACCESS, recordKey } from '../triage/records'
 import { vitalStatus } from '../triage/vitals'
+import { DiagnosesCard } from './Diagnoses'
+import { DocumentsCard } from './Documents'
 import {
-  ADD_DIAGNOSIS_LABEL, AddDiagnosis, CHANGE_DIAGNOSIS_LABEL, ChangeDiagnosis, DiagnosisList, VIEW_DIAGNOSES_LABEL, hasDiagnosisToChange,
-} from './Diagnoses'
-import {
-  DOCUMENTS_TRUNCATED, DocumentsState, OcrLink, UPLOAD_LABEL, UploadDocument, canOpenDocument, documentDetail, documentLabel, useDocumentOpener,
-} from './Documents'
-import {
-  AMEND_LABEL, CLOSING_STATUSES, DIAGNOSIS_UPDATED, EDIT_DRAFT_LABEL, ENCOUNTER_CHANGED, ENCOUNTER_CREATED, ENCOUNTER_STATUS_UPDATED,
-  ENCOUNTER_TRANSITIONS, NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NOTES_ARE_DRAFTS, NOTE_EIE_LABEL,
-  NOTE_STATUS_UPDATED, NO_COMPLAINT, NO_WRITE, REASON_FIELD, RECORD_NOT_SAVED, RECORD_SAVED, RELOAD_FAILED, RELOAD_NOTE, RELOAD_RECORD,
-  REVISION_FAILED, REVISION_REASON_FIELD, REVISION_RECORDED, SAVE_DRAFT, SIGN_LABEL, STATUS_FAILED, TITLE, UPDATING, WRITE_NOTE_LABEL,
-  consultationNote, contentCheck, encounterClosesRecords, encounterTitle, field, isoNow, newDiagnosisBody, newDiagnosisCheck, reasonCheck,
-  recordStatus, refusedFieldErrors, retractionNotPermitted, rowVersion, splitNote, text, useLatest,
+  AMEND_LABEL, CLOSING_STATUSES, EDIT_DRAFT_LABEL, ENCOUNTER_CHANGED, ENCOUNTER_CREATED, ENCOUNTER_STATUS_UPDATED, ENCOUNTER_TRANSITIONS,
+  NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NOTES_ARE_DRAFTS, NOTE_EIE_LABEL, NOTE_STATUS_UPDATED, NO_COMPLAINT, NO_WRITE, REASON_FIELD, RECORD_NOT_SAVED, RECORD_SAVED, RELOAD_FAILED, RELOAD_NOTE,
+  RELOAD_RECORD, REVISION_FAILED, REVISION_REASON_FIELD, REVISION_RECORDED, SAVE_DRAFT, SIGN_LABEL, STATUS_FAILED, TITLE, UPDATING,
+  WRITE_NOTE_LABEL, consultationNote, contentCheck, diagnosisStatus, encounterClosesRecords, encounterTitle, encounterTypeLabel, field,
+  isoNow, newDiagnosisBody, newDiagnosisCheck, reasonCheck, recordStatus, refusedFieldErrors, retractionNotPermitted, rowVersion, text, useLatest,
 } from './encounters'
-import { ListPaging, NotesCard } from './Notes'
+import { NotesCard } from './Notes'
 import { EncounterOrders, orderPath } from './orders'
-import { learnFrom } from './orders/orders'
-import { pagerProps, useDocumentList, useRecordList, useRevisions, type RecordList } from './records'
+import { KINDS, learnFrom } from './orders/orders'
+import { TodaySections } from './TodaySections'
+import { useDocumentList, useRecordList, useRevisions, type RecordList } from './records'
 
 /** One encounter's page, or the chart's own state. */
 export function EncounterPage() {
   const href = useWorkspaceHref()
   const chart = useChart()
-  if (chart && chart.purpose === 'direct-care') return <EncounterLoader chart={chart} />
+  if (chart && chart.purpose === 'direct-care') return <ChartGate>{open => <EncounterLoader chart={open} />}</ChartGate>
   return (
     <>
       <RecordHeading title={TITLE} backHref={href()} />
@@ -54,9 +49,9 @@ type Loaded =
   | { readonly phase: 'loading' }
   | { readonly phase: 'missing' }
   | { readonly phase: 'failed'; readonly message: string }
-  | { readonly phase: 'ready'; readonly encounter: Encounter }
+  | { readonly phase: 'ready'; readonly encounter: Encounter; readonly others: readonly Encounter[] }
 
-/** Reads the encounter after today's access re-check. */
+/** Reads the encounter after today's access re-check, with the first page of the patient's other encounters. */
 function EncounterLoader({ chart }: { chart: Chart }) {
   const href = useWorkspaceHref()
   const { recordId = '' } = useParams()
@@ -70,20 +65,24 @@ function EncounterLoader({ chart }: { chart: Chart }) {
     void (async () => {
       try {
         await verify.current()
-        const encounter = await staffApi.encounter(facilityId, patientId, recordId)
+        const [encounter, page] = await Promise.all([
+          staffApi.encounter(facilityId, patientId, recordId),
+          staffApi.encounters(facilityId, patientId).catch(() => null),
+        ])
         if (!current) return
         if (encounter.patientId !== patientId || encounter.facilityId !== facilityId) return setLoaded({ phase: 'missing' })
-        setLoaded({ phase: 'ready', encounter })
+        const others = (page?.items ?? []).filter(item => item.id !== encounter.id && item.patientId === patientId && item.facilityId === facilityId)
+        setLoaded({ phase: 'ready', encounter, others })
       } catch (caught) {
         if (!current) return
         if (isHidApiError(caught) && caught.status === 404) return setLoaded({ phase: 'missing' })
-        setLoaded({ phase: 'failed', message: refusalText(caught, 'Encounters could not be loaded.') })
+        setLoaded({ phase: 'failed', message: refusalText(caught, 'This consultation could not be loaded.') })
       }
     })()
     return () => { current = false }
   }, [facilityId, patientId, recordId, verify])
 
-  if (loaded.phase === 'loading') return <Loading label="Loading encounters…" />
+  if (loaded.phase === 'loading') return <Loading label="Loading consultations…" />
   if (loaded.phase === 'missing') return <RecordNotFound backHref={href()} />
   if (loaded.phase === 'failed') {
     return (
@@ -93,7 +92,7 @@ function EncounterLoader({ chart }: { chart: Chart }) {
       </>
     )
   }
-  return <EncounterRecord key={loaded.encounter.id} chart={chart} initial={loaded.encounter} />
+  return <EncounterRecord key={loaded.encounter.id} chart={chart} initial={loaded.encounter} others={loaded.others} />
 }
 
 interface ActionDef {
@@ -129,21 +128,15 @@ const writeCheck = (values: FormValues): FieldErrors => {
   return errors
 }
 
-/** The More actions items that open a form (or today's diagnoses list) of their own rather than a status change. */
-const VIEW_DIAGNOSES = 'view-diagnoses'
-const ADD_DIAGNOSIS = 'add-diagnosis'
-const CHANGE_DIAGNOSIS = 'change-diagnosis'
-const UPLOAD_DOCUMENT = 'upload-document'
-
 type Asking = { readonly label: string; readonly word?: string; readonly answer: (yes: boolean) => void }
 /** One step of a save: it keeps its idempotency key while its input is unchanged, and is never sent again once done. */
-type Step = { readonly signature: string; readonly key: string; done: boolean }
+type SaveStep = { readonly signature: string; readonly key: string; done: boolean }
 
-function step(previous: Step | null, signature: string): Step {
+function step(previous: SaveStep | null, signature: string): SaveStep {
   return previous?.signature === signature ? previous : { signature, key: crypto.randomUUID(), done: false }
 }
 
-function EncounterRecord({ chart, initial }: { chart: Chart; initial: Encounter }) {
+function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: Encounter; others: readonly Encounter[] }) {
   const href = useWorkspaceHref()
   const location = useLocation()
   const { facilityId, patientId } = chart
@@ -155,12 +148,12 @@ function EncounterRecord({ chart, initial }: { chart: Chart; initial: Encounter 
   const [asking, setAsking] = useState<Asking | null>(null)
   const [focusRequest, setFocusRequest] = useState(0)
   // Where focus goes on that request when the control that had it is gone: the More actions button once a form it
-  // opened is closed, else "Available actions".
+  // opened is closed, else "Actions".
   const focusTarget = useRef<string | null>(null)
-  const writeAttempt = useRef<{ signature: string; key: string } | null>(null)
+  const attempt = useRef<{ signature: string; key: string } | null>(null)
   // A note change with a new diagnosis is two saves: the revision, then the diagnosis.
-  const revisionAttempt = useRef<Step | null>(null)
-  const diagnosisAttempt = useRef<Step | null>(null)
+  const revisionAttempt = useRef<SaveStep | null>(null)
+  const diagnosisAttempt = useRef<SaveStep | null>(null)
   // A revision saved while its form stays open (its diagnosis was refused): the note has a new version not yet read.
   const unreadRevision = useRef(false)
   const encounterId = encounter.id
@@ -182,7 +175,6 @@ function EncounterRecord({ chart, initial }: { chart: Chart; initial: Encounter 
   const prescriptions = useRecordList(chart, encounterId, 'prescriptions', reads.prescriptions, learnFrom)
   const labs = useRecordList(chart, encounterId, 'lab-requests', reads.labs, learnFrom)
   const documents = useDocumentList(chart, encounterId, reads.documents)
-  const opener = useDocumentOpener(chart)
   // The Saved record summarises the encounter: its consultation note is read from the first page, whichever page the
   // Notes card shows.
   const note = consultationNote(notes.first)
@@ -191,8 +183,8 @@ function EncounterRecord({ chart, initial }: { chart: Chart; initial: Encounter 
   // Nothing is signed or amended unseen: its content must have been read (today's rule).
   const seen = !!note && !revisions.loading && !revisions.error && (revisions.items?.length ?? 0) > 0
 
-  // After a change removes the control that had focus, focus goes to "Available actions", or back to the More actions
-  // button when its form was closed (never from a deferred effect).
+  // After a change removes the control that had focus, focus goes to "Actions", or back to the More actions button when
+  // its form was closed (never from a deferred effect).
   useLayoutEffect(() => {
     if (!focusRequest) return
     const target = focusTarget.current
@@ -268,8 +260,8 @@ function EncounterRecord({ chart, initial }: { chart: Chart; initial: Encounter 
     diagnosisAttempt.current = null
     unreadRevision.current = false
     finish(diagnosis ? `${REVISION_RECORDED} ${RECORD_SAVED}` : REVISION_RECORDED)
-    // The consultation note is on the first page: the list shows it again, with its revisions (and a new diagnosis,
-    // today's create read: the first page).
+    // The consultation note is on the first page: the list shows it again, with its revisions read afresh (a failed
+    // re-read hides the old content and its actions), and a new diagnosis, today's create read: the first page.
     await reloaded(notes.reload(true), revisions.refresh(), ...(diagnosis ? [diagnoses.reload(true)] : []))
   }
 
@@ -294,22 +286,22 @@ function EncounterRecord({ chart, initial }: { chart: Chart; initial: Encounter 
     if (!chart.canWrite) return { formError: NO_WRITE }
     const body = { noteType: text(values.noteType), title: text(values.title), status: 'draft', content: text(values.content) }
     const signature = JSON.stringify(['clinical-notes', body])
-    if (writeAttempt.current?.signature !== signature) writeAttempt.current = { signature, key: crypto.randomUUID() }
+    if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
     begin()
     try {
       await chart.verify()
-      await staffApi.createRecord(facilityId, patientId, encounterId, 'clinical-notes', body, writeAttempt.current.key)
+      await staffApi.createRecord(facilityId, patientId, encounterId, 'clinical-notes', body, attempt.current.key)
     } catch (caught) {
       return { formError: refusalText(caught, RECORD_NOT_SAVED), fieldErrors: refusedFieldErrors(caught, { noteType: 'noteType', title: 'title', content: 'content' }) }
     }
-    writeAttempt.current = null
+    attempt.current = null
     finish(RECORD_SAVED)
     await reloaded(notes.reload(true))
   }
 
   const encounterStatus = (status: string) => async (values: FormValues): Promise<SubmitOutcome> => {
     const expectedRowVersion = rowVersion(encounter.rowVersion)
-    if (expectedRowVersion === null) return { formError: 'Reload the encounter before changing its status.' }
+    if (expectedRowVersion === null) return { formError: 'Reload the consultation before changing it.' }
     begin()
     let updated: Encounter
     try {
@@ -345,11 +337,10 @@ function EncounterRecord({ chart, initial }: { chart: Chart; initial: Encounter 
     ...contentCheck(values), ...reasonCheck(values), ...(writes.diagnoses ? newDiagnosisCheck(values) : {}),
   })
 
-  // The design's actions on the consultation note, once its content was read (today's rule): "Sign note" for a draft
-  // (the design's typed SIGN dialog) and "Amend signed note"; and "Write clinical note", today's note form, always
-  // offered. Every other live action is in More actions (the owner's decision), each with today's form, reason, call
-  // and messages: today's encounter status changes, "Mark note entered in error" on this note (the Notes card keeps
-  // every note's own actions too), and the Diagnoses and Documents cards' changes the design's page does not have.
+  // The note actions, once its content was read (today's rule): "Sign note" for a draft (the typed SIGN dialog) and
+  // "Amend signed note"; and "Write clinical note", today's note form, offered to a role that may read notes too. The
+  // other live actions sit behind "More actions": today's consultation status changes, and "Mark note entered in error"
+  // on this note (the Notes card keeps every note's own actions too), each with today's form, reason, call and messages.
   const actions: ActionDef[] = []
   const more: ActionDef[] = []
   if (writes.notes && note && seen) {
@@ -377,70 +368,52 @@ function EncounterRecord({ chart, initial }: { chart: Chart; initial: Encounter 
   if (writes.notes && note && seen && (NOTE_TRANSITIONS[recordStatus(note, 'unknown')] ?? []).some(change => change.status === 'entered_in_error')) {
     more.push({ id: 'note-error', label: NOTE_EIE_LABEL, fields: [REASON_FIELD], confirm: {}, validate: reasonCheck, busy: UPDATING, run: noteStatus('entered_in_error') })
   }
-  // Today's Diagnoses tab is a read: everyone who may read diagnoses can list them all ("View diagnoses"), with or
-  // without write access. Its changes were offered only beside the diagnoses it read.
-  const canViewDiagnoses = reads.diagnoses
-  const canAddDiagnosis = writes.diagnoses && reads.diagnoses
-  const canChangeDiagnosis = writes.diagnoses && reads.diagnoses && hasDiagnosisToChange(diagnoses)
-  const canUpload = writes.documents && reads.documents
-  const statusChanges: MoreActionItem[] = more.map(({ id, label }) => ({ id, label }))
-  const diagnosisChanges: MoreActionItem[] = [
-    ...(canAddDiagnosis ? [{ id: ADD_DIAGNOSIS, label: ADD_DIAGNOSIS_LABEL }] : []),
-    ...(canChangeDiagnosis ? [{ id: CHANGE_DIAGNOSIS, label: CHANGE_DIAGNOSIS_LABEL }] : []),
-  ]
-  const documentChanges: MoreActionItem[] = canUpload ? [{ id: UPLOAD_DOCUMENT, label: UPLOAD_LABEL }] : []
-  /** The menu's changes; with none and no design action, the card says so (today's sentence) above the menu. */
-  const changes = [...statusChanges, ...diagnosisChanges, ...documentChanges]
-  const menu: MoreActionItem[] = [
-    ...statusChanges,
-    ...(canViewDiagnoses ? [{ id: VIEW_DIAGNOSES, label: VIEW_DIAGNOSES_LABEL }] : []),
-    ...diagnosisChanges,
-    ...documentChanges,
-  ]
   const action = [...actions, ...more].find(item => item.id === selected) ?? null
   const choose = (id: string | null) => { settle(); setSelected(id) }
-  /** Closes what a More actions item opened ("Cancel", "Close"), focus going back to the menu button. */
+  /** Closes a form More actions opened ("Cancel"), focus going back to the menu button. */
   const close = () => {
     choose(null)
     focusTarget.current = moreId
     setFocusRequest(count => count + 1)
   }
-  const cancel = <EhrButton variant="secondary" onClick={close}>Cancel</EhrButton>
 
   const submitAction = (chosen: ActionDef) => async (values: FormValues): Promise<SubmitOutcome> => {
     if (chosen.confirm && !(await ask(chosen.label, chosen.confirm.word))) return false
     return chosen.run(values)
   }
 
+  // A diagnosis entered in error or refuted (ruled out) is not the encounter's diagnosis; the Diagnoses card still lists it.
+  const currentDiagnoses = (diagnoses.first ?? [])
+    .filter(item => item.verificationStatus !== 'entered_in_error' && item.verificationStatus !== 'refuted')
+    .map(item => field(item, 'display')).filter(Boolean)
   const readsNone = !Object.values(reads).some(Boolean)
-  const saved = savedItems(encounter, reads, { notes, note, revisions, latest, diagnoses })
-  const documentRow = (item: DocumentRecord): HistoryItem => ({
-    key: `document-${item.id}`,
-    label: documentLabel(item),
-    status: item.status || 'uploaded',
-    // A clean document is the design's one-line link and badge; one that cannot be opened says why under its name.
-    detail: canOpenDocument(item) ? undefined : documentDetail(item),
-    open: { onOpen: () => { void opener.open(item) }, disabled: !canOpenDocument(item), busy: opener.opening === item.id },
-    extra: chart.can('ocr.job.read') && canOpenDocument(item) ? <OcrLink chart={chart} document={item} /> : undefined,
-  })
-  const historyLists = [notes, vitals, prescriptions, labs, documents]
-  const firstRead = (list: RecordList<unknown>) => list.items === null && list.loading
-  // The documents say their own loading and empty sentences (today's Documents tab), under the rows; the history's
-  // own empty sentence waits for every list.
-  const recordsLoading = [notes, vitals, prescriptions, labs].some(firstRead)
-  const historyLoading = recordsLoading || firstRead(documents)
-  const updatedAt = (encounter as Encounter & { updatedAt?: unknown }).updatedAt
+  const saved: KeyValue[] = [
+    { label: 'Type of visit', value: encounterTypeLabel(encounter.encounterType) },
+    { label: 'Complaint', value: encounter.chiefComplaint || NO_COMPLAINT },
+    { label: 'Started', value: formatWhen(encounter.startedAt) },
+  ]
+  if (reads.diagnoses) saved.push({ label: 'Diagnosis', value: currentDiagnoses.join(', ') })
+  if (reads.notes) {
+    saved.push({ label: 'Note status', value: note ? statusLabel(recordStatus(note, 'unknown')) : '' })
+    saved.push({ label: 'Note', value: noteValue(notes, note, revisions, latest) })
+  }
 
+  // The page's one primary is "Sign note"; other note actions are secondary, and changes to the consultation itself sit
+  // quietly behind More actions.
+  const variantOf = (item: ActionDef) => item.id === 'sign' ? 'primary' : 'secondary'
+
+  // In the order a clinician works: the note, every note, diagnoses, orders, documents, then history and earlier versions.
   return (
     <>
-      <RecordHeading title={encounterTitle(encounter)} backHref={href()} />
-      {chart.writeNotice ? <Banner tone="warning" title="Changes are unavailable">{chart.writeNotice}</Banner> : null}
+      <RecordHeading title={`${TITLE} ${encounterTitle(encounter)}`} backHref={href()} />
       {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
       <div className="hid-ehr-clinical-status" role="status">{success}</div>
-      <DetailMeta status={encounter.status} patient={patientLine(chart.facts)} saved={(typeof updatedAt === 'string' && updatedAt) || encounter.startedAt} />
+      <DetailMeta status={encounter.status}>
+        <span className="hid-ehr-clinical-meta-saved">Started {formatWhen(encounter.startedAt)}</span>
+      </DetailMeta>
       {readsNone ? <ErrorBox>{NO_RECORD_ACCESS}</ErrorBox> : null}
       <DetailGrid>
-        <SavedRecord items={saved}>
+        <SavedRecord title="Note" items={saved}>
           {writes.notes && note?.status === 'draft' && seen ? (
             <div className="hid-ehr-clinical-consult-edit">
               <EhrButton variant="secondary" aria-expanded={editing} onClick={() => { settle(); setEditing(open => !open) }}>
@@ -451,7 +424,7 @@ function EncounterRecord({ chart, initial }: { chart: Chart; initial: Encounter 
                   key={`${note.id}-${String(note.rowVersion)}`}
                   fields={[EDIT_CONTENT, ...diagnosisFields, REVISION_REASON_FIELD]}
                   initial={{ content: latest?.content ?? '', ...diagnosisInitial }}
-                  submitLabel="Save draft changes"
+                  submitLabel="Save draft"
                   validate={revisionCheck}
                   disabled={revisions.loading}
                   onSubmit={noteRevision}
@@ -460,17 +433,17 @@ function EncounterRecord({ chart, initial }: { chart: Chart; initial: Encounter 
             </div>
           ) : null}
         </SavedRecord>
-        <EhrCard title={<span id={actionsId} className="hid-ehr-clinical-consult-focus" tabIndex={-1}>Available actions</span>}>
+        <EhrCard title={<span id={actionsId} className="hid-ehr-clinical-consult-focus" tabIndex={-1}>Actions</span>}>
           {actions.length > 0 ? (
             <ActionList>
               {actions.map(item => (
-                <EhrButton key={item.id} variant="secondary" aria-expanded={selected === item.id} onClick={() => choose(selected === item.id ? null : item.id)}>
+                <EhrButton key={item.id} variant={variantOf(item)} aria-expanded={selected === item.id} onClick={() => choose(selected === item.id ? null : item.id)}>
                   {item.label}
                 </EhrButton>
               ))}
             </ActionList>
-          ) : changes.length === 0 ? <NoActions /> : null}
-          <MoreActions id={moreId} items={menu} selected={selected} onSelect={choose} />
+          ) : more.length === 0 ? <NoActions /> : null}
+          <MoreActions id={moreId} items={more.map(({ id, label }) => ({ id, label }))} selected={selected} onSelect={choose} />
           {action ? (
             <RecordForm
               key={`${action.id}-${String(encounter.rowVersion)}-${String(note?.rowVersion)}`}
@@ -481,62 +454,32 @@ function EncounterRecord({ chart, initial }: { chart: Chart; initial: Encounter 
               validate={action.validate}
               disabled={(action.id === 'sign' || action.id === 'note-error') && revisions.loading}
               onSubmit={submitAction(action)}
-              // A form More actions opened closes with "Cancel"; the design's own actions toggle with their button.
-              footer={more.includes(action) ? cancel : undefined}
+              // A form More actions opened closes with "Cancel"; the note actions toggle with their button.
+              footer={more.includes(action) ? <EhrButton variant="secondary" onClick={close}>Cancel</EhrButton> : undefined}
             >
               {action.hint ? <p className="hid-ehr-clinical-note">{action.hint}</p> : null}
               {action.warning ? <p className="hid-ehr-clinical-consult-warning">{action.warning}</p> : null}
             </RecordForm>
           ) : null}
-          {selected === VIEW_DIAGNOSES && canViewDiagnoses ? (
-            <DiagnosisList list={diagnoses} footer={<EhrButton variant="secondary" onClick={close}>Close</EhrButton>} />
-          ) : null}
-          {selected === ADD_DIAGNOSIS && canAddDiagnosis ? (
-            <AddDiagnosis
-              chart={chart}
-              encounterId={encounterId}
-              onBegin={begin}
-              onAdded={async () => { finish(RECORD_SAVED); await reloaded(diagnoses.reload(true)) }}
-              footer={cancel}
-            />
-          ) : null}
-          {selected === CHANGE_DIAGNOSIS && canChangeDiagnosis ? (
-            <ChangeDiagnosis
-              chart={chart}
-              encounterId={encounterId}
-              list={diagnoses}
-              onBegin={begin}
-              onChanged={async () => { finish(DIAGNOSIS_UPDATED); await reloaded(diagnoses.reload()) }}
-              footer={cancel}
-            />
-          ) : null}
-          {selected === UPLOAD_DOCUMENT && canUpload ? <UploadDocument chart={chart} encounterId={encounterId} list={documents} footer={cancel} /> : null}
-          <EncounterOrders chart={chart} encounter={encounter} />
         </EhrCard>
       </DetailGrid>
-      <HistoryCard
-        items={historyItems(href, encounterId, { notes, vitals, prescriptions, labs }, documents, documentRow)}
-        empty={historyLoading ? '' : undefined}
-        footer={(
-          <>
-            {reads.documents ? <DocumentsState list={documents} /> : null}
-            {documents.truncated ? <p className="hid-ehr-clinical-note">{DOCUMENTS_TRUNCATED}</p> : null}
-          </>
-        )}
-      >
-        <HistoryErrors lists={historyLists} />
-        {opener.error ? <ErrorBox>{opener.error}</ErrorBox> : null}
-        {recordsLoading ? <Loading label="Loading records…" /> : null}
-        {/* Each list pages on its own, 50 to a page, as today's records tabs do: an order past the first page is reached here. */}
-        <HistoryPages title="Triage & Vitals" list={vitals} />
-        <HistoryPages title="Laboratory" list={labs} />
-        <HistoryPages title="Pharmacy" list={prescriptions} />
-        <HistoryPages title="Documents" list={documents} />
-      </HistoryCard>
-      <VersionsCard versions={versionItems(note, revisions.items)} />
       {reads.notes ? (
         <NotesCard chart={chart} encounterId={encounterId} list={notes} canWrite={writes.notes} onSaved={setSuccess} onError={setPageError} />
       ) : null}
+      {reads.diagnoses ? (
+        <DiagnosesCard chart={chart} encounterId={encounterId} list={diagnoses} canWrite={writes.diagnoses} onSaved={setSuccess} onError={setPageError} />
+      ) : null}
+      {chart.can(KINDS.pharmacy.read) || chart.can(KINDS.laboratory.read) || chart.canWrite ? (
+        <EhrCard title="Orders"><EncounterOrders chart={chart} encounter={encounter} /></EhrCard>
+      ) : null}
+      {reads.documents ? (
+        <DocumentsCard chart={chart} encounterId={encounterId} list={documents} canWrite={writes.documents} />
+      ) : null}
+      <TodaySections chart={chart} />
+      <HistoryCard items={historyItems(href, encounterId, others, { notes, diagnoses, vitals, prescriptions, labs }, documents)}>
+        <HistoryErrors lists={[notes, diagnoses, vitals, prescriptions, labs, documents]} />
+      </HistoryCard>
+      <VersionsCard versions={versionItems(note, revisions.items)} />
       <ConfirmAction
         open={asking !== null}
         label={asking?.label ?? ''}
@@ -548,46 +491,7 @@ function EncounterRecord({ chart, initial }: { chart: Chart; initial: Encounter 
   )
 }
 
-/**
- * "Saved record", in the design's rows: Visit, Complaint, History, Examination, Diagnosis, Note. History, Examination,
- * the clinical note and Follow-up are the sections New consultation composed the note from (a note written otherwise
- * is shown whole as Note); a section the note does not have is not listed, as the design lists only what was saved.
- */
-function savedItems(encounter: Encounter, reads: { readonly notes: boolean; readonly diagnoses: boolean }, read: {
-  notes: RecordList<ClinicalRecord>
-  note: ClinicalRecord | null
-  revisions: RecordList<NoteRevision>
-  latest: NoteRevision | null
-  diagnoses: RecordList<ClinicalRecord>
-}): KeyValue[] {
-  const { notes, note, revisions, latest, diagnoses } = read
-  const content = notes.first !== null && note && !revisions.error && revisions.items !== null ? latest?.content ?? '' : null
-  const sections = reads.notes && content ? splitNote(content) : null
-  const items: KeyValue[] = [
-    { label: 'Visit', value: shortId(encounter.id) },
-    { label: 'Complaint', value: encounter.chiefComplaint || NO_COMPLAINT },
-  ]
-  if (sections?.history) items.push({ label: 'History', value: sections.history })
-  if (sections?.examination) items.push({ label: 'Examination', value: sections.examination })
-  if (reads.diagnoses) items.push({ label: 'Diagnosis', value: diagnosisValue(diagnoses) })
-  if (reads.notes) items.push({ label: 'Note', value: sections ? sections.note : noteValue(notes, note, revisions, content) })
-  if (sections?.followup) items.push({ label: 'Follow-up', value: sections.followup })
-  return items
-}
-
-/** The encounter's diagnoses (first page): one entered in error or refuted (ruled out) is not its diagnosis. */
-function diagnosisValue(diagnoses: RecordList<ClinicalRecord>): ReactNode {
-  if (diagnoses.first === null) {
-    if (diagnoses.loading) return <span role="status">Loading records…</span>
-    return diagnoses.error ? <span role="alert">{diagnoses.error}</span> : ''
-  }
-  return diagnoses.first
-    .filter(item => item.verificationStatus !== 'entered_in_error' && item.verificationStatus !== 'refuted')
-    .map(item => field(item, 'display')).filter(Boolean).join(', ')
-}
-
-/** The Note row while the note is read, cannot be read, or has no content. */
-function noteValue(notes: RecordList<ClinicalRecord>, note: ClinicalRecord | null, revisions: RecordList<NoteRevision>, content: string | null): ReactNode {
+function noteValue(notes: RecordList<ClinicalRecord>, note: ClinicalRecord | null, revisions: RecordList<NoteRevision>, latest: NoteRevision | null): ReactNode {
   if (notes.first === null) {
     if (notes.loading) return <span role="status">Loading records…</span>
     return notes.error ? <span role="alert">{notes.error}</span> : ''
@@ -595,47 +499,35 @@ function noteValue(notes: RecordList<ClinicalRecord>, note: ClinicalRecord | nul
   if (!note) return ''
   if (revisions.error) return <span role="alert">{revisions.error}</span>
   if (revisions.items === null) return <span role="status">Loading note revisions…</span>
-  return content || 'No note content is available.'
+  return latest?.content || 'No note content is available.'
 }
 
-/** Each history list's failure (one the lists share, once): the documents and orders have no card of their own to say it. */
+/** Each history list's failure (one the lists share, once), so a refused read is not hidden by another. */
 function HistoryErrors({ lists }: { lists: readonly RecordList<unknown>[] }) {
   const failures = [...new Set(lists.map(list => list.error).filter(Boolean))]
   return <>{failures.map(failure => <ErrorBox key={failure}>{failure}</ErrorBox>)}</>
 }
 
-/**
- * One history list's "Record pages" (today's pager), with its notice, named by the list it pages. Shown only while the
- * list spans more than one page, or has something to say.
- */
-function HistoryPages({ title, list }: { title: string; list: RecordList<unknown> }) {
-  const captionId = useId()
-  if (!pagerProps(list) && !list.notice) return null
-  return (
-    <div className="hid-ehr-clinical-orders-pages" role="group" aria-labelledby={captionId}>
-      <p id={captionId} className="hid-ehr-clinical-orders-muted hid-ehr-clinical-orders-gap">{title}</p>
-      <ListPaging list={list} />
-    </div>
-  )
-}
-
-type Lists = { readonly [K in 'notes' | 'vitals' | 'prescriptions' | 'labs']: RecordList<ClinicalRecord> }
+type Lists = { readonly [K in 'notes' | 'diagnoses' | 'vitals' | 'prescriptions' | 'labs']: RecordList<ClinicalRecord> }
 
 /**
- * "Connected hospital history": the records of other workspaces this encounter holds, in the sidebar's order (Triage &
- * Vitals, Laboratory, Pharmacy, Nursing observations, Documents), each with its status. Every row opens: a record's
- * page, by record ids only, or a document's file. Vitals, orders and documents page in this card; nursing
- * observations come from the notes' first page, whichever page the Clinical notes card shows.
+ * "Connected hospital history": the patient's other encounters here, then this encounter's records, each with its status.
+ * A record with its own page links to it (nursing observations, vitals, orders), by record ids only. Nursing
+ * observations come from the notes' first page, whichever page the Notes card shows.
  */
-function historyItems(href: ReturnType<typeof useWorkspaceHref>, encounterId: string, lists: Lists, documents: RecordList<DocumentRecord>, documentRow: (document: DocumentRecord) => HistoryItem): HistoryItem[] {
-  const rows = (records: readonly ClinicalRecord[], kind: string, title: (record: ClinicalRecord) => string, status: (record: ClinicalRecord) => string, link: (record: ClinicalRecord) => string) =>
-    records.map(record => ({ key: `${kind}-${record.id}`, label: `${kind} · ${title(record)}`, status: status(record), href: link(record) }))
+function historyItems(href: ReturnType<typeof useWorkspaceHref>, encounterId: string, others: readonly Encounter[], lists: Lists, documents: RecordList<{ id: string; fileName: string; status: string }>): HistoryItem[] {
+  const rows = (records: readonly ClinicalRecord[], kind: string, title: (record: ClinicalRecord) => string, status: (record: ClinicalRecord) => string, link?: (record: ClinicalRecord) => string) =>
+    records.map(record => ({ key: `${kind}-${record.id}`, label: `${kind} · ${title(record)}`, status: status(record), ...(link ? { href: link(record) } : {}) }))
+  const notes = lists.notes.items ?? []
   return [
-    ...rows(lists.vitals.items ?? [], 'Triage & Vitals', record => shortId(record.id), vitalStatus, record => href.to('triage', recordKey(encounterId, record.id))),
-    ...rows(lists.labs.items ?? [], 'Laboratory', record => field(record, 'testDisplay') || 'Lab request', record => recordStatus(record), record => href(orderPath(encounterId, 'laboratory', record.id))),
-    ...rows(lists.prescriptions.items ?? [], 'Pharmacy', record => field(record, 'medicationDisplay') || 'Prescription', record => recordStatus(record), record => href(orderPath(encounterId, 'pharmacy', record.id))),
+    ...others.map(item => ({ key: `encounter-${item.id}`, label: `${TITLE} · ${encounterTitle(item)}`, href: href(item.id), status: item.status })),
+    ...rows(notes.filter(note => !isObservation(note)), 'Notes', record => field(record, 'title') || 'Clinical note', record => recordStatus(record, 'unknown')),
     ...rows((lists.notes.first ?? []).filter(isObservation), 'Nursing observations', record => shortId(record.id), observationStatus, record => href.to('nursing', recordKey(encounterId, record.id))),
-    ...(documents.items ?? []).map(documentRow),
+    ...rows(lists.diagnoses.items ?? [], 'Diagnoses', record => field(record, 'display') || 'Diagnosis', diagnosisStatus),
+    ...rows(lists.vitals.items ?? [], 'Vitals', record => shortId(record.id), vitalStatus, record => href.to('triage', recordKey(encounterId, record.id))),
+    ...rows(lists.prescriptions.items ?? [], 'Pharmacy', record => field(record, 'medicationDisplay') || 'Prescription', record => recordStatus(record), record => href(orderPath(encounterId, 'pharmacy', record.id))),
+    ...rows(lists.labs.items ?? [], 'Laboratory', record => field(record, 'testDisplay') || 'Lab request', record => recordStatus(record), record => href(orderPath(encounterId, 'laboratory', record.id))),
+    ...(documents.items ?? []).map(item => ({ key: `document-${item.id}`, label: `Documents · ${item.fileName}`, status: item.status || 'uploaded' })),
   ]
 }
 
@@ -647,9 +539,8 @@ function timeOf(value: string): number {
 
 /**
  * "Preserved versions & amendments", oldest first: every revision of the consultation note once it has more than one
- * ("{time} · {status} · {reason}", the status it was saved under, as the design records each version), and, for a
- * signed note, the version it was signed as ("{signedAt} · draft · Sign note"), so a signed note shows the card even
- * with one revision.
+ * ("{time} · Version n · {status} · {reason}", the status it was saved under), and, for a signed note, the version it
+ * was signed as, so a signed note shows the card even with one revision.
  */
 function versionItems(note: ClinicalRecord | null, revisions: readonly NoteRevision[] | null): VersionItem[] {
   if (!note || !revisions || revisions.length === 0) return []
@@ -663,7 +554,7 @@ function versionItems(note: ClinicalRecord | null, revisions: readonly NoteRevis
     at: revision.createdAt,
     item: {
       key: revision.id,
-      summary: `${revision.createdAt} · ${savedAs(revision)} · ${revision.changeReason}`,
+      summary: `${formatWhen(revision.createdAt)} · Version ${revision.revisionNo} · ${statusWords(savedAs(revision))} · ${revision.changeReason}`,
       items: [{ label: 'Content', value: revision.content }, { label: 'Recorded', value: formatWhen(revision.createdAt) }],
     },
   }))
@@ -674,7 +565,7 @@ function versionItems(note: ClinicalRecord | null, revisions: readonly NoteRevis
       at: signedAt,
       item: {
         key: `signed-${note.id}`,
-        summary: `${signedAt} · draft · ${SIGN_LABEL}`,
+        summary: `${formatWhen(signedAt)} · Version ${current.revisionNo} · ${statusWords('draft')} · ${SIGN_LABEL}`,
         items: [{ label: 'Content', value: current.content }, { label: 'Recorded', value: formatWhen(current.createdAt) }],
       },
     })

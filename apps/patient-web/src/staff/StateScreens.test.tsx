@@ -107,7 +107,7 @@ describe('PEHR-13: every provider state screen has a main landmark and an h1', (
     // Health ID Migrate leads only to Document OCR, closed at launch (no role holds ocr.* since hid-system 0091).
     ['/provider/migrate', 'Migration workspace unavailable'],
     ['/provider/outreach', 'Outreach unavailable'],
-    ['/provider/registration', 'Registration unavailable'],
+    ['/provider/registration', 'You can’t register patients here'],
     ['/provider/audit', 'Audit access unavailable'],
   ])('%s without its permission', async (path, name) => {
     serve({ 'GET /api/v1/auth/session': [() => session()] })

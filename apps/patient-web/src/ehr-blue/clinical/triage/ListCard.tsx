@@ -1,12 +1,12 @@
 import { EhrCard } from '@hid/ui/ehr'
 import { useMemo } from 'react'
-import { statusLabel } from '../parts/format'
+import { statusWords } from '../parts/format'
 import { ErrorBox, Loading } from '../parts/Notices'
 import { Pager, RecordTable, SearchField, type RecordRow } from '../parts/RecordTable'
 import { CHANGE_SEARCH, FIRST_RECORD, NEWEST_ONLY, NO_ENCOUNTERS, type PatientRecords } from './records'
 
 /** The design's list card: search, today's paging notices and pager, the table and its empty states. */
-export function ListCard({ list, rows, search, onSearch, hrefFor, title, pending = false }: {
+export function ListCard({ list, rows, search, onSearch, hrefFor, title, pending = false, contextHeader }: {
   list: PatientRecords
   rows: readonly RecordRow[]
   /** The rows are not ready to show yet (a corrected vital's current values are still being read). */
@@ -15,11 +15,13 @@ export function ListCard({ list, rows, search, onSearch, hrefFor, title, pending
   onSearch: (value: string) => void
   hrefFor: (row: RecordRow) => string
   title: string
+  /** The table's second column (in one patient's chart, what the row holds, not the patient's name again). */
+  contextHeader?: string
 }) {
   const filtered = useMemo(() => {
     const words = search.trim().toLowerCase()
     if (!words) return rows
-    return rows.filter(row => [row.name, row.id, row.context, statusLabel(row.status), row.statusNote ?? '', ...row.details.map(detail => String(detail.value))]
+    return rows.filter(row => [row.name, row.id, row.context, statusWords(row.status), row.statusNote ?? '', ...row.details.map(detail => typeof detail.value === 'string' ? detail.value : '')]
       .join(' ').toLowerCase().includes(words))
   }, [rows, search])
   const { cursors, next, loading, load } = list
@@ -47,6 +49,7 @@ export function ListCard({ list, rows, search, onSearch, hrefFor, title, pending
           caption={title}
           rows={filtered}
           hrefFor={hrefFor}
+          contextHeader={contextHeader}
           emptyMessage={rows.length > 0 ? CHANGE_SEARCH : list.encounters?.length === 0 ? NO_ENCOUNTERS : FIRST_RECORD}
         />
       )}

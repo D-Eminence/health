@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
-import { described, json, press, problem, renderPortal, type Handler } from './portalHarness'
+import { described, json, press, problem, renderPortal, type Handler, shownText } from './portalHarness'
 import { enterCode } from './codeBoxes'
 
 vi.mock('../Turnstile', () => ({
@@ -29,7 +29,7 @@ function gateway(current: () => Response, activate: Handler = () => json({ stage
 const atPassword = (requiredProfileFields?: string[]) => () => json({ stage: 'set_password',
   ...(requiredProfileFields ? { requiredProfileFields } : {}) })
 const activations = (sent: Array<{ path: string; method: string; body: unknown }>) => sent.filter(request => request.path === ACTIVATE)
-const activateButton = () => screen.getByRole('button', { name: 'Activate Health ID' }) as HTMLButtonElement
+const activateButton = () => screen.getByRole('button', { name: 'Get my Health ID' }) as HTMLButtonElement
 const today = () => {
   const now = new Date()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
@@ -54,12 +54,12 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
     expect(dob.max).toBe(today())
     const gender = screen.getByLabelText('Gender') as HTMLSelectElement
     expect([...gender.options].map(option => option.value)).toEqual(['', 'female', 'male', 'intersex', 'other', 'unknown'])
-    expect(described(dob)).toContain('Your NIN record does not include your date of birth or gender')
+    expect(described(dob)).toContain('Your NIN record has no date of birth or gender, so add them here.')
 
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: PASSWORD } })
     // The button says why it waits.
     expect(activateButton().disabled).toBe(true)
-    expect(described(activateButton())).toBe('Enter your date of birth and gender to activate.')
+    expect(described(activateButton())).toBe('Add your date of birth and gender to finish.')
     fireEvent.change(dob, { target: { value: '1990-02-03' } })
     fireEvent.change(gender, { target: { value: 'intersex' } })
     expect(activateButton().disabled).toBe(false)
@@ -75,7 +75,7 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
     const { sent } = renderPortal(<Enrollment />, gateway(atPassword(['gender'])), anonymous)
     fireEvent.change(await screen.findByLabelText('Gender'), { target: { value: 'female' } })
     expect(screen.queryByLabelText('Date of birth')).toBeNull()
-    expect(described(screen.getByLabelText('Gender'))).toContain('Your NIN record does not include your gender')
+    expect(described(screen.getByLabelText('Gender'))).toContain('Your NIN record has no gender, so add it here.')
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: PASSWORD } })
     await press(activateButton())
     await screen.findByText('HID-ABCDEF23')
@@ -101,7 +101,7 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
       path === '/identity/patient-enrollments/contact/verify' && method === 'POST'
         ? json({ stage: 'set_password', requiredProfileFields: ['dateOfBirth'] })
         : problem(500, 'UNEXPECTED', `${method} ${path}`)), anonymous)
-    await enterCode(await screen.findByLabelText('Verification code'), '123456')
+    await enterCode(await screen.findByLabelText('Code'), '123456')
     const dob = await screen.findByLabelText('Date of birth')
     await waitFor(() => expect(document.activeElement).toBe(dob))
     expect(screen.queryByLabelText('Gender')).toBeNull()
@@ -174,7 +174,7 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
     await waitFor(() => expect(screen.queryByLabelText('Date of birth')).toBeNull())
     const gender = screen.getByLabelText('Gender') as HTMLSelectElement
     expect(gender.value).toBe('female')
-    expect(screen.getByRole('alert').textContent).toBe(detail)
+    expect(shownText(screen.getByRole('alert'))).toBe(detail)
     await press(activateButton())
     await screen.findByText('HID-ABCDEF23')
     expect(activations(sent).map(request => request.body)).toEqual([
@@ -187,7 +187,7 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
     fireEvent.change(screen.getByLabelText('Gender'), { target: { value: 'female' } })
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: PASSWORD } })
     await press(activateButton())
-    const ready = await screen.findByRole('heading', { name: 'Your Health ID is ready.' })
+    const ready = await screen.findByRole('heading', { name: 'Your Health ID is ready' })
     expect(within(ready.closest<HTMLElement>('[role="status"]')!).queryByText(/1990/)).toBeNull()
     expect(document.body.textContent).not.toContain('1990-02-03')
   })
@@ -218,7 +218,7 @@ describe('sending the password step with Enter in the password field', () => {
   ])('announces %s as an alert', async (_case, date, activate, text) => {
     renderPortal(<Enrollment />, gateway(atPassword(['dateOfBirth']), activate), anonymous)
     const password = await enterInPassword(date)
-    expect((await screen.findByRole('alert')).textContent).toBe(text)
+    expect(shownText(await screen.findByRole('alert'))).toBe(text)
     expect(document.activeElement).toBe(password)
   })
 
@@ -228,7 +228,7 @@ describe('sending the password step with Enter in the password field', () => {
     await screen.findByLabelText('Date of birth')
     current = atPassword(['dateOfBirth', 'gender'])
     await enterInPassword('1990-02-03')
-    expect((await screen.findByRole('alert')).textContent).toBe('Enter your gender')
+    expect(shownText(await screen.findByRole('alert'))).toBe('Enter your gender')
     expect(screen.getByLabelText('Gender').getAttribute('aria-invalid')).toBe('true')
   })
 })

@@ -4,6 +4,7 @@ import { usesNovuBackend } from '../backendContract'
 import { adminApi, type AuditEvent, type AuditFilters } from './api'
 import { failure } from './problems'
 import { Page, Refresh, ResourceView, Status, Table, date, label, useResource, useUrlFilters } from './ui'
+import { Alert, Button, Field, Input, Select } from '../kasuwa/ui'
 
 const FILTER_KEYS = ['actor', 'action', 'outcome', 'facilityId', 'resourceType', 'resourceId', 'correlationId', 'from', 'to'] as const
 const OUTCOMES = ['success', 'denied', 'failure'] as const
@@ -92,42 +93,50 @@ export function AuditPage() {
     value: draft[name], onChange: (event: { target: { value: string } }) => setDraft(current => ({ ...current, [name]: event.target.value })),
   })
 
-  return <Page eyebrow="Security" title="Audit" description="Platform and facility events, newest first. The backend controls what is visible and records each search."
+  const extra = (['facilityId', 'resourceType', 'resourceId', 'correlationId', 'from', 'to'] as const).filter(name => values[name]).length
+  return <Page eyebrow="Security" title="Audit" description="What happened on the platform and in facilities, newest first. Each search is recorded."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <form className="admin-filters admin-audit-filters" onSubmit={apply} role="search" aria-label="Filter audit events">
-      <label>Actor subject<input {...field('actor')} placeholder="Exact subject" /></label>
-      <label>Action<input {...field('action')} placeholder="Exact action, for example admin.account.status" /></label>
-      <label>Outcome<select {...field('outcome')}><option value="">Any outcome</option>
-        {OUTCOMES.map(value => <option key={value} value={value}>{label(value)}</option>)}</select></label>
-      <label>Facility ID<input {...field('facilityId')} aria-invalid={invalidFacility} /></label>
-      {servesTargetFilter() && <>
-        <label>Target type<input {...field('resourceType')} placeholder="For example facility" aria-invalid={invalidTarget} /></label>
-        <label>Target ID<input {...field('resourceId')} aria-invalid={invalidTarget} /></label></>}
-      <label>Correlation ID<input {...field('correlationId')} /></label>
-      <label>From<input type="datetime-local" {...field('from')} /></label>
-      <label>To<input type="datetime-local" {...field('to')} /></label>
-      <div className="admin-action-row">
-        <button type="submit" className="admin-primary" disabled={invalidFacility || invalidTarget}>Apply filters</button>
-        <button type="button" className="admin-secondary" onClick={clear}>Clear</button>
+    <form className="flex flex-col gap-4 rounded-xl bg-surface p-4 ring-1 ring-line" onSubmit={apply} role="search" aria-label="Filter audit events">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3">
+        <Field label="Who" htmlFor="audit-actor"><Input id="audit-actor" {...field('actor')} placeholder="Their exact ID" /></Field>
+        <Field label="What happened" htmlFor="audit-action"><Input id="audit-action" {...field('action')} placeholder="For example admin.account.status" /></Field>
+        <Field label="Result" htmlFor="audit-outcome"><Select id="audit-outcome" {...field('outcome')}><option value="">Any result</option>
+          {OUTCOMES.map(value => <option key={value} value={value}>{label(value)}</option>)}</Select></Field>
       </div>
-      {invalidFacility && <p role="alert" className="admin-error">Enter a full facility ID.</p>}
-      {invalidTarget && <p role="alert" className="admin-error">Enter a target type such as facility (lower-case words
-        joined by hyphens) before a target ID; IDs use letters, digits, dots, colons, underscores and hyphens.</p>}
+      <details className="group" open={extra > 0 || invalidFacility || invalidTarget}>
+        <summary className="cursor-pointer text-sm font-medium text-brand-ink">More filters{extra ? ` (${extra} on)` : ''}</summary>
+        <div className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3">
+          <Field label="From" htmlFor="audit-from"><Input id="audit-from" type="datetime-local" {...field('from')} /></Field>
+          <Field label="To" htmlFor="audit-to"><Input id="audit-to" type="datetime-local" {...field('to')} /></Field>
+          <Field label="Facility ID" htmlFor="audit-facility" error={invalidFacility ? 'Enter a full facility ID.' : undefined}>
+            <Input id="audit-facility" {...field('facilityId')} aria-invalid={invalidFacility} /></Field>
+          {servesTargetFilter() && <>
+            <Field label="Item type" htmlFor="audit-type"><Input id="audit-type" {...field('resourceType')} placeholder="For example facility" aria-invalid={invalidTarget} /></Field>
+            <Field label="Item ID" htmlFor="audit-id"><Input id="audit-id" {...field('resourceId')} aria-invalid={invalidTarget} /></Field></>}
+          <Field label="Request code" htmlFor="audit-correlation"><Input id="audit-correlation" {...field('correlationId')} /></Field>
+        </div>
+      </details>
+      {invalidTarget && <Alert intent="error" size="sm">Enter an item type (lower-case words, like facility) before an item ID.</Alert>}
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" variant="primary" disabled={invalidFacility || invalidTarget}>Apply filters</Button>
+        <Button variant="ghost" onClick={clear}>Clear</Button>
+      </div>
     </form>
-    <ResourceView resource={resource} empty={result => result.items.length === 0}>{result => <>
-      <Table headings={['Occurred', 'Action', 'Outcome', 'Actor', 'Target', 'Scope', 'Purpose', 'Correlation']}>
+    <ResourceView resource={resource} emptyTitle="No events match" empty={result => result.items.length === 0}>{result => <>
+      <Table headings={['When', 'What happened', 'Result', 'Who', 'Where']}>
         {[...result.items, ...(older?.items ?? [])].map(item => <tr key={item.eventId}><td>{date(item.occurredAt)}</td>
-          <td>{label(item.action)}{item.reason ? <small>{item.reason}</small> : null}</td>
+          <td>{label(item.action)}{item.reason ? <small>{item.reason}</small> : null}
+            <details className="mt-1"><summary className="cursor-pointer text-[12px] font-medium text-brand-ink">Details</summary>
+              <small>Item: {item.resourceType ? label(item.resourceType) : 'Not recorded'}{item.resourceId ? ` · ${item.resourceId}` : ''}</small>
+              <small>Purpose: {item.purposeOfUse ? label(item.purposeOfUse) : 'Not recorded'}</small>
+              <small>Request code: <code>{item.correlationId}</code></small></details></td>
           <td><Status value={item.outcome} /></td>
           <td>{item.actorSubject || 'System'}{item.actorType ? <small>{label(item.actorType)}</small> : null}</td>
-          <td>{item.resourceType ? label(item.resourceType) : 'Not recorded'}{item.resourceId ? <small>{item.resourceId}</small> : null}</td>
-          <td><Scope event={item} /></td>
-          <td>{item.purposeOfUse ? label(item.purposeOfUse) : 'Not recorded'}</td>
-          <td><code>{item.correlationId}</code></td></tr>)}
+          <td><Scope event={item} /></td></tr>)}
       </Table>
-      {olderError ? <p role="alert" className="admin-error">{olderError}</p> : null}
-      {next ? <button type="button" className="admin-secondary" onClick={() => void loadOlder()} disabled={loadingOlder}>
-        {loadingOlder ? 'Loading older events…' : 'Load older events'}</button> : null}
+      {olderError ? <Alert intent="error" size="sm">{olderError}</Alert> : null}
+      {next ? <Button className="self-start" onClick={() => void loadOlder()} loading={loadingOlder} disabled={loadingOlder}>
+        {loadingOlder ? 'Loading…' : 'Load older events'}</Button> : null}
     </>}</ResourceView>
   </Page>
 }

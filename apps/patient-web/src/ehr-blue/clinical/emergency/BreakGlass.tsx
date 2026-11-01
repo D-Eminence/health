@@ -1,85 +1,53 @@
 import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
-import { EhrButton, EhrCard, EhrField, EhrInput, EhrTextarea } from '@hid/ui/ehr'
+import { Siren } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
+import { Alert, Button, Card, Field, Input, Textarea } from '../../../kasuwa/ui'
+import { FormActions } from '../../../kasuwa/parts'
 import { usesNovuBackend } from '../../../backendContract'
 import { isAllowedPatientLookup, staffApi } from '../../../staff/api'
 import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/session'
 import { selfServiceReview } from '../../../staff/staffAccess'
-import { dropOfferedHealthId, offeredHealthId } from '../consent/access'
-import { ErrorBox, RecordHeading } from '../parts/Notices'
 import { patientFacts } from '../parts/PatientHeader'
-import { COMPLETE_FIELD } from '../parts/RecordForm'
-import { StatusBadge } from '../parts/StatusBadge'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
+import { offeredHealthId, dropOfferedHealthId } from '../consent/access'
 import {
-  COMMAND_FAILED, EMERGENCY_ACCESS, EMERGENCY_MINUTES, HID_FORMAT, JUSTIFICATION_MAX, NOT_GRANTED, REASON_FIELD_MAX, REASON_MIN,
-  REASON_TOO_SHORT, actionUnavailable, breakGlassReason, breakGlassRefusal, emergencyNotice, healthIdProblem,
+  COMMAND_FAILED, EMERGENCY_ACCESS, EMERGENCY_CONTACTS_TOLD, EMERGENCY_MINUTES, HID_FORMAT, NOTICE_BEFORE, NOTICE_WHEN, NOT_GRANTED, REASON_MAX,
+  REASON_MIN, REASON_TOO_SHORT, actionUnavailable, breakGlassRefusal, healthIdProblem,
 } from './access'
 
-const FIELDS = ['hid', 'reason', 'justification', 'ack'] as const
+const FIELDS = ['hid', 'reason', 'ack'] as const
 type FieldKey = (typeof FIELDS)[number]
 type Problems = Partial<Record<FieldKey, string>>
 
-/** The design's acknowledgement, naming the expiry today's break-glass request asks for. */
-export const ACKNOWLEDGE = `I acknowledge patient notification, audit and ${EMERGENCY_MINUTES}-minute expiry`
+/** The acknowledgement, naming the expiry today's break-glass request asks for. */
+export const ACKNOWLEDGE = `I understand the patient is told, every view is reviewed, and access ends after ${EMERGENCY_MINUTES} minutes.`
 
-function Required({ children }: { children: ReactNode }) {
-  return <>{children}<span aria-hidden="true"> *</span></>
-}
-
-/**
- * The open emergency patient, as today's Patients page shows it ("Current emergency summary"), with the way back to
- * their read-only summary.
- */
+/** The open emergency patient, with the way back to their emergency summary. */
 export function CurrentEmergency() {
   const { activePatient } = useClinical()
   const href = useWorkspaceHref()
   if (activePatient?.purpose !== 'emergency') return null
   return (
-    <EhrCard title="Current emergency summary">
-      <p className="hid-ehr-clinical-emergency-current">
-        <strong>{patientFacts(activePatient).name}</strong>
-        <StatusBadge status="Emergency access" />
-        <Link className="hid-ehr-clinical-link" to={href('summary')}>Open read-only emergency summary →</Link>
-      </p>
-    </EhrCard>
+    <Alert intent="warning" icon={Siren} live={false} title={`${patientFacts(activePatient).name} is open with emergency access`}
+      action={<Button size="sm" to={href('summary')}>Open summary</Button>} />
   )
 }
 
 /**
- * "Emergency break-glass access": the design's own page for the form (audit 7), reached from the Emergency list's empty
- * state at a real facility and from Patients' refused lookup, with Back to list to the Emergency list.
- */
-export function BreakGlassPage() {
-  const href = useWorkspaceHref()
-  return (
-    <>
-      <RecordHeading title="Emergency break-glass access" backHref={href()} />
-      <EhrCard>
-        <BreakGlassForm />
-      </EhrCard>
-    </>
-  )
-}
-
-/**
- * The design's break-glass form (Emergency reason, Clinical justification, the acknowledgement, "Record emergency
- * access") with the Health ID today's request needs, after today's emergency notice. It runs today's flow:
+ * Emergency access: the Health ID, one reason (the request carries one) and the acknowledgement. It runs today's flow:
  * break-glass, then, once the session that asked is ready, an emergency lookup; the record opens only when that lookup
- * allows it and the session still accepts it, and then the read-only summary shows (the Emergency workspace's, from
- * wherever the form is: its own page, or inline on an access request's page). No card of its own: the caller's holds it.
+ * allows it and the session still accepts it, and then the emergency summary shows.
  */
-export function BreakGlassForm() {
+export function BreakGlassCard() {
   const { facility, permissions, setActivePatient } = useClinical()
   const navigate = useNavigate()
   const href = useWorkspaceHref()
   const id = useId()
-  // A Health ID offered from Patients (a refused lookup's "Emergency break-glass access") starts the field, read once.
+  // A Health ID handed over from Find a patient, if any, read once; otherwise the field starts at HID-, as today's does.
   const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient) || HEALTH_ID_PREFIX)
   useEffect(() => { dropOfferedHealthId() }, [])
   const [reason, setReason] = useState('')
-  const [justification, setJustification] = useState('')
   const [ack, setAck] = useState(false)
   const [problems, setProblems] = useState<Problems>({})
   // A problem refused from Enter in its own field cannot move focus to say why: it is an alert there, new each time.
@@ -89,20 +57,15 @@ export function BreakGlassForm() {
   const [error, setError] = useState('')
   const sending = useRef(false)
   const alerts = useRef(0)
-  const controls = useRef(new Map<FieldKey, HTMLInputElement | HTMLTextAreaElement>())
   const normalized = normalizeHealthIdInput(hid)
   const administrator = usesNovuBackend() && permissions.includes('workforce.manage') ? selfServiceReview(facility) : null
   const unavailable = actionUnavailable(EMERGENCY_ACCESS, permissions, administrator)
   const unavailableId = `${id}-unavailable`
+  const controlId = (field: FieldKey) => `${id}-${field}`
 
   useLayoutEffect(() => {
-    if (focusRequest) controls.current.get(focusRequest.field)?.focus()
-  }, [focusRequest])
-
-  const register = (field: FieldKey) => (element: HTMLInputElement | HTMLTextAreaElement | null) => {
-    if (element) controls.current.set(field, element)
-    else controls.current.delete(field)
-  }
+    if (focusRequest) document.getElementById(`${id}-${focusRequest.field}`)?.focus()
+  }, [focusRequest, id])
 
   const changed = (field: FieldKey) => {
     setProblems(current => {
@@ -125,8 +88,7 @@ export function BreakGlassForm() {
     const hidProblem = healthIdProblem(normalized)
     if (hidProblem) found.hid = hidProblem
     if (reason.trim().length < REASON_MIN) found.reason = REASON_TOO_SHORT
-    if (!justification.trim()) found.justification = COMPLETE_FIELD
-    if (!ack) found.ack = COMPLETE_FIELD
+    if (!ack) found.ack = 'Tick the box to go on.'
     return found
   }
 
@@ -139,7 +101,7 @@ export function BreakGlassForm() {
     setProblems(found)
     const first = FIELDS.find(field => found[field])
     if (first) {
-      const within = document.activeElement === controls.current.get(first)
+      const within = document.activeElement === document.getElementById(controlId(first))
       if (within) setAlerted({ field: first, key: ++alerts.current })
       else {
         setAlerted(null)
@@ -150,12 +112,12 @@ export function BreakGlassForm() {
     setAlerted(null)
     sending.current = true
     setBusy(true)
-    // The record opens after the grant only while the session that obtained it is ready: it waits while that session
+    // The record opens only while the session that asked for emergency access is ready: it waits while that session
     // is checked, and never opens once it ended.
     const sentIn = staffSessionGeneration()
     try {
       try {
-        await staffApi.breakGlass(facility.id, normalized, breakGlassReason(reason, justification))
+        await staffApi.breakGlass(facility.id, normalized, reason.trim())
       } catch (caught) {
         const known = breakGlassRefusal(caught, facility.name)
         if (known) throw new Error(known)
@@ -179,74 +141,44 @@ export function BreakGlassForm() {
 
   const ackError = errorFor('ack')
   const ackErrorId = `${id}-ack-error`
+  const describe = (field: FieldKey, hint: boolean) => problems[field] ? `${controlId(field)}-error` : hint ? `${controlId(field)}-hint` : undefined
 
   return (
-    <>
-      {/* Today's emergency notice, as the design's critical banner (no title: today's notice has none). */}
-      <div className="hid-ehr-clinical-banner hid-ehr-clinical-banner-critical hid-ehr-clinical-emergency-notice">
-        <p>{emergencyNotice(usesNovuBackend())}</p>
-      </div>
-      <form className="hid-ehr-clinical-form" noValidate onSubmit={event => void submit(event)}>
-        <div className="hid-ehr-clinical-form-grid">
-          <EhrField label={<Required>Health ID</Required>} hint={HID_FORMAT} error={errorFor('hid')}>
-            <EhrInput
-              ref={register('hid')}
-              required
-              autoComplete="off"
-              spellCheck={false}
-              value={hid}
-              onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); changed('hid') }}
-            />
-          </EhrField>
-          <EhrField label={<Required>Emergency reason</Required>} error={errorFor('reason')}>
-            <EhrInput
-              ref={register('reason')}
-              required
-              autoComplete="off"
-              maxLength={REASON_FIELD_MAX}
-              value={reason}
-              onChange={event => { setReason(event.target.value); changed('reason') }}
-            />
-          </EhrField>
-          <EhrField className="hid-ehr-clinical-form-full" label={<Required>Clinical justification</Required>} error={errorFor('justification')}>
-            <EhrTextarea
-              ref={register('justification')}
-              required
-              rows={3}
-              maxLength={JUSTIFICATION_MAX}
-              value={justification}
-              onChange={event => { setJustification(event.target.value); changed('justification') }}
-            />
-          </EhrField>
-          <div>
-            <label className="hid-ehr-clinical-checkbox">
-              <Required>{ACKNOWLEDGE}</Required>
-              <input
-                ref={register('ack')}
-                type="checkbox"
-                required
-                checked={ack}
-                aria-invalid={problems.ack ? true : undefined}
-                aria-describedby={ackError ? ackErrorId : undefined}
-                onChange={event => { setAck(event.target.checked); changed('ack') }}
-              />
-            </label>
-            {ackError ? <p id={ackErrorId} className="hid-ehr-clinical-field-error">{ackError}</p> : null}
-          </div>
+    <Card>
+      <form noValidate className="flex flex-col gap-5 p-5" onSubmit={event => void submit(event)}>
+        <Alert intent="warning" live={false} title={NOTICE_WHEN}>
+          {NOTICE_BEFORE}{usesNovuBackend() ? ` ${EMERGENCY_CONTACTS_TOLD}` : ''}
+        </Alert>
+        <Field label="Health ID" htmlFor={controlId('hid')} hint={HID_FORMAT} hintId={`${controlId('hid')}-hint`} error={errorFor('hid')} errorId={`${controlId('hid')}-error`}>
+          <Input id={controlId('hid')} required autoComplete="off" spellCheck={false} value={hid} placeholder="HID-ADA2345"
+            className="font-medium tracking-[.06em] uppercase" aria-invalid={problems.hid ? true : undefined} aria-describedby={describe('hid', true)}
+            onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); changed('hid') }} />
+        </Field>
+        <Field label="Why do you need emergency access?" htmlFor={controlId('reason')} hint="What is happening, and why care can’t wait. It’s kept with the review."
+          hintId={`${controlId('reason')}-hint`} error={errorFor('reason')} errorId={`${controlId('reason')}-error`}>
+          <Textarea id={controlId('reason')} required rows={3} maxLength={REASON_MAX} value={reason}
+            aria-invalid={problems.reason ? true : undefined} aria-describedby={describe('reason', true)}
+            onChange={event => { setReason(event.target.value); changed('reason') }} />
+        </Field>
+        <div className="flex flex-col gap-1.5">
+          <label className="flex cursor-pointer items-start gap-3 text-sm text-ink">
+            <input id={controlId('ack')} type="checkbox" required checked={ack} className="mt-0.5 size-4 shrink-0 accent-brand-fill"
+              aria-invalid={problems.ack ? true : undefined} aria-describedby={ackError ? ackErrorId : undefined}
+              onChange={event => { setAck(event.target.checked); changed('ack') }} />
+            <span>{ACKNOWLEDGE}</span>
+          </label>
+          {ackError ? <p id={ackErrorId} className="m-0 text-xs font-medium text-danger-ink">{ackError}</p> : null}
         </div>
-        {error ? <ErrorBox>{error}</ErrorBox> : null}
-        {unavailable ? <p id={unavailableId} className="hid-ehr-clinical-note">{unavailable}</p> : null}
-        <div className="hid-ehr-clinical-form-footer">
-          <EhrButton
-            type="submit"
-            busy={busy}
-            disabled={!facility || unavailable !== null}
-            aria-describedby={unavailable ? unavailableId : undefined}
-          >
-            {busy ? 'Working…' : 'Record emergency access'}
-          </EhrButton>
-        </div>
+        {error ? <Alert intent="error" title="Couldn’t open emergency access">{error}</Alert> : null}
+        {unavailable ? <p id={unavailableId} className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
+        <FormActions sticky={false}>
+          {/* Busy, it stays focusable (aria-disabled, not disabled): focus is not lost while the request runs, and a second
+              press sends nothing (submit returns while one is on its way). */}
+          <Button type="submit" variant="destructive" icon={Siren} disabled={!facility || unavailable !== null}
+            aria-disabled={busy || undefined}
+            aria-describedby={unavailable ? unavailableId : undefined}>{busy ? 'Opening…' : 'Open emergency access'}</Button>
+        </FormActions>
       </form>
-    </>
+    </Card>
   )
 }

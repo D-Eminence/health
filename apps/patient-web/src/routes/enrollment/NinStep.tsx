@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { describedBy } from '../../authSteps'
 import { FACILITY_LIST_PATH, type OwnershipRoutes } from './availability'
 import type { StepProps } from './stepProps'
+import { Button, Field } from '../../kasuwa/ui'
+import { InputR } from '../profileParts'
 
 interface NinStepProps extends StepProps {
   nin: string
@@ -24,23 +26,24 @@ interface NinStepProps extends StepProps {
  * Identity before it has neither, so neither is described.
  */
 export function NinStep({ focusTarget, busy, invalid, errorId, nin, onNin, onSubmit, turnstile, blocked, routes }: NinStepProps) {
-  return <form onSubmit={onSubmit} className="patient-form">
-    <label>National Identification Number<input ref={focusTarget} required inputMode="numeric" autoComplete="off" value={nin} onChange={event => onNin(event.target.value.replace(/\D/g, '').slice(0, 11))} pattern="[0-9]{11}" maxLength={11} placeholder="11 digits"
-      aria-invalid={invalid} aria-describedby={describedBy('enroll-nin-hint', errorId)} /></label>
-    <p id="enroll-nin-hint" className="patient-field-hint">Your NIN is 11 digits. It is verified by the existing Health ID identity service. It is not stored in this browser.</p>
-    {routes && <section className="patient-enroll-option" aria-labelledby="enroll-routes-title">
-      <h2 id="enroll-routes-title">How you'll prove this NIN is yours</h2>
-      <p>After we check your NIN, you prove that it is yours. No Health ID is created until you do.</p>
-      <ul className="patient-enroll-routes">
+  return <form onSubmit={onSubmit} className="flex flex-col gap-4">
+    <Field label="National Identification Number (NIN)" htmlFor="enroll-nin" hintId="enroll-nin-hint" hint="11 digits. It isn’t stored in this browser.">
+      <InputR id="enroll-nin" ref={focusTarget} required inputMode="numeric" autoComplete="off" value={nin} onChange={event => onNin(event.target.value.replace(/\D/g, '').slice(0, 11))} pattern="[0-9]{11}" maxLength={11} placeholder="11 digits"
+        aria-invalid={invalid} aria-describedby={describedBy('enroll-nin-hint', errorId)} />
+    </Field>
+    {routes && <section className="flex flex-col gap-2 rounded-xl bg-subtle p-4 text-[13px] text-ink-2 ring-1 ring-line [&_a]:font-medium [&_a]:text-brand-ink [&_p]:m-0" aria-labelledby="enroll-routes-title">
+      <h2 id="enroll-routes-title" className="m-0 text-sm font-semibold text-ink">How you’ll prove this NIN is yours</h2>
+      <p>No Health ID is made until you do.</p>
+      <ul className="m-0 flex list-disc flex-col gap-1.5 pl-5">
         <li>{routes.online ? 'Online: we text a 6-digit code to the phone number linked to your NIN.'
           : 'A code by text message isn\'t available right now.'}</li>
         <li>{routes.facility
           ? 'At a participating healthcare facility: if you lost your SIM, changed your number, have no phone linked to your NIN, or can\'t get the code, a staff member checks one original photo ID in person. You start here with your NIN either way.'
-          : 'Registering at a healthcare facility isn\'t available yet.'}</li>
+          : 'Registering at a healthcare facility isn\'t available right now.'}</li>
       </ul>
       {routes.facility && <Link to={FACILITY_LIST_PATH}>See participating facilities and what to bring</Link>}
     </section>}
     {turnstile}
-    <button type="submit" className="patient-primary-button" disabled={busy || blocked || nin.length !== 11}>{busy ? 'Checking your NIN…' : 'Continue'}</button>
+    <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || blocked || nin.length !== 11}>{busy ? 'Checking your NIN…' : 'Continue'}</Button>
   </form>
 }

@@ -712,7 +712,7 @@ export function wrongPatientRefusal(error: unknown, service: ReceivingService, o
     : 'A dispensing was recorded on this order, and your role can’t reverse dispensings. Ask a pharmacist to end it.' }
   if (isCode(error, 'IDEMPOTENCY_KEY_REUSED')) return { reload: true,
     text: 'This report was already sent with other details. Refresh the list and check whether the order has ended.' }
-  if (routeMissing(error)) return { text: 'Ending an order for the wrong person isn’t available yet. Tell Health ID support, '
+  if (routeMissing(error)) return { text: 'Ending an order for the wrong person isn’t set up for your facility. Tell Health ID support, '
     + `and phone ${ordering}.` }
   if (isHidApiError(error) && error.status === 404) return { reload: true, text: 'This order was not found here. Refresh the list.' }
   if (paused(error)) return { text: 'Health ID has paused work on orders from other facilities, so this can’t be done now. Try '
@@ -871,7 +871,7 @@ export function cannotCompleteRefusal(error: unknown, service: ReceivingService,
   }
   if (isCode(error, 'IDEMPOTENCY_KEY_REUSED')) return { reload: true,
     text: 'This was already sent with other details. The list has been refreshed: check whether the order has ended.' }
-  if (routeMissing(error)) return { missing: true, text: `Ending an order you can’t complete isn’t available yet: phone ${ordering}.` }
+  if (routeMissing(error)) return { missing: true, text: `Ending an order you can’t complete isn’t set up for your facility: phone ${ordering}.` }
   if (isHidApiError(error) && error.status === 404) return { reload: true, text: 'This order was not found here. Refresh the list.' }
   if (paused(error)) return { text: 'Health ID has paused work on orders from other facilities, so this can’t be done now. Try '
     + `again when it resumes, and phone ${ordering} if it is urgent.` }
@@ -1129,7 +1129,7 @@ function tooLateText(until: string | null | undefined, ordering: string): string
 
 /** What a refused lookup means (D17, SPEC-FINAL §9.1). `missing` says the backend has no such route (404 without a code). */
 export function correctableFindRefusal(error: unknown): { text: string; missing?: boolean } {
-  if (routeMissing(error)) return { missing: true, text: 'Correcting an ended order isn’t available yet. Phone the ordering '
+  if (routeMissing(error)) return { missing: true, text: 'Correcting an ended order isn’t set up for your facility. Phone the ordering '
     + 'facility, and tell Health ID support.' }
   if (isHidApiError(error) && error.status === 400) return { text: REFERENCE_PROBLEM }
   if (isHidApiError(error) && error.status === 403) return { text: 'Your role can’t correct orders from other facilities.' }
@@ -1168,7 +1168,7 @@ export function lateWrongPatientRefusal(error: unknown, service: ReceivingServic
   if (isCode(error, 'ORDER_ROUTE_CHANGED_CONCURRENTLY')) return { text: 'Someone changed this order at the same moment. Try again.' }
   if (isCode(error, 'IDEMPOTENCY_KEY_REUSED')) return { reload: true,
     text: 'This report was already sent with other details. Find the order again and check whether it has been withdrawn.' }
-  if (routeMissing(error)) return { text: `Withdrawing an ended order isn’t available yet. Phone ${ordering}, and tell Health ID support.` }
+  if (routeMissing(error)) return { text: `Withdrawing an ended order isn’t set up for your facility. Phone ${ordering}, and tell Health ID support.` }
   if (isHidApiError(error) && error.status === 404) return { reload: true, text: 'This order was not found here. Find it again.' }
   if (paused(error)) return { text: LATE_PAUSED }
   if (isHidApiError(error) && error.status === 403) return { text: 'Your role can’t withdraw orders from other facilities.' }

@@ -137,7 +137,7 @@ export function StaffPage() {
   if (!current || current.status === 'loading') return <div role="status"><h1>Staff</h1><p>Loading your facility’s staff…</p></div>
   if (current.status === 'failed') {
     const { caught } = current
-    if (isRouteMissing(caught)) return <EmptyState titleAs="h1" title="Staff" description="Adding staff isn’t available on Health ID yet. Please check again later." />
+    if (isRouteMissing(caught)) return <EmptyState titleAs="h1" title="Staff" description="Adding staff isn’t set up for your facility. Contact support." />
     if (isHidApiError(caught) && caught.code === 'STAFF_MANAGEMENT_NOT_AVAILABLE') return notAvailable
     return <EmptyState titleAs="h1" title="Staff" description={isUnavailable(caught) ? staffProblemText(caught, { facility: facility.name })
       : `${facility.name}’s staff couldn’t be loaded. ${staffProblemText(caught, { facility: facility.name })}`}

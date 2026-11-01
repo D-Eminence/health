@@ -5,11 +5,10 @@ import { staffApi, type ClinicalRecord, type Encounter } from '../../../staff/ap
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
 import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord, VersionsCard, type VersionItem } from '../parts/Detail'
-import { shortId, statusLabel } from '../parts/format'
+import { formatWhen, shortId, statusLabel } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
-import { Banner, ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
 import { MoreActions } from '../parts/MoreActions'
-import { patientLine } from '../parts/PatientHeader'
+import { ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
 import { ConnectedHistory } from '../triage/ConnectedHistory'
@@ -27,7 +26,7 @@ import {
 export function ObservationRecord() {
   const href = useWorkspaceHref()
   const chart = useChart()
-  if (chart && chart.purpose === 'direct-care') return <ObservationLoader chart={chart} />
+  if (chart && chart.purpose === 'direct-care') return <ChartGate>{open => <ObservationLoader chart={open} />}</ChartGate>
   return (
     <>
       <RecordHeading title={TITLE} backHref={href()} />
@@ -210,10 +209,9 @@ function Observation({ chart, encounter, note, reload }: {
   return (
     <>
       <RecordHeading title={shortId(note.id)} backHref={href()} />
-      {chart.writeNotice ? <Banner tone="warning" title="Changes are unavailable">{chart.writeNotice}</Banner> : null}
       {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
       <div className="hid-ehr-clinical-status" role="status">{success}</div>
-      <DetailMeta status={noteStatus(note)} patient={patientLine(chart.facts)} saved={field(note, 'updatedAt') || note.createdAt} />
+      <DetailMeta status={noteStatus(note)} saved={field(note, 'updatedAt') || note.createdAt} />
       <DetailGrid>
         <SavedRecord items={saved}>
           {revisions.state === 'failed' ? <ErrorBox>{revisions.message}</ErrorBox> : null}
@@ -282,7 +280,7 @@ function versionItems(note: ClinicalRecord, revisions: Revisions): VersionItem[]
     const before = revisions.items[index]!
     return {
       key: revision.id,
-      summary: `${revision.createdAt} · ${status} · ${revision.changeReason}`,
+      summary: `${formatWhen(revision.createdAt)} · ${status} · ${revision.changeReason}`,
       items: [{ label: 'Version', value: `Revision ${before.revisionNo}` }, ...observationItems(before.content)],
     }
   })

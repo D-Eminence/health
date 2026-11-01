@@ -105,7 +105,7 @@ function StaffAccessPage() {
   }
   if (current.status === 'failed') {
     const { caught } = current
-    if (isRouteMissing(caught)) return <DeptUnavailable title={TITLE} message="Adding staff isn’t available on Health ID yet. Please check again later." />
+    if (isRouteMissing(caught)) return <DeptUnavailable title={TITLE} message="Adding staff isn’t set up for your facility. Contact support." />
     if (isHidApiError(caught) && caught.code === 'STAFF_MANAGEMENT_NOT_AVAILABLE') return notAvailable
     const text = staffProblemText(caught, { facility: facility.name })
     return (

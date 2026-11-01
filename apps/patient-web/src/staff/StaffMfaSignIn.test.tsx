@@ -52,8 +52,8 @@ const RECOVERY_CODES = ['ABCDE-FGHJK', 'MNPQR-STVWX', '01234-56789']
 const activated = () => json({ ...sessionBody, recoveryCodes: RECOVERY_CODES })
 
 const CHALLENGE_SPENT = 'This sign-in step expired or ran out of attempts. Sign in again.'
-const FACTOR_UNPROVEN = 'Your authenticator was set up at platform sign-in, so it cannot be used for staff sign-in. '
-  + 'Two platform administrators must reset it (one requests the reset, another approves it); then sign in here to set it up again.'
+const FACTOR_UNPROVEN = 'This authenticator was set up for Health ID admin sign-in, so it can’t be used here. '
+  + 'Ask Health ID support to reset it, then sign in here to set it up again.'
 const MFA_UNAVAILABLE = 'Staff sign-in with an authenticator is temporarily unavailable. '
   + 'Try again later, or contact your administrator if this continues.'
 
@@ -278,7 +278,7 @@ describe('the authenticator code (mfa_required)', () => {
     signIn()
     await stepShown('Verify it’s you')
 
-    expect(screen.getByText(/^Lost your authenticator and your recovery codes\? Two platform administrators must reset/)).toBeTruthy()
+    expect(screen.getByText(/^Lost your authenticator and your recovery codes\? Ask Health ID support to reset it/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
     await stepShown('Welcome back.')
     expect(screen.queryByRole('alert')).toBeNull()
@@ -321,7 +321,7 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
     expect(document.body.textContent).not.toContain(SECRET)
     expect(screen.queryByRole('img', { name: /QR code/ })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
-    const proceed = screen.getByRole('button', { name: 'Continue to the Provider Portal' })
+    const proceed = screen.getByRole('button', { name: 'Continue' })
     expect(proceed).toHaveProperty('disabled', true)
     fireEvent.click(screen.getByLabelText('I have stored these recovery codes somewhere safe'))
     fireEvent.click(proceed)

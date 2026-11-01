@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { PatientApi } from '../api'
 import { createTestSessionValue, SessionContext } from '../session'
@@ -9,13 +9,12 @@ import { PortalShell } from '../routes/Portal'
 vi.mock('../chatFeatures', () => ({ patientChatEnabled: () => false, patientChatHost: () => false }))
 
 /**
- * Below 900px the patient pages' navigation is a horizontal strip. Chromium
- * does not scroll a focused link that is partly showing, so tabbing backwards
- * left one as a sliver at the strip's edge (22 of 66px, measured at 390px).
- * Only the strip moves, and only for keyboard focus: scrolling the page from a
- * focus event lost clicks near the top of the screen and jumped the page when
- * the tab was focused again, and moving the strip under a pressed link lost
- * the click.
+ * Below 900px the patient pages' navigation was a horizontal strip, and a focused link partly showing was scrolled into
+ * the strip (only the strip, only for keyboard focus). The Kasuwa redesign removed the strip on purpose: phones have a
+ * fixed tab bar ("Quick") whose places share the screen's width and never scroll, and the rest is the Menu page (#menu);
+ * computers have the sidebar ("Main navigation"), which scrolls only up and down. What the strip's fix protected still
+ * holds: focusing a navigation link, by keyboard or pointer, never scrolls the page (that lost clicks near the top of
+ * the screen and jumped the page when the tab was focused again) and never moves the navigation under a press.
  */
 const pageScroll = vi.fn()
 beforeEach(() => {
@@ -37,51 +36,48 @@ function openPortal() {
   render(<SessionContext.Provider value={createTestSessionValue({ kind: 'patient', subjectId: 'subject-a', appRole: 'patient', assuranceLevel: 'aal1' }, noBell)}>
     <MemoryRouter initialEntries={['/notifications']}><Routes><Route path="/" element={<PortalShell />}><Route path="notifications" element={<p>Notifications page</p>} /></Route></Routes></MemoryRouter>
   </SessionContext.Provider>)
-  const strip = screen.getByRole('navigation', { name: 'Patient pages' })
-  return { strip, link: screen.getByRole('link', { name: 'Profile' }) }
+  const sidebar = screen.getByRole('navigation', { name: 'Main navigation' })
+  return { sidebar, quick: screen.getByRole('navigation', { name: 'Quick' }), link: within(sidebar).getByRole('link', { name: 'Profile' }) }
 }
 
-/** Lays out the strip as Chromium did at 390px: 390px shown of 541px, scrolled to the end. */
-function layOut(strip: HTMLElement, link: HTMLElement, linkLeft: number, { overflowing = true, keyboard = true } = {}) {
-  // jsdom never matches :focus-visible; Chromium does for keyboard focus and not for a pointer press.
+/** Lays out the sidebar as a narrow window might: taller than shown, with a link at `linkTop` against its 0 to 500px. */
+function layOut(sidebar: HTMLElement, link: HTMLElement, linkTop: number, keyboard: boolean) {
   link.matches = (selector: string) => selector === ':focus-visible' ? keyboard : Element.prototype.matches.call(link, selector)
-  let left = 151
-  Object.defineProperty(strip, 'scrollLeft', { configurable: true, get: () => left, set: (value: number) => { left = value } })
-  Object.defineProperty(strip, 'scrollWidth', { configurable: true, value: overflowing ? 541 : 390 })
-  Object.defineProperty(strip, 'clientWidth', { configurable: true, value: 390 })
-  strip.getBoundingClientRect = () => ({ left: 0, right: 390, top: 67, bottom: 124, width: 390, height: 57, x: 0, y: 67, toJSON: () => ({}) })
-  link.getBoundingClientRect = () => ({ left: linkLeft, right: linkLeft + 66, top: 75, bottom: 115, width: 66, height: 40, x: linkLeft, y: 75, toJSON: () => ({}) })
-  return { scrollLeft: () => left }
+  let top = 120, left = 0
+  Object.defineProperty(sidebar, 'scrollTop', { configurable: true, get: () => top, set: (value: number) => { top = value } })
+  Object.defineProperty(sidebar, 'scrollLeft', { configurable: true, get: () => left, set: (value: number) => { left = value } })
+  Object.defineProperty(sidebar, 'scrollWidth', { configurable: true, value: 264 })
+  Object.defineProperty(sidebar, 'clientWidth', { configurable: true, value: 240 })
+  sidebar.getBoundingClientRect = () => ({ left: 0, right: 240, top: 0, bottom: 500, width: 240, height: 500, x: 0, y: 0, toJSON: () => ({}) })
+  link.getBoundingClientRect = () => ({ left: -12, right: 228, top: linkTop, bottom: linkTop + 44, width: 240, height: 44, x: -12, y: linkTop, toJSON: () => ({}) })
+  return { scroll: () => [top, left] }
 }
 
-describe('a patient navigation link that gets keyboard focus in the narrow-screen strip', () => {
-  it('scrolls the strip, and only the strip, until the link clipped at its left edge shows', () => {
-    const { strip, link } = openPortal()
-    const laid = layOut(strip, link, -44)
-    act(() => link.focus())
-    expect(laid.scrollLeft()).toBe(151 - 44)
-    expect(pageScroll).not.toHaveBeenCalled()
-    expect(window.scrollTo).not.toHaveBeenCalled()
-  })
-
-  it('scrolls the strip the other way for a link clipped at its right edge', () => {
-    const { strip, link } = openPortal()
-    const laid = layOut(strip, link, 350)
-    act(() => link.focus())
-    expect(laid.scrollLeft()).toBe(151 + 26)
+describe('patient navigation and focus (the narrow-screen strip is gone)', () => {
+  it('gives phones a tab bar whose places share the width and never scroll sideways', () => {
+    const { quick } = openPortal()
+    const grid = quick.firstElementChild as HTMLElement
+    expect(grid.style.gridTemplateColumns).toMatch(/^repeat\(\d, minmax\(0, 1fr\)\)$/)
+    expect(quick.className).not.toMatch(/overflow-x/)
+    expect(grid.className).not.toMatch(/overflow-x/)
+    // Every place is reachable there or from the Menu page.
+    expect(within(quick).getByRole('link', { name: 'Records' })).toBeTruthy()
+    expect(within(quick).getByRole('button', { name: 'Menu' })).toBeTruthy()
   })
 
   it.each([
-    ['already in view', { left: 120, overflowing: true, keyboard: true }],
-    ['in a sidebar that does not scroll (wide screens)', { left: -44, overflowing: false, keyboard: true }],
-    ['pressed with a pointer, which would move it out from under the press', { left: 350, overflowing: true, keyboard: false }],
-  ])('leaves the strip and the page alone when the link is %s', (_label, { left, overflowing, keyboard }) => {
-    const { strip, link } = openPortal()
-    const laid = layOut(strip, link, left, { overflowing, keyboard })
+    ['keyboard focus, clipped at the edge', { top: -20, keyboard: true }],
+    ['keyboard focus, already in view', { top: 120, keyboard: true }],
+    ['a pointer press, which would move it out from under the press', { top: 480, keyboard: false }],
+  ])('moves neither the navigation nor the page for %s', (_label, { top, keyboard }) => {
+    const { sidebar, link } = openPortal()
+    const laid = layOut(sidebar, link, top, keyboard)
     act(() => link.focus())
     act(() => { link.blur(); link.focus() })
-    expect(laid.scrollLeft()).toBe(151)
+    expect(document.activeElement).toBe(link)
+    expect(laid.scroll()).toEqual([120, 0])
     expect(pageScroll).not.toHaveBeenCalled()
     expect(window.scrollTo).not.toHaveBeenCalled()
+    expect(window.scrollBy).not.toHaveBeenCalled()
   })
 })

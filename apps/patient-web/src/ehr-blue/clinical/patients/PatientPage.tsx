@@ -1,18 +1,19 @@
+import { Activity, ChevronRight, FolderOpen, History, KeyRound, ListChecks, LogOut, Send, ShieldCheck, Siren, Stethoscope, UserPlus } from 'lucide-react'
+import { Alert, Badge, Button, Card, CardHeader, IconChip, ListRow, PageHeader } from '../../../kasuwa/ui'
+import { CardFace } from '../../../routes/HealthIdCard'
 import { isHidApiError } from '@hid/http'
-import { EhrButton, EhrCard } from '@hid/ui/ehr'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
-import { ChartGate, useChart, type Chart } from '../parts/chart'
-import { ActionList, DetailGrid, DetailMeta, HistoryCard, SavedRecord, Step, SubHeading } from '../parts/Detail'
+import { ChartGate, READ_ONLY, type Chart } from '../parts/chart'
+import { LoadingRows } from '../../../kasuwa/parts'
 import { formatDate, formatWhen, shortId } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
-import { Banner, ErrorBox, Loading, NoActions, RecordHeading } from '../parts/Notices'
 import type { PatientFacts } from '../parts/PatientHeader'
-import { StatusBadge } from '../parts/StatusBadge'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isDemoFacility } from '../../blueFacilities'
+import { useSampleCan } from '../../frame/sampleAccess'
 import { CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
 import type { ActivePatient } from '../../../staff/App'
 
@@ -46,7 +47,7 @@ type Reported =
   | { readonly scope: string; readonly status: 'shown'; readonly allergies: string | null }
 
 /**
- * The "Allergies" row of the patient's Saved record (audit 9): what the patient entered in their Health ID portal, as
+ * The patient-reported allergies, shown on the access card under the patient's Health ID card: what the patient entered in their Health ID portal, as
  * today's "Reported by the patient" reads it (staff/routes/PatientReportedHealth.tsx) and under the same conditions:
  * direct care only, with ehr.note.read, read afresh for each actor, facility, patient, purpose and permission set (today's
  * key), so nothing of another patient's shows. No row while it loads, when EHR refuses it (403) or does not serve it
@@ -88,7 +89,7 @@ function useReportedAllergies(chart: Chart): KeyValue | null {
       value: (
         <>
           <span>What the patient entered about their health could not be loaded.</span>{' '}
-          <button type="button" className="hid-ehr-clinical-link hid-ehr-clinical-link-button" onClick={() => setRevision(value => value + 1)}>
+          <button type="button" className="cursor-pointer border-0 bg-transparent p-0 text-[13px] font-medium text-brand-ink underline underline-offset-2" onClick={() => setRevision(value => value + 1)}>
             Retry patient-reported health information
           </button>
         </>
@@ -98,15 +99,27 @@ function useReportedAllergies(chart: Chart): KeyValue | null {
   return { label: 'Allergies', value: `${current.allergies ?? 'Not stated'} (patient-reported)` }
 }
 
-/** The open patient's page (`patients/open`: the URL names no patient). */
+/** Age in whole years from an ISO date of birth; empty when unknown. */
+function ageOf(dateOfBirth: string | undefined): string {
+  if (!dateOfBirth) return ''
+  const born = new Date(dateOfBirth)
+  if (Number.isNaN(born.getTime())) return ''
+  const now = new Date()
+  let age = now.getFullYear() - born.getFullYear()
+  if (now < new Date(now.getFullYear(), born.getMonth(), born.getDate())) age -= 1
+  return `${age} years`
+}
+
+/**
+ * The open patient's page (`patients/open`: the URL names no patient). The patient's own Health ID card heads it, the
+ * same card they carry and share, so the clinician confirms who this is at a glance; then one action that matters
+ * (Open chart), the next steps, and this facility's visits.
+ */
 export function PatientPage() {
-  const chart = useChart()
-  const href = useWorkspaceHref()
   return (
-    <>
-      <RecordHeading title={chart ? chart.facts.name : 'Patients'} backHref={href()} />
+    <div className="flex flex-col gap-5">
       <ChartGate allowEmergency>{current => <PatientRecord chart={current} />}</ChartGate>
-    </>
+    </div>
   )
 }
 
@@ -114,8 +127,12 @@ function PatientRecord({ chart }: { chart: Chart }) {
   const { facility, permissions, can, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
+  const sampleCan = useSampleCan()
   const [error, setError] = useState('')
+  const [ending, setEnding] = useState(false)
   const emergency = chart.purpose === 'emergency'
+  // Read only (emergency, or a grant without changes): write actions are hidden, not offered as a dead end.
+  const readOnly = emergency || chart.writeNotice !== null
   const grantId = chart.patient.lookup.authorization.consentGrantId ?? null
   const administrator = administratorOf(facility, permissions)
   const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administrator)
@@ -123,16 +140,22 @@ function PatientRecord({ chart }: { chart: Chart }) {
   const pinUnavailable = actionUnavailable(METHOD_ROUTES.pin, permissions, administrator)
   const requestUnavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administrator)
   const emergencyUnavailable = actionUnavailable(METHOD_ROUTES.emergency, permissions, administrator)
+  const expires = chart.patient.lookup.authorization.expiresAt
+  const facts = chart.facts
+  const about = [ageOf(facts.dateOfBirth), sexText(facts.sex), facts.dateOfBirth ? `born ${formatDate(facts.dateOfBirth)}` : ''].filter(Boolean).join(' · ')
   const allergies = useReportedAllergies(chart)
 
   async function closeGrant() {
-    if (!grantId || closeUnavailable) return
+    if (!grantId || closeUnavailable || ending) return
+    setEnding(true)
     setError('')
     try {
       await staffApi.closeGrant(chart.facilityId, grantId, CLOSE_REASON)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Grant could not be closed.')
+      setError(caught instanceof Error && caught.message ? caught.message : 'Couldn’t end your access. Please try again.')
       return
+    } finally {
+      setEnding(false)
     }
     setActivePatient(null)
     navigate(href(), { state: { notice: CLOSED_NOTICE } })
@@ -141,10 +164,15 @@ function PatientRecord({ chart }: { chart: Chart }) {
   /**
    * As the design's Next steps, a step shows only to a role that may take it: External record access opens only with
    * identity.consent.write (the frame's rule, the permission its request form needs). The two steps that move an
-   * emergency patient to direct care are the exception: a role that cannot take one sees it disabled with today's reason,
-   * as on Patients.
+   * emergency patient to direct care are the exception: a role that cannot take one sees it turned off with today's
+   * reason, as on Find a patient.
    */
   const mayOpenConsent = can('identity.consent.write')
+  const mayOpenChart = chart.can('ehr.encounter.read')
+  // Starting a consultation or recording vitals needs the grant to allow changes and the role to hold what that page
+  // writes with (Consultation's ehr.encounter.write; Triage's ehr.vital.read and ehr.vital.write): no dead-end step.
+  const mayStart = !readOnly && chart.can('ehr.encounter.write')
+  const mayRecordVitals = !readOnly && chart.can('ehr.vital.read', 'ehr.vital.write')
 
   /** The Health ID is handed over in memory only, and only where the request form can open and read it. */
   function openConsent() {
@@ -154,11 +182,11 @@ function PatientRecord({ chart }: { chart: Chart }) {
   }
 
   /**
-   * The access steps, as Patients takes them: under direct care at the demo facilities only, emergency break-glass access
+   * The access steps, as Find a patient takes them: under direct care at the demo facilities only, emergency access
    * (Emergency's own page, which needs identity.break-glass.write; today's portal offers it only from Patients' Obtain
-   * access, never on an open record); under emergency access, the patient's PIN (Patients' own page) or a request
-   * (External record access), which move the patient to direct care. Each hands the Health ID over in memory, never in
-   * the URL, and only to a step the role may take.
+   * access, never on an open record); under emergency access, the patient's Access PIN (Patients' own page) or Ask the
+   * patient (External record access), which move the patient to direct care. Each hands the Health ID over in memory,
+   * never in the URL, and only to a step the role may take.
    */
   function accessStep(target: 'pin' | 'request' | 'emergency') {
     const unavailable = target === 'pin' ? pinUnavailable : target === 'request' ? requestUnavailable : emergencyUnavailable
@@ -166,103 +194,93 @@ function PatientRecord({ chart }: { chart: Chart }) {
     offerHealthId(chart.patient.hid, chart.facilityId, setActivePatient)
     if (target === 'pin') navigate(href('pin'))
     else if (target === 'request') navigate(href.to('consent', 'new'))
-    else navigate(href.to('emergency', 'break-glass'))
+    else navigate(href.to('emergency'))
   }
 
+  const initials = facts.name.split(/\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase()
   return (
-    <>
-      {/* The design's "[status] Saved …" line (audit 3): the access the patient is open under, and "Read only" when the
-          grant allows no changes. Name, date of birth, sex and Health ID are in Saved record. */}
-      <DetailMeta status={accessLabel(chart.patient)}>{chart.writeNotice !== null ? <StatusBadge status="Read only" /> : null}</DetailMeta>
-      {emergency ? (
-        <Banner tone="warning" title="Emergency access is read-only">
-          {`${chart.facts.name} is open under emergency access. Emergency access shows the read-only emergency summary only; nothing can be added or changed.`}
-        </Banner>
-      ) : null}
-      {chart.writeNotice ? <Banner title="Read only">{chart.writeNotice}</Banner> : null}
-      {error ? <ErrorBox>{error}</ErrorBox> : null}
-      <DetailGrid>
-        <SavedRecord items={allergies ? [...patientDetails(chart.patient, chart.facts), allergies] : patientDetails(chart.patient, chart.facts)} />
-        <EhrCard title="Available actions">
-          {grantId ? (
-            <>
-              {closeUnavailable ? <p id="close-grant-unavailable" className="hid-ehr-clinical-note">{closeUnavailable}</p> : null}
-              <ActionList>
-                <EhrButton
-                  variant="secondary"
-                  disabled={closeUnavailable !== null}
-                  aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}
-                  onClick={closeGrant}
-                >
-                  Close my grant
-                </EhrButton>
-              </ActionList>
-            </>
-          ) : <NoActions />}
-          <SubHeading>Next steps</SubHeading>
-          {emergency ? (
-            <>
-              <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('emergency', 'summary'))}>Open the emergency summary</EhrButton></Step>
-              {/* Emergency access is read-only: the PIN or the patient's approval moves the patient to direct care. */}
-              <Step>
-                <EhrButton
-                  variant="secondary"
-                  disabled={pinUnavailable !== null}
-                  aria-describedby={pinUnavailable ? 'pin-step-unavailable' : undefined}
-                  onClick={() => accessStep('pin')}
-                >
-                  Verify patient PIN
-                </EhrButton>
-              </Step>
-              {pinUnavailable ? <p id="pin-step-unavailable" className="hid-ehr-clinical-note">{pinUnavailable}</p> : null}
-              <Step>
-                <EhrButton
-                  variant="secondary"
-                  disabled={requestUnavailable !== null}
-                  aria-describedby={requestUnavailable ? 'request-step-unavailable' : undefined}
-                  onClick={() => accessStep('request')}
-                >
-                  Request access
-                </EhrButton>
-              </Step>
-              {requestUnavailable ? <p id="request-step-unavailable" className="hid-ehr-clinical-note">{requestUnavailable}</p> : null}
-            </>
-          ) : (
-            <>
-              {/* Appointments and patient visits are samples: offered only at the demo facilities. Today's Patients
-                  page offers no registration, so a real facility gets neither step. Each opens the sample's new form, as
-                  the design's hand-off does; no live patient is carried into a sample, so its "Patient *" starts unchosen. */}
-              {isDemoFacility(chart.facilityId) ? (
-                <>
-                  <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('appointments', 'new'))}>Open appointments</EhrButton></Step>
-                  <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('journey', 'new'))}>Register walk-in visit</EhrButton></Step>
-                </>
-              ) : null}
-              {/* The design's three steps only (audit 4): each encounter opens from Connected hospital history below. */}
-              {mayOpenConsent ? <Step><EhrButton variant="secondary" onClick={openConsent}>Open consent</EhrButton></Step> : null}
-              {/* At the demo facilities only, like the sample steps: today's portal never offers break-glass on an open
-                  record, so a real facility keeps it on Patients' Obtain access. Shown, as the card's steps are, only to
-                  a role that may take it. */}
-              {isDemoFacility(chart.facilityId) && emergencyUnavailable === null ? (
-                <Step><EhrButton variant="secondary" onClick={() => accessStep('emergency')}>Emergency break-glass access</EhrButton></Step>
-              ) : null}
-            </>
-          )}
-        </EhrCard>
-      </DetailGrid>
-      {!emergency && chart.can('ehr.encounter.read') ? <EncounterHistory chart={chart} /> : null}
-    </>
+    <div className="grid items-start gap-6 @3xl:grid-cols-[minmax(16rem,20rem)_minmax(0,1fr)] @5xl:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="flex min-w-0 flex-col gap-3 @3xl:sticky @3xl:top-24">
+        <CardFace name={facts.name} hid={facts.hid} verified={null} facts={[]} allergies={[]} label="Patient"
+          face={<span className="text-[5.4cqw] font-light tracking-[.12em] text-white/85" aria-hidden="true">{initials}</span>} />
+        <Card>
+          <div className="flex items-center gap-3 px-4 py-3">
+            <IconChip icon={emergency ? Siren : ShieldCheck} tone={emergency ? 'danger' : 'success'} size="sm" />
+            <div className="min-w-0 flex-1">
+              <p className="m-0 text-sm font-semibold text-ink">{emergency ? 'Emergency access' : 'You have access'}</p>
+              {expires ? <p className="m-0 text-[12px] text-ink-3">Until {formatWhen(expires)}</p> : null}
+            </div>
+          </div>
+          {/* What the patient entered in their Health ID portal: labelled as theirs, not a clinical finding. */}
+          {allergies ? <dl className="m-0 border-t border-line px-4 py-2.5">
+            <dt className="text-[12px] text-ink-3">{allergies.label}</dt>
+            <dd className="m-0 text-sm text-ink">{allergies.value}</dd>
+          </dl> : null}
+          {grantId ? <div className="border-t border-line px-4 py-2.5">
+            {closeUnavailable ? <p id="close-grant-unavailable" className="m-0 mb-1.5 text-[12px] text-ink-3">{closeUnavailable}</p> : null}
+            <Button variant="danger" size="sm" icon={LogOut} disabled={closeUnavailable !== null} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}
+              loading={ending} onClick={() => void closeGrant()}>End my access</Button>
+          </div> : null}
+        </Card>
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-5">
+        <PageHeader title={facts.name} description={about || undefined} back={{ to: href(), label: 'Back to find a patient' }}
+          actions={emergency ? <Button variant="primary" icon={Siren} onClick={() => navigate(href.to('emergency', 'summary'))}>Open emergency summary</Button>
+            : mayOpenChart ? <Button variant="primary" icon={FolderOpen} onClick={() => navigate(href.to('consult'))}>Open chart</Button> : undefined} />
+        {/* Read only, said once. */}
+        {emergency ? <Alert intent="warning" title="View only">{`Emergency access shows the emergency summary only. Nothing can be added or changed for ${facts.name}.`}</Alert>
+          : chart.writeNotice ? <Alert intent="info" title="View only">{chart.writeNotice === READ_ONLY
+            ? 'You can see this record but not add to it. To make changes, ask the patient to let you see and add to their records.'
+            : chart.writeNotice}</Alert> : null}
+        {error ? <Alert intent="error" title="Couldn’t end access">{error}</Alert> : null}
+
+        {!emergency ? <Card>
+          <CardHeader as="h2" title="Next steps" icon={ListChecks} iconTone="brand" />
+          <ul className="m-0 list-none divide-y divide-line p-0">
+            {mayStart ? <li><ListRow onClick={() => navigate(href.to('consult', 'new'))} leading={<IconChip size="sm" icon={Stethoscope} />} title="Start a consultation" subtitle="Notes, diagnoses and orders in one place" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            {mayRecordVitals ? <li><ListRow onClick={() => navigate(href.to('triage', 'new'))} leading={<IconChip size="sm" icon={Activity} />} title="Record vitals" subtitle="Blood pressure, temperature, pulse, oxygen" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            {/* Appointments and walk-in visits are samples: offered only at the demo facilities, and only to a design role
+                that may create there (sampleAccess.ts), as a role the sample is closed to would land on Home instead. */}
+            {isDemoFacility(chart.facilityId) && sampleCan('journey', 'create') ? <li><ListRow onClick={() => navigate(href.to('journey', 'new'))} leading={<IconChip size="sm" icon={UserPlus} />} title="Register a walk-in visit" subtitle="Sample at demo facilities" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            {mayOpenConsent ? <li><ListRow onClick={openConsent} leading={<IconChip size="sm" icon={Send} />} title="Ask for more access" subtitle="More time, or the right to add records. The patient approves." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            {/* At the demo facilities only, like the sample steps: today's portal never offers break-glass on an open
+                record, so a real facility keeps it on Find a patient's Obtain access. Shown, as this card's steps are,
+                only to a role that may take it. */}
+            {isDemoFacility(chart.facilityId) && emergencyUnavailable === null ? <li><ListRow onClick={() => accessStep('emergency')} leading={<IconChip size="sm" icon={Siren} tone="danger" />} title="Emergency access" subtitle="Only if they can’t consent. Time-limited and reviewed." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+          </ul>
+        </Card> : <Card>
+          <CardHeader as="h2" title="Next steps" icon={ListChecks} iconTone="brand" />
+          {/* Emergency access is read-only: the patient's Access PIN or their approval moves them to direct care (owner,
+              31 October). A step the role cannot take is turned off, with today's reason. */}
+          <ul className="m-0 list-none divide-y divide-line p-0">
+            <li>
+              <ListRow onClick={() => accessStep('pin')} disabled={pinUnavailable !== null} describedBy={pinUnavailable ? 'pin-step-unavailable' : undefined}
+                leading={<IconChip size="sm" icon={KeyRound} />} title="Use their Access PIN" subtitle="If they’re with you and have set one." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} />
+              {pinUnavailable ? <p id="pin-step-unavailable" className="m-0 px-5 pb-3 text-[12px] text-ink-3">{pinUnavailable}</p> : null}
+            </li>
+            <li>
+              <ListRow onClick={() => accessStep('request')} disabled={requestUnavailable !== null} describedBy={requestUnavailable ? 'request-step-unavailable' : undefined}
+                leading={<IconChip size="sm" icon={Send} />} title="Ask the patient" subtitle="They approve on their phone. You’re told the moment they do." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} />
+              {requestUnavailable ? <p id="request-step-unavailable" className="m-0 px-5 pb-3 text-[12px] text-ink-3">{requestUnavailable}</p> : null}
+            </li>
+          </ul>
+        </Card>}
+        {!emergency && chart.can('ehr.encounter.read') ? <EncounterHistory chart={chart} canStart={mayStart} /> : null}
+      </div>
+    </div>
   )
 }
 
 type HistoryState = { readonly items: readonly Encounter[] } | { readonly error: string } | null
 
 /**
- * "Connected hospital history": this facility's encounters for the patient (today's chart list), each opening in
- * Consultation. Read after today's re-check; a refusal there closes the patient and shows that access ended.
+ * This facility's visits for the patient (today's chart list), each opening in Consultation. Read after today's
+ * re-check; a refusal there closes the patient and shows that access ended.
  */
-function EncounterHistory({ chart }: { chart: Chart }) {
+function EncounterHistory({ chart, canStart }: { chart: Chart; canStart: boolean }) {
   const href = useWorkspaceHref()
+  const navigate = useNavigate()
   const [state, setState] = useState<HistoryState>(null)
   const { facilityId, patientId, verify } = chart
   // Read once per patient: the re-check itself may be a new function on each render.
@@ -278,29 +296,20 @@ function EncounterHistory({ chart }: { chart: Chart }) {
         const page = await staffApi.encounters(facilityId, patientId)
         if (current) setState({ items: page.items })
       } catch (caught) {
-        if (current) setState({ error: refusalText(caught, 'Encounters could not be loaded.') })
+        if (current) setState({ error: refusalText(caught, 'Please try again.') })
       }
     })()
     return () => { current = false }
   }, [facilityId, patientId])
 
-  if (state === null || 'error' in state) {
-    return (
-      <EhrCard title="Connected hospital history">
-        <p>Only records available to your current permissions are listed.</p>
-        {state === null ? <Loading label="Loading encounters…" /> : <ErrorBox>{state.error}</ErrorBox>}
-      </EhrCard>
-    )
-  }
-  return (
-    <HistoryCard
-      empty="No encounters are available for this patient and facility."
-      items={state.items.map(item => ({
-        key: item.id,
-        label: `Consultation · ${shortId(item.id)}`,
-        href: href.to('consult', item.id),
-        status: item.status,
-      }))}
-    />
-  )
+  return <Card>
+    <CardHeader as="h2" title="Visits here" description="Only what your role may see" icon={History} />
+    {state === null ? <LoadingRows rows={2} label="Loading visits" />
+      : 'error' in state ? <div className="p-5"><Alert intent="error" title="Couldn’t load visits">{state.error}</Alert></div>
+      : state.items.length === 0 ? <p className="m-0 px-5 py-5 text-[13px] text-ink-3">No visits at this facility yet.{canStart ? ' Start a consultation to begin one.' : ''}</p>
+      : <ul className="m-0 list-none divide-y divide-line p-0">{state.items.map(item => <li key={item.id}>
+          <ListRow onClick={() => navigate(href.to('consult', item.id))} leading={<IconChip size="sm" icon={Stethoscope} />} title={`Consultation · ${shortId(item.id)}`}
+            trailing={<Badge size="sm" tone={item.status === 'in_progress' || item.status === 'open' ? 'brand' : 'neutral'}>{sexText(item.status)}</Badge>} />
+        </li>)}</ul>}
+  </Card>
 }

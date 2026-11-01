@@ -52,7 +52,7 @@ describe('a patient page refused because the browser holds a provider\'s sign-in
     render(<MemoryRouter initialEntries={['/records']}><App /></MemoryRouter>)
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back.' })).toBeTruthy()
-    expect(screen.getByText(/signed out because this browser's Health ID sign-in changed in another tab or window/)).toBeTruthy()
+    expect(screen.getByText(/signed out because this browser's Health ID sign-in changed in another tab\./)).toBeTruthy()
     // The records page also reads imported history (hid-system main, #94) beside the records, and the portal's shell the
     // bell's count (hid-system 0093) and the profile its avatar shows (parity B3); those reads are not what is checked here.
     expect(sent.filter(request => !request.includes('imported-history') && !request.includes('unread-count')

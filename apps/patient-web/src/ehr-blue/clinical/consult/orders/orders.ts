@@ -26,11 +26,11 @@ export interface KindInfo {
 export const KINDS: Readonly<Record<OrderKind, KindInfo>> = {
   pharmacy: {
     record: 'prescriptions', route: 'prescription', read: 'ehr.prescription.read', write: 'ehr.prescription.write',
-    title: 'Pharmacy', what: 'prescription', empty: 'No prescriptions for this encounter.',
+    title: 'Pharmacy', what: 'prescription', empty: 'No prescriptions yet.',
   },
   laboratory: {
     record: 'lab-requests', route: 'lab_request', read: 'ehr.lab-request.read', write: 'ehr.lab-request.write',
-    title: 'Laboratory', what: 'lab request', empty: 'No lab requests for this encounter.',
+    title: 'Laboratory', what: 'lab request', empty: 'No lab requests yet.',
   },
 }
 

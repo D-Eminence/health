@@ -37,7 +37,8 @@ describe('clinician sign-up on Novu', () => {
     show(<ClinicianSignUp />)
     expect(await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })).toBeTruthy()
     expect(screen.getAllByRole('link').map(link => link.textContent)).not.toContain('Check an application')
-    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/provider/sign-in')
+    // The page's own way to sign in, and the redesign's top-bar link: both lead to provider sign-in.
+    expect(screen.getAllByRole('link', { name: 'Sign in' }).map(link => link.getAttribute('href'))).toEqual(['/provider/sign-in', '/provider/sign-in'])
     expect(screen.queryByRole('alert')).toBeNull()
     expect(calls).toEqual([])
   })
@@ -47,7 +48,8 @@ describe('clinician sign-up on Novu', () => {
     show(<ClinicianApplicationStatus />)
     expect(screen.getByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })).toBeTruthy()
     expect(screen.getByText(/there is no application to check/)).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/provider/sign-in')
+    // The page's own way to sign in, and the redesign's top-bar link: both lead to provider sign-in.
+    expect(screen.getAllByRole('link', { name: 'Sign in' }).map(link => link.getAttribute('href'))).toEqual(['/provider/sign-in', '/provider/sign-in'])
     expect(screen.queryByLabelText(/email/i)).toBeNull()
     expect(calls).toEqual([])
   })

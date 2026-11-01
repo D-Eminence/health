@@ -19,8 +19,11 @@ function open(permissions: string[]) {
   render(<MemoryRouter><OverviewPage actor={actor(permissions)} /></MemoryRouter>)
 }
 
-const tile = (title: string) => within(screen.getByRole('region', { name: 'Waiting for attention' }))
-  .getByRole('link', { name: title }).closest('article')!
+/** A row of waiting work: a link named by its title, its detail and its count. */
+const row = (title: string) => within(screen.getByRole('region', { name: 'Waiting for attention' }))
+  .getByRole('link', { name: new RegExp(`^${title}`) })
+const findRow = (title: string) => within(screen.getByRole('region', { name: 'Waiting for attention' }))
+  .findByRole('link', { name: new RegExp(`^${title}`) })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -35,61 +38,72 @@ beforeEach(() => {
 })
 
 describe('platform overview', () => {
-  it('shows the backend totals with links to the filtered areas', async () => {
+  it('shows the backend totals with links to the areas', async () => {
     open(ALL)
     expect(await screen.findByText('1,200')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Suspended facilities' }).getAttribute('href')).toBe('/admin/facilities?status=suspended')
-    expect(screen.getByRole('link', { name: 'Pending identity reviews' }).getAttribute('href')).toBe('/admin/reviews')
-    expect(screen.queryByRole('link', { name: 'Registered patients' })).toBeNull()
+    const facilities = screen.getByRole('link', { name: /Facilities/ })
+    expect(facilities.getAttribute('href')).toBe('/admin/facilities')
+    // Every total is shown: verified and suspended facilities under the facilities total.
+    expect(facilities.textContent).toContain('29')
+    expect(facilities.textContent).toContain('12 verified · 1 suspended')
+    expect(screen.getByRole('link', { name: /Identity reviews/ }).getAttribute('href')).toBe('/admin/reviews')
+    expect(screen.getByText('40')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /Registered patients/ })).toBeNull()
   })
 
   it('links a total only to an area the administrator may open', async () => {
     open(['platform.principal.read', 'platform.session.revoke'])
     expect(await screen.findByText('1,200')).toBeTruthy()
-    expect(screen.getByText('Suspended facilities')).toBeTruthy()
-    expect(screen.queryByRole('link', { name: 'Suspended facilities' })).toBeNull()
-    expect(screen.queryByRole('link', { name: 'Pending identity reviews' })).toBeNull()
+    expect(screen.getByText('12 verified ·', { exact: false })).toBeTruthy()
+    expect(screen.getByText('1 suspended')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /Facilities/ })).toBeNull()
+    expect(screen.queryByRole('link', { name: /Identity reviews/ })).toBeNull()
   })
 
   it('counts waiting work from the lists the administrator can open, marking lists with more pages', async () => {
     open(ALL)
     await screen.findByText('1,200')
-    expect(await within(tile('Pending approvals')).findByText('2')).toBeTruthy()
-    expect(await within(tile('Organization applications')).findByText(/awaiting CAC verification/)).toBeTruthy()
-    expect(tile('Organization applications').textContent).toContain('1 ready for review · 2 awaiting CAC verification')
+    expect((await findRow('Approvals')).textContent).toContain('2 waiting')
+    expect(row('Approvals').getAttribute('href')).toBe('/admin/approvals')
+    expect(row('Organization applications').textContent).toContain('1 ready')
+    expect(row('Organization applications').textContent).toContain('2 more waiting for the CAC check')
     // "+" only when the backend says there is another page, never from a fixed cap.
-    expect(await within(tile('New demo requests')).findByText('100+')).toBeTruthy()
+    expect(row('Demo requests').textContent).toContain('100+ new')
+    expect(row('Demo requests').getAttribute('href')).toBe('/admin/demos?status=new')
     expect(mocks.demos).toHaveBeenCalledWith({ status: 'new' }, { limit: 100 }, expect.anything())
     // The backend's default approvals page: an Identity build before Stage 4A refuses `limit` there.
     expect(mocks.approvals).toHaveBeenCalledWith('pending', {}, expect.anything())
-    expect(tile('Integrations').textContent).toContain('1 with a failed last test · 2 of 3 enabled')
+    expect(row('Integrations').textContent).toContain('1 failing')
   })
 
   it('shows an exact count for a full page with no further page, and N+ when one follows', async () => {
     mocks.approvals.mockResolvedValue({ items: Array.from({ length: 100 }, (_, index) => ({ id: String(index) })), nextCursor: null })
     mocks.demos.mockResolvedValue({ items: [{ id: 'd' }], nextCursor: 'more' })
     open(ALL)
-    expect(await within(tile('Pending approvals')).findByText('100')).toBeTruthy()
-    expect(await within(tile('New demo requests')).findByText('1+')).toBeTruthy()
+    expect((await findRow('Approvals')).textContent).toContain('100 waiting')
+    expect(row('Approvals').textContent).not.toContain('100+')
+    expect(row('Demo requests').textContent).toContain('1+ new')
   })
 
   it('keeps the rest of the overview when one count fails', async () => {
     mocks.demos.mockRejectedValueOnce(new HidApiError(503, 'unavailable', { code: 'SERVICE_UNAVAILABLE' }))
     open(ALL)
-    expect(await within(tile('New demo requests')).findByRole('alert')).toBeTruthy()
+    const region = within(screen.getByRole('region', { name: 'Waiting for attention' }))
+    expect((await region.findByRole('alert')).textContent).toMatch(/Demo requests: /)
     expect(screen.getByText('1,200')).toBeTruthy()
-    expect(await within(tile('Pending approvals')).findByText('2')).toBeTruthy()
+    expect((await findRow('Approvals')).textContent).toContain('2 waiting')
+    expect(region.queryByRole('link', { name: /^Demo requests/ })).toBeNull()
   })
 
-  it('lists the areas the administrator can use and the capabilities that do not exist yet', async () => {
+  // The owner removed the overview's "Your areas" and "Not available yet" lists (the navigation lists the areas): the
+  // overview now reads only what the administrator may open, and has nothing waiting for an area it cannot read.
+  it('reads nothing for areas the administrator cannot use, and lists no unavailable capabilities', async () => {
     open(['platform.facility.read'])
     await screen.findByText('1,200')
-    const areas = within(screen.getByRole('region', { name: 'Your areas' }))
-    expect(areas.getByRole('link', { name: 'Facilities' })).toBeTruthy()
-    expect(areas.queryByRole('link', { name: 'Audit' })).toBeNull()
-    const unavailable = within(screen.getByRole('region', { name: 'Not available yet' }))
-    expect(unavailable.getByText('Support cases')).toBeTruthy()
-    expect(unavailable.queryAllByRole('link')).toHaveLength(0)
+    expect(screen.getByRole('link', { name: /Facilities/ }).getAttribute('href')).toBe('/admin/facilities')
+    expect(screen.queryByRole('link', { name: /Audit/ })).toBeNull()
+    expect(screen.queryByText('Support cases')).toBeNull()
     expect(mocks.approvals).not.toHaveBeenCalled()
+    expect(mocks.demos).not.toHaveBeenCalled()
   })
 })

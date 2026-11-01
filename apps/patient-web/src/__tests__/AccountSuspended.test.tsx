@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { createTestSessionValue, SessionContext } from '../session'
 import { ACCOUNT_SUSPENDED, SignIn } from '../routes/SignIn'
-import { json, patientApi, problem, type Handler } from './portalHarness'
+import { json, patientApi, problem, shownText, type Handler } from './portalHarness'
 
 /**
  * A suspended account (hid-system, owner decision 2026-10-28). With the right password for an account or patient
@@ -50,7 +50,7 @@ describe('signing in to a suspended account', () => {
     await signInWithPassword()
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe(DETAIL)
+    expect(shownText(alert)).toBe(DETAIL)
     expect(within(alert).getByRole('link', { name: 'support@healthidentitydirectory.com' }).getAttribute('href'))
       .toBe('mailto:support@healthidentitydirectory.com')
     expect(finishSignup()).toBeNull()
@@ -62,7 +62,7 @@ describe('signing in to a suspended account', () => {
     openSignIn(path => path === '/auth/patient/login'
       ? json({ type: 'about:blank', title: 'ACCOUNT_SUSPENDED', status: 403, code: 'ACCOUNT_SUSPENDED' }, 403) : problem(500, 'UNEXPECTED', path))
     await signInWithPassword()
-    expect((await screen.findByRole('alert')).textContent).toBe(ACCOUNT_SUSPENDED)
+    expect(shownText(await screen.findByRole('alert'))).toBe(ACCOUNT_SUSPENDED)
     expect(ACCOUNT_SUSPENDED).toBe(DETAIL)
     expect(finishSignup()).toBeNull()
   })
@@ -71,7 +71,7 @@ describe('signing in to a suspended account', () => {
     openSignIn(path => path === '/auth/patient/login' ? invalid() : problem(500, 'UNEXPECTED', path))
     await signInWithPassword()
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe('Invalid credentialsDidn\'t finish signing up? Finish creating your Health ID')
+    expect(shownText(alert)).toBe('Invalid credentials Didn\'t finish signing up? Finish creating your Health ID')
     expect(within(alert).queryByRole('link', { name: 'support@healthidentitydirectory.com' })).toBeNull()
   })
 
@@ -79,11 +79,11 @@ describe('signing in to a suspended account', () => {
     let answer = suspendedProblem
     openSignIn(path => path === '/auth/patient/login' ? answer() : problem(500, 'UNEXPECTED', path))
     await signInWithPassword()
-    expect((await screen.findByRole('alert')).textContent).toBe(DETAIL)
+    expect(shownText(await screen.findByRole('alert'))).toBe(DETAIL)
 
     answer = invalid
     await signInWithPassword()
-    expect(screen.getByRole('alert').textContent).toBe('Invalid credentialsDidn\'t finish signing up? Finish creating your Health ID')
+    expect(shownText(screen.getByRole('alert'))).toBe('Invalid credentials Didn\'t finish signing up? Finish creating your Health ID')
   })
 
   it('says the same after Google sign-in, where Identity refuses a suspended account so', async () => {
@@ -92,7 +92,7 @@ describe('signing in to a suspended account', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign in with Google' })) })
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe(DETAIL)
+    expect(shownText(alert)).toBe(DETAIL)
     expect(within(alert).getByRole('link', { name: 'support@healthidentitydirectory.com' })).toBeTruthy()
     expect(finishSignup()).toBeNull()
     expect(sent.map(request => `${request.method} ${request.path}`)).toEqual(['POST /auth/oidc/exchange'])

@@ -1,10 +1,10 @@
-import { EhrButton, EhrPageHeading, EhrSkeleton } from '@hid/ui/ehr'
+import { EhrBackButton, EhrButton, EhrPageHeading, EhrSkeleton } from '@hid/ui/ehr'
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 /** The design's generic failure line, for an operation whose own message would be technical. */
-export const ACTION_FAILED = 'This action could not be completed. Your saved work is safe. Please retry.'
-export const NO_ACTIONS = 'No further actions for your permission and this record state.'
+export const ACTION_FAILED = 'That didn’t work. What you saved is safe; please try again.'
+export const NO_ACTIONS = 'Nothing more to do here.'
 
 /**
  * The design's Banner: a strong title on its own line, then the message. Info and warning are status regions;
@@ -36,24 +36,18 @@ export function Loading({ label }: { label: string }) {
   return <EhrSkeleton label={label} />
 }
 
-/** A list page's heading: the workspace title, any other action of the page and, when allowed, "Create record". */
-export function ListHeading({ title, createHref, createLabel = 'Create record', actions }: {
-  title: string
-  createHref?: string
-  createLabel?: string
-  actions?: ReactNode
-}) {
+/** A list page's heading: the workspace title and, when allowed, its "New …" button. */
+export function ListHeading({ title, createHref, createLabel = 'New record' }: { title: string; createHref?: string; createLabel?: string }) {
   const navigate = useNavigate()
   return (
     <EhrPageHeading
       title={title}
       primaryAction={createHref ? <EhrButton onClick={() => navigate(createHref)}>{createLabel}</EhrButton> : undefined}
-      secondaryActions={actions}
     />
   )
 }
 
-/** A record or create page's heading: its title and "Back to list". */
+/** A record or create page's heading: Back as an arrow just before the title ("Back to list" names it), then the title. */
 export function RecordHeading({ title, backHref, backLabel = 'Back to list' }: { title: ReactNode; backHref: string; backLabel?: string }) {
   const navigate = useNavigate()
   const mark = useRef<HTMLSpanElement>(null)
@@ -69,7 +63,7 @@ export function RecordHeading({ title, backHref, backLabel = 'Back to list' }: {
   return (
     <EhrPageHeading
       title={<span ref={mark}>{title}</span>}
-      primaryAction={<EhrButton variant="secondary" onClick={() => navigate(backHref)}>{backLabel}</EhrButton>}
+      back={<EhrBackButton label={backLabel} onClick={() => navigate(backHref)} />}
     />
   )
 }
@@ -88,7 +82,7 @@ export function NoActions() {
 }
 
 /** The design's missing-record page. */
-export function RecordNotFound({ backHref, message = 'The record is missing or outside your authorized hospital / branch.' }: {
+export function RecordNotFound({ backHref, message = 'This record doesn’t exist, or it belongs to another facility.' }: {
   backHref: string
   message?: string
 }) {

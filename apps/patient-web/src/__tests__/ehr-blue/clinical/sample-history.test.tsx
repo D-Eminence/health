@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { statusWords } from '../../../ehr-blue/clinical/parts/format'
 import { SAMPLE_NOTICE } from '../../../ehr-blue/clinical/parts/SampleBanner'
 import { SAMPLE_DEFINITIONS, SAMPLE_WORKSPACE_IDS } from '../../../ehr-blue/clinical/sample/definitions'
 import { ENCOUNTERS, IDS, PATIENTS, SEED_CONNECTED } from '../../../ehr-blue/clinical/sample/seed'
@@ -63,12 +64,20 @@ function open(id: string, recordId: string) {
 }
 
 function historyCard() {
-  return screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section') as HTMLElement
+  return screen.getByRole('heading', { name: 'History' }).closest('section') as HTMLElement
 }
 
-/** Each history row as "{link} [{status}]". */
+/** Each history row as "{link} [{status}]", the status as the badge says it in words (statusWords). */
 function historyRows() {
-  return Array.from(historyCard().querySelectorAll('li')).map(row => `${row.querySelector('a')?.textContent} [${row.querySelector('.hid-ehr-clinical-badge')?.textContent}]`)
+  return Array.from(historyCard().querySelectorAll('li')).map(row => {
+    const link = row.querySelector('a')?.textContent ?? ''
+    return `${link} [${(row.textContent ?? '').slice(link.length).trim()}]`
+  })
+}
+
+/** Rows written with the record's status key ("[checked-in]"), as the badge words it ("[Checked in]"). */
+function worded(rows: readonly string[]) {
+  return rows.map(row => row.replace(/\[([^\]]*)\]$/, (_match, status: string) => `[${statusWords(status)}]`))
 }
 
 function links() {
@@ -118,7 +127,7 @@ describe('audit 17: the design’s connected history rows from the live modules,
   it('audit 17: Taylor’s dental record lists the design’s connected history in its module order (dental-3-detail.png)', () => {
     open('dental', IDS.dental)
     expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
-    expect(historyRows()).toEqual(TAYLOR_DENTAL)
+    expect(historyRows()).toEqual(worded(TAYLOR_DENTAL))
   })
 
   for (const { id, recordId, last } of [
@@ -126,7 +135,7 @@ describe('audit 17: the design’s connected history rows from the live modules,
     { id: 'telemedicine', recordId: IDS.telemedicine, last: 'Referral Network · Specialist review [sent]' },
   ]) it(`audit 17: Jordan’s ${id} record lists Triage & Vitals, Consultation, Laboratory and Pharmacy (${id}-3-detail.png)`, () => {
     open(id, recordId)
-    expect(historyRows()).toEqual([
+    expect(historyRows()).toEqual(worded([
       'Appointments · Medication review [booked]',
       'Patient visits · 203099a6 [consulting]',
       'Triage & Vitals · cbcf4b88 [completed]',
@@ -135,18 +144,18 @@ describe('audit 17: the design’s connected history rows from the live modules,
       'Radiology · Chest X-ray [published]',
       'Pharmacy · 71785d4b [reviewed]',
       last,
-    ])
+    ]))
   })
 
   it('audit 17: Sam’s procedure lists the design’s rows, his draft Triage & Vitals and Consultation among them (surgery-3-detail.png)', () => {
     open('surgery', IDS.surgery)
-    expect(historyRows()).toEqual([
+    expect(historyRows()).toEqual(worded([
       'Appointments · Patient requested another day [cancelled]',
       'Patient visits · 11e3fd1b [waiting]',
       'Triage & Vitals · 8f2c2b76 [draft]',
       'Consultation · 4fe5735c [draft]',
       'Inpatient / Wards · Awaiting bed (fictional) [requested]',
-    ])
+    ]))
   })
 
   it('audit 17: Taylor’s nursing task lists the design’s rows in its order (nursing-tasks-3-detail.png)', () => {

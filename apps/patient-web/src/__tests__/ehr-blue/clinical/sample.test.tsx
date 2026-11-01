@@ -105,7 +105,7 @@ describe('sample engine', () => {
       expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
       expect(document.querySelector('.hid-ehr-sample-banner[data-ehr-sample]')?.textContent).toBe(SAMPLE_NOTICE)
       expect(heading()).toBe(SAMPLE_DEFINITIONS[id]!.title)
-      expect(screen.getByRole('button', { name: 'Create record' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'New record' })).toBeTruthy()
       view.unmount()
     }
   })
@@ -121,7 +121,7 @@ describe('sample engine', () => {
     ])
     expect(rows[0]!.textContent).toContain('0b048a1b')
     expect(rows[0]!.textContent).toContain('Taylor Fiction')
-    expect(rows[0]!.textContent).toContain('checked-in')
+    expect(rows[0]!.textContent).toContain('Checked-in')
     expect(within(rows[0]!).getByRole('link', { name: 'Open Review of results' }).getAttribute('href')).toBe(`${BASE}/appointments/${IDS.apptTaylor}`)
   })
 
@@ -194,16 +194,16 @@ describe('sample engine', () => {
 
   it('creates a patient record: the fields appear once a patient is chosen, required ones are checked', async () => {
     open('appointments')
-    fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
+    fireEvent.click(screen.getByRole('button', { name: 'New record' }))
     expect(heading()).toBe('New appointments')
     const patient = field('Patient') as unknown as HTMLSelectElement
     expect(patient.tagName).toBe('SELECT')
     expect(patient.options[0]!.textContent).toBe('Select registered patient')
     expect(Array.from(patient.options).map(option => option.textContent)).toContain('Jordan Sample · LOCAL-902ae015')
-    expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
 
     fireEvent.change(patient, { target: { value: sampleState().patients[2]!.id } })
-    const save = screen.getByRole('button', { name: 'Save record' })
+    const save = screen.getByRole('button', { name: 'Save' })
     expect(save.getAttribute('type')).toBe('submit')
     fireEvent.submit(save.closest('form')!)
     expect(screen.getAllByText('Complete this field.')).toHaveLength(4)
@@ -218,7 +218,7 @@ describe('sample engine', () => {
     await waitFor(() => expect(heading()).toBe('Fictional heart check'))
     expect(screen.getByText('Jordan Sample · LOCAL-902ae015')).toBeTruthy()
     expect(within(screen.getByRole('heading', { name: 'Saved record' }).closest('section')!).getByText('Cardiology')).toBeTruthy()
-    expect(screen.getByText('booked')).toBeTruthy()
+    expect(screen.getByText('Booked')).toBeTruthy()
   })
 
   it('creates a record with no patient straight away, and Back to list returns', async () => {
@@ -229,11 +229,11 @@ describe('sample engine', () => {
     expect(Array.from(ward.options).map(option => option.textContent)).toEqual(['Select…', 'Example ward · active · be31b8', 'Female Medical Ward · active · a7fc95'])
     fireEvent.change(field('Bed name'), { target: { value: 'Bed 3' } })
     fireEvent.change(ward, { target: { value: IDS.wardFemale } })
-    fireEvent.submit(screen.getByRole('button', { name: 'Save record' }).closest('form')!)
+    fireEvent.submit(screen.getByRole('button', { name: 'Save' }).closest('form')!)
     await waitFor(() => expect(heading()).toBe('Bed 3'))
-    expect(screen.getByText('available')).toBeTruthy()
+    expect(screen.getByText('Available')).toBeTruthy()
     expect(screen.getByText('Female Medical Ward')).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: 'Connected hospital history' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'History' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
     await waitFor(() => expect(heading()).toBe('Wards & Beds'))
     expect(within(screen.getByRole('table')).getByRole('link', { name: 'Bed 3' })).toBeTruthy()
@@ -246,7 +246,7 @@ describe('sample engine', () => {
     fireEvent.change(field('Clinician'), { target: { value: '28c11bae-61a6-4843-9291-664517bfa63e' } })
     fireEvent.change(field('Department'), { target: { value: 'General Outpatient' } })
     fireEvent.change(field('Reason'), { target: { value: 'Clash' } })
-    fireEvent.submit(screen.getByRole('button', { name: 'Save record' }).closest('form')!)
+    fireEvent.submit(screen.getByRole('button', { name: 'Save' }).closest('form')!)
     expect((await screen.findByRole('alert')).textContent).toBe('Clinician already has an overlapping 30-minute appointment.')
     expect(heading()).toBe('New appointments')
     view.unmount()
@@ -259,7 +259,7 @@ describe('sample engine', () => {
     fireEvent.change(encounter, { target: { value: encounter.options[1]!.value } })
     fireEvent.change(field('Modality'), { target: { value: 'Fictional scan' } })
     fireEvent.change(field('Indication'), { target: { value: 'Fictional' } })
-    fireEvent.submit(screen.getByRole('button', { name: 'Save record' }).closest('form')!)
+    fireEvent.submit(screen.getByRole('button', { name: 'Save' }).closest('form')!)
     expect((await screen.findByRole('alert')).textContent).toBe('Sign the encounter before issuing clinical orders.')
   })
 
@@ -273,13 +273,13 @@ describe('sample engine', () => {
     const submit = within(card).getAllByRole('button', { name: 'Check in' }).find(button => button.getAttribute('type') === 'submit')!
     fireEvent.submit(submit.closest('form')!)
 
-    await waitFor(() => expect(screen.getByText('checked-in')).toBeTruthy())
-    expect(within(actionsCard()).getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    await waitFor(() => expect(screen.getByText('Checked-in')).toBeTruthy())
+    expect(within(actionsCard()).getByText('Nothing more to do here.')).toBeTruthy()
     expect(document.activeElement?.classList.contains('hid-ehr-clinical-sample-actions')).toBe(true)
-    const versions = screen.getByRole('heading', { name: 'Preserved versions & amendments' }).closest('section')!
+    const versions = screen.getByRole('heading', { name: 'Earlier versions' }).closest('section')!
     expect(versions.textContent).toMatch(/\d{4}-\d{2}-\d{2}T[\d:.]+Z · booked · Check in/)
-    const history = screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section')!
-    expect(within(history).getByText('Only records available to your current permissions are listed.')).toBeTruthy()
+    const history = screen.getByRole('heading', { name: 'History' }).closest('section')!
+    expect(within(history).getByText('Only records your role can see are listed.')).toBeTruthy()
     expect(within(history).getByRole('link', { name: 'Patient visits · Medication review' })).toBeTruthy()
     expect(within(history).getByRole('link', { name: 'Referral Network · Specialist review' }).getAttribute('href')).toBe(`${BASE}/referrals/${IDS.referral}`)
   })
@@ -299,12 +299,12 @@ describe('sample engine', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
     expect(field('Reason', actionsCard()).value).toBe('Fictional clash')
-    expect(screen.getByText('booked')).toBeTruthy()
+    expect(screen.getByText('Booked')).toBeTruthy()
 
     fireEvent.submit(form())
     fireEvent.click(within(await screen.findByRole('alertdialog', { name: 'Cancel appointment?' })).getByRole('button', { name: 'Cancel appointment' }))
     await waitFor(() => expect(heading()).toBe('Fictional clash'))
-    expect(screen.getByText('cancelled')).toBeTruthy()
+    expect(screen.getByText('Cancelled')).toBeTruthy()
     expect(screen.getByText(/· booked · Fictional clash$/)).toBeTruthy()
   })
 
@@ -324,7 +324,7 @@ describe('sample engine', () => {
     fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Admit and allocate bed' }))
     fireEvent.change(field('Available bed', actionsCard()), { target: { value: created.id } })
     fireEvent.submit(field('Available bed', actionsCard()).closest('form')!)
-    await waitFor(() => expect(screen.getByText('admitted')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Admitted')).toBeTruthy())
     expect(within(screen.getByRole('heading', { name: 'Saved record' }).closest('section')!).getByText('Bed 9')).toBeTruthy()
     expect(sampleState().records.find(record => record.id === created.id)!.status).toBe('occupied')
   })
@@ -341,7 +341,7 @@ describe('sample engine', () => {
 
   it('lists the same patient’s records in other workspaces as connected history (inpatient-3-detail1.png)', () => {
     open('inpatient', `/${IDS.admitTaylor}`)
-    const history = screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section')!
+    const history = screen.getByRole('heading', { name: 'History' }).closest('section')!
     expect(within(history).getAllByRole('link').map(link => link.textContent)).toEqual([
       'Appointments · Review of results', 'Patient visits · b57e94c9', 'Patient visits · Review of results', 'Triage & Vitals · 329417b6',
       'Consultation · fd276688', 'Laboratory · Malaria parasite test', 'Laboratory · Blood culture', 'Radiology · Abdominal ultrasound',
@@ -354,7 +354,7 @@ describe('sample engine', () => {
   it('hand-off 09: the visit page as the design draws it, with the bare "Continue care" (its live hand-offs are not offered)', () => {
     open('journey', `/${IDS.visitTaylor}`)
     expect(heading()).toBe('b57e94c9')
-    expect(screen.getByText('consulting')).toBeTruthy()
+    expect(screen.getByText('Consulting')).toBeTruthy()
     expect(screen.getByText('Taylor Fiction · LOCAL-aeac58e6')).toBeTruthy()
     const saved = screen.getByRole('heading', { name: 'Saved record' }).closest('section')!
     expect(Array.from(saved.querySelectorAll('dt')).map(term => term.textContent)).toEqual(['Complaint', 'Department', 'Clinician'])
@@ -373,10 +373,10 @@ describe('sample engine', () => {
     const patient = field('Patient') as unknown as HTMLSelectElement
     expect(patient.value).toBe('')
     expect(patient.options[0]!.textContent).toBe('Select registered patient')
-    expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
     fireEvent.change(patient, { target: { value: sampleState().patients[1]!.id } })
     expect(patient.selectedOptions[0]!.textContent).toBe('Taylor Fiction · LOCAL-aeac58e6')
-    const form = screen.getByRole('button', { name: 'Save record' }).closest('form')!
+    const form = screen.getByRole('button', { name: 'Save' }).closest('form')!
     expect(Array.from(form.querySelectorAll('label')).map(label => label.textContent)).toEqual(['Presenting complaint *', 'Department *', 'Clinician'])
     fireEvent.submit(form)
     expect(screen.getAllByText('Complete this field.')).toHaveLength(2)
@@ -385,7 +385,7 @@ describe('sample engine', () => {
     const department = field('Department') as unknown as HTMLSelectElement
     fireEvent.change(department, { target: { value: department.options[1]!.value } })
     fireEvent.submit(form)
-    await waitFor(() => expect(screen.getByText('waiting')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Waiting')).toBeTruthy())
     expect(screen.getByRole('heading', { level: 3, name: 'Continue care' })).toBeTruthy()
     expect(screen.getByText('Taylor Fiction · LOCAL-aeac58e6')).toBeTruthy()
   })
@@ -397,23 +397,23 @@ describe('sample engine', () => {
     // Hand-off 09: Taylor's visit b57e94c9 lists what was started from it: the sample ultrasound (scheduled) and, owner
     // decision 3, the design's fictional triage, consultation, lab and pharmacy rows (never a live record).
     const visit = open('journey', `/${IDS.visitTaylor}`)
-    const history = screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section')!
+    const history = screen.getByRole('heading', { name: 'History' }).closest('section')!
     expect(within(history).getAllByRole('link').map(link => link.textContent)).toEqual([
       'Triage & Vitals · 329417b6', 'Consultation · fd276688', 'Laboratory · Malaria parasite test', 'Laboratory · Blood culture',
       'Radiology · Abdominal ultrasound', 'Pharmacy · fe7be2ce',
     ])
     expect(within(history).getByRole('link', { name: 'Radiology · Abdominal ultrasound' }).getAttribute('href')).toBe(`${BASE}/radiology/${IDS.ultrasound}`)
-    expect(within(history).getByText('scheduled')).toBeTruthy()
+    expect(within(history).getByText('Scheduled')).toBeTruthy()
     visit.unmount()
     // Another visit of the same patient started nothing.
     open('journey', `/${IDS.visitCheckedIn}`)
-    const other = screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section')!
+    const other = screen.getByRole('heading', { name: 'History' }).closest('section')!
     expect(within(other).queryAllByRole('link')).toHaveLength(0)
   })
 
   it('keeps every earlier version, each with its author and values', () => {
     open('radiology', `/${IDS.xray}`)
-    const versions = screen.getByRole('heading', { name: 'Preserved versions & amendments' }).closest('section')!
+    const versions = screen.getByRole('heading', { name: 'Earlier versions' }).closest('section')!
     const summaries = Array.from(versions.querySelectorAll('summary')).map(summary => summary.textContent)
     expect(summaries).toEqual([
       '2026-10-26T11:41:15.455Z · ordered · Schedule examination',
@@ -446,7 +446,7 @@ describe('sample engine', () => {
     ['radiology', IDS.ultrasound, '2026-10-26T11:41:15.554Z · ordered · Schedule examination'],
   ])('shows the design’s version time on the %s record', (id, recordId, summary) => {
     open(id, `/${recordId}`)
-    const versions = screen.getByRole('heading', { name: 'Preserved versions & amendments' }).closest('section')!
+    const versions = screen.getByRole('heading', { name: 'Earlier versions' }).closest('section')!
     expect(Array.from(versions.querySelectorAll('summary')).map(item => item.textContent)).toEqual([summary])
   })
 
@@ -469,7 +469,7 @@ describe('sample engine', () => {
     fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Record examination' }))
     fireEvent.change(field('Examination details', actionsCard()), { target: { value: 'Fictional exam' } })
     fireEvent.submit(field('Examination details', actionsCard()).closest('form')!)
-    await waitFor(() => expect(screen.getByText('examined')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Examined')).toBeTruthy())
 
     fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Attach local study' }))
     const input = field('Image or PDF (max 2 MB)', actionsCard())
@@ -486,7 +486,7 @@ describe('sample engine', () => {
 
     fireEvent.change(input, { target: { files: [new File(['%PDF'], 'study.pdf', { type: 'application/pdf' })] } })
     fireEvent.submit(input.closest('form')!)
-    await waitFor(() => expect(screen.getByText('study-attached')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Study-attached')).toBeTruthy())
     expect(screen.getByText('Local PDF study chosen (sample: not uploaded)')).toBeTruthy()
   })
 
@@ -496,7 +496,7 @@ describe('sample engine', () => {
     fireEvent.change(field('Delivery record', actionsCard()), { target: { value: 'Fictional delivery' } })
     fireEvent.change(field('Newborn name (creates provisional identity)', actionsCard()), { target: { value: 'Baby Demo' } })
     fireEvent.submit(field('Delivery record', actionsCard()).closest('form')!)
-    await waitFor(() => expect(screen.getByText('delivered')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Delivered')).toBeTruthy())
     const saved = screen.getByRole('heading', { name: 'Saved record' }).closest('section')!
     expect(saved.textContent).toContain('Newborn identity')
     expect(sampleState().patients.find(patient => patient.name === 'Baby Demo')?.provisional).toBe(true)
@@ -505,7 +505,7 @@ describe('sample engine', () => {
   it('shows the design’s missing-record page', () => {
     open('surgery', '/not-a-record')
     expect(heading()).toBe('Record not found')
-    expect(screen.getByText('The record is missing or outside your authorized hospital / branch.')).toBeTruthy()
+    expect(screen.getByText('This record doesn’t exist, or it belongs to another facility.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Back to list' })).toBeTruthy()
   })
 
@@ -522,7 +522,7 @@ describe('sample engine', () => {
   async function saveTemporaryWard() {
     const view = open('ward-config', '/new')
     fireEvent.change(field('Ward name'), { target: { value: 'Temporary ward' } })
-    fireEvent.submit(screen.getByRole('button', { name: 'Save record' }).closest('form')!)
+    fireEvent.submit(screen.getByRole('button', { name: 'Save' }).closest('form')!)
     await waitFor(() => expect(heading()).toBe('Temporary ward'))
     view.unmount()
   }
@@ -551,7 +551,7 @@ describe('sample engine', () => {
     fireEvent.change(field('Delivery record', actionsCard()), { target: { value: 'Fictional delivery' } })
     fireEvent.change(field('Newborn name (creates provisional identity)', actionsCard()), { target: { value: 'Baby Demo' } })
     fireEvent.submit(field('Delivery record', actionsCard()).closest('form')!)
-    await waitFor(() => expect(screen.getByText('delivered')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Delivered')).toBeTruthy())
     view.unmount()
     const other = openMany(`${BASE}/inpatient/${IDS.admitTaylor}`, ['inpatient'])
     fireEvent.click(screen.getByRole('button', { name: 'Create nursing tasks' }))
@@ -571,13 +571,13 @@ describe('sample engine', () => {
     cleanup()
     staff.facilityId = FACILITY_ID
     open('maternity', `/${IDS.maternity}`)
-    expect(screen.getByText('observed')).toBeTruthy()
+    expect(screen.getByText('Observed')).toBeTruthy()
   })
 
   it('names the tab after the workspace on its list, new and record pages, never the record or patient', async () => {
     open('appointments')
     expect(document.title).toBe('Appointments · Health ID EHR')
-    fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
+    fireEvent.click(screen.getByRole('button', { name: 'New record' }))
     await waitFor(() => expect(heading()).toBe('New appointments'))
     expect(document.title).toBe('Appointments · Health ID EHR')
     cleanup()
@@ -589,7 +589,7 @@ describe('sample engine', () => {
 
   it('puts "No further actions…" after the empty action list, as the design does', () => {
     open('ward-config', `/${IDS.wardExample}`)
-    const sentence = within(actionsCard()).getByText('No further actions for your permission and this record state.')
+    const sentence = within(actionsCard()).getByText('Nothing more to do here.')
     const list = sentence.previousElementSibling as HTMLElement
     expect(list.className).toBe('hid-ehr-clinical-action-list')
     expect(list.childElementCount).toBe(0)
@@ -635,7 +635,7 @@ describe('the emergency board inside another workspace', () => {
     expect(pairs).toEqual([
       ['Complaint', 'Road traffic injury (fictional)'], ['Priority', 'Emergency'], ['Team', 'Doctor + Nurse'], ['Assessment', 'Local assessment recorded'],
     ])
-    expect(screen.getByText('assessed')).toBeTruthy()
+    expect(screen.getByText('Assessed')).toBeTruthy()
     expect(screen.getByText('Riley Demo · LOCAL-7554909a')).toBeTruthy()
   })
 
@@ -647,20 +647,20 @@ describe('the emergency board inside another workspace', () => {
     expect(field('Triage priority').value).toBe('Routine')
     fireEvent.change(field('Presenting complaint'), { target: { value: 'Fictional fall' } })
     fireEvent.change(field('Assigned clinician'), { target: { value: 'Demo Doctor' } })
-    fireEvent.submit(screen.getByRole('button', { name: 'Save record' }).closest('form')!)
-    await waitFor(() => expect(screen.getByText('arrived')).toBeTruthy())
+    fireEvent.submit(screen.getByRole('button', { name: 'Save' }).closest('form')!)
+    await waitFor(() => expect(screen.getByText('Arrived')).toBeTruthy())
     expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
 
     fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Record assessment' }))
     fireEvent.change(field('Assessment', actionsCard()), { target: { value: 'Fictional assessment' } })
     fireEvent.submit(field('Assessment', actionsCard()).closest('form')!)
-    await waitFor(() => expect(screen.getByText('assessed')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Assessed')).toBeTruthy())
 
     fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Record disposition' }))
     fireEvent.change(field('Disposition', actionsCard()), { target: { value: 'Home' } })
     fireEvent.change(field('Follow-up', actionsCard()), { target: { value: 'Clinic in a week' } })
     fireEvent.submit(field('Disposition', actionsCard()).closest('form')!)
-    await waitFor(() => expect(screen.getByText('completed')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Completed')).toBeTruthy())
     expect(touched.api).toBe(false)
   })
 })

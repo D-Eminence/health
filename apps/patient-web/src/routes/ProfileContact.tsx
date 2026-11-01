@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import { isHidApiError } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import type { PatientProfile } from '../api'
@@ -10,6 +10,9 @@ import { maskEmail, maskPhone, oneLine, type EmailChangeStarted } from '../profi
 import { DEFAULT_PHONE_COUNTRY, PHONE_COUNTRIES, internationalPhone } from './enrollment/phoneCountries'
 import { useActionFocus } from './actionFocus'
 import { ItemName } from '../ItemName'
+import { Badge, Button, Field as KField, Select } from '../kasuwa/ui'
+import { Actions, Hint, InputR, Problem, Saved } from './profileParts'
+import { SAY } from '../copy'
 
 /** Which part of a step a refusal is about: focus goes there and its description names the error. */
 type Field = 'value' | 'password' | 'code' | null
@@ -35,15 +38,15 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
  * rate limited; a contact another account holds is refused with no further detail, so nothing is learned about it.
  */
 export const CONTACT_REFUSALS: Readonly<Record<string, { message: string; field: Field }>> = {
-  PASSWORD_INCORRECT: { message: 'That password is not right. Enter the password you sign in to Health ID with.', field: 'password' },
+  PASSWORD_INCORRECT: { message: 'Wrong password. Enter the password you use to sign in.', field: 'password' },
   CONTACT_UNAVAILABLE: { message: 'That email address or phone number can’t be used.', field: 'value' },
-  PASSWORD_REQUIRED: { message: 'Set a password first to change your contact details.', field: null },
-  OTP_INVALID_OR_EXPIRED: { message: 'That code is wrong or has expired. Check it and try again, or send a new code.', field: 'code' },
-  PATIENT_RECENT_AUTH_REQUIRED: { message: 'For your security, sign out, sign in again, and return here within 10 minutes to change your contact details.', field: null },
+  PASSWORD_REQUIRED: { message: 'Set a password first, then you can change these.', field: null },
+  OTP_INVALID_OR_EXPIRED: { message: 'That code is wrong or has expired. Try again, or send a new code.', field: 'code' },
+  PATIENT_RECENT_AUTH_REQUIRED: { message: SAY.signInAgain, field: null },
 }
 
 function refusal(cause: unknown, step: Step['kind']): { message: string; field: Field } {
-  if (!isHidApiError(cause)) return { message: 'Your contact details could not be changed. Try again.', field: null }
+  if (!isHidApiError(cause)) return { message: 'Couldn’t save the change. Try again.', field: null }
   const known = CONTACT_REFUSALS[cause.code]
   if (known) return known
   // Identity says how long: "Wait a moment before asking for another code.", "Try again in 15 minutes."
@@ -152,7 +155,7 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
         setPassword(''); setCode('')
         setStep({ kind: 'email-code', pending })
         const wait = refusal(cause, 'email').message
-        setError({ message: `${wait} The code we sent to ${pending.change.maskedContact} still works: enter it here.`, field: null, alert: true })
+        setError({ message: `${wait} The code we sent to ${pending.change.maskedContact} still works. Enter it here.`, field: null, alert: true })
       } else if (ownUnverified(typed) && isHidApiError(cause) && cause.code === 'CONTACT_UNCHANGED') {
         // Identity answers this for the account's own address only once it is verified (in another tab, say).
         setStep({ kind: 'idle' }); setPassword(''); setEmail(''); setResendNote(null)
@@ -174,7 +177,7 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
     if (step.kind !== 'email-code' || busy) return
     const wait = secondsBeforeResend(step.pending, Date.now())
     if (wait > 0) {
-      setResendNote(`You can ask for a new code in ${duration(wait)}. The code we sent to ${step.pending.change.maskedContact} still works.`)
+      setResendNote(`You can get a new code in ${duration(wait)}. The last code we sent still works.`)
       return
     }
     setStep({ kind: 'email', pending: step.pending, verify: ownUnverified(step.pending.email) }); setEmail(step.pending.email)
@@ -200,8 +203,8 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
       const now = typeof answer?.email === 'string' && answer.email ? answer.email : step.pending.email
       setStep({ kind: 'idle' }); setCode(''); setEmail(''); setResendNote(null)
       setNotice(ownUnverified(now) ? 'Your email address is verified.'
-        : `Your email address is now ${maskEmail(now)}. Use it to sign in and to reset your password.`
-          + (profile.email ? ' We told your previous address.' : ''))
+        : `Your email is now ${maskEmail(now)}. Use it to sign in and reset your password.`
+          + (profile.email ? ' We told your old address.' : ''))
       await onChanged()
       announce()
       focusAfter(() => document.getElementById('contact-change-email'))
@@ -214,7 +217,7 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
     if (busy) return
     const number = internationalPhone(phone, phoneCountry)
     if (number === null) {
-      setError({ message: 'Enter a valid phone number for the country chosen, like 0801 234 5678 for Nigeria, or start it with + and the country code.',
+      setError({ message: 'Enter a valid phone number for the country you chose, like 0801 234 5678 for Nigeria.',
         field: 'value', alert: fromField })
       stepFocus.focus(); return
     }
@@ -224,91 +227,105 @@ export function ContactDetails({ profile, onChanged }: { profile: PatientProfile
     try {
       const answer = await api.changePhone(number, password)
       setStep({ kind: 'idle' }); setPassword(''); setPhone('')
-      setNotice(`Your phone number is now ${maskPhone(answer.phone)}. It shows as not verified, because Health ID can’t send it a text yet.`
-        + (phoneNoticeByEmail ? ' We emailed your verified address about the change.' : ''))
+      setNotice(`Your phone number is now ${maskPhone(answer.phone)}. It shows as not verified.`
+        + (phoneNoticeByEmail ? ' We emailed you about the change.' : ''))
       await onChanged()
       announce()
       focusAfter(() => document.getElementById('contact-change-phone'))
     } catch (cause) { refused(cause, 'phone', fromField); stepFocus.focus() } finally { setBusy(false) }
   }
 
-  const errorLine = error && <p id="contact-error" role={error.alert ? 'alert' : undefined} className="patient-inline-error">{error.message}</p>
-  const passwordField = <div className="patient-field"><label htmlFor="contact-password">Current password</label>
-    <PasswordInput appearance="plain" id="contact-password" ref={fieldRef('password')} autoComplete="current-password" value={password}
+  // A problem about a field is said under it; any other above the step's buttons.
+  const fieldProblem = (field: Exclude<Field, null>) => error?.field === field
+    ? <span role={error.alert ? 'alert' : undefined}>{error.message}</span> : undefined
+  const otherProblem = error && error.field === null && <Problem id="contact-error" alert={error.alert}>{error.message}</Problem>
+  const passwordField = <KField label="Current password" htmlFor="contact-password" hintId="contact-password-hint" hint="The password you sign in with."
+    errorId={errorFor('password')} error={fieldProblem('password')}>
+    <PasswordInput id="contact-password" ref={fieldRef('password')} autoComplete="current-password" value={password}
       onChange={event => { setPassword(event.target.value); if (error?.field === 'password') setError(null) }}
       aria-invalid={invalid('password')} aria-describedby={describedBy('contact-password-hint', errorFor('password'))} />
-    <p id="contact-password-hint" className="patient-field-hint">The password you sign in to Health ID with, to confirm it is you.</p></div>
+  </KField>
+  const row = (label: string, value: ReactNode, actions: ReactNode) => <div className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
+    <dt className="w-16 shrink-0 text-[13px] text-ink-3">{label}</dt>
+    <dd className="m-0 flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm font-medium text-ink">{value}</dd>
+    {step.kind === 'idle' && <dd className="m-0 flex gap-2">{actions}</dd>}
+  </div>
 
-  return <div id="contact-details" aria-busy={busy || undefined}>
-    <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
-    <dl className="patient-details">
-      <div><dt>Email</dt><dd>{profile.email ? maskEmail(profile.email) : 'No email address'}
+  return <div id="contact-details" aria-busy={busy || undefined} className="flex flex-col gap-3">
+    <Saved>{notice}</Saved>
+    <dl className="m-0 divide-y divide-line">
+      {row('Email', <>{profile.email ? maskEmail(profile.email) : 'None'}
         {/* Health ID sends nothing to an address that was never confirmed (one kept from hid-1.0). */}
-        {profile.email && profile.emailVerified === false && <> <span className="patient-status-tag">Not verified</span></>}</dd>
-        {step.kind === 'idle' && <dd>
-          {unverified && <><button id="contact-verify-email" type="button" className="patient-secondary-button" disabled={busy}
-            onClick={() => open('email', true)}>Verify <ItemName>email address</ItemName></button> </>}
-          <button id="contact-change-email" type="button" className="patient-secondary-button" disabled={busy}
-            onClick={() => open('email')}>{profile.email ? 'Change' : 'Add'} <ItemName>email address</ItemName></button></dd>}</div>
-      <div><dt>Phone</dt><dd>{profile.phone ? maskPhone(profile.phone) : 'No phone number'}
-        {profile.phone && <> <span className={profile.phoneVerified ? 'patient-status-tag patient-status-tag-ok' : 'patient-status-tag'}>
-          {profile.phoneVerified ? 'Verified' : 'Not verified'}</span></>}</dd>
-        {step.kind === 'idle' && <dd><button id="contact-change-phone" type="button" className="patient-secondary-button" disabled={busy}
-          onClick={() => open('phone')}>{profile.phone ? 'Change' : 'Add'} <ItemName>phone number</ItemName></button></dd>}</div>
+        {profile.email && profile.emailVerified === false && <Badge size="sm" tone="warn">Not verified</Badge>}</>, <>
+        {unverified && <Button id="contact-verify-email" size="sm" variant="soft" disabled={busy}
+          onClick={() => open('email', true)}>Verify <ItemName>email address</ItemName></Button>}
+        <Button id="contact-change-email" size="sm" disabled={busy}
+          onClick={() => open('email')}>{profile.email ? 'Change' : 'Add'} <ItemName>email address</ItemName></Button></>)}
+      {row('Phone', <>{profile.phone ? maskPhone(profile.phone) : 'None'}
+        {profile.phone && <Badge size="sm" tone={profile.phoneVerified ? 'success' : 'warn'}>{profile.phoneVerified ? 'Verified' : 'Not verified'}</Badge>}</>,
+        <Button id="contact-change-phone" size="sm" disabled={busy}
+          onClick={() => open('phone')}>{profile.phone ? 'Change' : 'Add'} <ItemName>phone number</ItemName></Button>)}
     </dl>
-    <p className="patient-field-hint">You sign in and reset your password with these. Shown in part, for privacy.</p>
+    <Hint>You sign in and reset your password with these. Part is hidden for privacy.</Hint>
 
-    {step.kind === 'email' && <form className="patient-form patient-contact-form" onSubmit={event => void startEmail(event)} noValidate>
-      <h3>{verifying ? 'Verify your email address' : 'New email address'}</h3>
-      {errorLine}
-      <label>{verifying ? 'Email address' : 'New email address'}<input ref={fieldRef('value')} type="email" autoComplete="email" maxLength={254}
-        value={email} onChange={event => { setEmail(oneLine(event.target.value)); if (error?.field === 'value') setError(null) }}
-        aria-invalid={invalid('value')} aria-describedby={describedBy('contact-email-hint', errorFor('value'))} /></label>
-      <p id="contact-email-hint" className="patient-field-hint">We will send a 6-digit code to this address. {verifying
-        ? 'It shows as verified once you enter it.' : 'Your email changes once you enter it.'}</p>
+    {step.kind === 'email' && <form className={STEP_BOX} onSubmit={event => void startEmail(event)} noValidate>
+      <h3 className="m-0 text-title-3 text-ink">{verifying ? 'Verify your email' : 'New email address'}</h3>
+      <KField label={verifying ? 'Email address' : 'New email address'} htmlFor="contact-email" hintId="contact-email-hint"
+        hint={`We’ll send a 6-digit code here. ${verifying ? 'Enter it to verify this email.' : 'Your email changes when you enter it.'}`}
+        errorId={errorFor('value')} error={fieldProblem('value')}>
+        <InputR id="contact-email" ref={fieldRef('value')} type="email" autoComplete="email" maxLength={254}
+          value={email} onChange={event => { setEmail(oneLine(event.target.value)); if (error?.field === 'value') setError(null) }}
+          aria-invalid={invalid('value')} aria-describedby={describedBy('contact-email-hint', errorFor('value'))} />
+      </KField>
       {passwordField}
-      <div className="patient-decision-actions">
-        <button type="submit" className="patient-primary-button" disabled={busy}>{busy ? 'Sending…' : 'Send code'}</button>
-        {step.pending && <button type="button" className="patient-secondary-button" disabled={busy}
-          onClick={backToCode}>Enter the code already sent</button>}
-        <button type="button" className="patient-secondary-button" disabled={busy} onClick={() => close('email')}>Cancel</button>
-      </div>
+      {otherProblem}
+      <Actions>
+        <Button type="submit" variant="primary" loading={busy} disabled={busy}>{busy ? 'Sending…' : 'Send code'}</Button>
+        {step.pending && <Button disabled={busy} onClick={backToCode}>Enter the code already sent</Button>}
+        <Button variant="ghost" disabled={busy} onClick={() => close('email')}>Cancel</Button>
+      </Actions>
     </form>}
 
-    {step.kind === 'email-code' && <form className="patient-form patient-contact-form" onSubmit={event => void verifyEmail(event)}>
-      <h3>Enter the code</h3>
-      <p id="contact-code-hint" className="patient-field-hint">We sent a 6-digit code to {step.pending.change.maskedContact}. It works for
-        {' '}{minutes(step.pending.change.expiresInSeconds)}.</p>
-      {errorLine}
+    {step.kind === 'email-code' && <form className={STEP_BOX} onSubmit={event => void verifyEmail(event)}>
+      <h3 className="m-0 text-title-3 text-ink">Enter the code</h3>
+      <Hint id="contact-code-hint">We sent it to {step.pending.change.maskedContact}. It works for {minutes(step.pending.change.expiresInSeconds)}.</Hint>
       <CodeBoxes id="contact-code" label={verifying ? 'Code from your email' : 'Code from your new email'} value={code} busy={busy} inputRef={fieldRef('code')}
         onChange={value => { setCode(value); if (error?.field === 'code') setError(null) }}
         invalid={invalid('code')} describedBy={describedBy('contact-code-hint', errorFor('code'))} />
-      <div className="patient-decision-actions">
-        <button type="submit" className="patient-primary-button" disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Confirm'}</button>
-        <button type="button" className="patient-secondary-button" disabled={busy} onClick={askForNewCode}>Send a new code</button>
-        <button type="button" className="patient-secondary-button" disabled={busy} onClick={() => close('email')}>Cancel</button>
-      </div>
-      <div role="status">{resendNote && <p className="patient-field-hint">{resendNote}</p>}</div>
+      {error?.field === 'code' && <Problem id="contact-error" alert={error.alert}>{error.message}</Problem>}
+      {otherProblem}
+      <Actions>
+        <Button type="submit" variant="primary" loading={busy} disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Confirm'}</Button>
+        <Button disabled={busy} onClick={askForNewCode}>Send a new code</Button>
+        <Button variant="ghost" disabled={busy} onClick={() => close('email')}>Cancel</Button>
+      </Actions>
+      <div role="status" className="empty:hidden">{resendNote && <Hint>{resendNote}</Hint>}</div>
     </form>}
 
-    {step.kind === 'phone' && <form className="patient-form patient-contact-form" onSubmit={event => void changePhone(event)} noValidate>
-      <h3>New phone number</h3>
-      {errorLine}
-      <div className="patient-phone-field">
-        <label>Country code<select autoComplete="tel-country-code" value={phoneCountry} onChange={event => setPhoneCountry(event.target.value)}>
-          {PHONE_COUNTRIES.map(country => <option key={country.iso} value={country.iso}>{country.name} (+{country.code})</option>)}
-        </select></label>
-        <label>Phone number<input ref={fieldRef('value')} type="tel" inputMode="tel" autoComplete="tel-national" maxLength={24} value={phone}
-          onChange={event => { setPhone(event.target.value.replace(/[^\d+\s().-]/g, '')); if (error?.field === 'value') setError(null) }}
-          aria-invalid={invalid('value')} aria-describedby={describedBy('contact-phone-hint', errorFor('value'))} /></label>
+    {step.kind === 'phone' && <form className={STEP_BOX} onSubmit={event => void changePhone(event)} noValidate>
+      <h3 className="m-0 text-title-3 text-ink">New phone number</h3>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))] gap-3">
+        <KField label="Country" htmlFor="contact-phone-country">
+          <Select id="contact-phone-country" autoComplete="tel-country-code" value={phoneCountry} onChange={event => setPhoneCountry(event.target.value)}>
+            {PHONE_COUNTRIES.map(country => <option key={country.iso} value={country.iso}>{country.name} (+{country.code})</option>)}
+          </Select>
+        </KField>
+        <KField label="Phone number" htmlFor="contact-phone" hintId="contact-phone-hint" hint={`Like 0801 234 5678. Health ID can’t text it yet, so it will show as not verified${phoneNoticeByEmail ? '; we’ll email your verified address to say it changed' : ''}.`}
+          errorId={errorFor('value')} error={fieldProblem('value')}>
+          <InputR id="contact-phone" ref={fieldRef('value')} type="tel" inputMode="tel" autoComplete="tel-national" maxLength={24} value={phone}
+            onChange={event => { setPhone(event.target.value.replace(/[^\d+\s().-]/g, '')); if (error?.field === 'value') setError(null) }}
+            aria-invalid={invalid('value')} aria-describedby={describedBy('contact-phone-hint', errorFor('value'))} />
+        </KField>
       </div>
-      <p id="contact-phone-hint" className="patient-field-hint">Choose your country, then enter your number. Health ID can’t text it
-        yet, so it will show as not verified{phoneNoticeByEmail ? '; we email your verified address to say it changed' : ''}.</p>
       {passwordField}
-      <div className="patient-decision-actions">
-        <button type="submit" className="patient-primary-button" disabled={busy}>{busy ? 'Saving…' : 'Change phone number'}</button>
-        <button type="button" className="patient-secondary-button" disabled={busy} onClick={() => close('phone')}>Cancel</button>
-      </div>
+      {otherProblem}
+      <Actions>
+        <Button type="submit" variant="primary" loading={busy} disabled={busy}>{busy ? 'Saving…' : 'Save phone number'}</Button>
+        <Button variant="ghost" disabled={busy} onClick={() => close('phone')}>Cancel</Button>
+      </Actions>
     </form>}
   </div>
 }
+
+/** A step opened under the rows: a tray, so it reads as part of the row that opened it. */
+const STEP_BOX = 'flex flex-col gap-4 rounded-xl bg-subtle p-4 ring-1 ring-line'

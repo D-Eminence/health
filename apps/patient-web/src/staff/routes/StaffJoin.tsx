@@ -111,7 +111,7 @@ export function StaffJoin() {
   }
 
   if (unavailable) return <div className="staff-page-head"><p className="staff-eyebrow">Invitation</p><h1>Join a facility</h1>
-    <p>Joining a facility by invitation isn’t available on Health ID yet. Please try again later.</p></div>
+    <p>Joining a facility by invitation isn’t available. Contact the facility that invited you.</p></div>
 
   if (joined) {
     const landing = landingFor(joined.roleCode)

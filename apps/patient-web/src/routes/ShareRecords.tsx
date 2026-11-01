@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
+import { ArrowLeft, ArrowRight, Check, ChevronDown, CircleCheck, Clock, Eye, Lock, Mail, PenLine, Search, Share2, Stethoscope } from 'lucide-react'
+import { Alert, Button, Card, Field, cx } from '../kasuwa/ui'
+import { FormPage, PageState } from '../kasuwa/parts'
+import { SAY, WORDS } from '../copy'
+import { InputR } from './profileParts'
+import { ShareEmailPreview, useMyCard } from './SharedCard'
 import { useSession } from '../session'
 import { describedBy, sentFromField, useDocumentTitle, useStepFocus } from '../authSteps'
 import { learnShareServed, useShareServed } from '../shareServed'
@@ -56,7 +62,7 @@ export function useShareProbe() {
 }
 
 type Step = 'search' | 'level' | 'duration' | 'confirm' | 'done' | 'invite' | 'invited'
-const STEP_NUMBER: Partial<Record<Step, number>> = { search: 1, level: 2, duration: 3, confirm: 4 }
+const STEP_NUMBER: Partial<Record<Step, number>> = { search: 1, level: 2, duration: 2, confirm: 3 }
 const QUERY_MIN = 3, QUERY_MAX = 80
 
 /** One key per confirm action, kept while what it sends is the same, so sending it again is answered as a replay. */
@@ -73,17 +79,16 @@ export function ShareRecords() {
   useDocumentTitle('Share your records · Health ID')
   const probe = useShareProbe()
   if (probe.served === false) return <Navigate to="/access" replace />
-  return <section className="patient-section"><p className="patient-eyebrow">Consent</p>
-    <h1 className="patient-page-title">Share your records</h1>
-    {probe.served === true ? <ShareFlow />
-      : probe.error ? <div className="patient-card" role="alert"><p>{probe.error}</p>
-        <button type="button" onClick={probe.retry}>Try again</button></div>
-      : <div className="patient-card patient-loading" role="status">Opening sharing…</div>}
-  </section>
+  return <FormPage title="Share your records" back={{ to: '/access', label: `Back to ${WORDS.accessPage}` }}>
+    <PageState what="sharing" loading={probe.served === null && !probe.error} error={probe.error} hasData={false} onRetry={probe.retry} rows={2}>
+      {probe.served === true ? <ShareFlow /> : null}
+    </PageState>
+  </FormPage>
 }
 
 function ShareFlow() {
   const { api } = useSession()
+  const myCard = useMyCard()
   const [params] = useSearchParams()
   const [step, setStep] = useState<Step>(() => params.get('by') === 'email' ? 'invite' : 'search')
   const [query, setQuery] = useState('')
@@ -115,6 +120,7 @@ function ShareFlow() {
   // Whether the error shown is the choice's (the search step's second form) rather than the search's.
   const [choosing, setChoosing] = useState(false)
   const go = (next: Step) => { setStep(next); setError(null); stepFocus.focus() }
+  // A failed request is said in place, under the step, where focus goes.
   const fail = (message: string, ofChoice = false) => { setError(message); setChoosing(ofChoice); errorFocus.focus() }
   const refuseField = (fromField: boolean) => { setProblemAlert(value => fromField ? (value ?? 0) + 1 : null); fieldFocus.focus() }
 
@@ -151,6 +157,7 @@ function ShareFlow() {
     setBusy(true); setError(null)
     try {
       const answer = await api.createShare(body, shareKey(body))
+      // The done step says it: no toast repeats it.
       setCreated(answer); go('done')
     } catch (cause) {
       fail(shareProblem(cause, 'Your records could not be shared. Please try again.'))
@@ -183,160 +190,199 @@ function ShareFlow() {
     setEmail(''); setName(''); setLevel('view_only'); setDuration('24h'); setProblemAlert(null); go(next)
   }
 
-  const alert = error && <p ref={errorFocus.target} tabIndex={-1} role="alert" className="patient-inline-error">{error}</p>
+  // A failed request, or a choice left out, is said in place; focus goes to it.
+  const alert = error && <div ref={errorFocus.target} tabIndex={-1} className="outline-none"><Alert intent="error" size="sm">{error}</Alert></div>
   const number = STEP_NUMBER[step]
-  const heading = (text: string) => <>
-    {number && <p className="patient-field-hint">Step {number} of 4</p>}
-    <h2 ref={stepFocus.target} tabIndex={-1}>{text}</h2>
-  </>
+  const heading = (text: string, hint?: ReactNode) => <div className="flex flex-col gap-1">
+    <h2 ref={stepFocus.target} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">{text}</h2>
+    {hint && <p className="m-0 text-[13px] text-ink-3">{hint}</p>}
+  </div>
   const who = provider ? `${provider.clinicianName} at ${provider.facilityName}` : ''
   // A field's problem line is an alert only when focus could not move to it (problemAlert), and then new for each refusal.
   const alerts = (first: boolean) => first && problemAlert !== null
   const problemKey = (first: boolean) => alerts(first) ? `alert-${problemAlert}` : 'quiet'
   const problemRole = (first: boolean) => alerts(first) ? 'alert' : undefined
+  // The step's buttons, given as [secondary, primary]: a row on the right with the primary rightmost from 640px; on
+  // phones stacked full width, the primary last, held at the bottom of the screen above the tab bar (thumb reach).
+  const frame = (key: string, body: ReactNode, footer?: ReactNode) => <Card key={key} as="div" className={footer ? 'overflow-visible!' : undefined}>
+    {number && <Stepper at={number} />}
+    <div className="flex flex-col gap-5 p-5">{body}</div>
+    {footer && <div data-form-actions="" className="flex flex-col gap-2 rounded-b-xl border-t border-line bg-surface px-5 py-3.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end [&>*]:w-full sm:[&>*]:w-auto max-sm:sticky max-sm:bottom-[calc(64px+env(safe-area-inset-bottom))] max-sm:z-[var(--z-sticky)]">{footer}</div>}
+  </Card>
 
   if (step === 'search') {
     const items = results?.items ?? []
     // Two forms: the search, and the choice of who; each holds its own error, which takes focus when it is shown.
-    return <div key="search" className="patient-card">
-      <form className="patient-form" noValidate onSubmit={event => void search(event)}>
-        {heading('Find who to share with')}
-        <p className="patient-field-hint">Search for a doctor, clinician or nurse by their name, or by their facility’s name. Only
-          their name, role and facility are shown.</p>
-        <label>Name of the clinician or facility
-          <input ref={fieldFocus.target} type="search" value={query} maxLength={QUERY_MAX} autoComplete="off"
-            aria-invalid={queryProblem ? true : undefined} aria-describedby={describedBy('share-query-hint', queryProblem && 'share-query-problem')}
-            onChange={event => setQuery(event.target.value)} /></label>
-        <p id="share-query-hint" className="patient-field-hint">At least 3 characters.</p>
-        {queryProblem && <p key={problemKey(true)} role={problemRole(true)} id="share-query-problem" className="patient-inline-error">{queryProblem}</p>}
-        <div><button type="submit" className="patient-secondary-button" disabled={searching}>{searching ? 'Searching…' : 'Search'}</button></div>
-        <div role="status">{results && <p ref={resultsFocus.target} tabIndex={-1}>{items.length === 0
+    return frame('search', <>
+      <form noValidate onSubmit={event => void search(event)} className="flex flex-col gap-3">
+        {heading('Who do you want to share with?', 'Search a doctor, nurse or clinician by their name or their hospital’s. Only their name, role and hospital are shown.')}
+        {/* Search is secondary: the step's one primary is Continue, once someone is found. */}
+        <Field htmlFor="share-query" label={<span className="sr-only">Name of the clinician or facility</span>} hintId="share-query-hint" hint="At least 3 characters."
+          errorId="share-query-problem" error={queryProblem ? <span key={problemKey(true)} role={problemRole(true)}>{queryProblem}</span> : undefined}>
+          <div className="flex gap-2">
+            <InputR id="share-query" ref={fieldFocus.target} className="min-w-0 flex-1" icon={Search} type="search" value={query} maxLength={QUERY_MAX} autoComplete="off" placeholder="e.g. Dr Bello or Lagos General"
+              aria-invalid={queryProblem ? true : undefined} aria-describedby={describedBy('share-query-hint', queryProblem && 'share-query-problem')}
+              onChange={event => setQuery(event.target.value)} />
+            <Button type="submit" loading={searching} disabled={searching}>{searching ? 'Searching…' : 'Search'}</Button>
+          </div>
+        </Field>
+        <div role="status" className="empty:hidden">{results && <p ref={resultsFocus.target} tabIndex={-1} className="m-0 text-[13px] text-ink-2 outline-none">{items.length === 0
           ? `No one matched “${results.query}”. Check the spelling, or invite them by email.`
           : `${items.length} found for “${results.query}”. Choose who to share with.`}</p>}</div>
         {!choosing && alert}
       </form>
-      <form className="patient-form" onSubmit={event => { event.preventDefault(); choose() }}>
-        {items.length > 0 && <fieldset className="patient-share-options">
-          <legend>Who to share with</legend>
-          {items.map(item => <label key={item.membershipId} className="patient-share-option">
+      <form id="share-choose" onSubmit={event => { event.preventDefault(); choose() }} className="flex flex-col gap-3">
+        {items.length > 0 && <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+          <legend className="sr-only">Who to share with</legend>
+          {items.map(item => <label key={item.membershipId} className={cx(TILE, chosenId === item.membershipId ? TILE_ON : TILE_OFF)}>
             <input type="radio" name="share-provider" value={item.membershipId} checked={chosenId === item.membershipId}
-              onChange={() => setChosenId(item.membershipId)} />
-            <span><strong>{item.clinicianName}</strong>
-              <span>{[SHARE_ROLE_LABELS[item.role], item.facilityName, item.organizationName].filter(Boolean).join(' · ')}</span>
-              {item.newOnHealthId && <span className="patient-status-tag">New on Health ID</span>}</span>
+              onChange={() => setChosenId(item.membershipId)} className="sr-only" />
+            <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand-ink">{initials(item.clinicianName)}</span>
+            <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-ink">{item.clinicianName}</span>
+              <span className="block text-[13px] text-ink-3">{[SHARE_ROLE_LABELS[item.role], item.facilityName, item.organizationName].filter(Boolean).join(' · ')}</span>
+              {item.newOnHealthId && <span className="mt-1 inline-flex rounded-full bg-warn-soft px-2 py-0.5 text-[11px] font-medium text-warn-ink">New on Health ID</span>}</span>
+            <Radio on={chosenId === item.membershipId} />
           </label>)}
         </fieldset>}
         {choosing && alert}
-        <div className="patient-decision-actions">
-          {items.length > 0 && <button type="submit" className="patient-primary-button">Continue</button>}
-          <Link to="/access" className="patient-secondary-button">Cancel</Link>
-        </div>
-        <button type="button" className="patient-text-button" onClick={() => go('invite')}>Can’t find them? Invite them by email</button>
       </form>
-    </div>
+      <button type="button" className="inline-flex cursor-pointer items-center gap-2 self-start border-0 bg-transparent p-0 text-[13px] font-semibold text-brand-ink hover:underline" onClick={() => go('invite')}><Mail className="size-4" aria-hidden />Can’t find them? Invite them by email</button>
+    </>, <><Button to="/access" variant="ghost">Cancel</Button>
+      {items.length > 0 && <Button type="submit" form="share-choose" variant="primary" iconRight={ArrowRight}>Continue</Button>}</>)
   }
 
-  if (step === 'level') return <form key="level" className="patient-card patient-form" onSubmit={event => { event.preventDefault(); go('duration') }}>
-    {heading('Choose what they can do')}
-    <p className="patient-field-hint">Sharing with {who}.</p>
+  // What they can do and for how long, together: two choices about the same grant, so one step (fewer steps to the goal).
+  if (step === 'level' || step === 'duration') return frame('level', <form id="share-access" onSubmit={event => { event.preventDefault(); go('confirm') }} className="flex flex-col gap-6">
+    {heading('What can they see, and for how long?', <>Sharing with <strong className="font-medium text-ink">{who}</strong>. You can end it sooner at any time.</>)}
     <LevelChoice name="share-level" value={level} onChange={setLevel} />
-    <div className="patient-decision-actions"><button type="submit" className="patient-primary-button">Continue</button>
-      <button type="button" className="patient-secondary-button" onClick={() => go('search')}>Back</button></div>
-  </form>
-
-  if (step === 'duration') return <form key="duration" className="patient-card patient-form" onSubmit={event => { event.preventDefault(); go('confirm') }}>
-    {heading('Choose how long')}
-    <p className="patient-field-hint">Sharing with {who}. You can end it sooner at any time in Access and consent.</p>
     <DurationChoice name="share-duration" value={duration} onChange={setDuration} />
-    <div className="patient-decision-actions"><button type="submit" className="patient-primary-button">Continue</button>
-      <button type="button" className="patient-secondary-button" onClick={() => go('level')}>Back</button></div>
-  </form>
+  </form>, <><Button onClick={() => go('search')} icon={ArrowLeft}>Back</Button>
+    <Button type="submit" form="share-access" variant="primary" iconRight={ArrowRight}>Continue</Button></>)
 
-  if (step === 'confirm' && provider) return <form key="confirm" className="patient-card patient-form" onSubmit={event => void share(event)}>
+  if (step === 'confirm' && provider) return frame('confirm', <form id="share-confirm" onSubmit={event => void share(event)} className="flex flex-col gap-5">
     {heading('Check and share')}
-    <dl className="patient-details">
-      <dt>Who</dt><dd>{provider.clinicianName}, {SHARE_ROLE_LABELS[provider.role]}</dd>
-      <dt>Facility</dt><dd>{[provider.facilityName, provider.organizationName].filter(Boolean).join(', ')}</dd>
-      <dt>What they can do</dt><dd>{shareLevelLabel(level)}{level === 'clinical_collaboration' && <>. {COLLABORATION_WARNING}</>}</dd>
-      <dt>How long</dt><dd>{shareDurationLabel(duration)}</dd>
+    <div className="flex items-center gap-3 rounded-xl p-3 ring-1 ring-line">
+      <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-sm font-semibold text-brand-ink">{initials(provider.clinicianName)}</span>
+      <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-ink">{provider.clinicianName}, {SHARE_ROLE_LABELS[provider.role]}</span>
+        <span className="block text-[13px] text-ink-3">{[provider.facilityName, provider.organizationName].filter(Boolean).join(', ')}</span></span>
+      <button type="button" onClick={() => go('search')} className="cursor-pointer border-0 bg-transparent text-[13px] font-semibold text-brand-ink hover:underline">Change<span className="sr-only"> who</span></button>
+    </div>
+    <dl className="m-0 divide-y divide-line rounded-xl ring-1 ring-line">
+      <div className="flex items-start gap-3 px-4 py-3"><Eye className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden /><div className="min-w-0 flex-1"><dt className="text-[12px] text-ink-3">What they can do</dt>
+        <dd className="m-0 text-sm font-medium text-ink">{shareLevelLabel(level)}</dd>{level === 'clinical_collaboration' && <dd className="m-0 mt-1 text-[13px] text-warn-ink">{COLLABORATION_WARNING}</dd>}</div>
+        <button type="button" onClick={() => go('level')} className="cursor-pointer border-0 bg-transparent text-[13px] font-semibold text-brand-ink hover:underline">Change<span className="sr-only"> what they can do</span></button></div>
+      <div className="flex items-start gap-3 px-4 py-3"><Clock className="mt-0.5 size-4 shrink-0 text-ink-3" aria-hidden /><div className="min-w-0 flex-1"><dt className="text-[12px] text-ink-3">How long</dt>
+        <dd className="m-0 text-sm font-medium text-ink">{shareDurationLabel(duration)}</dd></div>
+        <button type="button" onClick={() => go('level')} className="cursor-pointer border-0 bg-transparent text-[13px] font-semibold text-brand-ink hover:underline">Change<span className="sr-only"> how long</span></button></div>
     </dl>
-    <p className="patient-field-hint">If you already share with them, this replaces that share. You can end it at any time in Access and
-      consent.</p>
+    <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />If you already share with them, this replaces it. {SAY.everyViewRecorded}</p>
+    {/* Your card is what arrives: the email they will receive, there to open, so it doesn't push Share down. */}
+    {myCard && <details className="group rounded-xl ring-1 ring-line">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 text-[13px] font-semibold text-brand-ink [&::-webkit-details-marker]:hidden">
+        <Mail className="size-4" aria-hidden />See the email they get<ChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" aria-hidden /></summary>
+      <div className="border-t border-line p-3"><ShareEmailPreview card={myCard} to={provider.clinicianName} level={level} duration={duration} /></div>
+    </details>}
     {alert}
-    <div className="patient-decision-actions"><button type="submit" className="patient-primary-button" disabled={busy}>
-      {busy ? 'Sharing…' : 'Share my records'}</button>
-      <button type="button" className="patient-secondary-button" disabled={busy} onClick={() => go('duration')}>Back</button></div>
-  </form>
+  </form>, <><Button disabled={busy} onClick={() => go('level')} icon={ArrowLeft}>Back</Button>
+    <Button type="submit" form="share-confirm" variant="primary" icon={Share2} loading={busy} disabled={busy}>{busy ? 'Sharing…' : 'Share my records'}</Button></>)
 
-  if (step === 'done' && created) return <div key="done" className="patient-card">
+  if (step === 'done' && created) return frame('done', <div className="flex flex-col items-center gap-3 py-4 text-center">
+    <span className="inline-flex size-14 items-center justify-center rounded-full bg-success-soft text-success-ink"><CircleCheck className="size-7" aria-hidden /></span>
     {heading('Your records are shared')}
-    <p>{created.clinicianName ? `${created.clinicianName} at ${created.facilityName}` : `A provider at ${created.facilityName}`} can see your
+    <p className="m-0 max-w-md text-sm text-ink-2">Your card is on its way to {created.clinicianName ? `${created.clinicianName} at ${created.facilityName}` : `a provider at ${created.facilityName}`}. They can open your
       records {shareUntil(created.duration, created.expiresAt)}.</p>
-    {created.replacedConsentGrantId && <p className="patient-field-hint">This replaces the share you had with them before.</p>}
-    <p className="patient-field-hint">They have been told. You can end this access at any time in Access and consent.</p>
-    <div className="patient-decision-actions"><Link to="/access" className="patient-primary-button">Go to Access and consent</Link>
-      <button type="button" className="patient-secondary-button" onClick={() => startAgain('search')}>Share with someone else</button></div>
-  </div>
+    {created.replacedConsentGrantId && <p className="m-0 text-[13px] text-ink-3">This replaces the share you had with them before.</p>}
+    <Link to="/card/preview" className="text-[13px] font-semibold text-brand-ink no-underline hover:underline">Preview what they see when they open your card</Link>
+  </div>, <><Button onClick={() => startAgain('search')}>Share with someone else</Button>
+    <Button to="/access" variant="primary">See who has access</Button></>)
 
-  if (step === 'invite') return <form key="invite" className="patient-card patient-form" noValidate onSubmit={event => void invite(event)}>
-    {heading('Invite a provider by email')}
-    <p className="patient-field-hint">For a doctor, clinician or nurse who is not on Health ID yet.</p>
-    <label>Their email address
-      <input ref={emailProblem || !nameProblem ? fieldFocus.target : undefined} type="email" value={email} maxLength={254}
+  if (step === 'invite') return frame('invite', <form id="share-invite" noValidate onSubmit={event => void invite(event)} className="flex flex-col gap-5">
+    {heading('Invite them by email', 'For a doctor, nurse or clinician who isn’t on Health ID yet.')}
+    <Field label="Their email address" htmlFor="invite-email" errorId="invite-email-problem"
+      error={emailProblem ? <span key={problemKey(true)} role={problemRole(true)}>{emailProblem}</span> : undefined}>
+      <InputR id="invite-email" ref={emailProblem || !nameProblem ? fieldFocus.target : undefined} type="email" value={email} maxLength={254}
         autoComplete="off" aria-invalid={emailProblem ? true : undefined} aria-describedby={describedBy(emailProblem && 'invite-email-problem')}
-        onChange={event => setEmail(event.target.value)} /></label>
-    {emailProblem && <p key={problemKey(true)} role={problemRole(true)} id="invite-email-problem" className="patient-inline-error">{emailProblem}</p>}
-    <label>Their name (optional)
-      <input ref={nameProblem && !emailProblem ? fieldFocus.target : undefined} value={name} maxLength={120} autoComplete="off"
-        aria-invalid={nameProblem ? true : undefined} aria-describedby={describedBy('invite-name-hint', nameProblem && 'invite-name-problem')}
-        onChange={event => setName(event.target.value)} /></label>
-    <p id="invite-name-hint" className="patient-field-hint">Only you see it. It is not put in the email.</p>
+        onChange={event => setEmail(event.target.value)} />
+    </Field>
     {/* One alert at a time: the email's, when both are wrong. */}
-    {nameProblem && <p key={problemKey(!emailProblem)} role={problemRole(!emailProblem)} id="invite-name-problem" className="patient-inline-error">{nameProblem}</p>}
+    <Field label="Their name" optional htmlFor="invite-name" hintId="invite-name-hint" hint="Only you see it. It isn’t put in the email."
+      errorId="invite-name-problem" error={nameProblem ? <span key={problemKey(!emailProblem)} role={problemRole(!emailProblem)}>{nameProblem}</span> : undefined}>
+      <InputR id="invite-name" ref={nameProblem && !emailProblem ? fieldFocus.target : undefined} value={name} maxLength={120} autoComplete="off"
+        aria-invalid={nameProblem ? true : undefined} aria-describedby={describedBy('invite-name-hint', nameProblem && 'invite-name-problem')}
+        onChange={event => setName(event.target.value)} />
+    </Field>
     <LevelChoice name="invite-level" value={level} onChange={setLevel} />
     <DurationChoice name="invite-duration" value={duration} onChange={setDuration} />
-    <p>We’ll email them. Nothing is shared until they accept in Health ID and you confirm.</p>
+    <p className="m-0 flex gap-2 text-[13px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />Nothing is shared until they join Health ID, accept, and you confirm.</p>
     {alert}
-    <div className="patient-decision-actions"><button type="submit" className="patient-primary-button" disabled={busy}>
-      {busy ? 'Sending…' : 'Send invitation'}</button>
-      <button type="button" className="patient-secondary-button" disabled={busy} onClick={() => go('search')}>Search instead</button></div>
-  </form>
+  </form>, <><Button disabled={busy} onClick={() => go('search')} icon={Search}>Search instead</Button>
+    <Button type="submit" form="share-invite" variant="primary" icon={Mail} loading={busy} disabled={busy}>{busy ? 'Sending…' : 'Send invitation'}</Button></>)
 
-  if (step === 'invited' && invited) return <div key="invited" className="patient-card">
+  if (step === 'invited' && invited) return frame('invited', <div className="flex flex-col items-center gap-3 py-4 text-center">
+    <span className="inline-flex size-14 items-center justify-center rounded-full bg-brand-soft text-brand-ink"><Mail className="size-7" aria-hidden /></span>
     {heading('Invitation sent')}
-    <p>We’ll email {invited.email}. Nothing is shared until they accept in Health ID and you confirm.</p>
-    {invited.deliveryOutcome === 'not_confirmed' && <p className="patient-field-hint">Delivery not confirmed. The invitation stays open
-      until {shareDay(invited.expiresAt)}, and you can cancel it in Access and consent.</p>}
-    <p className="patient-field-hint">When they accept, you’ll get a notice. You then confirm in Access and consent before they can see your
-      records.</p>
-    <div className="patient-decision-actions"><Link to="/access" className="patient-primary-button">Go to Access and consent</Link>
-      <button type="button" className="patient-secondary-button" onClick={() => startAgain('invite')}>Invite someone else</button></div>
-  </div>
+    <p className="m-0 max-w-md text-sm text-ink-2">We’ll email {invited.email}. When they accept, you’ll get a notice and confirm before they can see anything.</p>
+    {invited.deliveryOutcome === 'not_confirmed' && <p className="m-0 text-[13px] text-warn-ink">Delivery not confirmed. The invitation stays open
+      until {shareDay(invited.expiresAt)}, and you can cancel it in Access & sharing.</p>}
+  </div>, <><Button onClick={() => startAgain('invite')}>Invite someone else</Button>
+    <Button to="/access" variant="primary">Back to Access & sharing</Button></>)
 
   // A step whose choice is gone (it cannot happen through the page) starts again.
-  return <div className="patient-card"><button type="button" onClick={() => startAgain('search')}>Start again</button></div>
+  return frame('lost', <Button onClick={() => startAgain('search')}>Start again</Button>)
 }
 
-function Options({ legend, children }: { legend: string; children: ReactNode }) {
-  return <fieldset className="patient-share-options"><legend>{legend}</legend>{children}</fieldset>
+const TILE = 'flex cursor-pointer items-center gap-3 rounded-xl p-3 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand'
+const TILE_ON = 'bg-brand-soft ring-[1.5px] ring-brand'
+const TILE_OFF = 'bg-surface ring-1 ring-line hover:bg-subtle'
+const initials = (name: string) => name.replace(/^(Dr|Nurse|Mr|Mrs|Ms)\.?\s+/i, '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase()).join('')
+
+function Radio({ on }: { on: boolean }) {
+  return <span aria-hidden="true" className={cx('inline-flex size-5 shrink-0 items-center justify-center rounded-full ring-1', on ? 'bg-brand-fill ring-brand' : 'bg-surface ring-line-control')}>
+    {on && <span className="size-2 rounded-full bg-white" />}</span>
 }
+
+/** Where the patient is: three steps, the done ones ticked (goal gradient: the end is in sight). */
+function Stepper({ at }: { at: number }) {
+  const steps = ['Who', 'Access', 'Check']
+  return <ol aria-label={`Step ${at} of ${steps.length}`} className="m-0 flex list-none items-center gap-2 rounded-t-xl border-b border-line px-5 py-3">
+    {steps.map((label, i) => { const n = i + 1, done = n < at, now = n === at
+      return <li key={label} aria-current={now ? 'step' : undefined} className="flex min-w-0 flex-1 items-center gap-2">
+        <span className={cx('inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold', done ? 'bg-success text-white' : now ? 'bg-brand-fill text-white' : 'bg-surface text-ink-3 ring-1 ring-line-control')}>
+          {done ? <Check className="size-3.5" aria-hidden /> : n}</span>
+        <span className={cx('truncate text-[13px]', now ? 'font-semibold text-ink' : 'text-ink-3')}>{label}</span>
+        {n < steps.length && <span aria-hidden="true" className={cx('h-px flex-1', done ? 'bg-success' : 'bg-line-strong')} />}
+      </li> })}
+  </ol>
+}
+
+const LEVEL_ICON: Record<ShareLevel, typeof Eye> = { view_only: Eye, clinical_review: Stethoscope, clinical_collaboration: PenLine }
 
 function LevelChoice({ name, value, onChange }: { name: string; value: ShareLevel; onChange: (value: ShareLevel) => void }) {
-  return <Options legend="What they can do">
-    {SHARE_LEVELS.map(option => <label key={option.value} className="patient-share-option">
-      <input type="radio" name={name} value={option.value} checked={value === option.value} onChange={() => onChange(option.value)}
-        aria-describedby={`${name}-${option.value}-hint`} />
-      <span><strong>{option.label}</strong>
-        <span id={`${name}-${option.value}-hint`}>{option.description}{option.value === 'clinical_collaboration' && ` ${COLLABORATION_WARNING}`}</span></span>
-    </label>)}
-  </Options>
+  return <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+    <legend className="mb-2 p-0 text-[13px] font-medium text-ink-2">What they can do</legend>
+    {SHARE_LEVELS.map(option => { const I = LEVEL_ICON[option.value], on = value === option.value
+      return <label key={option.value} className={cx(TILE, '!items-start', on ? TILE_ON : TILE_OFF)}>
+        <input type="radio" name={name} value={option.value} checked={on} onChange={() => onChange(option.value)} className="sr-only"
+          aria-describedby={`${name}-${option.value}-hint`} />
+        <span className={cx('inline-flex size-9 shrink-0 items-center justify-center rounded-lg', on ? 'bg-brand-fill text-white' : 'bg-subtle text-ink-2')}><I className="size-[18px]" aria-hidden /></span>
+        <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-ink">{option.label}</span>
+          <span id={`${name}-${option.value}-hint`} className="block text-[13px] text-ink-3">{option.description}{option.value === 'clinical_collaboration' && ` ${COLLABORATION_WARNING}`}</span></span>
+        <Radio on={on} />
+      </label> })}
+  </fieldset>
 }
 
 function DurationChoice({ name, value, onChange }: { name: string; value: ShareDuration; onChange: (value: ShareDuration) => void }) {
-  return <Options legend="How long">
-    {SHARE_DURATIONS.map(option => <label key={option.value} className="patient-share-option">
-      <input type="radio" name={name} value={option.value} checked={value === option.value} onChange={() => onChange(option.value)} />
-      <span>{option.label}</span>
-    </label>)}
-  </Options>
+  return <fieldset className="m-0 border-0 p-0">
+    <legend className="mb-2 p-0 text-[13px] font-medium text-ink-2">How long</legend>
+    <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-tray p-1.5 @lg:grid-cols-4">
+      {SHARE_DURATIONS.map(option => { const on = value === option.value
+        return <label key={option.value} className={cx('flex min-h-11 cursor-pointer items-center justify-center rounded-xl px-2 py-2 text-center text-[13px] font-medium has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand',
+          on ? 'bg-surface text-brand-ink shadow-[var(--shadow-xs)] ring-[1.5px] ring-brand' : 'text-ink-2 hover:bg-surface/70')}>
+          <input type="radio" name={name} value={option.value} checked={on} onChange={() => onChange(option.value)} className="sr-only" />
+          {option.value === 'until_revoked' ? 'Until I end it' : option.label}
+        </label> })}
+    </div>
+    {value === 'until_revoked' && <p className="m-0 mt-2 text-[12px] text-ink-3">Up to 1 year at most, never forever.</p>}
+  </fieldset>
 }

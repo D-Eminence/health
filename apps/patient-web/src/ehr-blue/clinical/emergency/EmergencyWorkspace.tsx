@@ -1,19 +1,18 @@
-import { EhrButton, EhrCard } from '@hid/ui/ehr'
-import { Route, Routes, useNavigate } from 'react-router-dom'
+import { Route, Routes } from 'react-router-dom'
 import type { EhrBluePageStatus } from '../types'
 import { ChartProvider } from '../parts/chart'
 import { isDemoFacility } from '../../blueFacilities'
-import { ListHeading, RecordNotFound } from '../parts/Notices'
-import { RecordTable } from '../parts/RecordTable'
+import { RecordNotFound } from '../parts/Notices'
+import { FormPage } from '../../../kasuwa/parts'
+import { Button } from '../../../kasuwa/ui'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { SampleCreate, SampleDetail, SampleList } from '../sample/SampleWorkspace'
-import { NOTICE_BEFORE } from './access'
-import { BreakGlassPage, CurrentEmergency } from './BreakGlass'
+import { BreakGlassCard, CurrentEmergency } from './BreakGlass'
 import { EmergencySummaryPage } from './EmergencySummary'
 
 /**
  * Partial: emergency break-glass access and the read-only emergency summary run on today's Health ID API; the
- * emergency-department board (arrivals, assessment, disposition) has no backend and is the sample engine's. The board
+ * emergency-department board (arrivals, assessment, disposition) has no API and is the sample engine's. The board
  * shows only at the four demo facilities: at a real facility this live page never leads into a sample.
  */
 export const emergencyStatus: EhrBluePageStatus = 'partial'
@@ -23,38 +22,19 @@ function useDemoFacility() {
   return isDemoFacility(useClinical().facility?.id)
 }
 
-/**
- * emergency: the design's list page, the heading and one list card (audit 7). At a demo facility the card is the sample
- * board, and the heading keeps "Emergency break-glass access" beside its Create record, so the live break-glass page
- * opens from here there too; at a real facility the card is an empty list whose one action opens that page. Its empty
- * state says what the design's empty list says ("No matching records"), never that there is no emergency access, since
- * an open emergency patient's way back to their summary shows above it (as today's Patients page shows it), and today's
- * words for when emergency access is used.
- */
+/** emergency: emergency access as one form column, then (at a demo facility) the sample board. */
 function EmergencyHome() {
   const href = useWorkspaceHref()
-  const navigate = useNavigate()
   const demo = useDemoFacility()
   return (
-    <>
-      <ListHeading
-        title="Emergency"
-        createHref={demo ? href('new') : undefined}
-        actions={demo ? <EhrButton variant="secondary" onClick={() => navigate(href('break-glass'))}>Emergency break-glass access</EhrButton> : undefined}
-      />
-      <CurrentEmergency />
-      {demo ? <SampleList id="emergency" /> : (
-        <EhrCard className="hid-ehr-clinical-emergency-list">
-          <RecordTable
-            caption="Emergency"
-            rows={[]}
-            hrefFor={() => href()}
-            emptyMessage={NOTICE_BEFORE}
-            emptyAction={<EhrButton onClick={() => navigate(href('break-glass'))}>Emergency break-glass access</EhrButton>}
-          />
-        </EhrCard>
-      )}
-    </>
+    <div className="flex flex-col gap-8">
+      <FormPage title="Emergency access" description="See the emergency summary of a patient who can’t consent."
+        actions={demo ? <Button to={href('new')}>New board entry</Button> : undefined}>
+        <CurrentEmergency />
+        <BreakGlassCard />
+      </FormPage>
+      {demo ? <SampleList id="emergency" /> : null}
+    </div>
   )
 }
 
@@ -66,16 +46,14 @@ function BoardPage({ create }: { create: boolean }) {
 }
 
 /**
- * The Emergency workspace: `emergency` (the list: at a demo facility, the sample board), `emergency/break-glass` (the
- * live break-glass form as its own page, at every facility), `emergency/summary` (the open emergency patient's
- * read-only summary), and the sample board's `new` and `:recordId`.
+ * The Emergency workspace: `emergency` (break-glass access and, at a demo facility, the sample board),
+ * `emergency/summary` (the open emergency patient's read-only summary), and the sample board's `new` and `:recordId`.
  */
 export function EmergencyWorkspace() {
   return (
     <Workspace path="emergency" title="Emergency">
       <Routes>
         <Route index element={<EmergencyHome />} />
-        <Route path="break-glass" element={<BreakGlassPage />} />
         <Route path="summary" element={<ChartProvider><EmergencySummaryPage /></ChartProvider>} />
         <Route path="new" element={<BoardPage create />} />
         <Route path=":recordId" element={<BoardPage create={false} />} />

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { PatientNotification, PatientOrderRoute } from '../api'
 import { AccessPage, NotificationsPage } from '../routes/Portal'
-import { json, problem, profile, renderPortal } from './portalHarness'
+import { json, press, problem, profile, renderPortal, type Handler } from './portalHarness'
 import { forgetLateCorrectionServed } from '../lateCorrectionServed'
 
 /**
@@ -45,10 +45,18 @@ beforeEach(() => {
 })
 afterEach(() => { vi.unstubAllEnvs(); forgetLateCorrectionServed() })
 
+const TITLE = 'Tests and prescriptions sent elsewhere'
+/** Access & sharing, on its "Who has access" tab, where the orders sent elsewhere are listed. */
+async function whoHasAccess(answer: Handler) {
+  const view = renderPortal(<AccessPage />, answer)
+  await press(within(screen.getByRole('navigation', { name: 'Access' })).getByRole('button', { name: /^Who has access/ }))
+  return view
+}
+
 describe('orders sent to other facilities, on Access and consent', () => {
   it('lists each order with its clinician’s confirmation, filled, and exactly what the other facility will receive', async () => {
-    renderPortal(<AccessPage />, handler)
-    const card = (await screen.findByRole('heading', { name: 'Orders sent to other facilities' })).closest('.patient-card') as HTMLElement
+    await whoHasAccess(handler)
+    const card = await screen.findByRole('region', { name: TITLE })
     const order = await within(card).findByText('Haemoglobin from General Hospital to Yaba Diagnostics: waiting for Yaba Diagnostics to accept it')
     const item = order.closest('li')!
     expect(within(item).getByText('Yaba Diagnostics’s registered office: 12 Herbert Macaulay Way, Yaba, Lagos')).toBeTruthy()
@@ -58,17 +66,17 @@ describe('orders sent to other facilities, on Access and consent', () => {
     expect(within(item).getByText('What Yaba Diagnostics will receive')).toBeTruthy()
     const fields = [...item.querySelectorAll('dt')].map(term => `${term.textContent}: ${term.nextElementSibling?.textContent}`)
     expect(fields).toEqual([
-      'Test: Haemoglobin, LOINC 718-7', 'Priority: urgent', 'Specimen type: Venous blood',
-      'What your clinician wrote about it: Tired for two weeks', 'Requested on: 20 Oct 2026',
+      'Test: Haemoglobin, LOINC 718-7', 'Priority: urgent', 'Sample type: Venous blood',
+      'Your doctor’s note: Tired for two weeks', 'Requested on: 20 Oct 2026',
       'Requested by: Dr Ade Okon, licence MDCN MDCN/12345',
       'You: your name, sex, date of birth and the last 4 characters of your Health ID, once it accepts',
     ])
-    expect(within(item).getByText('If you did not agree to this, stop it now: Yaba Diagnostics has not accepted it yet.')).toBeTruthy()
+    expect(within(item).getByText('If you didn’t agree to this, stop it now, before Yaba Diagnostics accepts it.')).toBeTruthy()
   })
 
   it('stops an order still waiting, the patient’s only action', async () => {
     let calls = 0
-    const { sent: requests } = renderPortal(<AccessPage />, (path, method) => {
+    const { sent: requests } = await whoHasAccess((path, method) => {
       if (path === '/ehr/me/order-routes' && method === 'GET') {
         calls += 1
         return json({ items: [calls === 1 ? sent() : sent({ effectiveState: 'withdrawn', endedKind: 'patient', actions: [], version: 2 })] })
@@ -76,7 +84,7 @@ describe('orders sent to other facilities, on Access and consent', () => {
       return handler(path, method)
     })
     fireEvent.click(await screen.findByRole('button', { name: /^Stop it/ }))
-    expect(await screen.findByText('Stopped. Yaba Diagnostics can no longer accept it, and General Hospital is told.')).toBeTruthy()
+    expect(await screen.findByText('Stopped. Yaba Diagnostics can no longer accept it, and General Hospital has been told.')).toBeTruthy()
     expect(await screen.findByText('Haemoglobin from General Hospital to Yaba Diagnostics: you stopped it')).toBeTruthy()
     expect(requests.filter(request => request.method === 'POST')).toEqual([
       { path: `/ehr/me/order-routes/${ROUTE}/withdraw`, method: 'POST', body: { expectedVersion: 1 } }])
@@ -85,9 +93,9 @@ describe('orders sent to other facilities, on Access and consent', () => {
 
   it('says a Stop came too late, and reads the list again', async () => {
     stopped = problem(409, 'ORDER_ROUTE_NOT_PENDING', 'Not pending')
-    renderPortal(<AccessPage />, handler)
+    await whoHasAccess(handler)
     fireEvent.click(await screen.findByRole('button', { name: /^Stop it/ }))
-    expect(await screen.findByText('It can no longer be stopped here: Yaba Diagnostics has accepted it, or it has already ended. The list has been refreshed.')).toBeTruthy()
+    expect(await screen.findByText('It can’t be stopped now. Yaba Diagnostics has accepted it, or it has already ended. The list below is up to date.')).toBeTruthy()
   })
 
   it('offers no Stop once the other facility has accepted it, and says whom to contact', async () => {
@@ -97,18 +105,18 @@ describe('orders sent to other facilities, on Access and consent', () => {
         content: { medicationDisplay: 'Amoxicillin 500 mg capsules', doseQuantity: '500', doseUnit: 'mg', routeCode: 'oral',
           frequency: 'Three times daily', instructions: 'Take with food', startsOn: '2026-10-20', endsOn: '2026-10-27',
           prescribedAt: '2026-10-20T08:55:00.000Z', ordererName: 'Dr Ade Okon', ordererLicenceBody: null, ordererLicenceNumber: null } })] }
-    renderPortal(<AccessPage />, handler)
+    await whoHasAccess(handler)
     expect(await screen.findByText('Haemoglobin from General Hospital to Yaba Diagnostics: accepted by Yaba Diagnostics')).toBeTruthy()
     expect(screen.getByText('Amoxicillin 500 mg capsules from General Hospital to Yaba Diagnostics: dispensed by Yaba Diagnostics')).toBeTruthy()
     // "To stop it" is said while it is accepted only (item 3, B5); the check that it was them, while it may still be worked.
-    expect(screen.getAllByText('Yaba Diagnostics has accepted it. To stop it, contact General Hospital, who can cancel the order.')).toHaveLength(1)
+    expect(screen.getAllByText('Yaba Diagnostics has accepted it. To stop it, contact General Hospital.')).toHaveLength(1)
     expect(screen.getByText('If you haven’t been to Yaba Diagnostics for this test, tell Yaba Diagnostics or Health ID support straight away.')).toBeTruthy()
     expect(screen.getByText('If you haven’t been to Yaba Diagnostics for this medicine, and no one collected it for you, tell Yaba '
       + 'Diagnostics or Health ID support straight away.')).toBeTruthy()
     expect(screen.getAllByText('What Yaba Diagnostics received')).toHaveLength(2)
     const prescription = screen.getByText(/^Amoxicillin 500 mg capsules from/).closest('li')!
     expect([...prescription.querySelectorAll('dt')].map(term => `${term.textContent}: ${term.nextElementSibling?.textContent}`)).toEqual([
-      'Medicine: Amoxicillin 500 mg capsules', 'Dose: 500 mg', 'How it is taken: oral', 'How often: Three times daily',
+      'Medicine: Amoxicillin 500 mg capsules', 'Dose: 500 mg', 'How to take it: oral', 'How often: Three times daily',
       'Instructions: Take with food', 'Starts: 20 Oct 2026', 'Ends: 27 Oct 2026', 'Prescribed on: 20 Oct 2026', 'Prescribed by: Dr Ade Okon',
       'You: your name, sex, date of birth and the last 4 characters of your Health ID'])
     expect(screen.queryByRole('button', { name: /^Stop it/ })).toBeNull()
@@ -127,10 +135,10 @@ describe('orders sent to other facilities, on Access and consent', () => {
       sent({ id: 'f0000000-0000-4000-8000-000000000005', reference: '5A6B7C8D', content: blank, attestationText: null,
         attestedByName: null, enteredInError: true }),
       sent({ id: 'f0000000-0000-4000-8000-000000000004', reference: '4E5F6A7B' })] }
-    renderPortal(<AccessPage />, handler)
-    const withdrawn = (await screen.findByText('A test request from General Hospital to Yaba Diagnostics: withdrawn because your clinician changed the order')).closest('li')!
+    await whoHasAccess(handler)
+    const withdrawn = (await screen.findByText('A test request from General Hospital to Yaba Diagnostics: withdrawn because your doctor changed the order')).closest('li')!
     expect(within(withdrawn).getByText(/^Sent on 20 Oct 2026 · Reference 9C1B2D3E$/)).toBeTruthy()
-    expect(within(withdrawn).getByText('General Hospital marked this order as entered in error, so what it contained is no longer shown here.')).toBeTruthy()
+    expect(within(withdrawn).getByText('General Hospital marked this order as a mistake, so its details are no longer shown.')).toBeTruthy()
     expect(within(withdrawn).getByText('If you have questions about it, contact General Hospital.')).toBeTruthy()
     expect(within(withdrawn).queryByText(/received your name/)).toBeNull()
     expect(withdrawn.querySelectorAll('dt')).toHaveLength(0)
@@ -147,17 +155,17 @@ describe('orders sent to other facilities, on Access and consent', () => {
 
   it('is not shown where the backend has no such list (404)', async () => {
     routes = problem(404, 'NOT_FOUND', 'Cannot GET /api/v1/ehr/me/order-routes')
-    renderPortal(<AccessPage />, handler)
-    expect(await screen.findByRole('heading', { name: 'Access history' })).toBeTruthy()
-    await waitFor(() => expect(screen.queryByText('Loading your orders…')).toBeNull())
-    expect(screen.queryByRole('heading', { name: 'Orders sent to other facilities' })).toBeNull()
+    await whoHasAccess(handler)
+    expect(await screen.findByRole('heading', { name: 'No one has access now' })).toBeTruthy()
+    await waitFor(() => expect(screen.queryByRole('status', { name: 'Loading your orders' })).toBeNull())
+    expect(screen.queryByRole('heading', { name: TITLE })).toBeNull()
   })
 
   it('is not asked for on a main-v1 build', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'main-v1')
-    const { sent: requests } = renderPortal(<AccessPage />, handler)
-    expect(await screen.findByRole('heading', { name: 'Access history' })).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: 'Orders sent to other facilities' })).toBeNull()
+    const { sent: requests } = await whoHasAccess(handler)
+    expect(await screen.findByRole('heading', { name: 'No one has access now' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: TITLE })).toBeNull()
     expect(requests.some(request => request.path.startsWith('/ehr/me/order-routes'))).toBe(false)
   })
 })
@@ -176,7 +184,7 @@ describe('an order the receiving facility reports it accepted for someone else',
 
   it('says what the laboratory reported, what it had received, and what to do, with no Stop and no “To stop it”', async () => {
     routes = { items: [ended()] }
-    renderPortal(<AccessPage />, handler)
+    await whoHasAccess(handler)
     const order = await item('Haemoglobin from General Hospital to Yaba Diagnostics: ended: Yaba Diagnostics reports it accepted it for someone who was not you')
     expect(within(order).getByText('What Yaba Diagnostics received')).toBeTruthy()
     expect(within(order).getByText('Tired for two weeks')).toBeTruthy()
@@ -185,7 +193,7 @@ describe('an order the receiving facility reports it accepted for someone else',
         + 'It had received your name, sex, date of birth, the last 4 characters of your Health ID and the details above. It can no '
         + 'longer see them through this order.',
       'If you did give a sample at Yaba Diagnostics for this test, tell General Hospital.',
-      'If you still need this test, contact General Hospital: your clinician can send a new order.',
+      'If you still need this test, contact General Hospital. Your doctor can send a new order.',
       'If you didn’t give anyone your Health ID or date of birth and think someone used them, contact Health ID support.'])
     expect(order.textContent).not.toMatch(/marked as not yours|To stop it|haven’t been to/)
     expect(within(order).queryByRole('button', { name: /^Stop it/ })).toBeNull()
@@ -197,27 +205,30 @@ describe('an order the receiving facility reports it accepted for someone else',
       ended({ id: 'f0000000-0000-4000-8000-000000000002', kind: 'prescription', effectiveState: 'completed',
         completedAt: '2026-10-22T10:00:00.000Z', endedAt: '2026-10-23T10:00:00.000Z',
         content: { medicationDisplay: 'Amoxicillin 500 mg capsules', ordererName: 'Dr Ade Okon' } })] }
-    renderPortal(<AccessPage />, handler)
+    await whoHasAccess(handler)
     const test = await item('Haemoglobin from General Hospital to Yaba Diagnostics: ended: Yaba Diagnostics reports it accepted it for someone who was not you')
     expect(within(test).getByText('A result it recorded on this order belongs to that other person. It is marked as not yours and no '
-      + 'longer shows in your health record; the facilities keep it, marked, in their own records.')).toBeTruthy()
+      + 'longer shows in your health record. Both places keep it, marked, in their own records.')).toBeTruthy()
     const medicine = await item('Amoxicillin 500 mg capsules from General Hospital to Yaba Diagnostics: ended: Yaba Diagnostics reports it accepted it for someone who was not you')
     expect(paragraphs(medicine).slice(-5)).toEqual([
       'Yaba Diagnostics told Health ID that the person it accepted this prescription for was not you, so it ended it on 23 Oct 2026. '
         + 'It had received your name, sex, date of birth, the last 4 characters of your Health ID and the details above. It can no '
         + 'longer see them through this order.',
-      'It recorded the medicine as given on this order to that other person: that record has been cancelled.',
+      'It recorded the medicine as given to that other person. That record has been cancelled.',
       'If you did collect this medicine at Yaba Diagnostics, or someone collected it for you, tell General Hospital before you get another prescription.',
-      'If you still need this medicine, contact General Hospital: your clinician can send a new order.',
+      'If you still need this medicine, contact General Hospital. Your doctor can send a new order.',
       'If you didn’t give anyone your Health ID or date of birth and think someone used them, contact Health ID support.'])
   })
 
   it('keeps an order also marked entered in error redacted, saying only what the facility had received', async () => {
     routes = { items: [ended({ enteredInError: true, attestationText: null, attestedByName: null, content: { reference: '9C1B2D3E' } })] }
-    renderPortal(<AccessPage />, handler)
+    await whoHasAccess(handler)
     const order = await item('A test request from General Hospital to Yaba Diagnostics: ended: Yaba Diagnostics reports it accepted it for someone who was not you')
-    expect(paragraphs(order)).toEqual([
-      'General Hospital marked this order as entered in error, so what it contained is no longer shown here.',
+    // After its title, the receiving facility's office and when it was sent.
+    expect(paragraphs(order).slice(1, 3)).toEqual(['Yaba Diagnostics’s registered office: 12 Herbert Macaulay Way, Yaba, Lagos',
+      'Sent on 20 Oct 2026 · Reference 9C1B2D3E'])
+    expect(paragraphs(order).slice(3)).toEqual([
+      'General Hospital marked this order as a mistake, so its details are no longer shown.',
       'Yaba Diagnostics told Health ID that the person it accepted this test request for was not you, so it ended it on 21 Oct 2026. '
         + 'It had received your name, sex, date of birth and the last 4 characters of your Health ID. It can no longer see them '
         + 'through this order.',
@@ -230,7 +241,7 @@ describe('an order the receiving facility reports it accepted for someone else',
       endedAt: '2026-10-23T10:00:00.000Z', actions: [] }
     routes = { items: [sent({ ...done, endedKind: 'support' }),
       sent({ ...done, id: 'f0000000-0000-4000-8000-000000000002', endedKind: 'receiving_released' })] }
-    renderPortal(<AccessPage />, handler)
+    await whoHasAccess(handler)
     expect(await screen.findByText('Haemoglobin from General Hospital to Yaba Diagnostics: Yaba Diagnostics sent the result back to '
       + 'General Hospital; Health ID support has since closed it')).toBeTruthy()
     expect(screen.getByText('Haemoglobin from General Hospital to Yaba Diagnostics: Yaba Diagnostics sent the result back to General '
@@ -247,7 +258,7 @@ describe('notices about orders sent to other facilities', () => {
       metadata: { routeId: ROUTE, kind: 'prescription', orderingFacilityName: 'General Hospital', receivingFacilityName: 'Medplus Yaba' },
       readAt: null, createdAt: '2026-10-24T09:00:00Z' }]))
     const [item] = await screen.findAllByRole('listitem')
-    expect(item!.querySelector('strong')?.textContent).toBe('Medplus Yaba accepted your prescription for someone who was not you, and has ended it')
+    expect(item!.querySelector('p')?.textContent).toBe('Medplus Yaba accepted your prescription for someone who was not you, and has ended it')
     expect(document.body.textContent).not.toMatch(/ORDER.ROUTE|WRONG.PATIENT/)
   })
 
@@ -263,15 +274,15 @@ describe('notices about orders sent to other facilities', () => {
       notice('ORDER_ROUTE_ACCEPT_LOCKED', 'lab_request', '5'), notice('ORDER_ROUTE_CANCELLED', 'other', '6'),
     ]))
     const items = await screen.findAllByRole('listitem')
-    expect(items.map(item => item.querySelector('strong')?.textContent)).toEqual([
-      'Your test request was sent to Yaba Diagnostics: see it in Access and consent',
+    expect(items.map(item => item.querySelector('p')?.textContent)).toEqual([
+      'Your test request was sent to Yaba Diagnostics. See it in Access & sharing',
       'Your prescription to Yaba Diagnostics was withdrawn',
       'Yaba Diagnostics accepted your test request',
-      'Yaba Diagnostics could not take your prescription',
-      'Yaba Diagnostics could not confirm it was you, so it can’t take your test request. Ask your clinician to send it again',
+      'Yaba Diagnostics couldn’t take your prescription',
+      'Yaba Diagnostics couldn’t confirm it was you, so it can’t take your test request. Ask your doctor to send it again',
       'Your test request or prescription at Yaba Diagnostics was cancelled',
     ])
-    expect(within(items[0]!).getByText(/^Order to another facility · /)).toBeTruthy()
+    expect(within(items[0]!).getByText(/^Test or prescription · /)).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/ORDER.ROUTE|order-route|9c1b2d3e/)
   })
 })
@@ -290,7 +301,7 @@ describe('a late report, and until when the receiving facility can correct it (D
 
   it('says the ending, then the late report, and what was withdrawn, with support among whom to tell (CL4)', async () => {
     routes = { items: [sent({ ...done, ...late })] }
-    renderPortal(<AccessPage />, handler)
+    await whoHasAccess(handler)
     const order = await item('Haemoglobin from General Hospital to Yaba Diagnostics: Yaba Diagnostics sent the result back to General '
       + 'Hospital; Health ID support has since closed it; Yaba Diagnostics has since reported it accepted it for someone who was not you')
     expect(within(order).getByText('What Yaba Diagnostics received')).toBeTruthy()
@@ -298,9 +309,9 @@ describe('a late report, and until when the receiving facility can correct it (D
       'Yaba Diagnostics told Health ID on 24 Nov 2026 that the person it accepted this test request for was not you. It had '
         + 'received your name, sex, date of birth, the last 4 characters of your Health ID and the details above.',
       'A result it recorded on this order belongs to that other person. It is marked as not yours and no longer shows in your '
-        + 'health record; the facilities keep it, marked, in their own records.',
+        + 'health record. Both places keep it, marked, in their own records.',
       'If you did give a sample at Yaba Diagnostics for this test, tell General Hospital and Health ID support.',
-      'If you still need this test, contact General Hospital: your clinician can send a new order.',
+      'If you still need this test, contact General Hospital. Your doctor can send a new order.',
       'If you didn’t give anyone your Health ID or date of birth and think someone used them, contact Health ID support.'])
     expect(order.textContent).not.toMatch(/haven’t been to|so it ended it on/)
   })
@@ -308,16 +319,19 @@ describe('a late report, and until when the receiving facility can correct it (D
   it('tells the patient, when the order is also marked entered in error, only what names no content (CL7, CT9)', async () => {
     routes = { items: [sent({ ...done, ...late, kind: 'prescription', enteredInError: true, attestationText: null, attestedByName: null,
       content: { reference: '9C1B2D3E' } })] }
-    renderPortal(<AccessPage />, handler)
+    await whoHasAccess(handler)
     const order = await item(/^A prescription from General Hospital to Yaba Diagnostics: dispensed by Yaba Diagnostics; Health ID support has since closed it; Yaba Diagnostics has since reported/)
-    expect(paragraphs(order)).toEqual([
-      'General Hospital marked this order as entered in error, so what it contained is no longer shown here.',
+    // After its title, the receiving facility's office and when it was sent.
+    expect(paragraphs(order).slice(1, 3)).toEqual(['Yaba Diagnostics’s registered office: 12 Herbert Macaulay Way, Yaba, Lagos',
+      'Sent on 20 Oct 2026 · Reference 9C1B2D3E'])
+    expect(paragraphs(order).slice(3)).toEqual([
+      'General Hospital marked this order as a mistake, so its details are no longer shown.',
       'Yaba Diagnostics told Health ID on 24 Nov 2026 that the person it accepted this prescription for was not you. It had '
         + 'received your name, sex, date of birth and the last 4 characters of your Health ID.',
-      'It recorded the medicine as given on this order to that other person: that record has been cancelled.',
+      'It recorded the medicine as given to that other person. That record has been cancelled.',
       'If you did collect this medicine at Yaba Diagnostics, or someone collected it for you, tell General Hospital and Health ID '
         + 'support before you get another prescription.',
-      'If you still need this medicine, contact General Hospital: your clinician can send a new order.',
+      'If you still need this medicine, contact General Hospital. Your doctor can send a new order.',
       'If you have questions about it, contact General Hospital.'])
     expect(order.textContent).not.toMatch(/details above/)
     expect(order.querySelector('dl')).toBeNull()
@@ -332,13 +346,13 @@ describe('a late report, and until when the receiving facility can correct it (D
       sent({ ...done, id: 'f0000000-0000-4000-8000-000000000003', reference: null, wrongPatient: null, correctableUntil: null,
         content: { testDisplay: 'Lipid profile', ordererName: 'Dr Ade Okon' } }),
     ] }
-    renderPortal(<AccessPage />, handler)
+    await whoHasAccess(handler)
     const test = await item('Haemoglobin from General Hospital to Yaba Diagnostics: accepted by Yaba Diagnostics')
     expect(within(test).getByText('If you haven’t been to Yaba Diagnostics for this test, tell Yaba Diagnostics, General Hospital or '
-      + 'Health ID support straight away, with the reference 9C1B2D3E: Yaba Diagnostics can correct it until 19 Apr 2027, 11:00.')).toBeTruthy()
+      + 'Health ID support straight away, with the reference 9C1B2D3E. Yaba Diagnostics can correct it until 19 Apr 2027, 11:00.')).toBeTruthy()
     const medicine = await item(/^Amoxicillin 500 mg capsules from General Hospital/)
     expect(within(medicine).getByText('If you haven’t been to Yaba Diagnostics for this medicine, and no one collected it for you, '
-      + 'tell Yaba Diagnostics, General Hospital or Health ID support straight away, with the reference 9C1B2D3E: Yaba Diagnostics '
+      + 'tell Yaba Diagnostics, General Hospital or Health ID support straight away, with the reference 9C1B2D3E. Yaba Diagnostics '
       + 'can correct it until 19 Apr 2027, 11:00.')).toBeTruthy()
     // Past its date, with no report: tell the ordering facility.
     const past = await item(/^Lipid profile from General Hospital/)
@@ -348,7 +362,7 @@ describe('a late report, and until when the receiving facility can correct it (D
   it('tells the patient to tell the ordering facility once the receiving facility was released, whatever date it carries (D17-3)', async () => {
     routes = { items: [sent({ ...done, endedAt: '2026-10-23T10:00:00.000Z', endedKind: 'receiving_released', wrongPatient: null,
       correctableUntil: '2027-04-19T10:00:00.000Z' })] }
-    renderPortal(<AccessPage />, handler)
+    await whoHasAccess(handler)
     const test = await item(/^Haemoglobin from General Hospital to Yaba Diagnostics/)
     expect(within(test).getByText('If you haven’t been to Yaba Diagnostics for this test, tell General Hospital.')).toBeTruthy()
     expect(test.textContent).not.toMatch(/can correct it until/)
@@ -359,7 +373,7 @@ describe('a late report, and until when the receiving facility can correct it (D
       sent({ ...done, endedAt: '2026-10-23T10:00:00.000Z', endedKind: 'entered_in_error', enteredInError: true, attestationText: null,
         attestedByName: null, content: { reference: '9C1B2D3E' }, wrongPatient: null, correctableUntil: '2027-04-19T10:00:00.000Z' }),
     ] }
-    renderPortal(<AccessPage />, handler)
+    await whoHasAccess(handler)
     const order = await item(/^A test request from General Hospital to Yaba Diagnostics/)
     expect(within(order).getByText(/^If you haven’t been to Yaba Diagnostics for this test, tell Yaba Diagnostics, General Hospital or Health ID support straight away, with the reference 9C1B2D3E/)).toBeTruthy()
   })
@@ -367,7 +381,7 @@ describe('a late report, and until when the receiving facility can correct it (D
   it('keeps every line as it was without the new fields', async () => {
     routes = { items: [sent({ ...done, endedAt: '2026-10-23T10:00:00.000Z', endedKind: 'support' }),
       sent({ ...done, id: 'f0000000-0000-4000-8000-000000000002', effectiveState: 'accepted', completedAt: null })] }
-    renderPortal(<AccessPage />, handler)
+    await whoHasAccess(handler)
     await screen.findByText(/Health ID support has since closed it$/)
     expect(screen.getByText('If you haven’t been to Yaba Diagnostics for this test, tell Yaba Diagnostics or Health ID support straight away.')).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/can correct it until|has since reported|and Health ID support\./)
@@ -379,7 +393,7 @@ describe('a late report, and until when the receiving facility can correct it (D
       metadata: { routeId: ROUTE, kind: 'lab_request', orderingFacilityName: 'General Hospital', receivingFacilityName: 'Yaba Diagnostics' },
       readAt: null, createdAt: '2026-11-24T09:00:00Z' }]))
     const [entry] = await screen.findAllByRole('listitem')
-    expect(entry!.querySelector('strong')?.textContent).toBe('Yaba Diagnostics reports that it accepted your test request for someone who was not you')
+    expect(entry!.querySelector('p')?.textContent).toBe('Yaba Diagnostics reports that it accepted your test request for someone who was not you')
     expect(document.body.textContent).not.toMatch(/ORDER.ROUTE|CORRECTED/)
   })
 })
@@ -392,33 +406,33 @@ describe('a late report, and until when the receiving facility can correct it (D
 describe('an order the receiving facility couldn’t complete (D18)', () => {
   const unable = { effectiveState: 'cancelled', acceptedAt: '2026-10-21T10:00:00.000Z', endedAt: '2026-10-23T10:00:00.000Z',
     endedKind: 'receiving_unable', actions: [], correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null }
-  const AGAIN = 'If you still need this test, contact General Hospital: your clinician can send a new order.'
+  const AGAIN = 'If you still need this test, contact General Hospital. Your doctor can send a new order.'
 
   it('says the facility couldn’t complete it and to contact the clinic, never why, and keeps the “haven’t been” line', async () => {
     routes = { items: [sent(unable as Partial<PatientOrderRoute>)] }
-    renderPortal(<AccessPage />, handler)
+    await whoHasAccess(handler)
     const item = (await screen.findByText('Haemoglobin from General Hospital to Yaba Diagnostics: Yaba Diagnostics couldn’t '
       + 'complete it')).closest('li') as HTMLElement
     const lines = [...item.querySelectorAll('p')].map(line => line.textContent)
     expect(lines.filter(line => line === AGAIN)).toHaveLength(1)
     expect(lines.at(-1)).toBe('If you haven’t been to Yaba Diagnostics for this test, tell Yaba Diagnostics, General Hospital or '
-      + 'Health ID support straight away, with the reference 9C1B2D3E: Yaba Diagnostics can correct it until 19 Apr 2027, 11:00.')
+      + 'Health ID support straight away, with the reference 9C1B2D3E. Yaba Diagnostics can correct it until 19 Apr 2027, 11:00.')
     expect(item.textContent).not.toMatch(/run out|reason|stop it now|Stop it/)
   })
 
   it('says “medicine” for a prescription', async () => {
     routes = { items: [sent({ ...(unable as Partial<PatientOrderRoute>), kind: 'prescription',
       content: { medicationDisplay: 'Amoxicillin 500 mg capsules' } })] }
-    renderPortal(<AccessPage />, handler)
+    await whoHasAccess(handler)
     const item = (await screen.findByText(/^Amoxicillin 500 mg capsules from General Hospital to Yaba Diagnostics: Yaba Diagnostics couldn’t complete it$/))
       .closest('li') as HTMLElement
-    expect(within(item).getByText('If you still need this medicine, contact General Hospital: your clinician can send a new order.')).toBeTruthy()
+    expect(within(item).getByText('If you still need this medicine, contact General Hospital. Your doctor can send a new order.')).toBeTruthy()
   })
 
   it('after a later report, reads “ended at” the facility, and says to contact the clinic exactly once', async () => {
     routes = { items: [sent({ ...(unable as Partial<PatientOrderRoute>), correctableUntil: null,
       wrongPatient: { reportedAt: '2026-10-25T09:00:00.000Z', late: true } } as Partial<PatientOrderRoute>)] }
-    renderPortal(<AccessPage />, handler)
+    await whoHasAccess(handler)
     const item = (await screen.findByText('Haemoglobin from General Hospital to Yaba Diagnostics: ended at Yaba Diagnostics; Yaba '
       + 'Diagnostics has since reported it accepted it for someone who was not you')).closest('li') as HTMLElement
     expect([...item.querySelectorAll('p')].map(line => line.textContent).filter(line => line === AGAIN)).toHaveLength(1)
@@ -435,9 +449,9 @@ describe('an order the receiving facility couldn’t complete (D18)', () => {
           receivingFacilityName: 'Medplus Yaba' }, readAt: null, createdAt: '2026-10-23T10:00:00Z' },
     ]))
     const items = await screen.findAllByRole('listitem')
-    expect(items.map(entry => entry.querySelector('strong')?.textContent)).toEqual([
-      'Yaba Diagnostics couldn’t complete your test request: see it in Access and consent',
-      'Medplus Yaba couldn’t complete your prescription: see it in Access and consent'])
+    expect(items.map(entry => entry.querySelector('p')?.textContent)).toEqual([
+      'Yaba Diagnostics couldn’t complete your test request. See it in Access & sharing',
+      'Medplus Yaba couldn’t complete your prescription. See it in Access & sharing'])
     expect(document.body.textContent).not.toMatch(/ORDER.ROUTE|NOT.COMPLETED/)
   })
 })

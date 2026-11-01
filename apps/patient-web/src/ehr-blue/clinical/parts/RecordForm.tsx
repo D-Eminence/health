@@ -25,6 +25,12 @@ export interface FieldDef {
   readonly inputMode?: 'text' | 'numeric' | 'decimal' | 'tel' | 'email'
   /** Spans both columns; textareas always do. */
   readonly full?: boolean
+  /** Fields with the same `row`, one after another, sit side by side (a dose and its unit). */
+  readonly row?: string
+  /** Applied to text as it is typed (".5" becomes "0.5": a decimal is never written without its leading zero). */
+  readonly normalise?: (value: string) => string
+  /** Shown only when this answers true for the form's values (a free-text unit once "Other" is chosen). */
+  readonly when?: (values: FormValues) => boolean
 }
 
 export type FormValue = string | boolean | readonly string[]
@@ -57,6 +63,7 @@ function isBlank(value: FormValue | undefined) {
 export function checkFields(fields: readonly FieldDef[], values: FormValues): FieldErrors {
   const errors: Record<string, string> = {}
   for (const field of fields) {
+    if (field.when && !field.when(values)) continue
     const value = values[field.key]
     if (field.required && isBlank(value)) errors[field.key] = COMPLETE_FIELD
     else if (kindOf(field) === 'email' && typeof value === 'string' && value && !/^\S+@\S+\.\S+$/.test(value)) errors[field.key] = VALID_EMAIL
@@ -69,8 +76,15 @@ export function checkFields(fields: readonly FieldDef[], values: FormValues): Fi
  * the submit button. Checks run on submit; the first problem gets focus; a field's problem clears as it changes.
  * `onSubmit` may answer a form error or field errors from the server, shown in the same places.
  */
-export function RecordForm({ fields, initial, submitLabel = 'Save record', busyLabel = 'Saving…', onSubmit, validate, disabled = false, footer, children, className }: {
+export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 'Saving…', onSubmit, validate, confirm, disabled = false, footer, children, className, submitVariant = 'primary' }: {
   fields: readonly FieldDef[]
+  /** A page with another primary action makes this form's submit secondary (one focal point per screen). */
+  submitVariant?: 'primary' | 'secondary'
+  /**
+   * Asked after the checks pass and before anything is sent (confirm the patient): false keeps the values and sends
+   * nothing. While it is asked, the form is not busy.
+   */
+  confirm?: (values: FormValues) => Promise<boolean>
   initial?: FormValues
   submitLabel?: string
   busyLabel?: string
@@ -122,6 +136,12 @@ export function RecordForm({ fields, initial, submitLabel = 'Save record', busyL
       return
     }
     sending.current = true
+    if (confirm) {
+      let confirmed = false
+      try { confirmed = await confirm(values) }
+      finally { if (!confirmed) sending.current = false }
+      if (!confirmed) return
+    }
     setBusy(true)
     try {
       const outcome = await onSubmit(values)
@@ -146,27 +166,42 @@ export function RecordForm({ fields, initial, submitLabel = 'Save record', busyL
   return (
     <form className={['hid-ehr-clinical-form', className].filter(Boolean).join(' ')} noValidate onSubmit={submit}>
       <div className="hid-ehr-clinical-form-grid">
-        {fields.map(field => (
-          <FieldControl
-            key={field.key}
-            id={`${id}-${field.key}`}
-            field={field}
-            value={values[field.key] ?? emptyValue(field)}
-            error={errors[field.key]}
-            disabled={disabled}
-            register={register(field.key)}
-            onChange={value => change(field.key, value)}
-          />
-        ))}
+        {rowsOf(fields.filter(field => !field.when || field.when(values))).map(group => {
+          const controls = group.map(field => (
+            <FieldControl
+              key={field.key}
+              id={`${id}-${field.key}`}
+              field={field}
+              value={values[field.key] ?? emptyValue(field)}
+              error={errors[field.key]}
+              disabled={disabled}
+              register={register(field.key)}
+              onChange={value => change(field.key, typeof value === 'string' && field.normalise ? field.normalise(value) : value)}
+            />
+          ))
+          return group.length > 1 ? <div key={group[0]!.key} className="hid-ehr-clinical-form-row">{controls}</div> : controls
+        })}
       </div>
       {children}
       {formError ? <ErrorBox>{formError}</ErrorBox> : null}
-      <div className="hid-ehr-clinical-form-footer">
-        <EhrButton type="submit" busy={busy} disabled={disabled}>{busy ? busyLabel : submitLabel}</EhrButton>
+      {/* [secondary…, primary]: the primary rightmost on a computer, last (bottom, in thumb reach) on a phone. */}
+      <div className="hid-ehr-clinical-form-footer hid-ehr-clinical-form-footer-sticky">
         {footer}
+        <EhrButton type="submit" variant={submitVariant} busy={busy} disabled={disabled}>{busy ? busyLabel : submitLabel}</EhrButton>
       </div>
     </form>
   )
+}
+
+/** Fields in display order, those sharing a `row` grouped. */
+function rowsOf(fields: readonly FieldDef[]): FieldDef[][] {
+  const groups: FieldDef[][] = []
+  for (const field of fields) {
+    const last = groups.at(-1)
+    if (field.row && last && last[0]!.row === field.row) last.push(field)
+    else groups.push([field])
+  }
+  return groups
 }
 
 function Label({ field }: { field: FieldDef }) {

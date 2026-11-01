@@ -11,6 +11,7 @@ import { clinicianApplicationApi, type ClinicianAccountView, type ClinicianActiv
   type ClinicianAuthenticatorSetup } from '../clinicianApplicationApi'
 import { ACCOUNT_INELIGIBLE, FACTOR_UNPROVEN, MAINTENANCE, STAFF_SIGN_IN_REQUIRED } from './copy'
 import { PrimaryButton, StepError, StepHeading, TextButton, shownError } from './ui'
+import { buttonClass } from '../../kasuwa/ui'
 
 /**
  * The authenticator an applicant sets up, or verifies, before any review
@@ -228,11 +229,11 @@ function EnrolStep({ carried, onMoved, context, email, skip, onSent }: StepProps
     <StepHeading id="clinician-mfa-enrol-title" focus>Set up your authenticator</StepHeading>
     {context === 'signup'
       ? <p className="patient-field-hint">One more step: set up an authenticator app. First we'll email another 6-digit code to {email} to
-        confirm it's you setting it up. HID can't review your application until this is done.</p>
+        confirm it's you setting it up. We can't review your application until this is done.</p>
       : <p className="patient-field-hint">Set up an authenticator app to send your application for review. First we'll email a 6-digit code
         to {email} to confirm it's you setting it up.</p>}
-    <p className="patient-field-hint">You'll need an authenticator app on your phone. HID administrators will ask you to read a code from it
-      when they call you, and you'll use it to sign in once your access is approved.</p>
+    <p className="patient-field-hint">You'll need an authenticator app on your phone. When Health ID calls you, we'll ask you to read a code
+      from it. You'll also use it to sign in once you're approved.</p>
     <StepError error={problems.error} />
     <PrimaryButton id="clinician-mfa-send" onClick={() => void send()} disabled={pending}>{pending ? 'Sending…' : 'Email me a code'}</PrimaryButton>
     {skip && <TextButton onClick={skip.onSkip} disabled={pending}>{skip.label}</TextButton>}
@@ -275,7 +276,7 @@ function EmailCodeStep({ carried, onMoved, email, expiresAt, onStarted }: StepPr
       <Input id={control} value={code} onChange={event => setCode(sixDigitCode(event.target.value))} {...SIX_DIGIT_CODE_FIELD} maxLength={6}
         required {...problemProps(problems.problem, control)} /></Field>
     <Deadline expiresAt={deadline} />
-    <button type="submit" className="patient-primary-button" disabled={pending !== null || !isSixDigitCode(code)}>
+    <button type="submit" className={buttonClass({ variant: 'primary', block: true })} disabled={pending !== null || !isSixDigitCode(code)}>
       {pending === 'check' ? 'Checking…' : 'Continue'}</button>
     <p role="status" className="patient-field-hint">{sent > 0 && <span key={sent}>A new code was sent.</span>}</p>
     <TextButton onClick={() => void sendAgain()} disabled={pending !== null}>{pending === 'send' ? 'Sending…' : 'Send a new code'}</TextButton>
@@ -317,7 +318,7 @@ function SetupStep({ carried, onMoved, setup, onActivated }: StepProps & {
       <Input id={control} value={code} onChange={event => setCode(sixDigitCode(event.target.value))} {...SIX_DIGIT_CODE_FIELD} maxLength={6}
         required {...problemProps(problems.problem, control)} /></Field>
     <Deadline expiresAt={setup.expiresAt} />
-    <button type="submit" className="patient-primary-button" disabled={pending || !isSixDigitCode(code)}>
+    <button type="submit" className={buttonClass({ variant: 'primary', block: true })} disabled={pending || !isSixDigitCode(code)}>
       {pending ? 'Activating…' : 'Activate authenticator'}</button>
   </form>
 }
@@ -344,7 +345,7 @@ function RecoveryStep({ activation, doneLabel, onDone }: {
 }
 
 function CodesButton({ primary, ...rest }: { primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button type="button" className={primary ? 'patient-primary-button' : 'patient-text-button'} {...rest} />
+  return <button type="button" className={primary ? buttonClass({ variant: 'primary', block: true }) : buttonClass({ variant: 'link', className: 'self-start' })} {...rest} />
 }
 
 function VerifyStep({ carried, onMoved, onVerified }: StepProps & { onVerified(account: ClinicianAccountView): void }) {
@@ -386,7 +387,7 @@ function VerifyStep({ carried, onMoved, onVerified }: StepProps & { onVerified(a
       : <Field label="Recovery code" htmlFor="clinician-mfa-recovery-code" error={problemText(problems.problem, 'clinician-mfa-recovery-code')} required>
         <Input id="clinician-mfa-recovery-code" value={recoveryCode} onChange={event => setRecoveryCode(event.target.value)} autoComplete="off"
           spellCheck={false} maxLength={16} required {...problemProps(problems.problem, 'clinician-mfa-recovery-code')} /></Field>}
-    <button type="submit" className="patient-primary-button" disabled={pending || !valid}>{pending ? 'Verifying…' : 'Verify'}</button>
+    <button type="submit" className={buttonClass({ variant: 'primary', block: true })} disabled={pending || !valid}>{pending ? 'Verifying…' : 'Verify'}</button>
     <TextButton onClick={switchMode} disabled={pending}>{mode === 'totp' ? 'Use a recovery code instead' : 'Use my authenticator app instead'}</TextButton>
     <p className="patient-field-hint">Lost your authenticator and your recovery codes? Contact HID support: it can't be reset from this page.</p>
   </form>
@@ -430,6 +431,6 @@ function BlockedStep({ message, signIn }: { message: string; signIn: boolean }) 
   return <section className="patient-form" aria-labelledby="clinician-mfa-blocked-title">
     <StepHeading id="clinician-mfa-blocked-title" focus>Your authenticator can't be set up here</StepHeading>
     <p role="alert" className="patient-inline-error">{message}</p>
-    {signIn && <div><Link className="patient-primary-button" to="/provider/sign-in">Sign in to the provider portal</Link></div>}
+    {signIn && <div><Link className={buttonClass({ variant: 'primary', block: true })} to="/provider/sign-in">Sign in to the provider portal</Link></div>}
   </section>
 }
