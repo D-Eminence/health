@@ -1013,6 +1013,25 @@ describe('work from another facility', () => {
     expect(screen.queryByRole('button', { name: 'Collect sample' })).toBeNull()
   })
 
+  // An ended order takes away only the permissions that write; reading a result's history is not one of them, so it
+  // stays, as on today's Laboratory page.
+  it('still offers and reads the result history on an ended order, with lab.result.released.read', async () => {
+    as(PROCESSING)
+    const result = publishedResult()
+    api.labWorkItems.mockResolvedValue(answer([routed({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123', specimenStatuses: ['received'],
+      orderRoute: routeCard({ effectiveState: 'cancelled', access: 'read', endedKind: 'order_changed' }) as LabWorkItem['orderRoute'] })]))
+    api.labAccession.mockResolvedValue(accession([specimen('received')]))
+    api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
+    api.labResultHistory.mockResolvedValue(result)
+    renderPage()
+    await openRecord()
+    expect(screen.getByText('This order from another facility has ended, so nothing more can be recorded on it. You can still read what was recorded.')).toBeTruthy()
+    const history = (await screen.findByRole('heading', { name: /^Preserved versions & amendments/ })).closest('section') as HTMLElement
+    fireEvent.click(within(history).getByRole('button', { name: 'View result history' }))
+    expect(await within(history).findByText('Version 1 · released')).toBeTruthy()
+    expect(api.labResultHistory).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'result-1')
+  })
+
   it('says work on orders from other facilities is paused', async () => {
     api.labWorkItems.mockResolvedValue(answer([routed()], { crossFacilityWork: false }))
     renderPage()
