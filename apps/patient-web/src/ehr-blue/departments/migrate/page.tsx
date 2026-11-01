@@ -1,7 +1,7 @@
 import type { EhrBluePage } from '../types'
 import { DeptUnavailable } from '../parts/DeptPage'
 import { UploadIcon } from '../parts/icons'
-import { Migrate } from './Migrate'
+import { Migrate, NO_DOCUMENT_CAPTURE } from './Migrate'
 
 export const migratePage: EhrBluePage = {
   path: 'ocr',
@@ -11,6 +11,6 @@ export const migratePage: EhrBluePage = {
   status: 'live',
   icon: <UploadIcon />,
   element: <Migrate />,
-  // Opened by its address without the permission: today's own words (staff/routes/Operations.tsx Document OCR), and nothing is read.
-  refusal: <DeptUnavailable title="Document OCR unavailable" message="This facility membership needs OCR job read permission." />,
+  // Opened by its address without the permission: the page's own refusal, in the same words as on the page, and nothing is read.
+  refusal: <DeptUnavailable title="Document OCR unavailable" message={NO_DOCUMENT_CAPTURE} />,
 }

@@ -18,7 +18,12 @@ import { Results } from './Results'
  * one group; in a hospital, the sidebar's one Laboratory item opens them as tabs.
  */
 const GROUP = 'Laboratory'
-const LabUnavailable = () => <DeptUnavailable title="Laboratory unavailable" message="This facility membership needs lab work-item read permission." />
+/**
+ * The refusal at the Laboratory's addresses for a role without lab work. Screens name no permission (the owner's rule),
+ * so today's words, which named the one lacking, give way to the plain sentence the Pharmacy's refusal now uses.
+ */
+const LabUnavailable = () => <DeptUnavailable title="Laboratory unavailable"
+  message="Your role at this facility doesn’t include lab work. Ask your facility administrator." />
 const icon = (I: typeof Plus) => <I aria-hidden strokeWidth={1.8} />
 
 /** Listed in a hospital's sidebar only: a lab on its own lists its six pages instead. */
@@ -40,7 +45,7 @@ export const laboratoryPage: EhrBluePage = {
   element: <LabHome />,
   ownTab: false,
   listed: inHospital,
-  // Opened by its address without the permission: today's own words (staff/routes/Operations.tsx Laboratory), and nothing is read.
+  // Opened by its address without the permission: the Laboratory's own refusal, and nothing is read.
   refusal: <LabUnavailable />,
 }
 

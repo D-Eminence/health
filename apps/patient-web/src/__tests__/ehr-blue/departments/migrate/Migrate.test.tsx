@@ -30,6 +30,10 @@ vi.mock('../../../../staff/App', async () => {
 })
 
 const ALL = ['ocr.job.read', 'ocr.job.write', 'ocr.validation.write', 'ocr.patient.confirm', 'ocr.publication.write']
+/** Document OCR's refusal, at its address and on the page, in the words of the Pharmacy's. */
+const OCR_REFUSAL = 'Your role at this facility doesn’t include document capture. Ask your facility administrator.'
+/** A permission's name, Identity's code or the old "membership needs … permission" words: none belongs on a screen. */
+const PERMISSION_WORDS = /permission|membership|OCR job read|ocr\.job\.read/i
 const PATIENT = 'a0000000-0000-4000-8000-000000000001'
 const DOCUMENT = 'd0000000-0000-4000-8000-000000000001'
 const OTHER_DOCUMENT = 'd0000000-0000-4000-8000-0000000000b2'
@@ -109,12 +113,19 @@ describe('Migrate page entry', () => {
     expect(migratePage).toMatchObject({ path: 'ocr', group: 'Network & Services', label: 'Document OCR', permission: 'ocr.job.read', status: 'live' })
   })
 
-  it('refuses a membership without OCR job read, even with document read and write, and reads nothing', () => {
+  it('refuses at its address in plain words that name no permission', () => {
+    renderDept(<>{migratePage.refusal}</>)
+    expect(screen.getByRole('heading', { level: 1, name: 'Document OCR unavailable' })).toBeTruthy()
+    expect(screen.getByText(OCR_REFUSAL)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
+  })
+
+  it('refuses a membership without OCR job read, even with document read and write, in plain words, and reads nothing', () => {
     session.permissions = ['ehr.document.read', 'ehr.document.write', 'ocr.job.write']
     renderMigrate()
     expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Document OCR'])
-    expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([
-      'Permission denied. This membership or branch cannot open this module: it needs OCR job read permission.'])
+    expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([OCR_REFUSAL])
+    expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
     expect(screen.queryByRole('button', { name: 'Find job' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Patient documents' })).toBeNull()
