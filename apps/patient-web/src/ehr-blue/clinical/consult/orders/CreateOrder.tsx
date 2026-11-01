@@ -39,14 +39,15 @@ const DOSE_NUMBER = /^\d+(\.\d{1,4})?$/
  * may both be left blank ("as directed", a cream applied thinly): only one without the other is refused (DOSE_PAIR,
  * staff/routes/Clinical.tsx:505-510, :567).
  */
+// Today's labels and placeholders, word for word (Clinical.tsx:567); the unit is picked from a list.
 const PRESCRIPTION_FIELDS: readonly FieldDef[] = [
-  { key: 'medicationDisplay', label: 'Medicine', required: true, maxLength: 500 },
-  { key: 'doseQuantity', label: 'Dose', inputMode: 'decimal', placeholder: '0.5', maxLength: 12, row: 'dose', normalise: leadingZero },
-  { key: 'doseUnitChoice', label: 'Unit', row: 'dose',
+  { key: 'medicationDisplay', label: 'Medication', required: true, maxLength: 500 },
+  { key: 'doseQuantity', label: 'Dose quantity', inputMode: 'decimal', placeholder: '0.5', maxLength: 12, row: 'dose', normalise: leadingZero },
+  { key: 'doseUnitChoice', label: 'Dose unit', row: 'dose',
     choices: [...DOSE_UNITS.map(unit => ({ value: unit, label: unit })), { value: OTHER_UNIT, label: 'Other…' }] },
   { key: 'doseUnit', label: 'Other unit', required: true, maxLength: 80, when: values => values.doseUnitChoice === OTHER_UNIT },
-  { key: 'routeCode', label: 'Route', placeholder: 'Oral', maxLength: 100 },
-  { key: 'frequency', label: 'How often', required: true, placeholder: 'Twice daily', maxLength: 240 },
+  { key: 'routeCode', label: 'Route code', placeholder: 'oral', maxLength: 100 },
+  { key: 'frequency', label: 'Frequency', required: true, placeholder: 'Twice daily', maxLength: 240 },
   { key: 'instructions', label: 'Instructions', type: 'textarea', required: true, maxLength: 4000 },
 ]
 
@@ -56,12 +57,12 @@ function doseUnitOf(values: FormValues): string {
   return choice === OTHER_UNIT ? value(values, 'doseUnit') : choice
 }
 
-/** The lab request's fields and limits; Priority and what happens to it follow as controlled choices. */
+/** The lab request's fields and limits, with today's labels (Clinical.tsx:570); Priority and Request handling follow as controlled choices. */
 const LAB_FIELDS: readonly FieldDef[] = [
-  { key: 'testDisplay', label: 'Test', required: true, maxLength: 500 },
-  { key: 'testCodeSystem', label: 'Code system', required: true, placeholder: 'LOINC', maxLength: 255, row: 'code' },
+  { key: 'testDisplay', label: 'Test display', required: true, maxLength: 500 },
+  { key: 'testCodeSystem', label: 'Test code system', required: true, placeholder: 'LOINC', maxLength: 255, row: 'code' },
   { key: 'testCode', label: 'Test code', required: true, maxLength: 100, row: 'code' },
-  { key: 'specimenTypeCode', label: 'Specimen type', maxLength: 100 },
+  { key: 'specimenTypeCode', label: 'Specimen type code', maxLength: 100 },
   { key: 'clinicalInformation', label: 'Clinical information', type: 'textarea', maxLength: 4000 },
 ]
 
@@ -95,7 +96,8 @@ export function CreateOrder({ kind, chart, encounterId }: { kind: OrderKind; cha
   const href = useWorkspaceHref()
   const info = KINDS[kind]
   const back = href(encounterId)
-  const heading = <RecordHeading title={kind === 'pharmacy' ? 'New prescription' : 'New lab request'} backHref={back} />
+  // Today's form heading, "Add {tab}" (Clinical.tsx:561).
+  const heading = <RecordHeading title={kind === 'pharmacy' ? 'Add prescriptions' : 'Add lab requests'} backHref={back} />
 
   // Today's form sits in the records tab that needs the read permission (staff/routes/Clinical.tsx:1232, :1853): a role
   // that can't see this encounter's orders adds none.
@@ -233,7 +235,7 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
       <OrderContext encounterId={encounterId} />
       <RecordedAllergies chart={chart} />
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
-      <RecordForm key={form} fields={PRESCRIPTION_FIELDS} validate={validate} onSubmit={submit} submitLabel="Save prescription"
+      <RecordForm key={form} fields={PRESCRIPTION_FIELDS} validate={validate} onSubmit={submit} submitLabel="Save draft"
         confirm={values => confirm(`Save this prescription of ${value(values, 'medicationDisplay')} for ${chart.facts.name}?`, 'Save prescription')}>
         <p className="hid-ehr-clinical-note">{rights.canRoute('pharmacy') ? PRESCRIPTION_ROUTING_HINT : PRESCRIPTION_HINT}</p>
       </RecordForm>
@@ -407,7 +409,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
     setRouteErrors({})
     const toAnother = handling === 'route' && routable
     if (handling !== 'draft' && !(handling === 'active' && canSendToLab) && !toAnother) {
-      setHandlingError(canSendToLab ? 'Choose to save a draft or send it.' : 'Choose to save it as a draft.')
+      setHandlingError(canSendToLab ? 'Choose draft or active request.' : 'Choose a draft request.')
       handlingRef.current?.focus()
       return false
     }
@@ -451,7 +453,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
         fields={LAB_FIELDS}
         onSubmit={submit}
         confirm={confirmLab}
-        submitLabel={sendingElsewhere && choice.destination ? `Send to ${choice.destination.facilityName}` : handling === 'active' && canSendToLab ? 'Send lab request' : 'Save draft'}
+        submitLabel={sendingElsewhere && choice.destination ? `Create and send to ${choice.destination.facilityName}` : 'Create lab request'}
         busyLabel={sendingElsewhere ? 'Sending…' : 'Saving…'}
       >
         <div className="hid-ehr-clinical-form-grid hid-ehr-clinical-orders-choices">
@@ -460,12 +462,12 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
               {PRIORITIES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
             </EhrSelect>
           </EhrField>
-          <EhrField label={<>What to do with it<span aria-hidden="true"> *</span></>} error={handlingError || undefined}>
+          <EhrField label={<>Request handling<span aria-hidden="true"> *</span></>} error={handlingError || undefined}>
             <EhrSelect ref={handlingRef} required value={handling} aria-describedby={warningId}
               onChange={event => { setHandling(event.target.value); setHandlingError(''); setRouteErrors({}) }}>
-              <option value="draft">Save as a draft</option>
-              {canSendToLab ? <option value="active">{routable ? 'Send to this facility’s laboratory' : 'Send to the laboratory'}</option> : null}
-              {routable ? <option value="route">Send to another laboratory</option> : null}
+              <option value="draft">Save EHR draft</option>
+              {canSendToLab ? <option value="active">{routable ? 'Create active request and send to this facility’s Lab' : 'Create active request and send to Lab'}</option> : null}
+              {routable ? <option value="route">Create and send to another laboratory</option> : null}
             </EhrSelect>
           </EhrField>
         </div>

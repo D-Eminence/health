@@ -305,19 +305,22 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
         return { formError: refusalText(caught, 'Status could not be changed.') }
       }
     }
+    // Today's status form's title and button (Clinical.tsx:1819, :1830, :618); the change is the action pressed above.
     return (
-      <RecordForm
-        key={`status-${option.value}-${version}`}
-        className="hid-ehr-clinical-orders-action-form"
-        fields={[{ key: 'reason', label: 'Reason for change', required: true, maxLength: 500 }]}
-        validate={values => minimum(values, 3)}
-        submitLabel={label}
-        busyLabel="Updating…"
-        disabled={reloading}
-        onSubmit={submit}
-      >
-        {warning ? <div className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{warning}</div> : null}
-      </RecordForm>
+      <div className="hid-ehr-clinical-orders-action-form">
+        <p className="hid-ehr-clinical-orders-lead"><strong>{lab ? 'Lab request status' : 'Prescription status'}</strong></p>
+        <RecordForm
+          key={`status-${option.value}-${version}`}
+          fields={[{ key: 'reason', label: 'Reason for change', required: true, maxLength: 500 }]}
+          validate={values => minimum(values, 3)}
+          submitLabel="Update status"
+          busyLabel="Updating…"
+          disabled={reloading}
+          onSubmit={submit}
+        >
+          {warning ? <div className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{warning}</div> : null}
+        </RecordForm>
+      </div>
     )
   }
 

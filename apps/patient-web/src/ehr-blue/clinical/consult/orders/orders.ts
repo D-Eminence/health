@@ -19,18 +19,18 @@ export interface KindInfo {
   readonly title: string
   /** Today's word for one order. */
   readonly what: string
-  /** Today's empty list sentence. */
+  /** Today's empty list sentence (Clinical.tsx:1808). */
   readonly empty: string
 }
 
 export const KINDS: Readonly<Record<OrderKind, KindInfo>> = {
   pharmacy: {
     record: 'prescriptions', route: 'prescription', read: 'ehr.prescription.read', write: 'ehr.prescription.write',
-    title: 'Pharmacy', what: 'prescription', empty: 'No prescriptions yet.',
+    title: 'Pharmacy', what: 'prescription', empty: 'No prescriptions for this encounter.',
   },
   laboratory: {
     record: 'lab-requests', route: 'lab_request', read: 'ehr.lab-request.read', write: 'ehr.lab-request.write',
-    title: 'Laboratory', what: 'lab request', empty: 'No lab requests yet.',
+    title: 'Laboratory', what: 'lab request', empty: 'No lab requests for this encounter.',
   },
 }
 
