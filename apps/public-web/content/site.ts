@@ -12,8 +12,11 @@ export const ROUTES = {
   products: '/products',
   providerApplication: '/provider/apply',
   providerCompletion: '/provider/complete',
-  /** Identity belongs to the patient journey, not a duplicate provider product page. */
-  product: (slug: string) => (slug === 'identity' ? '/patients' : `/products/${slug}`),
+  /**
+   * Identity belongs to the patient journey, not a duplicate provider product page. A product with a site of its own
+   * opens that site, whose front page is its product page (productSiteHref).
+   */
+  product: (slug: string) => (slug === 'identity' ? '/patients' : productSiteHref(slug) ?? `/products/${slug}`),
   pricing: '/pricing',
   solutions: '/solutions',
   /** One audience on the solutions page, as an anchor. */
@@ -33,6 +36,33 @@ export const ROUTES = {
   howItWorksProvider: '/providers#products',
   howItWorksPatient: '/patients#steps',
 } as const
+
+/**
+ * Each product with a site of its own, and that site's subdomain, in production and under `.staging.` (owner,
+ * 2026-11-01: every product is its own site, with its own front page). The site's front page is the product's page
+ * from this site, which the edge serves there (infra/cloudflare/src/frontend-worker.mjs, PRODUCT_LANDING_PAGES); the
+ * edge also sends this site's /products/<slug> there.
+ */
+export const PRODUCT_SITE_SUBDOMAINS: Readonly<Record<string, string>> = {
+  ehr: 'ehr',
+  laboratory: 'lab',
+  pharmacy: 'pharmacy',
+  migrate: 'migrate',
+  outreach: 'outreach',
+}
+
+/**
+ * The front page of a product's own site in this build's deployment, or null: for a product without a site, and in
+ * local development, where this site still serves /products/<slug> itself.
+ */
+export function productSiteHref(slug: string): string | null {
+  const subdomain = Object.hasOwn(PRODUCT_SITE_SUBDOMAINS, slug) ? PRODUCT_SITE_SUBDOMAINS[slug] : undefined
+  if (!subdomain) return null
+  const environment = process.env.NEXT_PUBLIC_HID_ENVIRONMENT
+  if (environment === 'production') return `https://${subdomain}.healthidentitydirectory.com/`
+  if (environment === 'staging') return `https://${subdomain}.staging.healthidentitydirectory.com/`
+  return null
+}
 
 /** The audiences the solutions page speaks to, in the order it presents them. */
 export const SOLUTION_AUDIENCES = [
