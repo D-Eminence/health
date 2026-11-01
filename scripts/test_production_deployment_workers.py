@@ -71,6 +71,7 @@ class WorkerTests(unittest.TestCase):
                     checks = w.verify_assets(app, entry)
                     self.assertTrue(checks['deep_link_verified'])
                     self.assertEqual(checks.get('landing_page_verified', False), landing)
+                    self.assertEqual(checks.get('signed_in_front_page_verified', False), landing)
                     self.assertIsNone(build.call_args.args[0].redirect_request(None))
                 self.assertEqual(paths, expected)
 
@@ -107,20 +108,46 @@ class WorkerTests(unittest.TestCase):
 
     def test_a_restored_version_is_checked_as_its_release_recorded_it(self):
         # A rollback restores a release from before the landing pages: its product sites answered their index.html at
-        # the front page, as its receipt (no landing_page_verified) says, and are checked so.
+        # the front page, as its receipt (no landing_page_verified) says, and are checked so. One with the landing page
+        # alone (no signed_in_front_page_verified) is checked for its landing page only.
         calls = []
-        with patch.object(w, 'verify_live_assets', side_effect=lambda app, entry, landing: calls.append((app, landing)) or {}):
+        with patch.object(w, 'verify_live_assets',
+                          side_effect=lambda app, entry, landing, signed_in: calls.append((app, landing, signed_in)) or {}):
             w.verify_assets('lab', {}, landing=False)
             w.verify_assets('lab', {}, landing=True)
+            w.verify_assets('lab', {}, landing=True, signed_in=False)
+            w.verify_assets('lab', {}, landing=False, signed_in=True)
             w.verify_assets('lab', {})
             w.verify_assets('web', {})
             w.verify_assets('web', {}, landing=False)
             w.verify_assets('admin', {})
-        self.assertEqual(calls, [('lab', False), ('lab', True), ('lab', True), ('web', True), ('web', False), ('admin', False)])
+        self.assertEqual(calls, [('lab', False, False), ('lab', True, True), ('lab', True, False), ('lab', False, False),
+                                 ('lab', True, True), ('web', True, True), ('web', False, False), ('admin', False, False)])
+        # Each receipt as its release wrote it: before the landing pages, with the landing page alone, with both.
+        self.assertEqual(w.recorded_front_page({'entry_assets_verified': 1, 'deep_link_verified': True}),
+                         {'landing': False, 'signed_in': False})
+        self.assertEqual(w.recorded_front_page({'deep_link_verified': True, 'landing_page_verified': True}),
+                         {'landing': True, 'signed_in': False})
+        self.assertEqual(w.recorded_front_page({'landing_page_verified': True, 'signed_in_front_page_verified': True}),
+                         {'landing': True, 'signed_in': True})
         source = pathlib.Path(w.__file__).read_text()
-        self.assertIn('landing=after[app].get("checks",{}).get("landing_page_verified",False)', source)
+        self.assertIn('verify_assets(app,{"files":archive_files(path)},**recorded_front_page(after[app].get("checks",{})))', source)
 
-    def propagation(self, app, answers, landing=None):
+    def test_a_rollback_to_a_release_with_the_landing_page_alone_passes(self):
+        # Such a release's front page is the landing page for anyone, signed in or not, with plain page headers.
+        first_round = (landing_page('lab'), 200, PAGE_HEADERS)
+        recorded = w.recorded_front_page({'deep_link_verified': True, 'landing_page_verified': True})
+        result, clock = self.propagation('lab', {'': [first_round] * 1000, ('', True): [first_round] * 1000}, **recorded)
+        self.assertEqual((result['landing_page_verified'], clock['sleeps']), (True, []))
+        # It is recorded as it was then, so a later rollback to it checks the same.
+        self.assertNotIn('signed_in_front_page_verified', result)
+        # The release that recorded both is checked for both: the same answers never pass for it.
+        result, clock = self.propagation('lab', {'': [first_round] * 1000, ('', True): [first_round] * 1000},
+                                         **w.recorded_front_page({'landing_page_verified': True,
+                                                                  'signed_in_front_page_verified': True}))
+        self.assertEqual(str(result), 'FRONT_PAGE_CACHE_HEADERS_DIFFER')
+
+    def propagation(self, app, answers, landing=None, signed_in=None):
         """Runs verify_assets against an edge that answers each path from its queue first, on a fake clock."""
         html, script = b'<html><script src="/entry.js"></script></html>', b'console.log("release")'
         entry = {'files': {'index.html': c.sha(html), 'about.html': c.sha(html), 'entry.js': c.sha(script)}}
@@ -157,7 +184,7 @@ class WorkerTests(unittest.TestCase):
              patch.object(w.time, 'monotonic', side_effect=lambda: clock['now']), \
              patch.object(w.time, 'sleep', side_effect=sleep), \
              patch.object(w, 'print', create=True, side_effect=lambda line, **_: clock['printed'].append(json.loads(line))):
-            try: return w.verify_assets(app, entry, landing=landing), clock
+            try: return w.verify_assets(app, entry, landing=landing, signed_in=signed_in), clock
             except c.ReleaseError as error: return error, clock
 
     def test_health_checks_wait_until_the_edge_serves_the_new_version(self):

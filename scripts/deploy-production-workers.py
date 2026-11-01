@@ -304,25 +304,34 @@ PROPAGATION_CODES = frozenset({"WORKER_ASSET_NOT_YET_SERVED","WORKER_ASSET_UNREA
     # still without them when the wait is over is this version's.
     "FRONT_PAGE_CACHE_HEADERS_DIFFER"})
 
-def verify_assets(app,manifest_entry,landing=None):
-    # landing: whether the version checked answers its front page with its landing page. A version this run uploads
-    # does if it is a product site's; a version restored by a rollback does if its release recorded so.
+def verify_assets(app,manifest_entry,landing=None,signed_in=None):
+    # landing: whether the version checked answers a stranger at its front page with its landing page; signed_in:
+    # whether its front page is also private, and sends someone signed in to the workspace's entrance or the portal. A
+    # version this run uploads does both if it is one of LANDING_APPS; a version restored by a rollback does what its
+    # release recorded (recorded_front_page).
     landing = app in LANDING_APPS if landing is None else bool(landing)
+    signed_in = landing if signed_in is None else landing and bool(signed_in)
     deadline = time.monotonic()+PROPAGATION_SECONDS
     while True:
-        try: return verify_live_assets(app,manifest_entry,landing)
+        try: return verify_live_assets(app,manifest_entry,landing,signed_in)
         except ReleaseError as error:
             if str(error) not in PROPAGATION_CODES or time.monotonic() >= deadline: raise
             print(json.dumps({"app":app,"waiting_for_edge":str(error),
                 "seconds_left":round(deadline-time.monotonic())}), flush=True)
             time.sleep(PROPAGATION_RETRY_SECONDS)
 
+def recorded_front_page(checks):
+    # What a release verified at a site's front page, and so what a rollback to it checks there: its landing page since
+    # the first release with one (landing_page_verified), and its answers that depend on a sign-in since the first
+    # release with those (signed_in_front_page_verified). A release with the landing page alone recorded only the first.
+    return {"landing":bool(checks.get("landing_page_verified")),"signed_in":bool(checks.get("signed_in_front_page_verified"))}
+
 def private_front_page(headers):
     # A front page that depends on a sign-in is never stored, and varies with the cookie (frontend-worker.mjs, frontPage).
     vary = [name.strip().lower() for name in (headers.get("vary") or "").split(",")]
     return "no-store" in (headers.get("cache-control") or "").lower() and "cookie" in vary
 
-def verify_live_assets(app,manifest_entry,landing=False):
+def verify_live_assets(app,manifest_entry,landing=False,signed_in=False):
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs): return None
     opener = urllib.request.build_opener(NoRedirect())
@@ -363,7 +372,7 @@ def verify_live_assets(app,manifest_entry,landing=False):
         # canonical address, which no version from before the landing pages writes (it answers its index.html).
         page, headers = get("",front=True)
         require(('<link rel="canonical" href="'+LANDING_CANONICAL[app]+'">').encode() in page, "LANDING_PAGE_NOT_YET_SERVED")
-        require(private_front_page(headers), "FRONT_PAGE_CACHE_HEADERS_DIFFER")
+        if signed_in: require(private_front_page(headers), "FRONT_PAGE_CACHE_HEADERS_DIFFER")
     # A site whose front page depends on a sign-in has its own index.html checked where it is always served: the
     # portal's at its front page for someone signed in, a product site's at its staff sign-in. The portal's stranger is
     # checked first: only a version with the patient page answers that, while every version answers its index.html.
@@ -379,7 +388,7 @@ def verify_live_assets(app,manifest_entry,landing=False):
         raise ReleaseError("LIVE_HTML_BYTES_DIFFER")
     # Not only this version answers with this index.html: a previous one with the same portal build does too, without
     # these headers, and is waited out (PROPAGATION_CODES).
-    if headers is not None: require(private_front_page(headers), "FRONT_PAGE_CACHE_HEADERS_DIFFER")
+    if headers is not None and signed_in: require(private_front_page(headers), "FRONT_PAGE_CACHE_HEADERS_DIFFER")
     refs = AssetRefs(); refs.feed(html.decode("utf-8"))
     for path in refs.paths:
         require(path in manifest_entry["files"] and matches(get(path,asset=True),manifest_entry["files"][path]),
@@ -394,10 +403,13 @@ def verify_live_assets(app,manifest_entry,landing=False):
             # The landing page, then staff signed in there going to the workspace's entrance (the portal's two front
             # pages are checked above).
             landing_page()
-            location = redirect_of_front_page()
-            require(location is not None, "SIGNED_IN_FRONT_PAGE_NOT_YET_SERVED")
-            require(location == "https://"+HOSTS[app]+"/provider", "SIGNED_IN_FRONT_PAGE_DIFFERS")
+            if signed_in:
+                location = redirect_of_front_page()
+                require(location is not None, "SIGNED_IN_FRONT_PAGE_NOT_YET_SERVED")
+                require(location == "https://"+HOSTS[app]+"/provider", "SIGNED_IN_FRONT_PAGE_DIFFERS")
+        # Each recorded apart, as a rollback checks only what the release it restores recorded (recorded_front_page).
         checks["landing_page_verified"] = True
+        if signed_in: checks["signed_in_front_page_verified"] = True
     return checks
 
 def error_code(error):
@@ -475,8 +487,7 @@ def deploy(mode):
                     body = aws.call("s3api","get-object",{"Bucket":store.bucket,"Key":archive["key"],
                         "VersionId":archive["version_id"],"ExpectedBucketOwner":ACCOUNT},extra=[str(path)])
                     require(body.get("SSEKMSKeyId") == store.key and file_sha(path) == archive["sha256"], "ROLLBACK_ARCHIVE_CHANGED")
-                    verify_assets(app,{"files":archive_files(path)},
-                                  landing=after[app].get("checks",{}).get("landing_page_verified",False))
+                    verify_assets(app,{"files":archive_files(path)},**recorded_front_page(after[app].get("checks",{})))
         else:
             require(release.get("operation") == "deploy", "DEPLOYMENT_OPERATION_DIFFERS")
             selected = entries()
