@@ -381,13 +381,34 @@ export function ResultValue({ result }: { readonly result: LabResult }) {
 const DECISION_FAILED = 'Decision could not be recorded. Refresh before retrying.'
 
 /**
+ * A verify refused because the person who entered the result is the one verifying: refreshing never changes that, so
+ * it says who must verify instead. The codes are the 409s the backend handoff asks Lab for (docs/BACKEND_OWNER_HANDOFF.md
+ * A12; Lab answers 500 today, which says DECISION_FAILED). NOT_VERIFIABLE covers both that and a result no longer
+ * waiting to be verified, so it says both. Only the code is compared; it is never shown.
+ */
+const VERIFY_REFUSED: Readonly<Record<string, string>> = {
+  LAB_RESULT_VERIFIER_NOT_INDEPENDENT: 'You entered this result, so someone else must verify it.',
+  LAB_RESULT_NOT_VERIFIABLE: 'You can’t verify this result now. If you entered it, someone else must verify it. If not, it may '
+    + 'have changed: refresh to see it as it is.',
+}
+
+/**
+ * The http client's own failures, when no answer came: refreshing while offline can fail to load the page, so these say
+ * to check the connection (the blue departments' sentence, as in commerce/api.ts) instead of DECISION_FAILED.
+ */
+const UNANSWERED: ReadonlySet<string> = new Set(['NETWORK_ERROR', 'REQUEST_TIMEOUT'])
+const DECISION_UNANSWERED = 'Couldn’t reach Health ID. Check the connection and try again.'
+
+/**
  * A refused verify or release in the page's own words: the sentences errorText writes itself (an order from another
- * facility that closed, a module not in service, paused work), else today's sentence. errorText otherwise ends with the
- * refusal's own message, which is the service's text, so that is never shown here.
+ * facility that closed, a module not in service, paused work), the ones above, else today's sentence. errorText otherwise
+ * ends with the refusal's own message, which is the service's text, so that is never shown here.
  */
 function decisionProblem(caught: unknown, routed: boolean): string {
   const said = errorText(caught, DECISION_FAILED, routed)
-  return said === refusalText(caught, DECISION_FAILED) ? DECISION_FAILED : said
+  if (said !== refusalText(caught, DECISION_FAILED)) return said
+  if (!isHidApiError(caught)) return DECISION_FAILED
+  return VERIFY_REFUSED[caught.code] ?? (UNANSWERED.has(caught.code) ? DECISION_UNANSWERED : DECISION_FAILED)
 }
 
 /** Each decision's permission and words, as on today's Laboratory page (Operations.tsx, ResultGovernance). */
@@ -443,7 +464,7 @@ export function CheckStep({ facilityId, permissions, subject, routed, onDone, on
     </div>
     <Problem text={problem} />
     {can ? <FormActions sticky={false}><Button variant="primary" size="lg" icon={CheckCheck} onClick={() => { setReason(''); setReasonError(''); setAsking(true) }}>{words.action}</Button></FormActions>
-      : <p className="m-0 text-[14px] text-ink-2">{needsVerify ? 'Waiting for someone who can check results.' : 'Waiting for someone who can release results.'}</p>}
+      : <p className="m-0 text-[14px] text-ink-2">{needsVerify ? 'Waiting for someone who can verify results.' : 'Waiting for someone who can release results.'}</p>}
     <ConfirmSheet open={asking} onClose={() => setAsking(false)} title={words.action} subject={subject.banner} busy={busy}
       effect={needsVerify
         ? <>Verify version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> after independent review?</>

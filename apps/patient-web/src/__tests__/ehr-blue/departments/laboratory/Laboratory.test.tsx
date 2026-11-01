@@ -819,7 +819,7 @@ describe('testing and results', () => {
     const canRelease = PROCESSING.filter(permission => permission !== 'lab.result.verify')
     api.labExecutions.mockResolvedValue({ items: [execution({ result: draftResult() })] })
     const card = await openReceived(canRelease)
-    expect(within(card).getByText('Waiting for someone who can check results.')).toBeTruthy()
+    expect(within(card).getByText('Waiting for someone who can verify results.')).toBeTruthy()
     expect(within(card).queryByRole('button', { name: /verify|release/i })).toBeNull()
   })
 
@@ -842,6 +842,14 @@ describe('testing and results', () => {
     ['a closed order from another facility', problem(409, 'ORDER_ROUTE_CLOSED', 'Order route 9C1B2D3E is closed'),
       'Error: This order from another facility is closed: it was cancelled, or its time for work has ended, so nothing more can be '
       + 'recorded on it. Refresh the list.'],
+    // Only on an order from another facility does a 404 for writing mean the order closed (see 'work from another facility').
+    ['a missing result on this laboratory’s own work', problem(404, 'LAB_RESULT_NOT_FOUND', 'Lab result result-1 was not found'),
+      'Error: Decision could not be recorded. Refresh before retrying.'],
+    // No answer came: refreshing offline can fail to load the page, so it says to check the connection.
+    ['a lost connection', new HidApiError(0, 'We could not reach the service. Check your connection and try again.', { code: 'NETWORK_ERROR' }),
+      'Error: Couldn’t reach Health ID. Check the connection and try again.'],
+    ['a timeout', new HidApiError(408, 'The request timed out.', { code: 'REQUEST_TIMEOUT' }),
+      'Error: Couldn’t reach Health ID. Check the connection and try again.'],
   ])('says a refused release (%s) in the page’s own words, never the service’s', async (_, refusal, said) => {
     api.labExecutions.mockResolvedValue({ items: [execution({ result: verifiedResult() })] })
     api.releaseLabResult.mockRejectedValue(refusal)
@@ -957,19 +965,44 @@ describe('testing and results', () => {
     expect(api.releaseLabResult).not.toHaveBeenCalled()
   })
 
+  // The verify by the person who entered the result, as the backend handoff asks Lab to answer it (A12): refreshing
+  // never lets them verify, so the page says who must, not "Refresh before retrying".
   it('does not read again for a refusal answered on its merits (409), and says it in the page’s words, not the service’s', async () => {
     api.labExecutions.mockResolvedValue({ items: [execution({ result: draftResult() })] })
-    api.verifyLabResult.mockRejectedValue(problem(409, 'LAB_RESULT_SELF_VERIFICATION', 'The person who entered a result cannot verify it'))
+    api.verifyLabResult.mockRejectedValue(problem(409, 'LAB_RESULT_VERIFIER_NOT_INDEPENDENT', 'Result verifier must be independent'))
     const card = await openReceived()
     fireEvent.click(within(card).getByRole('button', { name: 'Verify result version' }))
     const sheet = await screen.findByRole('dialog', { name: 'Verify result version' })
     fireEvent.change(within(sheet).getByRole('textbox', { name: 'Verification reason' }), { target: { value: 'Review' } })
     await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Verify result version' })) })
-    await waitFor(() => expect(alertsIn(card)).toEqual(['Error: Decision could not be recorded. Refresh before retrying.']))
-    expect(document.body.textContent).not.toContain('The person who entered a result cannot verify it')
+    await waitFor(() => expect(alertsIn(card)).toEqual(['Error: You entered this result, so someone else must verify it.']))
+    expect(document.body.textContent).not.toContain('Result verifier must be independent')
+    expect(document.body.textContent).not.toContain('LAB_RESULT_VERIFIER_NOT_INDEPENDENT')
     expect(api.labExecutions).toHaveBeenCalledTimes(1)
     expect(api.releaseLabResult).not.toHaveBeenCalled()
     expect(within(card).getByText('7.1')).toBeTruthy()
+  })
+
+  it.each([
+    ['one that covers both the person who entered it and a result no longer waiting (409)',
+      problem(409, 'LAB_RESULT_NOT_VERIFIABLE', 'Result verifier must be independent and result must be eligible'),
+      'Error: You can’t verify this result now. If you entered it, someone else must verify it. If not, it may have changed: '
+      + 'refresh to see it as it is.'],
+    // Lab's answer today for the person who entered it (docs/BACKEND_OWNER_HANDOFF.md A12): nothing says why, so today's sentence.
+    ['a server error (500)', problem(500, 'INTERNAL_SERVER_ERROR', 'Result verifier must be independent and result must be eligible'),
+      'Error: Decision could not be recorded. Refresh before retrying.'],
+  ])('says a refused verify (%s) in the page’s own words, never the service’s', async (_, refusal, said) => {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: draftResult() })] })
+    api.verifyLabResult.mockRejectedValue(refusal)
+    const card = await openReceived()
+    fireEvent.click(within(card).getByRole('button', { name: 'Verify result version' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Verify result version' })
+    fireEvent.change(within(sheet).getByRole('textbox', { name: 'Verification reason' }), { target: { value: 'Review' } })
+    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Verify result version' })) })
+    await waitFor(() => expect(alertsIn(stageCard())).toEqual([said]))
+    expect(document.body.textContent).not.toContain(refusal.message)
+    expect(document.body.textContent).not.toContain(refusal.code)
+    expect(api.releaseLabResult).not.toHaveBeenCalled()
   })
 })
 
@@ -1052,6 +1085,27 @@ describe('work from another facility', () => {
     await answerSheet('Collect the sample', 'Collect sample')
     await waitFor(() => expect(alertsIn(stageCard())).toContain('Error: This order from another facility no longer lets you '
       + 'record on it: it has ended, or its time for work is over. You can still read what was recorded. Refresh the list.'))
+  })
+
+  // A 404 for writing on such an order means it closed, and the release says so in the page's words, not as a failed
+  // decision (on this laboratory's own work the same 404 says today's sentence: see 'testing and results').
+  it('says a release on an order that no longer lets this laboratory record is closed, never the service’s words', async () => {
+    as(PROCESSING)
+    api.labWorkItems.mockResolvedValue(answer([routed({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123', specimenStatuses: ['received'] })]))
+    api.labAccession.mockResolvedValue(accession([specimen('received')]))
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: verifiedResult() })] })
+    api.releaseLabResult.mockRejectedValue(problem(404, 'LAB_RESULT_NOT_FOUND', 'Lab result result-1 was not found'))
+    renderPage()
+    await openRecord()
+    fireEvent.click(await within(stageCard()).findByRole('button', { name: 'Release result version' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Release result version' })
+    fireEvent.change(within(sheet).getByRole('textbox', { name: 'Release reason' }), { target: { value: 'Reviewed' } })
+    await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Release result version' })) })
+    await waitFor(() => expect(alertsIn(stageCard())).toEqual(['Error: This order from another facility no longer lets you '
+      + 'record on it: it has ended, or its time for work is over. You can still read what was recorded. Refresh the list.']))
+    expect(api.releaseLabResult).toHaveBeenCalledWith(DEMO_LABORATORY_ID, verifiedResult(), 'Reviewed')
+    expect(document.body.textContent).not.toContain('Lab result result-1 was not found')
+    expect(document.body.textContent).not.toContain('LAB_RESULT_NOT_FOUND')
   })
 
   it('shows an accession on an ended order to be read only', async () => {
