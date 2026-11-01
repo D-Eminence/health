@@ -71,6 +71,15 @@ export const NO_LAUNCH_STEP = 'Health ID has no launch step yet. Your EHR is alr
  */
 export const ALREADY_OPEN = 'Your EHR is already open. Inviting staff is optional, from Staff & access.'
 
+/**
+ * The same line while Health ID support's check is pending: adding staff and patient records are locked until it is done
+ * (the frame's review banner), so it neither offers invitations now nor calls the EHR open. Staff & access's own
+ * sentence (departments/staff/StaffAccess.tsx, written in its JSX), naming where.
+ */
+export function staffOnceChecked(facility: string): string {
+  return `You can add staff from Staff & access once Health ID support has checked ${facility}.`
+}
+
 /** The design's facility types (src/model.ts:366-375). */
 export const FACILITY_TYPES = ['Clinic', 'Specialist Clinic', 'Diagnostic Centre', 'Maternity Centre', 'Community Hospital',
   'Specialist Hospital', 'Multi-Branch Hospital', 'Teaching Hospital'] as const

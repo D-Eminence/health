@@ -36,6 +36,8 @@ const PENDING = `Health ID support is checking ${RIVERSIDE}. This usually takes 
 const PENDING_AT_DEMO = `Health ID support is checking ${DEMO}. This usually takes up to one working day.`
 /** What the Review step says at a real facility, where it is the last step: no launch, and nothing promised. */
 const ALREADY_OPEN = 'Your EHR is already open. Inviting staff is optional, from Staff & access.'
+/** The same while Health ID support's check is pending, when adding staff is locked: Staff & access's sentence, naming where. */
+const STAFF_WAITS = `You can add staff from Staff & access once Health ID support has checked ${RIVERSIDE}.`
 const DONE = `Health ID support has checked ${RIVERSIDE}, and it now has full access.`
 
 async function openSetup(path = '/provider/onboarding', review: Review = 'reviewed', current = membership({ review })) {
@@ -420,17 +422,24 @@ describe('step 8, Review', () => {
     expect(routes(sent).filter(route => route !== STAFF)).toEqual([SESSION])
   })
 
-  it('lists the pending check at a real facility too, where Go to Home still opens Home: the EHR is already open', async () => {
+  it('lists the pending check at a real facility too, says adding staff waits for it, and Go to Home still opens Home', async () => {
     await openSetup('/provider/onboarding/review', 'pending')
     const review = screen.getByRole('heading', { level: 2, name: 'Review your configuration' }).closest('section') as HTMLElement
     expect(within(review).getByText(PENDING).closest('.hid-ehr-onboarding-blocker')).not.toBeNull()
+    // Adding staff and patient records are locked until the check is done (the frame's review banner, Staff & access):
+    // the card neither offers invitations now nor calls the EHR open.
+    expect(within(review).getByText(STAFF_WAITS)).toBeDefined()
+    expect(within(review).queryByText(ALREADY_OPEN)).toBeNull()
+    expect(within(review).queryByText(/Inviting staff is optional|already open/)).toBeNull()
     expect(within(review).getByRole('link', { name: 'Go to Home' }).getAttribute('href')).toBe('/provider')
   })
 
-  it('lists no blocker once the check is done', async () => {
+  it('lists no blocker once the check is done, and then says the EHR is open and inviting staff is optional', async () => {
     await openSetup('/provider/onboarding/review', 'reviewed')
     expect(screen.queryByText(PENDING)).toBeNull()
     expect(document.querySelector('.hid-ehr-onboarding-blocker')).toBeNull()
+    expect(screen.getByText(ALREADY_OPEN)).toBeDefined()
+    expect(screen.queryByText(STAFF_WAITS)).toBeNull()
   })
 })
 

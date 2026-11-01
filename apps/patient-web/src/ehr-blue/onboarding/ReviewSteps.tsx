@@ -4,7 +4,7 @@ import { EhrButton, EhrCard, EhrSampleBanner } from '@hid/ui/ehr'
 import type { Facility } from '../../staff/api'
 import { selfServiceReview } from '../../staff/staffAccess'
 import { Detail } from './parts'
-import { ALREADY_OPEN, NOT_COLLECTED, NO_LAUNCH_STEP, facilityCheckPending } from './setupText'
+import { ALREADY_OPEN, NOT_COLLECTED, NO_LAUNCH_STEP, facilityCheckPending, staffOnceChecked } from './setupText'
 import { paymentMethods, type SampleSetup } from './setupState'
 
 /**
@@ -26,13 +26,15 @@ const LAUNCH_WAITING = 'hid-ehr-onboarding-launch-waiting'
  *
  * `onNext` is null where Review is the last step (a real facility, which has no Launch step): there is no launch to
  * review, so the card says the EHR is already open and ends by going to Home, as Launch did, promising nothing more.
- * Home opens while Health ID support's check is pending too: the facility is working in its EHR already.
+ * While Health ID support's check is pending, adding staff and patient records are locked (the frame's review banner),
+ * so the card says instead, as Staff & access does, that staff can be added once the check is done. Home opens then too.
  */
 export function ReviewStep({ facility, setup, onNext }: {
   readonly facility: Facility
   readonly setup: SampleSetup | null
   readonly onNext: (() => void) | null
 }) {
+  const lastLine = selfServiceReview(facility) === 'pending' ? staffOnceChecked(facility.name) : ALREADY_OPEN
   return (
     <EhrCard title="Review your configuration">
       <div className="hid-ehr-onboarding-stack">
@@ -66,7 +68,7 @@ export function ReviewStep({ facility, setup, onNext }: {
         {/* Service pricing, wards and beds, inventory and credential records are the demo facilities' samples: a real
             facility is offered only what it can do, and has no launch to come. */}
         <p className="hid-ehr-onboarding-text">{setup ? 'Optional after launch: staff invitations, service pricing, wards and beds, '
-          + 'inventory and professional credential records.' : ALREADY_OPEN}</p>
+          + 'inventory and professional credential records.' : lastLine}</p>
         <div>{onNext ? <EhrButton onClick={onNext}>Review launch requirements</EhrButton>
           : <Link className="hid-ehr-button" to="/provider">Go to Home</Link>}</div>
       </div>
