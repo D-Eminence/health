@@ -997,6 +997,65 @@ exactly as hid-system's `infra/cloudflare/src/frontend-worker.mjs` names them,
 the `ocr` hosts, hid-system's legacy redirects to `migrate`, are not mapped. The
 Vite dev and preview servers answer the same hosts.
 
+Since 2026-11-01 (owner: every product is its own site, with its own landing
+page) the edge answers the `/` (and `/index.html`) of each product host and of
+the patient portal itself, before the portal's own build sees it, and what it
+answers depends on whether the browser holds a sign-in there. It only looks for a non-empty `hid_access_csrf` cookie, the
+readable cookie Identity's sign-in sets for the whole sign-in (hid-system
+`services/identity-api/src/auth/session-cookies.ts`, `AUTH_COOKIE_NAME`
+`hid_access`); it never reads or checks it, and the app does the real check.
+
+- On `ehr`, `lab`, `pharmacy`, `migrate` and `outreach`, someone signed in is
+  sent (302) to `/provider`, the workspace's entrance. Anyone else sees that
+  product's page from the public site (`/products/<slug>`), fetched from the
+  public site's Worker through the `PUBLIC_SITE` service binding, with its
+  links rewritten for the product site (its sign-in opens `/provider`, which
+  asks for a sign-in itself), its canonical address set to the product site's
+  `/`, and the public site's own static files it loads (`/_next/static/`,
+  `/brand/`, `/icon.png`, `/apple-icon.png`) served through the same binding
+  wherever the product site has no file of its own. The public site answers
+  `/products/<slug>` for those five with a 308 to the product site, and its own
+  product links point there (`PRODUCT_SITE_SUBDOMAINS` in
+  `apps/public-web/content/site.ts`).
+- On the patient portal (`app`, and `staging`), someone signed in gets the
+  portal at `/`, as before. Anyone else sees the public site's `/patients` page
+  (the Health ID Identity landing page), served the same way, with its
+  canonical address left as `https://healthidentitydirectory.com/patients`,
+  which the public site keeps and does not redirect. Its "Sign in" opens
+  `/sign-in` and "Get your Health ID" `/enroll`; a link to the portal's `/` on
+  it opens `/sign-in`, since `/` would show a stranger the same page again.
+  A link to a section of the landing page itself ("How it works",
+  `/patients#steps`; on a product site, `/products/<slug>#...`) stays on the
+  page as `#steps`. The page's script follows it there itself and passes the
+  click on already prevented, since the page's own router still holds
+  `/patients#steps`, which on the portal is another page.
+- Identity's cookies are SameSite Strict, so a browser that arrives from
+  another site (a link in webmail, a chat app or a search result, or one
+  another app opens in the installed app) sends none of them, and the edge
+  answers the landing page even to someone signed in there. So the page, and
+  the "not available" page below, first looks for a non-empty
+  `hid_access_csrf` in `document.cookie` by the edge's own rule
+  (`carriesCookie`, copied into the page) and, if it is there, asks for the
+  same address again with `location.replace`, leaving out any fragment
+  (`signInRecheck`). That request starts from the site itself, so the browser
+  sends the cookie and the edge answers as for anyone signed in. Like the edge,
+  the page never reads the cookie's value. A tab asks at most once in 10
+  seconds (noted in `sessionStorage`; where that cannot be read or written, it
+  does not ask), so a browser that shows scripts the cookie but does not send
+  it shows the landing page instead of loading it again and again.
+- Every answer at those front pages is `Cache-Control: private, no-store` with
+  `Vary: Cookie`, so no browser or shared cache can hand one person's answer to
+  another. Cloudflare does not cache a Worker's own answers (the Worker runs
+  first on every request), and the portal's push worker (`sw.js`) and the
+  public site's retiring `/service-worker.js` have no fetch handler, so neither
+  can answer `/` from a cache either.
+
+The gate above still sends a `/` the portal itself navigates to (in the
+browser) to the workspace; every `/provider` address, the API route and the
+admin site's `/` are unchanged. Without its binding, a site's `/` is, for
+someone not signed in, a plain page saying it is not available right now, with
+a sign-in link (`/provider`, or `/sign-in` on the portal).
+
 The backend's current Turnstile service permits all three general login
 actions (`patient-login`, `staff-login`, `admin-login`) together, and
 enrollment and patient and staff recovery, only on
