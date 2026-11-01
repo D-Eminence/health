@@ -739,6 +739,19 @@ test('the landing link rewrite is self-contained, so the page can run its source
   assert.doesNotMatch(source, /=>|\bthis\b|\bimport\b|\bawait\b|<\/script/i)
 })
 
+test('keeps the edge\'s product sites and the public site\'s product links the same', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const source = await readFile(new URL('../../../apps/public-web/content/site.ts', import.meta.url), 'utf8')
+  const table = /PRODUCT_SITE_SUBDOMAINS[^{]*\{([^}]*)\}/.exec(source)?.[1] ?? ''
+  const subdomains = Object.fromEntries([...table.matchAll(/(\w+): '([a-z]+)'/g)].map(match => [match[1], match[2]]))
+  const edge = Object.fromEntries(Object.entries(PRODUCT_SITES).map(([app, slug]) =>
+    [slug, deploymentProfiles.production.hosts[app].split('.')[0]]))
+  assert.deepEqual(subdomains, edge)
+  // Each is a product page the public site builds.
+  const details = await readFile(new URL('../../../apps/public-web/content/product-details.ts', import.meta.url), 'utf8')
+  for (const slug of Object.values(PRODUCT_SITES)) assert.match(details, new RegExp(`slug: "${slug}"`))
+})
+
 test('the public site\'s static files a product site serves are none of the portal\'s', async () => {
   const { readdir } = await import('node:fs/promises')
   const { join, relative, sep } = await import('node:path')
