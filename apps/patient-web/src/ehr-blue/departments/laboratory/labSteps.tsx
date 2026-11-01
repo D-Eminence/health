@@ -9,6 +9,7 @@ import {
   type LabWorkItem,
 } from '../../../staff/api'
 import { sampleCheckText } from '../../../staff/orderRoutes'
+import { refusalText } from '../../../staff/fieldProblem'
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { ABNORMAL_FLAGS, FLAG_WORDS, flagFromRange, flagLevel, revisionText } from './labText'
@@ -376,39 +377,60 @@ export function ResultValue({ result }: { readonly result: LabResult }) {
   </span>
 }
 
+/** Today's Laboratory page's words when Lab refuses a verify or a release (staff/routes/Operations.tsx, ResultGovernance). */
+const DECISION_FAILED = 'Decision could not be recorded. Refresh before retrying.'
+
 /**
- * Check & release: a second look at the result, then it is released to the patient's record. Verify first when it is
- * still unverified (Lab refuses a verify by the person who entered it: someone else checks), then release. Each is a
- * separate request with the review note as its reason.
+ * A refused verify or release in the page's own words: the sentences errorText writes itself (an order from another
+ * facility that closed, a module not in service, paused work), else today's sentence. errorText otherwise ends with the
+ * refusal's own message, which is the service's text, so that is never shown here.
+ */
+function decisionProblem(caught: unknown, routed: boolean): string {
+  const said = errorText(caught, DECISION_FAILED, routed)
+  return said === refusalText(caught, DECISION_FAILED) ? DECISION_FAILED : said
+}
+
+/** Each decision's permission and words, as on today's Laboratory page (Operations.tsx, ResultGovernance). */
+const DECISIONS = {
+  verify: {
+    permission: 'lab.result.verify', action: 'Verify result version', reason: 'Verification reason',
+    done: 'This exact result version was verified.',
+  },
+  release: {
+    permission: 'lab.result.release', action: 'Release result version', reason: 'Release reason',
+    // Today says "to authorized readers"; who they are is said instead: releasing is what shows it outside the lab.
+    done: 'This exact verified result version was released. The patient and the ordering clinic can now see it.',
+  },
+} as const
+
+/**
+ * Check & release, as two separate actions, as on today's Laboratory page: verify an unverified result (Lab refuses a
+ * verify by the person who entered it: someone else checks), then release the verified one, which shows it to the
+ * patient and the ordering clinic. Each is its own request with its own permission and its own typed reason, so the
+ * audit says why each was done; one press never does both. Confirmed against the patient first.
  */
 export function CheckStep({ facilityId, permissions, subject, routed, onDone, onRefused, execution }: StepBase & { readonly execution: LabExecution }) {
   const result = execution.result!
   const needsVerify = result.status === 'entered_unverified'
-  const canVerify = permissions.includes('lab.result.verify')
-  const canRelease = permissions.includes('lab.result.release')
+  const decision = needsVerify ? 'verify' : 'release'
+  const words = DECISIONS[decision]
+  const can = permissions.includes(words.permission)
   const [asking, setAsking] = useState(false)
-  const [note, setNote] = useState('')
-  const [noteError, setNoteError] = useState('')
+  const [reason, setReason] = useState('')
+  const [reasonError, setReasonError] = useState('')
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState('')
-  const id = execution.id
-  const can = needsVerify ? canVerify : canRelease
-  const label = needsVerify ? (canRelease ? 'Check & release' : 'Check result') : 'Release result'
+  const reasonId = `lab-${decision}-reason-${execution.id}`
   async function run() {
     if (busy) return
-    if (!note.trim()) { setNoteError('Say what you checked, like “Matches the sample and the range”.'); document.getElementById(`lab-check-note-${id}`)?.focus(); return }
+    if (!reason.trim()) { setReasonError('Enter a reason for this decision.'); document.getElementById(reasonId)?.focus(); return }
     setBusy(true); setProblem('')
-    let current = result
     try {
-      if (current.status === 'entered_unverified') current = await staffApi.verifyLabResult(facilityId, current, note.trim())
-      if (current.status === 'verified_not_released' && canRelease) {
-        current = await staffApi.releaseLabResult(facilityId, current, note.trim())
-        setAsking(false); onDone(`${execution.test.name} released. The patient can see it on their Health ID.`)
-      } else { setAsking(false); onDone(`${execution.test.name} checked. Someone who can release it does that next.`) }
+      if (decision === 'verify') await staffApi.verifyLabResult(facilityId, result, reason.trim())
+      else await staffApi.releaseLabResult(facilityId, result, reason.trim())
+      setAsking(false); onDone(words.done)
     } catch (caught) {
-      setProblem(errorText(caught, current !== result ? 'The result was checked but not released. Try again.' : 'The result could not be checked. Someone other than the person who entered it must check it.', routed))
-      setAsking(false); onRefused(caught)
-      if (current !== result) onDone('Result checked, not released yet.')
+      setAsking(false); setProblem(decisionProblem(caught, routed)); onRefused(caught)
     } finally { setBusy(false) }
   }
   return <div className="flex flex-col gap-3 rounded-xl p-4 ring-1 ring-inset ring-line">
@@ -420,15 +442,19 @@ export function CheckStep({ facilityId, permissions, subject, routed, onDone, on
       <Badge size="sm" tone={needsVerify ? 'warn' : 'info'}>{needsVerify ? 'To check' : 'Checked, not released'}</Badge>
     </div>
     <Problem text={problem} />
-    {can ? <FormActions sticky={false}><Button variant="primary" size="lg" icon={CheckCheck} onClick={() => { setNote(''); setNoteError(''); setAsking(true) }}>{label}</Button></FormActions>
+    {can ? <FormActions sticky={false}><Button variant="primary" size="lg" icon={CheckCheck} onClick={() => { setReason(''); setReasonError(''); setAsking(true) }}>{words.action}</Button></FormActions>
       : <p className="m-0 text-[14px] text-ink-2">{needsVerify ? 'Waiting for someone who can check results.' : 'Waiting for someone who can release results.'}</p>}
-    <ConfirmSheet open={asking} onClose={() => setAsking(false)} title={label} subject={subject.banner} busy={busy}
-      effect={<>{needsVerify ? 'Check' : 'Release'} the {execution.test.name} result for <strong>{subject.name}</strong>{needsVerify && canRelease ? ' and release it to their record' : ''}?</>}
-      undo={canRelease ? 'Once released the patient sees it. A wrong result can be corrected; every version is kept.' : undefined}
-      confirmLabel={label} onConfirm={() => void run()}>
-      <Field label="What you checked" htmlFor={`lab-check-note-${id}`} error={noteError} errorId={`lab-check-note-${id}-error`}>
-        <Textarea id={`lab-check-note-${id}`} rows={2} maxLength={500} value={note} aria-invalid={noteError ? true : undefined}
-          aria-describedby={noteError ? `lab-check-note-${id}-error` : undefined} onChange={event => { setNote(event.target.value); setNoteError('') }} />
+    <ConfirmSheet open={asking} onClose={() => setAsking(false)} title={words.action} subject={subject.banner} busy={busy}
+      effect={needsVerify
+        ? <>Verify version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> after independent review?</>
+        : <>Release verified version {result.currentVersion} of the {execution.test.name} result for <strong>{subject.name}</strong> to the patient and the ordering clinic?</>}
+      undo={needsVerify
+        ? 'The person who entered it cannot verify it. It is released in a separate step; until then only the lab sees it.'
+        : 'A wrong result can be corrected; every version is kept.'}
+      confirmLabel={words.action} onConfirm={() => void run()}>
+      <Field label={words.reason} htmlFor={reasonId} error={reasonError} errorId={`${reasonId}-error`}>
+        <Textarea id={reasonId} rows={2} maxLength={500} value={reason} aria-invalid={reasonError ? true : undefined}
+          aria-describedby={reasonError ? `${reasonId}-error` : undefined} onChange={event => { setReason(event.target.value); setReasonError('') }} />
       </Field>
     </ConfirmSheet>
   </div>
