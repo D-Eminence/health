@@ -81,11 +81,12 @@ describe('Verify your NIN, on the profile', () => {
     [422, 'PATIENT_IDENTITY_PROFILE_INCOMPLETE', 'Your profile is missing details we need, like your date of birth. Contact Health ID support.'],
   ])('says a %i %s plainly, and keeps the card', async (status, code, text) => {
     renderPortal(<ProfilePage />, gateway({ ninVerified: false }, () => problem(status, code, 'refused')))
-    await openSection('Verify your NIN')
+    const card = await openSection('Verify your NIN')
     fireEvent.change(ninField(), { target: { value: '12345678901' } })
     fillDateOfBirth()
     await press(screen.getByRole('button', { name: 'Verify NIN' }))
-    expect(shownText(await screen.findByRole('alert'))).toBe(text)
+    // The NIN card's own alert: another section, whose read this gateway refuses, can show its alert at the same time.
+    expect(shownText(await within(card).findByRole('alert'))).toBe(text)
     expect(screen.getByRole('heading', { name: 'Verify your NIN' })).toBeTruthy()
     expect(ninField().getAttribute('aria-invalid')).toBeNull()
   })
