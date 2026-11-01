@@ -164,6 +164,29 @@ describe('the queue', () => {
     expect(within(row(AMOXICILLIN)).getByText('Can’t dispense: dose missing')).toBeTruthy()
   })
 
+  it('marks a dose given without its unit, or a unit without its dose', async () => {
+    api.pharmacyWorkItems.mockResolvedValue({ items: [{ ...accepted, doseUnit: null },
+      { ...otherFacilityItem, doseQuantity: null }] })
+    await renderList()
+    expect(within(row(AMOXICILLIN)).getByText('Can’t dispense: dose missing')).toBeTruthy()
+    expect(within(row(IBUPROFEN)).getByText('Can’t dispense: dose missing')).toBeTruthy()
+  })
+
+  it('does not mark a prescription saved with no dose and no unit (a cream, or “as directed”), and keeps it in its turn', async () => {
+    const cream: PharmacyWorkItem = { ...accepted, id: 'f6a7b8c9-work-item-6', acceptedAt: '2026-10-08T08:00:00.000Z',
+      medication: { display: 'Hydrocortisone 1% cream' }, doseQuantity: null, doseUnit: null, routeCode: 'topical',
+      frequency: 'Twice daily', instructions: 'Apply thinly to the rash' }
+    api.pharmacyWorkItems.mockResolvedValue({ items: [accepted, cream] })
+    await renderList()
+    const card = row('Hydrocortisone 1% cream')
+    // As classic said it: the dose is not recorded, which is no reason to stop the counter.
+    expect(card.textContent).toContain('Dose not recorded · Twice daily')
+    expect(within(card).queryByText('Can’t dispense: dose missing')).toBeNull()
+    // Accepted first, so first in the queue.
+    const list = screen.getByRole('list', { name: 'Prescriptions' })
+    expect(within(list).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['Hydrocortisone 1% cream', AMOXICILLIN])
+  })
+
   it('makes each card one real button named by its medicine and described by the rest', async () => {
     await renderList()
     const open = screen.getByRole('button', { name: AMOXICILLIN })
