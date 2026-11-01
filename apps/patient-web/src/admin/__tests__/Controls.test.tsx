@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import type { AdminActor, PlatformControl } from '../api'
 import { ControlsPage } from '../Pages'
 import { StepUpProvider } from '../StepUp'
+import { ToastProvider } from '../../kasuwa/toast'
 
 /**
  * Platform controls (the kill switches). hid-system POST /admin/controls takes
@@ -18,8 +19,16 @@ const control = (overrides: Partial<PlatformControl> = {}): PlatformControl => (
 const actor = (permissions: string[]): AdminActor => ({ accountId: 'admin-1', subject: 'staff:1', displayName: 'Ada',
   email: 'ada@example.test', platformRoles: [], platformPermissions: ['platform.control.read', ...permissions] })
 
+/** Opens a control's confirmation and gives the reason; returns the sheet. */
+function change(button: string, reason: string) {
+  fireEvent.click(screen.getByRole('button', { name: button }))
+  const sheet = screen.getByRole('dialog', { name: `${button}?` })
+  fireEvent.change(within(sheet).getByLabelText('Reason for this change'), { target: { value: reason } })
+  return sheet
+}
+
 function open(permissions: string[]) {
-  render(<StepUpProvider><ControlsPage actor={actor(permissions)} /></StepUpProvider>)
+  render(<ToastProvider><StepUpProvider><ControlsPage actor={actor(permissions)} /></StepUpProvider></ToastProvider>)
 }
 
 beforeEach(() => { vi.resetAllMocks(); mocks.keys = 0 })
@@ -33,21 +42,21 @@ describe('platform controls', () => {
     mocks.api.stepUp.mockResolvedValueOnce({ stepUpExpiresAt: '2026-10-08T12:05:00.000Z' })
     open(['platform.control.manage'])
 
-    expect(await screen.findByText('Normal operation')).toBeTruthy()
+    expect(await screen.findByText(/“Normal operation”/)).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Maintenance mode' })).toBeTruthy()
-    expect(screen.getByText('Enable control')).toBeTruthy()
-    const confirm = screen.getByRole('button', { name: 'Confirm change' }) as HTMLButtonElement
-    fireEvent.change(screen.getByLabelText('Reason for this change'), { target: { value: 'Upgrade' } })
-    expect(confirm.disabled).toBe(true)
-    fireEvent.change(screen.getByLabelText('Reason for this change'), { target: { value: '  Scheduled database upgrade ' } })
-    expect(confirm.disabled).toBe(false)
-    fireEvent.click(confirm)
+    const sheet = change('Turn on maintenance mode', 'Upgrade')
+    // A reason under 8 characters is refused before anything is sent.
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Turn on' }))
+    expect(within(sheet).getByText('Give a reason of at least 8 characters.')).toBeTruthy()
+    expect(mocks.api.command).not.toHaveBeenCalled()
+    fireEvent.change(within(sheet).getByLabelText('Reason for this change'), { target: { value: '  Scheduled database upgrade ' } })
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Turn on' }))
 
     fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm and continue' }))
-    expect(await screen.findByText('Saved. Current information is being refreshed.')).toBeTruthy()
+    expect(await screen.findByText('Maintenance mode is on.')).toBeTruthy()
     await waitFor(() => expect(mocks.api.controls).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText('Scheduled database upgrade')).toBeTruthy()
+    expect(await screen.findByText(/“Scheduled database upgrade”/)).toBeTruthy()
 
     // The same command both times: the step-up repeats it, never a second change.
     const command = ['/api/v1/admin/controls', { controlKey: 'maintenance_mode', enabled: true,
@@ -61,9 +70,9 @@ describe('platform controls', () => {
     mocks.api.command.mockResolvedValueOnce({ controlKey: 'uploads_enabled', enabled: false, version: 4 })
     mocks.api.controls.mockResolvedValueOnce([control({ controlKey: 'uploads_enabled', enabled: false, version: 4 })])
     open(['platform.control.manage'])
-    expect(await screen.findByText('Disable control')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Reason for this change'), { target: { value: 'Storage provider incident' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm change' }))
+    await screen.findByRole('button', { name: 'Turn off uploads' })
+    const sheet = change('Turn off uploads', 'Storage provider incident')
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Turn off' }))
     await waitFor(() => expect(mocks.api.command).toHaveBeenCalledWith('/api/v1/admin/controls',
       { controlKey: 'uploads_enabled', enabled: false, reason: 'Storage provider incident' }, { version: 3 }))
   })
@@ -72,11 +81,12 @@ describe('platform controls', () => {
     mocks.api.controls.mockResolvedValueOnce([control()])
     mocks.api.command.mockRejectedValueOnce(new HidApiError(409, 'Version conflict', { code: 'VERSION_CONFLICT' }))
     open(['platform.control.manage'])
-    await screen.findByText('Normal operation')
-    fireEvent.change(screen.getByLabelText('Reason for this change'), { target: { value: 'Scheduled database upgrade' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm change' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('This item changed. Reload it and try again.')
-    expect(screen.queryByText('Saved. Current information is being refreshed.')).toBeNull()
+    await screen.findByText(/“Normal operation”/)
+    const sheet = change('Turn on maintenance mode', 'Scheduled database upgrade')
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Turn on' }))
+    expect((await within(sheet).findByRole('alert')).textContent).toContain('This item changed. Reload it and try again.')
+    expect(screen.queryByText('Maintenance mode is on.')).toBeNull()
+    expect(screen.getByText('Off')).toBeTruthy()
     expect(mocks.api.controls).toHaveBeenCalledTimes(1)
   })
 
@@ -88,23 +98,23 @@ describe('platform controls', () => {
     mocks.api.controls.mockResolvedValueOnce([control({ controlKey: 'clinician_signup_enabled', enabled: true, version: 4,
       reason: 'Release checklist P37 approved' })])
     open(['platform.control.manage'])
-    expect(await screen.findByRole('heading', { name: 'Clinician signup enabled' })).toBeTruthy()
-    expect(screen.getByText(/^Lets doctors and nurses apply by themselves at \/provider\/join\. Their applications wait in Clinician applications/)).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Reason for this change'), { target: { value: 'Release checklist P37 approved' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm change' }))
+    expect(await screen.findByRole('heading', { name: 'Clinician sign-up' })).toBeTruthy()
+    expect(screen.getByText(/^Lets doctors and nurses apply at \/provider\/join\. Two Super Admins review each one/)).toBeTruthy()
+    const sheet = change('Turn on clinician sign-up', 'Release checklist P37 approved')
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Turn on' }))
     await waitFor(() => expect(mocks.api.command).toHaveBeenCalledWith('/api/v1/admin/controls',
       { controlKey: 'clinician_signup_enabled', enabled: true, reason: 'Release checklist P37 approved' }, { version: 3 }))
     // Other controls keep their generic tile.
-    expect(screen.queryByText(/apply by themselves/)).toBeTruthy()
+    expect(screen.queryByText(/apply at \/provider\/join/)).toBeTruthy()
   })
 
   it('is view-only without platform.control.manage', async () => {
     mocks.api.controls.mockResolvedValueOnce([control()])
     open([])
-    expect(await screen.findByText('Normal operation')).toBeTruthy()
+    expect(await screen.findByText(/“Normal operation”/)).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Maintenance mode' })).toBeTruthy()
-    expect(screen.queryByText('Enable control')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Confirm change' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Turn (on|off)/ })).toBeNull()
+    expect(screen.queryAllByRole('button').map(button => button.textContent)).toEqual(['Refresh'])
     expect(mocks.api.command).not.toHaveBeenCalled()
   })
 })

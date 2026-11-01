@@ -1,16 +1,16 @@
 import { isHidApiError } from '@hid/http'
-import { EhrButton, EhrCard } from '@hid/ui/ehr'
+import { Mail, Share2 } from 'lucide-react'
+import { Alert, Badge, Button, Card, CardHeader } from '../../../kasuwa/ui'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { staffApi } from '../../../staff/api'
 import {
   shareDay, shareLevelLabel, type ShareDuration, type SharedPatient, type StaffShareInvitation, type StaffShareInvitationList,
 } from '../../../shareRecords'
-import { StatusBadge } from '../parts/StatusBadge'
 import { roleMay } from '../consent/access'
 
 /**
  * Patient sharing on Patients (today's SharedPatients.tsx), in the design's card and list-row style. Each card is
- * hidden while it loads, for a role the route would refuse, and when the backend does not serve it (404). What they
+ * hidden while it loads, for a role the route would refuse, and when the API does not serve it (404). What they
  * read is held in component memory only.
  */
 
@@ -53,41 +53,26 @@ export function SharedWithYou({ facilityId, permissions, openUnavailable, busy, 
 }) {
   const [load] = useCardLoad<SharedPatient[]>(facilityId, roleMay('identity.sharedWithMe', 'GET', permissions), readShared,
     'The patients shared with you could not be loaded.')
-  if (load.state === 'hidden') return null
+  // Only when there is something to act on: nobody shared yet is not worth a card.
+  if (load.state === 'hidden' || (load.state === 'ready' && load.value.length === 0)) return null
+  if (load.state === 'failed') return <Alert intent="error" title="Couldn’t load patients shared with you">{load.message}</Alert>
   return (
-    <EhrCard title="Shared with you">
-      <p>Patients who chose to share their record with you at this facility. Opening one checks access with the server.</p>
-      {load.state === 'failed' ? <p>{load.message}</p>
-        : load.value.length === 0 ? <p>No patient has shared their record with you here.</p>
-          : (
-            <>
-              {openUnavailable ? <p id="shared-open-unavailable" className="hid-ehr-clinical-note">{openUnavailable}</p> : null}
-              <ul className="hid-ehr-clinical-history-list">
-                {load.value.map(item => (
-                  <li key={item.consentGrantId} className="hid-ehr-clinical-history-row">
-                    <span>
-                      {item.fullName}
-                      <span className="hid-ehr-clinical-cell-sub">{`${item.hid} · Until ${shareDay(item.expiresAt)}`}</span>
-                    </span>
-                    <span className="hid-ehr-clinical-patients-share-actions">
-                      <StatusBadge status={shareLevelLabel(item.level) ?? item.level} />
-                      <EhrButton
-                        variant="secondary"
-                        disabled={openUnavailable !== null}
-                        aria-disabled={busy || undefined}
-                        aria-label={`Open ${item.fullName}’s record`}
-                        aria-describedby={openUnavailable ? 'shared-open-unavailable' : undefined}
-                        onClick={() => { if (!busy) onOpen(item.hid) }}
-                      >
-                        Open record
-                      </EhrButton>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-    </EhrCard>
+    <Card>
+      <CardHeader as="h2" title="Shared with you" description={`${load.value.length} patient${load.value.length === 1 ? '' : 's'}`} icon={Share2} iconTone="brand" />
+      {openUnavailable ? <p id="shared-open-unavailable" className="m-0 px-5 pt-3 text-[12px] text-ink-3">{openUnavailable}</p> : null}
+      <ul className="m-0 list-none divide-y divide-line p-0">
+        {load.value.map(item => (
+          <li key={item.consentGrantId} className="flex items-center gap-3 px-5 py-3">
+            <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[12px] font-semibold text-brand-ink">{item.fullName.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()}</span>
+            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-ink">{item.fullName}</span>
+              <span className="block text-[12px] text-ink-3">{item.hid} · until {shareDay(item.expiresAt)}</span></span>
+            <Badge size="sm" tone="brand">{shareLevelLabel(item.level) ?? item.level}</Badge>
+            <Button size="sm" disabled={openUnavailable !== null} aria-disabled={busy || undefined} aria-label={`Open ${item.fullName}’s record`}
+              aria-describedby={openUnavailable ? 'shared-open-unavailable' : undefined} onClick={() => { if (!busy) onOpen(item.hid) }}>Open</Button>
+          </li>
+        ))}
+      </ul>
+    </Card>
   )
 }
 
@@ -132,8 +117,7 @@ export function ShareInvitationsForMe({ facilityId, permissions }: { facilityId:
     try {
       await staffApi.acceptShareInvitation(facilityId, item.invitationId)
       withdraw(item.invitationId)
-      setAccepted(`You accepted invitation ${item.reference || 'to share'}. The patient must now confirm before you can open their `
-        + 'record. Once they do, they appear under Shared with you.')
+      setAccepted('Accepted. Once the patient confirms, they appear under Shared with you.')
     } catch (caught) {
       if (isHidApiError(caught) && ['SHARE_INVITATION_NOT_FOUND', 'SHARE_INVITATION_NOT_PENDING'].includes(caught.code)) withdraw(item.invitationId)
       setError(acceptProblem(caught))
@@ -143,39 +127,28 @@ export function ShareInvitationsForMe({ facilityId, permissions }: { facilityId:
     }
   }
 
-  if (load.state === 'hidden') return null
+  // Only when there is something to accept, or something to say about an accept: a role that cannot accept, or no
+  // invitations, shows nothing.
+  const items = load.state === 'ready' && load.value.eligible ? load.value.items : []
+  if (load.state === 'hidden' || (load.state === 'ready' && items.length === 0 && !error && !accepted)) return null
+  if (load.state === 'failed') return <Alert intent="error" title="Couldn’t load your invitations">{load.message}</Alert>
   return (
-    <EhrCard title="Invitations">
-      <p>Patients can invite you by email to see their record. Accept here, signed in with that email; the patient then confirms, and is not named until they do.</p>
-      {load.state === 'failed' ? <p>{load.message}</p>
-        : !load.value.eligible ? <p>Only a doctor, clinician or nurse at a facility Health ID has checked can accept invitations. Your role here cannot, so invitations sent to your email are not shown. Switch to such a facility to see them.</p>
-          : load.value.items.length === 0 ? <p>No invitations are waiting for your sign-in email.</p>
-            : (
-              <ul className="hid-ehr-clinical-history-list">
-                {load.value.items.map(item => (
-                  <li key={item.invitationId} className="hid-ehr-clinical-history-row">
-                    <span>
-                      {item.reference ? `Invitation ${item.reference}` : 'Invitation'}
-                      {item.inviteeName ? <span className="hid-ehr-clinical-cell-sub">{`To ${item.inviteeName}`}</span> : null}
-                      <span className="hid-ehr-clinical-cell-sub">{`${DURATION_LABELS[item.duration]} · sent ${shareDay(item.createdAt)} · open until ${shareDay(item.expiresAt)}`}</span>
-                    </span>
-                    <span className="hid-ehr-clinical-patients-share-actions">
-                      <StatusBadge status={shareLevelLabel(item.level) ?? item.level} />
-                      <EhrButton
-                        disabled={!acceptAllowed || (accepting !== null && accepting !== item.invitationId)}
-                        busy={accepting === item.invitationId}
-                        aria-label={item.reference ? `Accept invitation ${item.reference}` : 'Accept invitation'}
-                        onClick={() => void accept(item)}
-                      >
-                        {accepting === item.invitationId ? 'Accepting…' : 'Accept'}
-                      </EhrButton>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-      {error ? <div ref={errorRef} tabIndex={-1}><div className="hid-ehr-clinical-alert" role="alert"><p>{error}</p></div></div> : null}
-      <div role="status">{accepted ? <p ref={resultRef} tabIndex={-1} className="hid-ehr-clinical-status">{accepted}</p> : null}</div>
-    </EhrCard>
+    <Card>
+      <CardHeader as="h2" title="Invitations" description="From patients, to your email. They confirm after you accept." icon={Mail} iconTone="violet" />
+      {items.length > 0 ? <ul className="m-0 list-none divide-y divide-line p-0">
+        {items.map(item => (
+          <li key={item.invitationId} className="flex items-center gap-3 px-5 py-3">
+            <span className="min-w-0 flex-1"><span className="block text-sm font-medium text-ink">{item.reference ? `Invitation ${item.reference}` : 'Invitation'}{item.inviteeName ? ` · to ${item.inviteeName}` : ''}</span>
+              <span className="block text-[12px] text-ink-3">{DURATION_LABELS[item.duration]} · open until {shareDay(item.expiresAt)}</span></span>
+            <Badge size="sm" tone="brand">{shareLevelLabel(item.level) ?? item.level}</Badge>
+            <Button size="sm" loading={accepting === item.invitationId} disabled={!acceptAllowed || (accepting !== null && accepting !== item.invitationId)}
+              aria-label={item.reference ? `Accept invitation ${item.reference}` : 'Accept invitation'} onClick={() => void accept(item)}>
+              {accepting === item.invitationId ? 'Accepting…' : 'Accept'}</Button>
+          </li>
+        ))}
+      </ul> : null}
+      {error ? <div ref={errorRef} tabIndex={-1} className="p-5 outline-none"><Alert intent="error" title="Couldn’t accept">{error}</Alert></div> : null}
+      <div role="status" className="empty:hidden">{accepted ? <p ref={resultRef} tabIndex={-1} className="m-0 px-5 py-4 text-[13px] text-ink-2 outline-none">{accepted}</p> : null}</div>
+    </Card>
   )
 }

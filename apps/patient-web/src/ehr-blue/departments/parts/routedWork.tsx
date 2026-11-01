@@ -24,15 +24,6 @@ import { shortId } from './format'
  * blue look. Logic is ported line for line; only the markup differs.
  */
 
-/**
- * Whether two work items are the same patient as the list shows them: the same patient, and both named (work routed
- * here with its patient card) or both masked ("Patient ••••…"). Connected hospital history links only these, so a
- * named record never reveals which masked rows are that patient's, and a masked one never leads to a name.
- */
-export function sameShownPatient(a: { patientId: string; patient?: unknown }, b: { patientId: string; patient?: unknown }): boolean {
-  return Boolean(a.patientId) && a.patientId === b.patientId && Boolean(a.patient) === Boolean(b.patient)
-}
-
 /** Who the patient is on a work row: named once an order from another facility is accepted, else masked. */
 export function patientLabel(item: { patientId: string; patient?: LabWorkItem['patient'] }): string {
   return item.patient ? patientCard(item.patient) : `Patient ${shortId(item.patientId)}`

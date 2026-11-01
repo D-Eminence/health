@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { AccessRequest, EmergencyContact } from '../api'
 import { AccessPage, ProfilePage } from '../routes/Portal'
 import { AccountDeletionCard, EmergencyContactsCard } from '../routes/AccountSafety'
@@ -32,13 +32,15 @@ describe('busy regions while content loads (PR-03)', () => {
     const history = held()
     renderPortal(<AccessPage />, path => path === '/identity/me/access-requests' ? requests.promise : history.promise)
 
-    const loading = await screen.findAllByText('Loading your information…')
-    expect(loading).toHaveLength(2)
-    for (const status of loading) {
-      expect(status.getAttribute('role')).toBe('status')
+    // One list at a time (the redesign's tabs): the requests first, then who has access.
+    for (const [text, tab] of [['Loading requests…', null], ['Loading who has access…', /^Who has access/]] as const) {
+      if (tab) await press(screen.getByRole('button', { name: tab }))
+      const status = (await screen.findByText(text)).closest('[role="status"]')!
+      expect(status).not.toBeNull()
       expect(busyAround(status)).toBeNull()
     }
     await act(async () => { requests.release(json([request])); history.release(json({ items: [] })) })
+    await press(screen.getByRole('button', { name: /^Requests/ }))
     expect(await screen.findByText('Lagos General')).toBeTruthy()
   })
 
@@ -51,15 +53,15 @@ describe('busy regions while content loads (PR-03)', () => {
         : path === '/identity/me/emergency-contacts' ? contacts.promise : deletion.promise, {}, { at: '/profile#account-deletion' })
 
     for (const text of ['Loading your contacts…', 'Checking your account…']) {
-      const status = await screen.findByText(text)
-      expect(status.getAttribute('role')).toBe('status')
+      const status = (await screen.findByText(text)).closest('[role="status"]')!
+      expect(status).not.toBeNull()
       expect(busyAround(status)).toBeNull()
     }
     await act(async () => {
       contacts.release(json([]))
       deletion.release(json({ waitingPeriodSeconds: 1_209_600, confirmationTtlSeconds: 600, request: null }))
     })
-    expect(await screen.findByText('You have no emergency contacts.')).toBeTruthy()
+    expect(await screen.findByText('No emergency contacts yet.')).toBeTruthy()
     expect(await screen.findByRole('button', { name: 'Continue to delete account' })).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
   })
@@ -71,14 +73,15 @@ describe('busy regions while content loads (PR-03)', () => {
       if (path === '/identity/me/access-requests') return reload?.promise ?? json([request])
       return json({ items: [] })
     })
-    const requestsCard = (await screen.findByRole('heading', { name: 'Access requests' })).closest('.patient-card')!
+    const requestsCard = (await screen.findByRole('heading', { name: '1 request needs your decision' })).closest('section')!
+    await press(screen.getByRole('button', { name: / Review the request from Lagos General/ }))
     await waitFor(() => expect(screen.getByRole('button', { name: /^Approve / })).toBeTruthy())
     expect(requestsCard.getAttribute('aria-busy')).toBeNull()
 
     reload = held()
     await press(screen.getByRole('button', { name: /^Approve / }))
     await waitFor(() => expect(requestsCard.getAttribute('aria-busy')).toBe('true'))
-    expect(screen.getByText('Lagos General')).toBeTruthy()
+    expect(within(requestsCard as HTMLElement).getByText('Lagos General')).toBeTruthy()
     await act(async () => { reload!.release(json([{ ...request, status: 'approved' }])) })
     await waitFor(() => expect(requestsCard.getAttribute('aria-busy')).toBeNull())
   })
@@ -126,17 +129,17 @@ describe('an action\'s notice is not inside the region that reloads', () => {
   it('Contact added', async () => {
     contacts(() => json([]))
     await press(await screen.findByRole('button', { name: 'Add emergency contact' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Contact name' }), { target: { value: 'Chidi Okafor' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Chidi Okafor' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Phone number' }), { target: { value: '+2348012345567' } })
     await press(screen.getByRole('button', { name: 'Save contact' }))
-    await noticeOutsideBusy('Contact added. Send a verification code so they can be notified in an emergency.', 'You have no emergency contacts.')
+    await noticeOutsideBusy('Contact added. Now send them a code to verify them.', 'No emergency contacts yet.')
   })
 
   it('Contact verified', async () => {
     contacts(() => json([contact]))
-    await press(await screen.findByRole('button', { name: /^Send verification code/ }))
+    await press(await screen.findByRole('button', { name: /^Send code/ }))
     await enterCode(await screen.findByRole('textbox', { name: /Code from Chidi Okafor/ }), '482913')
-    await noticeOutsideBusy('Contact verified. They will be notified if emergency access to your record is used.', 'Chidi Okafor')
+    await noticeOutsideBusy('Contact verified. They will be told if your records are opened in an emergency.', 'Chidi Okafor')
   })
 
   it('Contact updated', async () => {
@@ -150,11 +153,11 @@ describe('an action\'s notice is not inside the region that reloads', () => {
   it('Contact removed', async () => {
     contacts(() => json([contact]))
     await press(await screen.findByRole('button', { name: /^Remove/ }))
-    await press(screen.getByRole('button', { name: 'Confirm removal' }))
-    await noticeOutsideBusy('Contact removed. They will no longer be notified.', 'Chidi Okafor')
+    await press(screen.getByRole('button', { name: 'Yes, remove' }))
+    await noticeOutsideBusy('Contact removed.', 'Chidi Okafor')
   })
 
-  // On the profile, in Bio-data, whose rows reload after it (Settings is gone: the owner's decision of 2026-10-28).
+  // On the profile, in About you, whose PIN line (its Set badge) reloads after it (Settings is gone: the owner's decision of 2026-10-28).
   const pin = (configured: boolean) => {
     const reads = heldReload(() => json({ ...profile, accessPinConfigured: configured }))
     renderPortal(<ProfilePage />, (path, method) => {
@@ -168,20 +171,19 @@ describe('an action\'s notice is not inside the region that reloads', () => {
     pin(false)
     fireEvent.change(await screen.findByLabelText('Set PIN'), { target: { value: '1234' } })
     await press(screen.getByRole('button', { name: 'Save PIN' }))
-    await noticeOutsideBusy('Access PIN configured.', 'Ada Example')
+    await noticeOutsideBusy('PIN saved.', 'Not set')
   })
 
   it('Access PIN revoked', async () => {
     pin(true)
-    await press(await screen.findByRole('button', { name: 'Revoke Access PIN' }))
-    await noticeOutsideBusy('Access PIN revoked.', 'Ada Example')
+    await press(await screen.findByRole('button', { name: 'Remove PIN' }))
+    await noticeOutsideBusy('PIN removed.', 'Set')
   })
 
   it('Account deletion cancelled', async () => {
     const reads = heldReload(() => json(scheduled))
     renderPortal(<AccountDeletionCard />, (_path, method) => method === 'GET' ? reads.read() : json({ requestId: 'req-1', state: 'cancelled', replayed: false }))
     await press(await screen.findByRole('button', { name: 'Cancel deletion' }))
-    await noticeOutsideBusy('Account deletion cancelled. Your account stays open.',
-      'Until then you can cancel. After that it can’t be undone. Your Health ID and medical records are kept.')
+    await noticeOutsideBusy('Deletion cancelled. Your account stays open.', '22 Oct 2026, 11:00 WAT')
   })
 })

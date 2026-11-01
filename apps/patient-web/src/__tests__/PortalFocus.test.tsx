@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { useRef } from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import type { AccessRequest, EmergencyContact } from '../api'
@@ -8,7 +8,8 @@ import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage } 
 import { Overview } from '../routes/Overview'
 import { AccountDeletionCard, EmergencyContactsCard } from '../routes/AccountSafety'
 import { useFocusOnPageChange } from '../pageFocus'
-import { json, press, pressOnArrival, problem, profile, renderPortal, type Handler } from './portalHarness'
+import { ToastProvider } from '../kasuwa/toast'
+import { json, press, pressOnArrival, problem, profile, renderPortal, shownText, type Handler } from './portalHarness'
 import { enterCode } from './codeBoxes'
 
 // Record chat is a staging feature; these tests run without a configured environment.
@@ -62,10 +63,20 @@ async function inChromium(button: HTMLElement) {
 }
 
 const focused = () => document.activeElement
-const access = (handler: Handler) => renderPortal(<AccessPage />, handler)
+// Outcomes are said in the shell's toasts (PortalShell holds the provider).
+const access = (handler: Handler) => renderPortal(<ToastProvider><AccessPage /></ToastProvider>, handler)
+/** Opens Lagos General's request in its drawer with its row, as a keyboard user does; returns the row. */
+async function review() {
+  const row = await screen.findByRole('button', { name: /^Lagos General/ })
+  await press(row)
+  return row
+}
+const drawer = () => within(screen.getByRole('dialog', { name: 'Lagos General' }))
+/** Shows Access & sharing's "Who has access" tab. */
+const whoHasAccess = async () => press(within(await screen.findByRole('navigation', { name: 'Access' })).getByRole('button', { name: /^Who has access/ }))
 
 describe('access and consent', () => {
-  it('moves focus to the requests heading once an approved request has left the list, which stays on screen', async () => {
+  it('gives focus back to the request\'s row once it is approved, the row still on screen and saying so', async () => {
     let status = 'pending'
     access((path, method) => {
       if (path === '/identity/me/access-requests') return json([{ ...request, status }])
@@ -73,20 +84,24 @@ describe('access and consent', () => {
       if (method === 'POST') status = 'approved'
       return json({ accessRequestId: request.accessRequestId, status })
     })
-    const list = (await screen.findByText('Lagos General')).closest('ul')!
-    await inChromium(screen.getByRole('button', { name: /^Approve/ }))
+    const row = await review()
+    await inChromium(drawer().getByRole('button', { name: /^Approve/ }))
 
-    expect(await screen.findByText('Request approved.')).toBeTruthy()
-    await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Access requests' })))
+    expect(await screen.findByText('Lagos General can see your records now.')).toBeTruthy()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(focused()).toBe(row))
+    expect(row.isConnected).toBe(true)
+    expect(row.textContent).toContain('Approved')
     expect(screen.queryByRole('button', { name: /^Approve/ })).toBeNull()
-    expect(list.isConnected).toBe(true)
+    expect(screen.getByRole('heading', { name: 'Nothing waiting for you' })).toBeTruthy()
   })
 
   it('gives focus back to Approve when the approval is refused', async () => {
     const answer = deferred()
     access((path, method) => method === 'POST' ? answer.promise
       : json(path === '/identity/me/access-requests' ? [request] : { items: [] }))
-    const approve = await screen.findByRole('button', { name: /^Approve/ })
+    await review()
+    const approve = drawer().getByRole('button', { name: /^Approve/ })
     await inChromium(approve)
     expect(focused()).toBe(document.body)
     await act(async () => { answer.resolve(problem(409, 'ACCESS_REQUEST_NOT_PENDING', 'This request was already decided.')) })
@@ -98,20 +113,25 @@ describe('access and consent', () => {
   it('keeps every decision disabled until the list shows the decision just made', async () => {
     const reloaded = deferred()
     let reads = 0
-    access((path, method) => {
+    const { sent } = access((path, method) => {
       if (path === '/identity/me/access-history') return json({ items: [] })
       if (method === 'POST') return json({ accessRequestId: request.accessRequestId, status: 'approved' })
       return ++reads === 1 ? json([request]) : reloaded.promise
     })
-    await press(await screen.findByRole('button', { name: /^Approve/ }))
-    await screen.findByText('Request approved.')
-    expect((screen.getByRole('button', { name: /^Approve/ }) as HTMLButtonElement).disabled).toBe(true)
-    expect((screen.getByRole('button', { name: /^Deny/ }) as HTMLButtonElement).disabled).toBe(true)
+    await review()
+    await press(drawer().getByRole('button', { name: /^Approve/ }))
+    await waitFor(() => expect(sent.filter(item => item.method === 'POST')).toHaveLength(1))
+    expect((drawer().getByRole('button', { name: /^Approve/ }) as HTMLButtonElement).disabled).toBe(true)
+    expect((drawer().getByRole('button', { name: /^Deny/ }) as HTMLButtonElement).disabled).toBe(true)
+    // Not said until the list shows it.
+    expect(screen.queryByText('Lagos General can see your records now.')).toBeNull()
     await act(async () => { reloaded.resolve(json([{ ...request, status: 'approved' }])) })
     await waitFor(() => expect(screen.queryByRole('button', { name: /^Approve/ })).toBeNull())
+    expect(await screen.findByText('Lagos General can see your records now.')).toBeTruthy()
+    expect(sent.filter(item => item.method === 'POST')).toHaveLength(1)
   })
 
-  it('opens the denial with focus in its reason, cancels back to Deny, and confirms to the requests heading', async () => {
+  it('opens the denial with focus on its reason, goes Back to Deny, and gives focus back to the row once denied', async () => {
     let status = 'pending'
     access((path, method) => {
       if (path === '/identity/me/access-requests') return json([{ ...request, status }])
@@ -119,21 +139,25 @@ describe('access and consent', () => {
       if (method === 'POST') status = 'denied'
       return json({ accessRequestId: request.accessRequestId, status })
     })
-    const deny = await screen.findByRole('button', { name: /^Deny/ })
-    await press(deny)
-    expect(focused()).toBe(screen.getByRole('textbox', { name: 'Reason for denial' }))
-    await press(screen.getByRole('button', { name: 'Cancel' }))
-    expect(screen.queryByRole('textbox', { name: 'Reason for denial' })).toBeNull()
-    expect(focused()).toBe(deny)
+    const row = await review()
+    await press(drawer().getByRole('button', { name: /^Deny/ }))
+    // A quick reason is chosen already, and has focus: one tap from denying.
+    expect(focused()).toBe(drawer().getByRole('radio', { name: 'I don’t know them' }))
+    await press(drawer().getByRole('button', { name: 'Back' }))
+    expect(drawer().queryByRole('radio')).toBeNull()
+    await waitFor(() => expect(focused()).toBe(drawer().getByRole('button', { name: /^Deny/ })))
 
-    await press(deny)
-    fireEvent.change(screen.getByRole('textbox', { name: 'Reason for denial' }), { target: { value: 'Not my clinic' } })
-    await inChromium(screen.getByRole('button', { name: 'Confirm denial' }))
-    expect(await screen.findByText('Request denied.')).toBeTruthy()
-    await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Access requests' })))
+    await press(drawer().getByRole('button', { name: /^Deny/ }))
+    await press(drawer().getByRole('radio', { name: 'Other…' }))
+    await waitFor(() => expect(focused()).toBe(drawer().getByRole('textbox', { name: 'Your reason' })))
+    fireEvent.change(drawer().getByRole('textbox', { name: 'Your reason' }), { target: { value: 'Not my clinic' } })
+    await inChromium(drawer().getByRole('button', { name: 'Deny' }))
+    expect(await screen.findByText('Nothing was shared with Lagos General.')).toBeTruthy()
+    await waitFor(() => expect(focused()).toBe(row))
+    expect(row.textContent).toContain('Denied')
   })
 
-  it('opens the revocation with focus in its reason, cancels back to Revoke access, and confirms to the history heading', async () => {
+  it('opens the ending of access with focus in its reason, cancels back to End access, and confirms to the heading', async () => {
     let status = 'active'
     access((path, method) => {
       if (path === '/identity/me/access-requests') return json([])
@@ -141,38 +165,47 @@ describe('access and consent', () => {
       if (method === 'POST') status = 'revoked'
       return json({ consentGrantId: grant.consentGrantId, status, replayed: false })
     })
-    await press(await screen.findByRole('button', { name: /^Revoke access/ }))
-    expect(focused()).toBe(screen.getByRole('textbox', { name: 'Reason for revocation' }))
+    await whoHasAccess()
+    await press(await screen.findByRole('button', { name: /^End access for/ }))
+    expect(focused()).toBe(screen.getByRole('textbox', { name: 'Why are you ending it?' }))
     await press(screen.getByRole('button', { name: 'Cancel' }))
-    expect(screen.queryByRole('textbox', { name: 'Reason for revocation' })).toBeNull()
-    expect(focused()).toBe(screen.getByRole('button', { name: /^Revoke access/ }))
+    expect(screen.queryByRole('textbox', { name: 'Why are you ending it?' })).toBeNull()
+    await waitFor(() => expect(focused()).toBe(screen.getByRole('button', { name: /^End access for/ })))
 
-    await press(screen.getByRole('button', { name: /^Revoke access/ }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Reason for revocation' }), { target: { value: 'No longer needed' } })
-    await inChromium(screen.getByRole('button', { name: 'Confirm revocation' }))
-    expect(await screen.findByText('Access grant revoked.')).toBeTruthy()
-    await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Access history' })))
-    expect(screen.queryByRole('button', { name: /^Revoke access/ })).toBeNull()
+    await press(screen.getByRole('button', { name: /^End access for/ }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Why are you ending it?' }), { target: { value: 'No longer needed' } })
+    await inChromium(screen.getByRole('button', { name: 'End access' }))
+    expect(await screen.findByText('Lagos General can no longer see your records.')).toBeTruthy()
+    await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'No one has access now' })))
+    expect(screen.queryByRole('button', { name: /^End access/ })).toBeNull()
   })
 
-  it('reports each outcome in one status region that was there before the action', async () => {
-    access((path, method) => method === 'POST' ? json({ accessRequestId: request.accessRequestId, status: 'approved' })
+  it('says each outcome in a polite status, and a refusal in an alert', async () => {
+    let refuse = false
+    access((path, method) => method === 'POST'
+      ? (refuse ? problem(409, 'ACCESS_REQUEST_NOT_PENDING', 'This request was already decided.')
+        : json({ accessRequestId: request.accessRequestId, status: 'approved' }))
       : json(path === '/identity/me/access-requests' ? [request] : { items: [] }))
-    await screen.findByText('Lagos General')
-    const region = screen.getByRole('status')
-    expect(region.textContent).toBe('')
-    await press(screen.getByRole('button', { name: /^Approve/ }))
-    await screen.findByText('Request approved.')
-    expect(screen.getByRole('status')).toBe(region)
-    expect(region.textContent).toBe('Request approved.')
+    await review()
+    refuse = true
+    await press(drawer().getByRole('button', { name: /^Approve/ }))
+    const refusal = await screen.findByRole('alert')
+    expect(refusal.textContent).toContain('This request was already decided.')
+    expect(refusal.getAttribute('aria-live')).toBe('assertive')
+    refuse = false
+    await press(drawer().getByRole('button', { name: /^Approve/ }))
+    const outcome = (await screen.findByText('Lagos General can see your records now.')).closest('[role="status"]') as HTMLElement
+    expect(outcome.getAttribute('aria-live')).toBe('polite')
+    expect(outcome.textContent).toContain('Approved')
   })
 
   it('moves focus to the history heading after Try again loads it', async () => {
     let reads = 0
     access(path => path === '/identity/me/access-requests' ? json([]) : ++reads === 1 ? unavailable() : json({ items: [grant] }))
+    await whoHasAccess()
     await press(await screen.findByRole('button', { name: 'Try again' }))
     await screen.findByText('Lagos General')
-    await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Access history' })))
+    await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: '1 facility has access now' })))
   })
 })
 
@@ -183,29 +216,30 @@ describe('access and consent', () => {
  */
 describe('Try again pressed as soon as it is shown', () => {
   it.each([
-    ['the access history', () => {
+    ['the access history', async () => {
       let reads = 0
       access(path => path === '/identity/me/access-requests' ? json([]) : ++reads === 1 ? unavailable() : json({ items: [grant] }))
-      return { loaded: 'Lagos General', heading: () => screen.getByRole('heading', { name: 'Access history' }) }
+      await whoHasAccess()
+      return { loaded: 'Lagos General', heading: () => screen.getByRole('heading', { name: '1 facility has access now' }) }
     }],
-    ['the overview', () => {
+    ['the overview', async () => {
       let reads = 0
       renderPortal(<Overview />, () => ++reads === 1 ? unavailable() : json(profile))
       return { loaded: 'HID-ABC234', heading: () => screen.getByRole('heading', { level: 1 }) }
     }],
-    ['the emergency contacts', () => {
+    ['the emergency contacts', async () => {
       let reads = 0
       renderPortal(<EmergencyContactsCard />, () => ++reads === 1 ? unavailable() : json([contact]))
       return { loaded: 'Chidi Okafor', heading: () => screen.getByRole('heading', { name: 'Emergency contacts' }) }
     }],
-    ['the account deletion status', () => {
+    ['the account deletion status', async () => {
       let reads = 0
       renderPortal(<AccountDeletionCard />, () => ++reads === 1 ? unavailable() : json(noDeletion))
       return { loaded: 'I understand what deleting my account means', heading: () => screen.getByRole('heading', { name: 'Delete account' }) }
     }],
   ])('moves focus to the heading of %s once it loads', async (_label, open) => {
     const pressed = pressOnArrival('Try again')
-    const { loaded, heading } = open()
+    const { loaded, heading } = await open()
     await waitFor(() => expect(pressed()).toBe(true))
     await screen.findByText(loaded)
     await waitFor(() => expect(focused()).toBe(heading()))
@@ -222,8 +256,8 @@ describe('pages that load once', () => {
     const again = await screen.findByRole('button', { name: 'Try again' })
     await waitFor(() => expect(focused()).toBe(again))
     await press(again)
-    await screen.findByRole('heading', { name: 'Encounters' })
-    await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { level: 1, name: 'Health records' })))
+    await screen.findByText('No records yet')
+    await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { level: 1, name: 'Records' })))
   })
 
   it('moves focus to the overview heading after Try again loads the profile', async () => {
@@ -246,18 +280,21 @@ describe('pages that load once', () => {
     await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { level: 1, name: 'Notifications' })))
   })
 
-  it('gives focus back to Sign out when signing out fails', async () => {
+  it('keeps focus on the account button whose menu held Sign out when signing out fails', async () => {
     const answer = deferred()
-    renderPortal(<PortalShell />, () => json({}), {
-      signOut: () => answer.promise.then(() => { throw new HidApiError(503, 'Sign-out is unavailable right now.') }),
-    })
-    const signOut = screen.getByRole('button', { name: 'Sign out' })
-    await inChromium(signOut)
-    expect(focused()).toBe(document.body)
+    const signOut = vi.fn(() => answer.promise.then(() => { throw new HidApiError(503, 'Sign-out is unavailable right now.') }))
+    renderPortal(<PortalShell />, () => json({}), { signOut })
+    // Sign out is in the person's ⋯ menu, last and out of the easy path.
+    const account = screen.getByRole('button', { name: 'Your Health ID: account' })
+    await press(account)
+    await press(screen.getByRole('button', { name: 'Sign out' }))
+    expect(signOut).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
+    expect(focused()).toBe(account)
     await act(async () => { answer.resolve(json({})) })
 
     expect((await screen.findByRole('alert')).textContent).toContain('Sign-out is unavailable right now.')
-    await waitFor(() => expect(focused()).toBe(signOut))
+    await waitFor(() => expect(focused()).toBe(account))
   })
 })
 
@@ -301,17 +338,17 @@ describe('the Access PIN, in the profile\'s Bio-data', () => {
     const input = await screen.findByLabelText('Set PIN')
     fireEvent.change(input, { target: { value: '1234' } })
     await inChromium(screen.getByRole('button', { name: 'Save PIN' }))
-    expect(await screen.findByText('Configured')).toBeTruthy()
+    expect(await screen.findByText('Set')).toBeTruthy()
     expect(input.isConnected).toBe(true)
     await waitFor(() => expect(focused()).toBe(input))
   })
 
-  it('moves focus to the Access PIN heading once Revoke Access PIN has gone', async () => {
+  it('moves focus to the Access PIN heading once Remove PIN has gone', async () => {
     settings((_path, method) => method === 'POST' ? json({ configured: true }) : json({ revoked: true }))
     fireEvent.change(await screen.findByLabelText('Set PIN'), { target: { value: '1234' } })
     await press(screen.getByRole('button', { name: 'Save PIN' }))
-    await inChromium(await screen.findByRole('button', { name: 'Revoke Access PIN' }))
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Revoke Access PIN' })).toBeNull())
+    await inChromium(await screen.findByRole('button', { name: 'Remove PIN' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove PIN' })).toBeNull())
     await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Access PIN' })))
   })
 
@@ -321,9 +358,9 @@ describe('the Access PIN, in the profile\'s Bio-data', () => {
     const region = document.querySelector('#access-pin > [role="status"]')!
     expect(region.textContent).toBe('')
     await press(screen.getByRole('button', { name: 'Save PIN' }))
-    await screen.findByText('Access PIN configured.')
+    await screen.findByText('PIN saved.')
     expect(document.querySelector('#access-pin > [role="status"]')).toBe(region)
-    expect(region.textContent).toBe('Access PIN configured.')
+    expect(shownText(region as HTMLElement)).toBe('PIN saved.')
   })
 })
 
@@ -334,7 +371,7 @@ describe('emergency contacts', () => {
     contacts(() => json([]))
     const add = await screen.findByRole('button', { name: 'Add emergency contact' })
     await press(add)
-    expect(focused()).toBe(screen.getByRole('textbox', { name: 'Contact name' }))
+    expect(focused()).toBe(screen.getByRole('textbox', { name: 'Name' }))
     await press(screen.getByRole('button', { name: 'Cancel' }))
     expect(focused()).toBe(screen.getByRole('button', { name: 'Add emergency contact' }))
   })
@@ -359,11 +396,11 @@ describe('emergency contacts', () => {
       verified = true
       return json({ contactId: contact.contactId, status: 'verified' })
     })
-    await inChromium(await screen.findByRole('button', { name: /^Send verification code/ }))
+    await inChromium(await screen.findByRole('button', { name: /^Send code/ }))
     await waitFor(() => expect(focused()).toBe(screen.getByRole('textbox', { name: /Code from Chidi Okafor/ })))
     // The sixth digit sends the code, from the last box, which goes with the form once it is verified.
     await enterCode(screen.getByRole('textbox', { name: /Code from Chidi Okafor/ }), '482913')
-    expect(await screen.findByText('Verified · will be notified in an emergency')).toBeTruthy()
+    expect(await screen.findByText('Verified · will be told in an emergency')).toBeTruthy()
     await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Emergency contacts' })))
   })
 
@@ -393,7 +430,7 @@ describe('account deletion', () => {
         scheduledFor: state === 'pending' ? '2026-10-22T10:00:00Z' : null, blockedReasonCode: null, cancelledAt: null, cancellable: state === 'pending' } })
     })
     await inChromium(await screen.findByRole('button', { name: 'Cancel deletion' }))
-    expect(await screen.findByText('Account deletion cancelled. Your account stays open.')).toBeTruthy()
+    expect(await screen.findByText('Deletion cancelled. Your account stays open.')).toBeTruthy()
     await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Delete account' })))
   })
 })

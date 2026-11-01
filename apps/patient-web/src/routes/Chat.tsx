@@ -167,7 +167,7 @@ export function ChatConversation({ api }: { api: ChatConversationApi }) {
       {availability.status === 'loading' && <div className="record-chat-coverage"><p role="status">Checking whether record chat is available…</p></div>}
       {availability.status === 'error' && <div className="record-chat-coverage"><p role="alert">We could not check whether record chat is available.</p>
         <button type="button" onClick={() => setAvailabilityAttempt(value => value + 1)}>Try again</button></div>}
-      {availability.status === 'ready' && !availability.value.available && <div className="record-chat-coverage"><p role="status">Record chat is not available yet. Your saved conversation, if you have one, stays below, and you can delete it.</p></div>}
+      {availability.status === 'ready' && !availability.value.available && <div className="record-chat-coverage"><p role="status">Record chat is not available. Your saved conversation, if you have one, stays below, and you can delete it.</p></div>}
       {offered && <details className="record-chat-coverage"><summary>Which records can I ask about?</summary>
         <p>{offered.released.length > 0 ? `Record chat can read: ${offered.released.join(', ')}.` : 'Record chat reads only the records released to you.'} Imported history from the previous system is not used. Your care team guides diagnosis and treatment.</p></details>}
       {offered && <section className="record-chat-notice" aria-labelledby="record-chat-notice-title">

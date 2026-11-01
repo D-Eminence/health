@@ -273,6 +273,16 @@ describe('Audit & Compliance: older and newer pages', () => {
     expect(screen.getByText('Page 2 · 0 events')).toBeTruthy()
     expect(document.activeElement).toBe(button('Newer events'))
   })
+
+  it('says when a page held only request records, which the API call leaves out, and still offers older events', async () => {
+    api.facilityAudit.mockResolvedValueOnce(pageOf([], '40'))
+    renderDept(<AuditCompliance />)
+
+    expect(await screen.findByText('Nothing to show on this page')).toBeTruthy()
+    expect(screen.getByText('This page held only request records, which aren’t shown here. Use Older events to look further back.')).toBeTruthy()
+    expect(screen.queryByText('No audit events yet')).toBeNull()
+    expect(button('Older events')).toBeTruthy()
+  })
 })
 
 describe('Audit & Compliance: refusals and failures', () => {

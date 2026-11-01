@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef } from 'react'
 import { usesNovuBackend } from '../../../backendContract'
 import type { ClinicalRecord, Encounter, Page } from '../../../staff/api'
 import { refusedFields, refusalSentences } from '../../../staff/fieldProblem'
-import type { FieldDef, FieldErrors, FormValues } from '../parts/RecordForm'
+import { COMPLETE_FIELD, type FieldDef, type FieldErrors, type FormValues } from '../parts/RecordForm'
 import { shortId } from '../parts/format'
 import { NOTE_TYPE as NURSING_NOTE_TYPE } from '../nursing/observations'
 
@@ -28,32 +28,29 @@ export function encounterTitle(encounter: Pick<Encounter, 'id'>): string {
   return shortId(encounter.id)
 }
 
-/**
- * Today's encounter status changes, named as the design names an action ("Sign encounter", "Cancel visit"): the
- * status, then the button and form label.
- */
+/** The consultation's status changes, by its status: the new status, then the button and form label. */
 export const ENCOUNTER_TRANSITIONS: Readonly<Record<string, readonly StatusOption[]>> = {
-  planned: [{ value: 'in_progress', label: 'Start encounter' }, { value: 'cancelled', label: 'Cancel encounter' },
-    { value: 'entered_in_error', label: 'Mark encounter entered in error' }],
-  in_progress: [{ value: 'on_hold', label: 'Put encounter on hold' }, { value: 'completed', label: 'Complete encounter' },
-    { value: 'cancelled', label: 'Cancel encounter' }, { value: 'entered_in_error', label: 'Mark encounter entered in error' }],
-  on_hold: [{ value: 'in_progress', label: 'Resume encounter' }, { value: 'cancelled', label: 'Cancel encounter' },
-    { value: 'entered_in_error', label: 'Mark encounter entered in error' }],
+  planned: [{ value: 'in_progress', label: 'Start consultation' }, { value: 'cancelled', label: 'Cancel consultation' },
+    { value: 'entered_in_error', label: 'Mark as entered in error' }],
+  in_progress: [{ value: 'completed', label: 'Complete consultation' }, { value: 'on_hold', label: 'Put on hold' },
+    { value: 'cancelled', label: 'Cancel consultation' }, { value: 'entered_in_error', label: 'Mark as entered in error' }],
+  on_hold: [{ value: 'in_progress', label: 'Resume consultation' }, { value: 'cancelled', label: 'Cancel consultation' },
+    { value: 'entered_in_error', label: 'Mark as entered in error' }],
 }
 
 /** The changes that also change the encounter's records (today's CLOSING_STATUSES). */
 export const CLOSING_STATUSES: ReadonlySet<string> = new Set(['cancelled', 'entered_in_error'])
 
-const MAIN_ENCOUNTER_CLOSES_RECORDS = 'Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests; its notes, diagnoses, vitals, documents and completed orders are not changed. Marking it entered in error also marks entered in error its notes, diagnoses and vitals, its documents (other than rejected uploads), and its prescriptions and lab requests that are not cancelled, completed ones included. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
-const NOVU_ENCOUNTER_CLOSES_RECORDS = 'Closing or cancelling the encounter does not change its lab requests or prescriptions. Change or cancel each one: one sent to another facility is then withdrawn there, or cancelled if that facility had accepted it.'
+const MAIN_ENCOUNTER_CLOSES_RECORDS = 'Cancelling also cancels its open prescriptions and lab requests. Marking it entered in error also marks its notes, diagnoses, vitals, documents and orders. Pharmacy and the laboratory are not told: contact them about any order already sent.'
+const NOVU_ENCOUNTER_CLOSES_RECORDS = 'Closing or cancelling doesn’t change its prescriptions or lab requests. Change or cancel each one; one sent to another facility is then withdrawn there.'
 
-/** Today's warning on an encounter status change, for the backend this build talks to. */
+/** The warning on a consultation status change, for the service this build talks to. */
 export function encounterClosesRecords(): string {
   return usesNovuBackend() ? NOVU_ENCOUNTER_CLOSES_RECORDS : MAIN_ENCOUNTER_CLOSES_RECORDS
 }
 
 export function retractionNotPermitted(status: string): string {
-  return `You may not ${status === 'cancelled' ? 'cancel this encounter' : 'mark this encounter entered in error'}: it holds records that this change would also change, and your role may not change all of them. Nothing was changed. Ask a colleague whose role may change all of its records (usually a doctor or clinician) to make this change.`
+  return `You can’t ${status === 'cancelled' ? 'cancel this consultation' : 'mark this consultation entered in error'}: it holds records your role can’t change. Nothing was changed. Ask a doctor or clinician to do it.`
 }
 
 /**
@@ -63,8 +60,8 @@ export function retractionNotPermitted(status: string): string {
 export const NOTE_EIE_LABEL = 'Mark note entered in error'
 export const SIGN_LABEL = 'Sign note'
 export const AMEND_LABEL = 'Amend signed note'
-export const EDIT_DRAFT_LABEL = 'Edit unsigned draft'
-export const WRITE_NOTE_LABEL = 'Write clinical note'
+export const EDIT_DRAFT_LABEL = 'Edit draft'
+export const WRITE_NOTE_LABEL = 'Write note'
 
 /** The Notes card (today's Notes tab): every clinical note of the encounter that is not a nursing observation. */
 export const NOTES_TITLE = 'Clinical notes'
@@ -109,20 +106,20 @@ export const DIAGNOSIS_VERIFICATION_STATUSES: readonly StatusOption[] = [
   { value: 'differential', label: 'Differential' }, { value: 'confirmed', label: 'Confirmed' }, { value: 'refuted', label: 'Refuted' },
 ]
 
-/** Today's messages, word for word. */
+/** The consultation's messages, in plain words. */
 export const RESTARTED = 'This list changed since it was opened, so it shows the newest entries again.'
-export const NO_ENCOUNTERS = 'No encounters are available for this patient and facility.'
-export const NO_COMPLAINT = 'No chief complaint provided'
-export const ENCOUNTER_CREATED = 'Encounter created by the backend.'
-export const RECORD_SAVED = 'Clinical record saved by the backend.'
-export const NOTE_STATUS_UPDATED = 'Clinical note status updated.'
-export const ENCOUNTER_STATUS_UPDATED = 'Encounter status updated.'
-export const REVISION_RECORDED = 'A new note revision was recorded.'
+export const NO_ENCOUNTERS = 'No consultations for this patient here yet.'
+export const NO_COMPLAINT = 'No complaint recorded'
+export const ENCOUNTER_CREATED = 'Consultation started.'
+export const RECORD_SAVED = 'Saved.'
+export const NOTE_STATUS_UPDATED = 'Note updated.'
+export const ENCOUNTER_STATUS_UPDATED = 'Consultation updated.'
+export const REVISION_RECORDED = 'Note changes saved.'
 export const DIAGNOSIS_UPDATED = 'Diagnosis updated.'
 export const REASON_SHORT = 'Give a reason of at least 3 characters.'
-export const ENCOUNTER_CHANGED = 'This encounter changed since it was loaded and now shows its current status. Choose the change again if it is still needed.'
-export const NOTES_ARE_DRAFTS = 'Notes are saved as drafts. Signing needs its own reviewed action.'
-export const NO_WRITE = 'This access does not permit changes to the patient record.'
+export const ENCOUNTER_CHANGED = 'Someone changed this consultation while you had it open. It now shows its current status; choose the change again if it’s still needed.'
+export const NOTES_ARE_DRAFTS = 'The note saves as a draft. Sign it on the consultation’s page.'
+export const NO_WRITE = 'Your access doesn’t allow changes to this patient’s records.'
 
 // EHR lists encounters and each record kind newest first, 50 to a page, with an opaque cursor for the next and no
 // total. A list keeps the cursors that led to the page shown, the first page's being none.
@@ -144,10 +141,11 @@ export function rowVersion(value: unknown): number | null {
   return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null
 }
 
-/** A file size as EHR sends it, a number or text, in KiB. */
+/** A file size as EHR sends it, a number or text, in KB or MB. */
 export function fileSize(value: number | string | null | undefined): string {
   const count = value == null || value === '' ? NaN : Number(value)
-  return Number.isFinite(count) && count >= 0 ? `${Math.ceil(count / 1024).toLocaleString()} KiB` : 'Size unavailable'
+  if (!Number.isFinite(count) || count < 0) return 'Size unknown'
+  return count >= 1024 * 1024 ? `${(count / (1024 * 1024)).toFixed(1).replace(/\.0$/, '')} MB` : `${Math.max(1, Math.ceil(count / 1024)).toLocaleString('en-GB')} KB`
 }
 
 export function isoNow() { return new Date().toISOString() }
@@ -199,6 +197,85 @@ export function consultationNote(notes: readonly ClinicalRecord[] | null): Clini
  */
 export function composeNote(sections: readonly (readonly [string, string])[]): string {
   return sections.filter(([, value]) => value).map(([label, value]) => `${label}\n${value}`).join('\n\n')
+}
+
+/**
+ * New consultation's diagnosis fields, also offered (optional) in "Edit unsigned draft" and "Amend signed note": with
+ * a code system and code, the assessment is saved as this encounter's diagnosis, as New consultation saves it.
+ */
+export const NEW_DIAGNOSIS_FIELDS: readonly FieldDef[] = [
+  { key: 'diagnosis', label: 'Diagnosis', maxLength: 500, hint: 'Optional. Add its code to save it as this consultation’s diagnosis.' },
+  { key: 'diagnosisCodeSystem', label: 'Code system', placeholder: 'ICD-10', maxLength: 255, row: 'code' },
+  { key: 'diagnosisCode', label: 'Code', maxLength: 100, row: 'code' },
+  { key: 'diagnosisClinicalStatus', label: 'Clinical status', choices: DIAGNOSIS_CLINICAL_STATUSES },
+  { key: 'diagnosisVerification', label: 'Verification', choices: DIAGNOSIS_VERIFICATION_STATUSES },
+]
+export const NEW_DIAGNOSIS_INITIAL: FormValues = { diagnosisClinicalStatus: 'active', diagnosisVerification: 'unconfirmed' }
+const NEW_DIAGNOSIS_KEYS = ['diagnosis', 'diagnosisCodeSystem', 'diagnosisCode'] as const
+/** A refused diagnosis create's DTO fields, named by the form's keys, so each refusal shows at its field. */
+export const NEW_DIAGNOSIS_REFUSED: Readonly<Record<string, string>> = {
+  display: 'diagnosis', codeSystem: 'diagnosisCodeSystem', code: 'diagnosisCode', clinicalStatus: 'diagnosisClinicalStatus', verificationStatus: 'diagnosisVerification',
+}
+
+/** Once any of the assessment, its code system or its code is typed, all three are needed (New consultation's check). */
+export function newDiagnosisCheck(values: FormValues): FieldErrors {
+  const errors: Record<string, string> = {}
+  if (NEW_DIAGNOSIS_KEYS.some(key => text(values[key]))) {
+    for (const key of NEW_DIAGNOSIS_KEYS) if (!text(values[key])) errors[key] = COMPLETE_FIELD
+  }
+  return errors
+}
+
+/** The diagnosis to create from those fields (today's `createRecord(…, 'diagnoses', …)` body), or null when none was typed. */
+export function newDiagnosisBody(values: FormValues) {
+  const display = text(values.diagnosis)
+  if (!display) return null
+  return {
+    codeSystem: text(values.diagnosisCodeSystem), code: text(values.diagnosisCode), display,
+    clinicalStatus: text(values.diagnosisClinicalStatus) || 'active', verificationStatus: text(values.diagnosisVerification) || 'unconfirmed',
+  }
+}
+
+/** The sections New consultation composes a note from (composeNote), in its order. */
+const NOTE_SECTIONS = [['history', 'History'], ['examination', 'Examination'], ['note', 'Clinical note'], ['followup', 'Follow-up']] as const
+
+export interface NoteSections {
+  /** The content was composed from sections; otherwise it is one note, whole. */
+  readonly sectioned: boolean
+  readonly history: string
+  readonly examination: string
+  readonly note: string
+  readonly followup: string
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * A consultation note's content split back into the sections New consultation composed it from: each section's label
+ * on its own line ("History", or "History:"), then its text, sections a blank line apart and in composeNote's order.
+ * Content that does not start with one of them is not sectioned: it is the whole note.
+ */
+export function splitNote(content: string): NoteSections {
+  const found: { key: typeof NOTE_SECTIONS[number][0]; start: number; body: number }[] = []
+  let from = 0
+  for (const [key, label] of NOTE_SECTIONS) {
+    const heading = new RegExp(`(^|\\n\\n)${escapeRegExp(label)}:?[ \\t]*\\n`, 'g')
+    heading.lastIndex = from
+    const match = heading.exec(content)
+    // The first section starts the content; each later one follows the one before.
+    if (!match || (found.length === 0 && match.index !== 0)) continue
+    found.push({ key, start: match.index, body: match.index + match[0].length })
+    from = match.index + match[0].length
+  }
+  const sections = { history: '', examination: '', note: '', followup: '' }
+  if (found.length === 0) return { sectioned: false, ...sections, note: content }
+  found.forEach((section, index) => {
+    const end = found[index + 1]?.start ?? content.length
+    sections[section.key] = content.slice(section.body, end).trim()
+  })
+  return { sectioned: true, ...sections }
 }
 
 /** The latest value, read from callbacks and effects without making them re-run (the chart's verify changes often). */

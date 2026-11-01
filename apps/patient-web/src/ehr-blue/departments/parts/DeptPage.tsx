@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { EhrButton, EhrPageHeading } from '@hid/ui/ehr'
+import { EhrBackButton, EhrPageHeading } from '@hid/ui/ehr'
 import '../departments.css'
 
 export interface DeptPageProps {
@@ -9,9 +9,14 @@ export interface DeptPageProps {
   readonly description?: ReactNode
   readonly primaryAction?: ReactNode
   readonly secondaryActions?: ReactNode
-  /** A detail or form view's way back to its list: "Back to list" beside the title. */
+  /** A detail or form view's way back to its list: an arrow just before the title, named by `backLabel`. */
   readonly onBack?: () => void
   readonly backLabel?: string
+  /**
+   * While something is being sent the way back holds (a press does nothing), and says so: it stays focusable,
+   * marked aria-disabled, so the outcome is still said where it was asked for.
+   */
+  readonly backUnavailable?: boolean
   readonly children?: ReactNode
   readonly className?: string
 }
@@ -22,8 +27,9 @@ export interface DeptPageProps {
  * its sections. The frame supplies the shell; this is the content of its main.
  */
 export function DeptPage({ eyebrow, title, description, primaryAction, secondaryActions, onBack, backLabel = 'Back to list',
-  children, className }: DeptPageProps) {
-  const back = onBack ? <EhrButton variant="secondary" onClick={onBack}>{backLabel}</EhrButton> : undefined
+  backUnavailable, children, className }: DeptPageProps) {
+  const back = !onBack ? undefined : backUnavailable === undefined ? <EhrBackButton label={backLabel} onClick={onBack} />
+    : <DeptBackButton label={backLabel} unavailable={backUnavailable} onClick={onBack} />
   return (
     <div className={['hid-ehr-dept', className].filter(Boolean).join(' ')}>
       {eyebrow ? <p className="hid-ehr-dept-eyebrow">{eyebrow}</p> : null}
@@ -31,11 +37,23 @@ export function DeptPage({ eyebrow, title, description, primaryAction, secondary
         className={eyebrow ? 'hid-ehr-dept-heading-after-eyebrow' : undefined}
         title={title}
         description={description}
-        primaryAction={primaryAction ?? back}
-        secondaryActions={primaryAction !== undefined && back ? <>{secondaryActions}{back}</> : secondaryActions}
+        back={back}
+        primaryAction={primaryAction}
+        secondaryActions={secondaryActions}
       />
       {children}
     </div>
+  )
+}
+
+/** EhrBackButton, also saying when it holds (aria-disabled) while something is sent. */
+function DeptBackButton({ label, unavailable, onClick }: { readonly label: string; readonly unavailable: boolean; readonly onClick: () => void }) {
+  return (
+    <button type="button" className="hid-ehr-back-button" aria-label={label} title={label} aria-disabled={unavailable || undefined} onClick={onClick}>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+        <path d="m12 19-7-7 7-7" /><path d="M19 12H5" />
+      </svg>
+    </button>
   )
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import {
@@ -15,6 +15,11 @@ import { usePatientResource } from './usePatientResource'
 import { CodeBoxes, codeComplete } from '../CodeBoxes'
 import { useActionFocus, useRetryFocus } from './actionFocus'
 import { ProfileSection } from './ProfileSection'
+import { Alert, Badge, Button, Card, Field, Input, Select } from '../kasuwa/ui'
+import { LoadingRows } from '../kasuwa/parts'
+import { UserPlus } from 'lucide-react'
+import { SAY } from '../copy'
+import { Actions, ButtonR, Hint, InputR, LoadProblem, Problem, Saved } from './profileParts'
 
 /*
  * Patient-facing account deletion and emergency-contact management. The
@@ -61,17 +66,17 @@ function watDateTime(value: string | null | undefined) {
 function deletionProblem(cause: unknown, fallback: string) {
   switch (problemCode(cause)) {
     case 'PATIENT_RECENT_AUTH_REQUIRED':
-      return 'For your security, sign out, sign in again, and return here within 10 minutes to delete your account.'
+      return SAY.signInAgain
     case 'PATIENT_RECENT_RECOVERY_HOLD':
-      return 'For your security, account deletion is not available for 24 hours after you recover your account.'
+      return 'For your safety, you can’t delete your account for 24 hours after you recover it.'
     default: return problem(cause, fallback)
   }
 }
 
 const BLOCKED_REASONS: Record<AccountDeletionBlockedReason, string> = {
-  LEGAL_HOLD: 'Your account can’t be deleted now: some of your records are under a legal hold. Contact Health ID support.',
-  RETENTION_POLICY_UNAVAILABLE: 'Nothing was deleted: we couldn’t confirm how your records must be kept. Try again later or contact Health ID support.',
-  WORKFORCE_ACCOUNT: 'This sign-in is also used for staff access, so it can’t be deleted here. Contact your organisation or Health ID support.',
+  LEGAL_HOLD: 'Your account can’t be deleted now because some records are on legal hold. Contact Health ID support.',
+  RETENTION_POLICY_UNAVAILABLE: 'Nothing was deleted. Try again later or contact Health ID support.',
+  WORKFORCE_ACCOUNT: 'You also use this sign-in for staff work, so it can’t be deleted here. Contact your workplace or Health ID support.',
 }
 
 const RELATIONSHIP_LABELS: Record<EmergencyContactRelationship, string> = {
@@ -87,8 +92,8 @@ const DESTINATION_LABELS: Record<EmergencyContactChannel, string> = { sms: 'phon
  * gives the patient's name, the last four characters of their Health ID, the health worker, the facility, its phone
  * and the time; main's the first name, the facility and the time. Neither gives medical details or the reason.
  */
-const NOVU_ALERT = 'If a health worker opens your record in an emergency, verified contacts are told who opened it, where and when. Never medical details.'
-const MAIN_ALERT = 'If a provider opens your record in an emergency, verified contacts are told your first name, where and when. Never medical details.'
+const NOVU_ALERT = 'If a health worker opens your records in an emergency, verified contacts are told who, where and when. Never your medical details.'
+const MAIN_ALERT = 'If a hospital opens your records in an emergency, verified contacts are told your first name, where and when. Never your medical details.'
 
 /** hid-system main does not serve availability (404): its card stays as it was, with both channels. */
 const MAIN_OFFER: EmergencyContactsAvailability = { delivery: true, channels: ['sms', 'email'] }
@@ -156,16 +161,16 @@ export function contactsToCount(view: ContactsView | null | undefined): readonly
  */
 function contactStatus(contact: EmergencyContact, paused: boolean, reachable: boolean) {
   if (contact.eligibleForEmergencyNotification) {
-    if (paused) return 'Verified · alerts are paused'
-    return reachable ? 'Verified · will be notified in an emergency' : `Verified · alerts by ${CHANNEL_WORDS[contact.channel]} are paused`
+    if (paused) return 'Verified · alerts paused'
+    return reachable ? 'Verified · will be told in an emergency' : `Verified · ${CHANNEL_WORDS[contact.channel]} alerts paused`
   }
-  return contact.status === 'verified' ? 'Verified · notifications off' : 'Not verified · will not be notified'
+  return contact.status === 'verified' ? 'Verified · alerts off' : 'Not verified · won’t be told'
 }
 
 /** A code still open after a reload: its challenge is not held here, so entering a code needs a new one. */
 function pendingCode(pending: NonNullable<EmergencyContact['pendingVerification']>) {
-  return `A verification code is pending until ${dateTime(pending.expiresAt)}.${pending.deliveryOutcome === 'accepted' ? ''
-    : ' We could not confirm the code was delivered.'} To enter a code here, send a new one.`
+  return `A code was sent and works until ${dateTime(pending.expiresAt)}.${pending.deliveryOutcome === 'accepted' ? ''
+    : ' We aren’t sure it arrived.'} To enter a code here, send a new one.`
 }
 
 /**
@@ -176,32 +181,32 @@ function pendingCode(pending: NonNullable<EmergencyContact['pendingVerification'
  * the contact's notifications were turned off before it was confirmed.
  */
 const LAST_ALERT: Readonly<Record<string, string>> = {
-  delivered: 'delivered', pending: 'not yet confirmed as delivered', failed: 'not confirmed as delivered',
-  expired: 'not confirmed as delivered within 24 hours',
-  suppressed: 'stopped, because notifications were turned off for this contact',
+  delivered: 'delivered', pending: 'not confirmed yet', failed: 'not confirmed',
+  expired: 'not confirmed within 24 hours',
+  suppressed: 'stopped, because alerts were turned off for this contact',
 }
 
 function LastAlert({ notice }: { notice: EmergencyContact['lastNotification'] }) {
   if (!notice || !LAST_ALERT[notice.status]) return null
-  return <span>Last emergency alert ({dateTime(notice.createdAt)}): {LAST_ALERT[notice.status]}</span>
+  return <p className="m-0 mt-1 text-[13px] text-ink-3">Last emergency alert ({dateTime(notice.createdAt)}): {LAST_ALERT[notice.status]}</p>
 }
 
 /** What a refused or failed send means for the contact. Main's gateway passes its 5xx codes through; Novu's does not. */
 function sendFailure(cause: unknown, contact: EmergencyContact) {
-  const unverified = 'This contact stays unverified and will not be notified.'
+  const unverified = 'They stay unverified and won’t be told in an emergency.'
   switch (problemCode(cause)) {
-    case 'EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE': return `Contact verification is not available yet. ${unverified}`
+    case 'EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE': return `Codes can’t be sent right now. ${unverified}`
     case 'EMERGENCY_CONTACT_CHANNEL_UNAVAILABLE':
-      return `Verification codes cannot be sent by ${CHANNEL_WORDS[contact.channel]} yet. ${unverified}`
-    case 'EMERGENCY_CONTACT_VERIFICATION_UNDELIVERABLE': return `The code could not be delivered to ${contact.destinationHint}. `
+      return `Codes can’t be sent by ${CHANNEL_WORDS[contact.channel]} right now. ${unverified}`
+    case 'EMERGENCY_CONTACT_VERIFICATION_UNDELIVERABLE': return `The code didn’t reach ${contact.destinationHint}. `
       + `${unverified} If the ${DESTINATION_LABELS[contact.channel]} is wrong, remove this contact and add it again.`
     default:
   }
   // Behind Novu's gateway every 502, 503 and 504 is 503 UPSTREAM_UNAVAILABLE, whatever the cause.
   if (isHidApiError(cause) && cause.status >= 500) {
-    return 'The code could not be sent right now. This contact stays unverified and will not be notified until it is verified. Try again later.'
+    return `The code couldn’t be sent. ${unverified} Try again later.`
   }
-  return problem(cause, 'The verification code could not be sent.')
+  return problem(cause, 'The code couldn’t be sent. Try again.')
 }
 
 /**
@@ -217,7 +222,7 @@ const SEND_READS: Readonly<Record<string, 'list' | 'availability'>> = {
 }
 
 /** An added or verified contact whose 'Notify this contact' is unticked: #109 alerts only those with it ticked. */
-const NOTIFICATIONS_OFF = 'Notifications are off for this contact, so they will not be notified in an emergency.'
+const NOTIFICATIONS_OFF = 'Alerts are off for this contact, so they won’t be told in an emergency.'
 
 type Find = () => HTMLElement | null
 /** What a refused action says, where focus goes, whether the destination field is at fault, and what is read again first. */
@@ -283,22 +288,22 @@ export function EmergencyContactsCard({ alone = false }: { alone?: boolean }) {
       await api.addEmergencyContact({ name, relationship: draft.relationship, channel, destination,
         notifyOnEmergencyAccess: notify })
       setDraft(value => ({ ...value, name: '', destination: '' })); setAdding(false)
-      setNotice(notify ? 'Contact added. Send a verification code so they can be notified in an emergency.'
-        : `Contact added. ${NOTIFICATIONS_OFF} To have them notified, send a verification code and turn notifications on in Edit.`)
+      setNotice(notify ? 'Contact added. Now send them a code to verify them.'
+        : `Contact added. ${NOTIFICATIONS_OFF} To change this, verify them and turn alerts on in Edit.`)
       await card.reload()
     }, (cause): Refusal => {
       switch (problemCode(cause)) {
         case 'EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE':
           setAdding(false)
-          return { message: 'Emergency contacts are not available right now, so this contact was not added.', focus: toHeading,
+          return { message: 'Emergency contacts aren’t available right now. This contact wasn’t added.', focus: toHeading,
             read: 'availability' }
         case 'EMERGENCY_CONTACT_CHANNEL_UNAVAILABLE':
           setDraft(value => ({ ...value, channel: null, destination: '' }))
-          return { message: `Emergency contacts cannot be reached by ${CHANNEL_WORDS[channel]} yet, so this contact was not added.`,
+          return { message: `Contacts can’t be reached by ${CHANNEL_WORDS[channel]} right now. This contact wasn’t added.`,
             focus: orHeading('contact-destination'), read: 'availability' }
         case 'EMERGENCY_CONTACT_DESTINATION_INVALID': case 'VALIDATION_FAILED':
           return { message: `Enter a valid ${DESTINATION_LABELS[channel]}.`, focus: byId('contact-destination'), field: true }
-        default: return { message: problem(cause, 'The contact could not be added.'), focus: () => addName.current }
+        default: return { message: problem(cause, 'The contact couldn’t be added. Try again.'), focus: () => addName.current }
       }
     })
   }
@@ -306,10 +311,10 @@ export function EmergencyContactsCard({ alone = false }: { alone?: boolean }) {
   const sendCode = (contact: EmergencyContact) => void run(async () => {
     const sent = await api.sendEmergencyContactVerification(contact.contactId)
     setVerifying({ contactId: contact.contactId, challengeId: sent.challengeId, expiresAt: sent.expiresAt }); setCode('')
-    const expires = `It expires ${dateTime(sent.expiresAt)}.`
+    const expires = `It works until ${dateTime(sent.expiresAt)}.`
     setNotice(sent.deliveryOutcome === 'unknown'
-      ? `We could not confirm the code was delivered to ${contact.destinationHint}. If ${contact.name} received it, ask them to read it to you. ${expires}`
-      : `A code was sent to ${contact.destinationHint}. Ask ${contact.name} to read it to you. ${expires}`)
+      ? `We aren’t sure the code reached ${contact.destinationHint}. If ${contact.name} got it, ask them to read it to you. ${expires}`
+      : `Code sent to ${contact.destinationHint}. Ask ${contact.name} to read it to you. ${expires}`)
     return byId(`contact-code-${contact.contactId}`)
   }, (cause): Refusal => {
     // Delivery may have just been switched off for this patient (the card then lists contacts with Remove only), or
@@ -328,16 +333,16 @@ export function EmergencyContactsCard({ alone = false }: { alone?: boolean }) {
       await api.confirmEmergencyContactVerification(contactId, challengeId, code)
       // Verifying changes the contact's version: an edit open on it would be refused as a change made elsewhere.
       setVerifying(null); setCode(''); setEditing(value => value?.contactId === contactId ? null : value)
-      setNotice(notify ? 'Contact verified. They will be notified if emergency access to your record is used.'
-        : `Contact verified. ${NOTIFICATIONS_OFF} To have them notified, turn notifications on in Edit.`)
+      setNotice(notify ? 'Contact verified. They will be told if your records are opened in an emergency.'
+        : `Contact verified. ${NOTIFICATIONS_OFF} To change this, turn alerts on in Edit.`)
       await card.reload()
     }, (cause): Refusal => {
       if (problemCode(cause) !== 'EMERGENCY_CONTACT_NOT_FOUND') {
-        return { message: problem(cause, 'The code could not be verified.'), focus: byId(`contact-code-${contactId}`) }
+        return { message: problem(cause, 'The code couldn’t be checked. Try again.'), focus: byId(`contact-code-${contactId}`) }
       }
       // Removed elsewhere since the list was read.
       setVerifying(null); setCode('')
-      return { message: problem(cause, 'The code could not be verified.'), focus: toHeading, read: 'list' }
+      return { message: problem(cause, 'The code couldn’t be checked.'), focus: toHeading, read: 'list' }
     })
   }
 
@@ -353,23 +358,23 @@ export function EmergencyContactsCard({ alone = false }: { alone?: boolean }) {
       if (problemCode(cause) === 'EMERGENCY_CONTACT_NOT_FOUND') {
         // Removed elsewhere since the list was read (by the patient, or by support at the contact's request).
         setEditing(null)
-        return { message: problem(cause, 'The contact could not be updated.'), focus: orHeading(`contact-edit-${contactId}`), read: 'list' }
+        return { message: problem(cause, 'The contact couldn’t be saved.'), focus: orHeading(`contact-edit-${contactId}`), read: 'list' }
       }
       if (problemCode(cause) !== 'EMERGENCY_CONTACT_VERSION_CONFLICT') {
-        return { message: problem(cause, 'The contact could not be updated.'), focus: byId(`contact-name-${contactId}`) }
+        return { message: problem(cause, 'The contact couldn’t be saved. Try again.'), focus: byId(`contact-name-${contactId}`) }
       }
       // Changed elsewhere since it was read: the list is read again, so Edit opens with the current version.
       setEditing(null)
-      return { message: 'This contact was changed in another window or on another device, so your change was not saved. '
-        + 'Its current details are shown now: edit it again if you still want to change it.',
+      return { message: 'This contact was changed somewhere else, so your change wasn’t saved. '
+        + 'Check the details below and edit again if needed.',
       focus: orHeading(`contact-edit-${contactId}`), read: 'list' }
     })
   }
 
   const remove = (contactId: string) => void run(async () => {
     await api.deactivateEmergencyContact(contactId)
-    setRemoving(null); setNotice('Contact removed. They will no longer be notified.'); await card.reload()
-  }, cause => ({ message: problem(cause, 'The contact could not be removed.'), focus: byId(`contact-confirm-remove-${contactId}`) }))
+    setRemoving(null); setNotice('Contact removed.'); await card.reload()
+  }, cause => ({ message: problem(cause, 'The contact couldn’t be removed. Try again.'), focus: byId(`contact-confirm-remove-${contactId}`) }))
 
   // Nothing is offered where the routes are not served (Novu), or while delivery is off for a patient with no
   // contacts, and nothing shows on Novu before that is known. An action's own outcome is still said, and so is the
@@ -379,87 +384,90 @@ export function EmergencyContactsCard({ alone = false }: { alone?: boolean }) {
   const unoffered = hidden && retried && Boolean(card.data) && !error && !notice
 
   // Only the list is busy while it reloads: a notice outside it is not held back.
-  const block = <div id="emergency-contacts" className="patient-emergency-contacts" aria-labelledby="emergency-contacts-heading">
-    <h3 ref={heading} tabIndex={-1} id="emergency-contacts-heading">Emergency contacts</h3>
-    {!hidden && <p className="patient-field-hint">{usesNovuBackend() ? NOVU_ALERT : MAIN_ALERT}</p>}
-    {!hidden && paused && <p className="patient-field-hint">Alerts are paused. You can only remove contacts for now.</p>}
-    {error && <p id="emergency-contacts-error" role="alert" className="patient-inline-error">{error}</p>}
-    <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}
-      {unoffered && <p className="patient-field-hint">Emergency contacts are not available for your account right now.</p>}</div>
-    {!hidden && card.loading && !card.data && <p role="status" className="patient-loading">Loading your contacts…</p>}
-    {!hidden && card.error && <div role="alert"><p>{card.error}</p><button ref={retryFocus.button} type="button" onClick={() => { setRetried(true); retryFocus.retry(card.reload) }}>Try again</button></div>}
+  const relationship = (value: EmergencyContactRelationship, onChange: (next: EmergencyContactRelationship) => void, id: string) =>
+    <Field label="Relationship" htmlFor={id}><Select id={id} value={value} onChange={event => onChange(event.target.value as EmergencyContactRelationship)}>
+      {EMERGENCY_CONTACT_RELATIONSHIPS.map(item => <option key={item} value={item}>{RELATIONSHIP_LABELS[item]}</option>)}</Select></Field>
+  const notifyBox = (checked: boolean, onChange: (next: boolean) => void) => <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm text-ink">
+    <input type="checkbox" className="size-5 shrink-0 accent-[var(--color-brand-fill)]" checked={checked} onChange={event => onChange(event.target.checked)} />
+    Tell them if my records are opened in an emergency</label>
+  const block = <div id="emergency-contacts" className="flex flex-col gap-4" aria-labelledby="emergency-contacts-heading">
+    <h3 ref={heading} tabIndex={-1} id="emergency-contacts-heading" className="m-0 text-title-3 text-ink outline-none">Emergency contacts</h3>
+    {!hidden && <Hint>{paused ? 'Alerts are paused. For now you can only remove contacts.' : usesNovuBackend() ? NOVU_ALERT : MAIN_ALERT}</Hint>}
+    {error && <Problem id="emergency-contacts-error">{error}</Problem>}
+    <div role="status" className="empty:hidden">{notice && <Alert intent="success" size="sm" live={false}>{notice}</Alert>}
+      {unoffered && <Hint>Emergency contacts aren’t available for your account right now.</Hint>}</div>
+    {!hidden && card.loading && !card.data && <LoadingRows rows={1} label="Loading your contacts" />}
+    {!hidden && card.error && <LoadProblem what="your contacts" error={card.error} buttonRef={retryFocus.button}
+      onRetry={() => { setRetried(true); retryFocus.retry(card.reload) }} />}
     {!hidden && listed && !card.error && <div aria-busy={card.loading || undefined}>{listed.length === 0
-      ? <p className="patient-empty">You have no emergency contacts.</p>
-      : <ul className="patient-list">{listed.map(contact => <li key={contact.contactId} className="patient-access-item">
-        <div><strong>{contact.name}</strong>
-          <span>{RELATIONSHIP_LABELS[contact.relationship]} · {CHANNEL_LABELS[contact.channel]} {contact.destinationHint}</span>
-          <span className={contact.eligibleForEmergencyNotification && reachable(contact) ? 'patient-status-tag patient-status-tag-ok' : 'patient-status-tag'}>
-            {contactStatus(contact, paused, reachable(contact))}</span>
-          {reachable(contact) && contact.status === 'unverified' && contact.pendingVerification && verifying?.contactId !== contact.contactId
-            && <span>{pendingCode(contact.pendingVerification)}</span>}
-          {!paused && !reachable(contact) && contact.status === 'unverified'
-            && <span>Verification codes cannot be sent by {CHANNEL_WORDS[contact.channel]} right now.</span>}
-          <LastAlert notice={contact.lastNotification} />
+      ? <Hint>No emergency contacts yet.</Hint>
+      : <ul className="m-0 flex list-none flex-col gap-2 p-0">{listed.map(contact => { const ok = contact.eligibleForEmergencyNotification && reachable(contact)
+        return <li key={contact.contactId} className="flex flex-col gap-3 rounded-xl p-4 ring-1 ring-line">
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="m-0 text-sm font-semibold text-ink">{contact.name}</p>
+            <p className="m-0 text-[13px] text-ink-3">{RELATIONSHIP_LABELS[contact.relationship]} · {CHANNEL_LABELS[contact.channel]} {contact.destinationHint}</p>
+            {reachable(contact) && contact.status === 'unverified' && contact.pendingVerification && verifying?.contactId !== contact.contactId
+              && <Hint className="mt-1">{pendingCode(contact.pendingVerification)}</Hint>}
+            {!paused && !reachable(contact) && contact.status === 'unverified'
+              && <Hint className="mt-1">Codes can’t be sent by {CHANNEL_WORDS[contact.channel]} right now.</Hint>}
+            <LastAlert notice={contact.lastNotification} />
+          </div>
+          <Badge size="sm" tone={ok ? 'success' : 'warn'}>{contactStatus(contact, paused, reachable(contact))}</Badge>
         </div>
-        <div className="patient-decision-actions">
-          {reachable(contact) && contact.status === 'unverified' && <button id={`contact-send-${contact.contactId}`} type="button" className="patient-secondary-button" disabled={busy}
-            onClick={() => sendCode(contact)}>Send verification code <ItemName>to {contact.name}, {contact.destinationHint}</ItemName></button>}
-          {!paused && <button id={`contact-edit-${contact.contactId}`} type="button" disabled={busy} onClick={() => setEditing({ contactId: contact.contactId, version: contact.version,
-            name: contact.name, relationship: contact.relationship, notifyOnEmergencyAccess: contact.notifyOnEmergencyAccess })}>Edit <ItemName>{contact.name}, {contact.destinationHint}</ItemName></button>}
-          <button id={`contact-remove-${contact.contactId}`} type="button" disabled={busy} onClick={() => setRemoving(contact.contactId)}>Remove <ItemName>{contact.name}, {contact.destinationHint}</ItemName></button>
-        </div>
-        {!paused && verifying?.contactId === contact.contactId && <form className="patient-deny-form" onSubmit={confirmCode}>
+        {verifying?.contactId !== contact.contactId && editing?.contactId !== contact.contactId && removing !== contact.contactId && <Actions>
+          {reachable(contact) && contact.status === 'unverified' && <Button id={`contact-send-${contact.contactId}`} size="sm" variant="soft" disabled={busy}
+            onClick={() => sendCode(contact)}>Send code <ItemName>to {contact.name}, {contact.destinationHint}</ItemName></Button>}
+          {!paused && <Button id={`contact-edit-${contact.contactId}`} size="sm" disabled={busy} onClick={() => setEditing({ contactId: contact.contactId, version: contact.version,
+            name: contact.name, relationship: contact.relationship, notifyOnEmergencyAccess: contact.notifyOnEmergencyAccess })}>Edit <ItemName>{contact.name}, {contact.destinationHint}</ItemName></Button>}
+          <Button id={`contact-remove-${contact.contactId}`} size="sm" variant="danger" disabled={busy} onClick={() => setRemoving(contact.contactId)}>Remove <ItemName>{contact.name}, {contact.destinationHint}</ItemName></Button>
+        </Actions>}
+        {!paused && verifying?.contactId === contact.contactId && <form className="flex flex-col gap-3" onSubmit={confirmCode}>
           <CodeBoxes id={`contact-code-${contact.contactId}`} label={`Code from ${contact.name}`} value={code} onChange={setCode} busy={busy} autoFocus />
-          <button type="submit" disabled={busy || !codeComplete(code)}>Verify contact</button></form>}
-        {!paused && editing?.contactId === contact.contactId && <form className="patient-form patient-contact-form" onSubmit={saveEdit}>
-          <label>Name<input id={`contact-name-${contact.contactId}`} autoFocus required minLength={2} maxLength={120} value={editing.name}
-            onChange={event => setEditing({ ...editing, name: event.target.value })} aria-describedby={`contact-name-hint-${contact.contactId}`} /></label>
-          <p id={`contact-name-hint-${contact.contactId}`} className="patient-field-hint">At least 2 characters.</p>
-          <label>Relationship<select value={editing.relationship}
-            onChange={event => setEditing({ ...editing, relationship: event.target.value as EmergencyContactRelationship })}>
-            {EMERGENCY_CONTACT_RELATIONSHIPS.map(value => <option key={value} value={value}>{RELATIONSHIP_LABELS[value]}</option>)}</select></label>
-          <label className="patient-checkbox"><input type="checkbox" checked={editing.notifyOnEmergencyAccess}
-            onChange={event => setEditing({ ...editing, notifyOnEmergencyAccess: event.target.checked })} />
-            Notify this contact if emergency access is used</label>
-          <p className="patient-field-hint">To change the phone number or email, remove this contact and add a new one.</p>
-          <div className="patient-decision-actions"><button type="submit" className="patient-primary-button" disabled={busy || editing.name.trim().length < 2}>Save contact</button>
-            <button type="button" className="patient-secondary-button" disabled={busy}
-              onClick={() => { setEditing(null); focusAfter(byId(`contact-edit-${contact.contactId}`)) }}>Cancel</button></div>
+          <Actions><Button type="submit" variant="primary" disabled={busy || !codeComplete(code)}>Verify contact</Button>
+            <Button variant="ghost" disabled={busy} onClick={() => { setVerifying(null); setCode(''); focusAfter(orHeading(`contact-send-${contact.contactId}`)) }}>Cancel</Button></Actions></form>}
+        {!paused && editing?.contactId === contact.contactId && <form className="flex flex-col gap-4" onSubmit={saveEdit}>
+          <Field label="Name" htmlFor={`contact-name-${contact.contactId}`} hintId={`contact-name-hint-${contact.contactId}`} hint="At least 2 characters.">
+            <Input id={`contact-name-${contact.contactId}`} autoFocus required minLength={2} maxLength={120} value={editing.name}
+              onChange={event => setEditing({ ...editing, name: event.target.value })} aria-describedby={`contact-name-hint-${contact.contactId}`} /></Field>
+          {relationship(editing.relationship, next => setEditing({ ...editing, relationship: next }), `contact-relationship-${contact.contactId}`)}
+          {notifyBox(editing.notifyOnEmergencyAccess, next => setEditing({ ...editing, notifyOnEmergencyAccess: next }))}
+          <Hint>To change their number or email, remove them and add them again.</Hint>
+          <Actions><Button type="submit" variant="primary" disabled={busy || editing.name.trim().length < 2}>Save contact</Button>
+            <Button variant="ghost" disabled={busy}
+              onClick={() => { setEditing(null); focusAfter(byId(`contact-edit-${contact.contactId}`)) }}>Cancel</Button></Actions>
         </form>}
-        {removing === contact.contactId && <div className="patient-decision-actions">
-          <span>Remove {contact.name}? They will no longer be notified.</span>
-          <button id={`contact-confirm-remove-${contact.contactId}`} type="button" className="patient-secondary-button" disabled={busy} onClick={() => remove(contact.contactId)}>Confirm removal</button>
-          <button type="button" disabled={busy} onClick={() => { setRemoving(null); focusAfter(byId(`contact-remove-${contact.contactId}`)) }}>Keep contact</button></div>}
-      </li>)}</ul>}</div>}
+        {removing === contact.contactId && <div className="flex flex-col gap-3 rounded-lg bg-danger-soft/50 p-3">
+          <p className="m-0 text-sm text-ink">Remove {contact.name}? They won’t get alerts any more.</p>
+          <Actions><Button id={`contact-confirm-remove-${contact.contactId}`} size="sm" variant="destructive" disabled={busy} onClick={() => remove(contact.contactId)}>Yes, remove</Button>
+            <Button size="sm" disabled={busy} onClick={() => { setRemoving(null); focusAfter(byId(`contact-remove-${contact.contactId}`)) }}>Keep contact</Button></Actions></div>}
+      </li> })}</ul>}</div>}
     {!hidden && channels.length > 0 && <>
-      <p id="emergency-contacts-limit" className="patient-field-hint">Up to 5 contacts.</p>
-      {!adding ? <button ref={addButton} type="button" className="patient-secondary-button" disabled={busy || (listed?.length ?? 0) >= 5}
-        aria-describedby="emergency-contacts-limit"
-        onClick={() => setAdding(true)}>Add emergency contact</button>
-        : <form className="patient-form patient-contact-form" onSubmit={add}>
-          <label>Contact name<input ref={addName} autoFocus required minLength={2} maxLength={120} autoComplete="off" value={draft.name}
-            onChange={event => setDraft({ ...draft, name: event.target.value })} aria-describedby="contact-name-hint" /></label>
-          <p id="contact-name-hint" className="patient-field-hint">At least 2 characters.</p>
-          <label>Relationship<select value={draft.relationship}
-            onChange={event => setDraft({ ...draft, relationship: event.target.value as EmergencyContactRelationship })}>
-            {EMERGENCY_CONTACT_RELATIONSHIPS.map(value => <option key={value} value={value}>{RELATIONSHIP_LABELS[value]}</option>)}</select></label>
+      {!adding ? <div className="flex flex-col gap-1.5 self-start">
+        <ButtonR ref={addButton} icon={UserPlus} disabled={busy || (listed?.length ?? 0) >= 5}
+          aria-describedby="emergency-contacts-limit" onClick={() => setAdding(true)}>Add emergency contact</ButtonR>
+        <Hint id="emergency-contacts-limit">Up to 5 contacts.</Hint></div>
+        : <form className="flex flex-col gap-4 rounded-xl bg-subtle p-4 ring-1 ring-line" onSubmit={add}>
+          <Field label="Name" htmlFor="contact-name" hintId="contact-name-hint" hint="At least 2 characters.">
+            <InputR id="contact-name" ref={addName} autoFocus required minLength={2} maxLength={120} autoComplete="off" value={draft.name}
+              onChange={event => setDraft({ ...draft, name: event.target.value })} aria-describedby="contact-name-hint" /></Field>
+          {relationship(draft.relationship, next => setDraft({ ...draft, relationship: next }), 'contact-relationship')}
           {/* Only the channels Identity can deliver on now (#109); with one, it is not asked. */}
-          {channels.length > 1 && <label>How should we reach them?<select value={channel}
+          {channels.length > 1 && <Field label="How should we reach them?" htmlFor="contact-channel"><Select id="contact-channel" value={channel}
             onChange={event => { setDraft({ ...draft, channel: event.target.value as EmergencyContactChannel, destination: '' }); setDestinationInvalid(false) }}>
-            {channels.map(value => <option key={value} value={value}>{CHANNEL_LABELS[value]}</option>)}</select></label>}
-          <label>{channel === 'sms' ? 'Phone number' : 'Email address'}<input id="contact-destination" required minLength={5} maxLength={254} autoComplete="off"
-            type={channel === 'sms' ? 'tel' : 'email'} inputMode={channel === 'sms' ? 'tel' : 'email'} value={draft.destination}
-            onChange={event => { setDraft({ ...draft, destination: event.target.value }); setDestinationInvalid(false) }}
-            aria-invalid={destinationInvalid || undefined}
-            aria-describedby={describedBy(channel === 'sms' && 'contact-destination-hint', destinationInvalid && 'emergency-contacts-error')} /></label>
-          {channel === 'sms' && <p id="contact-destination-hint" className="patient-field-hint">For example 0803 123 4567 or +234 803 123 4567.</p>}
-          <label className="patient-checkbox"><input type="checkbox" checked={draft.notifyOnEmergencyAccess}
-            onChange={event => setDraft({ ...draft, notifyOnEmergencyAccess: event.target.checked })} />
-            Notify this contact if emergency access is used</label>
-          <div className="patient-decision-actions"><button type="submit" className="patient-primary-button"
-            disabled={busy || draft.name.trim().length < 2 || draft.destination.trim().length < 5}>Save contact</button>
-            <button type="button" className="patient-secondary-button" disabled={busy}
-              onClick={() => { setAdding(false); focusAfter(() => addButton.current) }}>Cancel</button></div>
+            {channels.map(value => <option key={value} value={value}>{CHANNEL_LABELS[value]}</option>)}</Select></Field>}
+          <Field label={channel === 'sms' ? 'Phone number' : 'Email address'} htmlFor="contact-destination"
+            hintId={channel === 'sms' ? 'contact-destination-hint' : undefined} hint={channel === 'sms' ? 'Like 0803 123 4567 or +234 803 123 4567.' : undefined}>
+            <Input id="contact-destination" required minLength={5} maxLength={254} autoComplete="off"
+              type={channel === 'sms' ? 'tel' : 'email'} inputMode={channel === 'sms' ? 'tel' : 'email'} value={draft.destination}
+              onChange={event => { setDraft({ ...draft, destination: event.target.value }); setDestinationInvalid(false) }}
+              aria-invalid={destinationInvalid || undefined}
+              aria-describedby={describedBy(channel === 'sms' && 'contact-destination-hint', destinationInvalid && 'emergency-contacts-error')} /></Field>
+          {notifyBox(draft.notifyOnEmergencyAccess, next => setDraft({ ...draft, notifyOnEmergencyAccess: next }))}
+          <Actions><Button type="submit" variant="primary"
+            disabled={busy || draft.name.trim().length < 2 || draft.destination.trim().length < 5}>Save contact</Button>
+            <Button variant="ghost" disabled={busy}
+              onClick={() => { setAdding(false); focusAfter(() => addButton.current) }}>Cancel</Button></Actions>
         </form>}
     </>}
   </div>
@@ -499,6 +507,13 @@ export function AccountDeletionCard() {
   const proceedButton = useRef<HTMLButtonElement>(null)
   const focusAfter = useActionFocus()
   const retryFocus = useRetryFocus(heading)
+  // On the profile it is out of the way, under "More": a deletion that is scheduled, or a status that could not be read,
+  // is not left folded away there, so the patient sees it.
+  const mustShow = Boolean(status.error) || (status.data?.request?.state === 'pending' && Boolean(status.data.request.scheduledFor))
+  useLayoutEffect(() => {
+    const more = heading.current?.closest('details')
+    if (mustShow && more && !more.open) more.open = true
+  }, [mustShow])
 
   const request = async () => {
     if (busy || !acknowledged) return
@@ -506,7 +521,7 @@ export function AccountDeletionCard() {
     // On success the confirmation opens with focus in its phrase field.
     try { setPending(await api.requestAccountDeletion()); setPhrase('') }
     catch (cause) {
-      setError(deletionProblem(cause, 'The deletion request could not be started.'))
+      setError(deletionProblem(cause, 'Couldn’t start deleting your account. Try again.'))
       focusAfter(() => proceedButton.current)
     } finally { setBusy(false) }
   }
@@ -522,7 +537,7 @@ export function AccountDeletionCard() {
       else { await status.reload(); focusAfter(() => heading.current) }
     } catch (cause) {
       setPending(null); setPhrase('')
-      setError(deletionProblem(cause, 'The deletion could not be confirmed. Start again.'))
+      setError(deletionProblem(cause, 'Your account wasn’t deleted. Please start again.'))
       await status.reload()
       focusAfter(() => heading.current)
     } finally { setBusy(false) }
@@ -532,10 +547,10 @@ export function AccountDeletionCard() {
     if (busy) return
     setBusy(true); setError(null); setNotice(null)
     try {
-      await api.cancelAccountDeletion(requestId); setPending(null); setNotice('Account deletion cancelled. Your account stays open.')
+      await api.cancelAccountDeletion(requestId); setPending(null); setNotice('Deletion cancelled. Your account stays open.')
       await status.reload()
       focusAfter(() => heading.current)
-    } catch (cause) { setError(problem(cause, 'The deletion could not be cancelled.')); focusAfter(() => control) }
+    } catch (cause) { setError(problem(cause, 'Couldn’t cancel. Try again.')); focusAfter(() => control) }
     finally { setBusy(false) }
   }
 
@@ -546,12 +561,11 @@ export function AccountDeletionCard() {
   }
 
   if (completed) {
-    return <div className="patient-card patient-danger-card" role="status" aria-labelledby="account-deletion-heading">
-      <h2 ref={completedHeading} tabIndex={-1} id="account-deletion-heading">Your account has been deleted</h2>
-      <p>You are signed out everywhere, and this sign-in no longer works.</p>
-      <p className="patient-field-hint">Your Health ID and medical records were kept, as your care and the law require.</p>
-      <button type="button" className="patient-primary-button" onClick={() => void finish()}>Finish</button>
-    </div>
+    return <Card role="status" aria-labelledby="account-deletion-heading" className="flex flex-col gap-3 p-5">
+      <h2 ref={completedHeading} tabIndex={-1} id="account-deletion-heading" className="m-0 text-title-3 text-ink outline-none">Your account is deleted</h2>
+      <p className="m-0 text-sm text-ink-2">You are signed out on all devices. Your Health ID and medical records are kept, for your care and by law.</p>
+      <Button variant="primary" className="self-start" onClick={() => void finish()}>Finish</Button>
+    </Card>
   }
 
   // Not served (404), or on Novu not known yet: nothing is shown. An action's own outcome is still said, and so is the
@@ -567,37 +581,36 @@ export function AccountDeletionCard() {
   // Only the status is busy while it reloads: a notice outside it is not held back. On the profile, last: a section
   // closed until opened (ProfileSection.tsx), as hid-1.0's Danger Zone ended its profile.
   // Said in the heading too: the card's alert, or the date, is not seen while it is closed.
-  return <ProfileSection id="account-deletion" title="Delete account" className="patient-danger-card" headingRef={heading}
+  return <ProfileSection id="account-deletion" title="Delete account" tone="danger" headingRef={heading}
     headingId="account-deletion-heading" state={status.error ? 'Could not load' : scheduled ? 'Scheduled' : null}>
-    {error && <p role="alert" className="patient-inline-error">{error}</p>}
-    <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
-    {status.loading && !status.data && <p role="status" className="patient-loading">Checking your account…</p>}
-    {status.error && <div role="alert"><p>{status.error}</p><button ref={retryFocus.button} type="button"
-      onClick={() => { setRetried(true); retryFocus.retry(status.reload) }}>Try again</button></div>}
-    {unserved && <p>Deleting your account is not available here right now.</p>}
-    {status.data && !status.error && <div aria-busy={status.loading || undefined}>{scheduled
+    {error && <Problem>{error}</Problem>}
+    <Saved>{notice}</Saved>
+    {status.loading && !status.data && <LoadingRows rows={1} label="Checking your account" />}
+    {status.error && <LoadProblem what="this" error={status.error} buttonRef={retryFocus.button}
+      onRetry={() => { setRetried(true); retryFocus.retry(status.reload) }} />}
+    {unserved && <Hint>You can’t delete your account here right now.</Hint>}
+    {status.data && !status.error && <div aria-busy={status.loading || undefined} className="flex flex-col gap-4">{scheduled
       ? <>
-        <p>Your account is scheduled for deletion on <strong>{watDateTime(current.scheduledFor)}</strong>.</p>
-        <p className="patient-field-hint">Until then you can cancel. After that it can’t be undone. Your Health ID and medical records are kept.</p>
-        <button type="button" className="patient-primary-button" disabled={busy || status.loading} onClick={event => void cancel(current.requestId, event.currentTarget)}>Cancel deletion</button>
+        <p className="m-0 text-sm text-ink">Your account will be deleted on <strong>{watDateTime(current.scheduledFor)}</strong>. You can cancel until then.</p>
+        <Button variant="primary" className="self-start" disabled={busy || status.loading} onClick={event => void cancel(current.requestId, event.currentTarget as HTMLElement)}>Cancel deletion</Button>
       </>
       : <>
-        {current?.state === 'blocked' && current.blockedReasonCode && <p role="alert" className="patient-inline-error">{BLOCKED_REASONS[current.blockedReasonCode]}</p>}
+        {current?.state === 'blocked' && current.blockedReasonCode && <Problem>{BLOCKED_REASONS[current.blockedReasonCode]}</Problem>}
         {/* hid-system 0096 (Novu) also closes sharing invitations and emergency contacts; main's 0064 does not. */}
-        <p>Deleting your account signs you out everywhere and withdraws provider access and your Access PIN{usesNovuBackend() ? ', sharing invitations and emergency contacts' : ''}; your Health ID and medical records are kept, and after {waiting} it can’t be undone.</p>
+        <p className="m-0 text-sm text-ink-2">This signs you out everywhere and removes your Access PIN{usesNovuBackend() ? ', share invites, emergency contacts' : ''} and the access you gave. Your Health ID and medical records are kept. You have {waiting} to change your mind; after that, it can’t be undone.</p>
         {!pending ? <>
-          <label className="patient-checkbox"><input type="checkbox" checked={acknowledged}
-            onChange={event => setAcknowledged(event.target.checked)} /> I understand what deleting my account means</label>
-          <p className="patient-field-hint">You must have signed in within the last 10 minutes.</p>
-          <button ref={proceedButton} type="button" className="patient-danger-button" disabled={busy || status.loading || !acknowledged} onClick={() => void request()}>Continue to delete account</button>
-        </> : <form className="patient-form" onSubmit={event => void confirm(event)}>
-          <p className="patient-field-hint">This confirmation expires at {watDateTime(pending.confirmationExpiresAt)}.</p>
-          <label>Type {CONFIRMATION_PHRASE} to confirm<input autoFocus required autoComplete="off" spellCheck={false} value={phrase}
-            onChange={event => setPhrase(event.target.value)} /></label>
-          <div className="patient-decision-actions">
-            <button type="submit" className="patient-danger-button" disabled={busy || phrase.trim().toUpperCase() !== CONFIRMATION_PHRASE}>Delete my account</button>
-            <button type="button" className="patient-secondary-button" disabled={busy} onClick={event => void cancel(pending.requestId, event.currentTarget)}>Keep my account</button>
-          </div>
+          <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm text-ink"><input type="checkbox" className="size-5 shrink-0 accent-[var(--color-danger)]" checked={acknowledged}
+            onChange={event => setAcknowledged(event.target.checked)} />I understand what deleting my account means</label>
+          <Hint>{SAY.signInAgain}</Hint>
+          <ButtonR ref={proceedButton} variant="destructive" className="self-start" disabled={busy || status.loading || !acknowledged} onClick={() => void request()}>Continue to delete account</ButtonR>
+        </> : <form className="flex flex-col gap-4" onSubmit={event => void confirm(event)}>
+          <Field label={`Type ${CONFIRMATION_PHRASE} to confirm`} htmlFor="account-deletion-phrase" hintId="account-deletion-phrase-hint" hint={`Finish before ${watDateTime(pending.confirmationExpiresAt)}.`}>
+            <Input id="account-deletion-phrase" autoFocus required autoComplete="off" spellCheck={false} value={phrase}
+              onChange={event => setPhrase(event.target.value)} aria-describedby="account-deletion-phrase-hint" /></Field>
+          <Actions>
+            <Button type="submit" variant="destructive" disabled={busy || phrase.trim().toUpperCase() !== CONFIRMATION_PHRASE}>Delete my account</Button>
+            <Button disabled={busy} onClick={event => void cancel(pending.requestId, event.currentTarget as HTMLElement)}>Keep my account</Button>
+          </Actions>
         </form>}
       </>}</div>}
   </ProfileSection>

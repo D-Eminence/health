@@ -43,7 +43,8 @@ describe('Plan & billing', () => {
     mocks.billing.subscription.mockRejectedValue(NOT_SERVED())
     mocks.billing.invoices.mockRejectedValue(NOT_SERVED())
     open(<Billing />)
-    expect(await screen.findByRole('heading', { name: "Billing isn't available yet" })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Billing' })).toBeTruthy()
+    expect(screen.getByText('Billing isn’t set up for your facility. Contact support.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Pay now' })).toBeNull()
   })
 

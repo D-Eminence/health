@@ -1,4 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
+import { FilterTabs } from '../kasuwa/ui'
 import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import {
@@ -193,12 +194,8 @@ export function WrongPatientReportsPage({ actor }: { actor: AdminActor }) {
         <li>{lateCaseNote(served)}</li>
       </ul>
     </section>
-    <div className="admin-filter" role="group" aria-label="Reports">
-      {(['unreviewed', 'recent'] as const).map(item => <button key={item} type="button" aria-pressed={view === item}
-        className={view === item ? 'admin-primary' : 'admin-secondary'}
-        onClick={() => { setNotice(null); setFilters({ view: item === 'unreviewed' ? '' : item }) }}>
-        {item === 'unreviewed' ? 'Unreviewed' : 'Recent (90 days)'}</button>)}
-    </div>
+    <FilterTabs label="Reports" value={view as string} onChange={value => { setNotice(null); setFilters({ view: value === 'unreviewed' ? '' : value }) }}
+      options={[{ value: 'unreviewed', label: 'Unreviewed' }, { value: 'recent', label: 'Recent (90 days)' }]} />
     {facilityId && <p className="admin-note">Showing only the reports {facilityName ?? 'this facility'} made.{' '}
       <button type="button" className="admin-link" onClick={() => setFilters({ facility: '' })}>Show every facility’s</button></p>}
     <div role="status">{notice && <p className="admin-success">{notice}</p>}</div>
@@ -257,7 +254,7 @@ const REVIEW_PROBLEMS: Readonly<Record<string, string>> = {
   WRONG_PATIENT_REPORT_NOT_FOUND: 'This report was not found. The list has been refreshed.',
   WRONG_PATIENT_REPORT_ALREADY_REVIEWED: 'Someone has already reviewed this report. The list has been refreshed.',
   VERSION_CONFLICT: 'This report changed after it was loaded. The list has been refreshed: check it before reviewing it.',
-  PERMISSION_DENIED: 'Reviewing a report needs the platform.facility.manage permission. Ask a Super Admin.',
+  PERMISSION_DENIED: 'Your roles don’t allow this. Ask a Super Admin.',
 }
 const REVIEW_REFRESHING = ['WRONG_PATIENT_REPORT_NOT_FOUND', 'WRONG_PATIENT_REPORT_ALREADY_REVIEWED', 'VERSION_CONFLICT'] as const
 
@@ -342,8 +339,13 @@ function ReviewForm({ report, onReviewed, onStale }: { report: WrongPatientRepor
  * The Overview tile (D11): how many reports wait for review. Shown only where the backend serves the list: an Identity
  * without it (404) shows no tile.
  */
+/** The reports not yet reviewed, or null where the backend does not serve them (for the overview). */
+export function unreviewedWrongPatientReports(signal?: AbortSignal) {
+  return unlessUnavailable(adminApi.wrongPatientReports('unreviewed', undefined, signal))
+}
+
 export function WrongPatientReportsTile() {
-  const load = useCallback((signal?: AbortSignal) => unlessUnavailable(adminApi.wrongPatientReports('unreviewed', undefined, signal)), [])
+  const load = useCallback((signal?: AbortSignal) => unreviewedWrongPatientReports(signal), [])
   const resource = useResource(load, 'Wrong-patient reports could not be loaded.')
   if (!resource.loading && !resource.error && resource.data === null) return null
   return <article className="admin-tile admin-attention">

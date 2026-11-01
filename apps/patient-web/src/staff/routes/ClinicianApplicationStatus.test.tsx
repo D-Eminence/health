@@ -360,9 +360,9 @@ describe('the applications', () => {
 
   it.each([
     [view({ state: 'awaiting_authenticator' }), 'Waiting for your authenticator',
-      "Set up your authenticator app to send this application for review. HID can't review it until you do. We keep applications open for 30 days (until 14 November 2026)."],
-    [view(), 'Received', "Application received. An HID administrator will check your licence with MDCN, call you to confirm it's you, and confirm with Lagos General Hospital that you work there. You can't sign in to the provider portal until two HID administrators approve it."],
-    [view({ state: 'under_review' }), 'Licence checked', 'Your licence has been checked. A second HID administrator must confirm it before your access is turned on.'],
+      "Set up your authenticator app to send this application for review. We can't review it until you do. We keep applications open for 30 days (until 14 November 2026)."],
+    [view(), 'Received', "Application received. Health ID will check your licence with MDCN, call you to confirm it's you, and check with Lagos General Hospital that you work there. You can sign in once it's approved."],
+    [view({ state: 'under_review' }), 'Licence checked', 'Your licence has been checked. One more check, then you can sign in.'],
     [approved('active'), 'Approved', 'Approved on 20 October 2026. You can sign in to the provider portal as a doctor at Lagos General Hospital with your password and authenticator app.'],
     [approved('lapsed'), 'Approved', 'Approved on 20 October 2026. Your access at Lagos General Hospital is paused because its licence check has expired. Contact HID support to renew it.'],
     [approved('ended'), 'Approved', 'Approved on 20 October 2026. Your access at Lagos General Hospital has ended.'],

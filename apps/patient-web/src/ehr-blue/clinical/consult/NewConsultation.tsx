@@ -1,24 +1,23 @@
 import { isHidApiError } from '@hid/http'
-import { EhrCard, EhrField, EhrSelect } from '@hid/ui/ehr'
+import { EhrCard } from '@hid/ui/ehr'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
-import { Banner, RecordHeading } from '../parts/Notices'
-import { patientLine } from '../parts/PatientHeader'
-import { COMPLETE_FIELD, RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
+import { RecordHeading } from '../parts/Notices'
+import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
 import {
-  DIAGNOSIS_CLINICAL_STATUSES, DIAGNOSIS_VERIFICATION_STATUSES, ENCOUNTER_CREATED, ENCOUNTER_TYPES, NEW_TITLE, NOTES_ARE_DRAFTS,
-  composeNote, encounterTypeLabel, isoNow, refusedFieldErrors, text,
+  ENCOUNTER_CREATED, ENCOUNTER_TYPES, NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NEW_TITLE, NOTES_ARE_DRAFTS,
+  composeNote, encounterTypeLabel, isoNow, newDiagnosisBody, newDiagnosisCheck, refusedFieldErrors, text,
 } from './encounters'
 
 /** "New consultation": the design's create page for the open patient, or the chart's own state. */
 export function NewConsultation() {
   const href = useWorkspaceHref()
   const chart = useChart()
-  if (chart && chart.purpose === 'direct-care') return <NewConsultationForm chart={chart} />
+  if (chart && chart.purpose === 'direct-care') return <ChartGate>{open => <NewConsultationForm chart={open} />}</ChartGate>
   return (
     <>
       <RecordHeading title={NEW_TITLE} backHref={href()} />
@@ -29,13 +28,12 @@ export function NewConsultation() {
 
 /** Today's note limits (RecordForm, clinical-notes): the composed note is one `content` of at most 100,000 characters. */
 const NOTE_LIMIT = 100_000
-const NOTE_TOO_LONG = 'The clinical note is too long: History, Examination, Clinical note and Follow-up together must be at most 100,000 characters.'
-const DIAGNOSIS_KEYS = ['diagnosis', 'diagnosisCodeSystem', 'diagnosisCode'] as const
+const NOTE_TOO_LONG = 'The note is too long. History, Examination, Clinical note and Follow-up together can be up to 100,000 characters.'
 /** Said after a partial save, once the draft note is in: its fields are gone, and it is changed from the encounter's page. */
-const NOTE_SAVED = 'The draft clinical note was saved; change it from the encounter’s page.'
+const NOTE_SAVED = 'The draft note is saved; change it from the consultation’s page.'
 
 const ENCOUNTER_FIELDS: readonly FieldDef[] = [
-  { key: 'encounterType', label: 'Encounter type', required: true, choices: ENCOUNTER_TYPES },
+  { key: 'encounterType', label: 'Type of visit', required: true, choices: ENCOUNTER_TYPES },
   { key: 'complaint', label: 'Presenting complaint', required: true, maxLength: 4000 },
 ]
 // The note's fields are optional, as today: type and complaint alone start the encounter, and the draft note is written
@@ -44,18 +42,11 @@ const NOTE_FIELDS: readonly FieldDef[] = [
   { key: 'history', label: 'History', type: 'textarea', maxLength: NOTE_LIMIT },
   { key: 'examination', label: 'Examination', type: 'textarea', maxLength: NOTE_LIMIT },
 ]
-const DIAGNOSIS_FIELDS: readonly FieldDef[] = [
-  { key: 'diagnosis', label: 'Diagnosis / assessment', maxLength: 500, hint: 'Optional. With a code system and code, it is saved as this encounter’s diagnosis.' },
-  { key: 'diagnosisCodeSystem', label: 'Diagnosis code system', placeholder: 'ICD-10', maxLength: 255 },
-  { key: 'diagnosisCode', label: 'Diagnosis code', maxLength: 100 },
-  { key: 'diagnosisClinicalStatus', label: 'Clinical status', choices: DIAGNOSIS_CLINICAL_STATUSES },
-  { key: 'diagnosisVerification', label: 'Verification', choices: DIAGNOSIS_VERIFICATION_STATUSES },
-]
 const NOTE_TAIL_FIELDS: readonly FieldDef[] = [
   { key: 'note', label: 'Clinical note', type: 'textarea', maxLength: NOTE_LIMIT },
   { key: 'followup', label: 'Follow-up', maxLength: 4000 },
 ]
-const INITIAL: FormValues = { encounterType: 'ambulatory', diagnosisClinicalStatus: 'active', diagnosisVerification: 'unconfirmed' }
+const INITIAL: FormValues = { encounterType: 'ambulatory', ...NEW_DIAGNOSIS_INITIAL }
 
 /** One save in progress: each step keeps its idempotency key while its input is unchanged, and is not sent twice. */
 interface Attempt {
@@ -83,15 +74,12 @@ function NewConsultationForm({ chart }: { chart: Chart }) {
   const fields = useMemo(() => [
     ...(started ? [] : ENCOUNTER_FIELDS),
     ...(writesNote && !noteSaved ? NOTE_FIELDS : []),
-    ...(writesDiagnosis ? DIAGNOSIS_FIELDS : []),
+    ...(writesDiagnosis ? NEW_DIAGNOSIS_FIELDS : []),
     ...(writesNote && !noteSaved ? NOTE_TAIL_FIELDS : []),
   ], [noteSaved, started, writesDiagnosis, writesNote])
 
   const validate = (values: FormValues): FieldErrors => {
-    const errors: Record<string, string> = {}
-    if (writesDiagnosis && DIAGNOSIS_KEYS.some(key => text(values[key]))) {
-      for (const key of DIAGNOSIS_KEYS) if (!text(values[key])) errors[key] = COMPLETE_FIELD
-    }
+    const errors: Record<string, string> = writesDiagnosis ? { ...newDiagnosisCheck(values) } : {}
     if (writesNote && !noteSaved && noteContent(values).length > NOTE_LIMIT) errors.note = NOTE_TOO_LONG
     return errors
   }
@@ -127,22 +115,18 @@ function NewConsultationForm({ chart }: { chart: Chart }) {
         current.note.done = true
         setNoteSaved(true)
       }
-      const display = text(values.diagnosis)
-      if (writesDiagnosis && display && !current.diagnosis?.done) {
-        map = { display: 'diagnosis', codeSystem: 'diagnosisCodeSystem', code: 'diagnosisCode', clinicalStatus: 'diagnosisClinicalStatus', verificationStatus: 'diagnosisVerification' }
-        const body = {
-          codeSystem: text(values.diagnosisCodeSystem), code: text(values.diagnosisCode), display,
-          clinicalStatus: text(values.diagnosisClinicalStatus) || 'active', verificationStatus: text(values.diagnosisVerification) || 'unconfirmed',
-        }
-        current.diagnosis = step(current.diagnosis, JSON.stringify(body))
+      const diagnosis = newDiagnosisBody(values)
+      if (writesDiagnosis && diagnosis && !current.diagnosis?.done) {
+        map = { ...NEW_DIAGNOSIS_REFUSED }
+        current.diagnosis = step(current.diagnosis, JSON.stringify(diagnosis))
         await chart.verify()
-        await staffApi.createRecord(chart.facilityId, chart.patientId, encounterId, 'diagnoses', body, current.diagnosis.key)
+        await staffApi.createRecord(chart.facilityId, chart.patientId, encounterId, 'diagnoses', diagnosis, current.diagnosis.key)
         current.diagnosis.done = true
       }
       attempt.current = {}
       navigate(href(encounterId), { state: { created: true } })
     } catch (caught) {
-      const fallback = current.encounter ? 'Record could not be saved.' : 'Encounter could not be created.'
+      const fallback = current.encounter ? 'The rest could not be saved.' : 'The consultation could not be started.'
       return { formError: refusalText(caught, fallback), fieldErrors: refusedFieldErrors(caught, map) }
     }
   }
@@ -150,19 +134,13 @@ function NewConsultationForm({ chart }: { chart: Chart }) {
   return (
     <>
       <RecordHeading title={NEW_TITLE} backHref={href()} />
-      {chart.writeNotice ? <Banner tone="warning" title="Changes are unavailable">{chart.writeNotice}</Banner> : null}
       <EhrCard>
-        <EhrField label={<>Patient<span aria-hidden="true"> *</span></>}>
-          <EhrSelect value={chart.patientId} disabled={!canStart} onChange={() => undefined} required>
-            <option value={chart.patientId}>{patientLine(chart.facts)}</option>
-          </EhrSelect>
-        </EhrField>
         <PatientContext chart={chart} />
         {canStart ? (
-          <RecordForm fields={fields} initial={INITIAL} submitLabel="Save record" validate={validate} onSubmit={submit}>
+          <RecordForm fields={fields} initial={INITIAL} submitLabel={started ? 'Save the rest' : 'Start consultation'} validate={validate} onSubmit={submit}>
             {started ? (
               <p className="hid-ehr-clinical-note" role="status">
-                {`${ENCOUNTER_CREATED} ${encounterTypeLabel(started.encounterType)} · ${started.chiefComplaint ?? ''}.${noteSaved ? ` ${NOTE_SAVED}` : ''} Saving again adds the rest to this encounter.`}
+                {`${ENCOUNTER_CREATED} ${encounterTypeLabel(started.encounterType)} · ${started.chiefComplaint ?? ''}.${noteSaved ? ` ${NOTE_SAVED}` : ''} Save again to add the rest to it.`}
               </p>
             ) : null}
             {writesNote ? <p className="hid-ehr-clinical-note">{NOTES_ARE_DRAFTS}</p> : null}
@@ -210,18 +188,18 @@ function PatientContext({ chart }: { chart: Chart }) {
   }, [facilityId, patientId, reads])
 
   return (
+    // A section shows only when it has something to say (rule B): nothing while it loads or when it isn't served.
+    reported.state === 'loading' || reported.state === 'hidden' ? null : (
     <section className="hid-ehr-clinical-context-block" aria-labelledby="consult-patient-context">
-      <h2 id="consult-patient-context">Patient context</h2>
-      <p>{chart.facts.name}</p>
-      {reported.state === 'loading' || reported.state === 'hidden' ? null : (
-        <p>
-          {reported.state === 'shown'
-            ? `Recorded allergies: ${reported.allergies} (patient-reported: entered by the patient in their Health ID portal, not clinically verified).`
-            : reported.state === 'failed'
-              ? 'Recorded allergies: what the patient entered about their health could not be loaded. Confirm with the patient.'
-              : 'Recorded allergies: None recorded. Confirm with the patient.'}
-        </p>
-      )}
+      <h2 id="consult-patient-context">Allergies</h2>
+      <p>
+        {reported.state === 'shown'
+          ? `${reported.allergies} (told us by the patient, not checked by a clinician).`
+          : reported.state === 'failed'
+            ? 'What the patient told us couldn’t be loaded. Confirm with the patient.'
+            : 'None recorded. Confirm with the patient.'}
+      </p>
     </section>
+    )
   )
 }

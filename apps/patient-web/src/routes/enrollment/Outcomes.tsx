@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { buttonClass } from '../../kasuwa/ui'
 
 type Focus = (element: HTMLElement | null) => void
 
@@ -11,13 +12,13 @@ type Focus = (element: HTMLElement | null) => void
  * ID or a contact.
  */
 export function AlreadyRegistered({ focusTarget, reference }: { focusTarget: Focus; reference: string | null }) {
-  return <section className="patient-success" aria-labelledby="enroll-registered-title">
+  return <section className="flex flex-col gap-4 text-sm text-ink-2 [&_h2]:m-0 [&_h2]:text-title-2 [&_h2]:text-ink [&_h2]:outline-none [&_p]:m-0" aria-labelledby="enroll-registered-title">
     <h2 id="enroll-registered-title" ref={focusTarget} tabIndex={-1}>This NIN already has a Health ID</h2>
     <p>We can't create another Health ID for this NIN. Use account recovery to get back into it.</p>
-    <Link className="patient-primary-button" to="/recover">Recover your account</Link>
-    <Link className="patient-secondary-button" to="/sign-in">Sign in</Link>
+    <Link className={buttonClass({ variant: 'primary', size: 'lg', block: true })} to="/recover">Recover your account</Link>
+    <Link className={buttonClass({ size: 'lg', block: true })} to="/sign-in">Sign in</Link>
     <p>{reference
-      ? <>If you have never registered for a Health ID, contact Health ID support and quote this reference: <span className="patient-code">{reference}</span>.</>
+      ? <>If you have never registered for a Health ID, contact Health ID support and quote this reference: <span className="font-mono font-semibold text-ink">{reference}</span>.</>
       : 'If you have never registered for a Health ID, contact Health ID support.'}</p>
   </section>
 }
@@ -32,13 +33,13 @@ export function AlreadyRegistered({ focusTarget, reference }: { focusTarget: Foc
  * no new paid lookup; one that is gone starts afresh.
  */
 export function RegistrationEnded({ focusTarget, onStartAgain }: { focusTarget: Focus; onStartAgain: () => void }) {
-  return <section className="patient-success" aria-labelledby="enroll-ended-title">
+  return <section className="flex flex-col gap-4 text-sm text-ink-2 [&_h2]:m-0 [&_h2]:text-title-2 [&_h2]:text-ink [&_h2]:outline-none [&_p]:m-0" aria-labelledby="enroll-ended-title">
     <h2 id="enroll-ended-title" ref={focusTarget} tabIndex={-1}>This registration has ended</h2>
     <p>If the staff member told you this NIN already has a Health ID, use account recovery to get back into it.</p>
-    <Link className="patient-primary-button" to="/recover">Recover your account</Link>
-    <Link className="patient-secondary-button" to="/sign-in">Sign in</Link>
+    <Link className={buttonClass({ variant: 'primary', size: 'lg', block: true })} to="/recover">Recover your account</Link>
+    <Link className={buttonClass({ size: 'lg', block: true })} to="/sign-in">Sign in</Link>
     <p>Otherwise it may have expired after 24 hours, or ended when someone signed in or out in this browser. Select Start again and enter your NIN without reloading this page: a registration that is still open continues where it stopped.</p>
-    <button type="button" className="patient-text-button" onClick={onStartAgain}>Start again</button>
+    <button type="button" className={buttonClass({ variant: 'link', className: 'self-start' })} onClick={onStartAgain}>Start again</button>
   </section>
 }
 
@@ -51,11 +52,11 @@ export function RegistrationEnded({ focusTarget, onStartAgain }: { focusTarget: 
  * so it says nothing about anyone else's NIN.
  */
 export function RegistrationCompleted({ focusTarget }: { focusTarget: Focus }) {
-  return <section className="patient-success" aria-labelledby="enroll-completed-title">
+  return <section className="flex flex-col gap-4 text-sm text-ink-2 [&_h2]:m-0 [&_h2]:text-title-2 [&_h2]:text-ink [&_h2]:outline-none [&_p]:m-0" aria-labelledby="enroll-completed-title">
     <h2 id="enroll-completed-title" ref={focusTarget} tabIndex={-1}>This registration was completed</h2>
     <p>A Health ID was created with this registration, so it can't be started again.</p>
     <p>Sign in with your email or Health ID and the password you chose. If you can't, or you don't have your Health ID, use account recovery.</p>
-    <Link className="patient-primary-button" to="/sign-in">Sign in</Link>
-    <Link className="patient-secondary-button" to="/recover">Recover your account</Link>
+    <Link className={buttonClass({ variant: 'primary', size: 'lg', block: true })} to="/sign-in">Sign in</Link>
+    <Link className={buttonClass({ size: 'lg', block: true })} to="/recover">Recover your account</Link>
   </section>
 }

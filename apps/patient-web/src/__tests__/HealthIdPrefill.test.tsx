@@ -3,10 +3,12 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { SignIn } from '../routes/SignIn'
 import { Recovery } from '../routes/Recovery'
+import { shownText } from './portalHarness'
 
 /**
- * Owner decision (2026-10-27): a Health ID is HID- and 6 characters, and every field a Health ID is typed into starts
- * with HID- filled in. Sign-in and password reset take an email as well: the prefix can be deleted, an email typed
+ * Owner decision (2026-10-27): a Health ID is HID- and 6 characters. The review of 2026-10-31 took the prefill out of
+ * sign-in and password reset on purpose (it got in the way of people who use an email or phone): those fields start
+ * empty, with HID- in the placeholder, and a Health ID typed with its prefix is read as before. Sign-in and password reset take an email as well: the prefix can be deleted, an email typed
  * after it drops it and keeps its case, and anything else is sent as a Health ID in capitals, as Identity checks it.
  * Only the prefill is as empty as the field was before it was filled in, and nothing is sent.
  */
@@ -43,12 +45,12 @@ describe('patient sign-in', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign in' })) })
   }
 
-  it('starts at HID- once focused and sends what follows it as a Health ID in capitals', async () => {
+  it('stays empty when focused and sends a Health ID typed with its prefix in capitals', async () => {
     show(<SignIn />)
-    // Empty until focused, so a browser can still fill a saved sign-in.
+    // Empty, so a browser can still fill a saved sign-in, and an email or phone is typed without deleting anything.
     expect(field().value).toBe('')
     fireEvent.focus(field())
-    expect(field().value).toBe('HID-')
+    expect(field().value).toBe('')
     // Nothing is put in capitals while typing: the field may yet hold an email.
     fireEvent.change(field(), { target: { value: 'HID-abc234' } })
     expect(field().value).toBe('HID-abc234')
@@ -111,13 +113,13 @@ describe('patient sign-in', () => {
 
   it('shows a phone number among the examples while empty', () => {
     show(<SignIn />)
-    expect(field().placeholder).toBe('you@example.com, 0803… or HID-…')
+    expect(field().placeholder).toBe('HID-…, you@example.com or 0803…')
   })
 
   it('sends nothing while only the prefix is there, and says what is missing', async () => {
     await signInWith('HID-')
     expect(signIn).not.toHaveBeenCalled()
-    expect((await screen.findByRole('alert')).textContent).toBe('Enter your email, phone number or Health ID.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('Enter your email, phone number or Health ID.')
   })
 })
 
@@ -126,21 +128,21 @@ describe('patient password reset', () => {
     show(<Recovery />)
     fireEvent.change(field(), { target: { value } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    const send = screen.getByRole('button', { name: 'Send recovery code' })
+    const send = screen.getByRole('button', { name: 'Send code' })
     send.focus()
     await act(async () => { fireEvent.click(send) })
   }
 
-  it('starts at HID- once focused and sends what follows it as a Health ID in capitals', async () => {
+  it('stays empty when focused and sends a Health ID typed with its prefix in capitals', async () => {
     show(<Recovery />)
     fireEvent.focus(field())
-    expect(field().value).toBe('HID-')
+    expect(field().value).toBe('')
     fireEvent.change(field(), { target: { value: 'HID-abc234' } })
     expect(field().value).toBe('HID-abc234')
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send code' })) })
     expect(api.recoveryStart).toHaveBeenCalledWith('HID-ABC234', 'turnstile-token')
-    expect(await screen.findByLabelText('Recovery code')).toBeTruthy()
+    expect(await screen.findByRole('group', { name: 'Code' })).toBeTruthy()
   })
 
   it('drops the prefix for an email typed after it, and sends the email as typed', async () => {
@@ -149,21 +151,21 @@ describe('patient password reset', () => {
     expect(field().value).toBe('ada@')
     fireEvent.change(field(), { target: { value: 'ada@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send code' })) })
     expect(api.recoveryStart).toHaveBeenCalledWith('ada@example.test', 'turnstile-token')
   })
 
   it('drops the prefix for a phone number, sends it without its spacing, and says the code goes to the account\'s email', async () => {
     show(<Recovery />)
     expect(document.getElementById('recovery-start-hint')?.textContent)
-      .toBe('Enter your email, phone number or Health ID. We will send a code to the verified email address on your account.')
+      .toBe('We’ll send a code to the verified email on your account.')
     fireEvent.change(field(), { target: { value: 'HID-0' } })
     expect(field().value).toBe('0')
     fireEvent.change(field(), { target: { value: '(0803) 123 4567' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send code' })) })
     expect(api.recoveryStart).toHaveBeenCalledWith('08031234567', 'turnstile-token')
-    expect(await screen.findByLabelText('Recovery code')).toBeTruthy()
+    expect(await screen.findByRole('group', { name: 'Code' })).toBeTruthy()
   })
 
   it('sends nothing while only the prefix is there, and says so at the field, which takes focus', async () => {

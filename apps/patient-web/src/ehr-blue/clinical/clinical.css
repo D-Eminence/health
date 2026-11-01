@@ -13,6 +13,11 @@
   min-width: 0;
 }
 
+/* The patient banner ChartGate draws once on every chart page, and the read-only line under it. */
+.hid-ehr .hid-ehr-clinical-page section[aria-label^="Patient:"] {
+  margin-bottom: 16px;
+}
+
 /* Cards stack 20px apart (design .panel margin-bottom). */
 .hid-ehr .hid-ehr-clinical-page .hid-ehr-card {
   margin-bottom: 20px;
@@ -76,6 +81,26 @@
   outline-offset: var(--ehr-focus-ring-offset);
 }
 
+/* An action drawn as the design's link (a shared patient's name and "Open →", the Allergies retry): no button chrome. */
+.hid-ehr .hid-ehr-clinical-link-button {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  line-height: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-clinical-link-button:disabled,
+.hid-ehr .hid-ehr-clinical-link-button[aria-disabled="true"] {
+  color: var(--ehr-muted);
+  text-decoration: none;
+  cursor: not-allowed;
+}
+
 .hid-ehr .hid-ehr-clinical-icon {
   display: block;
   flex-shrink: 0;
@@ -93,19 +118,17 @@
 .hid-ehr .hid-ehr-clinical-banner {
   margin: 0 0 18px;
   padding: 16px 20px;
-  border-left: 4px solid var(--ehr-brand);
+  border: 1px solid var(--ehr-line);
   border-radius: 10px;
   background: var(--ehr-tint);
   color: var(--ehr-ink);
 }
 
 .hid-ehr .hid-ehr-clinical-banner.hid-ehr-clinical-banner-warning {
-  border-left-color: var(--ehr-warning-banner-text);
   background: var(--ehr-warning-banner-surface);
 }
 
 .hid-ehr .hid-ehr-clinical-banner.hid-ehr-clinical-banner-critical {
-  border-left-color: var(--ehr-critical);
   background: #fff0ee;
 }
 
@@ -190,6 +213,27 @@
   margin-top: 18px;
 }
 
+/* Where the page's content is under 820px wide (whatever the window), a record row is a card: the record and its status, the context, when, then Quick view and Open. */
+@container (max-width: 820px) {
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg .hid-ehr-table-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'record status' 'context context' 'updated updated' 'open open';
+    gap: 4px 12px;
+    padding: 14px 16px 8px;
+  }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg .hid-ehr-table-cell { padding: 0; }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg .hid-ehr-table-cell[data-label]:not(:first-child)::before { content: none; }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg [data-col='record'] { grid-area: record; font-size: 14px; font-weight: 600; }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg [data-col='status'] { grid-area: status; justify-self: end; }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg [data-col='context'] { grid-area: context; color: var(--ehr-text); }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg [data-col='updated'] { grid-area: updated; color: var(--ehr-faint); font-size: 12px; }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg [data-col='updated'][data-label]:not(:first-child):not(:empty)::before { content: 'Updated '; display: inline; color: inherit; font-size: inherit; font-weight: 400; }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg [data-col='open'] { grid-area: open; margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--ehr-line); }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg .hid-ehr-clinical-row-actions { display: flex; justify-content: space-between; gap: 8px; }
+  .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg .hid-ehr-clinical-row-actions > * { display: inline-flex; min-height: 44px; align-items: center; }
+}
+
 /* Record cell: link, then the short id on its own line. */
 .hid-ehr .hid-ehr-clinical-record-id,
 .hid-ehr .hid-ehr-clinical-cell-sub {
@@ -258,12 +302,12 @@
 
 .hid-ehr .hid-ehr-clinical-kv > dd {
   margin: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   white-space: pre-wrap;
 }
 
 .hid-ehr .hid-ehr-clinical-kv a {
-  word-break: break-all;
+  overflow-wrap: break-word;
 }
 
 /* Full-width outline action buttons, 8px apart. */
@@ -276,6 +320,55 @@
 
 .hid-ehr .hid-ehr-clinical-action-list > .hid-ehr-button {
   width: 100%;
+}
+
+/* "More actions": one full-width outline button at the end of Available actions, its menu under it. */
+.hid-ehr .hid-ehr-clinical-more {
+  position: relative;
+  margin-top: 8px;
+}
+
+.hid-ehr .hid-ehr-clinical-more-button {
+  width: 100%;
+  gap: 6px;
+}
+
+.hid-ehr .hid-ehr-clinical-more-caret {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.hid-ehr .hid-ehr-clinical-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  z-index: var(--ehr-z-popover);
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border: 1px solid var(--ehr-line-strong);
+  border-radius: 12px;
+  background: var(--ehr-surface);
+  box-shadow: 0 10px 32px #0b1b2e22;
+}
+
+.hid-ehr .hid-ehr-clinical-more-item {
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ehr-text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-clinical-more-item:hover,
+.hid-ehr .hid-ehr-clinical-more-item:focus-visible {
+  background: var(--ehr-surface-sunk);
+  color: var(--ehr-brand);
 }
 
 /* "Connected orders", "Next steps", "Continue care". */
@@ -311,12 +404,41 @@
 
 .hid-ehr .hid-ehr-clinical-history-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 14px 0;
   border-bottom: 1px solid #f0f0f0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+}
+
+/* The record's words take the line; its badge and actions go under them when the row runs out of room. */
+.hid-ehr .hid-ehr-clinical-history-row > :first-child {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+/* A history row that opens by an action (a document's file): its button is drawn as the row's link. */
+.hid-ehr .hid-ehr-clinical-history-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hid-ehr .hid-ehr-clinical-history-open:disabled {
+  color: var(--ehr-muted);
+  text-decoration: none;
+  cursor: not-allowed;
+}
+
+/* While its file is being opened (aria-busy, presses ignored): a visible busy cue. */
+.hid-ehr .hid-ehr-clinical-history-open[aria-busy='true'] {
+  color: var(--ehr-muted);
+  cursor: progress;
 }
 
 /* "Preserved versions & amendments" disclosure rows. */
@@ -340,30 +462,57 @@
 
 /* ---- Patient header -------------------------------------------------------- */
 
-/* Name, Health ID, age, sex and flags, in the design's meta-row style. */
+/*
+ * The patient banner (clinical safety): the same band on every chart page, so the right patient is confirmed at a glance
+ * before anything is read or saved. Name first and largest, then the Health ID and date of birth, the two identifiers.
+ */
 .hid-ehr .hid-ehr-clinical-patient {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'avatar name flags' 'avatar facts flags';
   align-items: center;
-  gap: 8px 16px;
+  gap: 2px 14px;
   margin: 0 0 20px;
+  padding: 14px 18px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 16px;
+  background: var(--ehr-surface);
+  box-shadow: 0 1px 2px #1018280a, 0 1px 3px #10182808;
+}
+
+.hid-ehr .hid-ehr-clinical-patient-avatar {
+  grid-area: avatar;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--ehr-tint);
+  color: var(--ehr-brand-dark);
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .hid-ehr .hid-ehr-clinical-patient-name {
+  grid-area: name;
   margin: 0;
-  font-size: 17px;
-  font-weight: 500;
-  line-height: 21px;
-  color: var(--ehr-text);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
+  color: var(--ehr-ink);
 }
 
 .hid-ehr .hid-ehr-clinical-patient-facts {
+  grid-area: facts;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 16px;
+  gap: 2px 18px;
   margin: 0;
   padding: 0;
   list-style: none;
+  color: var(--ehr-ink);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
 
 .hid-ehr .hid-ehr-clinical-patient-facts > li {
@@ -376,9 +525,23 @@
 }
 
 .hid-ehr .hid-ehr-clinical-patient-flags {
+  grid-area: flags;
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
+}
+
+@container (max-width: 600px) {
+  .hid-ehr .hid-ehr-clinical-patient {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: 'avatar name' 'facts facts' 'flags flags';
+    gap: 8px 12px;
+  }
+
+  .hid-ehr .hid-ehr-clinical-patient-flags {
+    justify-content: flex-start;
+  }
 }
 
 /* ---- Create form and inline action form ------------------------------------ */
@@ -387,10 +550,27 @@
   margin-top: 16px;
 }
 
+/* Forms are one column, labels above, at a readable width (rule B); a pair that belongs together (dose and its unit)
+   sits on one row. */
 .hid-ehr .hid-ehr-clinical-form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
+  max-width: 40rem;
+}
+
+.hid-ehr .hid-ehr-clinical-form-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+/* A pair one above the other where two fields side by side would be too narrow to read what is typed. */
+@container (max-width: 400px) {
+  .hid-ehr .hid-ehr-clinical-form-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .hid-ehr .hid-ehr-clinical-form-grid > .hid-ehr-clinical-form-full {
@@ -498,8 +678,36 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
   margin-top: 20px;
+}
+
+/*
+ * A form's buttons by the laws (Fitts, thumb reach, Jakob), given as [secondary…, primary]: from 640px a row on the
+ * right with the primary rightmost; on phones full-width and stacked, the primary last (bottom, in thumb reach). A
+ * page's own form keeps its buttons in reach at the bottom of the screen, above the tab bar, under a hairline.
+ */
+@container (max-width: 600px) {
+  .hid-ehr .hid-ehr-clinical-form-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .hid-ehr .hid-ehr-clinical-form-footer > * {
+    width: 100%;
+  }
+}
+/* Above the phone's tab bar: by the window, since the bar is the window's. */
+@media (max-width: 639px) {
+  .hid-ehr .hid-ehr-clinical-form-footer-sticky {
+    position: sticky;
+    bottom: calc(64px + env(safe-area-inset-bottom));
+    z-index: 5;
+    padding: 12px 0;
+    border-top: 1px solid var(--ehr-line);
+    background: var(--ehr-surface);
+  }
 }
 
 .hid-ehr .hid-ehr-clinical-form-status {
@@ -527,11 +735,12 @@
 
 /* ---- Quick view drawer content --------------------------------------------- */
 
+/* Title, "Last updated", the rows and "Open full record" stack with no gap (record-quick-view.png). */
 .hid-ehr .hid-ehr-clinical-quick {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
+  gap: 0;
 }
 
 .hid-ehr .hid-ehr-clinical-quick > .hid-ehr-clinical-kv {
@@ -550,15 +759,26 @@
   margin: 0;
 }
 
+/* A paragraph in the quick view (a share's or an invitation's explanation, why a record cannot be opened), which the design does not have: 12px above and below it, so it does not sit flush on the rows or the button. */
+.hid-ehr .hid-ehr-clinical-quick-text {
+  margin: 12px 0;
+}
+
+/* Two in a row (a share's explanation, then why it cannot be opened): 12px between them, not 24px. */
+.hid-ehr .hid-ehr-clinical-quick-text + .hid-ehr-clinical-quick-text {
+  margin-top: 0;
+}
+
 /* ---- Widths ------------------------------------------------------------------ */
 
-@media (max-width: 1000px) {
+/* By the room the page gives its content (a size container), not the window: the sidebar takes 264px from 1024px. */
+@container (max-width: 760px) {
   .hid-ehr .hid-ehr-clinical-detail-grid {
     grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 768px) {
+@container (max-width: 600px) {
   .hid-ehr .hid-ehr-clinical-form-grid {
     grid-template-columns: 1fr;
   }
@@ -587,22 +807,18 @@
 /* "Shared with you" and "Invitations", side by side when both are served. */
 .hid-ehr .hid-ehr-clinical-patients-sharing {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 0 20px;
   align-items: start;
 }
 
-/* A sharing row's level badge and its button, at the row's end. */
-.hid-ehr .hid-ehr-clinical-patients-share-actions {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+.hid-ehr .hid-ehr-clinical-patients-sharing-notes .hid-ehr-clinical-status {
+  margin: 12px 0 0;
 }
 
 /* ---- External record access ---------------------------------------------------- */
 
+/* Today's Status select, offered under the search once the list holds the 100 newest requests. */
 .hid-ehr .hid-ehr-clinical-consent-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -612,7 +828,17 @@
 }
 
 .hid-ehr .hid-ehr-clinical-consent-toolbar > .hid-ehr-field {
-  min-width: 220px;
+  min-width: min(100%, 220px);
+}
+
+/* The break-glass form opened in "Cross-institution history": 16px under the action row (design .record-form). */
+.hid-ehr .hid-ehr-clinical-consent-break-glass {
+  margin-top: 16px;
+}
+
+/* New external record access: the Health ID field takes the place of the design's Patient select, so it starts at the card's 20px padding (consent-2-new.png: label 26px under the card's top border). */
+.hid-ehr .hid-ehr-clinical-consent-request-form {
+  margin-top: 0;
 }
 
 /* The always-mounted status region on a request's page takes focus only when a close removed its button. */
@@ -631,7 +857,7 @@
 .hid-ehr .hid-ehr-clinical-consult-warning {
   margin: 16px 0 0;
   padding: 12px 16px;
-  border-left: 4px solid #94600c;
+  border: 1px solid var(--ehr-line);
   border-radius: 10px;
   background: #fff7e6;
   color: var(--ehr-ink);
@@ -729,7 +955,7 @@
   font-size: 14px;
   font-weight: 400;
   color: var(--ehr-text);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 /* Today's text buttons ("Retry …", "Ask about this patient"): the design's outline button. */
@@ -867,7 +1093,7 @@
 .hid-ehr .hid-ehr-clinical-orders-notice {
   margin: 12px 0;
   padding: 12px 16px;
-  border-left: 4px solid var(--ehr-brand);
+  border: 1px solid var(--ehr-line);
   border-radius: var(--ehr-radius-md);
   background: var(--ehr-tint);
   color: var(--ehr-ink);
@@ -875,7 +1101,6 @@
 }
 
 .hid-ehr .hid-ehr-clinical-orders-notice.hid-ehr-clinical-orders-danger {
-  border-left-color: var(--ehr-critical);
   background: #fff0ee;
 }
 
@@ -944,10 +1169,6 @@
   margin: 4px 0 0;
 }
 
-.hid-ehr .hid-ehr-clinical-orders-connected .hid-ehr-clinical-history-list {
-  margin-top: 4px;
-}
-
 /* Connected orders: a list's "Record pages" sits just under its caption ("Pharmacy", "Laboratory"). */
 .hid-ehr .hid-ehr-clinical-orders-pages > .hid-ehr-clinical-pager {
   margin-top: 6px;
@@ -966,6 +1187,18 @@
   grid-column: 1 / -1;
 }
 
+/* A measurement's input with its flag beside it, as typed (outside the adult range). */
+.hid-ehr .hid-ehr-clinical-triage-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hid-ehr .hid-ehr-clinical-triage-input > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
 /* The sample-only priority and observations, below the measurements. */
 .hid-ehr .hid-ehr-clinical-triage-sample {
   margin-top: 18px;
@@ -976,7 +1209,7 @@
   outline: none;
 }
 
-@media (max-width: 768px) {
+@container (max-width: 520px) {
   .hid-ehr .hid-ehr-clinical-triage-group {
     grid-template-columns: 1fr;
   }
@@ -990,6 +1223,11 @@
 }
 
 /* ---- Emergency ----------------------------------------------------------------- */
+
+/* A real facility's Emergency list holds only its empty state (no search field above it), so it starts at the card's padding. */
+.hid-ehr .hid-ehr-clinical-emergency-list .hid-ehr-clinical-list-table {
+  margin-top: 0;
+}
 
 /* "Current emergency summary": name, badge and link on one line. */
 .hid-ehr .hid-ehr-clinical-emergency-current {
@@ -1009,7 +1247,7 @@
 .hid-ehr .hid-ehr-clinical-emergency-entry {
   padding: 14px 0;
   border-bottom: 1px solid #f0f0f0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .hid-ehr .hid-ehr-clinical-emergency-entry:first-child {
@@ -1072,4 +1310,16 @@
    ring, as the card titles that take focus. */
 .hid-ehr .hid-ehr-clinical-page .hid-ehr-page-title:focus {
   outline: none;
+}
+
+/* A vitals row's readings: each value with its unit and flag, wrapping on narrow screens. */
+.hid-ehr .hid-ehr-clinical-readings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.hid-ehr .hid-ehr-clinical-cell-sub-inline {
+  color: var(--ehr-muted);
+  font-size: 12px;
 }

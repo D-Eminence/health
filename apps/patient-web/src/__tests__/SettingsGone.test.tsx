@@ -21,8 +21,8 @@ describe('without Settings', () => {
     render(<SessionContext.Provider value={createTestSessionValue({ kind: 'patient', subjectId: 'subject-a', appRole: 'patient', assuranceLevel: 'aal1' }, noBell)}>
       <MemoryRouter initialEntries={['/']}><Routes><Route path="/" element={<PortalShell />}><Route index element={<p>Overview page</p>} /></Route></Routes></MemoryRouter>
     </SessionContext.Provider>)
-    const nav = within(screen.getByRole('navigation', { name: 'Patient pages' }))
-    expect(nav.getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Profile', 'Records', 'Access', 'Notifications'])
+    const nav = within(screen.getByRole('navigation', { name: 'Main navigation' }))
+    expect(nav.getAllByRole('link').map(link => link.textContent)).toEqual(['Overview', 'Records', 'Access & sharing', 'Profile'])
     expect(nav.queryByRole('link', { name: 'Settings' })).toBeNull()
     expect(document.querySelector('a[href="/settings"]')).toBeNull()
   })

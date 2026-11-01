@@ -42,14 +42,15 @@ describe('In-person check in the frame', () => {
     expect(container.querySelector('.hid-ehr-dept-inperson')).not.toBeNull()
     expect(container.querySelector('.staff-in-person')).toBeNull()
     expect(screen.getByRole('textbox', { name: 'Desk code' })).toBeDefined()
-    // Its sidebar entry is the stand-in's, in the stand-in's place: after Patient registration, before Appointments.
+    // Its sidebar entry is the stand-in's, in the stand-in's place: after Patient registration.
     const link = within(nav()).getByRole('link', { name: 'In-person check' })
     expect(link.getAttribute('href')).toBe('/provider/in-person-check')
     expect(link.getAttribute('aria-current')).toBe('page')
     expect(link.querySelector('svg.hid-ehr-dept-icon')).not.toBeNull()
     const names = within(nav()).getAllByRole('link').map(item => item.textContent?.trim())
     expect(names.indexOf('In-person check')).toBe(names.indexOf('Patient registration') + 1)
-    expect(names.indexOf('Appointments')).toBe(names.indexOf('In-person check') + 1)
+    // The sidebar lists only what this role may open: Appointments, which it may not, is not listed after it.
+    expect(names).toEqual(['Home', 'Patient registration', 'In-person check'])
     expect(names.filter(name => name === 'In-person check')).toHaveLength(1)
     await settle()
     expect(sent.map(call => call.route)).toEqual([SESSION])

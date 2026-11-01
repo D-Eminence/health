@@ -162,8 +162,8 @@ function InvitationSteps() {
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
 
     {unavailable && <section className="patient-form" aria-labelledby="staff-invitation-unavailable-title">
-      <FocusedHeading id="staff-invitation-unavailable-title">Invitations aren’t available yet</FocusedHeading>
-      <p className="patient-field-hint">Joining a facility by invitation isn’t available on Health ID yet. Please try again later.</p>
+      <FocusedHeading id="staff-invitation-unavailable-title">Invitations aren’t available</FocusedHeading>
+      <p className="patient-field-hint">Joining a facility by invitation isn’t available. Contact the facility that invited you.</p>
     </section>}
 
     {!unavailable && !opened && !accepted && <form className="patient-form" noValidate onSubmit={event => void open(event)}>

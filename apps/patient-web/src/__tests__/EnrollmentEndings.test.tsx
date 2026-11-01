@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
-import { json, press, problem, renderPortal, type Handler } from './portalHarness'
+import { json, press, problem, renderPortal, type Handler, shownText } from './portalHarness'
 import { enterCode } from './codeBoxes'
 
 vi.mock('../Turnstile', () => ({
@@ -32,7 +32,7 @@ const startKeys = (headers: Array<{ path: string; method: string; headers: Heade
   headers.filter(request => request.path === BASE && request.method === 'POST').map(request => request.headers.get('Idempotency-Key'))
 
 async function submitNin() {
-  fireEvent.change(await screen.findByLabelText('National Identification Number'), { target: { value: NIN } })
+  fireEvent.change(await screen.findByLabelText('National Identification Number (NIN)'), { target: { value: NIN } })
   fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
   await press(screen.getByRole('button', { name: 'Continue' }))
 }
@@ -40,7 +40,7 @@ async function submitNin() {
 async function toPassword() {
   await submitNin()
   fireEvent.change(await screen.findByLabelText('Password'), { target: { value: PASSWORD } })
-  await press(screen.getByRole('button', { name: 'Activate Health ID' }))
+  await press(screen.getByRole('button', { name: 'Get my Health ID' }))
 }
 
 /**
@@ -63,17 +63,17 @@ describe('activation refused after the holder proof', () => {
     expect(within(outcome).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
     expect(outcome.textContent).toContain('quote this reference: corr-activation.')
     expect(screen.queryByLabelText('Password')).toBeNull()
-    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
   })
 
   it('starts again at the NIN step with a new key on 409 ENROLLMENT_HOLDER_PROOF_REQUIRED', async () => {
     const { headers } = renderPortal(<Enrollment />, gateway(() => json({ stage: 'set_password', requiredProfileFields: [] }), {
       activate: () => problem(409, 'ENROLLMENT_HOLDER_PROOF_REQUIRED', 'Prove that you hold this NIN before you set a password') }), anonymous)
     await toPassword()
-    const nin = await screen.findByLabelText('National Identification Number')
+    const nin = await screen.findByLabelText('National Identification Number (NIN)')
     await waitFor(() => expect(document.activeElement).toBe(nin))
     expect((nin as HTMLInputElement).value).toBe('')
-    expect(screen.getByRole('alert').textContent).toBe(HOLDER_PROOF_REQUIRED)
+    expect(shownText(screen.getByRole('alert'))).toBe(HOLDER_PROOF_REQUIRED)
     expect(screen.queryByLabelText('Password')).toBeNull()
     await submitNin()
     await screen.findByLabelText('Password')
@@ -95,9 +95,9 @@ describe('a registration that is gone', () => {
       contact: () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found') }), anonymous)
     await submitNin()
     fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348000000000' } })
-    await press(screen.getByRole('button', { name: 'Send verification code' }))
-    await screen.findByLabelText('National Identification Number')
-    expect(screen.getByRole('alert').textContent).toBe(`${ENDED} Enter your NIN to start again.`)
+    await press(screen.getByRole('button', { name: 'Send code' }))
+    await screen.findByLabelText('National Identification Number (NIN)')
+    expect(shownText(screen.getByRole('alert'))).toBe(`${ENDED} Enter your NIN to start again.`)
   })
 })
 
@@ -110,11 +110,11 @@ describe('starting again after review', () => {
       activate: () => problem(409, 'ENROLLMENT_HOLDER_PROOF_REQUIRED', 'Prove that you hold this NIN before you set a password') }), anonymous)
     await submitNin()
     fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348011111111' } })
-    await press(screen.getByRole('button', { name: 'Send verification code' }))
-    await enterCode(await screen.findByLabelText('Verification code'), '123456')
+    await press(screen.getByRole('button', { name: 'Send code' }))
+    await enterCode(await screen.findByLabelText('Code'), '123456')
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: PASSWORD } })
-    await press(screen.getByRole('button', { name: 'Activate Health ID' }))
-    await screen.findByLabelText('National Identification Number')
+    await press(screen.getByRole('button', { name: 'Get my Health ID' }))
+    await screen.findByLabelText('National Identification Number (NIN)')
     start = () => json({ stage: 'verify_contact', requiredProfileFields: [] })
     await submitNin()
     expect((await screen.findByLabelText('Phone number') as HTMLInputElement).value).toBe('')
@@ -138,8 +138,8 @@ describe('a registration this page started that was completed', () => {
     await submitNin()
     // Activated in another tab, which expired this tab's cookie.
     fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348000000000' } })
-    await press(screen.getByRole('button', { name: 'Send verification code' }))
-    await screen.findByLabelText('National Identification Number')
+    await press(screen.getByRole('button', { name: 'Send code' }))
+    await screen.findByLabelText('National Identification Number (NIN)')
     start = () => problem(409, 'IDEMPOTENCY_KEY_REUSED', 'This enrollment retry key belongs to a different request')
     await submitNin()
 
@@ -150,7 +150,7 @@ describe('a registration this page started that was completed', () => {
     expect(outcome.textContent).toContain('Sign in with your email or Health ID and the password you chose. If you can\'t, or you don\'t have your Health ID, use account recovery.')
     expect(within(outcome).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
     expect(within(outcome).getByRole('link', { name: 'Recover your account' }).getAttribute('href')).toBe('/recover')
-    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
     expect(document.body.textContent).not.toMatch(/start again/i)

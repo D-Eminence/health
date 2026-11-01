@@ -327,3 +327,159 @@
 
 .auth-panel .admin-warning { margin: 0; border-radius: 8px; }
 .auth-panel .admin-auth-form > p a { color: var(--color-brand); font-size: 13px; font-weight: 500; }
+
+/* ==========================================================================
+   Rebuild: paytrail's sign-in world (source of truth: paytrail auth-layout.js and the .auth-skin rules in
+   app/globals.css). Warm paper, a dot-matrix field, the Orbitron display face, a paper card for the form, pill
+   buttons, and on wide screens a Health ID card printing out of its slot.
+   ========================================================================== */
+@font-face {
+  font-family: 'Orbitron';
+  src: url('./assets/fonts/orbitron-700.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+.auth-skin {
+  --color-canvas: var(--color-hero);
+  --color-surface: var(--color-hero-paper);
+  --color-subtle: var(--color-hero-tint);
+  --color-tray: var(--color-hero-tint);
+  --color-hover: var(--color-hero-tint);
+  --color-line: var(--color-hero-line);
+  --color-line-strong: color-mix(in srgb, var(--color-hero-line) 65%, var(--color-hero-ink-2));
+  --color-line-control: color-mix(in srgb, var(--color-hero-line) 40%, var(--color-hero-ink-2));
+  --color-ink: var(--color-hero-ink);
+  --color-text: var(--color-hero-ink);
+  --color-muted: var(--color-hero-ink-2);
+  --color-ink-2: var(--color-hero-ink-2);
+  --color-faint: color-mix(in srgb, var(--color-hero-ink-2) 92%, var(--color-hero-ink));
+  --color-ink-3: var(--color-faint);
+  --color-brand: #175cd3;
+  --color-brand-hover: #1765e6;
+  --shadow-focus: 0 0 0 4px rgb(23 92 211 / 0.16);
+  position: relative;
+  isolation: isolate;
+  min-height: 100svh;
+  overflow-x: hidden;
+  background: var(--color-hero);
+  color: var(--color-hero-ink);
+}
+
+/* The dot field: a fixed grid of round dots, and a slow cloud of blue drifting through it. */
+.auth-dots {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(color-mix(in srgb, var(--color-hero-ink) 16%, transparent) 1.1px, transparent 1.6px);
+  background-size: 14px 14px;
+  -webkit-mask-image: radial-gradient(60% 55% at var(--auth-x, 30%) var(--auth-y, 40%), #000 0%, rgb(0 0 0 / 35%) 55%, transparent 100%);
+  mask-image: radial-gradient(60% 55% at var(--auth-x, 30%) var(--auth-y, 40%), #000 0%, rgb(0 0 0 / 35%) 55%, transparent 100%);
+  animation: auth-drift 18s ease-in-out infinite alternate;
+}
+.auth-dots::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(28% 30% at 22% 38%, rgb(23 92 211 / 14%), transparent 70%);
+}
+@property --auth-x { syntax: '<percentage>'; inherits: false; initial-value: 30%; }
+@property --auth-y { syntax: '<percentage>'; inherits: false; initial-value: 40%; }
+@keyframes auth-drift { from { --auth-x: 22%; --auth-y: 34%; } to { --auth-x: 40%; --auth-y: 58%; } }
+
+.auth-columns { display: grid; min-height: 100svh; }
+@media (min-width: 1024px) { .auth-columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+
+.auth-aside { display: none; flex-direction: column; padding: 32px 48px; }
+@media (min-width: 1024px) { .auth-aside { display: flex; } }
+.auth-aside-body { margin-block: auto; padding-block: 40px; text-align: center; }
+.auth-aside-overline { margin: 0; color: var(--color-hero-accent); font-size: 13px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; }
+.auth-aside-headline { max-width: 460px; margin: 16px auto 0; font-family: 'Orbitron', var(--font-sans); font-size: clamp(30px, 3vw, 42px); font-weight: 700; font-synthesis: none; letter-spacing: -0.02em; line-height: 1.05; }
+
+.auth-main { display: flex; flex-direction: column; padding: 24px 16px; }
+@media (min-width: 640px) { .auth-main { padding: 24px 40px; } }
+.auth-skin .auth-bar { display: flex; max-width: none; align-items: center; gap: 12px; margin: 0; padding: 0; }
+.auth-bar-spacer { flex: 1; }
+.auth-brand-mobile { display: inline-flex; }
+@media (min-width: 1024px) { .auth-brand-mobile { visibility: hidden; } }
+.auth-skin .auth-bar-link { display: inline-flex; height: 40px; align-items: center; padding: 0 16px; border-radius: 999px; color: var(--color-hero-ink); font-weight: 600; box-shadow: inset 0 0 0 1px var(--color-hero-line); }
+.auth-skin .auth-bar-link:hover { background: var(--color-hero-tint); color: var(--color-hero-ink); }
+.auth-theme { border-radius: 999px !important; }
+
+.auth-center { display: flex; width: 100%; max-width: 480px; flex: 1; flex-direction: column; justify-content: center; gap: 18px; margin: 0 auto; padding-block: 40px; }
+.auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 24px;
+  border-radius: 26px;
+  background: color-mix(in srgb, var(--color-hero-paper) 92%, transparent);
+  box-shadow: 0 1px 2px rgb(20 16 8 / 5%), 0 30px 60px -34px rgb(20 16 8 / 45%), inset 0 0 0 1px rgb(0 0 0 / 5%);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+@media (min-width: 640px) { .auth-card { padding: 36px; } }
+:root[data-theme='dark'] .auth-card { box-shadow: 0 30px 60px -30px rgb(0 0 0 / 70%), inset 0 0 0 1px rgb(255 255 255 / 6%); }
+
+.auth-skin .auth-intro { max-width: none; flex: none; gap: 10px; }
+.auth-skin .auth-title { font-family: 'Orbitron', var(--font-sans); font-size: 28px; font-weight: 700; font-synthesis: none; line-height: 1.05; letter-spacing: -0.02em; color: var(--color-hero-ink); }
+.auth-skin .auth-lede { color: var(--color-hero-ink-2); font-size: 14px; }
+.auth-skin .auth-panel { max-width: none; flex: none; gap: 22px; font-size: 14px; }
+
+/* Steps: numbered pills, done ones ticked. */
+.auth-skin .auth-steps { flex-direction: row; flex-wrap: wrap; gap: 6px; margin: 0 0 6px; font-size: 12px; }
+.auth-skin .auth-steps li { gap: 6px; padding: 3px 10px 3px 3px; border-radius: 999px; background: var(--color-hero-tint); color: var(--color-hero-ink-2); }
+.auth-skin .auth-steps li::before { display: none; }
+.auth-step-dot { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; border-radius: 50%; background: var(--color-hero-paper); font-size: 11px; font-weight: 700; }
+.auth-skin .auth-steps li[aria-current] { background: #175cd3; color: #fff; }
+.auth-skin .auth-steps li[aria-current] .auth-step-dot { background: #fff; color: #175cd3; }
+.auth-skin .auth-steps li[data-done] .auth-step-dot { background: var(--color-success); color: #fff; }
+
+/* Fields: paytrail's auth fields, 14px corners on the paper. */
+.auth-skin .auth-panel :is(.patient-form, .staff-form, .admin-auth-form) :is(input:not([type='checkbox']):not([type='radio']), select) {
+  height: 48px; border: 0; border-radius: 14px; background: var(--color-hero); box-shadow: inset 0 0 0 1px var(--color-line-strong);
+}
+.auth-skin .auth-panel :is(.patient-form, .staff-form, .admin-auth-form) :is(input, select):focus { box-shadow: inset 0 0 0 1px #175cd3, var(--shadow-focus); }
+.auth-skin .auth-panel :is(.patient-form, .staff-form) .patient-code-boxes input:not([type='checkbox']):not([type='radio']) { border-radius: 12px; }
+
+/* The one action: paytrail's blue pill with its glow. */
+.auth-skin .auth-panel :is(.patient-form, .patient-success) .patient-primary-button,
+.auth-skin .auth-panel .staff-form button[type='submit'],
+.auth-skin .auth-panel .auth-primary,
+.auth-skin .auth-panel .admin-auth-form .admin-primary {
+  border: 0; border-radius: 999px; background: #175cd3; color: #fff; font-weight: 600;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 28%), 0 1px 2px rgb(10 30 80 / 25%), 0 14px 30px -14px rgb(23 92 211 / 70%);
+  transition: transform 0.2s, background-color 0.2s;
+}
+.auth-skin .auth-panel :is(.patient-form, .patient-success) .patient-primary-button:hover:not(:disabled),
+.auth-skin .auth-panel .staff-form button[type='submit']:hover:not(:disabled) { background: #1765e6; transform: translateY(-1px); }
+:root[data-theme='dark'] .auth-skin .auth-panel .patient-primary-button { background: #2563eb; }
+.auth-skin .auth-panel .patient-secondary-button { border-radius: 999px; }
+.auth-skin .auth-panel :is(.patient-inline-error, .patient-inline-success, .staff-notice) { border: 1px solid var(--color-notice-line); border-radius: 12px; background: var(--color-notice); }
+.auth-skin .auth-panel .patient-inline-error { color: var(--color-intent-error); }
+.auth-skin .auth-panel .patient-inline-success { color: var(--color-intent-success); }
+
+.auth-trust { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 0; color: var(--color-hero-ink-2); font-size: 12.5px; }
+
+/* The Health ID card that prints out of its slot (paytrail's welcome receipt). */
+.auth-printer { width: 100%; max-width: 380px; margin: 40px auto 0; }
+.auth-printer-slot { position: relative; z-index: 1; display: flex; height: 48px; align-items: center; justify-content: space-between; padding: 0 20px; border-radius: 16px; background: var(--color-hero-ink); color: var(--color-hero); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; box-shadow: 0 18px 40px -20px rgb(20 16 8 / 60%); }
+.auth-printer-status { display: inline-flex; align-items: center; gap: 8px; }
+.auth-printer-led { width: 6px; height: 6px; border-radius: 50%; background: #5a9dff; animation: auth-led 1.4s ease-in-out infinite; }
+@keyframes auth-led { 50% { opacity: 0.3; } }
+.auth-printer-out { margin: -8px 16px 0; overflow: hidden; }
+.auth-print { animation: auth-print 1.6s cubic-bezier(.22, .9, .3, 1) .25s both; filter: drop-shadow(0 18px 30px rgb(20 16 8 / 14%)); }
+@keyframes auth-print { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+.auth-print-card { padding: 28px 24px 22px; border-radius: 0 0 18px 18px; background: linear-gradient(160deg, #0f2a55 0%, #101828 70%); color: #fff; text-align: left; font-size: 12px; }
+.auth-print-head { display: flex; align-items: center; justify-content: space-between; color: rgb(255 255 255 / 70%); font-size: 10.5px; font-weight: 600; letter-spacing: 0.18em; }
+.auth-print-chip { width: 34px; height: 26px; border-radius: 6px; background: linear-gradient(135deg, #f6d27a, #c9973a); box-shadow: inset 0 0 0 1px rgb(0 0 0 / 15%); }
+.auth-print-id { margin: 18px 0 14px; font-family: 'Orbitron', var(--font-sans); font-size: 22px; font-weight: 700; letter-spacing: 0.04em; }
+.auth-print-card ul { display: grid; gap: 7px; margin: 0; padding: 14px 0; border-block: 1px dashed rgb(255 255 255 / 22%); list-style: none; }
+.auth-print-card li { display: flex; align-items: baseline; gap: 8px; color: rgb(255 255 255 / 88%); }
+.auth-print-leader { flex: 1; min-width: 12px; transform: translateY(-3px); border-bottom: 1px dotted rgb(255 255 255 / 25%); }
+.auth-print-tick { color: #84b6ff; }
+.auth-print-foot { display: flex; justify-content: space-between; margin-top: 12px; color: rgb(255 255 255 / 60%); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; }
+
+@media (prefers-reduced-motion: reduce) { .auth-dots, .auth-print, .auth-printer-led { animation: none; } }

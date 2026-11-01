@@ -180,14 +180,13 @@ const ACCESS_COPY: Readonly<Record<ClinicianAccessState, (view: ClinicianApplica
 export function stateCopy(view: ClinicianApplicationView): string[] {
   switch (view.state) {
     case 'awaiting_authenticator':
-      return ['Set up your authenticator app to send this application for review. HID can\'t review it until you do. '
+      return ['Set up your authenticator app to send this application for review. We can\'t review it until you do. '
         + `We keep applications open for 30 days (until ${formatDate(view.expiresAt) ?? 'the end of that time'}).`]
     case 'submitted':
-      return [`Application received. An HID administrator will check your licence with ${view.regulator.code}, call you to confirm it's you, `
-        + `and confirm with ${view.facility.name} that you work there. You can't sign in to the provider portal until two HID `
-        + 'administrators approve it.']
+      return [`Application received. Health ID will check your licence with ${view.regulator.code}, call you to confirm it's you, `
+        + `and check with ${view.facility.name} that you work there. You can sign in once it's approved.`]
     case 'under_review':
-      return ['Your licence has been checked. A second HID administrator must confirm it before your access is turned on.']
+      return ['Your licence has been checked. One more check, then you can sign in.']
     case 'approved': {
       const decided = formatDate(view.decidedAt) ?? 'a date not shown'
       const access = view.accessState && Object.hasOwn(ACCESS_COPY, view.accessState) ? view.accessState : 'account_unavailable'

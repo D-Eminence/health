@@ -1,10 +1,12 @@
 import { EhrButton, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import type { Encounter, VitalMeasurement, VitalMeasurements } from '../../../staff/api'
+import { Flag } from '../../../kasuwa/parts'
 import { ErrorBox } from '../parts/Notices'
 import type { FieldErrors, SubmitOutcome } from '../parts/RecordForm'
 import { COMPLETE_FIELD, REASON_SHORT, visitLabel } from './records'
-import { BOTH_BP, CHANGE_ONE, ENTER_ONE, VITAL_FIELDS, measured, type VitalField, type VitalValues } from './vitals'
+import { vitalFlag } from './ranges'
+import { BOTH_BP, CHANGE_ONE, ENTER_ONE, VITAL_FIELDS, fieldLabel, measured, type VitalField, type VitalValues } from './vitals'
 
 /** The group of measurements, as a problem's key: a rule about the values together is told at the group. */
 export const VALUES = 'values'
@@ -160,8 +162,12 @@ export function VitalsForm({ mode, visits = [], visitHint, current, groupLabel, 
           aria-describedby={errors[VALUES] ? groupErrorId : undefined}
           className="hid-ehr-clinical-form-full hid-ehr-clinical-triage-group"
         >
-          {VITAL_FIELDS.map(field => (
-            <EhrField key={field.name} label={field.label} error={errors[field.name]}>
+          {VITAL_FIELDS.map(field => {
+            // Flagged as typed against the adult range (ranges.ts): a prompt to look again, not a diagnosis.
+            const flag = vitalFlag(field.name, values[field.name]?.trim())
+            return (
+            <EhrField key={field.name} label={fieldLabel(field)} error={errors[field.name]}>
+              <span className="hid-ehr-clinical-triage-input">
               <EhrInput
                 ref={register(field.name)}
                 type="number"
@@ -174,8 +180,11 @@ export function VitalsForm({ mode, visits = [], visitHint, current, groupLabel, 
                 aria-describedby={errors[VALUES] ? groupErrorId : undefined}
                 onChange={event => change(field.name, event.target.value)}
               />
+              {flag ? <Flag level={flag} /> : null}
+              </span>
             </EhrField>
-          ))}
+            )
+          })}
           {errors[VALUES] ? <p id={groupErrorId} className="hid-ehr-clinical-field-error hid-ehr-clinical-triage-group-error">{errors[VALUES]}</p> : null}
         </div>
         {mode === 'correct' ? (
@@ -186,7 +195,7 @@ export function VitalsForm({ mode, visits = [], visitHint, current, groupLabel, 
       </div>
       {children}
       {formError ? <ErrorBox>{formError}</ErrorBox> : null}
-      <div className="hid-ehr-clinical-form-footer">
+      <div className="hid-ehr-clinical-form-footer hid-ehr-clinical-form-footer-sticky">
         <EhrButton type="submit" busy={busy}>{busy ? 'Saving…' : submitLabel}</EhrButton>
       </div>
     </form>

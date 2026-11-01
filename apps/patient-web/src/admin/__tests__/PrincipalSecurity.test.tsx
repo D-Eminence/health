@@ -7,6 +7,7 @@ import type { AdminActor, Principal } from '../api'
 import { PrincipalsPage } from '../Principals'
 import { ApprovalRequestForm, ExportPanel, PrincipalSessions } from '../PrincipalSecurity'
 import { StepUpProvider } from '../StepUp'
+import { ToastProvider } from '../../kasuwa/toast'
 
 const mocks = vi.hoisted(() => ({
   api: {
@@ -25,7 +26,7 @@ const principal: Principal = { id: 'account-2', subject: 'staff:ada', email: 'ad
   memberships: [], version: 4, mfaEnrolled: true }
 
 function open(element: ReactElement) {
-  render(<MemoryRouter><StepUpProvider>{element}</StepUpProvider></MemoryRouter>)
+  render(<ToastProvider><MemoryRouter><StepUpProvider>{element}</StepUpProvider></MemoryRouter></ToastProvider>)
 }
 
 async function confirmStepUp() {
@@ -36,21 +37,32 @@ async function confirmStepUp() {
 beforeEach(() => { vi.clearAllMocks(); mocks.keys = 0 })
 
 describe('principal export', () => {
-  function fill(reason = 'Quarterly access review for audit') {
-    fireEvent.change(screen.getByLabelText('Reason for this export'), { target: { value: reason } })
+  /** The export is a drawer opened from the page's Export button. */
+  function openExport(query: string) {
+    open(<ExportPanel query={query} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+    return within(screen.getByRole('dialog', { name: 'Export users (CSV)' }))
   }
 
+  function fill(drawer: ReturnType<typeof openExport>, reason = 'Quarterly access review for audit') {
+    fireEvent.change(drawer.getByLabelText('Reason for this export'), { target: { value: reason } })
+  }
+
+  const CONFIRM = /I need this export and will handle the file as policy requires/
+
   it('explains the restrictions and needs a reason and explicit confirmation before exporting', () => {
-    open(<ExportPanel query="" />)
-    expect(screen.getByText(/fresh authenticator confirmation \(step-up, valid 5 minutes\)/)).toBeTruthy()
-    expect(screen.getByText(/At most 5,000 rows/)).toBeTruthy()
-    expect(screen.getByText(/outside Health ID’s control/)).toBeTruthy()
-    const exportButton = screen.getByRole('button', { name: 'Export CSV' })
-    fill()
+    const drawer = openExport('')
+    expect(drawer.getByText(/Your reason and the row count go in the audit log/)).toBeTruthy()
+    expect(drawer.getByText(/At most 5,000 rows/)).toBeTruthy()
+    expect(drawer.getByText(/outside Health ID’s control/)).toBeTruthy()
+    expect(drawer.getByText('Emails, names, status and roles. Never passwords or sessions.')).toBeTruthy()
+    const exportButton = drawer.getByRole('button', { name: 'Export CSV' })
     expect(exportButton).toHaveProperty('disabled', true)
-    fireEvent.click(screen.getByLabelText(/I confirm this export is necessary/))
+    fill(drawer)
+    expect(exportButton).toHaveProperty('disabled', true)
+    fireEvent.click(drawer.getByLabelText(CONFIRM))
     expect(exportButton).toHaveProperty('disabled', false)
-    expect(screen.getByLabelText(/Only users matching the current search/)).toHaveProperty('disabled', true)
+    expect(drawer.getByLabelText(/Only users matching the search/)).toHaveProperty('disabled', true)
   })
 
   it('exports after the server-required step-up, saves the file and reports the row count', async () => {
@@ -58,65 +70,77 @@ describe('principal export', () => {
     mocks.api.exportPrincipals.mockRejectedValueOnce(problem(403, 'STEP_UP_REQUIRED'))
       .mockResolvedValueOnce({ blob, rowCount: 12, rowLimit: 5000, truncated: false })
     mocks.api.stepUp.mockResolvedValueOnce({ stepUpExpiresAt: '2026-10-08T12:05:00.000Z' })
-    open(<ExportPanel query="clinic" />)
-    fireEvent.click(screen.getByLabelText(/Only users matching the current search/))
-    fireEvent.change(screen.getByLabelText('Account status'), { target: { value: 'active' } })
-    fill()
-    fireEvent.click(screen.getByLabelText(/I confirm this export is necessary/))
-    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }))
+    const drawer = openExport('clinic')
+    fireEvent.click(drawer.getByLabelText(/Only users matching the search “clinic”/))
+    fireEvent.change(drawer.getByLabelText('Account status'), { target: { value: 'active' } })
+    fill(drawer)
+    fireEvent.click(drawer.getByLabelText(CONFIRM))
+    fireEvent.click(drawer.getByRole('button', { name: 'Export CSV' }))
     await confirmStepUp()
-    expect(await screen.findByText('Exported 12 rows.')).toBeTruthy()
+    expect(await screen.findByText('Exported 12 users.')).toBeTruthy()
     expect(mocks.api.exportPrincipals.mock.calls).toEqual([
       [{ reason: 'Quarterly access review for audit', query: 'clinic', status: 'active' }],
       [{ reason: 'Quarterly access review for audit', query: 'clinic', status: 'active' }],
     ])
     expect(mocks.saveFile).toHaveBeenCalledTimes(1)
     expect(mocks.saveFile).toHaveBeenCalledWith(blob, expect.stringMatching(/^hid-principals-\d{4}-\d{2}-\d{2}\.csv$/))
-    // The confirmation is per export.
-    expect(screen.getByLabelText(/I confirm this export is necessary/)).toHaveProperty('checked', false)
+    // The confirmation is per export: the drawer closed, and opened again it asks again.
+    expect(screen.queryByRole('dialog', { name: 'Export users (CSV)' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+    expect(within(screen.getByRole('dialog', { name: 'Export users (CSV)' })).getByLabelText(CONFIRM)).toHaveProperty('checked', false)
   })
 
   it('says so when the browser could not read the server row count', async () => {
     mocks.api.exportPrincipals.mockResolvedValueOnce({ blob: new Blob([]), rowCount: null, rowLimit: null, truncated: null })
-    open(<ExportPanel query="" />)
-    fill()
-    fireEvent.click(screen.getByLabelText(/I confirm this export is necessary/))
-    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }))
-    expect(await screen.findByText(/did not share its row count with this browser; exports stop at 5,000 rows/)).toBeTruthy()
+    const drawer = openExport('')
+    fill(drawer)
+    fireEvent.click(drawer.getByLabelText(CONFIRM))
+    fireEvent.click(drawer.getByRole('button', { name: 'Export CSV' }))
+    expect(await screen.findByText('Export downloaded.')).toBeTruthy()
+    expect(screen.queryByText(/Exported \d/)).toBeNull()
     await waitFor(() => expect(mocks.saveFile).toHaveBeenCalledTimes(1))
   })
 
   it('shows the truncation warning from the backend headers', async () => {
     mocks.api.exportPrincipals.mockResolvedValueOnce({ blob: new Blob([]), rowCount: 5000, rowLimit: 5000, truncated: true })
-    open(<ExportPanel query="" />)
-    fill()
-    fireEvent.click(screen.getByLabelText(/I confirm this export is necessary/))
-    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }))
-    expect(await screen.findByText(/cut off at the 5,000-row limit/)).toBeTruthy()
+    const drawer = openExport('')
+    fill(drawer)
+    fireEvent.click(drawer.getByLabelText(CONFIRM))
+    fireEvent.click(drawer.getByRole('button', { name: 'Export CSV' }))
+    expect(await drawer.findByText('Downloaded, but cut off at 5,000 rows. Narrow the filter to export the rest.')).toBeTruthy()
+    expect(mocks.saveFile).toHaveBeenCalledTimes(1)
   })
 
   it('explains a restricted export and saves nothing', async () => {
     mocks.api.exportPrincipals.mockRejectedValueOnce(problem(403, 'PERMISSION_DENIED'))
-    open(<ExportPanel query="" />)
-    fill()
-    fireEvent.click(screen.getByLabelText(/I confirm this export is necessary/))
-    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }))
-    expect(await screen.findByText('Exports are restricted to Super Admins with the export permission.')).toBeTruthy()
+    const drawer = openExport('')
+    fill(drawer)
+    fireEvent.click(drawer.getByLabelText(CONFIRM))
+    fireEvent.click(drawer.getByRole('button', { name: 'Export CSV' }))
+    expect(await drawer.findByText('Only Super Admins with the export permission can export.')).toBeTruthy()
     expect(mocks.saveFile).not.toHaveBeenCalled()
   })
 })
 
 describe('two-person requests and session governance for a principal', () => {
+  /** Opens a request's confirmation and gives the reason. */
+  function request(button: string, reason: string) {
+    fireEvent.click(screen.getByRole('button', { name: button }))
+    const sheet = within(screen.getByRole('dialog'))
+    fireEvent.change(sheet.getByLabelText('Reason for this change'), { target: { value: reason } })
+    return sheet
+  }
+
   it('creates a Super Admin elevation request with one idempotency key across step-up', async () => {
     mocks.api.requestSuperAdmin.mockRejectedValueOnce(problem(403, 'STEP_UP_REQUIRED'))
       .mockResolvedValueOnce({ requestId: 'request-1', status: 'pending', expiresAt: '2026-10-09T12:00:00.000Z', version: 1, replayed: false })
     mocks.api.stepUp.mockResolvedValueOnce({ stepUpExpiresAt: '2026-10-08T12:05:00.000Z' })
     open(<ApprovalRequestForm kind="super-admin" principal={principal} />)
-    expect(screen.getByText(/never granted in one step/)).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Reason for this request'), { target: { value: 'Second on-call Super Admin' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create elevation request' }))
+    const sheet = request('Request Super Admin', 'Second on-call Super Admin')
+    expect(sheet.getByText(/A different Super Admin must approve this within 24 hours/)).toBeTruthy()
+    fireEvent.click(sheet.getByRole('button', { name: 'Send request' }))
     await confirmStepUp()
-    expect(await screen.findByText(/Request created\. It waits for another Super Admin until/)).toBeTruthy()
+    expect(await screen.findByText(/Request sent\. It waits for a second Super Admin until/)).toBeTruthy()
     expect(mocks.api.requestSuperAdmin.mock.calls).toEqual([
       ['account-2', 'Second on-call Super Admin', 'key-1'], ['account-2', 'Second on-call Super Admin', 'key-1'],
     ])
@@ -126,13 +150,16 @@ describe('two-person requests and session governance for a principal', () => {
     mocks.api.requestMfaReset.mockRejectedValueOnce(problem(409, 'MFA_NOT_ENROLLED'))
       .mockRejectedValueOnce(problem(409, 'APPROVAL_ALREADY_PENDING'))
     open(<ApprovalRequestForm kind="mfa-reset" principal={principal} />)
-    expect(screen.getByText(/all of their sessions end/)).toBeTruthy()
-    expect(screen.getByText(/Their password is not changed/)).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Reason for this request'), { target: { value: 'Authenticator lost while travelling' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create reset request' }))
-    expect(await screen.findByText(/no authenticator to reset/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Create reset request' }))
-    expect(await screen.findByText(/already pending/)).toBeTruthy()
+    const sheet = request('Request authenticator reset', 'Authenticator lost while travelling')
+    expect(sheet.getByText(/they’re signed out everywhere/)).toBeTruthy()
+    expect(sheet.getByText(/Their password stays the same/)).toBeTruthy()
+    fireEvent.click(sheet.getByRole('button', { name: 'Send request' }))
+    expect(await sheet.findByText(/no authenticator to reset/)).toBeTruthy()
+    fireEvent.click(sheet.getByRole('button', { name: 'Send request' }))
+    expect(await sheet.findByText(/already pending/)).toBeTruthy()
+    expect(mocks.api.requestMfaReset.mock.calls).toEqual([
+      ['account-2', 'Authenticator lost while travelling', 'key-1'], ['account-2', 'Authenticator lost while travelling', 'key-2'],
+    ])
   })
 
   it('revokes another account’s session as compromised with a reason and security warning', async () => {
@@ -143,16 +170,16 @@ describe('two-person requests and session governance for a principal', () => {
       lastStepUpAt: null, sourceIp: '198.51.100.4', current: false }] })
     mocks.api.revokePrincipalSession.mockResolvedValueOnce({ accountId: 'account-2', revokedCount: 1, replayed: false })
     open(<PrincipalSessions principal={principal} />)
-    const details = screen.getByText('Review sessions').closest('details')!
-    details.open = true
-    fireEvent(details, new Event('toggle'))
-    expect(await screen.findByText('198.51.100.4')).toBeTruthy()
+    // Sessions are read only when asked.
+    expect(mocks.api.principalSessions).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Show sessions' }))
+    expect(await screen.findByText(/198\.51\.100\.4/)).toBeTruthy()
 
-    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Sign-in from an unknown network' } })
-    fireEvent.click(screen.getByLabelText('This session may be compromised'))
-    expect(screen.getByText(/recorded as compromised in the security log/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke session' }))
-    expect(await screen.findByText('Session revoked. That device must sign in again.')).toBeTruthy()
+    const sheet = request('Sign out', 'Sign-in from an unknown network')
+    fireEvent.click(sheet.getByLabelText('This session may be compromised'))
+    expect(sheet.getByText(/marked as compromised in the security log/)).toBeTruthy()
+    fireEvent.click(sheet.getByRole('button', { name: 'End session' }))
+    expect(await screen.findByText('Session ended for Ada Operator.')).toBeTruthy()
     expect(mocks.api.revokePrincipalSession).toHaveBeenCalledWith('account-2', 'session-2',
       { reason: 'Sign-in from an unknown network', compromised: true }, 'key-1')
   })
@@ -163,21 +190,28 @@ describe('principal actions by permission', () => {
     platformRoles: ['platform_super_admin'], platformPermissions: ['platform.admin.access', 'platform.principal.read',
       'platform.role.manage', 'platform.mfa.reset', 'platform.session.revoke', 'platform.principal.export'] }
 
+  async function openAccount() {
+    fireEvent.change(screen.getByLabelText('Name or email'), { target: { value: 'ada' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Ada Operator' }))
+    return within(screen.getByRole('dialog', { name: 'Ada Operator' }))
+  }
+
   it('offers two-person requests instead of a one-step Super Admin grant, and the export to exporters', async () => {
     mocks.api.principals.mockResolvedValueOnce({ items: [principal], page: 1, pageSize: 50, total: 1 })
     open(<PrincipalsPage actor={superAdmin} />)
-    expect(screen.getByText('Export users (CSV)')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Search users'), { target: { value: 'ada' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
-    const row = (await screen.findByText('Ada Operator')).closest('tr')!
-    expect(within(row).getByText('Request Super Admin elevation')).toBeTruthy()
-    expect(within(row).getByText('Request authenticator reset')).toBeTruthy()
-    expect(within(row).getByText('Review sessions')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Export' })).toBeTruthy()
+    const drawer = await openAccount()
+    expect(drawer.getByRole('button', { name: 'Request Super Admin' })).toBeTruthy()
+    expect(drawer.getByRole('button', { name: 'Request authenticator reset' })).toBeTruthy()
+    expect(drawer.getByRole('button', { name: 'Show sessions' })).toBeTruthy()
 
-    const roleSelect = within(row).getByLabelText('Role') as HTMLSelectElement
+    fireEvent.click(drawer.getByRole('button', { name: 'Change roles' }))
+    const sheet = within(screen.getByRole('dialog', { name: 'Change platform roles' }))
+    const roleSelect = sheet.getByLabelText('Role') as HTMLSelectElement
     expect([...roleSelect.options].map(option => option.value)).not.toContain('platform_super_admin')
-    fireEvent.change(within(row).getByLabelText('Action'), { target: { value: 'revoke' } })
-    expect([...(within(row).getByLabelText('Role') as HTMLSelectElement).options].map(option => option.value))
+    fireEvent.change(sheet.getByLabelText('Change'), { target: { value: 'revoke' } })
+    expect([...(sheet.getByLabelText('Role') as HTMLSelectElement).options].map(option => option.value))
       .toContain('platform_super_admin')
   })
 
@@ -185,10 +219,10 @@ describe('principal actions by permission', () => {
     mocks.api.principals.mockResolvedValueOnce({ items: [principal], page: 1, pageSize: 50, total: 1 })
     open(<PrincipalsPage actor={{ ...superAdmin, platformRoles: ['support_admin'],
       platformPermissions: ['platform.admin.access', 'platform.principal.read'] }} />)
-    expect(screen.queryByText('Export users (CSV)')).toBeNull()
-    fireEvent.change(screen.getByLabelText('Search users'), { target: { value: 'ada' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
-    const row = (await screen.findByText('Ada Operator')).closest('tr')!
-    expect(within(row).getByText('View only')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Export' })).toBeNull()
+    const drawer = await openAccount()
+    expect(drawer.getByText('Ada Operator', { selector: 'h2' })).toBeTruthy()
+    expect(drawer.queryByRole('heading', { name: 'Actions' })).toBeNull()
+    expect(drawer.queryAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['Close'])
   })
 })

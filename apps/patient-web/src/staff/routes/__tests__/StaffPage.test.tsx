@@ -437,7 +437,7 @@ describe('where the Staff page does not apply', () => {
   })
 
   it.each([
-    [new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }), 'Adding staff isn’t available on Health ID yet. Please check again later.'],
+    [new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }), 'Adding staff isn’t set up for your facility. Contact support.'],
     [new HidApiError(403, 'Not available', { code: 'STAFF_MANAGEMENT_NOT_AVAILABLE' }), 'Health ID support manages who works at '
       + 'Ikeja Care. Contact Health ID support to add or remove staff.'],
     [new HidApiError(503, 'Unavailable', { code: 'UPSTREAM_UNAVAILABLE' }), 'Staff management is temporarily unavailable. Please try '

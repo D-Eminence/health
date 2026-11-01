@@ -1,0 +1,17 @@
+/*
+ * Point of care: printing a receipt. Only the receipt prints, in black on white, on the page or on an 80 mm slip
+ * printer, whatever the screen's theme. Everything else (the frame, the drawer, its buttons) is left off the paper.
+ */
+@media print {
+  body:has([data-receipt-print]) * { visibility: hidden !important; }
+  [data-receipt-print], [data-receipt-print] * { visibility: visible !important; }
+  [data-receipt-print] {
+    position: absolute !important; inset: 0 auto auto 0 !important;
+    width: 100% !important; max-width: 80mm !important; margin: 0 !important; padding: 0 !important;
+    background: #fff !important; color: #000 !important; box-shadow: none !important;
+    --color-ink: #000; --color-ink-2: #000; --color-ink-3: #333; --color-line: #999;
+  }
+  [data-receipt-print] [data-no-print] { display: none !important; }
+  /* Whatever holds the receipt (a drawer's scrolling body) does not cut it short. */
+  *:has([data-receipt-print]) { overflow: visible !important; max-height: none !important; height: auto !important; }
+}

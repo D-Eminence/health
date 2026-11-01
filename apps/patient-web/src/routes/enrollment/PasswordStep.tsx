@@ -3,6 +3,8 @@ import { PasswordInput } from '@hid/ui'
 import { describedBy } from '../../authSteps'
 import { ENROLLMENT_GENDERS, type EnrollmentGender, type EnrollmentProfileField } from '../../api'
 import type { StepProps } from './stepProps'
+import { Button, Field } from '../../kasuwa/ui'
+import { InputR, SelectR } from '../profileParts'
 
 /** One enrollment's activation attempts are limited to 15 in 15 minutes (hid-system #61 and #50). */
 const ACTIVATION_LIMIT_HINT = 'This enrollment has had too many activation attempts. Wait about 15 minutes, then activate again: the enrollment is kept.'
@@ -62,25 +64,27 @@ export function PasswordStep({ focusTarget, busy, errorId, password, onPassword,
   const missing = profileFields.filter(field => field === 'dateOfBirth' ? dateOfBirth === '' : gender === '')
   const lacks = profileFields.map(field => FIELD_NAMES[field])
   // The date's limits are checked by the page (plausibleDateOfBirth), which says so at the field.
-  return <form onSubmit={onSubmit} className="patient-form" noValidate>
-    <h2>Activate your account</h2>
-    {profileFields.length > 0 && <p id="enroll-profile-hint" className="patient-field-hint">
-      Your NIN record does not include your {lacks.join(' or ')}, so enter {lacks.length > 1 ? 'them' : 'it'} here for your Health ID.
+  return <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+    <h2 className="m-0 text-title-2 text-ink">Choose a password</h2>
+    {profileFields.length > 0 && <p id="enroll-profile-hint" className="m-0 text-sm text-ink-2">
+      Your NIN record has no {lacks.join(' or ')}, so add {lacks.length > 1 ? 'them' : 'it'} here.
     </p>}
-    {profileFields.includes('dateOfBirth') && <label>Date of birth<input ref={target('dateOfBirth')} required type="date" min="1900-01-01" max={localToday()}
-      value={dateOfBirth} onChange={event => onDateOfBirth(event.target.value)}
-      aria-invalid={invalid('dateOfBirth')} aria-describedby={describedBy('enroll-profile-hint', errorFor('dateOfBirth'))} /></label>}
-    {profileFields.includes('gender') && <label>Gender<select ref={target('gender')} required value={gender} onChange={event => onGender(event.target.value as EnrollmentGender | '')}
-      aria-invalid={invalid('gender')} aria-describedby={describedBy('enroll-profile-hint', errorFor('gender'))}>
-      <option value="">Select…</option>
-      {ENROLLMENT_GENDERS.map(value => <option key={value} value={value}>{GENDER_LABELS[value]}</option>)}
-    </select></label>}
-    <p id="enroll-password-hint" className="patient-field-hint">Choose a password of at least 12 characters.</p>
-    <div className="patient-field"><label htmlFor="enroll-password">Password</label><PasswordInput appearance="plain" id="enroll-password" ref={target('password')} required autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => onPassword(event.target.value)}
-      aria-invalid={invalid('password')} aria-describedby={describedBy('enroll-password-hint', errorFor('password'))} /></div>
-    {missing.length > 0 && <p id="enroll-profile-missing" className="patient-field-hint">Enter your {missing.map(field => FIELD_NAMES[field]).join(' and ')} to activate.</p>}
-    <button type="submit" className="patient-primary-button" disabled={busy || password.length < 12 || blocked || missing.length > 0}
-      aria-describedby={missing.length > 0 ? 'enroll-profile-missing' : undefined}>{busy ? 'Activating…' : 'Activate Health ID'}</button>
-    {limitNote && <p className="patient-field-hint">{ACTIVATION_LIMIT_HINT}</p>}
+    {profileFields.includes('dateOfBirth') && <Field label="Date of birth" htmlFor="enroll-dob">
+      <InputR id="enroll-dob" ref={target('dateOfBirth')} required type="date" min="1900-01-01" max={localToday()}
+        value={dateOfBirth} onChange={event => onDateOfBirth(event.target.value)}
+        aria-invalid={invalid('dateOfBirth')} aria-describedby={describedBy('enroll-profile-hint', errorFor('dateOfBirth'))} /></Field>}
+    {profileFields.includes('gender') && <Field label="Gender" htmlFor="enroll-gender">
+      <SelectR id="enroll-gender" ref={target('gender')} required value={gender} onChange={event => onGender(event.target.value as EnrollmentGender | '')}
+        aria-invalid={invalid('gender')} aria-describedby={describedBy('enroll-profile-hint', errorFor('gender'))}>
+        <option value="">Select…</option>
+        {ENROLLMENT_GENDERS.map(value => <option key={value} value={value}>{GENDER_LABELS[value]}</option>)}
+      </SelectR></Field>}
+    <Field label="Password" htmlFor="enroll-password" hintId="enroll-password-hint" hint="At least 12 characters. Tap Show to check it.">
+      <PasswordInput id="enroll-password" ref={target('password')} required autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => onPassword(event.target.value)}
+        aria-invalid={invalid('password')} aria-describedby={describedBy('enroll-password-hint', errorFor('password'))} /></Field>
+    {missing.length > 0 && <p id="enroll-profile-missing" className="m-0 text-[13px] text-ink-3">Add your {missing.map(field => FIELD_NAMES[field]).join(' and ')} to finish.</p>}
+    <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || password.length < 12 || blocked || missing.length > 0}
+      aria-describedby={missing.length > 0 ? 'enroll-profile-missing' : undefined}>{busy ? 'Activating…' : 'Get my Health ID'}</Button>
+    {limitNote && <p className="m-0 text-[13px] text-ink-3">{ACTIVATION_LIMIT_HINT}</p>}
   </form>
 }

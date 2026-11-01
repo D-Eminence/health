@@ -2,7 +2,9 @@ import { Route, Routes } from 'react-router-dom'
 import type { EhrBluePageStatus } from '../types'
 import { ChartProvider } from '../parts/chart'
 import { isDemoFacility } from '../../blueFacilities'
-import { ListHeading, RecordNotFound } from '../parts/Notices'
+import { RecordNotFound } from '../parts/Notices'
+import { FormPage } from '../../../kasuwa/parts'
+import { Button } from '../../../kasuwa/ui'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { SampleCreate, SampleDetail, SampleList } from '../sample/SampleWorkspace'
 import { BreakGlassCard, CurrentEmergency } from './BreakGlass'
@@ -10,7 +12,7 @@ import { EmergencySummaryPage } from './EmergencySummary'
 
 /**
  * Partial: emergency break-glass access and the read-only emergency summary run on today's Health ID API; the
- * emergency-department board (arrivals, assessment, disposition) has no backend and is the sample engine's. The board
+ * emergency-department board (arrivals, assessment, disposition) has no API and is the sample engine's. The board
  * shows only at the four demo facilities: at a real facility this live page never leads into a sample.
  */
 export const emergencyStatus: EhrBluePageStatus = 'partial'
@@ -20,17 +22,19 @@ function useDemoFacility() {
   return isDemoFacility(useClinical().facility?.id)
 }
 
-/** emergency: the design's list heading, the live break-glass card, then (at a demo facility) the sample board. */
+/** emergency: emergency access as one form column, then (at a demo facility) the sample board. */
 function EmergencyHome() {
   const href = useWorkspaceHref()
   const demo = useDemoFacility()
   return (
-    <>
-      <ListHeading title="Emergency" createHref={demo ? href('new') : undefined} />
-      <CurrentEmergency />
-      <BreakGlassCard />
+    <div className="flex flex-col gap-8">
+      <FormPage title="Emergency access" description="See the emergency summary of a patient who can’t consent."
+        actions={demo ? <Button to={href('new')}>New board entry</Button> : undefined}>
+        <CurrentEmergency />
+        <BreakGlassCard />
+      </FormPage>
       {demo ? <SampleList id="emergency" /> : null}
-    </>
+    </div>
   )
 }
 

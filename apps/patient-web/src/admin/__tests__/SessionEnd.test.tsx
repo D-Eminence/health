@@ -39,6 +39,12 @@ async function open() {
 }
 
 const SESSION = 'GET /api/v1/admin/session'
+
+/** Sign out is in the account menu, at the foot of the navigation: open it, then press Sign out. */
+function signOut() {
+  fireEvent.click(screen.getByRole('button', { name: /: account$/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+}
 const REFRESH = 'POST /api/v1/auth/admin/refresh'
 
 describe('session end reasons the server gives when the console opens (reload or new tab)', () => {
@@ -88,17 +94,17 @@ describe('signing out of a session the server has already ended', () => {
     serve({ ...signedIn(), 'POST /api/v1/auth/admin/logout': [refused('PLATFORM_SESSION_REVOKED')] })
     const messages = await open()
     await screen.findByRole('heading', { name: 'Overview' })
-    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    signOut()
     expect(await screen.findByText(messages.revoked)).toBeTruthy()
-    expect(screen.queryByText('You have signed out of platform administration.')).toBeNull()
+    expect(screen.queryByText('You’ve signed out.')).toBeNull()
   })
 
   it('says the administrator signed out when the server gives no reason', async () => {
     serve({ ...signedIn(), 'POST /api/v1/auth/admin/logout': [refused('AUTHENTICATION_REQUIRED')] })
     await open()
     await screen.findByRole('heading', { name: 'Overview' })
-    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
-    await waitFor(() => expect(screen.getByText('You have signed out of platform administration.')).toBeTruthy())
+    signOut()
+    await waitFor(() => expect(screen.getByText('You’ve signed out.')).toBeTruthy())
   })
 
   // The access cookie lasts 5 minutes (hid-system PLATFORM_ACCESS_TTL_SECONDS), so
@@ -109,11 +115,11 @@ describe('signing out of a session the server has already ended', () => {
       [REFRESH]: [refused('PLATFORM_SESSION_REVOKED')] })
     const messages = await open()
     await screen.findByRole('heading', { name: 'Overview' })
-    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    signOut()
     expect(await screen.findByRole('heading', { name: 'Administration sign in' })).toBeTruthy()
     await act(async () => {})
     expect(screen.getByText(messages.revoked)).toBeTruthy()
-    expect(screen.queryByText('You have signed out of platform administration.')).toBeNull()
+    expect(screen.queryByText('You’ve signed out.')).toBeNull()
     expect(calls).not.toContain('POST /api/v1/auth/admin/logout')
   })
 
@@ -122,7 +128,7 @@ describe('signing out of a session the server has already ended', () => {
       [REFRESH]: [refused('PLATFORM_SESSION_REVOKED')] })
     const messages = await open()
     await screen.findByRole('heading', { name: 'Overview' })
-    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    signOut()
     expect(await screen.findByText(messages.revoked)).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Administration sign in' })).toBeTruthy()
     expect(calls).not.toContain('POST /api/v1/auth/admin/logout')
@@ -291,7 +297,7 @@ describe('a workspace bound to the administrator who opened it', () => {
   it('asks again once the workspace opens when another tab spoke while its session was checked', async () => {
     const opening = later()
     const { messages } = await openAs({ [SESSION]: [opening.response, sessionOf('admin-2')], [OVERVIEW]: [overview()] })
-    expect(await screen.findByText('Checking your platform session…')).toBeTruthy()
+    expect(await screen.findByText('Checking your sign-in…')).toBeTruthy()
     fromAnotherTab()
     await act(async () => { opening.answer(sessionOf('admin-1')) })
     expect(await screen.findByText(messages.switched)).toBeTruthy()
@@ -372,8 +378,8 @@ describe('a workspace bound to the administrator who opened it', () => {
     const { calls } = await openAs({ [SESSION]: [sessionOf('admin-1'), sessionOf('admin-1')], [OVERVIEW]: [overview()],
       [LOGOUT]: [signedOut()] })
     expect(await screen.findByText('7')).toBeTruthy()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
-    expect(await screen.findByText('You have signed out of platform administration.')).toBeTruthy()
+    signOut()
+    expect(await screen.findByText('You’ve signed out.')).toBeTruthy()
     expect(TabChannel.posted).toEqual([{ name: CHANNEL, message: 'changed' }])
     expect(calls.slice(-2)).toEqual([SESSION, LOGOUT])
   })
@@ -384,15 +390,15 @@ describe('a workspace bound to the administrator who opened it', () => {
     const { calls } = await openAs({ [SESSION]: [sessionOf('admin-1'), asked.response], [OVERVIEW]: [overview()],
       [LOGOUT]: [signedOut(), signedOut()] })
     expect(await screen.findByText('7')).toBeTruthy()
-    const [sidebar, header] = screen.getAllByRole('button', { name: 'Sign out' }) as HTMLButtonElement[]
-    fireEvent.click(sidebar!)
+    signOut()
     await waitFor(() => expect(calls.filter(call => call === SESSION)).toHaveLength(2))
-    expect(sidebar!.disabled).toBe(true)
-    expect(header!.disabled).toBe(true)
-    fireEvent.click(sidebar!)
-    fireEvent.click(header!)
+    // The account menu's Sign out, opened again, is disabled while it runs; pressing it starts nothing.
+    fireEvent.click(screen.getByRole('button', { name: /: account$/ }))
+    const again = screen.getByRole('button', { name: 'Signing out…' }) as HTMLButtonElement
+    expect(again.disabled).toBe(true)
+    fireEvent.click(again)
     await act(async () => { asked.answer(sessionOf('admin-1')) })
-    expect(await screen.findByText('You have signed out of platform administration.')).toBeTruthy()
+    expect(await screen.findByText('You’ve signed out.')).toBeTruthy()
     expect(calls.filter(call => call === LOGOUT)).toHaveLength(1)
     expect(TabChannel.posted).toEqual([{ name: CHANNEL, message: 'changed' }])
   })
@@ -405,7 +411,7 @@ describe('a workspace bound to the administrator who opened it', () => {
     const { calls, messages } = await openAs({ [SESSION]: [sessionOf('admin-1'), sessionOf('admin-2')],
       [OVERVIEW]: [overview()], [LOGOUT]: [signedOut()] })
     expect(await screen.findByText('7')).toBeTruthy()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    signOut()
     expect(await screen.findByText(messages.switched)).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Administration sign in' })).toBeTruthy()
     expect(calls).not.toContain(LOGOUT)
@@ -415,9 +421,9 @@ describe('a workspace bound to the administrator who opened it', () => {
     const { calls, messages } = await openAs({ [SESSION]: [sessionOf('admin-1'), refused('AUTHENTICATION_REQUIRED')],
       [REFRESH]: [grantFor('admin-2')], [OVERVIEW]: [overview()], [LOGOUT]: [signedOut()] })
     expect(await screen.findByText('7')).toBeTruthy()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    signOut()
     expect(await screen.findByText(messages.switched)).toBeTruthy()
-    expect(screen.queryByText('You have signed out of platform administration.')).toBeNull()
+    expect(screen.queryByText('You’ve signed out.')).toBeNull()
     expect(calls).not.toContain(LOGOUT)
   })
 
@@ -428,8 +434,8 @@ describe('a workspace bound to the administrator who opened it', () => {
     const { calls } = await openAs({ [SESSION]: [sessionOf('admin-1'), refused('AUTHENTICATION_REQUIRED'), sessionOf('admin-1')],
       [REFRESH]: [grantFor('admin-1')], [OVERVIEW]: [overview()], [LOGOUT]: [signedOut()] })
     expect(await screen.findByText('7')).toBeTruthy()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
-    expect(await screen.findByText('You have signed out of platform administration.')).toBeTruthy()
+    signOut()
+    expect(await screen.findByText('You’ve signed out.')).toBeTruthy()
     expect(calls.slice(-4)).toEqual([SESSION, REFRESH, SESSION, LOGOUT])
   })
 
@@ -437,7 +443,7 @@ describe('a workspace bound to the administrator who opened it', () => {
     const { calls } = await openAs({ [SESSION]: [sessionOf('admin-1'), unavailable(), unavailable(), unavailable()],
       [OVERVIEW]: [overview()], [LOGOUT]: [signedOut()] })
     expect(await screen.findByText('7')).toBeTruthy()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    signOut()
     expect(await screen.findByText(/^Sign-out could not be completed\./, {}, { timeout: 4000 })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Overview' })).toBeTruthy()
     expect(calls).not.toContain(LOGOUT)
@@ -450,7 +456,7 @@ describe('a workspace bound to the administrator who opened it', () => {
       'POST /api/v1/auth/admin/login': [json({ status: 'mfa_required', expiresAt: new Date(Date.now() + 300_000).toISOString() })],
       'POST /api/v1/auth/admin/mfa/verify': [grantFor('admin-1')] })
     expect(await screen.findByText('7')).toBeTruthy()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    signOut()
     fireEvent.change(await screen.findByLabelText('Email'), { target: { value: 'admin-1@example.test' } })
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse battery' } })
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
@@ -468,7 +474,7 @@ describe('a workspace bound to the administrator who opened it', () => {
       'POST /api/v1/auth/admin/login': [json({ status: 'mfa_required', expiresAt: new Date(Date.now() + 300_000).toISOString() })],
       'POST /api/v1/auth/admin/mfa/verify': [grantFor('admin-1')] })
     expect(await screen.findByText('7')).toBeTruthy()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    signOut()
     expect(await screen.findByText(/^Sign-out could not be completed\./, {}, { timeout: 4000 })).toBeTruthy()
     // Another tab signs out; asked again, the server no longer knows this session.
     fromAnotherTab()

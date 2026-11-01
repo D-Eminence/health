@@ -1,4 +1,5 @@
-import { screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
+import { useLocation } from 'react-router-dom'
 import { expect } from 'vitest'
 import type { PharmacyWorkItem, WorkItemOrderRoute } from '../../../../staff/api'
 
@@ -6,6 +7,14 @@ import type { PharmacyWorkItem, WorkItemOrderRoute } from '../../../../staff/api
  * Fictional work for the blue Pharmacy page's tests: "Patient One" (HID-ZDEMAAA2), prescriptions accepted at "Demo
  * Pharmacy", some sent by "Demo Hospital".
  */
+/** Prescriptions' address in the frame; an open prescription is below it. */
+export const PRESCRIPTIONS = '/provider/pharmacy/prescriptions'
+
+/** The router's address, shown for the test: where the page put the user. */
+export function Where() {
+  return <output data-testid="where" hidden>{useLocation().pathname}</output>
+}
+
 export const READ = 'pharmacy.work-item.read'
 export const CREATE = 'pharmacy.dispensing.create'
 export const DISPENSING_READ = 'pharmacy.dispensing.read'
@@ -45,12 +54,6 @@ export const otherFacilityItem: PharmacyWorkItem = {
   id: 'd4e5f6a7-work-item-4', patientId: PATIENT_D, version: 2, acceptedAt: '2026-10-08T11:15:00.000Z',
   medication: { display: IBUPROFEN }, doseQuantity: 1, doseUnit: 'tablet', frequency: 'Every eight hours as needed', dispensing: null,
 }
-/** Another prescription for Patient A (the accepted item's patient), dispensed. */
-export const samePatient: PharmacyWorkItem = {
-  id: 'f7a8b9c0-work-item-5', patientId: PATIENT_A, version: 5, acceptedAt: '2026-10-05T16:20:00.000Z',
-  medication: { display: IBUPROFEN }, doseQuantity: 1, doseUnit: 'tablet', frequency: 'Every eight hours as needed',
-  dispensing: { id: 'dispensing-5', reversed: false },
-}
 /** The accepted item once its dispensing is recorded. */
 export const nowDispensed: PharmacyWorkItem = { ...accepted, version: 4, dispensing: { id: 'dispensing-9', reversed: false } }
 
@@ -89,53 +92,53 @@ export function expectNoFullPatientIds() {
   }
 }
 
-/** A list row, found by its record's name. */
+/** A prescription's card in the list, found by its medicine (the card's one button is named by it). */
 export function row(name: string): HTMLElement {
-  const link = screen.getByRole('button', { name })
-  const tr = link.closest('tr')
-  if (!tr) throw new Error(`No row for ${name}`)
-  return tr
+  const card = screen.getByRole('button', { name }).closest('li')
+  if (!card) throw new Error(`No card for ${name}`)
+  return card
 }
 
-/** The open record's "Available actions" card. */
-export function actionsCard(): HTMLElement {
-  return screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
+/** Shows one tab of the list: "To dispense" (where it opens), "Dispensed" or "All". */
+export function showTab(name: 'To dispense' | 'Waiting for payment' | 'Dispensed' | 'All') {
+  const tabs = screen.getByRole('navigation', { name: 'Show prescriptions' })
+  fireEvent.click(within(tabs).getByRole('button', { name: new RegExp(`^${name}`) }))
 }
 
-/** The open record's "Saved record" card. */
-export function savedRecord(): HTMLElement {
-  return screen.getByRole('heading', { name: 'Saved record' }).closest('section') as HTMLElement
+/** The card a card header's heading titles. */
+function cardTitled(name: string): HTMLElement {
+  return screen.getByRole('heading', { name }).closest('section') as HTMLElement
 }
 
-/** The open record's "Connected hospital history" card. */
-export function connectedCard(): HTMLElement {
-  return screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section') as HTMLElement
+/** The open record's "Other actions" card: reversing, and ending an order from another facility. */
+export function otherActions(): HTMLElement {
+  return cardTitled('Other actions')
 }
 
-/** The open record's "Preserved versions & amendments" card. */
-export function versionsCard(): HTMLElement {
-  return screen.getByRole('heading', { name: 'Preserved versions & amendments' }).closest('section') as HTMLElement
+/** The open record's picking view: the checklist, quantity, label and Dispense. */
+export function pickCard(): HTMLElement {
+  return cardTitled('Pick and hand over')
 }
 
-/** Each entry of "Preserved versions & amendments", by its summary line. */
-export function versions(): string[] {
-  return [...versionsCard().querySelectorAll('details > summary')].map(summary => summary.textContent ?? '')
+/** The open record's "Prescription" card: its saved fields, and where it came from. */
+export function prescriptionCard(): HTMLElement {
+  return cardTitled('Prescription')
 }
 
-/**
- * The page's parts that are shown, in order, under its heading: cards, notices, reused staff parts and alerts (the list
- * card as "list"), so a test can say what comes first.
- */
-export function shownParts(): HTMLElement[] {
-  const page = document.querySelector('.hid-ehr-dept')
-  if (!page) throw new Error('No page')
-  return [...page.querySelectorAll<HTMLElement>('.hid-ehr-card, .hid-ehr-dept-notice, .hid-ehr-dept-embedded, [role="alert"]')]
-    .filter(part => !part.closest('[hidden]') && !part.parentElement?.closest('.hid-ehr-card, .hid-ehr-dept-notice, .hid-ehr-dept-embedded, [role="alert"]'))
+/** The open record's saved fields, by label. */
+export function facts(): Record<string, string | null | undefined> {
+  return Object.fromEntries([...prescriptionCard().querySelectorAll('dt')].map(term => [term.textContent, term.nextElementSibling?.textContent]))
+}
+
+/** The open record's status, as its badge says it (shown until the done state replaces the drug). */
+export function recordStatus(): string {
+  const pick = screen.getByText('Pick', { selector: 'p' })
+  return pick.parentElement?.firstElementChild?.textContent ?? ''
 }
 
 /** What the record's status region says: mounted with the record, empty until something is recorded. */
 export function recorded(): string {
-  return within(actionsCard()).getByRole('status').textContent ?? ''
+  return document.querySelector('[id^="pharmacy-status-"]')?.textContent ?? ''
 }
 
 /** The error a refused field is described by, or null while it is not marked invalid. */
@@ -145,9 +148,33 @@ export function refusal(control: HTMLElement): string | null {
   return ids.map(id => document.getElementById(id)?.textContent ?? '').join(' ')
 }
 
-/** The open record's line under its title: its status badge, patient and when it was accepted. */
-export function contextLine(): HTMLElement {
-  const line = document.querySelector<HTMLElement>('.hid-ehr-dept-context')
-  if (!line) throw new Error('No record is open')
-  return line
+/** Ticks the picking checklist's steps (all of them unless told which). */
+export function tick(steps = 3) {
+  const list = within(pickCard()).getByRole('group', { name: 'Checklist' })
+  within(list).getAllByRole('checkbox').slice(0, steps).forEach(box => { if (!(box as HTMLInputElement).checked) fireEvent.click(box) })
+}
+
+/** Fills the picking view's fields. */
+export function fillDispensing(values: { quantity?: string; unit?: string; reason?: string }) {
+  const form = screen.getByRole('form', { name: 'Dispense' })
+  if (values.quantity !== undefined) fireEvent.change(within(form).getByRole('spinbutton', { name: 'Quantity to hand over' }), { target: { value: values.quantity } })
+  if (values.unit !== undefined) fireEvent.change(within(form).getByRole('textbox', { name: 'Unit' }), { target: { value: values.unit } })
+  if (values.reason !== undefined) fireEvent.change(within(form).getByRole('textbox', { name: 'Reason' }), { target: { value: values.reason } })
+  return form
+}
+
+/** Presses Dispense at the foot of the picking view. */
+export function pressDispense() {
+  const form = screen.getByRole('form', { name: 'Dispense' })
+  const button = within(form).getByRole('button', { name: /^(Dispense|Saving…)$/ })
+  // As a pointer press does: the button takes focus, which the confirm sheet gives back as it closes.
+  button.focus()
+  fireEvent.click(button)
+}
+
+/** Answers the confirm-patient sheet: its confirm (named by the action) or Cancel. */
+export async function confirmPatient(answer: string) {
+  const sheet = await screen.findByRole('dialog', { name: 'Confirm the patient' })
+  await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: answer })) })
+  return sheet
 }

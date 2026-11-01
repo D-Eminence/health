@@ -10,7 +10,7 @@ describe('imported medical history', () => {
       structuredData: { medication_name: 'Example medication', dosage: '2', start_date: '2026-06-17',
         prescribing_provider: 'Recorded provider', unknown_date: '2026-02-30', active: false, remaining: 0, empty: null, nested: { follow_up: 'Original instruction' } },
     }] }]} limit={50} />)
-    expect(screen.getByText('Medication')).toBeTruthy()
+    expect(screen.getByText('Medicine')).toBeTruthy()
     expect(screen.getByText('Example medication')).toBeTruthy()
     expect(screen.getByText('Dosage')).toBeTruthy()
     expect(screen.getByText('2')).toBeTruthy()
@@ -43,8 +43,8 @@ describe('imported medical history', () => {
   })
   it('preserves authorship, dates, current content and previous versions without interpreting HTML', () => {
     render(<ImportedHistory records={[...historyFixture, { ...historyFixture[0]!, id: 'record-provider', title: 'Original provider entry', origin: 'provider-authored', files: [] }]} limit={50} />)
-    expect(screen.getByText('Patient reported')).toBeTruthy()
-    expect(screen.getByText('Provider authored')).toBeTruthy()
+    expect(screen.getAllByText('Added by patient').length).toBeGreaterThan(0)
+    expect(screen.getByText('From a doctor or hospital')).toBeTruthy()
     expect(screen.getAllByText('Preserved multiline medical information.')).toHaveLength(2)
     expect(document.querySelector('script')).toBeNull()
     expect(screen.getAllByText('<script>unsafe()</script>')).toHaveLength(2)
@@ -58,7 +58,7 @@ describe('imported medical history', () => {
     expect(download).not.toHaveBeenCalled()
     view.rerender(<ImportedHistory records={historyFixture} limit={50} />)
     expect(screen.queryByRole('button', { name: /Download/ })).toBeNull()
-    expect(screen.getByText('Document access permission required.')).toBeTruthy()
+    expect(screen.getByText('You can’t open this file here.')).toBeTruthy()
   })
   it('requests the exact file on demand and refuses unsafe signed links', async () => {
     const download = vi.fn().mockResolvedValue({ url: 'javascript:unsafe()', expiresInSeconds: 60 })
@@ -66,7 +66,7 @@ describe('imported medical history', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Download cleared.pdf' }))
     await screen.findByRole('alert')
     expect(download).toHaveBeenCalledWith('file-clean', expect.any(AbortSignal))
-    expect(screen.getByRole('alert').textContent).toMatch(/invalid/)
+    expect(screen.getByRole('alert').textContent).toMatch(/This file link doesn’t work/)
   })
   it('never opens a late download after the patient scope unmounts', async () => {
     let finish!: (value: { url: string; expiresInSeconds: number }) => void

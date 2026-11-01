@@ -15,7 +15,7 @@ import { DeptNotice } from '../parts/DeptNotice'
  * "Verification history". No request is made.
  */
 
-const NOT_AVAILABLE = 'Not available in Health ID yet'
+const NOT_AVAILABLE = 'Not recorded'
 
 /** The picture's stand-in, as the target draws it: the first letters of the facility's first two words. */
 function initials(name: string): string {
@@ -84,7 +84,7 @@ export function FacilityProfile() {
   return (
     <DeptPage title="Facility profile" className="hid-ehr-dept-facility">
       <DeptSection title="Hospital details & picture">
-        <p className="hid-ehr-dept-facility-intro">This profile is read-only. Details Health ID does not hold yet show “{NOT_AVAILABLE}”.</p>
+        <p className="hid-ehr-dept-facility-intro">This profile is read-only.</p>
         <div className="hid-ehr-dept-facility-inner">
           <h3>Facility presence policy</h3>
           <Fields>

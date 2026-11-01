@@ -78,3 +78,22 @@ export function staffContext(facility: FakeFacility | undefined) {
 export function renderDept(ui: ReactElement, { route = '/ehr' }: { route?: string } = {}) {
   return render(<MemoryRouter initialEntries={[route]}><div className="hid-ehr">{ui}</div></MemoryRouter>)
 }
+
+/**
+ * The point-of-care API (ehr-blue/departments/commerce/api) for a test file's vi.mock: every call answers "not switched
+ * on yet" (404) unless the test puts its own function in `overrides` (cleared by the test).
+ *
+ *   const commerceApi = vi.hoisted(() => ({} as Record<string, (...args: never[]) => unknown>))
+ *   vi.mock('../../../../ehr-blue/departments/commerce/api', async importOriginal => {
+ *     const { commerceMock } = await import('../harness')
+ *     return { ...(await importOriginal<object>()), commerce: commerceMock(commerceApi) }
+ *   })
+ */
+export function commerceMock(overrides: Record<string, (...args: never[]) => unknown>) {
+  return new Proxy(overrides, {
+    get(target, key) {
+      if (typeof key !== 'string') return undefined
+      return target[key] ?? (async () => ({ ok: false, notAvailable: true }))
+    },
+  })
+}

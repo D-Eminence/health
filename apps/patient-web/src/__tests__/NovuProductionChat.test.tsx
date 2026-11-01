@@ -68,7 +68,7 @@ describe('Novu emergency contacts and account deletion on the profile', () => {
     let release!: (response: Response) => void
     const { sent } = settings(path => path.endsWith('/availability')
       ? new Promise<Response>(resolve => { release = resolve }) : json([]))
-    expect(await screen.findByRole('heading', { name: 'Bio-data' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'About you' })).toBeTruthy()
     await waitFor(() => expect(paths(sent)).toContain('GET /identity/me/emergency-contacts/availability'))
     const nothing = () => {
       expect(screen.queryByRole('heading', { name: 'Emergency contacts' })).toBeNull()
@@ -83,7 +83,7 @@ describe('Novu emergency contacts and account deletion on the profile', () => {
   it('shows no card, no alert and reads no list while the routes are not served (404)', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     const { sent } = settings(path => problem(404, 'NOT_FOUND', `Cannot GET /api/v1${path}`))
-    expect(await screen.findByRole('heading', { name: 'Bio-data' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'About you' })).toBeTruthy()
     await waitFor(() => expect(paths(sent)).toContain('GET /identity/me/emergency-contacts/availability'))
     await settled()
     expect(paths(sent).filter(request => request.includes('emergency-contacts'))).toEqual(['GET /identity/me/emergency-contacts/availability'])
@@ -95,7 +95,7 @@ describe('Novu emergency contacts and account deletion on the profile', () => {
   it('shows no card and asks to add nothing while delivery is off for a patient without contacts', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     const { sent } = settings(path => path.endsWith('/availability') ? json({ delivery: false, channels: ['email'] }) : json([]))
-    expect(await screen.findByRole('heading', { name: 'Bio-data' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'About you' })).toBeTruthy()
     await waitFor(() => expect(paths(sent)).toContain('GET /identity/me/emergency-contacts'))
     await settled()
     expect(screen.queryByRole('heading', { name: 'Emergency contacts' })).toBeNull()
