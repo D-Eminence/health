@@ -182,6 +182,30 @@ describe('a repeated sign-out, with single sign-on on, on app.', () => {
   })
 })
 
+describe('a host whose single sign-on sign-out Identity does not serve (404), with single sign-on on, on app.', () => {
+  it('ends the sign-in with today’s sign-out, and asks for the next sign-in from this page', async () => {
+    const sent = await signedInOn(APP, { [SSO_LOGOUT]: [() => problem(404, 'NOT_FOUND', 'Cannot POST /api/v1/auth/sso/logout')],
+      [LOGOUT]: [() => new Response(null, { status: 204 })] })
+    const before = sent.length
+    await signOut()
+    expect(after(sent, before)).toEqual([SSO_LOGOUT, LOGOUT])
+    expect(sent.find(request => request.route === LOGOUT)!.headers.get('X-HID-Client')).toBe('patient-web')
+    expect(left).not.toHaveBeenCalled()
+    const sso = await import('../../sso/singleSignOn')
+    expect([sso.signedOutInThisPage(), sso.leavingAfterSignOut()]).toEqual([true, false])
+  })
+
+  it('asks for nothing more after a refused refresh', async () => {
+    const sent = await signedInOn(APP, { [SESSION]: [patient, gone, gone], [REFRESH]: [gone],
+      [SSO_LOGOUT]: [() => problem(404, 'NOT_FOUND', 'Cannot POST /api/v1/auth/sso/logout')] })
+    await signOut()
+    expect(sent.map(request => request.route)).toEqual([SESSION, SESSION, REFRESH, SESSION, SSO_LOGOUT])
+    expect(left).not.toHaveBeenCalled()
+    const sso = await import('../../sso/singleSignOn')
+    expect([sso.signedOutInThisPage(), sso.leavingAfterSignOut()]).toEqual([true, false])
+  })
+})
+
 describe('the patient portal’s sign-out where single sign-on does not hand off', () => {
   it.each([
     ['with the setting unset', false, APP],
