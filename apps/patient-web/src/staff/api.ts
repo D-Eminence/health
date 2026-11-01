@@ -269,9 +269,13 @@ function pageQuery(page: PageRequest) {
  * "http-request"). Each sits beside the action it carried out, which has its own event in words (ehr.encounter.list,
  * identity.authorization.check), so a facility's audit view leaves the routes out (owner, 2026-11-01). They stay
  * recorded on the server.
+ *
+ * Every request-log action starts 'api.', so that alone names it. The resource does not: the security refusals
+ * (security.authorization, security.authorization.denied) are written with resource "http-request" too, and a facility
+ * sees those (owner decision, 1 Nov 2026; docs/AUDIT_ACTION_LABELS.md note 8(i)).
  */
 export function isRequestLogEvent(event: { readonly action: string; readonly resourceType: string | null }): boolean {
-  return event.resourceType === 'http-request' || event.action.startsWith('api.')
+  return event.action.startsWith('api.')
 }
 
 /** The page the facility audit read returns: seven fields per event, the request log left out, the cursor kept. */

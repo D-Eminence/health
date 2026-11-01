@@ -197,6 +197,22 @@ describe('Audit & Compliance: search, outcome and refresh', () => {
     expect(shown()).toEqual(['Looked up a patient by Health ID'])
   })
 
+  it('shows a refused access check as a plain sentence beside Refused, never its code or resource (owner decision)', async () => {
+    api.facilityAudit.mockResolvedValueOnce(pageOf([
+      event('71', { action: 'security.authorization.denied', outcome: 'denied', resourceType: 'http-request' }),
+      event('70', { action: 'identity.patient.lookup', outcome: 'success' }),
+    ]))
+    renderDept(<AuditCompliance />)
+    const list = await screen.findByRole('list')
+    const [first] = within(list).getAllByRole('listitem')
+    expect(within(first!).getByText('Their role here does not allow this action').tagName).toBe('STRONG')
+    expect(within(first!).getByText(`Staff member · ${dateText('2026-01-01T12:00:00.000Z')} · Refused`)).toBeTruthy()
+    for (const withheld of ['security', 'authorization', 'http-request']) expect(document.body.innerHTML).not.toContain(withheld)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Outcome' }), { target: { value: 'denied' } })
+    expect(shown()).toEqual(['Their role here does not allow this action'])
+  })
+
   it('keeps the search and outcome on the next page loaded', async () => {
     api.facilityAudit.mockResolvedValueOnce(PAGE).mockResolvedValueOnce(pageOf([
       event('50', { action: 'identity.consent.write', outcome: 'denied' }), event('49', { action: 'ehr.note.read' }),
