@@ -161,13 +161,15 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         {record.error ? <Alert intent="error" title="Couldn’t load this request" action={<Button size="sm" icon={RotateCcw} onClick={record.reload}>Try again</Button>}>{record.error}</Alert> : null}
         {record.hidden ? <Alert intent="warning" action={<Button size="sm" icon={RotateCcw} onClick={record.reload}>Refresh</Button>}>{LAB_RESULTS_HIDDEN[record.hidden]}</Alert> : null}
         {record.loading && !accession && accessionId ? <p role="status" className="m-0 text-[14px] text-ink-3">Loading…</p> : null}
-        {stage === 'collect' && !waitsForPayment && !(accessionId && !accession) ? <CollectStep {...step} item={item} accession={accession}
-          defaultType={sampleGuess} defaultReason={defaultReason} onCollected={value => setMade(value)} /> : null}
+        {/* On an ended order the alert above says why nothing can be recorded: the step would blame the role instead. */}
+        {stage === 'collect' && !closed && !waitsForPayment && !(accessionId && !accession) ? <CollectStep {...step} item={item} accession={accession}
+          defaultType={sampleGuess} defaultReason={defaultReason} onRegistered={value => setMade(value)} onListChanged={onListChanged} /> : null}
         {stage === 'collect' && waitsForPayment ? <p className="m-0 text-[15px] text-ink-2">Take payment above, then collect the sample.</p> : null}
-        {/* Results hidden (their read was refused or could not be checked): no step is offered on what can't be seen. */}
-        {stage === 'testing' && accession && !record.hidden ? accession.specimens.filter(specimen => specimen.status === 'collected' || specimen.status === 'received')
-          .map(specimen => <TestingStep key={`${specimen.id}-${specimen.version}`} {...step} specimen={specimen} accessionId={accession.id}
-            executions={bySpecimen(specimen.id)} executionsRead={record.executionsRead} />) : null}
+        {/* Results hidden (their read was refused or could not be checked): no step is offered on what can't be seen. A sample
+            still waiting beside one taken keeps its step, since each sample is collected on its own. */}
+        {stage === 'testing' && accession && !record.hidden ? accession.specimens.filter(specimen => specimen.status === 'required' || specimen.status === 'collected'
+          || specimen.status === 'received').map(specimen => <TestingStep key={`${specimen.id}-${specimen.version}`} {...step} specimen={specimen}
+            accessionId={accession.id} test={test} executions={bySpecimen(specimen.id)} executionsRead={record.executionsRead} />) : null}
         {stage === 'enter' && !record.hidden ? (permissions.includes('lab.result.enter')
           ? toEnter.map(execution => <ResultForm key={execution.id} {...step} execution={execution} result={null} />)
           : <p className="m-0 text-[15px] text-ink-2">Waiting for someone who can enter results.</p>) : null}

@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { isHidApiError } from '@hid/http'
+import { HidApiError, isHidApiError } from '@hid/http'
 import { CheckCheck, Droplet, FlaskConical, History, PackageCheck, Play, RotateCcw, Save, Square, X } from 'lucide-react'
 import { Segmented } from '../../../kasuwa/interactive'
 import { ConfirmSheet, FormActions, Value } from '../../../kasuwa/parts'
@@ -8,14 +8,15 @@ import {
   staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabSpecimen,
   type LabWorkItem,
 } from '../../../staff/api'
+import { useFocusById } from '../../../staff/focus'
 import { sampleCheckText } from '../../../staff/orderRoutes'
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { ABNORMAL_FLAGS, FLAG_WORDS, flagFromRange, flagLevel, revisionText } from './labText'
 
 /*
- * The lab's steps on one request, each the one thing to do at its stage, in the shared parts: collect the sample (the
- * accession is made with it), receive it, start and finish the test, enter the result, then check and release it. Every
+ * The lab's steps on one request, each the one thing to do at its stage, in the shared parts: register the sample (the
+ * accession), collect it, receive it, start and finish the test, enter the result, then check and release it. Every
  * request and permission is the Laboratory page's (staffApi); a save that names the patient is confirmed against them
  * first (wrong-patient prevention). A refusal is said where the step is, and one that leaves access in doubt reads the
  * record again (`onRefused`).
@@ -42,154 +43,228 @@ function Problem({ text }: { readonly text: string }) {
 }
 
 // ------------------------------------------------------------- collect --
+/** A sample step's button while its request runs: unavailable (aria-disabled), not disabled, so it keeps focus; its handler ignores a press. */
+const busyMark = (busy: boolean) => ({ 'aria-busy': busy || undefined, 'aria-disabled': busy || undefined })
+
 /**
- * Collect the sample: on a request with no accession yet, the accession is made with the sample type (one sample per
- * test), then the sample is marked collected. Confirmed against the patient first.
+ * What a refused sample step says. Screens never repeat the server's words, so only the refusals the page words by their
+ * code (errorText: a closed order, paused work, a workspace not in service, a fault between services) keep their
+ * sentence, given the error without the server's message or the fields it names; anything else says `fallback`.
  */
-export function CollectStep({ facilityId, permissions, subject, routed, onDone, onRefused, item, accession, defaultType, defaultReason, onCollected }: StepBase & {
+function sampleProblem(caught: unknown, fallback: string, routed: boolean) {
+  return isHidApiError(caught) ? errorText(new HidApiError(caught.status, fallback, { code: caught.code }), fallback, routed) : fallback
+}
+
+/**
+ * The sample's first steps, each its own as on today's Laboratory page (staff/routes/Operations.tsx AccessionForm and
+ * SpecimenAction): on a request with no accession yet, register the sample (the accession, with its type and why the
+ * test is done), which needs only the right to register it; then each sample waiting is collected, confirmed against
+ * the patient, or rejected before it is taken, each with its own note and by its own permission.
+ */
+export function CollectStep({ facilityId, permissions, subject, routed, onDone, onRefused, item, accession, defaultType, defaultReason, onRegistered, onListChanged }: StepBase & {
   readonly item: LabWorkItem
   readonly accession: LabAccession | null
   /** The sample the price list names for the test ("Blood, EDTA tube"), as the first guess. */
   readonly defaultType?: string | null
   readonly defaultReason?: string | null
-  readonly onCollected: (accession: LabAccession) => void
+  /** The accession this step made: the page holds it until the record is read by its new id, so it is never made twice. */
+  readonly onRegistered: (accession: LabAccession) => void
+  /** Registering was refused as already done or no longer possible: the work list is read again, which shows why. */
+  readonly onListChanged: () => void
 }) {
   const required = accession?.specimens.filter(specimen => specimen.status === 'required') ?? []
   const rejected = accession?.specimens.filter(specimen => specimen.status === 'rejected') ?? []
-  const canCreate = permissions.includes('lab.accession.create')
-  const canCollect = permissions.includes('lab.specimen.collect')
-  const [type, setType] = useState(defaultType ?? '')
-  const [reason, setReason] = useState(defaultReason ?? '')
-  const [notes, setNotes] = useState('')
-  const [errors, setErrors] = useState<{ type?: string; reason?: string }>({})
-  const [asking, setAsking] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [problem, setProblem] = useState('')
-  // An accession made by this step whose collect then failed: the retry collects on it, and makes no second one.
-  const [made, setMade] = useState<LabAccession | null>(null)
-  const current = accession ?? made
-  const needsAccession = !current
+  const base = { facilityId, permissions, subject, routed, onDone, onRefused }
   const test = item.testName ?? 'Lab test'
+  // The check guards the step that leads to taking the sample, so it is said only to a role that can take it (register
+  // it, or collect it), as today's page says it only beside Prepare accession: never beside a refusal, nor to a role that
+  // can only reject a sample, which takes nothing from the person.
+  const acts = permissions.includes(accession ? 'lab.specimen.collect' : 'lab.accession.create')
 
   if (accession && required.length === 0) return rejected.length > 0
     ? <p className="m-0 text-[15px] text-ink-2">The sample was rejected. Make a new request to take another.</p>
     : <p className="m-0 text-[15px] text-ink-2">Nothing to collect.</p>
-  if ((needsAccession && !canCreate) || !canCollect) return <p className="m-0 text-[15px] text-ink-2">Your role can’t collect samples. Ask a colleague who can.</p>
+  return <div className="flex flex-col gap-4">
+    {routed && item.patient && acts ? <Alert intent="warning" size="sm">{sampleCheckText(item.patient.fullName)}</Alert> : null}
+    {accession ? required.map(specimen => <SpecimenForm key={`${specimen.id}-${specimen.version}`} {...base} specimen={specimen}
+      accessionId={accession.id} test={test} />)
+      : <RegisterForm {...base} item={item} defaultType={defaultType} defaultReason={defaultReason} onRegistered={onRegistered}
+        onListChanged={onListChanged} />}
+  </div>
+}
 
-  function check(event: FormEvent) {
+function RegisterForm({ facilityId, permissions, routed, onDone, onRefused, item, defaultType, defaultReason, onRegistered, onListChanged }: StepBase & {
+  readonly item: LabWorkItem; readonly defaultType?: string | null; readonly defaultReason?: string | null
+  readonly onRegistered: (accession: LabAccession) => void; readonly onListChanged: () => void
+}) {
+  const [type, setType] = useState(defaultType ?? '')
+  const [reason, setReason] = useState(defaultReason ?? '')
+  const [errors, setErrors] = useState<{ type?: string; reason?: string }>({})
+  const [busy, setBusy] = useState(false)
+  const [problem, setProblem] = useState('')
+  if (!permissions.includes('lab.accession.create')) return <p className="m-0 text-[15px] text-ink-2">Your role can’t register samples. Ask a colleague who can.</p>
+
+  async function register(event: FormEvent) {
     event.preventDefault()
+    if (busy) return
     const found: typeof errors = {}
-    if (needsAccession && !type.trim()) found.type = 'Choose or type the sample, like Blood.'
-    if (needsAccession && !reason.trim()) found.reason = 'Say why the test is done, as on the request.'
+    if (!type.trim()) found.type = 'Choose or type the sample, like Blood.'
+    if (!reason.trim()) found.reason = 'Say why the test is done, as on the request.'
     setErrors(found); setProblem('')
     const first = found.type ? 'lab-collect-type' : found.reason ? 'lab-collect-reason' : null
     if (first) { document.getElementById(first)?.focus(); return }
-    setAsking(true)
-  }
-  async function collect() {
-    if (busy) return
-    setBusy(true); setProblem('')
-    let target = current
+    // Registering takes nothing from the person: the patient is checked when each sample is collected.
+    setBusy(true)
     try {
-      if (!target) { target = await staffApi.createLabAccession(facilityId, item.id, type.trim(), reason.trim()); setMade(target) }
-      const waiting = target.specimens.filter(specimen => specimen.status === 'required')
-      for (const specimen of waiting) await staffApi.transitionSpecimen(facilityId, target.id, specimen, 'collect', notes.trim())
-      setAsking(false)
-      onCollected(target)
-      onDone(waiting.length > 1 ? 'Samples collected. Print the labels.' : 'Sample collected. Print the label.')
+      onRegistered(await staffApi.createLabAccession(facilityId, item.id, type.trim(), reason.trim()))
+      onDone('Sample registered. Print the label, then collect the sample.')
     } catch (caught) {
-      setAsking(false)
-      setProblem(errorText(caught, target ? 'The sample could not be marked collected. Try again: nothing is made twice.' : 'The sample could not be recorded. Try again.', routed))
+      setProblem(sampleProblem(caught, 'The sample could not be registered. Refresh the list and try again.', routed))
       onRefused(caught)
+      // A conflict: a colleague registered it, an earlier press's answer was lost, or the order closed. Trying again
+      // fails the same way, so the list is read again: a sample registered elsewhere then opens here.
+      if (isHidApiError(caught) && caught.status === 409) onListChanged()
     } finally { setBusy(false) }
   }
 
-  return <form className="@container flex flex-col gap-4" noValidate onSubmit={check}>
-    {routed && item.patient ? <Alert intent="warning" size="sm">{sampleCheckText(item.patient.fullName)}</Alert> : null}
-    {needsAccession ? <>
-      <Field label="Sample" htmlFor="lab-collect-type" error={errors.type} errorId="lab-collect-type-error">
-        <Input id="lab-collect-type" value={type} maxLength={240} autoComplete="off" className="h-11" placeholder="Blood, urine, swab…"
-          aria-invalid={errors.type ? true : undefined} aria-describedby={errors.type ? 'lab-collect-type-error' : undefined}
-          onChange={event => { setType(event.target.value); setErrors({}) }} />
-      </Field>
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Common samples">
-        {SAMPLE_TYPES.map(option => <button key={option} type="button" aria-pressed={type === option}
-          onClick={() => { setType(option); setErrors({}) }}
-          className={cx('inline-flex min-h-11 cursor-pointer items-center rounded-full border-0 px-4 text-[14px] font-medium ring-1 ring-inset',
-            type === option ? 'bg-brand-soft text-brand-ink ring-brand-line' : 'bg-surface text-ink ring-line-strong hover:bg-subtle')}>{option}</button>)}
-      </div>
-      <Field label="Why the test" htmlFor="lab-collect-reason" error={errors.reason} errorId="lab-collect-reason-error">
-        <Textarea id="lab-collect-reason" rows={2} maxLength={500} value={reason}
-          aria-invalid={errors.reason ? true : undefined} aria-describedby={errors.reason ? 'lab-collect-reason-error' : undefined}
-          onChange={event => { setReason(event.target.value); setErrors({}) }} />
-      </Field>
-    </> : <p className="m-0 text-[15px] text-ink-2">{required.map(specimen => `${specimen.specimenType}, ${specimen.specimenIdentifier}`).join(' · ')}</p>}
-    <Field label="Collection notes" htmlFor="lab-collect-notes" optional>
-      <Input id="lab-collect-notes" value={notes} maxLength={1000} autoComplete="off" className="h-11" onChange={event => setNotes(event.target.value)} />
+  return <form className="@container flex flex-col gap-4" noValidate onSubmit={event => void register(event)}>
+    <Field label="Sample" htmlFor="lab-collect-type" error={errors.type} errorId="lab-collect-type-error">
+      <Input id="lab-collect-type" value={type} maxLength={240} autoComplete="off" className="h-11" placeholder="Blood, urine, swab…"
+        aria-invalid={errors.type ? true : undefined} aria-describedby={errors.type ? 'lab-collect-type-error' : undefined}
+        onChange={event => { setType(event.target.value); setErrors({}) }} />
+    </Field>
+    <div className="flex flex-wrap gap-2" role="group" aria-label="Common samples">
+      {SAMPLE_TYPES.map(option => <button key={option} type="button" aria-pressed={type === option}
+        onClick={() => { setType(option); setErrors({}) }}
+        className={cx('inline-flex min-h-11 cursor-pointer items-center rounded-full border-0 px-4 text-[14px] font-medium ring-1 ring-inset',
+          type === option ? 'bg-brand-soft text-brand-ink ring-brand-line' : 'bg-surface text-ink ring-line-strong hover:bg-subtle')}>{option}</button>)}
+    </div>
+    <Field label="Why the test" htmlFor="lab-collect-reason" error={errors.reason} errorId="lab-collect-reason-error">
+      <Textarea id="lab-collect-reason" rows={2} maxLength={500} value={reason}
+        aria-invalid={errors.reason ? true : undefined} aria-describedby={errors.reason ? 'lab-collect-reason-error' : undefined}
+        onChange={event => { setReason(event.target.value); setErrors({}) }} />
     </Field>
     <Problem text={problem} />
-    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Droplet}>Collect sample</Button></FormActions>
-    <ConfirmSheet open={asking} onClose={() => setAsking(false)} title="Collect the sample" subject={subject.banner} busy={busy}
-      effect={<>Collect the <strong>{test}</strong> sample from <strong>{subject.name}</strong>?</>}
-      undo="Check the name with the person before you take it." confirmLabel="Collect sample" onConfirm={() => void collect()} />
+    {/* Marked busy, not disabled, as on today's page: focus stays on it while it runs, a second press does nothing, and a
+        refusal is read beside it. */}
+    <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" icon={Droplet} {...busyMark(busy)}>Register sample</Button></FormActions>
   </form>
 }
 
 // ------------------------------------------------------------- testing --
-/** One sample in testing: receive it (or reject it), start its test, or finish the test running on it. */
-export function TestingStep({ facilityId, permissions, subject, routed, onDone, onRefused, specimen, accessionId, executions, executionsRead }: StepBase & {
+/**
+ * One sample in testing: receive it (or reject it), start its test, or finish the test running on it. A sample still
+ * waiting beside one already taken (an accession of several) keeps its own collect or reject step here.
+ */
+export function TestingStep({ facilityId, permissions, subject, routed, onDone, onRefused, specimen, accessionId, executions, executionsRead, test }: StepBase & {
   readonly specimen: LabSpecimen; readonly accessionId: string
   readonly executions: readonly LabExecution[]; readonly executionsRead: boolean
+  readonly test?: string
 }) {
   const running = executions.find(execution => execution.status === 'in_progress')
-  const header = <p className="m-0 flex flex-wrap items-center gap-2 text-[15px] text-ink">
-    <FlaskConical className="size-4 text-ink-3" aria-hidden /><span className="font-medium">{specimen.specimenType}</span>
-    <span className="text-ink-3 tabular">{specimen.specimenIdentifier}</span>
-    <Badge size="sm">{specimen.status === 'collected' ? 'Collected' : running ? 'Testing' : 'Received'}</Badge>
-  </p>
+  const header = <SpecimenLine specimen={specimen} status={specimen.status === 'collected' ? 'Collected' : running ? 'Testing' : 'Received'} />
   const base = { facilityId, permissions, subject, routed, onDone, onRefused }
-  if (specimen.status === 'collected') return <div className="flex flex-col gap-3">{header}<ReceiveForm {...base} specimen={specimen} accessionId={accessionId} /></div>
+  if (specimen.status === 'required' || specimen.status === 'collected') return <SpecimenForm {...base} specimen={specimen} accessionId={accessionId} test={test} />
   if (running) return <div className="flex flex-col gap-3">{header}<FinishForm {...base} execution={running} /></div>
   if (specimen.status === 'received' && (executions.length === 0 || !executionsRead)) return <div className="flex flex-col gap-3">{header}<StartForm {...base} specimen={specimen} /></div>
   return header
 }
 
-function ReceiveForm({ facilityId, permissions, routed, onDone, onRefused, specimen, accessionId }: StepBase & { readonly specimen: LabSpecimen; readonly accessionId: string }) {
-  const [condition, setCondition] = useState('')
+/** A sample's type, number and where it is. `labelId`: its type and number name the sample's own step (`${labelId}-type`, `-number`). */
+function SpecimenLine({ specimen, status, labelId }: { readonly specimen: LabSpecimen; readonly status: string; readonly labelId?: string }) {
+  return <p className="m-0 flex flex-wrap items-center gap-2 text-[15px] text-ink">
+    <FlaskConical className="size-4 text-ink-3" aria-hidden />
+    <span id={labelId && `${labelId}-type`} className="font-medium">{specimen.specimenType}{labelId ? <span className="sr-only">,</span> : null}</span>
+    <span id={labelId && `${labelId}-number`} className="text-ink-3 tabular">{specimen.specimenIdentifier}</span>
+    <Badge size="sm">{status}</Badge>
+  </p>
+}
+
+/**
+ * Each sample's custody step, by its status, as on today's Laboratory page (SpecimenAction): one waiting is collected,
+ * confirmed against the patient, and one collected is received. Either may be rejected instead, with why. Each action
+ * has its own permission and its own note, so one sample's note is never sent for another.
+ */
+const CUSTODY_STEP = {
+  required: {
+    action: 'collect', permission: 'lab.specimen.collect', badge: 'To collect', field: 'Collection notes', fieldId: 'lab-collect-notes', placeholder: undefined,
+    maxLength: 1000, button: 'Collect sample', icon: Droplet, done: 'Sample collected. Print the label.',
+    cant: 'Your role can’t collect samples. Ask a colleague who can.',
+  },
+  collected: {
+    action: 'receive', permission: 'lab.specimen.receive', badge: 'Collected', field: 'Condition on arrival', fieldId: 'lab-receive', placeholder: 'Good',
+    maxLength: 500, button: 'Receive sample', icon: PackageCheck, done: 'Sample received. Start the test.', cant: 'Your role can’t receive samples.',
+  },
+} as const
+
+function SpecimenForm({ facilityId, permissions, subject, routed, onDone, onRefused, specimen, accessionId, test = 'Lab test' }: StepBase & {
+  readonly specimen: LabSpecimen; readonly accessionId: string; readonly test?: string
+}) {
+  const next = specimen.status === 'required' ? CUSTODY_STEP.required : CUSTODY_STEP.collected
+  const [detail, setDetail] = useState('')
   const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState('')
   const [reasonError, setReasonError] = useState('')
+  const [asking, setAsking] = useState(false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState('')
-  const canReceive = permissions.includes('lab.specimen.receive')
+  const focus = useFocusById()
+  const canStep = permissions.includes(next.permission)
   const canReject = permissions.includes('lab.specimen.reject')
   const id = specimen.id
-  async function step(action: 'receive' | 'reject') {
+  async function step(action: typeof next.action | 'reject') {
     if (busy) return
     if (action === 'reject' && !reason.trim()) { setReasonError('Say why, like “Haemolysed” or “Not labelled”.'); document.getElementById(`lab-reject-${id}`)?.focus(); return }
     setBusy(true); setProblem('')
     try {
-      await staffApi.transitionSpecimen(facilityId, accessionId, specimen, action, action === 'receive' ? condition.trim() : reason.trim())
-      onDone(action === 'receive' ? 'Sample received. Start the test.' : 'Sample rejected.')
-    } catch (caught) { setProblem(errorText(caught, 'The sample could not be updated. Refresh and try again.', routed)); onRefused(caught) }
-    finally { setBusy(false) }
+      await staffApi.transitionSpecimen(facilityId, accessionId, specimen, action, action === 'reject' ? reason.trim() : detail.trim())
+      setAsking(false)
+      onDone(action === 'reject' ? 'Sample rejected.' : next.done)
+    } catch (caught) {
+      setAsking(false)
+      setProblem(sampleProblem(caught, 'The sample could not be updated. Refresh and try again.', routed))
+      onRefused(caught)
+    } finally { setBusy(false) }
   }
-  if (!canReceive && !canReject) return <p className="m-0 text-[15px] text-ink-2">Your role can’t receive samples.</p>
-  return <div className="flex flex-col gap-4">
-    {canReceive && !rejecting ? <Field label="Condition on arrival" htmlFor={`lab-receive-${id}`} optional>
-      <Input id={`lab-receive-${id}`} value={condition} maxLength={500} autoComplete="off" className="h-11" placeholder="Good" onChange={event => setCondition(event.target.value)} />
-    </Field> : null}
-    {rejecting ? <Field label="Why reject it" htmlFor={`lab-reject-${id}`} error={reasonError} errorId={`lab-reject-${id}-error`}>
-      <Input id={`lab-reject-${id}`} value={reason} maxLength={500} autoComplete="off" className="h-11" aria-invalid={reasonError ? true : undefined}
-        aria-describedby={reasonError ? `lab-reject-${id}-error` : undefined} onChange={event => { setReason(event.target.value); setReasonError('') }} />
-    </Field> : null}
-    <Problem text={problem} />
-    <FormActions sticky={false}>
-      {canReject && !rejecting ? <Button variant="danger" icon={X} onClick={() => { setRejecting(true); setProblem('') }}>Reject sample</Button> : null}
-      {rejecting ? <Button onClick={() => { setRejecting(false); setReasonError('') }}>Cancel</Button> : null}
-      {rejecting ? <Button variant="destructive" size="lg" loading={busy} onClick={() => void step('reject')}>Reject sample</Button>
-        : canReceive ? <Button variant="primary" size="lg" icon={PackageCheck} loading={busy} onClick={() => void step('receive')}>Receive sample</Button> : null}
-    </FormActions>
+  // A form, as on today's page, so Enter in its note or reason does what its main button does.
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (busy) return
+    setProblem('')
+    if (rejecting) void step('reject')
+    else if (canStep && next.action === 'collect') setAsking(true)
+    else if (canStep) void step(next.action)
+  }
+  // The button pressed goes as the form changes, so focus is put where the work goes on: the reason, or Reject sample again.
+  function reject(start: boolean) {
+    setRejecting(start); setProblem(''); setReasonError('')
+    focus(start ? `lab-reject-${id}` : `lab-reject-open-${id}`)
+  }
+  // Grouped and named by its sample, so two samples' notes and buttons are told apart.
+  return <div role="group" aria-labelledby={`lab-specimen-${id}-type lab-specimen-${id}-number`} className="flex flex-col gap-3">
+    <SpecimenLine specimen={specimen} status={next.badge} labelId={`lab-specimen-${id}`} />
+    {/* Without the step's own permission it is said plainly; rejecting, a permission of its own, may still be offered. */}
+    {!canStep ? <p className="m-0 text-[15px] text-ink-2">{next.cant}</p> : null}
+    {canStep || canReject ? <form className="flex flex-col gap-4" noValidate onSubmit={submit}>
+      {canStep && !rejecting ? <Field label={next.field} htmlFor={`${next.fieldId}-${id}`} optional>
+        <Input id={`${next.fieldId}-${id}`} value={detail} maxLength={next.maxLength} autoComplete="off" className="h-11" placeholder={next.placeholder}
+          onChange={event => setDetail(event.target.value)} />
+      </Field> : null}
+      {rejecting ? <Field label="Why reject it" htmlFor={`lab-reject-${id}`} error={reasonError} errorId={`lab-reject-${id}-error`}>
+        <Input id={`lab-reject-${id}`} value={reason} maxLength={500} autoComplete="off" className="h-11" aria-invalid={reasonError ? true : undefined}
+          aria-describedby={reasonError ? `lab-reject-${id}-error` : undefined} onChange={event => { setReason(event.target.value); setReasonError('') }} />
+      </Field> : null}
+      <Problem text={problem} />
+      <FormActions sticky={false}>
+        {canReject && !rejecting ? <Button id={`lab-reject-open-${id}`} variant="danger" icon={X} onClick={() => reject(true)}>Reject sample</Button> : null}
+        {rejecting ? <Button onClick={() => reject(false)}>Cancel</Button> : null}
+        {rejecting ? <Button type="submit" variant="destructive" size="lg" {...busyMark(busy)}>Reject sample</Button>
+          : canStep ? <Button type="submit" variant="primary" size="lg" icon={next.icon} {...busyMark(busy)}>{next.button}</Button> : null}
+      </FormActions>
+    </form> : null}
+    {next.action === 'collect' ? <ConfirmSheet open={asking} onClose={() => setAsking(false)} title="Collect the sample" subject={subject.banner} busy={busy}
+      effect={<>Collect the <strong>{test}</strong> sample ({specimen.specimenType}) from <strong>{subject.name}</strong>?</>}
+      undo="Check the name with the person before you take it." confirmLabel="Collect sample" onConfirm={() => void step('collect')} /> : null}
   </div>
 }
 
