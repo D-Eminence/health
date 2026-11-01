@@ -1,9 +1,11 @@
 import { EhrButton, EhrCard } from '@hid/ui/ehr'
 import { useRef, useState } from 'react'
+import { Badge } from '../../../kasuwa/ui'
 import { staffApi, type ClinicalRecord, type DiagnosisUpdate } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import type { Chart } from '../parts/chart'
 import { SubHeading } from '../parts/Detail'
+import { formatWhen } from '../parts/format'
 import { ErrorBox, Loading } from '../parts/Notices'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { StatusBadge } from '../parts/StatusBadge'
@@ -14,18 +16,21 @@ import {
 import { ListPaging } from './Notes'
 import type { RecordList } from './records'
 
+// Today's "Add diagnoses" fields, in its order and words (Clinical.tsx:566).
 const ADD_FIELDS: readonly FieldDef[] = [
-  { key: 'display', label: 'Diagnosis', required: true, maxLength: 500 },
   { key: 'codeSystem', label: 'Code system', required: true, placeholder: 'ICD-10', maxLength: 255, row: 'code' },
   { key: 'code', label: 'Code', required: true, maxLength: 100, row: 'code' },
+  { key: 'display', label: 'Display', required: true, maxLength: 500 },
   { key: 'clinicalStatus', label: 'Clinical status', choices: DIAGNOSIS_CLINICAL_STATUSES },
   { key: 'verificationStatus', label: 'Verification', choices: DIAGNOSIS_VERIFICATION_STATUSES },
   { key: 'notes', label: 'Notes', type: 'textarea', maxLength: 4000 },
 ]
 const ADD_INITIAL: FormValues = { clinicalStatus: 'active', verificationStatus: 'unconfirmed' }
+// Today's change selects open on the current values and offer no blank choice, so no empty status is ever sent
+// (Clinical.tsx DiagnosisUpdateForm).
 const CHANGE_FIELDS: readonly FieldDef[] = [
-  { key: 'clinicalStatus', label: 'Clinical status', choices: DIAGNOSIS_CLINICAL_STATUSES },
-  { key: 'verificationStatus', label: 'Verification', choices: [...DIAGNOSIS_VERIFICATION_STATUSES, { value: 'entered_in_error', label: 'Entered in error' }] },
+  { key: 'clinicalStatus', label: 'Clinical status', choices: DIAGNOSIS_CLINICAL_STATUSES, blank: false },
+  { key: 'verificationStatus', label: 'Verification', choices: [...DIAGNOSIS_VERIFICATION_STATUSES, { value: 'entered_in_error', label: 'Entered in error' }], blank: false },
   { key: 'notes', label: 'Notes', type: 'textarea', maxLength: 4000 },
   { key: 'reason', label: 'Reason for change', required: true, maxLength: 500 },
 ]
@@ -123,11 +128,12 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onE
       {list.error ? <ErrorBox>{list.error}</ErrorBox> : null}
       <ListPaging list={list} />
       {list.items === null ? (list.loading ? <Loading label="Loading records…" /> : null) : list.items.length === 0 ? (
-        <p>No diagnoses yet.</p>
+        <p>No diagnoses for this encounter.</p>
       ) : (
         <ul className="hid-ehr-clinical-history-list">
           {list.items.map(record => {
             const retracted = record.verificationStatus === 'entered_in_error'
+            const recorded = formatWhen(field(record, 'createdAt'))
             const open = changing === record.id
             const form = open ? change(record) : null
             return (
@@ -137,8 +143,10 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onE
                     <strong>{field(record, 'display') || 'Diagnosis'}</strong>
                     <span className="hid-ehr-clinical-cell-sub">{detail(record)}</span>
                     {field(record, 'notes') ? <span className="hid-ehr-clinical-cell-sub">{field(record, 'notes')}</span> : null}
+                    {recorded ? <span className="hid-ehr-clinical-cell-sub">Recorded: {recorded}</span> : null}
                   </span>
-                  <StatusBadge status={diagnosisStatus(record)} />
+                  {/* Today's warning badge for a diagnosis entered in error; the shared status map has no tone for it. */}
+                  {retracted ? <Badge size="sm" tone="warn">Entered in error</Badge> : <StatusBadge status={diagnosisStatus(record)} />}
                 </div>
                 {canWrite && !retracted ? (
                   <EhrButton variant="secondary" size="sm" aria-expanded={open} onClick={() => setChanging(open ? null : record.id)}>
@@ -153,10 +161,12 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onE
                     submitLabel="Update diagnosis"
                     submitVariant="secondary"
                     busyLabel="Updating…"
+                    // Not while the list is read again: the row version shown may be about to change (today's recordsLoading).
+                    disabled={list.loading}
                     validate={form.validate}
                     onSubmit={form.submit}
                   >
-                    <p className="hid-ehr-clinical-note">Every change is kept. A diagnosis marked entered in error can’t be changed again.</p>
+                    <p className="hid-ehr-clinical-note">Every change is kept in the record history. A diagnosis marked entered in error accepts no further change here.</p>
                   </RecordForm>
                 ) : null}
               </li>
@@ -166,8 +176,8 @@ export function DiagnosesCard({ chart, encounterId, list, canWrite, onSaved, onE
       )}
       {canWrite ? (
         <>
-          <SubHeading>Add a diagnosis</SubHeading>
-          <RecordForm key={added} fields={ADD_FIELDS} initial={ADD_INITIAL} submitLabel="Add diagnosis" submitVariant="secondary" onSubmit={add} />
+          <SubHeading>Add diagnoses</SubHeading>
+          <RecordForm key={added} fields={ADD_FIELDS} initial={ADD_INITIAL} submitLabel="Save record" submitVariant="secondary" onSubmit={add} />
         </>
       ) : null}
     </EhrCard>

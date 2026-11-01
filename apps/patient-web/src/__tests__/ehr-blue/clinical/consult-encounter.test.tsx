@@ -3,7 +3,9 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
+import { REVISION_RECORDED } from '../../../ehr-blue/clinical/consult/encounters'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
+import { TONE_OUTLINE } from '../../../kasuwa/ui'
 import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 
 /**
@@ -255,7 +257,7 @@ describe('Consultation record', () => {
     fireEvent.change(content, { target: { value: 'Fever settling.' } })
     const checks = api.lookupPatient.mock.calls.length
     fireEvent.click(actions().getByRole('button', { name: 'Save draft' }))
-    expect(await screen.findByText('Saved.')).toBeTruthy()
+    expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
     expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', {
       noteType: 'Progress', title: 'Evening review', status: 'draft', content: 'Fever settling.',
     }, expect.any(String))
@@ -292,7 +294,7 @@ describe('Consultation record', () => {
     staff.permissions = ['ehr.encounter.read', 'ehr.encounter.write']
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
-    expect(screen.getByText('Your role here can’t see these records.')).toBeTruthy()
+    expect(screen.getByText('Your current facility role does not grant access to encounter records.')).toBeTruthy()
     expect(api.records).not.toHaveBeenCalled()
     expect(api.documents).not.toHaveBeenCalled()
   })
@@ -301,7 +303,7 @@ describe('Consultation record', () => {
     staff.permissions = ['ehr.encounter.read', 'ehr.vital.read']
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     expect(await screen.findByRole('link', { name: 'Vitals · vital-1' })).toBeTruthy()
-    expect(screen.queryByText('Your role here can’t see these records.')).toBeNull()
+    expect(screen.queryByText('Your current facility role does not grant access to encounter records.')).toBeNull()
   })
 
   it('item 7: signs the consultation note under the clinician’s typed reason, only after SIGN is typed, after the access re-check', async () => {
@@ -490,7 +492,7 @@ describe('Consultation record', () => {
     expect(await screen.findByText(READ_ONLY)).toBeTruthy()
     expect(actions().getByText('Nothing more to do here.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Edit draft' })).toBeNull()
-    expect(screen.queryByRole('heading', { name: 'Add a diagnosis' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Add diagnoses' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Upload a document' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Change this diagnosis' })).toBeNull()
   })
@@ -558,15 +560,19 @@ describe('Consultation record: diagnoses', () => {
     const diagnoses = within(card('Diagnoses'))
     expect(diagnoses.getByText('Malaria (fictional)')).toBeTruthy()
     expect(diagnoses.getByText('ICD-10 · B54 · active · provisional')).toBeTruthy()
+    // Today's "Add diagnoses" form, in its order and words (Clinical.tsx:561, 566).
+    expect(diagnoses.getByRole('heading', { name: 'Add diagnoses' })).toBeTruthy()
+    const form = diagnoses.getByRole('button', { name: 'Save record' }).closest('form') as HTMLFormElement
+    expect(Array.from(form.querySelectorAll('label'), label => label.textContent?.replace(/\s*\*$/, ''))).toEqual(['Code system', 'Code', 'Display', 'Clinical status', 'Verification', 'Notes'])
     fireEvent.change(diagnoses.getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
-    fireEvent.change(diagnoses.getByLabelText(labelled('Diagnosis')), { target: { value: 'Fever' } })
-    fireEvent.click(diagnoses.getByRole('button', { name: 'Add diagnosis' }))
+    fireEvent.change(diagnoses.getByLabelText(labelled('Display')), { target: { value: 'Fever' } })
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
     expect((await diagnoses.findByRole('alert')).textContent).toBe('One or more request fields are invalid. Display must be shorter than or equal to 500 characters.')
-    expect(diagnoses.getByLabelText(labelled('Diagnosis')).getAttribute('aria-invalid')).toBe('true')
+    expect(diagnoses.getByLabelText(labelled('Display')).getAttribute('aria-invalid')).toBe('true')
 
-    fireEvent.click(diagnoses.getByRole('button', { name: 'Add diagnosis' }))
-    expect(await screen.findByText('Saved.')).toBeTruthy()
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
+    expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
     expect(api.createRecord).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses',
       { codeSystem: 'ICD-10', code: 'R50.9', display: 'Fever', clinicalStatus: 'active', verificationStatus: 'unconfirmed', notes: undefined }, expect.any(String))
     expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
@@ -577,6 +583,8 @@ describe('Consultation record: diagnoses', () => {
     const diagnoses = within(card('Diagnoses'))
     fireEvent.click(diagnoses.getByRole('button', { name: 'Change this diagnosis' }))
     fireEvent.change(diagnoses.getByLabelText(labelled('Reason for change')), { target: { value: 'Smear positive' } })
+    // Today's sentence under the form (Clinical.tsx:696).
+    expect(diagnoses.getByText('Every change is kept in the record history. A diagnosis marked entered in error accepts no further change here.')).toBeTruthy()
     fireEvent.click(diagnoses.getByRole('button', { name: 'Update diagnosis' }))
     expect(diagnoses.getByText('Change the clinical status, verification or notes before saving.')).toBeTruthy()
     expect(api.updateDiagnosis).not.toHaveBeenCalled()
@@ -588,12 +596,72 @@ describe('Consultation record: diagnoses', () => {
       { expectedRowVersion: 1, changeReason: 'Smear positive', verificationStatus: 'confirmed' })
   })
 
-  it('says when there are none, and offers no change for one entered in error', async () => {
+  it('says when there are none, in today’s words', async () => {
+    records.diagnoses = []
+    await openEncounter()
+    // Today's empty sentence (Clinical.tsx:1808).
+    expect(await within(card('Diagnoses')).findByText('No diagnoses for this encounter.')).toBeTruthy()
+  })
+
+  it('offers no change for one entered in error', async () => {
     records.diagnoses = [{ ...DIAGNOSIS, verificationStatus: 'entered_in_error' }]
     await openEncounter()
     const diagnoses = within(card('Diagnoses'))
-    expect(diagnoses.getByText('Entered in error')).toBeTruthy()
+    // Today's warning badge (Clinical.tsx:1809), not the neutral tone of a status the shared map does not know.
+    const badge = diagnoses.getByText('Entered in error')
+    expect(badge.className).toContain(TONE_OUTLINE.warn)
+    expect(badge.className).not.toContain(TONE_OUTLINE.neutral)
     expect(diagnoses.queryByRole('button', { name: 'Change this diagnosis' })).toBeNull()
+  })
+
+  it('says when each diagnosis was recorded, as today’s "Recorded" detail does', async () => {
+    records.diagnoses = [DIAGNOSIS, { ...DIAGNOSIS, id: 'dx-2', display: 'Fever (fictional)', createdAt: undefined }]
+    await openEncounter()
+    const diagnoses = within(card('Diagnoses'))
+    const row = (name: string) => within(diagnoses.getByText(name).closest('li') as HTMLElement)
+    expect(row('Malaria (fictional)').getByText(`Recorded: ${formatWhen('2026-10-30T08:20:00.000Z')}`)).toBeTruthy()
+    // Today shows no "Recorded" line for a diagnosis without its time.
+    expect(row('Fever (fictional)').queryByText(/^Recorded:/)).toBeNull()
+  })
+
+  it('offers today’s statuses only when changing a diagnosis, with no blank choice that would send an empty status', async () => {
+    await openEncounter()
+    const diagnoses = within(card('Diagnoses'))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Change this diagnosis' }))
+    const change = within(diagnoses.getByText('Malaria (fictional)').closest('li') as HTMLElement)
+    const values = (label: string) => Array.from((change.getByLabelText(labelled(label)) as HTMLSelectElement).options, option => option.value)
+    expect(values('Clinical status')).toEqual(['active', 'recurrence', 'relapse', 'inactive', 'remission', 'resolved'])
+    expect(values('Verification')).toEqual(['unconfirmed', 'provisional', 'differential', 'confirmed', 'refuted', 'entered_in_error'])
+    // Each opens on the diagnosis's current value.
+    expect((change.getByLabelText(labelled('Clinical status')) as HTMLSelectElement).value).toBe('active')
+    expect((change.getByLabelText(labelled('Verification')) as HTMLSelectElement).value).toBe('provisional')
+  })
+
+  it('blocks "Update diagnosis" while the diagnoses are read again, so no stale row version is sent', async () => {
+    await openEncounter()
+    const diagnoses = within(card('Diagnoses'))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Change this diagnosis' }))
+    const change = within(diagnoses.getByText('Malaria (fictional)').closest('li') as HTMLElement)
+    fireEvent.change(change.getByLabelText(labelled('Verification')), { target: { value: 'confirmed' } })
+    fireEvent.change(change.getByLabelText(labelled('Reason for change')), { target: { value: 'Smear positive' } })
+    // A diagnosis added meanwhile reads the list again; that read is held.
+    let release: ((page: { items: unknown[]; nextCursor: null }) => void) | null = null
+    api.records.mockImplementation((_f: string, _p: string, _e: string, kind: string) => kind === 'diagnoses'
+      ? new Promise(done => { release = done })
+      : Promise.resolve({ items: records[kind] ?? [], nextCursor: null }))
+    fireEvent.change(diagnoses.getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
+    fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
+    fireEvent.change(diagnoses.getByLabelText(labelled('Display')), { target: { value: 'Fever (fictional)' } })
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Save record' }))
+    await waitFor(() => expect(release).not.toBeNull())
+    const update = change.getByRole('button', { name: 'Update diagnosis' }) as HTMLButtonElement
+    // Today's disabled={recordsLoading} (Clinical.tsx:1828).
+    expect(update.disabled).toBe(true)
+    fireEvent.click(update)
+    expect(api.updateDiagnosis).not.toHaveBeenCalled()
+    await act(async () => { release!({ items: [DIAGNOSIS], nextCursor: null }) })
+    await waitFor(() => expect(update.disabled).toBe(false))
+    expect(api.updateDiagnosis).not.toHaveBeenCalled()
   })
 })
 
@@ -787,7 +855,7 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     }, expect.any(String))
 
     fireEvent.click(save())
-    expect(await screen.findByText('Note changes saved. Saved.')).toBeTruthy()
+    expect(await screen.findByText('Note changes saved. Clinical record saved.')).toBeTruthy()
     expect(api.addNoteRevision).toHaveBeenCalledTimes(1)
     expect(api.createRecord).toHaveBeenCalledTimes(2)
     expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
@@ -832,11 +900,38 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     expect(await actions().findByRole('alert')).toBeTruthy()
     expect(actions().getByLabelText(labelled('Code')).getAttribute('aria-invalid')).toBe('true')
     fireEvent.click(submitOf('Amend signed note'))
-    expect(await screen.findByText('Note changes saved. Saved.')).toBeTruthy()
+    expect(await screen.findByText('Note changes saved. Clinical record saved.')).toBeTruthy()
     expect(api.addNoteRevision).toHaveBeenCalledTimes(1)
     expect(api.createRecord).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses', {
       codeSystem: 'ICD-10', code: 'B54', display: 'Malaria (fictional)', clinicalStatus: 'active', verificationStatus: 'confirmed',
     }, expect.any(String))
+  })
+
+  it('offers no diagnosis fields with a draft edit to a role that may write diagnoses but not read them, and adds none', async () => {
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.diagnosis.read')
+    await openEncounter()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit draft' }))
+    const saved = within(card('Note'))
+    for (const label of ['Diagnosis', 'Code system', 'Code', 'Clinical status', 'Verification']) expect(saved.queryByLabelText(labelled(label))).toBeNull()
+    fireEvent.change(saved.getByLabelText(labelled('Reason for revision')), { target: { value: 'Assessment added' } })
+    fireEvent.click(saved.getByRole('button', { name: 'Save draft' }))
+    expect(await screen.findByText(REVISION_RECORDED)).toBeTruthy()
+    expect(api.addNoteRevision).toHaveBeenCalledTimes(1)
+    expect(api.createRecord).not.toHaveBeenCalled()
+  })
+
+  it('offers no diagnosis fields with an amendment to a role that may write diagnoses but not read them', async () => {
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.diagnosis.read')
+    records['clinical-notes'] = [{ ...NOTE, status: 'signed' }]
+    await openEncounter()
+    fireEvent.click(actions().getByRole('button', { name: 'Amend signed note' }))
+    expect(actions().getByLabelText(labelled('Amendment'))).toBeTruthy()
+    for (const label of ['Diagnosis', 'Code system', 'Code', 'Clinical status', 'Verification']) expect(actions().queryByLabelText(labelled(label))).toBeNull()
+    fireEvent.change(actions().getByLabelText(labelled('Amendment')), { target: { value: 'Smear positive (fictional).' } })
+    fireEvent.change(actions().getByLabelText(labelled('Reason')), { target: { value: 'Result back' } })
+    fireEvent.click(submitOf('Amend signed note'))
+    expect(await screen.findByText(REVISION_RECORDED)).toBeTruthy()
+    expect(api.createRecord).not.toHaveBeenCalled()
   })
 
   it('offers no diagnosis fields with a note change without ehr.diagnosis.write', async () => {

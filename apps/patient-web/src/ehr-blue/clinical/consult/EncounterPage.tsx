@@ -169,6 +169,9 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     notes: chart.canWrite && chart.can('ehr.note.write'), encounter: chart.canWrite && chart.can('ehr.encounter.write'),
     diagnoses: chart.canWrite && chart.can('ehr.diagnosis.write'), documents: chart.canWrite && chart.can('ehr.document.write'),
   }
+  // A diagnosis typed with a note change is added as today's Diagnoses tab adds one: that tab needs the read as well as
+  // the write (Clinical.tsx:28, 1853), so a role that can't see the diagnoses doesn't add one unseen.
+  const addsDiagnosis = writes.diagnoses && reads.diagnoses
   const notes = useRecordList(chart, encounterId, 'clinical-notes', reads.notes)
   const diagnoses = useRecordList(chart, encounterId, 'diagnoses', reads.diagnoses)
   const vitals = useRecordList(chart, encounterId, 'vitals', reads.vitals)
@@ -231,7 +234,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     if (expectedRowVersion === null) return { formError: RELOAD_NOTE }
     const content = text(values.content)
     const changeReason = text(values.reason)
-    const diagnosis = writes.diagnoses ? newDiagnosisBody(values) : null
+    const diagnosis = addsDiagnosis ? newDiagnosisBody(values) : null
     const revision = step(revisionAttempt.current, JSON.stringify([note.id, expectedRowVersion, content, changeReason]))
     revisionAttempt.current = revision
     begin()
@@ -332,10 +335,10 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   }
 
   // A new diagnosis may be typed with a note change (New consultation's fields, optional).
-  const diagnosisFields = writes.diagnoses ? NEW_DIAGNOSIS_FIELDS : []
-  const diagnosisInitial = writes.diagnoses ? NEW_DIAGNOSIS_INITIAL : {}
+  const diagnosisFields = addsDiagnosis ? NEW_DIAGNOSIS_FIELDS : []
+  const diagnosisInitial = addsDiagnosis ? NEW_DIAGNOSIS_INITIAL : {}
   const revisionCheck = (values: FormValues): FieldErrors => ({
-    ...contentCheck(values), ...reasonCheck(values), ...(writes.diagnoses ? newDiagnosisCheck(values) : {}),
+    ...contentCheck(values), ...reasonCheck(values), ...(addsDiagnosis ? newDiagnosisCheck(values) : {}),
   })
 
   // The note actions, once its content was read (today's rule): "Sign note" for a draft (the typed SIGN dialog) and

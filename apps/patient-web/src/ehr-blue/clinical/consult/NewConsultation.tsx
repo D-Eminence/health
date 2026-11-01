@@ -68,7 +68,8 @@ function NewConsultationForm({ chart }: { chart: Chart }) {
   // Once the draft note is saved it is never sent again, so its fields go (as the encounter's do once it is started).
   const [noteSaved, setNoteSaved] = useState(false)
   const writesNote = chart.can('ehr.note.write')
-  const writesDiagnosis = chart.can('ehr.diagnosis.write')
+  // Today adds a diagnosis only on its Diagnoses tab, which needs the read as well as the write (Clinical.tsx:28, 1853).
+  const writesDiagnosis = chart.can('ehr.diagnosis.read', 'ehr.diagnosis.write')
   const canStart = chart.canWrite && chart.can('ehr.encounter.write')
 
   const fields = useMemo(() => [
