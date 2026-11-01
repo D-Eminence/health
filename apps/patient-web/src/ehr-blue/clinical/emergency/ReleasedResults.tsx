@@ -27,7 +27,18 @@ function when(value: string | null | undefined) {
   return formatWhen(value) || 'Not available'
 }
 
-const FLAGS: Partial<Record<LabAbnormalFlag, FlagLevel>> = { high: 'high', low: 'low', abnormal: 'abnormal', critical_candidate: 'critical' }
+/**
+ * The flags the design draws as a word with an icon. Lab's others are said in their own words, as today's RevisionList
+ * says every flag (staff/labRevisions.tsx:34): "normal" and "unknown" (no flag would look normal), and "critical
+ * candidate", which is not a confirmed critical value.
+ */
+const FLAGS: Partial<Record<LabAbnormalFlag, FlagLevel>> = { high: 'high', low: 'low', abnormal: 'abnormal' }
+
+function OtherFlag({ flag }: { flag: LabAbnormalFlag }) {
+  if (FLAGS[flag]) return null
+  return <span className={flag === 'critical_candidate' ? 'font-medium text-danger-ink' : undefined}>· {flag.replaceAll('_', ' ')}</span>
+}
+
 const RELEASE: Record<LabResultRevision['releaseStatus'], string> = { released: 'Released', verified_not_released: 'Checked, not released', not_released: 'Not released' }
 
 /** A Lab result's released revisions: the value with its unit and flag, then when it was entered and released. */
@@ -41,11 +52,15 @@ function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
             <Badge size="sm" tone={revision.releaseStatus === 'released' ? 'success' : 'warn'}>{RELEASE[revision.releaseStatus] ?? revision.releaseStatus}</Badge>
             {revision.verificationStatus === 'entered_in_error' ? <Badge size="sm" tone="danger" solid>Entered in error</Badge> : null}
           </div>
-          {revision.resultType === 'numeric'
-            ? <Value value={revision.numericValue} unit={revision.unit} flag={FLAGS[revision.abnormalFlag] ?? null} />
-            : <span className="inline-flex flex-wrap items-baseline gap-1.5"><span className="font-semibold text-ink">{revisionValue(revision)}</span>{FLAGS[revision.abnormalFlag] ? <Flag level={FLAGS[revision.abnormalFlag]!} /> : null}</span>}
+          <span className="inline-flex flex-wrap items-baseline gap-1.5">
+            {revision.resultType === 'numeric'
+              ? <Value value={revision.numericValue} unit={revision.unit} flag={FLAGS[revision.abnormalFlag] ?? null} />
+              : <><span className="font-semibold text-ink">{revisionValue(revision)}</span>{FLAGS[revision.abnormalFlag] ? <Flag level={FLAGS[revision.abnormalFlag]!} /> : null}</>}
+            <OtherFlag flag={revision.abnormalFlag} />
+          </span>
           {revision.referenceRange ? <span>Normal range: {revision.referenceRange}</span> : null}
-          <span>Entered {when(revision.enteredAt)}{revision.releasedAt ? ` · released ${when(revision.releasedAt)}` : ''}</span>
+          {/* Whether the value was verified (labRevisions.tsx:35). */}
+          <span>Entered {when(revision.enteredAt)} · {revision.verificationStatus.replaceAll('_', ' ')}{revision.releasedAt ? ` · released ${when(revision.releasedAt)}` : ''}</span>
           {revision.correctionReason ? <span>Why it changed: {revision.correctionReason}</span> : null}
         </li>
       ))}
@@ -94,13 +109,16 @@ export function ReleasedResults({ facilityId, requestId }: { facilityId: string;
           {error ? <Alert intent="error" size="sm" title="Couldn’t load results">{error}</Alert> : null}
           {released ? released.results.length === 0 ? <p className="m-0 text-[13px] text-ink-3">No results released yet.</p> : (
             <>
-              <p className="m-0 text-[13px] text-ink-3">{released.test.name} · accepted by the lab {when(released.acceptedAt)}</p>
+              {/* The test with its code system and code (Clinical.tsx:935). */}
+              <p className="m-0 text-[13px] text-ink-3">{released.test.name} · {released.test.codeSystem} {released.test.code} · accepted by the lab {when(released.acceptedAt)}</p>
               <ul className="m-0 flex list-none flex-col gap-3 p-0">
                 {released.results.map((result, index) => (
                   <li key={result.id} className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-ink">Result {index + 1}</span>
-                      {result.status === 'entered_in_error' ? <Badge size="sm" tone="danger" solid>Entered in error</Badge> : null}
+                      {/* Each result says whether it is released or entered in error (Clinical.tsx:938). */}
+                      {result.status === 'entered_in_error' ? <Badge size="sm" tone="danger" solid>Entered in error</Badge>
+                        : <Badge size="sm" tone="success">Released</Badge>}
                     </div>
                     {result.status === 'entered_in_error' ? <p className="m-0 text-[13px] font-medium text-danger-ink">The latest version was marked entered in error. Don’t use it.</p> : null}
                     {skipsVersions(result.revisions) ? <p className="m-0 text-[12px] text-ink-3">Versions that were never released are not shown.</p> : null}
