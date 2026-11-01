@@ -19,6 +19,7 @@ import { Alert, Badge, Button, Card, CardHeader, EmptyState, IconChip, ListRow, 
 import { Drawer } from '../../kasuwa/interactive'
 import { LoadingRows } from '../../kasuwa/parts'
 import { RoleDashboard } from './RoleDashboard'
+import { HomeBillingCard, HomePeopleCard } from './adminCards'
 
 const ACTIVITY = ['patients', 'appointments', 'journey', 'triage'] as const
 const MAX_SHORTCUTS = 6
@@ -29,7 +30,10 @@ const MAX_SHORTCUTS = 6
  * - Live: Needs attention (access requests, the current patient; incoming orders and orders accepted for the wrong
  *   person as their own cards, in today's words) and Today (laboratory and pharmacy work), each under today's
  *   permission and read as today's Overview and work pages read them.
- * - Sample (demo facilities only): the reporting period and its activity counts (Health ID serves no such counts yet).
+ * - Sample (demo facilities only): the reporting period and its activity counts (Health ID serves no such counts yet);
+ *   on a facility administrator's Home, Patient billing in their place.
+ * - People, for whoever manages the facility's staff: the staff read live at a demo facility where Staff is listed, a
+ *   sample figure at the other demo facilities, and the way to Staff & access.
  * - The shortcuts a person picks are kept in memory only.
  * Each demo role's dashboard replaces it from the account menu ("View Home as").
  */
@@ -54,7 +58,7 @@ export function BlueHome() {
   const labRead = useWork<LabWorkItem>(facility?.id ?? '', demo && permissions.includes('lab.work-item.read'), loadLab)
   const rxRead = useWork<PharmacyWorkItem>(facility?.id ?? '', demo && permissions.includes('pharmacy.work-item.read'), loadPharmacy)
   // A sample dashboard is the demo's alone, even when chosen there before a switch to a clinic.
-  if (role.viewing && demo) return <RoleDashboard role={role.viewing} />
+  if (role.viewing && demo) return <RoleDashboard key={role.viewing} role={role.viewing} />
   if (!session) return null
   const name = session.actor.displayName ?? 'colleague'
   const candidates = pages.filter(page => page.path !== '' && !page.group.startsWith('Design') && pageAllowed(page, session)
@@ -157,7 +161,10 @@ export function BlueHome() {
           ) : null}
         </section>
 
-        {demo ? <Card aria-label="Activity in period">
+        {facility && permissions.includes('workforce.manage') ? <HomePeopleCard facility={facility} /> : null}
+
+        {/* A facility administrator's Home shows Patient billing where a clinician's shows Activity. */}
+        {demo && facility?.roles.includes('org_admin') ? <HomeBillingCard /> : demo ? <Card aria-label="Activity in period">
           <CardHeader as="h2" title="Activity" description="Sample records created" icon={Activity}
             actions={<Select controlSize="sm" aria-label="Reporting period" value={period} onChange={event => setPeriod(event.target.value)}>
               <option value="7">Last 7 days</option><option value="30">Last 30 days</option></Select>} />
