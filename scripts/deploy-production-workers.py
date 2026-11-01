@@ -252,11 +252,13 @@ def prepared_configs():
     return module.build.prepare(dry_run=False, environment="production")["configs"]
 
 # The sites whose front page depends on a sign-in there (frontend-worker.mjs, frontPage), each bound to the public
-# site's Worker as PUBLIC_SITE: to someone not signed in, a product site's "/" is its landing page; someone signed in
-# goes to its workspace (/provider).
-LANDING_APPS = ("ehr","lab","pharmacy","ocr","outreach")
+# site's Worker as PUBLIC_SITE: to someone not signed in, a product site's "/" is its landing page and the patient
+# portal's is the public site's patient page; someone signed in goes to a product site's workspace (/provider) or gets
+# the portal's own index.html, as before.
+LANDING_APPS = ("ehr","lab","pharmacy","ocr","outreach","web")
 # Each one's canonical address on its landing page, which only a version with the landing page writes.
-LANDING_CANONICAL = {app:"https://"+HOSTS[app]+"/" for app in LANDING_APPS}
+LANDING_CANONICAL = {app:"https://"+HOSTS[app]+"/" for app in LANDING_APPS if app != "web"}
+LANDING_CANONICAL["web"] = "https://"+HOSTS["public"]+"/patients"
 # The cookie whose presence alone means "signed in" to the edge (identity-api session-cookies.ts, AUTH_COOKIE_NAME
 # 'hid_access'). The release sends a placeholder value: the edge never reads it, and no page it asks for does either.
 SIGNED_IN_COOKIE = "hid_access_csrf=release-check"
@@ -351,13 +353,19 @@ def verify_live_assets(app,manifest_entry,landing=False):
             return error.headers.get("location")
         except (urllib.error.URLError, OSError, http.client.HTTPException):
             raise ReleaseError("WORKER_ASSET_UNREACHABLE") from None
-    # A product site's front page depends on a sign-in, so its own index.html is checked at its staff sign-in.
-    html = get("provider/sign-in" if landing else "")
+    # A site whose front page depends on a sign-in has its own index.html checked where it is always served: the
+    # portal's at its front page for someone signed in, a product site's at its staff sign-in.
+    if landing and app == "web":
+        html, headers = get("",signed_in=True,front=True)
+    else:
+        html, headers = get("provider/sign-in" if landing else ""), None
     if not matches(html,manifest_entry["files"]["index.html"],html=True):
         # Bytes only, never the page: enough to tell the previous release or an unknown insertion apart.
         print(json.dumps({"app":app,"live_html_sha256":sha(html),"live_html_bytes":len(html),
             "analytics_beacon":b"cloudflareinsights" in html}), flush=True)
         raise ReleaseError("LIVE_HTML_BYTES_DIFFER")
+    # Only this version answers with this index.html, so its headers are this version's.
+    if headers is not None: require(private_front_page(headers), "FRONT_PAGE_CACHE_HEADERS_DIFFER")
     refs = AssetRefs(); refs.feed(html.decode("utf-8"))
     for path in refs.paths:
         require(path in manifest_entry["files"] and matches(get(path,asset=True),manifest_entry["files"][path]),
@@ -374,10 +382,11 @@ def verify_live_assets(app,manifest_entry,landing=False):
         page, headers = get("",front=True)
         require(('<link rel="canonical" href="'+LANDING_CANONICAL[app]+'">').encode() in page, "LANDING_PAGE_NOT_YET_SERVED")
         require(private_front_page(headers), "FRONT_PAGE_CACHE_HEADERS_DIFFER")
-        # Staff signed in there go to the workspace's entrance.
-        location = redirect_of_front_page()
-        require(location is not None, "SIGNED_IN_FRONT_PAGE_NOT_YET_SERVED")
-        require(location == "https://"+HOSTS[app]+"/provider", "SIGNED_IN_FRONT_PAGE_DIFFERS")
+        if app != "web":
+            # Staff signed in there go to the workspace's entrance (the portal's signed-in front page is checked above).
+            location = redirect_of_front_page()
+            require(location is not None, "SIGNED_IN_FRONT_PAGE_NOT_YET_SERVED")
+            require(location == "https://"+HOSTS[app]+"/provider", "SIGNED_IN_FRONT_PAGE_DIFFERS")
         checks["landing_page_verified"] = True
     return checks
 

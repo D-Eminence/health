@@ -7,12 +7,13 @@ import subprocess
 import zipfile
 from staging_release import ROOT, digest, verify_manifest
 
-# Each product site answers its front page with its landing page from the public site, fetched through this service
-# binding to the public site's Worker (infra/cloudflare/src/frontend-worker.mjs, PRODUCT_LANDING_PAGES). The public
-# site's Worker must exist before a product site that binds to it is uploaded; it always does, as every release
-# replaces a version of each of the eight.
+# Each product site, and the patient portal, answers its front page to someone not signed in there with a landing page
+# from the public site, fetched through this service binding to the public site's Worker
+# (infra/cloudflare/src/frontend-worker.mjs, PRODUCT_LANDING_PAGES and PATIENT_LANDING_PAGE). The public site's Worker
+# must exist before a site that binds to it is uploaded; it always does, as every release replaces a version of each
+# of the eight.
 PUBLIC_SITE_BINDING = 'PUBLIC_SITE'
-LANDING_APPS = ('ehr', 'lab', 'pharmacy', 'ocr', 'outreach')
+LANDING_APPS = ('ehr', 'lab', 'pharmacy', 'ocr', 'outreach', 'web')
 
 
 def worker_config(app, hostname, environment, assets, api_origin):

@@ -74,6 +74,17 @@ const PRODUCT_LANDING_PAGES = Object.freeze({
   outreach: Object.freeze({ slug: 'outreach', name: 'Health ID Outreach' }),
 })
 
+/**
+ * The patient portal's front page (app., staging.) for someone not signed in there: the public site's patient page,
+ * the Health ID Identity landing page (owner, 2026-11-01), served the same way as a product site's. It keeps its own
+ * address on the public site, which is not redirected and stays its canonical address. Someone signed in gets the
+ * portal at "/", as before.
+ */
+const PATIENT_LANDING_PAGE = Object.freeze({ path: '/patients', name: 'Health ID' })
+
+/** The portal's patient sign-in page, where the patient landing page's sign-in leads: "/" would show it again. */
+const PATIENT_SIGN_IN_PATH = '/sign-in'
+
 /** The workspace's entrance on a product site, where its landing page's sign-in leads; it asks for a sign-in itself. */
 const STAFF_WORKSPACE_PATH = '/provider'
 
@@ -97,16 +108,18 @@ const APPLICATION_PRODUCTS = Object.freeze(['ehr', 'migrate', 'laboratory', 'pha
  * Sent by a product site when it asks the public site for its own landing page through the binding: the public site
  * then answers the page instead of sending it back to the product site. It names the product site, and opens only
  * that site's page. It is not a secret: the page is public, so a hand-made request that carries it gets nothing more
- * than the page at the public site's address, which people and search engines never ask for this way.
+ * than the page at the public site's address, which people and search engines never ask for this way. The patient
+ * portal sends it too; the public site's patient page needs nothing to open.
  */
 const LANDING_SITE_HEADER = 'x-hid-landing-site'
 
 /**
- * The public site's own files a landing page loads, which a product site's build does not have: Next.js's hashed
- * scripts, styles and fonts (/_next/static/), the brand images (/brand/) and the two icons. Listed one by one so that
- * nothing else of the public site can be read through a product site. The patient portal's build, which every product
- * site serves, has none of them (its files are /assets/, /icons/, /sw.js and /health-id.webmanifest), and the public
- * site's retiring /service-worker.js is deliberately not one of them. A product site's own file always wins.
+ * The public site's own files a landing page loads, which a product site's or the patient portal's build does not
+ * have: Next.js's hashed scripts, styles and fonts (/_next/static/), the brand images (/brand/) and the two icons.
+ * Listed one by one so that nothing else of the public site can be read through another site. The patient portal's
+ * build, which every product site serves too, has none of them (its files are /assets/, /icons/, /sw.js and
+ * /health-id.webmanifest), and the public site's retiring /service-worker.js is deliberately not one of them. A
+ * site's own file always wins.
  */
 const PUBLIC_STATIC_PREFIXES = Object.freeze(['/_next/static/', '/brand/'])
 const PUBLIC_STATIC_FILES = Object.freeze(['/icon.png', '/apple-icon.png'])
@@ -166,16 +179,20 @@ function configuredDeployment(environment) {
 }
 
 /**
- * What a site answers at its front page ("/"), or null where that is its own app's, as before (the patient portal,
- * the public site, the admin site). To someone not signed in there: the public site's page at `path`, with
- * `canonical` as its address and `name` on the page that says it is not available. To someone signed in: the staff
- * workspace's entrance.
+ * What a site answers at its front page ("/"), or null where that is its own app's, as before (the public site, the
+ * admin site). To someone not signed in there: the public site's page at `path`, with `canonical` as its address and
+ * `name` on the page that says it is not available. To someone signed in: the staff workspace's entrance on a product
+ * site, and the patient portal itself on the portal.
  */
 function landingOf(application, hosts) {
   if (Object.hasOwn(PRODUCT_LANDING_PAGES, application)) {
     const page = PRODUCT_LANDING_PAGES[application]
     return Object.freeze({ path: `/products/${page.slug}`, name: page.name, canonical: `https://${hosts[application]}/`,
       signIn: STAFF_WORKSPACE_PATH, signedIn: 'workspace' })
+  }
+  if (application === 'web') {
+    return Object.freeze({ path: PATIENT_LANDING_PAGE.path, name: PATIENT_LANDING_PAGE.name,
+      canonical: `https://${hosts.public}${PATIENT_LANDING_PAGE.path}`, signIn: PATIENT_SIGN_IN_PATH, signedIn: 'portal' })
   }
   return null
 }
@@ -205,12 +222,13 @@ function productSiteOf(pathname, deployment) {
 }
 
 /**
- * Where each link on a landing page leads when the page is shown on a product site. The page was built for the public
- * site, so its addresses are the public site's: a link to another public page opens on the public site; a product's
- * page opens on that product's own site; "Setup Your Facility" opens the portal's facility sign-up, where Identity
- * accepts its security check (productHostname.ts, providerEnrollmentHref); staff sign-in opens this product site's
- * workspace entrance, which asks for a sign-in itself. Anything else (mailto:, the patient portal, a link within the
- * page) is left as it is.
+ * Where each link on a landing page leads when the page is shown on a product site or the patient portal. The page was
+ * built for the public site, so its addresses are the public site's: a link to another public page opens on the public
+ * site; a product's page opens on that product's own site; "Setup Your Facility" opens the portal's facility sign-up,
+ * where Identity accepts its security check (productHostname.ts, providerEnrollmentHref). On a product site, staff
+ * sign-in opens this site's workspace entrance, which asks for a sign-in itself. On the patient portal, a link to the
+ * portal's front page opens its sign-in instead, as that front page is this page to someone not signed in. Anything
+ * else (mailto:, the patient portal's other pages, a link within the page) is left as it is.
  *
  * The same function rewrites the page's links at the edge and, copied into the page as its source text, the links
  * the page draws itself in the browser (its menus), so it holds nothing it does not define: no nested function, no
@@ -232,7 +250,10 @@ export function landingHref(href, site) {
     }
     return target.href
   }
-  if (target.origin === site.portalOrigin && target.pathname === '/provider/sign-in') return site.staffSignIn
+  if (target.origin === site.portalOrigin) {
+    if (site.staffSignIn && target.pathname === '/provider/sign-in') return site.staffSignIn
+    if (site.patientSignIn && target.pathname === '/') return site.patientSignIn
+  }
   return href
 }
 
@@ -240,12 +261,14 @@ export function landingHref(href, site) {
 function landingSite(deployment) {
   const products = {}
   for (const [app, page] of Object.entries(PRODUCT_LANDING_PAGES)) products[page.slug] = `https://${deployment.hosts[app]}/`
+  const signIn = `https://${deployment.expectedHost}${deployment.landing.signIn}`
   return {
     page: `${deployment.publicOrigin}${deployment.landing.path}`,
     publicOrigin: deployment.publicOrigin,
     portalOrigin: deployment.portalOrigin,
     products,
-    staffSignIn: `https://${deployment.expectedHost}${deployment.landing.signIn}`,
+    staffSignIn: deployment.landing.signedIn === 'workspace' ? signIn : '',
+    patientSignIn: deployment.landing.signedIn === 'portal' ? signIn : '',
     enroll: `${deployment.portalOrigin}/provider/enroll`,
     applicationProducts: APPLICATION_PRODUCTS,
   }
@@ -344,17 +367,22 @@ async function landingPage(request, deployment, environment) {
 
 /**
  * A site's front page, decided by whether the browser holds a sign-in there (holdsSignIn). Someone not signed in sees
- * the landing page. Someone signed in goes to the workspace's entrance (one fixed address on this site, nothing kept
- * from the request). The two answers differ for the same address, so neither is ever kept for anyone else: every
- * answer is private and not to be stored, and varies with the cookie. Cloudflare keeps none of a Worker's own answers
- * in its cache (the Worker runs first on every request, run_worker_first, and uses no cache here), so these headers
- * speak to browsers and any cache in between.
+ * the landing page. Someone signed in goes to a product site's workspace entrance (one fixed address on this site,
+ * nothing kept from the request), or is answered the patient portal as before. The two answers differ for the same
+ * address, so neither is ever kept for anyone else: every answer is private and not to be stored, and varies with the
+ * cookie. Cloudflare keeps none of a Worker's own answers in its cache (the Worker runs first on every request,
+ * run_worker_first, and uses no cache here), so these headers speak to browsers and any cache in between.
  */
 async function frontPage(request, url, deployment, environment) {
-  const response = holdsSignIn(request)
-    ? withSecurityHeaders(Response.redirect(`https://${deployment.expectedHost}${STAFF_WORKSPACE_PATH}`, 302),
+  let response
+  if (!holdsSignIn(request)) {
+    response = await landingPage(request, deployment, environment)
+  } else if (deployment.landing.signedIn === 'workspace') {
+    response = withSecurityHeaders(Response.redirect(`https://${deployment.expectedHost}${STAFF_WORKSPACE_PATH}`, 302),
       false, deployment.application, url.pathname)
-    : await landingPage(request, deployment, environment)
+  } else {
+    response = withSecurityHeaders(await environment.ASSETS.fetch(request), false, deployment.application, url.pathname)
+  }
   response.headers.set('cache-control', 'private, no-store')
   const vary = response.headers.get('vary')
   if (!vary) response.headers.set('vary', 'Cookie')

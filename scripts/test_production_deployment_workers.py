@@ -20,8 +20,8 @@ prepare=importlib.util.module_from_spec(spec); spec.loader.exec_module(prepare)
 
 
 def landing_page(app):
-    """A product site's front page as its new version serves a stranger: the public site's page, with its address."""
-    address = 'https://' + w.HOSTS[app] + '/'
+    """A site's front page as its new version serves a stranger: the public site's page, with this site's address."""
+    address = 'https://healthidentitydirectory.com/patients' if app == 'web' else 'https://' + w.HOSTS[app] + '/'
     return b'<html><head><title>Landing</title><link rel="canonical" href="' + address.encode() \
         + b'"></head><body><a href="https://healthidentitydirectory.com/pricing">Pricing</a></body></html>'
 
@@ -47,16 +47,18 @@ class WorkerTests(unittest.TestCase):
                 paths = []
                 deep_link = 'about' if app == 'public' else 'admin/sign-in' if app == 'admin' else 'sign-in'
                 landing = app in w.LANDING_APPS
-                # A product site's front page depends on a sign-in: its index.html is read at its staff sign-in, then
-                # its front page for a stranger and for someone signed in. The cookie is only ever sent to "/".
-                expected = ([('provider/sign-in', False), ('entry.js', False), (deep_link, False), ('', False), ('', True)]
-                            if landing else [('', False), ('entry.js', False), (deep_link, False)])
+                # A front page that depends on a sign-in: the portal's index.html is read at its front page for someone
+                # signed in, a product site's at its staff sign-in; then each front page is read for a stranger and,
+                # on a product site, for someone signed in. The cookie is only ever sent to "/".
+                expected = {'web': [('', True), ('entry.js', False), (deep_link, False), ('', False)]}.get(app,
+                    [('provider/sign-in', False), ('entry.js', False), (deep_link, False), ('', False), ('', True)]
+                    if landing else [('', False), ('entry.js', False), (deep_link, False)])
                 def open_request(request, timeout):
                     path = request.full_url.split(w.HOSTS[app] + '/', 1)[1]
                     cookie = request.get_header('Cookie')
                     self.assertIn(cookie, (None, 'hid_access_csrf=release-check'))
                     paths.append((path, cookie is not None))
-                    if landing and path == '' and cookie: workspace_redirect(request, app)
+                    if landing and app != 'web' and path == '' and cookie: workspace_redirect(request, app)
                     front = landing and path == ''
                     response = BytesIO(script if path == 'entry.js' else landing_page(app) if front and not cookie else html)
                     response.status = 200
@@ -72,9 +74,10 @@ class WorkerTests(unittest.TestCase):
                     self.assertIsNone(build.call_args.args[0].redirect_request(None))
                 self.assertEqual(paths, expected)
 
-    def test_product_sites_and_only_they_bind_the_public_site(self):
+    def test_product_sites_and_the_portal_and_only_they_bind_the_public_site(self):
         self.assertEqual(set(w.LANDING_APPS), set(prepare.LANDING_APPS))
-        self.assertEqual(set(w.LANDING_APPS), {'ehr', 'lab', 'pharmacy', 'ocr', 'outreach'})
+        self.assertEqual(set(w.LANDING_APPS), {'ehr', 'lab', 'pharmacy', 'ocr', 'outreach', 'web'})
+        self.assertEqual(w.LANDING_CANONICAL['web'], 'https://healthidentitydirectory.com/patients')
         self.assertEqual(w.LANDING_CANONICAL['lab'], 'https://lab.healthidentitydirectory.com/')
         assets = pathlib.Path('assets')
         for app, host in w.HOSTS.items():
@@ -98,6 +101,9 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(staging['services'], [{'binding': 'PUBLIC_SITE', 'service': 'hid-public-staging'}])
         self.assertNotIn('services', prepare.worker_config('public', 'www.staging.healthidentitydirectory.com', 'staging',
                                                            assets, 'https://api.staging.healthidentitydirectory.com'))
+        portal = prepare.worker_config('web', 'staging.healthidentitydirectory.com', 'staging', assets,
+                                       'https://api.staging.healthidentitydirectory.com')
+        self.assertEqual(portal['services'], [{'binding': 'PUBLIC_SITE', 'service': 'hid-public-staging'}])
 
     def test_a_restored_version_is_checked_as_its_release_recorded_it(self):
         # A rollback restores a release from before the landing pages: its product sites answered their index.html at
@@ -108,8 +114,9 @@ class WorkerTests(unittest.TestCase):
             w.verify_assets('lab', {}, landing=True)
             w.verify_assets('lab', {})
             w.verify_assets('web', {})
+            w.verify_assets('web', {}, landing=False)
             w.verify_assets('admin', {})
-        self.assertEqual(calls, [('lab', False), ('lab', True), ('lab', True), ('web', False), ('admin', False)])
+        self.assertEqual(calls, [('lab', False), ('lab', True), ('lab', True), ('web', True), ('web', False), ('admin', False)])
         source = pathlib.Path(w.__file__).read_text()
         self.assertIn('landing=after[app].get("checks",{}).get("landing_page_verified",False)', source)
 
@@ -128,8 +135,8 @@ class WorkerTests(unittest.TestCase):
             key = ('', True) if path == '' and request.get_header('Cookie') else path
             clock['requests'] += 1
             queued = answers.get(key)
-            # The new version sends someone signed in on a product site to its workspace.
-            released_status = 'workspace' if front and key == ('', True) else 200
+            # The new version sends someone signed in on a product site to its workspace; the portal answers its page.
+            released_status = 'workspace' if front and key == ('', True) and app != 'web' else 200
             body, status, headers = queued.pop(0) if queued else (released[key], released_status, None)
             if status == 'workspace': workspace_redirect(request, app, headers)
             if status == 'unreachable': raise w.urllib.error.URLError('connection reset')
@@ -187,6 +194,33 @@ class WorkerTests(unittest.TestCase):
         result, clock = self.propagation('lab', {'': [(b'', 503, None)] * 1000})
         self.assertEqual(str(result), 'WORKER_ASSET_REQUEST_FAILED')
         self.assertEqual(clock['sleeps'], [])
+
+    def test_the_portal_front_page_is_checked_for_a_signed_in_patient_and_for_a_stranger(self):
+        previous = (b'<html><script src="/previous.js"></script></html>', 200, PAGE_HEADERS)
+        # Until the edge serves this version, a signed-in patient's "/" is the previous index.html, and a stranger's too.
+        result, clock = self.propagation('web', {('', True): [previous, previous], '': [previous]})
+        self.assertTrue(result['landing_page_verified'])
+        self.assertEqual([line['waiting_for_edge'] for line in clock['printed'] if 'waiting_for_edge' in line],
+                         ['LIVE_HTML_BYTES_DIFFER', 'LIVE_HTML_BYTES_DIFFER', 'LANDING_PAGE_NOT_YET_SERVED'])
+        # A stranger's "/" that is not the patient page with its own canonical address never passes.
+        for answer in [previous, (landing_page('lab'), 200, FRONT_HEADERS)]:
+            result, clock = self.propagation('web', {'': [answer] * 1000})
+            self.assertEqual(str(result), 'LANDING_PAGE_NOT_YET_SERVED')
+            self.assertEqual(sum(clock['sleeps']), w.PROPAGATION_SECONDS)
+        # Neither may be stored or shared: the new version's front page without its private headers fails at once.
+        html = b'<html><script src="/entry.js"></script></html>'
+        for key, answer in [(('', True), (html, 200, PAGE_HEADERS)), ('', (landing_page('web'), 200, PAGE_HEADERS)),
+                            ('', (landing_page('web'), 200, dict(PAGE_HEADERS, **{'cache-control': 'no-store'})))]:
+            with self.subTest(key=key, headers=answer[2]):
+                result, clock = self.propagation('web', {key: [answer] * 1000})
+                self.assertEqual(str(result), 'FRONT_PAGE_CACHE_HEADERS_DIFFER')
+                self.assertEqual(clock['sleeps'], [])
+        # A rollback to a release from before this change checks "/" as it was then: the portal, for anyone.
+        # (A front page asked for with the cookie would fail here: it is never asked for.)
+        result, clock = self.propagation('web', {'': [(html, 200, PAGE_HEADERS)], ('', True): [(b'', 500, None)]},
+                                         landing=False)
+        self.assertNotIn('landing_page_verified', result)
+        self.assertTrue(result['deep_link_verified'])
 
     def test_a_product_front_page_sends_someone_signed_in_to_the_workspace(self):
         previous = (b'<html><script src="/previous.js"></script></html>', 200, FRONT_HEADERS)

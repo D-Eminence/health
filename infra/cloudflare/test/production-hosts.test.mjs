@@ -12,6 +12,7 @@ function env(app, host) {
 }
 
 test('production serves public apex and patient app separately', async () => {
+  // The portal's front page is the portal to a signed-in patient (a stranger's is below).
   const signedIn = { headers: { cookie: 'hid_access_csrf=4f9c2b' } }
   for (const [app, host] of [['public', 'healthidentitydirectory.com'], ['web', 'app.healthidentitydirectory.com']]) {
     const response = await worker.fetch(new Request(`https://${host}/`, signedIn), env(app, host))
@@ -62,10 +63,20 @@ test('production product sites open their own landing page; the public site send
     assert.equal(moved.status, 308)
     assert.equal(moved.headers.get('location'), `https://${host}/`)
   }
-  // The patient portal's front page is its own, signed in or not.
-  for (const init of [{}, signedIn]) {
-    const portal = await worker.fetch(new Request('https://app.healthidentitydirectory.com/', init),
-      env('web', 'app.healthidentitydirectory.com'))
-    assert.equal(await portal.text(), 'page')
-  }
+  // The patient portal's front page is the portal to a signed-in patient, and the public site's patient page, the
+  // Health ID Identity landing page, to anyone else; the public site keeps that page at its own address.
+  let asked
+  const portalConfig = { ...env('web', 'app.healthidentitydirectory.com'), PUBLIC_SITE: { fetch: async request => {
+    asked = request.url
+    return new Response('<html><head></head><body>For patients</body></html>', { headers: { 'content-type': 'text/html' } })
+  } } }
+  const portal = await worker.fetch(new Request('https://app.healthidentitydirectory.com/', signedIn), portalConfig)
+  assert.equal(await portal.text(), 'page')
+  assert.equal(asked, undefined)
+  const stranger = await worker.fetch(new Request('https://app.healthidentitydirectory.com/'), portalConfig)
+  assert.equal(await stranger.text(), '<html><head></head><body>For patients</body></html>')
+  assert.equal(asked, 'https://healthidentitydirectory.com/patients')
+  const patients = await worker.fetch(new Request('https://healthidentitydirectory.com/patients'),
+    env('public', 'healthidentitydirectory.com'))
+  assert.equal(patients.status, 200)
 })

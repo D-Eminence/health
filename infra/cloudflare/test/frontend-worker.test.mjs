@@ -422,9 +422,14 @@ test('keeps the portal\'s table of hid-1.0 addresses and the edge\'s the same, /
 
 const PRODUCT_SITES = Object.freeze({ ehr: 'ehr', lab: 'laboratory', pharmacy: 'pharmacy', ocr: 'migrate', outreach: 'outreach' })
 const LANDING_HTML = '<!DOCTYPE html><html lang="en"><head><title>Landing</title></head><body><a href="/pricing">Pricing</a></body></html>'
+const PATIENTS_HTML = '<!DOCTYPE html><html lang="en"><head><title>For patients</title></head><body>'
+  + '<a href="https://app.healthidentitydirectory.com/sign-in">Sign in</a></body></html>'
 
 /** Each site whose front page depends on a sign-in, by deployment app name, and the public page it shows a stranger. */
-const LANDING_SITES = Object.freeze(Object.fromEntries(Object.entries(PRODUCT_SITES).map(([app, slug]) => [app, `/products/${slug}`])))
+const LANDING_SITES = Object.freeze({
+  ...Object.fromEntries(Object.entries(PRODUCT_SITES).map(([app, slug]) => [app, `/products/${slug}`])),
+  web: '/patients',
+})
 
 /** The front page's addresses, a query included (which nothing keeps). */
 const FRONT_PATHS = ['/', '/index.html', '/?next=https://evil.example/&utm_source=newsletter']
@@ -466,8 +471,8 @@ function assertFrontPageHeaders(response, label) {
 }
 
 /**
- * The public site's Worker as a product site's PUBLIC_SITE binding sees it: each product's page for the product site
- * that names itself, and the static files given. It records every request it is sent.
+ * The public site's Worker as a PUBLIC_SITE binding sees it: each product's page for the product site that names
+ * itself, its patient page for anyone, and the static files given. It records every request it is sent.
  */
 function publicSite(files = {}, { deployment = 'production' } = {}) {
   const requests = []
@@ -477,8 +482,9 @@ function publicSite(files = {}, { deployment = 'production' } = {}) {
     const url = new URL(request.url)
     const slug = /^\/products\/([a-z]+)$/.exec(url.pathname)?.[1]
     const app = Object.keys(PRODUCT_SITES).find(key => PRODUCT_SITES[key] === slug)
-    if (app && request.headers.get('x-hid-landing-site') === hosts[app]) {
-      return new Response(request.method === 'HEAD' ? null : LANDING_HTML, { headers: {
+    const patients = url.pathname === '/patients'
+    if (patients || (app && request.headers.get('x-hid-landing-site') === hosts[app])) {
+      return new Response(request.method === 'HEAD' ? null : patients ? PATIENTS_HTML : LANDING_HTML, { headers: {
         'content-type': 'text/html; charset=utf-8', etag: '"public-page"', 'set-cookie': 'public=1; Secure',
         'cache-control': 'public, max-age=0, must-revalidate',
       } })
@@ -574,6 +580,59 @@ for (const [deployment, profile] of Object.entries(deploymentProfiles)) {
     })
   }
 
+  const portalHost = profile.hosts.web
+  test(`${deployment} patient portal answers its front page with the portal to someone signed in, and the Health ID page to anyone else`, async () => {
+    for (const path of FRONT_PATHS) {
+      for (const method of ['GET', 'HEAD']) {
+        for (const cookie of SIGNED_IN_COOKIES) {
+          const label = `${method} ${path} ${cookie}`
+          const seen = []
+          const portal = { fetch: async request => {
+            seen.push(request)
+            return new Response(method === 'HEAD' ? null : '<div id="root"></div>', { headers: {
+              'content-type': 'text/html; charset=utf-8', etag: '"portal"', vary: 'Accept-Encoding',
+              'cache-control': 'public, max-age=0, must-revalidate' } })
+          } }
+          const response = await worker.fetch(new Request(`https://${portalHost}${path}`, { method, headers: withCookie(cookie) }),
+            environment({ DEPLOYMENT_ENV: deployment, APP_NAME: 'web', PUBLIC_SITE: UNUSED_BINDING, ASSETS: portal }))
+          // The portal exactly as before: its own index.html, its own headers (Google's sign-in popup included).
+          assert.equal(response.status, 200, label)
+          assert.equal(await response.text(), method === 'HEAD' ? '' : '<div id="root"></div>', label)
+          assert.equal(seen.length, 1, label)
+          assert.equal(seen[0].url, `https://${portalHost}${path}`, label)
+          // The visitor's own request, cookie included, as before: the portal's assets see what they always saw.
+          assert.equal(seen[0].headers.get('cookie'), cookie.trim(), label)
+          assert.equal(response.headers.get('cross-origin-opener-policy'), 'same-origin-allow-popups', label)
+          assert.equal(response.headers.get('permissions-policy'), 'camera=(self), microphone=(self), geolocation=()', label)
+          assertFrontPageHeaders(response, label)
+          assert.equal(response.headers.get('vary'), 'Accept-Encoding, Cookie', label)
+        }
+        for (const cookie of STRANGER_COOKIES) {
+          const label = `${method} ${path} ${cookie}`
+          const site = publicSite({}, { deployment })
+          const response = await worker.fetch(new Request(`https://${portalHost}${path}`,
+            { method, headers: withCookie(cookie, VISITOR_HEADERS) }),
+          environment({ DEPLOYMENT_ENV: deployment, APP_NAME: 'web', PUBLIC_SITE: site.binding, ASSETS: UNUSED_BINDING }))
+          assert.equal(response.status, 200, label)
+          assert.equal(await response.text(), method === 'HEAD' ? '' : PATIENTS_HTML, label)
+          // The public site's patient page, at one fixed address, asked for with none of the visitor's headers.
+          assert.equal(site.requests.length, 1, label)
+          const [sent] = site.requests
+          assert.equal(sent.url, `https://${publicHost}/patients`, label)
+          assert.equal(sent.method, method, label)
+          assert.equal(sent.redirect, 'manual', label)
+          assert.deepEqual([...sent.headers.keys()].sort(), ['accept', 'x-hid-landing-site'], label)
+          // The public site's page headers, as on a product site's landing page.
+          assert.equal(response.headers.get('cross-origin-opener-policy'), 'same-origin', label)
+          assert.equal(response.headers.get('permissions-policy'), 'camera=(), microphone=(), geolocation=()', label)
+          assert.equal(response.headers.get('etag'), null, label)
+          assertFrontPageHeaders(response, label)
+          assert.equal(response.headers.get('vary'), 'Cookie', label)
+        }
+      }
+    }
+  })
+
   test(`${deployment} public site sends each product's page to that product's site, and keeps its others`, async () => {
     const config = environment({ DEPLOYMENT_ENV: deployment, APP_NAME: 'public', EXPECTED_HOST: publicHost })
     for (const [app, slug] of Object.entries(PRODUCT_SITES)) {
@@ -612,7 +671,7 @@ for (const [deployment, profile] of Object.entries(deploymentProfiles)) {
   })
 }
 
-test('a product site without its public-site binding, or whose public site fails, says so in plain words', async () => {
+test('a site without its public-site binding, or whose public site fails, says so in plain words', async () => {
   const failures = {
     missing: undefined,
     'not a binding': {},
@@ -622,8 +681,9 @@ test('a product site without its public-site binding, or whose public site fails
     'server error': { fetch: async () => new Response('worker threw', { status: 500, headers: { 'content-type': 'text/plain' } }) },
     'not a page': { fetch: async () => new Response('{"ok":true}', { headers: { 'content-type': 'application/json' } }) },
   }
-  // Staff sign in at the workspace's entrance, which asks for a sign-in itself.
-  const sites = [['lab', 'lab.healthidentitydirectory.com', '/provider', 'Health ID Laboratory']]
+  // Staff sign in at the workspace's entrance; patients at the portal's sign-in, as "/" is this page to them.
+  const sites = [['lab', 'lab.healthidentitydirectory.com', '/provider', 'Health ID Laboratory'],
+    ['web', 'app.healthidentitydirectory.com', '/sign-in', 'Health ID']]
   for (const [app, host, signIn, name] of sites) {
     for (const [failure, binding] of Object.entries(failures)) {
       const label = `${app} ${failure}`
@@ -650,9 +710,13 @@ test('a product site without its public-site binding, or whose public site fails
     environment({ DEPLOYMENT_ENV: 'staging', APP_NAME: 'ocr' }))
   assert.equal(staging.status, 503)
   assert.match(await staging.text(), /Sign in to Health ID Migrate<\/a>.*https:\/\/www\.staging\.healthidentitydirectory\.com\//s)
+  const portal = await worker.fetch(new Request('https://staging.healthidentitydirectory.com/'),
+    environment({ DEPLOYMENT_ENV: 'staging', APP_NAME: 'web' }))
+  assert.equal(portal.status, 503)
+  assert.match(await portal.text(), /<a href="\/sign-in">Sign in to Health ID<\/a>.*https:\/\/www\.staging\.healthidentitydirectory\.com\//s)
 })
 
-test('a product site loads the public site\'s static files it does not have, and only those', async () => {
+test('a product site and the patient portal load the public site\'s static files they do not have, and only those', async () => {
   const files = {
     '/_next/static/chunks/main-app.js': { body: 'console.log("public")', type: 'application/javascript' },
     '/_next/static/css/site.css': { body: 'body{}', type: 'text/css' },
@@ -662,7 +726,7 @@ test('a product site loads the public site\'s static files it does not have, and
     '/icon.png': { body: 'icon', type: 'image/png' },
     '/apple-icon.png': { body: 'apple', type: 'image/png' },
   }
-  for (const [app, [path, file]] of ['lab'].flatMap(app => Object.entries(files).map(entry => [app, entry]))) {
+  for (const [app, [path, file]] of ['lab', 'web'].flatMap(app => Object.entries(files).map(entry => [app, entry]))) {
     const site = publicSite(files)
     const host = deploymentProfiles.production.hosts[app]
     const response = await worker.fetch(new Request(`https://${host}${path}?v=1`, { headers: VISITOR_HEADERS }),
@@ -725,9 +789,9 @@ test('nothing but the listed static files is ever asked of the public site', asy
   }
 })
 
-test('the patient portal, the admin site and the public site keep their own front page, signed in or not', async () => {
+test('the admin site and the public site keep their own front page, signed in or not', async () => {
   for (const deployment of Object.keys(deploymentProfiles)) {
-    for (const app of ['web', 'admin', 'public']) {
+    for (const app of ['admin', 'public']) {
       const host = deploymentProfiles[deployment].hosts[app]
       for (const path of ['/', '/index.html', '/_next/static/chunks/main.js', '/brand/logo.png']) {
         for (const cookie of [null, 'hid_access_csrf=4f9c2b']) {
@@ -743,6 +807,32 @@ test('the patient portal, the admin site and the public site keep their own fron
       }
     }
   }
+})
+
+test('the patient page keeps its own address on the public site, and every other portal address is the portal\'s', async () => {
+  for (const [deployment, profile] of Object.entries(deploymentProfiles)) {
+    // Not redirected, for anyone: the public site's /patients is its primary address (the portal shows it at "/").
+    for (const headers of [{}, { cookie: 'hid_access_csrf=4f9c2b' }, { 'x-hid-landing-site': profile.hosts.web }]) {
+      const page = await worker.fetch(new Request(`https://${profile.hosts.public}/patients`, { headers }),
+        environment({ DEPLOYMENT_ENV: deployment, APP_NAME: 'public', EXPECTED_HOST: profile.hosts.public, PUBLIC_SITE: UNUSED_BINDING }))
+      assert.equal(page.status, 200)
+      assert.equal(await page.text(), '<p>/patients</p>')
+    }
+    // On the portal, only its front page depends on a sign-in.
+    for (const path of ['/sign-in', '/enroll', '/records', '/notifications', '/patients', '/provider/enroll', '/admin/sign-in']) {
+      for (const cookie of [null, 'hid_access_csrf=4f9c2b']) {
+        const response = await worker.fetch(new Request(`https://${profile.hosts.web}${path}`, { headers: withCookie(cookie) }),
+          environment({ DEPLOYMENT_ENV: deployment, APP_NAME: 'web', PUBLIC_SITE: UNUSED_BINDING }))
+        assert.equal(response.status, 200, `${deployment} ${path} ${cookie}`)
+        assert.equal(await response.text(), `<p>${path}</p>`)
+        assert.equal(response.headers.get('vary'), null)
+      }
+    }
+  }
+  // A write to the portal's front page is the portal's, as before.
+  const post = await worker.fetch(new Request('https://app.healthidentitydirectory.com/', { method: 'POST' }),
+    environment({ APP_NAME: 'web', PUBLIC_SITE: UNUSED_BINDING }))
+  assert.equal(await post.text(), '<p>/</p>')
 })
 
 test('every /provider address on a product site is the portal\'s, as before', async () => {
@@ -802,6 +892,7 @@ const LAB_LANDING_SITE = Object.freeze({
     pharmacy: 'https://pharmacy.healthidentitydirectory.com/', migrate: 'https://migrate.healthidentitydirectory.com/',
     outreach: 'https://outreach.healthidentitydirectory.com/' },
   staffSignIn: 'https://lab.healthidentitydirectory.com/provider',
+  patientSignIn: '',
   enroll: 'https://app.healthidentitydirectory.com/provider/enroll',
   applicationProducts: ['ehr', 'migrate', 'laboratory', 'pharmacy'],
 })
@@ -855,6 +946,33 @@ test('rewrites each landing page link for the product site that shows it', () =>
     ['https://www.linkedin.com/company/health-id', 'https://www.linkedin.com/company/health-id'],
     ['https://lab.healthidentitydirectory.com/', 'https://lab.healthidentitydirectory.com/'],
     ['javascript:alert(1)', 'javascript:alert(1)'],
+  ])
+})
+
+test('rewrites each link of the Health ID page for the patient portal that shows it', () => {
+  const site = { ...LAB_LANDING_SITE, page: 'https://healthidentitydirectory.com/patients', staffSignIn: '',
+    patientSignIn: 'https://app.healthidentitydirectory.com/sign-in' }
+  assertLandingLinks(site, [
+    // Its own buttons: sign in and get a Health ID on the portal, at pages that exist there (App.tsx).
+    ['https://app.healthidentitydirectory.com/sign-in', 'https://app.healthidentitydirectory.com/sign-in'],
+    ['https://app.healthidentitydirectory.com/enroll', 'https://app.healthidentitydirectory.com/enroll'],
+    // The portal's front page is this page to a stranger: a link there signs in instead, never back here.
+    ['https://app.healthidentitydirectory.com/', 'https://app.healthidentitydirectory.com/sign-in'],
+    ['https://app.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/sign-in'],
+    ['https://app.healthidentitydirectory.com/?from=nav#top', 'https://app.healthidentitydirectory.com/sign-in'],
+    // Staff sign-in on the portal is left as it is (the portal sends it to the EHR site's).
+    ['https://app.healthidentitydirectory.com/provider/sign-in', 'https://app.healthidentitydirectory.com/provider/sign-in'],
+    // Its sections and the public site's other pages open on the public site, the page's own address.
+    ['/patients#steps', 'https://healthidentitydirectory.com/patients#steps'],
+    ['/patients', 'https://healthidentitydirectory.com/patients'],
+    ['/', 'https://healthidentitydirectory.com/'],
+    ['/providers', 'https://healthidentitydirectory.com/providers'],
+    ['/privacy', 'https://healthidentitydirectory.com/privacy'],
+    // Products open their own sites; facility sign-up the portal's.
+    ['/products/laboratory', 'https://lab.healthidentitydirectory.com/'],
+    ['/provider/apply?product=ehr', 'https://app.healthidentitydirectory.com/provider/enroll?product=ehr'],
+    ['#main', '#main'],
+    ['mailto:support@healthidentitydirectory.com', 'mailto:support@healthidentitydirectory.com'],
   ])
 })
 

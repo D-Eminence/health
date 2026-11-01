@@ -37,11 +37,30 @@ const LABORATORY_PAGE = '<!DOCTYPE html><html lang="en"><head><meta charSet="utf
   + '<a href="mailto:support@healthidentitydirectory.com">Email us</a></footer>'
   + '<script>self.__next_f.push([1,"a:[\\"$\\",\\"a\\",null,{\\"href\\":\\"/pricing\\"}]"])</script></body></html>'
 
-/** The patient portal's own index.html, which every product site serves at its other addresses. */
+/** The parts of the public site's exported patient page (the Health ID Identity landing page) the edge rewrites. */
+const PATIENTS_PAGE = '<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/>'
+  + '<link rel="stylesheet" href="/_next/static/css/site.css" data-precedence="next"/>'
+  + '<script src="/_next/static/chunks/main-app.js" async=""></script>'
+  + '<title>For patients | Health ID</title>'
+  + '<link rel="icon" href="/icon.png?e84ead3bb5a2b28a" type="image/png" sizes="48x48"/></head>'
+  + '<body><a href="#main">Skip to content</a>'
+  + '<nav><a href="/"><img src="/brand/logo.png" alt="Health ID"/></a><a href="/patients#steps">How it works</a>'
+  + '<a href="/patients#control">Your control</a>'
+  + '<a href="https://app.healthidentitydirectory.com/sign-in">Sign in</a>'
+  + '<a href="https://app.healthidentitydirectory.com/enroll">Get your Health ID</a></nav>'
+  + '<main id="main"><a href="https://app.healthidentitydirectory.com/enroll">Create your Health ID</a>'
+  + '<a href="https://app.healthidentitydirectory.com/sign-in">I already have a Health ID</a>'
+  + '<a href="https://app.healthidentitydirectory.com/">Open Health ID</a>'
+  + '<a href="/products/laboratory">Laboratory</a><a href="/providers">For providers</a></main>'
+  + '<footer><a href="/privacy">Privacy</a><a href="mailto:support@healthidentitydirectory.com">Email us</a></footer>'
+  + '</body></html>'
+
+/** The patient portal's own index.html, which a signed-in patient gets at "/". */
 const PORTAL_INDEX = '<!doctype html><div id="root"></div>'
 
 const PUBLIC_FILES = {
   '/products/laboratory': ['text/html; charset=utf-8', LABORATORY_PAGE],
+  '/patients': ['text/html; charset=utf-8', PATIENTS_PAGE],
   '/_next/static/chunks/main-app.js': ['application/javascript', 'console.log("public site")'],
   '/brand/logo.png': ['image/png', 'logo'],
   '/service-worker.js': ['application/javascript', 'self.registration.unregister()'],
@@ -72,7 +91,7 @@ function frontend(name, app, host, bindings) {
   }
 }
 
-let mf, lab, labWithoutBinding, publicSite, labAssets, publicAssets
+let mf, lab, labWithoutBinding, publicSite, labAssets, publicAssets, portal, portalAssets
 
 before(async () => {
   mf = new Miniflare(convertV4MiniflareOptions({
@@ -80,14 +99,17 @@ before(async () => {
       frontend('lab', 'lab', 'lab.healthidentitydirectory.com', { ASSETS: 'lab-assets', PUBLIC_SITE: 'public' }),
       frontend('lab-unbound', 'lab', 'lab.healthidentitydirectory.com', { ASSETS: 'lab-assets' }),
       frontend('public', 'public', 'healthidentitydirectory.com', { ASSETS: 'public-assets' }),
+      frontend('web', 'web', 'app.healthidentitydirectory.com', { ASSETS: 'web-assets', PUBLIC_SITE: 'public' }),
       { name: 'lab-assets', modules: true, compatibilityDate: '2026-10-01',
         script: assetWorker({ '/sw.js': ['application/javascript', 'self.addEventListener("push", () => {})'],
           '/brand/own.png': ['image/png', 'the product site\'s own'] }, 'spa') },
+      { name: 'web-assets', modules: true, compatibilityDate: '2026-10-01',
+        script: assetWorker({ '/sw.js': ['application/javascript', 'self.addEventListener("push", () => {})'] }, 'spa') },
       { name: 'public-assets', modules: true, compatibilityDate: '2026-10-01', script: assetWorker(PUBLIC_FILES, '404') },
     ],
   }))
-  ;[lab, labWithoutBinding, publicSite, labAssets, publicAssets] = await Promise.all(
-    ['lab', 'lab-unbound', 'public', 'lab-assets', 'public-assets'].map(name => mf.getWorker(name)))
+  ;[lab, labWithoutBinding, publicSite, labAssets, publicAssets, portal, portalAssets] = await Promise.all(
+    ['lab', 'lab-unbound', 'public', 'lab-assets', 'public-assets', 'web', 'web-assets'].map(name => mf.getWorker(name)))
 })
 
 after(async () => { await mf?.dispose() })
@@ -173,6 +195,11 @@ test('a page that names its own canonical address carries the lab site\'s instea
   }
 })
 
+/** Each link's text and address on a page. */
+function linksOf(page) {
+  return [...page.matchAll(/<a[^>]*href="([^"]*)"[^>]*>([^<]*)</g)].map(match => [match[2] || 'logo', match[1]])
+}
+
 test('lab sends staff signed in there from its front page to the workspace, in the real runtime', async () => {
   const before = (await seen(publicAssets)).length
   for (const path of ['/', '/index.html?utm_source=email']) {
@@ -192,12 +219,94 @@ test('lab sends staff signed in there from its front page to the workspace, in t
   await landing.text()
 })
 
+test('the patient portal shows a stranger the Health ID page from the public site, and its buttons sign in and sign up there', async () => {
+  const response = await portal.fetch('https://app.healthidentitydirectory.com/', {
+    headers: { cookie: 'hid_access=eyJhbGciOi; theme=dark', authorization: 'Bearer secret', 'cf-connecting-ip': '192.0.2.7' },
+  })
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('cache-control'), 'private, no-store')
+  assert.equal(response.headers.get('vary'), 'Cookie')
+  assert.equal(response.headers.get('x-frame-options'), 'DENY')
+  assert.equal(response.headers.get('permissions-policy'), 'camera=(), microphone=(), geolocation=()')
+  const page = await response.text()
+  assert.deepEqual(linksOf(page), [
+    ['Skip to content', '#main'],
+    ['logo', 'https://healthidentitydirectory.com/'],
+    // Its sections are the patient page's own, at its address on the public site.
+    ['How it works', 'https://healthidentitydirectory.com/patients#steps'],
+    ['Your control', 'https://healthidentitydirectory.com/patients#control'],
+    // Sign in at the portal's sign-in, never its "/" (which is this page to a stranger); sign up at its /enroll.
+    ['Sign in', 'https://app.healthidentitydirectory.com/sign-in'],
+    ['Get your Health ID', 'https://app.healthidentitydirectory.com/enroll'],
+    ['Create your Health ID', 'https://app.healthidentitydirectory.com/enroll'],
+    ['I already have a Health ID', 'https://app.healthidentitydirectory.com/sign-in'],
+    ['Open Health ID', 'https://app.healthidentitydirectory.com/sign-in'],
+    ['Laboratory', 'https://lab.healthidentitydirectory.com/'],
+    ['For providers', 'https://healthidentitydirectory.com/providers'],
+    ['Privacy', 'https://healthidentitydirectory.com/privacy'],
+    ['Email us', 'mailto:support@healthidentitydirectory.com'],
+  ])
+  // Its canonical address stays the public site's patient page, once, in its head.
+  const head = page.slice(0, page.indexOf('</head>'))
+  assert.deepEqual(page.match(/<link[^>]*\brel="[^"]*canonical[^"]*"[^>]*>/gi),
+    ['<link rel="canonical" href="https://healthidentitydirectory.com/patients">'])
+  assert.ok(head.includes('<link rel="canonical" href="https://healthidentitydirectory.com/patients">'))
+  assert.equal(page.match(/<script>\(function\(rewrite,site\)/g).length, 1)
+  assert.ok(page.includes('<title>For patients | Health ID</title>'))
+  // Asked for at its one address, with none of the visitor's cookie, credentials or address.
+  const asked = (await seen(publicAssets)).filter(entry => entry.path === '/patients')
+  assert.equal(asked.length, 1)
+  const names = asked[0].headers.map(([name]) => name)
+  for (const name of ['cookie', 'authorization', 'cf-connecting-ip', 'x-hid-client-ip', 'x-forwarded-for']) {
+    assert.ok(!names.includes(name), name)
+  }
+  // The portal's own build was not asked for its front page.
+  assert.ok(!(await seen(portalAssets)).some(entry => entry.path === '/'))
+})
+
+test('the patient portal is a signed-in patient\'s front page, as before', async () => {
+  for (const path of ['/', '/?from=notification']) {
+    const response = await portal.fetch(`https://app.healthidentitydirectory.com${path}`,
+      { headers: { cookie: 'hid_access=eyJhbGciOi; hid_access_csrf=4f9c2b' } })
+    assert.equal(response.status, 200)
+    assert.equal(await response.text(), PORTAL_INDEX)
+    assert.equal(response.headers.get('cross-origin-opener-policy'), 'same-origin-allow-popups')
+    assert.equal(response.headers.get('cache-control'), 'private, no-store')
+    assert.equal(response.headers.get('vary'), 'Cookie')
+  }
+  // The portal's own build answered, with the visitor's request as it was.
+  const own = (await seen(portalAssets)).filter(entry => entry.path === '/')
+  assert.equal(own.length, 2)
+  assert.ok(own.every(entry => entry.headers.some(([name, value]) => name === 'cookie' && value.includes('hid_access_csrf=4f9c2b'))))
+  // Every other portal page is its own for anyone: sign-in, sign-up, the push worker.
+  for (const path of ['/sign-in', '/enroll', '/notifications']) {
+    assert.equal(await (await portal.fetch(`https://app.healthidentitydirectory.com${path}`)).text(), PORTAL_INDEX, path)
+  }
+  assert.match(await (await portal.fetch('https://app.healthidentitydirectory.com/sw.js')).text(), /push/)
+})
+
+test('the patient portal serves the public site\'s static files the Health ID page loads', async () => {
+  const script = await portal.fetch('https://app.healthidentitydirectory.com/_next/static/chunks/main-app.js')
+  assert.equal(script.status, 200)
+  assert.equal(await script.text(), 'console.log("public site")')
+  const logo = await portal.fetch('https://app.healthidentitydirectory.com/brand/logo.png')
+  assert.equal(await logo.text(), 'logo')
+  // Never the public site's retiring worker.
+  const retiring = await portal.fetch('https://app.healthidentitydirectory.com/service-worker.js')
+  assert.notEqual(await retiring.text(), 'self.registration.unregister()')
+})
+
 test('the public site sends its Laboratory page to the lab site, and keeps its own pages', async () => {
   const redirected = await publicSite.fetch('https://healthidentitydirectory.com/products/laboratory', { redirect: 'manual' })
   assert.equal(redirected.status, 308)
   assert.equal(redirected.headers.get('location'), 'https://lab.healthidentitydirectory.com/')
   const api = await publicSite.fetch('https://healthidentitydirectory.com/products/api', { redirect: 'manual' })
   assert.equal(api.status, 404)
+  // The patient page stays at its address, for anyone.
+  const patients = await publicSite.fetch('https://healthidentitydirectory.com/patients',
+    { redirect: 'manual', headers: { cookie: 'hid_access_csrf=4f9c2b' } })
+  assert.equal(patients.status, 200)
+  assert.equal(await patients.text(), PATIENTS_PAGE)
 })
 
 test('the lab site serves the public site\'s static files it lacks, and its own files first', async () => {
@@ -270,6 +379,32 @@ test('in the browser, every link on the page leaves for the address the edge giv
     assert.equal(tab.getAttribute('href'), 'https://healthidentitydirectory.com/contact')
     tab.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }))
     assert.deepEqual(routed, ['#demo', 'https://healthidentitydirectory.com/contact'])
+  } finally {
+    dom.window.close()
+  }
+})
+
+test('in the browser, the Health ID page on the portal never sends a stranger back to its own front page', async () => {
+  const page = await (await portal.fetch('https://app.healthidentitydirectory.com/')).text()
+  const dom = new JSDOM(page.replace(/<script src[^>]*><\/script>/g, ''),
+    { url: 'https://app.healthidentitydirectory.com/', runScripts: 'dangerously' })
+  const { document } = dom.window
+  try {
+    const routed = []
+    document.addEventListener('click', event => { routed.push(event.target.closest('a')?.getAttribute('href')) })
+    // A link the page draws itself after loading, with the address it was built with: the portal's front page.
+    const open = document.createElement('a')
+    open.setAttribute('href', 'https://app.healthidentitydirectory.com/')
+    document.body.append(open)
+    open.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }))
+    assert.equal(open.getAttribute('href'), 'https://app.healthidentitydirectory.com/sign-in')
+    // Its sign-in button is followed by the browser itself, so the page's router never turns it into "/".
+    const signIn = [...document.querySelectorAll('a')].find(link => link.textContent === 'Sign in')
+    const click = new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })
+    signIn.dispatchEvent(click)
+    assert.equal(click.defaultPrevented, false)
+    assert.equal(signIn.getAttribute('href'), 'https://app.healthidentitydirectory.com/sign-in')
+    assert.deepEqual(routed, [])
   } finally {
     dom.window.close()
   }
