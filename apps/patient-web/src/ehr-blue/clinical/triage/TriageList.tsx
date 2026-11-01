@@ -33,7 +33,7 @@ function TriageRecords({ chart }: { chart: Chart }) {
   const canCreate = reads && chart.canWrite && chart.can('ehr.vital.write')
   return (
     <>
-      <EhrPageHeading title={TITLE} primaryAction={canCreate ? <EhrButton onClick={() => navigate(href('new'))}>Record vitals</EhrButton> : undefined} />
+      <EhrPageHeading title={TITLE} primaryAction={canCreate ? <EhrButton onClick={() => navigate(href('new'))}>Create record</EhrButton> : undefined} />
       {reads ? <VitalsTable chart={chart} /> : <EhrCard><p>{NO_RECORD_ACCESS}</p></EhrCard>}
     </>
   )
@@ -78,7 +78,9 @@ function VitalsTable({ chart }: { chart: Chart }) {
 
   // The table waits for the corrections, so a row (and its quick view) never shows values that are not current.
   const pending = (list.records ?? []).some(({ record }) => corrections(record).state === 'loading')
-  return <ListCard title={TITLE} list={list} rows={rows} pending={pending} search={search} onSearch={setSearch} hrefFor={row => href(row.id)} contextHeader="Readings" />
+  // Today's empty Vitals tab (staff/routes/Clinical.tsx:1808).
+  return <ListCard title={TITLE} list={list} rows={rows} pending={pending} search={search} onSearch={setSearch} hrefFor={row => href(row.id)} contextHeader="Readings"
+    noRecords="No vitals for this encounter." />
 }
 
 /** A row's readings, each with its unit and, outside the adult range, its flag. */

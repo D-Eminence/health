@@ -94,8 +94,8 @@ function NewTriageForm({ chart }: { chart: Chart }) {
             not only the newest 50. The page shown also gives the earlier vitals above. */}
         {reads ? <VisitPages list={list} label="Encounter pages" /> : null}
         {canCreate ? (
-          list.encounters === null ? (list.loading ? <Loading label="Loading consultations…" /> : null) : (
-            <VitalsForm mode="record" visits={visits} visitHint={visitHint} groupLabel="Vital measurements" submitLabel="Save vitals" onSubmit={submit}>
+          list.encounters === null ? (list.loading ? <Loading label="Loading encounters…" /> : null) : (
+            <VitalsForm mode="record" visits={visits} visitHint={visitHint} groupLabel="Vital measurements" submitLabel="Save record" onSubmit={submit}>
               {/* Sample fields inside a live form: only at the demo facilities, where nothing real is recorded. */}
               {isDemoFacility(chart.facilityId) ? <SampleTriage /> : null}
             </VitalsForm>
@@ -168,11 +168,12 @@ function PatientContext({ chart, prior }: { chart: Chart; prior: readonly VisitR
       <h2 id="triage-patient-context">Allergies and earlier vitals</h2>
       {!reads || reported.state === 'loading' || reported.state === 'hidden' ? null : (
         <p>
+          {/* Today's caution and failure words (staff/routes/PatientReportedHealth.tsx:47, :54-55). */}
           {reported.state === 'shown'
-            ? `Allergies: ${reported.allergies} (told us by the patient, not checked by a clinician).`
+            ? `Recorded allergies: ${reported.allergies} (patient-reported: entered by the patient in their Health ID portal, not clinically verified).`
             : reported.state === 'failed'
-              ? 'Allergies: what the patient told us couldn’t be loaded. Confirm with the patient.'
-              : 'Allergies: none recorded. Confirm with the patient.'}
+              ? 'Recorded allergies: what the patient entered about their health could not be loaded. Confirm with the patient.'
+              : 'Recorded allergies: None recorded. Confirm with the patient.'}
         </p>
       )}
       {(prior ?? []).map(({ encounter, record }) => {

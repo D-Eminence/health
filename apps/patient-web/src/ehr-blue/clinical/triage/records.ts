@@ -11,15 +11,18 @@ import type { FieldErrors } from '../parts/RecordForm'
  * encounters at this facility (the design's "Visit"), read as today's chart reads them.
  */
 
-/** The chart's wording, in plain words. */
+/**
+ * The chart's wording, today's word for word (staff/routes/Clinical.tsx): NO_ENCOUNTERS and NO_COMPLAINT :1796,
+ * RECORD_SAVED :1502, RECORD_NOT_SAVED :547, NO_WRITE :1455, NO_RECORD_ACCESS :1802, ENCOUNTERS_FAILED :1306.
+ */
 export const RESTARTED = 'This list changed since it was opened, so it shows the newest entries again.'
-export const NO_ENCOUNTERS = 'No consultations for this patient here yet. Start one first.'
-export const NO_COMPLAINT = 'No complaint recorded'
-export const RECORD_SAVED = 'Saved.'
-export const RECORD_NOT_SAVED = 'This could not be saved.'
-export const NO_WRITE = 'Your access doesn’t allow changes to this patient’s records.'
-export const NO_RECORD_ACCESS = 'Your role here can’t see these records.'
-export const ENCOUNTERS_FAILED = 'Consultations could not be loaded.'
+export const NO_ENCOUNTERS = 'No encounters are available for this patient and facility.'
+export const NO_COMPLAINT = 'No chief complaint provided'
+export const RECORD_SAVED = 'Clinical record saved.'
+export const RECORD_NOT_SAVED = 'Record could not be saved.'
+export const NO_WRITE = 'This access does not permit changes to the patient record.'
+export const NO_RECORD_ACCESS = 'Your current facility role does not grant access to encounter records.'
+export const ENCOUNTERS_FAILED = 'Encounters could not be loaded.'
 export const RECORDS_FAILED = 'Records could not be loaded.'
 export const RELOAD_FAILED = 'The change was saved, but the records could not be reloaded.'
 export const REASON_SHORT = 'Give a reason of at least 3 characters.'
@@ -108,9 +111,9 @@ export function onAnotherPage(encounter: Encounter): string {
   return `The encounter being documented, ${statusLabel(encounter.encounterType)} started ${formatWhen(encounter.startedAt)}, is on another page.`
 }
 
-/** When a record was made: the time it was recorded at, else when it was saved. */
+/** When a record was made, as today's "Recorded" line says it (Clinical.tsx:1813): when EHR saved it. */
 export function recordedAt(record: ClinicalRecord): string {
-  return field(record, 'recordedAt') || record.createdAt
+  return record.createdAt
 }
 
 /** A record of the open patient, with the visit it belongs to. */

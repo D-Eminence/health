@@ -6,7 +6,7 @@ import { Pager, RecordTable, SearchField, type RecordRow } from '../parts/Record
 import { CHANGE_SEARCH, FIRST_RECORD, NEWEST_ONLY, NO_ENCOUNTERS, type PatientRecords } from './records'
 
 /** The design's list card: search, today's paging notices and pager, the table and its empty states. */
-export function ListCard({ list, rows, search, onSearch, hrefFor, title, pending = false, contextHeader }: {
+export function ListCard({ list, rows, search, onSearch, hrefFor, title, pending = false, contextHeader, noRecords = FIRST_RECORD }: {
   list: PatientRecords
   rows: readonly RecordRow[]
   /** The rows are not ready to show yet (a corrected vital's current values are still being read). */
@@ -17,6 +17,8 @@ export function ListCard({ list, rows, search, onSearch, hrefFor, title, pending
   title: string
   /** The table's second column (in one patient's chart, what the row holds, not the patient's name again). */
   contextHeader?: string
+  /** Said when the encounters hold none of these records. */
+  noRecords?: string
 }) {
   const filtered = useMemo(() => {
     const words = search.trim().toLowerCase()
@@ -38,7 +40,7 @@ export function ListCard({ list, rows, search, onSearch, hrefFor, title, pending
           rows={filtered}
           hrefFor={hrefFor}
           contextHeader={contextHeader}
-          emptyMessage={rows.length > 0 ? CHANGE_SEARCH : list.encounters?.length === 0 ? NO_ENCOUNTERS : FIRST_RECORD}
+          emptyMessage={rows.length > 0 ? CHANGE_SEARCH : list.encounters?.length === 0 ? NO_ENCOUNTERS : noRecords}
         />
       )}
     </EhrCard>

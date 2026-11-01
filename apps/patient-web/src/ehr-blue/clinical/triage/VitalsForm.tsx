@@ -198,7 +198,7 @@ export function VitalsForm({ mode, visits = [], visitHint, current, groupLabel, 
           {errors[VALUES] ? <p id={groupErrorId} className="hid-ehr-clinical-field-error hid-ehr-clinical-triage-group-error">{errors[VALUES]}</p> : null}
         </div>
         {mode === 'correct' ? (
-          <EhrField className="hid-ehr-clinical-form-full" label={<>Reason<span aria-hidden="true"> *</span></>} error={errors.reason}>
+          <EhrField className="hid-ehr-clinical-form-full" label={<>Reason for correction<span aria-hidden="true"> *</span></>} error={errors.reason}>
             <EhrTextarea ref={register('reason')} required rows={3} maxLength={500} value={reason} onChange={event => { setReason(event.target.value); clear('reason') }} />
           </EhrField>
         ) : null}

@@ -9,7 +9,10 @@ import { vitalFlag, worstFlag } from './ranges'
 /** The sidebar label, the list's heading; the create page's heading ("New " + the label, lower case). */
 export const TITLE = 'Triage & Vitals'
 export const NEW_TITLE = 'New triage & vitals'
-export const AMEND_LABEL = 'Amend observation'
+/** Today's correction button, open and closed, and its form's submit (staff/routes/Clinical.tsx:792, :748). */
+export const CORRECT_LABEL = 'Correct these vitals'
+export const CLOSE_CORRECTION = 'Close correction'
+export const SAVE_CORRECTION = 'Save correction'
 
 /**
  * Today's vital measurements, each as EHR's VitalMeasurementsDto accepts it (hid-system ehr/shared/clinical.dto.ts;
@@ -20,6 +23,8 @@ export const AMEND_LABEL = 'Amend observation'
 export interface VitalField {
   readonly name: VitalMeasurement
   readonly label: string
+  /** Today's form label, where it is not the label with its unit (Clinical.tsx:44). */
+  readonly formLabel?: string
   readonly unit: string
   readonly step: string
   readonly min: string
@@ -27,19 +32,19 @@ export interface VitalField {
 }
 
 export const VITAL_FIELDS: readonly VitalField[] = [
-  { name: 'systolicMmhg', label: 'BP systolic', unit: 'mmHg', step: '1', min: '30', max: '350' },
-  { name: 'diastolicMmhg', label: 'BP diastolic', unit: 'mmHg', step: '1', min: '10', max: '250' },
+  { name: 'systolicMmhg', label: 'Systolic BP', unit: 'mmHg', step: '1', min: '30', max: '350' },
+  { name: 'diastolicMmhg', label: 'Diastolic BP', unit: 'mmHg', step: '1', min: '10', max: '250' },
   { name: 'pulseBpm', label: 'Pulse', unit: 'bpm', step: '1', min: '10', max: '350' },
   { name: 'temperatureC', label: 'Temperature', unit: '°C', step: '0.1', min: '20', max: '50' },
-  { name: 'respiratoryRate', label: 'Respiratory rate', unit: 'breaths/min', step: '1', min: '1', max: '100' },
+  { name: 'respiratoryRate', label: 'Respiratory rate', formLabel: 'Respirations / min', unit: 'breaths/min', step: '1', min: '1', max: '100' },
   { name: 'oxygenSaturationPercent', label: 'SpO₂', unit: '%', step: '0.01', min: '0', max: '100' },
   { name: 'weightKg', label: 'Weight', unit: 'kg', step: '0.001', min: '0.2', max: '700' },
   { name: 'heightCm', label: 'Height', unit: 'cm', step: '0.01', min: '20', max: '300' },
 ]
 
-/** "Pulse (bpm)": a field's label with its unit. */
+/** "Pulse (bpm)": a field's label with its unit, as today's form names it (Clinical.tsx:40-47). */
 export function fieldLabel(field: VitalField): string {
-  return `${field.label} (${field.unit})`
+  return field.formLabel ?? `${field.label} (${field.unit})`
 }
 
 /** The order today's create sends the measurements in. */

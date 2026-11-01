@@ -16,9 +16,9 @@ import {
   NO_COMPLAINT, NO_RECORD_ACCESS, RECORD_SAVED, RELOAD_FAILED, recordedAt, refusedFieldErrors, rowVersion, useFocusAfterChange, useLatest, useVisitRecord,
 } from './records'
 import {
-  AMEND_LABEL, CHANGED_SINCE, CORRECTION_FAILED, CORRECTION_HINT, CORRECTION_SAVED, CORRECTION_UNREAD, LOADING_CORRECTION, RELOAD_FIRST,
-  RETRACTED_SINCE, RETRACTED_TEXT, TITLE, VITAL_FIELDS, correctionNumber, currentValues, isRetracted, measurementItems, readCorrections,
-  reloadSentence, vitalStatus, type Corrections,
+  CHANGED_SINCE, CLOSE_CORRECTION, CORRECT_LABEL, CORRECTION_FAILED, CORRECTION_HINT, CORRECTION_SAVED, CORRECTION_UNREAD, LOADING_CORRECTION,
+  RELOAD_FIRST, RETRACTED_SINCE, RETRACTED_TEXT, SAVE_CORRECTION, TITLE, VITAL_FIELDS, correctionNumber, currentValues, isRetracted,
+  measurementItems, readCorrections, reloadSentence, vitalStatus, type Corrections,
 } from './vitals'
 import { VitalsForm, type VitalsInput } from './VitalsForm'
 
@@ -92,8 +92,8 @@ type Reload = () => Promise<{ readonly items: readonly ClinicalRecord[] } | { re
 
 /**
  * The design's record page for one vitals record: "Saved record" (the current values: the latest correction's, as
- * today), "Available actions" ("Amend observation": today's correction, with full replacement values; vitals have no
- * other live action, so there is no "More actions" menu), "Connected hospital history" (the visit, then the
+ * today), "Available actions" (today's "Correct these vitals", with full replacement values; vitals have no other live
+ * action, so there is no "More actions" menu), "Connected hospital history" (the visit, then the
  * encounter's records in the other workspaces: ConnectedHistory) and "Preserved versions & amendments" (what each
  * correction replaced).
  */
@@ -204,7 +204,7 @@ function VitalRecord({ chart, encounter, vital, reload }: {
           {canAmend ? (
             <ActionList>
               <EhrButton variant="secondary" aria-expanded={open} aria-disabled={locked || undefined}
-                onClick={() => { if (!locked) setOpen(value => !value) }}>{AMEND_LABEL}</EhrButton>
+                onClick={() => { if (!locked) setOpen(value => !value) }}>{open ? CLOSE_CORRECTION : CORRECT_LABEL}</EhrButton>
             </ActionList>
           ) : <NoActions />}
           {canAmend && open && current ? (
@@ -214,7 +214,7 @@ function VitalRecord({ chart, encounter, vital, reload }: {
               current={current}
               hint={CORRECTION_HINT}
               groupLabel="Corrected vital measurements"
-              submitLabel={AMEND_LABEL}
+              submitLabel={SAVE_CORRECTION}
               onSubmit={amend}
             />
           ) : null}
