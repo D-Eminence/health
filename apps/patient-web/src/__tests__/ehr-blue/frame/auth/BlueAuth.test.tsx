@@ -71,6 +71,35 @@ describe('BlueSignIn', () => {
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider'))
   })
 
+  it('on the production portal opens the EHR site\'s sign-in at once: no "Continue" step, no form', () => {
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname: 'app.healthidentitydirectory.com', replace })
+    try {
+      open('/provider/sign-in?returnTo=https://evil.example', <BlueSignIn />)
+      expect(replace).toHaveBeenCalledTimes(1)
+      expect(replace).toHaveBeenCalledWith('https://ehr.healthidentitydirectory.com/provider/sign-in')
+      expect(screen.getByText('Opening the EHR sign-in…').getAttribute('role')).toBe('status')
+      expect(screen.getByRole('link', { name: 'Go to the EHR sign-in' }).getAttribute('href'))
+        .toBe('https://ehr.healthidentitydirectory.com/provider/sign-in')
+      expect(screen.queryByText(/continue/i)).toBeNull()
+      expect(screen.queryByRole('heading')).toBeNull()
+      expect(screen.queryByRole('textbox')).toBeNull()
+      expect(screen.queryByRole('link', { name: 'Register a hospital' })).toBeNull()
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it.each(['ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com', 'staging.healthidentitydirectory.com'])(
+    'on %s keeps its own sign-in form and opens nothing else', hostname => {
+      const replace = vi.fn()
+      vi.stubGlobal('location', { ...window.location, hostname, replace })
+      try {
+        open('/provider/sign-in', <BlueSignIn />)
+        expect(screen.getByRole('heading', { level: 1, name: 'Welcome back.' })).toBeDefined()
+        expect(screen.getByRole('textbox', { name: 'Email' })).toBeDefined()
+        expect(replace).not.toHaveBeenCalled()
+      } finally { vi.unstubAllGlobals() }
+    })
+
   it('shows and hides the password with the design\'s button', () => {
     open('/provider/sign-in', <BlueSignIn />)
     const password = screen.getByLabelText('Password')

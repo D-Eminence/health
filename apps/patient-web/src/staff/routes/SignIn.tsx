@@ -16,6 +16,7 @@ import { staffLandingPath } from '../navigation'
 import { staffReturnPath } from '../session'
 import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE, StaffMfaSteps, type StaffMfaLook } from './StaffMfaSteps'
 import { ClinicianSignUpEntry, PageLink } from '../clinician/ClinicianSignUpEntry'
+import { OpenEhrSignIn } from '../../staffSignIn'
 import { servesClinicianApplications, usesNovuBackend } from '../../backendContract'
 import { capturedStaffInvitation } from '../invitationCapture'
 
@@ -121,15 +122,9 @@ export function SignIn() {
   const mfaRequired = (state.status === 'signed-out' || state.status === 'ended') && state.reason === 'mfa-required'
 
   if (state.status === 'ready') return <Navigate to={getStaffLandingPath(location.search, state.session)} replace />
-  // The production portal sends staff to the EHR site's sign-in, which
-  // hid-system accepts; a form here would always be refused.
-  const elsewhere = staffSignInHref(window.location.hostname)
-  if (elsewhere) return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
-    title="Staff sign in is on the provider site." titleId="staff-sign-in-title"
-    lede="Use your work account at ehr.healthidentitydirectory.com.">
-    <p><a className={buttonClass({ variant: 'primary', block: true })} href={elsewhere}>Go to staff sign in</a></p>
-    <ClinicianSignUpEntry className="m-0 text-[13px] text-ink-3" />
-  </AuthLayout>
+  // The production portal serves patients only: it opens the EHR site's sign-in, which hid-system accepts, at once; a
+  // form here would always be refused.
+  if (staffSignInHref(window.location.hostname)) return <OpenEhrSignIn />
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
