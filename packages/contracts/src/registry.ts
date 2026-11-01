@@ -768,7 +768,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     ORDER_LISTS_P4C),
   r('ehr.prescription','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId',GPA,false,{GET:['ehr.prescription.read'],PATCH:['ehr.prescription.write']}),
   r('ehr.prescriptionPharmacy','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/pharmacy-work-item',P,false,one('POST','pharmacy.work-item.accept'),
-    'On Novu since P4c, 409 PRESCRIPTION_ROUTED while the prescription is sent to (or was accepted by) a pharmacy at another facility.'),
+    'On Novu since P4c, 409 PRESCRIPTION_ROUTED while the prescription is sent to (or was accepted by) a pharmacy at another facility. '
+    + "From hid-system 0100 (#139), Pharmacy's own check of the prescription, passed on by the EHR: 404 PRESCRIPTION_SOURCE_NOT_FOUND, "
+    + '409 PRESCRIPTION_SOURCE_NOT_ACTIVE or PRESCRIPTION_SOURCE_VERSION_MISMATCH, 422 PRESCRIPTION_SOURCE_MISMATCH.'),
   r('ehr.labRequests','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests',GP,false,{GET:['ehr.lab-request.read'],POST:['ehr.lab-request.write']},
     ORDER_LISTS_P4C),
   r('ehr.labRequest','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId',GPA,false,{GET:['ehr.lab-request.read'],PATCH:['ehr.lab-request.write']},

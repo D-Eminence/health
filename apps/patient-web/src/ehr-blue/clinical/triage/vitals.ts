@@ -16,9 +16,10 @@ export const SAVE_CORRECTION = 'Save correction'
 
 /**
  * Today's vital measurements, each as EHR's VitalMeasurementsDto accepts it (hid-system ehr/shared/clinical.dto.ts;
- * staff/routes/Clinical.tsx:35-48): a plain label, its unit, the input step (whole numbers or a number of decimal
- * places) and the range. The browser refuses anything else before it is sent, and nothing EHR accepts is refused:
- * SpO₂ to two decimal places, weight to three (a newborn's 3.255 kg) and height to two.
+ * staff/routes/Clinical.tsx:35-48, classic's VITAL_FIELDS): a plain label, its unit, the input step (whole numbers or a
+ * number of decimal places) and the range. The browser refuses anything else before it is sent, and nothing EHR accepts
+ * is refused: temperature to one decimal place, SpO₂ to two, weight to three (a newborn's 3.255 kg) and height to two,
+ * so a reading classic saved can be corrected as it stands.
  */
 export interface VitalField {
   readonly name: VitalMeasurement

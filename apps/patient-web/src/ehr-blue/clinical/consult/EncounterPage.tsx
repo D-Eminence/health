@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { useLocation, useParams } from 'react-router-dom'
 import { staffApi, type ClinicalRecord, type Encounter, type NoteRevision } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
+import { isDemoFacility } from '../../blueFacilities'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
 import {
   ActionList, ConfirmAction, DetailGrid, DetailMeta, HistoryCard, SavedRecord, VersionsCard, type HistoryItem, type VersionItem,
@@ -470,7 +471,10 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       {reads.diagnoses ? (
         <DiagnosesCard chart={chart} encounterId={encounterId} list={diagnoses} canWrite={writes.diagnoses} onSaved={setSuccess} onError={setPageError} />
       ) : null}
-      {chart.can(KINDS.pharmacy.read) || chart.can(KINDS.laboratory.read) || chart.canWrite ? (
+      {/* Only where it has something to show: this visit's orders (each create sits with its list, as in classic), or
+          the demo facilities' sample radiology and referral steps. A role that may add orders but read none sees no
+          empty card. */}
+      {chart.can(KINDS.pharmacy.read) || chart.can(KINDS.laboratory.read) || (chart.canWrite && isDemoFacility(chart.facilityId)) ? (
         <EhrCard title="Orders"><EncounterOrders chart={chart} encounter={encounter} /></EhrCard>
       ) : null}
       {reads.documents ? (

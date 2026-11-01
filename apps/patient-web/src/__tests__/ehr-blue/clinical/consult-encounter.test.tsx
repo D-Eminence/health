@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
-import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
+import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 
 /**
  * Consultation, one encounter: the design's record page (Saved record, Available actions with the typed SIGN
@@ -17,7 +17,7 @@ const api = vi.hoisted(() => ({
   records: vi.fn(), createRecord: vi.fn(), updateRecord: vi.fn(), updateDiagnosis: vi.fn(), noteRevisions: vi.fn(), addNoteRevision: vi.fn(),
   documents: vi.fn(), documentDownload: vi.fn(), uploadDocument: vi.fn(), reportedHealthProfile: vi.fn(),
 }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
+const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined }))
 
 vi.mock('../../../staff/api', async () => ({ staffApi: api, isAllowedPatientLookup: (await import('./harness')).isAllowedPatientLookup }))
 vi.mock('../../../staff/App', async () => {
@@ -63,6 +63,7 @@ let records: Record<string, unknown[]>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  staff.facilityId = undefined
   staff.permissions = [...ALL]
   staff.activePatient = activePatient()
   staff.setActivePatient.mockImplementation(value => { staff.activePatient = value; return true })
@@ -178,6 +179,7 @@ function renderWithOcr() {
 
 describe('Consultation record', () => {
   it('shows the design’s record page on today’s encounter, note and diagnosis', async () => {
+    staff.permissions = [...ALL, 'ehr.prescription.read']
     await openEncounter()
     // The patient is named once, in the sticky banner over the page.
     expect(patientBanner().textContent).toContain(PATIENT_HID)
@@ -546,6 +548,26 @@ describe('Consultation record', () => {
     renderPage(<ConsultWorkspace />, 'consult', '/e9999999-0000-4000-8000-000000000009')
     expect(await screen.findByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
     expect(screen.getByText('This record doesn’t exist, or it belongs to another facility.')).toBeTruthy()
+  })
+
+  it('shows no Orders card to a role that may add orders but read none, at a real facility: it would be empty', async () => {
+    staff.permissions = [...ALL, 'ehr.prescription.write', 'ehr.lab-request.write']
+    await openEncounter()
+    expect(screen.queryByRole('heading', { level: 2, name: 'Orders' })).toBeNull()
+    expect(screen.queryByText(`Connected orders for ${ENCOUNTER_ID}`)).toBeNull()
+  })
+
+  it('shows the Orders card to a role that reads lab requests only', async () => {
+    staff.permissions = [...ALL, 'ehr.lab-request.read']
+    await openEncounter()
+    expect(within(card('Orders')).getByText(`Connected orders for ${ENCOUNTER_ID}`)).toBeTruthy()
+  })
+
+  it('keeps the Orders card at a demo facility, for its sample radiology and referral steps', async () => {
+    staff.facilityId = DEMO_HOSPITAL_ID
+    api.encounter.mockResolvedValue({ ...ENCOUNTER, facilityId: DEMO_HOSPITAL_ID })
+    await openEncounter()
+    expect(within(card('Orders')).getByText(`Connected orders for ${ENCOUNTER_ID}`)).toBeTruthy()
   })
 
   it('mounts the orders pages under the encounter', async () => {

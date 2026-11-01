@@ -440,6 +440,31 @@ describe('sending a prescription to Pharmacy', () => {
     expect(said.textContent).not.toMatch(/could not be reloaded/)
   })
 
+  // hid-system 0100: Pharmacy checks the prescription itself as it accepts it, and the EHR passes its refusal on.
+  it.each([
+    ['PRESCRIPTION_SOURCE_VERSION_MISMATCH', 409, 'This prescription changed since it was read; reload it and send it again',
+      'This prescription changed since it was loaded, so it was not sent to Pharmacy: check it, and send it again if it is still needed.'],
+    ['PRESCRIPTION_SOURCE_NOT_ACTIVE', 409, 'This prescription is no longer active, so Pharmacy did not accept it',
+      'This prescription is no longer active, so it was not sent to Pharmacy.'],
+    ['PRESCRIPTION_SOURCE_NOT_FOUND', 404, 'The prescription was not found at this facility',
+      'This prescription can’t be sent to Pharmacy as it is: check it, and try again if it is still needed.'],
+    ['PRESCRIPTION_SOURCE_MISMATCH', 422, 'The details sent do not match the prescription, so Pharmacy did not accept it',
+      'This prescription can’t be sent to Pharmacy as it is: check it, and try again if it is still needed.'],
+  ])('reads the list again and says plainly why Pharmacy refused it (%s)', async (code, status, detail, said) => {
+    api.acceptPrescription.mockRejectedValueOnce(new HidApiError(status, detail, { code }))
+    await openPrescriptions()
+    api.records.mockClear()
+    const form = within(entry('Amoxicillin')).getByRole('button', { name: 'Send to Pharmacy' }).closest('form')!
+    type(form, 'Reason', 'Patient collecting today')
+    fireEvent.click(within(form).getByRole('button', { name: 'Send to Pharmacy' }))
+
+    expect(await screen.findByText(`${said} The list was reloaded.`)).toBeTruthy()
+    expect(api.records).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'prescriptions', { cursor: undefined, fresh: true })
+    expect(document.body.textContent).not.toContain(code)
+    expect(document.body.textContent).not.toContain(detail)
+    expect(screen.queryByText('Pharmacy accepted this exact prescription version.')).toBeNull()
+  })
+
   // Pharmacy holds one work item per prescription (pharmacy.service.ts acceptEhrPrescription).
   it('says Pharmacy already holds work for a prescription sent before, and that a changed one needs a new prescription', async () => {
     api.acceptPrescription.mockRejectedValueOnce(new HidApiError(409, 'Prescription acceptance conflicts with existing Pharmacy work',
