@@ -83,6 +83,15 @@ describe('the page entry', () => {
 })
 
 describe('the live list', () => {
+  // Role names, never role codes (parity report 3.1 #16): a role Health ID has no name for reads "Staff".
+  it('reads "Staff" for a role Health ID has no name for, never its code', async () => {
+    api.read.mockResolvedValue(staff({ members: [administrator(), { ...receptionist(), roles: ['records_officer'] }] }))
+    open()
+    expect(await screen.findByRole('button', { name: 'MDCN licence' })).toBeTruthy()
+    expect(within(row('No licence on record')).getByText('Staff')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('records_officer')
+  })
+
   it('lists each member’s licence as a record, from the one Staff read', async () => {
     api.read.mockResolvedValue(staff())
     open()

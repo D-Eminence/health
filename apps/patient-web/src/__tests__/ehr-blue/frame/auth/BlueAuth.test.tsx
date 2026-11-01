@@ -197,6 +197,9 @@ describe('BlueStaffInvitation', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
     expect(await screen.findByRole('heading', { level: 2, name: 'Sign in to accept' })).toBeDefined()
     expect(screen.getByRole('link', { name: 'Sign in to accept' }).getAttribute('href')).toBe('/provider/staff/join')
+    // A role Health ID has no name for is "a staff member", never its code (parity report 3.1 #16).
+    expect(screen.getByText(/invited you to join/).textContent).toBe('The facility administrator invited you to join Demo Laboratory as a staff member.')
+    expect(document.body.textContent).not.toContain('lab_scientist')
   })
 })
 

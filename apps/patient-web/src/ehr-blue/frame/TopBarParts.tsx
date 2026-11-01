@@ -9,8 +9,7 @@ import { Alert, Button, Card, EmptyState, Field, IconChip, Input, ListRow } from
 import { isDemoFacility } from '../blueFacilities'
 import { healthIdProblem } from '../clinical/consent/access'
 import { useStaff } from '../../staff/App'
-import { roleLabels } from '../../staff/staffAccess'
-import { usesNovuBackend } from '../../backendContract'
+import { roleNames } from '../../staff/staffAccess'
 import { useAccessRequests, useReloadAccessRequests } from './attention'
 import { sampleModule, sampleRecords } from './sample/store'
 import { useBluePages, useSampleHref } from './pageContext'
@@ -193,7 +192,7 @@ export function AccountMenu({ onSample }: {
   const { actor } = state.session
   const name = actor.displayName ?? actor.email ?? 'Staff member'
   const facility = actor.facility
-  const roles = facility ? (usesNovuBackend() ? roleLabels(facility.roles) : facility.roles.join(', ')) || 'Staff' : 'Staff'
+  const roles = roleNames(facility?.roles ?? [])
 
   async function leave() {
     if (signingOut) return

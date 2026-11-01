@@ -2,7 +2,7 @@ import type { Facility } from './api'
 
 /**
  * Facility roles and licences as the provider portal names them (P4b, Novu only). Identity reports role codes; the
- * portal shows these words instead. A code not listed here is shown as it is.
+ * portal shows these words instead. A code not listed here is shown as it is, except in the blue EHR (roleName below).
  */
 const ROLE_LABELS: Readonly<Record<string, string>> = {
   org_admin: 'Facility administrator',
@@ -27,8 +27,39 @@ export function roleLabels(codes: readonly string[]): string {
 
 /** The role in a sentence: "a doctor", "a laboratory scientist". */
 export function roleInSentence(code: string): string {
-  const word = roleLabel(code).toLowerCase()
+  return withArticle(roleLabel(code).toLowerCase())
+}
+
+function withArticle(word: string): string {
   return `${/^[aeiou]/.test(word) ? 'an' : 'a'} ${word}`
+}
+
+/*
+ * The blue EHR's words for roles, from the same list. Its screens never show a role code (parity report 3.1 #16), on
+ * either backend, so a code the list does not name reads "Staff" instead of appearing as it is. Own keys only: a code
+ * such as "constructor" is not a role.
+ */
+function listedRole(code: string): string | undefined {
+  return Object.hasOwn(ROLE_LABELS, code) ? ROLE_LABELS[code] : undefined
+}
+
+/** A role's words in the blue EHR: "Doctor"; "Staff" for a code the list does not name. */
+export function roleName(code: string): string {
+  return listedRole(code) ?? 'Staff'
+}
+
+/**
+ * A member's roles in the blue EHR, each once ("Facility administrator, Doctor"). A code the list does not name is left
+ * out beside one it does, as "Doctor, Staff" would read oddly; with none named, "Staff".
+ */
+export function roleNames(codes: readonly string[]): string {
+  return [...new Set(codes.flatMap(code => listedRole(code) ?? []))].join(', ') || 'Staff'
+}
+
+/** A role in a blue EHR sentence: "a doctor"; "a staff member" for a code the list does not name. */
+export function roleNameInSentence(code: string): string {
+  const word = listedRole(code)
+  return word ? withArticle(word.toLowerCase()) : 'a staff member'
 }
 
 /** The regulators whose licences a facility vouches for (P4b SPEC 4.2). */

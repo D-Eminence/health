@@ -7,7 +7,7 @@ import { useFocusById } from '../../../staff/focus'
 import { normalizePersonName, personNameProblem } from '../../../staff/routes/Staff'
 import {
   announceFacilityStaffChanged, isLicenceBody, LICENCE_BODIES, licenceBodyForRole, licenceNumberAcceptable,
-  normalizeLicenceNumber, roleLabel,
+  normalizeLicenceNumber, roleName,
 } from '../../../staff/staffAccess'
 import { DeptSection } from '../parts/DeptPage'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -33,7 +33,7 @@ export function RoleFields({ idPrefix, roleLabelText, roles, role, onRole, numbe
     <EhrField controlId={`${idPrefix}-role`} label={<RequiredLabel>{roleLabelText}</RequiredLabel>} error={errors.role}>
       <EhrSelect value={role} required onChange={event => onRole(event.target.value)}>
         <option value="">Select…</option>
-        {roles.map(option => <option key={option.code} value={option.code}>{roleLabel(option.code)}</option>)}
+        {roles.map(option => <option key={option.code} value={option.code}>{roleName(option.code)}</option>)}
       </EhrSelect>
     </EhrField>
     {body ? (

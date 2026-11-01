@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Facility, StaffSession } from './api'
 import { PROVIDER_NAVIGATION, staffLandingPath, visibleNavigation } from './navigation'
-import { roleInSentence, roleLabel, roleLabels } from './staffAccess'
+import { roleInSentence, roleLabel, roleLabels, roleName, roleNameInSentence, roleNames } from './staffAccess'
 import { ASSISTED_REGISTRATION_PERMISSION } from './routes/InPersonCheck'
 import { STAFF_PRODUCT_ROUTES } from '../productHostname'
 
@@ -124,6 +124,30 @@ describe('role names shown to staff', () => {
     expect(roleLabels(['org_admin', 'org_admin_awaiting_review', 'nurse'])).toBe('Facility administrator, Nurse')
     expect(roleInSentence('lab')).toBe('a laboratory scientist')
     expect(roleInSentence('org_admin')).toBe('a facility administrator')
+  })
+})
+
+/** The blue EHR's role words (parity report 3.1 #16): the same names, but never a code, whichever role it is. */
+describe('role names shown in the blue EHR', () => {
+  it.each([
+    ['org_admin', 'Facility administrator'], ['org_admin_awaiting_review', 'Facility administrator'], ['doctor', 'Doctor'],
+    ['lab', 'Laboratory scientist'], ['records_officer', 'Staff'], ['lab_scientist', 'Staff'], ['', 'Staff'],
+    ['constructor', 'Staff'], ['toString', 'Staff'],
+  ])('%s reads “%s”', (code, label) => {
+    expect(roleName(code)).toBe(label)
+  })
+
+  it('names each role once, leaves out one it has no name for, and reads "Staff" when none is named', () => {
+    expect(roleNames(['org_admin', 'org_admin_awaiting_review', 'nurse'])).toBe('Facility administrator, Nurse')
+    expect(roleNames(['nurse', 'records_officer'])).toBe('Nurse')
+    expect(roleNames(['records_officer', 'outreach_officer'])).toBe('Staff')
+    expect(roleNames([])).toBe('Staff')
+  })
+
+  it('reads well in a sentence, as "a staff member" for a role it has no name for', () => {
+    expect(roleNameInSentence('lab')).toBe('a laboratory scientist')
+    expect(roleNameInSentence('org_admin')).toBe('a facility administrator')
+    expect(roleNameInSentence('lab_scientist')).toBe('a staff member')
   })
 })
 

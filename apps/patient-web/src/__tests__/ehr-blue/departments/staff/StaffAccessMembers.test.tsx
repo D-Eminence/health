@@ -87,6 +87,14 @@ describe('the memberships list', () => {
     expect(document.getElementById(edit.getAttribute('aria-describedby')!)?.textContent).toBe('Demo Nurse')
   })
 
+  // Role names, never role codes (parity report 3.1 #16): a role Health ID has no name for reads "Staff".
+  it('reads "Staff" for a role Health ID has no name for, in the list and the drawer, never its code', async () => {
+    const { row, drawer } = await openAccess(staff({ members: [administrator(), nurse({ roles: ['records_officer'], licence: null })] }))
+    expect(within(row).getByText('Staff · active')).toBeTruthy()
+    expect(within(drawer).getByText('Staff / demo.nurse@example.test')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('records_officer')
+  })
+
   it('opens the drawer with the member’s record, and Escape closes it back to Edit access', async () => {
     const { edit, drawer } = await openAccess()
     expect(within(drawer).getByRole('heading', { name: 'Demo Nurse', level: 3 })).toBeTruthy()
