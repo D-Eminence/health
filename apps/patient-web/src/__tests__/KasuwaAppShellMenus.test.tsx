@@ -22,7 +22,7 @@ const NAV: readonly NavGroup[] = [{ items: [
 ] }]
 
 function Shell() {
-  return <AppShell brand={<span>Fictional platform</span>} switcher={{ name: 'Fictional platform' }} nav={NAV}
+  return <AppShell brand={<span>Fictional platform</span>} switcher={{ name: 'Fictional platform', subtitle: 'Administrator' }} nav={NAV}
     person={{ name: 'Ada Example', detail: 'ada@example.test' }} onSignOut={() => undefined} tabs={[]}><p>Page</p></AppShell>
 }
 
