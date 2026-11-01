@@ -199,12 +199,25 @@ afterEach(() => {
   forgetReceiving(); forgetCannotCompleteServed(); forgetLateCorrectionServed(); forgetWrongPatientServed()
 })
 
+/** The Laboratory's refusal at its addresses, in the words of the Pharmacy's. */
+const LAB_REFUSAL = 'Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator.'
+/** A permission's name, Identity's code or the old "membership needs … permission" words: none belongs on a screen. */
+const PERMISSION_WORDS = /permission|membership|work-item|lab\.work-item\.read/i
+
 describe('the page entries', () => {
-  it('keeps the hospital’s Laboratory entry, with today’s refusal at its address', () => {
+  it('keeps the hospital’s Laboratory entry, refusing at its address in plain words that name no permission', () => {
     expect(laboratoryPage).toMatchObject({ path: 'laboratory', group: 'Diagnostics', label: 'Laboratory', permission: 'lab.work-item.read', status: 'live' })
     renderDept(<>{laboratoryPage.refusal}</>)
     expect(screen.getByRole('heading', { level: 1, name: 'Laboratory unavailable' })).toBeTruthy()
-    expect(screen.getByText('This facility membership needs lab work-item read permission.')).toBeTruthy()
+    expect(screen.getByText(LAB_REFUSAL)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
+  })
+
+  it.each(['laboratory/work/*', 'laboratory/results/*'])('refuses %s in the same plain words', path => {
+    renderDept(<>{labPages.find(page => page.path === path)?.refusal}</>)
+    expect(screen.getByRole('heading', { level: 1, name: 'Laboratory unavailable' })).toBeTruthy()
+    expect(screen.getByText(LAB_REFUSAL)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
   })
 
   it('lists the lab’s pages in order, each with the permission it needs', () => {

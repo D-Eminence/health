@@ -165,9 +165,14 @@ beforeEach(() => {
 })
 
 describe('Pharmacy page access', () => {
-  function expectUnavailable() {
+  // Screens name no permission (the owner's rule): at a facility, what the role there doesn't include, in the blue
+  // Pharmacy's words; before a facility is chosen there is no role yet, so it asks for one.
+  const NO_PHARMACY_WORK = 'Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.'
+  const CHOOSE_FACILITY = 'Choose a facility under “Working at” first.'
+  function expectUnavailable(sentence: string) {
     expect(screen.getByRole('heading', { name: 'Pharmacy unavailable' })).toBeTruthy()
-    expect(screen.getByText('This facility membership needs pharmacy work-item read permission.')).toBeTruthy()
+    expect(screen.getByText(sentence)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/permission|membership|work-item|pharmacy\.work-item\.read/i)
     expect(screen.queryByRole('heading', { name: 'Pharmacy' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Refresh work' })).toBeNull()
     expect(api.pharmacyWorkItems).not.toHaveBeenCalled()
@@ -180,7 +185,7 @@ describe('Pharmacy page access', () => {
     staff.permissions = [DISPENSING_CREATE, DISPENSING_READ, DISPENSING_REVERSE]
     render(<Pharmacy />)
 
-    expectUnavailable()
+    expectUnavailable(NO_PHARMACY_WORK)
   })
 
   it.each([
@@ -191,7 +196,7 @@ describe('Pharmacy page access', () => {
     arrange()
     render(<Pharmacy />)
 
-    expectUnavailable()
+    expectUnavailable(CHOOSE_FACILITY)
   })
 })
 

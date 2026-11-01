@@ -13,7 +13,7 @@ export const outreachPage: EhrBluePage = {
   icon: <OutreachIcon />,
   element: <Outreach />,
   // As today: the page opens with campaign or registration read, and reads only what each allows; the sidebar lists it
-  // with registration read (staff/navigation.ts). With neither, its address says what it needs.
+  // with registration read (staff/navigation.ts). With neither, its address says in plain words what the role doesn't include.
   visible: session => holds(session, 'outreach.registration.read') || holds(session, 'outreach.campaign.read'),
   listed: session => holds(session, 'outreach.registration.read'),
   refusal: <OutreachRefusal />,

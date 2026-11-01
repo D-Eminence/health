@@ -61,7 +61,12 @@ describe('b. today\'s own routes keep today\'s tab title inside the blue frame',
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp('/provider/migrate')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Migration workspace unavailable' })).toBeDefined()
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Migration workspace unavailable' })
+    // Today's page refuses in plain words that name no permission (the owner's rule), as Document OCR does.
+    const page = heading.closest('.hid-ehr-blue-live')
+    expect(page?.textContent).toContain('Your role at this facility doesn’t include turning scanned documents into records. '
+      + 'Ask your facility administrator.')
+    expect(page?.textContent).not.toMatch(/permission|membership|OCR job read|ocr\.job\.read/i)
     await waitFor(() => expect(document.title).toBe('Migration workspace · Health ID EHR'))
   })
 
