@@ -69,7 +69,7 @@ export function RequestAccess() {
   const [focusRequest, setFocusRequest] = useState<{ key: Key; n: number } | null>(null)
   // A problem refused from Enter in its own field: focus does not move there, so the field's description would not be
   // read again. It is an alert instead, new for each refusal (today's Patients.tsx:106-113,132,237 and
-  // useFieldProblems.ts:12-15,25-27,45); as both it would be spoken twice.
+  // staff/useFieldProblems.tsx:12-15,25-27,45); as both it would be spoken twice.
   const [alerted, setAlerted] = useState<{ key: Key; n: number } | null>(null)
   const sending = useRef(false)
   const unavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administratorOf(facility, permissions))

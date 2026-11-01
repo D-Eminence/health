@@ -44,6 +44,17 @@ describe('Access requests without identity.consent.write', () => {
     expect(sent.some(call => call.route === REQUESTS)).toBe(false)
   })
 
+  it('says today’s list refusal at a request’s own address, and reads nothing', async () => {
+    const { sent, opened } = openAs(['identity.patient.read'], '/provider/requests/r0000000-0000-4000-8000-000000000001')
+    await opened
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access requests' })).toBeDefined()
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toContain('Your role at this facility cannot list access requests. Ask an administrator to review your assignment.')
+    expect(where()).toBe('/provider/requests/r0000000-0000-4000-8000-000000000001')
+    expect(screen.queryByText(DENIED_NOTICE)).toBeNull()
+    expect(sent.some(call => call.route === REQUESTS)).toBe(false)
+  })
+
   it('opens the patient PIN at Patients, which needs no identity.consent.write', async () => {
     const { sent, opened } = openAs(['identity.patient.read', 'identity.patient-access-pin.verify'], '/provider/requests/pin')
     await opened
