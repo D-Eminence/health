@@ -186,7 +186,7 @@ describe('Triage & Vitals list', () => {
   it('has today’s empty states: no encounters, and encounters with no vitals', async () => {
     api.encounters.mockResolvedValue({ items: [], nextCursor: null })
     const view = open()
-    expect(await screen.findByText('No consultations for this patient here yet. Start one first.')).toBeTruthy()
+    expect(await screen.findByText('No encounters are available for this patient and facility.')).toBeTruthy()
     view.unmount()
     api.encounters.mockResolvedValue({ items: [ENCOUNTER], nextCursor: null })
     vitals = []
@@ -331,7 +331,7 @@ describe('New triage & vitals', () => {
     // Enter in a field submits the form: the button is its submit button.
     fireEvent.submit(form)
 
-    expect(await screen.findByText('Saved.')).toBeTruthy()
+    expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
     expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals',
       { recordedAt: expect.any(String), source: 'manual', systolicMmhg: 120, diastolicMmhg: 80, temperatureC: 37.2 }, expect.any(String))
     expect(api.lookupPatient.mock.invocationCallOrder.at(-2)!).toBeLessThan(api.createRecord.mock.invocationCallOrder[0]!)
@@ -412,7 +412,7 @@ describe('New triage & vitals', () => {
     type(form, 'Height (cm)', '50.25')
     type(form, 'SpO₂ (%)', '97.5')
     fireEvent.click(within(form).getByRole('button', { name: 'Save vitals' }))
-    expect(await screen.findByText('Saved.')).toBeTruthy()
+    expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
     expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals',
       { recordedAt: expect.any(String), source: 'manual', heightCm: 50.25, weightKg: 3.25, oxygenSaturationPercent: 97.5 }, expect.any(String))
   })
@@ -442,7 +442,7 @@ describe('New triage & vitals', () => {
     expect(alert.textContent).toBe('One or more request fields are invalid. Pulse bpm must not be greater than 350.')
     expect(described(input(form, 'Pulse (bpm)'))).toContain('Pulse bpm must not be greater than 350.')
     fireEvent.click(within(form).getByRole('button', { name: 'Save vitals' }))
-    await screen.findByText('Saved.')
+    await screen.findByText('Clinical record saved.')
     expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
   })
 

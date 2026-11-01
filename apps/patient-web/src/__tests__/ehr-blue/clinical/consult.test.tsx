@@ -183,7 +183,8 @@ describe('Consultation list', () => {
     open()
     const pager = await screen.findByRole('navigation', { name: 'Record pages' })
     expect(within(pager).getByText('Page 1')).toBeTruthy()
-    expect((within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement).disabled).toBe(true)
+    const previous = within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement
+    expect([previous.disabled, previous.getAttribute('aria-disabled')]).toEqual([false, 'true'])
     fireEvent.click(within(pager).getByRole('button', { name: 'Next page' }))
     expect(await within(pager).findByText('Page 2')).toBeTruthy()
     expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: 'cursor-2', fresh: false })
@@ -333,7 +334,7 @@ describe('New consultation', () => {
     const context = await screen.findByRole('region', { name: 'Allergies' })
     expect(within(context).getByText('Penicillin (told us by the patient, not checked by a clinician).')).toBeTruthy()
     expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
-    expect(screen.getByText('The note saves as a draft. Sign it on the consultation’s page.')).toBeTruthy()
+    expect(screen.getByText('Notes are saved as drafts. Signing needs its own reviewed action.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Back to list' })).toBeTruthy()
   })
 

@@ -225,7 +225,11 @@ export function SearchField({ label, value, onChange, placeholder = 'Search save
   )
 }
 
-/** "Previous page | Page n of m | Next page" (`total` unknown: "Page n"). */
+/**
+ * "Previous page | Page n of m | Next page" (`total` unknown: "Page n"), as today's Pager (Clinical.tsx): the page
+ * reached is announced (role="status"), and a button that cannot act, at either end or while a page loads, is marked
+ * unavailable (aria-disabled) rather than disabled, so the one just pressed keeps focus; a press then does nothing.
+ */
 export function Pager({ page, total, onPrevious, onNext, busy = false }: {
   page: number
   total?: number
@@ -235,9 +239,9 @@ export function Pager({ page, total, onPrevious, onNext, busy = false }: {
 }) {
   return (
     <nav className="hid-ehr-clinical-pager" aria-label="Record pages">
-      <EhrButton variant="secondary" disabled={!onPrevious} busy={busy} onClick={onPrevious}>Previous page</EhrButton>
-      <span>{total ? `Page ${page} of ${total}` : `Page ${page}`}</span>
-      <EhrButton variant="secondary" disabled={!onNext} busy={busy} onClick={onNext}>Next page</EhrButton>
+      <EhrButton variant="secondary" aria-disabled={!onPrevious || undefined} busy={busy} onClick={onPrevious}>Previous page</EhrButton>
+      <span role="status">{total ? `Page ${page} of ${total}` : `Page ${page}`}</span>
+      <EhrButton variant="secondary" aria-disabled={!onNext || undefined} busy={busy} onClick={onNext}>Next page</EhrButton>
     </nav>
   )
 }

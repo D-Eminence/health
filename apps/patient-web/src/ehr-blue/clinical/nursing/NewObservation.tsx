@@ -88,7 +88,7 @@ function NewObservationForm({ chart }: { chart: Chart }) {
                   ? <>To record BP, pulse, temperature or other vital signs, use <Link className="hid-ehr-clinical-link" to={href.to('triage', 'new')}>{TRIAGE_TITLE}</Link>.</>
                   : `BP, pulse, temperature and other vital signs aren’t recorded here. Your role can’t record them in ${TRIAGE_TITLE}, so ask a colleague who can.`}
               </p>
-              <RecordForm key={visits.map(encounter => encounter.id).join()} fields={fields} submitLabel="Save observation" onSubmit={submit} />
+              <RecordForm key={visits.map(encounter => encounter.id).join()} fields={fields} submitLabel="Save record" onSubmit={submit} />
             </>
           )
         ) : null}
