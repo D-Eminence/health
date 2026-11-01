@@ -1,3 +1,4 @@
+import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { APP_ENTRY, PRODUCT_SITE_SUBDOMAINS, productSignInHref, productSiteHref } from '@/content/site'
@@ -85,5 +86,25 @@ describe('a product page’s Sign in', () => {
     const signIn = screen.getAllByRole('link', { name: 'Sign in', hidden: true })
     expect(signIn.length).toBeGreaterThan(0)
     for (const link of signIn) expect(link.getAttribute('href')).toBe('https://lab.healthidentitydirectory.com/provider/sign-in')
+  })
+
+  // Even where the product sites exist, the api page (no site of its own) and every other provider page, which use the
+  // navigation's default, keep the portal's staff sign-in.
+  it('stays the portal’s staff sign-in on the api page in production', async () => {
+    vi.stubEnv('NEXT_PUBLIC_HID_ENVIRONMENT', 'production')
+    const { default: ProductPage } = await import('../app/products/[slug]/page')
+    render(await ProductPage({ params: Promise.resolve({ slug: 'api' }) }))
+    const signIn = screen.getAllByRole('link', { name: 'Sign in', hidden: true })
+    expect(signIn.length).toBeGreaterThan(0)
+    for (const link of signIn) expect(link.getAttribute('href')).toBe(APP_ENTRY.staffSignIn)
+  })
+
+  it('stays the portal’s staff sign-in in the provider navigation’s default in production', async () => {
+    vi.stubEnv('NEXT_PUBLIC_HID_ENVIRONMENT', 'production')
+    const { ProviderNav } = await import('@/components/layout/SiteNav')
+    render(createElement(ProviderNav))
+    const signIn = screen.getAllByRole('link', { name: 'Sign in', hidden: true })
+    expect(signIn.length).toBeGreaterThan(0)
+    for (const link of signIn) expect(link.getAttribute('href')).toBe(APP_ENTRY.staffSignIn)
   })
 })
