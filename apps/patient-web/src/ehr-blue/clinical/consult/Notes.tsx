@@ -10,11 +10,11 @@ import { ErrorBox, Loading } from '../parts/Notices'
 import { RecordForm, type FieldDef, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { Pager } from '../parts/RecordTable'
 import { StatusBadge } from '../parts/StatusBadge'
-import { LOADING_REVISIONS, NOTE_TRANSITIONS, NO_CONTENT, isObservation, type NoteStatusChange } from '../nursing/observations'
+import { LOADING_REVISIONS, NOTE_TRANSITIONS, NO_CONTENT, REFRESH_REVISIONS, isObservation, type NoteStatusChange } from '../nursing/observations'
 import { useFocusAfterChange } from '../triage/records'
 import {
   ADD_REVISION_LABEL, HIDE_NOTE, NOTES_TITLE, NOTE_STATUS_UPDATED, NO_NOTES, NO_NOTES_ON_PAGE, REASON_FIELD, RECORDING, RECORD_REVISION,
-  REFRESH_REVISIONS, RELOAD_FAILED, RELOAD_NOTE, RELOAD_RECORD, REVIEW_NOTE, REVISION_CONTENT_FIELD, REVISION_FAILED, REVISION_REASON_FIELD,
+  RELOAD_FAILED, RELOAD_NOTE, RELOAD_RECORD, REVIEW_NOTE, REVISION_CONTENT_FIELD, REVISION_FAILED, REVISION_REASON_FIELD,
   REVISION_RECORDED, STATUS_FAILED, UPDATING, contentCheck, field, reasonCheck, recordStatus, refusedFieldErrors, rowVersion, text,
 } from './encounters'
 import { pagerProps, useRevisions, type RecordList } from './records'
@@ -40,10 +40,10 @@ export function ListPaging({ list }: { list: RecordList<unknown> }) {
 
 /**
  * The encounter's clinical notes (today's Notes tab), drawn as the design's card: every note that is not a nursing
- * observation (those have their own pages), on today's record pages. Each note offers today's NotePanel: "Review note
- * content" (its revisions, read when opened), then, once read, "Sign note" (a draft; the design's typed SIGN dialog)
- * and "Mark entered in error" (a plain confirm), each with a reason, and "Add a note revision". Every change re-checks
- * access first.
+ * observation (those have their own pages, which History links for the page shown here), on today's record pages.
+ * Each note offers today's NotePanel: "Review note content" (its revisions, read when opened), then, once read, "Sign
+ * note" (a draft; the design's typed SIGN dialog) and "Mark entered in error" (a plain confirm), each with a reason,
+ * and "Add a note revision". Every change re-checks access first.
  */
 export function NotesCard({ chart, encounterId, list, canWrite, onSaved, onError }: {
   chart: Chart

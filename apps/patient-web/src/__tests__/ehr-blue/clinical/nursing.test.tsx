@@ -326,9 +326,11 @@ describe('Nursing observation record', () => {
     expect(screen.getByText('This record doesn’t exist, or it belongs to another facility.')).toBeTruthy()
   })
 
-  it('amends as today’s note revision, after the access re-check, and keeps what it replaced', async () => {
+  it('amends as today’s note revision, after the access re-check, and keeps every revision with its own content', async () => {
     await openRecord()
     const form = await amendForm()
+    // The units line is its own field, starting at the latest revision's.
+    expect(control(form, 'Units / dose').value).toBe('demo')
     type(form, 'Corrected record', 'Corrected vitals observation')
     type(form, 'Reason', 'Wrong patient bed')
     api.lookupPatient.mockClear()
@@ -341,10 +343,94 @@ describe('Nursing observation record', () => {
     expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.addNoteRevision.mock.invocationCallOrder[0]!)
     expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { fresh: true })
     expect(await within(saved()).findByText('Corrected vitals observation')).toBeTruthy()
+    // Every revision, oldest first, under today's "Revision n" and "Recorded {time} · {reason}", each with its own
+    // content (not the note's status now, nor the content a revision replaced).
     const versions = screen.getByRole('heading', { level: 2, name: 'Earlier versions' }).closest('section')!
-    expect(within(versions).getByText(/^30 Oct 2026, \d\d:\d\d · draft · Wrong patient bed$/)).toBeTruthy()
-    expect(within(versions).getByText('Fictional vitals observation')).toBeTruthy()
+    const [first, second] = Array.from(versions.querySelectorAll('details'))
+    expect(first!.querySelector('summary')!.textContent).toMatch(/^Revision 1 · Recorded 30 Oct 2026, \d\d:\d\d · Initial draft$/)
+    expect(within(first!).getByText('Fictional vitals observation')).toBeTruthy()
+    expect(second!.querySelector('summary')!.textContent).toMatch(/^Revision 2 · Recorded 30 Oct 2026, \d\d:\d\d · Wrong patient bed$/)
+    expect(within(second!).getByText('Corrected vitals observation')).toBeTruthy()
     expect(document.activeElement?.textContent).toBe('Available actions')
+    // "Refresh revisions" reads them again and clears the page's notice, as today.
+    fireEvent.click(within(saved()).getByRole('button', { name: 'Refresh revisions' }))
+    expect(screen.queryByText('A new note revision was recorded.')).toBeNull()
+    expect(await within(saved()).findByText('Corrected vitals observation')).toBeTruthy()
+  })
+
+  it('gap: the amendment corrects or clears the units or dose, which today’s revision replaces with the rest of the content', async () => {
+    let version = 2
+    api.addNoteRevision.mockImplementation(async (_f: string, _p: string, _e: string, _n: string, input: { content: string; changeReason: string }) => {
+      version += 1
+      const revision = { id: `revision-${version}`, revisionNo: version - 1, content: input.content, changeReason: input.changeReason, createdAt: '2026-10-30T10:00:00.000Z' }
+      revisions = [...revisions, revision]
+      notes = [{ ...NOTE, rowVersion: String(version) }]
+      return revision
+    })
+    await openRecord()
+    let form = await amendForm()
+    expect(control(form, 'Units / dose').maxLength).toBe(200)
+    type(form, 'Corrected record', 'Gave paracetamol by mouth')
+    type(form, 'Units / dose', '1 g')
+    type(form, 'Reason', 'Dose corrected')
+    fireEvent.submit(form)
+    await screen.findByText('A new note revision was recorded.')
+    expect(api.addNoteRevision).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, NOTE_ID, {
+      expectedRowVersion: 2, changeReason: 'Dose corrected', content: 'Gave paracetamol by mouth\n\nUnits / dose: 1 g',
+    }, expect.any(String))
+    expect(await within(saved()).findByText('1 g')).toBeTruthy()
+
+    form = await amendForm()
+    expect(control(form, 'Units / dose').value).toBe('1 g')
+    type(form, 'Corrected record', 'Settled, nothing given')
+    type(form, 'Units / dose', '')
+    type(form, 'Reason', 'Nothing was given')
+    fireEvent.submit(form)
+    await waitFor(() => expect(api.addNoteRevision).toHaveBeenCalledTimes(2))
+    expect(api.addNoteRevision).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, NOTE_ID, {
+      expectedRowVersion: 3, changeReason: 'Nothing was given', content: 'Settled, nothing given',
+    }, expect.any(String))
+    expect(await within(saved()).findByText('Settled, nothing given')).toBeTruthy()
+    expect(within(saved()).queryByText('Units')).toBeNull()
+  })
+
+  it('gap: "Refresh revisions" is the retry after a failed read, as today: it reads them again, with no access re-check', async () => {
+    api.noteRevisions.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
+    await openRecord()
+    expect((await within(saved()).findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect(within(actions()).getByText('Nothing more to do here.')).toBeTruthy()
+    const checks = api.lookupPatient.mock.calls.length
+    fireEvent.click(within(saved()).getByRole('button', { name: 'Refresh revisions' }))
+    expect(await within(saved()).findByText('Fictional vitals observation')).toBeTruthy()
+    expect(within(saved()).queryByRole('alert')).toBeNull()
+    expect(api.noteRevisions).toHaveBeenCalledTimes(2)
+    expect(api.noteRevisions).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, NOTE_ID)
+    expect(api.lookupPatient.mock.calls.length).toBe(checks)
+    expect(actionNames()).toEqual(['Amend observation', 'Sign note'])
+  })
+
+  it('gap: while "Refresh revisions" reads, the content is hidden and a status change waits; the open form keeps what was typed', async () => {
+    await openRecord()
+    expect(await within(saved()).findByText('Fictional vitals observation')).toBeTruthy()
+    const { form, submit } = await statusForm('Sign note')
+    const refresh = within(saved()).getByRole('button', { name: 'Refresh revisions' })
+    const read = deferred<unknown[]>()
+    api.noteRevisions.mockReturnValueOnce(read.promise)
+    fireEvent.click(refresh)
+    expect(await within(saved()).findByText('Loading note revisions…')).toBeTruthy()
+    expect(within(saved()).queryByText('Fictional vitals observation')).toBeNull()
+    expect(refresh.getAttribute('aria-busy')).toBe('true')
+    // Pressed again while it reads: nothing more is read.
+    fireEvent.click(refresh)
+    expect(api.noteRevisions).toHaveBeenCalledTimes(2)
+    expect(form.isConnected).toBe(true)
+    expect(control(form, 'Reason for change').value).toBe('Charted on the wrong bed')
+    expect((submit as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => read.resolve([FIRST]))
+    expect(within(saved()).getByText('Fictional vitals observation')).toBeTruthy()
+    expect((submit as HTMLButtonElement).disabled).toBe(false)
+    expect(form.isConnected).toBe(true)
+    expect(api.updateRecord).not.toHaveBeenCalled()
   })
 
   it('refuses as today: revised content and a reason of three characters; a refusal shows in the form and a retry reuses the key', async () => {

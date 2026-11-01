@@ -5,7 +5,7 @@ import { staffApi, type ClinicalRecord, type Encounter } from '../../../staff/ap
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
 import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord, VersionsCard, type VersionItem } from '../parts/Detail'
-import { formatWhen, shortId, statusLabel } from '../parts/format'
+import { formatWhen, shortId } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import { MoreActions } from '../parts/MoreActions'
 import { ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
@@ -17,9 +17,9 @@ import {
   useVisitRecord,
 } from '../triage/records'
 import {
-  AMEND_LABEL, CONTENT_EMPTY, DETAILS_LIMIT, LOADING_REVISIONS, NOTE_STATUS_UPDATED, NOTE_TRANSITIONS, NO_CONTENT, RELOAD_NOTE, RELOAD_RECORD,
-  REVISION_FAILED, REVISION_RECORDED, STATUS_FAILED, TITLE, composeObservation, isObservation, noteStatus, observationItems,
-  parseObservation, useRevisions, type NoteStatusChange, type Revisions,
+  AMEND_LABEL, CONTENT_EMPTY, DETAILS_LIMIT, LOADING_REVISIONS, NOTE_STATUS_UPDATED, NOTE_TRANSITIONS, NO_CONTENT, REFRESH_REVISIONS, RELOAD_NOTE,
+  RELOAD_RECORD, REVISION_FAILED, REVISION_RECORDED, STATUS_FAILED, TITLE, UNITS_LIMIT, composeObservation, isObservation, noteStatus,
+  observationItems, parseObservation, useRevisions, type NoteStatusChange, type Revisions,
 } from './observations'
 
 /** One nursing observation's page, or the chart's own state. */
@@ -68,8 +68,13 @@ function ObservationReader({ chart }: { chart: Chart }) {
   return <Observation key={loaded.record.id} chart={chart} encounter={loaded.encounter} note={loaded.record} reload={reload} />
 }
 
+/**
+ * Today's note revision replaces the whole content, its units line included (Clinical.tsx NotePanel "Content"): the
+ * units or dose is its own field here, starting at the latest revision's, so it can be corrected or cleared too.
+ */
 const AMEND_FIELDS: readonly FieldDef[] = [
   { key: 'note', label: 'Corrected record', type: 'textarea', required: true, maxLength: DETAILS_LIMIT },
+  { key: 'units', label: 'Units / dose', maxLength: UNITS_LIMIT },
   { key: 'reason', label: 'Reason', type: 'textarea', required: true, maxLength: 500 },
 ]
 
@@ -101,7 +106,7 @@ const MORE_CHANGES: ReadonlySet<NoteStatusChange> = new Set(['entered_in_error']
  * (the design's "Amend observation": today's note revision, with a reason; and "Sign note" for a draft; then "More
  * actions", holding today's "Mark entered in error"; each status change with a reason and the design's decision
  * dialog), "Connected hospital history" (the visit, then the encounter's records in the other workspaces:
- * ConnectedHistory) and "Preserved versions & amendments" (what each revision replaced).
+ * ConnectedHistory) and "Preserved versions & amendments" (every revision, with its own content).
  */
 function Observation({ chart, encounter, note, reload }: {
   chart: Chart
@@ -123,12 +128,16 @@ function Observation({ chart, encounter, note, reload }: {
   const focusMore = useFocusAfterChange(moreId)
   const revisions = useRevisions(chart, encounter.id, note)
   const reloads = useLatest(reload)
-  const latest = revisions.state === 'shown' ? revisions.items.at(-1) ?? null : null
+  // The revisions read, kept while "Refresh revisions" reads them again: as today, the forms stay (the one in use keeps
+  // focus) while the content is hidden, and a status change waits for the read; a failed read hides them.
+  const read = revisions.state === 'shown' ? revisions.items : revisions.state === 'loading' ? revisions.earlier : null
+  const reading = revisions.state === 'loading'
+  const latest = read?.at(-1) ?? null
   const writes = chart.canWrite && chart.can('ehr.note.write')
   // Nothing is amended unseen: the content must have been read (today's rule).
-  const canAmend = writes && note.status !== 'entered_in_error' && revisions.state === 'shown'
+  const canAmend = writes && note.status !== 'entered_in_error' && read !== null
   // Nothing is signed or retracted unseen: as today, only once the note's revisions were read and hold its content.
-  const changes = writes && revisions.state === 'shown' && revisions.items.length > 0 ? NOTE_TRANSITIONS[noteStatus(note)] ?? [] : []
+  const changes = writes && (read?.length ?? 0) > 0 ? NOTE_TRANSITIONS[noteStatus(note)] ?? [] : []
   const change = selected === 'amend' ? null : changes.find(item => item.status === selected) ?? null
   const shownChanges = changes.filter(item => !MORE_CHANGES.has(item.status))
   const moreChanges = changes.filter(item => MORE_CHANGES.has(item.status))
@@ -137,7 +146,7 @@ function Observation({ chart, encounter, note, reload }: {
   const amend = async (values: FormValues): Promise<SubmitOutcome> => {
     const expectedRowVersion = rowVersion(note.rowVersion)
     if (expectedRowVersion === null) return { formError: RELOAD_NOTE }
-    const content = composeObservation(text(values.note), parseObservation(latest?.content ?? '').units)
+    const content = composeObservation(text(values.note), text(values.units))
     const changeReason = text(values.reason)
     // A retry of the same revision reuses its key, so EHR cannot record it twice.
     const signature = JSON.stringify([expectedRowVersion, content, changeReason])
@@ -214,6 +223,8 @@ function Observation({ chart, encounter, note, reload }: {
       <DetailMeta status={noteStatus(note)} saved={field(note, 'updatedAt') || note.createdAt} />
       <DetailGrid>
         <SavedRecord items={saved}>
+          {/* Today's "Refresh revisions", also the way to read them again after a failed read. */}
+          <EhrButton variant="quiet" size="sm" busy={reading} onClick={() => { setSuccess(''); revisions.refresh() }}>{REFRESH_REVISIONS}</EhrButton>
           {revisions.state === 'failed' ? <ErrorBox>{revisions.message}</ErrorBox> : null}
         </SavedRecord>
         <EhrCard title={<span id={actionsId} className="hid-ehr-clinical-nursing-focus" tabIndex={-1}>Available actions</span>}>
@@ -232,7 +243,14 @@ function Observation({ chart, encounter, note, reload }: {
             onSelect={chooseMore}
           />
           {canAmend && selected === 'amend' ? (
-            <RecordForm key={`${note.id}-${String(note.rowVersion)}`} fields={AMEND_FIELDS} submitLabel={AMEND_LABEL} validate={amendCheck} onSubmit={amend} />
+            <RecordForm
+              key={`${note.id}-${String(note.rowVersion)}`}
+              fields={AMEND_FIELDS}
+              initial={{ units: parseObservation(latest?.content ?? '').units }}
+              submitLabel={AMEND_LABEL}
+              validate={amendCheck}
+              onSubmit={amend}
+            />
           ) : null}
           {change ? (
             <RecordForm
@@ -241,6 +259,7 @@ function Observation({ chart, encounter, note, reload }: {
               submitLabel={change.label}
               busyLabel="Updating…"
               validate={statusCheck}
+              disabled={reading}
               onSubmit={changeStatus(change.status, change.label)}
               footer={MORE_CHANGES.has(change.status) ? <EhrButton variant="secondary" onClick={cancelMore}>Cancel</EhrButton> : undefined}
             />
@@ -248,7 +267,7 @@ function Observation({ chart, encounter, note, reload }: {
         </EhrCard>
       </DetailGrid>
       <ConnectedHistory chart={chart} encounter={encounter} owner="nursing" />
-      <VersionsCard versions={versionItems(note, revisions)} />
+      <VersionsCard versions={versionItems(revisions)} />
       <ConfirmAction
         open={asking !== null}
         label={asking?.label ?? ''}
@@ -270,18 +289,14 @@ function contentItems(revisions: Revisions, content: string | null): KeyValue[] 
 }
 
 /**
- * "Preserved versions & amendments": for each revision after the first, what it replaced, under
- * "{when} · {status} · {reason}".
+ * "Preserved versions & amendments", once the note has more than one revision: every revision, oldest first, with its
+ * own content, under today's "Revision n" and "Recorded {time} · {reason}" (Clinical.tsx NotePanel).
  */
-function versionItems(note: ClinicalRecord, revisions: Revisions): VersionItem[] {
-  if (revisions.state !== 'shown') return []
-  const status = statusLabel(noteStatus(note))
-  return revisions.items.slice(1).map((revision, index) => {
-    const before = revisions.items[index]!
-    return {
-      key: revision.id,
-      summary: `${formatWhen(revision.createdAt)} · ${status} · ${revision.changeReason}`,
-      items: [{ label: 'Version', value: `Revision ${before.revisionNo}` }, ...observationItems(before.content)],
-    }
-  })
+function versionItems(revisions: Revisions): VersionItem[] {
+  if (revisions.state !== 'shown' || revisions.items.length < 2) return []
+  return revisions.items.map(revision => ({
+    key: revision.id,
+    summary: `Revision ${revision.revisionNo} · Recorded ${formatWhen(revision.createdAt)} · ${revision.changeReason}`,
+    items: observationItems(revision.content),
+  }))
 }

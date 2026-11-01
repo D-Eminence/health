@@ -183,7 +183,8 @@ describe('Consultation list', () => {
     open()
     const pager = await screen.findByRole('navigation', { name: 'Record pages' })
     expect(within(pager).getByText('Page 1')).toBeTruthy()
-    expect((within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement).disabled).toBe(true)
+    const previous = within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement
+    expect([previous.disabled, previous.getAttribute('aria-disabled')]).toEqual([false, 'true'])
     fireEvent.click(within(pager).getByRole('button', { name: 'Next page' }))
     expect(await within(pager).findByText('Page 2')).toBeTruthy()
     expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: 'cursor-2', fresh: false })

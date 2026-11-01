@@ -513,7 +513,8 @@ type Lists = { readonly [K in 'notes' | 'diagnoses' | 'vitals' | 'prescriptions'
 /**
  * "Connected hospital history": the patient's other encounters here, then this encounter's records, each with its status.
  * A record with its own page links to it (nursing observations, vitals, orders), by record ids only. Nursing
- * observations come from the notes' first page, whichever page the Notes card shows.
+ * observations come from the notes page the Notes card shows, as the other notes do: today's Notes tab lists every
+ * note of each "Record pages" page, whatever its type (Clinical.tsx), so paging the card reaches every observation.
  */
 function historyItems(href: ReturnType<typeof useWorkspaceHref>, encounterId: string, others: readonly Encounter[], lists: Lists, documents: RecordList<{ id: string; fileName: string; status: string }>): HistoryItem[] {
   const rows = (records: readonly ClinicalRecord[], kind: string, title: (record: ClinicalRecord) => string, status: (record: ClinicalRecord) => string, link?: (record: ClinicalRecord) => string) =>
@@ -522,7 +523,7 @@ function historyItems(href: ReturnType<typeof useWorkspaceHref>, encounterId: st
   return [
     ...others.map(item => ({ key: `encounter-${item.id}`, label: `${TITLE} · ${encounterTitle(item)}`, href: href(item.id), status: item.status })),
     ...rows(notes.filter(note => !isObservation(note)), 'Notes', record => field(record, 'title') || 'Clinical note', record => recordStatus(record, 'unknown')),
-    ...rows((lists.notes.first ?? []).filter(isObservation), 'Nursing observations', record => shortId(record.id), observationStatus, record => href.to('nursing', recordKey(encounterId, record.id))),
+    ...rows(notes.filter(isObservation), 'Nursing observations', record => shortId(record.id), observationStatus, record => href.to('nursing', recordKey(encounterId, record.id))),
     ...rows(lists.diagnoses.items ?? [], 'Diagnoses', record => field(record, 'display') || 'Diagnosis', diagnosisStatus),
     ...rows(lists.vitals.items ?? [], 'Vitals', record => shortId(record.id), vitalStatus, record => href.to('triage', recordKey(encounterId, record.id))),
     ...rows(lists.prescriptions.items ?? [], 'Pharmacy', record => field(record, 'medicationDisplay') || 'Prescription', record => recordStatus(record), record => href(orderPath(encounterId, 'pharmacy', record.id))),

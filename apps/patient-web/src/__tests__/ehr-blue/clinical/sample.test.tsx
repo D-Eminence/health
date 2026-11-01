@@ -185,7 +185,8 @@ describe('sample engine', () => {
     open('ward-config')
     const pager = screen.getByRole('navigation', { name: 'Record pages' })
     expect(pager.textContent).toContain('Page 1 of 2')
-    expect((within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement).disabled).toBe(true)
+    const previous = within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement
+    expect([previous.disabled, previous.getAttribute('aria-disabled')]).toEqual([false, 'true'])
     expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(51)
     fireEvent.click(within(pager).getByRole('button', { name: 'Next page' }))
     expect(screen.getByRole('navigation', { name: 'Record pages' }).textContent).toContain('Page 2 of 2')
