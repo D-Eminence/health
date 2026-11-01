@@ -8,7 +8,7 @@ import { createPatientApi, type PatientApi, type PatientSession } from './api'
 import { getEnvironment } from './env'
 import { announceSessionChange, heldByOtherPortal, onOtherTabSessionChange, patientSessionRequired } from './sessionChange'
 import { createPatientResourceCache, PatientResourcesContext } from './resourceCache'
-import { leaveAfterSignOut } from './sso/singleSignOn'
+import { leaveAfterSignOut, noteSessionEndedHere } from './sso/singleSignOn'
 
 interface SessionContextValue {
   readonly state: SessionState
@@ -114,6 +114,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const recheckSession = useRef<() => Promise<void>>(async () => undefined)
 
   useEffect(() => store.subscribe(setState), [store])
+  // With single sign-on on app., a patient's session this page showed that ends, whichever way (a sign-out in another
+  // tab or on another site, an expiry, a revocation; this page's own sign-out notes its own first), makes the next
+  // hand-off from this page ask for a new sign-in (sso/singleSignOn.ts noteSessionEndedHere). Noted as the store
+  // changes, before the page renders the hand-off. Off, it does nothing.
+  useEffect(() => {
+    let shown = store.getState().status === 'authenticated'
+    return store.subscribe(next => {
+      if (shown && next.status !== 'authenticated') noteSessionEndedHere()
+      shown = next.status === 'authenticated'
+    })
+  }, [store])
 
   // The pages' last answers (resourceCache.ts), one account's at a time: a sign-out, a session ended elsewhere, or
   // another account's sign-in drops them before any page reads again. Pages rendered meanwhile find none, since a
@@ -404,9 +415,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const signedIn = store.getState().principal?.subjectId
       await turnOffDevicePush(api)
       // With single sign-on on app., where the sign-out sends the tab next (sso/singleSignOn.ts leaveAfterSignOut): the
-      // provider's end-session address when the sign-out answered one, else nowhere, and the next sign-in from this page
-      // is asked for. Noted before the session is cleared, so the signed-out page that follows never hands off on its own.
-      // Off, it does nothing.
+      // provider's end-session address when the sign-out answered one, else nowhere. Noted before the session is
+      // cleared, so the signed-out page that follows never hands off on its own. Every way out of the session asks for
+      // the next sign-in from this page as the store clears it (noteSessionEndedHere, above). Off, it does nothing.
       let endSession: string | null = null
       try {
         endSession = await api.logout(signedIn)
@@ -414,7 +425,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // The browser holds a provider's sign-in now, which Identity neither ended
         // nor changed: this patient's has already left it. Nothing changed for the
         // other tabs to hear about.
-        if (heldByOtherPortal(error)) { leaveAfterSignOut(null); store.clear(); return }
+        if (heldByOtherPortal(error)) { store.clear(); return }
         if (!isHidApiError(error) || error.status !== 401) throw error
         // Logout needs the 15-minute access token. After a longer idle the
         // session is restored once so the server ends it, but only if it is
@@ -426,7 +437,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // A refused refresh leaves no session of this patient's in this browser
           // to end, a provider's sign-in refused as SESSION_CLIENT_MISMATCH included.
           if (isHidApiError(refreshError) && (refreshError.status === 401 || refreshError.status === 403)) {
-            leaveAfterSignOut(null)
             store.clear()
             return
           }
@@ -434,7 +444,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         }
         if (signedIn !== undefined && restored?.actor?.kind === 'patient' && restored.actor.subject === signedIn) {
           try { endSession = await api.logout(signedIn) }
-          catch (repeated) { if (heldByOtherPortal(repeated)) { leaveAfterSignOut(null); store.clear(); return } throw repeated }
+          catch (repeated) { if (heldByOtherPortal(repeated)) { store.clear(); return } throw repeated }
         }
       }
       leaveAfterSignOut(endSession)

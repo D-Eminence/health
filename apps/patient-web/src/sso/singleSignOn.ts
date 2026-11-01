@@ -46,9 +46,10 @@ export function singleSignOnReturnPath(path: string, hostname: string = window.l
 }
 
 /**
- * A sign-out made in this page, held in its memory only and gone with it. `leaving`: the tab is on its way to the
- * provider's end-session address. `signedOut`: the person signed out here, so the next hand-off from this page asks
- * them to sign in again (`prompt=login`) rather than taking up the provider's session without a word.
+ * A sign-out made in this page, or a session it showed that ended, held in its memory only and gone with it. `leaving`:
+ * the tab is on its way to the provider's end-session address. `signedOut`: the person signed out here, or a session
+ * this page showed ended (noteSessionEndedHere), so the next hand-off from this page asks them to sign in again
+ * (`prompt=login`) rather than taking up the provider's session without a word.
  */
 let signedOut = false
 let leaving = false
@@ -66,12 +67,24 @@ export function leaveAfterSignOut(endSession: string | null): void {
   leavePage(endSession)
 }
 
+/**
+ * A session this page showed has ended without a sign-out here: signed out in another tab, ended by another site's
+ * sign-out, expired or revoked. The next hand-off from this page asks for a new sign-in (`prompt=login`), as after a
+ * sign-out here: the provider's session may outlive the product's (its confirmation page still open in the tab that
+ * signed out, or a longer lifetime than the product's idle limit), and taking it up again would bring the same records
+ * back on screen without a word. Does nothing while single sign-on does not hand off here.
+ */
+export function noteSessionEndedHere(): void {
+  if (!singleSignOnSite()) return
+  signedOut = true
+}
+
 /** Whether this page is leaving for the provider's end-session address. */
 export function leavingAfterSignOut(): boolean {
   return leaving
 }
 
-/** Whether the person signed out in this page. */
+/** Whether the person signed out in this page, or a session it showed ended (noteSessionEndedHere). */
 export function signedOutInThisPage(): boolean {
   return signedOut
 }

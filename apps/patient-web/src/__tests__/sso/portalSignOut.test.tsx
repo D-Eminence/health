@@ -36,6 +36,8 @@ const END = 'https://auth.example.test/session/end?client_id=web&post_logout_red
 const patient = () => json({ actor: { kind: 'patient', subject: 'subject-a', patientId: 'patient-a', accountId: 'account-a' },
   expiresAt: '2026-11-30T12:00:00.000Z' })
 const ended = () => json({ endSessionUrl: END })
+const gone = () => problem(401, 'AUTHENTICATION_REQUIRED', 'Valid authentication is required.')
+const mismatch = () => problem(403, 'SESSION_CLIENT_MISMATCH', 'This sign-in belongs to the staff application.')
 
 /** A page holding the session, with the portal's sign-out. */
 async function signedInOn(hostname: string, routes: Record<string, Array<() => Response>>) {
@@ -112,6 +114,28 @@ describe('the patient portal’s sign-out with single sign-on on, on app.', () =
     expect(left).not.toHaveBeenCalled()
     const sso = await import('../../sso/singleSignOn')
     expect(sso.signedOutInThisPage()).toBe(false)
+  })
+})
+
+describe('a sign-out that finds the patient’s sign-in already gone, with single sign-on on, on app.', () => {
+  it.each([['401', gone], ['403 SESSION_CLIENT_MISMATCH', mismatch]])('asks for the next sign-in once the refresh is refused with %s', async (_label, refused) => {
+    const sent = await signedInOn(APP, { [SESSION]: [patient, gone], [REFRESH]: [refused] })
+    await signOut()
+    expect(sent.map(request => request.route)).toEqual([SESSION, SESSION, REFRESH])
+    expect(left).not.toHaveBeenCalled()
+    const sso = await import('../../sso/singleSignOn')
+    expect([sso.signedOutInThisPage(), sso.leavingAfterSignOut()]).toEqual([true, false])
+  })
+})
+
+describe('a repeated sign-out, with single sign-on on, on app.', () => {
+  it('asks for the next sign-in when the restored session’s sign-out finds another portal’s sign-in', async () => {
+    const sent = await signedInOn(APP, { [SESSION]: [patient, gone, patient], [REFRESH]: [patient], [SSO_LOGOUT]: [mismatch] })
+    await signOut()
+    expect(sent.map(request => request.route)).toEqual([SESSION, SESSION, REFRESH, SESSION, SSO_LOGOUT])
+    expect(left).not.toHaveBeenCalled()
+    const sso = await import('../../sso/singleSignOn')
+    expect([sso.signedOutInThisPage(), sso.leavingAfterSignOut()]).toEqual([true, false])
   })
 })
 

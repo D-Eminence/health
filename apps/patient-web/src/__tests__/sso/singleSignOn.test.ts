@@ -159,3 +159,27 @@ describe('after a sign-out in this page', () => {
     }
   })
 })
+
+describe('after a session this page showed ended without a sign-out here', () => {
+  it('asks for the next sign-in from this page, leaving for nowhere, in this page only', async () => {
+    environment.current = { ssoEnabled: true }
+    onSite('app.healthidentitydirectory.com')
+    const sso = await load()
+    sso.noteSessionEndedHere()
+    expect(left).not.toHaveBeenCalled()
+    expect([sso.signedOutInThisPage(), sso.leavingAfterSignOut()]).toEqual([true, false])
+    vi.resetModules()
+    expect((await load()).signedOutInThisPage()).toBe(false)
+  })
+
+  it('does nothing while single sign-on does not hand off here', async () => {
+    for (const [current, host] of [[{ ssoEnabled: false }, 'app.healthidentitydirectory.com'], [{ ssoEnabled: true }, 'localhost']] as const) {
+      environment.current = current
+      onSite(host)
+      const sso = await load()
+      sso.noteSessionEndedHere()
+      expect([sso.signedOutInThisPage(), sso.leavingAfterSignOut()]).toEqual([false, false])
+      vi.resetModules()
+    }
+  })
+})
