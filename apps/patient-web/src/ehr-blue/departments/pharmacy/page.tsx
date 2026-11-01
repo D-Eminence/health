@@ -1,8 +1,10 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { CalendarCheck, PackageOpen, ReceiptText, ShoppingBag, SlidersHorizontal, Tags } from 'lucide-react'
 import { usesNovuBackend } from '../../../backendContract'
+import { useStaff } from '../../../staff/App'
 import { selfServiceReview, selfServiceType } from '../../../staff/staffAccess'
 import type { EhrBluePage } from '../types'
+import { pageAllowed } from '../../frame/pageAccess'
 import { useBluePage } from '../../frame/pageContext'
 import { productOf } from '../../frame/product'
 import { DeptUnavailable } from '../parts/DeptPage'
@@ -34,14 +36,17 @@ const GETS_PHARMACY: ReadonlySet<string> = new Set(['pharmacy', 'hospital', 'cli
 /**
  * Opened by its address without the permission: today's refusal (staff/routes/Operations.tsx Pharmacy) in plain words,
  * and nothing is read. A role that may open another Pharmacy page (Sell, Stock, Sales & receipts…) is told only
- * prescriptions are not in it. The administrator of a facility that signed itself up (the only role there that manages
+ * prescriptions are not in it: only where that page opens, so not at a real facility while those pages show at the demo
+ * facilities only (commerce/served.ts). The administrator of a facility that signed itself up (the only role there that manages
  * staff) is never told to ask the facility administrator, which they are. While Health ID support checks a facility
  * that will get Pharmacy, Pharmacy is locked for them too (the banner above says so): it opens after the check. Once
  * the facility is checked, they add a pharmacist on the Staff page. A facility that will not get Pharmacy has no step.
  */
 function PharmacyUnavailable() {
+  const { state } = useStaff()
+  const session = state.status === 'ready' ? state.session : null
   const { facility, permissions } = useDeptAccess()
-  const otherPharmacyWork = pharmacyPages.some(page => page !== pharmacyPage && page.permission !== undefined && permissions.includes(page.permission))
+  const otherPharmacyWork = pharmacyPages.some(page => page !== pharmacyPage && page.permission !== undefined && pageAllowed(page, session))
   const review = usesNovuBackend() ? selfServiceReview(facility) : null
   const getsPharmacy = GETS_PHARMACY.has(selfServiceType(facility) ?? '')
   const administrator = review !== null && permissions.includes('workforce.manage')

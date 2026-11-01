@@ -193,6 +193,8 @@ describe('at a real facility, where Health ID does not serve Sell yet, the pharm
   it('walk-in sales only: Prescriptions, which says plainly why it is closed', async () => {
     const landed = await settle(PHARMACY, [WALK_IN])
     expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
+    // Sell does not open here, so no pharmacy page is in the role: "only prescriptions are not in it" would be wrong.
+    expect(screen.getByText(NO_PHARMACY_WORK)).toBeTruthy()
     expect(screen.queryByRole('link', { name: 'Sell' })).toBeNull()
     expect(document.body.textContent).not.toMatch(/work-item|walk-in|permission|pharmacy\.\w/)
   })
@@ -205,8 +207,16 @@ describe('at a real facility, where Health ID does not serve Sell yet, the pharm
   it('other pharmacy pages but neither (Stock, Sales & receipts): Prescriptions, with none of those pages in the menu', async () => {
     const landed = await settle(PHARMACY, ['pharmacy.stock.read', 'billing.bill.read'])
     expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
+    expect(screen.getByText(NO_PHARMACY_WORK)).toBeTruthy()
     expect(screen.queryByRole('link', { name: 'Stock' })).toBeNull()
     expect(screen.queryByRole('link', { name: 'Sales & receipts' })).toBeNull()
+  })
+
+  it('a seller who opens Prescriptions by its address is told the role has no pharmacy work here', async () => {
+    const landed = await settle(PHARMACY, [WALK_IN], '/provider/pharmacy/prescriptions')
+    expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
+    expect(screen.getByText(NO_PHARMACY_WORK)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/include prescriptions/)
   })
 
   it.each([[[]], [[WALK_IN]]])('the Sell address, with %j, says Sell is part of the demo only and stays there', async permissions => {
