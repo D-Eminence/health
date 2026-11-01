@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { PORTAL_HOSTNAMES, resolveStaffProductHostname } from './productHostname'
-import { otherStaffSites, rightSiteHref, siteElsewhere, siteOf, siteServing } from './productSites'
+import { otherStaffSites, ownProductPage, rightSiteHref, siteElsewhere, siteOf, siteServing } from './productSites'
 
 /** Each product on its own site: which host a site is, and where an address another site serves goes. */
 const at = (pathname: string, search = '', hash = '') => ({ pathname, search, hash })
@@ -98,5 +98,29 @@ describe('siteElsewhere', () => {
     expect(siteElsewhere('lab', 'lab.healthidentitydirectory.com')).toBeNull()
     expect(siteElsewhere('lab', 'localhost')).toBeNull()
     expect(siteElsewhere('ehr', 'admin.healthidentitydirectory.com')).toBeNull()
+  })
+})
+
+describe('ownProductPage', () => {
+  it('is a product page a staff site serves, never one every staff site serves', () => {
+    const ehr = 'ehr.healthidentitydirectory.com'
+    const lab = 'lab.staging.healthidentitydirectory.com'
+    for (const path of ['/provider/patients', '/provider/clinical/encounter-1', '/provider/laboratory', '/provider/pharmacy/sell']) {
+      expect(ownProductPage(path, ehr)).toBe(true)
+    }
+    for (const path of ['/provider/laboratory', '/provider/laboratory/work/item-1', '/PROVIDER/LABORATORY']) expect(ownProductPage(path, lab)).toBe(true)
+    for (const path of ['/provider', '/provider/', '/provider/sign-in', '/provider/institutions', '/provider/staff', '/provider/staff/join',
+      '/provider/billing', '/provider/audit', '/provider/facility', '/provider/hr', '/provider/recover', '/provider/join']) {
+      expect(ownProductPage(path, ehr)).toBe(false)
+      expect(ownProductPage(path, lab)).toBe(false)
+    }
+    // Another site's page, the patient portal and the admin pages are not this site's product.
+    for (const path of ['/provider/patients', '/provider/pharmacy', '/records', '/', '/admin/overview']) expect(ownProductPage(path, lab)).toBe(false)
+  })
+
+  it('is false on any host that is not a staff site', () => {
+    for (const hostname of ['app.healthidentitydirectory.com', 'admin.healthidentitydirectory.com', 'localhost', 'evil.example']) {
+      expect(ownProductPage('/provider/laboratory', hostname)).toBe(false)
+    }
   })
 })
