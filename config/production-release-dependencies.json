@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now, after backend release backend-41191658905-1-12d98e3f095d7031 (D-Eminence/hid-system#136 at 82f52b9). That release rebuilt and deployed every service at 82f52b9, because the runtime assessment it updates (CVE-2026-84243) is a build input, so every service pins to 82f52b9. Browser-facing changes since the previous pins: ehr-api's document upload link now carries the checksum and declared-sha256 as signed headers, which this frontend already sends from requiredHeaders (health#60), so uploads can complete; ocr-api publishes validated OCR evidence by default. gateway, lab-api, pharmacy-api, outreach-api, support-api and notification-api have no code change since 61fb36b. Nothing else this frontend calls changed shape. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-31 (\"approve re-pin\" and \"Approve both\", for re-pinning the website after the upload fix and OCR publishing release).",
+  "review_reference": "The services as deployed now, after backend release backend-41333594692-1-124c45a5cdf6c1c7 (D-Eminence/hid-system#141 at 6c6fc18, which released the pharmacy guard from hid-system#139). That release rebuilt and deployed every service at 6c6fc18, because #141 changed scripts/, so every service pins to 6c6fc18. Browser-facing changes since the previous pins (82f52b9): pharmacy-api refuses a same-facility acceptance that is not exactly its active EHR prescription (404 PRESCRIPTION_SOURCE_NOT_FOUND, 409 PRESCRIPTION_SOURCE_NOT_ACTIVE, 409 PRESCRIPTION_SOURCE_VERSION_MISMATCH, 422 PRESCRIPTION_SOURCE_MISMATCH) and a dispensing whose prescription has changed (409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE); this frontend shows its general refusal for these until the pharmacy reload mapping ships. ehr-api sends a prescription's startsOn and endsOn as calendar days (YYYY-MM-DD) instead of timestamps, which every formatter here already reads (calendarDate, calendarDay); a send to another facility now runs SERIALIZABLE with retry, with no change in shape. gateway, identity-api, lab-api, ocr-api, outreach-api, support-api and notification-api have no code change since 82f52b9. Nothing else this frontend calls changed shape. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-11-01 (\"Approve re-pin\", for re-pinning the website after the pharmacy guard release so the five urgent EHR fixes, health#104, can release).",
   "backend_commits": {
-    "gateway": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "identity-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "ehr-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "lab-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "pharmacy-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "ocr-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "outreach-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "support-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "notification-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be"
+    "gateway": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
+    "identity-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
+    "ehr-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
+    "lab-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
+    "pharmacy-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
+    "ocr-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
+    "outreach-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
+    "support-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
+    "notification-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450"
   }
 }
