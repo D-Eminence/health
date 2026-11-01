@@ -12,8 +12,10 @@ export const NEW_TITLE = 'New triage & vitals'
 export const AMEND_LABEL = 'Amend observation'
 
 /**
- * Today's vital measurements (as EHR's DTO limits them): a plain label, its unit, the input step and range. Steps are
- * what a ward measures to: SpO₂ in whole percent, weight and temperature to one decimal place.
+ * Today's vital measurements, each as EHR's VitalMeasurementsDto accepts it (hid-system ehr/shared/clinical.dto.ts;
+ * staff/routes/Clinical.tsx:35-48): a plain label, its unit, the input step (whole numbers or a number of decimal
+ * places) and the range. The browser refuses anything else before it is sent, and nothing EHR accepts is refused:
+ * SpO₂ to two decimal places, weight to three (a newborn's 3.255 kg) and height to two.
  */
 export interface VitalField {
   readonly name: VitalMeasurement
@@ -30,9 +32,9 @@ export const VITAL_FIELDS: readonly VitalField[] = [
   { name: 'pulseBpm', label: 'Pulse', unit: 'bpm', step: '1', min: '10', max: '350' },
   { name: 'temperatureC', label: 'Temperature', unit: '°C', step: '0.1', min: '20', max: '50' },
   { name: 'respiratoryRate', label: 'Respiratory rate', unit: 'breaths/min', step: '1', min: '1', max: '100' },
-  { name: 'oxygenSaturationPercent', label: 'SpO₂', unit: '%', step: '1', min: '0', max: '100' },
-  { name: 'weightKg', label: 'Weight', unit: 'kg', step: '0.1', min: '0.2', max: '700' },
-  { name: 'heightCm', label: 'Height', unit: 'cm', step: '0.1', min: '20', max: '300' },
+  { name: 'oxygenSaturationPercent', label: 'SpO₂', unit: '%', step: '0.01', min: '0', max: '100' },
+  { name: 'weightKg', label: 'Weight', unit: 'kg', step: '0.001', min: '0.2', max: '700' },
+  { name: 'heightCm', label: 'Height', unit: 'cm', step: '0.01', min: '20', max: '300' },
 ]
 
 /** "Pulse (bpm)": a field's label with its unit. */

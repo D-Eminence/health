@@ -2,7 +2,7 @@ import { isHidApiError } from '@hid/http'
 import { EhrCard, EhrField, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { staffApi, type VitalMeasurements } from '../../../staff/api'
+import { staffApi, type Encounter, type VitalMeasurements } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { isDemoFacility } from '../../blueFacilities'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
@@ -12,9 +12,10 @@ import { ErrorBox, Loading, RecordHeading } from '../parts/Notices'
 import type { SubmitOutcome } from '../parts/RecordForm'
 import { SampleBanner } from '../parts/SampleBanner'
 import { useWorkspaceHref } from '../parts/Workspace'
+import { VisitPages } from './ListCard'
 import {
-  NO_COMPLAINT, NO_CREATE, NO_ENCOUNTERS, NO_RECORD_ACCESS, NO_WRITE, RECORD_NOT_SAVED, isoNow, recordKey, recordedAt, refusedFieldErrors,
-  usePatientRecords, type VisitRecord,
+  NO_COMPLAINT, NO_CREATE, NO_ENCOUNTERS, NO_RECORD_ACCESS, NO_WRITE, RECORD_NOT_SAVED, isoNow, onAnotherPage, recordKey, recordedAt,
+  refusedFieldErrors, usePatientRecords, type VisitRecord,
 } from './records'
 import { CORRECTION_UNREAD, LOADING_CORRECTION, NEW_TITLE, VITAL_FIELDS, currentValues, measurementItems, orderedMeasurements, useCorrections, vitalStatus } from './vitals'
 import { VitalsForm, type VitalsInput } from './VitalsForm'
@@ -68,8 +69,9 @@ function NewTriageForm({ chart }: { chart: Chart }) {
   }
 
   const visits = list.encounters ?? []
-  const visitHint = (encounterId: string) => {
-    if (list.encounters !== null && visits.length === 0) {
+  const visitHint = (chosen: Encounter | null) => {
+    if (!chosen) {
+      if (list.encounters === null || visits.length > 0) return undefined
       return (
         <>
           {NO_ENCOUNTERS}
@@ -77,8 +79,8 @@ function NewTriageForm({ chart }: { chart: Chart }) {
         </>
       )
     }
-    const chosen = visits.find(encounter => encounter.id === encounterId)
-    return chosen ? `Presenting complaint: ${chosen.chiefComplaint || NO_COMPLAINT}` : undefined
+    const complaint = `Presenting complaint: ${chosen.chiefComplaint || NO_COMPLAINT}`
+    return visits.some(encounter => encounter.id === chosen.id) ? complaint : `${complaint} ${onAnotherPage(chosen)}`
   }
 
   return (
@@ -88,6 +90,9 @@ function NewTriageForm({ chart }: { chart: Chart }) {
       <EhrCard>
         <PatientContext chart={chart} prior={reads ? list.records : []} />
         {list.error ? <ErrorBox>{list.error}</ErrorBox> : null}
+        {/* Today's "Encounter pages" (Clinical.tsx:1794): vitals may be added to any of the patient's encounters here,
+            not only the newest 50. The page shown also gives the earlier vitals above. */}
+        {reads ? <VisitPages list={list} label="Encounter pages" /> : null}
         {canCreate ? (
           list.encounters === null ? (list.loading ? <Loading label="Loading consultations…" /> : null) : (
             <VitalsForm mode="record" visits={visits} visitHint={visitHint} groupLabel="Vital measurements" submitLabel="Save vitals" onSubmit={submit}>

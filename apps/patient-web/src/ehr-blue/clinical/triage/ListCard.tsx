@@ -24,27 +24,15 @@ export function ListCard({ list, rows, search, onSearch, hrefFor, title, pending
     return rows.filter(row => [row.name, row.id, row.context, statusWords(row.status), row.statusNote ?? '', ...row.details.map(detail => typeof detail.value === 'string' ? detail.value : '')]
       .join(' ').toLowerCase().includes(words))
   }, [rows, search])
-  const { cursors, next, loading, load } = list
-  const paged = cursors.length >= 2 || next !== null
 
   return (
     <EhrCard>
       <SearchField label={`Search ${title}`} value={search} onChange={onSearch} />
-      {list.notice ? (
-        list.notice.alert ? <ErrorBox>{list.notice.text}</ErrorBox> : <p className="hid-ehr-clinical-note" role="status">{list.notice.text}</p>
-      ) : null}
-      {paged ? (
-        <Pager
-          page={cursors.length}
-          busy={loading}
-          onPrevious={cursors.length >= 2 ? () => void load({ cursors: cursors.slice(0, -1), paging: true }) : undefined}
-          onNext={next ? () => void load({ cursors: [...cursors, next], paging: true }) : undefined}
-        />
-      ) : null}
+      <VisitPages list={list} />
       {list.error ? <ErrorBox>{list.error}</ErrorBox> : null}
       {list.recordError ? <ErrorBox>{list.recordError}</ErrorBox> : null}
       {list.truncated ? <p className="hid-ehr-clinical-note">{NEWEST_ONLY}</p> : null}
-      {list.records === null || pending ? (loading || pending ? <Loading label="Loading records…" /> : null) : (
+      {list.records === null || pending ? (list.loading || pending ? <Loading label="Loading records…" /> : null) : (
         <RecordTable
           caption={title}
           rows={filtered}
@@ -55,4 +43,31 @@ export function ListCard({ list, rows, search, onSearch, hrefFor, title, pending
       )}
     </EhrCard>
   )
+}
+
+/**
+ * Today's paging over the patient's encounters, 50 to a page (staff/routes/Clinical.tsx:1793-1794): the list's notice,
+ * then the pager, each move re-checking access first. Shown only while there is more than one page, or something to
+ * say. With `label`, it is a group of that name (the create page's "Encounter pages", beside its visit picker).
+ */
+export function VisitPages({ list, label }: { list: PatientRecords; label?: string }) {
+  const { cursors, next, loading, load, notice } = list
+  const paged = cursors.length >= 2 || next !== null
+  if (!paged && !notice) return null
+  const pages = (
+    <>
+      {notice ? (
+        notice.alert ? <ErrorBox>{notice.text}</ErrorBox> : <p className="hid-ehr-clinical-note" role="status">{notice.text}</p>
+      ) : null}
+      {paged ? (
+        <Pager
+          page={cursors.length}
+          busy={loading}
+          onPrevious={cursors.length >= 2 ? () => void load({ cursors: cursors.slice(0, -1), paging: true }) : undefined}
+          onNext={next ? () => void load({ cursors: [...cursors, next], paging: true }) : undefined}
+        />
+      ) : null}
+    </>
+  )
+  return label ? <div role="group" aria-label={label}>{pages}</div> : pages
 }

@@ -234,6 +234,33 @@ describe('Consultation record', () => {
     }
   })
 
+  it('gap: vitals past the encounter’s first page are reached with the history’s "Triage & Vitals" record pages, as today’s Vitals tab', async () => {
+    const later = { ...VITAL, id: 'vital-2', createdAt: '2026-10-29T08:05:00.000Z', pulseBpm: 88 }
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string, page?: { cursor?: string }) => {
+      if (kind !== 'vitals') return { items: records[kind] ?? [], nextCursor: null }
+      return page?.cursor === 'vitals-2' ? { items: [later], nextCursor: null } : { items: [VITAL], nextCursor: 'vitals-2' }
+    })
+    await openEncounter()
+    const pages = await history().findByRole('group', { name: 'Triage & Vitals' })
+    expect(within(pages).getByRole('navigation', { name: 'Record pages' })).toBeTruthy()
+    expect(within(pages).getByText('Page 1')).toBeTruthy()
+    expect(history().getByRole('link', { name: 'Vitals · vital-1' })).toBeTruthy()
+
+    fireEvent.click(within(pages).getByRole('button', { name: 'Next page' }))
+    const link = await history().findByRole('link', { name: 'Vitals · vital-2' })
+    expect(link.getAttribute('href')).toBe(`/provider/triage/${ENCOUNTER_ID}~vital-2`)
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { cursor: 'vitals-2', fresh: false })
+    expect(within(pages).getByText('Page 2')).toBeTruthy()
+    expect(history().queryByRole('link', { name: 'Vitals · vital-1' })).toBeNull()
+    expect(window.location.href).not.toContain('vitals-2')
+  })
+
+  it('shows no vitals pager while the encounter’s vitals fit on one page', async () => {
+    await openEncounter()
+    expect(history().getByRole('link', { name: 'Vitals · vital-1' })).toBeTruthy()
+    expect(history().queryByRole('group', { name: 'Triage & Vitals' })).toBeNull()
+  })
+
   it('item 1: offers "Write clinical note" while the encounter already has a note, with today’s note type, title and content', async () => {
     api.createRecord.mockResolvedValue({ id: 'note-2', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T09:00:00.000Z' })
     await openEncounter()

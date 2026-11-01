@@ -393,6 +393,88 @@ describe('New triage & vitals', () => {
     expect(api.createRecord).not.toHaveBeenCalled()
   })
 
+  // EHR's VitalMeasurementsDto, as today's form lets it through (staff/routes/__tests__/VitalsLimits.test.tsx:53-62): values
+  // EHR accepts, then values it refuses (outside the range, or one decimal place too many).
+  const LIMITS: ReadonlyArray<readonly [label: string, accepted: readonly string[], refused: readonly string[]]> = [
+    ['BP systolic (mmHg)', ['30', '120', '350'], ['29', '351', '120.5']],
+    ['BP diastolic (mmHg)', ['10', '80', '250'], ['9', '251', '80.5']],
+    ['Pulse (bpm)', ['10', '72', '350'], ['9', '351', '72.5']],
+    ['Temperature (°C)', ['20', '36.6', '50'], ['19.9', '50.1', '36.65']],
+    ['Respiratory rate (breaths/min)', ['1', '16', '100'], ['0', '101', '16.5']],
+    ['SpO₂ (%)', ['0', '97.25', '100'], ['-0.01', '100.01', '97.255']],
+    ['Weight (kg)', ['0.2', '70.125', '700'], ['0.199', '700.001', '70.1255']],
+    ['Height (cm)', ['20', '172.55', '300'], ['19.99', '300.01', '172.555']],
+  ]
+
+  it('blocker: accepts what EHR accepts for each measurement, and only that, as today', async () => {
+    const form = await openNew()
+    for (const [label, accepted, refused] of LIMITS) {
+      for (const value of accepted) {
+        type(form, label, value)
+        expect(input(form, label).checkValidity(), `${label} ${value}`).toBe(true)
+      }
+      for (const value of refused) {
+        type(form, label, value)
+        expect(input(form, label).checkValidity(), `${label} ${value}`).toBe(false)
+      }
+    }
+  })
+
+  it('blocker: records SpO₂, a newborn’s weight and a height to the decimals EHR keeps', async () => {
+    const form = await openNew()
+    fireEvent.change(input(form, 'Visit'), { target: { value: ENCOUNTER_ID } })
+    type(form, 'SpO₂ (%)', '97.5')
+    type(form, 'Weight (kg)', '3.255')
+    type(form, 'Height (cm)', '50.25')
+    fireEvent.submit(form)
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
+    expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals',
+      { recordedAt: expect.any(String), source: 'manual', heightCm: 50.25, weightKg: 3.255, oxygenSaturationPercent: 97.5 }, expect.any(String))
+  })
+
+  it('gap: pages the visits as today’s "Encounter pages", keeping a visit chosen on another page and recording for it', async () => {
+    const second = { ...ENCOUNTER, id: 'e2222222-0000-4000-8000-000000000002', chiefComplaint: 'Cough', startedAt: '2026-10-20T08:00:00.000Z' }
+    api.encounters.mockImplementation(async (_f: string, _p: string, page: { cursor?: string }) =>
+      page.cursor ? { items: [second], nextCursor: null } : { items: [ENCOUNTER], nextCursor: 'cursor-2' })
+    const form = await openNew()
+    const visit = input(form, 'Visit') as unknown as HTMLSelectElement
+    fireEvent.change(visit, { target: { value: ENCOUNTER_ID } })
+    const pages = screen.getByRole('group', { name: 'Encounter pages' })
+    expect(within(pages).getByRole('navigation', { name: 'Record pages' })).toBeTruthy()
+    api.lookupPatient.mockClear()
+    fireEvent.click(within(pages).getByRole('button', { name: 'Next page' }))
+    expect(await within(pages).findByText('Page 2')).toBeTruthy()
+    // Each move re-checks access first, as today's encounter read does.
+    expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: 'cursor-2', fresh: false })
+    expect(api.lookupPatient).toHaveBeenCalledTimes(1)
+    expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.encounters.mock.invocationCallOrder.at(-1)!)
+    // Page 2's visit is offered; the one chosen stays chosen, and today's sentence says it is on another page.
+    expect(Array.from(visit.options).map(option => option.value)).toEqual(['', ENCOUNTER_ID, second.id])
+    expect(visit.value).toBe(ENCOUNTER_ID)
+    expect(described(visit)).toContain(`Presenting complaint: Fever, headache The encounter being documented, ambulatory started ${formatWhen(ENCOUNTER.startedAt)}, is on another page.`)
+    type(form, 'Pulse (bpm)', '90')
+    fireEvent.submit(form)
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
+    expect(api.createRecord.mock.calls[0]![2]).toBe(ENCOUNTER_ID)
+  })
+
+  it('gap: records vitals for a visit chosen on a later page of visits', async () => {
+    const second = { ...ENCOUNTER, id: 'e2222222-0000-4000-8000-000000000002', chiefComplaint: 'Cough', startedAt: '2026-10-20T08:00:00.000Z' }
+    api.encounters.mockImplementation(async (_f: string, _p: string, page: { cursor?: string }) =>
+      page.cursor ? { items: [second], nextCursor: null } : { items: [ENCOUNTER], nextCursor: 'cursor-2' })
+    const form = await openNew()
+    fireEvent.click(within(screen.getByRole('group', { name: 'Encounter pages' })).getByRole('button', { name: 'Next page' }))
+    const visit = input(form, 'Visit') as unknown as HTMLSelectElement
+    await waitFor(() => expect(Array.from(visit.options).map(option => option.value)).toEqual(['', second.id]))
+    fireEvent.change(visit, { target: { value: second.id } })
+    expect(described(visit)).toContain('Presenting complaint: Cough')
+    expect(described(visit)).not.toContain('is on another page')
+    type(form, 'Pulse (bpm)', '90')
+    fireEvent.submit(form)
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
+    expect(api.createRecord.mock.calls[0]![2]).toBe(second.id)
+  })
+
   it('shows a server refusal at its field and in the form, and a retry reuses the key', async () => {
     api.createRecord.mockRejectedValueOnce(new HidApiError(400, 'One or more request fields are invalid.', {
       code: 'VALIDATION_FAILED', details: [{ field: 'pulseBpm', messages: ['pulseBpm must not be greater than 350'] }],
@@ -513,6 +595,51 @@ describe('Triage & Vitals record', () => {
     expect(await screen.findByText('Corrected (correction 1)')).toBeTruthy()
     expect(within(saved()).getByText('78')).toBeTruthy()
     expect(document.activeElement?.textContent).toBe('Available actions')
+  })
+
+  it('blocker: corrects one value of vitals stored with more decimals, sending the others unchanged', async () => {
+    vitals = [{ ...VITAL, oxygenSaturationPercent: '97.50', weightKg: '3.255', heightCm: '50.25' }]
+    await openRecord()
+    const form = await amendForm()
+    expect(input(form, 'SpO₂ (%)').value).toBe('97.50')
+    expect(input(form, 'Weight (kg)').value).toBe('3.255')
+    type(form, 'BP systolic (mmHg)', '124')
+    type(form, 'Reason', 'Repeat reading')
+    fireEvent.submit(form)
+    await waitFor(() => expect(api.correctVital).toHaveBeenCalledTimes(1))
+    expect(api.correctVital).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, VITAL_ID, {
+      expectedRowVersion: 1, changeReason: 'Repeat reading',
+      replacementValues: { systolicMmhg: 124, diastolicMmhg: 80, pulseBpm: 72, temperatureC: 36.6, oxygenSaturationPercent: 97.5, weightKg: 3.255, heightCm: 50.25 },
+    }, expect.any(String))
+  })
+
+  it('gap: opens no correction while the vitals are read again after one, so none goes out with the old version', async () => {
+    await openRecord()
+    const form = await amendForm()
+    type(form, 'Pulse (bpm)', '78')
+    type(form, 'Reason', 'Repeat reading')
+    const reread = deferred<{ items: unknown[]; nextCursor: null }>()
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string, page?: { fresh?: boolean }) =>
+      page?.fresh ? reread.promise : { items: kind === 'vitals' ? vitals : others[kind] ?? [], nextCursor: null })
+    api.vitalCorrections.mockResolvedValue([{ ...CORRECTIONS[0]!, replacementValues: { systolicMmhg: 120, diastolicMmhg: 80, pulseBpm: 78, temperatureC: 36.6 }, reason: 'Repeat reading' }])
+    fireEvent.submit(form)
+    expect(await screen.findByText('Vital correction saved.')).toBeTruthy()
+    await waitFor(() => expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { fresh: true }))
+
+    // Still the version from before the correction: the button says it is unavailable, and a press opens nothing.
+    const amend = screen.getByRole('button', { name: 'Amend observation' })
+    expect(amend.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(amend)
+    expect(amend.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getAllByRole('button', { name: 'Amend observation' })).toHaveLength(1)
+
+    await act(async () => reread.resolve({ items: [{ ...VITAL, currentCorrectionNo: 1, rowVersion: '2' }], nextCursor: null }))
+    expect(await screen.findByText('Corrected (correction 1)')).toBeTruthy()
+    const again = await screen.findByRole('button', { name: 'Amend observation' })
+    expect(again.getAttribute('aria-disabled')).toBeNull()
+    fireEvent.click(again)
+    expect(input(screen.getAllByRole('button', { name: 'Amend observation' }).at(-1)!.closest('form')!, 'Pulse (bpm)').value).toBe('78')
+    expect(api.correctVital).toHaveBeenCalledTimes(1)
   })
 
   it('refuses an unchanged correction and a short reason, as today', async () => {

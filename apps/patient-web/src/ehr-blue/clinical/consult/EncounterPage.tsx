@@ -15,8 +15,9 @@ import { ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../
 import { COMPLETE_FIELD, RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
 import { NOTE_TRANSITIONS, isObservation, noteStatus as observationStatus } from '../nursing/observations'
+import { HistoryPages } from '../triage/ConnectedHistory'
 import { NO_RECORD_ACCESS, recordKey } from '../triage/records'
-import { vitalStatus } from '../triage/vitals'
+import { TITLE as TRIAGE_TITLE, vitalStatus } from '../triage/vitals'
 import { DiagnosesCard } from './Diagnoses'
 import { DocumentsCard } from './Documents'
 import {
@@ -478,6 +479,8 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       <TodaySections chart={chart} />
       <HistoryCard items={historyItems(href, encounterId, others, { notes, diagnoses, vitals, prescriptions, labs }, documents)}>
         <HistoryErrors lists={[notes, diagnoses, vitals, prescriptions, labs, documents]} />
+        {/* Today's Vitals tab pages the encounter's vitals, 50 to a page (Clinical.tsx:1807): one past the first page is reached here. */}
+        <HistoryPages title={TRIAGE_TITLE} list={vitals} />
       </HistoryCard>
       <VersionsCard versions={versionItems(note, revisions.items)} />
       <ConfirmAction

@@ -100,6 +100,14 @@ export function visitLabel(encounter: Encounter): string {
   return [shortId(encounter.id), statusLabel(encounter.status), formatWhen(encounter.startedAt)].filter(Boolean).join(' · ')
 }
 
+/**
+ * Today's sentence for the encounter chosen while another page of encounters is shown (staff/routes/Clinical.tsx:1795),
+ * its time in the page's own day-and-time format.
+ */
+export function onAnotherPage(encounter: Encounter): string {
+  return `The encounter being documented, ${statusLabel(encounter.encounterType)} started ${formatWhen(encounter.startedAt)}, is on another page.`
+}
+
 /** When a record was made: the time it was recorded at, else when it was saved. */
 export function recordedAt(record: ClinicalRecord): string {
   return field(record, 'recordedAt') || record.createdAt
