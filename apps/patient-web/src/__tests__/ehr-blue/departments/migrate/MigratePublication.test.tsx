@@ -51,6 +51,10 @@ const published = { ...publication, status: 'published', attemptCount: 2, maxAtt
 const ehrUnavailable = () => new HidApiError(503, 'EHR service is unavailable', { code: 'EHR_SERVICE_UNAVAILABLE' })
 /** What a publication OCR has not finished says when this page holds its key. */
 const RESUME_HERE = 'OCR has not finished this publication. If it has stopped, Retry publication resumes it; if it is still running, OCR says so.'
+/** What a failed publication says, in place of OCR's stored failure code and summary, which are never shown. */
+const PUBLICATION_FAILED = 'Nothing was added to the patient’s record.'
+/** OCR's stored failure codes and summaries in these tests: none belongs on a screen. */
+const SERVER_FAILURE_WORDS = /OWNING_SERVICE_UNAVAILABLE|EHR_SERVICE_UNAVAILABLE|ENCOUNTER_NOT_FOUND|temporarily unavailable|owning (clinical )?(service|domain)/i
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -116,7 +120,9 @@ describe('publishing validated OCR evidence', () => {
     expect(api.ocrPublications).toHaveBeenCalledTimes(2)
     expect(screen.queryByRole('button', { name: 'Publish to EHR' })).toBeNull()
     expect(screen.getByText(/Attempt 1 of 3/)).toBeTruthy()
-    expect(screen.getByText(/temporarily unavailable \(EHR_SERVICE_UNAVAILABLE\)/)).toBeTruthy()
+    // The failure in plain words, never OCR's stored summary or failure code (owner's rule: no server text or codes).
+    expect(screen.getByText(PUBLICATION_FAILED)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(SERVER_FAILURE_WORDS)
     // Focus, lost with the Publish button, goes to the control that continues the work.
     await waitFor(() => expect(document.activeElement).toBe(retry))
 
@@ -265,7 +271,8 @@ describe('publishing validated OCR evidence', () => {
     await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(SAID_NOT_FOUND))
     expect(document.body.textContent).not.toContain('Encounter was not found')
-    expect(await screen.findByText('Publication was rejected by the owning domain')).toBeTruthy()
+    expect(await screen.findByText(PUBLICATION_FAILED)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(SERVER_FAILURE_WORDS)
     expect(screen.getByText('It cannot be retried.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Retry publication' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Publish to EHR' })).toBeNull()
@@ -283,7 +290,8 @@ describe('publishing validated OCR evidence', () => {
       { code: 'OCR_PUBLICATION_TERMINAL' }))
     api.ocrPublications.mockResolvedValue({ items: [refusedByEhr] })
     await press(screen.getByRole('button', { name: 'Publish to EHR' }))
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('The owning service refused this publication, so it cannot be retried.'))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('This couldn’t be added to the patient’s record, and it can’t be tried again.'))
+    expect(document.body.textContent).not.toMatch(/owning service|failed terminally|OCR_PUBLICATION_TERMINAL/)
     expect(keys()).toHaveLength(2)
     expect(keys()[1]).toBe(keys()[0])
     expect(screen.queryByRole('button', { name: 'Retry publication' })).toBeNull()

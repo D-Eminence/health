@@ -227,10 +227,18 @@ export const PUBLICATION_RETRY_WAIT = 'OCR allows another attempt about 15 secon
 /** A publication request this page sent: the Idempotency-Key it goes with, and when OCR takes a failed one again. */
 export interface PublicationAttempt { readonly key: string; retryAt: number }
 
+/**
+ * What a failed publication says, in place of OCR's stored failure code and summary: those are the services' own words
+ * ("Owning clinical service is temporarily unavailable (EHR_SERVICE_UNAVAILABLE)"), never shown (owner's rule, 1 Nov
+ * 2026). Whether it can be tried again follows, from the code, in the page's own words.
+ */
+const PUBLICATION_FAILED = 'Nothing was added to the patient’s record.'
+
 function publicationRefusal(caught: unknown) {
   // OCR answers it also after the last attempt (INTERFACE_CONTRACT.md, OCR publication).
   if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_IN_PROGRESS') return 'OCR did not start another attempt: one is still running, it is too soon after the last one, or no attempts remain.'
-  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_TERMINAL') return 'The owning service refused this publication, so it cannot be retried.'
+  // The part of the record it was going to refused it for good: said as what it means for the person, not as a service.
+  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_TERMINAL') return 'This couldn’t be added to the patient’s record, and it can’t be tried again.'
   return errorText(caught, 'The validated evidence was not published.')
 }
 
@@ -328,8 +336,8 @@ function PublicationStatus({ facilityId, publication, permissions, canPublish, r
       : canPublish ? `${unfinished} If it has stopped, it can be resumed only from the page where Publish was pressed, before that page is reloaded or left.`
         : unfinished
   return <div className="hid-ehr-dept-migrate-publication">
-    <p>Publication <EhrBadge tone={statusTone(publication.status)}>{statusWords(publication.status)}</EhrBadge>{publication.failureCode ? ` · ${publication.failureCode}` : ''}{attempts}</p>
-    {failed && publication.failureSummary && <p>{publication.failureSummary}</p>}
+    <p>Publication <EhrBadge tone={statusTone(publication.status)}>{statusWords(publication.status)}</EhrBadge>{attempts}</p>
+    {failed && <p>{PUBLICATION_FAILED}</p>}
     {failed && failedText && <p className="hid-ehr-dept-muted">{failedText}</p>}
     {(publication.status === 'pending' || publication.status === 'processing') && <p className="hid-ehr-dept-muted">{unfinishedText}</p>}
     {publication.status === 'published' && <PublishedEvidence facilityId={facilityId} publication={publication} permissions={permissions} />}
