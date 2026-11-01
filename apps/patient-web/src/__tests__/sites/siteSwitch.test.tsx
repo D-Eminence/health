@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
-import { facility, homeHeading, openStaffApp, serve, sessionAt, where } from '../ehr-blue/frame/blueHarness'
+import { DEMO_HOSPITAL, DEMO_LABORATORY, facility, homeHeading, openStaffApp, serve, sessionAt, where } from '../ehr-blue/frame/blueHarness'
 import { backToTestSite, EVERY_PERMISSION, onSite, siteLinks } from './siteHarness'
 
 /**
@@ -216,6 +216,33 @@ describe('on (VITE_HID_SSO=1): an account its facility gives nothing of this sit
     await arrive(hostname, path, permissions)
     expect(screen.queryByRole('heading', { name: CANNOT_USE })).toBeNull()
     expect(document.title).not.toMatch(/^No access/)
+  })
+})
+
+describe('a demo facility opened on another staff site', () => {
+  /** lab. at Demo Hospital, which works on ehr. (blueFacilities.ts), with Demo Laboratory to choose instead. */
+  async function demoHospitalOnLab() {
+    const hospital = facility(DEMO_HOSPITAL, 'Demo Hospital', EVERY_PERMISSION)
+    serve({ 'GET /api/v1/auth/session': [sessionAt(hospital, [hospital, facility(DEMO_LABORATORY, 'Demo Laboratory', LABORATORY)], 'selected')] })
+    onSite(LAB, '/provider/audit')
+    await openStaffApp('/provider/audit')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Demo Hospital works on Hospital EHR' })).toBeTruthy()
+    return thePage()
+  }
+
+  it('off: links to the site’s root and says it signs in separately, as today', async () => {
+    const page = await demoHospitalOnLab()
+    expect(page.getByText('Demo Hospital is on ehr.healthidentitydirectory.com, where you sign in separately. To work at another facility here, choose it.')).toBeTruthy()
+    expect(page.getByRole('link', { name: 'Open Hospital EHR' }).getAttribute('href')).toBe('https://ehr.healthidentitydirectory.com/')
+  })
+
+  it('on: links to the site’s workspace with from and back, and warns of no second sign-in', async () => {
+    on()
+    const page = await demoHospitalOnLab()
+    expect(page.getByText('Demo Hospital is on ehr.healthidentitydirectory.com. To work at another facility here, choose it.')).toBeTruthy()
+    expect(page.queryByText(/sign in separately/)).toBeNull()
+    expect(page.getByRole('link', { name: 'Open Hospital EHR' }).getAttribute('href'))
+      .toBe('https://ehr.healthidentitydirectory.com/provider?from=lab&back=%2Fprovider%2Faudit')
   })
 })
 

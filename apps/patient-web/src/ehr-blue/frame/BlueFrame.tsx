@@ -112,11 +112,13 @@ function switchBackPath(pathname: string, page: EhrBluePage | null): string {
 
 /**
  * A demo facility opened on another staff site than its own: it works on its own site, where the person signs in again
- * (each site keeps its own sign-in). Nothing opens here; Facility switches to another facility.
+ * (each site keeps its own sign-in). Nothing opens here; Facility switches to another facility. With single sign-on on,
+ * that site signs them in through the sign-in site they already used, so the page no longer warns of a second sign-in.
  */
 function FacilityOnAnotherSite({ facility, site, href, choosing }: { facility: string; site: Site; href: string; choosing: boolean }) {
+  const where = switchingOn() ? `${facility} is on ${site.hostname}.` : `${facility} is on ${site.hostname}, where you sign in separately.`
   return <EmptyState titleAs="h1" icon={ExternalLink} title={`${facility} works on ${SITE_NAMES[site.key]}`}
-    description={`${facility} is on ${site.hostname}, where you sign in separately.${choosing ? ' To work at another facility here, choose it.' : ''}`}
+    description={`${where}${choosing ? ' To work at another facility here, choose it.' : ''}`}
     action={<div className="flex flex-wrap justify-center gap-2">
       <Button href={href} variant="primary">Open {SITE_NAMES[site.key]}</Button>
       {choosing ? <Button to="/provider/institutions">Choose workspace</Button> : null}
