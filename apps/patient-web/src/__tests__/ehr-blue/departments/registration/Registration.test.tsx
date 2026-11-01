@@ -155,8 +155,9 @@ describe('who can open Patient registration', () => {
 
   /*
    * Who reads what (#104's rule, shared as refusedWorkText): the administrator of a facility that signed itself up is
-   * never told to ask the facility administrator, which they are. Registration stays in the EHR (the owner's rule), so
-   * only a hospital or a clinic gets it. Every facility here is fictional.
+   * never told to ask the facility administrator, which they are. Only a hospital or a clinic is promised registration:
+   * a laboratory or pharmacy never gets it (it stays in the EHR, the owner's rule), and an "other" facility agrees its
+   * access with Health ID support. Every facility here is fictional.
    */
   describe('by who reads it', () => {
     /** A self-signed-up facility's administrator whose role holds no registration (it manages the facility's staff). */
@@ -194,7 +195,7 @@ describe('who can open Patient registration', () => {
       ['checked', 'other', 'reviewed', ADMINISTRATOR],
       ['being checked', 'laboratory', 'pending', AWAITING_REVIEW], ['being checked', 'pharmacy', 'pending', AWAITING_REVIEW],
       ['being checked', 'other', 'pending', AWAITING_REVIEW],
-    ])('the administrator of a %s %s, which never gets registration: the role sentence only', (_checked, organizationType, review, permissions) => {
+    ])('the administrator of a %s %s, which is not promised registration: the role sentence only', (_checked, organizationType, review, permissions) => {
       expect(refusalAs(permissions, { review, organizationType })).toBe(ROLE_SENTENCE)
     })
 
