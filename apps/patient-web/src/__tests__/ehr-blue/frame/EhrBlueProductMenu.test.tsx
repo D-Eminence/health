@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, within } from '@testing-library/react'
 import { inProduct, type Product } from '../../../ehr-blue/frame/product'
-import { DEMO_HOSPITAL, DEMO_LABORATORY, REAL_FACILITY, SESSION, facility, openStaffApp, serve, sessionAt, withFramePages } from './blueHarness'
+import { DEMO_HOSPITAL, DEMO_LABORATORY, REAL_FACILITY, SESSION, facility, openStaffApp, serve, sessionAt, where, withFramePages } from './blueHarness'
 
 /**
  * Patients and Access requests on a single product's site (parity report 3.1 #7). On lab., pharmacy., outreach. and
  * migrate. the menu and search list only that product's pages and the facility's own (staff, audit, profile); a lab
  * scientist or a pharmacist still finds a patient and asks for access there, as the classic portal listed each page by
  * permission on every site (staff/navigation.ts). The other clinical pages, registration among them, stay the EHR's.
- * Most cases run on the frame's own registry at a demo facility; one runs on the real, merged registry at a clinic.
+ * Most cases run on the frame's own registry at a demo facility; the rest run on the real, merged registry at a clinic or
+ * a hospital.
  * Every account and facility here is fictional, and the hosts are only set as the page's address: nothing is sent there.
  */
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
@@ -194,6 +195,41 @@ describe('the Start menu', () => {
       .toEqual(['/provider/patients', '/provider/registration', '/provider/requests'])
     expect(within(start).getByRole('link', { name: /^Ask a patient for access/ })).toBeTruthy()
   })
+})
+
+describe('Patients opened from the menu, on the real registry', () => {
+  // The whole path a person takes, end to end: the real, merged registry (no withFramePages) and the real Find a patient
+  // (clinical/patients/PatientsWorkspace.tsx). The session holds registration's permission as well as Patients', so on
+  // a product's site it is the site, not the permission, that keeps "Register a patient" away.
+  const REGISTERS = ['identity.patient.read', 'identity.registration.write']
+
+  /** Opens Choose workspace (listed nowhere), then Patients from the sidebar, and waits for Find a patient. */
+  async function patientsFromMenu(host: string, name: string, permissions: readonly string[]) {
+    await openOn(host, REAL_FACILITY, name, permissions, '/provider/institutions')
+    fireEvent.click(within(nav()).getByRole('link', { name: 'Patients' }))
+    // The real app loads its pages lazily: a cold first open can take longer than the ten seconds vitest.setup.ts gives
+    // an element, so this one wait has most of the test's 30 s (vitest.config.ts).
+    await screen.findByRole('heading', { name: 'Find a patient' }, { timeout: 25000 })
+    expect(where()).toBe('/provider/patients')
+  }
+
+  it.each(SITES)('on %s (%s) brings no Register a patient, even to a session allowed registration', async (_product, host, _id, _name, own) => {
+    await patientsFromMenu(host, 'Riverside Clinic (fictional)', [own, ...REGISTERS])
+    expect(screen.getByRole('button', { name: 'Find' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /Register a patient/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Register a patient/ })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/Register a patient/)
+    // Nothing on the page leads to registration, by any name: not the page, not the menu.
+    expect(document.querySelector('a[href*="/provider/registration"]')).toBeNull()
+  })
+
+  it.each(SITES)('at a hospital on the EHR’s address, the same session (with %s’s own permission) is offered Register a patient',
+    async (_product, _host, _id, _name, own) => {
+      await patientsFromMenu('ehr.healthidentitydirectory.com', 'Riverside Hospital (fictional)', [own, ...REGISTERS])
+      const offered = screen.getAllByRole('link', { name: 'Register a patient' })
+      expect(offered.length).toBeGreaterThan(0)
+      for (const link of offered) expect(link.getAttribute('href')).toBe('/provider/registration')
+    })
 })
 
 describe('the EHR’s menu at a hospital', () => {
