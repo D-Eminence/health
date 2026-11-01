@@ -1,8 +1,11 @@
-import { useCallback, useState, type FormEvent } from 'react'
+import { useCallback, useState } from 'react'
+import { Button, Card, DescriptionList, FilterTabs } from '../kasuwa/ui'
 import {
   adminApi, type AdminActor, type ApprovalDecided, type ApprovalDecision, type ApprovalRequest, type ApprovalStatus,
 } from './api'
-import { LoadMore, Page, Refresh, ResourceView, Status, date, label, useCursorPages, useGovernedSubmit, useResource } from './ui'
+import {
+  LoadMore, Page, ReasonConfirm, Refresh, ResourceView, Status, Subject, date, label, useCursorPages, useResource, type ConfirmSpec,
+} from './ui'
 
 const FILTERS: Array<{ value: ApprovalStatus | null; title: string }> = [
   { value: 'pending', title: 'Pending' }, { value: null, title: 'All' }, { value: 'approved', title: 'Approved' },
@@ -23,79 +26,85 @@ function outcome(result: ApprovalDecided, request: ApprovalRequest) {
   const target = request.targetDisplayName || request.targetEmail || 'The administrator'
   if (result.status === 'approved' && result.executed) {
     return request.action === 'mfa.reset'
-      ? `Approved and carried out. ${target}’s authenticator and sessions were revoked; they set up a new authenticator at next sign-in.`
-      : `Approved and carried out. ${target} is now a Super Admin.`
+      ? `Approved. ${target} is signed out and sets up a new authenticator at next sign-in.`
+      : `Approved. ${target} is now a Super Admin.`
   }
-  if (result.status === 'rejected') return 'Request rejected. Nothing was changed.'
-  if (result.status === 'cancelled') return 'Request cancelled. Nothing was changed.'
-  return `Request is now ${label(result.status).toLowerCase()}.`
+  if (result.status === 'rejected') return 'Request rejected. Nothing changed.'
+  if (result.status === 'cancelled') return 'Request cancelled. Nothing changed.'
+  return `The request is now ${label(result.status).toLowerCase()}.`
+}
+
+function targetName(request: ApprovalRequest) {
+  return request.targetDisplayName || request.targetEmail || 'The administrator'
+}
+
+/** What a decision does, said before it is made. */
+function decisionSpec(request: ApprovalRequest, decision: ApprovalDecision): ConfirmSpec {
+  const name = targetName(request)
+  const subject = <Subject name={describe(request)} detail={`For ${name} · requested ${date(request.requestedAt)}`} />
+  const done = (result: unknown) => outcome(result as ApprovalDecided, request)
+  if (decision === 'approve') return request.action === 'mfa.reset'
+    ? { title: 'Approve the authenticator reset?', subject, effect: `${name}’s authenticator and recovery codes stop working, and they’re signed out everywhere.`,
+      undo: 'This can’t be undone. They set up a new authenticator at next sign-in.', confirmLabel: 'Approve reset', destructive: true,
+      stepUp: `approve the authenticator reset for ${name}`, done }
+    : { title: `Make ${name} a Super Admin?`, subject, effect: `${name} becomes a Super Admin at once.`,
+      undo: 'You can remove the role later from Users & roles.', confirmLabel: 'Approve', stepUp: `make ${name} a Super Admin`, done }
+  if (decision === 'reject') return { title: 'Reject this request?', subject, effect: 'The request closes. Nothing changes.',
+    undo: 'A new request can be made later.', confirmLabel: 'Reject', stepUp: 'reject this request', done }
+  return { title: 'Cancel your request?', subject, effect: 'The request closes. Nothing changes.', undo: 'You can make a new request later.',
+    confirmLabel: 'Cancel request', stepUp: 'cancel this request', done }
 }
 
 function DecisionForm({ request, actor, onDecided }: {
-  request: ApprovalRequest; actor: AdminActor; onDecided: (message: string) => void
+  request: ApprovalRequest; actor: AdminActor; onDecided: () => void
 }) {
-  const [reason, setReason] = useState('')
-  // The decision being submitted, for button labels only. Each button passes
-  // its own decision, so a click can never send another button's decision.
-  const [pending, setPending] = useState<ApprovalDecision | null>(null)
-  const governed = useGovernedSubmit()
+  // Each button opens its own decision's confirmation, so a confirm can never send another button's decision.
+  const [deciding, setDeciding] = useState<ApprovalDecision | null>(null)
   const requester = request.requestedBy === actor.accountId
   const target = request.targetAccountId === actor.accountId
   const superAdmin = actor.platformRoles.includes('platform_super_admin')
-  const ready = !governed.busy && reason.trim().length >= 8
+  const rule = requester ? 'You made this request, so another Super Admin must decide. You can cancel it.'
+    : target ? 'This changes your own account, so another Super Admin must decide.'
+      : !superAdmin ? 'Only a Super Admin who didn’t make the request can decide.' : null
 
-  async function decide(decision: ApprovalDecision) {
-    if (!ready) return
-    setPending(decision)
-    const decided = await governed.submit(idempotencyKey => adminApi.decideApproval(request, decision, reason.trim(), idempotencyKey),
-      'The decision could not be recorded.')
-    setPending(null)
-    if (decided) { setReason(''); onDecided(outcome(decided, request)) }
-  }
-
-  return <form className="admin-action-form" onSubmit={(event: FormEvent<HTMLFormElement>) => event.preventDefault()}>
-    {requester && <p className="admin-note">You made this request. A different Super Admin must approve or reject it;
-      you can cancel it.</p>}
-    {target && !requester && <p className="admin-note">This request changes your own account, so another Super Admin
-      must decide it.</p>}
-    {!superAdmin && !requester && <p className="admin-note">Only a Super Admin other than the requester and the affected
-      administrator can decide. The server checks this when you submit.</p>}
-    <p className="admin-note">Deciding is a critical action: it needs your authenticator confirmation and is recorded
-      in the audit log with your reason.</p>
-    <label>Reason for your decision<textarea required minLength={8} maxLength={500} rows={2}
-      value={reason} onChange={event => setReason(event.target.value)} /></label>
-    <div className="admin-action-row">
-      <button type="button" className="admin-primary" onClick={() => void decide('approve')}
-        disabled={!ready}>{pending === 'approve' ? 'Approving…' : 'Approve'}</button>
-      <button type="button" className="admin-secondary" onClick={() => void decide('reject')}
-        disabled={!ready}>{pending === 'reject' ? 'Rejecting…' : 'Reject'}</button>
-      {requester && <button type="button" className="admin-secondary" onClick={() => void decide('cancel')}
-        disabled={!ready}>{pending === 'cancel' ? 'Cancelling…' : 'Cancel request'}</button>}
+  return <div className="flex flex-col gap-3 border-t border-line pt-4">
+    {rule && <p className="m-0 text-caption text-ink-3">{rule}</p>}
+    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+      <Button className="sm:min-w-32" onClick={() => setDeciding('approve')}>Approve</Button>
+      <Button className="sm:min-w-32" onClick={() => setDeciding('reject')}>Reject</Button>
+      {requester && <Button variant="ghost" className="col-span-2" onClick={() => setDeciding('cancel')}>Cancel request</Button>}
     </div>
-    {governed.error && <p role="alert" className="admin-error">{governed.error}</p>}
-  </form>
+    {deciding && <ReasonConfirm open onClose={() => setDeciding(null)} spec={decisionSpec(request, deciding)}
+      fallback="The decision could not be recorded."
+      onSubmit={async (reason, idempotencyKey) => {
+        const decided = await adminApi.decideApproval(request, deciding, reason, idempotencyKey)
+        onDecided()
+        return decided
+      }} />}
+  </div>
 }
 
 function ApprovalCard({ request, actor, onDecided }: {
-  request: ApprovalRequest; actor: AdminActor; onDecided: (message: string) => void
+  request: ApprovalRequest; actor: AdminActor; onDecided: () => void
 }) {
   const target = request.targetDisplayName || request.targetEmail || request.targetAccountId
-  return <article className="admin-tile admin-approval" data-status={request.status}>
-    <div className="admin-panel-head"><h2>{describe(request)}</h2><Status value={request.status} /></div>
-    <dl className="admin-detail-grid">
-      <div><dt>Administrator</dt><dd>{target}{request.targetEmail && request.targetDisplayName ? <small>{request.targetEmail}</small> : null}</dd></div>
-      <div><dt>Requested by</dt><dd>{who(request.requestedBy, actor)}</dd></div>
-      <div><dt>Requested</dt><dd>{date(request.requestedAt)}</dd></div>
-      <div><dt>{request.status === 'pending' ? 'Expires' : 'Expiry'}</dt><dd>{date(request.expiresAt)}</dd></div>
-      <div><dt>Reason</dt><dd>{request.reason}</dd></div>
-      {request.decidedAt && <div><dt>Decided</dt><dd>{who(request.decidedBy, actor)} · {date(request.decidedAt)}</dd></div>}
-      {request.decisionReason && <div><dt>Decision reason</dt><dd>{request.decisionReason}</dd></div>}
-      {request.executedAt && <div><dt>Carried out</dt><dd>{date(request.executedAt)}</dd></div>}
-    </dl>
-    {request.status === 'expired' && <p className="admin-note">This request expired 24 hours after it was made and was
-      never carried out. Create a new request if the change is still needed.</p>}
+  return <Card as="article" className="flex flex-col gap-4 p-5" data-status={request.status}>
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="min-w-0"><h2 className="m-0 text-title-3 text-ink">{describe(request)}</h2>
+        <p className="m-0 text-caption text-ink-3">For {target}{request.targetEmail && request.targetDisplayName ? ` · ${request.targetEmail}` : ''}</p></div>
+      <Status value={request.status} />
+    </div>
+    <div className="-mx-5"><DescriptionList items={[
+      ['Requested by', `${who(request.requestedBy, actor)} · ${date(request.requestedAt)}`],
+      ['Reason', request.reason],
+      [request.status === 'pending' ? 'Expires' : 'Expiry', date(request.expiresAt)],
+      request.decidedAt ? ['Decided', `${who(request.decidedBy, actor)} · ${date(request.decidedAt)}`] : null,
+      request.decisionReason ? ['Decision reason', request.decisionReason] : null,
+      request.executedAt ? ['Carried out', date(request.executedAt)] : null,
+    ]} /></div>
+    {request.status === 'expired' && <p className="m-0 text-caption text-ink-3">Nobody decided within 24 hours, so nothing changed.</p>}
     {request.status === 'pending' && <DecisionForm request={request} actor={actor} onDecided={onDecided} />}
-  </article>
+  </Card>
 }
 
 /** Two-person approvals. The backend decides who may request, approve, reject or cancel. */
@@ -105,21 +114,16 @@ export function ApprovalsPage({ actor }: { actor: AdminActor }) {
   const resource = useResource(load, 'Approval requests could not be loaded.')
   const pages = useCursorPages(resource, (cursor, signal) => adminApi.approvals(filter, { cursor }, signal),
     'More approval requests could not be loaded.')
-  const [notice, setNotice] = useState<string | null>(null)
 
-  return <Page eyebrow="Two-person control" title="Approvals"
-    description="Granting Super Admin and resetting an administrator’s authenticator need a second Super Admin. Requests expire after 24 hours."
+  return <Page eyebrow="People and access" title="Approvals"
+    description="Making a Super Admin or resetting an authenticator needs a second Super Admin. Requests expire after 24 hours."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <div className="admin-filter" role="group" aria-label="Request status">
-      {FILTERS.map(item => <button key={item.title} type="button" aria-pressed={filter === item.value}
-        className={filter === item.value ? 'admin-primary' : 'admin-secondary'}
-        onClick={() => { setNotice(null); setFilter(item.value) }}>{item.title}</button>)}
-    </div>
-    {notice && <p role="status" className="admin-success">{notice}</p>}
-    <ResourceView resource={resource} empty={result => result.items.length === 0}>{() => <div className="admin-stack">
-      <p className="admin-result-count">Showing {pages.items.length} requests, newest first{pages.hasMore ? '; more are available' : ''}</p>
+    <FilterTabs label="Request status" value={filter ?? 'all'} onChange={value => setFilter(value === 'all' ? null : value as ApprovalStatus)}
+      options={FILTERS.map(item => ({ value: item.value ?? 'all', label: item.title }))} />
+    <ResourceView resource={resource} emptyTitle={filter === 'pending' ? 'Nothing waiting for a decision' : 'No requests'} empty={result => result.items.length === 0}>{() => <div className="flex flex-col gap-4">
+      <p className="m-0 text-caption text-ink-3">{pages.items.length} requests, newest first{pages.hasMore ? '. More below.' : ''}</p>
       {pages.items.map(request => <ApprovalCard key={`${request.id}:${request.version}`} request={request} actor={actor}
-        onDecided={message => { setNotice(message); resource.reload() }} />)}
+        onDecided={resource.reload} />)}
       <LoadMore pages={pages} label="Load more requests" />
     </div>}</ResourceView>
   </Page>

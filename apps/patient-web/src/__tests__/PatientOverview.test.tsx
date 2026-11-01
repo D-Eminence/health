@@ -9,7 +9,7 @@ describe('patient overview', () => {
     const { sent } = renderPortal(<Overview />, () => json(profile))
     expect(await screen.findByText('HID-ABC234')).toBeTruthy()
     expect(screen.getByText('Ada Example')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'View profile →' }).getAttribute('href')).toBe('/profile')
+    expect(screen.getByRole('link', { name: 'View profile' }).getAttribute('href')).toBe('/profile')
     // The profile is read first; then the dashboard's cards (hid-1.0 parity B3) read what today's backend serves. The
     // routes a backend before 0093 or 0094 does not serve answer 404 and are not recorded (portalHarness.tsx).
     expect(sent[0]).toEqual({ path: '/identity/me', method: 'GET', body: null })

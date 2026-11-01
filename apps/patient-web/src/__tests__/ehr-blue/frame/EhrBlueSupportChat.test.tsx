@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { holdsPersonalDetails, REFUSAL_REASONS, refusalFor } from '../../../ehr-blue/frame/support/supportPrivacy'
-import { DEMO_HOSPITAL, REAL_FACILITY, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, withFramePages } from './blueHarness'
+import { DEMO_HOSPITAL, REAL_FACILITY, SESSION, facility, homeHeading, json, openStaffApp, problem, serve, sessionAt, withFramePages } from './blueHarness'
 
 /**
  * Help in the blue EHR: Health ID's support assistant (support-api, anonymous), in a drawer of the frame, for any
- * signed-in staff member, where the build offers it (the ehr build). Its privacy guard keeps patients out of it: the
- * notice above the question, and a question holding a Health ID, a NIN, an email address or a phone number refused
- * before anything is sent. The chat's session id stays in memory and nothing is stored. Today's classic portal has no
- * chat. Every account, facility and question here is fictional.
+ * signed-in staff member, where the build offers it (the ehr build), from the sidebar's account menu. Its privacy guard
+ * keeps patients out of it: the notice above the question, and a question that could hold a Health ID, a NIN, an email
+ * address or a phone number refused before anything is sent, saying what to remove. The guard refuses shapes, not
+ * words (#61, option a): some ordinary questions are refused on purpose, and a Health ID of letters only, written other
+ * than as printed or keyed in, is left to support-api. The chat's session id stays in memory and nothing is stored.
+ * Today's classic portal has no chat. Every account, facility, number, address and question here is fictional,
+ * generated ones included.
  */
 const build = vi.hoisted(() => ({ supportChatEnabled: true }))
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({
@@ -33,8 +36,9 @@ async function openHelp(routes: Record<string, (() => Response)[]> = {}, at = DE
   const here = facility(at, 'Demo Hospital', [])
   const sent = serve({ [SESSION]: [sessionAt(here, [here])], ...routes })
   await openStaffApp('/provider')
-  await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
-  fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+  await screen.findByRole('heading', { level: 1, name: homeHeading() })
+  // The redesign's account controls are the sidebar's: Help is in the facility switcher's menu, after My profile.
+  fireEvent.click(screen.getByRole('button', { name: /^Demo Hospital/ }))
   fireEvent.click(screen.getByRole('button', { name: 'Help' }))
   return { sent, drawer: within(screen.getByRole('dialog', { name: 'Help' })) }
 }
@@ -746,11 +750,16 @@ describe('the privacy guard against generated questions', () => {
 })
 
 describe('where the build does not offer it', () => {
-  it('keeps Help as today\'s sample text, and asks nothing', async () => {
+  it('offers no Help in the account menu, and asks nothing', async () => {
     build.supportChatEnabled = false
-    const { sent, drawer } = await openHelp()
-    expect(drawer.getByText(/^Use Search Health ID/)).toBeDefined()
-    expect(drawer.queryByText(NOTICE)).toBeNull()
+    const here = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
+    const sent = serve({ [SESSION]: [sessionAt(here, [here])] })
+    await openStaffApp('/provider')
+    await screen.findByRole('heading', { level: 1, name: homeHeading() })
+    fireEvent.click(screen.getByRole('button', { name: /^Demo Hospital/ }))
+    expect(screen.getByRole('button', { name: 'My profile' })).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Help' })).toBeNull()
+    expect(screen.queryByText(NOTICE)).toBeNull()
     expect(sent.some(call => call.route === SUPPORT)).toBe(false)
   })
 })

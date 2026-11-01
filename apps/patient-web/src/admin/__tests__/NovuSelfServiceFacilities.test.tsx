@@ -86,7 +86,7 @@ describe('New facility sign-ups in the Novu console', () => {
   it('refuses the page to an administrator without the permission, without asking for the list', async () => {
     const calls = serve(['platform.admin.access', 'platform.facility.read'])
     await openAt('/admin/self-service-facilities')
-    expect(await screen.findByRole('heading', { name: 'Access denied' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'You can’t open this page' })).toBeTruthy()
     expect(screen.queryByRole('link', { name: 'New facility sign-ups' })).toBeNull()
     expect(calls.some(call => call.path.includes('self-service'))).toBe(false)
   })

@@ -139,7 +139,8 @@ describe('the stylesheet gives the record’s structure its look', () => {
 
   it('keeps note content’s line breaks and lets long words wrap', () => {
     expect(declarations('.staff-note-content')).toMatch(/white-space:\s*pre-wrap/)
-    expect(declarations('.staff-note-content')).toMatch(/overflow-wrap:\s*anywhere/)
+    // The redesign breaks a long word only where it would overflow (break-word); either value wraps it.
+    expect(declarations('.staff-note-content')).toMatch(/overflow-wrap:\s*(?:anywhere|break-word)/)
   })
 
   it('sets a detail’s label apart from its value', () => {

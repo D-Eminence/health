@@ -32,16 +32,21 @@ export function parse(css: string, context: string[] = []): Rule[] {
     let end = open + 1
     while (end < source.length && depth > 0) { if (source[end] === '{') depth += 1; else if (source[end] === '}') depth -= 1; end += 1 }
     const body = source.slice(open + 1, end - 1)
-    if (/^@(media|layer|supports)\b/.test(prelude)) rules.push(...parse(body, [...context, prelude]))
+    if (/^@(media|layer|supports|container)\b/.test(prelude)) rules.push(...parse(body, [...context, prelude]))
     else rules.push({ selectors: splitSelectors(prelude), body, context })
     index = end
   }
   return rules
 }
 
-/** Whether every media condition (max-width and min-width in px) holds at a viewport width. */
+/**
+ * Whether every media condition (max-width and min-width in px) holds at a viewport width. A container query's
+ * max-width is read against the viewport too: a container is never wider than the screen, so a rule for a narrow
+ * container holds on a narrow screen (its min-width conditions are not assumed, and such a rule is not applied).
+ */
 export function appliesAt(context: string[], width: number): boolean {
-  return context.filter(prelude => prelude.startsWith('@media')).every(prelude =>
+  if (context.some(prelude => prelude.startsWith('@container') && /\(min-width:/.test(prelude))) return false
+  return context.filter(prelude => prelude.startsWith('@media') || prelude.startsWith('@container')).every(prelude =>
     [...prelude.matchAll(/\((max|min)-width:\s*(\d+)px\)/g)].every(([, bound, px]) => bound === 'max' ? width <= Number(px) : width >= Number(px)))
 }
 

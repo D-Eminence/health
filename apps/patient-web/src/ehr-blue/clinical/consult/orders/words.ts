@@ -54,13 +54,14 @@ export const LAB_NOT_TOLD: Readonly<Record<string, string>> = {
 }
 
 /** Today's form hints and notes (Clinical.tsx RecordForm and SendToLab). */
-export const PRESCRIPTION_ROUTING_HINT = 'This saves a draft. To send it to a pharmacy at another facility, use Send to a pharmacy on it in the list.'
-export const PRESCRIPTION_HINT = 'This creates an EHR draft. Pharmacy acceptance and dispensing are separate backend actions.'
-export const DOSE_PAIR = 'Enter both dose quantity and dose unit, or leave both blank.'
-export const LAB_ACTIVE_NOTE = 'Active creation saves the request, then asks Lab to accept it. If Lab does not, the request stays saved and active, even when an error is shown: check the list before creating it again, then use Send to Lab on it there, or contact the laboratory if the EHR cannot send it.'
+export const PRESCRIPTION_ROUTING_HINT = 'This saves a draft. To send it to a pharmacy elsewhere, open it and choose Send to a pharmacy.'
+export const PRESCRIPTION_HINT = 'This saves a draft. The pharmacy accepts and dispenses it as a next step.'
+export const DOSE_PAIR = 'Enter the dose and pick its unit.'
+export const DOSE_NUMBER_TEXT = 'Enter the dose as a number, like 0.5 or 250 (up to 4 decimal places).'
+export const LAB_ACTIVE_NOTE = 'If the laboratory doesn’t accept it, the request is still saved. Check the orders list before sending it again.'
 export const LAB_SEND_HINT = 'Sends this active request to Lab if Lab does not have it yet. Lab keeps one work item per request, so sending again changes nothing Lab already holds.'
-export const NO_CHANGES = 'This access does not permit changes to the patient record.'
-export const SAVED = 'Clinical record saved by the backend.'
+export const NO_CHANGES = 'Your access doesn’t allow changes to this patient’s records.'
+export const SAVED = 'Saved.'
 
 /** The draft warning under "Request handling" (Clinical.tsx RecordForm). */
 export function labDraftWarning(sendingElsewhere: boolean, canSendToLab: boolean, routable: boolean): string {

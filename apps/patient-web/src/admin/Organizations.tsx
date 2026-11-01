@@ -1,4 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react'
+import { FilterTabs } from '../kasuwa/ui'
 import { Link } from 'react-router-dom'
 import { adminApi, type AdminActor, type ApplicationStatus, type Facility, type OrganizationApplication } from './api'
 import { environment } from './env'
@@ -6,7 +7,7 @@ import { MAIN_SITE_ORIGINS, STAFF_RECOVERY_PATH } from '../productHostname'
 import { usesNovuBackend } from '../backendContract'
 import { failure } from './problems'
 import {
-  Page, Refresh, ResourceView, Status, date, has, label, useGovernedSubmit, useResource, useUrlFilters,
+  Page, Refresh, ResourceView, Status, Table, date, has, label, useGovernedSubmit, useResource, useUrlFilters,
 } from './ui'
 
 /** `ListOrganizationApplicationsDto` statuses. */
@@ -52,12 +53,11 @@ function Evidence({ application }: { application: OrganizationApplication }) {
   if (rows.every(([, verified, profile]) => !verified && !profile)) {
     return <p className="admin-note">No registry or profile evidence has been recorded yet.</p>
   }
-  return <div className="admin-table-scroll"><table className="admin-table">
-    <thead><tr><th scope="col">Field</th><th scope="col">CAC registry</th><th scope="col">Completed profile</th><th scope="col">Source used</th></tr></thead>
-    <tbody>{rows.map(([field, verified, profile, source]) => <tr key={field}>
+  return <Table headings={['Field', 'CAC registry', 'Completed profile', 'Source used']}>
+    {rows.map(([field, verified, profile, source]) => <tr key={field}>
       <td>{field}</td><td>{verified ?? 'Not recorded'}</td><td>{profile ?? 'Not provided'}</td><td>{source ? label(source) : 'Not decided'}</td>
-    </tr>)}</tbody>
-  </table></div>
+    </tr>)}
+  </Table>
 }
 
 /** Approving can link the application to an existing organization through one of its facilities. */
@@ -98,7 +98,7 @@ function ApplicationReview({ application, actor, onReviewed }: {
   const canVerify = has(actor, 'platform.facility.manage')
   const canApprove = APPROVE_PERMISSIONS.every(code => has(actor, code))
   const canReject = has(actor, 'platform.facility.manage')
-  if (!canVerify && !canApprove && !canReject) return <p className="admin-note">View only.</p>
+  if (!canVerify && !canApprove && !canReject) return null
 
   async function run(kind: 'verify' | 'approve' | 'reject') {
     if (governed.busy || (kind !== 'verify' && reason.trim().length < 8)) return
@@ -188,15 +188,10 @@ export function ApplicationsPage({ actor }: { actor: AdminActor }) {
   return <Page eyebrow="Organizations" title="Applications"
     description="Organizations apply to use Health ID. Verify their CAC registration, then approve or reject them."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <div className="admin-filter" role="group" aria-label="Application status">
-      {[{ value: '', title: 'All' }, ...APPLICATION_STATUSES.map(value => ({ value, title: label(value) }))].map(item =>
-        <button key={item.title} type="button" aria-pressed={filters.status === item.value}
-          className={filters.status === item.value ? 'admin-primary' : 'admin-secondary'}
-          onClick={() => { setNotice(null); setFilters({ status: item.value }) }}>{item.title}</button>)}
-    </div>
+    <FilterTabs label="Application status" value={filters.status} onChange={value => { setNotice(null); setFilters({ status: value }) }}
+      options={[{ value: '', label: 'All' }, ...APPLICATION_STATUSES.map(value => ({ value: value as string, label: label(value) }))]} />
     {notice && <p role="status" className="admin-success">{notice}</p>}
-    <p className="admin-note">Approved organizations appear through their <Link to="/admin/facilities">facilities</Link>.
-      There is no separate organization directory yet.</p>
+    <p className="admin-note">Approved organizations appear through their <Link to="/admin/facilities">facilities</Link>.</p>
     {usesNovuBackend() && <p className="admin-note">{SELF_SIGN_UP_SECOND_PRODUCT}</p>}
     <ResourceView resource={resource} empty={result => result.items.length === 0}>{result => <div className="admin-stack">
       {result.items.map(application => <ApplicationCard key={`${application.applicationId}:${application.version}`}

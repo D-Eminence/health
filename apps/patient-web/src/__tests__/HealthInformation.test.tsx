@@ -4,7 +4,7 @@ import type { PatientProfile } from '../api'
 import type { HealthProfile } from '../profileParity'
 import { draftFromImported } from '../routes/HealthInformation'
 import { ProfilePage } from '../routes/Portal'
-import { json, openSection, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
+import { json, openSection, press, problem, profile, renderPortal, shownText, type Handler, type Sent } from './portalHarness'
 
 const novu = vi.hoisted(() => ({ on: true }))
 vi.mock('../backendContract', () => ({ usesNovuBackend: () => novu.on }))
@@ -54,18 +54,19 @@ describe('Health information', () => {
       ['health-bloodGroup', 'O+'], ['health-genotype', 'AS'], ['health-allergies', 'Penicillin\nShellfish'],
       ['health-currentMedications', 'Amlodipine 5mg'], ['health-chronicConditions', 'Hypertension'], ['health-medicalNotes', 'Prefers a female doctor'],
     ]))
-    expect(shown.getByText(/Filled in from hid-1.0. Check, then save to keep them./)).toBeTruthy()
-    expect(shown.getByRole('textbox', { name: 'Medical notes for my care team' })).toBeTruthy()
+    expect(shown.getByText(/Filled in from your old Health ID account. Check it, then save to keep it./)).toBeTruthy()
+    expect(shown.getByRole('textbox', { name: 'Notes for my doctors' })).toBeTruthy()
     await press(shown.getByRole('button', { name: 'Save health information' }))
-    expect(await shown.findByText('Your health information was saved.')).toBeTruthy()
+    expect(await shown.findByText('Health information saved.')).toBeTruthy()
     expect(puts(sent)).toEqual([{ path: HEALTH, method: 'PUT', body: { bloodGroup: 'O+', genotype: 'AS', allergies: 'Penicillin\nShellfish',
       currentMedications: 'Amlodipine 5mg', chronicConditions: 'Hypertension', medicalNotes: 'Prefers a female doctor', expectedVersion: 0 } }])
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Health information' })))
-    // Now the patient's own: the hid-1.0 note goes, and the date it was saved shows.
-    expect(shown.queryByText(/Filled in from hid-1.0. Check, then save to keep them./)).toBeNull()
-    expect(shown.getByText(/^Last saved /)).toBeTruthy()
+    // Now the patient's own: the hid-1.0 note goes, and the date it was saved shows (in the heading's state, read as
+    // its button's description).
+    expect(shown.queryByText(/Filled in from your old Health ID account. Check it, then save to keep it./)).toBeNull()
+    expect(screen.getByText(/^Saved /).id).toBe('health-information-state')
     // The hid-1.0 details stay, read-only, in their own card.
-    expect(screen.getByRole('heading', { name: 'From your hid-1.0 account' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'From your old Health ID account' })).toBeTruthy()
   })
 
   it('starts from what the patient saved, not hid-1.0, once they have entered something', async () => {
@@ -85,12 +86,12 @@ describe('Health information', () => {
     fireEvent.change(shown.getByRole('combobox', { name: 'Blood group' }), { target: { value: '' } })
     fireEvent.change(shown.getByRole('textbox', { name: 'Allergies' }), { target: { value: '' } })
     await press(shown.getByRole('button', { name: 'Save health information' }))
-    expect(await shown.findByText('Your health information was saved.')).toBeTruthy()
+    expect(await shown.findByText('Health information saved.')).toBeTruthy()
     expect(puts(sent)).toEqual([{ path: HEALTH, method: 'PUT', body: { bloodGroup: null, genotype: null, allergies: null, currentMedications: null,
       chronicConditions: null, medicalNotes: null, expectedVersion: 2 } }])
     // Saved empty at version 3: the form stays as the patient left it, with nothing from hid-1.0 and nothing to save.
     expect(values(shown).every(([, value]) => value === '')).toBe(true)
-    expect(shown.queryByText(/Filled in from hid-1.0. Check, then save to keep them./)).toBeNull()
+    expect(shown.queryByText(/Filled in from your old Health ID account. Check it, then save to keep it./)).toBeNull()
     expect((shown.getByRole('button', { name: 'Save health information' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
@@ -99,16 +100,16 @@ describe('Health information', () => {
     const shown = await card()
     await waitFor(() => expect((shown.getByRole('combobox', { name: 'Blood group' }) as HTMLSelectElement).value).toBe('O+'))
     for (const name of ['Blood group', 'Genotype']) fireEvent.change(shown.getByRole('combobox', { name }), { target: { value: '' } })
-    for (const name of ['Allergies', 'Current medications', 'Chronic conditions', 'Medical notes for my care team']) {
+    for (const name of ['Allergies', 'Current medications', 'Long-term conditions', 'Notes for my doctors']) {
       fireEvent.change(shown.getByRole('textbox', { name }), { target: { value: '' } })
     }
     await press(shown.getByRole('button', { name: 'Save health information' }))
-    expect(await shown.findByText('Your health information was saved.')).toBeTruthy()
+    expect(await shown.findByText('Health information saved.')).toBeTruthy()
     expect(puts(sent)).toEqual([{ path: HEALTH, method: 'PUT', body: { bloodGroup: null, genotype: null, allergies: null, currentMedications: null,
       chronicConditions: null, medicalNotes: null, expectedVersion: 0 } }])
     // Saved empty at version 1: nothing from hid-1.0 comes back, and there is nothing to save.
     expect(values(shown).every(([, value]) => value === '')).toBe(true)
-    expect(shown.queryByText(/Filled in from hid-1.0. Check, then save to keep them./)).toBeNull()
+    expect(shown.queryByText(/Filled in from your old Health ID account. Check it, then save to keep it./)).toBeNull()
     expect((shown.getByRole('button', { name: 'Save health information' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
@@ -117,19 +118,19 @@ describe('Health information', () => {
     const shown = await card()
     // Yoruba with its tone marks: each "ẹ̀" is two characters and five bytes, so 1000 characters are 2,500 bytes.
     const yoruba = 'ẹ̀'.repeat(500)
-    for (const name of ['Allergies', 'Current medications', 'Chronic conditions', 'Medical notes for my care team']) {
+    for (const name of ['Allergies', 'Current medications', 'Long-term conditions', 'Notes for my doctors']) {
       fireEvent.change(shown.getByRole('textbox', { name }), { target: { value: yoruba } })
     }
     await press(shown.getByRole('button', { name: 'Save health information' }))
-    expect((await shown.findByRole('alert')).textContent)
-      .toBe('Your health information is too long to save. Shorten the longer fields, then save again.')
+    expect(shownText(await shown.findByRole('alert')))
+      .toBe('This is too long to save. Shorten the longer answers, then save again.')
     expect(puts(sent)).toEqual([])
     // Shortened to fit, it goes: the same number of characters in plain letters takes 1,000 bytes.
-    for (const name of ['Chronic conditions', 'Medical notes for my care team']) {
+    for (const name of ['Long-term conditions', 'Notes for my doctors']) {
       fireEvent.change(shown.getByRole('textbox', { name }), { target: { value: 'x'.repeat(1000) } })
     }
     await press(shown.getByRole('button', { name: 'Save health information' }))
-    expect(await shown.findByText('Your health information was saved.')).toBeTruthy()
+    expect(await shown.findByText('Health information saved.')).toBeTruthy()
     const body = JSON.stringify(puts(sent)[0]?.body)
     expect(new TextEncoder().encode(body).byteLength).toBeLessThanOrEqual(8000)
     expect(new TextEncoder().encode(body).byteLength).toBeGreaterThan(7000)
@@ -141,7 +142,7 @@ describe('Health information', () => {
     const shown = await card()
     fireEvent.change(shown.getByRole('combobox', { name: 'Blood group' }), { target: { value: '' } })
     fireEvent.change(shown.getByRole('textbox', { name: 'Allergies' }), { target: { value: '   ' } })
-    fireEvent.change(shown.getByRole('textbox', { name: 'Chronic conditions' }), { target: { value: 'Asthma\r\n\tsince 2010\u0007' } })
+    fireEvent.change(shown.getByRole('textbox', { name: 'Long-term conditions' }), { target: { value: 'Asthma\r\n\tsince 2010\u0007' } })
     await press(shown.getByRole('button', { name: 'Save health information' }))
     await waitFor(() => expect(puts(sent)).toHaveLength(1))
     expect(puts(sent)[0]?.body).toEqual({ bloodGroup: null, genotype: null, allergies: null, currentMedications: null,
@@ -154,7 +155,7 @@ describe('Health information', () => {
     const options = (name: string) => within(shown.getByRole('combobox', { name })).getAllByRole('option').map(option => option.textContent)
     expect(options('Blood group')).toEqual(['Not stated', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])
     expect(options('Genotype')).toEqual(['Not stated', 'AA', 'AS', 'AC', 'SS', 'SC', 'CC'])
-    for (const name of ['Allergies', 'Current medications', 'Chronic conditions', 'Medical notes for my care team']) {
+    for (const name of ['Allergies', 'Current medications', 'Long-term conditions', 'Notes for my doctors']) {
       expect((shown.getByRole('textbox', { name }) as HTMLTextAreaElement).maxLength).toBe(1000)
     }
     const allergies = shown.getByRole('textbox', { name: 'Allergies' }) as HTMLTextAreaElement
@@ -172,14 +173,14 @@ describe('Health information', () => {
     const shown = await card()
     fireEvent.change(shown.getByRole('combobox', { name: 'Blood group' }), { target: { value: 'B+' } })
     await press(shown.getByRole('button', { name: 'Save health information' }))
-    expect((await shown.findByRole('alert')).textContent).toMatch(/was changed somewhere else .* so this was not saved/)
+    expect((await shown.findByRole('alert')).textContent).toMatch(/was changed somewhere else, so this wasn’t saved/)
     await waitFor(() => expect((shown.getByRole('combobox', { name: 'Genotype' }) as HTMLSelectElement).value).toBe('AC'))
     expect((shown.getByRole('combobox', { name: 'Blood group' }) as HTMLSelectElement).value).toBe('')
   })
 
   it('is not shown where EHR does not serve it (404)', async () => {
     renderPortal(<ProfilePage />, gateway(nothing, hid1))
-    await screen.findByRole('heading', { name: 'From your hid-1.0 account' })
+    await screen.findByRole('heading', { name: 'From your old Health ID account' })
     expect(screen.queryByRole('heading', { name: 'Health information' })).toBeNull()
   })
 

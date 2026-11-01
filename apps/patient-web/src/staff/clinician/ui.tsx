@@ -1,24 +1,22 @@
 import { useLayoutEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
-import { BrandLogo } from '../../BrandLogo'
+import { AuthLayout } from '../../AuthLayout'
 import { useDocumentTitle } from '../../authSteps'
+import { buttonClass } from '../../kasuwa/ui'
 import type { ClinicianPagePath } from '../../productHostname'
 import './clinician.css'
 
 /**
  * The frame and small pieces the clinician pages share. They sit outside the
- * provider workspace, drawn as provider enrollment is: one card, one h1, a
- * heading per step that takes focus when the step opens.
+ * provider workspace, in the sign-in layout (AuthLayout): its title is a plain
+ * line, since each page carries its own h1, and a heading per step takes focus
+ * when the step opens.
  */
 
 export function ClinicianFrame({ labelledBy, children }: { labelledBy?: string; children: ReactNode }) {
-  return <main className="patient-auth-page">
-    <section className="patient-auth-card patient-enroll-card clinician-card" aria-labelledby={labelledBy}>
-      <Link to="/provider/sign-in" className="patient-auth-brand"><BrandLogo /></Link>
-      <p className="patient-eyebrow">Provider portal</p>
-      {children}
-    </section>
-  </main>
+  return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in" headerLink={{ to: '/provider/sign-in', label: 'Sign in' }}
+    title="For doctors and nurses" titleId="clinician-frame-title" titleAs="p" panelLabelledBy={labelledBy}>
+    <div className="clinician-card flex flex-col gap-4">{children}</div>
+  </AuthLayout>
 }
 
 /**
@@ -33,21 +31,25 @@ export function StepHeading({ id, focus, level = 2, children }: { id: string; fo
   // In the commit that shows the step, not an effect a task later: a check made as soon as it is shown finds the focus moved.
   useLayoutEffect(() => { if (focusOnMount.current) heading.current?.focus() }, [])
   const Heading = level === 1 ? 'h1' : 'h2'
-  return <Heading id={id} ref={heading} tabIndex={-1} className={level === 1 ? 'patient-page-title clinician-heading' : 'clinician-heading'}>
+  return <Heading id={id} ref={heading} tabIndex={-1} className={level === 1 ? 'm-0 text-title-1 text-ink clinician-heading' : 'm-0 text-title-2 text-ink clinician-heading'}>
     {children}</Heading>
 }
 
-export function PrimaryButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button type="button" className="patient-primary-button" {...props} />
+export function PrimaryButton({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button type="button" className={buttonClass({ variant: 'primary', block: true, className })} {...props} />
 }
 
-export function TextButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button type="button" className="patient-text-button" {...props} />
+export function SecondaryButton({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button type="button" className={buttonClass({ variant: 'secondary', className })} {...props} />
+}
+
+export function TextButton({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button type="button" className={buttonClass({ variant: 'link', className: `self-start ${className ?? ''}` })} {...props} />
 }
 
 /** A refusal said as it appears. A new `id` for each refusal makes the same words new again. */
 export function StepError({ error }: { error: { id: number; message: string } | null }) {
-  return error ? <p key={error.id} role="alert" className="patient-inline-error">{error.message}</p> : null
+  return error ? <p key={error.id} role="alert" className="m-0 text-[13px] font-medium text-danger-ink">{error.message}</p> : null
 }
 
 let refusals = 0
@@ -89,10 +91,10 @@ export function MainSiteOnly({ href, path }: { href: string; path: ClinicianPage
   const signUp = path === '/provider/join'
   useDocumentTitle(signUp ? 'Clinician sign-up · Health ID Provider' : 'Clinician application · Health ID Provider')
   return <ClinicianFrame labelledBy="clinician-main-site-title">
-    <h1 id="clinician-main-site-title" className="patient-page-title">
+    <h1 id="clinician-main-site-title" className="m-0 text-title-1 text-ink">
       {signUp ? 'Apply as a doctor or nurse' : 'Check your clinician application'}</h1>
     <p className="patient-page-copy">{signUp ? 'Clinician sign-up is on the main Health ID site.'
       : 'Clinician applications are checked on the main Health ID site.'}</p>
-    <a className="patient-primary-button" href={href}>Continue on the Health ID site</a>
+    <a className={buttonClass({ variant: 'primary', block: true })} href={href}>Continue on the Health ID site</a>
   </ClinicianFrame>
 }

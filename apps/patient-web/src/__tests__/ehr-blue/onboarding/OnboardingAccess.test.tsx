@@ -59,12 +59,12 @@ describe('in the frame', () => {
     expect(heading()).toBeDefined()
     expect(eyebrow()).toBe('Step 1 of 9 · Facility')
     expect(document.title).toBe('Facility setup · Health ID EHR')
-    // The frame's own Facility settings sample stays where it was.
-    expect(within(nav()).getByRole('link', { name: 'Facility settings' }).getAttribute('href')).toBe('/provider/setup')
+    // The frame's own Facility settings sample is not listed (only working screens are), and is not this page.
+    expect(within(nav()).queryByRole('link', { name: 'Facility settings' })).toBeNull()
 
     fireEvent.keyDown(document, { key: 'k', ctrlKey: true })
-    const search = await screen.findByRole('dialog', { name: 'Search Health ID' })
-    fireEvent.change(within(search).getByRole('searchbox', { name: 'Search work areas' }), { target: { value: 'Facility setup' } })
+    const search = await screen.findByRole('dialog', { name: 'Search' })
+    fireEvent.change(within(search).getByRole('searchbox', { name: 'Health ID or page' }), { target: { value: 'Facility setup' } })
     expect(within(search).getByRole('link', { name: /Facility setup/ })).toBeDefined()
   })
 
@@ -83,8 +83,8 @@ describe('in the frame', () => {
     expect(screen.queryByText(/is not open to you here/)).toBeNull()
 
     fireEvent.keyDown(document, { key: 'k', ctrlKey: true })
-    const search = await screen.findByRole('dialog', { name: 'Search Health ID' })
-    fireEvent.change(within(search).getByRole('searchbox', { name: 'Search work areas' }), { target: { value: 'Facility setup' } })
+    const search = await screen.findByRole('dialog', { name: 'Search' })
+    fireEvent.change(within(search).getByRole('searchbox', { name: 'Health ID or page' }), { target: { value: 'Facility setup' } })
     expect(within(search).queryByRole('link', { name: /Facility setup/ })).toBeNull()
     // Only the session was asked for: nothing about the staff or the facility's setup.
     expect(sent.map(request => request.route)).toEqual([SESSION])

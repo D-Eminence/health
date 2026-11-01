@@ -31,16 +31,20 @@ const BOUNDARY = 3
 type Rgb = [number, number, number]
 type Palette = ReadonlyMap<string, string>
 
-/** The `--color-*: #hex` declarations in one block of tokens.css. */
-function declaredColours(selector: string): Map<string, string> {
-  const block = parse(tokensCss).find(rule => rule.selectors[0] === selector)
-  if (!block) throw new Error(`tokens.css has no ${selector} block`)
-  return new Map([...block.body.matchAll(/--color-([a-z0-9-]+)\s*:\s*(#[0-9a-f]{6}|#[0-9a-f]{3})\b/gi)].map(([, name, hex]) => [name!, hex!]))
+/**
+ * The `--color-*: #hex` declarations in the blocks of tokens.css headed by one of `selectors`, in source order (a
+ * later one wins): the redesign added the Kasuwa tokens in a second @theme block and a :root[data-theme='dark'] one.
+ */
+function declaredColours(...selectors: string[]): Map<string, string> {
+  const blocks = parse(tokensCss).filter(rule => selectors.includes(rule.selectors[0]!))
+  if (blocks.length === 0) throw new Error(`tokens.css has no ${selectors.join(' or ')} block`)
+  return new Map(blocks.flatMap(block => [...block.body.matchAll(/--color-([a-z0-9-]+)\s*:\s*(#[0-9a-f]{6}|#[0-9a-f]{3})\b/gi)]
+    .map(([, name, hex]) => [name!, hex!] as [string, string])))
 }
 
 const light: Palette = declaredColours('@theme')
 // The opt-in dark palette overrides the light one; whatever it leaves out falls through.
-const dark: Palette = new Map([...light, ...declaredColours("[data-theme='dark']")])
+const dark: Palette = new Map([...light, ...declaredColours("[data-theme='dark']", ":root[data-theme='dark']")])
 
 function rgb(hex: string): Rgb {
   const digits = hex.length === 4 ? [...hex.slice(1)].map(digit => digit + digit).join('') : hex.slice(1)

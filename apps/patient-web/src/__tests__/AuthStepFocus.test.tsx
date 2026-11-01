@@ -6,6 +6,7 @@ import { Enrollment } from '../routes/Enrollment'
 import { Recovery } from '../routes/Recovery'
 import { PrincipalRecovery } from '../routes/PrincipalRecovery'
 import { enterCode } from './codeBoxes'
+import { shownText } from './portalHarness'
 
 /**
  * Enrollment and password recovery show one step at a time (PA-02, PA-03,
@@ -65,7 +66,7 @@ describe('patient password recovery', () => {
     open()
     fireEvent.change(screen.getByLabelText('Email, phone or Health ID'), { target: { value: 'patient@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await press('Send recovery code')
+    await press('Send code')
   }
 
   it('names the tab, and gives it back on leaving', () => {
@@ -77,9 +78,9 @@ describe('patient password recovery', () => {
 
   it('moves focus to the code field once the code is sent, and to the password field once it is verified', async () => {
     await toCode()
-    const code = screen.getByLabelText('Recovery code')
+    const code = screen.getByLabelText('Code')
     await waitFor(() => expect(document.activeElement).toBe(code))
-    expect(described(code)).toBe('Enter the six digit code sent to your verified contact.')
+    expect(described(code)).toBe('Enter the 6-digit code we sent.')
 
     api.recoveryVerify.mockResolvedValue({ verified: true, challengeId: 'challenge-1', verificationToken: 'token-1' })
     // The sixth digit sends the code.
@@ -88,20 +89,19 @@ describe('patient password recovery', () => {
 
     api.recoveryComplete.mockResolvedValue({ completed: true })
     fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'a-long-new-password' } })
-    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a-long-new-password' } })
     await press('Reset password')
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Password reset complete.' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Your password is reset.' })))
   })
 
   it('a wrong code: focus returns to the code field, which is marked invalid and described by the error', async () => {
     await toCode()
     api.recoveryVerify.mockRejectedValue(new HidApiError(403, 'The verification code is invalid or expired', { code: 'OTP_INVALID_OR_EXPIRED' }))
-    const code = screen.getByLabelText('Recovery code')
+    const code = screen.getByLabelText('Code')
     // Sent by its sixth digit, from the last box: focus returns to the first, whose description says why.
     await enterCode(code, '000000')
     await waitFor(() => expect(document.activeElement).toBe(code))
     expect(code.getAttribute('aria-invalid')).toBe('true')
-    expect(described(code)).toBe('Enter the six digit code sent to your verified contact. | The verification code is invalid or expired')
+    expect(described(code)).toBe('Enter the 6-digit code we sent. | The verification code is invalid or expired')
     // Focus moved to the field, whose description says it: an alert as well would be spoken twice.
     expect(screen.queryByRole('alert')).toBeNull()
 
@@ -116,12 +116,12 @@ describe('patient password recovery', () => {
   it('a refusal that is not about the code (rate limit): focus returns to the field, which stays valid', async () => {
     await toCode()
     api.recoveryVerify.mockRejectedValue(new HidApiError(429, 'Too many attempts. Try again later.'))
-    const code = screen.getByLabelText('Recovery code')
+    const code = screen.getByLabelText('Code')
     await enterCode(code, '123456')
     await waitFor(() => expect(document.activeElement).toBe(code))
     expect(code.getAttribute('aria-invalid')).toBeNull()
-    expect(described(code)).toBe('Enter the six digit code sent to your verified contact.')
-    expect(screen.getByRole('alert').textContent).toBe('Too many attempts. Try again later.')
+    expect(described(code)).toBe('Enter the 6-digit code we sent.')
+    expect(shownText(screen.getByRole('alert'))).toBe('Too many attempts. Try again later.')
   })
 
   it('opening the page moves no focus', () => {
@@ -132,7 +132,7 @@ describe('patient password recovery', () => {
   it('a wrong code sent with Enter in the field, where focus stays, is announced as an alert', async () => {
     await toCode()
     api.recoveryVerify.mockRejectedValue(new HidApiError(403, 'The verification code is invalid or expired', { code: 'OTP_INVALID_OR_EXPIRED' }))
-    const code = screen.getByLabelText('Recovery code')
+    const code = screen.getByLabelText('Code')
     await waitFor(() => expect(document.activeElement).toBe(code))
     await enterCode(code, '000000')
     await waitFor(() => expect(document.activeElement).toBe(code))
@@ -141,7 +141,7 @@ describe('patient password recovery', () => {
     code.focus()
     await act(async () => { fireEvent.submit(code.closest('form') as HTMLFormElement) })
     expect(api.recoveryVerify).toHaveBeenCalledTimes(2)
-    expect((await screen.findByRole('alert')).textContent).toBe('The verification code is invalid or expired')
+    expect(shownText(await screen.findByRole('alert'))).toBe('The verification code is invalid or expired')
     expect(code.getAttribute('aria-invalid')).toBe('true')
     expect(document.activeElement).toBe(code)
   })
@@ -149,18 +149,17 @@ describe('patient password recovery', () => {
   it('a verification that ran out before the new password was sent leaves the password field valid', async () => {
     await toCode()
     api.recoveryVerify.mockResolvedValue({ verified: true, challengeId: 'challenge-1', verificationToken: 'token-1' })
-    await enterCode(screen.getByLabelText('Recovery code'), '123456')
+    await enterCode(screen.getByLabelText('Code'), '123456')
     const password = screen.getByLabelText('New password')
     await waitFor(() => expect(document.activeElement).toBe(password))
     // The completion token lasts as long as the code; a slow password step gets the code's refusal.
     api.recoveryComplete.mockRejectedValue(new HidApiError(403, 'The verification code is invalid or expired', { code: 'OTP_INVALID_OR_EXPIRED' }))
     fireEvent.change(password, { target: { value: 'a-long-new-password' } })
-    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a-long-new-password' } })
     await press('Reset password')
     await waitFor(() => expect(document.activeElement).toBe(password))
     expect(password.getAttribute('aria-invalid')).toBeNull()
-    expect(described(password)).toBe('Choose a new password of at least 12 characters.')
-    expect(screen.getByRole('alert').textContent).toBe('The verification code is invalid or expired')
+    expect(described(password)).toBe('At least 12 characters. Tap Show to check it.')
+    expect(shownText(screen.getByRole('alert'))).toBe('The verification code is invalid or expired')
   })
 
   it('a missing security check (400 TURNSTILE_REQUIRED) is not about the identifier', async () => {
@@ -169,17 +168,17 @@ describe('patient password recovery', () => {
     const identifier = screen.getByLabelText('Email, phone or Health ID')
     fireEvent.change(identifier, { target: { value: 'patient@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await press('Send recovery code')
+    await press('Send code')
     await waitFor(() => expect(document.activeElement).toBe(identifier))
     expect(identifier.getAttribute('aria-invalid')).toBeNull()
-    expect(screen.getByRole('alert').textContent).toBe('Complete the security check and try again.')
+    expect(shownText(screen.getByRole('alert'))).toBe('Complete the security check and try again.')
   })
 
   it('leaves focus where the person moved it while the step was running', async () => {
     await toCode()
     const reply = deferred<{ verified: true; challengeId: string; verificationToken: string }>()
     api.recoveryVerify.mockReturnValue(reply.promise)
-    await enterCode(screen.getByLabelText('Recovery code'), '123456')
+    await enterCode(screen.getByLabelText('Code'), '123456')
     const back = screen.getByRole('link', { name: 'Back to sign in' })
     back.focus()
     await act(async () => { reply.resolve({ verified: true, challengeId: 'challenge-1', verificationToken: 'token-1' }) })
@@ -288,7 +287,7 @@ describe('patient enrollment', () => {
   async function toContact() {
     api.enrollmentStart.mockResolvedValue({ stage: 'contact' })
     open()
-    const nin = await screen.findByLabelText('National Identification Number')
+    const nin = await screen.findByLabelText('National Identification Number (NIN)')
     expect(document.title).toBe('Get your Health ID · Health ID')
     fireEvent.change(nin, { target: { value: '12345678901' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
@@ -297,19 +296,19 @@ describe('patient enrollment', () => {
 
   it('says the NIN is 11 digits in the field\'s description, not only in its placeholder', async () => {
     open()
-    expect(described(await screen.findByLabelText('National Identification Number'))).toContain('Your NIN is 11 digits.')
+    expect(described(await screen.findByLabelText('National Identification Number (NIN)'))).toContain('11 digits.')
   })
 
   it('a start refused because the browser holds a sign-in asks for a sign-out instead of another attempt', async () => {
     api.enrollmentStart.mockRejectedValue(new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
       { code: 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT' }))
     open()
-    fireEvent.change(await screen.findByLabelText('National Identification Number'), { target: { value: '12345678901' } })
+    fireEvent.change(await screen.findByLabelText('National Identification Number (NIN)'), { target: { value: '12345678901' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     await press('Continue')
     // Focus moves to the note, which is read there once: it is not also an alert.
     const note = await screen.findByRole('group', { name: /Sign out of the patient or provider portal before starting a new Health ID\./ })
-    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     await waitFor(() => expect(document.activeElement).toBe(note))
     expect(screen.queryByRole('alert')).toBeNull()
   })
@@ -317,14 +316,14 @@ describe('patient enrollment', () => {
   it('a NIN that cannot be verified: focus returns to the NIN field, marked invalid and described by the error', async () => {
     api.enrollmentStart.mockRejectedValue(new HidApiError(422, 'The NIN could not be verified', { code: 'NIN_NOT_VERIFIED' }))
     open()
-    const nin = await screen.findByLabelText('National Identification Number')
+    const nin = await screen.findByLabelText('National Identification Number (NIN)')
     fireEvent.change(nin, { target: { value: '12345678901' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     await press('Continue')
     await waitFor(() => expect(document.activeElement).toBe(nin))
     expect(nin.getAttribute('aria-invalid')).toBe('true')
     expect(described(nin)).toContain('The NIN could not be verified')
-    expect(described(nin)).toContain('It is not stored in this browser.')
+    expect(described(nin)).toContain('It isn’t stored in this browser.')
   })
 
   it('moves focus through each stage, and keeps the contact for another code', async () => {
@@ -334,37 +333,37 @@ describe('patient enrollment', () => {
 
     api.enrollmentContact.mockResolvedValue({ challengeId: 'challenge-1' })
     fireEvent.change(contact, { target: { value: '+2348000000000' } })
-    await press('Send verification code')
-    const code = screen.getByLabelText('Verification code')
+    await press('Send code')
+    const code = screen.getByLabelText('Code')
     await waitFor(() => expect(document.activeElement).toBe(code))
-    expect(described(code)).toBe('Enter the six digit code sent to +2348000000000.')
+    expect(described(code)).toBe('We sent a 6-digit code to +2348000000000.')
 
-    await press('Request another code or change contact')
+    await press('Get another code or change contact')
     const again = screen.getByLabelText('Phone number') as HTMLInputElement
     await waitFor(() => expect(document.activeElement).toBe(again))
     expect(again.value).toBe('+2348000000000')
 
-    await press('Send verification code')
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Verification code')))
+    await press('Send code')
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Code')))
     expect(api.enrollmentContact).toHaveBeenLastCalledWith('phone', '+2348000000000')
 
     api.enrollmentVerify.mockRejectedValueOnce(new HidApiError(422, 'The verification code is invalid or expired', { code: 'OTP_INVALID' }))
       .mockResolvedValueOnce({ verified: true })
-    await enterCode(screen.getByLabelText('Verification code'), '000000')
-    await waitFor(() => expect(screen.getByLabelText('Verification code').getAttribute('aria-invalid')).toBe('true'))
-    expect(document.activeElement).toBe(screen.getByLabelText('Verification code'))
+    await enterCode(screen.getByLabelText('Code'), '000000')
+    await waitFor(() => expect(screen.getByLabelText('Code').getAttribute('aria-invalid')).toBe('true'))
+    expect(document.activeElement).toBe(screen.getByLabelText('Code'))
 
-    fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '123456' } })
+    fireEvent.change(screen.getByLabelText('Code'), { target: { value: '123456' } })
     await press('Verify code')
     const password = screen.getByLabelText('Password')
     await waitFor(() => expect(document.activeElement).toBe(password))
     expect(password.getAttribute('aria-invalid')).toBeNull()
-    expect(described(password)).toBe('Choose a password of at least 12 characters.')
+    expect(described(password)).toBe('At least 12 characters. Tap Show to check it.')
 
     api.enrollmentActivate.mockResolvedValue({ hidCode: 'HID-ABCDEF23' })
     fireEvent.change(password, { target: { value: 'a-long-new-password' } })
-    await press('Activate Health ID')
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Your Health ID is ready.' })))
+    await press('Get my Health ID')
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Your Health ID is ready' })))
     expect(screen.getByText('HID-ABCDEF23')).toBeTruthy()
   })
 
@@ -374,26 +373,27 @@ describe('patient enrollment', () => {
     await waitFor(() => expect(document.activeElement).toBe(contact))
     api.enrollmentContact.mockRejectedValue(new HidApiError(409, 'This contact is already associated with a Health ID', { code: 'CONTACT_ALREADY_REGISTERED' }))
     fireEvent.change(contact, { target: { value: '+2348000000000' } })
-    await press('Send verification code')
+    await press('Send code')
     await waitFor(() => expect(contact.getAttribute('aria-invalid')).toBe('true'))
     expect(document.activeElement).toBe(contact)
-    expect(described(contact)).toBe('This contact is already associated with a Health ID')
+    // The page's error, which a kasuwa Alert opens with its intent, read as the field's description.
+    expect(described(contact)).toBe('Error: This contact is already associated with a Health ID')
   })
 
   it("'Request another code' cannot be used while a code is being checked", async () => {
     await toContact()
     api.enrollmentContact.mockResolvedValue({ challengeId: 'challenge-1' })
     fireEvent.change(screen.getByLabelText('Phone number'), { target: { value: '+2348000000000' } })
-    await press('Send verification code')
+    await press('Send code')
     api.enrollmentVerify.mockReturnValue(new Promise(() => {}))
-    await enterCode(await screen.findByLabelText('Verification code'), '123456')
-    expect((screen.getByRole('button', { name: 'Request another code or change contact' }) as HTMLButtonElement).disabled).toBe(true)
+    await enterCode(await screen.findByLabelText('Code'), '123456')
+    expect((screen.getByRole('button', { name: 'Get another code or change contact' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('does not move focus when the page opens at a stage already reached', async () => {
     api.enrollmentCurrent.mockReset().mockResolvedValue({ stage: 'set_password' })
     open()
-    expect(await screen.findByRole('heading', { name: 'Activate your account' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Choose a password' })).toBeTruthy()
     expect(document.activeElement).toBe(document.body)
   })
 })

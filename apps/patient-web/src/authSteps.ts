@@ -27,7 +27,8 @@ export function useStepFocus() {
     // page; other engines may not) is the step just sent, not a place the person chose.
     const lost = !(active instanceof HTMLElement) || active === document.body || !active.isConnected
       || active === element || inSameCode(active, element)
-      || (form !== null && form.contains(active) && active instanceof HTMLButtonElement && active.type === 'submit')
+      // The form's own submit button, inside it or (a form's footer) outside it and naming it with form="…".
+      || (form !== null && active instanceof HTMLButtonElement && active.type === 'submit' && (form.contains(active) || active.form === form))
     if (lost) element.focus()
   }, [request])
   return {

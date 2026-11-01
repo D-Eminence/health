@@ -50,36 +50,44 @@ const mainGateway: Handler = (path, method) => {
   if (path === '/identity/me/imported-history-sharing') return problem(404, 'NOT_FOUND', 'Not served')
   return problem(500, 'UNEXPECTED', `${method} ${path}`)
 }
-const cardOf = (name: string) => screen.getByRole('heading', { name, level: 2 }).closest('.patient-card') as HTMLElement
+const cardOf = (name: string) => screen.getByRole('heading', { name, level: 2 }).closest('section') as HTMLElement
 const search = () => screen.getByRole('searchbox', { name: 'Search your records' })
 const type = (text: string) => fireEvent.change(search(), { target: { value: text } })
+/** What each record in a list is called: its row's first line. */
+const titles = (list: HTMLElement) => within(list).getAllByRole('listitem').map(item => item.querySelector('span > span')?.textContent)
+/** A record type's tab, which counts what it holds (or, while a search is typed, what matches). */
+const tab = (name: string) => within(screen.getByRole('navigation', { name: 'Record type' })).getByRole('button', { name: new RegExp(`^${name}\\d*$`) })
+const IMPORTED = 'Older health records'
 
 describe('the records page', () => {
   it('lists each section\'s records under their day, newest day first and newest first within a day', async () => {
     renderPortal(<RecordsPage />, gateway(NOVU_RECORDS))
-    await screen.findByText('emergency')
-    const encounters = within(cardOf('Encounters'))
+    await screen.findByText('Emergency')
+    const encounters = within(cardOf('Visits'))
     expect(encounters.getAllByRole('heading', { level: 3 }).map(heading => heading.textContent)).toEqual([dayLabel('2026-10-08'), dayLabel('2026-10-02')])
     const [newest, oldest] = encounters.getAllByRole('list')
-    expect(within(newest!).getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['emergency', 'inpatient'])
-    expect(within(oldest!).getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['ambulatory'])
+    expect(titles(newest!)).toEqual(['Emergency', 'Inpatient'])
+    expect(titles(oldest!)).toEqual(['Ambulatory'])
     expect(within(cardOf('Clinical notes')).getAllByRole('heading', { level: 3 }).map(heading => heading.textContent))
       .toEqual([dayLabel('2026-10-08'), dayLabel('2026-10-02')])
     // Imported history too, each record's title a level under its day.
-    const imported = screen.getByRole('region', { name: 'Imported medical history' })
+    const imported = screen.getByRole('region', { name: IMPORTED })
     expect(within(imported).getByRole('heading', { level: 3 }).textContent).toBe(dayLabel('2026-06-17'))
     expect(within(imported).getByRole('heading', { name: 'Preserved report', level: 4 })).toBeTruthy()
   })
 
   it('finds records by the words in a note, and says how many match', async () => {
     const { sent } = renderPortal(<RecordsPage />, gateway(NOVU_RECORDS))
-    await screen.findByText('emergency')
+    await screen.findByText('Emergency')
     expect(screen.getByRole('search')).toBeTruthy()
     type('okafor')
     expect(screen.getByText('Chest pain review')).toBeTruthy()
     expect(screen.queryByText('Blood pressure follow-up in two weeks.')).toBeNull()
-    expect(within(cardOf('Encounters')).getByText('No completed encounters match your search.')).toBeTruthy()
-    expect(screen.getByText('No imported records match your search.')).toBeTruthy()
+    // A part with nothing that matches is left out of All; its tab says none match.
+    expect(screen.queryByRole('heading', { name: 'Visits', level: 2 })).toBeNull()
+    expect(tab('Visits').textContent).toBe('Visits0')
+    expect(within(cardOf('Clinical notes')).getByText('1 of 2 match')).toBeTruthy()
+    expect(screen.getByText('No older records match your search.')).toBeTruthy()
     expect(screen.getByText('1 record matches your search.').getAttribute('role')).toBe('status')
     // Nothing is sent for a search.
     expect(sent).toHaveLength(1)
@@ -87,30 +95,31 @@ describe('the records page', () => {
 
   it('finds records by type, title, date and imported details, with every word', async () => {
     renderPortal(<RecordsPage />, gateway(NOVU_RECORDS))
-    await screen.findByText('emergency')
+    await screen.findByText('Emergency')
     type('encounter')
-    expect(within(cardOf('Encounters')).getAllByRole('listitem')).toHaveLength(3)
-    expect(within(cardOf('Clinical notes')).getByText('No signed clinical notes match your search.')).toBeTruthy()
+    expect(within(cardOf('Visits')).getAllByRole('listitem')).toHaveLength(3)
+    expect(screen.queryByRole('heading', { name: 'Clinical notes', level: 2 })).toBeNull()
+    expect(tab('Notes').textContent).toBe('Notes0')
     type('discharge')
     expect(within(cardOf('Clinical notes')).getAllByRole('listitem')).toHaveLength(1)
     type('original entry')
     expect(screen.getByRole('heading', { name: 'Preserved report' })).toBeTruthy()
-    expect(screen.getByText('1 of the 1 imported record shown match your search.')).toBeTruthy()
+    expect(screen.getByText('1 of 1 older record match your search.')).toBeTruthy()
     type('note okafor chest')
     expect(screen.getByText('1 record matches your search.')).toBeTruthy()
     type('okafor appendix')
     expect(screen.getByText('No records match your search.')).toBeTruthy()
     type('  ')
-    expect(within(cardOf('Encounters')).getAllByRole('listitem')).toHaveLength(3)
+    expect(within(cardOf('Visits')).getAllByRole('listitem')).toHaveLength(3)
     expect(screen.getByRole('heading', { name: 'Preserved report' })).toBeTruthy()
   })
 
   it('finds records by the words of the day they are listed under, as its heading names it', async () => {
     renderPortal(<RecordsPage />, gateway(NOVU_RECORDS))
-    await screen.findByText('emergency')
+    await screen.findByText('Emergency')
     // Under "Thursday, 8 October 2026", where each record's own date reads "8 Oct 2026".
     type('Thursday October')
-    expect(within(cardOf('Encounters')).getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['emergency', 'inpatient'])
+    expect(titles(cardOf('Visits'))).toEqual(['Emergency', 'Inpatient'])
     expect(within(cardOf('Clinical notes')).getAllByRole('listitem')).toHaveLength(1)
     expect(screen.getByText('3 records match your search.')).toBeTruthy()
     // Imported history's day too: "Wednesday, 17 June 2026".
@@ -124,10 +133,10 @@ describe('the records page', () => {
     renderPortal(<RecordsPage />, mainGateway)
     await screen.findByText('Legacy malaria treatment')
     type('malaria')
-    expect(screen.getByText('1 of the 1 imported record shown match your search.')).toBeTruthy()
+    expect(screen.getByText('1 of 1 older record match your search.')).toBeTruthy()
     expect(screen.getByText('1 record matches your search.').getAttribute('role')).toBe('status')
     type('okafor')
-    expect(screen.getByText('No imported records match your search.')).toBeTruthy()
+    expect(screen.getByText('No older records match your search.')).toBeTruthy()
     expect(screen.getByText('1 record matches your search.')).toBeTruthy()
     type('malaria okafor')
     expect(screen.getByText('No records match your search.')).toBeTruthy()
@@ -144,10 +153,14 @@ describe('the records page', () => {
     }))
     await screen.findByText('Amlodipine')
     type('amlodipine')
-    expect(within(cardOf('Prescriptions')).getByRole('heading', { level: 3 }).textContent).toBe(dayLabel('2026-10-08'))
-    expect(within(cardOf('Vitals')).getByText('Not yet shared with patients in Health ID.')).toBeTruthy()
-    expect(within(cardOf('Encounters')).getByText('No completed encounters match your search.')).toBeTruthy()
+    expect(within(cardOf('Medicines')).getByRole('heading', { level: 3 }).textContent).toBe(dayLabel('2026-10-08'))
     expect(screen.getByText('1 record matches your search.')).toBeTruthy()
+    // A withheld part's tab shows it was not shared, never that nothing matched.
+    fireEvent.click(tab('Vitals'))
+    expect(within(cardOf('Vitals')).getByText('Not shared with you yet.')).toBeTruthy()
+    expect(within(cardOf('Vitals')).queryByText('None match your search.')).toBeNull()
+    fireEvent.click(tab('Visits'))
+    expect(within(cardOf('Visits')).getByText('None match your search.')).toBeTruthy()
   })
 
   it('offers no search until the records are read', async () => {

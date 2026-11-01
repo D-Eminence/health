@@ -11,23 +11,23 @@ import type { FieldErrors } from '../parts/RecordForm'
  * encounters at this facility (the design's "Visit"), read as today's chart reads them.
  */
 
-/** Today's chart wording, word for word. */
+/** The chart's wording, in plain words. */
 export const RESTARTED = 'This list changed since it was opened, so it shows the newest entries again.'
-export const NO_ENCOUNTERS = 'No encounters are available for this patient and facility.'
-export const NO_COMPLAINT = 'No chief complaint provided'
-export const RECORD_SAVED = 'Clinical record saved by the backend.'
-export const RECORD_NOT_SAVED = 'Record could not be saved.'
-export const NO_WRITE = 'This access does not permit changes to the patient record.'
-export const NO_RECORD_ACCESS = 'Your current facility role does not grant access to encounter records.'
-export const ENCOUNTERS_FAILED = 'Encounters could not be loaded.'
+export const NO_ENCOUNTERS = 'No consultations for this patient here yet. Start one first.'
+export const NO_COMPLAINT = 'No complaint recorded'
+export const RECORD_SAVED = 'Saved.'
+export const RECORD_NOT_SAVED = 'This could not be saved.'
+export const NO_WRITE = 'Your access doesn’t allow changes to this patient’s records.'
+export const NO_RECORD_ACCESS = 'Your role here can’t see these records.'
+export const ENCOUNTERS_FAILED = 'Consultations could not be loaded.'
 export const RECORDS_FAILED = 'Records could not be loaded.'
 export const RELOAD_FAILED = 'The change was saved, but the records could not be reloaded.'
 export const REASON_SHORT = 'Give a reason of at least 3 characters.'
 
 /** The design's wording. */
-export const FIRST_RECORD = 'Create the first record when you have the appropriate permission.'
+export const FIRST_RECORD = 'Nothing recorded yet.'
 export const CHANGE_SEARCH = 'Change your search.'
-export const NO_CREATE = 'You do not have permission to create this record.'
+export const NO_CREATE = 'Your role can’t add this record.'
 export const COMPLETE_FIELD = 'Complete this field.'
 
 /** Said when a visit holds more than one page of records: the list shows each visit's newest page. */
@@ -230,8 +230,6 @@ export type Loaded<T> =
 export interface VisitRecordState {
   readonly encounter: Encounter
   readonly record: ClinicalRecord
-  /** The visit's other records of the same kind. */
-  readonly siblings: readonly ClinicalRecord[]
 }
 
 /**
@@ -264,7 +262,7 @@ export function useVisitRecord(chart: Chart, key: string, kind: RecordKind, keep
         if (!current) return
         const record = items.find(item => item.id === recordId)
         if (!record) return setLoaded({ phase: 'missing' })
-        setLoaded({ phase: 'ready', encounter, record, siblings: items.filter(item => item.id !== recordId) })
+        setLoaded({ phase: 'ready', encounter, record })
       } catch (caught) {
         if (!current) return
         if (isHidApiError(caught) && caught.status === 404) return setLoaded({ phase: 'missing' })
@@ -285,7 +283,7 @@ export function useVisitRecord(chart: Chart, key: string, kind: RecordKind, keep
     setLoaded(state => {
       if (state.phase !== 'ready') return state
       const record = items.find(item => item.id === recordId)
-      return record ? { ...state, record, siblings: items.filter(item => item.id !== recordId) } : state
+      return record ? { ...state, record } : state
     })
     return { items }
   }, [encounterId, facilityId, keeps, kind, patientId, recordId])

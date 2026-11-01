@@ -7,6 +7,7 @@ import { LivePage, StaffAccessPage } from './LivePages'
 import { SampleWorkspace } from './sample/SampleWorkspace'
 import { FacilityProfileSample, FacilitySetupSample, PlatformReviewSample, ReportsSample } from './admin/AdminSamples'
 import { WhatsLeft } from './WhatsLeft'
+import { FacilitySubscriptionPage } from './BlueSubscription'
 import { ChooseWorkspacePage } from './ChooseWorkspace'
 import { DesignTourIndex, JourneyTour } from './tour/DesignTour'
 import { JOURNEYS } from './tour/journeys'
@@ -23,10 +24,15 @@ import { JOURNEYS } from './tour/journeys'
 const icon = (name: EhrIconName) => createElement(EhrIcon, { name })
 
 const todayPaths: string[] = []
+const todayPages = new Set<EhrBluePage>()
 
-function live(path: string, group: string, label: string, iconName: EhrIconName, permission: string): EhrBluePage {
+/** A stand-in for today's page at its address: today's page itself, unless `element` draws it in the design. */
+function live(path: string, group: string, label: string, iconName: EhrIconName, permission: string,
+  element: EhrBluePage['element'] = createElement(LivePage)): EhrBluePage {
   todayPaths.push(path)
-  return { path, group, label, icon: icon(iconName), permission, status: 'live', element: createElement(LivePage) }
+  const entry: EhrBluePage = { path, group, label, icon: icon(iconName), permission, status: 'live', element }
+  todayPages.add(entry)
+  return entry
 }
 
 function sample(id: string, group: string, label: string, iconName: EhrIconName, path = `${id}/*`): EhrBluePage {
@@ -67,7 +73,7 @@ export const pages: EhrBluePage[] = [
   sample('surgery', 'Clinical', 'Theatre & Procedures', 'scissors'),
   sample('icu', 'Clinical', 'ICU', 'monitor'),
   sample('dental', 'Clinical', 'Dental', 'tooth'),
-  live('requests', 'Clinical', 'External record access', 'lock', 'identity.consent.write'),
+  live('requests', 'Clinical', 'Access requests', 'lock', 'identity.consent.write'),
   sample('nursing-tasks', 'Clinical', 'Nursing tasks', 'check'),
 
   live('laboratory', 'Diagnostics', 'Laboratory', 'flask', 'lab.work-item.read'),
@@ -90,6 +96,7 @@ export const pages: EhrBluePage[] = [
   page('staff', 'People', 'Staff & access', 'users', 'partial', createElement(StaffAccessPage), 'workforce.manage'),
 
   sample('quality', 'Administration', 'Quality & Safety', 'flag'),
+  // A sample, so the design's roles decide (sampleAccess.ts): Platform Super Admin only.
   demoOnly(page('platform', 'Administration', 'Facility review', 'review', 'sample', createElement(PlatformReviewSample))),
 
   sample('services', 'Settings', 'Service catalogue', 'tag'),
@@ -97,7 +104,7 @@ export const pages: EhrBluePage[] = [
   sample('vehicles', 'Settings', 'Vehicle configuration', 'vehicleSettings'),
   page('facility', 'Settings', 'Facility profile', 'building', 'sample', createElement(FacilityProfileSample)),
   page('setup', 'Settings', 'Facility settings', 'edit', 'sample', createElement(FacilitySetupSample)),
-  live('billing', 'Settings', 'Facility subscription', 'subscription', 'billing.subscription.read'),
+  live('billing', 'Settings', 'Facility subscription', 'subscription', 'billing.subscription.read', createElement(FacilitySubscriptionPage)),
 
   { ...sample('inventory', 'Supply', 'Supply', 'box', 'supply/*'), tabLabel: 'Stock' },
   { ...sample('procurement', 'Supply', 'Procurement', 'box'), tabOf: 'supply' },
@@ -124,3 +131,9 @@ export const pages: EhrBluePage[] = [
  * page that replaces one keeps its address). "Use the classic EHR" stays on them.
  */
 export const TODAY_PATHS: ReadonlySet<string> = new Set(todayPaths)
+
+/**
+ * The frame's stand-ins for today's pages, as entries: one opened without its permission is left to refuse in today's
+ * words. A page another folder exports in its place is not one of these.
+ */
+export const TODAY_PAGES: ReadonlySet<EhrBluePage> = todayPages

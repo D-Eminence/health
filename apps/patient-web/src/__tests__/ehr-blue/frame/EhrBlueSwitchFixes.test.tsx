@@ -7,8 +7,8 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { parse } from '../../cssRules'
 import type { EhrBluePage } from '../../../ehr-blue/frame/types'
 import {
-  DEMO_HOSPITAL, LAB_WORK, REAL_FACILITY, REQUESTS, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, where,
-  withFramePages,
+  DEMO_HOSPITAL, LAB_WORK, REAL_FACILITY, REQUESTS, SESSION, accountButton, facility, homeHeading, json, openStaffApp, problem, serve, sessionAt,
+  switchFacilityTo, where, withFramePages,
 } from './blueHarness'
 
 /**
@@ -17,7 +17,8 @@ import {
  * words, and the classic EHR keeping today's own pages. Every account, facility and patient here is fictional.
  */
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
-beforeEach(() => { withFramePages() })
+// The clinic switch as it ships, unless a test turns it on (switchedOn): a vi.doMock outlives the test that made it.
+beforeEach(() => { withFramePages(); vi.doMock('../../../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: false })) })
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); vi.resetModules() })
 
 const many = <T,>(answer: T, count = 8): T[] => Array.from({ length: count }, () => answer)
@@ -32,10 +33,12 @@ function switchedOn() {
   vi.doMock('../../../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: true }))
 }
 
-async function chooseClassic() {
-  fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Use the classic EHR' }))
-  expect(await screen.findByRole('complementary', { name: 'Provider navigation' })).toBeDefined()
+/** The classic EHR was removed (one EHR for every facility): the account menu no longer offers it. */
+function offersNoClassic() {
+  fireEvent.click(accountButton())
+  expect(screen.getByRole('button', { name: 'Sign out' })).toBeDefined()
+  expect(screen.queryByRole('button', { name: 'Use the classic EHR' })).toBeNull()
+  expect(screen.queryByRole('complementary', { name: 'Provider navigation' })).toBeNull()
 }
 
 describe('1. design-only entries are only at the demo facilities', () => {
@@ -48,26 +51,26 @@ describe('1. design-only entries are only at the demo facilities', () => {
     const annex = facility('f0000000-0000-4000-8000-000000000002', 'Riverside Annex (fictional)', ['identity.consent.write'])
     serve({ [SESSION]: [sessionAt(riverside, [riverside, annex])], [REQUESTS]: many(() => json([])) })
     await openStaffApp('/provider')
-    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
+    await screen.findByRole('heading', { level: 1, name: homeHeading() })
     for (const name of DESIGN) expect(within(nav()).queryByRole('link', { name })).toBeNull()
     expect(within(nav()).queryByRole('button', { name: 'Design review' })).toBeNull()
     expect(within(nav()).queryByRole('button', { name: 'Design tour' })).toBeNull()
 
     fireEvent.keyDown(document, { key: 'k', ctrlKey: true })
-    const search = await screen.findByRole('dialog', { name: 'Search Health ID' })
+    const search = await screen.findByRole('dialog', { name: 'Search' })
     for (const term of ['Design', 'What’s left', 'Facility review']) {
-      fireEvent.change(within(search).getByRole('searchbox', { name: 'Search work areas' }), { target: { value: term } })
+      fireEvent.change(within(search).getByRole('searchbox', { name: 'Health ID or page' }), { target: { value: term } })
       expect(within(search).queryAllByRole('link')).toEqual([])
     }
     fireEvent.keyDown(document, { key: 'Escape' })
 
     // No sample dashboard leads there either: a clinic is offered none (EhrBlueSwitchReview.test.tsx).
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+    fireEvent.click(accountButton())
     expect(screen.queryByRole('button', { name: 'Platform Super Admin' })).toBeNull()
 
-    // Switch facility still opens Choose your workspace.
-    fireEvent.click(screen.getByRole('button', { name: 'Switch facility' }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Choose your workspace' })).toBeDefined()
+    // The facility switcher still opens Switch facility.
+    switchFacilityTo('Riverside Teaching Hospital (fictional)', 'Riverside Annex (fictional)')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Switch facility' })).toBeDefined()
   })
 
   it.each([
@@ -83,16 +86,32 @@ describe('1. design-only entries are only at the demo facilities', () => {
     expect(screen.queryByText(/Ask your facility administrator/)).toBeNull()
   })
 
-  it('keeps them at a demo facility', async () => {
+  // Design tools are no longer listed even at a demo facility (only working screens are): they stay by address.
+  it.each([
+    ['/provider/whats-left', 'What’s left'], ['/provider/tour', 'Design tour'],
+  ])('keeps %s by address at a demo facility, unlisted', async (path, heading) => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
-    await openStaffApp('/provider')
-    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
-    for (const name of DESIGN) expect(within(nav()).getByRole('link', { name })).toBeDefined()
+    await openStaffApp(path)
+    expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeDefined()
+    expect(screen.queryByText(/is part of the Health ID demo only/)).toBeNull()
+    for (const name of DESIGN) expect(within(nav()).queryByRole('link', { name })).toBeNull()
+  })
+
+  // A sample, so the design's roles decide who opens it (sampleAccess.ts): Facility review is the Platform Super Admin's
+  // alone, and a clinician's address for it opens Home with the design's notice.
+  it('keeps Facility review for the design\'s Platform Super Admin alone: a clinician is sent Home', async () => {
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
+    serve({ [SESSION]: [sessionAt(demo, [demo])] })
+    await openStaffApp('/provider/platform')
+    expect(await screen.findByText('Your current permissions no longer allow that page. Choose an authorized workflow.')).toBeDefined()
+    expect(where()).toBe('/provider')
+    expect(screen.queryByRole('heading', { level: 1, name: 'Facility review' })).toBeNull()
+    expect(within(nav()).queryByRole('link', { name: 'Facility review' })).toBeNull()
   })
 })
 
-describe('2. the classic EHR choice ends with the session that made it', () => {
+describe('2. the next sign-in opens the blue EHR (there is no classic EHR choice to carry over)', () => {
   it('opens the blue EHR for whoever signs in after a session ended without Sign out', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write'])
     serve({
@@ -102,8 +121,8 @@ describe('2. the classic EHR choice ends with the session that made it', () => {
       [REQUESTS]: many(() => json([])),
     })
     await openStaffApp('/provider')
-    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
-    await chooseClassic()
+    await screen.findByRole('heading', { level: 1, name: homeHeading() })
+    offersNoClassic()
 
     const { reportStaffSessionEnded } = await import('../../../staff/session')
     act(() => reportStaffSessionEnded())
@@ -112,14 +131,14 @@ describe('2. the classic EHR choice ends with the session that made it', () => {
     fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'fictional passphrase for tests' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
     expect(document.querySelector('.hid-ehr.hid-ehr-shell')).not.toBeNull()
     expect(screen.queryByRole('complementary', { name: 'Provider navigation' })).toBeNull()
   })
 })
 
 describe('3. Home says what today\'s Overview says about clinical modules', () => {
-  const SENTENCE = 'Your active facility has no clinical module permissions. Ask an administrator to review your assignment.'
+  const SENTENCE = 'You have no clinical work at this facility yet. Ask an administrator to check your role.'
 
   it('tells an administrator with only audit and billing that no clinical module is open', async () => {
     const admin = facility(DEMO_HOSPITAL, 'Demo Hospital', ['audit.read', 'billing.subscription.read'], ['org_admin'])
@@ -132,7 +151,7 @@ describe('3. Home says what today\'s Overview says about clinical modules', () =
     const reader = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.patient.read'])
     serve({ [SESSION]: [sessionAt(reader, [reader])] })
     await openStaffApp('/provider')
-    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
+    await screen.findByRole('heading', { level: 1, name: homeHeading() })
     expect(screen.queryByText(SENTENCE)).toBeNull()
   })
 })
@@ -150,18 +169,19 @@ describe('4. a live stand-in opened without its permission refuses in today\'s w
     expect(sent.some(call => call.route === LAB_WORK)).toBe(false)
   })
 
-  it('still refuses in the frame\'s words for a blue page that replaced its stand-in', async () => {
+  it('sends Home with the design\'s notice from a blue page that replaced its stand-in', async () => {
     withFramePages(() => [{ path: 'laboratory/*', group: 'Diagnostics', label: 'Laboratory', status: 'live',
       permission: 'lab.work-item.read', element: <p>Fictional blue laboratory</p> }])
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp('/provider/laboratory')
-    expect(await screen.findByText('Laboratory is not open to you here')).toBeDefined()
+    expect(await screen.findByText('Your current permissions no longer allow that page. Choose an authorized workflow.')).toBeDefined()
+    expect(where()).toBe('/provider')
     expect(screen.queryByText('Fictional blue laboratory')).toBeNull()
   })
 })
 
-describe('5. "Use the classic EHR" keeps a page today\'s sidebar lists', () => {
+describe('5. there is no "Use the classic EHR": Staff stays the blue page', () => {
   beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
 
   it('stays on Staff at a facility that signed itself up', async () => {
@@ -170,17 +190,17 @@ describe('5. "Use the classic EHR" keeps a page today\'s sidebar lists', () => {
     serve({ [SESSION]: [sessionAt(own as ReturnType<typeof facility>, [own as ReturnType<typeof facility>])] })
     await openStaffApp('/provider/staff')
     await screen.findByRole('navigation', { name: 'Main navigation' })
-    await chooseClassic()
+    offersNoClassic()
     expect(where()).toBe('/provider/staff')
   })
 
-  it('opens the Overview from Staff where today does not list it', async () => {
+  it('stays on Staff where today does not list it', async () => {
     const governed = facility(DEMO_HOSPITAL, 'Demo Hospital', ['workforce.manage'])
     serve({ [SESSION]: [sessionAt(governed, [governed])] })
     await openStaffApp('/provider/staff')
     await screen.findByRole('heading', { level: 1, name: 'Staff & access' })
-    await chooseClassic()
-    expect(where()).toBe('/provider')
+    offersNoClassic()
+    expect(where()).toBe('/provider/staff')
   })
 })
 
@@ -203,7 +223,8 @@ describe('6. cosmetic', () => {
     ['/provider/insurance/policies', '/provider/policies', 'Policies'],
     ['/provider/supply/procurement', '/provider/procurement', 'Procurement'],
   ])('sends an old address, %s, to %s', async (old, now, heading) => {
-    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
+    // A facility administrator: the design opens Policies and Procurement to a Hospital Admin.
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [], ['org_admin'])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp(old)
     await waitFor(() => expect(where()).toBe(now))

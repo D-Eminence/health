@@ -12,10 +12,11 @@ import { describedBy, sentFromField, useStepFocus } from '../../authSteps'
 import { CodeBoxes, codeComplete } from '../../CodeBoxes'
 import { useResendWait } from '../recoveryWait'
 import { HospitalPicker } from './HospitalPicker'
-import { HealthIdCode } from '../HealthIdCode'
 import { googleProfileOf } from './googleProfile'
 import { REGISTRATION_CLOSED } from './RegistrationClosed'
-import { SIGNED_IN_ON_THIS_DEVICE } from './Complete'
+import { Complete } from './Complete'
+import { Alert, Button, Field, Select } from '../../kasuwa/ui'
+import { Hint, InputR, SelectR } from '../profileParts'
 import { STEP_UNAVAILABLE, refusedWith, registrationClosed, temporarilyUnavailable } from './problems'
 import { DEFAULT_PHONE_COUNTRY, PHONE_COUNTRIES, internationalPhone } from './phoneCountries'
 import { ExistingAccountAlert, existingAccount, type ExistingAccount } from './googleAccountExists'
@@ -35,11 +36,11 @@ import { ExistingAccountAlert, existingAccount, type ExistingAccount } from './g
  */
 type SignupStep = 'details' | 'password' | 'code' | 'done'
 type DetailsField = 'firstName' | 'lastName' | 'email' | 'phone' | 'gender' | 'hospitalCurrentlyUsing' | 'terms'
-type Field = DetailsField | 'password' | 'confirm' | 'code'
+type Field = DetailsField | 'password' | 'code'
 type FieldErrors = Partial<Record<Field, string>>
 
 const DETAILS_ORDER: readonly DetailsField[] = ['firstName', 'lastName', 'email', 'phone', 'gender', 'hospitalCurrentlyUsing', 'terms']
-const PASSWORD_ORDER: readonly Field[] = ['password', 'confirm']
+const PASSWORD_ORDER: readonly Field[] = ['password']
 
 const GENDER_LABELS: Record<SignupGender, string> = { female: 'Female', male: 'Male', other: 'Other' }
 
@@ -53,7 +54,6 @@ export const SIGNUP_PROBLEMS: Record<DetailsField, string> = {
   terms: 'Agree to the Terms of Service and Privacy Policy to create an account.',
 }
 export const PASSWORD_RULE = 'Choose a password of at least 12 characters.'
-const CONFIRM_RULE = 'Type the same password again.'
 /** 409 PATIENT_EMAIL_ALREADY_REGISTERED; shown with a link to sign in. */
 export const EMAIL_TAKEN = 'This email address already has a Health ID account.'
 /** 409 PATIENT_PHONE_ALREADY_REGISTERED. */
@@ -106,10 +106,9 @@ function detailsProblems(details: Details): FieldErrors {
   return problems
 }
 
-function passwordProblems(password: string, confirm: string): FieldErrors {
+function passwordProblems(password: string): FieldErrors {
   const problems: FieldErrors = {}
   if (password.length < 12 || password.length > 256) problems.password = PASSWORD_RULE
-  if (!confirm || confirm !== password) problems.confirm = CONFIRM_RULE
   return problems
 }
 
@@ -146,7 +145,6 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
   const [step, setStep] = useState<SignupStep>('details')
   const [details, setDetails] = useState<Details>(() => ({ ...EMPTY_DETAILS, email: initialEmail }))
   const [password, setPassword] = useState('')
-  const [confirm, setConfirm] = useState('')
   const [code, setCode] = useState('')
   const [challengeId, setChallengeId] = useState<string | null>(null)
   const [maskedContact, setMaskedContact] = useState('')
@@ -219,7 +217,7 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
     const result = await api.enrollmentActivate(password)
     // Taken up before the Health ID is shown, as sign-in takes up its session; never a refusal of the activation.
     const signedInHere = await signedInByActivation(result)
-    setPassword(''); setConfirm(''); setCode('')
+    setPassword(''); setCode('')
     setSignedIn(signedInHere); setHidCode(result.hidCode); setStep('done')
   }
 
@@ -239,9 +237,10 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
     event.preventDefault()
     const fromField = sentFromField(event)
     if (busy) return
-    const problems = passwordProblems(password, confirm)
+    // Typed once, with Show to check it (the review of 2026-10-31): there is no second field to match.
+    const problems = passwordProblems(password)
     if (Object.keys(problems).length) {
-      setNotice(null); setFieldErrors(problems); setError(fromField ? problems.password ?? problems.confirm ?? null : null); setErrorAlert(true)
+      setNotice(null); setFieldErrors(problems); setError(fromField ? problems.password ?? null : null); setErrorAlert(true)
       stepFocus.focus()
       return
     }
@@ -351,126 +350,116 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
 
   const invalid = (field: Field) => fieldErrors[field] ? true as const : undefined
   const errorId = (field: Field) => fieldErrors[field] ? `signup-${field}-error` : undefined
-  const fieldError = (field: Field) => fieldErrors[field] && <p id={`signup-${field}-error`} className="patient-inline-error">
+  const fieldError = (field: Field) => fieldErrors[field] ? <>
     {fieldErrors[field]}{field === 'email' && fieldErrors.email === EMAIL_TAKEN && <> <Link to="/sign-in">Sign in instead.</Link></>}
-  </p>
+  </> : undefined
   const detailsFocus = firstOf(DETAILS_ORDER, fieldErrors) ?? 'firstName'
   const passwordFocus = firstOf(PASSWORD_ORDER, fieldErrors) ?? 'password'
   const target = (field: Field, focusOn: Field) => field === focusOn ? stepFocus.target : undefined
   const steps = step === 'done' ? undefined : ([['Your details', 'details'], ['Password', 'password'], ['Email code', 'code']] as const)
     .map(([label, at]) => ({ label, current: step === at }))
   const googleOffered = Boolean(googleClientId()) && step === 'details'
+  const stepTitle = 'm-0 text-title-2 text-ink'
 
   return <AuthLayout brandTo="/" title="Create your Health ID." titleId="enroll-title"
-    lede="Your health data. Safely stored. Instantly accessible. Always in your control."
+    lede="Your records, from every hospital, in your control."
     steps={steps} stepsLabel="Sign-up steps">
-    {error && <p id="signup-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
+    <div className="flex flex-col gap-5">
+    {error && <Alert intent="error" id="signup-error" live={errorAlert}>{error}</Alert>}
     {/* Kept mounted, so a notice is a change of a live region, not a new one. */}
-    <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
+    <div role="status" className="empty:hidden">{notice && <Alert intent="success" size="sm" live={false}>{notice}</Alert>}</div>
 
-    {step === 'details' && <form onSubmit={submitDetails} className="patient-form" noValidate aria-labelledby="signup-details-title">
-      <h2 id="signup-details-title">Your details</h2>
-      <p className="patient-field-hint">You can verify your NIN later, from your profile.</p>
-      <label>First name<input ref={target('firstName', detailsFocus)} required autoComplete="given-name" maxLength={100} value={details.firstName}
-        onChange={event => update('firstName', event.target.value)} aria-invalid={invalid('firstName')} aria-describedby={errorId('firstName')} /></label>
-      {fieldError('firstName')}
-      <label>Last name<input ref={target('lastName', detailsFocus)} required autoComplete="family-name" maxLength={100} value={details.lastName}
-        onChange={event => update('lastName', event.target.value)} aria-invalid={invalid('lastName')} aria-describedby={errorId('lastName')} /></label>
-      {fieldError('lastName')}
-      <label>Email address<input ref={target('email', detailsFocus)} required type="email" autoComplete="email" maxLength={254} value={details.email}
-        onChange={event => update('email', event.target.value)} aria-invalid={invalid('email')}
-        aria-describedby={describedBy('signup-email-hint', errorId('email'))} /></label>
-      <p id="signup-email-hint" className="patient-field-hint">We will send a 6-digit code to this email address.</p>
-      {fieldError('email')}
-      <div className="patient-phone-field">
-        <label>Country code<select autoComplete="tel-country-code" value={details.phoneCountry}
-          onChange={event => update('phoneCountry', event.target.value)}>
-          {PHONE_COUNTRIES.map(country => <option key={country.iso} value={country.iso}>{country.name} (+{country.code})</option>)}
-        </select></label>
-        <label>Phone number<input ref={target('phone', detailsFocus)} required type="tel" inputMode="tel" autoComplete="tel-national" maxLength={24} value={details.phone}
-          onChange={event => update('phone', event.target.value.replace(/[^\d+\s().-]/g, ''))} aria-invalid={invalid('phone')}
-          aria-describedby={describedBy('signup-phone-hint', errorId('phone'))} /></label>
-      </div>
-      <p id="signup-phone-hint" className="patient-field-hint">Choose your country, then enter your number. A number that starts with + and its country code is used as typed.</p>
-      {fieldError('phone')}
-      <label>Gender<select ref={target('gender', detailsFocus)} required value={details.gender} onChange={event => update('gender', event.target.value as SignupGender | '')}
-        aria-invalid={invalid('gender')} aria-describedby={errorId('gender')}>
-        <option value="">Select…</option>
-        {SIGNUP_GENDERS.map(value => <option key={value} value={value}>{GENDER_LABELS[value]}</option>)}
-      </select></label>
-      {fieldError('gender')}
-      <div className="patient-field"><label htmlFor="signup-hospital">Hospital you currently use (optional)</label>
-        <HospitalPicker id="signup-hospital" inputRef={target('hospitalCurrentlyUsing', detailsFocus)} value={details.hospitalCurrentlyUsing}
-          onChange={value => update('hospitalCurrentlyUsing', value)}
-          invalid={invalid('hospitalCurrentlyUsing')} describedBy={errorId('hospitalCurrentlyUsing')} /></div>
-      {fieldError('hospitalCurrentlyUsing')}
-      <label className="patient-checkbox"><input ref={target('terms', detailsFocus)} type="checkbox" checked={details.terms}
-        onChange={event => update('terms', event.target.checked)} aria-invalid={invalid('terms')} aria-describedby={errorId('terms')} />
-        I agree to the Terms of Service and Privacy Policy</label>
-      {fieldError('terms')}
-      <p className="patient-field-hint">Read the <a href={TERMS_URL} target="_blank" rel="noopener">Terms of Service</a> and
-        the <a href={PRIVACY_URL} target="_blank" rel="noopener">Privacy Policy</a> (each opens in a new tab).</p>
-      <button type="submit" className="patient-primary-button" disabled={busy}>Continue</button>
-    </form>}
-
-    {step === 'password' && <form onSubmit={event => void submitPassword(event)} className="patient-form" noValidate aria-labelledby="signup-password-title">
-      <h2 id="signup-password-title">Create a secure password</h2>
-      <p id="signup-password-hint" className="patient-field-hint">Use a strong password to protect your Health ID account. {PASSWORD_RULE}</p>
-      {verified && <p className="patient-field-hint">Your email address is verified. Create your account to get your Health ID.</p>}
-      <div className="patient-field"><label htmlFor="signup-password">Password</label><PasswordInput appearance="plain" id="signup-password"
-        ref={target('password', passwordFocus)} required autoComplete="new-password" minLength={12} maxLength={256} value={password}
-        onChange={event => { setPassword(event.target.value); dropError('password') }}
-        aria-invalid={invalid('password')} aria-describedby={describedBy('signup-password-hint', errorId('password'))} /></div>
-      {fieldError('password')}
-      <div className="patient-field"><label htmlFor="signup-confirm">Confirm password</label><PasswordInput appearance="plain" id="signup-confirm"
-        ref={target('confirm', passwordFocus)} required autoComplete="new-password" maxLength={256} value={confirm}
-        onChange={event => { setConfirm(event.target.value); dropError('confirm') }}
-        aria-invalid={invalid('confirm')} aria-describedby={errorId('confirm')} /></div>
-      {fieldError('confirm')}
-      {!verified && <Turnstile action="patient-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />}
-      {!verified && !turnstileToken && <p id="signup-check-needed" className="patient-field-hint">Complete the security check to continue.</p>}
-      <button type="submit" className="patient-primary-button" disabled={busy || (!verified && !turnstileToken)}
-        aria-describedby={!verified && !turnstileToken ? 'signup-check-needed' : undefined}>{busy ? 'Creating account…' : 'Create account'}</button>
-      {!verified && <button type="button" className="patient-text-button" disabled={busy}
-        onClick={() => { clearMessages(); setStep('details'); stepFocus.focus() }}>Back</button>}
-    </form>}
-
-    {step === 'code' && <form onSubmit={event => void submitCode(event)} className="patient-form" aria-labelledby="signup-code-title">
-      <h2 id="signup-code-title">Enter verification code</h2>
-      <p id="signup-code-hint" className="patient-field-hint">We sent a 6-digit code to {maskedContact || 'your email address'}. Enter it here to finish creating your Health ID account.</p>
-      <CodeBoxes id="signup-code" label="Verification code" value={code} onChange={value => { setCode(value); setFieldErrors({}) }}
-        inputRef={stepFocus.target} busy={busy} invalid={invalid('code')} describedBy={describedBy('signup-code-hint', errorId('code'))} />
-      {fieldError('code')}
-      <button type="submit" className="patient-primary-button" disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Verify code'}</button>
-      <button type="button" className="patient-text-button" disabled={busy || !resend.ready} onClick={() => void sendCodeAgain()}
-        aria-describedby={resend.ready ? undefined : 'signup-resend-wait'}>Send code again</button>
-      {!resend.ready && <p id="signup-resend-wait" className="patient-field-hint">A new code can be sent {resendWaitSeconds} seconds after the last one.</p>}
-      <button type="button" className="patient-text-button" disabled={busy}
-        onClick={() => { clearMessages(); backToDetails(); stepFocus.focus() }}>Change your details</button>
-    </form>}
-
-    {step === 'done' && <div className="patient-success" role="status" aria-atomic="false">
-      <h2 ref={stepFocus.target} tabIndex={-1}>Your Health ID is ready.</h2>
-      <HealthIdCode code={hidCode} copyButton />
-      {signedIn ? <>
-        <p>Save this code: write it down or keep it somewhere safe. You can also find it on your profile.</p>
-        <p>Use your Health ID or your email address, with your password, whenever you sign in. You can verify your NIN from your profile.</p>
-        <p>{SIGNED_IN_ON_THIS_DEVICE}</p>
-        <button type="button" className="patient-primary-button" onClick={onProceed}>Proceed to profile</button>
-      </> : <>
-        <p>Save this code: write it down or keep it somewhere safe. This page may not show it again once you leave or reload it.</p>
-        <p>Use your Health ID or your email address, with your password, whenever you sign in. Once signed in, you can verify your NIN from your profile.</p>
-        <Link className="patient-primary-button" to="/sign-in">Sign in to continue</Link>
-      </>}
-    </div>}
-
-    {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && <section className="patient-auth-separator" aria-label="Google sign-up">
-      <p className="patient-field-hint">Continue with Google to fill in your name and email address.</p>
+    {/* Google first: one tap fills the name and email. */}
+    {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && <section className="flex flex-col gap-3" aria-label="Google sign-up">
       {accountExists && <ExistingAccountAlert account={accountExists} />}
       <Turnstile action="patient-login" onTokenChange={setGoogleToken} resetKey={googleResetKey} />
       <GoogleButton text="continue_with" disabled={busy || !googleToken} onCredential={continueWithGoogle}
         disabledReason={googleToken ? undefined : 'Complete the security check to continue with Google.'} />
+      <p className="m-0 flex items-center gap-3 text-[13px] text-ink-3 before:h-px before:flex-1 before:bg-line after:h-px after:flex-1 after:bg-line">or fill in your details</p>
     </section>}
-    <p className="patient-auth-footer">Already have a Health ID? <Link to="/sign-in">Sign in</Link></p>
+
+    {step === 'details' && <form onSubmit={submitDetails} className="flex flex-col gap-4" noValidate aria-labelledby="signup-details-title">
+      <h2 id="signup-details-title" className={stepTitle}>Your details</h2>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="First name" htmlFor="signup-firstName" errorId={errorId('firstName')} error={fieldError('firstName')}>
+          <InputR id="signup-firstName" ref={target('firstName', detailsFocus)} required autoComplete="given-name" maxLength={100} value={details.firstName}
+            onChange={event => update('firstName', event.target.value)} aria-invalid={invalid('firstName')} aria-describedby={errorId('firstName')} /></Field>
+        <Field label="Last name" htmlFor="signup-lastName" errorId={errorId('lastName')} error={fieldError('lastName')}>
+          <InputR id="signup-lastName" ref={target('lastName', detailsFocus)} required autoComplete="family-name" maxLength={100} value={details.lastName}
+            onChange={event => update('lastName', event.target.value)} aria-invalid={invalid('lastName')} aria-describedby={errorId('lastName')} /></Field>
+      </div>
+      <Field label="Email address" htmlFor="signup-email" hintId="signup-email-hint" hint="We’ll send a 6-digit code here."
+        errorId={errorId('email')} error={fieldError('email')}>
+        <InputR id="signup-email" ref={target('email', detailsFocus)} required type="email" autoComplete="email" maxLength={254} value={details.email}
+          onChange={event => update('email', event.target.value)} aria-invalid={invalid('email')}
+          aria-describedby={describedBy('signup-email-hint', errorId('email'))} /></Field>
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,180px)_minmax(0,1fr)]">
+        <Field label="Country" htmlFor="signup-phone-country">
+          <Select id="signup-phone-country" autoComplete="tel-country-code" value={details.phoneCountry} onChange={event => update('phoneCountry', event.target.value)}>
+            {PHONE_COUNTRIES.map(country => <option key={country.iso} value={country.iso}>{country.name} (+{country.code})</option>)}
+          </Select></Field>
+        <Field label="Phone number" htmlFor="signup-phone" hintId="signup-phone-hint" hint="Like 0803 123 4567." errorId={errorId('phone')} error={fieldError('phone')}>
+          <InputR id="signup-phone" ref={target('phone', detailsFocus)} required type="tel" inputMode="tel" autoComplete="tel-national" maxLength={24} value={details.phone}
+            onChange={event => update('phone', event.target.value.replace(/[^\d+\s().-]/g, ''))} aria-invalid={invalid('phone')}
+            aria-describedby={describedBy('signup-phone-hint', errorId('phone'))} /></Field>
+      </div>
+      <Field label="Gender" htmlFor="signup-gender" errorId={errorId('gender')} error={fieldError('gender')}>
+        <SelectR id="signup-gender" ref={target('gender', detailsFocus)} required value={details.gender} onChange={event => update('gender', event.target.value as SignupGender | '')}
+          aria-invalid={invalid('gender')} aria-describedby={errorId('gender')}>
+          <option value="">Select…</option>
+          {SIGNUP_GENDERS.map(value => <option key={value} value={value}>{GENDER_LABELS[value]}</option>)}
+        </SelectR></Field>
+      <Field label="Hospital you use" optional htmlFor="signup-hospital" errorId={errorId('hospitalCurrentlyUsing')} error={fieldError('hospitalCurrentlyUsing')}>
+        <HospitalPicker id="signup-hospital" inputRef={target('hospitalCurrentlyUsing', detailsFocus)} value={details.hospitalCurrentlyUsing}
+          onChange={value => update('hospitalCurrentlyUsing', value)}
+          invalid={invalid('hospitalCurrentlyUsing')} describedBy={errorId('hospitalCurrentlyUsing')} /></Field>
+      <div className="flex flex-col gap-1.5">
+        <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm text-ink"><input ref={target('terms', detailsFocus)} type="checkbox" className="mt-0.5 size-5 shrink-0 accent-[var(--color-brand-fill)]" checked={details.terms}
+          onChange={event => update('terms', event.target.checked)} aria-invalid={invalid('terms')} aria-describedby={describedBy('signup-terms-links', errorId('terms'))} />
+          I agree to the Terms of Service and Privacy Policy</label>
+        <p id="signup-terms-links" className="m-0 pl-8 text-[13px] text-ink-3">Read the <a href={TERMS_URL} target="_blank" rel="noopener" className="text-brand-ink">Terms</a> and
+          the <a href={PRIVACY_URL} target="_blank" rel="noopener" className="text-brand-ink">Privacy Policy</a> (new tab).</p>
+        {fieldErrors.terms && <p id="signup-terms-error" className="m-0 pl-8 text-xs font-medium text-danger-ink">{fieldErrors.terms}</p>}
+      </div>
+      <Hint>You can verify your NIN later, from your profile.</Hint>
+      <Button type="submit" variant="primary" size="lg" block disabled={busy}>Continue</Button>
+    </form>}
+
+    {step === 'password' && <form onSubmit={event => void submitPassword(event)} className="flex flex-col gap-4" noValidate aria-labelledby="signup-password-title">
+      <h2 id="signup-password-title" className={stepTitle}>Create a password</h2>
+      {verified && <Hint>Your email is verified. Create your account to get your Health ID.</Hint>}
+      <Field label="Password" htmlFor="signup-password" hintId="signup-password-hint" hint={`${PASSWORD_RULE} Tap Show to check it.`}
+        errorId={errorId('password')} error={fieldError('password')}>
+        <PasswordInput id="signup-password" ref={target('password', passwordFocus)} required autoComplete="new-password" minLength={12} maxLength={256} value={password}
+          onChange={event => { setPassword(event.target.value); dropError('password') }}
+          aria-invalid={invalid('password')} aria-describedby={describedBy('signup-password-hint', errorId('password'))} /></Field>
+      {!verified && <Turnstile action="patient-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />}
+      {!verified && !turnstileToken && <Hint id="signup-check-needed">Complete the security check to continue.</Hint>}
+      <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || (!verified && !turnstileToken)}
+        aria-describedby={!verified && !turnstileToken ? 'signup-check-needed' : undefined}>{busy ? 'Creating account…' : 'Create account'}</Button>
+      {!verified && <Button variant="link" className="self-start" disabled={busy}
+        onClick={() => { clearMessages(); setStep('details'); stepFocus.focus() }}>Back</Button>}
+    </form>}
+
+    {step === 'code' && <form onSubmit={event => void submitCode(event)} className="flex flex-col gap-4" aria-labelledby="signup-code-title">
+      <h2 id="signup-code-title" className={stepTitle}>Enter the code</h2>
+      <p id="signup-code-hint" className="m-0 text-sm text-ink-2">We sent a 6-digit code to {maskedContact || 'your email address'}.</p>
+      <CodeBoxes id="signup-code" label="Code" value={code} onChange={value => { setCode(value); setFieldErrors({}) }}
+        inputRef={stepFocus.target} busy={busy} invalid={invalid('code')} describedBy={describedBy('signup-code-hint', errorId('code'))} />
+      {fieldErrors.code && <p id="signup-code-error" className="m-0 text-xs font-medium text-danger-ink">{fieldErrors.code}</p>}
+      <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Verify code'}</Button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button variant="link" disabled={busy || !resend.ready} onClick={() => void sendCodeAgain()}
+          aria-describedby={resend.ready ? undefined : 'signup-resend-wait'}>Send code again</Button>
+        <Button variant="link" disabled={busy}
+          onClick={() => { clearMessages(); backToDetails(); stepFocus.focus() }}>Change your details</Button>
+      </div>
+      {!resend.ready && <Hint id="signup-resend-wait">You can ask for a new code in {resendWaitSeconds} seconds.</Hint>}
+    </form>}
+
+    {step === 'done' && <Complete focusTarget={stepFocus.target} hidCode={hidCode} signedIn={signedIn} onProceed={onProceed} />}
+
+    {step !== 'done' && <p className="m-0 text-center text-sm text-ink-2">Already have a Health ID? <Link to="/sign-in" className="font-medium text-brand-ink">Sign in</Link></p>}
+    </div>
   </AuthLayout>
 }

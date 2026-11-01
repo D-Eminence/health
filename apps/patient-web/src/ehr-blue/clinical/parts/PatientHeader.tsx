@@ -26,6 +26,12 @@ export function patientLine(facts: PatientFacts): string {
   return facts.name === facts.hid ? facts.hid : `${facts.name} · ${facts.hid}`
 }
 
+/** Up to two initials for the banner's avatar; the Health ID's first letters when there is no name. */
+function initialsOf(name: string) {
+  const words = name.replace(/^HID-/i, '').split(/\s+/).filter(Boolean)
+  return (words.length > 1 ? `${words[0]![0]}${words[words.length - 1]![0]}` : (words[0] ?? '?').slice(0, 2)).toUpperCase()
+}
+
 function sexLabel(value: string | undefined) {
   if (!value) return undefined
   const text = value.replaceAll('_', ' ')
@@ -41,6 +47,7 @@ export function PatientHeader({ facts, flags = [] }: { facts: PatientFacts; flag
   const born = formatDate(facts.dateOfBirth)
   return (
     <section className="hid-ehr-clinical-patient" aria-label="Patient">
+      <span className="hid-ehr-clinical-patient-avatar" aria-hidden="true">{initialsOf(facts.name)}</span>
       <h2 className="hid-ehr-clinical-patient-name">{facts.name}</h2>
       <ul className="hid-ehr-clinical-patient-facts">
         <li><span className="hid-ehr-clinical-patient-fact-label">Health ID </span>{facts.hid}</li>

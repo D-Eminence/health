@@ -91,10 +91,10 @@ it('asks for the notice first: no question is sent until it is accepted', async 
     { signal: expect.any(AbortSignal) })
 })
 
-it('says record chat is not available yet, keeps the saved conversation readable and offers no composer', async () => {
+it('says record chat is not available, keeps the saved conversation readable and offers no composer', async () => {
   const api = apiFor({ chatAvailability: vi.fn().mockResolvedValue({ available: false }), chatHistory: vi.fn().mockResolvedValue({ conversationId: id(2), limit: 50, exchanges: [exchange(3, 'Old question', 'Old answer')] }) })
   render(<ChatConversation api={api} />)
-  expect(await screen.findByText(/Record chat is not available yet/)).toBeTruthy()
+  expect((await screen.findByText(/^Record chat is not available./)).getAttribute('role')).toBe('status')
   expect(await screen.findByText('Old question')).toBeTruthy()
   expect(screen.queryByLabelText('Your question')).toBeNull()
   expect(screen.queryByRole('checkbox')).toBeNull()

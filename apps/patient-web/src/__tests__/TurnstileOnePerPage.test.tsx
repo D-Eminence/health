@@ -74,7 +74,7 @@ afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks(); Reflect.deleteProperty
 
 async function ninStep() {
   view(<Enrollment />)
-  await screen.findByLabelText('National Identification Number')
+  await screen.findByLabelText('National Identification Number (NIN)')
   await waitFor(() => expect(turnstile.render).toHaveBeenCalled())
 }
 
@@ -90,7 +90,7 @@ describe('the enrollment NIN step with Google sign-up configured', () => {
     await ninStep()
     fireEvent.click(screen.getByRole('button', { name: 'Continue with Google' }))
     await waitFor(() => expect(shown()).toEqual(['patient-login']))
-    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     expect(screen.getByRole('button', { name: 'Sign up with Google' })).toBeTruthy()
     // The NIN start's widget was removed, not hidden.
     expect(turnstile.remove).toHaveBeenCalled()
@@ -108,7 +108,7 @@ describe('the enrollment NIN step with Google sign-up configured', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Verify your NIN without Google' }))
     await waitFor(() => expect(shown()).toEqual(['patient-enrollment']))
     expect(turnstile.render.mock.calls.length).toBeGreaterThan(first + 1)
-    const nin = screen.getByLabelText('National Identification Number')
+    const nin = screen.getByLabelText('National Identification Number (NIN)')
     expect(document.activeElement).toBe(nin)
     fireEvent.change(nin, { target: { value: '12345678901' } })
     expect(screen.getByRole('button', { name: 'Continue' })).toHaveProperty('disabled', true)
@@ -126,9 +126,9 @@ describe('the enrollment NIN step with Google sign-up configured', () => {
     solve('patient-login', 'google-token')
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign up with Google' })) })
     expect(api.googleExchange).toHaveBeenCalledWith('google-id-token', 'google-token', 'enroll')
-    expect(await screen.findByText('Google identity confirmed for this enrollment.')).toBeTruthy()
+    expect(await screen.findByText('Google confirmed your account for this sign-up.')).toBeTruthy()
     await waitFor(() => expect(shown()).toEqual(['patient-enrollment']))
-    expect(screen.getByLabelText('National Identification Number')).toBeTruthy()
+    expect(screen.getByLabelText('National Identification Number (NIN)')).toBeTruthy()
   })
 
   it.each([['not configured', ''], ['blank', '   ']])('offers no Google path and one check when the Google client ID is %s', async (_case, clientId) => {

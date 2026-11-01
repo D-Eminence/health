@@ -105,7 +105,7 @@ describe('patient access', () => {
     await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { level: 1, name: 'Open a patient record.' })))
     expect(screen.queryByRole('button', { name: 'Close my grant' })).toBeNull()
     expect(status.isConnected).toBe(true)
-    expect(status.textContent).toBe('Access was closed by the backend.')
+    expect(status.textContent).toBe('Access was closed.')
   })
 
   it('sending an access request keeps focus on the button, unavailable while it runs, and says what happened', async () => {
@@ -142,6 +142,6 @@ describe('access requests', () => {
     await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { level: 1, name: 'Access requests.' })))
     expect(screen.queryByRole('button', { name: 'Close access' })).toBeNull()
     expect(status.isConnected).toBe(true)
-    expect(status.textContent).toBe('Access was closed by the backend.')
+    expect(status.textContent).toBe('Access was closed.')
   })
 })

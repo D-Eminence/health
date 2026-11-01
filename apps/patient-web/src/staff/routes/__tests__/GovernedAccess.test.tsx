@@ -144,7 +144,7 @@ describe('what became of each approval (hid-system 0074)', () => {
       'Clinician closed completed patient access'))
     expect(await cell(1).findByText('Closed by you')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Close access' })).toBeNull()
-    expect(screen.getByRole('status').textContent).toBe('Access was closed by the backend.')
+    expect(screen.getByRole('status').textContent).toBe('Access was closed.')
   })
 
   it('falls back to the request status from an Identity build without outcomes', async () => {

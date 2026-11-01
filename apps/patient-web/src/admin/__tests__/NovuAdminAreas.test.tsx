@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { AdminActor } from '../api'
 
@@ -57,6 +57,8 @@ describe('the Novu admin workspace', () => {
       if (path === '/api/v1/admin/overview') return json({ registeredPatients: 3, facilities: 2, verifiedFacilities: 2,
         suspendedFacilities: 0, activeStaffMemberships: 1, pendingIdentityReviews: 0 })
       if (path === '/api/v1/admin/organization-applications') return json({ items: [] })
+      // The overview reads the wrong-patient reports for an administrator with platform.facility.read (Novu serves them).
+      if (path === '/api/v1/admin/wrong-patient-reports') return json({ items: [], nextCursor: null })
       return json(unauthorized, 401)
     }))
     return calls
@@ -71,7 +73,7 @@ describe('the Novu admin workspace', () => {
     const calls = serve(SUPER_ADMIN)
     await openAt(path)
     expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: 'Access denied' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'You can’t open this page' })).toBeNull()
     expect(document.title).toBe('Platform · Health ID Platform')
     expect(calls.filter(called => called.includes('/approvals') || called.includes('/sessions') || called.includes('/mfa')
       || called.includes('clinician'))).toEqual([])
@@ -81,8 +83,12 @@ describe('the Novu admin workspace', () => {
     const calls = serve(SUPER_ADMIN)
     await openAt('/admin/overview')
     expect(await screen.findByRole('heading', { name: 'Overview' })).toBeTruthy()
-    await screen.findByRole('link', { name: 'Organization applications' })
-    expect(screen.queryByRole('link', { name: 'Pending approvals' })).toBeNull()
+    // Waiting work is read (the organization applications) and nothing about approvals is shown or asked for.
+    const waiting = within(await screen.findByRole('region', { name: 'Waiting for attention' }))
+    await waitFor(() => expect(calls).toContain('/api/v1/admin/organization-applications'))
+    expect(await waiting.findByText('All clear. Nothing is waiting.')).toBeTruthy()
+    expect(waiting.queryByRole('link', { name: /^Approvals/ })).toBeNull()
+    expect(screen.queryByText(/A second Super Admin must decide/)).toBeNull()
     expect(calls).not.toContain('/api/v1/admin/approvals')
   })
 })

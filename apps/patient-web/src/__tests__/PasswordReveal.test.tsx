@@ -81,27 +81,25 @@ describe('showing the password', () => {
   it('enrollment activation', async () => {
     api.enrollmentCurrent.mockResolvedValue({ stage: 'set_password' })
     show(<Enrollment />)
-    await screen.findByRole('heading', { name: 'Activate your account' })
+    await screen.findByRole('heading', { name: 'Choose a password' })
     const password = typeAndShow('Password')
     // Still described by the step's hint.
     expect(password.getAttribute('aria-describedby')).toBe('enroll-password-hint')
   })
 
-  it('patient password reset: each field has its own toggle', async () => {
+  it('patient password reset: the one new password field has its own named toggle', async () => {
     api.recoveryStart.mockResolvedValue({ challengeId: 'challenge-1', resendAfterSeconds: 60 })
     api.recoveryVerify.mockResolvedValue({ verificationToken: 'verified' })
     show(<Recovery />)
     fireEvent.change(screen.getByLabelText('Email, phone or Health ID'), { target: { value: 'ada@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send code' }))
     // The sixth digit sends the code (CodeBoxes.tsx).
-    await enterCode(await screen.findByLabelText('Recovery code'), '123456')
+    await enterCode(await screen.findByLabelText('Code'), '123456')
     await screen.findByLabelText('New password')
-    // Two fields since the confirmation was added, so each toggle is named for its own, as for staff.
+    // Typed once, with Show to check it (the review of 2026-10-31): one field, its toggle named for it.
     typeAndShow('New password', 'Show new password')
-    const confirm = screen.getByLabelText('Confirm new password') as HTMLInputElement
-    expect(confirm.type).toBe('password')
-    typeAndShow('Confirm new password', 'Show confirmed password')
+    expect(screen.queryByLabelText('Confirm new password')).toBeNull()
   })
 
   it('provider and administrator password reset: each field has its own toggle', async () => {

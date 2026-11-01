@@ -5,6 +5,7 @@ import type { FacilityStaff, FacilityStaffMember } from '../../../../staff/api'
 import { HrCredentials } from '../../../../ehr-blue/departments/hr/HrCredentials'
 import { hrPage } from '../../../../ehr-blue/departments/hr/page'
 import { DEMO_HOSPITAL_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { dateText } from '../../../../ehr-blue/departments/parts/format'
 
 /**
  * HR & Credentials, its live half: each member of the facility and the licence on record for them, from today's one
@@ -97,7 +98,7 @@ describe('the live list', () => {
     expect(within(admin).getByText('Facility administrator, Doctor · You')).toBeTruthy()
     expect(within(admin).getByText('reviewed')).toBeTruthy()
     expect(within(admin).getByText(ADMIN_ID.slice(0, 8))).toBeTruthy()
-    expect(within(admin).getByText(new Date('2026-10-24T12:00:00.000Z').toLocaleString())).toBeTruthy()
+    expect(within(admin).getByText(dateText('2026-10-24T12:00:00.000Z'))).toBeTruthy()
     const vouched = row('NMCN licence')
     expect(within(vouched).getByText('Demo Nurse')).toBeTruthy()
     expect(within(vouched).getByText('vouched')).toBeTruthy()
@@ -136,7 +137,7 @@ describe('the live list', () => {
     expect(document.activeElement?.id).toBe('hr-title')
     expect(screen.getByText(`Demo Nurse · ${NURSE_ID.slice(0, 8)}`)).toBeTruthy()
     expect(screen.getByText('vouched')).toBeTruthy()
-    expect(screen.getByText(`Saved ${new Date('2026-10-25T08:00:00.000Z').toLocaleString()}`)).toBeTruthy()
+    expect(screen.getByText(`Saved ${dateText('2026-10-25T08:00:00.000Z')}`)).toBeTruthy()
     const saved = savedRecord()
     expect(fact(saved, 'Staff')).toBe('Demo Nurse')
     expect(fact(saved, 'Email')).toBe('demo.nurse@example.test')
@@ -181,7 +182,7 @@ describe('the live list', () => {
     expect(within(drawer).getByRole('heading', { name: 'NMCN licence' })).toBeTruthy()
     // A live record is not a sample: no sample notice in its drawer.
     expect(within(drawer).queryByRole('note')).toBeNull()
-    expect(within(drawer).getByText(`Last updated ${new Date('2026-10-25T08:00:00.000Z').toLocaleString()}`)).toBeTruthy()
+    expect(within(drawer).getByText(`Last updated ${dateText('2026-10-25T08:00:00.000Z')}`)).toBeTruthy()
     expect(fact(drawer, 'Staff')).toBe('Demo Nurse')
     fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }))
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -263,8 +264,8 @@ describe('where the live list does not apply', () => {
   })
 
   it.each([
-    [new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }), 'Staff records aren’t available on Health ID yet. Check again later.'],
-    [new HidApiError(404, 'No route', { code: 'API_ROUTE_NOT_FOUND' }), 'Staff records aren’t available on Health ID yet. Check again later.'],
+    [new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }), 'Staff records aren’t set up for your facility. Contact support.'],
+    [new HidApiError(404, 'No route', { code: 'API_ROUTE_NOT_FOUND' }), 'Staff records aren’t set up for your facility. Contact support.'],
     [new HidApiError(403, 'Not available', { code: 'STAFF_MANAGEMENT_NOT_AVAILABLE' }),
       'Health ID support manages who works at Demo Hospital. Contact Health ID support to add or remove staff.'],
   ])('answers a refused read with no retry: %s', async (refusal, text) => {

@@ -4,7 +4,7 @@ import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { staffApi, type ClinicalRecord, type Encounter } from '../../../../staff/api'
 import { refusalText } from '../../../../staff/fieldProblem'
 import { ChartGate, type Chart } from '../../parts/chart'
-import { Step, SubHeading } from '../../parts/Detail'
+import { Step } from '../../parts/Detail'
 import { ErrorBox, Loading, RecordNotFound } from '../../parts/Notices'
 import { Pager } from '../../parts/RecordTable'
 import { StatusBadge } from '../../parts/StatusBadge'
@@ -14,11 +14,12 @@ import { CreateOrder } from './CreateOrder'
 import { OrderPage } from './OrderPage'
 import { FlashContext, KINDS, learnFrom, orderTitle, text, type Flash, type OrderKind } from './orders'
 import { isDemoFacility } from '../../../blueFacilities'
+import { useSampleCan } from '../../../frame/sampleAccess'
 
 export type { OrderKind } from './orders'
 
-/** The design's note under "Connected orders". */
-export const CONNECTED_ORDERS_NOTE = 'Patient and encounter carry into each order. Sign the encounter before issuing orders; investigations retain their own lifecycle.'
+/** The note under the order buttons. */
+export const CONNECTED_ORDERS_NOTE = 'Each order is for this patient and this consultation. Sign the note before you send orders.'
 
 /** The address of one order's page, below the consultation workspace: `{encounterId}/orders/{kind}/{orderId}` (record ids only). */
 export function orderPath(encounterId: string, kind: OrderKind, orderId: string): string {
@@ -174,6 +175,7 @@ export function EncounterOrders({ chart, encounter }: { chart: Chart; encounter:
   const readLab = chart.can(KINDS.laboratory.read)
   const prescriptions = useOrderList(chart, encounter.id, 'pharmacy', readRx && chart.purpose === 'direct-care')
   const labs = useOrderList(chart, encounter.id, 'laboratory', readLab && chart.purpose === 'direct-care')
+  const sampleCan = useSampleCan()
   if (chart.purpose !== 'direct-care') return null
 
   const createRx = chart.canWrite && chart.can(KINDS.pharmacy.write)
@@ -187,18 +189,18 @@ export function EncounterOrders({ chart, encounter }: { chart: Chart; encounter:
 
   return (
     <div className="hid-ehr-clinical-orders-connected">
-      <SubHeading>Connected orders</SubHeading>
-      {createRx ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'pharmacy'))}>Create pharmacy record</EhrButton></Step> : null}
-      {createLab ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'laboratory'))}>Create laboratory record</EhrButton></Step> : null}
+      {createRx ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'pharmacy'))}>New prescription</EhrButton></Step> : null}
+      {createLab ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'laboratory'))}>New lab request</EhrButton></Step> : null}
       {/* Radiology and referrals are samples: offered only at the demo facilities, so a live page at a real facility
-          never leads into a sample. */}
+          never leads into a sample; each only to a design role that may create there (sampleAccess.ts), as a role
+          the sample is closed to would land on Home instead. */}
       {chart.canWrite && isDemoFacility(chart.facilityId) ? (
         <>
-          <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('radiology', 'new'))}>Create radiology record</EhrButton></Step>
-          <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('referrals', 'new'))}>Create referral network record</EhrButton></Step>
+          {sampleCan('radiology', 'create') ? <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('radiology', 'new'))}>New radiology request</EhrButton></Step> : null}
+          {sampleCan('referrals', 'create') ? <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('referrals', 'new'))}>New referral</EhrButton></Step> : null}
         </>
       ) : null}
-      <p className="hid-ehr-clinical-note">{CONNECTED_ORDERS_NOTE}</p>
+      {createRx || createLab ? <p className="hid-ehr-clinical-note">{CONNECTED_ORDERS_NOTE}</p> : null}
       {loading ? <Loading label="Loading records…" /> : null}
       {lists.map(({ kind, list }) => list.error ? <ErrorBox key={kind}>{list.error}</ErrorBox> : null)}
       {!loading && lists.map(({ kind, list }) => !list.error && list.items?.length === 0 && list.cursors.length < 2 && list.next === null
@@ -206,7 +208,7 @@ export function EncounterOrders({ chart, encounter }: { chart: Chart; encounter:
       {/* Each list pages on its own, 50 to a page, as today's records tabs do. */}
       {lists.map(({ kind, list }) => <OrderListPages key={kind} kind={kind} list={list} />)}
       {rows.length > 0 ? (
-        <ul className="hid-ehr-clinical-history-list" aria-label="Orders from this encounter">
+        <ul className="hid-ehr-clinical-history-list" aria-label="Orders from this consultation">
           {rows.map(({ kind, record }) => (
             <li key={`${kind}-${record.id}`} className="hid-ehr-clinical-history-row">
               <Link className="hid-ehr-clinical-link" to={href(orderPath(encounter.id, kind, record.id))}>{KINDS[kind].title} · {orderTitle(kind, record)}</Link>

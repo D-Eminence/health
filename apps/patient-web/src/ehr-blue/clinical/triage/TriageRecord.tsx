@@ -5,16 +5,15 @@ import { useLocation, useParams } from 'react-router-dom'
 import { staffApi, type ClinicalRecord, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
-import { ActionList, DetailGrid, DetailMeta, HistoryCard, SavedRecord, VersionsCard, type HistoryItem, type VersionItem } from '../parts/Detail'
+import { ActionList, DetailGrid, DetailMeta, SavedRecord, VersionsCard, type VersionItem } from '../parts/Detail'
 import { formatWhen, shortId, statusLabel } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import { Banner, ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
-import { patientLine } from '../parts/PatientHeader'
 import type { SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
+import { ConnectedHistory } from './ConnectedHistory'
 import {
-  NO_COMPLAINT, NO_RECORD_ACCESS, RECORD_SAVED, RELOAD_FAILED, recordKey, recordedAt, refusedFieldErrors, rowVersion, useFocusAfterChange, useLatest,
-  useVisitRecord,
+  NO_COMPLAINT, NO_RECORD_ACCESS, RECORD_SAVED, RELOAD_FAILED, recordedAt, refusedFieldErrors, rowVersion, useFocusAfterChange, useLatest, useVisitRecord,
 } from './records'
 import {
   AMEND_LABEL, CHANGED_SINCE, CORRECTION_FAILED, CORRECTION_HINT, CORRECTION_SAVED, CORRECTION_UNREAD, LOADING_CORRECTION, RELOAD_FIRST,
@@ -27,7 +26,7 @@ import { VitalsForm, type VitalsInput } from './VitalsForm'
 export function TriageRecord() {
   const href = useWorkspaceHref()
   const chart = useChart()
-  if (chart && chart.purpose === 'direct-care') return <TriageLoader chart={chart} />
+  if (chart && chart.purpose === 'direct-care') return <ChartGate>{open => <TriageLoader chart={open} />}</ChartGate>
   return (
     <>
       <RecordHeading title={TITLE} backHref={href()} />
@@ -66,7 +65,7 @@ function TriageReader({ chart }: { chart: Chart }) {
       </>
     )
   }
-  return <VitalRecord key={loaded.record.id} chart={chart} encounter={loaded.encounter} vital={loaded.record} siblings={loaded.siblings} reload={reload} />
+  return <VitalRecord key={loaded.record.id} chart={chart} encounter={loaded.encounter} vital={loaded.record} reload={reload} />
 }
 
 const MEASUREMENTS = new Set<string>(VITAL_FIELDS.map(field => field.name))
@@ -93,15 +92,15 @@ type Reload = () => Promise<{ readonly items: readonly ClinicalRecord[] } | { re
 
 /**
  * The design's record page for one vitals record: "Saved record" (the current values: the latest correction's, as
- * today), "Available actions" ("Amend observation": today's correction, with full replacement values), "Connected
- * hospital history" (the visit and its other vitals) and "Preserved versions & amendments" (what each correction
- * replaced).
+ * today), "Available actions" ("Amend observation": today's correction, with full replacement values; vitals have no
+ * other live action, so there is no "More actions" menu), "Connected hospital history" (the visit, then the
+ * encounter's records in the other workspaces: ConnectedHistory) and "Preserved versions & amendments" (what each
+ * correction replaced).
  */
-function VitalRecord({ chart, encounter, vital, siblings, reload }: {
+function VitalRecord({ chart, encounter, vital, reload }: {
   chart: Chart
   encounter: Encounter
   vital: ClinicalRecord
-  siblings: readonly ClinicalRecord[]
   reload: Reload
 }) {
   const href = useWorkspaceHref()
@@ -173,13 +172,11 @@ function VitalRecord({ chart, encounter, vital, siblings, reload }: {
   return (
     <>
       <RecordHeading title={shortId(vital.id)} backHref={href()} />
-      {chart.writeNotice ? <Banner tone="warning" title="Changes are unavailable">{chart.writeNotice}</Banner> : null}
       {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
       <div className="hid-ehr-clinical-status" role="status">{success}</div>
       <DetailMeta
         status={vitalStatus(vital)}
         note={number > 0 ? `Corrected (correction ${number})` : undefined}
-        patient={patientLine(chart.facts)}
         saved={latest?.createdAt ?? recordedAt(vital)}
       />
       {retracted ? <Banner tone="warning" title="Entered in error">{RETRACTED_TEXT}</Banner> : null}
@@ -207,28 +204,10 @@ function VitalRecord({ chart, encounter, vital, siblings, reload }: {
           ) : null}
         </EhrCard>
       </DetailGrid>
-      <HistoryCard items={historyItems(chart, href, encounter, siblings)} />
+      <ConnectedHistory chart={chart} encounter={encounter} owner="triage" />
       <VersionsCard versions={versionItems(vital, corrections)} />
     </>
   )
-}
-
-/** "Connected hospital history": the visit (in Consultation) and its other vitals. */
-function historyItems(chart: Chart, href: ReturnType<typeof useWorkspaceHref>, encounter: Encounter, siblings: readonly ClinicalRecord[]): HistoryItem[] {
-  return [
-    {
-      key: `encounter-${encounter.id}`,
-      label: `Consultation · ${shortId(encounter.id)}`,
-      href: chart.can('ehr.encounter.read') ? href.to('consult', encounter.id) : undefined,
-      status: encounter.status,
-    },
-    ...siblings.map(record => ({
-      key: `vital-${record.id}`,
-      label: `${TITLE} · ${shortId(record.id)}`,
-      href: href(recordKey(encounter.id, record.id)),
-      status: vitalStatus(record),
-    })),
-  ]
 }
 
 /**
@@ -242,7 +221,7 @@ function versionItems(vital: ClinicalRecord, corrections: Corrections): VersionI
     const before = index === 0 ? null : corrections.items[index - 1]!
     return {
       key: correction.id,
-      summary: `${correction.createdAt} · ${status} · ${correction.reason}`,
+      summary: `${formatWhen(correction.createdAt)} · ${status} · ${correction.reason}`,
       items: [
         { label: 'Version', value: before ? `Corrected (correction ${before.correctionNo})` : 'Originally recorded' },
         ...measurementItems(before ? before.replacementValues : vital),

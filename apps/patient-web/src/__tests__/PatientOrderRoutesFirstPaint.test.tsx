@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import type { PatientOrderRoute } from '../api'
 import { AccessPage } from '../routes/Portal'
-import { json, problem, profile, renderPortal } from './portalHarness'
+import { json, press, problem, profile, renderPortal } from './portalHarness'
 import { forgetLateCorrectionServed } from '../lateCorrectionServed'
 
 /**
@@ -37,6 +37,8 @@ afterEach(() => { vi.unstubAllEnvs(); forgetLateCorrectionServed() })
 
 it('names Health ID support from the list’s own deadline, before the page has learned it (CL4)', async () => {
   renderPortal(<AccessPage />, handler)
+  // Listed on the "Who has access" tab.
+  await press(within(screen.getByRole('navigation', { name: 'Access' })).getByRole('button', { name: /^Who has access/ }))
   expect(await screen.findByText('If you did collect this medicine at Yaba Diagnostics, or someone collected it for you, tell '
     + 'General Hospital and Health ID support before you get another prescription.')).toBeTruthy()
 })

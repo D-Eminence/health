@@ -271,7 +271,7 @@ describe('a record created', () => {
     await act(async () => { fireEvent.click(button) })
     expect(api.createRecord).toHaveBeenCalledTimes(1)
     await act(async () => { saving.resolve({ id: 'diagnosis-2' }) })
-    await waitFor(() => expect(statusRegion().textContent).toBe('Clinical record saved by the backend.'))
+    await waitFor(() => expect(statusRegion().textContent).toBe('Clinical record saved.'))
     expect(focused()).toBe(button)
     expect(button.getAttribute('aria-disabled')).toBeNull()
   })
