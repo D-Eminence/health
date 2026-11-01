@@ -201,6 +201,20 @@ describe('BlueStaffInvitation', () => {
     expect(screen.getByText(/invited you to join/).textContent).toBe('The facility administrator invited you to join Demo Laboratory as a staff member.')
     expect(document.body.textContent).not.toContain('lab_scientist')
   })
+
+  // Owner decision 20: the outreach officer has a name, and reads with "an" in the sentence.
+  it('names an outreach officer in its sentence', async () => {
+    invitations.open.mockResolvedValue({ invitationId: 'invitation-3', facilityName: 'Demo Hospital', roleCode: 'outreach_officer',
+      inviterName: null, inviteeName: 'Demo Outreach', email: 'demo.outreach@example.test', expiresAt: null, accountCase: 'existing_staff',
+      linkRequired: false })
+    open('/provider/invitation', <BlueStaffInvitation />)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Email address' }), { target: { value: 'demo.outreach@example.test' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Invitation code' }), { target: { value: '123456' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    expect(await screen.findByRole('heading', { level: 2, name: 'Sign in to accept' })).toBeDefined()
+    expect(screen.getByText(/invited you to join/).textContent).toBe('The facility administrator invited you to join Demo Hospital as an outreach officer.')
+    expect(document.body.textContent).not.toContain('outreach_officer')
+  })
 })
 
 describe('the redesign\'s look', () => {

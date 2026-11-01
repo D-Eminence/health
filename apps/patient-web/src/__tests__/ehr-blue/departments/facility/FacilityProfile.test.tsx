@@ -115,12 +115,13 @@ describe('Facility profile: the target’s sections, read-only', () => {
     expect(valueOf('Your permissions here', facts)).toBe('None')
   })
 
+  // "porter" is a fictional code Health ID has no name for.
   it.each(['main-v1', 'novu-v1'])('reads "Staff" for a role Health ID has no name for on a %s build, never its code', contract => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
-    session.facility = fakeFacility([], { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital', roles: ['records_officer'] })
+    session.facility = fakeFacility([], { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital', roles: ['porter'] })
     renderDept(<FacilityProfile />)
     expect(valueOf('Your roles here', section('Facility details'))).toBe('Staff')
-    expect(document.body.textContent).not.toContain('records_officer')
+    expect(document.body.textContent).not.toMatch(/\bporter\b/)
   })
 
   it('follows a switch of the working facility', () => {

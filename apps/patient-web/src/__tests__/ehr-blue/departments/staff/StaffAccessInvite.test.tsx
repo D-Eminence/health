@@ -90,14 +90,27 @@ describe('what the facility may send', () => {
 
 describe('inviting', () => {
   // Only roles Health ID names are offered: an administrator never grants a role they cannot read, and two unnamed
-  // roles would look the same.
+  // roles would look the same. "porter" and "store_keeper" are fictional codes Health ID has no name for.
   it('offers only the roles Health ID names, never one by its code', async () => {
-    const roles = [{ code: 'records_officer', licenceBody: null }, ...staff().inviteOptions.roles, { code: 'billing', licenceBody: null }]
+    const roles = [{ code: 'porter', licenceBody: null }, ...staff().inviteOptions.roles, { code: 'store_keeper', licenceBody: null }]
     const card = await openInvite(staff({ inviteOptions: { ...staff().inviteOptions, roles } }))
     const role = within(card).getByLabelText(/^Assigned role/) as HTMLSelectElement
     expect([...role.options].map(option => option.textContent))
       .toEqual(['Select…', 'Doctor', 'Nurse', 'Laboratory scientist', 'Pharmacist', 'Receptionist'])
-    expect(document.body.textContent).not.toMatch(/records_officer|billing/)
+    expect(document.body.textContent).not.toMatch(/\b(porter|store_keeper)\b/)
+  })
+
+  // Owner decision 20: the records, billing and outreach officers have names, so an administrator can invite them.
+  it('offers the records, billing and outreach officers by name, with no licence to give', async () => {
+    const named = ['records_officer', 'billing', 'outreach_officer'].map(code => ({ code, licenceBody: null }))
+    const card = await openInvite(staff({ inviteOptions: { ...staff().inviteOptions, roles: [...staff().inviteOptions.roles, ...named] } }))
+    const role = within(card).getByLabelText(/^Assigned role/) as HTMLSelectElement
+    expect([...role.options].map(option => option.textContent)).toEqual(['Select…', 'Doctor', 'Nurse', 'Laboratory scientist',
+      'Pharmacist', 'Receptionist', 'Records officer', 'Billing officer', 'Outreach officer'])
+    fireEvent.change(role, { target: { value: 'outreach_officer' } })
+    expect(role.selectedOptions[0]?.textContent).toBe('Outreach officer')
+    expect(within(card).queryByLabelText(/^Licence number/)).toBeNull()
+    expect(document.body.textContent).not.toMatch(/records_officer|outreach_officer/)
   })
 
   it('shows the target fields, fixes the licence to the role, fills the confirmation, and sends one invitation', async () => {

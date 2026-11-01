@@ -15,6 +15,11 @@ const ROLE_LABELS: Readonly<Record<string, string>> = {
   lab: 'Laboratory scientist',
   pharmacist: 'Pharmacist',
   receptionist: 'Receptionist',
+  // Owner decision 20 (1 Nov 2026): Identity reports these roles too. Without names here the blue EHR could only call
+  // them "Staff", and would not offer them when an administrator invites someone or changes their access.
+  records_officer: 'Records officer',
+  billing: 'Billing officer',
+  outreach_officer: 'Outreach officer',
 }
 
 export function roleLabel(code: string): string {

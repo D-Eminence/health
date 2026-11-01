@@ -8,14 +8,15 @@ import {
 /**
  * Role names, not role codes, wherever the frame shows a person's roles (parity report 3.1 #16): under the facility
  * name in the sidebar's switcher, in the person's line when there is no email, and on Choose workspace. A role Health
- * ID has no name for reads "Staff"; its code is never shown. Every account and facility here is fictional.
+ * ID has no name for reads "Staff"; its code is never shown. Every account and facility here is fictional, and so is
+ * the role code "porter", which stands for any role Health ID has no name for.
  */
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 beforeEach(() => { withFramePages() })
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); vi.resetModules() })
 
 const many = <T,>(answer: T, count = 8): T[] => Array.from({ length: count }, () => answer)
-const CODES = /\b(org_admin|org_admin_awaiting_review|records_officer|outreach_officer|lab_scientist)\b/
+const CODES = /\b(org_admin|org_admin_awaiting_review|records_officer|outreach_officer|lab_scientist|porter)\b/
 
 async function openHome(roles: readonly string[], session = sessionAt,
   at = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write'], roles)) {
@@ -39,8 +40,15 @@ describe('the roles under the facility name', () => {
     expect(document.body.textContent).not.toMatch(CODES)
   })
 
+  // Owner decision 20: the records, billing and outreach officers have names of their own.
+  it('names the records, billing and outreach officers', async () => {
+    await openHome(['records_officer', 'billing', 'outreach_officer'])
+    expect(screen.getAllByText('Records officer, Billing officer, Outreach officer · Demo facility').length).toBeGreaterThan(0)
+    expect(document.body.textContent).not.toMatch(CODES)
+  })
+
   it('reads "Staff" for a role Health ID has no name for, and never shows its code', async () => {
-    await openHome(['records_officer'])
+    await openHome(['porter'])
     expect(screen.getAllByText('Staff · Demo facility').length).toBeGreaterThan(0)
     expect(document.body.textContent).not.toMatch(CODES)
   })
@@ -55,7 +63,7 @@ describe('the roles under the facility name', () => {
   })
 
   it('leaves out a role it has no name for beside one it has', async () => {
-    await openHome(['nurse', 'records_officer'])
+    await openHome(['nurse', 'porter'])
     expect(screen.getAllByText('Nurse · Demo facility').length).toBeGreaterThan(0)
     expect(document.body.textContent).not.toMatch(CODES)
   })

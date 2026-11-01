@@ -87,36 +87,52 @@ describe('the memberships list', () => {
     expect(document.getElementById(edit.getAttribute('aria-describedby')!)?.textContent).toBe('Demo Nurse')
   })
 
-  // Role names, never role codes (parity report 3.1 #16): a role Health ID has no name for reads "Staff".
+  // Role names, never role codes (parity report 3.1 #16): a role Health ID has no name for reads "Staff". "porter"
+  // and "store_keeper" are fictional codes Health ID has no name for.
   it('reads "Staff" for a role Health ID has no name for, in the list and the drawer, never its code', async () => {
-    const { row, drawer } = await openAccess(staff({ members: [administrator(), nurse({ roles: ['records_officer'], licence: null })] }))
+    const { row, drawer } = await openAccess(staff({ members: [administrator(), nurse({ roles: ['porter'], licence: null })] }))
     expect(within(row).getByText('Staff · active')).toBeTruthy()
     expect(within(drawer).getByText('Staff / demo.nurse@example.test')).toBeTruthy()
-    expect(document.body.textContent).not.toContain('records_officer')
+    expect(document.body.textContent).not.toMatch(/\bporter\b/)
   })
 
   // The administrator decides this member's access, so a second role with no name is counted, not hidden.
   it('counts a role Health ID has no name for beside a named one, in the list and the drawer, never its code', async () => {
-    const { row, drawer } = await openAccess(staff({ members: [administrator(), nurse({ roles: ['nurse', 'records_officer'] })] }))
+    const { row, drawer } = await openAccess(staff({ members: [administrator(), nurse({ roles: ['nurse', 'porter'] })] }))
     expect(within(row).getByText('Nurse and another role · active')).toBeTruthy()
     expect(within(drawer).getByText('Nurse and another role / demo.nurse@example.test')).toBeTruthy()
-    expect(document.body.textContent).not.toContain('records_officer')
+    expect(document.body.textContent).not.toMatch(/\bporter\b/)
   })
 
   // Only roles Health ID names are offered: two unnamed roles would read the same, and none says what it grants. A
   // member's own unnamed role stays, as "Current role", so saving keeps it.
   it('offers only named roles to change to, keeping the member’s own unnamed role as “Current role”', async () => {
-    const roles = [...staff().inviteOptions.roles, { code: 'records_officer', licenceBody: null }, { code: 'billing', licenceBody: null }]
-    const answer = staff({ members: [administrator(), nurse({ roles: ['records_officer'], licence: null })],
+    const roles = [...staff().inviteOptions.roles, { code: 'porter', licenceBody: null }, { code: 'store_keeper', licenceBody: null }]
+    const answer = staff({ members: [administrator(), nurse({ roles: ['porter'], licence: null })],
       inviteOptions: { ...staff().inviteOptions, roles } })
     const { drawer } = await openAccess(answer)
     const role = within(drawer).getByLabelText(/^Role/) as HTMLSelectElement
     expect([...role.options].map(option => option.textContent))
       .toEqual(['Select…', 'Doctor', 'Nurse', 'Laboratory scientist', 'Pharmacist', 'Receptionist', 'Current role'])
-    expect(role.value).toBe('records_officer')
+    expect(role.value).toBe('porter')
     expect(role.selectedOptions[0]?.textContent).toBe('Current role')
-    expect([...role.options].map(option => option.value)).not.toContain('billing')
-    expect(document.body.textContent).not.toMatch(/records_officer|billing/)
+    expect([...role.options].map(option => option.value)).not.toContain('store_keeper')
+    expect(document.body.textContent).not.toMatch(/\b(porter|store_keeper)\b/)
+  })
+
+  // Owner decision 20: the records, billing and outreach officers have names, so they are offered, and a member who
+  // holds one sees it by name rather than as "Current role".
+  it('offers the records, billing and outreach officers by name, and names a records officer’s own role', async () => {
+    const named = ['records_officer', 'billing', 'outreach_officer'].map(code => ({ code, licenceBody: null }))
+    const answer = staff({ members: [administrator(), nurse({ roles: ['records_officer'], licence: null })],
+      inviteOptions: { ...staff().inviteOptions, roles: [...staff().inviteOptions.roles, ...named] } })
+    const { row, drawer } = await openAccess(answer)
+    expect(within(row).getByText('Records officer · active')).toBeTruthy()
+    const role = within(drawer).getByLabelText(/^Role/) as HTMLSelectElement
+    expect([...role.options].map(option => option.textContent)).toEqual(['Select…', 'Doctor', 'Nurse', 'Laboratory scientist',
+      'Pharmacist', 'Receptionist', 'Records officer', 'Billing officer', 'Outreach officer'])
+    expect(role.selectedOptions[0]?.textContent).toBe('Records officer')
+    expect(document.body.textContent).not.toMatch(/records_officer|outreach_officer/)
   })
 
   it('opens the drawer with the member’s record, and Escape closes it back to Edit access', async () => {
