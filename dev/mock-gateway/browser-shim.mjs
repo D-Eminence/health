@@ -157,6 +157,19 @@ function renderBar() {
     sel.addEventListener('change', () => { const next = new URLSearchParams(rest); next.set('ws', 'provider'); next.set('product', sel.value); window.location.assign(`${ENTRY}?${next}`) })
     bar.appendChild(sel)
   }
+  // The signed-out screens: sign-in, sign-up and recovery for each portal, opened with no session.
+  const auth = document.createElement('select')
+  auth.setAttribute('aria-label', 'Sign-in pages')
+  auth.style.cssText = 'all:unset;cursor:pointer;padding:6px 10px;border-radius:999px;background:#374151'
+  for (const [label, at] of [['Sign-in pages…', ''], ['Patient sign in', '/sign-in'], ['Patient sign up', '/enroll'], ['Patient reset', '/recover'],
+    ['Facilities list', '/enroll/facilities'], ['Provider sign in', '/provider/sign-in'], ['Facility sign up', '/provider/enroll'],
+    ['Provider reset', '/provider/recover'], ['Admin sign in', '/admin'], ['Admin reset', '/admin/recover']]) {
+    const o = document.createElement('option'); o.value = at; o.textContent = label
+    if (at && at === here) o.selected = true
+    auth.appendChild(o)
+  }
+  auth.addEventListener('change', () => { if (auth.value) window.location.assign(`${ENTRY}?signedout=1&at=${encodeURIComponent(auth.value)}`) })
+  bar.appendChild(auth)
   if (unserved.size) {
     const needs = document.createElement('em')
     needs.textContent = `${unserved.size} not mocked`
