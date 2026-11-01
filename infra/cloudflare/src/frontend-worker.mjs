@@ -58,6 +58,48 @@ const PERMISSIONS_BY_APP = Object.freeze({
   admin: 'camera=(), microphone=(), geolocation=()',
 })
 
+/**
+ * Every product is its own site with its own front page (owner, 2026-11-01). The team built each product's landing
+ * page on the public site at /products/<slug>; a product site answers its own "/" with that page, fetched from the
+ * public site's Worker through the PUBLIC_SITE service binding, and the public site sends /products/<slug> to the
+ * product site (308), so each page has one address. Each product site's own page, by deployment app name.
+ * apps/public-web/content/site.ts (PRODUCT_SITE_SUBDOMAINS) names the same five, for the public site's own links.
+ */
+const PRODUCT_LANDING_PAGES = Object.freeze({
+  ehr: Object.freeze({ slug: 'ehr', name: 'Health ID EHR' }),
+  lab: Object.freeze({ slug: 'laboratory', name: 'Health ID Laboratory' }),
+  pharmacy: Object.freeze({ slug: 'pharmacy', name: 'Health ID Pharmacy' }),
+  ocr: Object.freeze({ slug: 'migrate', name: 'Health ID Migrate' }),
+  outreach: Object.freeze({ slug: 'outreach', name: 'Health ID Outreach' }),
+})
+
+/** The products a facility signs up for on the portal's /provider/enroll (public-web APPLICATION_PRODUCTS). */
+const APPLICATION_PRODUCTS = Object.freeze(['ehr', 'migrate', 'laboratory', 'pharmacy'])
+
+/**
+ * Sent by a product site when it asks the public site for its own landing page through the binding: the public site
+ * then answers the page instead of sending it back to the product site. It names the product site, and opens only
+ * that site's page. It is not a secret: the page is public, so a hand-made request that carries it gets nothing more
+ * than the page at the public site's address, which people and search engines never ask for this way.
+ */
+const LANDING_SITE_HEADER = 'x-hid-landing-site'
+
+/**
+ * The public site's own files a landing page loads, which a product site's build does not have: Next.js's hashed
+ * scripts, styles and fonts (/_next/static/), the brand images (/brand/) and the two icons. Listed one by one so that
+ * nothing else of the public site can be read through a product site. The patient portal's build, which every product
+ * site serves, has none of them (its files are /assets/, /icons/, /sw.js and /health-id.webmanifest), and the public
+ * site's retiring /service-worker.js is deliberately not one of them. A product site's own file always wins.
+ */
+const PUBLIC_STATIC_PREFIXES = Object.freeze(['/_next/static/', '/brand/'])
+const PUBLIC_STATIC_FILES = Object.freeze(['/icon.png', '/apple-icon.png'])
+
+/**
+ * Request headers a product site passes on to the public site for a static file, so that a browser's copy can be
+ * revalidated: never a cookie, Authorization or a client address. The landing page itself is asked for with none.
+ */
+const PUBLIC_SITE_REQUEST_HEADERS = Object.freeze(['accept', 'if-none-match', 'if-modified-since'])
+
 function problem(status, code, detail, correlationId) {
   return new Response(JSON.stringify({
     type: 'about:blank',
@@ -96,11 +138,193 @@ function configuredDeployment(environment) {
   return {
     application,
     expectedHost,
+    hosts: profile.hosts,
+    landing: Object.hasOwn(PRODUCT_LANDING_PAGES, application) ? PRODUCT_LANDING_PAGES[application] : null,
     migrateOrigin: `https://${profile.hosts.ocr}`,
     portalOrigin: `https://${profile.hosts.web}`,
+    publicOrigin: `https://${profile.hosts.public}`,
     origin: new URL(profile.apiOrigin),
     originAuthToken: environment.ORIGIN_AUTH_TOKEN,
   }
+}
+
+/** The product site whose landing page `pathname` is on the public site (/products/<slug>), or null. */
+function productSiteOf(pathname, deployment) {
+  const slug = /^\/products\/([a-z]+)(?:\/|\.html)?$/.exec(pathname)?.[1]
+  const app = slug && Object.keys(PRODUCT_LANDING_PAGES).find(key => PRODUCT_LANDING_PAGES[key].slug === slug)
+  return app ? { exact: pathname === `/products/${slug}`, host: deployment.hosts[app] } : null
+}
+
+/**
+ * Where each link on a landing page leads when the page is shown on a product site. The page was built for the public
+ * site, so its addresses are the public site's: a link to another public page opens on the public site; a product's
+ * page opens on that product's own site; "Setup Your Facility" opens the portal's facility sign-up, where Identity
+ * accepts its security check (productHostname.ts, providerEnrollmentHref); staff sign-in opens this product site's
+ * own. Anything else (mailto:, the patient portal, a link within the page) is left as it is.
+ *
+ * The same function rewrites the page's links at the edge and, copied into the page as its source text, the links
+ * the page draws itself in the browser (its menus), so it holds nothing it does not define: no nested function, no
+ * name from outside. Each result is a fixed address or the public site's own, and maps to itself.
+ */
+export function landingHref(href, site) {
+  var raw = String(href).trim()
+  if (raw === '' || raw.charAt(0) === '#') return href
+  var target
+  try { target = new URL(raw, site.page) } catch { return href }
+  if (target.protocol !== 'https:' && target.protocol !== 'http:') return href
+  if (target.origin === site.publicOrigin) {
+    var path = target.pathname.length > 1 ? target.pathname.replace(/\/+$/, '') : target.pathname
+    var product = /^\/products\/([a-z]+)$/.exec(path)
+    if (product && Object.prototype.hasOwnProperty.call(site.products, product[1])) return site.products[product[1]]
+    if (path === '/provider/apply') {
+      var code = target.searchParams.get('product')
+      return site.enroll + (code && site.applicationProducts.indexOf(code) !== -1 ? '?product=' + code : '')
+    }
+    return target.href
+  }
+  if (target.origin === site.portalOrigin && target.pathname === '/provider/sign-in') return site.signIn
+  return href
+}
+
+/** What landingHref needs for this product site, all fixed by the deployment: nothing from a request. */
+function landingSite(deployment) {
+  const products = {}
+  for (const [app, page] of Object.entries(PRODUCT_LANDING_PAGES)) products[page.slug] = `https://${deployment.hosts[app]}/`
+  return {
+    page: `${deployment.publicOrigin}/products/${deployment.landing.slug}`,
+    publicOrigin: deployment.publicOrigin,
+    portalOrigin: deployment.portalOrigin,
+    products,
+    signIn: `https://${deployment.expectedHost}/provider/sign-in`,
+    enroll: `${deployment.portalOrigin}/provider/enroll`,
+    applicationProducts: APPLICATION_PRODUCTS,
+  }
+}
+
+/**
+ * The page's own script, at the end of its head. Next.js follows a link the page renders itself in the browser, by the
+ * address it was built with, not the one the edge wrote; this script fixes each link's address as the visitor
+ * reaches it (pointer, keyboard, touch, context menu) and, on a plain click, lets the browser follow it itself, so
+ * every link leaves for the address landingHref gives it. A link within the page (#demo) is left to the page.
+ */
+function landingScript(site) {
+  const config = JSON.stringify(site).replace(/</g, '\\u003c')
+  return '<script>(function(rewrite,site){'
+    + 'function link(event){var node=event.target;var a=node&&node.closest?node.closest("a[href]"):null;'
+    + 'if(a){var href=a.getAttribute("href");var next=rewrite(href,site);if(next!==href)a.setAttribute("href",next)}return a}'
+    + '["pointerdown","mouseover","focusin","contextmenu"].forEach(function(type){addEventListener(type,link,true)});'
+    + 'addEventListener("click",function(event){var a=link(event);'
+    + 'if(!a||event.defaultPrevented||event.button||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey'
+    + '||(a.target&&a.target!=="_self")||a.hasAttribute("download")||a.getAttribute("href").charAt(0)==="#")return;'
+    + 'event.stopPropagation()},true)'
+    + `})(${landingHref.toString()},${config})</script>`
+}
+
+function landingUnavailable(deployment) {
+  const name = deployment.landing.name
+  const body = `<!doctype html><html lang="en"><head><meta charset="utf-8">`
+    + `<meta name="viewport" content="width=device-width, initial-scale=1"><title>${name}</title></head>`
+    + `<body style="font-family:system-ui,sans-serif;margin:0;padding:48px 24px;color:#101828">`
+    + `<main style="max-width:560px;margin:0 auto"><h1 style="font-size:28px">This page is not available right now</h1>`
+    + `<p style="font-size:17px;line-height:1.5">Please try again in a few minutes.</p>`
+    + `<p style="font-size:17px;line-height:1.5"><a href="/provider/sign-in">Sign in to ${name}</a></p>`
+    + `<p style="font-size:17px;line-height:1.5"><a href="${deployment.publicOrigin}/">Go to the Health ID website</a></p>`
+    + `</main></body></html>`
+  return withSecurityHeaders(new Response(body, {
+    status: 503,
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'retry-after': '60' },
+  }), false, 'public', '/')
+}
+
+/**
+ * A request to the public site's Worker for one fixed public-site address, with the headers given and, from the
+ * visitor's request, only those `passed` names.
+ */
+function publicSiteRequest(request, deployment, pathname, headers, passed = []) {
+  const sent = new Headers(headers)
+  for (const name of passed) {
+    const value = request.headers.get(name)
+    if (value !== null && !sent.has(name)) sent.set(name, value)
+  }
+  return new Request(`${deployment.publicOrigin}${pathname}`, { method: request.method, headers: sent, redirect: 'manual' })
+}
+
+function publicSiteBinding(environment) {
+  const binding = environment.PUBLIC_SITE
+  return binding && typeof binding.fetch === 'function' ? binding : null
+}
+
+/** This product site's front page: its landing page from the public site, with its links rewritten for this site. */
+async function landingPage(request, deployment, environment) {
+  const binding = publicSiteBinding(environment)
+  if (!binding) return landingUnavailable(deployment)
+  let source
+  try {
+    // None of the visitor's headers, validators included: a browser's copy is of this site's rewritten page.
+    source = await binding.fetch(publicSiteRequest(request, deployment, `/products/${deployment.landing.slug}`,
+      { accept: 'text/html', [LANDING_SITE_HEADER]: deployment.expectedHost }))
+  } catch {
+    return landingUnavailable(deployment)
+  }
+  const type = source.headers.get('content-type') ?? ''
+  if (source.status !== 200 || !/^text\/html\s*(?:;|$)/i.test(type)) return landingUnavailable(deployment)
+  // A new response: none of the public site's validators (this body differs from its file) and never a cookie.
+  const page = new Response(request.method === 'HEAD' ? null : source.body, {
+    status: 200, headers: { 'content-type': type, 'cache-control': 'public, max-age=0, must-revalidate' },
+  })
+  const site = landingSite(deployment)
+  let canonical = false
+  const rewritten = request.method === 'HEAD' ? page : new HTMLRewriter()
+    .on('a[href]', { element(element) {
+      const href = element.getAttribute('href')
+      const next = landingHref(href, site)
+      if (next !== href) element.setAttribute('href', next)
+    } })
+    .on('link[rel="canonical"]', { element(element) {
+      canonical = true
+      element.setAttribute('href', `https://${deployment.expectedHost}/`)
+    } })
+    .on('head', { element(element) {
+      element.onEndTag(end => {
+        if (!canonical) end.before(`<link rel="canonical" href="https://${deployment.expectedHost}/">`, { html: true })
+        end.before(landingScript(site), { html: true })
+      })
+    } })
+    .transform(page)
+  return withSecurityHeaders(rewritten, false, 'public', '/')
+}
+
+function isPublicStaticPath(pathname) {
+  return PUBLIC_STATIC_FILES.includes(pathname) || PUBLIC_STATIC_PREFIXES.some(prefix => pathname.startsWith(prefix))
+}
+
+/**
+ * Whether the product site's own asset binding has this file. Its single-page fallback answers a file it does not
+ * have with index.html (200), which is never one of the public site's static files: none of them is a page.
+ */
+function ownsFile(pathname, response) {
+  if (response.status === 304) return true
+  if (response.status < 200 || response.status >= 300) return false
+  return !/^text\/html\s*(?:;|$)/i.test(response.headers.get('content-type') ?? '') || pathname.endsWith('.html')
+}
+
+/** One of the public site's static files a landing page loads, from the public site; a 404 if it has none. */
+async function publicStaticFile(request, url, deployment, environment) {
+  const binding = publicSiteBinding(environment)
+  let response = null
+  if (binding) {
+    try {
+      response = await binding.fetch(publicSiteRequest(request, deployment, url.pathname, {}, PUBLIC_SITE_REQUEST_HEADERS))
+    } catch {
+      response = null
+    }
+  }
+  if (!response || !(response.status === 304 || (response.status >= 200 && response.status < 300))) {
+    return problem(404, 'NOT_FOUND', 'The requested file is not available.', correlationId(request))
+  }
+  const secured = withSecurityHeaders(response, false, deployment.application, url.pathname)
+  secured.headers.delete('set-cookie')
+  return secured
 }
 
 // The portal's push worker (B6, apps/patient-web/public/sw.js) and the earlier HID worker the public site retires
@@ -163,6 +387,15 @@ function applicationRouteRedirect(request, requestUrl, deployment) {
   }
   if (deployment.application === 'public' && requestUrl.pathname === '/products/identity') {
     return Response.redirect(new URL('/patients', requestUrl), 308)
+  }
+  // A product's page is that product site's front page. Only the product site itself, asking through its binding for
+  // its own page at this exact address, is answered the page; everyone else goes to the product site. One fixed
+  // address per product, nothing from the request; an hour's cache, so that a rollback reaches returning visitors.
+  const productSite = deployment.application === 'public' ? productSiteOf(requestUrl.pathname, deployment) : null
+  if (productSite && !(productSite.exact && request.headers.get(LANDING_SITE_HEADER) === productSite.host)) {
+    return new Response(null, {
+      status: 308, headers: { location: `https://${productSite.host}/`, 'cache-control': 'max-age=3600' },
+    })
   }
   // hid-1.0's patient pages were on this host: each opens its portal page. Only the deployment's portal origin and
   // a fixed path: nothing from the request, its query included, is copied into the address.
@@ -245,7 +478,14 @@ export function createFrontendWorker() {
       }
       const redirect = applicationRouteRedirect(request, url, deployment)
       if (redirect) return withSecurityHeaders(redirect, false, deployment.application, url.pathname)
+      const read = request.method === 'GET' || request.method === 'HEAD'
+      if (deployment.landing && read && (url.pathname === '/' || url.pathname === '/index.html')) {
+        return landingPage(request, deployment, environment)
+      }
       const assetResponse = await environment.ASSETS.fetch(request)
+      if (deployment.landing && read && isPublicStaticPath(url.pathname) && !ownsFile(url.pathname, assetResponse)) {
+        return publicStaticFile(request, url, deployment, environment)
+      }
       if (!servesWorker(url.pathname, assetResponse)) {
         return problem(404, 'NOT_FOUND', 'The requested file is not available.', correlationId(request))
       }

@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createFrontendWorker } from '../src/frontend-worker.mjs'
+import { createFrontendWorker, landingHref } from '../src/frontend-worker.mjs'
 import apexWorker from '../src/apex-redirect-worker.mjs'
 import legacyOcrDomainRedirectWorker from '../src/legacy-ocr-domain-redirect-worker.mjs'
+
+// Node has no HTMLRewriter: here the page passes through unchanged, so these tests see what the Worker asked the
+// public site for and what it answered. What it rewrites is tested in workerd (landing-page.test.mjs).
+globalThis.HTMLRewriter ??= class { on() { return this } transform(response) { return response } }
 
 const worker = createFrontendWorker()
 const originalFetch = globalThis.fetch
@@ -21,7 +25,8 @@ const deploymentProfiles = Object.freeze({
   staging: Object.freeze({
     apiOrigin: 'https://api.staging.healthidentitydirectory.com',
     hosts: Object.freeze({
-      web: 'staging.healthidentitydirectory.com', ehr: 'ehr.staging.healthidentitydirectory.com',
+      web: 'staging.healthidentitydirectory.com', public: 'www.staging.healthidentitydirectory.com',
+      ehr: 'ehr.staging.healthidentitydirectory.com',
       lab: 'lab.staging.healthidentitydirectory.com', pharmacy: 'pharmacy.staging.healthidentitydirectory.com',
       ocr: 'migrate.staging.healthidentitydirectory.com', outreach: 'outreach.staging.healthidentitydirectory.com',
       admin: 'admin.staging.healthidentitydirectory.com',
@@ -57,16 +62,19 @@ test('serves the application asset binding with security headers', async () => {
 })
 
 test('grants device capabilities only to the application host that needs them', async () => {
-  const ocr = await worker.fetch(new Request('https://migrate.healthidentitydirectory.com/'), environment({ APP_NAME: 'ocr' }))
+  // The workspace, where the camera is used; the front page, a landing page, asks for none (landing tests below).
+  const ocr = await worker.fetch(new Request('https://migrate.healthidentitydirectory.com/provider/ocr'), environment({ APP_NAME: 'ocr' }))
   assert.equal(ocr.headers.get('permissions-policy'), 'camera=(self), microphone=(), geolocation=()')
-  const outreach = await worker.fetch(new Request('https://outreach.healthidentitydirectory.com/'), environment({ APP_NAME: 'outreach' }))
+  const outreach = await worker.fetch(new Request('https://outreach.healthidentitydirectory.com/provider/outreach'), environment({ APP_NAME: 'outreach' }))
   assert.equal(outreach.headers.get('permissions-policy'), 'camera=(self), microphone=(), geolocation=(self)')
 })
 
 test('serves Migrate from its canonical hostname root and redirects legacy paths without chains', async () => {
-  const root = await worker.fetch(new Request('https://migrate.healthidentitydirectory.com/'), environment({ APP_NAME: 'ocr' }))
+  // The root is Migrate's landing page from the public site (landing tests below); every other path is the app's.
+  const root = await worker.fetch(new Request('https://migrate.healthidentitydirectory.com/'),
+    environment({ APP_NAME: 'ocr', PUBLIC_SITE: publicSite().binding }))
   assert.equal(root.status, 200)
-  assert.equal(await root.text(), '<p>/</p>')
+  assert.equal(await root.text(), LANDING_HTML)
 
   const directDeepLink = await worker.fetch(
     new Request('https://migrate.healthidentitydirectory.com/jobs/123?view=safe'),
@@ -410,4 +418,340 @@ test('keeps the portal\'s table of hid-1.0 addresses and the edge\'s the same, /
   const { '/records': shortLink, ...edge } = LEGACY_PATIENT_PATHS
   assert.equal(shortLink, '/records')
   assert.deepEqual(portal, edge)
+})
+
+const PRODUCT_SITES = Object.freeze({ ehr: 'ehr', lab: 'laboratory', pharmacy: 'pharmacy', ocr: 'migrate', outreach: 'outreach' })
+const LANDING_HTML = '<!DOCTYPE html><html lang="en"><head><title>Landing</title></head><body><a href="/pricing">Pricing</a></body></html>'
+
+/**
+ * The public site's Worker as a product site's PUBLIC_SITE binding sees it: each product's page for the product site
+ * that names itself, and the static files given. It records every request it is sent.
+ */
+function publicSite(files = {}, { deployment = 'production' } = {}) {
+  const requests = []
+  const hosts = deploymentProfiles[deployment].hosts
+  const binding = { fetch: async request => {
+    requests.push(request)
+    const url = new URL(request.url)
+    const slug = /^\/products\/([a-z]+)$/.exec(url.pathname)?.[1]
+    const app = Object.keys(PRODUCT_SITES).find(key => PRODUCT_SITES[key] === slug)
+    if (app && request.headers.get('x-hid-landing-site') === hosts[app]) {
+      return new Response(request.method === 'HEAD' ? null : LANDING_HTML, { headers: {
+        'content-type': 'text/html; charset=utf-8', etag: '"public-page"', 'set-cookie': 'public=1; Secure',
+        'cache-control': 'public, max-age=0, must-revalidate',
+      } })
+    }
+    const file = files[url.pathname]
+    if (typeof file === 'function') return file(request)
+    if (file) return new Response(file.body, { headers: { 'content-type': file.type, etag: '"file"', 'set-cookie': 'public=1' } })
+    return new Response('<p>Not found</p>', { status: 404, headers: { 'content-type': 'text/html' } })
+  } }
+  return { binding, requests }
+}
+
+/** A binding that must not be used. */
+const UNUSED_BINDING = { fetch: async () => { throw new Error('The public site must not be asked') } }
+
+const VISITOR_HEADERS = {
+  cookie: '__Host-hid_session=secret', authorization: 'Bearer secret', 'cf-connecting-ip': '192.0.2.7',
+  'x-forwarded-for': '192.0.2.8', 'x-hid-landing-site': 'attacker.example', origin: 'https://attacker.example',
+  accept: 'text/html,application/xhtml+xml', 'if-none-match': '"earlier"',
+}
+
+for (const [deployment, profile] of Object.entries(deploymentProfiles)) {
+  const publicHost = deployment === 'production' ? 'healthidentitydirectory.com' : 'www.staging.healthidentitydirectory.com'
+  for (const [app, slug] of Object.entries(PRODUCT_SITES)) {
+    const host = profile.hosts[app]
+    test(`${deployment} ${app} answers its front page with its landing page from the public site`, async () => {
+      for (const path of ['/', '/index.html', '/?utm_source=newsletter']) {
+        const site = publicSite({}, { deployment })
+        const response = await worker.fetch(new Request(`https://${host}${path}`, { headers: VISITOR_HEADERS }),
+          environment({ DEPLOYMENT_ENV: deployment, APP_NAME: app, PUBLIC_SITE: site.binding, ASSETS: UNUSED_BINDING }))
+        assert.equal(response.status, 200, path)
+        assert.equal(await response.text(), LANDING_HTML)
+        assert.equal(site.requests.length, 1)
+        const [sent] = site.requests
+        // One fixed address: the product's own page, nothing of the visitor's address or query.
+        assert.equal(sent.url, `https://${publicHost}/products/${slug}`)
+        assert.equal(sent.method, 'GET')
+        assert.equal(sent.redirect, 'manual')
+        assert.equal(sent.headers.get('x-hid-landing-site'), host)
+        assert.equal(sent.headers.get('accept'), 'text/html')
+        // Never the visitor's cookie, credentials or address, nor validators for a page this site rewrites.
+        assert.deepEqual([...sent.headers.keys()].sort(), ['accept', 'x-hid-landing-site'])
+        // The public site's page headers, as every other page; none of the public site's cookies or validators.
+        assert.match(response.headers.get('content-type'), /^text\/html/)
+        assert.equal(response.headers.get('x-frame-options'), 'DENY')
+        assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
+        assert.equal(response.headers.get('referrer-policy'), 'strict-origin-when-cross-origin')
+        assert.equal(response.headers.get('cross-origin-opener-policy'), 'same-origin')
+        assert.equal(response.headers.get('permissions-policy'), 'camera=(), microphone=(), geolocation=()')
+        assert.equal(response.headers.get('set-cookie'), null)
+        assert.equal(response.headers.get('etag'), null)
+        assert.equal(response.headers.get('cache-control'), 'public, max-age=0, must-revalidate')
+      }
+      const site = publicSite({}, { deployment })
+      const head = await worker.fetch(new Request(`https://${host}/`, { method: 'HEAD' }),
+        environment({ DEPLOYMENT_ENV: deployment, APP_NAME: app, PUBLIC_SITE: site.binding }))
+      assert.equal(head.status, 200)
+      assert.equal(site.requests[0].method, 'HEAD')
+    })
+  }
+
+  test(`${deployment} public site sends each product's page to that product's site, and keeps its others`, async () => {
+    const config = environment({ DEPLOYMENT_ENV: deployment, APP_NAME: 'public', EXPECTED_HOST: publicHost })
+    for (const [app, slug] of Object.entries(PRODUCT_SITES)) {
+      for (const path of [`/products/${slug}`, `/products/${slug}/`, `/products/${slug}.html`, `/products/${slug}?ref=nav`]) {
+        const response = await worker.fetch(new Request(`https://${publicHost}${path}`), config)
+        assert.equal(response.status, 308, path)
+        assert.equal(response.headers.get('location'), `https://${profile.hosts[app]}/`, path)
+        assert.equal(response.headers.get('cache-control'), 'max-age=3600')
+        assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
+      }
+      // Only the product site that owns the page, asking for its exact address, is answered the page.
+      const own = await worker.fetch(new Request(`https://${publicHost}/products/${slug}`,
+        { headers: { 'x-hid-landing-site': profile.hosts[app] } }), config)
+      assert.equal(own.status, 200)
+      assert.equal(await own.text(), `<p>/products/${slug}</p>`)
+      for (const [headers, path] of [
+        [{ 'x-hid-landing-site': profile.hosts[app === 'lab' ? 'pharmacy' : 'lab'] }, `/products/${slug}`],
+        [{ 'x-hid-landing-site': 'attacker.example' }, `/products/${slug}`],
+        [{ 'x-hid-landing-site': profile.hosts[app] }, `/products/${slug}/`],
+      ]) {
+        const other = await worker.fetch(new Request(`https://${publicHost}${path}`, { headers }), config)
+        assert.equal(other.status, 308)
+        assert.equal(other.headers.get('location'), `https://${profile.hosts[app]}/`)
+      }
+    }
+    for (const path of ['/products', '/products/api', '/products/unknown', '/pricing']) {
+      const response = await worker.fetch(new Request(`https://${publicHost}${path}`), config)
+      assert.equal(response.status, 200, path)
+    }
+    const identity = await worker.fetch(new Request(`https://${publicHost}/products/identity`), config)
+    assert.equal(identity.status, 308)
+    assert.equal(identity.headers.get('location'), `https://${publicHost}/patients`)
+    // A form posted to a product's old address is not redirected (as before, the asset binding answers it).
+    const post = await worker.fetch(new Request(`https://${publicHost}/products/laboratory`, { method: 'POST' }), config)
+    assert.equal(post.status, 200)
+  })
+}
+
+test('a product site without its public-site binding, or whose public site fails, says so in plain words', async () => {
+  const failures = {
+    missing: undefined,
+    'not a binding': {},
+    unreachable: { fetch: async () => { throw new Error('connection refused by hid-public-production') } },
+    redirected: { fetch: async () => Response.redirect('https://lab.healthidentitydirectory.com/', 308) },
+    'not found': { fetch: async () => new Response('<p>Not found</p>', { status: 404, headers: { 'content-type': 'text/html' } }) },
+    'server error': { fetch: async () => new Response('worker threw', { status: 500, headers: { 'content-type': 'text/plain' } }) },
+    'not a page': { fetch: async () => new Response('{"ok":true}', { headers: { 'content-type': 'application/json' } }) },
+  }
+  for (const [name, binding] of Object.entries(failures)) {
+    const response = await worker.fetch(new Request('https://lab.healthidentitydirectory.com/'),
+      environment({ APP_NAME: 'lab', PUBLIC_SITE: binding }))
+    assert.equal(response.status, 503, name)
+    assert.match(response.headers.get('content-type'), /^text\/html/)
+    assert.equal(response.headers.get('cache-control'), 'no-store')
+    assert.equal(response.headers.get('x-frame-options'), 'DENY')
+    const page = await response.text()
+    assert.match(page, /This page is not available right now/)
+    assert.match(page, /Please try again in a few minutes\./)
+    assert.match(page, /<a href="\/provider\/sign-in">Sign in to Health ID Laboratory<\/a>/)
+    assert.match(page, /<a href="https:\/\/healthidentitydirectory\.com\/">Go to the Health ID website<\/a>/)
+    // No internal detail: no binding, Worker, host or error names, no status codes.
+    assert.doesNotMatch(page, /PUBLIC_SITE|binding|worker|hid-public|refused|threw|50[0-9]|404|error/i)
+  }
+  const staging = await worker.fetch(new Request('https://migrate.staging.healthidentitydirectory.com/'),
+    environment({ DEPLOYMENT_ENV: 'staging', APP_NAME: 'ocr' }))
+  assert.equal(staging.status, 503)
+  assert.match(await staging.text(), /Sign in to Health ID Migrate<\/a>.*https:\/\/www\.staging\.healthidentitydirectory\.com\//s)
+})
+
+test('a product site loads the public site\'s static files it does not have, and only those', async () => {
+  const files = {
+    '/_next/static/chunks/main-app.js': { body: 'console.log("public")', type: 'application/javascript' },
+    '/_next/static/css/site.css': { body: 'body{}', type: 'text/css' },
+    '/_next/static/media/inter.woff2': { body: 'font', type: 'font/woff2' },
+    '/brand/logo.png': { body: 'png', type: 'image/png' },
+    '/brand/solutions/hospital.jpg': { body: 'jpg', type: 'image/jpeg' },
+    '/icon.png': { body: 'icon', type: 'image/png' },
+    '/apple-icon.png': { body: 'apple', type: 'image/png' },
+  }
+  for (const [path, file] of Object.entries(files)) {
+    const site = publicSite(files)
+    const response = await worker.fetch(new Request(`https://lab.healthidentitydirectory.com${path}?v=1`, { headers: VISITOR_HEADERS }),
+      environment({ APP_NAME: 'lab', PUBLIC_SITE: site.binding, ASSETS: assets({}) }))
+    assert.equal(response.status, 200, path)
+    assert.equal(await response.text(), file.body)
+    assert.equal(response.headers.get('content-type'), file.type)
+    assert.equal(response.headers.get('etag'), '"file"')
+    assert.equal(response.headers.get('set-cookie'), null)
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
+    assert.equal(site.requests.length, 1)
+    assert.equal(site.requests[0].url, `https://healthidentitydirectory.com${path}`)
+    assert.equal(site.requests[0].redirect, 'manual')
+    assert.deepEqual([...site.requests[0].headers.keys()].sort(), ['accept', 'if-none-match'])
+  }
+  // A revalidation the public site answers 304 stays a 304.
+  const notModified = await worker.fetch(new Request('https://ehr.healthidentitydirectory.com/_next/static/css/site.css',
+    { headers: { 'if-none-match': '"file"' } }), environment({ APP_NAME: 'ehr', ASSETS: assets({}),
+    PUBLIC_SITE: publicSite({ '/_next/static/css/site.css': () => new Response(null, { status: 304, headers: { etag: '"file"' } }) }).binding }))
+  assert.equal(notModified.status, 304)
+  // A file the public site does not have either is a 404, never its page or the portal's index.html.
+  for (const binding of [publicSite().binding, undefined, { fetch: async () => { throw new Error('down') } }]) {
+    const missing = await worker.fetch(new Request('https://lab.healthidentitydirectory.com/_next/static/chunks/gone.js'),
+      environment({ APP_NAME: 'lab', PUBLIC_SITE: binding, ASSETS: assets({}) }))
+    assert.equal(missing.status, 404)
+    assert.equal((await missing.json()).code, 'NOT_FOUND')
+  }
+})
+
+test('a product site\'s own files always win over the public site\'s', async () => {
+  const own = { '/brand/logo.png': { body: 'product logo', type: 'image/png' },
+    '/_next/static/chunks/own.js': { body: 'own', type: 'application/javascript' },
+    '/icon.png': () => new Response(null, { status: 304 }) }
+  for (const path of Object.keys(own)) {
+    const response = await worker.fetch(new Request(`https://pharmacy.healthidentitydirectory.com${path}`),
+      environment({ APP_NAME: 'pharmacy', PUBLIC_SITE: UNUSED_BINDING, ASSETS: assets(own) }))
+    assert.ok([200, 304].includes(response.status), path)
+  }
+})
+
+test('nothing but the listed static files is ever asked of the public site', async () => {
+  const paths = ['/assets/index.js', '/sw.js', '/service-worker.js', '/health-id.webmanifest', '/icons/icon-48.png',
+    '/favicon.ico', '/_next/image', '/_next/data/build/page.json', '/brand', '/products/laboratory', '/pricing',
+    '/about.html', '/provider/sign-in', '/provider/laboratory', '/records', '/index.txt', '/__next._tree.txt']
+  for (const app of Object.keys(PRODUCT_SITES)) {
+    const host = deploymentProfiles.production.hosts[app]
+    for (const path of paths) {
+      const response = await worker.fetch(new Request(`https://${host}${path}`),
+        environment({ APP_NAME: app, PUBLIC_SITE: UNUSED_BINDING, ASSETS: assets({ '/sw.js': PUSH_WORKER }) }))
+      assert.notEqual(response.status, 503, `${app} ${path}`)
+    }
+    // Writes are never sent there, nor read from there.
+    const post = await worker.fetch(new Request(`https://${host}/_next/static/chunks/main.js`, { method: 'POST' }),
+      environment({ APP_NAME: app, PUBLIC_SITE: UNUSED_BINDING }))
+    assert.equal(post.status, 200)
+  }
+})
+
+test('the patient portal, the admin site and the public site keep their own front page', async () => {
+  for (const [app, host] of [['web', 'app.healthidentitydirectory.com'], ['admin', 'admin.healthidentitydirectory.com'],
+    ['public', 'healthidentitydirectory.com']]) {
+    for (const path of ['/', '/index.html', '/_next/static/chunks/main.js', '/brand/logo.png']) {
+      const response = await worker.fetch(new Request(`https://${host}${path}`),
+        environment({ APP_NAME: app, EXPECTED_HOST: host, PUBLIC_SITE: UNUSED_BINDING }))
+      assert.equal(response.status, 200, `${app} ${path}`)
+      assert.equal(await response.text(), `<p>${path}</p>`)
+    }
+  }
+  const staging = await worker.fetch(new Request('https://staging.healthidentitydirectory.com/'),
+    environment({ DEPLOYMENT_ENV: 'staging', APP_NAME: 'web', PUBLIC_SITE: UNUSED_BINDING }))
+  assert.equal(await staging.text(), '<p>/</p>')
+})
+
+test('every /provider address on a product site is the portal\'s, as before', async () => {
+  for (const app of Object.keys(PRODUCT_SITES)) {
+    const host = deploymentProfiles.production.hosts[app]
+    for (const path of ['/provider', '/provider/', '/provider/sign-in', '/provider/laboratory', '/provider/clinical',
+      '/provider/enroll', '/provider/apply', '/provider/join']) {
+      const response = await worker.fetch(new Request(`https://${host}${path}`),
+        environment({ APP_NAME: app, PUBLIC_SITE: UNUSED_BINDING }))
+      assert.equal(response.status, 200, `${app} ${path}`)
+      assert.equal(await response.text(), `<p>${path}</p>`)
+    }
+    const recover = await worker.fetch(new Request(`https://${host}/provider/recover`),
+      environment({ APP_NAME: app, PUBLIC_SITE: UNUSED_BINDING }))
+    assert.equal(recover.status, 302)
+    // The API proxy is untouched: the binding is never asked, and the API origin is.
+    let proxied
+    globalThis.fetch = async url => { proxied = String(url); return new Response('{}') }
+    const api = await worker.fetch(new Request(`https://${host}/api/v1/auth/session`),
+      environment({ APP_NAME: app, PUBLIC_SITE: UNUSED_BINDING }))
+    assert.equal(api.status, 200)
+    assert.equal(proxied, 'https://api.healthidentitydirectory.com/api/v1/auth/session')
+    // A write to the front page is the app's, as before.
+    const post = await worker.fetch(new Request(`https://${host}/`, { method: 'POST' }),
+      environment({ APP_NAME: app, PUBLIC_SITE: UNUSED_BINDING }))
+    assert.equal(await post.text(), '<p>/</p>')
+  }
+})
+
+test('rewrites each landing page link for the product site that shows it', () => {
+  const site = {
+    page: 'https://healthidentitydirectory.com/products/laboratory',
+    publicOrigin: 'https://healthidentitydirectory.com',
+    portalOrigin: 'https://app.healthidentitydirectory.com',
+    products: { ehr: 'https://ehr.healthidentitydirectory.com/', laboratory: 'https://lab.healthidentitydirectory.com/',
+      pharmacy: 'https://pharmacy.healthidentitydirectory.com/', migrate: 'https://migrate.healthidentitydirectory.com/',
+      outreach: 'https://outreach.healthidentitydirectory.com/' },
+    signIn: 'https://lab.healthidentitydirectory.com/provider/sign-in',
+    enroll: 'https://app.healthidentitydirectory.com/provider/enroll',
+    applicationProducts: ['ehr', 'migrate', 'laboratory', 'pharmacy'],
+  }
+  const cases = [
+    // Other public pages open on the public site.
+    ['/', 'https://healthidentitydirectory.com/'],
+    ['/pricing', 'https://healthidentitydirectory.com/pricing'],
+    ['/providers#products', 'https://healthidentitydirectory.com/providers#products'],
+    ['/solutions#hospitals', 'https://healthidentitydirectory.com/solutions#hospitals'],
+    ['/products', 'https://healthidentitydirectory.com/products'],
+    ['/products/api', 'https://healthidentitydirectory.com/products/api'],
+    ['/patients', 'https://healthidentitydirectory.com/patients'],
+    ['/resources/security', 'https://healthidentitydirectory.com/resources/security'],
+    ['https://healthidentitydirectory.com/about', 'https://healthidentitydirectory.com/about'],
+    // Each product's page is its own site's front page, this one's included.
+    ['/products/laboratory', 'https://lab.healthidentitydirectory.com/'],
+    ['/products/ehr', 'https://ehr.healthidentitydirectory.com/'],
+    ['/products/migrate/', 'https://migrate.healthidentitydirectory.com/'],
+    ['https://healthidentitydirectory.com/products/pharmacy', 'https://pharmacy.healthidentitydirectory.com/'],
+    ['/products/outreach', 'https://outreach.healthidentitydirectory.com/'],
+    // The product's own calls to action: sign up where Identity accepts it, sign in on this site.
+    ['/provider/apply?product=laboratory', 'https://app.healthidentitydirectory.com/provider/enroll?product=laboratory'],
+    ['/provider/apply?product=ehr', 'https://app.healthidentitydirectory.com/provider/enroll?product=ehr'],
+    ['/provider/apply', 'https://app.healthidentitydirectory.com/provider/enroll'],
+    ['/provider/apply?product=https://evil.example', 'https://app.healthidentitydirectory.com/provider/enroll'],
+    ['/provider/apply?product=outreach', 'https://app.healthidentitydirectory.com/provider/enroll'],
+    ['https://app.healthidentitydirectory.com/provider/sign-in', 'https://lab.healthidentitydirectory.com/provider/sign-in'],
+    // Left as they are: the patient portal, mail, links within the page, other sites.
+    ['https://app.healthidentitydirectory.com/sign-in', 'https://app.healthidentitydirectory.com/sign-in'],
+    ['https://app.healthidentitydirectory.com/provider/enroll', 'https://app.healthidentitydirectory.com/provider/enroll'],
+    ['mailto:support@healthidentitydirectory.com', 'mailto:support@healthidentitydirectory.com'],
+    ['tel:+2348000000000', 'tel:+2348000000000'],
+    ['#main', '#main'],
+    ['#demo', '#demo'],
+    ['', ''],
+    ['https://www.linkedin.com/company/health-id', 'https://www.linkedin.com/company/health-id'],
+    ['https://lab.healthidentitydirectory.com/', 'https://lab.healthidentitydirectory.com/'],
+    ['javascript:alert(1)', 'javascript:alert(1)'],
+  ]
+  for (const [href, expected] of cases) {
+    const result = landingHref(href, site)
+    assert.equal(result, expected, href)
+    // Every result is final: the page script may apply it again to a link already rewritten.
+    assert.equal(landingHref(result, site), result, `again: ${href}`)
+  }
+})
+
+test('the landing link rewrite is self-contained, so the page can run its source text', () => {
+  const source = landingHref.toString()
+  assert.equal(source.match(/\bfunction\b/g).length, 1)
+  assert.doesNotMatch(source, /=>|\bthis\b|\bimport\b|\bawait\b|<\/script/i)
+})
+
+test('the public site\'s static files a product site serves are none of the portal\'s', async () => {
+  const { readdir } = await import('node:fs/promises')
+  const { join, relative, sep } = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const root = fileURLToPath(new URL('../../../apps/patient-web/public/', import.meta.url))
+  const files = (await readdir(root, { recursive: true, withFileTypes: true })).filter(entry => entry.isFile())
+    .map(entry => `/${relative(root, join(entry.parentPath, entry.name)).split(sep).join('/')}`)
+  assert.ok(files.includes('/sw.js') && files.includes('/health-id.webmanifest'))
+  for (const path of files) {
+    const site = publicSite({ [path]: { body: 'public', type: 'application/octet-stream' } })
+    const response = await worker.fetch(new Request(`https://lab.healthidentitydirectory.com${path}`),
+      environment({ APP_NAME: 'lab', PUBLIC_SITE: site.binding, ASSETS: assets({}) }))
+    assert.equal(site.requests.length, 0, path)
+    assert.notEqual(await response.text(), 'public', path)
+  }
 })

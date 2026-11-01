@@ -34,3 +34,27 @@ test('provider recovery goes to patient app, not the public website', async () =
   assert.equal(response.status, 302)
   assert.equal(response.headers.get('location'), 'https://app.healthidentitydirectory.com/provider/recover?returnTo=ehr')
 })
+
+test('production product sites open their own landing page; the public site sends its product pages there', async () => {
+  globalThis.HTMLRewriter ??= class { on() { return this } transform(response) { return response } }
+  const products = { ehr: ['ehr', 'ehr'], lab: ['lab', 'laboratory'], pharmacy: ['pharmacy', 'pharmacy'],
+    ocr: ['migrate', 'migrate'], outreach: ['outreach', 'outreach'] }
+  for (const [app, [subdomain, slug]] of Object.entries(products)) {
+    const host = `${subdomain}.healthidentitydirectory.com`
+    let asked
+    const config = { ...env(app, host), PUBLIC_SITE: { fetch: async request => {
+      asked = request.url
+      return new Response('<html><head></head><body>landing</body></html>', { headers: { 'content-type': 'text/html' } })
+    } } }
+    const root = await worker.fetch(new Request(`https://${host}/`), config)
+    assert.equal(root.status, 200)
+    assert.equal(asked, `https://healthidentitydirectory.com/products/${slug}`)
+    const moved = await worker.fetch(new Request(`https://healthidentitydirectory.com/products/${slug}`),
+      env('public', 'healthidentitydirectory.com'))
+    assert.equal(moved.status, 308)
+    assert.equal(moved.headers.get('location'), `https://${host}/`)
+  }
+  // The patient portal's front page is its own.
+  const portal = await worker.fetch(new Request('https://app.healthidentitydirectory.com/'), env('web', 'app.healthidentitydirectory.com'))
+  assert.equal(await portal.text(), 'page')
+})
