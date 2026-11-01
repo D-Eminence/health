@@ -151,12 +151,13 @@ export function labSendRefusal(caught: unknown): LabSendRefusal {
   return { text: `This lab request was not sent to Lab: it was refused${code ? ` (${code})` : ''}. Contact the laboratory if the test is still needed.` }
 }
 
+/** Clinical.tsx `handoffPrescription`: what an IDEMPOTENCY_CONFLICT from Send to Pharmacy says. */
+export const PHARMACY_ALREADY_HOLDS = 'Pharmacy already holds work for this prescription, sent earlier, perhaps at an earlier version or with another reason, so it was not sent again. If the prescription changed since, contact the pharmacy: it may refuse to dispense the version it holds, and if it cannot dispense it, create a new prescription and send that.'
+
 /**
  * Clinical.tsx `handoffPrescription`: the refusals that mean the prescription changed under the handoff, or that
  * Pharmacy's own check of it refused it (hid-system 0100); each is answered by reading the order again.
  */
-export const PHARMACY_ALREADY_HOLDS = 'Pharmacy already holds work for this prescription, sent earlier, perhaps at an earlier version or with another reason, so it was not sent again. If the prescription changed since, contact the pharmacy: it may refuse to dispense the version it holds, and if it cannot dispense it, create a new prescription and send that.'
-
 export function prescriptionChanged(caught: unknown): string | null {
   if (!isHidApiError(caught)) return null
   if (caught.code === 'PHARMACY_PRESCRIPTION_NOT_ELIGIBLE') return 'This prescription no longer matches what was sent (it was changed, put on hold or cancelled meanwhile), so Pharmacy did not accept it.'
