@@ -27,6 +27,10 @@ const REAL_STEPS = ['Facility', 'Staff', 'Roles', 'Review', 'Launch']
 const DEMO = 'Demo Hospital'
 const SAMPLE = 'Sample only: not connected to Health ID yet. Nothing you do here is saved.'
 const NOT_COLLECTED = 'Not collected by Health ID yet'
+const OPTIONAL_AT_DEMO = 'Optional after launch: staff invitations, service pricing, wards and beds, inventory and professional credential records.'
+/** The Roles step's line at a real facility, where the design's role templates are left out. */
+const ROLES_LINE = 'Each person’s role is set in Staff & access below. Administrative ownership never grants clinical signing, '
+  + 'prescribing or dispensing rights.'
 const PENDING = `Health ID support is checking ${RIVERSIDE}. This usually takes up to one working day.`
 const DONE = `Health ID support has checked ${RIVERSIDE}, and it now has full access.`
 
@@ -144,9 +148,12 @@ describe('at a real facility, the sample steps are left out', () => {
     await openSetup('/provider/onboarding/staff')
     expect(eyebrow()).toBe('Step 2 of 5 · Staff')
     expect(await screen.findByText('Demo Administrator', { selector: 'strong' })).toBeDefined()
+    expect(screen.queryByText(ROLES_LINE)).toBeNull()
     press('Continue to roles')
     expect(eyebrow()).toBe('Step 3 of 5 · Roles')
     expect(document.activeElement).toBe(heading())
+    // Not the Staff step again: it says what it is for, in the design's own true words, above Staff & access.
+    expect(screen.getByText(ROLES_LINE)).toBeDefined()
     // Staff & access, live, and nothing of the design's own roles and their permission scopes.
     expect(await screen.findByText('Demo Administrator', { selector: 'strong' })).toBeDefined()
     expect(screen.queryByRole('heading', { name: 'Role templates and permission scopes' })).toBeNull()
@@ -170,6 +177,9 @@ describe('at a real facility, the sample steps are left out', () => {
     expect(within(review).queryByRole('heading', { name: 'Branches' })).toBeNull()
     expect(within(review).queryByText(/^Main/)).toBeNull()
     expect(within(review).queryByText('NGN')).toBeNull()
+    // What comes after launch is only what a real facility can do: the rest are the demo facilities' samples.
+    expect(within(review).getByText(/^Optional after launch/).textContent).toBe('Optional after launch: staff invitations.')
+    expect(within(review).queryByText(/service pricing|wards and beds|inventory|credential records/)).toBeNull()
     press('Review launch requirements')
     expect(eyebrow()).toBe('Step 5 of 5 · Launch')
   })
@@ -276,6 +286,7 @@ describe('the sample steps send nothing', () => {
       'Payment Methods': 'Cash, Transfer', 'Payment Timing': 'Before service', Insurance: 'Yes',
     })
     expect(screen.getByText('Main · 1 Fiction Lane · General Outpatient, Laboratory')).toBeDefined()
+    expect(screen.getByText(/^Optional after launch/).textContent).toBe(OPTIONAL_AT_DEMO)
     expect(screen.queryByText(PENDING)).toBeNull()
 
     // Not one request: the session alone (the Staff step was passed through the stepper before it read).
@@ -350,6 +361,8 @@ describe('steps 5 and 6, Staff and Roles', () => {
     press('Continue to roles')
     expect(eyebrow()).toBe('Step 6 of 9 · Roles')
     expect(document.activeElement).toBe(heading())
+    // The real facility's line stands in for the templates only where they are left out.
+    expect(screen.queryByText(ROLES_LINE)).toBeNull()
     const templates = screen.getByRole('heading', { level: 2, name: 'Role templates and permission scopes' }).closest('section') as HTMLElement
     expect(within(templates).getByText(SAMPLE)).toBeDefined()
     // The design's words, but for its claim that branch access is edited in Staff & access: Health ID has no branches.

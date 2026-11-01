@@ -60,22 +60,27 @@ export function FacilitySetup() {
   const { rest } = useBluePage()
   const navigate = useNavigate()
   const hrefOf = useSampleHref()
-  const [step, setStep] = useState(() => openingStep(rest, steps))
+  // The step is held by its name, and found among the steps shown on each render: which steps those are depends on the
+  // working facility, and should that change while the page stays open, a step it no longer has opens the first one
+  // rather than another step's number.
+  const [chosen, setChosen] = useState<StepName>(() => steps[openingStep(rest, steps)] ?? STEPS[0])
+  const step = Math.max(0, steps.indexOf(chosen))
+  const name = steps[step] ?? STEPS[0]
   const [setup, setSetup] = useState<SampleSetup>(newSetup)
   const root = useRef<HTMLDivElement>(null)
-  const shown = useRef(step)
+  const shown = useRef(name)
 
   // A step that replaces the control just used ("Save and continue", "Back") gives focus to the page's heading, which
   // names the step; the stepper's buttons stay, and keep it. As a page change does (pageFocus.ts), in the commit.
   useLayoutEffect(() => {
-    if (shown.current === step) return
-    shown.current = step
+    if (shown.current === name) return
+    shown.current = name
     if (focusLost()) focusPageHeading(root.current)
-  }, [step])
+  }, [name])
 
   if (!facility) return <SetupRefusal />
-  const name = steps[step] ?? STEPS[0]
-  const next = () => setStep(current => Math.min(steps.length - 1, current + 1))
+  const goTo = (index: number) => setChosen(steps[Math.min(steps.length - 1, Math.max(0, index))] ?? STEPS[0])
+  const next = () => goTo(step + 1)
   const update = (change: Partial<SampleSetup>) => setSetup(current => ({ ...current, ...change }))
   // The design's links into other samples, only where those open at a demo facility: never from here into a sample at a
   // real one.
@@ -114,7 +119,7 @@ export function FacilitySetup() {
       <nav className="hid-ehr-onboarding-stepper" aria-label="Onboarding steps">
         {steps.map((candidate, index) => (
           <EhrButton key={candidate} variant="secondary" aria-current={index === step ? 'step' : undefined}
-            onClick={() => setStep(index)}>{index + 1}. {candidate}</EhrButton>
+            onClick={() => setChosen(candidate)}>{index + 1}. {candidate}</EhrButton>
         ))}
       </nav>
       {/* Each step's own controls are new, so a step change that took the one used moves focus to the heading. */}
@@ -123,7 +128,7 @@ export function FacilitySetup() {
         {below !== undefined || step > 0 ? (
           <div className="hid-ehr-actions">
             {below !== undefined ? <EhrButton onClick={next}>{below}</EhrButton> : null}
-            {step > 0 ? <EhrButton variant="secondary" onClick={() => setStep(step - 1)}>Back</EhrButton> : null}
+            {step > 0 ? <EhrButton variant="secondary" onClick={() => goTo(step - 1)}>Back</EhrButton> : null}
           </div>
         ) : null}
       </div>

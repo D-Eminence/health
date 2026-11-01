@@ -59,8 +59,10 @@ export function ReviewStep({ facility, setup, onNext }: {
             ))}
           </div>
         ) : null}
-        <p className="hid-ehr-onboarding-text">Optional after launch: staff invitations, service pricing, wards and beds, inventory and
-          professional credential records.</p>
+        {/* Service pricing, wards and beds, inventory and credential records are the demo facilities' samples: a real
+            facility is offered only what it can do. */}
+        <p className="hid-ehr-onboarding-text">{setup ? 'Optional after launch: staff invitations, service pricing, wards and beds, '
+          + 'inventory and professional credential records.' : 'Optional after launch: staff invitations.'}</p>
         <div><EhrButton onClick={onNext}>Review launch requirements</EhrButton></div>
       </div>
     </EhrCard>
