@@ -188,17 +188,18 @@ const pharmacyStock = {
   'rx-7': { onHand: 4, unit: 'packs' },
 }
 
-// Outreach: one active registration campaign this membership belongs to, and the cases registered in the field.
+// Outreach: one active registration campaign this membership belongs to, and the cases registered in the field. Each
+// case carries `phone` and `operationalNotes` (null when none was given), as production's Outreach sends them.
 const outreachLinked = new Set(['oc-3'])
 const outreachCampaigns = () => [
   { id: 'camp-1', name: 'Ajegunle health week', status: 'active', services: ['registration', 'screening'], startsAt: iso(-3 * DAY), rowVersion: 2 },
   { id: 'camp-2', name: 'Makoko school screening', status: 'draft', services: ['screening'], startsAt: iso(10 * DAY), rowVersion: 1 },
 ]
 const outreachCases = () => [
-  { id: 'oc-1', campaignId: 'camp-1', fullName: 'Kemi Balogun', ageYears: 34, sex: 'female', temporaryPatientId: 'tmp_7f3a9c21', createdAt: iso(-40 * MIN), rowVersion: 1 },
-  { id: 'oc-2', campaignId: 'camp-1', fullName: 'Ibrahim Musa', ageYears: 61, sex: 'male', temporaryPatientId: 'tmp_2b8e4d10', createdAt: iso(-2 * 60 * MIN), rowVersion: 1 },
-  { id: 'oc-3', campaignId: 'camp-1', fullName: 'Chiamaka Obi', ageYears: 8, sex: 'female', temporaryPatientId: 'tmp_9d1c6a55', createdAt: iso(-1 * DAY), rowVersion: 2 },
-  { id: 'oc-4', fullName: 'Segun Adewale', ageYears: 45, sex: 'unknown', temporaryPatientId: 'tmp_4e6f0b77', createdAt: iso(-2 * DAY), rowVersion: 1 },
+  { id: 'oc-1', campaignId: 'camp-1', fullName: 'Kemi Balogun', ageYears: 34, sex: 'female', temporaryPatientId: 'tmp_7f3a9c21', phone: '+2348031234567', operationalNotes: 'Met at the market. Wants a blood pressure check next week.', createdAt: iso(-40 * MIN), rowVersion: 1 },
+  { id: 'oc-2', campaignId: 'camp-1', fullName: 'Ibrahim Musa', ageYears: 61, sex: 'male', temporaryPatientId: 'tmp_2b8e4d10', phone: '08029876543', operationalNotes: null, createdAt: iso(-2 * 60 * MIN), rowVersion: 1 },
+  { id: 'oc-3', campaignId: 'camp-1', fullName: 'Chiamaka Obi', ageYears: 8, sex: 'female', temporaryPatientId: 'tmp_9d1c6a55', phone: null, operationalNotes: 'Came with her mother.', createdAt: iso(-1 * DAY), rowVersion: 2 },
+  { id: 'oc-4', fullName: 'Segun Adewale', ageYears: 45, sex: 'unknown', temporaryPatientId: 'tmp_4e6f0b77', phone: null, operationalNotes: null, createdAt: iso(-2 * DAY), rowVersion: 1 },
 ].map(item => ({ ...item, status: outreachLinked.has(item.id) ? 'identity_resolved' : 'identity_resolution_pending', rowVersion: item.rowVersion + (outreachLinked.has(item.id) && item.id !== 'oc-3' ? 1 : 0) }))
 
 function staffRoute(method, path) {

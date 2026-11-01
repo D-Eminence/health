@@ -3,6 +3,7 @@ import type { OutreachCampaign, OutreachCampaignMember, OutreachCase } from '../
 import type { Tone } from '../../../kasuwa/ui'
 import type { DeptFact } from '../parts/DeptRecord'
 import { dateText } from '../parts/format'
+import { maskPhone } from '../../../profileParity'
 
 /*
  * Words and small parts the Outreach views share, in the design's voice (the target's
@@ -70,16 +71,38 @@ export function campaignSearchText(campaign: OutreachCampaign) {
   return [campaign.name, statusWords(campaign.status), campaign.id, campaign.services.join(' '), dateText(campaign.startsAt)]
 }
 
-/** A registration case's saved fields, as the design's "Saved record" and quick view list them. */
+/** A mark a phone number already masked by the service carries: shown as it was sent, never masked twice. */
+const MASKED = /[•*]/
+
+/**
+ * A case's phone number as the page shows it: masked to its last four digits ("+234 •••• 4567"), or as Outreach sent it
+ * when it is already masked. The full number is never put on the screen.
+ */
+export function phoneText(phone: string | null | undefined): string {
+  const given = phone?.trim()
+  if (!given) return 'Not recorded'
+  return MASKED.test(given) ? given : maskPhone(given)
+}
+
+/**
+ * A registration case's saved fields, as the design's "Saved record" and quick view list them. The phone number and the
+ * notes for the team are listed when Outreach sends them (null: none was given); a backend without them sends neither,
+ * and they are left out.
+ */
 export function caseFacts(item: OutreachCase, campaign: OutreachCampaign | undefined): DeptFact[] {
+  const notes = item.operationalNotes?.trim()
   return [
     { label: 'Full name', value: caseName(item) },
     { label: 'Age', value: ageText(item) },
     { label: 'Sex', value: sexText(item) },
+    ...(item.phone !== undefined ? [{ label: 'Phone number', value: phoneText(item.phone) }] : []),
     { label: 'Status', value: statusLabel(item.status) },
     { label: 'Temporary patient ID', value: item.temporaryPatientId ?? 'Not assigned' },
     { label: 'Campaign', value: item.campaignId ? (campaign?.name ?? reference(item.campaignId)) : 'No campaign' },
     { label: 'Created', value: dateText(item.createdAt) },
+    ...(item.operationalNotes !== undefined
+      ? [{ label: 'Notes for the team', value: notes ? <span className="whitespace-pre-wrap break-words">{notes}</span> : 'None' }]
+      : []),
   ]
 }
 

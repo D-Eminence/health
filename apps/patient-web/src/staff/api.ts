@@ -1136,6 +1136,13 @@ export interface OutreachCase {
   temporaryPatientId?: string
   ageYears?: number
   sex?: string
+  /**
+   * The phone number and the notes for the team given when the case was registered, null when none was given. Outreach
+   * sends both on every case (outreach.types.ts registrationCase()); a backend without them sends neither key. The page
+   * shows the phone masked, and never searches it.
+   */
+  phone?: string | null
+  operationalNotes?: string | null
   rowVersion: number
 }
 
