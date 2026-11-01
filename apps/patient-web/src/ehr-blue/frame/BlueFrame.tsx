@@ -105,9 +105,14 @@ export function BlueFrame() {
   // A lab, pharmacy or outreach on its own sees only its product (product.ts); a hospital's EHR has them all.
   const product = productOf(window.location.hostname, permissions)
   const info = PRODUCTS[product]
+  // Whether this session may open a single product's own page (its queue). When it may not, Home (the Overview) is its
+  // home instead, listed in the menu, as today's portal lands there (staff/navigation.ts staffLandingPath): the
+  // product's page would only refuse.
+  const ownPage = product === 'ehr' ? undefined : BLUE_PAGES.find(page => basePath(page.path) === info.home)
+  const ownPageOpen = ownPage !== undefined && pageAllowed(ownPage, session, viewing)
   const listed = useMemo(() => allowed.filter(page => (page.status !== 'sample' || page.path === '') && !INTERNAL_GROUPS.has(page.group)
-    && inProduct(product, page.path) && (product === 'ehr' || page.path !== '')
-    && (!session || (page.listed?.(session) ?? true))), [allowed, session, product])
+    && (page.path === '' ? product === 'ehr' || !ownPageOpen : inProduct(product, page.path))
+    && (!session || (page.listed?.(session) ?? true))), [allowed, session, product, ownPageOpen])
   const match = matchBluePage(BLUE_PAGES, location.pathname)
   // A pharmacy or lab on its own lists a product's pages in the sidebar, so it draws no tabs above them as well.
   const tabs = match && product === 'ehr' ? pageTabs(allowed, match.page) : []
@@ -119,8 +124,8 @@ export function BlueFrame() {
   if (!session) return null
   const moved = movedAddress(location.pathname)
   if (moved) return <Navigate replace to={{ pathname: moved, search: location.search, hash: location.hash }} />
-  // A single product's home is its own queue.
-  if (product !== 'ehr' && /^\/provider\/?$/.test(location.pathname)) return <Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} />
+  // A single product's home is its own queue, when this session may open it; otherwise /provider stays Home.
+  if (product !== 'ehr' && ownPageOpen && /^\/provider\/?$/.test(location.pathname)) return <Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} />
 
   function leave() {
     if (signingOut) return
@@ -173,7 +178,8 @@ export function BlueFrame() {
   }))
   const tabsFor = (path: string) => listed.find(page => page.path === path || page.path === `${path}/*`)
   const tab = (path: string, label: string, fallback: NavItem) => { const page = tabsFor(path); return page ? { to: pageHrefOf(page), label, icon: iconOf(page.icon) } : fallback }
-  const home: NavItem = product === 'ehr' ? { to: '/provider', label: 'Home', icon: House, end: true }
+  // A product site whose own page this session may not open leads Home, where it landed, rather than to a refusal.
+  const home: NavItem = product === 'ehr' || !ownPageOpen ? { to: '/provider', label: 'Home', icon: House, end: true }
     : { to: `/provider/${info.home}`, label: info.name, icon: info.icon }
   const facilityTab: NavItem = { to: '/provider/institutions', label: 'Facility', icon: Hospital }
 
