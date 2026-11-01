@@ -30,11 +30,11 @@ interface StepFocus { readonly targets: readonly string[]; readonly notice?: str
 
 /**
  * The refusal for a role without OCR job read, on this page and at its address (page.tsx). Screens name no permission
- * (the owner's rule), so today's words, which named the one lacking, give way to the plain sentence the Pharmacy's
- * refusal now uses. It names the OCR work, not document capture: a clinician refused here may still add documents
- * to a visit.
+ * (the owner's rule), so today's words, which named the one lacking, give way to a plain sentence. No role holds the OCR
+ * work (hid-system 0091), so nobody is told to ask anyone for it: it isn't available yet. It names the reading of scanned
+ * documents, not document capture: a clinician refused here may still add documents to a visit.
  */
-export const NO_DOCUMENT_OCR = 'Your role at this facility doesn’t include turning scanned documents into records. Ask your facility administrator.'
+export const NO_DOCUMENT_OCR = 'Reading scanned documents isn’t available at your facility yet.'
 
 /** A job this page has read, and when. */
 interface OpenedJob { readonly job: OcrJob; readonly readAt: string }

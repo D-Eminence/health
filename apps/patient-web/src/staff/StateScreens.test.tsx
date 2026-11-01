@@ -148,13 +148,14 @@ describe('PEHR-13: every provider state screen has a main landmark and an h1', (
 
 /*
  * The Laboratory's and Document OCR's refusals (and Health ID Migrate's, which leads only to Document OCR) named the
- * permission they lack. Screens name no permission (the owner's rule), so they say in plain words what the role doesn't
- * include, as the blue pages do; before a facility is chosen there is no role there yet, so they ask for one.
+ * permission they lack. Screens name no permission (the owner's rule), so they say in plain words, as the blue pages do,
+ * what the role doesn't include, or for Document OCR, which no role holds yet, that it isn't available; before a facility
+ * is chosen there is no role there yet, so they ask for one.
  */
 describe('the Laboratory and Document OCR refusals name no permission', () => {
   const PERMISSION_WORDS = /permission|membership|work-item|OCR job read|lab\.work-item\.read|ocr\.job\.read/i
   const LAB = 'Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator.'
-  const OCR = 'Your role at this facility doesn’t include turning scanned documents into records. Ask your facility administrator.'
+  const OCR = 'Reading scanned documents isn’t available at your facility yet.'
   const PAGES = [
     ['/provider/laboratory', 'Laboratory unavailable', LAB],
     ['/provider/ocr', 'Document OCR unavailable', OCR],

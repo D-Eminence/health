@@ -15,6 +15,7 @@ import { learnLateCorrectionServed, saysLateCorrection, useLateCorrectionServed 
 import { learnCannotCompleteFrom, useCannotCompleteServed } from '../../cannotCompleteServed'
 import { BETWEEN_FACILITIES } from '../betweenFacilities'
 import { selfServiceReview, selfServiceType } from '../staffAccess'
+import { LAB_WORK, refusedWorkText } from '../refusedWork'
 import {
   cannotCompleteOffered, handOverCheckText, holdsReceivePermission, licenceLine, receivingAnswer, receivingHere,
   rememberedReceiving, rememberReceiving, routeClosedForWork, routedWorkEndedText, sampleCheckText, wrongPatientOffered,
@@ -89,11 +90,10 @@ function useFacilityAccess() {
 /**
  * A page this person can't open here, in plain words: screens name no permission (the owner's rule). Before a facility
  * is chosen (the only time this portal shows on its own) there is no role yet, so it asks for one, beside "Working at";
- * at a facility, the role there doesn't include the page's `work`.
+ * at a facility, it says `why`.
  */
-function refusedHere(facilityId: string | undefined, work: string): string {
-  return facilityId ? `Your role at this facility doesn’t include ${work}. Ask your facility administrator.`
-    : 'Choose a facility under “Working at” first.'
+function refusedHere(facilityId: string | undefined, why: string): string {
+  return facilityId ? why : 'Choose a facility under “Working at” first.'
 }
 
 /**
@@ -930,7 +930,7 @@ export function Laboratory() {
   const notCompleted = useNotCompletedEndings(facilityId)
   const said = useRowSaid('lab', read.value, list.refresh, (mode, route) => mode === 'wrong_patient'
     ? wrongPatientOffered(route, permissions, 'lab') : cannotCompleteOffered(route, permissions, 'lab', cannotServed))
-  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Laboratory unavailable" description={refusedHere(facilityId, 'the lab’s work list and results')} />
+  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Laboratory unavailable" description={refusedHere(facilityId, refusedWorkText(facility, permissions, LAB_WORK))} />
   function endedHere(item: LabWorkItem, ending: WrongPatientEnding) {
     if (!facilityId) return
     setEnded({ facilityId, ending })
@@ -1479,8 +1479,11 @@ function OcrPublicationCard({ actorId, facilityId, validation, confirmationId, p
  */
 interface StepFocus { readonly targets: readonly string[]; readonly notice?: string; readonly confirmNext?: boolean }
 
-/** What Document OCR and Migrate (which leads only to it) do, for their refusal: the OCR work, not adding documents. */
-const OCR_WORK = 'turning scanned documents into records'
+/**
+ * Document OCR's and Migrate's (which leads only to it) refusal at a facility: no role holds the OCR work (hid-system
+ * 0091), so nobody is told to ask anyone for it. It names the reading of scanned documents, not adding documents.
+ */
+const NO_DOCUMENT_OCR = 'Reading scanned documents isn’t available at your facility yet.'
 
 export function Ocr() {
   const { facilityId, permissions } = useFacilityAccess()
@@ -1609,7 +1612,7 @@ export function Ocr() {
     finally { setBusy(false) }
   }
 
-  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Document OCR unavailable" description={refusedHere(facilityId, OCR_WORK)} />
+  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Document OCR unavailable" description={refusedHere(facilityId, NO_DOCUMENT_OCR)} />
   return <>
     <PageHead eyebrow="Governed document processing" title="Document OCR">Find a job by its clinical document ID. The document must be available and virus scan clean before extraction can begin.</PageHead>
     <div className="staff-two-col"><Card className="staff-card"><h2>Find document job</h2><form className="staff-form" noValidate onSubmit={event => void find(event)}><Field label="Document ID" htmlFor="ocr-document" error={problemText(problem, 'ocr-document')} required><Input id="ocr-document" value={documentId} onChange={event => { setDocumentId(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} placeholder="Document UUID" required {...problemProps(problem, 'ocr-document')} /></Field><Button id="ocr-find-submit" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Find job'}</Button></form>
@@ -1765,7 +1768,7 @@ export function Outreach() {
 export function MigrateGap() {
   const { facilityId, permissions } = useFacilityAccess()
   // The workspace leads only to Document OCR, so it opens on the same permission (no role holds it since hid-system 0091).
-  if (!facilityId || !permissions.includes('ocr.job.read')) return <EmptyState titleAs="h1" title="Migration workspace unavailable" description={refusedHere(facilityId, OCR_WORK)} />
+  if (!facilityId || !permissions.includes('ocr.job.read')) return <EmptyState titleAs="h1" title="Migration workspace unavailable" description={refusedHere(facilityId, NO_DOCUMENT_OCR)} />
   return <>
     <PageHead eyebrow="HID Migrate" title="Migration workspace">Process clinical documents tied to authorized clinical records.</PageHead>
     <EmptyState title="Use Document OCR" description="You can process an eligible clinical document in Document OCR." action={<Link className="staff-text-link" to="/provider/ocr">Open document OCR →</Link>} />

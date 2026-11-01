@@ -1,10 +1,12 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { CalendarCheck, ClipboardList, FileText, FlaskConical, Plus, SlidersHorizontal, Tags } from 'lucide-react'
 import type { StaffSession } from '../../../staff/api'
+import { LAB_WORK, refusedWorkText } from '../../../staff/refusedWork'
 import type { EhrBluePage } from '../types'
 import { productOf } from '../../frame/product'
 import { DeptUnavailable } from '../parts/DeptPage'
 import { FlaskIcon } from '../parts/icons'
+import { useDeptAccess } from '../parts/access'
 import { EndOfDay } from '../commerce/EndOfDay'
 import { PaymentSetup } from '../commerce/PaymentSetup'
 import { PriceList } from '../commerce/PriceList'
@@ -20,11 +22,14 @@ import { Results } from './Results'
 const GROUP = 'Laboratory'
 /**
  * The refusal at the Laboratory's entry, Work list and Results for a role that can't read the lab's work. Screens name
- * no permission (the owner's rule), so today's words, which named the one lacking, give way to the plain sentence the
- * Pharmacy's refusal now uses. It names only what is refused: a role may still raise a New request without it.
+ * no permission (the owner's rule), so today's words, which named the one lacking, give way to plain words, chosen by who
+ * reads them as the Pharmacy's refusal chooses its own (refusedWorkText): a self-signed-up facility's administrator is
+ * never told to ask themselves. It names only what is refused: a role may still raise a New request without it.
  */
-const LabUnavailable = () => <DeptUnavailable title="Laboratory unavailable"
-  message="Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator." />
+function LabUnavailable() {
+  const { facility, permissions } = useDeptAccess()
+  return <DeptUnavailable title="Laboratory unavailable" message={refusedWorkText(facility, permissions, LAB_WORK)} />
+}
 const icon = (I: typeof Plus) => <I aria-hidden strokeWidth={1.8} />
 
 /** Listed in a hospital's sidebar only: a lab on its own lists its six pages instead. */

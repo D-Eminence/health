@@ -219,6 +219,60 @@ describe('the page entries', () => {
     expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
   })
 
+  /*
+   * Who reads what (#104's rule, as the Pharmacy's refusal says it): the administrator of a facility that signed itself
+   * up is never told to ask the facility administrator, which they are. Every facility here is fictional.
+   */
+  describe('by who reads it', () => {
+    /** What a self-signed-up facility's administrator holds once Health ID support has checked it: no lab work. */
+    const ADMINISTRATOR = ['organization.manage', 'workforce.manage', 'audit.read', 'identity.registration.read',
+      'outreach.registration.read', 'outreach.campaign.read']
+    /** What the same administrator holds while Health ID support checks the facility. */
+    const AWAITING_REVIEW = ['workforce.manage', 'audit.read', 'outreach.registration.read', 'outreach.registration.write',
+      'outreach.campaign.read', 'outreach.campaign.write']
+    const ROLE_SENTENCE = 'Your role at this facility doesn’t include the lab’s work list and results.'
+    beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+
+    /** The Laboratory's refusal as `permissions` reads it, at a facility that signed itself up when `selfService` says so. */
+    function refusalAs(permissions: string[], selfService?: FakeFacility['selfService'], refusal = laboratoryPage.refusal) {
+      as(permissions, selfService ? { selfService } : {})
+      renderDept(<>{refusal}</>)
+      expect(screen.getByRole('heading', { level: 1, name: 'Laboratory unavailable' })).toBeTruthy()
+      expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
+      return document.querySelector('.hid-ehr-state-message')?.textContent
+    }
+
+    it.each(['laboratory', 'hospital', 'clinic'])('the administrator of a checked %s: the role sentence and the step that is theirs, adding a laboratory scientist', organizationType => {
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType })).toBe(`${ROLE_SENTENCE} Add a laboratory scientist on the Staff page.`)
+      expect(document.body.textContent).not.toMatch(/Ask your facility administrator/)
+    })
+
+    it.each(['laboratory/work/*', 'laboratory/results/*'])('the same administrator at %s: the same step', path => {
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'laboratory' }, labPages.find(page => page.path === path)?.refusal))
+        .toBe(`${ROLE_SENTENCE} Add a laboratory scientist on the Staff page.`)
+    })
+
+    it.each([
+      ['checked', 'pharmacy', 'reviewed', ADMINISTRATOR], ['checked', 'other', 'reviewed', ADMINISTRATOR],
+      ['being checked', 'pharmacy', 'pending', AWAITING_REVIEW], ['being checked', 'other', 'pending', AWAITING_REVIEW],
+    ])('the administrator of a %s %s facility, which will not get the Laboratory: the role sentence only', (_checked, organizationType, review, permissions) => {
+      expect(refusalAs(permissions, { review, organizationType })).toBe(ROLE_SENTENCE)
+      expect(document.body.textContent).not.toMatch(/Ask your facility administrator|Add a laboratory scientist|Laboratory opens/)
+    })
+
+    it.each(['laboratory', 'hospital', 'clinic'])('the administrator of a %s Health ID support is still checking: the Laboratory opens after the check', organizationType => {
+      expect(refusalAs(AWAITING_REVIEW, { review: 'pending', organizationType })).toBe('Laboratory opens once Health ID support has checked your facility.')
+    })
+
+    it('anyone else at a checked laboratory: told to ask its administrator', () => {
+      expect(refusalAs(['outreach.registration.read'], { review: 'reviewed', organizationType: 'laboratory' })).toBe(LAB_REFUSAL)
+    })
+
+    it('an administrator at a facility Health ID support manages: told to ask its administrator, as before', () => {
+      expect(refusalAs(ADMINISTRATOR)).toBe(LAB_REFUSAL)
+    })
+  })
+
   it('lists the lab’s pages in order, each with the permission it needs', () => {
     expect(labPages.filter(page => page.listed === undefined).map(page => [page.path, page.label, page.permission])).toEqual([
       ['laboratory/new', 'New request', 'lab.walk-in.create'],

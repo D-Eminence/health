@@ -30,8 +30,8 @@ vi.mock('../../../../staff/App', async () => {
 })
 
 const ALL = ['ocr.job.read', 'ocr.job.write', 'ocr.validation.write', 'ocr.patient.confirm', 'ocr.publication.write']
-/** Document OCR's refusal, at its address and on the page, in the words of the Pharmacy's. */
-const OCR_REFUSAL = 'Your role at this facility doesn’t include turning scanned documents into records. Ask your facility administrator.'
+/** Document OCR's refusal, at its address and on the page: no role holds the OCR work yet, so nobody is told to ask anyone. */
+const OCR_REFUSAL = 'Reading scanned documents isn’t available at your facility yet.'
 /** A permission's name, Identity's code or the old "membership needs … permission" words: none belongs on a screen. */
 const PERMISSION_WORDS = /permission|membership|OCR job read|ocr\.job\.read/i
 const PATIENT = 'a0000000-0000-4000-8000-000000000001'
