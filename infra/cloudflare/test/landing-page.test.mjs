@@ -137,6 +137,38 @@ test('the lab site\'s front page is the Laboratory page, its links rewritten for
   }
 })
 
+/** The canonical address the release reads on a product site's front page (deploy-production-workers.py). */
+const RELEASE_READS = /<link rel="canonical" href="https:\/\/lab\.healthidentitydirectory\.com\/">/g
+
+test('a page that names its own canonical address carries the lab site\'s instead, once, in one shape', async () => {
+  // As Next.js writes it when a page sets metadata.alternates.canonical, and as a page could otherwise say it.
+  const named = [
+    '<link rel="canonical" href="https://healthidentitydirectory.com/products/laboratory"/>',
+    '<link rel="Canonical" href="/products/laboratory">',
+    '<link href="https://healthidentitydirectory.com/products/laboratory" rel="alternate canonical" />',
+  ]
+  const own = new Miniflare(convertV4MiniflareOptions({
+    workers: [
+      frontend('lab', 'lab', 'lab.healthidentitydirectory.com', { ASSETS: 'lab-assets', PUBLIC_SITE: 'public' }),
+      frontend('public', 'public', 'healthidentitydirectory.com', { ASSETS: 'public-assets' }),
+      { name: 'lab-assets', modules: true, compatibilityDate: '2026-10-01', script: assetWorker({}, 'spa') },
+      { name: 'public-assets', modules: true, compatibilityDate: '2026-10-01', script: assetWorker({ '/products/laboratory':
+        ['text/html; charset=utf-8', LABORATORY_PAGE.replace('</head>', named.slice(0, 2).join('') + '</head>')
+          .replace('</main>', named[2] + '</main>')] }, '404') },
+    ],
+  }))
+  try {
+    const page = await (await (await own.getWorker('lab')).fetch('https://lab.healthidentitydirectory.com/')).text()
+    // The page's own are gone; the lab site's is the only one, in the head, exactly as the release reads it.
+    assert.deepEqual(page.match(/<link[^>]*\brel="[^"]*canonical[^"]*"[^>]*>/gi), [RELEASE_READS.source.replaceAll('\\', '')])
+    assert.equal(page.match(RELEASE_READS).length, 1)
+    assert.ok(page.indexOf(RELEASE_READS.source.replaceAll('\\', '')) < page.indexOf('</head>'))
+    assert.doesNotMatch(page, /<link[^>]*products\/laboratory/i)
+  } finally {
+    await own.dispose()
+  }
+})
+
 test('the public site sends its Laboratory page to the lab site, and keeps its own pages', async () => {
   const redirected = await publicSite.fetch('https://healthidentitydirectory.com/products/laboratory', { redirect: 'manual' })
   assert.equal(redirected.status, 308)

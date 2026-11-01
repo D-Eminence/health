@@ -273,20 +273,20 @@ async function landingPage(request, deployment, environment) {
     status: 200, headers: { 'content-type': type, 'cache-control': 'public, max-age=0, must-revalidate' },
   })
   const site = landingSite(deployment)
-  let canonical = false
   const rewritten = request.method === 'HEAD' ? page : new HTMLRewriter()
     .on('a[href]', { element(element) {
       const href = element.getAttribute('href')
       const next = landingHref(href, site)
       if (next !== href) element.setAttribute('href', next)
     } })
-    .on('link[rel="canonical"]', { element(element) {
-      canonical = true
-      element.setAttribute('href', `https://${deployment.expectedHost}/`)
+    // The page's own canonical address, in whatever shape or case, is the public site's: it goes, and this site's is
+    // written once, at the end of the head, in the one shape the release reads (deploy-production-workers.py).
+    .on('link[rel]', { element(element) {
+      if (/(?:^|\s)canonical(?:\s|$)/i.test(element.getAttribute('rel') ?? '')) element.remove()
     } })
     .on('head', { element(element) {
       element.onEndTag(end => {
-        if (!canonical) end.before(`<link rel="canonical" href="https://${deployment.expectedHost}/">`, { html: true })
+        end.before(`<link rel="canonical" href="https://${deployment.expectedHost}/">`, { html: true })
         end.before(landingScript(site), { html: true })
       })
     } })
