@@ -640,6 +640,56 @@ async function settle() {
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
 }
 
+/**
+ * Registration stays in the EHR only (the owner's decision). On a single product's site (lab., pharmacy., outreach.,
+ * migrate.) Find a patient offers no "Register a patient", whatever the role holds; on the EHR's own site it does, and
+ * at an address that names no product (the test above) the EHR decides as before. The hosts are only set as the page's
+ * address: nothing is sent there.
+ */
+describe('Register a patient is the EHR’s alone', () => {
+  const jsdom = (globalThis as unknown as { jsdom: { reconfigure(options: { url: string }): void } }).jsdom
+  /** Opens Find a patient with the page's address on `host`; the address goes back when the test finishes. */
+  function openOn(host: string, onTestFinished: (fn: () => void) => void, permissions = [...ALL, 'identity.registration.write']) {
+    const servedFrom = window.location.href
+    onTestFinished(() => { jsdom.reconfigure({ url: servedFrom }) })
+    jsdom.reconfigure({ url: `https://${host}/provider/patients` })
+    staff.permissions = permissions
+    return open()
+  }
+
+  it.for([
+    'lab.healthidentitydirectory.com', 'pharmacy.healthidentitydirectory.com', 'outreach.healthidentitydirectory.com',
+    'migrate.healthidentitydirectory.com', 'lab.staging.healthidentitydirectory.com', 'pharmacy.staging.healthidentitydirectory.com',
+    'outreach.staging.healthidentitydirectory.com', 'migrate.staging.healthidentitydirectory.com',
+  ])('offers no Register a patient on %s, even with identity.registration.write', (host, { onTestFinished }) => {
+    openOn(host, onTestFinished)
+    expect(screen.getByRole('heading', { name: 'Find a patient' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Find' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Register a patient' })).toBeNull()
+    expect(screen.queryByText('Register a patient')).toBeNull()
+  })
+
+  it('reads the product host as the frame does, with a trailing dot too', ({ onTestFinished }) => {
+    openOn('pharmacy.healthidentitydirectory.com.', onTestFinished)
+    expect(screen.queryByRole('link', { name: 'Register a patient' })).toBeNull()
+  })
+
+  it.for(['ehr.healthidentitydirectory.com', 'ehr.staging.healthidentitydirectory.com'])('still offers it on the EHR’s own site, %s', (host, { onTestFinished }) => {
+    openOn(host, onTestFinished)
+    expect(screen.getByRole('link', { name: 'Register a patient' }).getAttribute('href')).toBe('/provider/registration')
+  })
+
+  it.for(['ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com'])('offers it on %s to no role without identity.registration.write', (host, { onTestFinished }) => {
+    openOn(host, onTestFinished, [...ALL])
+    expect(screen.getByRole('heading', { name: 'Find a patient' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Register a patient' })).toBeNull()
+  })
+
+  it('leaves the next test on the address the file is served from', () => {
+    expect(window.location.hostname).not.toMatch(/healthidentitydirectory\.com\.?$/)
+  })
+})
+
 describe('Registration, sharing and the patient-reported allergies (#62, in this design)', () => {
   it('offers Register a patient only with identity.registration.write, carrying nothing of a patient', async () => {
     const without = open()

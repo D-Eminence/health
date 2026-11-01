@@ -126,7 +126,7 @@ describe('c. Needs attention says nothing needs attention only when it lists not
 })
 
 describe('d. role dashboards link sample records only into sample pages', () => {
-  it('names a record of a workspace that is live here, and links the others', async () => {
+  it('names a record of a workspace that is live here, links the others, and links every shortcut', async () => {
     const [{ RoleDashboard }, { RoleViewProvider }, { BluePagesProvider }, { BLUE_PAGES }, store] = await Promise.all([
       import('../../../ehr-blue/home/RoleDashboard'), import('../../../ehr-blue/frame/roleView'),
       import('../../../ehr-blue/frame/pageContext'), import('../../../ehr-blue/routes'), import('../../../ehr-blue/frame/sample/store'),
@@ -140,11 +140,10 @@ describe('d. role dashboards link sample records only into sample pages', () => 
     expect(attention.getAllByRole('link').map(link => link.getAttribute('href'))).toEqual([
       `/provider/bloodbank/${store.sampleRecords('bloodbank')[0]!.id}`, `/provider/supply/${store.sampleRecords('inventory')[0]!.id}`,
     ])
+    // A shortcut opens the page itself, live or sample (audit item 6): Laboratory is today's page at its own address.
     const shortcuts = within(screen.getByRole('heading', { name: 'Pinned shortcuts' }).nextElementSibling as HTMLElement)
-    expect(shortcuts.queryByRole('link', { name: 'Laboratory' })).toBeNull()
-    expect(shortcuts.getByText('Laboratory')).toBeDefined()
     expect(shortcuts.getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')])).toEqual([
-      ['Blood Bank', '/provider/bloodbank'], ['Stock', '/provider/supply'],
+      ['Laboratory', '/provider/laboratory'], ['Blood Bank', '/provider/bloodbank'], ['Supply', '/provider/supply'],
     ])
   })
 })
