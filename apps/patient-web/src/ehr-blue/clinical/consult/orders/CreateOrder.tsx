@@ -34,13 +34,16 @@ export function leadingZero(value: string): string {
 /** A dose: a positive number with at most four decimal places, written with its leading zero. */
 const DOSE_NUMBER = /^\d+(\.\d{1,4})?$/
 
-/** The prescription's fields and limits, one column; the dose and its unit side by side. */
+/**
+ * The prescription's fields and limits, one column; the dose and its unit side by side. As in classic, the dose and its
+ * unit are optional but go together (a cream, or "as directed", has neither): `validate` asks for both or neither.
+ */
 const PRESCRIPTION_FIELDS: readonly FieldDef[] = [
   { key: 'medicationDisplay', label: 'Medicine', required: true, maxLength: 500 },
-  { key: 'doseQuantity', label: 'Dose', required: true, inputMode: 'decimal', placeholder: '0.5', maxLength: 12, row: 'dose', normalise: leadingZero },
-  { key: 'doseUnitChoice', label: 'Unit', required: true, row: 'dose',
+  { key: 'doseQuantity', label: 'Dose', inputMode: 'decimal', placeholder: '0.5', maxLength: 12, row: 'dose', normalise: leadingZero },
+  { key: 'doseUnitChoice', label: 'Unit', row: 'dose',
     choices: [...DOSE_UNITS.map(unit => ({ value: unit, label: unit })), { value: OTHER_UNIT, label: 'Other…' }] },
-  { key: 'doseUnit', label: 'Other unit', required: true, maxLength: 80, when: values => values.doseUnitChoice === OTHER_UNIT },
+  { key: 'doseUnit', label: 'Other unit', maxLength: 80, when: values => values.doseUnitChoice === OTHER_UNIT },
   { key: 'routeCode', label: 'Route', placeholder: 'Oral', maxLength: 100 },
   { key: 'frequency', label: 'How often', required: true, placeholder: 'Twice daily', maxLength: 240 },
   { key: 'instructions', label: 'Instructions', type: 'textarea', required: true, maxLength: 4000 },
@@ -93,7 +96,8 @@ export function CreateOrder({ kind, chart, encounterId }: { kind: OrderKind; cha
   const back = href(encounterId)
   const heading = <RecordHeading title={kind === 'pharmacy' ? 'New prescription' : 'New lab request'} backHref={back} />
 
-  if (!chart.can(info.write)) {
+  // As in classic, an order is added only where it can be read back: the saved order opens next.
+  if (!chart.can(info.write) || !chart.can(info.read)) {
     return <>{heading}<ErrorBox>Your role can’t add this order.</ErrorBox></>
   }
   if (!chart.canWrite) {
@@ -188,8 +192,10 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
   const validate = (values: FormValues): FieldErrors => {
     const quantity = value(values, 'doseQuantity')
     if (quantity && (!DOSE_NUMBER.test(quantity) || Number(quantity) <= 0)) return { doseQuantity: DOSE_NUMBER_TEXT }
-    if (!quantity !== !doseUnitOf(values)) return { [quantity ? 'doseUnitChoice' : 'doseQuantity']: DOSE_PAIR }
-    return {}
+    if (!quantity === !doseUnitOf(values)) return {}
+    // The missing half is marked: the dose, the unit, or the unit typed for "Other…".
+    const missing = quantity ? value(values, 'doseUnitChoice') === OTHER_UNIT ? 'doseUnit' : 'doseUnitChoice' : 'doseQuantity'
+    return { [missing]: DOSE_PAIR }
   }
 
   const submit = async (values: FormValues): Promise<SubmitOutcome> => {
