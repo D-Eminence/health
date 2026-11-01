@@ -41,15 +41,26 @@ const SOMEONE = 'Someone'
 
 /**
  * Labels that already say their outcome, so a refused or failed row keeps them as written (the spec's "No prefix" list,
- * with its *.email.failed, *.email.retry-scheduled and *.notification.failed codes).
+ * with its *.email.failed, *.email.retry-scheduled and *.notification.failed codes), and the outcome each one says. A
+ * row stored as a success takes the label's outcome: ocr.publication.fail is written as a success, and "Scanned
+ * document could not be added" beside Allowed would contradict itself (and the Failed filter would miss it).
  */
-const STATES_ITS_OUTCOME = new Set([
-  'auth.authorization.denied', 'security.authorization', 'security.authorization.denied', 'identity.nin.verify',
-  'identity.nin.protect', 'identity.patient-access-pin.verify-denied', 'identity.patient-access-pin.authorization-denied',
-  'identity.patient.contact-change.verify', 'identity.patient.contact-change.delivery', 'ehr.document.scan.rejected',
-  'ehr.document.scan.failed', 'ocr.worker.fail', 'ocr.worker.lease_recovered', 'ocr.publication.fail',
+const STATES_ITS_OUTCOME: ReadonlyMap<string, 'denied' | 'failure'> = new Map([
+  ['auth.authorization.denied', 'denied'], ['security.authorization', 'denied'], ['security.authorization.denied', 'denied'],
+  ['identity.nin.verify', 'denied'], ['identity.nin.protect', 'failure'], ['identity.patient-access-pin.verify-denied', 'denied'],
+  ['identity.patient-access-pin.authorization-denied', 'denied'], ['identity.patient.contact-change.verify', 'denied'],
+  ['identity.patient.contact-change.delivery', 'failure'], ['ehr.document.scan.rejected', 'failure'],
+  ['ehr.document.scan.failed', 'failure'], ['ocr.worker.fail', 'failure'], ['ocr.worker.lease_recovered', 'failure'],
+  ['ocr.publication.fail', 'failure'],
 ])
 const STATES_ITS_OUTCOME_ENDING = /\.(email\.failed|email\.retry-scheduled|notification\.failed)$/
+
+function statedOutcome(code: string): 'denied' | 'failure' | undefined {
+  return STATES_ITS_OUTCOME.get(code) ?? (STATES_ITS_OUTCOME_ENDING.test(code) ? 'failure' : undefined)
+}
+
+/** "Released facility's orders closed" leads with a base verb but says what happened to the orders, not what was done. */
+const NOT_A_DOING_WORD = new Set(['admin.self-service-facility.release-order-routes'])
 
 /**
  * The spec's base verbs: a refused or failed row says what was tried ("Tried to view a patient's visits"), since
@@ -79,6 +90,14 @@ function tried(label: string): string | null {
   return `Tried to ${lead[1]}${rest}`
 }
 
+/**
+ * A refused or failed attempt in words (the spec's outcome rule): what was tried, or, for a label that does not lead with
+ * a doing word, the label with "(refused)" or "(didn't go through)" after it, so the line never says it happened.
+ */
+function attempt(phrase: string, outcome: 'denied' | 'failure', doing = true): string {
+  return (doing ? tried(phrase) : null) ?? `${phrase} ${outcome === 'denied' ? '(refused)' : '(didn\'t go through)'}`
+}
+
 /** A label's main words, and those that replace them for one outcome or one kind of record (' // if refused: …'). */
 function labelParts(label: string) {
   const [main = '', ...variants] = label.split(' // if ')
@@ -94,14 +113,18 @@ function labelParts(label: string) {
 
 const own = (labels: Readonly<Record<string, string>>, code: string) => Object.hasOwn(labels, code) ? labels[code] : undefined
 
+const capitalised = (text: string) => `${text.charAt(0).toLocaleUpperCase()}${text.slice(1)}`
+
 /** What a listed code's row says, for its outcome and kind of record. */
 function listedWhat(code: string, label: string, event: AuditEventFacts) {
   const parts = labelParts(label)
-  const main = (event.resourceType !== null ? parts.resources.get(event.resourceType) : undefined) ?? parts.main
+  let main = (event.resourceType !== null ? parts.resources.get(event.resourceType) : undefined) ?? parts.main
+  // "Refused: their role here…": both pages show Refused beside the row, so the label does not say it again.
+  if (main.startsWith('Refused: ')) main = capitalised(main.slice('Refused: '.length))
   if (event.outcome === 'denied' && parts.refused) return parts.refused
   if (event.outcome === 'failure' && parts.failed) return parts.failed
-  if (event.outcome === 'success' || STATES_ITS_OUTCOME.has(code) || STATES_ITS_OUTCOME_ENDING.test(code)) return main
-  return tried(main) ?? main
+  if (event.outcome === 'success' || statedOutcome(code)) return main
+  return attempt(main, event.outcome, !NOT_A_DOING_WORD.has(code))
 }
 
 /* The spec's fallback for a code it does not list ("CODES NOT IN THE TABLE", rule 3): never the code itself. */
@@ -133,8 +156,14 @@ const FALLBACK_AREAS: Readonly<Record<string, string>> = {
   admin: 'Health ID support', commercial: 'Health ID website',
 }
 
-/** An unlisted code in words, and whether its name says it was refused ('…denied', '…-denied'). */
-function fallbackWhat(code: string, actorType: string) {
+/** A word of a code that can be shown as a thing: plain lowercase words. Anything else (an ID, a path) is never shown. */
+const PLAIN_WORD = /^[a-z]+([-_][a-z]+)*$/
+
+/**
+ * An unlisted code in words, and the outcome it stands for: a name saying it was refused ('…denied', '…-denied') is
+ * refused, and one saying it could not complete ('…fail') failed, whatever the outcome column says.
+ */
+function fallbackWhat(code: string, actorType: string, stored: AuditRow['outcome']) {
   const parts = code.split('.')
   let repeated = false
   let refused = false
@@ -144,14 +173,21 @@ function fallbackWhat(code: string, actorType: string) {
   if (end === 'denied') { refused = true; parts.pop() } else if (end.endsWith('-denied')) { refused = true; parts[parts.length - 1] = end.slice(0, -'-denied'.length) }
   const area = own(FALLBACK_AREAS, parts[0] ?? '') ?? 'Other'
   const verb = parts.length > 1 ? own(FALLBACK_VERBS, parts[parts.length - 1] ?? '') : undefined
-  // The thing is the part before the verb; with none between the area and the verb, there is no thing to name.
-  const word = parts.length > 2 ? parts[parts.length - 2] ?? '' : ''
-  // Hyphens become spaces (the spec); so do underscores, so no stored name reads as code.
-  const thing = own(FALLBACK_THINGS, word) ?? word.replace(/[-_]/g, ' ').trim()
-  let what = verb && thing ? `${area}: ${verb} ${thing}` : `${area} activity`
+  // The spec builds the label from the last two parts: the thing is the part before the verb (for a two-part code, its
+  // first part). Hyphens become spaces (the spec); so do underscores, so no stored name reads as code.
+  const word = parts.length > 1 ? parts[parts.length - 2] ?? '' : ''
+  const thing = own(FALLBACK_THINGS, word) ?? (PLAIN_WORD.test(word) ? word.replace(/[-_]/g, ' ') : '')
+  const saysFailed = verb === FALLBACK_VERBS.fail
+  const outcome = refused ? 'denied' : saysFailed && (stored === null || stored === 'success') ? 'failure' : stored
+  const phrase = verb && thing ? `${verb} ${thing}` : null
+  const failedOrRefused = outcome === 'denied' || outcome === 'failure' ? outcome : null
+  let what = phrase === null
+    ? (failedOrRefused ? attempt(`${area} activity`, failedOrRefused, false) : `${area} activity`)
+    : `${area}: ${failedOrRefused && !saysFailed ? attempt(phrase, failedOrRefused) : phrase}`
   if (actorType === 'system' || actorType === 'workload') what = `Automatic: ${what}`
-  else if (actorType === 'platform') what = `Health ID support: ${what}`
-  return { what: repeated ? `${what} (repeated, nothing changed)` : what, refused }
+  // A support code already leads with 'Health ID support'.
+  else if (actorType === 'platform' && area !== FALLBACK_AREAS.admin) what = `Health ID support: ${what}`
+  return { what: repeated ? `${what} (repeated, nothing changed)` : what, outcome }
 }
 
 /**
@@ -162,18 +198,18 @@ export function auditRow(event: AuditEventFacts): AuditRow | null {
   const code = event.action
   if (code.startsWith('api.')) return null
   let outcome: AuditRow['outcome'] = Object.hasOwn(OUTCOME_TEXT, event.outcome) ? event.outcome : null
-  const facts = { ...event, outcome: outcome ?? 'success' }
   let what: string
-  const listed = own(AUDIT_ACTION_LABELS, code)
-  const replayed = code.endsWith('.replay') ? own(AUDIT_ACTION_LABELS, code.slice(0, -'.replay'.length)) : undefined
-  if (listed !== undefined) what = listedWhat(code, listed, facts)
-  else if (replayed !== undefined) what = `${listedWhat(code.slice(0, -'.replay'.length), replayed, facts)} (repeated)`
-  else if (event.actorType === 'legacy' || !code.includes('.')) what = own(LEGACY_ACTION_LABELS, code) ?? LEGACY_ACTIVITY
-  else {
-    const fallback = fallbackWhat(code, event.actorType)
-    what = fallback.what
-    if (fallback.refused) outcome = 'denied'
-  }
+  // A listed code, or a listed code sent again ('.replay'; an exact '.replay' code in the table keeps its own label).
+  const replay = code.endsWith('.replay') && own(AUDIT_ACTION_LABELS, code) === undefined
+  const listedCode = replay ? code.slice(0, -'.replay'.length) : code
+  const listed = own(AUDIT_ACTION_LABELS, listedCode)
+  if (listed !== undefined) {
+    const stated = statedOutcome(listedCode)
+    if (stated && (outcome === null || outcome === 'success')) outcome = stated
+    what = listedWhat(listedCode, listed, { ...event, outcome: outcome ?? 'success' })
+    if (replay) what = `${what} (repeated)`
+  } else if (event.actorType === 'legacy' || !code.includes('.')) what = own(LEGACY_ACTION_LABELS, code) ?? LEGACY_ACTIVITY
+  else ({ what, outcome } = fallbackWhat(code, event.actorType, outcome))
   return {
     what,
     who: own(WHO, event.actorType) ?? SOMEONE,

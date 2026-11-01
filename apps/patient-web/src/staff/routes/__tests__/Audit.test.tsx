@@ -49,7 +49,7 @@ describe('facility audit review', () => {
       .toEqual(['Looked up a patient by Health ID', 'Staff member', 'Allowed'])
     // A code the spec does not list is worded by its fallback rule.
     expect(within(second!).getAllByRole('cell').slice(1).map(cell => cell.textContent))
-      .toEqual(['Patient access and registration activity', 'Staff member', 'Refused'])
+      .toEqual(['Patient access and registration activity (refused)', 'Staff member', 'Refused'])
     for (const withheld of ['patient-secret', 'sensitive reason', 'sensitive payload', 'identity.patient.lookup', 'identity.access.denied',
       'corr-51', 'corr-50', '>patient<', '>staff<', '>success<', '>denied<']) {
       expect(document.body.innerHTML).not.toContain(withheld)
@@ -57,7 +57,7 @@ describe('facility audit review', () => {
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Outcome on this page' }), { target: { value: 'denied' } })
     expect(screen.queryByText('Looked up a patient by Health ID')).toBeNull()
-    expect(screen.getByText('Patient access and registration activity')).toBeTruthy()
+    expect(screen.getByText('Patient access and registration activity (refused)')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Older page' }))
     await waitFor(() => expect(mocks.facilityAudit).toHaveBeenCalledWith('facility-1', '50'))
@@ -108,6 +108,16 @@ describe('facility audit review', () => {
     expect(screen.getByText('Audit access unavailable')).toBeTruthy()
     expect(screen.getByText('Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.')).toBeTruthy()
     expect(document.body.textContent).not.toContain('audit.read')
+    expect(mocks.facilityAudit).not.toHaveBeenCalled()
+  })
+
+  it('asks for a facility when none is chosen, rather than speaking of a role here, and requests nothing', () => {
+    mocks.useStaff.mockReturnValue({ state: { status: 'ready', session: { actor: { facility: undefined } } } })
+    render(<FacilityAudit />)
+
+    expect(screen.getByText('Audit access unavailable')).toBeTruthy()
+    expect(screen.getByText('Choose the facility you are working at to review its audit events.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Your role at this facility')
     expect(mocks.facilityAudit).not.toHaveBeenCalled()
   })
 
