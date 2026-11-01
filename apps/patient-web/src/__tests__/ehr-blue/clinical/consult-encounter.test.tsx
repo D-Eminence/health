@@ -604,7 +604,10 @@ describe('Consultation record: documents', () => {
       { ...DOCUMENT, id: 'doc-4', fileName: 'unsized-letter.pdf', sizeBytes: '' },
     ], nextCursor: null })
     await openEncounter()
-    const row = async (fileName: string) => ((await within(card('Documents')).findByText(fileName)).closest('li') as HTMLElement).textContent
+    // Today's fileSize groups digits in the runner's locale (toLocaleString() with no locale): 1,536 in English, 1.536
+    // in German. Each row is read with the runner's 1536 written as 1,536, so the checks below hold in any locale.
+    const local1536 = (1536).toLocaleString()
+    const row = async (fileName: string) => ((await within(card('Documents')).findByText(fileName)).closest('li') as HTMLElement).textContent?.replace(local1536, '1,536')
     expect(await row('empty-form.pdf')).toContain(' · 0 KiB · ')
     expect(await row('chest-film.tiff')).toContain(' · 1,536 KiB · ')
     expect(await row('unsized-letter.pdf')).toContain(' · Size unavailable · ')
