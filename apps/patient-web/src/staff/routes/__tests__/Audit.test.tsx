@@ -22,6 +22,12 @@ beforeEach(() => {
   mocks.useStaff.mockReturnValue(session(['audit.read']))
 })
 
+const time = (value: string) => new Date(value).toLocaleString()
+const events = () => screen.queryByRole('list', { name: /^Audit events, page / })
+/** Each event as it reads: what was done, then by whom, when and the outcome. */
+const sentences = () => (events() ? within(events()!).getAllByRole('listitem') : [])
+  .map(item => [item.querySelector('strong')?.textContent, item.querySelector('p')?.textContent])
+
 /*
  * Each event reads as a plain sentence (docs/AUDIT_ACTION_LABELS.md, owner rule of 1 Nov 2026): what was done, by whom,
  * when, and Allowed, Refused or Failed, in the same words as the blue Audit & Compliance page (audit/auditRow.ts). Its
@@ -43,13 +49,15 @@ describe('facility audit review', () => {
 
     expect(await screen.findByText('Looked up a patient by Health ID')).toBeTruthy()
     expect(mocks.facilityAudit).toHaveBeenCalledWith('facility-1', undefined)
-    expect(screen.getAllByRole('columnheader').map(header => header.textContent)).toEqual(['When', 'What happened', 'By', 'Outcome'])
-    const [, first, second] = screen.getAllByRole('row')
-    expect(within(first!).getAllByRole('cell').slice(1).map(cell => cell.textContent))
-      .toEqual(['Looked up a patient by Health ID', 'Staff member', 'Allowed'])
-    // A code the spec does not list is worded by its fallback rule.
-    expect(within(second!).getAllByRole('cell').slice(1).map(cell => cell.textContent))
-      .toEqual(['Patient access and registration activity (refused)', 'Staff member', 'Refused'])
+    // One sentence per event, no table and no column headers.
+    expect(screen.queryByRole('table')).toBeNull()
+    expect(screen.queryAllByRole('columnheader')).toEqual([])
+    expect(screen.getByRole('list', { name: 'Audit events, page 1' })).toBeTruthy()
+    expect(sentences()).toEqual([
+      ['Looked up a patient by Health ID', `Staff member · ${time('2026-01-01T12:00:00.000Z')} · Allowed`],
+      // A code the spec does not list is worded by its fallback rule.
+      ['Patient access and registration activity (refused)', `Staff member · ${time('2026-01-01T11:00:00.000Z')} · Refused`],
+    ])
     for (const withheld of ['patient-secret', 'sensitive reason', 'sensitive payload', 'identity.patient.lookup', 'identity.access.denied',
       'corr-51', 'corr-50', '>patient<', '>staff<', '>success<', '>denied<']) {
       expect(document.body.innerHTML).not.toContain(withheld)
@@ -75,8 +83,11 @@ describe('facility audit review', () => {
     const search = await screen.findByRole('searchbox', { name: 'Search this page' })
     expect(search.getAttribute('placeholder')).toBe('What happened, who or outcome')
     await screen.findByText('Tried to start a new visit')
-    expect(within(screen.getByRole('table')).getByText('Failed')).toBeTruthy()
-    const shown = () => screen.queryAllByRole('row').slice(1).map(row => within(row).getAllByRole('cell')[1]?.textContent)
+    expect(sentences()).toEqual([
+      ['Tried to start a new visit', `Staff member · ${time('2026-01-01T12:00:00.000Z')} · Failed`],
+      ['Patient approved an access request', `Patient · ${time('2026-01-01T11:00:00.000Z')} · Allowed`],
+    ])
+    const shown = () => sentences().map(([what]) => what)
 
     fireEvent.change(search, { target: { value: 'encounter' } })
     expect(shown()).toEqual(['Tried to start a new visit'])

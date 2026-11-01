@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Badge, Button, Card, EmptyState, Field, Input, Select } from '@hid/ui'
+import { Badge, Button, EmptyState, Field, Input, Select } from '@hid/ui'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type FacilityAuditPage } from '../api'
 import { useStaff } from '../App'
@@ -101,14 +101,12 @@ export function FacilityAudit() {
       ? <EmptyState title="Nothing to show on this page" description="This page held only request records, which aren’t shown here. Use Older page to look further back." />
       : <EmptyState title="No audit events" description="The server returned no events for this page and facility." />)}
     {!loading && page && page.items.length > 0 && visible.length === 0 && <EmptyState title="No matching events on this page" description="Change the search or outcome filter, or review another page." />}
-    {page && visible.length > 0 && <Card className="staff-table-wrap"><table className="staff-table">
-      <thead><tr><th>When</th><th>What happened</th><th>By</th><th>Outcome</th></tr></thead>
-      <tbody>{visible.map(({ event, row }) => <tr key={event.sequenceId}>
-        <td data-label="When">{displayTime(event.occurredAt)}</td>
-        <td data-label="What happened">{row.what}</td>
-        <td data-label="By">{row.who}</td>
-        <td data-label="Outcome"><Badge tone={outcomeTone(row.outcome)}>{row.outcomeText}</Badge></td>
-      </tr>)}</tbody>
-    </table></Card>}
+    {/* One sentence per event, in the order it is read: what was done, by whom, when, and the outcome (its badge for colour). */}
+    {page && visible.length > 0 && <ul className="staff-list staff-audit-events" aria-label={`Audit events, page ${cursors.length}`}>
+      {visible.map(({ event, row }) => <li key={event.sequenceId} className="staff-list-item staff-audit-event">
+        <strong>{row.what}</strong>
+        <p>{row.who} · {displayTime(event.occurredAt)} · <Badge tone={outcomeTone(row.outcome)}>{row.outcomeText}</Badge></p>
+      </li>)}
+    </ul>}
   </>
 }
