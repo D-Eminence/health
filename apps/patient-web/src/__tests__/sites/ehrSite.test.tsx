@@ -5,8 +5,8 @@ import { rightSiteHref, servedHere } from '../../productSites'
 import type * as BlueFacilities from '../../ehr-blue/blueFacilities'
 import { DEMO_HOSPITAL, DEMO_LABORATORY, facility } from '../ehr-blue/frame/blueHarness'
 import {
-  address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_CLASSIC_PAGE, EVERY_PERMISSION, expectOpenedElsewhere, openBlueOn,
-  openClassicOn, openPortalOn, overviewWorkspaces, signInActionOn, siteLinks,
+  address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_CLASSIC_PAGE, EVERY_PERMISSION, expectNoHostnameShown,
+  expectOpenedElsewhere, openBlueOn, openClassicOn, openPortalOn, overviewWorkspaces, signInActionOn, siteLinks,
 } from './siteHarness'
 
 /**
@@ -115,6 +115,8 @@ describe(EHR, () => {
     const page = within(document.querySelector<HTMLElement>('.hid-ehr-blue-page')!)
     expect(page.getByRole('link', { name: 'Open Laboratory' }).getAttribute('href')).toBe('https://lab.healthidentitydirectory.com/')
     expect(screen.queryByRole('heading', { name: 'Laboratory worklist' })).toBeNull()
+    expect(page.getByText(/^Demo Laboratory is on Health ID Lab, where you sign in separately\./)).toBeTruthy()
+    expectNoHostnameShown()
 
     // Today's workspace, as a tab that chose the classic EHR had it (nothing offers a way there now: the flag is set above).
     act(() => chooseClassicEhr())
@@ -122,7 +124,8 @@ describe(EHR, () => {
     expect(within(sidebar).getByRole('combobox', { name: 'Working at' })).toBeTruthy()
     expect(await screen.findByRole('heading', { level: 1, name: 'Demo Laboratory works on Laboratory' })).toBeTruthy()
     const main = within(document.querySelector<HTMLElement>('main.staff-main')!)
-    expect(main.getByText(/Demo Laboratory is on lab\.healthidentitydirectory\.com, where you sign in separately\./)).toBeTruthy()
+    expect(main.getByText(/Demo Laboratory is on Health ID Lab, where you sign in separately\./)).toBeTruthy()
+    expectNoHostnameShown()
     expect(main.getByRole('link', { name: 'Open Laboratory →' }).getAttribute('href')).toBe('https://lab.healthidentitydirectory.com/')
   })
 })

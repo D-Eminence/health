@@ -3,8 +3,8 @@ import { screen, within } from '@testing-library/react'
 import { servedHere, rightSiteHref } from '../../productSites'
 import { DEMO_HOSPITAL, DEMO_LABORATORY, facility } from '../ehr-blue/frame/blueHarness'
 import {
-  address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_PERMISSION, expectOpenedElsewhere, openBlueOn, openClassicOn, openPortalOn,
-  overviewWorkspaces, signInActionOn, siteLinks,
+  address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_PERMISSION, expectNoHostnameShown, expectOpenedElsewhere, openBlueOn,
+  openClassicOn, openPortalOn, overviewWorkspaces, signInActionOn, siteLinkNotes, siteLinks,
 } from './siteHarness'
 import type { Sent } from '../ehr-blue/frame/blueHarness'
 
@@ -87,6 +87,9 @@ describe(LAB, () => {
       ['Migrate', 'https://migrate.healthidentitydirectory.com/'],
       ['Outreach', 'https://outreach.healthidentitydirectory.com/'],
     ])
+    // Each named by its product, not its address.
+    expect(siteLinkNotes(sidebar)).toEqual(['Health ID EHR', 'Health ID Pharmacy', 'Health ID Migrate', 'Health ID Outreach'])
+    expectNoHostnameShown(sidebar)
   })
 
   it('offers the laboratory’s own workspace, Patient access and the access requests on the Overview, and nothing of the Hospital EHR’s', async () => {
@@ -134,7 +137,8 @@ describe(LAB, () => {
     await openBlueOn(LAB, { id: DEMO_HOSPITAL, name: 'Demo Hospital' }, EVERY_PERMISSION, [lab])
     expect(await screen.findByRole('heading', { level: 1, name: 'Demo Hospital works on Hospital EHR' })).toBeTruthy()
     const page = within(document.querySelector<HTMLElement>('.hid-ehr-blue-page')!)
-    expect(page.getByText(/^Demo Hospital is on ehr\.healthidentitydirectory\.com, where you sign in separately\./)).toBeTruthy()
+    expect(page.getByText(/^Demo Hospital is on Health ID EHR, where you sign in separately\./)).toBeTruthy()
+    expectNoHostnameShown()
     expect(page.getByRole('link', { name: 'Open Hospital EHR' }).getAttribute('href')).toBe('https://ehr.healthidentitydirectory.com/')
     expect(page.getByRole('link', { name: 'Choose workspace' }).getAttribute('href')).toBe('/provider/institutions')
   })

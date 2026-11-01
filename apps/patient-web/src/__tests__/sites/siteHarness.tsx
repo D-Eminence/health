@@ -55,13 +55,37 @@ export async function openPortalOn(hostname: string, path: string) {
   return sent
 }
 
-/** The page says where the address went, and the browser was sent there, once, in place of this address. */
+/** What a page calls each Health ID site, by the first part of its hostname: the product's plain name. */
+const PLAIN_NAMES: Readonly<Record<string, string>> = {
+  app: 'the main Health ID site', staging: 'the main Health ID site', ehr: 'Health ID EHR', lab: 'Health ID Lab',
+  pharmacy: 'Health ID Pharmacy', migrate: 'Health ID Migrate', outreach: 'Health ID Outreach',
+}
+
+/** The plain name a page gives the site of `href`. */
+export function plainNameOf(href: string): string {
+  const name = PLAIN_NAMES[new URL(href).hostname.split('.')[0]!]
+  if (!name) throw new Error(`No Health ID site at ${href}`)
+  return name
+}
+
+/** No Health ID hostname in what `container` shows (screens name a site by its product, and keep its address in links). */
+export function expectNoHostnameShown(container: HTMLElement = document.body) {
+  expect(container.textContent).not.toMatch(/healthidentitydirectory\.com/i)
+}
+
+/** The page says, by the site's plain name, where the address went, and the browser was sent there, once, in its place. */
 export async function expectOpenedElsewhere(opened: Mock, href: string) {
-  const hostname = new URL(href).hostname
-  expect(await screen.findByRole('status')).toHaveProperty('textContent', `This page is on ${hostname}. Opening it there…`)
-  expect(screen.getByRole('link', { name: `Continue to ${hostname}` }).getAttribute('href')).toBe(href)
+  const name = plainNameOf(href)
+  expect(await screen.findByRole('status')).toHaveProperty('textContent', `This page is on ${name}. Opening it there…`)
+  expect(screen.getByRole('link', { name: `Continue to ${name}` }).getAttribute('href')).toBe(href)
+  expectNoHostnameShown()
   await waitFor(() => expect(opened).toHaveBeenCalledTimes(1))
   expect(opened).toHaveBeenCalledWith(href)
+}
+
+/** The plain names today's sidebar shows below the other sites' links. */
+export function siteLinkNotes(sidebar: HTMLElement): string[] {
+  return [...sidebar.querySelectorAll('.staff-nav-sites .staff-nav-meta')].map(note => note.textContent ?? '')
 }
 
 /** Today's workspace at a fictional clinic holding `permissions` (every one), on `hostname`; what it sent is in `sent`. */

@@ -5,8 +5,8 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { rightSiteHref, servedHere } from '../../productSites'
 import { facility, serve, sessionAt } from '../ehr-blue/frame/blueHarness'
 import {
-  address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_PERMISSION, expectOpenedElsewhere, onSite, openBlueOn, openClassicOn,
-  openPortalOn, OUTREACH_DEMO, PHARMACY_DEMO, REAL_CLINIC, SESSION, signInActionOn, siteLinks,
+  address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_PERMISSION, expectNoHostnameShown, expectOpenedElsewhere, onSite,
+  openBlueOn, openClassicOn, openPortalOn, OUTREACH_DEMO, PHARMACY_DEMO, REAL_CLINIC, SESSION, signInActionOn, siteLinks,
 } from './siteHarness'
 
 /** pharmacy.: the Pharmacy product, with the pages every staff site serves. Everything else opens on its own site. */
@@ -72,6 +72,7 @@ describe(SITE, () => {
       ['Migrate', 'https://migrate.healthidentitydirectory.com/'],
       ['Outreach', 'https://outreach.healthidentitydirectory.com/'],
     ])
+    expectNoHostnameShown(sidebar)
   })
 
   it('serves Patients and Access requests here, behind its own sign-in, and leaves Patient registration to the Hospital EHR', async () => {
@@ -109,6 +110,8 @@ describe(SITE, () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Demo Outreach works on Outreach' })).toBeTruthy()
     const page = within(document.querySelector<HTMLElement>('.hid-ehr-blue-page')!)
     expect(page.getByRole('link', { name: 'Open Outreach' }).getAttribute('href')).toBe('https://outreach.healthidentitydirectory.com/')
+    expect(page.getByText(/^Demo Outreach is on Health ID Outreach, where you sign in separately\./)).toBeTruthy()
+    expectNoHostnameShown()
   })
 })
 

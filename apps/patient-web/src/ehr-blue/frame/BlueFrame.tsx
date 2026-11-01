@@ -9,7 +9,7 @@ import { ReviewBanner } from '../../staff/routes/ReviewBanner'
 import { BillingBanner } from '../../staff/routes/Billing'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
-import { otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, type Site } from '../../productSites'
+import { otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../../productSites'
 import { demoFacilitySite, isDemoFacility } from '../blueFacilities'
 import { PRODUCTS, inProduct, productOf } from './product'
 import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
@@ -93,7 +93,7 @@ export function otherSitesGroup(pages: readonly EhrBluePage[]): NavGroup | null 
  */
 function FacilityOnAnotherSite({ facility, site, choosing }: { facility: string; site: Site; choosing: boolean }) {
   return <EmptyState titleAs="h1" icon={ExternalLink} title={`${facility} works on ${SITE_NAMES[site.key]}`}
-    description={`${facility} is on ${site.hostname}, where you sign in separately.${choosing ? ' To work at another facility here, choose it.' : ''}`}
+    description={`${facility} is on ${SITE_PRODUCT_NAMES[site.key]}, where you sign in separately.${choosing ? ' To work at another facility here, choose it.' : ''}`}
     action={<div className="flex flex-wrap justify-center gap-2">
       <Button href={siteHref(site)} variant="primary">Open {SITE_NAMES[site.key]}</Button>
       {choosing ? <Button to="/provider/institutions">Choose workspace</Button> : null}

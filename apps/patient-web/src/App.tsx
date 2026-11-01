@@ -17,7 +17,7 @@ import { PrincipalRecovery } from './routes/PrincipalRecovery'
 import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, SettingsRedirect } from './routes/Portal'
 import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE, STAFF_RECOVERY_PATH } from './productHostname'
 import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_INVITATION_PATH } from './productHostname'
-import { rightSiteHref } from './productSites'
+import { rightSiteHref, siteNameOf } from './productSites'
 import { openSite } from './openSite'
 import { usesNovuBackend } from './backendContract'
 import { LEGACY_PATIENT_PATHS } from './legacyPaths'
@@ -82,18 +82,18 @@ function PatientRoutes() {
 
 /**
  * A page another Health ID site serves (productSites.ts): it opens there, in place of this address. Until the browser
- * leaves, and if it does not, the page says where it went and links there.
+ * leaves, and if it does not, the page says where it went, by the product's plain name, and links there.
  */
 function OnAnotherSite({ href }: { href: string }) {
-  const hostname = new URL(href).hostname
+  const name = siteNameOf(href)
   useDocumentTitle('Opening another Health ID site · Health ID')
   useEffect(() => { openSite(href) }, [href])
   return <main className="patient-page">
     <BrandLogo className="patient-state-logo" />
     <div className="patient-access-state">
       <h1>Opening another Health ID site</h1>
-      <p role="status">This page is on {hostname}. Opening it there…</p>
-      <div className="patient-state-actions"><a className="patient-primary-button" href={href}>Continue to {hostname}</a></div>
+      <p role="status">This page is on {name}. Opening it there…</p>
+      <div className="patient-state-actions"><a className="patient-primary-button" href={href}>Continue to {name}</a></div>
     </div>
   </main>
 }

@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { PORTAL_HOSTNAMES, resolveStaffProductHostname } from './productHostname'
-import { otherStaffSites, rightSiteHref, siteElsewhere, siteOf, siteServing } from './productSites'
+import { otherStaffSites, rightSiteHref, siteElsewhere, siteNameOf, siteOf, siteServing } from './productSites'
 
 /** Each product on its own site: which host a site is, and where an address another site serves goes. */
 const at = (pathname: string, search = '', hash = '') => ({ pathname, search, hash })
@@ -117,5 +117,20 @@ describe('siteElsewhere', () => {
     expect(siteElsewhere('lab', 'lab.healthidentitydirectory.com')).toBeNull()
     expect(siteElsewhere('lab', 'localhost')).toBeNull()
     expect(siteElsewhere('ehr', 'admin.healthidentitydirectory.com')).toBeNull()
+  })
+})
+
+describe('siteNameOf', () => {
+  it.each([
+    ['https://lab.healthidentitydirectory.com/provider/laboratory', 'Health ID Lab'],
+    ['https://pharmacy.staging.healthidentitydirectory.com/provider/pharmacy', 'Health ID Pharmacy'],
+    ['https://ehr.healthidentitydirectory.com/provider/patients', 'Health ID EHR'],
+    ['https://migrate.healthidentitydirectory.com/provider/ocr', 'Health ID Migrate'],
+    ['https://outreach.healthidentitydirectory.com/', 'Health ID Outreach'],
+    ['https://app.healthidentitydirectory.com/records', 'the main Health ID site'],
+    ['https://staging.healthidentitydirectory.com/records', 'the main Health ID site'],
+    ['https://elsewhere.example.test/', 'another Health ID site'],
+  ])('names the site of %s by its product, never its hostname: %s', (href, name) => {
+    expect(siteNameOf(href)).toBe(name)
   })
 })

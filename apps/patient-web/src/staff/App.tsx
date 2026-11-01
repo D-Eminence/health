@@ -35,7 +35,7 @@ import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { blueForAll, demoFacilitySite, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
-import { otherStaffSites, servedHere, siteElsewhere, siteHref, SITE_NAMES, type Site } from '../productSites'
+import { otherStaffSites, servedHere, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
 import './style.css'
 
 // The blue Hospital EHR (ehr-blue/blueFacilities.ts says for whom): loaded on demand, so no other facility downloads
@@ -634,7 +634,7 @@ function ProviderTitle() {
  */
 function FacilityOnAnotherSite({ facility, site }: { facility: string; site: Site }) {
   return <EmptyState titleAs="h1" title={`${facility} works on ${SITE_NAMES[site.key]}`}
-    description={`${facility} is on ${site.hostname}, where you sign in separately. To work at another facility here, choose it under “Working at”.`}
+    description={`${facility} is on ${SITE_PRODUCT_NAMES[site.key]}, where you sign in separately. To work at another facility here, choose it under “Working at”.`}
     action={<a className="staff-text-link" href={siteHref(site)}>Open {SITE_NAMES[site.key]} →</a>} />
 }
 
@@ -763,7 +763,7 @@ function Shell() {
         <nav className="staff-nav" onFocus={revealFocusedLink}>{visible.map(item => <NavLink key={item.to} to={item.to} end={item.to === '/provider'} className={({ isActive }) => `staff-nav-link${isActive ? ' active' : ''}`}>{item.label}{item.to === '/provider/clinical' && !activePatient && <span className="staff-nav-meta">Select patient</span>}</NavLink>)}</nav>
         {otherSites.length > 0 && <nav className="staff-nav staff-nav-sites" aria-labelledby="staff-nav-sites-title" onFocus={revealFocusedLink}>
           <p id="staff-nav-sites-title" className="staff-nav-sites-title">Other Health ID sites</p>
-          {otherSites.map(site => <a key={site.key} className="staff-nav-link" href={siteHref(site)}>{SITE_NAMES[site.key]}<span className="staff-nav-meta">{site.hostname}</span></a>)}
+          {otherSites.map(site => <a key={site.key} className="staff-nav-link" href={siteHref(site)}>{SITE_NAMES[site.key]}<span className="staff-nav-meta">{SITE_PRODUCT_NAMES[site.key]}</span></a>)}
         </nav>}
         <div className="staff-sidebar-footer"><Badge tone="information">{(usesNovuBackend() ? roleLabels(actor.roles) : actor.roles.join(', ')) || 'Staff'}</Badge><p>Access is limited to your active facility and server permissions.</p></div>
       </aside>}

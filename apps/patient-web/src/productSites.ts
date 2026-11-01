@@ -49,6 +49,19 @@ export const SITE_NAMES: Readonly<Record<SiteKey, string>> = {
   outreach: 'Outreach',
 }
 
+/**
+ * What a sentence calls each site, in place of its hostname: the product's plain name. Screens never show a hostname;
+ * a link to the site keeps its address in its href only.
+ */
+export const SITE_PRODUCT_NAMES: Readonly<Record<SiteKey, string>> = {
+  web: 'the main Health ID site',
+  ehr: 'Health ID EHR',
+  lab: 'Health ID Lab',
+  pharmacy: 'Health ID Pharmacy',
+  migrate: 'Health ID Migrate',
+  outreach: 'Health ID Outreach',
+}
+
 export interface Site {
   readonly key: SiteKey
   readonly deployment: Deployment
@@ -144,6 +157,12 @@ export function rightSiteHref(location: { pathname: string; search: string; hash
   if (!site) return null
   const href = `https://${site.hostname}${location.pathname}${location.search}${location.hash}`
   return new URL(href).hostname === site.hostname ? href : `https://${site.hostname}/`
+}
+
+/** The plain name of the Health ID site `href` is on (SITE_PRODUCT_NAMES), for a page that sends the browser there. */
+export function siteNameOf(href: string): string {
+  const site = siteOf(new URL(href).hostname)
+  return site ? SITE_PRODUCT_NAMES[site.key] : 'another Health ID site'
 }
 
 /** A site's own address, where it opens its product. */
