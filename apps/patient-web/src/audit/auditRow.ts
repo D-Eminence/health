@@ -163,12 +163,23 @@ const FALLBACK_AREAS: Readonly<Record<string, string>> = {
 const PLAIN_WORD = /^[a-z]+([-_][a-z]+)*$/
 
 /**
+ * The spec starts an unlisted code's row with 'Automatic: ' for a system or workload actor and 'Health ID support: ' for a
+ * platform actor. The owner asked for each to be said once in a row (1 Nov 2026). Who did it is shown beside the row, and
+ * 'Health ID (automatic)' and 'Health ID support' already say it, so the lead-in is added only where who did it does not:
+ * 'Health ID background service' does not say automatic, so its rows still start 'Automatic: '.
+ */
+const ACTOR_LEAD_IN: Readonly<Record<string, string>> = { system: 'Automatic', workload: 'Automatic', platform: 'Health ID support' }
+
+function actorLeadIn(actorType: string): string {
+  const lead = own(ACTOR_LEAD_IN, actorType)
+  if (lead === undefined) return ''
+  const saidAlready = (own(WHO, actorType) ?? '').toLocaleLowerCase().includes(lead.toLocaleLowerCase())
+  return saidAlready ? '' : `${lead}: `
+}
+
+/**
  * An unlisted code in words, and the outcome it stands for: a name saying it was refused ('…denied', '…-denied') is
  * refused, and one saying it could not complete ('…fail') failed, whatever the outcome column says.
- *
- * The spec starts a system or workload actor's row with 'Automatic: ' and a platform actor's with 'Health ID support: '.
- * Neither is added: who did it ('Health ID (automatic)', 'Health ID background service', 'Health ID support') is shown
- * beside the row and already says so, and the owner asked for it to be said once (1 Nov 2026).
  */
 function fallbackWhat(code: string, actorType: string, stored: AuditRow['outcome']) {
   const parts = code.split('.')
@@ -190,10 +201,13 @@ function fallbackWhat(code: string, actorType: string, stored: AuditRow['outcome
   const failedOrRefused = outcome === 'denied' || outcome === 'failure' ? outcome : null
   const done = phrase !== null && failedOrRefused && !saysFailed ? attempt(phrase, failedOrRefused) : phrase
   // A support code's area is 'Health ID support': done by Health ID support, who did it says that already, so the
-  // area is not said again in front of what was done.
-  const what = done === null
-    ? (failedOrRefused ? attempt(`${area} activity`, failedOrRefused, false) : `${area} activity`)
-    : area === own(WHO, actorType) ? done : `${area}: ${done}`
+  // area is not said again in front of what was done ('Activity' when there is nothing more to name).
+  const areaIsWho = area === own(WHO, actorType)
+  const activity = areaIsWho ? 'Activity' : `${area} activity`
+  const said = done === null
+    ? (failedOrRefused ? attempt(activity, failedOrRefused, false) : activity)
+    : areaIsWho ? done : `${area}: ${done}`
+  const what = `${actorLeadIn(actorType)}${said}`
   return { what: repeated ? `${what} (repeated, nothing changed)` : what, outcome }
 }
 
@@ -212,7 +226,11 @@ export function auditRow(event: AuditEventFacts): AuditRow | null {
   const listed = own(AUDIT_ACTION_LABELS, listedCode)
   if (listed !== undefined) {
     const stated = statedOutcome(listedCode)
-    if (stated && (outcome === null || outcome === 'success')) outcome = stated
+    // A label that opens 'Refused: ' (the security refusals) loses those words because the row shows Refused beside it,
+    // so the row is Refused whatever was stored. The spec says the guard writes these only when a permission check
+    // refuses, and "Their role here does not allow this action" beside Failed would contradict itself.
+    if (listed.startsWith('Refused: ')) outcome = 'denied'
+    else if (stated && (outcome === null || outcome === 'success')) outcome = stated
     what = listedWhat(listedCode, listed, { ...event, outcome: outcome ?? 'success' })
     if (replay) what = `${what} (repeated)`
   } else if (event.actorType === 'legacy' || !code.includes('.')) what = own(LEGACY_ACTION_LABELS, code) ?? LEGACY_ACTIVITY

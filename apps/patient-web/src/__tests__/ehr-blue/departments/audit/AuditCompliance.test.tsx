@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { AuditCompliance } from '../../../../ehr-blue/departments/audit/AuditCompliance'
 import { dateText } from '../../../../ehr-blue/departments/parts/format'
+import type * as StaffApi from '../../../../staff/api'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 
 /**
@@ -32,6 +33,8 @@ const api = vi.hoisted(() => {
   return { facilityAudit, touched, staffApi }
 })
 vi.mock('../../../../staff/api', () => ({ staffApi: api.staffApi }))
+// One test runs the server's page through the real facility audit read (vi.importActual); its client needs an address.
+vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 
 const HOSPITAL = fakeFacility(['audit.read'], { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital', roles: ['org_admin'], membershipId: 'membership-demo-h' })
 const LABORATORY = fakeFacility(['audit.read'], { id: DEMO_LABORATORY_ID, name: 'Demo Laboratory' })
@@ -197,17 +200,23 @@ describe('Audit & Compliance: search, outcome and refresh', () => {
     expect(shown()).toEqual(['Looked up a patient by Health ID'])
   })
 
-  it('shows a refused access check as a plain sentence beside Refused, never its code or resource (owner decision)', async () => {
-    api.facilityAudit.mockResolvedValueOnce(pageOf([
+  it('shows a refused access check as a plain sentence beside Refused, and still leaves the request log out (owner decision)', async () => {
+    // staffApi.facilityAudit returns facilityAuditPageFrom of the server's page. Running the page through the real one here
+    // shows that a security refusal, stored with resource http-request, now reaches the page, and a route still does not.
+    const { facilityAuditPageFrom } = await vi.importActual<typeof StaffApi>('../../../../staff/api')
+    api.facilityAudit.mockResolvedValueOnce(facilityAuditPageFrom(pageOf([
+      event('72', { action: 'api.get./api/v1/ehr/patients/:patientId/encounters', resourceType: 'http-request' }),
       event('71', { action: 'security.authorization.denied', outcome: 'denied', resourceType: 'http-request' }),
       event('70', { action: 'identity.patient.lookup', outcome: 'success' }),
-    ]))
+    ]) as Parameters<typeof facilityAuditPageFrom>[0]))
     renderDept(<AuditCompliance />)
     const list = await screen.findByRole('list')
-    const [first] = within(list).getAllByRole('listitem')
+    const items = within(list).getAllByRole('listitem')
+    expect(items).toHaveLength(2)
+    const [first] = items
     expect(within(first!).getByText('Their role here does not allow this action').tagName).toBe('STRONG')
     expect(within(first!).getByText(`Staff member · ${dateText('2026-01-01T12:00:00.000Z')} · Refused`)).toBeTruthy()
-    for (const withheld of ['security', 'authorization', 'http-request']) expect(document.body.innerHTML).not.toContain(withheld)
+    for (const withheld of ['security', 'authorization', 'http-request', '/api/', 'encounters']) expect(document.body.innerHTML).not.toContain(withheld)
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Outcome' }), { target: { value: 'denied' } })
     expect(shown()).toEqual(['Their role here does not allow this action'])

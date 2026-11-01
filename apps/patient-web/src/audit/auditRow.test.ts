@@ -83,6 +83,12 @@ describe('an audit event in words', () => {
     // A stored refusal or failure stays as stored: "NIN could not be verified" is written as either.
     expect(auditRow(event('identity.nin.verify', { outcome: 'failure' }))).toMatchObject({ outcome: 'failure', outcomeText: 'Failed' })
     expect(auditRow(event('identity.nin.verify', { outcome: 'denied' }))).toMatchObject({ outcome: 'denied', outcomeText: 'Refused' })
+    // Except a label that says Refused itself: the security refusals drop their "Refused: " because the row shows Refused,
+    // so a refusal stored as a failure still reads Refused, never "Their role here does not allow this action · Failed".
+    expect(auditRow(event('security.authorization', { outcome: 'failure' }))).toEqual({
+      what: 'Their role here does not allow this action', who: 'Staff member', outcome: 'denied', outcomeText: 'Refused' })
+    expect(auditRow(event('security.authorization.denied', { outcome: 'failure', resourceType: 'http-request' }))).toEqual({
+      what: 'Their role here does not allow this action', who: 'Staff member', outcome: 'denied', outcomeText: 'Refused' })
     // A label that says nothing about its outcome keeps the stored one.
     expect(auditRow(event('identity.staff-invitation.delivery'))).toMatchObject({ outcomeText: 'Allowed' })
   })
@@ -145,17 +151,27 @@ describe('an audit event in words', () => {
     expect(what('lab.QcRun.create')).toBe('Lab activity')
     expect(what('lab.sample-batch.create.replay')).toBe('Lab: Added sample batch (repeated, nothing changed)')
     expect(what('lab.sample-batch.idempotent-replay')).toBe('Lab activity (repeated, nothing changed)')
-    // Who did it already says it was automatic, or Health ID support: the row says so once, there (owner decision).
+    // Automatic, and Health ID support, are said once in a row (owner decision): "Health ID (automatic)" and "Health ID
+    // support" already say it beside the row, so the spec's lead-in is not added for them.
     expect(auditRow(event('ocr.job.export', { actorType: 'system' }))).toMatchObject({
       what: 'Scanned documents: Exported scanned-document reading', who: 'Health ID (automatic)' })
-    expect(auditRow(event('lab.sample-batch.close', { actorType: 'workload' }))).toMatchObject({
-      what: 'Lab: Closed sample batch', who: 'Health ID background service' })
     expect(auditRow(event('billing.invoice.list', { actorType: 'platform' }))).toMatchObject({
       what: 'Other: Viewed the list of invoice', who: 'Health ID support' })
-    // A support code's area is Health ID support, which who did it already says.
+    // "Health ID background service" does not say automatic, so its rows still start "Automatic: ".
+    expect(auditRow(event('lab.sample-batch.close', { actorType: 'workload' }))).toMatchObject({
+      what: 'Automatic: Lab: Closed sample batch', who: 'Health ID background service' })
+    expect(what('lab.sample-batch.create', { actorType: 'workload', outcome: 'denied' })).toBe('Automatic: Lab: Tried to add sample batch')
+    expect(what('lab.QcRun.create', { actorType: 'workload' })).toBe('Automatic: Lab activity')
+    // A support code's area is Health ID support, which who did it already says; with no verb to name, it is "Activity".
     expect(auditRow(event('admin.foo.list', { actorType: 'platform' }))).toMatchObject({ what: 'Viewed the list of foo', who: 'Health ID support' })
+    expect(auditRow(event('admin.foo.bar', { actorType: 'platform' }))).toMatchObject({ what: 'Activity', who: 'Health ID support' })
+    expect(what('admin.foo.bar', { actorType: 'platform', outcome: 'denied' })).toBe('Activity (refused)')
+    expect(what('admin.foo.bar', { actorType: 'platform', outcome: 'failure' })).toBe('Activity (didn\'t go through)')
+    expect(auditRow(event('admin.foo.denied', { actorType: 'platform' }))).toMatchObject({ what: 'Activity (refused)', outcomeText: 'Refused' })
     // Done by anyone else, the area still says it was Health ID support's.
     expect(what('admin.foo.list', { actorType: 'system' })).toBe('Health ID support: Viewed the list of foo')
+    expect(what('admin.foo.list', { actorType: 'workload' })).toBe('Automatic: Health ID support: Viewed the list of foo')
+    expect(what('admin.foo.bar')).toBe('Health ID support activity')
     // A code ending in "denied" was refused, whatever its outcome column says; the line says what was tried.
     expect(auditRow(event('pharmacy.stock.verify-denied'))).toMatchObject({ what: 'Pharmacy: Tried to check stock', outcome: 'denied', outcomeText: 'Refused' })
     expect(auditRow(event('identity.access.denied'))).toMatchObject({ what: 'Patient access and registration activity (refused)', outcomeText: 'Refused' })
@@ -185,20 +201,25 @@ describe('an audit event in words', () => {
     }
   })
 
-  it('says automatic, or Health ID support, once in a row: in who did it', () => {
-    const actions = [...Object.keys(AUDIT_ACTION_LABELS), 'lab.sample-batch.create', 'ocr.job.export', 'admin.foo.list',
-      'billing.invoice.list', 'identity.access.denied', 'lab.sample-batch.create.replay', 'ocr.job.fail']
-    for (const action of actions) {
-      for (const actorType of ['system', 'workload', 'platform']) {
-        for (const outcome of ['success', 'denied', 'failure'] as const) {
+  it('says automatic, or Health ID support, exactly once in a row (owner decision)', () => {
+    const unlisted = ['lab.sample-batch.create', 'ocr.job.export', 'lab.QcRun.create', 'billing.invoice.list', 'identity.access.denied',
+      'lab.sample-batch.create.replay', 'ocr.job.fail', 'admin.foo.list', 'admin.foo.bar', 'admin.foo', 'admin.foo.denied',
+      'admin.foo-denied', 'admin.']
+    const times = (text: string, words: RegExp) => text.match(words)?.length ?? 0
+    for (const outcome of ['success', 'denied', 'failure'] as const) {
+      for (const action of unlisted) {
+        for (const actorType of ['system', 'workload']) {
           const row = auditRow(event(action, { actorType, outcome }))
-          expect(row?.what).not.toMatch(/^Automatic: /)
-          const shown = `${row?.what} ${row?.who}`
-          expect(shown.match(/\(automatic\)|Automatic: /g)?.length ?? 0).toBeLessThanOrEqual(1)
-          if (actorType === 'platform' && action.includes('.') && !Object.hasOwn(AUDIT_ACTION_LABELS, action)) {
-            expect(shown.match(/Health ID support/g)).toHaveLength(1)
-          }
+          expect(times(`${row?.what} ${row?.who}`, /automatic/gi), `${action} by ${actorType}`).toBe(1)
         }
+        const row = auditRow(event(action, { actorType: 'platform', outcome }))
+        expect(times(`${row?.what} ${row?.who}`, /Health ID support/g), `${action} by Health ID support`).toBe(1)
+        expect(row?.what).not.toMatch(/automatic/i)
+      }
+      // A listed code keeps the spec's label whoever did it: no lead-in is added to it.
+      for (const action of Object.keys(AUDIT_ACTION_LABELS)) {
+        const byStaff = auditRow(event(action, { outcome }))?.what
+        for (const actorType of ['system', 'workload', 'platform']) expect(auditRow(event(action, { actorType, outcome }))?.what).toBe(byStaff)
       }
     }
   })
