@@ -1,14 +1,16 @@
-import { Link, Outlet } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { EhrDataTable, EhrEmptyState, EhrPageHeading, EhrSampleBanner, EhrBadge } from '@hid/ui/ehr'
 import { useStaff } from '../../staff/App'
 import { visibleNavigation } from '../../staff/navigation'
+import { useTodayPage } from './pageContext'
 
 /**
  * Today's provider page for this address, inside the blue frame: its requests, checks, states and refusal messages are
  * exactly today's. A blue version of the page replaces it by exporting the same path.
  */
 export function LivePage() {
-  return <div className="hid-ehr-blue-live"><Outlet /></div>
+  const today = useTodayPage()
+  return <div className="hid-ehr-blue-live">{today}</div>
 }
 
 /**

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, Route, Routes, UNSAFE_RouteContext, useLocation, useNavigate, useOutlet } from 'react-router-dom'
 import { EhrAppShell, EhrModuleTabs, type EhrNavGroup, type EhrNavItem } from '@hid/ui/ehr'
 import { Activity, Check, Hospital, House, Search, ShieldCheck, UserPlus, UserRound } from 'lucide-react'
 import { AppShell, type NavGroup, type NavItem } from '../../kasuwa/AppShell'
@@ -16,7 +16,7 @@ import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
 import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage } from './LivePages'
-import { BluePageProvider, BluePagesProvider, OpenPagesProvider } from './pageContext'
+import { BluePageProvider, BluePagesProvider, OpenPagesProvider, TodayPageProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
 import { TODAY_PAGES } from './pages'
 import { DENIED_NOTICE, RedirectNotice } from './RedirectNotice'
@@ -72,6 +72,12 @@ export function navigationGroups(pages: readonly EhrBluePage[]): EhrNavGroup[] {
 }
 
 /**
+ * Where a page's own routes start: no parent route. The blue EHR is mounted inside today's pathless Shell route, and
+ * react-router warns about every <Routes> below a parent route without a trailing "*" (a page's own, or the frame's).
+ */
+const NO_PARENT_ROUTE = { outlet: null, matches: [], isDataRoute: false }
+
+/**
  * Today's pages that send a request before they refuse (Access requests reads the requests; Clinical record looks up
  * the patient, consent and encounters): without the permission, the frame refuses for them instead.
  */
@@ -87,6 +93,8 @@ export function BlueFrame() {
   const { state, lock, signOut } = useStaff()
   const location = useLocation()
   const navigate = useNavigate()
+  // Today's page for this address, which a live stand-in shows.
+  const todayPage = useOutlet()
   const pageRef = useRef<HTMLDivElement>(null)
   const [samplePanel, setSamplePanel] = useState<'profile' | 'preferences' | 'help' | null>(null)
   // Today's sign-out: a refusal is said, and the session stays, as the account menu said it.
@@ -234,7 +242,15 @@ export function BlueFrame() {
                 />
               ) : null}
               {/* A page that fails would take the frame with it: the boundary keeps the sidebar and the account menu. */}
-              <BluePageBoundary key={match?.page.keepsState ? match.page.path : location.pathname}>{content}</BluePageBoundary>
+              <BluePageBoundary key={match?.page.keepsState ? match.page.path : location.pathname}>
+                {/* A page's own <Routes> resolve from its address: index is the page, "new" is <page>/new. */}
+                <UNSAFE_RouteContext.Provider value={NO_PARENT_ROUTE}>
+                  <Routes>
+                    <Route path={match ? `${pageHrefOf(match.page)}/*` : '/provider/*'}
+                      element={<TodayPageProvider value={todayPage}>{content}</TodayPageProvider>} />
+                  </Routes>
+                </UNSAFE_RouteContext.Provider>
+              </BluePageBoundary>
             </div>
             {/* Fictional figures: only where the page itself is a sample. */}
             {match?.page.status === 'sample' ? <ConnectionStatus /> : null}

@@ -54,6 +54,11 @@ function demoOnly(entry: EhrBluePage): EhrBluePage {
 
 const atDemoFacility = (session: StaffSession) => isDemoFacility(session.actor.facility?.id)
 
+/** Whether a page opens only at the demo facilities (demoOnly): a clinic's sign-in never returns to one (returnPaths.ts). */
+export function isDemoOnly(page: Pick<EhrBluePage, 'visible'>): boolean {
+  return page.visible === atDemoFacility
+}
+
 export const pages: EhrBluePage[] = [
   // Replaced by home/pages.ts.
   page('', '', 'Home', 'home', 'sample', createElement(SampleWorkspace, { moduleId: 'patients' })),
