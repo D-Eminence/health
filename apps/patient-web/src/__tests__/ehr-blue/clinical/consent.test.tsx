@@ -550,6 +550,33 @@ describe('An access request’s page', () => {
     expect(staff.setActivePatient).not.toHaveBeenCalled()
   })
 
+  it('lets Try again after a refused close read the request again, and what it reads replaces the refusal, as today’s reload does', async () => {
+    api.closeGrant.mockRejectedValue(new HidApiError(409, 'Conflict', { code: 'CONSENT_COMMAND_CONFLICT' }))
+    open('/r0000000-0000-4000-8000-000000000002')
+    const button = await screen.findByRole('button', { name: 'Close access' })
+    api.listAccessRequests.mockRejectedValue(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    fireEvent.click(button)
+    expect(shownText(await screen.findByRole('alert'))).toContain('Couldn’t close access')
+    // Read again, and refused again: the list's own refusal takes the close refusal's place (AccessRequests.tsx:78).
+    api.listAccessRequests.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'FACILITY_ACCESS_DENIED' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(shownText(screen.getByRole('alert'))).toContain('Couldn’t load this request'))
+    const alert = shownText(screen.getByRole('alert'))
+    expect(alert).toContain('Select a facility where you are an active member to see your access requests.')
+    expect(alert).not.toContain('This access had already ended.')
+    expect(screen.queryByText('Couldn’t close access')).toBeNull()
+    // Read again, and it works: nothing about the close is said any more (AccessRequests.tsx:75).
+    api.listAccessRequests.mockResolvedValue([request(), ACTIVE, DENIED])
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
+    expect(screen.queryByText('Couldn’t close access')).toBeNull()
+    expect(screen.queryByText('This access had already ended. The list has been refreshed.')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    // Try again only reads: the close was sent once.
+    expect(api.closeGrant).toHaveBeenCalledTimes(1)
+    expect(api.listAccessRequests).toHaveBeenCalledTimes(4)
+  })
+
   it('says a refused close when the list read after it no longer holds the request', async () => {
     api.closeGrant.mockRejectedValue(new HidApiError(409, 'Conflict', { code: 'CONSENT_COMMAND_CONFLICT' }))
     open('/r0000000-0000-4000-8000-000000000002')

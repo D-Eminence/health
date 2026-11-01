@@ -104,6 +104,13 @@ export function RequestDetail() {
     setSettled(value => value + 1)
   }
 
+  // Try again reads the request again, as today's reload does: what that read finds replaces a refused close, with the
+  // list's own refusal when it fails too (AccessRequests.tsx:75,78). It never sends the close again.
+  async function readAgain() {
+    await list.load()
+    setFailure('')
+  }
+
   const statusRegion = (
     <div ref={status} tabIndex={-1} role="status" className="outline-none empty:hidden">
       {notice ? <Alert intent="success" live={false}>{notice}</Alert> : null}
@@ -121,7 +128,7 @@ export function RequestDetail() {
     return <FormPage title="Access request" back={{ to: href(), label: 'Back to access requests' }}>
       {statusRegion}
       {list.error ? <Alert intent="error" title={failure ? 'Couldn’t close access' : 'Couldn’t load this request'}
-        action={<Button size="sm" onClick={() => void list.load()}>Try again</Button>}>{failure || list.error}</Alert>
+        action={<Button size="sm" onClick={() => void readAgain()}>Try again</Button>}>{failure || list.error}</Alert>
         : <>{refusedClose}<Card><LoadingRows rows={3} label="Loading this request" /></Card></>}
     </FormPage>
   }
