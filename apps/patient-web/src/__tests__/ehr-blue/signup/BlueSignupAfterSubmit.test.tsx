@@ -149,7 +149,7 @@ describe('Didn’t get the code?', () => {
     fireEvent.click(button('Change unverified email'))
     await step('Your account')
     for (let index = 0; index < 4; index++) fireEvent.click(button('Continue'))
-    await step('Agreements')
+    await step('Check and send')
     fireEvent.click(button('Complete the security check'))
     await submitRegistration()
     fireEvent.click(await screen.findByRole('button', { name: 'Continue to verification' }))
