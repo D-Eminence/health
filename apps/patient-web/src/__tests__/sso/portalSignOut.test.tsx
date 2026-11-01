@@ -118,13 +118,56 @@ describe('the patient portal’s sign-out with single sign-on on, on app.', () =
 })
 
 describe('a sign-out that finds the patient’s sign-in already gone, with single sign-on on, on app.', () => {
-  it.each([['401', gone], ['403 SESSION_CLIENT_MISMATCH', mismatch]])('asks for the next sign-in once the refresh is refused with %s', async (_label, refused) => {
-    const sent = await signedInOn(APP, { [SESSION]: [patient, gone], [REFRESH]: [refused] })
+  it.each([
+    ['401', gone],
+    ['403 CSRF_VALIDATION_FAILED (no refresh cookie left)', () => problem(403, 'CSRF_VALIDATION_FAILED', 'CSRF validation failed.')],
+  ])('still ends the provider’s session once the refresh is refused with %s, and leaves for its end-session address', async (_label, refused) => {
+    const sent = await signedInOn(APP, { [SESSION]: [patient, gone, gone], [REFRESH]: [refused], [SSO_LOGOUT]: [ended] })
+    await signOut()
+    expect(sent.map(request => request.route)).toEqual([SESSION, SESSION, REFRESH, SESSION, SSO_LOGOUT])
+    expect(sent.find(request => request.route === SSO_LOGOUT)!.headers.get('X-HID-Client')).toBe('patient-web')
+    expect(left.mock.calls).toEqual([[END]])
+    const sso = await import('../../sso/singleSignOn')
+    expect([sso.signedOutInThisPage(), sso.leavingAfterSignOut()]).toEqual([true, true])
+  })
+
+  it('leaves another portal’s sign-in alone when the refresh is refused as SESSION_CLIENT_MISMATCH, and asks for the next sign-in', async () => {
+    const sent = await signedInOn(APP, { [SESSION]: [patient, gone, gone], [REFRESH]: [mismatch], [SSO_LOGOUT]: [ended] })
     await signOut()
     expect(sent.map(request => request.route)).toEqual([SESSION, SESSION, REFRESH])
     expect(left).not.toHaveBeenCalled()
     const sso = await import('../../sso/singleSignOn')
     expect([sso.signedOutInThisPage(), sso.leavingAfterSignOut()]).toEqual([true, false])
+  })
+
+  it('leaves alone a sign-in another window made meanwhile, and asks for the next sign-in', async () => {
+    const someoneElse = () => json({ actor: { kind: 'patient', subject: 'subject-b', patientId: 'patient-b', accountId: 'account-b' },
+      expiresAt: '2026-11-30T12:00:00.000Z' })
+    const sent = await signedInOn(APP, { [SESSION]: [patient, gone, someoneElse], [REFRESH]: [gone], [SSO_LOGOUT]: [ended] })
+    await signOut()
+    expect(sent.map(request => request.route)).toEqual([SESSION, SESSION, REFRESH, SESSION])
+    expect(left).not.toHaveBeenCalled()
+    const sso = await import('../../sso/singleSignOn')
+    expect([sso.signedOutInThisPage(), sso.leavingAfterSignOut()]).toEqual([true, false])
+  })
+
+  it('keeps the page and says so when the provider’s session cannot be ended', async () => {
+    await signedInOn(APP, { [SESSION]: [patient, gone, gone], [REFRESH]: [gone],
+      [SSO_LOGOUT]: [() => problem(503, 'UPSTREAM_UNAVAILABLE', 'Try again.')] })
+    await act(async () => { screen.getByRole('button', { name: 'Sign out' }).click() })
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.getByTestId('status').textContent).toBe('authenticated')
+    expect(left).not.toHaveBeenCalled()
+  })
+
+  it('is today’s with the setting unset: nothing more is sent', async () => {
+    environment.ssoEnabled = false
+    const sent = await signedInOn(APP, { [SESSION]: [patient, gone, gone], [REFRESH]: [gone], [SSO_LOGOUT]: [ended] })
+    await signOut()
+    expect(sent.map(request => request.route)).toEqual([SESSION, SESSION, REFRESH])
+    expect(left).not.toHaveBeenCalled()
+    const sso = await import('../../sso/singleSignOn')
+    expect(sso.signedOutInThisPage()).toBe(false)
   })
 })
 

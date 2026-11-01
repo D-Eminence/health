@@ -436,7 +436,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         } catch (refreshError) {
           // A refused refresh leaves no session of this patient's in this browser
           // to end, a provider's sign-in refused as SESSION_CLIENT_MISMATCH included.
+          // With single sign-on on app., the provider's session may outlive it: it is
+          // ended all the same, and the tab leaves for its end-session address
+          // (api.ts endSingleSignOn), except over another portal's sign-in, which is
+          // left alone. Off, nothing more is sent.
           if (isHidApiError(refreshError) && (refreshError.status === 401 || refreshError.status === 403)) {
+            if (!heldByOtherPortal(refreshError)) leaveAfterSignOut(await api.endSingleSignOn())
             store.clear()
             return
           }

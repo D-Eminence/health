@@ -4,7 +4,7 @@ import {
   type ImportedHistorySharingChange, type ImportedMedicalRecord,
 } from './importedRecords'
 import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory } from '@hid/contracts'
-import { NO_RETRY, type ApiClient, type DownloadResult, type HidApiError, type RequestSpec, type RetryPolicy } from '@hid/http'
+import { isHidApiError, NO_RETRY, type ApiClient, type DownloadResult, type HidApiError, type RequestSpec, type RetryPolicy } from '@hid/http'
 import { createEhrService, createSupportService } from '@hid/api'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from './sessionRefreshTurn'
 import { endSessionHref } from './sso/handOff'
@@ -555,6 +555,21 @@ export function createPatientApi(sender: ApiClient) {
       portalHandsOff()
         ? async () => { endSession = endSessionHref(await call<unknown>('POST', 'auth/sso/logout', undefined, judged)) }
         : () => call<void>('POST', 'auth/logout', undefined, judged), { alwaysAsk: true })
+      return endSession
+    },
+    // With single sign-on on app.: a sign-out that found this patient's sign-in already gone from the browser (its
+    // refresh refused) still ends the provider's session, which may outlive it, so the next person at this browser is
+    // not signed in as this patient (contract v2, item 4). POST auth/sso/logout needs no live sign-in: with none left,
+    // Identity clears the cookies and answers the end-session address all the same. It takes the sign-out's turn and is
+    // sent only while the browser still holds no sign-in (the session question answers 401): one another window made
+    // meanwhile is left alone. Answers the address, or null: off, or a sign-in found.
+    endSingleSignOn: async (): Promise<string | null> => {
+      if (!portalHandsOff()) return null
+      let endSession: string | null = null
+      await signOutInTurn(() => call<PatientSession>('GET', 'auth/session', undefined, judged).then(() => false, (error: unknown) => {
+        if (isHidApiError(error) && error.status === 401) return true
+        throw error
+      }), async () => { endSession = endSessionHref(await call<unknown>('POST', 'auth/sso/logout', undefined, judged)) }, { alwaysAsk: true })
       return endSession
     },
     googleNonce: () => call<{ nonce: string }>('GET', 'auth/google/nonce'),
