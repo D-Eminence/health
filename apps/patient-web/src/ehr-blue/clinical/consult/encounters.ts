@@ -41,8 +41,9 @@ export const ENCOUNTER_TRANSITIONS: Readonly<Record<string, readonly StatusOptio
 /** The changes that also change the encounter's records (today's CLOSING_STATUSES). */
 export const CLOSING_STATUSES: ReadonlySet<string> = new Set(['cancelled', 'entered_in_error'])
 
-const MAIN_ENCOUNTER_CLOSES_RECORDS = 'Cancelling also cancels its open prescriptions and lab requests. Marking it entered in error also marks its notes, diagnoses, vitals, documents and orders. Pharmacy and the laboratory are not told: contact them about any order already sent.'
-const NOVU_ENCOUNTER_CLOSES_RECORDS = 'Closing or cancelling doesn’t change its prescriptions or lab requests. Change or cancel each one; one sent to another facility is then withdrawn there.'
+/** Today's warnings, word for word (staff/routes/Clinical.tsx:80 on main, :85 on Novu): what each change does to the records. */
+const MAIN_ENCOUNTER_CLOSES_RECORDS = 'Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests; its notes, diagnoses, vitals, documents and completed orders are not changed. Marking it entered in error also marks entered in error its notes, diagnoses and vitals, its documents (other than rejected uploads), and its prescriptions and lab requests that are not cancelled, completed ones included. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
+const NOVU_ENCOUNTER_CLOSES_RECORDS = 'Closing or cancelling the encounter does not change its lab requests or prescriptions. Change or cancel each one: one sent to another facility is then withdrawn there, or cancelled if that facility had accepted it.'
 
 /** The warning on a consultation status change, for the service this build talks to. */
 export function encounterClosesRecords(): string {
@@ -117,6 +118,8 @@ export const ENCOUNTER_STATUS_UPDATED = 'Consultation updated.'
 export const REVISION_RECORDED = 'Note changes saved.'
 export const DIAGNOSIS_UPDATED = 'Diagnosis updated.'
 export const REASON_SHORT = 'Give a reason of at least 3 characters.'
+/** Today's failed encounter read, word for word (staff/routes/Clinical.tsx:1306). */
+export const ENCOUNTERS_FAILED = 'Encounters could not be loaded.'
 export const ENCOUNTER_CHANGED = 'Someone changed this consultation while you had it open. It now shows its current status; choose the change again if it’s still needed.'
 export const NOTES_ARE_DRAFTS = 'The note saves as a draft. Sign it on the consultation’s page.'
 export const NO_WRITE = 'Your access doesn’t allow changes to this patient’s records.'

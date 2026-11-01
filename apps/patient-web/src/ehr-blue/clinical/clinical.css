@@ -208,6 +208,12 @@
   margin-top: 18px;
 }
 
+/* A page button that cannot act stays focusable (aria-disabled, as today's pager) and looks unavailable. */
+.hid-ehr .hid-ehr-clinical-pager .hid-ehr-button[aria-disabled='true']:not([aria-busy='true']) {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* The table region (or its empty state) under the search field. */
 .hid-ehr .hid-ehr-clinical-list-table {
   margin-top: 18px;

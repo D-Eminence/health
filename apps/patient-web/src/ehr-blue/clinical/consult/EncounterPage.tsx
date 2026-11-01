@@ -20,7 +20,7 @@ import { vitalStatus } from '../triage/vitals'
 import { DiagnosesCard } from './Diagnoses'
 import { DocumentsCard } from './Documents'
 import {
-  AMEND_LABEL, CLOSING_STATUSES, EDIT_DRAFT_LABEL, ENCOUNTER_CHANGED, ENCOUNTER_CREATED, ENCOUNTER_STATUS_UPDATED, ENCOUNTER_TRANSITIONS,
+  AMEND_LABEL, CLOSING_STATUSES, EDIT_DRAFT_LABEL, ENCOUNTER_CHANGED, ENCOUNTER_CREATED, ENCOUNTER_STATUS_UPDATED, ENCOUNTER_TRANSITIONS, ENCOUNTERS_FAILED,
   NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NOTES_ARE_DRAFTS, NOTE_EIE_LABEL, NOTE_STATUS_UPDATED, NO_COMPLAINT, NO_WRITE, REASON_FIELD, RECORD_NOT_SAVED, RECORD_SAVED, RELOAD_FAILED, RELOAD_NOTE,
   RELOAD_RECORD, REVISION_FAILED, REVISION_REASON_FIELD, REVISION_RECORDED, SAVE_DRAFT, SIGN_LABEL, STATUS_FAILED, TITLE, UPDATING,
   WRITE_NOTE_LABEL, consultationNote, contentCheck, diagnosisStatus, encounterClosesRecords, encounterTitle, encounterTypeLabel, field,
@@ -159,6 +159,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   const encounterId = encounter.id
   const actionsId = `encounter-${encounterId}-actions`
   const moreId = `encounter-${encounterId}-more`
+  const warningId = `encounter-${encounterId}-warning`
 
   const reads = {
     notes: chart.can('ehr.note.read'), diagnoses: chart.can('ehr.diagnosis.read'), vitals: chart.can('ehr.vital.read'),
@@ -327,6 +328,16 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     }
     if (updated?.id === encounterId) setEncounter(updated)
     finish(ENCOUNTER_STATUS_UPDATED)
+    // Today's fresh re-read after the change (staff/routes/Clinical.tsx:1536, and :1296-1301 for the encounter itself),
+    // after the access re-check: the status and row version shown, and the next change sent against, are EHR's own, even
+    // when the change's answer carried no encounter.
+    try {
+      await chart.verify()
+      const current = await staffApi.encounter(facilityId, patientId, encounterId)
+      if (current?.id === encounterId && current.patientId === patientId && current.facilityId === facilityId) setEncounter(current)
+    } catch (caught) {
+      setPageError(refusalText(caught, ENCOUNTERS_FAILED))
+    }
     if (CLOSING_STATUSES.has(status)) await reloaded(...[notes, diagnoses, vitals, prescriptions, labs, documents].map(list => list.reload()))
   }
 
@@ -453,12 +464,14 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
               busyLabel={action.busy}
               validate={action.validate}
               disabled={(action.id === 'sign' || action.id === 'note-error') && revisions.loading}
+              // Today's status form ties its submit to the warning (staff/routes/Clinical.tsx:615-618).
+              describedBy={action.warning ? warningId : undefined}
               onSubmit={submitAction(action)}
               // A form More actions opened closes with "Cancel"; the note actions toggle with their button.
               footer={more.includes(action) ? <EhrButton variant="secondary" onClick={close}>Cancel</EhrButton> : undefined}
             >
               {action.hint ? <p className="hid-ehr-clinical-note">{action.hint}</p> : null}
-              {action.warning ? <p className="hid-ehr-clinical-consult-warning">{action.warning}</p> : null}
+              {action.warning ? <p id={warningId} className="hid-ehr-clinical-consult-warning">{action.warning}</p> : null}
             </RecordForm>
           ) : null}
         </EhrCard>

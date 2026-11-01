@@ -296,7 +296,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     expect(notes().getAllByRole('listitem')).toHaveLength(50)
     const pager = () => within(notes().getByRole('navigation', { name: 'Record pages' }))
     expect(pager().getByText('Page 1')).toBeTruthy()
-    expect((pager().getByRole('button', { name: 'Previous page' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(pager().getByRole('button', { name: 'Previous page' }).getAttribute('aria-disabled')).toBe('true')
     fireEvent.click(pager().getByRole('button', { name: 'Next page' }))
     expect(await notes().findByText('Older progress note 1')).toBeTruthy()
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: 'notes-cursor-2', fresh: false })
@@ -412,7 +412,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     expect(await docs().findByText('scan-55.pdf')).toBeTruthy()
     expect(docs().getAllByRole('listitem')).toHaveLength(5)
     expect(pager().getByText('Page 2')).toBeTruthy()
-    expect((pager().getByRole('button', { name: 'Next page' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(pager().getByRole('button', { name: 'Next page' }).getAttribute('aria-disabled')).toBe('true')
     // Today's read, with today's arguments only: page moves read nothing more.
     expect(api.documents).toHaveBeenCalledTimes(1)
     expect(api.documents).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID)
