@@ -7,6 +7,28 @@ import subprocess
 import zipfile
 from staging_release import ROOT, digest, verify_manifest
 
+# Each product site, and the patient portal, answers its front page to someone not signed in there with a landing page
+# from the public site, fetched through this service binding to the public site's Worker
+# (infra/cloudflare/src/frontend-worker.mjs, PRODUCT_LANDING_PAGES and PATIENT_LANDING_PAGE). The public site's Worker
+# must exist before a site that binds to it is uploaded; it always does, as every release replaces a version of each
+# of the eight.
+PUBLIC_SITE_BINDING = 'PUBLIC_SITE'
+LANDING_APPS = ('ehr', 'lab', 'pharmacy', 'ocr', 'outreach', 'web')
+
+
+def worker_config(app, hostname, environment, assets, api_origin):
+    """The exact Wrangler configuration of one Worker; deploy-production-workers.py's validate_config expects it."""
+    config = {'name': 'hid-' + app + '-' + environment, 'main': (ROOT / 'infra/cloudflare/src/frontend-worker.mjs').as_posix(),
+              'compatibility_date': '2026-10-01', 'workers_dev': False, 'preview_urls': False,
+              'routes': [{'pattern': hostname, 'custom_domain': True}],
+              'assets': {'directory': assets.as_posix(), 'binding': 'ASSETS', 'run_worker_first': True,
+                         'not_found_handling': '404-page' if app == 'public' else 'single-page-application'},
+              'vars': {'DEPLOYMENT_ENV': environment, 'APP_NAME': app, 'EXPECTED_HOST': hostname,
+                       'API_ORIGIN': api_origin}}
+    if app in LANDING_APPS:
+        config['services'] = [{'binding': PUBLIC_SITE_BINDING, 'service': 'hid-public-' + environment}]
+    return config
+
 
 def prepare(dry_run=False, environment='staging'):
     folder = ROOT / ('build/' + environment)
@@ -34,13 +56,8 @@ def prepare(dry_run=False, environment='staging'):
         actual = {p.relative_to(assets).as_posix(): digest(p) for p in assets.rglob('*') if p.is_file()}
         if actual != entry['files']:
             raise ValueError('Extracted assets differ from the accepted archive')
-        config = {'name': 'hid-' + app + '-' + environment, 'main': (ROOT / 'infra/cloudflare/src/frontend-worker.mjs').as_posix(),
-                  'compatibility_date': '2026-10-01', 'workers_dev': False, 'preview_urls': False,
-                  'routes': [{'pattern': entry['hostname'], 'custom_domain': True}],
-                  'assets': {'directory': assets.as_posix(), 'binding': 'ASSETS', 'run_worker_first': True,
-                             'not_found_handling': '404-page' if app == 'public' else 'single-page-application'},
-                  'vars': {'DEPLOYMENT_ENV': environment, 'APP_NAME': app, 'EXPECTED_HOST': entry['hostname'],
-                           'API_ORIGIN': json.loads((ROOT / ('config/' + environment + '.json')).read_text(encoding='utf-8'))['api_origin']}}
+        config = worker_config(app, entry['hostname'], environment, assets,
+                               json.loads((ROOT / ('config/' + environment + '.json')).read_text(encoding='utf-8'))['api_origin'])
         path = folder / (app + '.wrangler.json')
         path.write_text(json.dumps(config, indent=2) + '\n')
         if dry_run:

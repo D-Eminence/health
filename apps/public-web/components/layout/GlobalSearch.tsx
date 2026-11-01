@@ -263,6 +263,21 @@ export function GlobalSearchProvider({ children }: { readonly children: ReactNod
   return <SearchHistoryContext.Provider value={value}>{children}</SearchHistoryContext.Provider>
 }
 
+/**
+ * This site's origin when the page is shown on another site (a product site's front page), or null on this site
+ * itself and wherever this site's origin is not configured (local development, tests).
+ */
+function shownElsewhere(): string | null {
+  const configured = process.env.NEXT_PUBLIC_HID_APP_ORIGIN
+  if (!configured) return null
+  try {
+    const home = new URL(configured).origin
+    return window.location.origin === home ? null : home
+  } catch {
+    return null
+  }
+}
+
 /** A lightweight adapter: the shared palette never owns the route table. */
 export function GlobalSearch() {
   const router = useRouter()
@@ -273,9 +288,13 @@ export function GlobalSearch() {
     if (!destination) return
 
     // Authenticated applications are a deliberate boundary, so they keep the
-    // same full navigation behaviour as the existing sign-in links.
-    if (destination.external) {
-      window.location.assign(destination.href)
+    // same full navigation behaviour as the existing sign-in links; so does
+    // another site, such as a product's own (ROUTES.product). On a product
+    // site's front page, which is this site's page served there, every other
+    // destination is this site's, so it opens here, by its full address.
+    const home = shownElsewhere()
+    if (destination.external || /^https?:\/\//.test(destination.href) || home) {
+      window.location.assign(home ? new URL(destination.href, home).href : destination.href)
       return
     }
 
