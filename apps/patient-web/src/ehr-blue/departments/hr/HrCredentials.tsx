@@ -95,11 +95,10 @@ export function HrCredentials() {
   }
 
   const liveRows: HrRow[] = credentials
-    .filter(entry => matchesSearch(liveSearch, [entry.name, entry.staff, entry.roles, entry.status, entry.reference,
+    .filter(entry => matchesSearch(liveSearch, [entry.name, entry.staff, entry.roles, entry.status,
       ...entry.facts.map(fact => typeof fact.value === 'string' ? fact.value : '')]))
     .map(entry => ({
-      key: entry.key, linkId: `hr-live-${entry.key}`, name: entry.name, reference: entry.reference, status: entry.status,
-      updatedAt: entry.updatedAt, facts: entry.facts,
+      key: entry.key, linkId: `hr-live-${entry.key}`, name: entry.name, status: entry.status, updatedAt: entry.updatedAt, facts: entry.facts,
       context: <><span>{entry.staff}</span><span className="hid-ehr-dept-reference">{entry.roles}{entry.isSelf ? ' · You' : ''}</span></>,
     }))
   const sampleRows: HrRow[] = records
@@ -159,7 +158,7 @@ function LiveList({ live, rows, total, search, onSearch, onRetry, onOpen }: {
 function LiveDetail({ credential, onBack }: { readonly credential: LiveCredential; readonly onBack: () => void }) {
   return (
     <DeptPage title={<HrTitle>{credential.name}</HrTitle>} onBack={onBack}>
-      <HrContextLine status={credential.status} context={`${credential.staff} · ${credential.reference}`} saved={`Saved ${dateText(credential.updatedAt)}`} />
+      <HrContextLine status={credential.status} context={credential.staff} saved={`Saved ${dateText(credential.updatedAt)}`} />
       <DeptRecordLayout
         main={<DeptSection title="Saved record"><DeptFacts facts={credential.facts} /></DeptSection>}
         aside={<DeptActions empty={NO_ACTIONS} />}
