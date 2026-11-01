@@ -156,13 +156,14 @@ describe('3. Home says what today\'s Overview says about clinical modules', () =
   })
 })
 
-describe('4. a live stand-in opened without its permission refuses in today\'s words', () => {
-  it('shows today\'s Laboratory refusal, and reads no laboratory work', async () => {
+describe('4. a live stand-in opened without its permission refuses in its own words', () => {
+  it('shows today\'s Laboratory refusal, in plain words that name no permission, and reads no laboratory work', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [LAB_WORK]: many(() => json({ items: [] })) })
     await openStaffApp('/provider/laboratory')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Laboratory unavailable' })).toBeDefined()
-    expect(screen.getByText('This facility membership needs lab work-item read permission.')).toBeDefined()
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Laboratory unavailable' })
+    expect(screen.getByText('Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator.')).toBeDefined()
+    expect(heading.parentElement?.textContent).not.toMatch(/permission|membership|work-item|lab\.work-item\.read/i)
     expect(screen.queryByText(/is not open to you here$/)).toBeNull()
     // Still not offered in the sidebar.
     expect(within(nav()).queryByRole('link', { name: 'Laboratory' })).toBeNull()
