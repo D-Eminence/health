@@ -11,6 +11,7 @@ import type { WrongPatientEnding } from '../../../staff/routes/WrongPatient'
 import { useCannotCompleteServed } from '../../../cannotCompleteServed'
 import { commerce, type CatalogueItem, type ListPage, type PaymentSettings, type WorkItemBill } from '../commerce/api'
 import { BillBadge } from '../commerce/BillBadge'
+import { pointOfCareOpen } from '../commerce/served'
 import { useCommerceRead } from '../commerce/useCommerceRead'
 import { DeptEmbedded } from '../parts/DeptEmbedded'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -96,8 +97,10 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
   const bill = cleared ?? billOf(item)
   const collects = permissions.includes('lab.accession.create') || permissions.includes('lab.specimen.collect')
   const waitsForPayment = stage === 'collect' && collects && !closed && paysFirst(settings, 'lab') && billOwing(bill)
-  // The price list's sample for this test ("Blood, EDTA tube"), as the first guess at collection.
-  const catalogue = useCommerceRead<ListPage<CatalogueItem>>(stage === 'collect' && !accessionId ? `lab-test:${facilityId}:${test}` : null,
+  // The price list's sample for this test ("Blood, EDTA tube"), as the first guess at collection. The price list is a
+  // point-of-care route Health ID does not serve yet, so it is read only where it may answer (commerce/served.ts).
+  const guesses = stage === 'collect' && !accessionId && pointOfCareOpen(facilityId)
+  const catalogue = useCommerceRead<ListPage<CatalogueItem>>(guesses ? `lab-test:${facilityId}:${test}` : null,
     signal => commerce.catalogueItems(facilityId, { kind: 'lab_test', q: test }, signal))
   const sampleGuess = catalogue.data?.items.find(entry => entry.name.toLowerCase() === test.toLowerCase())?.packSize ?? null
   const [notice, setNotice] = useState('')

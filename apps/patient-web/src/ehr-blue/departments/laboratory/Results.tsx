@@ -5,6 +5,7 @@ import { FormPage, PageState, Value } from '../../../kasuwa/parts'
 import { Alert, Button, Card, CardHeader, EmptyState, Input, PageHeader } from '../../../kasuwa/ui'
 import { staffApi, type LabExecution, type LabResultRevision, type LabWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
+import { pointOfCareOpen } from '../commerce/served'
 import { useDeptAccess } from '../parts/access'
 import { matchesSearch } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
@@ -103,7 +104,8 @@ function ResultView({ facilityId, item, permissions }: { readonly facilityId: st
   const record = useLabRecord(facilityId, item.accessionId, permissions.includes('lab.accession.read'), permissions.includes('lab.execution.read'))
   const released = record.executions.flatMap(execution => { const revision = releasedOf(execution); return revision ? [{ execution, revision }] : [] })
   const { print, area } = usePrint()
-  const canShare = permissions.includes('lab.result.share') && Boolean(item.accessionId)
+  // Sharing a result is a point-of-care route Health ID does not serve yet: offered only where it may answer (commerce/served.ts).
+  const canShare = pointOfCareOpen(facilityId) && permissions.includes('lab.result.share') && Boolean(item.accessionId)
   const test = item.testName ?? 'Lab test'
   const lines: SlipLine[] = released.map(({ execution, revision }) => ({
     key: execution.id, test: execution.test.name, value: revisionText(revision), unit: revision.unit, range: revision.referenceRange, flag: revision.abnormalFlag,
