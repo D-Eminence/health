@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Clinical } from '../Clinical'
+import { SAID_CHANGED, SAID_FIELDS_REFUSED } from '../../../__tests__/said'
 
 /**
  * Clinical notes as hid-system EHR takes them (ehr/clinical-notes/clinical-notes.controller.ts,
@@ -105,14 +106,15 @@ describe('creating a draft note', () => {
     type(form, 'Title', 'Follow-up')
     type(form, 'Clinical note', 'Afebrile today.')
     fireEvent.click(within(form).getByRole('button', { name: 'Save draft' }))
-    expect(await within(form).findByText('Network error')).toBeTruthy()
+    expect(await within(form).findByText('Record could not be saved.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Network error')
 
     fireEvent.click(within(form).getByRole('button', { name: 'Save draft' }))
     await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(2))
     expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
   })
 
-  it('names each field EHR refused with 400 VALIDATION_FAILED, not just that some were invalid', async () => {
+  it('marks each field EHR refused with 400 VALIDATION_FAILED, in plain words, never the field’s internal name', async () => {
     // As EHR's ValidationPipe answers (hid-system ehr-api main.ts): a field and its class-validator messages.
     api.createRecord.mockRejectedValueOnce(new HidApiError(400, 'One or more request fields are invalid.', { code: 'VALIDATION_FAILED',
       details: [{ field: 'title', messages: ['title must be shorter than or equal to 240 characters'] },
@@ -123,9 +125,13 @@ describe('creating a draft note', () => {
     type(form, 'Clinical note', 'Afebrile today.')
     fireEvent.click(within(form).getByRole('button', { name: 'Save draft' }))
 
-    const refusal = await within(form).findByText(/One or more request fields are invalid/)
-    expect(refusal.closest('[role="alert"]')?.textContent).toContain('Title must be shorter than or equal to 240 characters')
-    expect(refusal.closest('[role="alert"]')?.textContent).toContain('Note type must be longer than or equal to 1 characters')
+    const refusal = await within(form).findByText(SAID_FIELDS_REFUSED)
+    expect(refusal.closest('[role="alert"]')).toBeTruthy()
+    // Each refused field is marked where it was typed, with a plain hint for its limit.
+    const title = within(form).getByLabelText(labelled('Title'))
+    expect(title.getAttribute('aria-invalid')).toBe('true')
+    expect(document.getElementById(title.getAttribute('aria-describedby')?.split(' ').at(-1) ?? '')?.textContent).toContain('Use 240 characters or fewer.')
+    expect(document.body.textContent).not.toMatch(/Title must be|Note type must be|noteType|shorter than or equal|request fields are invalid/)
   })
 
   it('limits the type and title to what EHR accepts', async () => {
@@ -188,7 +194,8 @@ describe('reviewing a note', () => {
     const form = screen.getByRole('button', { name: 'Update status' }).closest('form')!
     type(form, 'Reason for change', 'Reviewed with the patient')
     fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
-    expect(await within(form).findByText('The note changed since it was loaded.')).toBeTruthy()
+    expect(await within(form).findByText(SAID_CHANGED)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('The note changed since it was loaded.')
     expect(screen.queryByText('Clinical note status updated.')).toBeNull()
   })
 
@@ -199,7 +206,8 @@ describe('reviewing a note', () => {
     type(form, 'Content', 'Fever for three days.\nNo rash. Taking fluids.')
     type(form, 'Reason for revision', 'Added fluid intake')
     fireEvent.click(within(form).getByRole('button', { name: 'Record revision' }))
-    expect(await screen.findByText('Network error')).toBeTruthy()
+    expect(await screen.findByText('Note revision could not be recorded.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Network error')
 
     fireEvent.click(within(form).getByRole('button', { name: 'Record revision' }))
     await waitFor(() => expect(api.addNoteRevision).toHaveBeenCalledTimes(2))

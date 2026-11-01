@@ -163,14 +163,15 @@ describe('registering at a healthcare facility', () => {
 
   it.each([
     ['409 ASSISTED_REGISTRATION_UNAVAILABLE', 409, 'ASSISTED_REGISTRATION_UNAVAILABLE', 'Registration at a facility is not available now.',
-      'Registration at a facility is not available now. You can get a code by text message instead, or try again later.'],
+      'Registration at a facility isn’t available right now. You can get a code by text message instead, or try again later.'],
     ['429 ASSISTED_DESK_CODE_LIMITED', 429, 'ASSISTED_DESK_CODE_LIMITED', 'Too many desk codes were issued for this registration. Start again or try later.',
-      'Too many desk codes were issued for this registration. Start again or try later.'],
+      'Too many desk codes were made for this registration. Start again or try later.'],
   ])('says so on %s', async (_case, status, code, detail, text) => {
     renderPortal(<Enrollment />, gateway({ post: { 'facility-code': () => problem(status, code, detail) } }), anonymous)
     await toFacility()
     await press(screen.getByRole('button', { name: 'Get my desk code' }))
     expect(shownText(await screen.findByRole('alert'))).toBe(text)
+    expect(shownText(screen.getByRole('alert'))).not.toBe(detail)
     expect(screen.queryByRole('heading', { name: 'Your desk code' })).toBeNull()
   })
 

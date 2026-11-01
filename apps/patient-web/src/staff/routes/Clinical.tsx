@@ -6,7 +6,7 @@ import { StaffImportedHistory } from './StaffImportedHistory'
 import { importedRecordsEnabled, staffPatientChatEnabled } from '../stagingOnlyFeatures'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { assertSignedStorageUrl, isHidApiError } from '@hid/http'
+import { assertSignedStorageUrl, isHidApiError, PlainError, plainErrorText } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, TabList, TabPanel, Textarea } from '@hid/ui'
 import { isAllowedPatientLookup, orderRoutesApi, staffApi, type ClinicalRecord, type DiagnosisUpdate, type DocumentRecord, type EmergencyRecords, type EmergencySection, type Encounter, type LabHandoff, type LabOrderReleasedResults, type NoteRevision, type OrderDestination, type OrderRouteKind, type OrderRouteSummary, type OrderRouteWithdrawReason, type Page, type RecordKind, type SavedRecord, type StatusRecordKind, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../api'
 import { useStaff } from '../App'
@@ -172,11 +172,6 @@ const LAB_NOT_TOLD: Readonly<Record<string, string>> = {
  */
 const LAB_REFUSALS: ReadonlySet<number> = new Set([400, 403, 409])
 
-/** A code from Lab as EHR reports it (lab-requests.service.ts LAB_CODE), or nothing. */
-function labCode(value: unknown): string | undefined {
-  return typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(value) ? value : undefined
-}
-
 /**
  * The saved request, and Lab's code, that a create's 409 LAB_HANDOFF_REFUSED names
  * in its detail (lab-requests.service.ts handoffProblem). A 502's detail is hidden
@@ -221,11 +216,10 @@ function labHandoffOutcome(handoff: LabHandoff | null, done: string, canSend: bo
         text: `Lab request ${done} in the EHR, but it changed again before Lab accepted it, and Lab may hold that later version: check the request, and if it is still needed, ${sendItFrom(canSend)}.` }
       // As a create's 409 LAB_HANDOFF_REFUSED or 502 LAB_HANDOFF_UNCONFIRMED, by Lab's status. Lab
       // checks the caller before what it holds, so a refusal does not say Lab lacks the request.
-      const code = labCode(handoff.code)
-      const named = code ? ` (${code})` : ''
+      // Lab's code is never shown (owner's rule, 1 Nov 2026): the laboratory is told to sort it out.
       return { accepted: false, sendable: true, text: LAB_REFUSALS.has(handoff.status)
-        ? `Lab request ${done} in the EHR: its status is saved, but Lab refused it${named}. Once that is resolved, ${sendItFrom(canSend)}.`
-        : `Lab request ${done} in the EHR: its status is saved, but Lab did not confirm it${named}, so the Laboratory may not have it: to send it again, ${sendItFrom(canSend)}.` }
+        ? `Lab request ${done} in the EHR: its status is saved, but the laboratory didn’t accept it. Contact the laboratory, then ${sendItFrom(canSend)}.`
+        : `Lab request ${done} in the EHR: its status is saved, but Lab did not confirm it, so the Laboratory may not have it: to send it again, ${sendItFrom(canSend)}.` }
     }
     case 'not_sent':
       // Novu since P4c: a request sent to another facility is never handed to this facility's Lab.
@@ -277,15 +271,14 @@ function labSendRefusal(caught: unknown): LabSendRefusal {
   if (caught.status === 502 || caught.code === 'LAB_HANDOFF_UNCONFIRMED') return { retry: true,
     text: 'Lab did not confirm that it accepted this request, so the Laboratory may not have it: send again.' }
   if (caught.status === 0 || caught.status === 408 || caught.status >= 500) return { retry: true,
-    text: `${refusalText(caught, 'The service did not answer.')} The request may not have reached Lab: send it again.` }
+    text: 'We couldn’t reach the laboratory, so the request may not have been sent. Send it again.' }
   if (caught.status === 404) return { reload: true, sendable: false,
     text: 'The EHR did not find this lab request to send, or cannot send a saved request to Lab. Contact the laboratory if the test is still needed.' }
   if (caught.status === 401) return { text: refusalText(caught, 'Sign in again to send this request to Lab.') }
-  const code = labCode(caught.code)
-  return { text: `This lab request was not sent to Lab: it was refused${code ? ` (${code})` : ''}. Contact the laboratory if the test is still needed.` }
+  return { text: 'This lab request wasn’t sent: the laboratory refused it. Contact the laboratory if the test is still needed.' }
 }
 
-class LabSendError extends Error {
+class LabSendError extends PlainError {
   constructor(message: string, readonly retry: boolean) { super(message) }
 }
 
@@ -308,7 +301,7 @@ function SendToLab({ requestId, disabled, onSend }: { requestId: string; disable
     catch (caught) {
       const retry = caught instanceof LabSendError ? caught.retry : true
       if (!retry) attempt.current = null
-      setError(caught instanceof Error ? caught.message : 'The lab request could not be sent to Lab.')
+      setError(plainErrorText(caught, 'The lab request could not be sent to Lab.', { audience: 'facility' }))
     } finally { sending.current = false; setBusy(false) }
   }
   return <div className="staff-stack">
@@ -456,7 +449,7 @@ function EncounterForm({ onCreated, disabled }: { onCreated: (input: { encounter
 }
 
 /** A value refused before sending, at a control (or group) to tie it to and the control to focus. */
-class FieldRefusal extends Error {
+class FieldRefusal extends PlainError {
   constructor(readonly field: string, message: string, readonly focusId: string = field) { super(message) }
 }
 
@@ -893,10 +886,10 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
 function releasedResultsRefusal(caught: unknown): string {
   if (!isHidApiError(caught)) return refusalText(caught, 'Released results could not be loaded.')
   if (caught.status === 404) return caught.code === 'LAB_WORK_ITEM_NOT_FOUND'
-    ? 'Lab has no work item for this request that you can see: Lab has not accepted it, accepted it at another facility, or your access to this patient does not cover it.'
+    ? 'The laboratory hasn’t accepted this request here yet, or your access to this patient doesn’t cover it.'
     // An earlier Lab has no such route.
-    : 'Released results are not available from this Lab service.'
-  if (caught.status === 403) return `Access denied: you may not read this request's Lab results here${labCode(caught.code) ? ` (${caught.code})` : ''}.`
+    : 'This laboratory doesn’t share results here yet.'
+  if (caught.status === 403) return 'You can’t see this test’s results here.'
   return refusalText(caught, 'Released results could not be loaded.')
 }
 
@@ -957,7 +950,7 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const problems = useFieldProblems()
-  async function load() { setLoading(true); setError(''); try { setItems((await staffApi.documents(facilityId, patientId, encounterId)).items) } catch (caught) { setError(caught instanceof Error ? caught.message : 'Documents could not be loaded.') } finally { setLoading(false) } }
+  async function load() { setLoading(true); setError(''); try { setItems((await staffApi.documents(facilityId, patientId, encounterId)).items) } catch (caught) { setError(plainErrorText(caught, 'Documents could not be loaded.', { audience: 'facility' })) } finally { setLoading(false) } }
   useEffect(() => { void load() }, [facilityId, patientId, encounterId])
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -973,7 +966,7 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
       await verify(); await staffApi.uploadDocument(facilityId, patientId, encounterId, file); await load(); formElement.reset()
       setNotice('Document uploaded. It can be opened once its virus scan is clean.')
     }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Document could not be uploaded.') }
+    catch (caught) { setError(plainErrorText(caught, 'Document could not be uploaded.', { audience: 'facility' })) }
     finally { setBusy(false) }
   }
   async function download(id: string) {
@@ -990,7 +983,7 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
       await untilStaffSessionReady(sentIn)
       window.open(result.url, '_blank', 'noopener,noreferrer')
     }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Document could not be opened.') }
+    catch (caught) { setError(plainErrorText(caught, 'Document could not be opened.', { audience: 'facility' })) }
   }
   return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{item.mediaType} · {fileSize(item.sizeBytes)}{item.status === 'initiated' ? '' : ` · scan: ${item.scanStatus}`}</p>{item.status === 'initiated' && <p className="staff-muted">Upload not completed; only the person who started it can finish it. Upload the file again.</p>}<Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean'}>Open file</Button>{canOcr && item.scanStatus === 'clean' && <Link to="/provider/ocr" state={{ ocrDocumentId: item.id, ocrPatientId: patientId, actorId, facilityId }} className="staff-text-link">Extract with OCR</Link>}</div>)}</div></Card>{canWrite && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}><Field label="Clinical document" htmlFor="clinical-document" error={problems.error('clinical-document')}><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required {...problems.control('clinical-document')} /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Uploading…' : 'Upload document'}</Button></form><div role="status">{notice && <p className="staff-success">{notice}</p>}</div></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
 }
@@ -1242,7 +1235,7 @@ export function Clinical() {
   const selectedEncounter = selection && selection.patientId === patientId && selection.facilityId === facility?.id ? selection : undefined
 
   const verify = useCallback(async () => {
-    if (!facility || !activePatient) throw new Error('Open a patient through governed access first.')
+    if (!facility || !activePatient) throw new PlainError('Open a patient first.')
     let result: Awaited<ReturnType<typeof staffApi.lookupPatient>>
     try {
       result = await staffApi.lookupPatient(facility.id, activePatient.hid, activePatient.purpose)
@@ -1251,13 +1244,13 @@ export function Clinical() {
       // unavailable (404); it never answers with a deny decision. The record closes.
       if (isHidApiError(caught) && (caught.status === 403 || caught.status === 404)) {
         setActivePatient(null)
-        throw new Error('Patient access has ended. Reopen the record through governed access.')
+        throw new PlainError('Your access to this patient has ended. Open the patient again to keep working.')
       }
       throw caught
     }
     if (!isAllowedPatientLookup(result) || result.patient.patientId !== patientId) {
       setActivePatient(null)
-      throw new Error('Patient access has ended. Reopen the record through governed access.')
+      throw new PlainError('Your access to this patient has ended. Open the patient again to keep working.')
     }
   }, [facility?.id, activePatient?.hid, activePatient?.purpose, patientId])
 
@@ -1329,7 +1322,7 @@ export function Clinical() {
       if (result.wrongPatientReports === true) learnWrongPatientServed(true)
       learnLateCorrectionFrom(result, result.items.map(item => item.orderRoute))
     })
-      .catch(caught => { if (sequence === recordLoad.current) setError(caught instanceof Error ? caught.message : 'Records could not be loaded.') })
+      .catch(caught => { if (sequence === recordLoad.current) setError(plainErrorText(caught, 'Records could not be loaded.', { audience: 'facility' })) })
       .finally(() => { if (sequence === recordLoad.current) setRecordsLoading(false) })
     return () => { recordLoad.current += 1 }
   }, [facility?.id, patientId, encounterId, selectedEncounter?.id, activeTab, activePatient?.purpose, recordScope])
@@ -1452,7 +1445,7 @@ export function Clinical() {
   // A new record is the newest, so it heads the first page.
   async function createRecord(kind: RecordKind, body: object, key: string) {
     if (!facility || !patientId || !encounterId) return
-    if (!canMutate) throw new Error('This access does not permit changes to the patient record.')
+    if (!canMutate) throw new PlainError('Your access doesn’t allow changes to this patient’s records.')
     const activeLab = kind === 'lab-requests' && 'status' in body && body.status === 'active'
     setSuccess('')
     if (activeLab) setError('')
@@ -1471,19 +1464,19 @@ export function Clinical() {
         const items = await loadRecords(kind, FIRST_PAGE, 'unsure')
         // Lab's own detail, passed back as it wrote it, may end without a full stop.
         const said = refusalText(caught, 'The lab request could not be created.')
-        throw new Error(`${/[.!?]$/.test(said) ? said : `${said}.`} The lab request may have been saved and active even so: check the list before creating it again.${reloadSentence(items, 'lab requests', false)}`)
+        throw new PlainError(`${/[.!?]$/.test(said) ? said : `${said}.`} The lab request may have been saved and active even so: check the list before creating it again.${reloadSentence(items, 'lab requests', false)}`)
       }
       // hid-system #56: the request is saved and active, and Lab did not take it. Answering
       // here clears the form and its key, so it is not created again: it is sent from the
       // list. The problem's detail names the request, and is not shown.
-      const named = handoffNames(caught.message)
+      const named = handoffNames(caught.detail ?? '')
       const items = await loadRecords(kind, FIRST_PAGE, true)
       // A 502 names no request; the newest active one for this test heads the list read.
       const fields = body as { testCodeSystem?: unknown; testCode?: unknown }
       const requestId = named.requestId ?? (Array.isArray(items) ? items.find(item => item.status === 'active'
         && item.testCodeSystem === fields.testCodeSystem && item.testCode === fields.testCode)?.id : undefined)
       labWarning(caught.code === 'LAB_HANDOFF_REFUSED'
-        ? `Lab request saved and active in the EHR, but Lab refused it${named.code ? ` (${named.code})` : ''}, so the Laboratory does not have it. Do not create it again: once that is resolved, ${sendItFrom(canSendToLab)}.`
+        ? `Lab request saved and active in the EHR, but the laboratory didn’t accept it, so they don’t have it yet. Do not create it again: contact the laboratory, then ${sendItFrom(canSendToLab)}.`
         : `Lab request saved and active in the EHR, but Lab did not confirm it, so the Laboratory may not have it. Do not create it again: to send it again, ${sendItFrom(canSendToLab)}.`,
       requestId, items)
       return
@@ -1507,7 +1500,7 @@ export function Clinical() {
   async function changeEncounterStatus(status: string, reason: string) {
     if (!selected || !facility || !patientId || !canMutate) return
     const expectedRowVersion = rowVersion(selected.rowVersion)
-    if (!expectedRowVersion) throw new Error('Reload the encounter before changing its status.')
+    if (!expectedRowVersion) throw new PlainError('Reload the encounter before changing its status.')
     setSuccess(''); setError('')
     await verify()
     let updated: Encounter
@@ -1518,7 +1511,7 @@ export function Clinical() {
       })
     } catch (caught) {
       if (isHidApiError(caught) && caught.status === 403 && caught.code === 'ENCOUNTER_RETRACTION_NOT_PERMITTED') {
-        throw new Error(retractionNotPermitted(status))
+        throw new PlainError(retractionNotPermitted(status))
       }
       // Someone changed the encounter first: show it as it is now (the status
       // form is rebuilt for it) and say why the change was not made.
@@ -1548,7 +1541,7 @@ export function Clinical() {
   async function changeRecordStatus(record: ClinicalRecord, kind: StatusRecordKind, status: string, reason: string) {
     if (!facility || !patientId || !encounterId || !canMutate) return
     const expectedRowVersion = rowVersion(record.rowVersion)
-    if (!expectedRowVersion) throw new Error('Reload the record before changing its status.')
+    if (!expectedRowVersion) throw new PlainError('Reload the record before changing its status.')
     // Since hid-system #56 a lab request left active is sent to Lab, and the answer says how that went.
     const toLab = kind === 'lab-requests' && status === 'active'
     setSuccess('')
@@ -1609,7 +1602,7 @@ export function Clinical() {
     attestationTextVersion: string, key: string) {
     if (!facility || !patientId || !encounterId) return
     const expectedRowVersion = rowVersion(record.rowVersion)
-    if (!expectedRowVersion) throw new Error('Reload the list before sending it.')
+    if (!expectedRowVersion) throw new PlainError('Reload the list before sending it.')
     setSuccess(''); setError('')
     await verify()
     try {
@@ -1636,7 +1629,7 @@ export function Clinical() {
    */
   async function createAndSend(body: object, key: string, send: CreateAndSend) {
     if (!facility || !patientId || !encounterId) return
-    if (!canMutate) throw new Error('This access does not permit changes to the patient record.')
+    if (!canMutate) throw new PlainError('Your access doesn’t allow changes to this patient’s records.')
     setSuccess(''); setError('')
     await verify()
     const saved = await staffApi.createRecord(facility.id, patientId, encounterId, 'lab-requests', body, key)
@@ -1695,7 +1688,7 @@ export function Clinical() {
   async function updateDiagnosis(record: ClinicalRecord, changes: DiagnosisChanges, reason: string) {
     if (!facility || !patientId || !encounterId || !canMutate) return
     const expectedRowVersion = rowVersion(record.rowVersion)
-    if (!expectedRowVersion) throw new Error('Reload the diagnosis before changing it.')
+    if (!expectedRowVersion) throw new PlainError('Reload the diagnosis before changing it.')
     setSuccess('')
     await verify()
     await staffApi.updateDiagnosis(facility.id, patientId, encounterId, record.id,
@@ -1708,7 +1701,7 @@ export function Clinical() {
   async function correctVital(record: ClinicalRecord, replacementValues: VitalMeasurements, reason: string, key: string) {
     if (!facility || !patientId || !encounterId || !canMutate) return
     const expectedRowVersion = rowVersion(record.rowVersion)
-    if (!expectedRowVersion) throw new Error('Reload the vitals before correcting them.')
+    if (!expectedRowVersion) throw new PlainError('Reload the vitals before correcting them.')
     setSuccess('')
     await verify()
     try {
@@ -1738,7 +1731,7 @@ export function Clinical() {
   async function handoffPrescription(record: ClinicalRecord, reason: string, key: string) {
     if (!facility || !patientId || !encounterId || !canMutate) return
     const expectedRowVersion = rowVersion(record.rowVersion)
-    if (!expectedRowVersion) throw new Error('Reload the prescription before sending it to Pharmacy.')
+    if (!expectedRowVersion) throw new PlainError('Reload the prescription before sending it to Pharmacy.')
     setSuccess('')
     await verify()
     try { await staffApi.acceptPrescription(facility.id, patientId, encounterId, record.id, expectedRowVersion, reason, key) }
@@ -1746,7 +1739,7 @@ export function Clinical() {
       if (!isHidApiError(caught)) throw caught
       // Pharmacy holds one work item per prescription (hid-system #48), whatever version it was sent.
       // Whether it can still dispense that work depends on migration 0080, which no response shows.
-      if (caught.code === 'IDEMPOTENCY_CONFLICT') throw new Error('Pharmacy already holds work for this prescription, sent earlier, perhaps at an earlier version or with another reason, so it was not sent again. If the prescription changed since, contact the pharmacy: it may refuse to dispense the version it holds, and if it cannot dispense it, create a new prescription and send that.')
+      if (caught.code === 'IDEMPOTENCY_CONFLICT') throw new PlainError('Pharmacy already holds work for this prescription, sent earlier, perhaps at an earlier version or with another reason, so it was not sent again. If the prescription changed since, contact the pharmacy: it may refuse to dispense the version it holds, and if it cannot dispense it, create a new prescription and send that.')
       // The prescription changed under the handoff: what was shown is read again, and the form, built for the old version, goes.
       const changed = caught.code === 'PHARMACY_PRESCRIPTION_NOT_ELIGIBLE'
         ? 'This prescription no longer matches what was sent (it was changed, put on hold or cancelled meanwhile), so Pharmacy did not accept it.'

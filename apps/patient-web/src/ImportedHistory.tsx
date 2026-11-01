@@ -4,6 +4,7 @@ import { Alert, Button } from './kasuwa/ui'
 import type { ImportedAttachmentDownload, ImportedMedicalRecord, ImportedRecordVersion } from './importedRecords'
 import { dayWords, groupByDay as byDay, matchesQuery, textOf } from './routes/recordSearch'
 import './imported-history.css'
+import { PlainError, plainErrorText } from '@hid/http'
 
 function date(value: string) {
   const parsed = new Date(value)
@@ -94,14 +95,14 @@ export function ImportedHistory({ records, limit, download, allowLocalHttp = fal
       const result = await download(fileId, request.signal)
       if (request.signal.aborted) return
       let url: URL
-      try { url = new URL(result.url) } catch { throw new Error('This file link doesn’t work. Try again later.') }
+      try { url = new URL(result.url) } catch { throw new PlainError('This file link doesn’t work. Try again later.') }
       const local = allowLocalHttp && url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
-      if ((url.protocol !== 'https:' && !local) || url.username || url.password) throw new Error('This file link doesn’t work. Try again later.')
+      if ((url.protocol !== 'https:' && !local) || url.username || url.password) throw new PlainError('This file link doesn’t work. Try again later.')
       const link = document.createElement('a')
       link.href = url.toString(); link.target = '_blank'; link.rel = 'noopener noreferrer'; link.referrerPolicy = 'no-referrer'
       link.click()
     } catch (caught) {
-      if (!request.signal.aborted) setError(caught instanceof Error ? caught.message : 'Couldn’t open the file. Try again.')
+      if (!request.signal.aborted) setError(plainErrorText(caught, 'Couldn’t open the file. Try again.'))
     } finally {
       if (!request.signal.aborted) { controller.current = null; setBusy(null) }
     }

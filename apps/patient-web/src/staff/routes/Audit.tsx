@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Badge, Button, Card, EmptyState, Field, Input, Select } from '@hid/ui'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { staffApi, type FacilityAuditPage } from '../api'
 import { useStaff } from '../App'
 
@@ -47,8 +47,8 @@ export function FacilityAudit() {
     }).catch(caught => {
       if (!active) return
       setProblem({ facilityId, cursor, message: isHidApiError(caught) && caught.status === 403
-        ? 'Your current facility membership cannot review audit events.'
-        : caught instanceof Error ? caught.message : 'Audit events could not be loaded.' })
+        ? 'Your role here can’t see audit events. Ask your facility administrator if you need to.'
+        : plainErrorText(caught, 'Audit events could not be loaded.', { audience: 'facility' }) })
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [facilityId, allowed, cursor, reload])

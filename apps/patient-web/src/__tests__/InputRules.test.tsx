@@ -35,7 +35,7 @@ describe('Access PIN', () => {
     fireEvent.change(input, { target: { value: '1234' } })
     await press(screen.getByRole('button', { name: 'Save PIN' }))
     await waitFor(() => expect(input.getAttribute('aria-invalid')).toBe('true'))
-    expect(described(input)).toContain('The PIN must be 4 to 8 digits')
+    expect(described(input)).toContain('Your PIN must be 4 to 8 digits.')
     expect(document.activeElement).toBe(input)
   })
 

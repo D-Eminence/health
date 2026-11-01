@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EmergencyWorkspace } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
+import { SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 import { FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, renderPage } from './harness'
 
 /**
@@ -160,7 +161,8 @@ describe('the emergency summary page', () => {
     open()
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('Couldn’t load the emergency summary')
-    expect(alert.textContent).toContain('EHR is unavailable')
+    expect(alert.textContent).toContain(SAID_UNAVAILABLE)
+    expect(alert.textContent).not.toContain('EHR is unavailable')
     expect(staff.setActivePatient).not.toHaveBeenCalled()
     expect(banner()).toBeTruthy()
     api.emergencyRecords.mockResolvedValue(summary())
@@ -178,10 +180,11 @@ describe('the emergency summary page', () => {
     expect(alert.textContent).toContain('Please try again.')
   })
 
-  it('shows a refused summary read as it is', async () => {
+  it('shows a refused summary read in plain words', async () => {
     api.emergencyRecords.mockRejectedValue(new HidApiError(403, 'Emergency access is not permitted', { code: 'FORBIDDEN' }))
     open()
-    expect((await screen.findByRole('alert')).textContent).toContain('Emergency access is not permitted')
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_REFUSED)
+    expect(document.body.textContent).not.toMatch(/Emergency access is not permitted|FORBIDDEN/)
   })
 
   it.each([403, 404])('ends access when the re-check is refused with %s, and says so', async status => {
@@ -198,7 +201,8 @@ describe('the emergency summary page', () => {
   it('keeps the patient open when Identity cannot answer the re-check', async () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(503, 'Identity is unavailable'))
     open()
-    expect((await screen.findByRole('alert')).textContent).toContain('Identity is unavailable')
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('Identity is unavailable')
     expect(staff.setActivePatient).not.toHaveBeenCalled()
     expect(api.emergencyRecords).not.toHaveBeenCalled()
   })
@@ -313,12 +317,13 @@ describe('ending my emergency access', () => {
   })
 
   it('shows a refused close and keeps the patient open', async () => {
-    api.closeGrant.mockRejectedValue(new HidApiError(409, 'This access had already ended', { code: 'CONSENT_COMMAND_CONFLICT' }))
+    api.closeGrant.mockRejectedValue(new HidApiError(409, 'Consent command conflicts with grant state', { code: 'CONSENT_COMMAND_CONFLICT' }))
     await renderSummary()
     const button = await end()
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('Couldn’t end access')
-    expect(alert.textContent).toContain('This access had already ended')
+    expect(alert.textContent).toContain('This access had already ended.')
+    expect(alert.textContent).not.toMatch(/Consent command|CONSENT_COMMAND_CONFLICT/)
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(document.activeElement).toBe(button)
     expect(button.getAttribute('aria-disabled')).toBeNull()
@@ -345,7 +350,7 @@ describe('ending my emergency access', () => {
     const button = screen.getByRole('button', { name: 'End emergency access' }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
     expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent)
-      .toBe('Your role at this facility cannot end your access: it needs identity.consent.write. Ask your organization administrator.')
+      .toBe('Your role here can’t end your access. Ask your organization administrator.')
     fireEvent.click(button)
     expect(api.closeGrant).not.toHaveBeenCalled()
   })

@@ -6,7 +6,7 @@ import {
   parseShareInvitationAccepted, parseSharedWithMe, parseStaffShareInvitations,
   type ShareInvitationAccepted, type SharedPatient, type StaffShareInvitationList,
 } from '../shareRecords'
-import { createApiClient, HidApiError, isHidApiError, NO_RETRY, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
+import { createApiClient, HidApiError, isHidApiError, NO_RETRY, PLAIN, PlainError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 import {
@@ -93,7 +93,7 @@ function loginResult(answer: unknown): StaffLoginResult {
     return { kind: 'challenge', challenge: { status: read.status, expiresAt: read.expiresAt } }
   }
   if (typeof read?.actor?.id === 'string') return { kind: 'session', session: read as StaffSession }
-  throw new HidApiError(502, 'The service returned an unreadable response.', { code: 'INVALID_RESPONSE', retryable: false })
+  throw new HidApiError(502, 'We couldn’t sign you in just now. Please try again.', { code: 'INVALID_RESPONSE', retryable: false })
 }
 
 /** The enrolment code was emailed to the account's address. `expiresAt` is the challenge's, not the code's. */
@@ -1257,7 +1257,7 @@ function refreshStaffSession(): Promise<StaffSession> {
 }
 
 function sessionEnded(cause?: HidApiError): HidApiError {
-  return new HidApiError(401, 'Your session has ended. Sign in again to continue.',
+  return new HidApiError(401, 'Your session has ended. Please sign in again.',
     { code: 'AUTHENTICATION_REQUIRED', requestId: cause?.requestId, retryable: false, cause })
 }
 
@@ -1348,7 +1348,7 @@ async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
     if (actorId === null) return
     const found = await checkStaffSession(actorId, sentIn)
     if (staffSessionGeneration() !== sentIn || found === 'ended') return
-    if (found === 'unknown') throw new Error('Sign-out could not be completed. Try again.')
+    if (found === 'unknown') throw new PlainError(PLAIN.signOutFailed)
   }
   for (let attempt = 1; ; attempt += 1) {
     try { await signOutInTurn(() => stillThisAccount(actorId), () => client.post<null>('/api/v1/auth/logout')); return }
@@ -1359,7 +1359,7 @@ async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
       if (!endsStaffSession(error)) throw error
     }
     if (staffSessionGeneration() !== sentIn) return
-    if (attempt === SIGN_OUT_ATTEMPTS) throw new Error('Sign-out could not be completed. Try again.')
+    if (attempt === SIGN_OUT_ATTEMPTS) throw new PlainError(PLAIN.signOutFailed)
     try { await restoreStaffSession(actorId) }
     catch (refused) { if (endsStaffSession(refused)) return; throw refused }
     if (staffSessionGeneration() !== sentIn) return

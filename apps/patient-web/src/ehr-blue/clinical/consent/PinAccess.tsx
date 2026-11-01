@@ -11,8 +11,13 @@ import {
   HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem, offeredHealthId,
   useOpenPatient,
 } from './access'
+import { PlainError, plainErrorText } from '@hid/http'
 
 export const PIN_PROBLEM = 'Enter the patient’s 4 to 8 digit access PIN.'
+/** A PIN the patient's record refused (403 PATIENT_ACCESS_PIN_INVALID), in plain words. */
+const PIN_REFUSALS: Readonly<Record<string, string>> = {
+  PATIENT_ACCESS_PIN_INVALID: 'That PIN isn’t right. Check it with the patient and try again.',
+}
 
 /**
  * Patient PIN access (today's "Patient PIN" method), one column. The Health ID handed over from Find a patient is
@@ -64,12 +69,12 @@ export function PinAccess() {
     // The record opens after the grant only while the session that obtained it is ready.
     const sentIn = staffSessionGeneration()
     try {
-      if (!facility) throw new Error('Select a facility first.')
+      if (!facility) throw new PlainError('Select a facility first.')
       await staffApi.verifyPin(facility.id, normalized, compactPin)
       await untilStaffSessionReady(sentIn)
       if (await openPatient(normalized, 'direct-care')) navigate(href.to('patients', 'open'))
     } catch (caught) {
-      setError(caught instanceof Error && caught.message ? caught.message : 'Something went wrong. Please try again.')
+      setError(plainErrorText(caught, 'Something went wrong. Please try again.', { codes: PIN_REFUSALS, audience: 'facility' }))
     } finally {
       setBusy(false)
     }

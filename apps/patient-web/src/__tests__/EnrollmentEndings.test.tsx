@@ -61,7 +61,9 @@ describe('activation refused after the holder proof', () => {
     const outcome = heading.closest('section')!
     expect(within(outcome).getByRole('link', { name: 'Recover your account' }).getAttribute('href')).toBe('/recover')
     expect(within(outcome).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
-    expect(outcome.textContent).toContain('quote this reference: corr-activation.')
+    expect(outcome.textContent).toContain('If you have never registered for a Health ID, contact Health ID support.')
+    // The correlation id is never shown (owner's rule, 1 Nov 2026).
+    expect(document.body.textContent).not.toContain('corr-activation')
     expect(screen.queryByLabelText('Password')).toBeNull()
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
   })

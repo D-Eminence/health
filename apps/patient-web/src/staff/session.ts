@@ -64,7 +64,7 @@ export function setStaffSessionReady(value: boolean): void {
  */
 export function staffSessionReadyFor(sentIn: number): boolean {
   if (generation !== sentIn) {
-    throw new HidApiError(0, 'Stopped because the session it belonged to ended.', { code: 'REQUEST_CANCELLED', retryable: false })
+    throw new HidApiError(0, 'This was stopped because you were signed out. Sign in again and try again.', { code: 'REQUEST_CANCELLED', retryable: false })
   }
   return ready
 }
@@ -119,7 +119,7 @@ export function setStaffSessionFacilities(ids: readonly string[] | null): void {
 export function assertStaffSessionFacility(headers: Readonly<Record<string, string>> | undefined): void {
   const facilityId = Object.entries(headers ?? {}).find(([name]) => name.toLowerCase() === 'x-facility-id')?.[1]
   if (!facilityId || facilities === null || facilities.includes(facilityId)) return
-  throw new HidApiError(0, 'Stopped because you are no longer active at the facility it was for.', { code: 'REQUEST_CANCELLED', retryable: false })
+  throw new HidApiError(0, 'This was stopped because you no longer work at that facility. Choose your facility and try again.', { code: 'REQUEST_CANCELLED', retryable: false })
 }
 
 /**

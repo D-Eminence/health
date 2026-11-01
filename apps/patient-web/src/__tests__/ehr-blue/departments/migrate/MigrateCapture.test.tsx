@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Migrate } from '../../../../ehr-blue/departments/migrate/Migrate'
 import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
+import { SAID_UNAVAILABLE } from '../../../said'
 
 /**
  * Patient documents on the blue Migrate page: a document captured into the patient's documents on an encounter, as
@@ -175,7 +176,8 @@ describe('Patient documents: an encounter\'s documents', () => {
   it('says when encounters cannot be loaded', async () => {
     api.encounters.mockRejectedValue(new HidApiError(503, 'EHR service is unavailable', { code: 'EHR_SERVICE_UNAVAILABLE' }))
     renderDept(<Migrate />)
-    expect((await within(card()).findByRole('alert')).textContent).toBe('EHR service is unavailable')
+    expect((await within(card()).findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR service is unavailable')
   })
 
   it('closes the patient when access has ended, and says so', async () => {
@@ -241,7 +243,8 @@ describe('Patient documents: capturing a document', () => {
     api.uploadDocument.mockRejectedValue(new HidApiError(413, 'The file is too large', { code: 'DOCUMENT_TOO_LARGE' }))
     const submit = screen.getByRole('button', { name: 'Upload document' })
     await press(submit)
-    expect((await within(card()).findByRole('alert')).textContent).toBe('The file is too large')
+    expect((await within(card()).findByRole('alert')).textContent).toBe('This file is too large. Choose a smaller file and try again.')
+    expect(document.body.textContent).not.toContain('The file is too large')
     await waitFor(() => expect(focused()).toBe(submit))
   })
 

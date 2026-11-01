@@ -212,7 +212,7 @@ describe('a section of the profile', () => {
     }), {}, { parityB3: true })
     await waitFor(async () => expect((await moreOf()).open).toBe(true))
     const failed = within(heading('Delete account').closest('section') as HTMLElement)
-    expect(failed.getByRole('alert').textContent).toContain('Account deletion is unavailable.')
+    expect(failed.getByRole('alert').textContent).toContain('Health ID isn’t available right now. Please try again in a few minutes.')
     first.view.unmount()
 
     renderPortal(<ProfilePage />, gateway({
@@ -269,7 +269,7 @@ describe('a section of the profile', () => {
     expect(screen.getByRole('button', { name: 'From your old Health ID account', description: 'Read only' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Verify your NIN', description: 'Optional' })).toBeTruthy()
     // The read's alert is there once it is opened.
-    expect(within(await openSection('Health information')).getByRole('alert').textContent).toContain('EHR is unavailable.')
+    expect(within(await openSection('Health information')).getByRole('alert').textContent).toContain('Health ID isn’t available right now. Please try again in a few minutes.')
   })
 
   it('keeps what was typed while it is closed, and opens with it again', async () => {

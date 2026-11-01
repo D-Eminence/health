@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { Field, Input } from '@hid/ui'
 import type { StaffEnrollmentCodeSent, StaffLoginChallenge, StaffMfaActivation, StaffMfaEnrollment, StaffSession } from '../api'
 import { problemProps, problemText, refusal, type FieldProblem } from '../fieldProblem'
@@ -67,9 +67,12 @@ type Refusal =
   /** The step stays. `field`: the code typed was refused, and is cleared. */
   | { then: 'stay'; message: string; field: boolean }
 
+/** What a second step says when nothing more specific applies. Never Identity's own text. */
+const STEP_FAILED = 'This step couldn’t be completed. Try again, or start again from sign in.'
+
 /** Identity's refusals of the second steps (INTERFACE_CONTRACT.md, staff sign-in with an authenticator). */
 function refusalOf(caught: unknown, step: StepName): Refusal {
-  if (!isHidApiError(caught)) return { then: 'stay', field: false, message: caught instanceof Error ? caught.message : 'This step could not be completed. Try again.' }
+  if (!isHidApiError(caught)) return { then: 'stay', field: false, message: plainErrorText(caught, STEP_FAILED) }
   switch (caught.code) {
     case 'MFA_CHALLENGE_INVALID': return { then: 'restart', message: CHALLENGE_SPENT }
     case 'STAFF_MFA_FACTOR_UNPROVEN': return { then: 'restart', message: STAFF_MFA_FACTOR_UNPROVEN }
@@ -85,7 +88,7 @@ function refusalOf(caught: unknown, step: StepName): Refusal {
     case 'MFA_ENROLLMENT_CODE_UNDELIVERABLE': return { then: 'stay', field: false, message: 'The code could not be sent to your work email. '
       + 'Try again in a few minutes; if this continues, contact your administrator.' }
   }
-  return { then: 'stay', field: caught.status === 400, message: caught.message }
+  return { then: 'stay', field: caught.status === 400, message: plainErrorText(caught, STEP_FAILED, { audience: 'facility' }) }
 }
 
 /** The calls the steps make: the sign-in page's are the provider's, provider enrollment's the staff API's. */

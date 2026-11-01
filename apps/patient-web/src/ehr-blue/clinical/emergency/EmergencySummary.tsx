@@ -9,8 +9,9 @@ import { selfServiceReview } from '../../../staff/staffAccess'
 import { ChartGate, type Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
-import { ACCESS_CLOSED, CLOSE_FAILED, CLOSE_GRANT, CLOSE_REASON, actionUnavailable } from './access'
+import { ACCESS_CLOSED, CLOSE_FAILED, CLOSE_GRANT, CLOSE_REASON, CLOSE_REFUSALS, actionUnavailable } from './access'
 import { ReleasedResults } from './ReleasedResults'
+import { plainErrorText } from '@hid/http'
 
 /** Today's emergency summary wording (Clinical.tsx EmergencySummary), word for word. */
 export const SUMMARY_EYEBROW = 'Emergency summary'
@@ -252,7 +253,7 @@ function Summary({ chart, onClosed }: { chart: Chart; onClosed: () => void }) {
     try {
       await staffApi.closeGrant(facilityId, grantId, CLOSE_REASON)
     } catch (caught) {
-      setCloseError(caught instanceof Error && caught.message ? caught.message : CLOSE_FAILED)
+      setCloseError(plainErrorText(caught, CLOSE_FAILED, { codes: CLOSE_REFUSALS, audience: 'facility' }))
       return
     } finally {
       closing.current = false

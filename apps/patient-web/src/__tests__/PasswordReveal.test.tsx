@@ -119,7 +119,7 @@ describe('showing the password', () => {
   })
 
   it('provider sign-in: a refused attempt keeps the password and masks it again', async () => {
-    staffLogin.mockRejectedValue(new Error('Wrong password'))
+    staffLogin.mockRejectedValue(new HidApiError(401, 'Wrong password', { code: 'INVALID_CREDENTIALS' }))
     show(<StaffSignIn />)
     fireEvent.change(screen.getByRole('textbox', { name: /^Work email/ }), { target: { value: 'nurse@example.test' } })
     // The Field marks the field required: its label reads 'Password*'.
@@ -129,7 +129,7 @@ describe('showing the password', () => {
     expect(password.type).toBe('text')
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign in' })) })
     expect(staffLogin).toHaveBeenCalledWith('nurse@example.test', 'typed-secret-123', undefined)
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Wrong password')
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'That email address or password isn’t right. Try again.')
     expect(password.type).toBe('password')
     expect(password.value).toBe('typed-secret-123')
   })

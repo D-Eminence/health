@@ -2,12 +2,17 @@
  * The single error type every Health ID API call rejects with.
  *
  * Its shape mirrors the error envelope the Health ID backend already returns
- * (`code`, `message`, `requestId`, `retryable`, `status`), so the frontend
- * surfaces the backend's own vocabulary instead of inventing a second one.
+ * (`code`, `requestId`, `retryable`, `status`), so pages can tell failures
+ * apart by the backend's own codes.
  *
- * `message` is safe to show a user: the backend sanitises it, and nothing in
- * this package ever composes a message out of request or response bodies.
+ * `message` is always the frontend's own plain sentence for the status
+ * (plainStatusText), never the server's text: the server's words are kept in
+ * `detail` for code that reads them and are never shown. A page shows
+ * plainErrorText(caught, fallback) (./plain.ts), which also keeps codes,
+ * status numbers, correlation ids and JavaScript messages off the screen.
  */
+
+import { plainStatusText } from './plainWords'
 
 export type HidErrorCode =
   // Produced locally, before or instead of a response.
@@ -30,6 +35,8 @@ export interface HidApiErrorOptions {
   readonly code?: string | null
   readonly requestId?: string | null
   readonly retryable?: boolean
+  /** The server's own words (the problem's `detail`), for code that reads them. Never shown. */
+  readonly detail?: string | null
   readonly details?: unknown
   /** Field names to result codes from the problem's `fields` member. */
   readonly fields?: Readonly<Record<string, string>> | null
@@ -48,6 +55,12 @@ export class HidApiError extends Error {
   /** Correlates a browser failure with a backend log line. Never contains PHI. */
   readonly requestId: string | null
   readonly retryable: boolean
+  /**
+   * The server's own words for the failure (the problem's `detail` or `message`), kept only for code that must read
+   * them (a request id a refusal names, say). Never shown to a person: it can carry API paths, internal names and
+   * field names. Pages show plainErrorText instead. Null when the server sent none.
+   */
+  readonly detail: string | null
   readonly details: unknown
   /**
    * The problem's `fields` member: field names to the result codes `match`,
@@ -83,6 +96,7 @@ export class HidApiError extends Error {
     this.code = options.code ?? defaultCodeForStatus(status)
     this.requestId = options.requestId ?? null
     this.retryable = options.retryable ?? isRetryableStatus(status)
+    this.detail = options.detail ?? null
     this.details = options.details ?? null
     this.fields = options.fields ?? null
     this.attemptsLeft = options.attemptsLeft ?? null
@@ -136,17 +150,9 @@ export function isRetryableStatus(status: number): boolean {
 }
 
 /**
- * User-facing fallbacks for when the backend sends no usable message.
- * Kept short, non-technical, and free of any request detail.
+ * The plain sentence for a status, used as every HidApiError's message: short, non-technical, and free of any request
+ * or server detail. The same words as plainStatusText (./plain.ts), kept under this name for its callers.
  */
 export function fallbackMessageForStatus(status: number): string {
-  if (status === 400) return 'Some of the information sent was not valid. Please check and try again.'
-  if (status === 401) return 'Please sign in to continue.'
-  if (status === 403) return 'You do not have permission to do that.'
-  if (status === 404) return 'We could not find what you were looking for.'
-  if (status === 408) return 'The request took too long. Please try again.'
-  if (status === 409) return 'That action conflicts with the current state. Refresh and try again.'
-  if (status === 429) return 'Too many requests. Please wait a moment and try again.'
-  if (status >= 500) return 'The service is temporarily unavailable. Please try again shortly.'
-  return 'Something went wrong. Please try again.'
+  return plainStatusText(status)
 }

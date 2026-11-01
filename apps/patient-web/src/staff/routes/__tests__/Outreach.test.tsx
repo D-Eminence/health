@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Outreach } from '../Operations'
+import { SAID_NETWORK } from '../../../__tests__/said'
 
 const api = vi.hoisted(() => ({
   outreachCampaigns: vi.fn(), outreachCases: vi.fn(), outreachCampaignMembers: vi.fn(), createOutreachCase: vi.fn(),
@@ -141,7 +142,8 @@ describe('creating a registration case', () => {
     render(<Outreach />)
     const create = await fillCase({ fullName: 'Amaka Obi', sex: 'female', age: '34' })
     await press(create)
-    expect((await screen.findByRole('alert')).textContent).toContain('The network request failed.')
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_NETWORK)
+    expect(document.body.textContent).not.toContain('The network request failed.')
     api.createOutreachCase.mockResolvedValueOnce(pendingCase)
     await press(create)
     await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(2))
@@ -198,7 +200,8 @@ describe('what the new registration case form says', () => {
     api.createOutreachCase.mockRejectedValueOnce(new HidApiError(0, 'The network request failed.', { code: 'NETWORK_ERROR' }))
     render(<Outreach />)
     await press(await fillCase({ fullName: 'Amaka Obi', sex: 'female', age: '34' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('The network request failed.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_NETWORK)
+    expect(document.body.textContent).not.toContain('The network request failed.')
     await press(await fillCase({ phone: ' 12 ' }))
     await waitFor(() => expect(document.getElementById('outreach-case-phone')?.getAttribute('aria-invalid')).toBe('true'))
     expect(screen.queryByText('The network request failed.')).toBeNull()

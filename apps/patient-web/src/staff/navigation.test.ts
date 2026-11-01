@@ -115,7 +115,7 @@ describe('role names shown to staff', () => {
   it.each([
     ['org_admin', 'Facility administrator'], ['org_admin_awaiting_review', 'Facility administrator'], ['doctor', 'Doctor'],
     ['clinician', 'Clinician'], ['nurse', 'Nurse'], ['lab', 'Laboratory scientist'], ['pharmacist', 'Pharmacist'],
-    ['receptionist', 'Receptionist'], ['records_officer', 'records_officer'],
+    ['receptionist', 'Receptionist'], ['records_officer', 'Staff'],
   ])('%s reads “%s”', (code, label) => {
     expect(roleLabel(code)).toBe(label)
   })

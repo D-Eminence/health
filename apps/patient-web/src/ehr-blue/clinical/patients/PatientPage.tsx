@@ -1,7 +1,7 @@
 import { Activity, ChevronRight, FolderOpen, History, ListChecks, LogOut, Send, ShieldCheck, Siren, Stethoscope, UserPlus } from 'lucide-react'
 import { Alert, Badge, Button, Card, CardHeader, IconChip, ListRow, PageHeader } from '../../../kasuwa/ui'
 import { CardFace } from '../../../routes/HealthIdCard'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter } from '../../../staff/api'
@@ -15,6 +15,7 @@ import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isDemoFacility } from '../../blueFacilities'
 import { useSampleCan } from '../../frame/sampleAccess'
 import { CLOSE_GRANT, CLOSE_REASON, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
+import { CLOSE_REFUSALS } from '../emergency/access'
 import type { ActivePatient } from '../../../staff/App'
 
 export const CLOSED_NOTICE = 'closed'
@@ -147,7 +148,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
     try {
       await staffApi.closeGrant(chart.facilityId, grantId, CLOSE_REASON)
     } catch (caught) {
-      setError(caught instanceof Error && caught.message ? caught.message : 'Couldn’t end your access. Please try again.')
+      setError(plainErrorText(caught, 'Couldn’t end your access. Please try again.', { codes: CLOSE_REFUSALS, audience: 'facility' }))
       return
     } finally {
       setEnding(false)

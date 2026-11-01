@@ -7,6 +7,7 @@ import {
   billingNotice, billingProblem, canPayNow, daysLeft, formatDate, formatMoney, formatPrice, paystackCheckoutUrl,
   readInvoices, readSubscription, TRIAL_DAYS, type BillingRead, type Invoice, type Subscription,
 } from '../billing'
+import { PlainError } from '@hid/http'
 
 /** Shared with the blue EHR's Facility subscription page (ehr-blue/frame/BlueSubscription.tsx), word for word. */
 export const PRODUCT_LABELS: Record<string, string> = {
@@ -98,7 +99,7 @@ export function Billing() {
     setActionError('')
     try {
       const url = paystackCheckoutUrl(await billingApi.checkout(facilityId))
-      if (!url) throw new Error('Payment could not be started. Try again later.')
+      if (!url) throw new PlainError('Payment could not be started. Try again later.')
       window.location.assign(url)
     } catch (caught) {
       const problem = billingProblem(caught, 'Payment could not be started. Try again.')

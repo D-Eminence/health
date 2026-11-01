@@ -91,7 +91,7 @@ export function FacilityProfile() {
   const novu = usesNovuBackend()
   const review: Review = novu ? selfServiceReview(facility) : null
   const type = novu ? selfServiceType(facility) : null
-  const roles = (novu ? roleLabels(facility.roles) : facility.roles.join(', ')) || 'Staff'
+  const roles = roleLabels(facility.roles) || 'Staff'
   const permissions = facility.permissions
 
   return (

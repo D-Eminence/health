@@ -49,7 +49,9 @@ describe('emergency access refused by a deployment without the emergency purpose
     const said = await screen.findByRole('alert')
     // Identity answers this for any SQLSTATE 22023 activate_break_glass raises (a bad duration or
     // reason too, migration 0031), so a missing emergency purpose is likely, not certain.
-    expect(said.textContent).toMatch(/Emergency access may not be enabled for this deployment/)
+    expect(said.textContent).toBe('Emergency access may not be turned on for your facility yet, so the record was not opened. Ask your Health ID administrator to turn it on.')
+    // Never the deployment, the code or Identity's words (owner's rule, 1 Nov 2026).
+    expect(said.textContent).not.toMatch(/deployment|INVALID_CONSENT_COMMAND/)
     expect(said.textContent).not.toMatch(/is not enabled/)
     expect(said.textContent).not.toMatch(/integrity validation/)
     expect(api.lookupPatient).not.toHaveBeenCalled()
@@ -64,10 +66,11 @@ describe('emergency access refused by a deployment without the emergency purpose
     expect(api.lookupPatient).not.toHaveBeenCalled()
   })
 
-  it('shows any other refusal as it is', async () => {
+  it('shows any other refusal in plain words', async () => {
     api.breakGlass.mockRejectedValue(new HidApiError(403, 'Break-glass access is not authorized', { code: 'CONSENT_COMMAND_DENIED' }))
     await activateEmergencyAccess()
-    expect((await screen.findByRole('alert')).textContent).toBe('Break-glass access is not authorized')
+    expect((await screen.findByRole('alert')).textContent).toBe('You don’t have access to do this. Ask your facility administrator if you need it.')
+    expect(document.body.textContent).not.toContain('Break-glass access is not authorized')
   })
 })
 
@@ -105,8 +108,9 @@ describe('a role that cannot reach patients', () => {
     working.facility = { ...DOCTOR, name: 'Ikeja Care', roles: ['org_admin'], permissions: ADMIN,
       ...(review ? { selfService: { review, organizationType: 'hospital' } } : {}) }
     render(<MemoryRouter><Patients /></MemoryRouter>)
-    expect(reason()).toMatch(/^Your role at this facility cannot /)
+    expect(reason()).toMatch(/^Your role here can’t /)
     expect(reason().endsWith(ending)).toBe(true)
+    expect(reason()).not.toMatch(/identity\.|ehr\.|needs/)
   })
 
   it('asks the organization administrator when a member without workforce.manage lacks a permission', () => {

@@ -7,6 +7,7 @@ import { ChartProvider, READ_ONLY, useChart } from '../../../ehr-blue/clinical/p
 import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
 import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
 import { forgetWrongPatientServed } from '../../../wrongPatientServed'
+import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, patientBanner, renderPage } from './harness'
 
 /**
@@ -256,7 +257,8 @@ describe('Connected orders', () => {
   it('shows a refused read in the design’s error box', async () => {
     api.records.mockRejectedValue(new HidApiError(503, 'Records are unavailable'))
     open(ENCOUNTER_ID)
-    expect((await screen.findAllByRole('alert'))[0]!.textContent).toBe('Records are unavailable')
+    expect((await screen.findAllByRole('alert'))[0]!.textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('Records are unavailable')
   })
 
   it('shows nothing of orders for an emergency patient, and the order pages show the read-only notice', async () => {
@@ -385,7 +387,8 @@ describe('Connected orders past 50 (review item 6: pagers past 50)', () => {
     const { group, pager } = await pagerOf('Pharmacy')
     api.records.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     fireEvent.click(pageButton(pager, 'Next page'))
-    expect((await within(group).findByRole('alert')).textContent).toBe('The page could not be loaded. EHR is unavailable.')
+    expect((await within(group).findByRole('alert')).textContent).toBe(`The page could not be loaded. ${SAID_UNAVAILABLE}`)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(within(pager).getByText('Page 1')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Pharmacy · Test medicine 1' })).toBeTruthy()
     // The next move clears the notice and reads the page.
@@ -518,7 +521,8 @@ describe('New pharmacy (prescription)', () => {
     fireEvent.click(save)
     await confirmPatient(SAVE_RX(), 'Save prescription')
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe('One or more request fields are invalid. Medication display must be shorter than or equal to 500 characters.')
+    expect(alert.textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('request fields are invalid')
     expect(field('Medicine').getAttribute('aria-invalid')).toBe('true')
   })
 
@@ -528,11 +532,13 @@ describe('New pharmacy (prescription)', () => {
     api.createRecord.mockRejectedValueOnce(new Error('Network error'))
     fireEvent.click(save)
     await confirmPatient(SAVE_RX(), 'Save prescription')
-    expect((await screen.findByRole('alert')).textContent).toBe('Network error')
+    expect((await screen.findByRole('alert')).textContent).toBe('Record could not be saved.')
+    expect(document.body.textContent).not.toContain('Network error')
     api.createRecord.mockRejectedValueOnce(new HidApiError(403, 'Your role may not write prescriptions.', { code: 'FORBIDDEN' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save prescription' }))
     await confirmPatient(SAVE_RX(), 'Save prescription')
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Your role may not write prescriptions.'))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(SAID_REFUSED))
+    expect(document.body.textContent).not.toContain('Your role may not write prescriptions.')
     expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
   })
 
@@ -631,8 +637,9 @@ describe('New laboratory (lab request)', () => {
     fireEvent.change(field('What to do with it'), { target: { value: 'active' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send lab request' }))
     await confirmPatient(SEND_LAB(), 'Send lab request')
-    const alert = await screen.findByText(/^Lab request saved and active in the EHR, but Lab refused it/)
-    expect(alert.textContent).toBe('Lab request saved and active in the EHR, but Lab refused it (LAB_TEST_UNKNOWN), so the Laboratory does not have it. Do not create it again: once that is resolved, use Send to Lab on the request.')
+    const alert = await screen.findByText(/^Lab request saved and active in the EHR, but the laboratory didn’t accept it/)
+    expect(document.body.textContent).not.toContain('LAB_TEST_UNKNOWN')
+    expect(alert.textContent).toBe('Lab request saved and active in the EHR, but the laboratory didn’t accept it, so they don’t have it yet. Do not create it again: contact the laboratory, then use Send to Lab on the request.')
     expect(alert.textContent).not.toContain(LAB)
     expect(await screen.findByRole('heading', { level: 1, name: 'Haemoglobin' })).toBeTruthy()
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests', { cursor: undefined, fresh: true })
@@ -646,7 +653,8 @@ describe('New laboratory (lab request)', () => {
     fireEvent.change(field('What to do with it'), { target: { value: 'active' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send lab request' }))
     await confirmPatient(SEND_LAB(), 'Send lab request')
-    expect((await screen.findByRole('alert')).textContent).toBe('Lab is unavailable. The lab request may have been saved and active even so: check the list before creating it again.')
+    expect((await screen.findByRole('alert')).textContent).toBe(`${SAID_UNAVAILABLE} The lab request may have been saved and active even so: check the list before creating it again.`)
+    expect(document.body.textContent).not.toContain('Lab is unavailable')
     fireEvent.click(screen.getByRole('button', { name: 'Send lab request' }))
     await confirmPatient(SEND_LAB(), 'Send lab request')
     await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(2))
@@ -775,7 +783,8 @@ describe('A prescription’s page', () => {
     expect(screen.getByText(/^Pharmacy is not told of this change/)).toBeTruthy()
     change('Reason for change', 'Waiting for results')
     fireEvent.submit(field('Reason for change').closest('form')!)
-    expect((await screen.findByRole('alert')).textContent).toBe('Prescription changed since it was loaded')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('Prescription changed since it was loaded')
   })
 
   it('sends an active prescription to Pharmacy, the same send again after no answer', async () => {
@@ -790,7 +799,8 @@ describe('A prescription’s page', () => {
     change('Reason', 'Patient collecting today')
     api.acceptPrescription.mockRejectedValueOnce(new Error('Network error'))
     fireEvent.submit(field('Reason').closest('form')!)
-    expect((await screen.findByRole('alert')).textContent).toBe('Network error')
+    expect((await screen.findByRole('alert')).textContent).toBe('Send to Pharmacy could not be completed.')
+    expect(document.body.textContent).not.toContain('Network error')
     api.acceptPrescription.mockResolvedValueOnce({})
     fireEvent.submit(field('Reason').closest('form')!)
     expect(await screen.findByText('Pharmacy accepted this exact prescription version.')).toBeTruthy()
@@ -833,7 +843,8 @@ describe('A prescription’s page', () => {
   it('shows today’s message when the order cannot be read', async () => {
     api.records.mockRejectedValue(new HidApiError(503, 'Identity is unavailable'))
     open(orderPath(ENCOUNTER_ID, 'pharmacy', RX))
-    expect((await screen.findByRole('alert')).textContent).toBe('Identity is unavailable')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('Identity is unavailable')
   })
 })
 
@@ -920,10 +931,12 @@ describe('A lab request’s page', () => {
     expect(await screen.findByText('No result released yet.')).toBeTruthy()
     api.labReleasedResultsForOrder.mockRejectedValueOnce(new HidApiError(404, 'Not found', { code: 'LAB_WORK_ITEM_NOT_FOUND' }))
     fireEvent.click(screen.getByRole('button', { name: 'Refresh released results' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('Lab has no work item for this request that you can see: Lab has not accepted it, accepted it at another facility, or your access to this patient does not cover it.')
+    expect((await screen.findByRole('alert')).textContent).toBe('The laboratory hasn’t accepted this request here yet, or your access to this patient doesn’t cover it.')
+    expect(document.body.textContent).not.toContain('work item')
     api.labReleasedResultsForOrder.mockRejectedValueOnce(new HidApiError(403, 'Forbidden', { code: 'LAB_ACCESS_DENIED' }))
     fireEvent.click(screen.getByRole('button', { name: 'Refresh released results' }))
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Access denied: you may not read this request\'s Lab results here (LAB_ACCESS_DENIED).'))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('You can’t see this test’s results here.'))
+    expect(document.body.textContent).not.toContain('LAB_ACCESS_DENIED')
   })
 
   it('offers no released results for a draft', async () => {
@@ -1167,7 +1180,8 @@ describe('Hand-off 06: the open patient and this consultation carry in on New la
     api.createRecord.mockRejectedValueOnce(new Error('Network error'))
     fireEvent.click(save)
     await confirmPatient(SAVE_LAB(), 'Save draft')
-    expect((await screen.findByRole('alert')).textContent).toBe('Network error')
+    expect((await screen.findByRole('alert')).textContent).toBe('Record could not be saved.')
+    expect(document.body.textContent).not.toContain('Network error')
     expect(screen.getByText('For consultation e0000000')).toBeTruthy()
     api.createRecord.mockResolvedValueOnce(labRequest())
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))

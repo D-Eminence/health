@@ -1,5 +1,5 @@
 import { findEndpoint, isBlankHealthIdInput, isCompleteHealthId, type EndpointMethod } from '@hid/contracts'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, PlainError } from '@hid/http'
 import { useCallback } from 'react'
 import { usesNovuBackend } from '../../../backendContract'
 import { isAllowedPatientLookup, staffApi, type Facility } from '../../../staff/api'
@@ -46,18 +46,13 @@ function whoToAsk(administrator: Administrator): string {
   return 'Ask your organization administrator.'
 }
 
-/** Why the role cannot take `action`, or null when it holds every permission its routes require. */
+/** Why the role cannot take `action`, or null when it holds every permission its routes require. (in plain words: never a permission's name). */
 export function actionUnavailable({ routes, action }: Action, permissions: readonly string[], administrator: Administrator = null): string | null {
   const needs = routes.map(item => ({ ...item, required: findEndpoint(item.route)?.permissions?.[item.method] ?? [] }))
-  if (needs.some(item => item.required.length === 0)) return `This portal cannot ${action} here.`
-  const required = new Set(needs.flatMap(item => item.required))
-  const missing = needs.flatMap(item => {
-    const lacking = item.required.filter(permission => !permissions.includes(permission))
-    return lacking.length ? [`${lacking.join(' and ')}${item.purpose ? ` ${item.purpose}` : ''}`] : []
-  })
-  const missingCount = [...required].filter(permission => !permissions.includes(permission)).length
-  return missing.length === 0 ? null
-    : `Your role at this facility cannot ${action}: it ${missingCount < required.size ? 'also ' : ''}needs ${missing.join(', and ')}. ${whoToAsk(administrator)}`
+  if (needs.some(item => item.required.length === 0)) return `You can’t ${action} here.`
+  // Never the permission's own name (owner's rule, 1 Nov 2026): the role can't, and who to ask.
+  const lacking = needs.some(item => item.required.some(permission => !permissions.includes(permission)))
+  return lacking ? `Your role here can’t ${action}. ${whoToAsk(administrator)}` : null
 }
 
 /** Whether the role holds every permission the registry lists for the route (today's SharedPatients `roleMay`). */
@@ -95,11 +90,11 @@ export function isRefusedLookup(caught: unknown): boolean {
 export function useOpenPatient() {
   const { facility, setActivePatient } = useClinical()
   return useCallback(async (hid: string, purpose: 'direct-care' | 'emergency' = 'direct-care') => {
-    if (!facility) throw new Error('Select an active facility first.')
+    if (!facility) throw new PlainError('Select an active facility first.')
     const lookup = await staffApi.lookupPatient(facility.id, hid, purpose)
     if (!isAllowedPatientLookup(lookup)) {
       setActivePatient(null)
-      throw new Error(NOT_GRANTED)
+      throw new PlainError(NOT_GRANTED)
     }
     return setActivePatient({ hid, lookup, purpose })
   }, [facility, setActivePatient])

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useState, type FormEvent } from 'react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { Button, Card, Field, Input, Select } from '@hid/ui'
 import { TurnstileWidget } from '@/components/shared/TurnstileWidget'
 import { APP_ENTRY, ROUTES } from '@/content/site'
@@ -40,23 +40,30 @@ const PROFILE_FIELDS: readonly {
  * IF_MATCH_REQUIRED, 403 ORIGIN_DENIED) or say nothing useful to the applicant
  * (409 ORGANIZATION_REVIEW_REQUIRED).
  */
-const APPLICANT_REFUSALS: ReadonlySet<string> = new Set([
-  'VALIDATION_FAILED', 'VERSION_CONFLICT', 'APPLICATION_RATE_LIMITED', 'ORGANIZATION_PROFILE_INVALID',
-  'ORGANIZATION_COMPLETION_CODE_INVALID', 'ORGANIZATION_COMPLETION_SESSION_INVALID',
-  'TURNSTILE_REQUIRED', 'TURNSTILE_REJECTED', 'TURNSTILE_EXPIRED_OR_REPLAYED', 'TURNSTILE_HOSTNAME_MISMATCH',
-  'TURNSTILE_ACTION_MISMATCH', 'TURNSTILE_CONTEXT_MISMATCH',
-])
+const SECURITY_CHECK_AGAIN = 'Please complete the security check again, then try again.'
+const APPLICANT_REFUSALS: Readonly<Record<string, string>> = {
+  VALIDATION_FAILED: 'Some details weren’t accepted. Check them and try again.',
+  VERSION_CONFLICT: 'This application changed while you were working. Refresh the page and try again.',
+  APPLICATION_RATE_LIMITED: 'Too many tries. Please wait a few minutes and try again.',
+  ORGANIZATION_PROFILE_INVALID: 'Some organization details weren’t accepted. Check them and try again.',
+  ORGANIZATION_COMPLETION_CODE_INVALID: 'That code is wrong or has expired. Check the latest email, or ask for a new code.',
+  ORGANIZATION_COMPLETION_SESSION_INVALID: 'This session has ended. Please start again.',
+  TURNSTILE_REQUIRED: SECURITY_CHECK_AGAIN,
+  TURNSTILE_REJECTED: SECURITY_CHECK_AGAIN,
+  TURNSTILE_EXPIRED_OR_REPLAYED: SECURITY_CHECK_AGAIN,
+  TURNSTILE_HOSTNAME_MISMATCH: SECURITY_CHECK_AGAIN,
+  TURNSTILE_ACTION_MISMATCH: SECURITY_CHECK_AGAIN,
+  TURNSTILE_CONTEXT_MISMATCH: SECURITY_CHECK_AGAIN,
+}
 
 /**
- * A refusal's own message when hid-system words it for the applicant; any other
- * refusal, and a server failure whose detail the backend withholds, keeps the
- * form's own wording.
+ * A refusal in the form's own plain words: ours for the applicant's refusals, otherwise plainErrorText's or the form's
+ * fallback. Never the server's own text (owner's rule, 1 Nov 2026).
  */
 function applicationError(reason: unknown, fallback: string): string {
-  if (isHidApiError(reason)) {
-    return reason.status >= 400 && reason.status < 500 && APPLICANT_REFUSALS.has(reason.code) ? reason.message : fallback
-  }
-  return reason instanceof Error ? reason.message : fallback
+  // A refusal the applicant can't act on (an origin, a version header, a server failure) keeps the form's own words.
+  if (isHidApiError(reason) && reason.status !== 0 && !Object.hasOwn(APPLICANT_REFUSALS, reason.code)) return fallback
+  return plainErrorText(reason, fallback, { codes: APPLICANT_REFUSALS })
 }
 
 export function ProviderCompletionForm({ initialProduct }: { readonly initialProduct: ApplicationProductCode }) {

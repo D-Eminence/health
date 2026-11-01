@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
+import { SAID_NOT_FOUND, SAID_REFUSED, SAID_TRY_SHORTLY, SAID_UNAVAILABLE } from '../../../__tests__/said'
 import { Ocr } from '../Operations'
 
 /**
@@ -113,7 +114,8 @@ describe('publishing validated OCR evidence', () => {
     await openJob()
     api.ocrPublications.mockResolvedValue({ items: [unavailableAt(1)] })
     await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
-    expect((await screen.findByRole('alert')).textContent).toContain('EHR service is unavailable')
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR service is unavailable')
 
     const retry = await screen.findByRole('button', { name: 'Retry publication' })
     expect(api.ocrPublications).toHaveBeenCalledTimes(2)
@@ -173,7 +175,8 @@ describe('publishing validated OCR evidence', () => {
     await openJob()
     api.ocrPublications.mockResolvedValue({ items: [unavailableAt(1)] })
     await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('A connection between Health ID services failed; retry in about 15 seconds.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_TRY_SHORTLY)
+    expect(document.body.textContent).not.toContain('between Health ID services')
     expect(screen.queryByText(/refused the OCR service identity/)).toBeNull()
     expect(await screen.findByRole('button', { name: 'Retry publication' })).toBeTruthy()
   })
@@ -218,7 +221,8 @@ describe('publishing validated OCR evidence', () => {
     api.ocrPublications.mockRejectedValue(new HidApiError(503, 'The service could not complete the request.', { code: 'SERVICE_UNAVAILABLE' }))
     await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
     await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([
-      'This review already has a publication request.', 'The service could not complete the request.']))
+      'This review already has a publication request.', SAID_UNAVAILABLE]))
+      expect(document.body.textContent).not.toContain('The service could not complete the request.')
     // The history shown is out of date, and OCR would refuse Publish: neither is offered.
     expect(screen.queryByRole('button', { name: 'Publish to EHR' })).toBeNull()
   })
@@ -264,7 +268,8 @@ describe('publishing validated OCR evidence', () => {
     await openJob()
     api.ocrPublications.mockResolvedValue({ items: [refusedByEhr] })
     await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Encounter was not found'))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(SAID_NOT_FOUND))
+    expect(document.body.textContent).not.toContain('Encounter was not found')
     expect(await screen.findByText('Publication was rejected by the owning domain')).toBeTruthy()
     expect(screen.getByText('It cannot be retried.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Retry publication' })).toBeNull()
@@ -277,7 +282,7 @@ describe('publishing validated OCR evidence', () => {
     await openJob()
     api.ocrPublications.mockRejectedValueOnce(new HidApiError(503, 'The service could not complete the request.', { code: 'SERVICE_UNAVAILABLE' }))
     await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
-    await screen.findByText('The service could not complete the request.')
+    await screen.findByText(SAID_UNAVAILABLE)
 
     api.publishOcrValidation.mockRejectedValueOnce(new HidApiError(409, 'Publication failed terminally and requires corrected validation evidence',
       { code: 'OCR_PUBLICATION_TERMINAL' }))
@@ -511,7 +516,8 @@ describe('OCR-04: what a publication produced', () => {
     await openJob()
     const view = await screen.findByRole('button', { name: 'Imported lab evidence' })
     await press(view)
-    expect((await screen.findByRole('alert')).textContent).toBe('Lab service is unavailable')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('Lab service is unavailable')
     await press(view)
     let answer: (value: unknown) => void = () => {}
     api.labImport.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
@@ -564,7 +570,8 @@ describe('OCR-04: what a publication produced', () => {
     api.labImport.mockRejectedValue(new HidApiError(403, 'Lab access is not authorized', { code: 'LAB_ACCESS_DENIED' }))
     await openJob()
     await press(await screen.findByRole('button', { name: 'Imported lab evidence' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('Lab access is not authorized')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain('Lab access is not authorized')
   })
 
   it.each([

@@ -1,4 +1,4 @@
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { getEnvironment } from '../../staff/env'
 import type { ProviderEnrollmentAvailability, ProviderEnrollmentProfile } from '../../staff/api'
 
@@ -98,7 +98,7 @@ export type Refusal =
  * 423 for that reason (P4). (ProviderEnrollment.tsx:178-256, verbatim)
  */
 export function refusalOf(reason: unknown, step: Step, activationUncertain: boolean, novu: boolean): Refusal {
-  if (!isHidApiError(reason)) return { kind: 'message', text: 'We could not complete facility sign-up. Please try again.' }
+  if (!isHidApiError(reason)) return { kind: 'message', text: plainErrorText(reason, 'We couldn’t complete facility sign-up. Please try again.') }
   const { status, code } = reason
   if (status === 423 && code === 'PROVIDER_ENROLLMENT_UNAVAILABLE') return { kind: 'closed' }
   const starting = step === 'start' || step === 'resend'
@@ -167,7 +167,8 @@ export function refusalOf(reason: unknown, step: Step, activationUncertain: bool
     text: 'The security check didn’t go through. Please complete it again, then retry.' }
   if (code === 'PROVIDER_ENROLLMENT_DENIED') return { kind: 'message', text: STEP_UNAVAILABLE }
   if (code === 'VALIDATION_FAILED') return { kind: 'message', text: 'Some of the details weren’t accepted. Check them and try again.' }
-  return { kind: 'message', text: reason.message }
+  return { kind: 'message', text: plainErrorText(reason, 'We couldn’t complete facility sign-up. Please try again.',
+    { statuses: { 401: 'This sign-up has timed out. Please start again.' }, audience: 'facility' }) }
 }
 
 /**

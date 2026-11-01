@@ -2,11 +2,8 @@ import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useL
 import { NavLink, Navigate, Outlet, Route, Routes, useHref, useLinkClickHandler, useLocation, useNavigate } from 'react-router-dom'
 import { BrandLogo } from '../BrandLogo'
 import { Badge, Button, ButtonLink, Card, EmptyState, Select } from '@hid/ui'
-import { isHidApiError } from '@hid/http'
-import {
-  staffApi, type PatientLookup, type StaffEnrollmentCodeSent, type StaffLoginResult, type StaffMfaActivation, type StaffMfaEnrollment,
-  type StaffSession,
-} from './api'
+import { isHidApiError, PLAIN, PlainError, plainErrorText } from '@hid/http'
+import { staffApi, type PatientLookup, type StaffEnrollmentCodeSent, type StaffLoginResult, type StaffMfaActivation, type StaffMfaEnrollment, type StaffSession } from './api'
 import { facilityChoiceNeeded, type FacilityChoiceReason } from './facilitySelection'
 import {
   announceStaffSessionChange, endsStaffSession, onOtherTabSessionChange, onStaffSessionEnded, onStaffSessionRead, setStaffSessionActor,
@@ -325,7 +322,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
         session = await staffApi.refresh()
       }
       if (!current()) return
-      if (session.actor.kind === 'patient') throw new Error('This account does not have a staff session.')
+      if (session.actor.kind === 'patient') throw new PlainError('This account isn’t a staff account. Patients sign in to the Health ID app instead.')
       setState({ status: 'ready', session })
       askIfHeardWhileOpening()
     } catch (error) {
@@ -333,7 +330,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       if (endsStaffSession(error)) {
         setState({ status: 'signed-out', session: null, reason: staffSessionEndReason(sentIn) })
       } else {
-        setState({ status: 'error', session: null, error: error instanceof Error ? error.message : 'Session could not be verified.' })
+        setState({ status: 'error', session: null, error: plainErrorText(error, 'We couldn’t check that you’re signed in. Please try again.', { audience: 'facility' }) })
       }
     }
   }, [setState, setLock, startPeriod, askIfHeardWhileOpening])
@@ -361,7 +358,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   }
 
   function completeSignIn(session: StaffSession) {
-    if (session.actor.kind === 'patient') throw new Error('A staff account is required for this portal.')
+    if (session.actor.kind === 'patient') throw new PlainError('This account isn’t a staff account. Patients sign in to the Health ID app instead.')
     startStaffSessionGeneration()
     startPeriod()
     away.current = null
@@ -449,7 +446,7 @@ function SessionCheck({ unconfirmed }: { unconfirmed: boolean }) {
     setError('')
     setSigningOut(true)
     try { await signOut() }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Sign-out could not be completed.') }
+    catch (caught) { setError(plainErrorText(caught, PLAIN.signOutFailed)) }
     finally { setSigningOut(false) }
   }
 
@@ -489,12 +486,12 @@ function Gate({ children }: { children: ReactNode }) {
 
 /**
  * A choice or switch of facility that Identity refused, in words the person can act
- * on. Its own detail for 403 FACILITY_ACCESS_DENIED speaks of "the actor"; the
+ * on, never Identity's own text. Its detail for 403 FACILITY_ACCESS_DENIED speaks of "the actor"; the
  * facility is no longer one of theirs (the membership ended since the list was read).
  */
 function facilityRefusal(caught: unknown, facility: string): string {
   if (isHidApiError(caught) && caught.code === 'FACILITY_ACCESS_DENIED') return `You are no longer active at ${facility}. Choose another facility.`
-  return caught instanceof Error ? caught.message : 'Facility could not be selected.'
+  return plainErrorText(caught, 'We couldn’t open that facility. Please try again.', { audience: 'facility' })
 }
 
 /** Why the facility question is asked: as Identity reports the selection, or 'lost' (see SessionState). */
@@ -706,7 +703,7 @@ function Shell() {
     setSignOutError('')
     setSigningOut(true)
     try { await signOut() }
-    catch (error) { setSignOutError(error instanceof Error ? error.message : 'Sign-out could not be completed.') }
+    catch (error) { setSignOutError(plainErrorText(error, PLAIN.signOutFailed)) }
     finally { setSigningOut(false) }
   }
 

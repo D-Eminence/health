@@ -7,6 +7,7 @@ import { forgetReceiving } from '../../orderRoutes'
 import { forgetCannotCompleteServed } from '../../../cannotCompleteServed'
 import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
 import { forgetWrongPatientServed } from '../../../wrongPatientServed'
+import { SAID_NOT_FOUND } from '../../../__tests__/said'
 
 /**
  * UX-1 (D18 review): the accession of work from an order another facility sent, once that order no longer lets this
@@ -158,7 +159,8 @@ describe('the accession of an order that no longer lets this laboratory record o
     api.transitionSpecimen.mockRejectedValue(new HidApiError(404, 'Lab specimen was not found', { code: 'LAB_SPECIMEN_NOT_FOUND' }))
     const { card: shown } = await openAccession('Malaria parasite')
     fireEvent.click(within(shown).getByRole('button', { name: 'Record step' }))
-    expect(await within(shown).findByText('Lab specimen was not found')).toBeTruthy()
+    expect(await within(shown).findByText(SAID_NOT_FOUND)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('Lab specimen was not found')
     expect(within(shown).queryByText(CLOSED)).toBeNull()
   })
 })

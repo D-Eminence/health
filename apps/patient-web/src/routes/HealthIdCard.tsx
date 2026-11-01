@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { BadgeCheck, Camera, CircleAlert, Share2, Trash2, UserRound } from 'lucide-react'
 import logoSrc from '../../../public-web/public/brand/logo.png'
 import markSrc from '../../../public-web/public/brand/logo-icon.png'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import type { PatientProfile } from '../api'
 import { Drawer } from '../kasuwa/interactive'
 import { useToast } from '../kasuwa/toast'
@@ -85,7 +85,7 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
       // The card shows the new photo: that is the result, so no toast repeats it.
       setOpen(false); setPrepared(null)
     } catch (cause) {
-      toast.error({ title: 'Couldn’t save your photo', message: isHidApiError(cause) && cause.code === 'PHOTO_INVALID' ? 'Choose a JPEG or PNG photo.' : isHidApiError(cause) ? cause.message : 'Please try again.' })
+      toast.error({ title: 'Couldn’t save your photo', message: isHidApiError(cause) && cause.code === 'PHOTO_INVALID' ? 'Choose a JPEG or PNG photo.' : plainErrorText(cause, 'Please try again.') })
     } finally { setBusy(null) }
   }
   const remove = async () => {
@@ -98,7 +98,7 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, allergie
       // "Remove photo" goes with the photo: focus goes to the photo control, which now adds one.
       focusAfter(() => picker.current)
     } catch (cause) {
-      toast.error({ title: 'Couldn’t remove your photo', message: isHidApiError(cause) ? cause.message : 'Please try again.' })
+      toast.error({ title: 'Couldn’t remove your photo', message: plainErrorText(cause, 'Please try again.') })
     } finally { setBusy(null) }
   }
 

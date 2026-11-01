@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Clinical } from '../Clinical'
+import { SAID_FIELDS_REFUSED } from '../../../__tests__/said'
 
 /**
  * Corrections follow hid-system EHR (ehr/shared/clinical.dto.ts and the
@@ -161,7 +162,8 @@ describe('changing a diagnosis', () => {
     type(form, 'Reason for change', 'Confirmed by blood film')
     fireEvent.click(within(form).getByRole('button', { name: 'Update diagnosis' }))
 
-    expect((await within(form).findByRole('alert')).textContent).toContain('Diagnosis changed since it was loaded')
+    expect((await within(form).findByRole('alert')).textContent).toContain('The diagnosis could not be changed.')
+    expect(document.body.textContent).not.toContain('Diagnosis changed since it was loaded')
   })
 
   it('is not offered when the access is read-only', async () => {
@@ -200,7 +202,8 @@ describe('correcting vitals', () => {
     type(form, 'Pulse (bpm)', '78')
     type(form, 'Reason for correction', 'Pulse misread from the monitor')
     fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
-    expect((await within(form).findByRole('alert')).textContent).toContain('Network error')
+    expect((await within(form).findByRole('alert')).textContent).toContain('The correction could not be saved.')
+    expect(document.body.textContent).not.toContain('Network error')
 
     fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
     await waitFor(() => expect(api.correctVital).toHaveBeenCalledTimes(2))
@@ -439,11 +442,14 @@ describe('creating a lab request', () => {
     type(form, 'Test display', 'Haemoglobin')
     fireEvent.click(within(form).getByRole('button', { name: 'Create lab request' }))
 
-    expect((await within(form).findByRole('alert')).textContent).toContain('Status must be one of the following values')
+    expect((await within(form).findByRole('alert')).textContent).toContain(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('Status must be one of the following values')
     const handling = within(form).getByLabelText(labelled('Request handling'))
     expect(handling.getAttribute('aria-invalid')).toBe('true')
     const description = descriptions(handling)
-    expect(description).toMatch(/^Status must be one of the following values: draft, active\./)
+    // A plain hint at the field, never the validator's words or the values it allows.
+    expect(description).toMatch(/^Check this detail\./)
+    expect(description).not.toMatch(/must be one of the following values/)
     expect(description).toContain('A draft is not sent to the Laboratory until it is activated.')
     expect(description).not.toContain('cannot be sent later')
   })

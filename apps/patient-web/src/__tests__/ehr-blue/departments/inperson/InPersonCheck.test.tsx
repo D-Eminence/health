@@ -8,6 +8,7 @@ import type { EhrBluePage } from '../../../../ehr-blue/frame/types'
 import { InPersonCheck, InPersonUnavailable } from '../../../../ehr-blue/departments/inperson/InPersonCheck'
 import { inPersonCheckPage } from '../../../../ehr-blue/departments/inperson/page'
 import { normalizeDeskCode } from '../../../../ehr-blue/departments/inperson/inPersonRules'
+import { SAID_FIELDS_REFUSED } from '../../../said'
 
 /*
  * The blue In-person check: today's check (staff/routes/InPersonCheck.tsx and InPersonCheck.test.tsx at main a4f5704)
@@ -530,7 +531,7 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     submit()
     await screen.findByRole('heading', { name: 'The details do not match the NIN record' })
     submit()
-    expect((await screen.findByRole('alert')).textContent).toBe('The daily limit of in-person checks is reached. Try again later.')
+    expect((await screen.findByRole('alert')).textContent).toBe('The daily limit of in-person checks has been reached. Try again later.')
     expect(screen.queryByRole('heading', { name: 'The details do not match the NIN record' })).toBeNull()
     submit()
     await waitFor(() => expect(errorOf(deskCode())).toBe('No registration is waiting for this desk code. Ask the patient to show the code on their phone again.'))
@@ -594,7 +595,7 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     expect(session.signOut).not.toHaveBeenCalled()
   })
 
-  it('directs a person who already has a Health ID to account recovery, with the reference, and shows no Health ID', async () => {
+  it('directs a person who already has a Health ID to account recovery, in plain words, and shows no Health ID or reference', async () => {
     const detail = 'This person already has a Health ID. Direct them to account recovery. If they say they never registered, ask Health ID support to review, quoting reference corr-original.'
     api.assistedVerification.mockRejectedValueOnce(problem(409, 'NIN_ALREADY_REGISTERED', detail))
     renderPage()
@@ -602,7 +603,9 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     submit()
     const heading = await screen.findByRole('heading', { level: 2, name: 'This person already has a Health ID' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
-    expect(screen.getByText(detail)).toBeTruthy()
+    // Identity's own words and its reference are never shown (owner's rule, 1 Nov 2026).
+    expect(screen.queryByText(detail)).toBeNull()
+    expect(document.body.textContent).not.toContain('corr-original')
     expect(screen.getByText(REGISTERED_NEXT)).toBeTruthy()
     expect(document.querySelector('.hid-ehr-dept-context .hid-ehr-badge')?.textContent).toBe('already registered')
     const outcome = screen.getByRole('region', { name: 'This person already has a Health ID' })
@@ -615,12 +618,11 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
   })
 
   it.each([
-    ['404 DESK_CODE_NOT_FOUND', problem(404, 'DESK_CODE_NOT_FOUND', 'No registration is waiting for this desk code. Ask the patient to show the code on their phone again.'),
+    ['404 DESK_CODE_NOT_FOUND', problem(404, 'DESK_CODE_NOT_FOUND', 'Identity: no assisted registration for code'),
       'No registration is waiting for this desk code. Ask the patient to show the code on their phone again.'],
     ['404 DESK_CODE_NOT_FOUND with no detail', problem(404, 'DESK_CODE_NOT_FOUND', ''),
       'No registration is waiting for this desk code. Ask the patient to show the code on their phone again.'],
-    ['400 DESK_CODE_INVALID', problem(400, 'DESK_CODE_INVALID', 'Enter the 10-character desk code shown on the patient\'s phone.'),
-      'Enter the 10-character desk code shown on the patient\'s phone.'],
+    ['400 DESK_CODE_INVALID', problem(400, 'DESK_CODE_INVALID', 'deskCode must match /^[A-Z0-9]{10}$/'), DESK_CODE_ENTRY],
     ['400 DESK_CODE_INVALID with no detail', problem(400, 'DESK_CODE_INVALID', ''), DESK_CODE_ENTRY],
     ['409 ASSISTED_VERIFICATION_STALE', problem(409, 'ASSISTED_VERIFICATION_STALE', 'Stale.'), STALE],
   ])('reports %s at the desk code, and checks a new code with a new key', async (_label, failure, message) => {
@@ -631,6 +633,7 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     const code = deskCode()
     await waitFor(() => expect(document.activeElement).toBe(code))
     expect(errorOf(code)).toBe(message)
+    expect(document.body.textContent).not.toContain(failure.message || 'no server words')
     fill({ code: 'ABCDEFGHJK' })
     submit()
     await screen.findByRole('heading', { name: VERIFIED })
@@ -639,8 +642,8 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
   })
 
   it.each([
-    ['429 ASSISTED_VERIFICATION_LIMITED', problem(429, 'ASSISTED_VERIFICATION_LIMITED', 'The daily limit of in-person checks is reached. Try again later.'),
-      'The daily limit of in-person checks is reached. Try again later.'],
+    ['429 ASSISTED_VERIFICATION_LIMITED', problem(429, 'ASSISTED_VERIFICATION_LIMITED', 'Assisted verification rate limit exceeded'),
+      'The daily limit of in-person checks has been reached. Try again later.'],
     ['409 IDEMPOTENCY_KEY_REUSED', problem(409, 'IDEMPOTENCY_KEY_REUSED', 'This retry key belongs to a different request'),
       'This check was already sent with other details. Check the details, then send them again.'],
     ['a refusal with no detail', problem(409, 'SOMETHING_ELSE', ''), 'The check could not be completed.'],
@@ -650,6 +653,7 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     fill()
     submit()
     expect((await screen.findByRole('alert')).textContent).toBe(shown)
+    if (failure.message) expect(document.body.textContent).not.toContain(failure.message)
     submit()
     await screen.findByRole('heading', { name: VERIFIED })
     const [first, second] = sentKeys()
@@ -663,11 +667,11 @@ describe('the blue in-person check (hid-system #85, ADR-063)', () => {
     renderPage()
     fill()
     submit()
-    expect((await screen.findByRole('alert')).textContent)
-      .toBe('Some details were refused. First name must be shorter than or equal to 100 characters.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toMatch(/firstName|First name must be|Some details were refused/)
     const first = screen.getByRole('textbox', { name: 'First name' })
     expect(first.getAttribute('aria-invalid')).toBe('true')
-    expect(errorOf(first)).toBe('First name must be shorter than or equal to 100 characters.')
+    expect(errorOf(first)).toBe('Use 100 characters or fewer.')
     submit()
     await screen.findByRole('heading', { name: VERIFIED })
     const [one, two] = sentKeys()

@@ -4,6 +4,7 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter } from 'react-router-dom'
 import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
 import { PatientRegistration } from '../../../../ehr-blue/departments/registration/Registration'
+import { SAID_CHANGED, SAID_NOT_FOUND, SAID_REFUSED } from '../../../said'
 
 /*
  * The blue Patient registration page: the design's patients workspace (list, "New patients" form, saved record with
@@ -156,12 +157,13 @@ describe('the list view', () => {
   })
 
   it.each([
-    ['a refusal, in its own words', new HidApiError(403, 'This membership cannot verify identities.', { code: 'FORBIDDEN' }), 'This membership cannot verify identities.'],
+    ['a refusal, in plain words', new HidApiError(403, 'This membership cannot verify identities.', { code: 'FORBIDDEN' }), SAID_REFUSED],
     ['anything else, in today\'s fallback', new Error('network down'), 'Registration capabilities could not be loaded.'],
   ])('a capability read that fails: %s', async (_name, failure, words) => {
     api.registrationCapabilities.mockRejectedValue(failure)
     renderDept(<PatientRegistration />)
     expect((await screen.findByRole('alert')).textContent).toBe(words)
+    expect(document.body.textContent).not.toContain(failure.message)
   })
 
   it('Check again reads once, stays focusable while it reads, and keeps focus', async () => {
@@ -328,7 +330,8 @@ describe('the new record form', () => {
     await openNew()
     fillNin()
     fireEvent.click(screen.getByRole('button', { name: 'Verify and create case' }))
-    expect(await screen.findByText('The identity claims did not match.')).toBeTruthy()
+    expect(await screen.findByText('The details don’t match the NIN record. Check the name and date of birth, then try again.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/identity claims|NIN_MISMATCH/)
     fireEvent.input(screen.getByLabelText(/^First name/), { target: { value: 'Patient A' } })
     fireEvent.change(screen.getByRole('combobox', { name: 'Gender (optional)' }), { target: { value: 'female' } })
     fireEvent.click(screen.getByRole('button', { name: 'Verify and create case' }))
@@ -386,7 +389,7 @@ describe('Find registration case', () => {
   })
 
   it.each([
-    ['a refusal, in its own words', new HidApiError(404, 'Registration case not found.', { code: 'NOT_FOUND' }), 'Registration case not found.'],
+    ['a refusal, in plain words', new HidApiError(404, 'Registration case not found.', { code: 'NOT_FOUND' }), SAID_NOT_FOUND],
     ['anything else, in today\'s fallback', new Error('network down'), 'The registration case could not be loaded.'],
   ])('a load that fails: %s, at the card', async (_name, failure, words) => {
     api.registrationCase.mockRejectedValue(failure)
@@ -394,6 +397,7 @@ describe('Find registration case', () => {
     fireEvent.change(await screen.findByRole('textbox', { name: 'Registration case ID' }), { target: { value: `  ${CASE} ` } })
     fireEvent.click(screen.getByRole('button', { name: 'Load case' }))
     expect((await screen.findByRole('alert')).textContent).toBe(words)
+    expect(document.body.textContent).not.toContain(failure.message)
     expect(api.registrationCase).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, CASE)
     expect(heading().textContent).toBe('Patient registration')
   })
@@ -621,7 +625,7 @@ describe('the case record', () => {
     expect(document.activeElement).toBe(heading())
   })
 
-  it('a decision refused in Identity\'s words', async () => {
+  it('a decision refused in plain words, never Identity\'s', async () => {
     api.registrationCase.mockResolvedValue(pending())
     api.approveNewRegistration.mockRejectedValue(new HidApiError(409, 'The case changed. Refresh it.', { code: 'VERSION_CONFLICT' }))
     await findCase()
@@ -629,7 +633,8 @@ describe('the case record', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Approval reason' }), { target: { value: 'No candidate after verification' } })
     fireEvent.click(within(screen.getByRole('form', { name: 'Approve new Health ID' })).getByRole('button', { name: 'Approve new Health ID' }))
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe('The case changed. Refresh it.')
+    expect(alert.textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('The case changed. Refresh it.')
     expect(screen.getByRole('form', { name: 'Approve new Health ID' }).contains(alert)).toBe(true)
   })
 

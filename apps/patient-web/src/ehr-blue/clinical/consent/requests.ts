@@ -1,4 +1,4 @@
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ACCESS_OUTCOME_FILTERS, ACCESS_REQUEST_STATUSES, staffApi, type AccessRequest, type AccessRequestStatus } from '../../../staff/api'
 import { accessRequestsError, outcome } from '../../../staff/routes/AccessRequests'
@@ -29,7 +29,7 @@ export function closeError(caught: unknown): string {
   if (isHidApiError(caught) && (caught.code === 'CONSENT_RESOURCE_NOT_FOUND' || caught.code === 'CONSENT_COMMAND_CONFLICT')) {
     return 'This access had already ended. The list has been refreshed.'
   }
-  return caught instanceof Error ? caught.message : 'Access could not be closed.'
+  return plainErrorText(caught, 'We couldn’t end this access. Please try again.', { audience: 'facility' })
 }
 
 export function methodLabel(request: AccessRequest): string {

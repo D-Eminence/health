@@ -164,10 +164,11 @@ describe('Access requests list (once External record access)', () => {
   })
 
   it('says why the list could not be read, in today’s words', async () => {
-    api.listAccessRequests.mockRejectedValue(new HidApiError(403, 'Denied', { code: 'CONSENT_COMMAND_DENIED' }))
+    api.listAccessRequests.mockRejectedValue(new HidApiError(403, 'Consent command denied by policy', { code: 'CONSENT_COMMAND_DENIED' }))
     open()
     const alert = await screen.findByRole('alert')
-    expect(shownText(alert)).toContain('Your role at this facility cannot list access requests. Ask an administrator to review your assignment.')
+    expect(shownText(alert)).toContain('Your role here can’t see access requests. Ask your facility administrator if you need to.')
+    expect(document.body.textContent).not.toMatch(/denied by policy|CONSENT_COMMAND_DENIED/)
   })
 
   it('shows today’s empty state and reads again on Refresh', async () => {
@@ -339,14 +340,16 @@ describe('Ask the patient for access (once New external record access)', () => {
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
     fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
     fireEvent.click(screen.getByRole('button', { name: SEND }))
-    expect(shownText(await screen.findByRole('alert'))).toContain('Patient was not found or is not available')
+    expect(shownText(await screen.findByRole('alert'))).toContain('We couldn’t find a patient with that Health ID. Check it and try again.')
+    expect(document.body.textContent).not.toContain('Patient was not found or is not available')
     expect((screen.getByLabelText(REASON) as HTMLTextAreaElement).value).toBe('Follow-up consultation')
   })
 
-  it('names the permission a role lacks and offers no submit', () => {
+  it('says plainly that a role can’t ask, never the permission’s name, and offers no submit', () => {
     staff.permissions = ['identity.patient.read']
     open('/new')
-    expect(screen.getByText('Your role at this facility cannot ask patients for access: it needs identity.consent.write. Ask your organization administrator.')).toBeTruthy()
+    expect(screen.getByText('Your role here can’t ask patients for access. Ask your organization administrator.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('identity.consent.write')
     expect((screen.getByRole('button', { name: SEND }) as HTMLButtonElement).disabled).toBe(true)
   })
 })
@@ -403,7 +406,8 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
     fireEvent.change(screen.getByLabelText(PIN), { target: { value: '1234' } })
     fireEvent.click(screen.getByRole('button', { name: OPEN_WITH_PIN }))
-    expect(shownText(await screen.findByRole('alert'))).toContain('Patient access PIN is not valid')
+    expect(shownText(await screen.findByRole('alert'))).toContain('That PIN isn’t right. Check it with the patient and try again.')
+    expect(document.body.textContent).not.toMatch(/Patient access PIN is not valid|PATIENT_ACCESS_PIN_INVALID/)
     expect(api.lookupPatient).not.toHaveBeenCalled()
   })
 
@@ -430,10 +434,11 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
   })
 
-  it('names what a role lacks to verify a PIN', () => {
+  it('says plainly that a role can’t verify a PIN, never the permission’s name', () => {
     staff.permissions = ['identity.patient-access-pin.verify']
     open('/pin')
-    expect(screen.getByText('Your role at this facility cannot use a patient’s Access PIN: it also needs identity.patient.read to open the record. Ask your organization administrator.')).toBeTruthy()
+    expect(screen.getByText('Your role here can’t use a patient’s Access PIN. Ask your organization administrator.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('identity.patient.read')
     expect((screen.getByRole('button', { name: OPEN_WITH_PIN }) as HTMLButtonElement).disabled).toBe(true)
   })
 })
@@ -513,7 +518,7 @@ describe('An access request’s page', () => {
     expect(screen.getByRole('status', { name: 'Loading this request' })).toBeTruthy()
     await waitFor(() => expect(fails.length).toBeGreaterThan(0))
     await act(async () => { for (const fail of fails) fail(new HidApiError(403, 'Forbidden', { code: 'FACILITY_ACCESS_DENIED' })) })
-    expect(shownText(await screen.findByRole('alert'))).toContain('Select a facility where you are an active member to see your access requests.')
+    expect(shownText(await screen.findByRole('alert'))).toContain('Choose a facility you work at to see your access requests.')
   })
 
   it('reads with a status from its address only when it is one of today’s filters', async () => {

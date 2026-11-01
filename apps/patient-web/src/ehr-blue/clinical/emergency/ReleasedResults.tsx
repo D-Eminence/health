@@ -8,18 +8,13 @@ import { refusalText } from '../../../staff/fieldProblem'
 import { revisionValue, skipsVersions } from '../../../staff/labRevisions'
 import { formatWhen } from '../parts/format'
 
-/** A code from Lab as EHR reports it (Clinical.tsx labCode), or nothing. */
-function labCode(value: unknown): string | undefined {
-  return typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(value) ? value : undefined
-}
-
 /** Today's words for a refused released-results read (Clinical.tsx releasedResultsRefusal). */
 export function releasedResultsRefusal(caught: unknown): string {
   if (!isHidApiError(caught)) return refusalText(caught, 'Please try again.')
   if (caught.status === 404) return caught.code === 'LAB_WORK_ITEM_NOT_FOUND'
     ? 'The lab hasn’t taken this test here yet, or your access doesn’t cover it.'
     : 'This lab doesn’t share results yet.'
-  if (caught.status === 403) return `You can’t see this test’s results here${labCode(caught.code) ? ` (${caught.code})` : ''}.`
+  if (caught.status === 403) return 'You can’t see this test’s results here.'
   return refusalText(caught, 'Please try again.')
 }
 

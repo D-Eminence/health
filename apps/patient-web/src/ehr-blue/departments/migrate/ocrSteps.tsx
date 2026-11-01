@@ -184,7 +184,8 @@ export function ConfirmForm({ facilityId, job, onChanged }: {
         await onChanged('The source patient of this job was already confirmed, so the job was reloaded.')
         return
       }
-      setError(errorText(caught, 'The patient confirmation was not recorded.'))
+      setError(isHidApiError(caught) && caught.code === 'OCR_PATIENT_MISMATCH' ? 'The patient you chose doesn’t match the patient on the document. Check the patient and try again.'
+        : errorText(caught, 'The patient confirmation was not recorded.'))
       focus('ocr-confirm-submit', true)
     }
     finally { setBusy(false) }

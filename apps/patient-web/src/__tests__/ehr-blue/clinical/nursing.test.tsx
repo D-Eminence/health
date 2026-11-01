@@ -3,6 +3,7 @@ import { HidApiError } from '@hid/http'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NursingWorkspace, nursingStatus } from '../../../ehr-blue/clinical/nursing/NursingWorkspace'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
+import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
 /**
  * Nursing observations: today's clinical notes of type "Nursing observation" (the design's category as the title,
@@ -165,12 +166,14 @@ describe('Nursing observations list', () => {
     view.unmount()
     api.encounters.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     view = open()
-    expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     view.unmount()
     api.encounters.mockResolvedValue({ items: [ENCOUNTER], nextCursor: null })
     api.records.mockRejectedValue(new HidApiError(403, 'This role may not read notes.', { code: 'FORBIDDEN' }))
     open()
-    expect((await screen.findByRole('alert')).textContent).toBe('This role may not read notes.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain('This role may not read notes.')
   })
 
   it('says so, and reads nothing, when the role may not read notes', async () => {
@@ -266,8 +269,11 @@ describe('New nursing observations', () => {
     type(form, 'Category', 'Handover')
     type(form, 'What you observed or gave', 'Settled overnight')
     fireEvent.click(within(form).getByRole('button', { name: 'Save observation' }))
-    expect((await within(form).findByRole('alert')).textContent).toBe('One or more request fields are invalid. Title must be shorter than or equal to 240 characters.')
-    expect(described(control(form, 'Category'))).toContain('Title must be shorter than or equal to 240 characters.')
+    expect((await within(form).findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('request fields are invalid')
+    // At the field: a plain hint for the limit, never the field's internal name or the validator's words.
+    expect(described(control(form, 'Category'))).toContain('Use 240 characters or fewer.')
+    expect(document.body.textContent).not.toMatch(/Title must be|shorter than or equal/)
     type(form, 'Category', 'Handover')
     fireEvent.click(within(form).getByRole('button', { name: 'Save observation' }))
     await screen.findByText('Saved.')
@@ -359,7 +365,8 @@ describe('Nursing observation record', () => {
     type(form, 'Corrected record', 'Corrected vitals observation')
     type(form, 'Reason', 'Wrong patient bed')
     fireEvent.click(within(form).getByRole('button', { name: 'Amend observation' }))
-    expect((await within(form).findByRole('alert')).textContent).toBe('The note changed since it was loaded.')
+    expect((await within(form).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('The note changed since it was loaded.')
     fireEvent.click(within(form).getByRole('button', { name: 'Amend observation' }))
     await screen.findByText('A new note revision was recorded.')
     expect(api.addNoteRevision.mock.calls[1]![5]).toBe(api.addNoteRevision.mock.calls[0]![5])
@@ -368,7 +375,8 @@ describe('Nursing observation record', () => {
   it('offers no amendment when the content cannot be read, under a read-only grant, or once entered in error', async () => {
     api.noteRevisions.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     let view = open(RECORD)
-    expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     const none = screen.getByText('Nothing more to do here.')
     expect(none.className).toBe('hid-ehr-clinical-note')
     expect(screen.queryByRole('button', { name: 'Mark entered in error' })).toBeNull()
@@ -563,7 +571,8 @@ describe('Nursing observation record', () => {
     const reads = api.records.mock.calls.length
     fireEvent.click(submit)
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
-    expect((await within(form).findByRole('alert')).textContent).toBe('The record changed since it was read.')
+    expect((await within(form).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('The record changed since it was read.')
     expect(api.records.mock.calls.length).toBe(reads)
     expect(screen.queryByText('Clinical note status updated.')).toBeNull()
 
@@ -745,7 +754,8 @@ describe('Nursing observation record', () => {
     expect(await within(history()).findByText('Loading records…')).toBeTruthy()
     await act(async () => vitalsRead.resolve({ items: [VITAL], nextCursor: null }))
     expect(within(history()).queryByText('Loading records…')).toBeNull()
-    expect(within(history()).getByRole('alert').textContent).toBe('EHR is unavailable.')
+    expect(within(history()).getByRole('alert').textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     // The other rows still show, and the record itself is unaffected.
     expect(historyRows().map(row => row[0])).toEqual(['Consultation · e0000000', 'Triage & Vitals · f0000000', 'Pharmacy · Paracetamol 500 mg'])
     expect(within(saved()).getByText('Fictional vitals observation')).toBeTruthy()

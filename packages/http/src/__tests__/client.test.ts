@@ -191,8 +191,32 @@ describe('createApiClient: errors', () => {
     const { client } = makeClient({}, [{ status: 500, body: { message: 'Internal Server Error' } }])
 
     await expect(client.get('/staff-dashboard', { auth: 'none' })).rejects.toMatchObject({
-      message: 'The service is temporarily unavailable. Please try again shortly.',
+      message: 'Health ID isn’t available right now. Please try again in a few minutes.',
+      detail: null,
     })
+  })
+
+  it('never makes the server\'s own words the message: they are kept as detail, which is never shown', async () => {
+    const { client } = makeClient({}, [
+      { status: 404, body: { message: 'Cannot GET /api/v1/identity/me/imported-notifications', code: 'NOT_FOUND' } },
+      { status: 403, body: { detail: 'This operation requires workforce authorization', code: 'FORBIDDEN' } },
+      { status: 400, body: { error: 'Bad Request' } },
+    ])
+
+    const failure = async (): Promise<HidApiError> => {
+      const caught = await client.get('/identity-me', { auth: 'none' }).then(() => null, (reason: unknown) => reason)
+      if (!(caught instanceof HidApiError)) throw new Error('expected the call to fail with a HidApiError')
+      return caught
+    }
+
+    const notFound = await failure()
+    expect(notFound.message).toBe('We couldn’t find what you were looking for. It may have been moved or removed.')
+    expect(notFound.detail).toBe('Cannot GET /api/v1/identity/me/imported-notifications')
+    const refused = await failure()
+    expect(refused.message).toBe('You don’t have access to do this.')
+    expect(refused.message).not.toMatch(/workforce|authorization/i)
+    const bad = await failure()
+    expect(bad.message).toBe('Some details weren’t accepted. Check them and try again.')
   })
 
   it('reads the request id from the response header when the body omits it', async () => {

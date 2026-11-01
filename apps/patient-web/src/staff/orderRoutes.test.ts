@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { HidApiError } from '@hid/http'
+import { HidApiError, PlainError } from '@hid/http'
 import { findEndpoint, ORDER_ROUTE_CANNOT_COMPLETE_REASONS } from '@hid/contracts'
 import type { OrderRouteNotCompleted, OrderRouteSummary, WorkItemOrderRoute } from './api'
 import {
@@ -101,7 +101,7 @@ describe('the refusals’ words', () => {
       expect(sendRefusal(error, 'lab_request', 'Yaba', 'Ada').unanswered, error.code).toBe(true)
     }
     for (const error of [problem(409, 'ORDER_ROUTE_DESTINATION_INELIGIBLE'), problem(423, 'CROSS_FACILITY_ORDERS_UNAVAILABLE'),
-      problem(412, 'VERSION_CONFLICT'), problem(400, 'ORDER_ROUTE_INVALID'), problem(403, 'PERMISSION_DENIED'), new Error('Read the record again.')]) {
+      problem(412, 'VERSION_CONFLICT'), problem(400, 'ORDER_ROUTE_INVALID'), problem(403, 'PERMISSION_DENIED'), new PlainError('Read the record again.')]) {
       expect(sendRefusal(error, 'lab_request', 'Yaba', 'Ada').unanswered).toBeUndefined()
     }
   })
@@ -225,7 +225,10 @@ describe('an order ended as accepted for the wrong person', () => {
     expect(say(problem(400, 'ORDER_ROUTE_INVALID')).text).toMatch(/^Check what you entered/)
     expect(say(problem(503, 'ORDER_ROUTE_UNAVAILABLE'))).toEqual({ reload: true, unanswered: true,
       text: 'Health ID did not answer, so it may or may not have ended. Refresh the list and check.' })
-    expect(say(new TypeError('Failed to fetch'))).toEqual({ text: 'Failed to fetch' })
+    // A JavaScript failure is never shown as itself: a request that never left is said as one that got no answer.
+    expect(say(new TypeError('Failed to fetch'))).toEqual({ reload: true, unanswered: true,
+      text: 'Health ID did not answer, so it may or may not have ended. Refresh the list and check.' })
+    expect(say(new PlainError('Read the order again.'))).toEqual({ text: 'Read the order again.' })
   })
 
   it('offers the report on a work row only while the order may be worked, from a backend that sends its version', () => {

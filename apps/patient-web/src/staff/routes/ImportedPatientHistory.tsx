@@ -3,6 +3,7 @@ import { ImportedHistory } from '../../ImportedHistory'
 import { parseImportedRecords, type ImportedRecordsResponse } from '../../importedRecords'
 import { staffApi } from '../api'
 import { getEnvironment } from '../env'
+import { plainErrorText } from '@hid/http'
 
 /** Mounted with a patient/facility/actor key, so a previous scope never survives. */
 export function ImportedPatientHistory({ facilityId, patientId, purpose, canDownload, verify }: {
@@ -25,7 +26,7 @@ export function ImportedPatientHistory({ facilityId, patientId, purpose, canDown
         const importedRecords = parseImportedRecords(result.importedRecords)
         if (!controller.signal.aborted) setData({ ...result, importedRecords })
       } catch (caught) {
-        if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : 'Imported history could not be loaded.')
+        if (!controller.signal.aborted) setError(plainErrorText(caught, 'Imported history could not be loaded.', { audience: 'facility' }))
       } finally { if (!controller.signal.aborted) setLoading(false) }
     })()
     return () => controller.abort()

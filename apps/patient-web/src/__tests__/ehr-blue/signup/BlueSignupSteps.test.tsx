@@ -453,12 +453,13 @@ describe('a refusal of the start, in today’s words', () => {
     [400, 'TURNSTILE_REQUIRED', 'The security check didn’t go through. Please complete it again, then retry.'],
     [403, 'PROVIDER_ENROLLMENT_DENIED', 'Facility sign-up is temporarily unavailable. Please try again in a few minutes.'],
     [400, 'VALIDATION_FAILED', 'Some of the details weren’t accepted. Check them and try again.'],
-    [409, 'SOMETHING_NEW', 'Identity’s own words'],
+    [409, 'SOMETHING_NEW', 'We couldn’t complete facility sign-up. Please try again.'],
   ])('%s %s stays on Agreements with today’s words', async (status, code, words) => {
     api.start.mockRejectedValueOnce(new HidApiError(status, 'Identity’s own words', { code }))
     await toReview()
     await submitRegistration()
     expect((await screen.findByRole('alert')).textContent).toBe(words)
+    expect(document.body.textContent).not.toContain('Identity’s own words')
     expect(stepHeading().textContent).toBe('Agreements')
     // A new security check for the next try (today: the token is cleared and the widget reset after every start).
     await waitFor(() => expect(submitButton().disabled).toBe(false))
@@ -471,7 +472,8 @@ describe('a refusal of the start, in today’s words', () => {
     api.start.mockRejectedValueOnce(new Error('script error'))
     await toReview()
     await submitRegistration()
-    expect((await screen.findByRole('alert')).textContent).toBe('We could not complete facility sign-up. Please try again.')
+    expect((await screen.findByRole('alert')).textContent).toBe('We couldn’t complete facility sign-up. Please try again.')
+    expect(document.body.textContent).not.toContain('script error')
   })
 
   it.each([

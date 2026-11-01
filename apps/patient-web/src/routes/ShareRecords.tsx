@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import { ArrowLeft, ArrowRight, Check, ChevronDown, CircleCheck, Clock, Eye, Lock, Mail, PenLine, Search, Share2, Stethoscope } from 'lucide-react'
 import { Alert, Button, Card, Field, cx } from '../kasuwa/ui'
 import { FormPage, PageState } from '../kasuwa/parts'
@@ -27,7 +27,16 @@ import {
  * focus, which the heading should take.
  */
 
-/** The words for a refused share or invitation: the backend's own `detail`, or ours for the security checks. */
+/** The words for a refused share or invitation, in plain words: ours for the codes we know, never the backend's own text. */
+const SHARE_REFUSALS: Readonly<Record<string, string>> = {
+  SHARE_INVITATION_ALREADY_OPEN: 'You already invited this address. Cancel that invitation to send a new one.',
+  SHARE_INVITATION_NOT_FOUND: 'This invitation is no longer available.',
+  SHARE_INVITATION_NOT_PENDING: 'This invitation has already been accepted, cancelled or has ended.',
+  SHARE_PERMISSION_DENIED: 'Sharing isn’t available for your account right now.',
+  SHARE_PROVIDER_NOT_ELIGIBLE: 'This person can’t receive records through Health ID. Choose someone else.',
+  SHARE_SEARCH_MAX_RESULTS: 'Too many people match. Type more of the name to narrow the search.',
+}
+
 export function shareProblem(cause: unknown, fallback: string): string {
   if (!isHidApiError(cause)) return fallback
   if (cause.code === 'PATIENT_RECENT_AUTH_REQUIRED') return 'For your security, sign out, sign in again, and share within 10 minutes.'
@@ -35,7 +44,7 @@ export function shareProblem(cause: unknown, fallback: string): string {
     return 'Sharing is not available in the 24 hours after you recover your account. Please try again later.'
   }
   if (cause.status === 404 && !cause.code?.startsWith('SHARE_')) return 'Sharing is not available right now. Try again later.'
-  return cause.message || fallback
+  return plainErrorText(cause, fallback, { codes: SHARE_REFUSALS })
 }
 
 /**
@@ -54,7 +63,7 @@ export function useShareProbe() {
     api.shareInvitations(controller.signal).then(() => learnShareServed(true), (cause: unknown) => {
       if (controller.signal.aborted) return
       if (isHidApiError(cause) && cause.status === 404) learnShareServed(false)
-      else setError(isHidApiError(cause) ? cause.message : 'Sharing could not be opened.')
+      else setError(plainErrorText(cause, 'Sharing could not be opened.'))
     })
     return () => controller.abort()
   }, [api, served, attempt])
@@ -139,7 +148,7 @@ function ShareFlow() {
       setChosenId(items.some(item => item.membershipId === chosenId) ? chosenId : null)
       resultsFocus.focus()
     } catch (cause) {
-      if (isHidApiError(cause) && cause.code === 'SHARE_SEARCH_QUERY_INVALID') { setQueryProblem(cause.message); refuseField(fromField) }
+      if (isHidApiError(cause) && cause.code === 'SHARE_SEARCH_QUERY_INVALID') { setQueryProblem('Check what you typed and try again.'); refuseField(fromField) }
       else fail(shareProblem(cause, 'The search could not be completed. Please try again.'))
     } finally { setSearching(false) }
   }
@@ -180,7 +189,7 @@ function ShareFlow() {
       const answer = await api.createShareInvitation(body, inviteKey(body))
       setInvited({ ...answer, email: address }); go('invited')
     } catch (cause) {
-      if (isHidApiError(cause) && cause.code === 'SHARE_INVITATION_EMAIL_INVALID') { setEmailProblem(cause.message); refuseField(fromField) }
+      if (isHidApiError(cause) && cause.code === 'SHARE_INVITATION_EMAIL_INVALID') { setEmailProblem('Enter a valid email address, like name@example.com.'); refuseField(fromField) }
       else fail(shareProblem(cause, 'The invitation could not be sent. Please try again.'))
     } finally { setBusy(false) }
   }

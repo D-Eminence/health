@@ -1,11 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
 import { ArrowLeft, ArrowRight, Hospital, LogOut } from 'lucide-react'
 import { Alert, Badge, Button, IconChip } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
 import { roleLabels } from '../../staff/staffAccess'
-import { usesNovuBackend } from '../../backendContract'
 import type { FacilityChoiceReason } from '../../staff/facilitySelection'
 
 /** Why the question is asked: as Identity reports the selection, 'lost' mid-session, or 'switch' from the account menu. */
@@ -23,7 +22,7 @@ const WHY: Record<WorkspaceQuestion, string> = {
 /** A choice Identity refused, in words the person can act on (today's facilityRefusal). */
 function refusal(caught: unknown, facility: string): string {
   if (isHidApiError(caught) && caught.code === 'FACILITY_ACCESS_DENIED') return `You are no longer active at ${facility}. Choose another facility.`
-  return caught instanceof Error ? caught.message : 'Facility could not be selected.'
+  return plainErrorText(caught, 'We couldn’t open that facility. Please try again.', { audience: 'facility' })
 }
 
 /**
@@ -65,7 +64,7 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
   async function leave() {
     setSignOutError('')
     try { await signOut() }
-    catch (caught) { setSignOutError(caught instanceof Error ? caught.message : 'Sign-out could not be completed.') }
+    catch (caught) { setSignOutError(plainErrorText(caught, PLAIN.signOutFailed)) }
   }
 
   return (
@@ -82,7 +81,7 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
       </div>
       <ul className="m-0 flex list-none flex-col gap-1.5 rounded-2xl bg-tray p-1.5">
         {actor.facilities.map(facility => {
-          const roles = (usesNovuBackend() ? roleLabels(facility.roles) : facility.roles.join(', ')) || 'Staff'
+          const roles = roleLabels(facility.roles) || 'Staff'
           const here = facility.id === current
           return (
             <li key={facility.id} className="flex items-center gap-3 rounded-xl bg-surface p-4 ring-1 ring-line">

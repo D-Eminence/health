@@ -4,6 +4,7 @@ import { HidApiError } from '@hid/http'
 import type { PharmacyWorkItem } from '../../../../staff/api'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
 import { DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
+import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_NOT_FOUND, SAID_REFUSED, SAID_UNAVAILABLE } from '../../../said'
 import {
   accepted, ALL, AMOXICILLIN, confirmPatient, CREATE, deferred, DISPENSING_READ, dispensed, expectNoFullPatientIds, fillDispensing,
   METFORMIN, nowDispensed, otherActions, pickCard, PRESCRIPTIONS, pressDispense, READ, recorded, recordStatus, refusal, REVERSE,
@@ -262,15 +263,17 @@ describe('Dispense', () => {
   })
 
   it.each([
-    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED],
-    [409, 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED', 'A full dispensing is already recorded for this work item; partial dispensing is not supported'],
-    [412, 'PHARMACY_WORK_ITEM_VERSION_CONFLICT', WORK_ITEM_VERSION_CONFLICT],
-  ])('says a %i refusal in the form’s error box, with the retry line, and keeps the form', async (status, code, message) => {
+    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED, SAID_REFUSED],
+    [409, 'PHARMACY_WORK_ITEM_ALREADY_DISPENSED', 'A full dispensing is already recorded for this work item; partial dispensing is not supported',
+      'That didn’t work. Please try again.'],
+    [412, 'PHARMACY_WORK_ITEM_VERSION_CONFLICT', WORK_ITEM_VERSION_CONFLICT, SAID_CHANGED],
+  ])('says a %i refusal in the form’s error box, in plain words, with the retry line, and keeps the form', async (status, code, message, shown) => {
     api.dispense.mockRejectedValueOnce(new HidApiError(status, message, { code }))
     await openRecord(AMOXICILLIN)
     const form = dispenseWith({ quantity: '21', reason: REASON })
     await confirmPatient('Dispense')
-    expect((await within(form).findByRole('alert')).textContent).toBe(message)
+    expect((await within(form).findByRole('alert')).textContent).toBe(shown)
+    expect(document.body.textContent).not.toContain(message)
     expect(within(form).getByText('Fix what’s marked, or try again with the same button. Nothing is saved until it says so.')).toBeTruthy()
     expect(recorded()).toBe('')
     expect(recordStatus()).toBe('To dispense')
@@ -300,7 +303,8 @@ describe('Dispense', () => {
     const form = dispenseWith({ quantity: '21', reason: REASON })
     await confirmPatient('Dispense')
     expect((await within(form).findByRole('alert')).textContent)
-      .toBe('Request validation failed Quantity unit must be shorter than or equal to 80 characters.')
+      .toBe(SAID_FIELDS_REFUSED)
+      expect(document.body.textContent).not.toContain('Request validation failed')
   })
 
   it('marks work whose prescription changed as not dispensable, and offers no dispensing for it', async () => {
@@ -354,7 +358,8 @@ describe('Dispense', () => {
     await openRecord(AMOXICILLIN)
     const form = dispenseWith({ quantity: '21', reason: REASON })
     await confirmPatient('Dispense')
-    expect((await within(form).findByRole('alert')).textContent).toBe(WORK_ITEM_VERSION_CONFLICT)
+    expect((await within(form).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain(WORK_ITEM_VERSION_CONFLICT)
     // The picking view has no refresh of its own: back to the queue, read it again, and open the prescription again.
     fireEvent.click(back())
     const refresh = screen.getByRole('button', { name: 'Refresh' })
@@ -378,7 +383,8 @@ describe('Dispense', () => {
     await waitFor(() => expect(recorded()).toBe('Dispensing recorded.'))
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('Couldn’t refresh prescriptions')
-    expect(alert.textContent).toContain('Pharmacy work is temporarily unavailable. What is shown may be out of date.')
+    expect(alert.textContent).toContain(`${SAID_UNAVAILABLE} What is shown may be out of date.`)
+    expect(document.body.textContent).not.toContain('Pharmacy work is temporarily unavailable.')
     expect(screen.getByRole('heading', { name: 'Dispensed' })).toBeTruthy()
     expect(api.dispense).toHaveBeenCalledTimes(1)
   })
@@ -469,7 +475,8 @@ describe('Reverse dispensing', () => {
     await openRecord(METFORMIN)
     const form = reverse(reason)
     await confirmPatient('Reverse dispensing')
-    expect((await within(form).findByRole('alert')).textContent).toBe(DISPENSING_VERSION_CONFLICT)
+    expect((await within(form).findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain(DISPENSING_VERSION_CONFLICT)
     fireEvent.click(within(form).getByRole('button', { name: 'Reverse dispensing' }))
     await confirmPatient('Reverse dispensing')
     await waitFor(() => expect(recorded()).toBe('Dispensing reversal recorded.'))
@@ -487,14 +494,15 @@ describe('Reverse dispensing', () => {
   })
 
   it.each([
-    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED],
-    [404, 'PHARMACY_DISPENSING_NOT_FOUND', 'Dispensing was not found'],
-  ])('does not reverse when the dispensing can’t be read (%i)', async (status, code, message) => {
+    [403, 'PHARMACY_ACCESS_DENIED', ACCESS_DENIED, SAID_REFUSED],
+    [404, 'PHARMACY_DISPENSING_NOT_FOUND', 'Dispensing was not found', SAID_NOT_FOUND],
+  ])('does not reverse when the dispensing can’t be read (%i)', async (status, code, message, shown) => {
     api.dispensing.mockRejectedValueOnce(new HidApiError(status, message, { code }))
     await openRecord(METFORMIN)
     const form = reverse('Medication returned unopened by the patient')
     await confirmPatient('Reverse dispensing')
-    expect((await within(form).findByRole('alert')).textContent).toBe(message)
+    expect((await within(form).findByRole('alert')).textContent).toBe(shown)
+    expect(document.body.textContent).not.toContain(message)
     expect(api.reverseDispensing).not.toHaveBeenCalled()
     expect(recordStatus()).toBe('Dispensed')
   })
@@ -520,7 +528,8 @@ describe('Reverse dispensing', () => {
     await within(otherActions()).findByRole('button', { name: 'Reverse dispensing' })
     const reversal = reverse('Dispensed against the wrong prescription')
     await confirmPatient('Reverse dispensing')
-    expect((await within(reversal).findByRole('alert')).textContent).toBe(ACCESS_DENIED)
+    expect((await within(reversal).findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain(ACCESS_DENIED)
     expect(recorded()).toBe('')
     expect(api.reverseDispensing).toHaveBeenCalledWith(DEMO_PHARMACY_ID, 'dispensing-9', 1, 'Dispensed against the wrong prescription')
   })
@@ -549,7 +558,8 @@ describe('while a dispensing or reversal is sent', () => {
     expect(screen.getByRole('heading', { level: 1, name: AMOXICILLIN })).toBeTruthy()
     expect(document.activeElement).toBe(way)
     await act(async () => { recording.reject(new HidApiError(403, ACCESS_DENIED, { code: 'PHARMACY_ACCESS_DENIED' })) })
-    expect((await within(screen.getByRole('form', { name: 'Dispense' })).findByRole('alert')).textContent).toBe(ACCESS_DENIED)
+    expect((await within(screen.getByRole('form', { name: 'Dispense' })).findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain(ACCESS_DENIED)
     expect(way.getAttribute('aria-disabled')).toBeNull()
     fireEvent.click(way)
     expect(await screen.findByRole('heading', { level: 1, name: 'Prescriptions' })).toBeTruthy()

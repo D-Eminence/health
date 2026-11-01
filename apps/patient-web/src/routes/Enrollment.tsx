@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { isHidApiError, retryAfterSeconds } from '@hid/http'
+import { isHidApiError, plainErrorText, retryAfterSeconds } from '@hid/http'
 import { ENROLLMENT_PROFILE_FIELDS, type EnrollmentActivation, type EnrollmentFacilityRoute, type EnrollmentGender, type EnrollmentOnlineRoute,
   type EnrollmentProfile, type EnrollmentProfileField, type EnrollmentProgress } from '../api'
 import { GoogleButton } from '../GoogleButton'
@@ -58,6 +58,26 @@ const NO_FACILITY: EnrollmentFacilityRoute = { available: false }
 
 /** 422 OTP_INVALID at the holder code: wrong, expired, used, or its five attempts spent. */
 const HOLDER_CODE_REFUSED = 'That code is wrong or has expired. Check the latest text message, or ask for a new code.'
+/** Plain words for the refusals enrollment knows: never Identity's own text (owner's rule, 1 Nov 2026). */
+const ENROLLMENT_REFUSALS: Readonly<Record<string, string>> = {
+  OTP_INVALID_OR_EXPIRED: 'That code is wrong or has expired. Check the latest message, or ask for a new code.',
+  NIN_NOT_VERIFIED: 'We couldn’t verify that NIN. Check the number and try again.',
+  CONTACT_ALREADY_REGISTERED: 'This email address or phone number is already used by a Health ID. Use another one, or sign in.',
+  NIN_HOLDER_ROUTE_UNAVAILABLE: 'We can’t send a code to the phone on your NIN record. Register at a participating facility instead.',
+  ASSISTED_REGISTRATION_UNAVAILABLE: 'Registration at a facility isn’t available right now.',
+  ASSISTED_DESK_CODE_LIMITED: 'Too many desk codes were made for this registration. Start again or try later.',
+  DATE_OF_BIRTH_INVALID: DATE_OF_BIRTH_RULE,
+  PASSWORD_INVALID: 'This password can’t be used. Choose a password of at least 12 characters that isn’t easy to guess.',
+  ENROLLMENT_PROFILE_REQUIRED: 'Fill in this detail to continue.',
+  ENROLLMENT_PROFILE_FIELD_VERIFIED: 'This detail comes from your NIN record and can’t be changed here.',
+}
+const ENROLLMENT_STATUSES: Readonly<Partial<Record<number, string>>> = {
+  400: 'Check what you entered and try again.',
+  422: 'Check what you entered and try again.',
+}
+const STEP_FAILED = 'We couldn’t complete that step. Please try again.'
+/** A refused enrollment step in plain words. */
+const enrollmentRefusal = (reason: unknown) => plainErrorText(reason, STEP_FAILED, { codes: ENROLLMENT_REFUSALS, statuses: ENROLLMENT_STATUSES })
 /** 429 NIN_HOLDER_ROUTE_LIMITED: a send or failure budget is spent, three codes were sent, or the phone proved five other NINs. */
 const HOLDER_LIMITED = 'This NIN can\'t be proved by a text message code now. Use a participating facility to register.'
 /** 503 OTP_DELIVERY_UNAVAILABLE: the provider refused the text, which still counts as one of the codes. */
@@ -258,8 +278,6 @@ export function Enrollment() {
   const [notRecordedYet, setNotRecordedYet] = useState(false)
   // Identity has the holder step: the availability read named its routes, or a progress was at verify_holder.
   const [holderSeen, setHolderSeen] = useState(false)
-  // The reference Health ID support asks for after 409 NIN_ALREADY_REGISTERED (the problem's correlationId).
-  const [reference, setReference] = useState<string | null>(null)
   const resend = useResendWait()
   const [resendWaitSeconds, setResendWaitSeconds] = useState(0)
   // One start key per NIN started on this page, in memory only: going back to a NIN after another resumes
@@ -315,7 +333,7 @@ export function Enrollment() {
    */
   const forgetRegistration = () => {
     setNinPath('nin'); setStage('nin'); setNin(''); setCode(''); setChallengeId(null); setMaskedContact(''); forgetRecordName(); setPassword(''); setStepHint(null)
-    setContact(''); setChannel('phone'); setReference(null)
+    setContact(''); setChannel('phone')
     forgetProfile(); forgetHolder(); setNotice(null)
   }
   /** Back to the NIN step with no start key kept: the next start is a new registration (and a new NIN lookup). */
@@ -448,7 +466,7 @@ export function Enrollment() {
       return
     }
     const aboutField = isFieldProblem(reason, stepCodes)
-    setError(isHidApiError(reason) ? reason.message : 'We could not complete that step. Please try again.')
+    setError(enrollmentRefusal(reason))
     setFieldError(aboutField)
     setErrorAlert(!aboutField || fromField)
   }
@@ -458,13 +476,12 @@ export function Enrollment() {
 
   /**
    * 409 NIN_ALREADY_REGISTERED, said only after a holder proof (ADR-062): the
-   * registration is gone. Account recovery, sign-in and support with the
-   * reference; nothing typed for it is kept, and the start key is dropped
-   * (Health-id alignment row 8).
+   * registration is gone. Account recovery, sign-in and support (no reference:
+   * a correlation id is never shown, owner's rule of 1 Nov 2026); nothing typed
+   * for it is kept, and the start key is dropped (Health-id alignment row 8).
    */
-  const showAlreadyRegistered = (reason: unknown) => {
+  const showAlreadyRegistered = () => {
     freshStart(); setStage('already_registered')
-    setReference(isHidApiError(reason) ? reason.requestId : null)
     setGoogleRequired(false); setGooglePending(false); clearError()
   }
 
@@ -492,7 +509,7 @@ export function Enrollment() {
     // After a desk check a registration that is gone follows the staff member's direction (P31).
     if (enrollmentEnded(reason) && stageShown.current === 'facility') return endAfterFacility()
     if (requiresSignOut(reason) || enrollmentEnded(reason)) return displayError(reason)
-    if (refusedWith(reason, 409, 'NIN_ALREADY_REGISTERED')) return showAlreadyRegistered(reason)
+    if (refusedWith(reason, 409, 'NIN_ALREADY_REGISTERED')) return showAlreadyRegistered()
     if (refusedWith(reason, 422, 'OTP_INVALID')) {
       setHolderCodeError(true); setError(HOLDER_CODE_REFUSED); setFieldError(true); setErrorAlert(fromField)
       return
@@ -527,7 +544,7 @@ export function Enrollment() {
           if (enrollmentEnded(again) || requiresSignOut(again)) return holderRefusal(again)
         }
       }
-      const text = refusedWith(reason, 429, 'NIN_HOLDER_ROUTE_LIMITED') ? HOLDER_LIMITED : (reason as Error).message
+      const text = refusedWith(reason, 429, 'NIN_HOLDER_ROUTE_LIMITED') ? HOLDER_LIMITED : enrollmentRefusal(reason)
       setOnlineRefusal(text); setHolderChallenge(null); setCode(''); setStage('holder'); sayError(text)
       return
     }
@@ -576,8 +593,8 @@ export function Enrollment() {
     try { applyProgress(await api.enrollmentFacilityCode()) }
     catch (reason) {
       if (refusedWith(reason, 409, 'ASSISTED_REGISTRATION_UNAVAILABLE')) {
-        sayError(`${(reason as Error).message} ${online.available && !onlineRefusal ? 'You can get a code by text message instead, or try again later.' : 'Try again later.'}`)
-      } else if (refusedWith(reason, 429, 'ASSISTED_DESK_CODE_LIMITED')) sayError((reason as Error).message)
+        sayError(`${enrollmentRefusal(reason)} ${online.available && !onlineRefusal ? 'You can get a code by text message instead, or try again later.' : 'Try again later.'}`)
+      } else if (refusedWith(reason, 429, 'ASSISTED_DESK_CODE_LIMITED')) sayError(enrollmentRefusal(reason))
       else if (refusedWith(reason, 409, 'ENROLLMENT_STAGE_INVALID')) {
         // The holder step is done (another tab, or the check): go where Identity has the registration.
         try { applyProgress(await api.enrollmentCurrent()) } catch (again) { await holderRefusal(again) }
@@ -749,7 +766,7 @@ export function Enrollment() {
       setStage('complete')
     } catch (reason) {
       // The NIN was bound since the holder proof (row 8), or the proof is no longer valid (row 9).
-      if (refusedWith(reason, 409, 'NIN_ALREADY_REGISTERED')) { showAlreadyRegistered(reason); return }
+      if (refusedWith(reason, 409, 'NIN_ALREADY_REGISTERED')) { showAlreadyRegistered(); return }
       if (refusedWith(reason, 409, 'ENROLLMENT_HOLDER_PROOF_REQUIRED')) { freshStart(); sayError(HOLDER_PROOF_REQUIRED); return }
       if (contactReverifyRequired(reason)) {
         // The contact typed on this page is kept, so a new code goes to it with one press (PA-10).
@@ -758,7 +775,7 @@ export function Enrollment() {
         return
       }
       if (profileRefusal(reason, 'DATE_OF_BIRTH_INVALID') && profileFields.includes('dateOfBirth')) {
-        setProfileError('dateOfBirth'); setError((reason as Error).message); setFieldError(true); setErrorAlert(fromField)
+        setProfileError('dateOfBirth'); setError(enrollmentRefusal(reason)); setFieldError(true); setErrorAlert(fromField)
         return
       }
       if (profileRefusal(reason, 'ENROLLMENT_PROFILE_REQUIRED') || profileRefusal(reason, 'ENROLLMENT_PROFILE_FIELD_VERIFIED')) {
@@ -768,7 +785,7 @@ export function Enrollment() {
         setProfileFields(fields)
         const unsent = profileRefusal(reason, 'ENROLLMENT_PROFILE_REQUIRED')
           ? fields.find(field => !(field in profile)) ?? null : null
-        setProfileError(unsent); setError((reason as Error).message); setFieldError(unsent !== null)
+        setProfileError(unsent); setError(enrollmentRefusal(reason)); setFieldError(unsent !== null)
         setErrorAlert(unsent === null || fromField)
         return
       }
@@ -905,7 +922,7 @@ export function Enrollment() {
         deskCodeExpiresAt={facility.deskCodeExpiresAt ?? null} notRecordedYet={notRecordedYet} online={onlineOpen}
         onGetCode={() => void getDeskCode()} onChecked={() => void checkedAtFacility()}
         onOnline={() => { clearError(); setStage('holder'); stepFocus.focus() }} onDifferentNin={startAgain} />}
-      {ready && stage === 'already_registered' && <AlreadyRegistered focusTarget={stepFocus.target} reference={reference} />}
+      {ready && stage === 'already_registered' && <AlreadyRegistered focusTarget={stepFocus.target} />}
       {ready && stage === 'registration_ended' && <RegistrationEnded focusTarget={stepFocus.target} onStartAgain={againAtNin} />}
       {ready && stage === 'registration_completed' && <RegistrationCompleted focusTarget={stepFocus.target} />}
       {ready && recordName && RECORD_NAME_STAGES.includes(stage) && <RecordName name={recordName} busy={busy}

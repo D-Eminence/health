@@ -150,7 +150,7 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
     const gender = await screen.findByLabelText('Gender')
     await waitFor(() => expect(document.activeElement).toBe(gender))
     expect(gender.getAttribute('aria-invalid')).toBe('true')
-    expect(described(gender)).toContain('Enter your gender')
+    expect(described(gender)).toContain('Fill in this detail to continue.')
     expect((screen.getByLabelText('Password') as HTMLInputElement).value).toBe(PASSWORD)
 
     fireEvent.change(gender, { target: { value: 'other' } })
@@ -174,7 +174,7 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
     await waitFor(() => expect(screen.queryByLabelText('Date of birth')).toBeNull())
     const gender = screen.getByLabelText('Gender') as HTMLSelectElement
     expect(gender.value).toBe('female')
-    expect(shownText(screen.getByRole('alert'))).toBe(detail)
+    expect(shownText(screen.getByRole('alert'))).toBe('This detail comes from your NIN record and can’t be changed here.')
     await press(activateButton())
     await screen.findByText('HID-ABCDEF23')
     expect(activations(sent).map(request => request.body)).toEqual([
@@ -214,7 +214,7 @@ describe('sending the password step with Enter in the password field', () => {
   it.each<[string, string, Handler, string]>([
     ['a date outside 1900 to today, refused here', '1899-12-31', () => json({ stage: 'active', hidCode: 'HID-ABCDEF23' }), DATE_DETAIL],
     ['400 DATE_OF_BIRTH_INVALID', '1990-02-03', () => problem(400, 'DATE_OF_BIRTH_INVALID', DATE_DETAIL), DATE_DETAIL],
-    ['400 PASSWORD_INVALID', '1990-02-03', () => problem(400, 'PASSWORD_INVALID', 'Choose a password that is harder to guess'), 'Choose a password that is harder to guess'],
+    ['400 PASSWORD_INVALID', '1990-02-03', () => problem(400, 'PASSWORD_INVALID', 'Choose a password that is harder to guess'), 'This password can’t be used. Choose a password of at least 12 characters that isn’t easy to guess.'],
   ])('announces %s as an alert', async (_case, date, activate, text) => {
     renderPortal(<Enrollment />, gateway(atPassword(['dateOfBirth']), activate), anonymous)
     const password = await enterInPassword(date)
@@ -228,7 +228,7 @@ describe('sending the password step with Enter in the password field', () => {
     await screen.findByLabelText('Date of birth')
     current = atPassword(['dateOfBirth', 'gender'])
     await enterInPassword('1990-02-03')
-    expect(shownText(await screen.findByRole('alert'))).toBe('Enter your gender')
+    expect(shownText(await screen.findByRole('alert'))).toBe('Fill in this detail to continue.')
     expect(screen.getByLabelText('Gender').getAttribute('aria-invalid')).toBe('true')
   })
 })

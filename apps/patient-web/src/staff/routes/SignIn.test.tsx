@@ -38,7 +38,7 @@ it('renews the consumed provider login challenge while preserving credentials on
     return `widget-${challengeCallbacks.length}`
   })
   vi.stubGlobal('turnstile', { render: renderChallenge, remove, reset: vi.fn() })
-  calls.login.mockRejectedValueOnce(new Error('Wrong password'))
+  calls.login.mockRejectedValueOnce(new HidApiError(401, 'Wrong password', { code: 'INVALID_CREDENTIALS' }))
 
   render(<MemoryRouter><SignIn /></MemoryRouter>)
   await waitFor(() => expect(renderChallenge).toHaveBeenCalledTimes(1))
@@ -48,7 +48,7 @@ it('renews the consumed provider login challenge while preserving credentials on
   act(() => challengeCallbacks[0]?.('first-token'))
   fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 
-  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Wrong password')
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'That email address or password isn’t right. Try again.')
   await waitFor(() => expect(renderChallenge).toHaveBeenCalledTimes(2))
   expect(remove).toHaveBeenCalledWith('widget-1')
   expect(calls.login).toHaveBeenCalledWith('clinician@example.test', 'saved-typed-password', 'first-token')
@@ -226,7 +226,7 @@ describe('clinician self sign-up from the provider sign-in page (hid-system ADR-
     act(() => callbacks[0]?.('token-1'))
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 
-    expect((await screen.findByRole('alert')).textContent).toBe(detail)
+    expect((await screen.findByRole('alert')).textContent).toBe('You aren’t active at any facility yet. Ask your facility administrator for access.')
     const applied = screen.getByText(/Applied as a doctor or nurse\? You can sign in once your application is approved\./)
     expect(within(applied).getByRole('link', { name: 'Check your application' }).getAttribute('href')).toBe('/provider/join/status')
   })
@@ -248,7 +248,7 @@ describe('clinician self sign-up from the provider sign-in page (hid-system ADR-
       act(() => callbacks[0]?.('token-1'))
       fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 
-      expect((await screen.findByRole('alert')).textContent).toBe(detail)
+      expect((await screen.findByRole('alert')).textContent).toBe('You aren’t active at any facility yet. Ask your facility administrator for access.')
       expect(await screen.findByText(/Clinician sign-up isn't open yet\./)).toBeTruthy()
       expect(screen.queryByText(/Applied as a doctor or nurse/)).toBeNull()
       expect(screen.queryByRole('link', { name: /clinician application|Check your application/ })).toBeNull()

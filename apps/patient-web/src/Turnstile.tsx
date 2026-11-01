@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { getEnvironment } from './env'
+import { PlainError } from '@hid/http'
 
 declare global {
   interface Window {
@@ -39,8 +40,8 @@ export function loadTurnstileScript(): Promise<void> {
   script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
   script.async = true
   scriptPromise = new Promise<void>((resolve, reject) => {
-    script.onload = () => window.turnstile ? resolve() : reject(new Error(UNAVAILABLE))
-    script.onerror = () => reject(new Error(UNAVAILABLE))
+    script.onload = () => window.turnstile ? resolve() : reject(new PlainError(UNAVAILABLE))
+    script.onerror = () => reject(new PlainError(UNAVAILABLE))
   }).catch(error => { script.remove(); scriptPromise = null; throw error })
   document.head.appendChild(script)
   return scriptPromise

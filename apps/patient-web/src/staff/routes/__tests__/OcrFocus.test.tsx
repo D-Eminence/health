@@ -6,6 +6,7 @@ import { HidApiError } from '@hid/http'
 import { Ocr } from '../Operations'
 import { useFocusOnPageChange } from '../../../pageFocus'
 import { focusWhenShown } from '../../../__tests__/focusWhenShown'
+import { SAID_UNAVAILABLE } from '../../../__tests__/said'
 
 /**
  * OCR-A11Y-01 (WCAG 2.4.3 Focus Order, 4.1.3 Status Messages). Each OCR step
@@ -198,7 +199,8 @@ describe('OCR-A11Y-01: focus and status after each OCR step', () => {
     await press(screen.getByRole('button', { name: 'Validate extraction' }))
     await waitFor(() => expect(focused()).toBe(screen.getByRole('button', { name: 'Find job' })))
     expect(statusRegion().textContent).toBe('Review recorded.')
-    expect(screen.getByRole('alert').textContent).toContain('could not complete')
+    expect(screen.getByRole('alert').textContent).toContain(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('could not complete')
   })
 })
 
@@ -293,7 +295,8 @@ describe('OCR-A11Y-01: a refused request gives focus back to the control that se
     api.validateOcrJob.mockRejectedValue(unavailable())
     const submit = screen.getByRole('button', { name: 'Validate extraction' })
     await press(submit)
-    expect((await screen.findByRole('alert')).textContent).toContain('could not complete')
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('could not complete')
     await waitFor(() => expect(focused()).toBe(submit))
     expect((screen.getByLabelText(/^Review reason/) as HTMLTextAreaElement).value).toBe('Checked against the scanned page')
     expect(statusRegion().textContent).toBe('')

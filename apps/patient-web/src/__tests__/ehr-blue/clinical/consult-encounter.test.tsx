@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
+import { SAID_CHANGED, SAID_FIELDS_REFUSED, SAID_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
 /**
  * Consultation, one encounter: the design's record page (Saved record, Available actions with the typed SIGN
@@ -362,7 +363,8 @@ describe('Consultation record', () => {
   it('shows a note that cannot be read, and offers no signing', async () => {
     api.noteRevisions.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-    expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(actions().queryByRole('button', { name: 'Sign note' })).toBeNull()
   })
 
@@ -373,7 +375,8 @@ describe('Consultation record', () => {
     fireEvent.click(submitOf('Sign note'))
     fireEvent.change(within(dialog()).getByLabelText('Type SIGN to confirm'), { target: { value: 'SIGN' } })
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Sign note' }))
-    expect((await actions().findByRole('alert')).textContent).toBe('The record changed since it was read.')
+    expect((await actions().findByRole('alert')).textContent).toBe(SAID_CHANGED)
+    expect(document.body.textContent).not.toContain('The record changed since it was read.')
   })
 
   it('item 7: edits the unsigned draft as a new revision under the clinician’s typed reason, prefilled with its content', async () => {
@@ -411,7 +414,8 @@ describe('Consultation record', () => {
     fireEvent.change(actions().getByLabelText(labelled('Reason')), { target: { value: 'Duration corrected' } })
     api.addNoteRevision.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     fireEvent.click(save())
-    expect((await actions().findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await actions().findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     fireEvent.click(save())
     expect(await screen.findByText('Note changes saved.')).toBeTruthy()
     expect(api.addNoteRevision).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'note-1',
@@ -540,7 +544,8 @@ describe('Consultation record: diagnoses', () => {
     fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
     fireEvent.change(diagnoses.getByLabelText(labelled('Diagnosis')), { target: { value: 'Fever' } })
     fireEvent.click(diagnoses.getByRole('button', { name: 'Add diagnosis' }))
-    expect((await diagnoses.findByRole('alert')).textContent).toBe('One or more request fields are invalid. Display must be shorter than or equal to 500 characters.')
+    expect((await diagnoses.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('request fields are invalid')
     expect(diagnoses.getByLabelText(labelled('Diagnosis')).getAttribute('aria-invalid')).toBe('true')
 
     fireEvent.click(diagnoses.getByRole('button', { name: 'Add diagnosis' }))
@@ -670,7 +675,8 @@ describe('Consultation record: documents', () => {
     api.documents.mockRejectedValue(new HidApiError(503, 'Documents are unavailable.', { code: 'UNAVAILABLE' }))
     await openEncounter()
     await act(async () => {})
-    expect(within(card('Documents')).getByRole('alert').textContent).toBe('Documents are unavailable.')
+    expect(within(card('Documents')).getByRole('alert').textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('Documents are unavailable.')
   })
 })
 
@@ -754,7 +760,8 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     api.createRecord.mockRejectedValueOnce(UNAVAILABLE())
     const checks = api.lookupPatient.mock.calls.length
     fireEvent.click(save())
-    expect((await saved.findByRole('alert')).textContent).toContain('EHR is unavailable.')
+    expect((await saved.findByRole('alert')).textContent).toContain(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     // The revision is in, and the page says so; each save re-checked access first.
     expect(screen.getByText('Note changes saved.')).toBeTruthy()
     expect(api.addNoteRevision).toHaveBeenCalledTimes(1)
@@ -783,7 +790,8 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     fireEvent.change(saved.getByLabelText(labelled('Reason for revision')), { target: { value: 'Assessment added' } })
     api.createRecord.mockRejectedValueOnce(UNAVAILABLE())
     fireEvent.click(saved.getByRole('button', { name: 'Save draft' }))
-    expect((await saved.findByRole('alert')).textContent).toContain('EHR is unavailable.')
+    expect((await saved.findByRole('alert')).textContent).toContain(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(api.records).not.toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: undefined, fresh: true })
     records['clinical-notes'] = [{ ...NOTE, rowVersion: 3 }]
     fireEvent.click(saved.getByRole('button', { name: 'Cancel editing' }))
@@ -893,7 +901,8 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     api.documents.mockRejectedValue(new HidApiError(403, 'Your role cannot read documents for this patient.', { code: 'PERMISSION_DENIED' }))
     await openEncounter()
     await waitFor(() => expect(history().getAllByRole('alert')).toHaveLength(2))
-    expect(history().getAllByRole('alert').map(alert => alert.textContent)).toEqual(['Vitals are unavailable.', 'Your role cannot read documents for this patient.'])
+    expect(history().getAllByRole('alert').map(alert => alert.textContent)).toEqual([SAID_UNAVAILABLE, SAID_REFUSED])
+    expect(document.body.textContent).not.toMatch(/Vitals are unavailable|Your role cannot read documents/)
   })
 
   it('says a failure two history lists share once', async () => {
@@ -903,7 +912,8 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     })
     api.documents.mockRejectedValue(UNAVAILABLE())
     await openEncounter()
-    await waitFor(() => expect(history().getByRole('alert').textContent).toBe('EHR is unavailable.'))
+    await waitFor(() => expect(history().getByRole('alert').textContent).toBe(SAID_UNAVAILABLE))
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(history().getAllByRole('alert')).toHaveLength(1)
   })
 })

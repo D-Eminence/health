@@ -15,6 +15,7 @@ import {
   COMMAND_FAILED, EMERGENCY_ACCESS, EMERGENCY_CONTACTS_TOLD, EMERGENCY_MINUTES, HID_FORMAT, NOTICE_BEFORE, NOTICE_WHEN, NOT_GRANTED, REASON_MAX,
   REASON_MIN, REASON_TOO_SHORT, actionUnavailable, breakGlassRefusal, healthIdProblem,
 } from './access'
+import { PlainError, plainErrorText } from '@hid/http'
 
 const FIELDS = ['hid', 'reason', 'ack'] as const
 type FieldKey = (typeof FIELDS)[number]
@@ -120,19 +121,19 @@ export function BreakGlassCard() {
         await staffApi.breakGlass(facility.id, normalized, reason.trim())
       } catch (caught) {
         const known = breakGlassRefusal(caught, facility.name)
-        if (known) throw new Error(known)
+        if (known) throw new PlainError(known)
         throw caught
       }
       await untilStaffSessionReady(sentIn)
       const lookup = await staffApi.lookupPatient(facility.id, normalized, 'emergency')
       if (!isAllowedPatientLookup(lookup)) {
         setActivePatient(null)
-        throw new Error(NOT_GRANTED)
+        throw new PlainError(NOT_GRANTED)
       }
       // A lookup answered after the session or facility changed opens nothing.
       if (setActivePatient({ hid: normalized, lookup, purpose: 'emergency' })) navigate(href.to('emergency', 'summary'))
     } catch (caught) {
-      setError(caught instanceof Error && caught.message ? caught.message : COMMAND_FAILED)
+      setError(plainErrorText(caught, COMMAND_FAILED, { audience: 'facility' }))
     } finally {
       sending.current = false
       setBusy(false)

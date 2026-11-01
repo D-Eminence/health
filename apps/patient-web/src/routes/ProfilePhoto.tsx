@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 import type { PatientApi, PatientProfile } from '../api'
 import { useSession } from '../session'
 import { useAnnounceProfileChange } from '../profileChange'
@@ -113,7 +113,7 @@ export function ProfilePhotoControl({ profile, onChanged }: { profile: PatientPr
       focusAfter(() => chooser.current)
     } catch (cause) {
       setError(isHidApiError(cause) && cause.code === 'PHOTO_INVALID' ? PHOTO_REFUSED
-        : isHidApiError(cause) ? cause.message : 'Your photo could not be saved. Try again.')
+        : plainErrorText(cause, 'Your photo could not be saved. Try again.'))
       focusAfter(() => document.getElementById('profile-photo-save'))
     } finally { setBusy(null) }
   }
@@ -129,7 +129,7 @@ export function ProfilePhotoControl({ profile, onChanged }: { profile: PatientPr
       announce()
       focusAfter(() => chooser.current)
     } catch (cause) {
-      setError(isHidApiError(cause) ? cause.message : 'Your photo could not be removed. Try again.')
+      setError(plainErrorText(cause, 'Your photo could not be removed. Try again.'))
       focusAfter(() => document.getElementById('profile-photo-remove'))
     } finally { setBusy(null) }
   }

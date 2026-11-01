@@ -3,7 +3,7 @@ import { ArrowRight, Check, CircleCheck, PackagePlus, PackageX, TriangleAlert, U
 import { FormActions, PatientBanner, Value } from '../../../kasuwa/parts'
 import { Badge, Button, Card, CardHeader, cx } from '../../../kasuwa/ui'
 import { useConfirm } from '../../clinical/parts/confirm'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, PlainError } from '@hid/http'
 import { EhrButton, EhrInput, EhrTextarea } from '@hid/ui/ehr'
 import { staffApi, type PharmacyWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
@@ -165,7 +165,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
     onBusy(true)
     try {
       if (reverse) {
-        if (!item.dispensing) throw new Error('No dispensing is available to reverse.')
+        if (!item.dispensing) throw new PlainError('No dispensing is available to reverse.')
         const current = await staffApi.dispensing(facilityId, item.dispensing.id)
         await staffApi.reverseDispensing(facilityId, current.id, current.version, reason)
         setDone(null)

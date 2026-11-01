@@ -5,6 +5,7 @@ import { HidApiError } from '@hid/http'
 import { Clinical } from '../Clinical'
 import { Laboratory, Pharmacy } from '../Operations'
 import { Patients } from '../Patients'
+import { SAID_FIELDS_REFUSED } from '../../../__tests__/said'
 
 /**
  * PEHR-04 (WCAG 3.3.1 Error Identification, 1.3.1). Field errors on the
@@ -218,10 +219,11 @@ describe('the clinical record', () => {
     fireEvent.change(within(form).getByLabelText(labelled('Code')), { target: { value: 'A01' } })
     fireEvent.change(within(form).getByLabelText(labelled('Display')), { target: { value: 'Typhoid' } })
     fireEvent.submit(form)
-    expect((await within(form).findByRole('alert')).textContent).toContain('Display must be shorter than or equal to 500 characters.')
+    expect((await within(form).findByRole('alert')).textContent).toContain(SAID_FIELDS_REFUSED)
+    expect(document.body.textContent).not.toContain('Display must be shorter')
     const display = within(form).getByLabelText(labelled('Display'))
     expect(display.getAttribute('aria-invalid')).toBe('true')
-    expect(described(display)).toBe('Display must be shorter than or equal to 500 characters.')
+    expect(described(display)).toBe('Use 500 characters or fewer.')
   })
 })
 

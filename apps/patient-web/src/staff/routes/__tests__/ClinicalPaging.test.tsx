@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Clinical } from '../Clinical'
+import { SAID_UNAVAILABLE } from '../../../__tests__/said'
 
 /**
  * EHR pages a patient's encounters and each encounter's records 50 at a time,
@@ -349,7 +350,8 @@ describe('paging the encounter list', () => {
 
     submit('Third try')
     await waitFor(() => expect(api.updateEncounter).toHaveBeenCalledTimes(3))
-    await screen.findByText('Service unavailable')
+    await screen.findByText(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('Service unavailable')
     expect(screen.queryByText(/changed since it was loaded and now shows/)).toBeNull()
   })
 
@@ -435,7 +437,8 @@ describe('paging an encounter record list', () => {
     fireEvent.click(pageButton('Record pages', 'Next page'))
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('Service unavailable')
+    expect(alert.textContent).toContain(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('Service unavailable')
     expect(pager('Record pages').closest('.staff-card')!.contains(alert)).toBe(true)
     expect(screen.getByText('Malaria')).toBeTruthy()
     expect(pageShown('Record pages')).toBe('Page 1')

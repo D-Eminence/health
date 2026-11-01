@@ -15,6 +15,7 @@ import { OrderPage } from './OrderPage'
 import { FlashContext, KINDS, learnFrom, orderTitle, text, type Flash, type OrderKind } from './orders'
 import { isDemoFacility } from '../../../blueFacilities'
 import { useSampleCan } from '../../../frame/sampleAccess'
+import { plainErrorText } from '@hid/http'
 
 export type { OrderKind } from './orders'
 
@@ -107,7 +108,7 @@ function useOrderList(chart: Chart, encounterId: string, kind: OrderKind, allowe
         if (run === sequence.current) setList({ ...UNREAD, items: itemsOf(answer), next: answer?.nextCursor ?? null })
       },
       caught => {
-        if (run === sequence.current) setList({ ...UNREAD, items: [], error: caught instanceof Error ? caught.message : 'Records could not be loaded.' })
+        if (run === sequence.current) setList({ ...UNREAD, items: [], error: plainErrorText(caught, 'Records could not be loaded.', { audience: 'facility' }) })
       },
     )
     return () => { sequence.current += 1 }

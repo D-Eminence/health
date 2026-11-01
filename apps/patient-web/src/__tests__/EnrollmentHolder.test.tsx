@@ -21,6 +21,8 @@ const CHALLENGE = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
 const anonymous = { state: { status: 'anonymous', principal: null } } as const
 const HOLDER_ROUTE_UNAVAILABLE = 'We cannot send a code to the phone on your NIN record. Use a participating facility to register.'
 const HOLDER_ROUTE_LIMITED = 'Use a participating facility to register.'
+/** The page's own words for NIN_HOLDER_ROUTE_UNAVAILABLE, never Identity's (owner's rule, 1 Nov 2026). */
+const HOLDER_ROUTE_SAID = 'We can’t send a code to the phone on your NIN record. Register at a participating facility instead.'
 const CODE_REFUSED = 'That code is wrong or has expired. Check the latest text message, or ask for a new code.'
 
 /** The start's answer since hid-system #84: every NIN alike, nothing about the record but whether a code can be texted. */
@@ -213,7 +215,7 @@ describe('the NIN holder step: the code texted to the phone on the NIN record', 
   it.each([
     ['409', 409, 'there is no usable phone on the record'],
     ['503', 503, 'the online route is off'],
-  ])('says Identity\'s text and offers the facility on %s NIN_HOLDER_ROUTE_UNAVAILABLE when %s', async (_status, status) => {
+  ])('says it in plain words and offers the facility on %s NIN_HOLDER_ROUTE_UNAVAILABLE when %s', async (_status, status) => {
     const signOut = vi.fn()
     let current = () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')
     renderPortal(<Enrollment />, gateway({ current: () => current(),
@@ -223,7 +225,7 @@ describe('the NIN holder step: the code texted to the phone on the NIN record', 
       } } }), { ...anonymous, signOut })
     await startHolder()
     await press(screen.getByRole('button', { name: 'Text me a code' }))
-    expect(shownText(await screen.findByRole('alert'))).toBe(HOLDER_ROUTE_UNAVAILABLE)
+    expect(shownText(await screen.findByRole('alert'))).toBe(HOLDER_ROUTE_SAID)
     const online = screen.getByRole('region', { name: 'Get a code by text message' })
     expect(within(online).queryByRole('button', { name: 'Text me a code' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Register at a facility' })).toBeTruthy()
@@ -281,7 +283,7 @@ describe('the NIN holder step: the code texted to the phone on the NIN record', 
 
   it.each([
     ['429 NIN_HOLDER_ROUTE_LIMITED', () => problem(429, 'NIN_HOLDER_ROUTE_LIMITED', HOLDER_ROUTE_LIMITED), 'This NIN can\'t be proved by a text message code now. Use a participating facility to register.'],
-    ['503 NIN_HOLDER_ROUTE_UNAVAILABLE', () => problem(503, 'NIN_HOLDER_ROUTE_UNAVAILABLE', HOLDER_ROUTE_UNAVAILABLE), HOLDER_ROUTE_UNAVAILABLE],
+    ['503 NIN_HOLDER_ROUTE_UNAVAILABLE', () => problem(503, 'NIN_HOLDER_ROUTE_UNAVAILABLE', HOLDER_ROUTE_UNAVAILABLE), HOLDER_ROUTE_SAID],
   ])('goes back to the choice, offering the facility, on %s after a code', async (_case, refusal, text) => {
     renderPortal(<Enrollment />, gateway({ post: { ...sending, 'holder/verify': refusal } }), anonymous)
     await toCode()
@@ -324,7 +326,10 @@ describe('a NIN that already has a Health ID, said only after a correct code (ro
     const outcome = heading.closest('section')!
     expect(within(outcome).getByRole('link', { name: 'Recover your account' }).getAttribute('href')).toBe('/recover')
     expect(within(outcome).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
-    expect(outcome.textContent).toContain('If you have never registered for a Health ID, contact Health ID support and quote this reference: corr-7f3a.')
+    expect(outcome.textContent).toContain('If you have never registered for a Health ID, contact Health ID support.')
+    // The correlation id is never shown (owner's rule, 1 Nov 2026), nor Identity's own words.
+    expect(document.body.textContent).not.toContain('corr-7f3a')
+    expect(document.body.textContent).not.toContain('Use account recovery to sign in.')
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     expect(screen.queryByLabelText('Verification code')).toBeNull()
     expect(document.body.textContent).not.toContain(NIN)

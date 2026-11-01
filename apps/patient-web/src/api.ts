@@ -439,7 +439,7 @@ const text = (value: unknown, limit: number): string | null =>
 
 /** The imported list as shown: a row without an id or a time is left out. */
 export function parseImportedNotifications(value: unknown): ImportedNotification[] {
-  if (!Array.isArray(value)) throw new Error('Your hid-1.0 notifications could not be read.')
+  if (!Array.isArray(value)) throw new Error('Your older notifications could not be read.')
   return value.flatMap((entry): ImportedNotification[] => {
     if (typeof entry !== 'object' || entry === null) return []
     const row = entry as Record<string, unknown>
