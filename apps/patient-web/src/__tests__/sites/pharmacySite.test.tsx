@@ -1,10 +1,12 @@
+import { useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { rightSiteHref, servedHere } from '../../productSites'
-import { facility } from '../ehr-blue/frame/blueHarness'
+import { facility, serve, sessionAt } from '../ehr-blue/frame/blueHarness'
 import {
-  address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_PERMISSION, expectOpenedElsewhere, openBlueOn, openClassicOn, openPortalOn,
-  OUTREACH_DEMO, PHARMACY_DEMO, signInActionOn, siteLinks,
+  address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_PERMISSION, expectOpenedElsewhere, onSite, openBlueOn, openClassicOn,
+  openPortalOn, OUTREACH_DEMO, PHARMACY_DEMO, REAL_CLINIC, SESSION, signInActionOn, siteLinks,
 } from './siteHarness'
 
 /** pharmacy.: the Pharmacy product, with the pages every staff site serves. Everything else opens on its own site. */
@@ -16,7 +18,7 @@ const opened = vi.hoisted(() => vi.fn())
 vi.mock('../../openSite', () => ({ openSite: opened }))
 
 class TabChannel extends EventTarget { postMessage() {} close() {} }
-beforeEach(() => { opened.mockClear(); clinic.switchedOn = false; vi.stubGlobal('BroadcastChannel', TabChannel) })
+beforeEach(() => { opened.mockClear(); clinic.switchedOn = false; trail = []; vi.stubGlobal('BroadcastChannel', TabChannel) })
 afterEach(() => { backToTestSite(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
 const SITE = 'pharmacy.healthidentitydirectory.com'
@@ -92,6 +94,60 @@ describe(SITE, () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Demo Outreach works on Outreach' })).toBeTruthy()
     const page = within(document.querySelector<HTMLElement>('.hid-ehr-blue-page')!)
     expect(page.getByRole('link', { name: 'Open Outreach' }).getAttribute('href')).toBe('https://outreach.healthidentitydirectory.com/')
+  })
+})
+
+/** Every address the staff app went to on this site, in order. */
+let trail: string[] = []
+
+/** A loop goes round without a pause: past this many addresses the app is stopped, so the test fails instead of hanging. */
+const ROUND = 25
+
+function Trail() {
+  const { pathname } = useLocation()
+  useEffect(() => {
+    trail.push(pathname)
+    if (trail.length > ROUND) throw new Error(`The address went round: ${trail.slice(0, 6).join(' → ')} …`)
+  }, [pathname])
+  return null
+}
+
+/** The staff app at `path` on this site, signed in at `at`, with the address trail recorded. */
+async function openStaffAt(path: string, at: ReturnType<typeof facility>) {
+  serve({ [SESSION]: [sessionAt(at, [at])] })
+  onSite(SITE, path)
+  const { App } = await import('../../staff/App')
+  render(<MemoryRouter initialEntries={[path]}><Trail /><Routes><Route path="/provider/*" element={<App />} /></Routes></MemoryRouter>)
+}
+
+/**
+ * #104 stopped this site sending a role that can open neither Sell nor Prescriptions round /provider, Pharmacy and
+ * Sell for ever: it lands on Prescriptions, which says plainly why it is not open. This site's own redirects (an
+ * address another site serves, the product's home in place of Home) must not bring the loop back.
+ */
+describe(`${SITE}, for a role without the pharmacy page’s permission`, () => {
+  const NONE = 'Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.'
+  const NO_PRESCRIPTIONS = 'Your role at this facility doesn’t include prescriptions. Ask your facility administrator.'
+
+  it.each([
+    ['/provider', 'Demo Pharmacy', ['audit.read'], NONE],
+    ['/provider/pharmacy', 'Demo Pharmacy', ['audit.read'], NONE],
+    ['/provider', 'Demo Pharmacy', ['billing.bill.read'], NO_PRESCRIPTIONS],
+    ['/provider', 'a fictional pharmacy, with the clinic switch on', ['audit.read'], NONE],
+  ])('opened at %s at %s holding %j, settles on Pharmacy’s plain refusal here, without going round', async (path, at, permissions, message) => {
+    clinic.switchedOn = at !== 'Demo Pharmacy'
+    await openStaffAt(path, facility(at === 'Demo Pharmacy' ? PHARMACY_DEMO : REAL_CLINIC, 'Corner Pharmacy (fictional)', permissions))
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Pharmacy unavailable' })
+    // The blue EHR's own refusal, in plain words.
+    expect(heading.closest('.hid-ehr-blue-page')).toBeTruthy()
+    expect(screen.getByText(message)).toBeTruthy()
+    // Give a loop the time to show itself: the address stays where it landed, on this site.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+    expect(trail.at(-1)).toBe('/provider/pharmacy/prescriptions')
+    expect(screen.getByRole('heading', { level: 1, name: 'Pharmacy unavailable' })).toBe(heading)
+    expect(trail.filter(address => address === '/provider').length).toBeLessThanOrEqual(1)
+    expect(trail.filter(address => address === '/provider/pharmacy/prescriptions').length).toBe(1)
+    expect(opened).not.toHaveBeenCalled()
   })
 })
 
