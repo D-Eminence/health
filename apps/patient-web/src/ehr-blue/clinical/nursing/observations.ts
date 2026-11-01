@@ -11,10 +11,12 @@ export const AMEND_LABEL = 'Amend observation'
 
 /**
  * A nursing observation is today's clinical note: its note type names it, its title is the design's category, and
- * its content holds the details, then the units or dose on a line of their own.
+ * its content holds the details, then the units or dose on a line of their own. Vital signs are not one of them: they
+ * are recorded in Triage & Vitals, where they are range-checked and kept as vitals (an observation saved earlier under
+ * "Vitals" still shows wherever notes show).
  */
 export const NOTE_TYPE = 'Nursing observation'
-export const CATEGORIES = ['Vitals', 'Medication administration', 'Handover', 'Care task'] as const
+export const CATEGORIES = ['Medication administration', 'Handover', 'Care task'] as const
 const UNITS = 'Units / dose: '
 /** Today's note content limit, less room for the units line. */
 export const DETAILS_LIMIT = 99_000
