@@ -809,6 +809,54 @@ describe('A prescription’s page', () => {
     expect(await screen.findByText('This prescription no longer matches what was sent (it was changed, put on hold or cancelled meanwhile), so Pharmacy did not accept it. The list was reloaded.')).toBeTruthy()
   })
 
+  // hid-system 0100: Pharmacy checks the prescription itself as it accepts it, and the EHR passes its refusal on.
+  it.each([
+    ['PRESCRIPTION_SOURCE_VERSION_MISMATCH', 409, 'This prescription changed since it was read; reload it and send it again',
+      'This prescription changed since it was loaded, so it was not sent to Pharmacy: check it, and send it again if it is still needed.'],
+    ['PRESCRIPTION_SOURCE_NOT_ACTIVE', 409, 'This prescription is no longer active, so Pharmacy did not accept it',
+      'This prescription is no longer active, so it was not sent to Pharmacy.'],
+    ['PRESCRIPTION_SOURCE_NOT_FOUND', 404, 'The prescription was not found at this facility',
+      'This prescription can’t be sent to Pharmacy as it is: check it, and try again if it is still needed.'],
+    ['PRESCRIPTION_SOURCE_MISMATCH', 422, 'The details sent do not match the prescription, so Pharmacy did not accept it',
+      'This prescription can’t be sent to Pharmacy as it is: check it, and try again if it is still needed.'],
+  ])('reads the order again and says plainly why Pharmacy refused it (%s)', async (code, status, detail, said) => {
+    staff.permissions = [...READ_WRITE, 'pharmacy.work-item.accept']
+    setLists([prescription({ status: 'active', rowVersion: 3 })], [])
+    api.acceptPrescription.mockRejectedValueOnce(new HidApiError(status, detail, { code }))
+    await openOrder('pharmacy', RX)
+    api.records.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Pharmacy' }))
+    change('Reason', 'Patient collecting today')
+    fireEvent.submit(field('Reason').closest('form')!)
+
+    expect(await screen.findByText(`${said} The list was reloaded.`)).toBeTruthy()
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: undefined, fresh: true })
+    expect(document.body.textContent).not.toContain(code)
+    expect(document.body.textContent).not.toContain(detail)
+    expect(screen.queryByText('Pharmacy accepted this exact prescription version.')).toBeNull()
+  })
+
+  it('sends the version read again, under a new key, after Pharmacy found the prescription changed', async () => {
+    staff.permissions = [...READ_WRITE, 'pharmacy.work-item.accept']
+    setLists([prescription({ status: 'active', rowVersion: 3 })], [])
+    api.acceptPrescription.mockRejectedValueOnce(new HidApiError(409, 'This prescription changed since it was read; reload it and send it again',
+      { code: 'PRESCRIPTION_SOURCE_VERSION_MISMATCH' }))
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Pharmacy' }))
+    change('Reason', 'Patient collecting today')
+    setLists([prescription({ status: 'active', rowVersion: 4, instructions: 'Before meals' })], [])
+    fireEvent.submit(field('Reason').closest('form')!)
+    expect(await screen.findByText(/^This prescription changed since it was loaded/)).toBeTruthy()
+
+    api.acceptPrescription.mockResolvedValueOnce({})
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Pharmacy' }))
+    change('Reason', 'Patient collecting today')
+    fireEvent.submit(field('Reason').closest('form')!)
+    expect(await screen.findByText('Pharmacy accepted this exact prescription version.')).toBeTruthy()
+    expect(api.acceptPrescription).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, RX, 4, 'Patient collecting today', expect.any(String))
+    expect(api.acceptPrescription.mock.calls[1]![6]).not.toBe(api.acceptPrescription.mock.calls[0]![6])
+  })
+
   it('says Pharmacy already holds work for it', async () => {
     staff.permissions = [...READ_WRITE, 'pharmacy.work-item.accept']
     setLists([prescription({ status: 'active', rowVersion: 3 })], [])
