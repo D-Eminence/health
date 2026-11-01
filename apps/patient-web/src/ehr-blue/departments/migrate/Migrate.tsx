@@ -266,7 +266,7 @@ export function Migrate() {
 
   // The page opens as today's Migrate and Document OCR pages do: at a facility, with OCR job read.
   if (!facilityId || !canRead) return <DeptPage title="Document OCR">
-    <DeptNotice tone="critical" role="alert">You don’t have access to Document OCR here. Ask your facility administrator if you need it.</DeptNotice>
+    <DeptNotice tone="critical" role="alert">Your role at this facility doesn’t include turning scanned documents into records. Ask your facility administrator.</DeptNotice>
   </DeptPage>
 
   const detail = view === 'detail' && canRead && visibleJob ? visibleJob : null
@@ -299,7 +299,7 @@ export function Migrate() {
       statusWords(row.job.status), row.job.provider, row.job.patientId]))
     const nothingFound = searched && !visibleJob && currentDocument !== ''
     if (!canRead) return <DeptSection title="Document OCR">
-      <DeptNotice tone="critical">You don’t have access to find, start or review document reading here. Ask your facility administrator if you need it.</DeptNotice>
+      <DeptNotice tone="critical">Your role at this facility doesn’t include turning scanned documents into records. Ask your facility administrator.</DeptNotice>
     </DeptSection>
     return <>
       <DeptSearch label="Search Document OCR" value={search} onChange={setSearch}

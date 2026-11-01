@@ -115,7 +115,7 @@ describe('Migrate page entry', () => {
     renderMigrate()
     expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Document OCR'])
     expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([
-      'You don’t have access to Document OCR here. Ask your facility administrator if you need it.'])
+      'Your role at this facility doesn’t include turning scanned documents into records. Ask your facility administrator.'])
     expect(screen.queryByRole('button', { name: 'Find job' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Patient documents' })).toBeNull()
