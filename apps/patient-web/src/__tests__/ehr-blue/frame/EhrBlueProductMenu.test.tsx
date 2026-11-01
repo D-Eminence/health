@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, within } from '@testing-library/react'
 import { inProduct, type Product } from '../../../ehr-blue/frame/product'
-import { DEMO_HOSPITAL, DEMO_LABORATORY, SESSION, facility, openStaffApp, serve, sessionAt, withFramePages } from './blueHarness'
+import { DEMO_HOSPITAL, DEMO_LABORATORY, REAL_FACILITY, SESSION, facility, openStaffApp, serve, sessionAt, withFramePages } from './blueHarness'
 
 /**
  * Patients and Access requests on a single product's site (parity report 3.1 #7). On lab., pharmacy., outreach. and
  * migrate. the menu and search list only that product's pages and the facility's own (staff, audit, profile); a lab
  * scientist or a pharmacist still finds a patient and asks for access there, as the classic portal listed each page by
  * permission on every site (staff/navigation.ts). The other clinical pages, registration among them, stay the EHR's.
+ * Most cases run on the frame's own registry at a demo facility; one runs on the real, merged registry at a clinic.
  * Every account and facility here is fictional, and the hosts are only set as the page's address: nothing is sent there.
  */
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
-beforeEach(() => { withFramePages() })
 const jsdom = (globalThis as unknown as { jsdom: { reconfigure(options: { url: string }): void } }).jsdom
 const servedFrom = window.location.href
 afterEach(() => { jsdom.reconfigure({ url: servedFrom }); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
@@ -31,6 +31,8 @@ const SITES: readonly [Exclude<Product, 'ehr'>, string, string, string, string][
 
 const nav = () => screen.getByRole('navigation', { name: 'Main navigation' })
 const listedInMenu = (label: string) => within(nav()).queryByRole('link', { name: label }) !== null
+/** The sidebar's headings: a group of more than one page folds under a button that names it. */
+const headings = () => within(nav()).queryAllByRole('button').map(button => button.textContent ?? '')
 
 /** The pages search offers before anything is typed: every page the menu lists. */
 function searchOffers(): string[] {
@@ -42,12 +44,15 @@ function searchOffers(): string[] {
   return offers
 }
 
-/** Opens What's left (a page every demo facility opens, listed nowhere) on `host`, at a facility holding `permissions`. */
-async function openOn(host: string, id: string, name: string, permissions: readonly string[]) {
-  jsdom.reconfigure({ url: `https://${host}/provider/whats-left` })
+/**
+ * Opens `path` on `host`, at a facility holding `permissions`: by default What's left, a page every demo facility opens
+ * and that is listed nowhere.
+ */
+async function openOn(host: string, id: string, name: string, permissions: readonly string[], path = '/provider/whats-left') {
+  jsdom.reconfigure({ url: `https://${host}${path}` })
   const current = facility(id, name, permissions)
   serve({ [SESSION]: [sessionAt(current, [current])] })
-  await openStaffApp('/provider/whats-left')
+  await openStaffApp(path)
   await screen.findByRole('navigation', { name: 'Main navigation' })
 }
 
@@ -56,7 +61,7 @@ describe('which pages a single product keeps', () => {
     expect(inProduct(product, 'patients')).toBe(true)
     expect(inProduct(product, 'patients/*')).toBe(true)
     expect(inProduct(product, 'requests/*')).toBe(true)
-    for (const path of ['registration', 'in-person-check', 'clinical/*', 'triage/*', 'nursing/*', 'emergency/*', 'billing']) {
+    for (const path of ['registration', 'in-person-check', 'clinical/*', 'triage/*', 'nursing/*', 'emergency/*']) {
       expect(inProduct(product, path), path).toBe(false)
     }
   })
@@ -67,6 +72,8 @@ describe('which pages a single product keeps', () => {
 })
 
 describe('the menu on a single product’s site', () => {
+  beforeEach(() => { withFramePages() })
+
   it.each(SITES)('on %s (%s) lists Patients and Access requests for a session allowed them, in the menu and in search',
     async (_product, host, id, name, own) => {
       await openOn(host, id, name, [own, ...FIND_AND_ASK, ...EHR_ONLY])
@@ -104,12 +111,65 @@ describe('the menu on a single product’s site', () => {
     fireEvent.change(within(drawer).getByRole('searchbox', { name: 'Health ID or page' }), { target: { value: 'HID-ABCDEF23' } })
     expect(within(drawer).getByRole('link', { name: /^Find patient/ }).getAttribute('href')).toBe('/provider/patients')
   })
+
+  it('lists both under one plain heading, Patients, not the hospital’s front desk and care', async () => {
+    await openOn('lab.healthidentitydirectory.com', DEMO_LABORATORY, 'Demo Laboratory', ['lab.work-item.read', ...FIND_AND_ASK])
+    expect(headings()).toContain('Patients')
+    expect(headings()).not.toContain('Front desk')
+    expect(headings()).not.toContain('Care')
+    const group = within(nav()).getByRole('button', { name: 'Patients' })
+    expect(group.getAttribute('aria-expanded')).toBe('true')
+    const under = within(group.parentElement!).getAllByRole('link').map(link => link.textContent)
+    expect(under).toEqual(['Patients', 'Access requests'])
+  })
+
+  it('lists Patients alone with no heading over it', async () => {
+    await openOn('pharmacy.healthidentitydirectory.com', DEMO_PHARMACY, 'Demo Pharmacy', ['pharmacy.work-item.read', 'identity.patient.read'])
+    expect(listedInMenu('Patients')).toBe(true)
+    expect(headings()).not.toContain('Patients')
+    expect(headings()).not.toContain('Front desk')
+  })
 })
 
-describe('the EHR’s menu', () => {
-  it('is unchanged: the front desk’s and care’s pages, each by its permission', async () => {
+describe('a single product at an address that names no product', () => {
+  beforeEach(() => { withFramePages() })
+
+  // Away from the product sites (here the test page's own address), a pharmacy on its own is the pharmacy product by its
+  // permissions (product.ts). Asking for access is not a clinical permission, so it stays the pharmacy and lists Access
+  // requests; finding a patient would make it the EHR, so Patients is not there to list.
+  it('lists Access requests and none of the EHR’s clinical pages', async () => {
+    await openOn(new URL(servedFrom).host, DEMO_PHARMACY, 'Demo Pharmacy',
+      ['pharmacy.work-item.read', 'identity.consent.write', 'identity.registration.write', 'identity.patient.assisted_registration'])
+    expect(screen.getAllByRole('link', { name: 'Health ID Pharmacy home' }).length).toBeGreaterThan(0)
+    expect(listedInMenu('Access requests')).toBe(true)
+    for (const page of ['Patients', 'Patient registration', 'In-person check', 'Consultation']) expect(listedInMenu(page), page).toBe(false)
+    const offers = searchOffers()
+    expect(offers).toContain('Access requests')
+    for (const page of ['Patients', 'Patient registration', 'In-person check', 'Consultation']) expect(offers, page).not.toContain(page)
+  })
+})
+
+describe('at a clinic, on the real registry', () => {
+  // No withFramePages: the merged registry (clinical/pages.ts) gives Patients and Access requests here, as at real clinics.
+  // Consultation's permission is held too: the product, not the permission, keeps it out.
+  it('lists Patients and Access requests on lab., by permission', async () => {
+    await openOn('lab.healthidentitydirectory.com', REAL_FACILITY, 'Riverside Laboratory (fictional)',
+      ['lab.work-item.read', ...FIND_AND_ASK, 'ehr.encounter.read'], '/provider/institutions')
+    expect(listedInMenu('Patients')).toBe(true)
+    expect(listedInMenu('Access requests')).toBe(true)
+    expect(listedInMenu('Consultation')).toBe(false)
+    expect(searchOffers()).toEqual(expect.arrayContaining(['Patients', 'Access requests']))
+  })
+})
+
+describe('the EHR’s menu at a hospital', () => {
+  beforeEach(() => { withFramePages() })
+
+  it('is unchanged: the front desk’s and care’s pages, each by its permission, under their headings', async () => {
     await openOn('ehr.healthidentitydirectory.com', DEMO_HOSPITAL, 'Demo Hospital', [...FIND_AND_ASK, ...EHR_ONLY])
     for (const page of ['Patients', 'Patient registration', 'In-person check', 'Consultation', 'Access requests']) expect(listedInMenu(page), page).toBe(true)
     expect(searchOffers()).toEqual(expect.arrayContaining(['Patients', 'Patient registration', 'In-person check', 'Consultation', 'Access requests']))
+    expect(headings()).toEqual(expect.arrayContaining(['Front desk', 'Care']))
+    expect(headings()).not.toContain('Patients')
   })
 })

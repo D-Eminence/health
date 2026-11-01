@@ -10,7 +10,7 @@ import { BillingBanner } from '../../staff/routes/Billing'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { isDemoFacility } from '../blueFacilities'
-import { PRODUCTS, inProduct, productOf } from './product'
+import { PRODUCTS, inProduct, productOf, type Product } from './product'
 import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
@@ -35,6 +35,12 @@ const CLINICAL_SIDEBAR: Readonly<Record<string, string>> = {
   surgery: 'Wards & units', icu: 'Wards & units', dental: 'Wards & units',
 }
 
+/**
+ * A single product keeps only Patients and Access requests of the clinical pages (product.ts): they share one plain
+ * heading there, as the classic portal listed them, not the hospital's front desk and care.
+ */
+const PRODUCT_CLINICAL_HEADING = 'Patients'
+
 /** A page's EHR icon (an element) as the shell's icon component: it takes the shell's size and colour. */
 const iconCache = new WeakMap<object, Icon>()
 function iconOf(element: ReactNode): Icon {
@@ -47,16 +53,17 @@ function iconOf(element: ReactNode): Icon {
 /** Design tools for the team, not places staff work: reachable by address, never listed. */
 const INTERNAL_GROUPS: ReadonlySet<string> = new Set(['Design review', 'Design tour'])
 
-/** The heading a page is listed under in the sidebar. */
-export function sidebarGroupOf(page: Pick<EhrBluePage, 'path' | 'group'>): string {
-  return page.group === 'Clinical' ? CLINICAL_SIDEBAR[basePath(page.path)] ?? page.group : page.group
+/** The heading a page is listed under in the sidebar, in this product's workspace. */
+export function sidebarGroupOf(page: Pick<EhrBluePage, 'path' | 'group'>, product: Product = 'ehr'): string {
+  if (page.group !== 'Clinical') return page.group
+  return product === 'ehr' ? CLINICAL_SIDEBAR[basePath(page.path)] ?? page.group : PRODUCT_CLINICAL_HEADING
 }
 
 /** The sidebar: the pages the facility may open, by group, in order; a lone page named as its group gets no heading. */
-export function navigationGroups(pages: readonly EhrBluePage[]): EhrNavGroup[] {
+export function navigationGroups(pages: readonly EhrBluePage[], product: Product = 'ehr'): EhrNavGroup[] {
   const groups: { id: string; label: string; items: EhrNavItem[] }[] = []
   for (const page of pages) {
-    const label = sidebarGroupOf(page)
+    const label = sidebarGroupOf(page, product)
     let group = groups.find(candidate => candidate.label === label)
     if (!group) {
       group = { id: label || 'home', label, items: [] }
@@ -102,7 +109,8 @@ export function BlueFrame() {
   // What the sidebar and search offer: the allowed pages this session lists.
   // Only working screens are offered (the owner's decision of 2026-10-31): sample modules with fictional figures stay in
   // the code for demos but are not listed in the sidebar or search. Home is always listed.
-  // A lab, pharmacy or outreach on its own sees only its product (product.ts); a hospital's EHR has them all.
+  // A lab, pharmacy or outreach on its own sees its own pages, the facility's, and Patients and Access requests
+  // (product.ts); a hospital's EHR has them all.
   const product = productOf(window.location.hostname, permissions)
   const info = PRODUCTS[product]
   const listed = useMemo(() => allowed.filter(page => (page.status !== 'sample' || page.path === '') && !INTERNAL_GROUPS.has(page.group)
@@ -158,11 +166,11 @@ export function BlueFrame() {
   const own = (page: EhrBluePage) => basePath(page.path) === info.home || basePath(page.path).startsWith(`${info.home}/`)
   const ordered = product === 'ehr' ? listed : [...listed.filter(own), ...listed.filter(page => !own(page))]
   const groups = navigationGroups(product === 'ehr' ? ordered.filter(page => !page.tabOf)
-    : ordered.map(page => page.tabLabel ? { ...page, label: page.tabLabel } : page))
+    : ordered.map(page => page.tabLabel ? { ...page, label: page.tabLabel } : page), product)
   // The groups a clinician opens all day stay open; the rest fold (Hick's Law), each opening while it holds the page.
-  // A single product's own group is its whole job, so it stays open too.
+  // A single product's own group is its whole job, so it stays open too, as do its Patients and Access requests.
   // (A pharmacy's home is a menu of pages below it, pharmacy/sell first: its group is theirs.)
-  const OPEN = new Set(['Front desk', 'Care', ...(product === 'ehr' ? [] : [listed.find(page => basePath(page.path) === info.home
+  const OPEN = new Set(['Front desk', 'Care', ...(product === 'ehr' ? [] : [PRODUCT_CLINICAL_HEADING, listed.find(page => basePath(page.path) === info.home
     || basePath(page.path).startsWith(`${info.home}/`))?.group ?? ''])])
   const nav: NavGroup[] = groups.map(group => ({
     title: group.label,
