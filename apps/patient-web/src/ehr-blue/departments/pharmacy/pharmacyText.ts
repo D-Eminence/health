@@ -37,11 +37,13 @@ export function doseText(item: PharmacyWorkItem): string | null {
 }
 
 /**
- * Whether the prescription lacks what a dispenser needs to hand it over safely: the dose with its unit, and how often.
- * Said on the row and the record as "Can't dispense: dose missing" (the prescriber needs to complete it).
+ * Whether the prescription lacks what a dispenser needs to hand it over safely: how often, and a dose given with its
+ * unit (or neither). A prescription with no dose and no unit (a cream, or "as directed") is complete, as in classic,
+ * which said only "Dose not recorded". Said on the row and the record as "Can't dispense: dose missing" (the prescriber
+ * needs to complete it).
  */
 export function doseMissing(item: PharmacyWorkItem): boolean {
-  return item.doseQuantity == null || !item.doseUnit?.trim() || !item.frequency?.trim()
+  return !item.frequency?.trim() || (item.doseQuantity == null) !== !item.doseUnit?.trim()
 }
 
 export const DOSE_MISSING = 'Can’t dispense: dose missing'
@@ -114,7 +116,8 @@ const VERB: Readonly<Record<string, string>> = { cream: 'Apply', inhaler: 'Inhal
 
 /**
  * What the label says, in plain words: "Take 1 tablet by mouth twice daily." and the prescriber's instructions. Only
- * what the prescription says: no part is guessed. Null when the dose or how often is missing (it can't be labelled).
+ * what the prescription says: no part is guessed, so a prescription with no dose has none on its label ("Apply on the
+ * skin twice daily."). Null when how often, or half of a dose, is missing (it can't be labelled).
  */
 export function labelText(item: PharmacyWorkItem, form: string): string | null {
   if (doseMissing(item)) return null
