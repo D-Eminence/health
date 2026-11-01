@@ -25,13 +25,15 @@ const icon = (I: typeof ShoppingBag) => <I aria-hidden strokeWidth={1.8} />
 /**
  * Opened by its address without the permission: today's refusal (staff/routes/Operations.tsx Pharmacy) in plain words,
  * and nothing is read. While Health ID support checks a facility that signed itself up, Pharmacy is locked for its
- * administrator too (the banner above says so): they are told it opens after the check, not to ask themselves.
+ * administrator too (the banner above says so): they are told it opens after the check, not to ask themselves. A role
+ * that may open another Pharmacy page (Sell, Stock, Sales & receipts…) is told only prescriptions are not in it.
  */
 function PharmacyUnavailable() {
-  const { facility } = useDeptAccess()
+  const { facility, permissions } = useDeptAccess()
+  const otherPharmacyWork = pharmacyPages.some(page => page !== pharmacyPage && page.permission !== undefined && permissions.includes(page.permission))
   const message = usesNovuBackend() && selfServiceReview(facility) === 'pending'
     ? 'Pharmacy opens once Health ID support has checked your facility.'
-    : 'Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.'
+    : `Your role at this facility doesn’t include ${otherPharmacyWork ? 'prescriptions' : 'pharmacy work'}. Ask your facility administrator.`
   return <DeptUnavailable title="Pharmacy unavailable" message={message} />
 }
 

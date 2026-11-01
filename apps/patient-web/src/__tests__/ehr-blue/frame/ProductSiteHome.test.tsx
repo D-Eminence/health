@@ -117,6 +117,20 @@ describe('the pharmacy. site settles on a page whatever the role holds', () => {
     expect(screen.getByText(NO_PHARMACY_WORK)).toBeTruthy()
   })
 
+  it('other pharmacy pages but neither (Stock, Sales & receipts): Prescriptions, which says only prescriptions are not in the role', async () => {
+    const landed = await settle(PHARMACY, ['pharmacy.stock.read', 'billing.bill.read'])
+    expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
+    expect(screen.getByText('Your role at this facility doesn’t include prescriptions. Ask your facility administrator.')).toBeTruthy()
+    expect(screen.queryByText(NO_PHARMACY_WORK)).toBeNull()
+    expect(screen.getByRole('link', { name: 'Stock' })).toBeTruthy()
+  })
+
+  it('a seller who opens Prescriptions by its address is told only prescriptions are not in the role', async () => {
+    const landed = await settle(PHARMACY, [WALK_IN], '/provider/pharmacy/prescriptions')
+    expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
+    expect(screen.getByText('Your role at this facility doesn’t include prescriptions. Ask your facility administrator.')).toBeTruthy()
+  })
+
   it('walk-in sales only: Sell', async () => {
     expect(await settle(PHARMACY, [WALK_IN])).toEqual({ where: '/provider/pharmacy/sell', heading: 'Sell (stand-in)' })
   })
