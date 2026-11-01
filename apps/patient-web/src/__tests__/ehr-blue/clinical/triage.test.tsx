@@ -393,6 +393,43 @@ describe('New triage & vitals', () => {
     expect(api.createRecord).not.toHaveBeenCalled()
   })
 
+  it('accepts the same precision as classic and the EHR: a 3.25 kg baby, 50.25 cm, SpO₂ 97.5', async () => {
+    const form = await openNew()
+    // Classic's steps and ranges, field by field.
+    expect(Object.fromEntries(['BP systolic (mmHg)', 'BP diastolic (mmHg)', 'Pulse (bpm)', 'Temperature (°C)', 'Respiratory rate (breaths/min)', 'SpO₂ (%)', 'Weight (kg)', 'Height (cm)']
+      .map(label => [label, [input(form, label).step, input(form, label).min, input(form, label).max]]))).toEqual({
+      'BP systolic (mmHg)': ['1', '30', '350'],
+      'BP diastolic (mmHg)': ['1', '10', '250'],
+      'Pulse (bpm)': ['1', '10', '350'],
+      'Temperature (°C)': ['0.1', '20', '50'],
+      'Respiratory rate (breaths/min)': ['1', '1', '100'],
+      'SpO₂ (%)': ['0.01', '0', '100'],
+      'Weight (kg)': ['0.001', '0.2', '700'],
+      'Height (cm)': ['0.01', '20', '300'],
+    })
+    fireEvent.change(input(form, 'Visit'), { target: { value: ENCOUNTER_ID } })
+    type(form, 'Weight (kg)', '3.25')
+    type(form, 'Height (cm)', '50.25')
+    type(form, 'SpO₂ (%)', '97.5')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save vitals' }))
+    expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
+    expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals',
+      { recordedAt: expect.any(String), source: 'manual', heightCm: 50.25, weightKg: 3.25, oxygenSaturationPercent: 97.5 }, expect.any(String))
+  })
+
+  it('still refuses more decimals than the EHR keeps, in plain words', async () => {
+    const form = await openNew()
+    fireEvent.change(input(form, 'Visit'), { target: { value: ENCOUNTER_ID } })
+    type(form, 'Weight (kg)', '3.2505')
+    type(form, 'Height (cm)', '50.255')
+    type(form, 'SpO₂ (%)', '97.555')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save vitals' }))
+    expect(described(input(form, 'Weight (kg)'))).toContain('Enter a value with at most 3 decimal places.')
+    expect(described(input(form, 'Height (cm)'))).toContain('Enter a value with at most 2 decimal places.')
+    expect(described(input(form, 'SpO₂ (%)'))).toContain('Enter a value with at most 2 decimal places.')
+    expect(api.createRecord).not.toHaveBeenCalled()
+  })
+
   it('shows a server refusal at its field and in the form, and a retry reuses the key', async () => {
     api.createRecord.mockRejectedValueOnce(new HidApiError(400, 'One or more request fields are invalid.', {
       code: 'VALIDATION_FAILED', details: [{ field: 'pulseBpm', messages: ['pulseBpm must not be greater than 350'] }],
@@ -513,6 +550,23 @@ describe('Triage & Vitals record', () => {
     expect(await screen.findByText('Corrected (correction 1)')).toBeTruthy()
     expect(within(saved()).getByText('78')).toBeTruthy()
     expect(document.activeElement?.textContent).toBe('Available actions')
+  })
+
+  it('corrects a reading classic saved more precisely without rounding it first', async () => {
+    vitals = [{ ...VITAL, oxygenSaturationPercent: '97.55', weightKg: '3.255', heightCm: '50.25' }]
+    await openRecord()
+    const form = await amendForm()
+    expect(input(form, 'SpO₂ (%)').value).toBe('97.55')
+    expect(input(form, 'Weight (kg)').value).toBe('3.255')
+    expect(input(form, 'Height (cm)').value).toBe('50.25')
+    type(form, 'Pulse (bpm)', '78')
+    type(form, 'Reason', 'Repeat reading')
+    fireEvent.submit(form)
+    expect(await screen.findByText('Vital correction saved.')).toBeTruthy()
+    expect(api.correctVital).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, VITAL_ID, {
+      expectedRowVersion: 1, changeReason: 'Repeat reading',
+      replacementValues: { systolicMmhg: 120, diastolicMmhg: 80, pulseBpm: 78, temperatureC: 36.6, oxygenSaturationPercent: 97.55, weightKg: 3.255, heightCm: 50.25 },
+    }, expect.any(String))
   })
 
   it('refuses an unchanged correction and a short reason, as today', async () => {

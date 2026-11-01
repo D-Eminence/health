@@ -11,7 +11,7 @@ import { RecordForm, type FieldDef, type FormValues, type SubmitOutcome } from '
 import { Pager } from '../parts/RecordTable'
 import { StatusBadge } from '../parts/StatusBadge'
 import {
-  LOADING_REVISIONS, NOTE_TRANSITIONS, NO_CONTENT, RECORDING, RECORD_REVISION, REFRESH_REVISIONS, isObservation, type NoteStatusChange,
+  LOADING_REVISIONS, NOTE_TRANSITIONS, NO_CONTENT, RECORDING, RECORD_REVISION, REFRESH_REVISIONS, type NoteStatusChange,
 } from '../nursing/observations'
 import { useFocusAfterChange } from '../triage/records'
 import {
@@ -41,11 +41,11 @@ export function ListPaging({ list }: { list: RecordList<unknown> }) {
 }
 
 /**
- * The encounter's clinical notes (today's Notes tab), drawn as the design's card: every note that is not a nursing
- * observation (those have their own pages, which History links for the page shown here), on today's record pages.
- * Each note offers today's NotePanel: "Review note content" (its revisions, read when opened), then, once read, "Sign
- * note" (a draft; the design's typed SIGN dialog) and "Mark entered in error" (a plain confirm), each with a reason,
- * and "Add a note revision". Every change re-checks access first.
+ * The encounter's clinical notes (today's Notes tab), drawn as the design's card: every note, nursing observations
+ * included, as classic listed them in one Notes tab, on today's record pages (History links each nursing observation
+ * of the page shown here to its own page). Each note offers today's NotePanel: "Review note content" (its revisions,
+ * read when opened), then, once read, "Sign note" (a draft; the design's typed SIGN dialog) and "Mark entered in
+ * error" (a plain confirm), each with a reason, and "Add a note revision". Every change re-checks access first.
  */
 export function NotesCard({ chart, encounterId, list, canWrite, onSaved, onError }: {
   chart: Chart
@@ -57,7 +57,7 @@ export function NotesCard({ chart, encounterId, list, canWrite, onSaved, onError
 }) {
   const [asking, setAsking] = useState<Asking | null>(null)
   const ask: Ask = (label, word) => new Promise<boolean>(answer => setAsking({ label, word, answer }))
-  const notes = (list.items ?? []).filter(note => !isObservation(note))
+  const notes = list.items ?? []
   const onlyPage = list.cursors.length < 2 && !list.next
 
   return (

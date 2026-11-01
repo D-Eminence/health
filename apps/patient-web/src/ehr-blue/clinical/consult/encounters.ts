@@ -63,7 +63,7 @@ export const AMEND_LABEL = 'Amend signed note'
 export const EDIT_DRAFT_LABEL = 'Edit draft'
 export const WRITE_NOTE_LABEL = 'Add notes'
 
-/** The Notes card (today's Notes tab): every clinical note of the encounter that is not a nursing observation. */
+/** The Notes card (today's Notes tab): every clinical note of the encounter, nursing observations included. */
 export const NOTES_TITLE = 'Notes'
 export const NO_NOTES = 'No notes for this encounter.'
 export const NO_NOTES_ON_PAGE = 'No clinical notes on this page.'
