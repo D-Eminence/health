@@ -162,7 +162,7 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         {record.hidden ? <Alert intent="warning" action={<Button size="sm" icon={RotateCcw} onClick={record.reload}>Refresh</Button>}>{LAB_RESULTS_HIDDEN[record.hidden]}</Alert> : null}
         {record.loading && !accession && accessionId ? <p role="status" className="m-0 text-[14px] text-ink-3">Loading…</p> : null}
         {stage === 'collect' && !waitsForPayment && !(accessionId && !accession) ? <CollectStep {...step} item={item} accession={accession}
-          defaultType={sampleGuess} defaultReason={defaultReason} onCollected={value => setMade(value)} /> : null}
+          defaultType={sampleGuess} defaultReason={defaultReason} onRegistered={value => setMade(value)} /> : null}
         {stage === 'collect' && waitsForPayment ? <p className="m-0 text-[15px] text-ink-2">Take payment above, then collect the sample.</p> : null}
         {/* Results hidden (their read was refused or could not be checked): no step is offered on what can't be seen. */}
         {stage === 'testing' && accession && !record.hidden ? accession.specimens.filter(specimen => specimen.status === 'collected' || specimen.status === 'received')
