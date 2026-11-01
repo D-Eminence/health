@@ -72,8 +72,8 @@ async function renderList() {
 }
 
 describe('the page entry', () => {
-  it('is listed live in the Pharmacy group for members who read pharmacy work, and says today’s refusal to others in plain words', () => {
-    expect(pharmacyPage).toMatchObject({ path: 'pharmacy/prescriptions/*', group: 'Pharmacy', label: 'Prescriptions', permission: READ, status: 'live' })
+  it('is listed, partial, in the Pharmacy group for members who read pharmacy work, and says today’s refusal to others in plain words', () => {
+    expect(pharmacyPage).toMatchObject({ path: 'pharmacy/prescriptions/*', group: 'Pharmacy', label: 'Prescriptions', permission: READ, status: 'partial' })
     renderDept(<>{pharmacyPage.refusal}</>)
     expect(screen.getByRole('heading', { level: 1, name: 'Pharmacy unavailable' })).toBeTruthy()
     expect(screen.getByText('Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.')).toBeTruthy()

@@ -200,7 +200,7 @@ afterEach(() => {
 
 describe('the page entries', () => {
   it('keeps the hospital’s Laboratory entry, with today’s refusal at its address', () => {
-    expect(laboratoryPage).toMatchObject({ path: 'laboratory', group: 'Diagnostics', label: 'Laboratory', permission: 'lab.work-item.read', status: 'live' })
+    expect(laboratoryPage).toMatchObject({ path: 'laboratory', group: 'Diagnostics', label: 'Laboratory', permission: 'lab.work-item.read', status: 'partial' })
     renderDept(<>{laboratoryPage.refusal}</>)
     expect(screen.getByRole('heading', { level: 1, name: 'Laboratory unavailable' })).toBeTruthy()
     expect(screen.getByText('This facility membership needs lab work-item read permission.')).toBeTruthy()

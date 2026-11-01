@@ -26,11 +26,14 @@ const icon = (name: EhrIconName) => createElement(EhrIcon, { name })
 const todayPaths: string[] = []
 const todayPages = new Set<EhrBluePage>()
 
-/** A stand-in for today's page at its address: today's page itself, unless `element` draws it in the design. */
+/**
+ * A stand-in for today's page at its address: today's page itself, unless `element` draws it in the design. Today's page
+ * is `live`; one drawn in the design is `partial` while its words or steps still differ from today's.
+ */
 function live(path: string, group: string, label: string, iconName: EhrIconName, permission: string,
-  element: EhrBluePage['element'] = createElement(LivePage)): EhrBluePage {
+  element: EhrBluePage['element'] = createElement(LivePage), status: EhrBluePageStatus = 'live'): EhrBluePage {
   todayPaths.push(path)
-  const entry: EhrBluePage = { path, group, label, icon: icon(iconName), permission, status: 'live', element }
+  const entry: EhrBluePage = { path, group, label, icon: icon(iconName), permission, status, element }
   todayPages.add(entry)
   return entry
 }
@@ -104,7 +107,8 @@ export const pages: EhrBluePage[] = [
   sample('vehicles', 'Settings', 'Vehicle configuration', 'vehicleSettings'),
   page('facility', 'Settings', 'Facility profile', 'building', 'sample', createElement(FacilityProfileSample)),
   page('setup', 'Settings', 'Facility settings', 'edit', 'sample', createElement(FacilitySetupSample)),
-  live('billing', 'Settings', 'Facility subscription', 'subscription', 'billing.subscription.read', createElement(FacilitySubscriptionPage)),
+  // Partial: it drops today's "Card details never pass through Health ID." from Pay now.
+  live('billing', 'Settings', 'Facility subscription', 'subscription', 'billing.subscription.read', createElement(FacilitySubscriptionPage), 'partial'),
 
   { ...sample('inventory', 'Supply', 'Supply', 'box', 'supply/*'), tabLabel: 'Stock' },
   { ...sample('procurement', 'Supply', 'Procurement', 'box'), tabOf: 'supply' },

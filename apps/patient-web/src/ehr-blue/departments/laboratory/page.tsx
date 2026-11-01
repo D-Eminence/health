@@ -35,7 +35,8 @@ export const laboratoryPage: EhrBluePage = {
   group: 'Diagnostics',
   label: 'Laboratory',
   permission: 'lab.work-item.read',
-  status: 'live',
+  // Partial, not live: it works on Health ID, but checking, releasing and collecting differ from today's page.
+  status: 'partial',
   icon: <FlaskIcon />,
   element: <LabHome />,
   ownTab: false,
@@ -44,20 +45,23 @@ export const laboratoryPage: EhrBluePage = {
   refusal: <LabUnavailable />,
 }
 
+// Every page here is partial, not live. New request, Tests & prices, Till, Settings and the old New walk-in address call
+// point-of-care addresses Health ID does not serve yet (parity report #20); the work list and Results work on Health ID,
+// but checking, releasing and collecting differ from today's page.
 export const labPages: EhrBluePage[] = [
-  { path: 'laboratory/new', group: GROUP, label: 'New request', tabOf: 'laboratory', permission: 'lab.walk-in.create', status: 'live',
+  { path: 'laboratory/new', group: GROUP, label: 'New request', tabOf: 'laboratory', permission: 'lab.walk-in.create', status: 'partial',
     icon: icon(Plus), element: <NewRequest /> },
-  { path: 'laboratory/work/*', group: GROUP, label: 'Work list', tabOf: 'laboratory', permission: 'lab.work-item.read', status: 'live', keepsState: true,
+  { path: 'laboratory/work/*', group: GROUP, label: 'Work list', tabOf: 'laboratory', permission: 'lab.work-item.read', status: 'partial', keepsState: true,
     icon: icon(ClipboardList), element: <Laboratory />, refusal: <LabUnavailable /> },
-  { path: 'laboratory/results/*', group: GROUP, label: 'Results', tabOf: 'laboratory', permission: 'lab.work-item.read', status: 'live', keepsState: true,
+  { path: 'laboratory/results/*', group: GROUP, label: 'Results', tabOf: 'laboratory', permission: 'lab.work-item.read', status: 'partial', keepsState: true,
     icon: icon(FileText), element: <Results />, refusal: <LabUnavailable /> },
-  { path: 'laboratory/tests', group: GROUP, label: 'Tests & prices', tabOf: 'laboratory', permission: 'billing.catalogue.read', status: 'live',
+  { path: 'laboratory/tests', group: GROUP, label: 'Tests & prices', tabOf: 'laboratory', permission: 'billing.catalogue.read', status: 'partial',
     icon: icon(Tags), element: <PriceList kinds={['lab_test']} title="Tests & prices" description="The tests you offer and what each costs: cash and each HMO’s price." /> },
-  { path: 'laboratory/till', group: GROUP, label: 'Till / End of day', tabOf: 'laboratory', permission: 'billing.shift.own', status: 'live',
+  { path: 'laboratory/till', group: GROUP, label: 'Till / End of day', tabOf: 'laboratory', permission: 'billing.shift.own', status: 'partial',
     icon: icon(CalendarCheck), element: <EndOfDay /> },
-  { path: 'laboratory/settings', group: GROUP, label: 'Payment setup', tabOf: 'laboratory', permission: 'billing.settings.manage', status: 'live',
+  { path: 'laboratory/settings', group: GROUP, label: 'Payment setup', tabOf: 'laboratory', permission: 'billing.settings.manage', status: 'partial',
     icon: icon(SlidersHorizontal), element: <PaymentSetup /> },
   // The old New walk-in address: never listed and no tab, it opens New request.
-  { path: 'laboratory/new-walk-in', group: GROUP, label: 'New request', permission: 'lab.walk-in.create', status: 'live', listed: () => false,
+  { path: 'laboratory/new-walk-in', group: GROUP, label: 'New request', permission: 'lab.walk-in.create', status: 'partial', listed: () => false,
     icon: <FlaskConical aria-hidden strokeWidth={1.8} />, element: <Navigate replace to="/provider/laboratory/new" /> },
 ]

@@ -153,9 +153,9 @@ afterEach(() => {
 })
 
 describe('the page entry', () => {
-  it('replaces the frame’s live stand-in in place: its path, group, label and permission, live, with today’s refusal', () => {
+  it('replaces the frame’s live stand-in in place: its path, group, label and permission, partial, with today’s refusal', () => {
     expect(inPersonCheckPage).toMatchObject({
-      path: 'in-person-check', group: 'Clinical', label: 'In-person check', permission: 'identity.patient.assisted_registration', status: 'live',
+      path: 'in-person-check', group: 'Clinical', label: 'In-person check', permission: 'identity.patient.assisted_registration', status: 'partial',
     })
     expect(inPersonCheckPage.icon).toBeDefined()
     expect(inPersonCheckPage.refusal?.type).toBe(InPersonUnavailable)

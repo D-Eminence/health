@@ -17,7 +17,8 @@ export const staffAccessPage: EhrBluePage = {
   group: 'People',
   label: 'Staff & access',
   permission: 'workforce.manage',
-  status: 'live',
+  // Partial, not live: it works on Health ID, but not yet with today's words and steps throughout.
+  status: 'partial',
   icon: <UsersIcon />,
   element: <StaffAccess />,
   // Listed where today's sidebar lists Staff: a facility that signed itself up, on Novu. Health ID support manages a

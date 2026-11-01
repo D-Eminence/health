@@ -9,7 +9,8 @@ export const outreachPage: EhrBluePage = {
   path: 'outreach',
   group: 'Network & Services',
   label: 'Outreach',
-  status: 'live',
+  // Partial, not live: it works on Health ID, but not yet with today's words and steps throughout.
+  status: 'partial',
   icon: <OutreachIcon />,
   element: <Outreach />,
   // As today: the page opens with campaign or registration read, and reads only what each allows; the sidebar lists it
