@@ -3,7 +3,7 @@ import { ArrowRight, Check, CircleCheck, PackagePlus, PackageX, TriangleAlert, U
 import { FormActions, PatientBanner, Value } from '../../../kasuwa/parts'
 import { Badge, Button, Card, CardHeader, cx } from '../../../kasuwa/ui'
 import { useConfirm } from '../../clinical/parts/confirm'
-import { isHidApiError } from '@hid/http'
+import { HidApiError, isHidApiError } from '@hid/http'
 import { EhrButton, EhrInput, EhrTextarea } from '@hid/ui/ehr'
 import { staffApi, type PharmacyWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
@@ -30,7 +30,19 @@ import { billOf, billOwing, paysFirst, stockOf } from './pocFields'
 
 /** The design's words under a form that was refused. */
 const RETRY_NOTE = 'Fix what’s marked, or try again with the same button. Nothing is saved until it says so.'
-const ACTION_FAILED = 'That didn’t work. Please try again.'
+/** Today's portal's words when a dispensing or reversal fails (staff/routes/Operations.tsx PharmacyAction). */
+const ACTION_FAILED = 'Pharmacy action could not be recorded.'
+
+/**
+ * What a failed dispensing or reversal says. The page's own sentences for a closed order, paused work, a workspace not
+ * in service or a fault between services go by the refusal's code, so they are kept (errorText). The server's message
+ * and the fields it names are dropped first: screens never repeat the server's words, so anything else says
+ * ACTION_FAILED.
+ */
+function failureText(caught: unknown): string {
+  if (!isHidApiError(caught)) return ACTION_FAILED
+  return errorText(new HidApiError(caught.status, ACTION_FAILED, { code: caught.code }), ACTION_FAILED)
+}
 
 /** A prescription's saved fields. The dose is always shown with its unit, a decimal with its leading zero. */
 export function recordFacts(item: PharmacyWorkItem, status: string, withPatient = false): DeptFact[] {
@@ -102,7 +114,8 @@ interface Done { readonly quantity: number; readonly unit: string }
  * One prescription opened from the queue, as a picking view: who it is for (the patient banner), the drug large with
  * its form, a checklist ticked at the shelf, the quantity and the label in plain words, and one big Dispense at the
  * bottom, confirmed against the patient. Then a done state with "Next prescription". Reversing stays available, set
- * apart. The checks, requests and refusals are today's PharmacyAction (staff/routes/Operations.tsx), kept line for line.
+ * apart. The checks, requests and refusals are today's PharmacyAction (staff/routes/Operations.tsx), kept line for line,
+ * except that a failure never repeats the server's words (failureText).
  */
 export function PharmacyRecord({ facilityId, item, permissions, undispensable, onUndispensable, said, holds, crossFacilityWork,
   onChanged, onBusy, onEnded, onNotCompleted, onReread, next = null, onNext, onBack, settings = null }: PharmacyRecordProps) {
@@ -188,7 +201,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
         // Its dispensing form goes, so the work continues at the prescription.
         onUndispensable()
         focus(title, true)
-      } else setError(errorText(caught, ACTION_FAILED))
+      } else setError(failureText(caught))
     }
     finally { setBusy(false); onBusy(false) }
   }
@@ -326,10 +339,10 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
           <EhrInput name="unit" maxLength={80} defaultValue={item.doseUnit ?? ''} required {...control(`pharmacy-unit-${item.id}`, Boolean(doseText(item)))} />
         </ActionField>
       </div>
+      {/* Empty, as today's portal has it: the reason kept in the record is one the pharmacist typed, never a stock phrase. */}
       <ActionField id={`pharmacy-reason-${item.id}`} label="Reason" error={problems.error(`pharmacy-reason-${item.id}`)}
-        hint="Kept in the record. Change it if anything differs from the prescription.">
-        <EhrTextarea name="reason" rows={2} minLength={8} maxLength={500} required defaultValue="Dispensed as prescribed."
-          {...control(`pharmacy-reason-${item.id}`, true)} />
+        hint="In your own words, at least 8 characters. It’s kept in the record.">
+        <EhrTextarea name="reason" rows={2} minLength={8} maxLength={500} required {...control(`pharmacy-reason-${item.id}`, true)} />
       </ActionField>
       {route && item.patient && <p className="hid-ehr-dept-muted m-0">{handOverCheckText(item.patient.fullName)}</p>}
       {failure}
