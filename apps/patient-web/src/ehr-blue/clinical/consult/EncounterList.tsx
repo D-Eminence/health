@@ -29,7 +29,8 @@ export function EncounterList() {
   if (chart && chart.purpose === 'direct-care') return <ChartGate>{open => <Encounters chart={open} />}</ChartGate>
   return (
     <>
-      <ListHeading title={TITLE} />
+      {/* Today's eyebrow over the page with no patient open (staff/routes/Clinical.tsx:1375). */}
+      <EhrPageHeading eyebrow="Clinical record" title={TITLE} />
       <ChartGate>{open => <Encounters chart={open} />}</ChartGate>
     </>
   )
@@ -143,6 +144,8 @@ function Encounters({ chart }: { chart: Chart }) {
   return (
     <>
       <EhrPageHeading
+        // Today's eyebrow over the open patient's record (staff/routes/Clinical.tsx:1767).
+        eyebrow={`Clinical record · ${chart.facilityName}`}
         title={TITLE}
         // One primary: "New consultation" (only when changes are allowed; read-only offers no dead end). Refresh is secondary.
         primaryAction={canCreate ? <EhrButton onClick={() => navigate(href('new'))}>{NEW_TITLE}</EhrButton> : undefined}
@@ -169,7 +172,9 @@ function Encounters({ chart }: { chart: Chart }) {
             contextHeader="Complaint"
             rows={filtered}
             hrefFor={row => href(row.id)}
-            emptyMessage={rows.length === 0 ? NO_ENCOUNTERS : 'Change your search.'}
+            // No encounters is said in today's one sentence; "No matching records" is only for a search that found none.
+            emptyTitle={rows.length === 0 ? NO_ENCOUNTERS : undefined}
+            emptyMessage={rows.length === 0 ? null : 'Change your search.'}
           />
         )}
       </EhrCard>

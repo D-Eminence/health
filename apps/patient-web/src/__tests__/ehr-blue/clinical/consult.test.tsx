@@ -155,6 +155,18 @@ describe('Consultation list', () => {
     api.encounters.mockResolvedValue({ items: [], nextCursor: null })
     open()
     expect(await screen.findByText('No consultations for this patient here yet.')).toBeTruthy()
+    // Said once, as the empty list's title: no search was made, so nothing reads as a search that found nothing.
+    expect(screen.queryByText('No matching records')).toBeNull()
+    expect(screen.queryByText('Change your search.')).toBeNull()
+  })
+
+  it('parity: names the facility over the list, and says today’s direct-care line with "Change patient →" under the patient', async () => {
+    open()
+    await screen.findByRole('table', { name: 'Consultations' })
+    expect(screen.getByText('Clinical record · Demo Hospital')).toBeTruthy()
+    const line = screen.getByText(/· Direct care access\./)
+    expect(line.textContent).toBe(`HID ${PATIENT_HID} · Direct care access. The server rechecks authorization before changes. Change patient →`)
+    expect(within(line).getByRole('link', { name: 'Change patient →' }).getAttribute('href')).toBe('/provider/patients')
   })
 
   it('shows a refused read as an alert', async () => {
@@ -282,7 +294,12 @@ describe('Consultation list', () => {
     staff.activePatient = null
     open()
     expect(screen.getByRole('heading', { level: 1, name: 'Consultation' })).toBeTruthy()
+    expect(screen.getByText('Clinical record')).toBeTruthy()
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()
+    // Today's sentences (staff/routes/Clinical.tsx:1375), none dropped.
+    expect(screen.getByText('No authorized patient.').parentElement!.textContent).toBe(
+      'Clinical records require a current authorization for the selected facility. No authorized patient. Open a patient using an approved request, patient PIN, or documented emergency access.')
+    expect(screen.queryByText(/Direct care access/)).toBeNull()
     expect(screen.getByRole('link', { name: 'Find a patient' }).getAttribute('href')).toBe('/provider/patients')
     expect(api.encounters).not.toHaveBeenCalled()
   })
@@ -373,6 +390,12 @@ describe('New consultation', () => {
     expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
     expect(screen.getByText('The note saves as a draft. Sign it on the consultation’s page.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Back to list' })).toBeTruthy()
+  })
+
+  it('parity: says what starting an encounter requires, and takes the complaint in a textarea, as today', async () => {
+    await openNew()
+    expect(screen.getByText('Creating a clinical encounter requires current server authorization and a documented reason for care.')).toBeTruthy()
+    expect(screen.getByLabelText(labelled('Presenting complaint')).tagName).toBe('TEXTAREA')
   })
 
   it('says no allergies are recorded when the patient reported none', async () => {

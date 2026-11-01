@@ -219,6 +219,11 @@
   margin-top: 18px;
 }
 
+/* An empty list said in its title alone (today's one sentence) has no empty line under it. */
+.hid-ehr .hid-ehr-clinical-list-table .hid-ehr-state-message:empty {
+  display: none;
+}
+
 /* Where the page's content is under 820px wide (whatever the window), a record row is a card: the record and its status, the context, when, then Quick view and Open. */
 @container (max-width: 820px) {
   .hid-ehr .hid-ehr-clinical-list-table.hid-ehr-table-stack-lg .hid-ehr-table-row {
