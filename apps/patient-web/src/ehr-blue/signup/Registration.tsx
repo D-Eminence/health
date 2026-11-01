@@ -295,8 +295,9 @@ export function Registration({ e }: { readonly e: Enrollment }) {
 }
 
 /**
- * Step 5, Agreements (design screen 06): each section with its Edit, today's waits and panels, and last, just above the
- * security check and Submit, the Terms of Service and Privacy Policy to read (with no box: see the note at the top).
+ * Step 5, Check and send (design screen 06, Agreements): each section with its Edit, today's waits and panels, and
+ * last, just above the security check and Submit, the Terms of Service and Privacy Policy to read (with no box: see the
+ * note at the top).
  */
 function Review({ e, onEdit }: {
   readonly e: Enrollment

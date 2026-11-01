@@ -48,6 +48,20 @@ describe('the Design tour', () => {
     expect(document.querySelector('input[type="password"]')).toBeNull()
     expect(sent.length).toBe(before)
   })
+
+  // Parity report 3.2: the live registration draws no agreement box and asks for no acceptance, because Health ID cannot
+  // record one. The design's screens still show both, so each says beside it what the live page does instead.
+  it('says beside the design’s agreement box and its acceptance dialog that the live page asks for neither', async () => {
+    await openDemo('/provider/tour/register-and-launch/6')
+    expect(screen.getByRole('heading', { level: 2, name: 'Register: step 5 Review & agreements' })).toBeDefined()
+    expect(screen.getByText('The live page has no agreement box yet, because Health ID can’t record one. It links the '
+      + 'Terms of Service and Privacy Policy beside Submit instead.')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Skip to the next screen' }))
+    await waitFor(() => expect(where()).toBe('/provider/tour/register-and-launch/7'))
+    expect(screen.getByRole('heading', { level: 2, name: 'Register: agreements dialog' })).toBeDefined()
+    expect(screen.getByText('The live page asks you to confirm your details and submit. It asks you to accept nothing, '
+      + 'because Health ID can’t record an acceptance yet.')).toBeDefined()
+  })
 })
 
 describe('the frame\'s sample panels', () => {

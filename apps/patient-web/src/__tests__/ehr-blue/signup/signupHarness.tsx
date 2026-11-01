@@ -27,7 +27,7 @@ export function open(entry = '/provider/enroll') {
 export const textbox = (name: string) => screen.getByRole('textbox', { name }) as HTMLInputElement
 export const combobox = (name: string) => screen.getByRole('combobox', { name }) as HTMLSelectElement
 export const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement
-export const stepHeading = () => screen.getByRole('heading', { level: 2, name: /^(Your account|Facility details|Regulatory identity|Platform setup|Agreements)$/ })
+export const stepHeading = () => screen.getByRole('heading', { level: 2, name: /^(Your account|Facility details|Regulatory identity|Platform setup|Check and send)$/ })
 
 export async function step(name: string) {
   return screen.findByRole('heading', { level: 2, name })
@@ -49,7 +49,7 @@ export async function toForm(entry?: string) {
   await step('Your account')
 }
 
-/** Every step filled as an administrator would, ending on Agreements. */
+/** Every step filled as an administrator would, ending on Check and send. */
 export async function toReview({ entry, type, product }: { entry?: string; type?: string; product?: string } = {}) {
   await toForm(entry)
   fireEvent.change(textbox('Full name'), { target: { value: `  ${NAME} ` } })
@@ -64,7 +64,7 @@ export async function toReview({ entry, type, product }: { entry?: string; type?
   await step('Platform setup')
   if (product) fireEvent.change(combobox('Product to start with'), { target: { value: product } })
   next()
-  await step('Agreements')
+  await step('Check and send')
 }
 
 export const submitButton = () => button('Submit facility for verification')
