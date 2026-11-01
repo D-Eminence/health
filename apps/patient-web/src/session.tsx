@@ -8,6 +8,7 @@ import { createPatientApi, type PatientApi, type PatientSession } from './api'
 import { getEnvironment } from './env'
 import { announceSessionChange, heldByOtherPortal, onOtherTabSessionChange, patientSessionRequired } from './sessionChange'
 import { createPatientResourceCache, PatientResourcesContext } from './resourceCache'
+import { leaveAfterSignOut } from './sso/singleSignOn'
 
 interface SessionContextValue {
   readonly state: SessionState
@@ -402,13 +403,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     signOut: async () => {
       const signedIn = store.getState().principal?.subjectId
       await turnOffDevicePush(api)
+      // With single sign-on on app., where the sign-out sends the tab next (sso/singleSignOn.ts leaveAfterSignOut): the
+      // provider's end-session address when the sign-out answered one, else nowhere, and the next sign-in from this page
+      // is asked for. Noted before the session is cleared, so the signed-out page that follows never hands off on its own.
+      // Off, it does nothing.
+      let endSession: string | null = null
       try {
-        await api.logout(signedIn)
+        endSession = await api.logout(signedIn)
       } catch (error) {
         // The browser holds a provider's sign-in now, which Identity neither ended
         // nor changed: this patient's has already left it. Nothing changed for the
         // other tabs to hear about.
-        if (heldByOtherPortal(error)) { store.clear(); return }
+        if (heldByOtherPortal(error)) { leaveAfterSignOut(null); store.clear(); return }
         if (!isHidApiError(error) || error.status !== 401) throw error
         // Logout needs the 15-minute access token. After a longer idle the
         // session is restored once so the server ends it, but only if it is
@@ -420,16 +426,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // A refused refresh leaves no session of this patient's in this browser
           // to end, a provider's sign-in refused as SESSION_CLIENT_MISMATCH included.
           if (isHidApiError(refreshError) && (refreshError.status === 401 || refreshError.status === 403)) {
+            leaveAfterSignOut(null)
             store.clear()
             return
           }
           throw refreshError
         }
         if (signedIn !== undefined && restored?.actor?.kind === 'patient' && restored.actor.subject === signedIn) {
-          try { await api.logout(signedIn) }
-          catch (repeated) { if (heldByOtherPortal(repeated)) { store.clear(); return } throw repeated }
+          try { endSession = await api.logout(signedIn) }
+          catch (repeated) { if (heldByOtherPortal(repeated)) { leaveAfterSignOut(null); store.clear(); return } throw repeated }
         }
       }
+      leaveAfterSignOut(endSession)
       store.clear()
       announceSessionChange()
     },

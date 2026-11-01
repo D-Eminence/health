@@ -192,6 +192,22 @@ describe('application boundaries', () => {
     expect(() => assertEndpointAllowed('staff-web', 'auth.googleExchange')).toThrow(BoundaryViolationError)
   })
 
+  it('registers the single sign-on sign-out (ADR-070, proposed) for the two portals that hand off, and no other', () => {
+    expect(findEndpoint('auth.ssoLogout')).toMatchObject({ service: 'auth', path: '/api/v1/auth/sso/logout', methods: ['POST'],
+      status: 'proposed', auth: { kind: 'authenticated' } })
+    expect(assertRegisteredBrowserRequest('POST', '/api/v1/auth/sso/logout').name).toBe('auth.ssoLogout')
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/auth/sso/logout')).toThrow(BrowserRouteError)
+    for (const app of ['patient-web', 'staff-web'] as const) expect(() => assertEndpointAllowed(app, 'auth.ssoLogout'), app).not.toThrow()
+    for (const app of ['admin-web', 'public-web'] as const) {
+      expect(() => assertEndpointAllowed(app, 'auth.ssoLogout'), app).toThrow(BoundaryViolationError)
+    }
+    // The hand-off's start and callback are navigations, and the back-channel logout is the provider's: never a browser call.
+    for (const path of ['/api/v1/auth/sso/start', '/api/v1/auth/sso/callback', '/api/v1/auth/sso/backchannel-logout']) {
+      expect(() => assertRegisteredBrowserRequest('GET', path), path).toThrow(BrowserRouteError)
+      expect(() => assertRegisteredBrowserRequest('POST', path), path).toThrow(BrowserRouteError)
+    }
+  })
+
   it('registers clinician self sign-up (hid-system ADR-066) for the provider portal only', () => {
     const base = '/api/v1/identity/clinician-applications'
     const applicationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'

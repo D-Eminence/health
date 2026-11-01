@@ -7,6 +7,8 @@ import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory }
 import { NO_RETRY, type ApiClient, type DownloadResult, type HidApiError, type RequestSpec, type RetryPolicy } from '@hid/http'
 import { createEhrService, createSupportService } from '@hid/api'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from './sessionRefreshTurn'
+import { endSessionHref } from './sso/handOff'
+import { portalHandsOff } from './sso/singleSignOn'
 import { ACCESS_LOG_PAGE_SIZE, parseAccessLog, type AccessLogPage } from './accessLog'
 import {
   parseEmailChangeStarted, parseHealthProfile, parsePhoneChanged, parseProfileDetails,
@@ -542,9 +544,19 @@ export function createPatientApi(sender: ApiClient) {
     // question is handled as a refused sign-out. The sign-out judges the 401 of
     // either call (session.tsx restores the session and signs out again), so the
     // tab is not signed out here while the server session may still be live.
-    logout: (subject: string | undefined) => signOutInTurn(() => call<PatientSession>('GET', 'auth/session', undefined, judged).then(
-      session => session.actor?.kind === 'patient' && subject !== undefined && session.actor.subject === subject),
-    () => call<void>('POST', 'auth/logout', undefined, judged), { alwaysAsk: true }),
+    //
+    // With single sign-on on app. (sso/singleSignOn.ts), the same sign-out is POST auth/sso/logout, which also answers
+    // the provider's end-session address (contract v2, item 4): it is returned for session.tsx to leave for. Off, today's
+    // sign-out exactly, answering null.
+    logout: async (subject: string | undefined): Promise<string | null> => {
+      let endSession: string | null = null
+      await signOutInTurn(() => call<PatientSession>('GET', 'auth/session', undefined, judged).then(
+        session => session.actor?.kind === 'patient' && subject !== undefined && session.actor.subject === subject),
+      portalHandsOff()
+        ? async () => { endSession = endSessionHref(await call<unknown>('POST', 'auth/sso/logout', undefined, judged)) }
+        : () => call<void>('POST', 'auth/logout', undefined, judged), { alwaysAsk: true })
+      return endSession
+    },
     googleNonce: () => call<{ nonce: string }>('GET', 'auth/google/nonce'),
     googleExchange: (idToken: string, turnstileToken: string, intent: 'sign_in' | 'enroll') =>
       inRefreshTurn(() => call<PatientSession | { stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY'; expiresAt: string }>(
