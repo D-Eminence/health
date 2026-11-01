@@ -1,5 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { CalendarCheck, PackageOpen, ReceiptText, ShoppingBag, SlidersHorizontal, Tags } from 'lucide-react'
+import { usesNovuBackend } from '../../../backendContract'
+import { selfServiceReview } from '../../../staff/staffAccess'
 import type { EhrBluePage } from '../types'
 import { useBluePage } from '../../frame/pageContext'
 import { productOf } from '../../frame/product'
@@ -22,9 +24,16 @@ const GROUP = 'Pharmacy'
 const icon = (I: typeof ShoppingBag) => <I aria-hidden strokeWidth={1.8} />
 /**
  * Opened by its address without the permission: today's refusal (staff/routes/Operations.tsx Pharmacy) in plain words,
- * and nothing is read.
+ * and nothing is read. While Health ID support checks a facility that signed itself up, Pharmacy is locked for its
+ * administrator too (the banner above says so): they are told it opens after the check, not to ask themselves.
  */
-const pharmacyUnavailable = <DeptUnavailable title="Pharmacy unavailable" message="Your role at this facility doesn’t include pharmacy work. Ask your facility administrator." />
+function PharmacyUnavailable() {
+  const { facility } = useDeptAccess()
+  const message = usesNovuBackend() && selfServiceReview(facility) === 'pending'
+    ? 'Pharmacy opens once Health ID support has checked your facility.'
+    : 'Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.'
+  return <DeptUnavailable title="Pharmacy unavailable" message={message} />
+}
 
 /**
  * The old addresses, so nothing breaks: /pharmacy opens the counter in a pharmacy and Prescriptions in a hospital (or
@@ -50,7 +59,7 @@ export const pharmacyPages: EhrBluePage[] = [
   { path: 'pharmacy/*', group: GROUP, label: 'Pharmacy', status: 'live', icon: <PillIcon />, element: <PharmacyHome />, listed: () => false },
   { path: 'pharmacy/sell', group: GROUP, label: 'Sell', permission: 'pharmacy.walk-in.create', status: 'live', icon: icon(ShoppingBag), element: <Sell /> },
   { path: 'pharmacy/prescriptions/*', group: GROUP, label: 'Prescriptions', permission: 'pharmacy.work-item.read', status: 'live', keepsState: true,
-    icon: <PillIcon />, element: <Prescriptions />, refusal: pharmacyUnavailable },
+    icon: <PillIcon />, element: <Prescriptions />, refusal: <PharmacyUnavailable /> },
   { path: 'pharmacy/sales/*', group: GROUP, label: 'Sales & receipts', permission: 'billing.bill.read', status: 'live', keepsState: true,
     icon: icon(ReceiptText), element: <Sales /> },
   { path: 'pharmacy/stock/*', group: GROUP, label: 'Stock', permission: 'pharmacy.stock.read', status: 'live', icon: icon(PackageOpen), element: <StockPage /> },

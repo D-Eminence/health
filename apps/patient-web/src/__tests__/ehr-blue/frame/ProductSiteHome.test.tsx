@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { act, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as ProductHostname from '../../../productHostname'
 import { BlueFrame } from '../../../ehr-blue/frame/BlueFrame'
 
@@ -13,7 +13,7 @@ import { BlueFrame } from '../../../ehr-blue/frame/BlueFrame'
  */
 
 const host = vi.hoisted(() => ({ name: 'ehr.healthidentitydirectory.com' }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[] }))
+const staff = vi.hoisted(() => ({ permissions: [] as string[], selfService: undefined as { review: string; organizationType: string } | undefined }))
 
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 vi.mock('../../../productHostname', async importOriginal => {
@@ -23,7 +23,7 @@ vi.mock('../../../productHostname', async importOriginal => {
 vi.mock('../../../staff/App', () => ({
   useStaff: () => {
     const facility = { id: 'f0000000-0000-4000-8000-0000000000c1', membershipId: 'member-1', organizationId: 'org-1', name: 'Corner Pharmacy (fictional)',
-      roles: ['facility_admin'], permissions: staff.permissions, isPrimary: true }
+      roles: ['facility_admin'], permissions: staff.permissions, isPrimary: true, ...(staff.selfService ? { selfService: staff.selfService } : {}) }
     return {
       state: { status: 'ready', session: { actor: { id: 'staff-1', email: 'admin@example.test', displayName: 'Demo Admin', roles: [], permissions: [],
         facilities: [facility], facility }, expiresAt: '2026-11-30T12:00:00.000Z' } },
@@ -64,7 +64,9 @@ beforeEach(() => {
   trail = []
   host.name = 'ehr.healthidentitydirectory.com'
   staff.permissions = []
+  staff.selfService = undefined
 })
+afterEach(() => { vi.unstubAllEnvs() })
 
 /** Signs in on `site` with `permissions` and waits for the page to settle; answers where it settled and its heading. */
 async function settle(site: string, permissions: readonly string[], path = '/provider') {
@@ -93,6 +95,26 @@ describe('the pharmacy. site settles on a page whatever the role holds', () => {
     expect(screen.getByText(NO_PHARMACY_WORK)).toBeTruthy()
     // No permission name, code or dotted id on the page.
     expect(document.body.textContent).not.toMatch(/work-item|walk-in|permission|pharmacy\.\w/)
+  })
+
+  it('a pharmacy\'s administrator while Health ID checks the facility: Prescriptions, which says it opens after the check', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    staff.selfService = { review: 'pending', organizationType: 'pharmacy' }
+    const landed = await settle(PHARMACY, ['workforce.manage', 'audit.read'])
+    expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
+    expect(screen.getByText('Pharmacy opens once Health ID support has checked your facility.')).toBeTruthy()
+    // Not told to ask the facility administrator, which they are.
+    expect(screen.queryByText(NO_PHARMACY_WORK)).toBeNull()
+    expect(document.body.textContent).not.toMatch(/Ask your facility administrator/)
+    expect(document.body.textContent).not.toMatch(/work-item|walk-in|permission|pharmacy\.\w/)
+  })
+
+  it('the same administrator once the facility is checked: today\'s sentence', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    staff.selfService = { review: 'reviewed', organizationType: 'pharmacy' }
+    const landed = await settle(PHARMACY, ['workforce.manage', 'audit.read'])
+    expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
+    expect(screen.getByText(NO_PHARMACY_WORK)).toBeTruthy()
   })
 
   it('walk-in sales only: Sell', async () => {
