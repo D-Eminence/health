@@ -765,6 +765,8 @@ describe('A prescription’s page', () => {
     fireEvent.click(activate)
     expect(activate.getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByText('Prescription status')).toBeTruthy()
+    // The form names the new status it sets, with today's "New status" and choice label (Clinical.tsx:613).
+    expect(screen.getByText('New status: Activate')).toBeTruthy()
     const submit = screen.getByRole('button', { name: 'Update status' })
     change('Reason for change', 'ok')
     fireEvent.click(submit)
@@ -784,6 +786,7 @@ describe('A prescription’s page', () => {
   it('asks a plain confirmation before cancelling; Escape keeps the order', async () => {
     await openOrder('pharmacy', RX)
     fireEvent.click(screen.getByRole('button', { name: 'Cancel order' }))
+    expect(screen.getByText('New status: Cancel')).toBeTruthy()
     change('Reason for change', 'Prescribed in error')
     fireEvent.submit(field('Reason for change').closest('form')!)
     const dialog = await screen.findByRole('alertdialog', { name: 'Cancel order?' })
@@ -883,6 +886,7 @@ describe('A lab request’s page', () => {
     await openOrder('laboratory', LAB)
     fireEvent.click(screen.getByRole('button', { name: 'Activate and send to Lab' }))
     expect(screen.getByText('Lab request status')).toBeTruthy()
+    expect(screen.getByText('New status: Activate and send to Lab')).toBeTruthy()
     change('Reason for change', 'Results needed today')
     fireEvent.submit(field('Reason for change').closest('form')!)
     expect(await screen.findByText('Lab request activated in the EHR, but Lab holds an earlier version of it, so this change is not in Lab. Contact the laboratory.')).toBeTruthy()

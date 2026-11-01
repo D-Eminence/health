@@ -327,10 +327,12 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
         return { formError: refusalText(caught, 'Status could not be changed.') }
       }
     }
-    // Today's status form's title and button (Clinical.tsx:1819, :1830, :618); the change is the action pressed above.
+    // Today's status form's title, "New status" and button (Clinical.tsx:1819, :1830, :612-618). The new status is the
+    // action pressed above, so the form names it, with today's choice label, rather than asking for it again.
     return (
       <div className="hid-ehr-clinical-orders-action-form">
         <p className="hid-ehr-clinical-orders-lead"><strong>{lab ? 'Lab request status' : 'Prescription status'}</strong></p>
+        <p>New status: {option.label}</p>
         <RecordForm
           key={`status-${option.value}-${version}`}
           fields={[{ key: 'reason', label: 'Reason for change', required: true, maxLength: 500 }]}
