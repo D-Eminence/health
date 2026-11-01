@@ -10,7 +10,7 @@ import { BillingBanner } from '../../staff/routes/Billing'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { isDemoFacility } from '../blueFacilities'
-import { PRODUCTS, inProduct, productOf } from './product'
+import { PRODUCTS, inProduct, opensInProduct, productOf } from './product'
 import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
@@ -111,6 +111,9 @@ export function BlueFrame() {
   const match = matchBluePage(BLUE_PAGES, location.pathname)
   // A pharmacy or lab on its own lists a product's pages in the sidebar, so it draws no tabs above them as well.
   const tabs = match && product === 'ehr' ? pageTabs(allowed, match.page) : []
+  // What sample links (Notifications' Recent activity, role dashboards, Facility setup) may point to: a page this product
+  // opens, so none of them leads to a page the frame sends to the product's Home (below).
+  const openHere = useMemo(() => allowed.filter(page => opensInProduct(product, page.path)), [allowed, product])
   const shownTitle = match ? match.page.label : liveOnlyTitle(location.pathname) ?? 'Page not found'
   // Today's tab title names today's pages only: the blue page names itself once the workspace is open.
   useEffect(() => {
@@ -121,6 +124,11 @@ export function BlueFrame() {
   if (moved) return <Navigate replace to={{ pathname: moved, search: location.search, hash: location.hash }} />
   // A single product's home is its own queue.
   if (product !== 'ehr' && /^\/provider\/?$/.test(location.pathname)) return <Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} />
+  // On a single product's site, a page of the hospital EHR's (Patient registration, Consultation, a sample), typed or a
+  // sign-in's return address, opens the product's Home instead (review, 2026-11-01): its menu never offers one. The
+  // page never mounts, so it reads nothing, and its query stays behind with it. What the product opens unlisted
+  // (product.ts) still opens; an address no page takes is left to the frame below.
+  if (product !== 'ehr' && match && !opensInProduct(product, match.page.path)) return <Navigate replace to="/provider" />
 
   function leave() {
     if (signingOut) return
@@ -178,7 +186,7 @@ export function BlueFrame() {
   const facilityTab: NavItem = { to: '/provider/institutions', label: 'Facility', icon: Hospital }
 
   return (
-    <BluePagesProvider value={BLUE_PAGES}><OpenPagesProvider value={allowed}>
+    <BluePagesProvider value={BLUE_PAGES}><OpenPagesProvider value={openHere}>
       <AttentionProvider facilityId={facility?.id} permissions={permissions}>
         <EhrAppShell className="hid-ehr-host" sidebar={null} topBar={null}
           // While the session is checked, today's lock screen stands in for the page, as today's <main> hides.
