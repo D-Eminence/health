@@ -3,6 +3,7 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
+import { ENCOUNTER_STATUS_UPDATED } from '../../../ehr-blue/clinical/consult/encounters'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 
@@ -508,6 +509,54 @@ describe('Consultation record', () => {
     await waitFor(() => expect(api.updateEncounter).toHaveBeenCalledTimes(2))
     expect(api.updateEncounter).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID,
       { expectedRowVersion: 4, changeReason: 'Results are back', status: 'in_progress' })
+  })
+
+  it('parity: reports a status change only once the encounter is read again, the form busy until then', async () => {
+    api.updateEncounter.mockResolvedValue(undefined)
+    await openEncounter()
+    let reread!: (value: unknown) => void
+    api.encounter.mockReturnValueOnce(new Promise(done => { reread = done }))
+    const reads = api.encounter.mock.calls.length
+    chooseMore('Put on hold')
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Waiting for results' } })
+    const submit = submitOf('Put on hold')
+    fireEvent.click(submit)
+    // The change is sent and the re-read asked for: until it answers, nothing is reported, the form stays open and busy,
+    // and no stale change is offered as if done.
+    await waitFor(() => expect(api.encounter).toHaveBeenCalledTimes(reads + 1))
+    expect(api.updateEncounter).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(ENCOUNTER_STATUS_UPDATED)).toBeNull()
+    expect(submit.isConnected).toBe(true)
+    expect(submit.getAttribute('aria-busy')).toBe('true')
+    await act(async () => reread({ ...ENCOUNTER, status: 'on_hold', rowVersion: 4 }))
+    expect(await screen.findByText(ENCOUNTER_STATUS_UPDATED)).toBeTruthy()
+    expect(within(meta()).getByText('On hold')).toBeTruthy()
+    expect(submit.isConnected).toBe(false)
+  })
+
+  it('parity: never lets an older re-read of the encounter replace a newer one', async () => {
+    await openEncounter()
+    let older!: (value: unknown) => void
+    api.encounter
+      .mockReturnValueOnce(new Promise(done => { older = done }))
+      .mockResolvedValueOnce({ ...ENCOUNTER, status: 'completed', rowVersion: 5 })
+    const reads = api.encounter.mock.calls.length
+    chooseMore('Put on hold')
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Waiting for results' } })
+    fireEvent.click(submitOf('Put on hold'))
+    await waitFor(() => expect(api.encounter).toHaveBeenCalledTimes(reads + 1))
+    // While that re-read is out, another change is sent and refused as stale; its own read finds the encounter completed.
+    api.updateEncounter.mockRejectedValueOnce(STALE)
+    chooseMore('Complete consultation')
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Seen and treated' } })
+    fireEvent.click(submitOf('Complete consultation'))
+    await waitFor(() => expect(api.encounter).toHaveBeenCalledTimes(reads + 2))
+    await waitFor(() => expect(within(meta()).getByText('Completed')).toBeTruthy())
+    // The first re-read answers last, with what was true before: the page keeps the newer read.
+    await act(async () => older({ ...ENCOUNTER, status: 'on_hold', rowVersion: 4 }))
+    expect(await screen.findByText(ENCOUNTER_STATUS_UPDATED)).toBeTruthy()
+    expect(within(meta()).getByText('Completed')).toBeTruthy()
+    expect(within(meta()).queryByText('On hold')).toBeNull()
   })
 
   it('parity: says when the re-read after a change fails, the change still reported', async () => {

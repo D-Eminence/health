@@ -157,6 +157,9 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   const diagnosisAttempt = useRef<SaveStep | null>(null)
   // A revision saved while its form stays open (its diagnosis was refused): the note has a new version not yet read.
   const unreadRevision = useRef(false)
+  // Each read of the encounter after a status change takes the next number; only the latest read's answer is shown, as
+  // today's loadSequence drops an older load's answer (staff/routes/Clinical.tsx:1272, :1283).
+  const encounterReads = useRef(0)
   const encounterId = encounter.id
   const actionsId = `encounter-${encounterId}-actions`
   const moreId = `encounter-${encounterId}-more`
@@ -316,10 +319,11 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
         return { formError: retractionNotPermitted(status) }
       }
       if (isHidApiError(caught) && (caught.status === 409 || caught.status === 412)) {
+        const read = ++encounterReads.current
         let fresh: Encounter
         try { fresh = await staffApi.encounter(facilityId, patientId, encounterId) }
         catch { return { formError: refusalText(caught, 'Status could not be changed.') } }
-        setEncounter(fresh)
+        if (read === encounterReads.current) setEncounter(fresh)
         setSelected(null)
         setPageError(ENCOUNTER_CHANGED)
         setFocusRequest(count => count + 1)
@@ -327,18 +331,22 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       }
       return { formError: refusalText(caught, 'Status could not be changed.'), fieldErrors: refusedFieldErrors(caught, { changeReason: 'reason' }) }
     }
-    if (updated?.id === encounterId) setEncounter(updated)
-    finish(ENCOUNTER_STATUS_UPDATED)
     // Today's fresh re-read after the change (staff/routes/Clinical.tsx:1536, and :1296-1301 for the encounter itself),
-    // after the access re-check: the status and row version shown, and the next change sent against, are EHR's own, even
-    // when the change's answer carried no encounter.
+    // after the access re-check, and only then is the change reported (:1544-1545): the form stays busy meanwhile, as
+    // today's status form awaits the change (:607), and the status and row version shown, and the next change sent
+    // against, are EHR's own, even when the change's answer carried no encounter. The answer's encounter is shown if the
+    // re-read fails; an older read's answer never replaces a newer one's.
+    const read = ++encounterReads.current
+    let shown: Encounter | null = updated?.id === encounterId ? updated : null
     try {
       await chart.verify()
       const current = await staffApi.encounter(facilityId, patientId, encounterId)
-      if (current?.id === encounterId && current.patientId === patientId && current.facilityId === facilityId) setEncounter(current)
+      if (current?.id === encounterId && current.patientId === patientId && current.facilityId === facilityId) shown = current
     } catch (caught) {
-      setPageError(refusalText(caught, ENCOUNTERS_FAILED))
+      if (read === encounterReads.current) setPageError(refusalText(caught, ENCOUNTERS_FAILED))
     }
+    if (shown && read === encounterReads.current) setEncounter(shown)
+    finish(ENCOUNTER_STATUS_UPDATED)
     if (CLOSING_STATUSES.has(status)) await reloaded(...[notes, diagnoses, vitals, prescriptions, labs, documents].map(list => list.reload()))
   }
 
