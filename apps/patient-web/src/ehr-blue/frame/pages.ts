@@ -45,8 +45,10 @@ function page(path: string, group: string, label: string, iconName: EhrIconName,
 }
 
 /**
- * A page for reviewing the design (the checklist, the tour, Health ID's own facility review): only at the four demo
- * facilities. A clinic switches facility from the account menu, as today.
+ * A page for reviewing the design (the checklist, the tour, Health ID's own facility review), or a sample a real
+ * administrator could take for a working screen (Facility settings, Reports & Analytics): only at the four demo
+ * facilities. Elsewhere its address says it is part of the demo (DeniedPage). A clinic switches facility from the
+ * account menu, as today.
  */
 function demoOnly(entry: EhrBluePage): EhrBluePage {
   return { ...entry, visible: atDemoFacility }
@@ -103,13 +105,16 @@ export const pages: EhrBluePage[] = [
   sample('ward-config', 'Settings', 'Ward configuration', 'wardSettings'),
   sample('vehicles', 'Settings', 'Vehicle configuration', 'vehicleSettings'),
   page('facility', 'Settings', 'Facility profile', 'building', 'sample', createElement(FacilityProfileSample)),
-  page('setup', 'Settings', 'Facility settings', 'edit', 'sample', createElement(FacilitySetupSample)),
+  // A fictional hospital's settings with "Save and continue", which sends nothing: a real administrator could believe it
+  // saved, so it is the demo facilities' alone (parity report 3.2).
+  demoOnly(page('setup', 'Settings', 'Facility settings', 'edit', 'sample', createElement(FacilitySetupSample))),
   live('billing', 'Settings', 'Facility subscription', 'subscription', 'billing.subscription.read', createElement(FacilitySubscriptionPage)),
 
   { ...sample('inventory', 'Supply', 'Supply', 'box', 'supply/*'), tabLabel: 'Stock' },
   { ...sample('procurement', 'Supply', 'Procurement', 'box'), tabOf: 'supply' },
 
-  page('reports', 'Insight', 'Reports & Analytics', 'chart', 'sample', createElement(ReportsSample)),
+  // Made-up figures that read as the facility's own: the demo facilities' alone (parity report 3.2).
+  demoOnly(page('reports', 'Insight', 'Reports & Analytics', 'chart', 'sample', createElement(ReportsSample))),
   live('audit', 'Insight', 'Audit & Compliance', 'history', 'audit.read'),
 
   // Listed only at the demo facilities; everywhere, the account menu's Switch facility opens it.

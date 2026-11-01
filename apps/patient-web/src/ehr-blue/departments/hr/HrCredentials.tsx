@@ -1,6 +1,7 @@
 import { Fragment, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactElement } from 'react'
 import { EhrButton, EhrField, EhrInput, EhrSkeleton } from '@hid/ui/ehr'
 import { useFocusById } from '../../../staff/focus'
+import { isDemoFacility } from '../../blueFacilities'
 import { useDeptAccess } from '../parts/access'
 import { useListAtBase } from '../parts/baseAddress'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -23,7 +24,9 @@ import {
  *
  * Partial: the first list is live, each member of the facility and the licence on record for them, from today's Staff
  * read (read only; role and licence changes stay on Staff & access). The second list, "Create record", editing and the
- * credential review are sample: fictional records in this page's memory, which a reload resets.
+ * credential review are sample: fictional records in this page's memory, which a reload resets. The sample half shows at
+ * the demo facilities only: at a real one, a credential record created there would seem kept and is not (parity report
+ * 3.2), so the page is its live list alone.
  */
 
 const TITLE = 'HR & Credentials'
@@ -41,6 +44,7 @@ type View =
 
 export function HrCredentials() {
   const { facility } = useDeptAccess()
+  const demo = isDemoFacility(facility?.id)
   const leaving = useListAtBase('hr')
   const live = useLiveStaff(facility, leaving)
   const staff = live.kind === 'ready' ? live.staff : null
@@ -69,7 +73,8 @@ export function HrCredentials() {
   const toList = (target: string) => { setView({ kind: 'list' }); setAnnouncement(''); focus([target, TITLE_ID]) }
   const announced = (content: ReactElement) => <>{content}<p className="hid-ehr-sr-only" role="status">{announcement}</p></>
 
-  if (view.kind === 'new') {
+  // A sample view is reached only from the sample half, which a real facility does not draw; a facility switch keeps none.
+  if (view.kind === 'new' && demo) {
     return announced(<NewRecord onBack={() => toList(CREATE_ID)} onSave={values => {
       const record = createSample(values, crypto.randomUUID(), new Date().toISOString())
       setRecords(current => [record, ...current])
@@ -77,7 +82,7 @@ export function HrCredentials() {
       setAnnouncement(`Record created: ${record.data.name}.`)
     }} />)
   }
-  if (view.kind === 'sample') {
+  if (view.kind === 'sample' && demo) {
     const record = records.find(entry => entry.id === view.id)
     if (record) {
       return announced(<SampleDetail key={record.id} record={record} onBack={() => toList(`hr-sample-${record.id}`)} onAnnounce={setAnnouncement}
@@ -90,11 +95,10 @@ export function HrCredentials() {
   }
 
   const liveRows: HrRow[] = credentials
-    .filter(entry => matchesSearch(liveSearch, [entry.name, entry.staff, entry.roles, entry.status, entry.reference,
+    .filter(entry => matchesSearch(liveSearch, [entry.name, entry.staff, entry.roles, entry.status,
       ...entry.facts.map(fact => typeof fact.value === 'string' ? fact.value : '')]))
     .map(entry => ({
-      key: entry.key, linkId: `hr-live-${entry.key}`, name: entry.name, reference: entry.reference, status: entry.status,
-      updatedAt: entry.updatedAt, facts: entry.facts,
+      key: entry.key, linkId: `hr-live-${entry.key}`, name: entry.name, status: entry.status, updatedAt: entry.updatedAt, facts: entry.facts,
       context: <><span>{entry.staff}</span><span className="hid-ehr-dept-reference">{entry.roles}{entry.isSelf ? ' · You' : ''}</span></>,
     }))
   const sampleRows: HrRow[] = records
@@ -106,13 +110,15 @@ export function HrCredentials() {
 
   return announced(
     <DeptPage title={<HrTitle>{TITLE}</HrTitle>}
-      primaryAction={<EhrButton id={CREATE_ID} onClick={() => show({ kind: 'new' })}>Create record</EhrButton>}>
+      primaryAction={demo ? <EhrButton id={CREATE_ID} onClick={() => show({ kind: 'new' })}>Create record</EhrButton> : undefined}>
       <LiveList live={live} rows={liveRows} total={credentials.length} search={liveSearch} onSearch={setLiveSearch}
         onRetry={() => { if (live.kind !== 'failed') return; retrying.current = true; live.retry() }}
         onOpen={key => { if (facility) show({ kind: 'live', facilityId: facility.id, key }) }} />
-      <SampleBanner />
-      <HrRecordList label="Search sample records" search={sampleSearch} onSearch={setSampleSearch} rows={sampleRows}
-        total={records.length} onOpen={id => show({ kind: 'sample', id })} sample />
+      {demo ? <>
+        <SampleBanner />
+        <HrRecordList label="Search sample records" search={sampleSearch} onSearch={setSampleSearch} rows={sampleRows}
+          total={records.length} onOpen={id => show({ kind: 'sample', id })} sample />
+      </> : null}
     </DeptPage>,
   )
 }
@@ -152,7 +158,7 @@ function LiveList({ live, rows, total, search, onSearch, onRetry, onOpen }: {
 function LiveDetail({ credential, onBack }: { readonly credential: LiveCredential; readonly onBack: () => void }) {
   return (
     <DeptPage title={<HrTitle>{credential.name}</HrTitle>} onBack={onBack}>
-      <HrContextLine status={credential.status} context={`${credential.staff} · ${credential.reference}`} saved={`Saved ${dateText(credential.updatedAt)}`} />
+      <HrContextLine status={credential.status} context={credential.staff} saved={`Saved ${dateText(credential.updatedAt)}`} />
       <DeptRecordLayout
         main={<DeptSection title="Saved record"><DeptFacts facts={credential.facts} /></DeptSection>}
         aside={<DeptActions empty={NO_ACTIONS} />}
