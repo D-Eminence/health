@@ -9,18 +9,22 @@ import { SupportWidget } from './SupportWidget'
 
 /**
  * Typefaces are self-hosted through next/font: the files are served from this
- * origin, so no request leaves for a font CDN and there is no layout shift
- * while a face loads.
+ * origin, so no request leaves for a font CDN.
  *
  * The files are committed in app/fonts (latin subset, with their licences;
  * app/fonts/README.md says where each came from), so the build reads them
  * from the repo. next/font/google downloaded them from Google at build time,
- * and that download intermittently failed the build.
+ * and that download intermittently failed the build. They are the same files
+ * it downloaded, so visitors see no change.
  *
- * `Forum` is the display face from the approved design and `Inter` is used for
- * navigation, body copy and interface controls. Every consumer reads the CSS
- * variables rather than a hard-coded family name. The fallback is Arial with
- * metrics adjusted to each face, as next/font/google chose for both.
+ * `Forum` is the display face from the approved design, used for the About
+ * page's approach labels. `Inter` sets the product illustrations: the sample
+ * dashboards' headings and figures, and the Preview tag in the patient
+ * access-request example. The site's running text uses --font-sans from
+ * @hid/ui. Every consumer reads the CSS variables rather than a hard-coded
+ * family name. While a face loads, the page shows Arial adjusted to that
+ * face's metrics (as next/font/google chose for both), which keeps the layout
+ * shift small when the face swaps in.
  */
 const forum = localFont({
   src: './fonts/forum/forum-latin-400-normal.woff2',

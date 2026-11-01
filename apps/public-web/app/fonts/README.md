@@ -5,48 +5,51 @@ The public site's two typefaces, loaded by `app/layout.tsx` through
 `next/font/google` the build downloaded them from Google Fonts, and that
 download intermittently failed the public build in CI.
 
-Each file is the latin-subset WOFF2 exactly as published in the npm package
-below (unmodified; no subsetting or conversion here), and each family's
-`LICENSE` is that package's licence file, also unmodified. Both fonts are under
-the SIL Open Font License 1.1, which requires the licence to travel with them.
-Neither licence names a Reserved Font Name.
+Each file is, byte for byte, the latin WOFF2 that `next/font/google` downloaded
+for this site, so visitors get the same files as before. Each family's
+`OFL.txt` is the licence google/fonts publishes beside that family, unmodified.
+Both fonts are under the SIL Open Font License 1.1, which requires the licence
+to travel with them.
 
-| File | Package | File in the package | sha256 |
+| File | Source | Bytes | sha256 |
 |---|---|---|---|
-| `forum/forum-latin-400-normal.woff2` | `@fontsource/forum@5.3.0` | `files/forum-latin-400-normal.woff2` | `21eb0ef1c5f416bd7837e9bcf5c0ba1b026a9d56e5aed213871957ff442cae1d` |
-| `forum/LICENSE` | `@fontsource/forum@5.3.0` | `LICENSE` | `6fb50d8719d64601e311e535f6bae46f842fbc0d231c0db1827e65015d2ad137` |
-| `inter/inter-latin-wght-normal.woff2` | `@fontsource-variable/inter@5.3.0` | `files/inter-latin-wght-normal.woff2` | `3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62` |
-| `inter/LICENSE` | `@fontsource-variable/inter@5.3.0` | `LICENSE` | `3b0a5fca3d17942cde889069889dedbbbd075e9b599968c82a95f4d944e9b345` |
+| `forum/forum-latin-400-normal.woff2` | `https://fonts.gstatic.com/s/forum/v19/6aey4Ky-Vb8Ew8IROpI43XnS.woff2` | 13,684 | `678331fb318a613e6f7e4db9e608545b7ab57c192d215882caee23d4d787264d` |
+| `forum/OFL.txt` | google/fonts `ofl/forum/OFL.txt` | 4,399 | `1bfe7d2aca99042eabf37079152fef8abdda2c36dad454ae89b858a3cb1078c5` |
+| `inter/inter-latin-wght-normal.woff2` | `https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7W0Q5nw.woff2` | 48,432 | `c940764593d0fe5d596be327ca7558855e018039fb78509aa21921fd3644c3e4` |
+| `inter/OFL.txt` | google/fonts `ofl/inter/OFL.txt` | 4,377 | `5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57` |
 
-- **Packages:** fetched with `npm pack` on 1 November 2026. Their registry
-  shasums: `@fontsource/forum@5.3.0` `cd1fadc512ce7a6dc9bcd3715c33649d019c3541`,
-  `@fontsource-variable/inter@5.3.0` `351dd1e02dab63a6cf66d57ec36dcfd10c07f07b`
-  (both from fontsource/font-files at `02b28c06b126c852a5b966b44aef777ca923f6f6`).
-  They are not dependencies of this repository.
-- **Upstream versions:** Google Fonts' Forum v19 (font version 1.000, Denis
-  Masharov) and Inter v20 (font version 4.001, The Inter Project Authors), the
-  same versions `next/font/google` downloaded for this site.
-- **Forum:** weight 400, the only weight it has. Compared on 1 November 2026
-  with the file Google Fonts served the build: the same characters, outlines,
-  advance widths and metrics, and the same cmap, GPOS, hmtx, name and OS/2
-  tables. This copy keeps its TrueType hinting (instructions in glyf, and the
-  cvt, fpgm, prep, hdmx and VDMX tables), which Google strips for the browser
-  the build presented itself as, so it is about 10 KB larger.
-- **Inter:** one variable file (weight axis 100 to 900; optical size fixed at
-  its default, 14). Compared on 1 November 2026 with the file Google Fonts
-  served the build for all three weights the site uses: every table is byte
-  for byte the same, and this copy adds one, a small `prep` hinting table.
-  `layout.tsx` declares it at 400, 500 and 600, as Google's stylesheet did, so
-  other weights resolve exactly as before. One 48 KB file instead of three
-  static files of about 24 KB each.
+- **Font files:** fetched on 1 November 2026 exactly as `next/font/google`
+  (Next 16.4.2) fetches them: the stylesheets
+  `https://fonts.googleapis.com/css2?family=Forum:wght@400&display=swap` and
+  `https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap`,
+  requested with its user agent (Chrome 104 on macOS), then the file each names
+  for the latin subset. Google Fonts' Forum v19 (font version 1.000, Denis
+  Masharov) and Inter v20 (font version 4.001, The Inter Project Authors).
+  Google serves this user agent unhinted files. Both faces are preloaded on
+  every page, so these are kept over Fontsource's hinted Forum, which is about
+  10 KB larger.
+- **Licences:** fetched from google/fonts at
+  `6157dfaa640ca5738b4d1a7070fe389c3036d7fc` (the commit the EHR fonts'
+  licences in `packages/ui/src/ehr/fonts` come from).
+- **Reserved names:** Forum's author reserves its name: the copyright notice
+  at the top of `forum/OFL.txt` ends `with Reserved Font Name "Forum".` The
+  file here is Google Fonts' own latin subset of Forum, committed unmodified,
+  the same file Google Fonts serves under that name and this site served
+  before. Inter's licence names no Reserved Font Name.
+- **Inter:** one variable file (weight axis 100 to 900). Google's stylesheet
+  names this same file for all three weights the site uses, and `layout.tsx`
+  declares it at 400, 500 and 600 the same way, so other weights resolve
+  exactly as before.
 - **Subset:** latin only (`U+0000-00FF` and a few punctuation and symbol
   ranges), the subset `layout.tsx` asked Google for and preloaded.
   `next/font/google` also declared, without preloading, Google's other subsets
-  (latin-ext, cyrillic, greek, vietnamese) for characters outside latin. None
-  of the site's text uses them: the only characters outside latin in the
+  for characters outside latin: for Forum latin-ext, cyrillic and cyrillic-ext;
+  for Inter latin-ext, cyrillic, cyrillic-ext, greek, greek-ext and vietnamese.
+  None of the site's text uses them: the only characters outside latin in the
   public site's source are arrows, ⌘ and ✓, which no Google subset of either
   family covers. A character outside latin, such as the naira sign (₦), would
   show in the fallback face; add that subset's file here if one is ever needed.
 
 `__tests__/selfHostedFonts.test.ts` checks that every committed font file is
-listed here with its sha256, is WOFF2, and has its licence beside it.
+listed here with its sha256, is WOFF2, and has its `OFL.txt` beside it,
+unchanged, with Forum's reserved name.
