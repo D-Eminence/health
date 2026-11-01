@@ -59,14 +59,14 @@ describe('with the clinic switch off (as it ships)', () => {
 
   it('signs in on today\'s page and never loads the blue one', async () => {
     await open('/provider/sign-in')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back.' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back' })).toBeDefined()
     expect(blueRoot()).toBeNull()
     expect(loads.signIn).toBe(0)
   })
 
   it('recovers on today\'s page', async () => {
     await open('/provider/recover')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Reset your password.' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Reset your password' })).toBeDefined()
     expect(blueRoot()).toBeNull()
     expect(loads.recovery).toBe(0)
   })
@@ -74,7 +74,7 @@ describe('with the clinic switch off (as it ships)', () => {
   it('opens an invitation on today\'s page (Novu)', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     await open('/provider/invitation')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Join your facility.' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Join your facility' })).toBeDefined()
     expect(blueRoot()).toBeNull()
     expect(loads.invitation).toBe(0)
   })
@@ -85,7 +85,7 @@ describe('with the clinic switch on', () => {
 
   it('signs in on the blue page, with today\'s steps, into the blue EHR', async () => {
     await open('/provider/sign-in')
-    expect(await screen.findByText('Sign in to your hospital workspace.')).toBeDefined()
+    expect(await screen.findByText('Sign in to your facility workspace.')).toBeDefined()
     expect(blueRoot()).not.toBeNull()
     expect(loads.signIn).toBe(1)
     fireEvent.change(screen.getByRole('textbox', { name: 'Email' }), { target: { value: 'next.clinician@example.test' } })
@@ -98,7 +98,7 @@ describe('with the clinic switch on', () => {
 
   it('recovers on the blue page', async () => {
     await open('/provider/recover')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Recover account access' })).toBeDefined()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Reset your password' })).toBeDefined()
     expect(blueRoot()).not.toBeNull()
     expect(loads.recovery).toBe(1)
   })

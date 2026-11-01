@@ -37,7 +37,7 @@ function EnrollOnMainSite({ href }: { readonly href: string }) {
   const target = isProduct(product) ? `${href}?product=${product}` : href
   return (
     <SignupShell centered onMainSite={false}>
-      <h1 className="hid-ehr-page-title hid-ehr-signup-title">Register your facility</h1>
+      <h1 className="hid-ehr-page-title hid-ehr-signup-title">Register a facility</h1>
       <p className="hid-ehr-signup-lede">Facility sign-up is done on the main Health ID site.</p>
       <a className="hid-ehr-button hid-ehr-signup-wide" href={target}>Continue to facility sign-up</a>
     </SignupShell>

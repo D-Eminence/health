@@ -12,14 +12,14 @@ export const RECORD_NAME_ID = 'enroll-record-name'
  * field is not described by its label.
  */
 export function RecordName({ name, busy, onDifferentNin }: { name: string; busy: boolean; onDifferentNin?: () => void }) {
-  return <div className="flex flex-col gap-2 rounded-lg border border-notice-line bg-notice p-4 text-[13.5px] text-ink [&_p]:m-0">
+  return <div className="flex flex-col gap-1.5 rounded-xl p-4 text-[13.5px] text-ink ring-1 ring-line [&_p]:m-0">
     <p className="font-medium text-success-ink">NIN verified</p>
-    <div id={RECORD_NAME_ID} className="flex flex-col gap-1.5">
+    <div id={RECORD_NAME_ID} className="flex flex-col gap-1 text-ink-2 [&_strong]:text-ink">
       <p>Name on your NIN record: <strong>{name}</strong></p>
       {onDifferentNin
-        ? <p>Check that this is your name before you continue. If it is not, the NIN you typed may be wrong. Check it on your NIN slip or in the NIMC app, then select Use a different NIN. For help, contact Health ID support.</p>
-        : <p>Check that this is your name before you continue. If it is not, stop here: the NIN you typed may be wrong. Check it on your NIN slip or in the NIMC app. This registration closes by itself within 24 hours, and you can then start again with the right NIN. For help sooner, contact Health ID support.</p>}
+        ? <p>Not your name? The NIN you typed may be wrong. Check your NIN slip or the NIMC app, then use a different NIN.</p>
+        : <p>Not your name? Stop here and check your NIN slip or the NIMC app. This registration closes by itself within 24 hours; then start again with the right NIN.</p>}
     </div>
-    {onDifferentNin && <Button variant="link" className="self-start" disabled={busy} onClick={onDifferentNin}>Use a different NIN</Button>}
+    {onDifferentNin && <Button variant="link" className="-my-2 self-start" disabled={busy} onClick={onDifferentNin}>Use a different NIN</Button>}
   </div>
 }

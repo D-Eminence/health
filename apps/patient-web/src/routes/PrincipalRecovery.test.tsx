@@ -72,7 +72,7 @@ describe('staff and admin password recovery', () => {
     open('staff', '/provider/recover')
 
     const ehr = 'https://ehr.healthidentitydirectory.com/provider/sign-in'
-    expect(screen.getByRole('link', { name: 'Back to provider sign in' }).getAttribute('href')).toBe(ehr)
+    expect(screen.getByRole('link', { name: 'Back to sign in' }).getAttribute('href')).toBe(ehr)
     fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'nurse@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: /Complete staff-reset security check/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
@@ -119,7 +119,7 @@ describe('staff and admin password recovery', () => {
 
     expect(screen.queryByLabelText('Work email')).toBeNull()
     expect(screen.queryByRole('button', { name: /security check/ })).toBeNull()
-    expect(screen.getByText(/Password resets are done on the main Health ID site/)).toBeTruthy()
+    expect(screen.getByText(/Staff reset passwords on the main Health ID site/)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Reset your password on the main site' }).getAttribute('href')).toBe(href)
     expect(calls.start).not.toHaveBeenCalled()
   })
@@ -134,6 +134,6 @@ describe('staff and admin password recovery', () => {
   it('uses the admin reset action and returns to platform sign in', () => {
     open('admin')
     expect(screen.getByRole('button', { name: 'Complete admin-reset security check 0' })).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Back to platform sign in' }).getAttribute('href')).toBe('/admin/sign-in')
+    expect(screen.getByRole('link', { name: 'Back to sign in' }).getAttribute('href')).toBe('/admin/sign-in')
   })
 })

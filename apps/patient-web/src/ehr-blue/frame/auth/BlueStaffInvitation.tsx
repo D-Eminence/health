@@ -81,7 +81,7 @@ export function BlueStaffInvitation() {
   if (resolveStaffProductHostname(hostname)) return <Navigate to={{ pathname: STAFF_JOIN_PATH, hash: location.hash }} replace />
   if (isPlatformAdminHostname(hostname)) {
     return (
-      <BlueAuthLayout title="Accept your invitation" titleId="blue-invitation-title" lede="You open invitations on the main Health ID site.">
+      <BlueAuthLayout title="Accept your invitation" titleId="blue-invitation-title" lede="Invitations open on the main Health ID site.">
         <a className={buttonClass({ variant: 'primary', size: 'lg', block: true })} href={staffInvitationHref(hostname)}>Continue to the invitation page</a>
       </BlueAuthLayout>
     )
@@ -152,14 +152,13 @@ function InvitationSteps() {
   }
 
   return (
-    <BlueAuthLayout title={accepted ? 'You’ve joined.' : 'Accept your invitation'} titleId="blue-invitation-title"
-      lede="Open the invitation your facility sent, then set up your staff account.">
+    <BlueAuthLayout title="Accept your invitation" titleId="blue-invitation-title" links={!accepted}>
       {error ? <Alert intent="error" size="sm">{error}</Alert> : null}
 
       {unavailable ? (
         <section className="staff-form" aria-labelledby="blue-invitation-unavailable-title">
-          <FocusedHeading id="blue-invitation-unavailable-title">Invitations aren’t available yet</FocusedHeading>
-          <p className={NOTE}>Joining a facility by invitation isn’t available on Health ID yet. Please try again later.</p>
+          <FocusedHeading id="blue-invitation-unavailable-title">Invitations can’t be opened right now</FocusedHeading>
+          <p className={NOTE}>Please try again later.</p>
         </section>
       ) : null}
 
@@ -167,7 +166,7 @@ function InvitationSteps() {
         <form className="staff-form" noValidate onSubmit={event => void open(event)}>
           <h2>{mode === 'link' ? 'Open your invitation' : 'Enter your invitation code'}</h2>
           {mode === 'link'
-            ? <p className={NOTE}>Complete the security check, then select Continue to see who invited you.</p>
+            ? <p className={NOTE}>Continue to see who invited you.</p>
             : <>
               <p className={NOTE}>Use the email address the invitation was sent to and the 6-digit code in the email.</p>
               <div className="auth-field-label">

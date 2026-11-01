@@ -359,10 +359,11 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
   const steps = step === 'done' ? undefined : ([['Your details', 'details'], ['Password', 'password'], ['Email code', 'code']] as const)
     .map(([label, at]) => ({ label, current: step === at }))
   const googleOffered = Boolean(googleClientId()) && step === 'details'
-  const stepTitle = 'm-0 text-title-2 text-ink'
+  // Each step's heading names its form for a screen reader; on screen the stepper above the title already says it.
+  const stepTitle = 'sr-only'
 
-  return <AuthLayout brandTo="/" title="Create your Health ID." titleId="enroll-title"
-    lede="Your records, from every hospital, in your control."
+  return <AuthLayout brandTo="/" title={step === 'done' ? null : 'Create your Health ID'} titleId="enroll-title"
+    panelLabelledBy={step === 'done' ? 'enroll-title' : undefined}
     steps={steps} stepsLabel="Sign-up steps">
     <div className="flex flex-col gap-5">
     {error && <Alert intent="error" id="signup-error" live={errorAlert}>{error}</Alert>}

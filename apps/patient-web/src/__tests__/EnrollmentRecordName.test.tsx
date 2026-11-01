@@ -41,8 +41,7 @@ async function submitNin(nin = NIN) {
   await press(screen.getByRole('button', { name: 'Continue' }))
 }
 
-const CHECK = 'Check that this is your name before you continue. If it is not, the NIN you typed may be wrong. '
-  + 'Check it on your NIN slip or in the NIMC app, then select Use a different NIN. For help, contact Health ID support.'
+const CHECK = 'Not your name? The NIN you typed may be wrong. Check your NIN slip or the NIMC app, then use a different NIN.'
 /** The panel headed "NIN verified" (RecordName.tsx), or null. */
 const verified = () => screen.queryByText('NIN verified')?.parentElement ?? null
 
@@ -114,9 +113,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
   const OTHER_NIN = '10987654321'
   const OTHER_NAME = 'Bola Fixture Adeyemi'
   const UNKNOWN_NIN = '19999999999'
-  const STOP = 'Check that this is your name before you continue. If it is not, stop here: the NIN you typed may be wrong. '
-    + 'Check it on your NIN slip or in the NIMC app. This registration closes by itself within 24 hours, and you can then start '
-    + 'again with the right NIN. For help sooner, contact Health ID support.'
+  const STOP = 'Not your name? Stop here and check your NIN slip or the NIMC app. This registration closes by itself within 24 hours; then start again with the right NIN.'
   const names: Record<string, string> = { [NIN]: NAME, [OTHER_NIN]: OTHER_NAME }
   const button = () => screen.queryByRole('button', { name: 'Use a different NIN' })
   type Headers = ReturnType<typeof renderPortal>['headers']

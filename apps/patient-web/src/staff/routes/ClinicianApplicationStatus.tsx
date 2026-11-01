@@ -47,11 +47,10 @@ export function ClinicianApplicationStatus() {
 
 /** On a backend without clinician sign-up (Novu) there is no application to check. */
 function NoApplications() {
-  useDocumentTitle("Clinician sign-up isn't open yet · Health ID Provider")
+  useDocumentTitle('Clinician sign-up is closed for now · Health ID Provider')
   return <ClinicianFrame labelledBy="clinician-status-none-title">
-    <StepHeading id="clinician-status-none-title" level={1} focus={false}>Clinician sign-up isn't open yet</StepHeading>
-    <p className="patient-page-copy">Nobody can apply as a clinician on Health ID yet, so there is no application to check. If you
-      already have a provider account, sign in.</p>
+    <StepHeading id="clinician-status-none-title" level={1} focus={false}>Clinician sign-up is closed for now</StepHeading>
+    <p className="patient-page-copy">There is no application to check. If you already have a provider account, sign in.</p>
     <ul className="clinician-links clinician-panel"><li><Link to="/provider/sign-in">Sign in</Link></li></ul>
   </ClinicianFrame>
 }

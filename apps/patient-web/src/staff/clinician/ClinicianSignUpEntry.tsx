@@ -8,7 +8,7 @@ import { clinicianApplicationApi } from '../clinicianApplicationApi'
  * The way into clinician self sign-up (hid-system ADR-066) from the provider
  * sign-in and provider enrollment pages. "Sign up as a clinician" is offered
  * only while Identity says intake is open (`{ open: true }`); anything else,
- * an outage included, says sign-up is not open yet. The status page is linked
+ * an outage included, offers nothing (no "not open yet"). The status page is linked
  * whether intake is open or not, unless the backend has no clinician
  * applications (Novu), when nobody can have applied. On a staff product host or
  * the admin site both go to the main site, where their security checks are
@@ -27,11 +27,12 @@ export function ClinicianSignUpEntry({ className }: { className: string }) {
 
   // Nothing until Identity has answered: a link offered and then taken back would mislead.
   if (open === null) return null
+  const status = servesClinicianApplications()
+  if (!open && !status) return null
   return <p className={className}>
-    {open ? <>New doctor or nurse? <PageLink path={CLINICIAN_SIGNUP_PATH}>Sign up as a clinician</PageLink>.</>
-      : "Clinician sign-up isn't open yet."}
-    {servesClinicianApplications() && <>
-      {' '}Already applied as a clinician? <PageLink path={CLINICIAN_STATUS_PATH}>Check your application</PageLink>.</>}
+    {open ? <>Doctor or nurse? <PageLink path={CLINICIAN_SIGNUP_PATH}>Sign up as a clinician</PageLink></>
+      : <>Applied as a clinician? <PageLink path={CLINICIAN_STATUS_PATH}>Check your application</PageLink></>}
+    {open && status ? <> · <PageLink path={CLINICIAN_STATUS_PATH}>Check your application</PageLink></> : null}
   </p>
 }
 

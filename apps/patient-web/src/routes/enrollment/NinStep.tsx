@@ -31,17 +31,14 @@ export function NinStep({ focusTarget, busy, invalid, errorId, nin, onNin, onSub
       <InputR id="enroll-nin" ref={focusTarget} required inputMode="numeric" autoComplete="off" value={nin} onChange={event => onNin(event.target.value.replace(/\D/g, '').slice(0, 11))} pattern="[0-9]{11}" maxLength={11} placeholder="11 digits"
         aria-invalid={invalid} aria-describedby={describedBy('enroll-nin-hint', errorId)} />
     </Field>
-    {routes && <section className="flex flex-col gap-2 rounded-xl bg-subtle p-4 text-[13px] text-ink-2 ring-1 ring-line [&_a]:font-medium [&_a]:text-brand-ink [&_p]:m-0" aria-labelledby="enroll-routes-title">
+    {routes && (routes.online || routes.facility) && <section className="flex flex-col gap-2 rounded-xl p-4 text-[13px] text-ink-2 ring-1 ring-line [&_a]:inline-flex [&_a]:min-h-11 [&_a]:items-center [&_a]:font-medium [&_a]:text-brand-ink [&_p]:m-0" aria-labelledby="enroll-routes-title">
       <h2 id="enroll-routes-title" className="m-0 text-sm font-semibold text-ink">How you’ll prove this NIN is yours</h2>
-      <p>No Health ID is made until you do.</p>
+      {/* Only the ways open now are listed: one that isn't is left out, not announced. */}
       <ul className="m-0 flex list-disc flex-col gap-1.5 pl-5">
-        <li>{routes.online ? 'Online: we text a 6-digit code to the phone number linked to your NIN.'
-          : 'A code by text message isn\'t available right now.'}</li>
-        <li>{routes.facility
-          ? 'At a participating healthcare facility: if you lost your SIM, changed your number, have no phone linked to your NIN, or can\'t get the code, a staff member checks one original photo ID in person. You start here with your NIN either way.'
-          : 'Registering at a healthcare facility isn\'t available right now.'}</li>
+        {routes.online && <li>Online: we text a 6-digit code to the phone number linked to your NIN.</li>}
+        {routes.facility && <li>At a participating facility, if you lost your SIM, changed your number, have no phone linked to your NIN, or can't get the code: a staff member checks one original photo ID in person.</li>}
       </ul>
-      {routes.facility && <Link to={FACILITY_LIST_PATH}>See participating facilities and what to bring</Link>}
+      {routes.facility && <Link to={FACILITY_LIST_PATH} className="-my-2 self-start">See participating facilities and what to bring</Link>}
     </section>}
     {turnstile}
     <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || blocked || nin.length !== 11}>{busy ? 'Checking your NIN…' : 'Continue'}</Button>

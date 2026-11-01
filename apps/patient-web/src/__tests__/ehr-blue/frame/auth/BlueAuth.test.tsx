@@ -55,10 +55,10 @@ describe('BlueSignIn', () => {
   it('draws the design\'s sign-in, and signs in as today\'s page does', async () => {
     staff.login.mockResolvedValue({ kind: 'session', session: SESSION })
     open('/provider/sign-in', <BlueSignIn />)
-    expect(screen.getByRole('heading', { level: 1, name: 'Welcome back.' })).toBeDefined()
-    expect(screen.getByText('Sign in to your hospital workspace.')).toBeDefined()
+    expect(screen.getByRole('heading', { level: 1, name: 'Welcome back' })).toBeDefined()
+    expect(screen.getByText('Sign in to your facility workspace.')).toBeDefined()
     expect(screen.getByRole('link', { name: 'Forgot password?' }).getAttribute('href')).toBe('/provider/recover')
-    expect(screen.getByRole('link', { name: 'Register a hospital' })).toBeDefined()
+    expect(screen.getByRole('link', { name: 'Register a facility' })).toBeDefined()
     expect(screen.getByRole('link', { name: 'Accept invitation' }).getAttribute('href')).toBe('/provider/invitation')
     fireEvent.change(screen.getByRole('textbox', { name: 'Email' }), { target: { value: ' demo.nurse@example.test ' } })
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'fictional-password-1' } })
@@ -114,7 +114,7 @@ describe('BlueRecovery', () => {
     recovery.verify.mockResolvedValue({ verified: true, challengeId: 'challenge-1', verificationToken: 'verified-1' })
     recovery.complete.mockResolvedValue({ completed: true })
     open('/provider/recover', <BlueRecovery />)
-    expect(screen.getByRole('heading', { level: 1, name: 'Recover account access' })).toBeDefined()
+    expect(screen.getByRole('heading', { level: 1, name: 'Reset your password' })).toBeDefined()
     fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: 'demo.nurse@example.test' } })
     // The local environment's Turnstile stand-in gives the token, as today.
     fireEvent.click(await screen.findByRole('button', { name: 'Send recovery code' }))

@@ -59,7 +59,7 @@ describe('activation refused after the holder proof', () => {
     const heading = await screen.findByRole('heading', { name: 'This NIN already has a Health ID' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
     const outcome = heading.closest('section')!
-    expect(within(outcome).getByRole('link', { name: 'Recover your account' }).getAttribute('href')).toBe('/recover')
+    expect(within(outcome).getByRole('link', { name: 'Reset your password' }).getAttribute('href')).toBe('/recover')
     expect(within(outcome).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
     expect(outcome.textContent).toContain('quote this reference: corr-activation.')
     expect(screen.queryByLabelText('Password')).toBeNull()
@@ -147,9 +147,9 @@ describe('a registration this page started that was completed', () => {
     await waitFor(() => expect(document.activeElement).toBe(heading))
     const outcome = heading.closest('section')!
     expect(outcome.textContent).toContain('A Health ID was created with this registration, so it can\'t be started again.')
-    expect(outcome.textContent).toContain('Sign in with your email or Health ID and the password you chose. If you can\'t, or you don\'t have your Health ID, use account recovery.')
+    expect(outcome.textContent).toContain('Sign in with your email or Health ID and the password you chose. If you can\'t, or you don\'t have your Health ID, reset your password.')
     expect(within(outcome).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
-    expect(within(outcome).getByRole('link', { name: 'Recover your account' }).getAttribute('href')).toBe('/recover')
+    expect(within(outcome).getByRole('link', { name: 'Reset your password' }).getAttribute('href')).toBe('/recover')
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()

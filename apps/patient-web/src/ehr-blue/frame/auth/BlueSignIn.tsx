@@ -54,7 +54,7 @@ export function BlueSignIn() {
   const elsewhere = staffSignInHref(window.location.hostname)
   if (elsewhere) {
     return (
-      <BlueAuthLayout title="Sign in on the EHR site." titleId="blue-sign-in-title" lede="Use your work account at ehr.healthidentitydirectory.com.">
+      <BlueAuthLayout title="Sign in on the EHR site" titleId="blue-sign-in-title" lede="Use your work account at ehr.healthidentitydirectory.com.">
         <a className={buttonClass({ variant: 'primary', size: 'lg', block: true })} href={elsewhere}>Continue to provider sign in</a>
         <ClinicianSignUpEntry className={HINT} />
       </BlueAuthLayout>
@@ -96,8 +96,8 @@ export function BlueSignIn() {
   const hrefs = authHrefs()
   const recovery = staffRecoveryHref(window.location.hostname)
   return (
-    <BlueAuthLayout title="Welcome back." titleId="blue-sign-in-title" titleAs={challenge ? 'p' : 'h1'} titleRef={heading}
-      lede={challenge ? undefined : 'Sign in to your hospital workspace.'} links={false}>
+    <BlueAuthLayout title={challenge ? null : 'Welcome back'} titleId="blue-sign-in-title" titleRef={heading}
+      lede={challenge ? undefined : 'Sign in to your facility workspace.'} links={false}>
       {challenge ? (
         <StaffMfaSteps challenge={challenge} look={BLUE_MFA_LOOK}
           calls={{ verify: verifyMfa, sendEnrollmentCode, startEnrollment, activate: activateEnrollment }}
@@ -128,10 +128,10 @@ export function BlueSignIn() {
             {busy ? 'Signing in…' : 'Sign in'}
           </Button>
         </form>
-        <div className="flex flex-col gap-1">
-          <p className={NOTE}>New to Health ID? <SiteLink className={LINK} href={hrefs.register}>Register a hospital</SiteLink></p>
-          <p className={NOTE}>Joining your team? <SiteLink className={LINK} href={hrefs.invitation}>Accept invitation</SiteLink></p>
-          <ClinicianSignUpEntry className={HINT} />
+        <div className="flex flex-col border-t border-line pt-4">
+          <p className={NOTE}>New facility? <SiteLink className={LINK} href={hrefs.register}>Register a facility</SiteLink></p>
+          <p className={NOTE}>Invited by your team? <SiteLink className={LINK} href={hrefs.invitation}>Accept invitation</SiteLink></p>
+          <ClinicianSignUpEntry className={NOTE} />
         </div>
       </>}
     </BlueAuthLayout>

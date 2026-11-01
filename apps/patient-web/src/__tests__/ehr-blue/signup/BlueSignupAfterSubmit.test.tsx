@@ -285,10 +285,10 @@ describe('Create your provider account (today’s password step, after the code)
     await waitFor(() => expect(password.type).toBe('password'))
   })
 
-  it('“This isn’t my organization” closes the sign-up and returns to Regulatory identity, nothing created', async () => {
+  it('“This isn’t my organization” closes the sign-up and returns to CAC number, nothing created', async () => {
     await toPassword()
     fireEvent.click(button('This isn’t my organization'))
-    const heading = await step('Regulatory identity')
+    const heading = await step('CAC number')
     await waitFor(() => expect(document.activeElement).toBe(heading))
     expect(api.withdraw).toHaveBeenCalledTimes(1)
     expect(api.activate).not.toHaveBeenCalled()
@@ -305,7 +305,7 @@ describe('Create your provider account (today’s password step, after the code)
     api.withdraw.mockRejectedValueOnce(new HidApiError(status, 'Words', { code: reason }))
     await toPassword()
     fireEvent.click(button('This isn’t my organization'))
-    await step('Regulatory identity')
+    await step('CAC number')
     expect((await screen.findByRole('alert')).textContent).toBe(`${lead}Check your details, and the CAC registration number on `
       + 'your CAC certificate. Correct them, then select Continue. No account has been created. For up to 24 hours, nobody '
       + `else can sign up with the CAC number you entered. If it belongs to another company, tell Health ID support at ${SUPPORT}, `

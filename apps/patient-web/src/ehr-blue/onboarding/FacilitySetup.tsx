@@ -94,7 +94,9 @@ export function FacilitySetup() {
     <div ref={root} className="hid-ehr-onboarding">
       <EhrPageHeading
         // The heading names the step for a screen reader, where the eyebrow shows it.
-        eyebrow={<span aria-hidden="true">{stepEyebrow(step)}</span>}
+        // with the thin bar every multi-step flow shows under its "Step N of M".
+        eyebrow={<span aria-hidden="true" className="hid-ehr-onboarding-progress">{stepEyebrow(step)}
+          <span className="hid-ehr-onboarding-bar"><span style={{ width: `${((step + 1) / STEPS.length) * 100}%` }} /></span></span>}
         title={<><span className="hid-ehr-sr-only">{stepEyebrow(step)}: </span>{SETUP_TITLE}</>}
         primaryAction={<EhrButton variant="secondary" onClick={() => navigate('/provider/institutions')}>Exit setup</EhrButton>}
       />
@@ -110,8 +112,9 @@ export function FacilitySetup() {
         {body[name]}
         {continueBelow !== undefined || step > 0 ? (
           <div className="hid-ehr-actions">
-            {continueBelow !== undefined ? <EhrButton onClick={next}>{continueBelow}</EhrButton> : null}
+            {/* Back, then the one primary: rightmost on a wide screen. */}
             {step > 0 ? <EhrButton variant="secondary" onClick={() => setStep(step - 1)}>Back</EhrButton> : null}
+            {continueBelow !== undefined ? <EhrButton onClick={next}>{continueBelow}</EhrButton> : null}
           </div>
         ) : null}
       </div>

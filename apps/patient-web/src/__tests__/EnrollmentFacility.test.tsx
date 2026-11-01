@@ -134,8 +134,8 @@ describe('registering at a healthcare facility', () => {
     const heading = await screen.findByRole('heading', { name: 'This registration has ended' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
     const outcome = heading.closest('section')!
-    expect(outcome.textContent).toContain('If the staff member told you this NIN already has a Health ID, use account recovery to get back into it.')
-    expect(within(outcome).getByRole('link', { name: 'Recover your account' }).getAttribute('href')).toBe('/recover')
+    expect(outcome.textContent).toContain('If the staff member told you this NIN already has a Health ID, reset your password to get back into it.')
+    expect(within(outcome).getByRole('link', { name: 'Reset your password' }).getAttribute('href')).toBe('/recover')
     expect(within(outcome).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
     expect(document.body.textContent).not.toMatch(/same NIN/)
     await press(within(outcome).getByRole('button', { name: 'Start again' }))

@@ -334,11 +334,10 @@ function EnrolStep({ look, carried, onMoved, restart, proven, noEmail, expiresAt
 
   return <section className={look.classNames.step} aria-labelledby="staff-mfa-enrol-title">
     <StepHeading look={look} heading={heading} id="staff-mfa-enrol-title">Set up an authenticator app</StepHeading>
-    {proven === 'activation' ? <p>Your provider account is active. Health ID asks for a code from an authenticator app each time staff sign
-      in: set one up now to open the Provider Portal.</p>
+    {proven === 'activation' ? <p>Your provider account is active. Set up an authenticator app to open the Provider Portal: you’ll use
+      it each time you sign in.</p>
       : proven === 'email' ? <p>Your work email address is confirmed for this setup. Continue to add Health ID to your authenticator app.</p>
-        : <p>Health ID now asks for a code from an authenticator app each time staff sign in, and this account has none yet. To set one up,
-          first confirm it is you with a code sent to the work email address on your account.</p>}
+        : <p>Staff sign in with a code from an authenticator app. First, we’ll email you a code to confirm it’s you.</p>}
     {!proven && !noEmail && <p className={look.classNames.note}>You can ask for up to 5 codes in 15 minutes.</p>}
     <Deadline look={look} expiresAt={expiresAt} lead="Finish setting up by" />
     <StepError look={look} error={problems.error} />

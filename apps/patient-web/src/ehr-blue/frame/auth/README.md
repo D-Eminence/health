@@ -1,8 +1,8 @@
 # Blue sign-in pages
 
 The Hospital EHR's staff sign-in, password recovery and invitation pages,
-drawn in the redesign's auth look (the shared `AuthLayout`, Kasuwa buttons and
-alerts, light and dark) and working as today's pages do. The redesign is the
+drawn in the shared `AuthLayout` (the one shell for every portal's signed-out
+pages, with the provider panel; Kasuwa buttons and alerts, light and dark) and working as today's pages do. The redesign is the
 final design, so the EHR design's own look (`design/ehr-target` screens 2–4)
 is not drawn; `hid-ehr-blue-auth` only marks the pages.
 
@@ -49,7 +49,7 @@ module is for the offline work, which owns `SignIn.tsx`.
 
 - **Today's sign-in steps.** Password, Turnstile, then the authenticator or
   its set-up, drawn exactly as the redesign's provider sign-in draws them.
-- **Ways in.** The pages link to each other: register a hospital, sign in,
-  recover access, accept an invitation.
+- **Ways in.** Sign-in links to "Forgot password?", "Register a facility" and
+  "Accept invitation"; recovery and invitations link only "Back to sign in".
 - **Refusals are boxed.** Every refusal is a Kasuwa `Alert`; one about the
   field focus is moving to is not announced twice.

@@ -84,7 +84,7 @@ export function StaffInvitation() {
   if (resolveStaffProductHostname(hostname)) return <Navigate to={{ pathname: STAFF_JOIN_PATH, hash: location.hash }} replace />
   // The admin site accepts no invitation check: the person is sent to the main site's page, without the link.
   if (isPlatformAdminHostname(hostname)) {
-    return <AuthLayout brandTo="/provider/sign-in" title="Join your facility." titleId="staff-invitation-title"
+    return <AuthLayout brandTo="/provider/sign-in" title="Join your facility" titleId="staff-invitation-title"
       lede="Invitations are opened on the main Health ID site.">
       <p><a className="patient-primary-button" href={staffInvitationHref(hostname)}>Continue to the invitation page</a></p>
     </AuthLayout>
@@ -155,7 +155,7 @@ function InvitationSteps() {
     } finally { setBusy(false) }
   }
 
-  const title = accepted ? 'You’ve joined.' : 'Join your facility.'
+  const title = accepted ? 'You’ve joined' : 'Join your facility'
   return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
     headerLink={{ to: STAFF_SIGN_IN_PATH, label: 'Sign in' }} title={title} titleId="staff-invitation-title"
     lede="Open the invitation your facility sent you, then set up your Health ID staff account.">

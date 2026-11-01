@@ -7,14 +7,14 @@ import './clinician.css'
 
 /**
  * The frame and small pieces the clinician pages share. They sit outside the
- * provider workspace, in the sign-in layout (AuthLayout): its title is a plain
- * line, since each page carries its own h1, and a heading per step takes focus
+ * provider workspace, in the sign-in layout (AuthLayout) with no title of its
+ * own, since each page carries its own h1, and a heading per step takes focus
  * when the step opens.
  */
 
 export function ClinicianFrame({ labelledBy, children }: { labelledBy?: string; children: ReactNode }) {
-  return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in" headerLink={{ to: '/provider/sign-in', label: 'Sign in' }}
-    title="For doctors and nurses" titleId="clinician-frame-title" titleAs="p" panelLabelledBy={labelledBy}>
+  return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in" audience="provider" headerLink={{ to: '/provider/sign-in', label: 'Sign in' }}
+    title={null} titleId="clinician-frame-title" panelLabelledBy={labelledBy}>
     <div className="clinician-card flex flex-col gap-4">{children}</div>
   </AuthLayout>
 }

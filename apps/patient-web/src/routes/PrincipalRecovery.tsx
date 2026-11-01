@@ -10,6 +10,7 @@ import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../
 import { CODE_BUDGET_HINT, useCodeBudgetNote, useResendWait } from './recoveryWait'
 
 type Step = 'start' | 'code' | 'password' | 'complete'
+const RECOVERY_STEPS: ReadonlyArray<readonly [string, Step]> = [['Email', 'start'], ['Code', 'code'], ['New password', 'password']]
 
 /** Recovery uses only component memory for the challenge and completion token. */
 export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) {
@@ -21,6 +22,7 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
     ? <a className={className} href={signInElsewhere}>{label}</a>
     : <Link className={className} to={signInPath}>{label}</Link>
   const accountLabel = audience === 'staff' ? 'Provider' : 'Platform'
+  const layoutAudience = audience === 'staff' ? 'provider' : 'admin'
   useDocumentTitle(`Reset your password · Health ID ${accountLabel}`)
   const stepFocus = useStepFocus()
   const [step, setStep] = useState<Step>('start')
@@ -46,10 +48,10 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
   // product or admin site (a bookmark, history), the page points there instead.
   const mainSiteRecovery = audience === 'staff' ? staffRecoveryHref(window.location.hostname) : STAFF_RECOVERY_PATH
   if (mainSiteRecovery !== STAFF_RECOVERY_PATH) {
-    return <AuthLayout brandTo={signInPath} title="Reset your password." titleId="principal-recovery-title"
-      lede={`${accountLabel} account recovery. Password resets are done on the main Health ID site.`}>
+    return <AuthLayout brandTo={signInPath} audience={layoutAudience} title="Reset your password" titleId="principal-recovery-title"
+      lede="Staff reset passwords on the main Health ID site.">
       <a className="patient-primary-button auth-primary" href={mainSiteRecovery}>Reset your password on the main site</a>
-      <p className="patient-auth-footer">{signInLink(`Back to ${accountLabel.toLowerCase()} sign in`)}</p>
+      <p className="patient-auth-footer">{signInLink('Back to sign in')}</p>
     </AuthLayout>
   }
 
@@ -134,25 +136,25 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
   // Not while the confirmation is still being typed and agrees so far.
   const mismatch = confirmPassword !== '' && password !== confirmPassword && !password.startsWith(confirmPassword)
 
-  return <AuthLayout brandTo={signInPath} title="Reset your password." titleId="principal-recovery-title"
-    lede={`For ${accountLabel.toLowerCase()} accounts.`}>
+  return <AuthLayout brandTo={signInPath} audience={layoutAudience} title="Reset your password" titleId="principal-recovery-title"
+    steps={step === 'complete' ? undefined : RECOVERY_STEPS.map(([label, at]) => ({ label, current: at === step }))} stepsLabel="Steps to reset your password">
     {error && <p id="principal-recovery-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
     {step === 'start' && <form onSubmit={start} className="patient-form">
-      <p id="principal-recovery-start-hint" className="patient-page-copy">Enter your work email. If an eligible account exists, we will send a code to its verified contact.</p>
+      <p id="principal-recovery-start-hint" className="patient-page-copy">We’ll send a code to your work account’s verified contact.</p>
       <label>Work email<input ref={stepFocus.target} required type="email" autoComplete="username" maxLength={254} value={identifier} onChange={event => setIdentifier(event.target.value)}
         aria-invalid={invalid} aria-describedby={describedBy('principal-recovery-start-hint', errorId)} /></label>
       <Turnstile action={audience === 'staff' ? 'staff-reset' : 'admin-reset'} onTokenChange={setTurnstileToken} resetKey={turnstileResetKey} />
       <button className="patient-primary-button" type="submit" disabled={busy || !turnstileToken}>{busy ? 'Sending…' : 'Send recovery code'}</button>
     </form>}
     {step === 'code' && <form onSubmit={verify} className="patient-form">
-      <p id="principal-recovery-code-hint" className="patient-page-copy">Enter the six digit code sent to your verified contact.</p>
+      <p id="principal-recovery-code-hint" className="patient-page-copy">Enter the 6-digit code we sent.</p>
       <label>Recovery code<input ref={stepFocus.target} required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
         aria-invalid={invalid} aria-describedby={describedBy('principal-recovery-code-hint', errorId)} /></label>
       <button className="patient-primary-button" type="submit" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</button>
       {budget.shown && <p className="patient-field-hint">{CODE_BUDGET_HINT}</p>}
     </form>}
     {step === 'password' && <form onSubmit={complete} className="patient-form">
-      <p id="principal-recovery-password-hint" className="patient-page-copy">Choose a new password of at least 12 characters.</p>
+      <p id="principal-recovery-password-hint" className="patient-page-copy">Use at least 12 characters.</p>
       {/* Two fields, so each toggle is named for its own (a screen reader's list of buttons shows both). */}
       <div className="patient-field"><label htmlFor="principal-recovery-password">New password</label><PasswordInput appearance="plain" id="principal-recovery-password" toggleLabel="Show new password" ref={stepFocus.target} required autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => setPassword(event.target.value)}
         aria-invalid={invalid} aria-describedby={describedBy('principal-recovery-password-hint', errorId)} /></div>
@@ -172,6 +174,6 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
       <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Use a different work email</button>
       <div role="status">{resend.ready && <><p className="patient-field-hint">No code, or a code refused? Start again with the same work email to get a new code.</p>
         <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Start again for a new code</button></>}</div></div>}
-    <p className="patient-auth-footer">{signInLink(`Back to ${accountLabel.toLowerCase()} sign in`)}</p>
+    {step !== 'complete' && <p className="patient-auth-footer">{signInLink('Back to sign in')}</p>}
   </AuthLayout>
 }

@@ -272,7 +272,7 @@ describe('unified authenticated portal routes', () => {
   it('opens provider password recovery without requiring an existing session', async () => {
     open('/provider/recover')
 
-    expect(await screen.findByRole('heading', { name: 'Reset your password.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Reset your password' })).toBeTruthy()
     expect(screen.getByTestId('portal-path').textContent).toBe('/provider/recover')
     expect(calls.staffSession).not.toHaveBeenCalled()
     expect(calls.patientSession).not.toHaveBeenCalled()
@@ -314,7 +314,7 @@ describe('unified authenticated portal routes', () => {
   it('opens platform password recovery without requiring an existing session', async () => {
     open('/admin/recover')
 
-    expect(await screen.findByRole('heading', { name: 'Reset your password.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Reset your password' })).toBeTruthy()
     expect(screen.getByTestId('portal-path').textContent).toBe('/admin/recover')
     expect(calls.adminSession).not.toHaveBeenCalled()
     expect(calls.patientSession).not.toHaveBeenCalled()
@@ -476,7 +476,7 @@ describe('the staff invitation page', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     open('/provider/invitation')
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Join your facility.' }, { timeout: 5000 })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Join your facility' }, { timeout: 5000 })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Enter your invitation code' })).toBeTruthy()
     expect(screen.getByTestId('portal-path').textContent).toBe('/provider/invitation')
     expect(calls.staffSession).not.toHaveBeenCalled()
@@ -490,7 +490,7 @@ describe('the staff invitation page', () => {
     open('/provider/invitation')
 
     await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/provider/sign-in'), { timeout: 5000 })
-    expect(screen.queryByRole('heading', { name: 'Join your facility.' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Join your facility' })).toBeNull()
     expect(calls.staffSession).toHaveBeenCalled()
   })
 })

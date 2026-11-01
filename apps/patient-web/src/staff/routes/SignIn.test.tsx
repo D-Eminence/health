@@ -85,7 +85,7 @@ it.each([
 
   render(<MemoryRouter><SignIn /></MemoryRouter>)
 
-  const link = screen.getByRole('link', { name: 'Forgot your password?' })
+  const link = screen.getByRole('link', { name: 'Forgot password?' })
   expect(link.getAttribute('href')).toBe(href)
   expect(screen.getByText(/You reset it on the main Health ID site\./)).toBeTruthy()
 })
@@ -96,7 +96,7 @@ it('on the production portal sends staff to the EHR site to sign in, with no for
 
   render(<MemoryRouter><SignIn /></MemoryRouter>)
 
-  expect(screen.getByRole('heading', { level: 1, name: 'Staff sign in is on the provider site.' })).toBeTruthy()
+  expect(screen.getByRole('heading', { level: 1, name: 'Sign in on the provider site' })).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Go to staff sign in' }).getAttribute('href'))
     .toBe('https://ehr.healthidentitydirectory.com/provider/sign-in')
   expect(screen.queryByLabelText('Work email')).toBeNull()
@@ -147,7 +147,7 @@ it('keeps password recovery on this site where the portal is not a product site'
 
   render(<MemoryRouter><SignIn /></MemoryRouter>)
 
-  expect(screen.getByRole('link', { name: 'Forgot your password?' }).getAttribute('href')).toBe('/provider/recover')
+  expect(screen.getByRole('link', { name: 'Forgot password?' }).getAttribute('href')).toBe('/provider/recover')
   expect(screen.queryByText(/Password resets are done on the main Health ID site/)).toBeNull()
 })
 
@@ -182,7 +182,7 @@ describe('a sign-in that Identity ended for want of an authenticator (403 STAFF_
     // An info notice: its intent is said before it, and nothing else shares the status role.
     expect(notice.textContent).toBe(`Info: ${NOTICE}`)
     expect(notice.getAttribute('data-intent')).toBe('info')
-    expect(screen.getByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeTruthy()
   })
 
   it.each([['signed-out'], ['ended']])('says nothing of authenticators for a session %s otherwise', status => {
@@ -204,10 +204,11 @@ describe('clinician self sign-up from the provider sign-in page (hid-system ADR-
     expect(screen.getByRole('link', { name: 'Check your application' }).getAttribute('href')).toBe('/provider/join/status')
   })
 
-  it('says clinician sign-up is not open yet otherwise', async () => {
+  it('offers no clinician sign-up otherwise, without saying it is not open', async () => {
     vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
     render(<MemoryRouter><SignIn /></MemoryRouter>)
-    expect(await screen.findByText(/Clinician sign-up isn't open yet\./)).toBeTruthy()
+    expect(await screen.findByRole('link', { name: 'Check your application' })).toBeTruthy()
+    expect(screen.queryByText(/open yet/)).toBeNull()
     expect(screen.queryByRole('link', { name: 'Sign up as a clinician' })).toBeNull()
   })
 
@@ -249,7 +250,9 @@ describe('clinician self sign-up from the provider sign-in page (hid-system ADR-
       fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 
       expect((await screen.findByRole('alert')).textContent).toBe(detail)
-      expect(await screen.findByText(/Clinician sign-up isn't open yet\./)).toBeTruthy()
+      // Novu has neither sign-up nor applications: nothing about clinicians at all.
+      await waitFor(() => expect(clinician.availability).toHaveBeenCalled())
+      expect(screen.queryByText(/open yet/)).toBeNull()
       expect(screen.queryByText(/Applied as a doctor or nurse/)).toBeNull()
       expect(screen.queryByRole('link', { name: /clinician application|Check your application/ })).toBeNull()
     } finally { vi.unstubAllEnvs() }
@@ -416,7 +419,7 @@ describe('focus as soon as it is shown', () => {
     await signIn()
     await verify()
     // Shown as a paragraph while the second step is: a heading again once back at the password step.
-    const shown = focusWhenShown(heading('Welcome back.'))
+    const shown = focusWhenShown(heading('Welcome back'))
     answer(() => verified.reject(new HidApiError(401, 'Sign in again', { code: 'MFA_CHALLENGE_INVALID' })))
     const { element, focused } = await shown
     expect(focused).toBe(element)

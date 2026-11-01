@@ -28,11 +28,11 @@ export function FacilityList({ api, titleLevel = 'h3' }: { api: PatientApi; titl
   </div>
   const { facilities, whatToBring } = list.data
   return <div className="flex flex-col gap-4">
-    <section className="flex flex-col gap-2 rounded-xl bg-subtle p-4 ring-1 ring-line [&_:is(h2,h3)]:m-0 [&_:is(h2,h3)]:text-sm [&_:is(h2,h3)]:font-semibold [&_:is(h2,h3)]:text-ink [&_a]:font-medium [&_a]:text-brand-ink [&_p]:m-0" aria-labelledby="enroll-bring-title">
+    <section className="flex flex-col gap-2 rounded-xl p-4 ring-1 ring-line [&_:is(h2,h3)]:m-0 [&_:is(h2,h3)]:text-sm [&_:is(h2,h3)]:font-semibold [&_:is(h2,h3)]:text-ink [&_a]:font-medium [&_a]:text-brand-ink [&_p]:m-0" aria-labelledby="enroll-bring-title">
       <Title id="enroll-bring-title" ref={loaded} tabIndex={-1}>What to bring</Title>
       <ul className="m-0 flex list-disc flex-col gap-1.5 pl-5 text-sm text-ink-2">{whatToBring.map(line => <li key={line}>{line}</li>)}</ul>
     </section>
-    <section className="flex flex-col gap-2 rounded-xl bg-subtle p-4 ring-1 ring-line [&_:is(h2,h3)]:m-0 [&_:is(h2,h3)]:text-sm [&_:is(h2,h3)]:font-semibold [&_:is(h2,h3)]:text-ink [&_a]:font-medium [&_a]:text-brand-ink [&_p]:m-0" aria-labelledby="enroll-facilities-title">
+    <section className="flex flex-col gap-2 rounded-xl p-4 ring-1 ring-line [&_:is(h2,h3)]:m-0 [&_:is(h2,h3)]:text-sm [&_:is(h2,h3)]:font-semibold [&_:is(h2,h3)]:text-ink [&_a]:font-medium [&_a]:text-brand-ink [&_p]:m-0" aria-labelledby="enroll-facilities-title">
       <Title id="enroll-facilities-title">Participating facilities</Title>
       {facilities.length === 0 ? <p>No healthcare facility is taking part right now. Try again later.</p>
         : <ul className="m-0 flex list-disc flex-col gap-1.5 pl-5 text-sm text-ink-2">{facilities.map((facility, index) => <li key={`${index}-${facility.name}`} className="flex flex-col">

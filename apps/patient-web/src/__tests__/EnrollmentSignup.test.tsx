@@ -75,7 +75,7 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
   it('asks for the details, a password, then the email code, and shows the Health ID', async () => {
     const { sent, headers } = renderPortal(<Enrollment />, gateway(happy), anonymous)
 
-    expect(await screen.findByRole('list', { name: 'Sign-up steps' })).toBeTruthy()
+    expect(await screen.findByRole('group', { name: 'Sign-up steps' })).toBeTruthy()
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     expect(screen.getByRole('link', { name: 'Terms' }).getAttribute('href')).toBe('https://healthidentitydirectory.com/terms')
     expect(screen.getByRole('link', { name: 'Privacy Policy' }).getAttribute('href')).toBe('https://healthidentitydirectory.com/privacy')
@@ -100,7 +100,7 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
     expect(sent.find(request => request.path === `${BASE}/contact/verify`)?.body).toEqual({ challengeId: 'challenge-1', code: '123456' })
     expect(sent.find(request => request.path === `${BASE}/activate`)?.body).toEqual({ password: PASSWORD })
-    expect(screen.queryByRole('list', { name: 'Sign-up steps' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Sign-up steps' })).toBeNull()
   })
 
   it('marks each detail that is missing or invalid, with focus on the first, and sends nothing', async () => {
@@ -332,12 +332,12 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     renderPortal(<Enrollment />, gateway(happy, { open: true, online: true, facility: false }), anonymous)
     expect(await screen.findByLabelText('National Identification Number (NIN)')).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Your details' })).toBeNull()
-    expect(screen.getByRole('list', { name: 'Enrollment steps' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Enrollment steps' })).toBeTruthy()
   })
 
   it('says registration is not open, as before, when availability is closed even with signup: true', async () => {
     renderPortal(<Enrollment />, gateway(happy, { open: false, signup: true }), anonymous)
-    expect(await screen.findByRole('region', { name: 'Sign-ups aren’t open yet' })).toBeTruthy()
+    expect(await screen.findByRole('region', { name: 'Sign-ups are closed for now' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Your details' })).toBeNull()
   })
 })

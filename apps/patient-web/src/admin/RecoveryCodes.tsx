@@ -12,9 +12,11 @@ function AdminButton({ primary, ...rest }: { primary?: boolean } & ButtonHTMLAtt
  * Shows recovery codes the backend returned, once. They live only in the
  * caller's state and are discarded when the administrator continues.
  */
-export function RecoveryCodes({ codes, onDone, doneLabel = 'Continue' }: {
+export function RecoveryCodes({ codes, onDone, doneLabel = 'Continue', headingAs = 'h2' }: {
   codes: readonly string[]; onDone: () => void; doneLabel?: string
+  /** 'h1' where the codes are the page itself (sign-in's last step, which has no other title). */
+  headingAs?: 'h1' | 'h2'
 }) {
   return <SharedRecoveryCodes codes={codes} onDone={onDone} doneLabel={doneLabel} limits="They cannot confirm high-risk actions."
-    fileName="hid-admin-recovery-codes.txt" headingId="admin-recovery-title" classNames={CLASS_NAMES} Button={AdminButton} />
+    fileName="hid-admin-recovery-codes.txt" headingId="admin-recovery-title" headingAs={headingAs} classNames={CLASS_NAMES} Button={AdminButton} />
 }

@@ -33,11 +33,11 @@ export function NovuAdminSignIn({ onSignedIn, notice }: {
   }
 
   return <AuthLayout brandTo="/admin/sign-in" brandLabel="Health ID platform administration"
-    title="Platform administration." titleId="admin-sign-in-title" titleAs="p"
-    lede="Access is limited to accounts with platform permissions.">
+    audience="admin" title={null} titleId="admin-sign-in-title" panelLabelledBy="admin-sign-in-title">
     {notice && <p role="status" className="admin-warning">{notice}</p>}
     <form onSubmit={event => void submit(event)} className="admin-auth-form">
-      <h1>Administration sign in</h1>
+      <h1 id="admin-sign-in-title">Administration sign in</h1>
+      <p>For platform administrators.</p>
       <label>Email<input type="email" autoComplete="username" required value={email} onChange={event => setEmail(event.target.value)} /></label>
       <div className="admin-field"><label htmlFor="admin-password">Password</label><PasswordInput appearance="plain"
         id="admin-password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} /></div>

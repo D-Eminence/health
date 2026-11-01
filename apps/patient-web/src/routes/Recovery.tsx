@@ -106,11 +106,11 @@ export function Recovery() {
   // The error is about the step's one field when the server refused its value.
   const invalid = fieldError ? true : undefined
   const errorId = fieldError ? 'recovery-error' : undefined
-  const steps = (['Your account', 'Code', 'New password'] as const).map((label, index) => ({ label,
+  const steps = (['Account', 'Code', 'New password'] as const).map((label, index) => ({ label,
     current: (step === 'start' && index === 0) || (step === 'code' && index === 1) || (step === 'password' && index === 2) }))
   const problem = error && <span role={errorAlert ? 'alert' : undefined}>{error}</span>
 
-  return <AuthLayout brandTo="/sign-in" title="Reset your password." titleId="recovery-title"
+  return <AuthLayout brandTo="/sign-in" title="Reset your password" titleId="recovery-title"
     steps={step === 'complete' ? undefined : steps} stepsLabel="Steps to reset your password">
     <div className="flex flex-col gap-5">
     {error && !fieldError && <Alert intent="error" id="recovery-error" live={errorAlert}>{error}</Alert>}
@@ -147,12 +147,12 @@ export function Recovery() {
         may be entered at once. A new code is offered once the wait has passed, in a region mounted throughout,
         so it is announced. */}
     {(step === 'code' || step === 'password') && <div className="flex flex-col items-start gap-2">
-      <Button variant="link" onClick={restart} disabled={busy}
+      <Button variant="link" className="min-h-11" onClick={restart} disabled={busy}
         aria-describedby={resend.ready ? undefined : 'recovery-other-identifier-hint'}>Use a different email, phone or Health ID</Button>
       {!resend.ready && <p id="recovery-other-identifier-hint" className="m-0 text-[13px] text-ink-3">Wait for a new code before using another email, phone or Health ID on the same account.</p>}
       <div role="status">{resend.ready && <><p className="m-0 text-[13px] text-ink-3">No code? Start again to get a new one.</p>
-        <Button variant="link" onClick={restart} disabled={busy}>Start again for a new code</Button></>}</div></div>}
-    {step !== 'complete' && <p className="m-0 text-center text-sm"><Link to="/sign-in" className="font-medium text-brand-ink">Back to sign in</Link></p>}
+        <Button variant="link" className="min-h-11" onClick={restart} disabled={busy}>Start again for a new code</Button></>}</div></div>}
+    {step !== 'complete' && <p className="m-0 text-center text-sm"><Link to="/sign-in" className="inline-flex min-h-11 items-center font-medium text-brand-ink">Back to sign in</Link></p>}
     </div>
   </AuthLayout>
 }

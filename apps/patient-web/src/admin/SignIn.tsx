@@ -60,8 +60,8 @@ export function AdminSignIn({ onSignedIn, notice }: {
   }
 
   return <AuthLayout brandTo="/admin/sign-in" brandLabel="Health ID platform administration"
-    title="Platform administration." titleId="admin-sign-in-title" titleAs="p"
-    lede="Access is limited to accounts with platform permissions. You will also need your authenticator app.">
+    audience="admin" title={null} titleId="admin-sign-in-title"
+    panelLabelledBy={step.kind === 'recovery-codes' ? 'admin-recovery-title' : step.kind === 'finishing' ? undefined : 'admin-sign-in-title'}>
     {notice && step.kind === 'credentials' && <p role="status" className="admin-warning">{notice}</p>}
     {step.kind === 'credentials' && <CredentialsStep error={error} onError={setError}
       onChallenge={challenge => { setError(null); setStep(challenge.status === 'mfa_required'
@@ -73,7 +73,7 @@ export function AdminSignIn({ onSignedIn, notice }: {
       onFailure={caught => mfaFailure(caught, 'Authenticator setup could not be completed. Try again.')}
       onActivated={codes => { setError(null); setStep({ kind: 'recovery-codes', codes }) }}
       onRestart={() => restart(null)} />}
-    {step.kind === 'recovery-codes' && <RecoveryCodes codes={step.codes} doneLabel="Continue to platform administration"
+    {step.kind === 'recovery-codes' && <RecoveryCodes headingAs="h1" codes={step.codes} doneLabel="Continue to platform administration"
       onDone={() => void finish()} />}
     {step.kind === 'finishing' && <p role="status">Opening platform administration…</p>}
   </AuthLayout>
@@ -103,7 +103,8 @@ function CredentialsStep({ error, onError, onChallenge }: {
   }
 
   return <form onSubmit={event => void submit(event)} className="admin-auth-form">
-    <h1>Administration sign in</h1>
+    <h1 id="admin-sign-in-title">Administration sign in</h1>
+    <p>For platform administrators. You’ll also need your authenticator app.</p>
     <label>Email<input type="email" autoComplete="username" required value={email} onChange={event => setEmail(event.target.value)} /></label>
     <div className="admin-field"><label htmlFor="admin-password">Password</label><PasswordInput appearance="plain" id="admin-password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} /></div>
     {(config.turnstileSiteKey || config.name !== 'local') &&
@@ -112,7 +113,7 @@ function CredentialsStep({ error, onError, onChallenge }: {
     <button type="submit" className="admin-primary" disabled={pending || (requiresToken && !token)}>
       {pending ? 'Signing in…' : 'Continue'}
     </button>
-    <p><Link to="/admin/recover">Forgot your password?</Link></p>
+    <p><Link to="/admin/recover">Forgot password?</Link></p>
   </form>
 }
 
@@ -142,7 +143,7 @@ function VerifyStep({ challenge, error, onFailure, onVerified, onRestart }: {
   }
 
   return <form onSubmit={event => void submit(event)} className="admin-auth-form">
-    <h1>Verify it’s you</h1>
+    <h1 id="admin-sign-in-title">Verify it’s you</h1>
     {mode === 'totp' ? <>
       <p>Enter the 6-digit code from your authenticator app. Email codes are not accepted for administrators.</p>
       <label>Authenticator code<input value={code} onChange={event => setCode(sixDigitCode(event.target.value))}
@@ -197,7 +198,7 @@ function EnrollStep({ challenge, error, onFailure, onActivated, onRestart }: {
   }
 
   if (!enrollment) return <div className="admin-auth-form">
-    <h1>Set up your authenticator</h1>
+    <h1 id="admin-sign-in-title">Set up your authenticator</h1>
     <p>Platform administration requires an authenticator app (for example one that supports time-based codes). This
       account has none: it is new, or its authenticator was reset. Email codes are not accepted for administrators.</p>
     <p className="admin-note">Setup must be finished by {date(challenge.expiresAt)}.</p>
@@ -208,7 +209,7 @@ function EnrollStep({ challenge, error, onFailure, onActivated, onRestart }: {
   </div>
 
   return <form onSubmit={event => void activate(event)} className="admin-auth-form">
-    <h1>Add Health ID to your authenticator</h1>
+    <h1 id="admin-sign-in-title">Add Health ID to your authenticator</h1>
     <ol className="admin-steps">
       <li>In your authenticator app, add an account and enter this setup key. On a phone with the app installed you can
         instead <a href={enrollment.otpauthUri}>open it in the app</a>.

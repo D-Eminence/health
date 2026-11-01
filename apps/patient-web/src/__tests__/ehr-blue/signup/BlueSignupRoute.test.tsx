@@ -49,27 +49,29 @@ describe('the clinic switch chooses the page at /provider/enroll', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     clinic.switchedOn = true
     await openPortal()
-    expect(await screen.findByRole('heading', { level: 1, name: 'Register your facility' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Register a facility' })).toBeTruthy()
     expect(await screen.findByRole('heading', { level: 2, name: 'Your account' })).toBeTruthy()
     expect(document.querySelector('.hid-ehr.hid-ehr-signup')).not.toBeNull()
-    expect(screen.queryByRole('heading', { name: 'Set up your facility.' })).toBeNull()
+    // Both pages carry the same title now; today's own field tells them apart.
+    expect(screen.queryByRole('textbox', { name: 'Administrator email' })).toBeNull()
   })
 
   it('keeps today’s page while the switch is off', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     await openPortal()
-    expect(await screen.findByRole('heading', { level: 1, name: 'Set up your facility.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Register a facility' })).toBeTruthy()
     expect(await screen.findByRole('textbox', { name: 'Administrator email' })).toBeTruthy()
     expect(document.querySelector('.hid-ehr')).toBeNull()
-    expect(screen.queryByRole('heading', { name: 'Register your facility' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Registration progress' })).toBeNull()
   })
 
   it('keeps today’s page on hid-system main (main-v1) even with the switch on: the blue flow is Novu only', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'main-v1')
     clinic.switchedOn = true
     await openPortal()
-    expect(await screen.findByRole('heading', { level: 1, name: 'Set up your facility.' })).toBeTruthy()
-    expect(screen.getByRole('list', { name: 'Provider enrollment steps' }).textContent).toContain('Authenticator')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Register a facility' })).toBeTruthy()
+    // Main's four steps, the last of them the authenticator.
+    expect(screen.getByRole('group', { name: 'Provider enrollment steps' }).textContent).toBe('Step 1 of 4 · Facility')
     expect(document.querySelector('.hid-ehr')).toBeNull()
   })
 })
@@ -90,7 +92,7 @@ describe('the blue registration opened on a staff product host or the admin site
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     jsdom.reconfigure({ url: `https://${hostname}${entry}` })
     open(entry)
-    expect(screen.getByRole('heading', { level: 1, name: 'Register your facility' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Register a facility' })).toBeTruthy()
     expect(screen.getByText('Facility sign-up is done on the main Health ID site.')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Continue to facility sign-up' }).getAttribute('href')).toBe(href)
     expect(screen.queryByRole('textbox')).toBeNull()

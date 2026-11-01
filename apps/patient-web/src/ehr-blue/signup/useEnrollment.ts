@@ -19,7 +19,7 @@ import {
 const NOVU = true
 
 /** The five registration steps of the design (facility-fields.ts registrationSteps). */
-export const REGISTRATION_STEPS = ['Your account', 'Facility details', 'Regulatory identity', 'Platform setup', 'Agreements'] as const
+export const REGISTRATION_STEPS = ['Your account', 'Facility type', 'CAC number', 'Product', 'Agreements'] as const
 export const CAC_STEP = 2
 export const REVIEW_STEP = 4
 

@@ -5,11 +5,8 @@ import { HidApiError } from '@hid/http'
 import { ORGANIZATION_TYPE_NOTES, organizationTypeNote, ProviderEnrollment } from './ProviderEnrollment'
 import { focusWhenShown } from '../../__tests__/focusWhenShown'
 
-/** A step's name as read aloud: the redesign's number or tick beside it is hidden from assistive technology. */
-function stepLabel(item: Element): string {
-  return [...item.childNodes].filter(node => !(node instanceof Element && node.getAttribute('aria-hidden') === 'true'))
-    .map(node => node.textContent).join('')
-}
+/** Where the sign-up is, as the shared stepper says it: "Step 2 of 4 · Email". */
+const stepper = () => screen.getByRole('group', { name: 'Provider enrollment steps' }).textContent
 
 /**
  * The portal's self-service provider enrollment (/provider/enroll), which the
@@ -148,8 +145,7 @@ describe('provider enrollment', () => {
 
   it('keeps main\'s four steps and its authenticator wording, and asks no availability (main has none)', async () => {
     open()
-    expect([...screen.getByRole('list', { name: 'Provider enrollment steps' }).querySelectorAll('li')].map(stepLabel))
-      .toEqual(['Organization', 'Email confirmation', 'Password', 'Authenticator'])
+    expect(stepper()).toBe('Step 1 of 4 · Facility')
     expect(screen.queryByText(/sign-ups get the Provider Portal for now/)).toBeNull()
     enterDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
@@ -164,10 +160,9 @@ describe('provider enrollment', () => {
     expect(screen.queryByRole('button', { name: 'This isn’t my organization' })).toBeNull()
   })
 
-  it('keeps main\'s fine print, which names its review before activation', () => {
+  it('keeps main\'s CAC hint, which names its review before activation', () => {
     open()
-    expect(screen.getByText('We check your CAC against the official registry. Registrations already linked to Health ID are '
-      + 'reviewed by our team before activation.')).toBeTruthy()
+    expect(screen.getByText('We check it with the official registry. One already linked to Health ID is reviewed by our team first.')).toBeTruthy()
   })
 
   it('verifies the six-digit code, then activates with a password of at least 12 characters', async () => {
@@ -241,7 +236,7 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
 
     await stepShown('Set up an authenticator app')
     expect(screen.getByText(/^Your provider account is active\./)).toBeTruthy()
-    expect(stepLabel(screen.getByRole('list', { name: 'Provider enrollment steps' }).querySelector('[aria-current="step"]')!)).toBe('Authenticator')
+    expect(stepper()).toBe('Step 4 of 4 · Authenticator')
     // Activation is not a sign-in: nothing opens until the authenticator is set up.
     expect(reload).not.toHaveBeenCalled()
     expect(screen.queryByRole('heading', { name: 'Provider workspace' })).toBeNull()
@@ -324,12 +319,14 @@ describe('clinician self sign-up from provider enrollment (hid-system ADR-066)',
     clinician.availability.mockResolvedValueOnce({ open: true })
     open()
     expect((await screen.findByRole('link', { name: 'Sign up as a clinician' })).getAttribute('href')).toBe('/provider/join')
-    expect(screen.getByText(/Provider enrollment sets up a facility and its administrator's account/)).toBeTruthy()
+    // One short line under the title; no paragraphs about who the sign-up is for.
+    expect(screen.queryByText(/Provider enrollment sets up a facility/)).toBeNull()
   })
 
-  it('says clinician sign-up is not open yet otherwise', async () => {
+  it('offers no clinician sign-up otherwise, and says nothing about it not being open', async () => {
     open()
-    expect(await screen.findByText(/Clinician sign-up isn't open yet\./)).toBeTruthy()
+    expect(await screen.findByRole('link', { name: 'Check your application' })).toBeTruthy()
+    expect(screen.queryByText(/open yet/)).toBeNull()
     expect(screen.queryByRole('link', { name: 'Sign up as a clinician' })).toBeNull()
   })
 })
@@ -355,7 +352,6 @@ describe('facility self sign-up on Novu (P4)', () => {
   beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
 
   const continueButton = () => screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement
-  const steps = () => [...screen.getByRole('list', { name: 'Provider enrollment steps' }).querySelectorAll('li')].map(stepLabel)
 
   async function toDetails(entry?: string) {
     open(entry)
@@ -393,7 +389,7 @@ describe('facility self sign-up on Novu (P4)', () => {
     expect(screen.getByRole('link', { name: SUPPORT }).getAttribute('href')).toBe(`mailto:${SUPPORT}`)
     expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
     expect(screen.queryByRole('textbox', { name: 'CAC registration number' })).toBeNull()
-    expect(screen.queryByRole('list', { name: 'Provider enrollment steps' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Provider enrollment steps' })).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
   }
 
@@ -440,13 +436,12 @@ describe('facility self sign-up on Novu (P4)', () => {
 
   it('shows three steps ending with the password, and says the account is ready straight away', async () => {
     await toDetails()
-    expect(steps()).toEqual(['Organization', 'Email confirmation', 'Password'])
-    expect(screen.getByText('Verify your CAC registration, confirm your email and choose a password. Your administrator '
-      + 'account is ready straight away.')).toBeTruthy()
-    // Novu reviews nothing before activation: a CAC number already linked is refused, so the fine print does not say so.
-    expect(screen.getByText('We check your CAC against the official registry, and Health ID support checks every new '
-      + 'facility within one working day.')).toBeTruthy()
-    expect(screen.queryByText(/reviewed by our team before activation/)).toBeNull()
+    expect(stepper()).toBe('Step 1 of 3 · Facility')
+    expect(screen.getByText('Sign up your clinic, hospital, lab or pharmacy.')).toBeTruthy()
+    // Novu reviews nothing before activation: a CAC number already linked is refused, so the CAC hint does not say so.
+    expect(screen.getByText('We check it with the official registry. Health ID support checks every new facility within one '
+      + 'working day.')).toBeTruthy()
+    expect(screen.queryByText(/reviewed by our team/)).toBeNull()
     await submitDetails()
     fireEvent.change(await screen.findByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
@@ -455,7 +450,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       + 'You’ll use it with ada@example.test to sign in. Once your account is created, you go straight into the Provider Portal '
       + 'as your facility’s administrator.')
     expect(screen.queryByText(/authenticator/i)).toBeNull()
-    expect(steps()).toEqual(['Organization', 'Email confirmation', 'Password'])
+    expect(stepper()).toBe('Step 3 of 3 · Password')
     // A password manager saves the new password with the administrator's email.
     const username = document.querySelector('input[autocomplete="username"]') as HTMLInputElement
     expect(username.value).toBe('ada@example.test')
@@ -524,10 +519,10 @@ describe('facility self sign-up on Novu (P4)', () => {
     }
   })
 
-  it('says an administrator adds the staff once support has checked the facility, not that they can’t hold a clinical role', async () => {
+  it('opens with one short line, not paragraphs about staff or clinical roles', async () => {
     await toDetails()
-    expect(screen.getByText('Provider enrollment sets up a facility and its administrator’s account. Once Health ID support has '
-      + 'checked the facility, its administrator adds the doctors, nurses and other staff on the Staff page.')).toBeTruthy()
+    expect(screen.getByText('Sign up your clinic, hospital, lab or pharmacy.')).toBeTruthy()
+    expect(screen.queryByText(/Provider enrollment sets up a facility/)).toBeNull()
     expect(screen.queryByText(/can't also hold a\s+clinical role there/)).toBeNull()
   })
 
@@ -747,7 +742,7 @@ describe('facility self sign-up on Novu (P4)', () => {
         + `help, contact Health ID support at ${SUPPORT}.`)
       expect(screen.queryByText(/24 hours/)).toBeNull()
       expect(screen.queryByLabelText('Password')).toBeNull()
-      expect(screen.queryByRole('list', { name: 'Provider enrollment steps' })).toBeNull()
+      expect(screen.queryByRole('group', { name: 'Provider enrollment steps' })).toBeNull()
 
       fireEvent.click(screen.getByRole('button', { name: 'Start again with another email' }))
       await screen.findByRole('button', { name: 'Continue' })
@@ -1394,7 +1389,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect(screen.queryByRole('heading', { name: 'Facility sign-up isn’t open right now' })).toBeNull()
       expect(screen.queryByText(/can’t sign themselves up/)).toBeNull()
       expect(screen.queryByRole('textbox', { name: 'CAC registration number' })).toBeNull()
-      expect(screen.queryByRole('list', { name: 'Provider enrollment steps' })).toBeNull()
+      expect(screen.queryByRole('group', { name: 'Provider enrollment steps' })).toBeNull()
     }
 
     it('shows the closed notice for reason closed', async () => {

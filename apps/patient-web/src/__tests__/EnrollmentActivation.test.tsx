@@ -46,9 +46,8 @@ async function proveContact() {
   return screen.findByLabelText('Password')
 }
 
-/** The current step's name, without its number or tick, which are hidden from assistive technology. */
-const currentStep = () => [...screen.getByRole('list', { name: 'Enrollment steps' }).querySelector('[aria-current="step"]')?.childNodes ?? []]
-  .filter(node => !(node instanceof Element && node.getAttribute('aria-hidden') === 'true')).map(node => node.textContent).join('')
+/** The current step's name, as the shared stepper says it: "Step 3 of 5 · Contact". */
+const currentStep = () => screen.getByRole('group', { name: 'Enrollment steps' }).textContent?.split(' · ')[1]
 
 /**
  * hid-system#68 (N2(c), ADR-048): a contact proved more than 30 minutes before

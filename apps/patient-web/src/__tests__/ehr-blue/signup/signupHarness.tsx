@@ -27,7 +27,7 @@ export function open(entry = '/provider/enroll') {
 export const textbox = (name: string) => screen.getByRole('textbox', { name }) as HTMLInputElement
 export const combobox = (name: string) => screen.getByRole('combobox', { name }) as HTMLSelectElement
 export const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement
-export const stepHeading = () => screen.getByRole('heading', { level: 2, name: /^(Your account|Facility details|Regulatory identity|Platform setup|Agreements)$/ })
+export const stepHeading = () => screen.getByRole('heading', { level: 2, name: /^(Your account|Facility type|CAC number|Product|Agreements)$/ })
 
 export async function step(name: string) {
   return screen.findByRole('heading', { level: 2, name })
@@ -55,13 +55,13 @@ export async function toReview({ entry, type, product }: { entry?: string; type?
   fireEvent.change(textbox('Full name'), { target: { value: `  ${NAME} ` } })
   fireEvent.change(textbox('Email'), { target: { value: ' Admin@Demo-Hospital.Example.TEST ' } })
   next()
-  await step('Facility details')
+  await step('Facility type')
   if (type) fireEvent.change(combobox('Facility type'), { target: { value: type } })
   next()
-  await step('Regulatory identity')
+  await step('CAC number')
   fireEvent.change(textbox('CAC registration number'), { target: { value: 'rc 123 456' } })
   next()
-  await step('Platform setup')
+  await step('Product')
   if (product) fireEvent.change(combobox('Product to start with'), { target: { value: product } })
   next()
   await step('Agreements')

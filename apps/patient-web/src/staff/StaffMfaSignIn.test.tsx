@@ -90,7 +90,7 @@ function Where() {
 async function openSignIn(path = '/provider/sign-in') {
   const { App } = await import('./App')
   render(<MemoryRouter initialEntries={[path]}><Where /><Routes><Route path="/provider/*" element={<App />} /></Routes></MemoryRouter>)
-  expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
 }
 
 function signIn() {
@@ -250,7 +250,7 @@ describe('the authenticator code (mfa_required)', () => {
     type('Authenticator code', '123456')
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
 
-    await stepShown('Welcome back.')
+    await stepShown('Welcome back')
     expect(await alertText()).toBe(message)
     // The work email is kept; the password is asked for again.
     expect((screen.getByRole('textbox', { name: 'Work email' }) as HTMLInputElement).value).toBe('ada@example.test')
@@ -280,7 +280,7 @@ describe('the authenticator code (mfa_required)', () => {
 
     expect(screen.getByText(/^Lost your authenticator and your recovery codes\? Ask Health ID support to reset it/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
-    await stepShown('Welcome back.')
+    await stepShown('Welcome back')
     expect(screen.queryByRole('alert')).toBeNull()
   })
 })
@@ -473,7 +473,7 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
     type('Authenticator code', '123456')
     fireEvent.click(screen.getByRole('button', { name: 'Activate authenticator' }))
 
-    await stepShown('Welcome back.')
+    await stepShown('Welcome back')
     expect(await alertText()).toBe(CHALLENGE_SPENT)
     expect(document.body.textContent).not.toContain('JBSW Y3DP')
   })
@@ -489,7 +489,7 @@ describe('the password step\'s own refusals', () => {
     signIn()
 
     expect(await alertText()).toBe(message)
-    expect(screen.getByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     expect(calls).toEqual([SESSION, REFRESH, LOGIN])
   })
 })
@@ -503,7 +503,7 @@ it('opens nothing when the workspace cannot take the session verify answered wit
   type('Authenticator code', '123456')
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify' })) })
 
-  await stepShown('Welcome back.')
+  await stepShown('Welcome back')
   expect(await alertText()).toBe('A staff account is required for this portal.')
   expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
 })

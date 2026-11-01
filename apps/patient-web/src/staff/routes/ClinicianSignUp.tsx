@@ -12,6 +12,7 @@ import { Declarations, DetailsFields, EMPTY_DETAILS, applicationDetails, declara
 import { EmailCode } from '../clinician/EmailCode'
 import { APPLICATIONS_LIMITED, FACILITY_UNAVAILABLE, PROFESSION_NAME, REGULATOR_NAME, SIGNUP_CLOSED, SIGNUP_CLOSED_KEPT,
   SIGNUP_SEARCHES_USED, codeOf, codeSentCopy, formatDate, isUnavailable, refusalCopy } from '../clinician/copy'
+import { AuthStepper } from '../../AuthLayout'
 import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, StepHeading, TextButton, fieldError, shownError,
   type Problem } from '../clinician/ui'
 import { buttonClass } from '../../kasuwa/ui'
@@ -80,7 +81,7 @@ function SignUp() {
   const submission = useRef<{ key: string; fingerprint: string } | null>(null)
 
   useDocumentTitle(availability === 'loading' ? 'Clinician sign-up · Health ID Provider'
-    : availability !== 'open' ? "Clinician sign-up isn't open yet · Health ID Provider"
+    : availability !== 'open' ? 'Clinician sign-up is closed for now · Health ID Provider'
       : `Clinician sign-up – ${label(step)} · Health ID Provider`)
 
   // In the commit that shows the refusal, not an effect a task later: a check made as soon as it is shown finds the focus moved.
@@ -243,9 +244,9 @@ function SignUp() {
   }
   if (availability !== 'open') {
     return <ClinicianFrame labelledBy="clinician-signup-title">
-      <StepHeading id="clinician-signup-title" level={1} focus={moved}>Clinician sign-up isn't open yet</StepHeading>
+      <StepHeading id="clinician-signup-title" level={1} focus={moved}>Clinician sign-up is closed for now</StepHeading>
       {moved && availability === 'closed' && <p role="alert" className="patient-inline-error">{SIGNUP_CLOSED}</p>}
-      <p className="patient-page-copy">You can't apply as a clinician on Health ID yet. If you already have a provider account, sign in.</p>
+      <p className="patient-page-copy">If you already have a provider account, sign in.</p>
       {availability === 'failed' && <div className="clinician-panel">
         <p role="alert" className="patient-inline-error">We couldn't check right now.</p>
         {/* The check replaces this screen, Retry with it: what is shown next (a step, or this screen again) takes focus. */}
@@ -262,13 +263,9 @@ function SignUp() {
   const facilityName = details.facility?.name ?? 'your facility'
 
   return <ClinicianFrame labelledBy="clinician-signup-title">
+    <AuthStepper label="Clinician sign-up steps" steps={STEPS.map(([name, text]) => ({ label: text, current: name === step }))} />
     <h1 id="clinician-signup-title" className="patient-page-title">Apply as a doctor or nurse</h1>
-    <p className="patient-page-copy">Apply to work as a doctor or nurse on Health ID. You'll set up an authenticator app as you apply.
-      Health ID checks your licence and calls you to confirm it's you. Use your own email address, not your facility's admin account.</p>
-
-    <ol className="patient-step-list clinician-steps" aria-label="Clinician sign-up steps">
-      {STEPS.map(([name, text]) => <li key={name} aria-current={name === step ? 'step' : undefined}>{text}</li>)}
-    </ol>
+    <p className="patient-page-copy">Use your own email, not your facility’s admin account. We check your licence and call you to confirm it’s you.</p>
 
     {screen === 'in-use' && <section className="clinician-panel" aria-labelledby="clinician-in-use-title">
       <StepHeading id="clinician-in-use-title" focus>Use a different email address</StepHeading>
@@ -277,7 +274,7 @@ function SignUp() {
         different email.</p>
       <ul className="clinician-links">
         <li><Link to="/provider/sign-in">Sign in</Link></li>
-        <li><Link to={STAFF_RECOVERY_PATH}>Forgot your password?</Link></li>
+        <li><Link to={STAFF_RECOVERY_PATH}>Forgot password?</Link></li>
         <li><Link to={CLINICIAN_STATUS_PATH}>Check an application</Link></li>
       </ul>
       <div><PrimaryButton onClick={differentEmail}>Use a different email address</PrimaryButton></div>

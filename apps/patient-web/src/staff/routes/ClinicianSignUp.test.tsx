@@ -101,7 +101,7 @@ async function stepShown(name: string) {
 const textbox = (name: string) => screen.getByRole('textbox', { name }) as HTMLInputElement
 const press = (name: string) => fireEvent.click(screen.getByRole('button', { name }))
 const type = (field: HTMLElement, value: string) => fireEvent.change(field, { target: { value } })
-const currentStep = () => screen.getByRole('list', { name: 'Clinician sign-up steps' }).querySelector('[aria-current="step"]')?.textContent
+const currentStep = () => screen.getByRole('group', { name: 'Clinician sign-up steps' }).textContent?.split(' · ')[1]
 
 async function toCode(email = ' Ada@Example.TEST ') {
   open()
@@ -154,27 +154,27 @@ describe('clinician sign-up availability', () => {
     api.availability.mockResolvedValueOnce({ open: false })
     open()
     expect(screen.getByRole('status').textContent).toBe('Checking whether clinician sign-up is open…')
-    expect(await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })).toBeTruthy()
-    expect(screen.getByText("You can't apply as a clinician on Health ID yet. If you already have a provider account, sign in.")).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Clinician sign-up is closed for now' })).toBeTruthy()
+    expect(screen.getByText('If you already have a provider account, sign in.')).toBeTruthy()
     // The page's own way to sign in, and the redesign's top-bar link: both lead to provider sign-in.
     expect(screen.getAllByRole('link', { name: 'Sign in' }).map(link => link.getAttribute('href'))).toEqual(['/provider/sign-in', '/provider/sign-in'])
     expect(screen.getByRole('link', { name: 'Check an application' }).getAttribute('href')).toBe('/provider/join/status')
     expect(screen.queryByRole('textbox', { name: 'Work email' })).toBeNull()
     expect(screen.queryByText("We couldn't check right now.")).toBeNull()
-    await waitFor(() => expect(document.title).toBe("Clinician sign-up isn't open yet · Health ID Provider"))
+    await waitFor(() => expect(document.title).toBe('Clinician sign-up is closed for now · Health ID Provider'))
   })
 
   it('treats a 404 as not open, with no retry', async () => {
     api.availability.mockRejectedValueOnce(problem(404, 'NOT_FOUND'))
     open()
-    expect(await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Clinician sign-up is closed for now' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
   })
 
   it('says it could not check on an outage, and checks again on Retry', async () => {
     api.availability.mockRejectedValueOnce(problem(503, 'PLATFORM_CONTROL_UNAVAILABLE'))
     open()
-    expect(await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Clinician sign-up is closed for now' })).toBeTruthy()
     expect(screen.getByText("We couldn't check right now.")).toBeTruthy()
     press('Retry')
     expect(await screen.findByRole('textbox', { name: 'Work email' })).toBeTruthy()
@@ -197,7 +197,7 @@ describe('clinician sign-up availability', () => {
     const first = await screen.findByText("We couldn't check right now.")
     press('Retry')
     await waitFor(() => expect(api.availability).toHaveBeenCalledTimes(2))
-    await stepShown("Clinician sign-up isn't open yet")
+    await stepShown('Clinician sign-up is closed for now')
     expect(screen.getByRole('alert')).not.toBe(first)
     expect(screen.getByRole('alert').textContent).toBe("We couldn't check right now.")
   })
@@ -208,7 +208,7 @@ describe('clinician sign-up availability', () => {
     expect(currentStep()).toBe('Email')
     await waitFor(() => expect(document.title).toBe('Clinician sign-up – Email · Health ID Provider'))
     // A facility administrator's account can't also hold a clinical role there: the redesign says it as one plain line.
-    expect(screen.getByText(/Use your own email address, not your facility's admin account\./)).toBeTruthy()
+    expect(screen.getByText(/Use your own email, not your facility’s admin account\./)).toBeTruthy()
   })
 
   it('links to the main site on a staff product host, with no form and no request', async () => {
@@ -263,7 +263,7 @@ describe('the email steps', () => {
     type(await screen.findByRole('textbox', { name: 'Work email' }), 'ada@example.test')
     press('Complete check')
     press('Send code')
-    expect(await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Clinician sign-up is closed for now' })).toBeTruthy()
   })
 
   it.each([['send', 'Send code'], ['check', 'Verify email']] as const)(
@@ -279,7 +279,7 @@ describe('the email steps', () => {
         type(textbox('6-digit code'), '123456')
       }
       press(button)
-      const heading = await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })
+      const heading = await screen.findByRole('heading', { level: 1, name: 'Clinician sign-up is closed for now' })
       await waitFor(() => expect(document.activeElement).toBe(heading))
       expect(screen.getByRole('alert').textContent).toBe("New clinician applications aren't open right now.")
       expect(screen.queryByRole('textbox', { name: 'Work email' })).toBeNull()
@@ -288,7 +288,7 @@ describe('the email steps', () => {
   it('neither takes focus nor alerts when the page opens with sign-up closed', async () => {
     api.availability.mockResolvedValueOnce({ open: false })
     open()
-    const heading = await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Clinician sign-up is closed for now' })
     expect(document.activeElement).not.toBe(heading)
     expect(screen.queryByRole('alert')).toBeNull()
   })
@@ -341,7 +341,7 @@ describe('the email steps', () => {
     expect(screen.getByText(/Clinician accounts need their own address/)).toBeTruthy()
     // The page's own way to sign in, and the redesign's top-bar link: both lead to provider sign-in.
     expect(screen.getAllByRole('link', { name: 'Sign in' }).map(link => link.getAttribute('href'))).toEqual(['/provider/sign-in', '/provider/sign-in'])
-    expect(screen.getByRole('link', { name: 'Forgot your password?' }).getAttribute('href')).toBe('/provider/recover')
+    expect(screen.getByRole('link', { name: 'Forgot password?' }).getAttribute('href')).toBe('/provider/recover')
     expect(screen.getByRole('link', { name: 'Check an application' }).getAttribute('href')).toBe('/provider/join/status')
     press('Use a different email address')
     await stepShown('Your work email')

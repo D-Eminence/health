@@ -854,8 +854,8 @@ export function Enrollment() {
       disabledReason={googleTurnstileToken ? undefined : 'Complete the security check to continue with Google.'} />
     {stage === 'nin' && <Button variant="link" className="self-start" disabled={busy} onClick={chooseNin}>Verify your NIN without Google</Button>}
   </section>
-  return <AuthLayout brandTo="/" title="Get your Health ID." titleId="enroll-title"
-    lede="Verify who you are, confirm a contact, and choose a password."
+  return <AuthLayout brandTo="/" title={stage === 'complete' ? null : 'Get your Health ID'} titleId="enroll-title"
+    panelLabelledBy={stage === 'complete' ? 'enroll-title' : undefined}
     steps={!closed && STEP_STAGES.includes(stage) ? steps.map(([label, stages]) => ({ label, current: stages.includes(stage) })) : undefined}
     stepsLabel="Enrollment steps">
     <div className="flex flex-col gap-5">

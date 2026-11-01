@@ -15,7 +15,7 @@ vi.mock('../GoogleButton', () => ({
 afterEach(() => { vi.unstubAllEnvs() })
 
 const AVAILABILITY = '/identity/patient-enrollments/availability'
-const CLOSED = 'New Health ID registration is not open yet. If you already have a Health ID, sign in.'
+const CLOSED_NEXT = 'If you already have a Health ID, sign in.'
 const anonymous = { state: { status: 'anonymous', principal: null } } as const
 const none = () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')
 /** The gateway's 503; Retry-After 0 lets the client spend its read retries without waiting. */
@@ -32,7 +32,7 @@ function gateway(availability: () => Response, current: () => Response = none, o
     return other(path, method, body)
   }
 }
-const closedNotice = () => screen.findByRole('region', { name: 'Sign-ups aren’t open yet' })
+const closedNotice = () => screen.findByRole('region', { name: 'Sign-ups are closed for now' })
 const availabilityReads = (sent: Array<{ path: string }>) => sent.filter(request => request.path === AVAILABILITY).length
 
 /**
@@ -50,12 +50,12 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     const { sent } = renderPortal(<Enrollment />, gateway(() => json({ open: false })), anonymous)
 
     const notice = await closedNotice()
-    expect(within(notice).getByText(CLOSED)).toBeTruthy()
+    expect(within(notice).getByText(CLOSED_NEXT)).toBeTruthy()
     expect(within(notice).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
     expect(within(notice).getByRole('link', { name: 'Forgot password?' }).getAttribute('href')).toBe('/recover')
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Complete check' })).toBeNull()
-    expect(screen.queryByRole('list', { name: 'Enrollment steps' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Enrollment steps' })).toBeNull()
     expect(sent).toContainEqual({ path: AVAILABILITY, method: 'GET', body: null })
     expect(sent.filter(request => request.method !== 'GET')).toEqual([])
   })
@@ -80,17 +80,17 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     expect(await screen.findByLabelText('National Identification Number (NIN)')).toBeTruthy()
     // One security check on the page: Google is a path of its own, opened by a button.
     expect(screen.getAllByRole('button', { name: 'Complete check' })).toHaveLength(1)
-    expect(screen.getByRole('list', { name: 'Enrollment steps' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Enrollment steps' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Sign up with Google' })).toBeNull()
-    expect(screen.queryByRole('region', { name: 'Sign-ups aren’t open yet' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Sign-ups are closed for now' })).toBeNull()
   })
 
   it('continues an enrollment in progress while registration is not open', async () => {
     renderPortal(<Enrollment />, gateway(() => json({ open: false }),
       () => json({ stage: 'verify_contact', challengeId: 'challenge-1', maskedContact: 'a•••@example.com' })), anonymous)
     expect(await screen.findByLabelText('Code')).toBeTruthy()
-    expect(screen.queryByRole('region', { name: 'Sign-ups aren’t open yet' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Sign-ups are closed for now' })).toBeNull()
   })
 
   it('shows the Health ID of an enrollment activated here while registration is not open', async () => {
@@ -98,7 +98,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
       () => json({ stage: 'active', hidCode: 'HID-ABCDEF23' })), anonymous)
     expect(await screen.findByRole('heading', { name: 'Your Health ID is ready' })).toBeTruthy()
     expect(screen.getByText('HID-ABCDEF23')).toBeTruthy()
-    expect(screen.queryByRole('region', { name: 'Sign-ups aren’t open yet' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Sign-ups are closed for now' })).toBeNull()
   })
 
   it('says it could not check, without asking for a NIN, when the availability read fails; Try again reads it again', async () => {
@@ -108,7 +108,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     const alert = await screen.findByRole('alert')
     expect(shownText(alert)).toContain('We couldn’t check whether new sign-ups are open. Try again before starting.')
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
-    expect(screen.queryByRole('region', { name: 'Sign-ups aren’t open yet' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Sign-ups are closed for now' })).toBeNull()
     const reads = availabilityReads(sent)
 
     open = () => json({ open: true })
@@ -129,7 +129,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     open = () => json({ open: false })
     await press(second)
     await closedNotice()
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Sign-ups aren’t open yet' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Sign-ups are closed for now' })))
   })
 
   it('does not ask for the NIN again when an enrollment in progress ends here while registration is not open', async () => {

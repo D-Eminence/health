@@ -4,12 +4,14 @@
  * hid-ehr-signup-* classes, or kit classes inside one of them. Tailwind does not scan ehr-blue: plain CSS only.
  */
 
+/* Inside the shared sign-in layout's column (SignupShell.tsx): one column, the page's own background. */
 .hid-ehr.hid-ehr-signup {
   box-sizing: border-box;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  min-height: 100vh;
-  background: var(--ehr-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  background: transparent;
   color: var(--ehr-text);
 }
 
@@ -72,11 +74,15 @@
   text-transform: uppercase;
 }
 
+/* The app's title style, as on every sign-in page (AuthLayout's .auth-title). */
 .hid-ehr .hid-ehr-signup-title {
-  margin: 10px 0 16px;
-  font-size: 44px;
-  line-height: 1.15;
-  color: var(--ehr-text);
+  margin: 0 0 8px;
+  font-family: var(--font-sans);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 32px;
+  letter-spacing: -0.015em;
+  color: var(--ehr-ink);
 }
 
 .hid-ehr .hid-ehr-signup-title:focus {
@@ -174,9 +180,10 @@
   outline: none;
 }
 
+/* One field a row, in the sign-in column. */
 .hid-ehr .hid-ehr-signup-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px 16px;
 }
 
@@ -191,10 +198,10 @@
   margin: 24px 0;
 }
 
-/* The design's 48px tinted inputs (redesign.css: .auth-form-panel input). */
+/* 44px controls on the page's own background, as every sign-in form draws them. */
 .hid-ehr.hid-ehr-signup .hid-ehr-control {
-  min-height: 48px;
-  background: var(--ehr-surface-tint);
+  min-height: 44px;
+  background: var(--ehr-surface);
 }
 
 /* Placeholder text on those tinted inputs: the muted ink, which keeps 4.5:1 on surface-tint. */
@@ -546,9 +553,6 @@
     padding-left: 0;
   }
 
-  .hid-ehr .hid-ehr-signup-title {
-    font-size: 32px;
-  }
 
   .hid-ehr .hid-ehr-signup-progress-steps {
     display: none;
@@ -563,3 +567,13 @@
     gap: 2px;
   }
 }
+
+/* The form's buttons, as every sign-in form has them: Back then the one primary, which is rightmost from 640px and
+   at the bottom, full width, on a phone. */
+.hid-ehr.hid-ehr-signup .hid-ehr-signup-actions { flex-direction: column; align-items: stretch; }
+.hid-ehr.hid-ehr-signup .hid-ehr-signup-actions > .hid-ehr-button { width: 100%; min-height: 44px; }
+@media (min-width: 640px) {
+  .hid-ehr.hid-ehr-signup .hid-ehr-signup-actions { flex-direction: row; justify-content: flex-end; align-items: center; }
+  .hid-ehr.hid-ehr-signup .hid-ehr-signup-actions > .hid-ehr-button { width: auto; }
+}
+.hid-ehr.hid-ehr-signup .hid-ehr-signup-turnstile { margin-top: 24px; }

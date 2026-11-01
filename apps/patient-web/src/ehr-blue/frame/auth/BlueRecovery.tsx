@@ -10,6 +10,7 @@ import { CODE_BUDGET_HINT, useCodeBudgetNote, useResendWait } from '../../../rou
 import { authHrefs, BlueAuthLayout, HINT, NOTE, SiteLink } from './BlueAuthLayout'
 
 type Step = 'start' | 'code' | 'password' | 'complete'
+const RECOVERY_STEPS: ReadonlyArray<readonly [string, Step]> = [['Email', 'start'], ['Code', 'code'], ['New password', 'password']]
 
 /**
  * The Hospital EHR's staff password recovery, in the redesign's auth look, working as today's does
@@ -20,7 +21,7 @@ type Step = 'start' | 'code' | 'password' | 'complete'
  */
 export function BlueRecovery() {
   const api = useMemo(() => createPrincipalRecoveryApi('staff'), [])
-  useDocumentTitle('Recover account access · Health ID Hospital EHR')
+  useDocumentTitle('Reset your password · Health ID Hospital EHR')
   const stepFocus = useStepFocus()
   const [step, setStep] = useState<Step>('start')
   const [identifier, setIdentifier] = useState('')
@@ -42,7 +43,7 @@ export function BlueRecovery() {
   const mainSiteRecovery = staffRecoveryHref(window.location.hostname)
   if (mainSiteRecovery !== STAFF_RECOVERY_PATH) {
     return (
-      <BlueAuthLayout title="Recover account access" titleId="blue-recovery-title" lede="You reset staff passwords on the main Health ID site.">
+      <BlueAuthLayout title="Reset your password" titleId="blue-recovery-title" lede="Staff reset passwords on the main Health ID site.">
         <a className={buttonClass({ variant: 'primary', size: 'lg', block: true })} href={mainSiteRecovery}>Reset your password on the main site</a>
       </BlueAuthLayout>
     )
@@ -126,12 +127,13 @@ export function BlueRecovery() {
   const mismatch = confirmPassword !== '' && password !== confirmPassword && !password.startsWith(confirmPassword)
 
   return (
-    <BlueAuthLayout title="Recover account access" titleId="blue-recovery-title" lede="For staff accounts.">
+    <BlueAuthLayout title="Reset your password" titleId="blue-recovery-title"
+      steps={step === 'complete' ? undefined : RECOVERY_STEPS.map(([label, at]) => ({ label, current: at === step }))} stepsLabel="Steps to reset your password">
       {/* Every refusal is boxed; it is an alert unless it is about the field focus is moving to, which says it. */}
       {error ? <Alert id="blue-recovery-error" intent="error" size="sm" live={errorAlert}>{error}</Alert> : null}
       {step === 'start' ? (
         <form onSubmit={start} className="staff-form">
-          <p id="blue-recovery-start-hint" className={NOTE}>Enter your work email. If an account exists, we send a code to its verified contact.</p>
+          <p id="blue-recovery-start-hint" className={NOTE}>We’ll send a code to your work account’s verified contact.</p>
           <div className="auth-field-label">
             <label htmlFor="blue-recovery-email">Work email</label>
             <input id="blue-recovery-email" ref={stepFocus.target} required type="email" autoComplete="username" maxLength={254} value={identifier}
@@ -144,7 +146,7 @@ export function BlueRecovery() {
       ) : null}
       {step === 'code' ? (
         <form onSubmit={verify} className="staff-form">
-          <p id="blue-recovery-code-hint" className={NOTE}>Enter the 6-digit code sent to your verified contact.</p>
+          <p id="blue-recovery-code-hint" className={NOTE}>Enter the 6-digit code we sent.</p>
           <div className="auth-field-label">
             <label htmlFor="blue-recovery-code">Recovery code</label>
             <input id="blue-recovery-code" ref={stepFocus.target} required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code}
@@ -157,7 +159,7 @@ export function BlueRecovery() {
       ) : null}
       {step === 'password' ? (
         <form onSubmit={complete} className="staff-form">
-          <p id="blue-recovery-password-hint" className={NOTE}>Choose a new password of at least 12 characters.</p>
+          <p id="blue-recovery-password-hint" className={NOTE}>Use at least 12 characters.</p>
           <div className="auth-field-label">
             <label htmlFor="blue-recovery-password">New password</label>
             <PasswordInput appearance="plain" id="blue-recovery-password" toggleLabel="Show new password" ref={stepFocus.target} required

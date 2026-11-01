@@ -125,7 +125,9 @@ const ENROLLMENT_MFA_CALLS: StaffMfaCalls = {
  * administrator in (owner decision: a password, no authenticator). hid-system
  * main since #71 adds an authenticator step after it.
  */
-const NOVU_STEPS = [['details', 'Organization'], ['otp', 'Email confirmation'], ['password', 'Password']] as const
+/** The one line under the title while the facility's details are asked. */
+const FACILITY_LEDE = 'Sign up your clinic, hospital, lab or pharmacy.'
+const NOVU_STEPS = [['details', 'Facility'], ['otp', 'Email'], ['password', 'Password']] as const
 const MAIN_STEPS = [...NOVU_STEPS, ['authenticator', 'Authenticator']] as const
 
 /** Identity's wait before another code (resendAfterSeconds), when its answer does not give one. */
@@ -442,7 +444,7 @@ function EnrollOnMainSite({ href }: { href: string }) {
   const target = isProduct(product) ? `${href}?product=${product}` : href
   return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
     headerLink={{ to: '/provider/sign-in', label: 'Sign in' }}
-    title="Set up your facility." titleId="provider-enroll-title"
+    audience="provider" title="Register a facility" titleId="provider-enroll-title"
     lede="Facility sign-up is done on the main Health ID site.">
     <p><a className="patient-primary-button" href={target}>Continue to facility sign-up</a></p>
   </AuthLayout>
@@ -980,10 +982,8 @@ function EnrollmentSteps() {
   return (
     <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
       headerLink={{ to: '/provider/sign-in', label: 'Sign in' }}
-      title="Set up your facility." titleId="provider-enroll-title"
-      lede={novu
-        ? 'Verify your CAC registration, confirm your email and choose a password. Your administrator account is ready straight away.'
-        : 'Verify your CAC registration and your facility can start using Health ID straight away.'}
+      title="Register a facility" titleId="provider-enroll-title"
+      audience="provider" lede={stage === 'details' && availability === 'open' ? FACILITY_LEDE : undefined}
       steps={closed || availability === 'checking' || availability === 'unavailable' || stage === 'help'
         ? undefined : steps.map(([step, label]) => ({ label, current: step === currentStep }))}
       stepsLabel="Provider enrollment steps">
@@ -1031,7 +1031,9 @@ function EnrollmentSteps() {
               </Field>
               {productNote && <p id="provider-product-note" className="patient-field-hint">{productNote}</p>}
 
-              <Field label="CAC registration number" htmlFor="provider-cac">
+              <Field label="CAC registration number" htmlFor="provider-cac" hint={novu
+                ? 'We check it with the official registry. Health ID support checks every new facility within one working day.'
+                : 'We check it with the official registry. One already linked to Health ID is reviewed by our team first.'}>
                 <Input id="provider-cac" required value={cac}
                   onChange={event => setCac(event.target.value.replace(/\s+/g, '').toUpperCase())}
                   autoCapitalize="characters" autoComplete="off" spellCheck={false}
@@ -1070,12 +1072,6 @@ function EnrollmentSteps() {
               </button>
               {retryIn > 0 && !busy && <p className="patient-field-hint">{carried
                 ? 'You can continue with your changes in ' : 'You can try again in '}{waitWords(retryIn)}.</p>}
-              {/* Novu has no review before activation: a CAC number already linked is refused (P4 review). */}
-              <p className="provider-setup-fineprint">{novu
-                ? 'We check your CAC against the official registry, and Health ID support checks every new facility within one '
-                  + 'working day.'
-                : 'We check your CAC against the official registry. Registrations already linked to Health ID are reviewed by '
-                  + 'our team before activation.'}</p>
             </div>
           </form>
         )}
@@ -1173,14 +1169,8 @@ function EnrollmentSteps() {
           </> : <p className="patient-field-hint">{help.text} <SupportContact purpose="finish" /></p>}
         </section>}
 
-        {/* Clinician self sign-up (hid-system ADR-066): a doctor or nurse applies with their own account, not this one.
-            On Novu (P4b) the administrator adds the facility's staff, and may get clinical access with their own licence. */}
-        {novu
-          ? <p className="patient-auth-footer">Provider enrollment sets up a facility and its administrator’s account. Once Health
-            ID support has checked the facility, its administrator adds the doctors, nurses and other staff on the Staff page.</p>
-          : <p className="patient-auth-footer">Provider enrollment sets up a facility and its administrator's account, which can't also hold a
-            clinical role there: doctors and nurses apply with their own email address.</p>}
-        <ClinicianSignUpEntry className="patient-auth-footer" />
+        {/* Clinician self sign-up (hid-system ADR-066): a doctor or nurse applies with their own account, not this one. */}
+        {stage === 'details' && <ClinicianSignUpEntry className="patient-auth-footer" />}
     </AuthLayout>
   )
 }

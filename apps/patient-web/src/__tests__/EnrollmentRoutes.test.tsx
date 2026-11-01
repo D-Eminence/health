@@ -52,17 +52,19 @@ describe('how the NIN will be proved, told at the NIN step', () => {
     expect(sent.filter(request => request.method !== 'GET')).toEqual([])
   })
 
-  it('says the code by text is not available while only the facility route is open', async () => {
+  it('lists only the facility route while the code by text is off, without announcing the other', async () => {
     renderPortal(<Enrollment />, gateway({ open: true, online: false, facility: true }), anonymous)
     const region = await routes()
-    expect(region.textContent).toContain('A code by text message isn\'t available right now.')
+    expect(region.textContent).not.toContain('we text a 6-digit code')
+    expect(region.textContent).not.toContain('available')
     expect(within(region).getByRole('link', { name: 'See participating facilities and what to bring' })).toBeTruthy()
   })
 
-  it('says registering at a facility is not available yet while only the online route is open', async () => {
+  it('lists only the online route while registering at a facility is off, without announcing the other', async () => {
     renderPortal(<Enrollment />, gateway({ open: true, online: true, facility: false }), anonymous)
     const region = await routes()
-    expect(region.textContent).toContain('Registering at a healthcare facility isn\'t available right now.')
+    expect(region.textContent).not.toContain('participating facility')
+    expect(region.textContent).not.toContain('available')
     expect(within(region).queryByRole('link')).toBeNull()
   })
 
@@ -74,8 +76,8 @@ describe('how the NIN will be proved, told at the NIN step', () => {
 
   it('keeps open as the only gate: the routes alone do not offer a start', async () => {
     renderPortal(<Enrollment />, gateway({ open: false, online: true, facility: true }), anonymous)
-    const notice = await screen.findByRole('region', { name: 'Sign-ups aren’t open yet' })
-    expect(within(notice).getByText(CLOSED)).toBeTruthy()
+    const notice = await screen.findByRole('region', { name: 'Sign-ups are closed for now' })
+    expect(within(notice).getByText('If you already have a Health ID, sign in.')).toBeTruthy()
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
   })
 
@@ -92,8 +94,8 @@ describe('the start\'s refusals since the holder step', () => {
     const { sent } = renderPortal(<Enrollment />, gateway({ open: true, online: true, facility: true }, () =>
       problem(503, 'PATIENT_REGISTRATION_NOT_OPEN', CLOSED)), { ...anonymous, signOut })
     await submitNin()
-    const notice = await screen.findByRole('region', { name: 'Sign-ups aren’t open yet' })
-    expect(within(notice).getByText(CLOSED)).toBeTruthy()
+    const notice = await screen.findByRole('region', { name: 'Sign-ups are closed for now' })
+    expect(within(notice).getByText('If you already have a Health ID, sign in.')).toBeTruthy()
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     expect(signOut).not.toHaveBeenCalled()
     expect(sent.filter(request => request.path.startsWith('/auth/') && request.path !== '/auth/google/onboarding')).toEqual([])

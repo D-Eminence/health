@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import type { ReactElement } from 'react'
 
@@ -24,10 +24,12 @@ afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
 const show = (element: ReactElement) => render(<MemoryRouter>{element}</MemoryRouter>)
 
 describe('clinician sign-up on Novu', () => {
-  it('says sign-up is not open on the provider pages and links no application', async () => {
+  it('offers nothing on the provider pages: no sign-up, no application, no "not open yet"', async () => {
     const { ClinicianSignUpEntry } = await import('./ClinicianSignUpEntry')
-    show(<ClinicianSignUpEntry className="entry" />)
-    expect(await screen.findByText("Clinician sign-up isn't open yet.")).toBeTruthy()
+    const { container } = show(<ClinicianSignUpEntry className="entry" />)
+    await waitFor(() => expect(calls).toEqual([]))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(container.textContent).toBe('')
     expect(screen.queryByRole('link')).toBeNull()
     expect(calls).toEqual([])
   })
@@ -35,7 +37,7 @@ describe('clinician sign-up on Novu', () => {
   it('opens the sign-up page as not open, with only the way to sign in', async () => {
     const { ClinicianSignUp } = await import('../routes/ClinicianSignUp')
     show(<ClinicianSignUp />)
-    expect(await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Clinician sign-up is closed for now' })).toBeTruthy()
     expect(screen.getAllByRole('link').map(link => link.textContent)).not.toContain('Check an application')
     // The page's own way to sign in, and the redesign's top-bar link: both lead to provider sign-in.
     expect(screen.getAllByRole('link', { name: 'Sign in' }).map(link => link.getAttribute('href'))).toEqual(['/provider/sign-in', '/provider/sign-in'])
@@ -46,8 +48,8 @@ describe('clinician sign-up on Novu', () => {
   it('opens the status page as having no application to check', async () => {
     const { ClinicianApplicationStatus } = await import('../routes/ClinicianApplicationStatus')
     show(<ClinicianApplicationStatus />)
-    expect(screen.getByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })).toBeTruthy()
-    expect(screen.getByText(/there is no application to check/)).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Clinician sign-up is closed for now' })).toBeTruthy()
+    expect(screen.getByText(/no application to check/)).toBeTruthy()
     // The page's own way to sign in, and the redesign's top-bar link: both lead to provider sign-in.
     expect(screen.getAllByRole('link', { name: 'Sign in' }).map(link => link.getAttribute('href'))).toEqual(['/provider/sign-in', '/provider/sign-in'])
     expect(screen.queryByLabelText(/email/i)).toBeNull()

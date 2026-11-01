@@ -7,7 +7,8 @@
 import { CSRF, EXPECTED_404, configure, notServed, respond, workspaceFor } from './routes.mjs'
 
 const params = new URLSearchParams(window.location.search)
-configure({ facility: params.get('facility') === 'classic' ? 'classic' : 'blue' })
+configure({ facility: params.get('facility') === 'classic' ? 'classic' : 'blue', signup: params.get('signup') === '1',
+  enrol: ['closed', 'unavailable'].includes(params.get('enrol') ?? '') ? params.get('enrol') : 'open' })
 // ?product=lab|pharmacy|outreach shows the provider workspace as that product alone (ehr-blue/frame/product.ts).
 const PRODUCTS = ['ehr', 'lab', 'pharmacy', 'outreach']
 const product = PRODUCTS.includes(params.get('product') ?? '') ? params.get('product') : 'ehr'
@@ -18,8 +19,12 @@ if (product !== 'ehr') window.__HID_PREVIEW_PRODUCT__ = product
 // from ?ws=patient|provider|admin, moved into the portal's route before it starts.
 const ENTRY = window.location.pathname
 const WORKSPACE_PATHS = { patient: '/', provider: '/provider', admin: '/admin' }
-const asked = WORKSPACE_PATHS[params.get('ws') ?? 'patient'] ?? '/'
-params.delete('ws')
+// ?at=/sign-in opens that address instead (sign-in, sign-up and recovery screens); ?signedout=1 starts with no session,
+// so the signed-out screens show. Signing in from the page then works as usual.
+const at = params.get('at')
+let signedOut = params.get('signedout') === '1'
+const asked = at && at.startsWith('/') ? at : WORKSPACE_PATHS[params.get('ws') ?? 'patient'] ?? '/'
+params.delete('ws'); params.delete('at'); params.delete('signedout')
 const rest = params.toString()
 window.history.replaceState(null, '', asked + (rest ? `?${rest}` : '') + window.location.hash)
 
@@ -42,6 +47,16 @@ window.fetch = async (input, init = {}) => {
   await new Promise(resolve => setTimeout(resolve, 120)) // a little latency, so loading states show
   if (init.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
   const headers = { 'X-CSRF-Token': CSRF }
+  // Signed out: no session until a sign-in succeeds.
+  if (signedOut) {
+    // A provider or platform sign-in is signed in once its authenticator step is done.
+    if (method === 'POST' && (/^\/auth\/(sign-in|password|google|session)/.test(path) || path === '/auth/patient/login'
+      || /^\/auth\/(admin\/)?mfa\/(verify|enroll\/activate)$/.test(path))) signedOut = false
+    else if (/^\/(auth\/(session|refresh|admin\/session|admin\/refresh)|admin\/session)$/.test(path)) {
+      return new Response(JSON.stringify({ type: 'about:blank', title: 'UNAUTHENTICATED', status: 401, code: 'UNAUTHENTICATED', detail: 'Sign in.' }),
+        { status: 401, headers: { ...headers, 'Content-Type': 'application/problem+json' } })
+    }
+  }
   // The patient's photo, kept in this page's memory only (never stored), so changing it from the card can be tried.
   if (workspace === 'patient' && path === '/identity/me/photo') {
     if (method === 'PUT') {

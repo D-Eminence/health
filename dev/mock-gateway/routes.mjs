@@ -3,8 +3,11 @@
  * in-page preview shim (browser-shim.mjs). Sample data only. UI work only.
  */
 export const CSRF = 'mock-csrf'
-const options = { facility: 'blue' }
-/** `facility`: 'blue' (Demo Hospital, blue EHR) or 'classic'. */
+const options = { facility: 'blue', signup: false, enrol: 'open' }
+/**
+ * `facility`: 'blue' (Demo Hospital, blue EHR) or 'classic'. `signup`: the patient sign-up without a NIN is served.
+ * `enrol`: 'open', 'closed' or 'unavailable', for patient and facility sign-up availability.
+ */
 export function configure(next) { Object.assign(options, next) }
 
 const now = () => new Date()
@@ -1056,6 +1059,104 @@ function labRoute(method, path, { body } = {}) {
   return null
 }
 
+
+// ------------------------------------------------- signed-out flows (dev) --
+// Sign-up, recovery, sign-in second steps and invitations, so every step of the signed-out screens can be walked in
+// the preview. Any code is accepted; a code of 000000 is refused. Sample answers only.
+const flow = { patient: null, provider: null, invitation: null }
+const challenge = (id) => ({ challengeId: id, expiresInSeconds: 600, resendAfterSeconds: 30 })
+const badCode = body => body?.code === '000000'
+const otpProblem = () => pocProblem(400, 'OTP_INVALID_OR_EXPIRED', 'That code is wrong or has expired. Check it and try again.')
+const patientProgress = () => ({ ...flow.patient, expiresAt: iso(24 * 60 * MIN) })
+const MFA = { secret: 'JBSWY3DPEHPK3PXP', otpauthUri: 'otpauth://totp/Health%20ID:demo?secret=JBSWY3DPEHPK3PXP&issuer=Health%20ID', algorithm: 'SHA1', digits: 6, periodSeconds: 30 }
+const RECOVERY_CODES = ['A1B2-C3D4', 'E5F6-G7H8', 'J9K1-L2M3', 'N4P5-Q6R7', 'S8T9-U1V2', 'W3X4-Y5Z6', 'B7C8-D9E1', 'F2G3-H4J5']
+
+function signedOutRoute(method, path, workspace, { body } = {}) {
+  const enrolment = options.enrol === 'open' ? { open: true } : options.enrol === 'closed' ? { open: false, reason: 'closed' } : null
+  // Patient sign-up and recovery.
+  if (path === '/identity/patient-enrollments/availability') return enrolment ? [200, { ...enrolment, online: true, facility: true, signup: options.signup }]
+    : pocProblem(503, 'UPSTREAM_UNAVAILABLE', 'Unavailable.')
+  if (path === '/identity/patient-enrollments/current' && method === 'GET') return flow.patient ? [200, patientProgress()]
+    : pocProblem(404, 'ENROLLMENT_NOT_FOUND', 'No registration in progress.')
+  if (path === '/auth/google/onboarding') return pocProblem(404, 'GOOGLE_ONBOARDING_NOT_FOUND', 'None.')
+  if (method === 'POST' && path === '/auth/patient/login') return [200, patientSession()]
+  if (path === '/identity/patient-enrollments/participating-facilities') return [200, { facilities: [
+    { name: 'Lagos General Hospital', addressLine: '1 Hospital Road', town: 'Ikeja', lga: 'Ikeja', state: 'Lagos', hours: 'Mon–Fri, 8am–4pm' },
+    { name: 'Reddington Clinic', addressLine: '12 Idowu Martins St', town: 'Victoria Island', lga: 'Eti-Osa', state: 'Lagos' },
+  ], whatToBring: ['Your phone, with the registration open', 'One original photo ID: NIN slip, passport, driver’s licence or voter’s card'] }]
+  if (method === 'POST' && path === '/identity/patient-enrollments') {
+    flow.patient = { stage: 'verify_holder', recordName: 'ADAEZE OKAFOR', online: { available: true }, facility: { available: true, deskCode: null } }
+    return [201, patientProgress()]
+  }
+  if (method === 'POST' && path === '/identity/patient-enrollments/signup') {
+    flow.patient = { stage: 'verify_contact', contactChannel: 'email', maskedContact: `${String(body?.email ?? 'you@example.com').replace(/^(.).*@/, '$1•••@')}`, ...challenge('signup-1') }
+    return [201, patientProgress()]
+  }
+  if (method === 'POST' && path === '/identity/patient-enrollments/holder') return [200, challenge('holder-1')]
+  if (method === 'POST' && path === '/identity/patient-enrollments/facility-code') {
+    flow.patient = { ...flow.patient, facility: { available: true, deskCode: '482 913', deskCodeExpiresAt: iso(30 * MIN) } }
+    return [200, patientProgress()]
+  }
+  if (method === 'POST' && path === '/identity/patient-enrollments/holder/verify') {
+    if (badCode(body)) return otpProblem()
+    flow.patient = { stage: 'verify_contact' }
+    return [200, { stage: 'verify_contact' }]
+  }
+  if (method === 'POST' && path === '/identity/patient-enrollments/contact') {
+    flow.patient = { stage: 'verify_contact', contactChannel: body?.channel ?? 'phone', maskedContact: body?.channel === 'email' ? 'a•••@example.com' : '+234•••••567', ...challenge('contact-1') }
+    return [200, challenge('contact-1')]
+  }
+  if (method === 'POST' && path === '/identity/patient-enrollments/contact/verify') {
+    if (badCode(body)) return otpProblem()
+    flow.patient = { stage: 'set_password' }
+    return [200, { stage: 'set_password' }]
+  }
+  if (method === 'POST' && path === '/identity/patient-enrollments/activate') {
+    flow.patient = null
+    return [200, { stage: 'active', hidCode: 'HID-KEM4821', signedIn: false }]
+  }
+  if (method === 'POST' && path === '/auth/otp/start') return [200, { accepted: true, ...challenge('reset-1') }]
+  if (method === 'POST' && path === '/auth/otp/verify') return badCode(body) ? otpProblem() : [200, { verified: true, challengeId: 'reset-1', verificationToken: 'reset-token' }]
+  if (method === 'POST' && path === '/auth/otp/complete') return [200, { completed: true }]
+  // Provider sign-in: a password answers the authenticator step (an email with "new" sets one up first).
+  if (method === 'POST' && path === '/auth/login' && workspace === 'provider') {
+    return [200, { status: /new/i.test(String(body?.email ?? '')) ? 'mfa_enrollment_required' : 'mfa_required', expiresAt: iso(10 * MIN) }]
+  }
+  if (method === 'POST' && path === '/auth/mfa/verify') return badCode(body) ? pocProblem(401, 'MFA_CODE_INVALID', 'That code didn’t work. Try again.') : [200, staffSession()]
+  if (method === 'POST' && path === '/auth/mfa/enroll/email-code') return [200, { accepted: true, channel: 'email', expiresAt: iso(10 * MIN) }]
+  if (method === 'POST' && path === '/auth/mfa/enroll/start') return [200, { ...MFA, expiresAt: iso(10 * MIN) }]
+  if (method === 'POST' && path === '/auth/mfa/enroll/activate') return [200, { ...staffSession(), recoveryCodes: RECOVERY_CODES }]
+  // Platform sign-in: the same two steps.
+  if (method === 'POST' && path === '/auth/admin/login') {
+    return [200, { status: /new/i.test(String(body?.email ?? '')) ? 'mfa_enrollment_required' : 'mfa_required', expiresAt: iso(10 * MIN) }]
+  }
+  if (method === 'POST' && path === '/auth/admin/mfa/verify') return [200, adminGrant()]
+  if (method === 'POST' && path === '/auth/admin/mfa/enroll/start') return [200, { ...MFA, expiresAt: iso(10 * MIN) }]
+  if (method === 'POST' && path === '/auth/admin/mfa/enroll/activate') return [200, { ...adminGrant(), recoveryCodes: RECOVERY_CODES }]
+  // Facility sign-up.
+  if (path === '/identity/provider-enrollments/availability') return enrolment ? [200, { ...enrolment, crossFacilityOrders: true }]
+    : [200, { open: false, reason: 'unavailable' }]
+  if (method === 'POST' && path === '/identity/provider-enrollments') {
+    flow.provider = { cac: body?.registrationNumber ?? 'RC123456', name: body?.administratorName ?? 'Ada Bello', email: body?.administratorEmail ?? 'ada@example.test', type: body?.organizationType ?? 'hospital', product: body?.productCode ?? 'ehr' }
+    return [201, { accepted: true, codeSent: true, ...challenge('provider-1') }]
+  }
+  if (method === 'POST' && path === '/identity/provider-enrollments/verify') return badCode(body) ? otpProblem() : [200, { verified: true }]
+  if (path === '/identity/provider-enrollments/profile') return [200, { organizationName: 'KEMSHEN HEALTHCARE LIMITED', registrationNumber: flow.provider?.cac ?? 'RC123456',
+    productCode: flow.provider?.product ?? 'ehr', organizationType: flow.provider?.type ?? 'hospital', administratorName: flow.provider?.name ?? 'Ada Bello', administratorEmail: flow.provider?.email ?? 'ada@example.test' }]
+  if (method === 'POST' && path === '/identity/provider-enrollments/activate') {
+    return [200, { activated: true, organizationId: 'org-new', facilityId: DEMO_FACILITY_ID, accountId: 'acct-new', status: 'mfa_enrollment_required', expiresAt: iso(10 * MIN) }]
+  }
+  if (path === '/identity/clinician-applications/availability') return [200, { open: true }]
+  // Staff invitations (Novu).
+  if (method === 'POST' && path === '/identity/staff-invitations/open') {
+    flow.invitation = { invitationId: 'inv-1', facilityName: 'Demo Hospital', roleCode: 'nurse', inviterName: 'Dr Tunde Bello', inviteeName: 'Ngozi Eze',
+      email: body?.email ?? 'ngozi@demohospital.example', expiresAt: iso(6 * DAY), accountCase: 'new', linkRequired: false }
+    return [200, flow.invitation]
+  }
+  if (method === 'POST' && path === '/identity/staff-invitations/accept') return [200, { facilityName: 'Demo Hospital', roleCode: flow.invitation?.roleCode ?? 'nurse' }]
+  return null
+}
+
 export function respond(method, path, workspace, request = {}) {
   const csrfCookie = { 'Set-Cookie': `hid_access_csrf=${CSRF}; Path=/; SameSite=Lax` }
   if (path === '/auth/session' && method === 'GET') return { status: 200, body: workspace === 'provider' ? staffSession() : patientSession(), headers: csrfCookie }
@@ -1064,6 +1165,8 @@ export function respond(method, path, workspace, request = {}) {
   if (path === '/admin/session' && method === 'GET') {
     return { status: 200, body: { actor: ADMIN_ACTOR }, headers: { 'Set-Cookie': `hid_access_admin_csrf=${CSRF}; Path=/; SameSite=Lax` } }
   }
+  const signedOut = signedOutRoute(method, path, workspace, request)
+  if (signedOut) return { status: signedOut[0], body: signedOut[1], headers: {} }
   const handler = workspace === 'admin' ? adminRoute : workspace === 'provider' ? staffRoute : patientRoute
   // Point of care (proposed routes) for the provider workspace, with the request's body and query when the caller has them.
   const hit = (workspace === 'provider' ? registrationRoute(method, path, request) ?? labRoute(method, path, request) ?? pointOfCareRoute(method, path, request) : null) ?? handler(method, path)

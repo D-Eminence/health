@@ -59,6 +59,8 @@ export function SignIn() {
   const [resetKey, setResetKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A missing identifier is said under its field, where it is fixed (the review of 2026-10-31: errors under the field).
+  const [principalError, setPrincipalError] = useState<string | null>(null)
   // Why the last sign-in was refused, where the page says more than the error. Invalid credentials (401) is also what
   // an account whose sign-up was never finished gets (hid-system local-auth.provider.ts): the way to finish it is
   // offered, as hid-1.0 did for "email not confirmed". A suspended account (403 ACCOUNT_SUSPENDED) is told whom to
@@ -71,7 +73,8 @@ export function SignIn() {
     event.preventDefault()
     if (!turnstileToken || busy) return
     // Only the prefill: as empty as the field was before it was filled in, so nothing is sent.
-    if (isBlankHealthIdInput(email)) { setError('Enter your email, phone number or Health ID.'); return }
+    if (isBlankHealthIdInput(email)) { setPrincipalError('Enter your email, phone number or Health ID.'); return }
+    setPrincipalError(null)
     setBusy(true)
     setError(null)
     setRefusal(null)
@@ -110,7 +113,7 @@ export function SignIn() {
 
   const googleOffered = Boolean(import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleClientId())
   return <AuthLayout brandTo="/"
-    title="Welcome back." titleId="sign-in-title"
+    title="Welcome back" titleId="sign-in-title"
     lede="Sign in to see your records and choose who sees them.">
     <div className="flex flex-col gap-5">
       {/* One alert, so a screen reader reads the way to finish a sign-up with the refusal. The email typed goes with
@@ -122,14 +125,17 @@ export function SignIn() {
       {signedOutElsewhere && !error && <Alert intent="warning">You were signed out because this browser's Health ID sign-in changed in another tab. Sign in again to continue.</Alert>}
       {otherPortalSession && <Alert intent="info" live={false}>A provider sign-in is active in this browser. Signing in here replaces it. <Link to="/provider">Go to the provider portal</Link></Alert>}
       <form onSubmit={event => void submit(event)} className="flex flex-col gap-4">
-        <Field label="Email, phone or Health ID" htmlFor="sign-in-principal">
-          <Input id="sign-in-principal" required autoComplete="username" value={email} onChange={event => setEmail(signInPrincipalInput(event.target.value))}
+        <Field label="Email, phone or Health ID" htmlFor="sign-in-principal" errorId="sign-in-principal-error"
+          error={principalError ? <span role="alert">{principalError}</span> : undefined}>
+          <Input id="sign-in-principal" required autoComplete="username" value={email}
+            onChange={event => { setEmail(signInPrincipalInput(event.target.value)); setPrincipalError(null) }}
+            aria-invalid={principalError ? true : undefined} aria-describedby={principalError ? 'sign-in-principal-error' : undefined}
             placeholder="HID-…, you@example.com or 0803…" />
         </Field>
         <Field label="Password" htmlFor="sign-in-password">
           <PasswordInput id="sign-in-password" required autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} minLength={6} />
         </Field>
-        <Link to="/recover" className="-mt-2 self-end text-[13px] font-medium text-brand-ink">Forgot password?</Link>
+        <Link to="/recover" className="-my-2 inline-flex min-h-11 items-center self-end text-[13px] font-medium text-brand-ink">Forgot password?</Link>
         <Turnstile action="patient-login" onTokenChange={setTurnstileToken} resetKey={resetKey} />
         <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !turnstileToken}>{busy ? 'Signing in…' : 'Sign in'}</Button>
       </form>
@@ -137,7 +143,7 @@ export function SignIn() {
         <p className="m-0 flex items-center gap-3 text-[13px] text-ink-3 before:h-px before:flex-1 before:bg-line after:h-px after:flex-1 after:bg-line">or</p>
         <GoogleButton text="signin_with" disabled={busy || !turnstileToken} onCredential={google}
           disabledReason={turnstileToken ? undefined : 'Complete the security check to continue with Google.'} /></div>}
-      <p className="m-0 text-center text-sm text-ink-2">New to Health ID? <Link to="/enroll" className="font-medium text-brand-ink">Get your Health ID</Link></p>
+      <p className="m-0 text-center text-sm text-ink-2">New to Health ID? <Link to="/enroll" className="inline-flex min-h-11 items-center font-medium text-brand-ink">Get your Health ID</Link></p>
     </div>
   </AuthLayout>
 }

@@ -125,7 +125,7 @@ export function SignIn() {
   // hid-system accepts; a form here would always be refused.
   const elsewhere = staffSignInHref(window.location.hostname)
   if (elsewhere) return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
-    title="Staff sign in is on the provider site." titleId="staff-sign-in-title"
+    title="Sign in on the provider site" titleId="staff-sign-in-title"
     lede="Use your work account at ehr.healthidentitydirectory.com.">
     <p><a className={buttonClass({ variant: 'primary', block: true })} href={elsewhere}>Go to staff sign in</a></p>
     <ClinicianSignUpEntry className="m-0 text-[13px] text-ink-3" />
@@ -173,7 +173,7 @@ export function SignIn() {
   return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
     headerLink={enrollHref === PROVIDER_ENROLLMENT_PATH
       ? { to: enrollHref, label: 'Set up your facility' } : { href: enrollHref, label: 'Set up your facility' }}
-    title="Welcome back." titleId="staff-sign-in-title" titleAs={challenge ? 'p' : 'h1'}
+    title="Welcome back" titleId="staff-sign-in-title" titleAs={challenge ? 'p' : 'h1'}
     titleRef={heading} titleFocusable={!challenge}
     lede="Sign in with your work account.">
     {challenge ? <StaffMfaSteps challenge={challenge} look={STAFF_MFA_LOOK}
@@ -203,7 +203,7 @@ function RecoveryLink() {
   const href = staffRecoveryHref(window.location.hostname)
   const central = href !== STAFF_RECOVERY_PATH
   return <p className="m-0 text-[13px] text-ink-3">
-    {central ? <a href={href}>Forgot your password?</a> : <Link to={href}>Forgot your password?</Link>}
+    {central ? <a href={href}>Forgot password?</a> : <Link to={href}>Forgot password?</Link>}
     {central && ' You reset it on the main Health ID site.'}
     {' '}Need a staff account? Ask your facility administrator.
   </p>
