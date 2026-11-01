@@ -134,7 +134,7 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
   // Not while the confirmation is still being typed and agrees so far.
   const mismatch = confirmPassword !== '' && password !== confirmPassword && !password.startsWith(confirmPassword)
 
-  return <AuthLayout brandTo={signInPath} title="Reset your password." titleId="principal-recovery-title"
+  return <AuthLayout brandTo={signInElsewhere ?? signInPath} title="Reset your password." titleId="principal-recovery-title"
     lede={`For ${accountLabel.toLowerCase()} accounts.`}>
     {error && <p id="principal-recovery-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
     {step === 'start' && <form onSubmit={start} className="patient-form">

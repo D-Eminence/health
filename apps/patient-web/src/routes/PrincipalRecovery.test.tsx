@@ -73,6 +73,8 @@ describe('staff and admin password recovery', () => {
 
     const ehr = 'https://ehr.healthidentitydirectory.com/provider/sign-in'
     expect(screen.getByRole('link', { name: 'Back to provider sign in' }).getAttribute('href')).toBe(ehr)
+    // The logo too: the portal serves patients only, so nothing here leads to a staff sign-in of its own.
+    expect(screen.getByRole('link', { name: 'Health ID' }).getAttribute('href')).toBe(ehr)
     fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'nurse@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: /Complete staff-reset security check/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))

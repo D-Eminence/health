@@ -12,6 +12,7 @@ import {
   staffSiteHostname,
 } from '../../productHostname'
 import { getEnvironment } from '../env'
+import { StaffSignInLink, staffSignInAddress } from '../../staffSignIn'
 import { providerEnrollmentApi, staffApi, type ProviderEnrollmentAvailability, type ProviderEnrollmentProfile,
   type ProviderEnrollmentStart, type StaffLoginChallenge } from '../api'
 import { announceStaffSessionChange } from '../session'
@@ -976,10 +977,11 @@ function EnrollmentSteps() {
   const accountEmail = registering?.administratorEmail ?? administratorEmail
   // The CAC number as Identity has it (spaces removed, capitals), which the organization will be registered under.
   const cacNumber = registering?.registrationNumber ?? cac
+  // Staff sign in on the EHR site from the production portal (staffSignIn.tsx), and on this site elsewhere.
+  const signIn = staffSignInAddress()
 
   return (
-    <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
-      headerLink={{ to: '/provider/sign-in', label: 'Sign in' }}
+    <AuthLayout brandTo={signIn} brandLabel="Health ID provider sign in" headerLink={{ to: signIn, label: 'Sign in' }}
       title="Set up your facility." titleId="provider-enroll-title"
       lede={novu
         ? 'Verify your CAC registration, confirm your email and choose a password. Your administrator account is ready straight away.'
@@ -1237,6 +1239,6 @@ function SignInToFinish({ reason }: { reason: string | null }) {
     {reason && <p role="alert" className="patient-inline-error">{reason}</p>}
     <p className="patient-field-hint">Your provider account is active. Sign in with your administrator email and the password you chose,
       then set up your authenticator app.</p>
-    <Link className="patient-primary-button" to="/provider/sign-in">Sign in to the Provider Portal</Link>
+    <StaffSignInLink className="patient-primary-button">Sign in to the Provider Portal</StaffSignInLink>
   </section>
 }

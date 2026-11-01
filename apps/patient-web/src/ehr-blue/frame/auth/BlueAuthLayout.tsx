@@ -25,7 +25,7 @@ export interface BlueAuthLayoutProps {
 export function BlueAuthLayout({ title, titleId, lede, titleAs = 'h1', titleRef, links = true, children }: BlueAuthLayoutProps) {
   return (
     <div className="hid-ehr-blue-auth contents">
-      <AuthLayout brandTo={STAFF_SIGN_IN_PATH} brandLabel="Health ID provider sign in" title={title} titleId={titleId}
+      <AuthLayout brandTo={authHrefs().signIn} brandLabel="Health ID provider sign in" title={title} titleId={titleId}
         titleAs={titleAs} titleRef={titleRef} titleFocusable={titleAs === 'h1'} lede={lede}>
         {children}
         {links ? <BlueAuthLinks /> : null}

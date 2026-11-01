@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { BrandLogo } from '../../BrandLogo'
-import { STAFF_INVITATION_PATH, STAFF_RECOVERY_PATH, STAFF_SIGN_IN_PATH, staffInvitationHref, staffRecoveryHref } from '../../productHostname'
+import { STAFF_INVITATION_PATH, STAFF_RECOVERY_PATH, staffInvitationHref, staffRecoveryHref } from '../../productHostname'
 import { ClinicianSignUpEntry } from '../../staff/clinician/ClinicianSignUpEntry'
+import { StaffSignInLink } from '../../staffSignIn'
 
 /** A link to this site's own page, or to the main site's from a staff product host (the fixed addresses productHostname gives). */
 function PageLink({ path, href, children }: { path: string; href: string; children: ReactNode }) {
@@ -25,13 +26,13 @@ export function SignupShell({ children, centered = false, onMainSite = true }: {
   return (
     <div className="hid-ehr hid-ehr-signup">
       <main id="main-content" className={centered ? 'hid-ehr-signup-panel hid-ehr-signup-panel-centered' : 'hid-ehr-signup-panel'}>
-        <Link to={STAFF_SIGN_IN_PATH} className="hid-ehr-signup-brand" aria-label="Health ID provider sign in">
+        <StaffSignInLink className="hid-ehr-signup-brand" aria-label="Health ID provider sign in">
           <BrandLogo className="hid-ehr-signup-logo" />
-        </Link>
+        </StaffSignInLink>
         <div className={centered ? 'hid-ehr-signup-content hid-ehr-signup-centered' : 'hid-ehr-signup-content'}>
           {children}
           <p className="hid-ehr-signup-links">
-            <Link to={STAFF_SIGN_IN_PATH}>Sign in</Link>
+            <StaffSignInLink>Sign in</StaffSignInLink>
             {onMainSite ? <>
               <PageLink path={STAFF_RECOVERY_PATH} href={staffRecoveryHref(hostname)}>Recover access</PageLink>
               <PageLink path={STAFF_INVITATION_PATH} href={staffInvitationHref(hostname)}>Accept invitation</PageLink>

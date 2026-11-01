@@ -8,6 +8,7 @@ import { ExistingAccountAlert, existingAccount, type ExistingAccount } from './e
 import { googleClientId } from '../googleClient'
 import { Turnstile } from '../Turnstile'
 import { AuthLayout } from '../AuthLayout'
+import { StaffSignInLink } from '../staffSignIn'
 import { useSession } from '../session'
 import { isFieldProblem, sentFromField, useDocumentTitle, useStepFocus } from '../authSteps'
 import { useActionFocus } from './actionFocus'
@@ -866,13 +867,13 @@ export function Enrollment() {
         {otherPortalSession ? <>
           <p id="enroll-sign-out" className="font-medium" role={signOutAlert ? 'alert' : undefined}>A provider sign-in is active in this browser. Sign out of the provider portal before starting a new Health ID.</p>
           <p>{ENDS_ENROLLMENT}</p>
-          <Link to="/provider">Go to the provider portal</Link>
+          <StaffSignInLink to="/provider">Go to the provider portal</StaffSignInLink>
         </> : <>
           <p id="enroll-sign-out" className="font-medium" role={signOutAlert ? 'alert' : undefined}>This browser is still signed in to Health ID. Sign out of the patient or provider portal before starting a new Health ID.</p>
           {/* No link to the patient portal: this tab has no patient session, so it would open sign-in. Check again opens it once the session check finds the patient. */}
           <p>If a patient is signed in, Check again opens the patient portal, where you can sign out.</p>
           <p>{ENDS_ENROLLMENT}</p>
-          <Link to="/provider">Go to the provider portal</Link>
+          <StaffSignInLink to="/provider">Go to the provider portal</StaffSignInLink>
         </>}
         {/* Once it is signed out elsewhere, as asked, the browser's session and the enrollment are checked again. */}
         <Button size="sm" className="self-start" onClick={() => { retriedCheck.current = true; retrySessionCheck(); setCheckKey(value => value + 1) }}>Check again</Button>
