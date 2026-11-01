@@ -5,9 +5,17 @@ import { ProfilePage } from '../routes/Portal'
 import { described, json, openSection, press, problem, profile, renderPortal, sectionCard, sectionToggle, shownText, type Handler } from './portalHarness'
 
 const VERIFY = '/identity/me/verification/nin'
+const DELETION = '/identity/me/account-deletion'
 const verifiedAnswer = { entityType: 'patient', verificationType: 'nin', provider: 'qoreid', state: 'verified', recordedAt: '2026-10-27T10:00:00.000Z' }
+const noDeletionPending = { waitingPeriodSeconds: 1_209_600, confirmationTtlSeconds: 600, request: null }
 
-/** The profile read with `changes`, and `verify` for the NIN check; the profile reads verified once a check has. */
+/**
+ * The profile read with `changes`, and `verify` for the NIN check; the profile reads verified once a check has.
+ * Delete account's status is answered as Identity answers it with no deletion pending: the profile reads it on every
+ * visit, and a failed read is an alert of its own, outside this section, shown once the http client's two retries
+ * end. Their random backoff puts it on the page anywhere up to about a second later, so whether a test saw it beside
+ * the NIN section's alert depended on how busy the runner was.
+ */
 function gateway(changes: Partial<PatientProfile>, verify: () => Response = () => json(verifiedAnswer)): Handler {
   let verified = false
   return (path, method) => {
@@ -17,6 +25,7 @@ function gateway(changes: Partial<PatientProfile>, verify: () => Response = () =
       verified = answer.ok
       return answer
     }
+    if (path === DELETION && method === 'GET') return json(noDeletionPending)
     return problem(500, 'UNEXPECTED', `${method} ${path}`)
   }
 }
@@ -81,12 +90,29 @@ describe('Verify your NIN, on the profile', () => {
     [422, 'PATIENT_IDENTITY_PROFILE_INCOMPLETE', 'Your profile is missing details we need, like your date of birth. Contact Health ID support.'],
   ])('says a %i %s plainly, and keeps the card', async (status, code, text) => {
     renderPortal(<ProfilePage />, gateway({ ninVerified: false }, () => problem(status, code, 'refused')))
-    await openSection('Verify your NIN')
+    const section = await openSection('Verify your NIN')
     fireEvent.change(ninField(), { target: { value: '12345678901' } })
     fillDateOfBirth()
     await press(screen.getByRole('button', { name: 'Verify NIN' }))
-    expect(shownText(await screen.findByRole('alert'))).toBe(text)
+    // This section's alert: another section's would be its own outcome, not this one.
+    expect(shownText(await within(section).findByRole('alert'))).toBe(text)
     expect(screen.getByRole('heading', { name: 'Verify your NIN' })).toBeTruthy()
+    expect(ninField().getAttribute('aria-invalid')).toBeNull()
+  })
+
+  // The order the refusal tests above once raced on: Delete account's read has failed, and says so, before Verify NIN
+  // is pressed. The refusal is still said in this section, which keeps its form.
+  it('says its refusal in its own section, while another section says it could not load', async () => {
+    const refusing = gateway({ ninVerified: false }, () => problem(503, 'QOREID_PATIENT_NIN_BINDING_DISABLED', 'refused'))
+    renderPortal(<ProfilePage />, (path, method, body) => path === DELETION && method === 'GET'
+      ? problem(500, 'UNEXPECTED', 'unavailable') : refusing(path, method, body))
+    await screen.findByRole('heading', { name: 'Delete account' })
+    await within(sectionCard('Delete account')).findByRole('alert')
+    const section = await openSection('Verify your NIN')
+    fireEvent.change(ninField(), { target: { value: '12345678901' } })
+    fillDateOfBirth()
+    await press(screen.getByRole('button', { name: 'Verify NIN' }))
+    expect(shownText(await within(section).findByRole('alert'))).toBe('You can’t verify your NIN here right now. Try again later.')
     expect(ninField().getAttribute('aria-invalid')).toBeNull()
   })
 
