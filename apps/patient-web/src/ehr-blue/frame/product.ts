@@ -65,3 +65,19 @@ export function inProduct(product: Product, path: string): boolean {
   return base === PRODUCTS[product].home || base.startsWith(`${PRODUCTS[product].home}/`) || SHARED.has(base)
     || (SELLS.has(product) && COUNTER_PAGES.has(base))
 }
+
+/**
+ * Pages a single product opens at their address but does not list: the facility's subscription, where the billing
+ * banner above every page leads ("Choose a plan", "Pay now": staff/routes/Billing.tsx).
+ */
+const OPENED_UNLISTED: ReadonlySet<string> = new Set(['billing'])
+
+/**
+ * Whether this product's workspace opens a page at its address; the frame sends any other to the product's Home. Home
+ * itself opens (it goes on to the product's own page), as do the pages the product lists. Every other page is the
+ * hospital EHR's: Patient registration (the EHR's only, owner rule), Consultation, the samples and demo pages.
+ */
+export function opensInProduct(product: Product, path: string): boolean {
+  const base = basePath(path)
+  return base === '' || inProduct(product, path) || OPENED_UNLISTED.has(base)
+}

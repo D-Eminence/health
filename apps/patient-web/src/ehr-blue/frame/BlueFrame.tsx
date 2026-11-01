@@ -10,7 +10,7 @@ import { BillingBanner } from '../../staff/routes/Billing'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { isDemoFacility } from '../blueFacilities'
-import { PRODUCTS, inProduct, productOf } from './product'
+import { PRODUCTS, inProduct, opensInProduct, productOf } from './product'
 import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
@@ -121,6 +121,11 @@ export function BlueFrame() {
   if (moved) return <Navigate replace to={{ pathname: moved, search: location.search, hash: location.hash }} />
   // A single product's home is its own queue.
   if (product !== 'ehr' && /^\/provider\/?$/.test(location.pathname)) return <Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} />
+  // On a single product's site, a page of the hospital EHR's (Patient registration, Consultation, a sample), typed or a
+  // sign-in's return address, opens the product's Home instead (review, 2026-11-01): its menu never offers one. The
+  // page never mounts, so it reads nothing, and its query stays behind with it. An address no page takes is left to the
+  // frame below.
+  if (product !== 'ehr' && match && !opensInProduct(product, match.page.path)) return <Navigate replace to="/provider" />
 
   function leave() {
     if (signingOut) return
