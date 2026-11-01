@@ -7,9 +7,10 @@ import { BlueFrame } from '../../../ehr-blue/frame/BlueFrame'
 
 /**
  * Signing in on a product's own site (pharmacy., lab., outreach., migrate.) opens /provider, which the frame takes to
- * that product's first page. Whatever the role holds, the page settles: it never goes back to /provider and round
- * again. The product pages themselves are stand-ins here (what is tested is where the frame lands); each refusal is
- * the real one. Every account and facility is fictional.
+ * that product's first page (on lab., outreach. and migrate., only when this role may open it: otherwise /provider stays
+ * on Home). Whatever the role holds, the page settles: it never goes back to /provider and round again. The product
+ * pages themselves are stand-ins here (what is tested is where the frame lands); each refusal is the real one. Every
+ * account and facility is fictional.
  */
 
 const host = vi.hoisted(() => ({ name: 'ehr.healthidentitydirectory.com' }))
@@ -188,13 +189,41 @@ describe('the EHR site keeps its Pharmacy address as it was', () => {
 
 describe('the lab., outreach. and migrate. sites settle too', () => {
   it.each([
-    ['lab.healthidentitydirectory.com', [], '/provider/laboratory', 'Laboratory unavailable'],
     ['lab.healthidentitydirectory.com', ['lab.work-item.read'], '/provider/laboratory/work', 'Work list (stand-in)'],
-    ['outreach.healthidentitydirectory.com', [], '/provider/outreach', 'Outreach unavailable'],
     ['outreach.healthidentitydirectory.com', ['outreach.registration.read'], '/provider/outreach', 'Outreach (stand-in)'],
-    ['migrate.healthidentitydirectory.com', [], '/provider/ocr', 'Document OCR unavailable'],
     ['migrate.healthidentitydirectory.com', ['ocr.job.read'], '/provider/ocr', 'Document OCR (stand-in)'],
   ])('%s with %j settles on %s', async (site, permissions, where, heading) => {
     expect(await settle(site, permissions)).toEqual({ where, heading })
+  })
+
+  // With none of the product's work, its own page would only refuse, so /provider stays on Home (the Overview), as
+  // today's portal lands there (EhrBlueProductFallback.test.tsx). It settles there and never visits the refusal.
+  it.each([
+    ['lab.healthidentitydirectory.com', 'Laboratory unavailable'],
+    ['outreach.healthidentitydirectory.com', 'Outreach unavailable'],
+    ['migrate.healthidentitydirectory.com', 'Document OCR unavailable'],
+  ])('%s with none of the product\'s work settles on Home at /provider, not on "%s"', async (site, refusal) => {
+    const sent = vi.fn((_input: RequestInfo | URL) => new Promise<Response>(() => {}))
+    vi.stubGlobal('fetch', sent)
+    try {
+      const landed = await settle(site, [])
+      expect(landed.where).toBe('/provider')
+      expect(landed.heading).toMatch(/^Good (morning|afternoon|evening), Demo Admin$/)
+      expect(trail).toEqual(['/provider'])
+      expect(screen.queryByRole('heading', { name: refusal })).toBeNull()
+      // Home reads none of the product's work (nor anything else, for a role with none).
+      expect(sent).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  // The product's own address, opened directly (a bookmark), still settles on its plain refusal.
+  it.each([
+    ['lab.healthidentitydirectory.com', '/provider/laboratory', 'Laboratory unavailable'],
+    ['outreach.healthidentitydirectory.com', '/provider/outreach', 'Outreach unavailable'],
+    ['migrate.healthidentitydirectory.com', '/provider/ocr', 'Document OCR unavailable'],
+  ])('%s opened at %s with none of the product\'s work settles on "%s"', async (site, where, heading) => {
+    expect(await settle(site, [], where)).toEqual({ where, heading })
   })
 })
