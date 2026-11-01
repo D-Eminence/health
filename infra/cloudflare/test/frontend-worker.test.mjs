@@ -921,6 +921,11 @@ test('rewrites each landing page link for the product site that shows it', () =>
     ['https://healthidentitydirectory.com/about', 'https://healthidentitydirectory.com/about'],
     // Each product's page is its own site's front page, this one's included.
     ['/products/laboratory', 'https://lab.healthidentitydirectory.com/'],
+    // A section of this same page stays on it: the page scrolls there, as it does on the public site.
+    ['/products/laboratory#pricing', '#pricing'],
+    ['https://healthidentitydirectory.com/products/laboratory/#pricing', '#pricing'],
+    // A section of another product's page opens that section on its site.
+    ['/products/pharmacy#pricing', 'https://pharmacy.healthidentitydirectory.com/#pricing'],
     ['/products/ehr', 'https://ehr.healthidentitydirectory.com/'],
     ['/products/migrate/', 'https://migrate.healthidentitydirectory.com/'],
     ['https://healthidentitydirectory.com/products/pharmacy', 'https://pharmacy.healthidentitydirectory.com/'],
@@ -962,14 +967,20 @@ test('rewrites each link of the Health ID page for the patient portal that shows
     ['https://app.healthidentitydirectory.com/?from=nav#top', 'https://app.healthidentitydirectory.com/sign-in'],
     // Staff sign-in on the portal is left as it is (the portal sends it to the EHR site's).
     ['https://app.healthidentitydirectory.com/provider/sign-in', 'https://app.healthidentitydirectory.com/provider/sign-in'],
-    // Its sections and the public site's other pages open on the public site, the page's own address.
-    ['/patients#steps', 'https://healthidentitydirectory.com/patients#steps'],
+    // Its own sections stay on this page, which scrolls there (on the public site, they are /patients#...).
+    ['/patients#steps', '#steps'],
+    ['/patients#control', '#control'],
+    ['https://healthidentitydirectory.com/patients/#steps', '#steps'],
+    // The public site's other pages, their sections, and the page itself open on the public site, its own address.
     ['/patients', 'https://healthidentitydirectory.com/patients'],
+    ['/patients#', 'https://healthidentitydirectory.com/patients#'],
+    ['/providers#products', 'https://healthidentitydirectory.com/providers#products'],
     ['/', 'https://healthidentitydirectory.com/'],
     ['/providers', 'https://healthidentitydirectory.com/providers'],
     ['/privacy', 'https://healthidentitydirectory.com/privacy'],
-    // Products open their own sites; facility sign-up the portal's.
+    // Products open their own sites, with the section asked for; facility sign-up the portal's.
     ['/products/laboratory', 'https://lab.healthidentitydirectory.com/'],
+    ['/products/laboratory#pricing', 'https://lab.healthidentitydirectory.com/#pricing'],
     ['/provider/apply?product=ehr', 'https://app.healthidentitydirectory.com/provider/enroll?product=ehr'],
     ['#main', '#main'],
     ['mailto:support@healthidentitydirectory.com', 'mailto:support@healthidentitydirectory.com'],

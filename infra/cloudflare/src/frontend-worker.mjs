@@ -223,16 +223,19 @@ function productSiteOf(pathname, deployment) {
 
 /**
  * Where each link on a landing page leads when the page is shown on a product site or the patient portal. The page was
- * built for the public site, so its addresses are the public site's: a link to another public page opens on the public
- * site; a product's page opens on that product's own site; "Setup Your Facility" opens the portal's facility sign-up,
- * where Identity accepts its security check (productHostname.ts, providerEnrollmentHref). On a product site, staff
- * sign-in opens this site's workspace entrance, which asks for a sign-in itself. On the patient portal, a link to the
- * portal's front page opens its sign-in instead, as that front page is this page to someone not signed in. Anything
- * else (mailto:, the patient portal's other pages, a link within the page) is left as it is.
+ * built for the public site, so its addresses are the public site's: a link to a section of this same page
+ * (/patients#steps on the patient page) stays on it, as a link within the page; a link to another public page opens on
+ * the public site; a product's page opens on that product's own site, at the section asked for; "Setup Your Facility"
+ * opens the portal's facility sign-up, where Identity accepts its security check (productHostname.ts,
+ * providerEnrollmentHref). On a product site, staff sign-in opens this site's workspace entrance, which asks for a
+ * sign-in itself. On the patient portal, a link to the portal's front page opens its sign-in instead, as that front
+ * page is this page to someone not signed in. Anything else (mailto:, the patient portal's other pages, a link within
+ * the page) is left as it is.
  *
  * The same function rewrites the page's links at the edge and, copied into the page as its source text, the links
  * the page draws itself in the browser (its menus), so it holds nothing it does not define: no nested function, no
- * name from outside. Each result is a fixed address or the public site's own, and maps to itself.
+ * name from outside. Each result is a fixed address (a product's with the section asked for), the public site's own,
+ * or a section of this page, and maps to itself.
  */
 export function landingHref(href, site) {
   var raw = String(href).trim()
@@ -242,8 +245,9 @@ export function landingHref(href, site) {
   if (target.protocol !== 'https:' && target.protocol !== 'http:') return href
   if (target.origin === site.publicOrigin) {
     var path = target.pathname.length > 1 ? target.pathname.replace(/\/+$/, '') : target.pathname
+    if (target.hash !== '' && path === new URL(site.page).pathname) return target.hash
     var product = /^\/products\/([a-z]+)$/.exec(path)
-    if (product && Object.prototype.hasOwnProperty.call(site.products, product[1])) return site.products[product[1]]
+    if (product && Object.prototype.hasOwnProperty.call(site.products, product[1])) return site.products[product[1]] + target.hash
     if (path === '/provider/apply') {
       var code = target.searchParams.get('product')
       return site.enroll + (code && site.applicationProducts.indexOf(code) !== -1 ? '?product=' + code : '')
@@ -255,6 +259,22 @@ export function landingHref(href, site) {
     if (site.patientSignIn && target.pathname === '/') return site.patientSignIn
   }
   return href
+}
+
+/**
+ * Marks a link the edge or the page's script made a link within the page (landingHref gave it "#..." for a section of
+ * this same page). The page's own router still holds the address it was built with (/patients#steps), which is another
+ * page here, so the script follows such a link itself; a link the page made within itself (#demo) stays the page's.
+ */
+const IN_PAGE_LINK = 'data-hid-in-page'
+
+/** Gives a landing page link the address landingHref gives it, marked if that makes it a link within the page. */
+function rewriteLandingLink(element, site) {
+  const href = element.getAttribute('href')
+  const next = landingHref(href, site)
+  if (next === href) return
+  element.setAttribute('href', next)
+  if (next.charAt(0) === '#') element.setAttribute(IN_PAGE_LINK, '')
 }
 
 /** What landingHref needs for this site, all fixed by the deployment: nothing from a request. */
@@ -278,18 +298,23 @@ function landingSite(deployment) {
  * The page's own script, at the end of its head. Next.js follows a link the page renders itself in the browser, by the
  * address it was built with, not the one the edge wrote; this script fixes each link's address as the visitor
  * reaches it (pointer, keyboard, touch, context menu) and, on a plain click, lets the browser follow it itself, so
- * every link leaves for the address landingHref gives it. A link within the page (#demo) is left to the page.
+ * every link leaves for the address landingHref gives it. A section of this same page (IN_PAGE_LINK) is followed by
+ * the script, within the page, and the click is passed on already prevented: the page's own handlers still see it
+ * (its menu closes) and its router, which skips a prevented click, does not visit the address it was built with. A
+ * link the page made within itself (#demo) is left to the page.
  */
 function landingScript(site) {
   const config = JSON.stringify(site).replace(/</g, '\\u003c')
   return '<script>(function(rewrite,site){'
     + 'function link(event){var node=event.target;var a=node&&node.closest?node.closest("a[href]"):null;'
-    + 'if(a){var href=a.getAttribute("href");var next=rewrite(href,site);if(next!==href)a.setAttribute("href",next)}return a}'
+    + 'if(a){var href=a.getAttribute("href");var next=rewrite(href,site);if(next!==href){a.setAttribute("href",next);'
+    + `if(next.charAt(0)==="#")a.setAttribute("${IN_PAGE_LINK}","")}}return a}`
     + '["pointerdown","mouseover","focusin","contextmenu"].forEach(function(type){addEventListener(type,link,true)});'
     + 'addEventListener("click",function(event){var a=link(event);'
     + 'if(!a||event.defaultPrevented||event.button||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey'
-    + '||(a.target&&a.target!=="_self")||a.hasAttribute("download")||a.getAttribute("href").charAt(0)==="#")return;'
-    + 'event.stopPropagation()},true)'
+    + '||(a.target&&a.target!=="_self")||a.hasAttribute("download"))return;'
+    + 'var href=a.getAttribute("href");if(href.charAt(0)!=="#"){event.stopPropagation();return}'
+    + `if(a.hasAttribute("${IN_PAGE_LINK}")){event.preventDefault();location.assign(href)}},true)`
     + `})(${landingHref.toString()},${config})</script>`
 }
 
@@ -345,11 +370,7 @@ async function landingPage(request, deployment, environment) {
   const page = new Response(request.method === 'HEAD' ? null : source.body, { status: 200, headers: { 'content-type': type } })
   const site = landingSite(deployment)
   const rewritten = request.method === 'HEAD' ? page : new HTMLRewriter()
-    .on('a[href]', { element(element) {
-      const href = element.getAttribute('href')
-      const next = landingHref(href, site)
-      if (next !== href) element.setAttribute('href', next)
-    } })
+    .on('a[href]', { element(element) { rewriteLandingLink(element, site) } })
     // The page's own canonical address, in whatever shape or case, is the public site's: it goes, and this site's is
     // written once, at the end of the head, in the one shape the release reads (deploy-production-workers.py).
     .on('link[rel]', { element(element) {

@@ -32,7 +32,8 @@ const LABORATORY_PAGE = '<!DOCTYPE html><html lang="en"><head><meta charSet="utf
   + '<a href="/providers#products">Providers</a>'
   + '<a href="https://app.healthidentitydirectory.com/provider/sign-in">Sign in</a>'
   + '<a class="hero-demo-button" href="/provider/apply?product=laboratory">Setup Your Facility</a></nav>'
-  + '<main id="main"><a href="#demo">Book a demo</a><a href="/blog?tag=a&amp;page=2">Blog</a></main>'
+  + '<main id="main"><a href="#demo">Book a demo</a><a href="/blog?tag=a&amp;page=2">Blog</a>'
+  + '<a href="/products/laboratory#pricing">See pricing</a></main>'
   + '<footer><a href="https://app.healthidentitydirectory.com/sign-in">Patient sign in</a>'
   + '<a href="mailto:support@healthidentitydirectory.com">Email us</a></footer>'
   + '<script>self.__next_f.push([1,"a:[\\"$\\",\\"a\\",null,{\\"href\\":\\"/pricing\\"}]"])</script></body></html>'
@@ -143,6 +144,8 @@ test('the lab site\'s front page is the Laboratory page, its links rewritten for
     'Setup Your Facility': 'https://app.healthidentitydirectory.com/provider/enroll?product=laboratory',
     'Book a demo': '#demo',
     Blog: 'https://healthidentitydirectory.com/blog?tag=a&amp;page=2',
+    // A section of this same page: it stays here.
+    'See pricing': '#pricing',
     'Patient sign in': 'https://app.healthidentitydirectory.com/sign-in',
     'Email us': 'mailto:support@healthidentitydirectory.com',
   })
@@ -234,9 +237,9 @@ test('the patient portal shows a stranger the Health ID page from the public sit
   assert.deepEqual(linksOf(page), [
     ['Skip to content', '#main'],
     ['logo', 'https://healthidentitydirectory.com/'],
-    // Its sections are the patient page's own, at its address on the public site.
-    ['How it works', 'https://healthidentitydirectory.com/patients#steps'],
-    ['Your control', 'https://healthidentitydirectory.com/patients#control'],
+    // Its own sections stay on this page, which scrolls to them, as on the public site.
+    ['How it works', '#steps'],
+    ['Your control', '#control'],
     // Sign in at the portal's sign-in, never its "/" (which is this page to a stranger); sign up at its /enroll.
     ['Sign in', 'https://app.healthidentitydirectory.com/sign-in'],
     ['Get your Health ID', 'https://app.healthidentitydirectory.com/enroll'],
@@ -249,6 +252,9 @@ test('the patient portal shows a stranger the Health ID page from the public sit
     ['Privacy', 'https://healthidentitydirectory.com/privacy'],
     ['Email us', 'mailto:support@healthidentitydirectory.com'],
   ])
+  // The two the edge made links within the page say so, for the page's script; the page's own (#main) do not.
+  assert.deepEqual([...page.matchAll(/<a[^>]*\bdata-hid-in-page\b[^>]*>([^<]*)</g)].map(match => match[1]),
+    ['How it works', 'Your control'])
   // Every "Get your Health ID" is a step to sign-up, the Identity card's too: never the main site's copy of this page.
   const getYourHealthId = linksOf(page).filter(([text]) => /get your health id/i.test(text))
   assert.equal(getYourHealthId.length, 2)
@@ -412,6 +418,56 @@ test('in the browser, the Health ID page on the portal never sends a stranger ba
     assert.equal(click.defaultPrevented, false)
     assert.equal(signIn.getAttribute('href'), 'https://app.healthidentitydirectory.com/sign-in')
     assert.deepEqual(routed, [])
+  } finally {
+    dom.window.close()
+  }
+})
+
+test('in the browser, the Health ID page on the portal scrolls to its own sections, and never leaves for them', async () => {
+  const page = await (await portal.fetch('https://app.healthidentitydirectory.com/')).text()
+  const dom = new JSDOM(page.replace(/<script src[^>]*><\/script>/g, ''),
+    { url: 'https://app.healthidentitydirectory.com/', runScripts: 'dangerously' })
+  const { document } = dom.window
+  try {
+    // What the page itself does with a click on a link: its menu closes (its own handler), and its router would turn
+    // the address it was built with, /patients#steps, into a visit to /patients on this site unless the click's
+    // default is already prevented (next/link skips a prevented click).
+    const seen = []
+    document.addEventListener('click', event => {
+      seen.push([event.target.closest('a')?.getAttribute('href'), event.defaultPrevented])
+    })
+    const click = target => {
+      const event = new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })
+      target.dispatchEvent(event)
+      return event
+    }
+    // "How it works" in the navigation, as the edge wrote it.
+    const steps = [...document.querySelectorAll('a')].find(link => link.textContent === 'How it works')
+    assert.equal(steps.getAttribute('href'), '#steps')
+    click(steps)
+    assert.equal(dom.window.location.href, 'https://app.healthidentitydirectory.com/#steps')
+    // The page sees the click (its menu closes), already prevented (its router leaves it alone).
+    assert.deepEqual(seen, [['#steps', true]])
+    // "Your control" in the menu the page draws itself after loading, with the address it was built with.
+    const menu = document.createElement('a')
+    menu.setAttribute('href', '/patients#control')
+    menu.textContent = 'Your control'
+    document.body.append(menu)
+    menu.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }))
+    assert.equal(menu.getAttribute('href'), '#control')
+    click(menu)
+    assert.equal(dom.window.location.href, 'https://app.healthidentitydirectory.com/#control')
+    assert.deepEqual(seen.at(-1), ['#control', true])
+    // A link the page made within itself stays the page's own: not prevented, and nothing done for it.
+    const skip = [...document.querySelectorAll('a')].find(link => link.textContent === 'Skip to content')
+    const own = click(skip)
+    assert.equal(own.defaultPrevented, false)
+    assert.deepEqual(seen.at(-1), ['#main', false])
+    assert.equal(dom.window.location.href, 'https://app.healthidentitydirectory.com/#control')
+    // A new-tab click on a section is the browser's.
+    const tab = new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true })
+    steps.dispatchEvent(tab)
+    assert.equal(tab.defaultPrevented, false)
   } finally {
     dom.window.close()
   }

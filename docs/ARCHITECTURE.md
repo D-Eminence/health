@@ -1024,6 +1024,11 @@ readable cookie Identity's sign-in sets for the whole sign-in (hid-system
   which the public site keeps and does not redirect. Its "Sign in" opens
   `/sign-in` and "Get your Health ID" `/enroll`; a link to the portal's `/` on
   it opens `/sign-in`, since `/` would show a stranger the same page again.
+  A link to a section of the landing page itself ("How it works",
+  `/patients#steps`; on a product site, `/products/<slug>#...`) stays on the
+  page as `#steps`. The page's script follows it there itself and passes the
+  click on already prevented, since the page's own router still holds
+  `/patients#steps`, which on the portal is another page.
 - Every answer at those front pages is `Cache-Control: private, no-store` with
   `Vary: Cookie`, so no browser or shared cache can hand one person's answer to
   another. Cloudflare does not cache a Worker's own answers (the Worker runs
