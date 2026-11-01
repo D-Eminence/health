@@ -20,9 +20,22 @@ prepare=importlib.util.module_from_spec(spec); spec.loader.exec_module(prepare)
 
 
 def landing_page(app):
-    """A product site's front page as its new version serves it: the public site's page, with this site's address."""
-    return b'<html><head><title>Landing</title><link rel="canonical" href="https://' + w.HOSTS[app].encode() \
-        + b'/"></head><body><a href="https://healthidentitydirectory.com/pricing">Pricing</a></body></html>'
+    """A product site's front page as its new version serves a stranger: the public site's page, with its address."""
+    address = 'https://' + w.HOSTS[app] + '/'
+    return b'<html><head><title>Landing</title><link rel="canonical" href="' + address.encode() \
+        + b'"></head><body><a href="https://healthidentitydirectory.com/pricing">Pricing</a></body></html>'
+
+
+# Every answer at a front page that depends on a sign-in: never stored, varies with the cookie, with the page headers.
+FRONT_HEADERS = {'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'cache-control': 'private, no-store',
+                 'vary': 'Cookie'}
+PAGE_HEADERS = {'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY'}
+
+
+def workspace_redirect(request, app, headers=None):
+    """A product site's front page for someone signed in: its workspace's entrance."""
+    workspace = {'location': 'https://' + w.HOSTS[app] + '/provider'}
+    raise w.urllib.error.HTTPError(request.full_url, 302, 'Found', dict(workspace, **(headers or FRONT_HEADERS)), None)
 
 
 class WorkerTests(unittest.TestCase):
@@ -34,15 +47,20 @@ class WorkerTests(unittest.TestCase):
                 paths = []
                 deep_link = 'about' if app == 'public' else 'admin/sign-in' if app == 'admin' else 'sign-in'
                 landing = app in w.LANDING_APPS
-                # A product site's front page is its landing page, so its index.html is read at its staff sign-in.
-                expected = ['provider/sign-in', 'entry.js', deep_link, ''] if landing else ['', 'entry.js', deep_link]
+                # A product site's front page depends on a sign-in: its index.html is read at its staff sign-in, then
+                # its front page for a stranger and for someone signed in. The cookie is only ever sent to "/".
+                expected = ([('provider/sign-in', False), ('entry.js', False), (deep_link, False), ('', False), ('', True)]
+                            if landing else [('', False), ('entry.js', False), (deep_link, False)])
                 def open_request(request, timeout):
                     path = request.full_url.split(w.HOSTS[app] + '/', 1)[1]
-                    self.assertIn(path, expected)
-                    paths.append(path)
-                    response = BytesIO(script if path == 'entry.js' else landing_page(app) if landing and path == '' else html)
+                    cookie = request.get_header('Cookie')
+                    self.assertIn(cookie, (None, 'hid_access_csrf=release-check'))
+                    paths.append((path, cookie is not None))
+                    if landing and path == '' and cookie: workspace_redirect(request, app)
+                    front = landing and path == ''
+                    response = BytesIO(script if path == 'entry.js' else landing_page(app) if front and not cookie else html)
                     response.status = 200
-                    response.headers = {'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY'}
+                    response.headers = FRONT_HEADERS if front else PAGE_HEADERS
                     return response
                 opener = unittest.mock.Mock()
                 opener.open.side_effect = open_request
@@ -57,6 +75,7 @@ class WorkerTests(unittest.TestCase):
     def test_product_sites_and_only_they_bind_the_public_site(self):
         self.assertEqual(set(w.LANDING_APPS), set(prepare.LANDING_APPS))
         self.assertEqual(set(w.LANDING_APPS), {'ehr', 'lab', 'pharmacy', 'ocr', 'outreach'})
+        self.assertEqual(w.LANDING_CANONICAL['lab'], 'https://lab.healthidentitydirectory.com/')
         assets = pathlib.Path('assets')
         for app, host in w.HOSTS.items():
             with self.subTest(app=app):
@@ -89,22 +108,30 @@ class WorkerTests(unittest.TestCase):
             w.verify_assets('lab', {}, landing=True)
             w.verify_assets('lab', {})
             w.verify_assets('web', {})
-        self.assertEqual(calls, [('lab', False), ('lab', True), ('lab', True), ('web', False)])
+            w.verify_assets('admin', {})
+        self.assertEqual(calls, [('lab', False), ('lab', True), ('lab', True), ('web', False), ('admin', False)])
         source = pathlib.Path(w.__file__).read_text()
         self.assertIn('landing=after[app].get("checks",{}).get("landing_page_verified",False)', source)
 
-    def propagation(self, app, answers):
+    def propagation(self, app, answers, landing=None):
         """Runs verify_assets against an edge that answers each path from its queue first, on a fake clock."""
         html, script = b'<html><script src="/entry.js"></script></html>', b'console.log("release")'
         entry = {'files': {'index.html': c.sha(html), 'about.html': c.sha(html), 'entry.js': c.sha(script)}}
-        released = {'': landing_page(app) if app in w.LANDING_APPS else html, 'entry.js': script, 'about': html,
-                    'admin/sign-in': html, 'sign-in': html, 'provider/sign-in': html}
+        # The front page as this version serves it; a rollback's (landing=False) is the index.html, for anyone.
+        front = app in w.LANDING_APPS if landing is None else landing
+        released = {'': landing_page(app) if front else html, 'entry.js': script, 'about': html,
+                    'admin/sign-in': html, 'sign-in': html, 'provider/sign-in': html, ('', True): html}
         clock = {'now': 1000.0, 'sleeps': [], 'requests': 0, 'printed': []}
         def open_request(request, timeout):
             path = request.full_url.split(w.HOSTS[app] + '/', 1)[1]
+            # The front page for someone signed in is queued as ('', True).
+            key = ('', True) if path == '' and request.get_header('Cookie') else path
             clock['requests'] += 1
-            queued = answers.get(path)
-            body, status, headers = queued.pop(0) if queued else (released[path], 200, None)
+            queued = answers.get(key)
+            # The new version sends someone signed in on a product site to its workspace.
+            released_status = 'workspace' if front and key == ('', True) else 200
+            body, status, headers = queued.pop(0) if queued else (released[key], released_status, None)
+            if status == 'workspace': workspace_redirect(request, app, headers)
             if status == 'unreachable': raise w.urllib.error.URLError('connection reset')
             # Met after the request was sent: urllib passes these on unwrapped.
             if status == 'timeout': raise TimeoutError('timed out')
@@ -113,7 +140,7 @@ class WorkerTests(unittest.TestCase):
             response = BytesIO(body)
             if status == 'cut': response.read = lambda *_: (_ for _ in ()).throw(http.client.IncompleteRead(b'', 10))
             response.status = 200
-            response.headers = headers or {'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY'}
+            response.headers = headers or (FRONT_HEADERS if front and path == '' else PAGE_HEADERS)
             return response
         def sleep(seconds):
             clock['sleeps'].append(seconds); clock['now'] += seconds
@@ -123,7 +150,7 @@ class WorkerTests(unittest.TestCase):
              patch.object(w.time, 'monotonic', side_effect=lambda: clock['now']), \
              patch.object(w.time, 'sleep', side_effect=sleep), \
              patch.object(w, 'print', create=True, side_effect=lambda line, **_: clock['printed'].append(json.loads(line))):
-            try: return w.verify_assets(app, entry), clock
+            try: return w.verify_assets(app, entry, landing=landing), clock
             except c.ReleaseError as error: return error, clock
 
     def test_health_checks_wait_until_the_edge_serves_the_new_version(self):
@@ -160,6 +187,29 @@ class WorkerTests(unittest.TestCase):
         result, clock = self.propagation('lab', {'': [(b'', 503, None)] * 1000})
         self.assertEqual(str(result), 'WORKER_ASSET_REQUEST_FAILED')
         self.assertEqual(clock['sleeps'], [])
+
+    def test_a_product_front_page_sends_someone_signed_in_to_the_workspace(self):
+        previous = (b'<html><script src="/previous.js"></script></html>', 200, FRONT_HEADERS)
+        # The previous version answers its index.html: waited out, then this version's redirect passes.
+        result, clock = self.propagation('lab', {('', True): [previous, previous]})
+        self.assertTrue(result['landing_page_verified'])
+        self.assertEqual([line['waiting_for_edge'] for line in clock['printed']], ['SIGNED_IN_FRONT_PAGE_NOT_YET_SERVED'] * 2)
+        self.assertIn('SIGNED_IN_FRONT_PAGE_NOT_YET_SERVED', w.PROPAGATION_CODES)
+        # A redirect elsewhere, or one that could be stored or shared, fails at once.
+        elsewhere = dict(FRONT_HEADERS, location='https://lab.healthidentitydirectory.com/provider/sign-in')
+        for headers, code in [(elsewhere, 'SIGNED_IN_FRONT_PAGE_DIFFERS'),
+                              (PAGE_HEADERS, 'FRONT_PAGE_CACHE_HEADERS_DIFFER'),
+                              (dict(FRONT_HEADERS, vary='Accept-Encoding'), 'FRONT_PAGE_CACHE_HEADERS_DIFFER'),
+                              (dict(FRONT_HEADERS, **{'x-frame-options': 'SAMEORIGIN'}), 'WORKER_ASSET_REQUEST_FAILED')]:
+            with self.subTest(code=code, headers=headers):
+                result, clock = self.propagation('lab', {('', True): [(b'', 'workspace', headers)] * 1000})
+                self.assertEqual(str(result), code)
+                self.assertEqual(clock['sleeps'], [])
+        # A stranger's landing page that could be stored fails at once, too.
+        result, clock = self.propagation('lab', {'': [(landing_page('lab'), 200, PAGE_HEADERS)] * 1000})
+        self.assertEqual(str(result), 'FRONT_PAGE_CACHE_HEADERS_DIFFER')
+        for code in ['SIGNED_IN_FRONT_PAGE_DIFFERS', 'FRONT_PAGE_CACHE_HEADERS_DIFFER']:
+            self.assertNotIn(code, w.PROPAGATION_CODES)
 
     def test_a_timeout_reset_or_cut_off_answer_from_the_edge_is_waited_out(self):
         for status in ['timeout', 'reset', 'cut']:
