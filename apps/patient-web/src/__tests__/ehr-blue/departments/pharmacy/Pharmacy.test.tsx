@@ -389,24 +389,23 @@ describe('payment first', () => {
   const owed = { ...accepted, bill: { billId: 'bill-1', status: 'unpaid', dueKobo: 250_000, receiptNumber: null } } as PharmacyWorkItem
   const paid = { id: 'bill-1', number: 'B-0001', status: 'paid', dueKobo: 0, receiptNumber: 'R-0001' }
 
-  it('waits for payment where it comes first: no Dispense until the bill is paid, then the picking view', async () => {
+  // Payment setup's address is proposed, not served (parity report 3.1 #20): the list never asks for it, so opening it
+  // sends no request that fails, and nothing waits for payment, as today.
+  it('reads no payment settings, so nothing waits for payment even where it would come first', async () => {
     working(ALL)
     api.pharmacyWorkItems.mockResolvedValue({ items: [owed] })
-    commerceApi.paymentSettings = vi.fn(async () => ({ ok: true, data: settings }))
-    const bill = vi.fn(async () => ({ ok: false, notAvailable: true }))
+    const paymentSettings = vi.fn(async () => ({ ok: true, data: settings }))
+    commerceApi.paymentSettings = paymentSettings
+    const bill = vi.fn(async () => ({ ok: true, data: paid }))
     commerceApi.bill = bill
     await renderList()
     expect(within(row(AMOXICILLIN)).getByText(/Unpaid/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: AMOXICILLIN }))
-    expect(await screen.findByRole('heading', { name: 'Payment first' })).toBeTruthy()
-    expect(screen.queryByRole('form', { name: 'Dispense' })).toBeNull()
-    expect(screen.getByText('Ask the patient to pay at the cashier with this bill number. Then check again.')).toBeTruthy()
-    bill.mockResolvedValueOnce({ ok: true, data: paid } as never)
-    fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
-    expect(await screen.findByRole('form', { name: 'Dispense' })).toBeTruthy()
-    expect(screen.getByText('Paid, receipt R-0001. You can go on.')).toBeTruthy()
-    expect(bill).toHaveBeenLastCalledWith(DEMO_PHARMACY_ID, 'bill-1')
-    expect(api.dispense).not.toHaveBeenCalled()
+    expect(screen.getByRole('form', { name: 'Dispense' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Payment first' })).toBeNull()
+    await act(async () => {})
+    expect(paymentSettings).not.toHaveBeenCalled()
+    expect(bill).not.toHaveBeenCalled()
   })
 
   it('gates nothing where payments aren’t set up (404)', async () => {

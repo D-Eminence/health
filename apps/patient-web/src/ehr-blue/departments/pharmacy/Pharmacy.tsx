@@ -29,7 +29,7 @@ import { PaperPrescription } from './PaperPrescription'
 import { PharmacyRecord } from './PharmacyRecord'
 import { doseMissing, inTab, matchesItem, queueOrder, queueTone, routeAlert, statusOf, type PharmacyTab } from './pharmacyText'
 import { BillBadge } from '../commerce/BillBadge'
-import { StockLine, usePaymentSettings } from './pointOfCare'
+import { StockLine } from './pointOfCare'
 import { billOf, stockOf } from './pocFields'
 
 const LOAD_FAILED = 'Prescriptions could not be loaded. Please retry.'
@@ -92,10 +92,9 @@ function PrescriptionQueue() {
   // A dispensing or reversal being sent from the open record: Back to list waits for its outcome.
   const [recording, setRecording] = useState(false)
   const focus = useFocusById()
-  // The facility's payment setup (POINT_OF_CARE_SPEC §1): whether a bill must be paid before dispensing. Off (404) or
-  // unread, nothing waits for payment, as today.
-  const paymentSettings = usePaymentSettings(canRead ? facilityId : undefined)
-  const settings = paymentSettings.status === 'ready' ? paymentSettings.data : null
+  // The facility's payment setup (POINT_OF_CARE_SPEC §1), whether a bill must be paid before dispensing, is not read:
+  // its address is proposed, not served (commerce/served.ts), so reading it on every open sent a request that always
+  // failed. Unread, nothing waits for payment, as today. Pass it to the record again once Health ID serves it.
 
   // The rows shown: an order this pharmacy couldn't complete and later withdrew as the wrong person is no longer shown.
   const visible = items ? notCompleted.shown(items) : null
@@ -274,7 +273,7 @@ function PrescriptionQueue() {
           ids: new Set(current.facilityId === here ? current.ids : []).add(selected.id) }))}
         said={said.rowSaid(selected.orderRoute?.id)} holds={holds} crossFacilityWork={read.value?.crossFacilityWork}
         onChanged={read.refresh} onBusy={setRecording} onEnded={endedHere} onNotCompleted={notCompletedHere} onReread={said.reread}
-        next={nextItem ? nextItem.medication.display : null} onNext={openNext} onBack={back} settings={settings} />}
+        next={nextItem ? nextItem.medication.display : null} onNext={openNext} onBack={back} />}
     </DeptPage>
   )
 }
