@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import type { ReactNode } from 'react'
-import { Forum, Inter } from 'next/font/google'
+import localFont from 'next/font/local'
 import { getEnvironment } from '@/lib/env'
 import { GlobalSearchProvider } from '@/components/layout/GlobalSearch'
 import { FeedbackProvider } from '@/components/shared/FeedbackProvider'
@@ -12,22 +12,37 @@ import { SupportWidget } from './SupportWidget'
  * origin, so no request leaves for a font CDN and there is no layout shift
  * while a face loads.
  *
+ * The files are committed in app/fonts (latin subset, with their licences;
+ * app/fonts/README.md says where each came from), so the build reads them
+ * from the repo. next/font/google downloaded them from Google at build time,
+ * and that download intermittently failed the build.
+ *
  * `Forum` is the display face from the approved design and `Inter` is used for
  * navigation, body copy and interface controls. Every consumer reads the CSS
- * variables rather than a hard-coded family name.
+ * variables rather than a hard-coded family name. The fallback is Arial with
+ * metrics adjusted to each face, as next/font/google chose for both.
  */
-const forum = Forum({
-  subsets: ['latin'],
+const forum = localFont({
+  src: './fonts/forum/forum-latin-400-normal.woff2',
   weight: '400',
+  style: 'normal',
   variable: '--font-forum',
   display: 'swap',
+  adjustFontFallback: 'Arial',
 })
 
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['400', '500', '600'],
+// One variable file serves all three weights, as Google's own stylesheet did.
+// Declaring it at exactly 400, 500 and 600, rather than as a 400-600 range,
+// keeps how other weights resolve: a 550 or 650 rule renders at 600, as before.
+const inter = localFont({
+  src: [
+    { path: './fonts/inter/inter-latin-wght-normal.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/inter/inter-latin-wght-normal.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/inter/inter-latin-wght-normal.woff2', weight: '600', style: 'normal' },
+  ],
   variable: '--font-inter',
   display: 'swap',
+  adjustFontFallback: 'Arial',
 })
 
 export const metadata: Metadata = {
