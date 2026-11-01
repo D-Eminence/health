@@ -87,6 +87,8 @@ const PHARMACY = 'pharmacy.healthidentitydirectory.com'
 const WALK_IN = 'pharmacy.walk-in.create'
 const READ = 'pharmacy.work-item.read'
 const NO_PHARMACY_WORK = 'Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.'
+/** What a self-signed-up facility's administrator holds while Health ID support checks it. */
+const AWAITING_REVIEW = ['workforce.manage', 'audit.read', 'outreach.registration.read', 'outreach.registration.write', 'outreach.campaign.read', 'outreach.campaign.write']
 
 describe('the pharmacy. site settles on a page whatever the role holds', () => {
   it('neither permission (a pharmacy\'s administrator before Health ID\'s check): Prescriptions, which says plainly why it is closed', async () => {
@@ -107,6 +109,17 @@ describe('the pharmacy. site settles on a page whatever the role holds', () => {
     expect(screen.queryByText(NO_PHARMACY_WORK)).toBeNull()
     expect(document.body.textContent).not.toMatch(/Ask your facility administrator/)
     expect(document.body.textContent).not.toMatch(/work-item|walk-in|permission|pharmacy\.\w/)
+  })
+
+  it.each([['a laboratory', 'laboratory'], ['another kind of', 'other']])('%s facility\'s administrator while Health ID checks it: never promised Pharmacy, which it will not get', async (_kind, organizationType) => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    staff.selfService = { review: 'pending', organizationType }
+    const landed = await settle(PHARMACY, AWAITING_REVIEW)
+    expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
+    // The banner names no Pharmacy for this kind of facility, so the page below it promises none.
+    expect(screen.getByText(/^Health ID support is checking/).textContent).not.toMatch(/Pharmacy (work|workspace)/)
+    expect(document.body.textContent).not.toMatch(/Pharmacy opens/)
+    expect(screen.getByText(/^Your role at this facility doesn’t include pharmacy work\./)).toBeTruthy()
   })
 
   it('the same administrator once the facility is checked: today\'s sentence', async () => {

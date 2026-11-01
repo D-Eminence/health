@@ -1,7 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { CalendarCheck, PackageOpen, ReceiptText, ShoppingBag, SlidersHorizontal, Tags } from 'lucide-react'
 import { usesNovuBackend } from '../../../backendContract'
-import { selfServiceReview } from '../../../staff/staffAccess'
+import { selfServiceReview, selfServiceType } from '../../../staff/staffAccess'
 import type { EhrBluePage } from '../types'
 import { useBluePage } from '../../frame/pageContext'
 import { productOf } from '../../frame/product'
@@ -23,15 +23,22 @@ import { StockPage } from './Stock'
 const GROUP = 'Pharmacy'
 const icon = (I: typeof ShoppingBag) => <I aria-hidden strokeWidth={1.8} />
 /**
+ * The kinds of self-signed-up facility that get Pharmacy once Health ID support has checked them: the ones whose locked
+ * list names it (staff/routes/ReviewBanner.tsx LOCKED). A laboratory, or another kind, is never promised it.
+ */
+const GETS_PHARMACY: ReadonlySet<string> = new Set(['pharmacy', 'hospital', 'clinic'])
+
+/**
  * Opened by its address without the permission: today's refusal (staff/routes/Operations.tsx Pharmacy) in plain words,
- * and nothing is read. While Health ID support checks a facility that signed itself up, Pharmacy is locked for its
- * administrator too (the banner above says so): they are told it opens after the check, not to ask themselves. A role
- * that may open another Pharmacy page (Sell, Stock, Sales & receipts…) is told only prescriptions are not in it.
+ * and nothing is read. While Health ID support checks a facility that signed itself up and will get Pharmacy, Pharmacy
+ * is locked for its administrator too (the banner above says so): they are told it opens after the check, not to ask
+ * themselves. A role that may open another Pharmacy page (Sell, Stock, Sales & receipts…) is told only prescriptions
+ * are not in it.
  */
 function PharmacyUnavailable() {
   const { facility, permissions } = useDeptAccess()
   const otherPharmacyWork = pharmacyPages.some(page => page !== pharmacyPage && page.permission !== undefined && permissions.includes(page.permission))
-  const message = usesNovuBackend() && selfServiceReview(facility) === 'pending'
+  const message = usesNovuBackend() && selfServiceReview(facility) === 'pending' && GETS_PHARMACY.has(selfServiceType(facility) ?? '')
     ? 'Pharmacy opens once Health ID support has checked your facility.'
     : `Your role at this facility doesn’t include ${otherPharmacyWork ? 'prescriptions' : 'pharmacy work'}. Ask your facility administrator.`
   return <DeptUnavailable title="Pharmacy unavailable" message={message} />
