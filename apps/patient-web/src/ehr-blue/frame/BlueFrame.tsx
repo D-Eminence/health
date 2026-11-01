@@ -11,7 +11,7 @@ import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { isDemoFacility } from '../blueFacilities'
 import { PRODUCTS, inProduct, productOf } from './product'
-import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
+import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
 import { ConnectionStatus } from './ConnectionStatus'
@@ -143,14 +143,18 @@ export function BlueFrame() {
   const shownHere = match === null || (match.page.visible?.(session) ?? true)
   const todayRefuses = match !== null && TODAY_PAGES.has(match.page) && shownHere
     && !READS_BEFORE_REFUSING.has(basePath(match.page.path))
+  // The first item: Home in the EHR, and a single product's own first page (it has no Home).
+  const home: NavItem = product === 'ehr' ? { to: '/provider', label: 'Home', icon: House, end: true }
+    : { to: `/provider/${info.home}`, label: info.name, icon: info.icon }
   const content = match
     ? pageAllowed(match.page, session, viewing) || todayRefuses
       ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
       : match.page.refusal ?? (shownHere
         ? <Navigate replace to="/provider" state={{ frameNotice: DENIED_NOTICE }} />
         : <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'} />)
-    // Today's "Page not found", not the design's silent trip Home (admin/unknown-route).
-    : isLiveOnlyPath(location.pathname) ? <LivePage /> : <NotFoundPage />
+    // Today's "Page not found", not the design's silent trip Home (admin/unknown-route). Today's own route opens only
+    // where today serves it (the invitation on Novu only): elsewhere it is the frame's Page not found, not today's.
+    : liveOnlyTitle(location.pathname) !== undefined ? <LivePage /> : <NotFoundPage to={home.to} label={home.label} />
 
   const name = session.actor.displayName ?? session.actor.email ?? 'Staff member'
   const roles = facility ? facility.roles.join(', ') || 'Staff' : 'Staff'
@@ -175,8 +179,6 @@ export function BlueFrame() {
   }))
   const tabsFor = (path: string) => listed.find(page => page.path === path || page.path === `${path}/*`)
   const tab = (path: string, label: string, fallback: NavItem) => { const page = tabsFor(path); return page ? { to: pageHrefOf(page), label, icon: iconOf(page.icon) } : fallback }
-  const home: NavItem = product === 'ehr' ? { to: '/provider', label: 'Home', icon: House, end: true }
-    : { to: `/provider/${info.home}`, label: info.name, icon: info.icon }
   const facilityTab: NavItem = { to: '/provider/institutions', label: 'Facility', icon: Hospital }
 
   return (

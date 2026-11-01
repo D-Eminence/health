@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { BLUE_PAGES, pageAllowed } from '../../../ehr-blue/routes'
 import { TODAY_PAGES, pages as framePages } from '../../../ehr-blue/frame/pages'
 import { FRAME_PARTS, STATUS_WORDS } from '../../../ehr-blue/frame/WhatsLeft'
+import { JOURNEYS } from '../../../ehr-blue/frame/tour/journeys'
 import type { StaffSession } from '../../../staff/api'
 import { DEMO_HOSPITAL, facility } from './blueHarness'
 
@@ -38,6 +39,18 @@ describe('page statuses', () => {
     ['laboratory/results/*', 'Results', 'lab.work-item.read'],
     ['pharmacy/*', 'Pharmacy', undefined],
     ['pharmacy/prescriptions/*', 'Prescriptions', 'pharmacy.work-item.read'],
+    // The point-of-care pages call addresses Health ID does not serve yet (report #20): partial, never sample.
+    ['laboratory/new', 'New request', 'lab.walk-in.create'],
+    ['laboratory/new-walk-in', 'New request', 'lab.walk-in.create'],
+    ['laboratory/tests', 'Tests & prices', 'billing.catalogue.read'],
+    ['laboratory/till', 'Till / End of day', 'billing.shift.own'],
+    ['laboratory/settings', 'Payment setup', 'billing.settings.manage'],
+    ['pharmacy/sell', 'Sell', 'pharmacy.walk-in.create'],
+    ['pharmacy/sales/*', 'Sales & receipts', 'billing.bill.read'],
+    ['pharmacy/stock/*', 'Stock', 'pharmacy.stock.read'],
+    ['pharmacy/products', 'Products & prices', 'billing.catalogue.read'],
+    ['pharmacy/till', 'Till / End of day', 'billing.shift.own'],
+    ['pharmacy/settings', 'Payment setup', 'billing.settings.manage'],
   ])('labels %s (%s) partial, under the same permission', (path, label, permission) => {
     const entry = page(path)
     expect(entry.label).toBe(label)
@@ -63,15 +76,24 @@ describe('What\'s left', () => {
     expect(STATUS_WORDS.partial.meaning).toBe('On Health ID, but something is missing, worded differently or still a sample.')
   })
 
+  const part = (name: string) => FRAME_PARTS.find(candidate => candidate.name === name)!
+
   it('says what the frame does with an address that is no page, and with a page the role may not open', () => {
-    const part = (name: string) => FRAME_PARTS.find(candidate => candidate.name === name)!
     expect(part('Unknown address')).toEqual({ name: 'Unknown address', status: 'live',
-      note: 'An address that is no page says “Page not found”, with a way back to Home.' })
-    expect(part('Page not open to your role').status).toBe('partial')
+      note: 'An address that is no page says “Page not found”, with one way back: to Home, or to the first page of a lab, pharmacy, outreach or migration site.' })
+    // On a single product's site the notice is lost (report #15): the screen says so, not only a comment.
+    expect(part('Page not open to your role')).toEqual({ name: 'Page not open to your role', status: 'partial',
+      note: 'It shows its own refusal, or opens Home with a notice; on a lab, pharmacy, outreach or migration site it opens that site’s first page, with no notice yet. Nothing of it is read.' })
   })
 
-  it('claims no control the frame no longer has', () => {
+  it('calls no partial page a live list', () => {
+    expect(part('Record quick view').note).toBe('On sample workspace lists, and on some working lists such as Consultation and Document OCR.')
+  })
+
+  it('claims no control the frame no longer has, in its notes or in the design tour', () => {
     const notes = FRAME_PARTS.map(part => part.note).join(' ')
     for (const gone of ['View Home as', 'Preferences', 'Help', 'Every workspace in the design', 'says so']) expect(notes).not.toContain(gone)
+    const tour = JOURNEYS.flatMap(journey => journey.steps.map(step => step.text ?? '')).join(' ')
+    expect(tour).not.toContain('View Home as')
   })
 })

@@ -41,19 +41,21 @@ function PharmacyHome() {
 }
 
 export const pharmacyPages: EhrBluePage[] = [
-  // Not listed: the group's own address, taken to its first page. It and Prescriptions are partial, not live: they work on
-  // Health ID, but not yet with today's words and steps throughout.
+  // Every page here is partial, not live. Prescriptions and the group's own address work on Health ID, but not yet with
+  // today's words and steps throughout; Sell, Sales & receipts, Stock, Products & prices, Till and Settings call
+  // point-of-care addresses Health ID does not serve yet (parity report #20).
+  // Not listed: the group's own address, taken to its first page.
   { path: 'pharmacy/*', group: GROUP, label: 'Pharmacy', status: 'partial', icon: <PillIcon />, element: <PharmacyHome />, listed: () => false },
-  { path: 'pharmacy/sell', group: GROUP, label: 'Sell', permission: 'pharmacy.walk-in.create', status: 'live', icon: icon(ShoppingBag), element: <Sell /> },
+  { path: 'pharmacy/sell', group: GROUP, label: 'Sell', permission: 'pharmacy.walk-in.create', status: 'partial', icon: icon(ShoppingBag), element: <Sell /> },
   { path: 'pharmacy/prescriptions/*', group: GROUP, label: 'Prescriptions', permission: 'pharmacy.work-item.read', status: 'partial', keepsState: true,
     icon: <PillIcon />, element: <Prescriptions />, refusal: pharmacyUnavailable },
-  { path: 'pharmacy/sales/*', group: GROUP, label: 'Sales & receipts', permission: 'billing.bill.read', status: 'live', keepsState: true,
+  { path: 'pharmacy/sales/*', group: GROUP, label: 'Sales & receipts', permission: 'billing.bill.read', status: 'partial', keepsState: true,
     icon: icon(ReceiptText), element: <Sales /> },
-  { path: 'pharmacy/stock/*', group: GROUP, label: 'Stock', permission: 'pharmacy.stock.read', status: 'live', icon: icon(PackageOpen), element: <StockPage /> },
-  { path: 'pharmacy/products', group: GROUP, label: 'Products & prices', permission: 'billing.catalogue.read', status: 'live', icon: icon(Tags),
+  { path: 'pharmacy/stock/*', group: GROUP, label: 'Stock', permission: 'pharmacy.stock.read', status: 'partial', icon: icon(PackageOpen), element: <StockPage /> },
+  { path: 'pharmacy/products', group: GROUP, label: 'Products & prices', permission: 'billing.catalogue.read', status: 'partial', icon: icon(Tags),
     element: <PriceList kinds={['drug', 'other']} title="Products & prices" description="What you sell and what it costs: cash and each HMO’s price." /> },
-  { path: 'pharmacy/till', group: GROUP, label: 'Till / End of day', permission: 'billing.shift.own', status: 'live', icon: icon(CalendarCheck), element: <EndOfDay /> },
-  { path: 'pharmacy/settings', group: GROUP, label: 'Payment setup', permission: 'billing.settings.manage', status: 'live', icon: icon(SlidersHorizontal), element: <PaymentSetup /> },
+  { path: 'pharmacy/till', group: GROUP, label: 'Till / End of day', permission: 'billing.shift.own', status: 'partial', icon: icon(CalendarCheck), element: <EndOfDay /> },
+  { path: 'pharmacy/settings', group: GROUP, label: 'Payment setup', permission: 'billing.settings.manage', status: 'partial', icon: icon(SlidersHorizontal), element: <PaymentSetup /> },
 ]
 
 /** Prescriptions, by the name earlier code knew Pharmacy's page by. */

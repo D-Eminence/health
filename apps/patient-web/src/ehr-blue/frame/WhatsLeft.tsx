@@ -22,16 +22,16 @@ export const FRAME_PARTS: readonly { readonly name: string; readonly status: Ehr
   { name: 'Demo chip', status: 'live', note: 'Says what is live and what is a sample.' },
   { name: 'Connection popover', status: 'sample', note: 'Health ID has no offline sync for staff yet.' },
   { name: 'Sync drawer', status: 'sample', note: 'Health ID has no offline sync for staff yet.' },
-  { name: 'Record quick view', status: 'partial', note: 'On sample workspace lists, and on some live lists such as Consultation and Document OCR.' },
+  { name: 'Record quick view', status: 'partial', note: 'On sample workspace lists, and on some working lists such as Consultation and Document OCR.' },
   { name: 'My profile drawer', status: 'sample', note: 'From the account menu.' },
-  { name: 'Unknown address', status: 'live', note: 'An address that is no page says “Page not found”, with a way back to Home.' },
-  // Partial: on a lab, pharmacy, outreach or migration site, Home is that site's own page, and the notice is not shown.
-  { name: 'Page not open to your role', status: 'partial', note: 'It shows its own refusal, or opens Home with a notice; nothing of it is read.' },
+  { name: 'Unknown address', status: 'live', note: 'An address that is no page says “Page not found”, with one way back: to Home, or to the first page of a lab, pharmacy, outreach or migration site.' },
+  // Partial: on a lab, pharmacy, outreach or migration site, Home is that site's own page, and the notice is lost on the way.
+  { name: 'Page not open to your role', status: 'partial', note: 'It shows its own refusal, or opens Home with a notice; on a lab, pharmacy, outreach or migration site it opens that site’s first page, with no notice yet. Nothing of it is read.' },
 ]
 
 /**
  * What's left: every page the blue EHR has, from every pages.ts, with its status, and the frame's own parts. The owner's
- * checklist: as pages go live, their entries change here on their own.
+ * checklist: as pages go live, their entries change here on their own. It names no permission: screens show no codes.
  */
 export function WhatsLeft() {
   const pages = useBluePages()
@@ -48,7 +48,6 @@ export function WhatsLeft() {
         { id: 'page', header: 'Page', cell: page => <Link className="hid-ehr-blue-link" to={pageHrefOf(page)}>{page.label}</Link> },
         { id: 'group', header: 'Group', cell: page => page.group || 'Home' },
         { id: 'status', header: 'Status', cell: page => <EhrBadge tone={STATUS_WORDS[page.status].tone}>{STATUS_WORDS[page.status].label}</EhrBadge> },
-        { id: 'needs', header: 'Needs permission', cell: page => page.status === 'sample' ? 'None (sample)' : page.permission ?? 'None' },
       ]} />
     </EhrCard>
     <EhrCard title="Panels and route pages">

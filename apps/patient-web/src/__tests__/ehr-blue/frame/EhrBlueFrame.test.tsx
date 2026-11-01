@@ -7,7 +7,7 @@ import { pages as homePages } from '../../../ehr-blue/home/pages'
 import type { EhrBluePage } from '../../../ehr-blue/frame/types'
 import type { StaffSession } from '../../../staff/api'
 import {
-  DEMO_HOSPITAL, DEMO_LABORATORY, FACILITY, LAB_WORK, REQUESTS, SESSION, accountButton, facility, homeHeading, json, openStaffApp, problem, serve,
+  DEMO_HOSPITAL, DEMO_LABORATORY, FACILITY, LAB_WORK, REAL_FACILITY, REQUESTS, SESSION, accountButton, facility, homeHeading, json, openStaffApp, problem, serve,
   sessionAt, switchFacilityTo, where, withFramePages,
 } from './blueHarness'
 
@@ -152,6 +152,9 @@ describe('the blue frame', () => {
     expect(within(radiology).getByText('Sample')).toBeDefined()
     const lab = within(table).getByRole('link', { name: 'Laboratory' }).closest('tr')!
     expect(within(lab).getByText('Live')).toBeDefined()
+    // Screens show no codes: not even a permission's, on a demo-only page.
+    expect(within(table).queryByRole('columnheader', { name: 'Needs permission' })).toBeNull()
+    expect(table.textContent).not.toMatch(/lab\.work-item\.read|identity\.consent\.write|workforce\.manage/)
   })
 
   it('opens a sample workspace with the notice, keeps a new record in memory, and validates the form as the design does', async () => {
@@ -211,6 +214,34 @@ describe('the blue frame', () => {
     await openDemo('/provider/whats-left/not-a-page')
     expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
     expect(document.querySelector('.hid-ehr-blue-page')!.textContent).not.toMatch(/what|not-a-page/i)
+  })
+
+  // A lab on its own has no Home: its first page is the Lab item, so the way back names that and goes straight there.
+  it('says Page not found in a single product\'s workspace, with one way back to its own first page', async () => {
+    const lab = facility(DEMO_LABORATORY, 'Demo Laboratory', ['lab.work-item.read'])
+    serve({ [SESSION]: [sessionAt(lab, [lab])], [LAB_WORK]: [() => json({ items: [] })] })
+    await openStaffApp('/provider/not-a-page')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
+    await waitFor(() => expect(document.title).toBe('Page not found · Health ID Lab'))
+    const page = document.querySelector<HTMLElement>('.hid-ehr-blue-page')!
+    expect(page.textContent).not.toMatch(/Home|not-a-page|\/provider/)
+    const back = within(page).getByRole('link', { name: 'Go to Lab' })
+    expect(within(page).getAllByRole('link')).toEqual([back])
+    expect(back.getAttribute('href')).toBe('/provider/laboratory')
+    fireEvent.click(back)
+    await waitFor(() => expect(where()).toBe('/provider/laboratory'))
+  })
+
+  it('says Page not found at a facility that is not a demo one, with the same way Home', async () => {
+    const riverside = facility(REAL_FACILITY, 'Riverside Teaching Hospital (fictional)', ['identity.consent.write'])
+    const sent = serve({ [SESSION]: [sessionAt(riverside, [riverside])] })
+    await openStaffApp('/provider/not-a-page')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
+    expect(screen.getByText('This provider page is unavailable.')).toBeDefined()
+    const page = document.querySelector<HTMLElement>('.hid-ehr-blue-page')!
+    expect(page.textContent).not.toMatch(/not-a-page|\/provider/)
+    expect(within(page).getByRole('link', { name: 'Go to Home' }).getAttribute('href')).toBe('/provider')
+    expect(sent.every(call => call.route === SESSION)).toBe(true)
   })
 
   it('leaves today\'s page to refuse a live stand-in without its permission, in today\'s words', async () => {
