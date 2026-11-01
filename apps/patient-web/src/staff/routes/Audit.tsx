@@ -3,10 +3,12 @@ import { Badge, Button, Card, EmptyState, Field, Input, Select } from '@hid/ui'
 import { isHidApiError, plainErrorText } from '@hid/http'
 import { staffApi, type FacilityAuditPage } from '../api'
 import { useStaff } from '../App'
+import { AUDIT_WORK, refusedWorkText } from '../refusedWork'
 
 type PagePosition = { facilityId: string; cursors: Array<string | undefined> }
 type LoadedPage = { facilityId: string; cursor: string | undefined; page: FacilityAuditPage }
-type LoadProblem = { facilityId: string; cursor: string | undefined; message: string }
+/** A refused read: 403 (said at render, as the refusal is, by who reads it) or another failure, in words. */
+type LoadProblem = { facilityId: string; cursor: string | undefined; forbidden: boolean; message: string }
 
 function displayTime(value: string): string {
   const time = new Date(value)
@@ -35,7 +37,9 @@ export function FacilityAudit() {
   const cursors = position.facilityId === facilityId ? position.cursors : [undefined]
   const cursor = cursors[cursors.length - 1]
   const page = loaded?.facilityId === facilityId && loaded.cursor === cursor ? loaded.page : null
-  const error = problem?.facilityId === facilityId && problem.cursor === cursor ? problem.message : ''
+  const current = problem?.facilityId === facilityId && problem.cursor === cursor ? problem : null
+  // Refused on reading: the refusal's own words, by who reads them, so the page says one thing whichever refuses first.
+  const error = !current ? '' : current.forbidden ? refusedWorkText(facility, facility?.permissions ?? [], AUDIT_WORK) : current.message
 
   useEffect(() => {
     if (!facilityId || !allowed) return
@@ -46,17 +50,16 @@ export function FacilityAudit() {
       if (active) setLoaded({ facilityId, cursor, page: next })
     }).catch(caught => {
       if (!active) return
-      // Refused on reading: the same words as the refusal below, so the page says one thing whichever refuses first.
-      setProblem({ facilityId, cursor, message: isHidApiError(caught) && caught.status === 403
-        ? 'Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.'
-        : plainErrorText(caught, 'Audit events could not be loaded.', { audience: 'facility' }) })
+      setProblem({ facilityId, cursor, forbidden: isHidApiError(caught) && caught.status === 403,
+        message: plainErrorText(caught, 'Audit events could not be loaded.', { audience: 'facility' }) })
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [facilityId, allowed, cursor, reload])
 
   // With no facility chosen there is no role here to speak of: ask for the facility, as the blue page does.
   if (!facility) return <EmptyState titleAs="h1" title="Audit access unavailable" description="Choose the facility you are working at to review its audit events." />
-  if (!allowed) return <EmptyState titleAs="h1" title="Audit access unavailable" description="Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator." />
+  // The blue page's words, by who reads them (refusedWorkText): a facility's own administrator never asks themselves.
+  if (!allowed) return <EmptyState titleAs="h1" title="Audit access unavailable" description={refusedWorkText(facility, facility.permissions, AUDIT_WORK)} />
 
   const query = search.trim().toLocaleLowerCase()
   const visible = page?.items.filter(event =>

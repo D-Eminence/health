@@ -15,7 +15,7 @@ import { learnLateCorrectionServed, saysLateCorrection, useLateCorrectionServed 
 import { learnCannotCompleteFrom, useCannotCompleteServed } from '../../cannotCompleteServed'
 import { BETWEEN_FACILITIES } from '../betweenFacilities'
 import { selfServiceReview, selfServiceType } from '../staffAccess'
-import { LAB_WORK, refusedWorkText } from '../refusedWork'
+import { LAB_WORK, OUTREACH_WORK, PHARMACY_WORK, refusedWorkText } from '../refusedWork'
 import {
   cannotCompleteOffered, handOverCheckText, holdsReceivePermission, licenceLine, receivingAnswer, receivingHere,
   rememberedReceiving, rememberReceiving, routeClosedForWork, routedWorkEndedText, sampleCheckText, wrongPatientOffered,
@@ -1092,7 +1092,8 @@ export function Pharmacy() {
   const notCompleted = useNotCompletedEndings(facilityId)
   const said = useRowSaid('pharmacy', read.value, list.refresh, (mode, route) => mode === 'wrong_patient'
     ? wrongPatientOffered(route, permissions, 'pharmacy') : cannotCompleteOffered(route, permissions, 'pharmacy', cannotServed))
-  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description={refusedHere(facilityId, 'pharmacy work')} />
+  // The blue Pharmacy's words for the same facts (refusedWorkText), so a facility's own administrator is never told to ask themselves.
+  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description={refusalAt(facilityId, refusedWorkText(facility, permissions, PHARMACY_WORK))} />
   function notCompletedHere(ending: Omit<CannotCompleteEnding, 'key'>) {
     notCompleted.add(ending)
     said.clear()
@@ -1734,7 +1735,7 @@ function OutreachCaseCard({ facilityId, item, canLink, onChanged }: { facilityId
 }
 
 export function Outreach() {
-  const { facilityId, membershipId, permissions } = useFacilityAccess()
+  const { facilityId, membershipId, permissions, facility } = useFacilityAccess()
   const canReadCases = permissions.includes('outreach.registration.read')
   const canReadCampaigns = permissions.includes('outreach.campaign.read')
   const campaigns = useFacilityList(facilityId, canReadCampaigns, useCallback(id => staffApi.outreachCampaigns(id), []))
@@ -1792,7 +1793,8 @@ export function Outreach() {
     finally { setBusy(false) }
   }
 
-  if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState titleAs="h1" title="Outreach unavailable" description={refusedHere(facilityId, 'outreach campaigns or registration cases')} />
+  // The blue Outreach's words (refusedWorkText), so a facility's own administrator is never told to ask themselves.
+  if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState titleAs="h1" title="Outreach unavailable" description={refusalAt(facilityId, refusedWorkText(facility, permissions, OUTREACH_WORK))} />
   return <>
     <PageHead eyebrow="Community care" title="Outreach">View facility campaigns and manage registration cases. A temporary registration is pending identity resolution until it is linked to a verified patient.</PageHead>
     {error && <p className="staff-error" role="alert">{error}</p>}

@@ -7,6 +7,7 @@ import { staffApi, type OutreachCampaign, type OutreachCase } from '../../../sta
 import { useStaff } from '../../../staff/App'
 import { useFocusById } from '../../../staff/focus'
 import { focusLost } from '../../../pageFocus'
+import { OUTREACH_WORK, refusedWorkText } from '../../../staff/refusedWork'
 import { useDeptAccess } from '../parts/access'
 import { DeptPage, DeptUnavailable } from '../parts/DeptPage'
 import { dateText, matchesSearch } from '../parts/format'
@@ -16,7 +17,7 @@ import { OutreachCaseView } from './OutreachCaseView'
 import { OutreachNew, type CaseAttempt } from './OutreachNew'
 import {
   ageText, CAMPAIGNS_NOT_LOADED, caseName, caseTone, CASES_NOT_LOADED, caseSearchText, caseWaiting, ErrorBox,
-  NO_FACILITY, NO_READ_PERMISSION, nextStepText, PENDING, sexText, statusLabel, statusWords, type MembersRead,
+  NO_FACILITY, nextStepText, PENDING, sexText, statusLabel, statusWords, type MembersRead,
 } from './outreachParts'
 
 /** The design's list shows this many records a page. */
@@ -347,9 +348,12 @@ function CaseCard({ item, campaign, canLink, onOpen }: {
 }
 
 /**
- * What Outreach says to a membership with neither campaign nor registration read, in today's words (staff/routes/
- * Operations.tsx Outreach); the frame shows it at the address.
+ * What Outreach says to a membership with neither campaign nor registration read, as the classic page does
+ * (staff/routes/Operations.tsx Outreach); the frame shows it at the address. Screens name no permission (the owner's
+ * rule), so it names the work in everyday words, chosen by who reads them (refusedWorkText): a self-signed-up
+ * facility's administrator is never told to ask themselves.
  */
 export function OutreachRefusal() {
-  return <DeptUnavailable title="Outreach unavailable" message={NO_READ_PERMISSION} />
+  const { facility, permissions } = useDeptAccess()
+  return <DeptUnavailable title="Outreach unavailable" message={refusedWorkText(facility, permissions, OUTREACH_WORK)} />
 }

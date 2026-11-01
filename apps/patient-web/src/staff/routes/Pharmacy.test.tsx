@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import type { PharmacyWorkItem, staffApi } from '../api'
 import { Pharmacy } from './Operations'
+import { pharmacyRefusalText } from '../../ehr-blue/departments/pharmacy/pharmacyText'
 import { SAID_CHANGED, SAID_NOT_FOUND, SAID_REFUSED, SAID_UNAVAILABLE } from '../../__tests__/said'
 
 /**
@@ -20,13 +21,14 @@ const api = vi.hoisted(() => ({
   reverseDispensing: vi.fn<StaffApi['reverseDispensing']>(),
 }))
 /** The staff session the page sees; each test may change it before rendering. */
-const staff = vi.hoisted(() => ({ ready: true, facilityId: 'facility-1' as string | null, permissions: [] as string[] }))
+const staff = vi.hoisted(() => ({ ready: true, facilityId: 'facility-1' as string | null, permissions: [] as string[],
+  selfService: undefined as { review: string; organizationType: string } | undefined }))
 
 vi.mock('../App', () => ({
   useStaff: () => ({
     state: staff.ready
       ? { status: 'ready', session: { actor: { facility: staff.facilityId === null ? undefined : {
-        id: staff.facilityId, membershipId: 'member-1', permissions: staff.permissions,
+        id: staff.facilityId, membershipId: 'member-1', permissions: staff.permissions, ...(staff.selfService ? { selfService: staff.selfService } : {}),
       } } } }
       : { status: 'loading', session: null },
   }),
@@ -158,6 +160,7 @@ beforeEach(() => {
   staff.ready = true
   staff.facilityId = FACILITY
   staff.permissions = [WORK_ITEM_READ]
+  staff.selfService = undefined
   api.pharmacyWorkItems.mockResolvedValue({ items: [accepted, dispensed, reversed] })
   api.dispense.mockResolvedValue({ id: 'dispensing-new' })
   api.dispensing.mockResolvedValue({ id: 'dispensing-2', version: 5 })
@@ -197,6 +200,40 @@ describe('Pharmacy page access', () => {
     render(<Pharmacy />)
 
     expectUnavailable(CHOOSE_FACILITY)
+  })
+
+  /*
+   * Who reads the refusal (#104's rule): the blue Pharmacy's own words for the same facts, from one rule
+   * (staff/refusedWork.ts), so a facility's own administrator is never told to ask themselves here either. Every
+   * facility is fictional.
+   */
+  describe('by who reads it, as the blue Pharmacy says it', () => {
+    const ROLE = 'Your role at this facility doesn’t include pharmacy work.'
+    beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+    afterEach(() => { vi.unstubAllEnvs() })
+
+    it.each([
+      ['the administrator of a checked pharmacy', ['workforce.manage'], { review: 'reviewed', organizationType: 'pharmacy' }, `${ROLE} Add a pharmacist on the Staff page.`],
+      ['the administrator of a checked hospital', ['workforce.manage'], { review: 'reviewed', organizationType: 'hospital' }, `${ROLE} Add a pharmacist on the Staff page.`],
+      ['the administrator of a checked laboratory, which will not get Pharmacy', ['workforce.manage'], { review: 'reviewed', organizationType: 'laboratory' }, ROLE],
+      ['the administrator of a pharmacy being checked', ['workforce.manage'], { review: 'pending', organizationType: 'pharmacy' }, 'Pharmacy opens once Health ID support has checked your facility.'],
+      ['anyone else at a checked pharmacy', [DISPENSING_READ], { review: 'reviewed', organizationType: 'pharmacy' }, NO_PHARMACY_WORK],
+      ['an administrator at a facility Health ID support manages', ['workforce.manage'], undefined, NO_PHARMACY_WORK],
+    ])('%s', (_reader, permissions, selfService, sentence) => {
+      staff.permissions = permissions
+      staff.selfService = selfService
+      render(<Pharmacy />)
+      expectUnavailable(sentence)
+      expect(sentence).toBe(pharmacyRefusalText('pharmacy work', selfService ? { selfService } : {}, permissions))
+    })
+
+    it.each(['', 'main-v1'])('the administrator of a checked pharmacy on today’s backend (%j): told to ask its administrator', contract => {
+      vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+      staff.permissions = ['workforce.manage']
+      staff.selfService = { review: 'reviewed', organizationType: 'pharmacy' }
+      render(<Pharmacy />)
+      expectUnavailable(NO_PHARMACY_WORK)
+    })
   })
 })
 

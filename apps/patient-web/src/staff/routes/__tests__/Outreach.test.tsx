@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Outreach } from '../Operations'
 import { SAID_NETWORK } from '../../../__tests__/said'
@@ -12,11 +12,11 @@ const api = vi.hoisted(() => ({
 const unprovided = vi.hoisted(() => new Set<string>())
 const permissions = vi.hoisted(() => ({ value: [] as string[] }))
 // Whether a facility is being worked at (the only case this portal now shows on its own is before one is chosen).
-const working = vi.hoisted(() => ({ atFacility: true }))
+const working = vi.hoisted(() => ({ atFacility: true, selfService: undefined as { review: string; organizationType: string } | undefined }))
 
 vi.mock('../../App', () => ({
   useStaff: () => ({ state: { status: 'ready', session: { actor: { id: 'staff-1', facility: working.atFacility ? {
-    id: 'facility-1', membershipId: 'member-1', permissions: permissions.value,
+    id: 'facility-1', membershipId: 'member-1', permissions: permissions.value, ...(working.selfService ? { selfService: working.selfService } : {}),
   } : undefined } } }, lock: null }),
 }))
 vi.mock('../../api', () => ({
@@ -40,6 +40,7 @@ beforeEach(() => {
   unprovided.clear()
   permissions.value = ALL
   working.atFacility = true
+  working.selfService = undefined
   api.outreachCampaigns.mockResolvedValue([campaign('campaign-1', 'Ikeja screening week', 'active'), campaign('campaign-2', 'Epe follow-up', 'planned')])
   api.outreachCases.mockResolvedValue([])
   api.outreachCampaignMembers.mockImplementation(async (_facilityId: string, campaignId: string) =>
@@ -289,15 +290,62 @@ describe('linking a registration case to an existing patient', () => {
  */
 describe('who can open Outreach', () => {
   const PERMISSION_WORDS = /permission|membership|outreach\.(campaign|registration)\.read/i
+  /** What a role without Outreach reads, in the blue page's words: the work in everyday words, then who to ask, if anyone. */
+  const ROLE = 'Your role at this facility doesn’t include outreach campaigns or registering people in the field.'
+  const ASK = `${ROLE} Ask your facility administrator.`
+  afterEach(() => { vi.unstubAllEnvs() })
 
   it('refuses a role with neither read in plain words, and reads nothing', () => {
     permissions.value = ['outreach.registration.write', 'outreach.campaign.write']
     render(<Outreach />)
     const heading = screen.getByRole('heading', { level: 1, name: 'Outreach unavailable' })
-    expect(heading.parentElement?.textContent).toBe('Outreach unavailableYour role at this facility doesn’t include outreach campaigns or registration cases. Ask your facility administrator.')
+    expect(heading.parentElement?.textContent).toBe(`Outreach unavailable${ASK}`)
     expect(heading.parentElement?.textContent).not.toMatch(PERMISSION_WORDS)
     expect(api.outreachCases).not.toHaveBeenCalled()
     expect(api.outreachCampaigns).not.toHaveBeenCalled()
+  })
+
+  /*
+   * Who reads the refusal (#104's rule, the owner's decision for #107), as the blue page says it: every kind of facility
+   * has Outreach from the start (its administrator holds it while Health ID support checks it, and after), so a
+   * facility's own administrator is never told to ask themselves, to wait for the check, or to add someone.
+   */
+  describe('by who reads the refusal', () => {
+    /** A self-signed-up facility's administrator whose role here holds no Outreach (fictional: theirs holds it today). */
+    const ADMINISTRATOR = ['organization.manage', 'workforce.manage', 'audit.read']
+    beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+
+    function refusalAs(held: string[], selfService?: { review: string; organizationType: string }) {
+      permissions.value = held
+      working.selfService = selfService
+      render(<Outreach />)
+      const heading = screen.getByRole('heading', { level: 1, name: 'Outreach unavailable' })
+      expect(document.body.textContent).not.toMatch(/permission|membership|workforce|outreach\.|_|\/provider/i)
+      expect(api.outreachCases).not.toHaveBeenCalled()
+      expect(api.outreachCampaigns).not.toHaveBeenCalled()
+      return heading.parentElement?.textContent?.replace('Outreach unavailable', '')
+    }
+
+    it.each(['hospital', 'clinic', 'laboratory', 'pharmacy', 'other'])('the administrator of a checked facility (%s): the role sentence only', organizationType => {
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType })).toBe(ROLE)
+    })
+
+    it('the administrator of a facility Health ID support is still checking: the role sentence only', () => {
+      expect(refusalAs(['workforce.manage', 'audit.read'], { review: 'pending', organizationType: 'hospital' })).toBe(ROLE)
+    })
+
+    it('anyone else at a checked facility: told to ask its administrator', () => {
+      expect(refusalAs(['ehr.encounter.read'], { review: 'reviewed', organizationType: 'hospital' })).toBe(ASK)
+    })
+
+    it('an administrator at a facility Health ID support manages: told to ask its administrator', () => {
+      expect(refusalAs(ADMINISTRATOR)).toBe(ASK)
+    })
+
+    it.each(['', 'main-v1'])('the administrator of a checked facility on today’s backend (%j): told to ask its administrator', contract => {
+      vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'hospital' })).toBe(ASK)
+    })
   })
 
   it('asks for a facility before one is chosen', () => {

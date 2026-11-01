@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useState } from 'react'
 import { EhrButton, EhrEmptyState, EhrField, EhrSelect, EhrSkeleton } from '@hid/ui/ehr'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type FacilityAuditEvent, type FacilityAuditPage } from '../../../staff/api'
+import { AUDIT_WORK, refusedWorkText } from '../../../staff/refusedWork'
 import { focusIsLost } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
 import { DeptPage } from '../parts/DeptPage'
@@ -112,9 +113,9 @@ export function AuditCompliance() {
   if (!facility || !allowed) {
     return (
       <DeptPage title="Audit & Compliance">
-        {/* The same words as the page's refusal (page.tsx) and the classic page: no permission named. */}
+        {/* The same words as the page's refusal (page.tsx) and the classic page, by who reads them: no permission named. */}
         <DeptNotice role="status">{facility
-          ? 'Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.'
+          ? refusedWorkText(facility, facility.permissions, AUDIT_WORK)
           : 'Choose the facility you are working at to review its audit events.'}</DeptNotice>
       </DeptPage>
     )

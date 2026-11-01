@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { AuditCompliance } from '../../../../ehr-blue/departments/audit/AuditCompliance'
+import { auditPage } from '../../../../ehr-blue/departments/audit/page'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 import { SAID_NETWORK, SAID_TRY_SHORTLY, SAID_UNAVAILABLE } from '../../../said'
 
@@ -355,6 +356,58 @@ describe('Audit & Compliance: refusals and failures', () => {
     renderDept(<AuditCompliance />)
     expect(screen.getByRole('status').textContent).toBe('Choose the facility you are working at to review its audit events.')
     expect(api.touched).toEqual([])
+  })
+})
+
+/*
+ * Who reads the refusal, on the page and at its address (#104's rule, the owner's decision for #107). Every kind of
+ * facility has its own audit trail from the start (its administrator holds audit review while Health ID support checks
+ * it, and after), so a facility's own administrator is never told to ask themselves, to wait for the check, or to add
+ * someone: only that their role doesn't include it. Every facility here is fictional.
+ */
+describe('Audit & Compliance: the refusal, by who reads it', () => {
+  const ROLE = 'Your role at this facility doesn’t include reviewing audit events.'
+  const ASK = `${ROLE} Ask your facility administrator.`
+  /** A self-signed-up facility's administrator whose role here holds no audit review (fictional: theirs holds it today). */
+  const ADMINISTRATOR = ['organization.manage', 'workforce.manage', 'outreach.registration.read', 'outreach.campaign.read']
+  beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+  afterEach(() => { vi.unstubAllEnvs() })
+
+  /** What `permissions` reads on the page, and at its address, at a facility that signed itself up when `selfService` says so. */
+  function refusalAs(permissions: string[], selfService?: FakeFacility['selfService']) {
+    session.facility = fakeFacility(permissions, { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital', ...(selfService ? { selfService } : {}) })
+    const page = renderDept(<AuditCompliance />)
+    const onPage = screen.getByRole('status').textContent
+    page.unmount()
+    renderDept(<>{auditPage.refusal}</>)
+    expect(screen.getByRole('heading', { level: 1, name: 'Audit access unavailable' })).toBeTruthy()
+    const atAddress = document.querySelector('.hid-ehr-state-message')?.textContent
+    // The page and its address say one thing, and neither names a permission, a code or an address.
+    expect(atAddress).toBe(onPage)
+    expect(document.body.textContent).not.toMatch(/permission|membership|workforce|audit\.read|_|\/provider/i)
+    expect(api.touched).toEqual([])
+    return onPage
+  }
+
+  it.each(['hospital', 'clinic', 'laboratory', 'pharmacy', 'other'])('the administrator of a checked facility (%s): the role sentence only', organizationType => {
+    expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType })).toBe(ROLE)
+  })
+
+  it.each(['hospital', 'laboratory'])('the administrator of a facility (%s) Health ID support is still checking: the role sentence only', organizationType => {
+    expect(refusalAs(['workforce.manage', 'outreach.registration.read'], { review: 'pending', organizationType })).toBe(ROLE)
+  })
+
+  it('anyone else at a checked facility: told to ask its administrator', () => {
+    expect(refusalAs(['lab.work-item.read'], { review: 'reviewed', organizationType: 'laboratory' })).toBe(ASK)
+  })
+
+  it('an administrator at a facility Health ID support manages: told to ask its administrator', () => {
+    expect(refusalAs(ADMINISTRATOR)).toBe(ASK)
+  })
+
+  it.each(['', 'main-v1'])('the administrator of a checked facility on today’s backend (%j): told to ask its administrator', contract => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+    expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'hospital' })).toBe(ASK)
   })
 })
 

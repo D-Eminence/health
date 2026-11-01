@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { FacilityAudit } from '../Audit'
@@ -11,9 +11,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../api', () => ({ staffApi: { facilityAudit: mocks.facilityAudit } }))
 vi.mock('../../App', () => ({ useStaff: mocks.useStaff }))
 
-function session(permissions: string[]) {
+function session(permissions: string[], selfService?: { review: string; organizationType: string }) {
   return { state: { status: 'ready', session: { actor: {
-    facility: { id: 'facility-1', name: 'Example Clinic', permissions },
+    facility: { id: 'facility-1', name: 'Example Clinic', permissions, ...(selfService ? { selfService } : {}) },
   } } } }
 }
 
@@ -85,5 +85,61 @@ describe('facility audit review', () => {
     expect(await screen.findByText('Nothing to show on this page')).toBeTruthy()
     expect(screen.queryByText('No audit events')).toBeNull()
     expect(screen.getByRole('button', { name: 'Older page' })).toBeTruthy()
+  })
+})
+
+/*
+ * Who reads the refusal (#104's rule, the owner's decision for #107), in the blue page's words: every kind of facility
+ * has its own audit trail from the start (its administrator holds audit review while Health ID support checks it, and
+ * after), so a facility's own administrator is never told to ask themselves, to wait for the check, or to add someone.
+ * A refused read says the same as the refusal, whoever reads it. Every facility here is fictional.
+ */
+describe('facility audit refusal, by who reads it', () => {
+  const ROLE = 'Your role at this facility doesn’t include reviewing audit events.'
+  const ASK = `${ROLE} Ask your facility administrator.`
+  /** A self-signed-up facility's administrator whose role here holds no audit review (fictional: theirs holds it today). */
+  const ADMINISTRATOR = ['organization.manage', 'workforce.manage', 'outreach.registration.read']
+  const NO_CODES = /permission|membership|workforce|audit\.read|PERMISSION_DENIED|_|\/provider/i
+  beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+  afterEach(() => { vi.unstubAllEnvs() })
+
+  /** The refusal as `permissions` reads it, at a facility that signed itself up when `selfService` says so. */
+  function refusalAs(permissions: string[], selfService?: { review: string; organizationType: string }) {
+    mocks.useStaff.mockReturnValue(session(permissions, selfService))
+    render(<FacilityAudit />)
+    const heading = screen.getByRole('heading', { level: 1, name: 'Audit access unavailable' })
+    expect(document.body.textContent).not.toMatch(NO_CODES)
+    expect(mocks.facilityAudit).not.toHaveBeenCalled()
+    return heading.parentElement?.textContent?.replace('Audit access unavailable', '')
+  }
+
+  it.each(['hospital', 'clinic', 'laboratory', 'pharmacy', 'other'])('the administrator of a checked facility (%s): the role sentence only', organizationType => {
+    expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType })).toBe(ROLE)
+  })
+
+  it('the administrator of a facility Health ID support is still checking: the role sentence only', () => {
+    expect(refusalAs(['workforce.manage', 'outreach.registration.read'], { review: 'pending', organizationType: 'clinic' })).toBe(ROLE)
+  })
+
+  it('anyone else at a checked facility: told to ask its administrator', () => {
+    expect(refusalAs(['ehr.encounter.read'], { review: 'reviewed', organizationType: 'clinic' })).toBe(ASK)
+  })
+
+  it('an administrator at a facility Health ID support manages: told to ask its administrator', () => {
+    expect(refusalAs(ADMINISTRATOR)).toBe(ASK)
+  })
+
+  it.each(['', 'main-v1'])('the administrator of a checked facility on today’s backend (%j): told to ask its administrator', contract => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+    expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'clinic' })).toBe(ASK)
+  })
+
+  it('says a refused read to the administrator of a checked facility in the same words, never asking them to ask themselves', async () => {
+    mocks.useStaff.mockReturnValue(session(['workforce.manage', 'audit.read'], { review: 'reviewed', organizationType: 'clinic' }))
+    mocks.facilityAudit.mockRejectedValueOnce(new HidApiError(403, 'Missing permission audit.read for facility-1', { code: 'PERMISSION_DENIED' }))
+    render(<FacilityAudit />)
+    expect(await screen.findByText(ROLE)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/Ask your facility administrator/)
+    expect(document.body.textContent).not.toMatch(/audit\.read|PERMISSION_DENIED|Missing permission|facility-1|403/)
   })
 })
