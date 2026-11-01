@@ -19,6 +19,7 @@ import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { patientLabel, RoutedWorkLines, RoutedWorkPaused } from '../parts/routedWork'
 import { statusTitle } from '../parts/WorkQueue'
+import { WorkItemDocuments } from '../parts/WorkItemDocuments'
 import { DrugTile } from './DrugTile'
 import { drugFormOf, FORM_WORD, nameAndStrength } from './drugForm'
 import { Breakable } from './PharmacyQueue'
@@ -409,6 +410,10 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
           <div className="p-5"><DeptFacts facts={recordFacts(item, status)} />
             {route && <div className="hid-ehr-dept-pharmacy-route"><RoutedWorkLines route={route} /></div>}</div>
         </Card>
+        {/* Its prescription sheets, beside the prescription, once the backend serves them (dormant until then): never
+            written once its order from another facility has closed. */}
+        <WorkItemDocuments kind="pharmacy" facilityId={facilityId} workItemId={item.id} patientId={item.patientId}
+          permissions={permissions} writable={!closed} />
         {otherActions}
       </div>
     </div>

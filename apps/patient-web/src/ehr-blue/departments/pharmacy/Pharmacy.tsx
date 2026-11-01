@@ -19,6 +19,7 @@ import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage } from '../parts/DeptPage'
 import { dateText } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
+import { useLearnDocumentTypesServed } from '../parts/WorkItemDocuments'
 import {
   CAP_CANNOT_COMPLETE, patientLabel, readsKept, RefreshButton, RoutedWorkPaused, SaidAboveList, SaidAboveTheList,
   StandaloneWorkNote, useLearnCannotCompleteServed, useLearnLateCorrectionServed, useLearnWrongPatientServed,
@@ -70,6 +71,8 @@ function PrescriptionQueue() {
   useLearnWrongPatientServed(items)
   useLearnLateCorrectionServed(read.value)
   useLearnCannotCompleteServed(read.value)
+  // A work list answering `documentTypes: true` lets an open record show its prescription sheets (documentTypes.ts).
+  useLearnDocumentTypesServed(read.value)
   // "Correct an order that has ended" (D17), as on the Laboratory page.
   const late = useLateCorrectionServed() === true
   const lateCorrection = late && holdsReceivePermission(facility, 'pharmacy')
