@@ -105,8 +105,8 @@ function onlyCalled(...names: Array<keyof typeof api>) {
 }
 
 describe('Migrate page entry', () => {
-  it('is listed under Network & Services as Document OCR, at today\'s OCR address, for OCR job read, live', () => {
-    expect(migratePage).toMatchObject({ path: 'ocr', group: 'Network & Services', label: 'Document OCR', permission: 'ocr.job.read', status: 'live' })
+  it('is listed under Network & Services as Document OCR, at today\'s OCR address, for OCR job read, partial', () => {
+    expect(migratePage).toMatchObject({ path: 'ocr', group: 'Network & Services', label: 'Document OCR', permission: 'ocr.job.read', status: 'partial' })
   })
 
   it('refuses a membership without OCR job read, even with document read and write, and reads nothing', () => {

@@ -7,24 +7,26 @@ import type { EhrBluePageStatus } from './types'
 /** How each status reads, with its badge tone: never colour alone. */
 export const STATUS_WORDS: Record<EhrBluePageStatus, { readonly label: string; readonly tone: EhrBadgeTone; readonly meaning: string }> = {
   live: { label: 'Live', tone: 'positive', meaning: 'Fully on Health ID today.' },
-  partial: { label: 'Partial', tone: 'caution', meaning: 'Some parts on Health ID, the rest a sample.' },
+  // Most partial pages have no sample in them: they work, but not yet as today's portal does in every word and step.
+  partial: { label: 'Partial', tone: 'caution', meaning: 'On Health ID, but something is missing, worded differently or still a sample.' },
   sample: { label: 'Sample', tone: 'neutral', meaning: 'Not connected yet: fictional data in memory only.' },
 }
 
-/** The frame's panels and route pages, which no pages.ts lists, with what each is today. */
+/** The frame's panels and route pages, which no pages.ts lists, with what each is today: only what is true. */
 export const FRAME_PARTS: readonly { readonly name: string; readonly status: EhrBluePageStatus; readonly note: string }[] = [
-  { name: 'Sidebar, collapsed rail and phone menu', status: 'live', note: 'Every workspace in the design, grouped as in the design.' },
-  { name: 'Account menu', status: 'partial', note: 'Switch facility and Sign out use Health ID; My profile, Preferences and Help are samples.' },
-  { name: 'Role dashboards (16 demo roles)', status: 'sample', note: 'Chosen from the account menu: View Home as.' },
-  { name: 'Workspace search', status: 'partial', note: 'Finds work areas; patient and staff search is not connected.' },
-  { name: 'Notifications drawer', status: 'partial', note: 'Pending access requests are live; recent activity is a sample.' },
+  { name: 'Sidebar, collapsed rail and phone menu', status: 'live', note: 'Lists the working pages this role may open here, fewer on a lab, pharmacy, outreach or migration site; sample workspaces are left out.' },
+  { name: 'Account menu', status: 'partial', note: 'Switch facility and Sign out use Health ID; My profile is a sample.' },
+  { name: 'Role dashboards (16 demo roles)', status: 'sample', note: 'Kept for demos, but nothing in the frame opens them at the moment.' },
+  { name: 'Workspace search', status: 'partial', note: 'Finds pages, and a patient by a typed Health ID; there is no staff search yet.' },
+  { name: 'Notifications drawer', status: 'partial', note: 'Pending access requests are live; recent activity is a sample, at demo facilities only.' },
   { name: 'Demo chip', status: 'live', note: 'Says what is live and what is a sample.' },
   { name: 'Connection popover', status: 'sample', note: 'Health ID has no offline sync for staff yet.' },
   { name: 'Sync drawer', status: 'sample', note: 'Health ID has no offline sync for staff yet.' },
-  { name: 'Record quick view', status: 'sample', note: 'On every sample workspace list.' },
+  { name: 'Record quick view', status: 'partial', note: 'On sample workspace lists, and on some live lists such as Consultation and Document OCR.' },
   { name: 'My profile drawer', status: 'sample', note: 'From the account menu.' },
-  { name: 'Unknown address', status: 'live', note: 'An address that is no page says so.' },
-  { name: 'Page not open to your role', status: 'live', note: 'A live page without its permission is refused, and nothing of it is read.' },
+  { name: 'Unknown address', status: 'live', note: 'An address that is no page says “Page not found”, with a way back to Home.' },
+  // Partial: on a lab, pharmacy, outreach or migration site, Home is that site's own page, and the notice is not shown.
+  { name: 'Page not open to your role', status: 'partial', note: 'It shows its own refusal, or opens Home with a notice; nothing of it is read.' },
 ]
 
 /**

@@ -41,10 +41,11 @@ function PharmacyHome() {
 }
 
 export const pharmacyPages: EhrBluePage[] = [
-  // Not listed: the group's own address, taken to its first page.
-  { path: 'pharmacy/*', group: GROUP, label: 'Pharmacy', status: 'live', icon: <PillIcon />, element: <PharmacyHome />, listed: () => false },
+  // Not listed: the group's own address, taken to its first page. It and Prescriptions are partial, not live: they work on
+  // Health ID, but not yet with today's words and steps throughout.
+  { path: 'pharmacy/*', group: GROUP, label: 'Pharmacy', status: 'partial', icon: <PillIcon />, element: <PharmacyHome />, listed: () => false },
   { path: 'pharmacy/sell', group: GROUP, label: 'Sell', permission: 'pharmacy.walk-in.create', status: 'live', icon: icon(ShoppingBag), element: <Sell /> },
-  { path: 'pharmacy/prescriptions/*', group: GROUP, label: 'Prescriptions', permission: 'pharmacy.work-item.read', status: 'live', keepsState: true,
+  { path: 'pharmacy/prescriptions/*', group: GROUP, label: 'Prescriptions', permission: 'pharmacy.work-item.read', status: 'partial', keepsState: true,
     icon: <PillIcon />, element: <Prescriptions />, refusal: pharmacyUnavailable },
   { path: 'pharmacy/sales/*', group: GROUP, label: 'Sales & receipts', permission: 'billing.bill.read', status: 'live', keepsState: true,
     icon: icon(ReceiptText), element: <Sales /> },
