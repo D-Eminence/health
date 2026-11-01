@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { EhrButton } from '@hid/ui/ehr'
 import { CircleCheck, FileText, Pill, Search, Wallet } from 'lucide-react'
 import { PageState } from '../../../kasuwa/parts'
@@ -29,6 +29,7 @@ import { PaperPrescription } from './PaperPrescription'
 import { PharmacyRecord } from './PharmacyRecord'
 import { doseMissing, inTab, matchesItem, queueOrder, queueTone, routeAlert, statusOf, type PharmacyTab } from './pharmacyText'
 import { BillBadge } from '../commerce/BillBadge'
+import { pointOfCareOpen } from '../commerce/served'
 import { StockLine } from './pointOfCare'
 import { billOf, stockOf } from './pocFields'
 
@@ -48,7 +49,12 @@ export const PRESCRIPTIONS = '/provider/pharmacy/prescriptions'
  * pharmacy/prescriptions/paper, then opened here to pick, pay and dispense.
  */
 export function Prescriptions() {
-  return openedOf(useLocation().pathname) === 'paper' ? <PaperPrescription /> : <PrescriptionQueue />
+  const { facilityId } = useDeptAccess()
+  const { pathname } = useLocation()
+  if (openedOf(pathname) !== 'paper') return <PrescriptionQueue />
+  // A paper prescription is sent on point-of-care routes Health ID does not serve yet (commerce/served.ts): anywhere but
+  // the demo facilities its address is the list, so nothing is typed in only to be refused.
+  return pointOfCareOpen(facilityId) ? <PaperPrescription /> : <Navigate replace to={PRESCRIPTIONS} />
 }
 /** The name earlier code knew this page by. */
 export { Prescriptions as Pharmacy }
@@ -196,7 +202,7 @@ function PrescriptionQueue() {
     <DeptPage title={selected ? <span id={`pharmacy-${selected.id}-title`} tabIndex={-1}>{selected.medication.display}</span>
       : <span id={HEADING} tabIndex={-1}>Prescriptions</span>}
       onBack={selected ? back : undefined} backLabel="Back to prescriptions" backUnavailable={selected ? recording : undefined}
-      primaryAction={!selected && permissions.includes('pharmacy.walk-in.create')
+      primaryAction={!selected && pointOfCareOpen(facilityId) && permissions.includes('pharmacy.walk-in.create')
         ? <Button variant="primary" icon={FileText} to={`${PRESCRIPTIONS}/paper`}>Paper prescription</Button> : undefined}
       secondaryActions={selected ? undefined : refresh}>
       {read.error && (listed || selected) && <Alert intent="error" title="Couldn’t refresh prescriptions"

@@ -25,6 +25,7 @@ import { Breakable } from './PharmacyQueue'
 import { DOSE_MISSING, doseMissing, doseText, labelText, notDispensableText, queueTone, statusOf, statusWord } from './pharmacyText'
 import type { PaymentSettings, WorkItemBill } from '../commerce/api'
 import { BillBadge } from '../commerce/BillBadge'
+import { pointOfCareOpen } from '../commerce/served'
 import { PaidLine, PaymentStep, StockLine } from './pointOfCare'
 import { billOf, billOwing, paysFirst, stockOf } from './pocFields'
 
@@ -210,7 +211,8 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const waitsForPayment = canDispense && !done && paysFirst(settings, 'pharmacy') && billOwing(bill)
   const stock = stockOf(item)
   const outOfStock = canDispense && !done && stock !== null && stock.onHand <= 0
-  const canReceiveStock = permissions.includes('pharmacy.stock.manage')
+  // Stock is a point-of-care page, shown only where its routes may answer (commerce/served.ts).
+  const canReceiveStock = pointOfCareOpen(facilityId) && permissions.includes('pharmacy.stock.manage')
   const paymentHeading = `pharmacy-${item.id}-payment`
 
   function tick(step: CheckStep, on: boolean) {

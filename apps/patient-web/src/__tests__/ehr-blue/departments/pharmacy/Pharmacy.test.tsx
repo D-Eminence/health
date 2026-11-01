@@ -5,6 +5,7 @@ import { HidApiError } from '@hid/http'
 import type { PharmacyWorkItem } from '../../../../staff/api'
 import { pharmacyPage } from '../../../../ehr-blue/departments/pharmacy/page'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
+import { PharmacyRecord, type PharmacyRecordProps } from '../../../../ehr-blue/departments/pharmacy/PharmacyRecord'
 import { dateText } from '../../../../ehr-blue/departments/parts/format'
 import { DEMO_HOSPITAL_ID, DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 import {
@@ -69,6 +70,17 @@ function renderPage(route = PRESCRIPTIONS) {
 async function renderList() {
   renderPage()
   await screen.findByRole('button', { name: AMOXICILLIN })
+}
+
+/** A fictional facility that is not one of the demo facilities. */
+const REAL_PHARMACY_ID = 'f0000000-0000-4000-8000-000000000003'
+
+/** One prescription's record on its own, as the list opens it, at Demo Pharmacy unless `props` says otherwise. */
+function renderRecord(item: PharmacyWorkItem, permissions: readonly string[], props: Partial<PharmacyRecordProps> = {}) {
+  const noop = () => {}
+  return renderDept(<PharmacyRecord facilityId={DEMO_PHARMACY_ID} item={item} permissions={permissions} undispensable={false}
+    onUndispensable={noop} said={null} holds={false} onChanged={async () => {}} onBusy={noop} onEnded={noop} onNotCompleted={noop}
+    onReread={async () => {}} {...props} />, { route: `${PRESCRIPTIONS}/${item.id}` })
 }
 
 describe('the page entry', () => {
@@ -408,13 +420,41 @@ describe('payment first', () => {
     expect(bill).not.toHaveBeenCalled()
   })
 
-  it('gates nothing where payments aren’t set up (404)', async () => {
+  // The record keeps its payment step for when Health ID serves payment setup and the list passes the settings again.
+  it('waits for payment on the record where it comes first: no Dispense until the bill is paid, then the picking view', async () => {
     working(ALL)
-    api.pharmacyWorkItems.mockResolvedValue({ items: [owed] })
-    await renderList()
-    fireEvent.click(screen.getByRole('button', { name: AMOXICILLIN }))
-    expect(screen.getByRole('form', { name: 'Dispense' })).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: 'Payment first' })).toBeNull()
+    const bill = vi.fn(async () => ({ ok: false, notAvailable: true }))
+    commerceApi.bill = bill
+    renderRecord(owed, ALL, { settings: settings as never })
+    expect(await screen.findByRole('heading', { name: 'Payment first' })).toBeTruthy()
+    expect(screen.queryByRole('form', { name: 'Dispense' })).toBeNull()
+    expect(screen.getByText('Ask the patient to pay at the cashier with this bill number. Then check again.')).toBeTruthy()
+    bill.mockResolvedValueOnce({ ok: true, data: paid } as never)
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
+    expect(await screen.findByRole('form', { name: 'Dispense' })).toBeTruthy()
+    expect(screen.getByText('Paid, receipt R-0001. You can go on.')).toBeTruthy()
+    expect(bill).toHaveBeenLastCalledWith(DEMO_PHARMACY_ID, 'bill-1')
+    expect(api.dispense).not.toHaveBeenCalled()
+  })
+})
+
+describe('out of stock', () => {
+  const STOCK_MANAGE = 'pharmacy.stock.manage'
+  const empty = { ...accepted, stock: { onHand: 0, unit: 'capsules' } } as PharmacyWorkItem
+
+  it('offers Receive stock at a demo pharmacy to members who manage stock', () => {
+    working([...ALL, STOCK_MANAGE])
+    renderRecord(empty, [...ALL, STOCK_MANAGE])
+    expect(screen.getByRole('heading', { name: 'Out of stock' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Receive stock' }).getAttribute('href')).toBe('/provider/pharmacy/stock/receive')
+  })
+
+  // Stock is a point-of-care page, shown only at the demo facilities until Health ID serves it (commerce/served.ts).
+  it('offers no Receive stock at a real facility, whatever it holds', () => {
+    working([...ALL, STOCK_MANAGE], { id: REAL_PHARMACY_ID, name: 'Riverside Pharmacy (fictional)' })
+    renderRecord(empty, [...ALL, STOCK_MANAGE], { facilityId: REAL_PHARMACY_ID })
+    expect(screen.getByRole('heading', { name: 'Out of stock' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Receive stock' })).toBeNull()
   })
 })
 
