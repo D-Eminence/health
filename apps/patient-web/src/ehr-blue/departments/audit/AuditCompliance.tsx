@@ -112,8 +112,9 @@ export function AuditCompliance() {
   if (!facility || !allowed) {
     return (
       <DeptPage title="Audit & Compliance">
+        {/* The same words as the page's refusal (page.tsx) and the classic page: no permission named. */}
         <DeptNotice role="status">{facility
-          ? `Your current permissions at ${facility.name} don’t allow audit review. Choose an authorized workflow.`
+          ? 'Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.'
           : 'Choose the facility you are working at to review its audit events.'}</DeptNotice>
       </DeptPage>
     )

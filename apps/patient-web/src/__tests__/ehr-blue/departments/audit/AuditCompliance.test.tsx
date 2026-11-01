@@ -344,7 +344,7 @@ describe('Audit & Compliance: refusals and failures', () => {
     renderDept(<AuditCompliance />)
 
     expect(screen.getByRole('heading', { level: 1, name: 'Audit & Compliance' })).toBeTruthy()
-    expect(screen.getByRole('status').textContent).toBe('Your current permissions at Demo Hospital don’t allow audit review. Choose an authorized workflow.')
+    expect(screen.getByRole('status').textContent).toBe('Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.')
     expect(screen.queryByRole('list')).toBeNull()
     expect(api.facilityAudit).not.toHaveBeenCalled()
     expect(api.touched).toEqual([])

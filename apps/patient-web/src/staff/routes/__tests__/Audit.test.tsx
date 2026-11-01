@@ -56,6 +56,16 @@ describe('facility audit review', () => {
     render(<FacilityAudit />)
 
     expect(screen.getByText('Audit access unavailable')).toBeTruthy()
+    // In plain words, naming no permission (owner's rule: no codes on screen).
+    expect(screen.getByText('Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('audit.read')
+    expect(mocks.facilityAudit).not.toHaveBeenCalled()
+  })
+
+  it('asks for a facility before one is chosen, requesting nothing', () => {
+    mocks.useStaff.mockReturnValue({ state: { status: 'ready', session: { actor: { facility: undefined } } } })
+    render(<FacilityAudit />)
+    expect(screen.getByText('Choose the facility you are working at to review its audit events.')).toBeTruthy()
     expect(mocks.facilityAudit).not.toHaveBeenCalled()
   })
 

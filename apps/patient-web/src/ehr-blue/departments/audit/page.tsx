@@ -11,6 +11,7 @@ export const auditPage: EhrBluePage = {
   status: 'live',
   icon: <HistoryIcon />,
   element: <AuditCompliance />,
-  // Opened by its address without the permission: today's own words (staff/routes/Audit.tsx), and nothing is read.
-  refusal: <DeptUnavailable title="Audit access unavailable" message="Your active facility membership needs audit.read permission to review its events." />,
+  // Opened by its address without the permission: the classic page's words (staff/routes/Audit.tsx), and nothing is read.
+  // They name no permission, only what the role here does not include (owner rule: no codes on screen).
+  refusal: <DeptUnavailable title="Audit access unavailable" message="Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator." />,
 }

@@ -24,7 +24,7 @@ describe('a department page without its permission', () => {
     ['/provider/laboratory', 'Laboratory unavailable', 'This facility membership needs lab work-item read permission.'],
     ['/provider/pharmacy', 'Pharmacy unavailable', 'Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.'],
     ['/provider/ocr', 'Document OCR unavailable', 'This facility membership needs OCR job read permission.'],
-    ['/provider/audit', 'Audit access unavailable', 'Your active facility membership needs audit.read permission to review its events.'],
+    ['/provider/audit', 'Audit access unavailable', 'Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.'],
   ])('%s says today\'s %s and reads nothing', async (path, title, message) => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['ehr.encounter.read'])
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])] })

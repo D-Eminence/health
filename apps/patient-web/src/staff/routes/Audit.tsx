@@ -53,7 +53,9 @@ export function FacilityAudit() {
     return () => { active = false }
   }, [facilityId, allowed, cursor, reload])
 
-  if (!facility || !allowed) return <EmptyState titleAs="h1" title="Audit access unavailable" description="Your active facility membership needs audit.read permission to review its events." />
+  // With no facility chosen there is no role here to speak of: ask for the facility, as the blue page does.
+  if (!facility) return <EmptyState titleAs="h1" title="Audit access unavailable" description="Choose the facility you are working at to review its audit events." />
+  if (!allowed) return <EmptyState titleAs="h1" title="Audit access unavailable" description="Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator." />
 
   const query = search.trim().toLocaleLowerCase()
   const visible = page?.items.filter(event =>
