@@ -183,6 +183,30 @@ describe('takeSwitchArrival, on', () => {
     expect(address()).toBe('/provider?from=ehr')
   })
 
+  it.each([
+    [`https://${LAB}//evil.example/?from=ehr`, '//evil.example/'],
+    [`https://${LAB}/\\evil.example?from=ehr&back=%2Fprovider`, '//evil.example'],
+    [`https://${LAB}//evil.example/provider?view=day&from=ehr#top`, '//evil.example/provider'],
+  ])('takes them out of %s and stays on this site, though the path reads like a host', async (url, pathname) => {
+    vi.stubEnv('VITE_HID_SSO', '1')
+    const { takeSwitchArrival } = await loadAt(url)
+    let arrival: unknown
+    expect(() => { arrival = takeSwitchArrival() }).not.toThrow()
+    expect(arrival).toEqual({ from: 'ehr', name: 'Hospital EHR', path: '/provider', href: 'https://ehr.healthidentitydirectory.com/provider' })
+    expect(window.location.hostname).toBe(LAB)
+    expect(window.location.pathname).toBe(pathname)
+    expect(window.location.search).not.toMatch(/from|back/)
+  })
+
+  it('never throws, and offers no way back, when the address cannot be changed (main.tsx calls it before React)', async () => {
+    vi.stubEnv('VITE_HID_SSO', '1')
+    const { takeSwitchArrival, switchArrival } = await loadAt(`https://${LAB}/provider?from=ehr&back=%2Fprovider%2Fpatients`)
+    vi.spyOn(window.history, 'replaceState').mockImplementation(() => { throw new DOMException('refused', 'SecurityError') })
+    expect(() => takeSwitchArrival()).not.toThrow()
+    expect(takeSwitchArrival()).toBeNull()
+    expect(switchArrival()).toBeNull()
+  })
+
   it('leaves an address without from or back as it is', async () => {
     vi.stubEnv('VITE_HID_SSO', '1')
     const { takeSwitchArrival } = await loadAt(`https://${LAB}/provider/laboratory?work=item-1`)

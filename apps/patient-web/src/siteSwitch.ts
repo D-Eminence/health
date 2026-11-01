@@ -96,19 +96,28 @@ function arrivalFrom(from: readonly string[], back: readonly string[], hostname:
  * the address with history.replaceState, keeping the rest of it and the history entry's state, and keeps the way back
  * in memory. Later calls answer from memory and never read the address again. Off, or on a host that is not a staff
  * site, the address is left as it is.
+ *
+ * main.tsx calls this before React starts, where no error boundary can catch, so it never throws: if the address
+ * cannot be changed, it offers no way back and the page loads as it would without one.
  */
 export function takeSwitchArrival(): SwitchArrival | null {
   if (taken) return arrival
   taken = true
   if (!switchingOn()) return null
-  const { hostname, pathname, search, hash } = window.location
+  const { origin, hostname, pathname, search, hash } = window.location
   const here = siteOf(hostname)
   if (!here || !isStaffSite(here.key)) return null
   const query = new URLSearchParams(search)
   if (!query.has('from') && !query.has('back')) return null
   // The rest of the query exactly as it was written: only the pairs whose key is `from` or `back` go.
   const kept = search.replace(/^\?/, '').split('&').filter(pair => pair !== '' && !SWITCH_KEYS.has([...new URLSearchParams(pair).keys()][0] ?? ''))
-  window.history.replaceState(window.history.state, '', `${pathname}${kept.length > 0 ? `?${kept.join('&')}` : ''}${hash}`)
+  // The new address is this page's origin and path, written out in full: a path such as //evil.example/ alone would
+  // be read as another host, which replaceState refuses by throwing.
+  try {
+    window.history.replaceState(window.history.state, '', `${origin}${pathname}${kept.length > 0 ? `?${kept.join('&')}` : ''}${hash}`)
+  } catch {
+    return null
+  }
   arrival = arrivalFrom(query.getAll('from'), query.getAll('back'), hostname)
   return arrival
 }
