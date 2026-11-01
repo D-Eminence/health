@@ -40,11 +40,11 @@ export function TypeStep({ type, departments, onSave }: {
           </EhrField>
           <div><EhrButton type="submit">Next (sample)</EhrButton></div>
         </form>
-        <p className="hid-ehr-onboarding-text">Types suggest defaults. Clinical specialties share the appointments, triage and consultation
-          infrastructure. Multi-Branch Hospital requires at least two configured branches.</p>
+        <p className="hid-ehr-onboarding-text">Each type comes with suggested settings. Clinics share the same appointments, triage and
+          consultation pages. A Multi-Branch Hospital needs at least two branches.</p>
       </div>
       {/* Cancel, or Escape, keeps the departments chosen; both go on to Departments, as the design does. */}
-      <EhrDialog open={asking !== null} title="Use suggested departments?" description="Cancel keeps your customized departments."
+      <EhrDialog open={asking !== null} title="Use suggested departments?" description="Cancel keeps the departments you chose."
         confirmLabel="Use suggested departments" onConfirm={() => onSave(value, asking ?? departments)}
         onCancel={() => onSave(value, departments)} />
     </EhrCard>
@@ -65,7 +65,7 @@ export function DepartmentsStep({ departments, onSave }: {
     setSelected(current => DEPARTMENTS.filter(name => name === department ? !current.includes(name) : current.includes(name)))
   }
   return (
-    <EhrCard title="Enabled departments">
+    <EhrCard title="Departments you use">
       <div className="hid-ehr-onboarding-stack">
         <div className="hid-ehr-onboarding-departments">
           {DEPARTMENTS.map((department, index) => (
@@ -138,7 +138,7 @@ export function BranchesStep({ departments, branches, onSaveBranch }: {
     setSaved(`${form.name.trim()} is in the branch list.`)
   }
   return (
-    <EhrCard title="Branch configuration">
+    <EhrCard title="Branch details">
       <div className="hid-ehr-onboarding-stack">
         <div className="hid-ehr-actions">
           {branches.map(candidate => (
@@ -172,7 +172,7 @@ export function BranchesStep({ departments, branches, onSaveBranch }: {
 /** Step 7, Billing (screen 20): how the hospital bills its patients, not Health ID's subscription. */
 export function BillingStep({ billing, serviceCatalogue, onSave }: {
   readonly billing: SampleBilling
-  /** Where the design's "Configure service catalogue" goes: only where that sample opens at a demo facility. */
+  /** Where the design's "Set up your list of services" goes: only where that sample opens at a demo facility. */
   readonly serviceCatalogue: string | null
   readonly onSave: (billing: SampleBilling) => void
 }) {
@@ -195,9 +195,9 @@ export function BillingStep({ billing, serviceCatalogue, onSave }: {
       <div className="hid-ehr-onboarding-stack">
         <form noValidate aria-label="Billing" className="hid-ehr-onboarding-grid" onSubmit={submit}>
           {text('currency', 'Currency')}
-          {text('invoicePrefix', 'Invoice numbering prefix')}
+          {text('invoicePrefix', 'Start of each bill number')}
           {text('methods', 'Accepted payment methods (Cash,Transfer,Card,Insurance)')}
-          <EhrField label={required('Payment policy')} error={problems.paymentTiming}>
+          <EhrField label={required('When patients pay')} error={problems.paymentTiming}>
             <EhrSelect value={form.paymentTiming} required onChange={event => setForm({ ...form, paymentTiming: event.target.value })}>
               <option value="">Select…</option>
               <option>Before service</option>
@@ -205,14 +205,14 @@ export function BillingStep({ billing, serviceCatalogue, onSave }: {
             </EhrSelect>
           </EhrField>
           <div className="hid-ehr-onboarding-full">
-            <Check label="Enable insurance support" labelFirst checked={form.insurance} onChange={insurance => setForm({ ...form, insurance })} />
+            <Check label="Accept insurance" labelFirst checked={form.insurance} onChange={insurance => setForm({ ...form, insurance })} />
           </div>
           <div className="hid-ehr-onboarding-full"><EhrButton type="submit">Next (sample)</EhrButton></div>
         </form>
-        <p className="hid-ehr-onboarding-text">This configures patient service billing, not a platform subscription. Service pricing is
-          optional before launch.</p>
+        <p className="hid-ehr-onboarding-text">This is for billing your patients, not a Health ID subscription. Setting prices before
+          launch is optional.</p>
         {serviceCatalogue ? <p className="hid-ehr-onboarding-text">
-          <Link className="hid-ehr-onboarding-link" to={serviceCatalogue}>Configure service catalogue</Link></p> : null}
+          <Link className="hid-ehr-onboarding-link" to={serviceCatalogue}>Set up your list of services</Link></p> : null}
       </div>
     </EhrCard>
   )

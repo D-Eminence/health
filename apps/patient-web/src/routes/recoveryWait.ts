@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  * during which a new start sends no code. Every refusal is the same 403
  * OTP_INVALID_OR_EXPIRED, so the page cannot tell which happened.
  */
-export const CODE_BUDGET_HINT = 'After 5 wrong codes within 15 minutes, every code is refused, even a correct one, and no new code is sent, for 15 minutes. If that may have happened, wait before starting again.'
+export const CODE_BUDGET_HINT = 'After 5 wrong codes, no code works for 15 minutes, not even the right one. During that time, no new code is sent either. If that happened, wait 15 minutes and start again.'
 
 /**
  * Whether a recovery may start again for a new code: a start for the same

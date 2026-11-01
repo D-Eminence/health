@@ -21,23 +21,23 @@ import '../../mfa/mfa.css'
  */
 
 /** Said at the password step too: the account's authenticator verifies platform sign-in only. */
-export const STAFF_MFA_FACTOR_UNPROVEN = 'This authenticator was set up for Health ID admin sign-in, so it can’t be used here. '
+export const STAFF_MFA_FACTOR_UNPROVEN = 'This code app was set up for Health ID admin sign-in, so it can’t be used here. '
   + 'Ask Health ID support to reset it, then sign in here to set it up again.'
 /** Said at the password step too: Identity has no key to protect authenticator secrets with (503 MFA_UNAVAILABLE). */
-export const STAFF_MFA_UNAVAILABLE = 'Staff sign-in with an authenticator is temporarily unavailable. '
+export const STAFF_MFA_UNAVAILABLE = 'Staff sign-in codes aren’t working right now. '
   + 'Try again later, or contact your administrator if this continues.'
-const CHALLENGE_SPENT = 'This sign-in step expired or ran out of attempts. Sign in again.'
+const CHALLENGE_SPENT = 'This step timed out or had too many tries. Sign in again.'
 
 type StepName = 'verify' | 'recovery' | 'send' | 'email-code' | 'start' | 'activate'
 
 /** Identity counts each wrong code against the challenge (five attempts) and the account's budget. */
 const INVALID_CODE: Record<StepName, string> = {
-  verify: 'That code was not accepted. Each code works once: wait for the next code in your authenticator app, then try again.',
-  recovery: 'That recovery code was not accepted. Each recovery code works once: check it, or use another.',
-  'email-code': 'That code was not accepted. Check the latest email from Health ID (each new code replaces the one before), then try again.',
-  activate: 'That code was not accepted. Check that you added the setup key shown here, then enter the next code the app shows.',
-  send: 'That was not accepted. Try again.',
-  start: 'That was not accepted. Try again.',
+  verify: 'That code didn’t work. Each code works once. Wait for the next code in your code app, then try again.',
+  recovery: 'That backup code didn’t work. Each backup code works once. Check it, or use another.',
+  'email-code': 'That code didn’t work. Check the latest email from Health ID (each new code replaces the one before), then try again.',
+  activate: 'That code didn’t work. Check that you added the key shown here, then enter the next code the app shows.',
+  send: 'That didn’t work. Try again.',
+  start: 'That didn’t work. Try again.',
 }
 
 /**
@@ -46,12 +46,12 @@ const INVALID_CODE: Record<StepName, string> = {
  * and setup starts are five each per 15 minutes.
  */
 const RATE_LIMITED: Record<StepName, string> = {
-  verify: 'Too many incorrect codes. Codes are refused for up to 15 minutes, even a correct one. Try again later.',
-  recovery: 'Too many incorrect codes. Codes are refused for up to 15 minutes, even a correct one. Try again later.',
-  activate: 'Too many incorrect codes. Codes are refused for up to 15 minutes, even a correct one. Try again later.',
-  'email-code': 'Too many attempts. Wait up to 15 minutes, then try again.',
-  send: 'Too many codes were asked for. You can ask for up to 5 in 15 minutes; try again later.',
-  start: 'Setup was started too many times. Wait up to 15 minutes, then try again.',
+  verify: 'Too many wrong codes. No code works for up to 15 minutes, not even the right one. Try again later.',
+  recovery: 'Too many wrong codes. No code works for up to 15 minutes, not even the right one. Try again later.',
+  activate: 'Too many wrong codes. No code works for up to 15 minutes, not even the right one. Try again later.',
+  'email-code': 'Too many tries. Wait 15 minutes and try again.',
+  send: 'Too many codes asked for. You can ask for 5 in 15 minutes. Try again later.',
+  start: 'Too many tries. Wait 15 minutes and try again.',
 }
 
 /** What a refused step means for the steps, and what is said. */
@@ -69,21 +69,21 @@ type Refusal =
 
 /** Identity's refusals of the second steps (INTERFACE_CONTRACT.md, staff sign-in with an authenticator). */
 function refusalOf(caught: unknown, step: StepName): Refusal {
-  if (!isHidApiError(caught)) return { then: 'stay', field: false, message: caught instanceof Error ? caught.message : 'This step could not be completed. Try again.' }
+  if (!isHidApiError(caught)) return { then: 'stay', field: false, message: caught instanceof Error ? caught.message : 'Something went wrong. Try again.' }
   switch (caught.code) {
     case 'MFA_CHALLENGE_INVALID': return { then: 'restart', message: CHALLENGE_SPENT }
     case 'STAFF_MFA_FACTOR_UNPROVEN': return { then: 'restart', message: STAFF_MFA_FACTOR_UNPROVEN }
     case 'MFA_ENROLLMENT_PROOF_REQUIRED': return { then: 'email', message: 'Confirm it is you first: ask for a code by email, then enter it.' }
     case 'MFA_ENROLLMENT_PROOF_COMPLETE': return { then: 'proven' }
     case 'MFA_ENROLLMENT_PROOF_UNAVAILABLE': return { then: 'no-email', message: 'There is no work email address on this account to send a code '
-      + 'to, so an authenticator cannot be set up here. Contact your facility administrator.' }
+      + 'to, so sign-in codes can’t be set up here. Contact your facility administrator.' }
     case 'MFA_INVALID_CODE': return { then: 'stay', field: true, message: INVALID_CODE[step] }
-    case 'MFA_CODE_REQUIRED': return { then: 'stay', field: true, message: 'Enter either an authenticator code or a recovery code.' }
+    case 'MFA_CODE_REQUIRED': return { then: 'stay', field: true, message: 'Enter a code from your code app or a backup code.' }
     case 'MFA_RATE_LIMITED': return { then: 'stay', field: false, message: RATE_LIMITED[step] }
     // A 503 ends nothing: the challenge may still hold, and the step can be sent again.
     case 'MFA_UNAVAILABLE': return { then: 'stay', field: false, message: STAFF_MFA_UNAVAILABLE }
-    case 'MFA_ENROLLMENT_CODE_UNDELIVERABLE': return { then: 'stay', field: false, message: 'The code could not be sent to your work email. '
-      + 'Try again in a few minutes; if this continues, contact your administrator.' }
+    case 'MFA_ENROLLMENT_CODE_UNDELIVERABLE': return { then: 'stay', field: false, message: 'We couldn’t send the code to your work email. '
+      + 'Try again in a few minutes. If this keeps happening, contact your administrator.' }
   }
   return { then: 'stay', field: caught.status === 400, message: caught.message }
 }
@@ -283,15 +283,15 @@ function VerifyStep({ look, carried, onMoved, restart, expiresAt, verify, onVeri
   }
 
   return <form className={look.classNames.step} onSubmit={event => void submit(event)} aria-labelledby="staff-mfa-verify-title">
-    <StepHeading look={look} heading={heading} id="staff-mfa-verify-title">Verify it’s you</StepHeading>
+    <StepHeading look={look} heading={heading} id="staff-mfa-verify-title">Confirm it’s you</StepHeading>
     {mode === 'totp' ? <>
-      <p>Enter the 6-digit code from your authenticator app.</p>
-      <Field label="Authenticator code" htmlFor="staff-mfa-code" error={problemText(problems.problem, 'staff-mfa-code')} required>
+      <p>Enter the 6-digit code from your code app.</p>
+      <Field label="Sign-in code" htmlFor="staff-mfa-code" error={problemText(problems.problem, 'staff-mfa-code')} required>
         <Input id="staff-mfa-code" value={code} onChange={event => setCode(sixDigitCode(event.target.value))} {...SIX_DIGIT_CODE_FIELD} required
           {...problemProps(problems.problem, 'staff-mfa-code')} /></Field>
     </> : <>
-      <p>Enter one of your recovery codes. Each recovery code works once.</p>
-      <Field label="Recovery code" htmlFor="staff-mfa-recovery-code" error={problemText(problems.problem, 'staff-mfa-recovery-code')} required>
+      <p>Enter one of your backup codes. Each one works once.</p>
+      <Field label="Backup code" htmlFor="staff-mfa-recovery-code" error={problemText(problems.problem, 'staff-mfa-recovery-code')} required>
         <Input id="staff-mfa-recovery-code" value={recoveryCode} onChange={event => setRecoveryCode(event.target.value)} autoComplete="off"
           spellCheck={false} maxLength={16} required {...problemProps(problems.problem, 'staff-mfa-recovery-code')} /></Field>
     </>}
@@ -299,11 +299,11 @@ function VerifyStep({ look, carried, onMoved, restart, expiresAt, verify, onVeri
     <StepError look={look} error={problems.error} />
     <look.Button primary type="submit" disabled={pending || !valid}>{pending ? 'Verifying…' : 'Verify'}</look.Button>
     <div className="hid-mfa-links">
-      <look.Button onClick={switchMode} disabled={pending}>{mode === 'totp' ? 'Use a recovery code instead' : 'Use my authenticator app instead'}</look.Button>
+      <look.Button onClick={switchMode} disabled={pending}>{mode === 'totp' ? 'Use a backup code instead' : 'Use my code app instead'}</look.Button>
       <Restart look={look} restart={restart} pending={pending} />
     </div>
-    <p className={look.classNames.note}>Lost your authenticator and your recovery codes? Ask Health ID support to reset it,
-      then sign in again to set up a new one.</p>
+    <p className={look.classNames.note}>Lost your phone and your backup codes? Ask Health ID support to reset your
+      sign-in codes. Then sign in again to set them up.</p>
   </form>
 }
 
@@ -333,11 +333,11 @@ function EnrolStep({ look, carried, onMoved, restart, proven, noEmail, expiresAt
   }
 
   return <section className={look.classNames.step} aria-labelledby="staff-mfa-enrol-title">
-    <StepHeading look={look} heading={heading} id="staff-mfa-enrol-title">Set up an authenticator app</StepHeading>
-    {proven === 'activation' ? <p>Your provider account is active. Set up an authenticator app to open the Provider Portal: you’ll use
-      it each time you sign in.</p>
-      : proven === 'email' ? <p>Your work email address is confirmed for this setup. Continue to add Health ID to your authenticator app.</p>
-        : <p>Staff sign in with a code from an authenticator app. First, we’ll email you a code to confirm it’s you.</p>}
+    <StepHeading look={look} heading={heading} id="staff-mfa-enrol-title">Set up sign-in codes</StepHeading>
+    {proven === 'activation' ? <p>Your provider account is ready. Next, set up a code app on your phone (like Google Authenticator).
+      You’ll use it each time you sign in.</p>
+      : proven === 'email' ? <p>Your work email is confirmed. Continue to add Health ID to your code app.</p>
+        : <p>Staff sign in with a code app on your phone (like Google Authenticator). First, we’ll email you a code to confirm it’s you.</p>}
     {!proven && !noEmail && <p className={look.classNames.note}>You can ask for up to 5 codes in 15 minutes.</p>}
     <Deadline look={look} expiresAt={expiresAt} lead="Finish setting up by" />
     <StepError look={look} error={problems.error} />
@@ -435,23 +435,23 @@ function SetupStep({ look, carried, onMoved, restart, enrollment, activate, onAc
   }
 
   return <form className={look.classNames.step} onSubmit={event => void submit(event)} aria-labelledby="staff-mfa-setup-title">
-    <StepHeading look={look} heading={heading} id="staff-mfa-setup-title">Add Health ID to your authenticator app</StepHeading>
+    <StepHeading look={look} heading={heading} id="staff-mfa-setup-title">Add Health ID to your code app</StepHeading>
     <ol className="hid-mfa-setup">
-      <li>In your authenticator app, add an account and scan this QR code.
+      <li>In your code app, add an account and scan this square code.
         <OtpauthQr uri={enrollment.otpauthUri} className="hid-mfa-qr" /></li>
-      <li>Cannot scan it? Enter this setup key instead. On a phone with the app installed you can
-        instead <a href={enrollment.otpauthUri}>open it in your authenticator app</a>.
+      <li>Can’t scan it? Type in this key instead. On a phone with the app installed you can
+        instead <a href={enrollment.otpauthUri}>open it in your code app</a>.
         <code className="hid-mfa-key">{formatSetupKey(enrollment.secret)}</code>
         <small>Time-based · {enrollment.algorithm} · {enrollment.digits} digits · every {enrollment.periodSeconds} seconds. The key is
-          shown only during this setup.</small></li>
+          shown only now.</small></li>
       <li>Enter the 6-digit code the app now shows.</li>
     </ol>
-    <Field label="Authenticator code" htmlFor="staff-mfa-activation-code" error={problemText(problems.problem, 'staff-mfa-activation-code')} required>
+    <Field label="Sign-in code" htmlFor="staff-mfa-activation-code" error={problemText(problems.problem, 'staff-mfa-activation-code')} required>
       <Input id="staff-mfa-activation-code" value={code} onChange={event => setCode(sixDigitCode(event.target.value))} {...SIX_DIGIT_CODE_FIELD}
         required {...problemProps(problems.problem, 'staff-mfa-activation-code')} /></Field>
     <Deadline look={look} expiresAt={enrollment.expiresAt} lead="Finish setting up by" />
     <StepError look={look} error={problems.error} />
-    <look.Button primary type="submit" disabled={pending || !isSixDigitCode(code)}>{pending ? 'Activating…' : 'Activate authenticator'}</look.Button>
+    <look.Button primary type="submit" disabled={pending || !isSixDigitCode(code)}>{pending ? 'Activating…' : 'Turn on sign-in codes'}</look.Button>
     {restart && <div className="hid-mfa-links"><Restart look={look} restart={restart} pending={pending} /></div>}
   </form>
 }
@@ -472,7 +472,7 @@ function RecoveryStep({ look, activation, doneLabel, onDone }: {
     onDone(session)
   }
   return <RecoveryCodes codes={activation.recoveryCodes} onDone={finish} doneLabel={doneLabel}
-    limits="They won’t be shown again. Once they are used up, Health ID support must reset a lost authenticator."
+    limits="They won’t be shown again. If you lose your phone and use them all, Health ID support must reset your sign-in codes."
     fileName="hid-provider-recovery-codes.txt" headingId="staff-mfa-recovery-title" headingAs={look.headingAs} headingRef={heading}
     classNames={{ root: `${look.classNames.step} hid-mfa-recovery`, list: 'hid-mfa-codes', actions: 'hid-mfa-links', success: look.classNames.status,
       error: look.classNames.error, checkbox: 'hid-mfa-checkbox' }} Button={look.Button} />

@@ -14,7 +14,7 @@ const AVAILABILITY = '/identity/patient-enrollments/availability'
 const START = '/identity/patient-enrollments'
 const NIN = '12345678901'
 const anonymous = { state: { status: 'anonymous', principal: null } } as const
-const CLOSED = 'New Health ID registration is not open yet. If you already have a Health ID, sign in.'
+const CLOSED = 'You can’t sign up for a new Health ID yet. If you already have a Health ID, sign in.'
 
 function gateway(availability: unknown, start: Handler = (path, method) => problem(500, 'UNEXPECTED', `${method} ${path}`)): Handler {
   return (path, method, body) => {
@@ -25,7 +25,7 @@ function gateway(availability: unknown, start: Handler = (path, method) => probl
     return problem(500, 'UNEXPECTED', `${method} ${path}`)
   }
 }
-const routes = () => screen.findByRole('region', { name: 'How you’ll prove this NIN is yours' })
+const routes = () => screen.findByRole('region', { name: 'How you’ll show this NIN is yours' })
 
 async function submitNin() {
   fireEvent.change(await screen.findByLabelText('National Identification Number (NIN)'), { target: { value: NIN } })
@@ -48,7 +48,7 @@ describe('how the NIN will be proved, told at the NIN step', () => {
     expect(region.textContent).toContain('we text a 6-digit code to the phone number linked to your NIN')
     expect(region.textContent).toContain('lost your SIM, changed your number, have no phone linked to your NIN, or can\'t get the code')
     expect(region.textContent).toContain('checks one original photo ID in person')
-    expect(within(region).getByRole('link', { name: 'See participating facilities and what to bring' }).getAttribute('href')).toBe('/enroll/facilities')
+    expect(within(region).getByRole('link', { name: 'See the facilities and what to bring' }).getAttribute('href')).toBe('/enroll/facilities')
     expect(sent.filter(request => request.method !== 'GET')).toEqual([])
   })
 
@@ -57,7 +57,7 @@ describe('how the NIN will be proved, told at the NIN step', () => {
     const region = await routes()
     expect(region.textContent).not.toContain('we text a 6-digit code')
     expect(region.textContent).not.toContain('available')
-    expect(within(region).getByRole('link', { name: 'See participating facilities and what to bring' })).toBeTruthy()
+    expect(within(region).getByRole('link', { name: 'See the facilities and what to bring' })).toBeTruthy()
   })
 
   it('lists only the online route while registering at a facility is off, without announcing the other', async () => {
@@ -71,7 +71,7 @@ describe('how the NIN will be proved, told at the NIN step', () => {
   it('claims no route for an Identity before the holder step, which sends { open } only', async () => {
     renderPortal(<Enrollment />, gateway({ open: true }), anonymous)
     expect(await screen.findByLabelText('National Identification Number (NIN)')).toBeTruthy()
-    expect(screen.queryByRole('region', { name: 'How you’ll prove this NIN is yours' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'How you’ll show this NIN is yours' })).toBeNull()
   })
 
   it('keeps open as the only gate: the routes alone do not offer a start', async () => {
@@ -102,7 +102,7 @@ describe('the start\'s refusals since the holder step', () => {
   })
 
   it.each([
-    ['a NIN lookup that could not be completed', () => problem(502, 'QOREID_UNAVAILABLE', 'We could not check your NIN now. Try again later.')],
+    ['a NIN lookup that could not be completed', () => problem(502, 'QOREID_UNAVAILABLE', 'We couldn’t check your NIN now. Try again later.')],
     ['an outage with the generic detail', () => problem(503, 'ENROLLMENT_UNAVAILABLE', 'The service could not complete the request.')],
     ['a lost connection', () => { throw new TypeError('Failed to fetch') }],
   ])('says to try again later, keeping the step and the session, on %s', async (_case, refusal) => {
@@ -110,7 +110,7 @@ describe('the start\'s refusals since the holder step', () => {
     const { sent } = renderPortal(<Enrollment />, gateway({ open: true, online: true, facility: true }, refusal), { ...anonymous, signOut })
     await submitNin()
     const alert = await screen.findByRole('alert')
-    expect(shownText(alert)).toBe('We could not check your NIN now. Try again later.')
+    expect(shownText(alert)).toBe('We couldn’t check your NIN now. Try again later.')
     expect((screen.getByLabelText('National Identification Number (NIN)') as HTMLInputElement).value).toBe(NIN)
     expect(signOut).not.toHaveBeenCalled()
     expect(sent.filter(request => request.path.startsWith('/auth/') && request.path !== '/auth/google/onboarding')).toEqual([])

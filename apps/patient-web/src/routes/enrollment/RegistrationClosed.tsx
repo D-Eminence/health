@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { Button } from '../../kasuwa/ui'
 
 /** Identity's own wording for a start refused while registration is closed (hid-system#68). */
-export const REGISTRATION_CLOSED = 'New Health ID registration is not open yet. If you already have a Health ID, sign in.'
+export const REGISTRATION_CLOSED = 'You can’t sign up for a new Health ID yet. If you already have a Health ID, sign in.'
 
 /** What a person who already has a Health ID does while sign-ups are closed. */
 export const CLOSED_NEXT = 'If you already have a Health ID, sign in.'

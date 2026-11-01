@@ -47,7 +47,7 @@ async function proveContact() {
 }
 
 /** The current step's name, as the shared stepper says it: "Step 3 of 5 · Contact". */
-const currentStep = () => screen.getByRole('group', { name: 'Enrollment steps' }).textContent?.split(' · ')[1]
+const currentStep = () => screen.getByRole('group', { name: 'Sign-up steps' }).textContent?.split(' · ')[1]
 
 /**
  * hid-system#68 (N2(c), ADR-048): a contact proved more than 30 minutes before
@@ -69,8 +69,8 @@ describe('activation that needs the contact proved again', () => {
     await waitFor(() => expect(document.activeElement).toBe(contact))
     expect(contact.value).toBe('+2348000000000')
     expect(contact.getAttribute('aria-invalid')).toBeNull()
-    expect(shownText(screen.getByRole('alert'))).toBe('Your contact was verified more than 30 minutes ago, so it must be '
-      + 'verified again before activation. Send a new code, enter it, then choose your password.')
+    expect(shownText(screen.getByRole('alert'))).toBe('You confirmed your phone or email more than 30 minutes ago, so please '
+      + 'confirm it again. Send a new code, enter it, then choose your password.')
     expect(currentStep()).toBe('Contact')
     expect(screen.queryByLabelText('Password')).toBeNull()
 
@@ -101,7 +101,7 @@ describe('activation that needs the contact proved again', () => {
 })
 
 const notAtPassword = (detail = 'Contact verification is required') => new HidApiError(409, detail, { code: 'ENROLLMENT_STAGE_INVALID' })
-const REVERIFY_CONTACT = 'Your contact was verified more than 30 minutes ago, so it must be verified again before activation. '
+const REVERIFY_CONTACT = 'You confirmed your phone or email more than 30 minutes ago, so please confirm it again. '
   + 'Send a new code, enter it, then choose your password.'
 
 async function activateFromPassword() {
@@ -152,8 +152,8 @@ describe('activation that finds the enrollment no longer at the password step', 
     const code = await screen.findByLabelText('Code')
     await waitFor(() => expect(document.activeElement).toBe(code))
     expect(screen.getByText('We sent a 6-digit code to +234•••0000.')).toBeTruthy()
-    expect(shownText(screen.getByRole('alert'))).toBe('Your contact was verified more than 30 minutes ago, so it must be '
-      + 'verified again before activation. Enter the new code sent to it, then choose your password.')
+    expect(shownText(screen.getByRole('alert'))).toBe('You confirmed your phone or email more than 30 minutes ago, so please '
+      + 'confirm it again. Enter the new code we sent, then choose your password.')
     expect(currentStep()).toBe('Code')
     expect(screen.queryByLabelText('Password')).toBeNull()
   })

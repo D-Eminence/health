@@ -30,11 +30,11 @@ describe('admin failure messages', () => {
   it('maps every backend MFA, step-up and approval code the admin console can receive', () => {
     const expected: Array<[number, string, RegExp]> = [
       [403, 'MFA_REQUIRED', /enrolled authenticator is required/],
-      [401, 'MFA_INVALID_CODE', /not accepted\. Each code works only once/],
-      [400, 'MFA_CODE_REQUIRED', /either an authenticator code or a recovery code/],
-      [401, 'MFA_CHALLENGE_INVALID', /expired or ran out of attempts/],
-      [429, 'MFA_RATE_LIMITED', /locked for up to 15 minutes/],
-      [503, 'MFA_UNAVAILABLE', /temporarily unavailable/],
+      [401, 'MFA_INVALID_CODE', /didn’t work\. Each code works only once/],
+      [400, 'MFA_CODE_REQUIRED', /a code from your code app or a backup code/],
+      [401, 'MFA_CHALLENGE_INVALID', /timed out or had too many tries/],
+      [429, 'MFA_RATE_LIMITED', /Wait 15 minutes and try again/],
+      [503, 'MFA_UNAVAILABLE', /aren’t working right now/],
       [409, 'MFA_NOT_ENROLLED', /no authenticator to reset/],
       [409, 'MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED', /set up at staff sign-in/],
       [403, 'STEP_UP_REQUIRED', /fresh authenticator confirmation \(they last 5 minutes\)\. It was not carried out/],

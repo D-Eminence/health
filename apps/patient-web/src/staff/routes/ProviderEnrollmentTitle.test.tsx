@@ -13,7 +13,7 @@ beforeEach(() => { document.title = 'Health ID: Patient' })
 describe('PEHR-05: provider enrollment', () => {
   it('names the tab while it is open, and gives the title back when it closes', () => {
     const { unmount } = render(<MemoryRouter><ProviderEnrollment /></MemoryRouter>)
-    expect(document.title).toBe('Provider enrollment · Health ID Provider')
+    expect(document.title).toBe('Facility sign-up · Health ID Provider')
     unmount()
     expect(document.title).toBe('Health ID: Patient')
   })

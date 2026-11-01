@@ -117,7 +117,7 @@ function PatientPanel() {
 const PROVIDER_POINTS = [
   { icon: UsersRound, text: 'Find patients by their Health ID' },
   { icon: ClipboardList, text: 'See records patients share with you' },
-  { icon: ShieldCheck, text: 'Every view is logged' },
+  { icon: ShieldCheck, text: 'Every view is recorded' },
 ] as const
 
 /** The provider portal's panel: what it is for, in three short lines. */

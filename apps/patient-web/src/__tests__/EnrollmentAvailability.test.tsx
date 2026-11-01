@@ -55,7 +55,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     expect(within(notice).getByRole('link', { name: 'Forgot password?' }).getAttribute('href')).toBe('/recover')
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Complete check' })).toBeNull()
-    expect(screen.queryByRole('group', { name: 'Enrollment steps' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Sign-up steps' })).toBeNull()
     expect(sent).toContainEqual({ path: AVAILABILITY, method: 'GET', body: null })
     expect(sent.filter(request => request.method !== 'GET')).toEqual([])
   })
@@ -71,7 +71,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     renderPortal(<Enrollment />, gateway(() => json({ open: false })), anonymous)
     await closedNotice()
     expect(screen.queryByRole('button', { name: 'Sign up with Google' })).toBeNull()
-    expect(screen.queryByRole('region', { name: 'Google enrollment' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Sign up with Google' })).toBeNull()
   })
 
   it('asks for the NIN, as before, when registration is open', async () => {
@@ -80,7 +80,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     expect(await screen.findByLabelText('National Identification Number (NIN)')).toBeTruthy()
     // One security check on the page: Google is a path of its own, opened by a button.
     expect(screen.getAllByRole('button', { name: 'Complete check' })).toHaveLength(1)
-    expect(screen.getByRole('group', { name: 'Enrollment steps' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Sign-up steps' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Sign up with Google' })).toBeNull()
     expect(screen.queryByRole('region', { name: 'Sign-ups are closed for now' })).toBeNull()
@@ -140,7 +140,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     await enterCode(await screen.findByLabelText('Code'), '123456')
 
     await closedNotice()
-    expect(screen.getByText('This registration is no longer open on this device. It may have expired after 24 hours, been replaced by a newer registration for the same NIN, or ended when someone signed in or out in this browser.')).toBeTruthy()
+    expect(screen.getByText('This sign-up is no longer open on this device. It may have run out after 24 hours, been replaced by a newer sign-up for the same NIN, or ended when someone signed in or out on this device.')).toBeTruthy()
     expect(screen.queryByText(/Enter your NIN to start again/)).toBeNull()
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
   })
@@ -157,7 +157,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
 
     const retry = await screen.findByRole('button', { name: 'Try again' })
     await waitFor(() => expect(document.activeElement).toBe(retry))
-    expect(screen.getByText('This registration is no longer open on this device. It may have expired after 24 hours, been replaced by a newer registration for the same NIN, or ended when someone signed in or out in this browser.')).toBeTruthy()
+    expect(screen.getByText('This sign-up is no longer open on this device. It may have run out after 24 hours, been replaced by a newer sign-up for the same NIN, or ended when someone signed in or out on this device.')).toBeTruthy()
     expect(screen.queryByText(/Enter your NIN to start again/)).toBeNull()
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
 
@@ -165,7 +165,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     await press(retry)
     const nin = await screen.findByLabelText('National Identification Number (NIN)')
     await waitFor(() => expect(document.activeElement).toBe(nin))
-    expect(screen.getByText(/This registration is no longer open on this device/).textContent).toMatch(/Enter your NIN to start again\.$/)
+    expect(screen.getByText(/This sign-up is no longer open on this device/).textContent).toMatch(/Enter your NIN to start again\.$/)
   })
 
   it.each([
@@ -177,11 +177,11 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
       () => json({ stage: 'verify_contact', challengeId: 'challenge-1', maskedContact: 'a•••@example.com', googleOnboardingRequired: true }),
       () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')), anonymous)
     const code = await screen.findByLabelText('Code')
-    expect(screen.getByText('Reconnect the Google account used to start this enrollment.')).toBeTruthy()
+    expect(screen.getByText('Connect again the Google account you used to start this sign-up.')).toBeTruthy()
     await enterCode(code, '123456')
 
-    await screen.findByText(/This registration is no longer open on this device/)
-    expect(screen.queryByText('Reconnect the Google account used to start this enrollment.')).toBeNull()
+    await screen.findByText(/This sign-up is no longer open on this device/)
+    expect(screen.queryByText('Connect again the Google account you used to start this sign-up.')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Sign up with Google' })).toBeNull()
   })
 
@@ -198,7 +198,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     open = () => json({ open: true })
     await press(await screen.findByRole('button', { name: 'Try again' }))
     expect(await screen.findByLabelText('National Identification Number (NIN)')).toBeTruthy()
-    expect(screen.getByText('Reconnect the Google account used to start this enrollment.')).toBeTruthy()
+    expect(screen.getByText('Connect again the Google account you used to start this sign-up.')).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Reconnect Google' }))
     expect(screen.getByRole('button', { name: 'Sign up with Google' })).toBeTruthy()
   })

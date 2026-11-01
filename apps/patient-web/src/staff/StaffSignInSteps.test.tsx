@@ -96,8 +96,8 @@ describe('the password step', () => {
   })
 
   it.each([
-    ['mfa_required', 'Verify it’s you'],
-    ['mfa_enrollment_required', 'Set up an authenticator app'],
+    ['mfa_required', 'Confirm it’s you'],
+    ['mfa_enrollment_required', 'Set up sign-in codes'],
   ] as const)('asks for the second step Identity names (%s), opening nothing yet', async (status, step) => {
     const calls = serve({ [SESSION]: [ended], [REFRESH]: [ended], [LOGIN]: [challenge(status)] })
     await openSignIn()

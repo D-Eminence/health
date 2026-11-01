@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react'
 import { PasswordInput } from '@hid/ui'
+import { PasswordRules } from '../../PasswordRules'
 import { describedBy } from '../../authSteps'
 import { ENROLLMENT_GENDERS, type EnrollmentGender, type EnrollmentProfileField } from '../../api'
 import type { StepProps } from './stepProps'
@@ -7,7 +8,7 @@ import { Button, Field } from '../../kasuwa/ui'
 import { InputR, SelectR } from '../profileParts'
 
 /** One enrollment's activation attempts are limited to 15 in 15 minutes (hid-system #61 and #50). */
-const ACTIVATION_LIMIT_HINT = 'This enrollment has had too many activation attempts. Wait about 15 minutes, then activate again: the enrollment is kept.'
+const ACTIVATION_LIMIT_HINT = 'Too many tries. Wait 15 minutes and try again. Your sign-up is kept.'
 
 const GENDER_LABELS: Record<EnrollmentGender, string> = {
   female: 'Female', male: 'Male', intersex: 'Intersex', other: 'Other', unknown: 'Unknown',
@@ -79,12 +80,13 @@ export function PasswordStep({ focusTarget, busy, errorId, password, onPassword,
         <option value="">Select…</option>
         {ENROLLMENT_GENDERS.map(value => <option key={value} value={value}>{GENDER_LABELS[value]}</option>)}
       </SelectR></Field>}
-    <Field label="Password" htmlFor="enroll-password" hintId="enroll-password-hint" hint="At least 12 characters. Tap Show to check it.">
+    <Field label="Password" htmlFor="enroll-password">
       <PasswordInput id="enroll-password" ref={target('password')} required autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => onPassword(event.target.value)}
-        aria-invalid={invalid('password')} aria-describedby={describedBy('enroll-password-hint', errorFor('password'))} /></Field>
+        aria-invalid={invalid('password')} aria-describedby={describedBy('enroll-password-hint', errorFor('password'))} />
+      <PasswordRules id="enroll-password-hint" password={password} /></Field>
     {missing.length > 0 && <p id="enroll-profile-missing" className="m-0 text-[13px] text-ink-3">Add your {missing.map(field => FIELD_NAMES[field]).join(' and ')} to finish.</p>}
     <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || password.length < 12 || blocked || missing.length > 0}
-      aria-describedby={missing.length > 0 ? 'enroll-profile-missing' : undefined}>{busy ? 'Activating…' : 'Get my Health ID'}</Button>
+      aria-describedby={missing.length > 0 ? 'enroll-profile-missing' : undefined}>{busy ? 'Creating your Health ID…' : 'Get my Health ID'}</Button>
     {limitNote && <p className="m-0 text-[13px] text-ink-3">{ACTIVATION_LIMIT_HINT}</p>}
   </form>
 }

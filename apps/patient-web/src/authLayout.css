@@ -296,3 +296,10 @@
 .auth-panel .admin-recovery h1 { margin: 0; color: var(--color-ink); font-size: 24px; font-weight: 600; line-height: 32px; letter-spacing: -0.015em; }
 /* A label beside its control (a shared Field's) is one line, its required "*" included. */
 .auth-panel .patient-form label:not(:has(input, select, textarea)) { display: block; }
+
+/* A password field (PasswordInput) keeps room at its end for the show/hide eye inside it: the older forms' padding
+   above would otherwise run the text under the eye. The eye takes the field's corner radius and focus ring. */
+.auth-panel :is(.patient-form, .staff-form, .admin-auth-form) input:not([type='checkbox']):not([type='radio']):not([class*='ring-']):has(+ button[aria-controls]) {
+  padding-right: 48px;
+}
+.auth-panel :is(.patient-form, .staff-form, .admin-auth-form) input + button[aria-controls][aria-pressed] { border-radius: 0 var(--radius-md) var(--radius-md) 0; }

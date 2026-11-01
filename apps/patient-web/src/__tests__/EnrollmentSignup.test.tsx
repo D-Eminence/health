@@ -115,8 +115,8 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     expect(lastName.getAttribute('aria-invalid')).toBe('true')
     expect(described(lastName)).toBe('Enter your last name.')
     expect(field('First name').getAttribute('aria-invalid')).toBeNull()
-    expect(described(field('Email address'))).toContain('Enter a valid email address, like name@example.com.')
-    expect(described(field('Phone number'))).toContain('Enter a valid phone number')
+    expect(described(field('Email address'))).toContain('Enter your email address, like name@example.com.')
+    expect(described(field('Phone number'))).toContain('Enter your phone number')
     expect(described(field('Gender'))).toBe('Select your gender.')
     expect(described(screen.getByRole('checkbox', { name: 'I agree to the Terms of Service and Privacy Policy' })))
       .toBe('Read the Terms and the Privacy Policy (new tab). | Agree to the Terms of Service and Privacy Policy to create an account.')
@@ -175,7 +175,7 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
 
     await enterCode(codeField, '000000')
     await waitFor(() => expect(codeField.getAttribute('aria-invalid')).toBe('true'))
-    expect(described(codeField)).toContain('That code is wrong or has expired. Check the latest email, or send a new code.')
+    expect(described(codeField)).toContain('That code is wrong or too old. Check the latest email, or send a new code.')
     // The new code's challenge is the one checked.
     expect(sent.find(request => request.path === `${BASE}/contact/verify`)?.body).toEqual({ challengeId: 'challenge-2', code: '000000' })
 
@@ -183,7 +183,7 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     verify = () => json({ stage: 'set_password' })
     fireEvent.change(codeField, { target: { value: '654321' } })
     expect(sent.filter(request => request.path === `${BASE}/contact/verify`)).toHaveLength(1)
-    await press(screen.getByRole('button', { name: 'Verify code' }))
+    await press(screen.getByRole('button', { name: 'Check code' }))
     expect(await screen.findByText('HID-NEW234')).toBeTruthy()
   })
 
@@ -332,7 +332,7 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     renderPortal(<Enrollment />, gateway(happy, { open: true, online: true, facility: false }), anonymous)
     expect(await screen.findByLabelText('National Identification Number (NIN)')).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Your details' })).toBeNull()
-    expect(screen.getByRole('group', { name: 'Enrollment steps' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Sign-up steps' })).toBeTruthy()
   })
 
   it('says registration is not open, as before, when availability is closed even with signup: true', async () => {
@@ -403,7 +403,7 @@ describe('the sign-up phone number', () => {
     ['letters', '0801 ABC 5678', undefined],
   ])('refuses a number that is %s at its field, and sends nothing', async (_, typed, country) => {
     const { sent } = await signUpWith(typed, country)
-    expect(described(field('Phone number'))).toContain('Enter a valid phone number for the country chosen')
+    expect(described(field('Phone number'))).toContain('Enter your phone number, like 0801 234 5678 for Nigeria')
     expect(sent.filter(request => request.method === 'POST')).toEqual([])
   })
 

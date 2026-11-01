@@ -53,7 +53,7 @@ const noneOfTheUntaken = () => {
 /** The hint a field's aria-describedby names. */
 const hintOf = (control: HTMLElement) => (control.getAttribute('aria-describedby') ?? '').split(' ')
   .map(id => document.getElementById(id)?.textContent ?? '').join(' ')
-const progress = () => screen.getByRole('group', { name: 'Registration progress' })
+const progress = () => screen.getByRole('group', { name: 'Sign-up progress' })
 
 /** Today's start body (staff/routes/ProviderEnrollment.tsx:615-623, api.ts:1486-1494): the six fields, nothing more. */
 const PAYLOAD = { productCode: 'ehr', organizationType: 'hospital', cacRegistrationNumber: 'RC123456', administratorName: NAME,
@@ -68,7 +68,7 @@ describe('the registration opens as today’s page does', () => {
     await step('Your account')
     expect(api.availability).toHaveBeenCalledTimes(1)
     expect(progress().textContent).toBe('Step 1 of 5 · Your account')
-    expect(document.title).toBe('Provider enrollment · Health ID Provider')
+    expect(document.title).toBe('Facility sign-up · Health ID Provider')
     // The page itself sends nothing until it is submitted, and does not take focus when the form first shows.
     expect(api.start).not.toHaveBeenCalled()
     expect(document.activeElement).toBe(document.body)
@@ -108,13 +108,13 @@ describe('step 1, Your account', () => {
   it('stops Continue at a missing or wrong value with the design’s words, and focuses the field', async () => {
     await toForm()
     next()
-    expect(screen.getAllByText('This field is required.')).toHaveLength(2)
+    expect(screen.getAllByText('Fill in this field.')).toHaveLength(2)
     expect(document.activeElement).toBe(textbox('Full name'))
     expect(textbox('Full name').getAttribute('aria-invalid')).toBe('true')
     fireEvent.change(textbox('Full name'), { target: { value: NAME } })
     fireEvent.change(textbox('Email'), { target: { value: 'not-an-email' } })
     next()
-    expect(screen.getByText('Enter a valid email address.')).toBeTruthy()
+    expect(screen.getByText('Enter an email address, like name@example.com.')).toBeTruthy()
     expect(document.activeElement).toBe(textbox('Email'))
     expect(stepHeading().textContent).toBe('Your account')
     fireEvent.change(textbox('Full name'), { target: { value: ' D ' } })
@@ -181,14 +181,14 @@ describe('step 3, CAC number', () => {
     await toReview()
     fireEvent.click(button('Edit CAC number'))
     await step('CAC number')
-    const cac = textbox('CAC registration number')
+    const cac = textbox('CAC number')
     expect(cac.value).toBe('RC123456')
     expect(cac.required).toBe(true)
     expect(cac.getAttribute('pattern')).toBe('(RC|BN|IT)[0-9]{4,20}')
     expect(cac.maxLength).toBe(22)
     expect(cac.placeholder).toBe('RC123456')
     expect(cac.getAttribute('autocomplete')).toBe('off')
-    expect(hintOf(cac)).toBe('We check your CAC against the official registry, and Health ID support checks every new facility '
+    expect(hintOf(cac)).toBe('From your business registration certificate. Health ID support checks every new facility '
       + 'within one working day.')
     noneOfTheUntaken()
   })
@@ -197,14 +197,14 @@ describe('step 3, CAC number', () => {
     await toReview()
     fireEvent.click(button('Edit CAC number'))
     await step('CAC number')
-    fireEvent.change(textbox('CAC registration number'), { target: { value: '' } })
+    fireEvent.change(textbox('CAC number'), { target: { value: '' } })
     next()
-    expect(screen.getByText('This field is required.')).toBeTruthy()
-    fireEvent.change(textbox('CAC registration number'), { target: { value: 'ab 12' } })
-    expect(textbox('CAC registration number').value).toBe('AB12')
+    expect(screen.getByText('Fill in this field.')).toBeTruthy()
+    fireEvent.change(textbox('CAC number'), { target: { value: 'ab 12' } })
+    expect(textbox('CAC number').value).toBe('AB12')
     next()
     expect(screen.getByText('Enter the number on your CAC certificate: RC, BN or IT, then its digits, for example RC123456.')).toBeTruthy()
-    expect(document.activeElement).toBe(textbox('CAC registration number'))
+    expect(document.activeElement).toBe(textbox('CAC number'))
     expect(stepHeading().textContent).toBe('CAC number')
   })
 })
@@ -242,7 +242,7 @@ describe('step 5, Agreements', () => {
     await toReview({ product: 'migrate' })
     expect(progress().textContent).toBe('Step 5 of 5 · Agreements')
     const facts = [...document.querySelectorAll('.hid-ehr-signup-facts > div')].map(row => row.textContent)
-    expect(facts).toEqual([`Full name${NAME}`, `Email${EMAIL}`, 'Facility typeHospital', 'CAC registration numberRC123456',
+    expect(facts).toEqual([`Full name${NAME}`, `Email${EMAIL}`, 'Facility typeHospital', 'CAC numberRC123456',
       'ProductHealth ID Migrate'])
     fireEvent.click(button('Edit your account'))
     await expectFocusOnStep('Your account')
@@ -287,12 +287,12 @@ describe('submitting', () => {
     await toReview()
     agreeToAll()
     fireEvent.click(submitButton())
-    const dialog = await screen.findByRole('alertdialog', { name: 'Submit this registration?' })
+    const dialog = await screen.findByRole('alertdialog', { name: 'Send these details?' })
     // Health ID records no acceptance: the dialog asks to confirm the details, not to accept anything.
-    expect(dialog.textContent).toContain('Check the details above, then submit. Health ID checks your CAC registration number '
-      + 'and emails you a six digit code.')
+    expect(dialog.textContent).toContain('Check the details above, then send them. Health ID checks your CAC number '
+      + 'and emails you a 6-digit code.')
     expect(dialog.textContent).not.toMatch(/accept/i)
-    expect(within(dialog).getByRole('button', { name: 'Confirm and submit' })).toBeDefined()
+    expect(within(dialog).getByRole('button', { name: 'Yes, send them' })).toBeDefined()
     expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Cancel' }))
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('alertdialog')).toBeNull()
@@ -303,12 +303,12 @@ describe('submitting', () => {
   it('runs today’s start once with exactly today’s payload, then says the registration is submitted', async () => {
     await toReview()
     await submitRegistration()
-    const heading = await screen.findByRole('heading', { level: 1, name: 'Facility registration submitted' })
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Facility details sent' })
     expect(api.start).toHaveBeenCalledTimes(1)
     expect(api.start).toHaveBeenCalledWith(PAYLOAD)
     expect(Object.keys(api.start.mock.calls[0]![0] as object).sort()).toEqual(Object.keys(PAYLOAD).sort())
     await waitFor(() => expect(document.activeElement).toBe(heading))
-    expect(screen.getByText('We’ve checked your CAC registration number. Confirm your email next, then choose your password. '
+    expect(screen.getByText('We’ve checked your CAC number. Confirm your email next, then choose your password. '
       + 'Full access begins once Health ID support has checked your facility, usually within one working day.')).toBeTruthy()
   })
 
@@ -321,7 +321,7 @@ describe('submitting', () => {
     for (let index = 0; index < 4; index++) next()
     await step('Agreements')
     await submitRegistration()
-    await screen.findByRole('heading', { level: 1, name: 'Facility registration submitted' })
+    await screen.findByRole('heading', { level: 1, name: 'Facility details sent' })
     expect(api.start).toHaveBeenCalledWith({ ...PAYLOAD, organizationType: 'clinic', productCode: 'pharmacy' })
     expect(JSON.stringify(api.start.mock.calls)).not.toContain('08012345678')
   })
@@ -341,7 +341,7 @@ describe('submitting', () => {
     fireEvent.click(check)
     expect(submitButton().disabled).toBe(false)
     await submitRegistration()
-    await screen.findByRole('heading', { level: 1, name: 'Facility registration submitted' })
+    await screen.findByRole('heading', { level: 1, name: 'Facility details sent' })
     expect(api.start).toHaveBeenCalledTimes(1)
   })
 
@@ -350,30 +350,30 @@ describe('submitting', () => {
     api.start.mockReturnValueOnce(started.promise)
     await toReview()
     await submitRegistration()
-    await waitFor(() => expect(button('Verifying CAC…').getAttribute('aria-busy')).toBe('true'))
+    await waitFor(() => expect(button('Checking CAC…').getAttribute('aria-busy')).toBe('true'))
     answer(() => started.resolve({ accepted: true, codeSent: true, challengeId: 'challenge-1' }))
-    await screen.findByRole('heading', { level: 1, name: 'Facility registration submitted' })
+    await screen.findByRole('heading', { level: 1, name: 'Facility details sent' })
   })
 })
 
-const SIGN_OUT = 'This browser is signed in to Health ID, for example to a patient account. Sign out of Health ID first, or open '
+const SIGN_OUT = 'Someone is signed in to Health ID on this device, for example to a patient account. Sign out first, or open '
   + 'this page in a private (incognito) window, then try again.'
 
 describe('a refusal of the start, in today’s words', () => {
   // The organization behind the CAC number: back to CAC number, the words at the CAC field.
   it.each([
-    [422, 'CAC_NOT_VERIFIED', 'We couldn’t verify this CAC registration number. Check the number on your CAC certificate (it '
+    [422, 'CAC_NOT_VERIFIED', 'We couldn’t check this CAC number. Check the number on your CAC certificate (it '
       + 'starts with RC, BN or IT) and try again.'],
-    [409, 'PROVIDER_CAC_PROFILE_INCOMPLETE', 'We couldn’t set up your organization automatically from its CAC record: the record '
+    [409, 'PROVIDER_CAC_PROFILE_INCOMPLETE', 'We couldn’t set up your organization from its CAC record. The record '
       + `is missing details we need, or it doesn’t show the company as active. Contact Health ID support at ${SUPPORT}, and give `
-      + 'your CAC registration number.'],
-    [409, 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW', 'This organization can’t be set up automatically right now: its CAC number may '
-      + 'already be linked to Health ID, another sign-up for it may be in progress, or Health ID support may have recently '
-      + `closed a sign-up for it. Contact Health ID support at ${SUPPORT}, and give your CAC registration number.`],
-    [409, 'ORGANIZATION_REVIEW_REQUIRED', 'This organization needs a check by Health ID before it can be set up, for example '
-      + 'because its CAC number is already linked to Health ID or another sign-up for it is in progress. Contact Health ID '
-      + `support at ${SUPPORT}, and give your CAC registration number.`],
-    [409, 'PROVIDER_ALREADY_REGISTERED', 'This organization is already registered with Health ID. If you are its administrator, '
+      + 'your CAC number.'],
+    [409, 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW', 'We can’t set up this organization by ourselves right now. Its CAC number may '
+      + 'already be on Health ID, someone else may be signing it up, or Health ID support may have recently '
+      + `closed a sign-up for it. Contact Health ID support at ${SUPPORT}, and give your CAC number.`],
+    [409, 'ORGANIZATION_REVIEW_REQUIRED', 'Health ID must check this organization before it can be set up. For example, '
+      + 'its CAC number may already be on Health ID, or someone else may be signing it up. Contact Health ID '
+      + `support at ${SUPPORT}, and give your CAC number.`],
+    [409, 'PROVIDER_ALREADY_REGISTERED', 'This organization is already on Health ID. If you are its administrator, '
       + `sign in instead. Contact Health ID support at ${SUPPORT}.`],
   ])('%s %s returns to CAC number with the words at the CAC field', async (status, code, words) => {
     const refused = deferred<unknown>()
@@ -386,7 +386,7 @@ describe('a refusal of the start, in today’s words', () => {
     // Focus is on the step heading in the commit that shows it.
     expect(focused).toBe(element)
     actAgain()
-    const cac = textbox('CAC registration number')
+    const cac = textbox('CAC number')
     expect(cac.getAttribute('aria-invalid')).toBe('true')
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toBe(words)
@@ -399,15 +399,15 @@ describe('a refusal of the start, in today’s words', () => {
     next(); await step('Agreements')
     expect(screen.queryByRole('alert')).toBeNull()
     await submitRegistration()
-    await screen.findByRole('heading', { level: 1, name: 'Facility registration submitted' })
+    await screen.findByRole('heading', { level: 1, name: 'Facility details sent' })
     expect(api.start).toHaveBeenLastCalledWith({ ...PAYLOAD, cacRegistrationNumber: 'RC654321', turnstileToken: 'token-1' })
   })
 
   // Anything else stays where the registration was submitted, with the form as it was.
   it.each([
     [409, 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT', SIGN_OUT],
-    [429, 'APPLICATION_RATE_LIMITED', 'There have been too many sign-up attempts from your network. Please try again later.'],
-    [429, 'VERIFICATION_QUOTA_EXCEEDED', 'The limit on CAC checks has been reached for now. Please try again later.'],
+    [429, 'APPLICATION_RATE_LIMITED', 'Too many sign-up tries from your internet connection. Please try again later.'],
+    [429, 'VERIFICATION_QUOTA_EXCEEDED', 'We can’t check more CAC numbers for now. Please try again later.'],
     [409, 'VERSION_CONFLICT', 'Your sign-up changed while we were working on it. Please try again.'],
     [403, 'ORIGIN_DENIED', 'This site isn’t allowed to send facility sign-ups. Open Set up your facility from '
       + 'healthidentitydirectory.com and try again.'],
@@ -415,9 +415,9 @@ describe('a refusal of the start, in today’s words', () => {
       + 'healthidentitydirectory.com and try again.'],
     [403, 'TURNSTILE_HOSTNAME_MISMATCH', 'The security check was made for another Health ID site. Open Set up your facility from '
       + 'healthidentitydirectory.com and try again.'],
-    [403, 'TURNSTILE_REJECTED', 'The security check didn’t go through. Please complete it again, then retry.'],
-    [400, 'TURNSTILE_REQUIRED', 'The security check didn’t go through. Please complete it again, then retry.'],
-    [403, 'PROVIDER_ENROLLMENT_DENIED', 'Facility sign-up is temporarily unavailable. Please try again in a few minutes.'],
+    [403, 'TURNSTILE_REJECTED', 'The security check didn’t work. Please do it again, then try again.'],
+    [400, 'TURNSTILE_REQUIRED', 'The security check didn’t work. Please do it again, then try again.'],
+    [403, 'PROVIDER_ENROLLMENT_DENIED', 'Facility sign-up isn’t working right now. Please try again in a few minutes.'],
     [400, 'VALIDATION_FAILED', 'Some of the details weren’t accepted. Check them and try again.'],
     [409, 'SOMETHING_NEW', 'Identity’s own words'],
   ])('%s %s stays on Agreements with today’s words', async (status, code, words) => {
@@ -429,7 +429,7 @@ describe('a refusal of the start, in today’s words', () => {
     // A new security check for the next try (today: the token is cleared and the widget reset after every start).
     await waitFor(() => expect(submitButton().disabled).toBe(false))
     await submitRegistration()
-    await screen.findByRole('heading', { level: 1, name: 'Facility registration submitted' })
+    await screen.findByRole('heading', { level: 1, name: 'Facility details sent' })
     expect(api.start).toHaveBeenLastCalledWith({ ...PAYLOAD, turnstileToken: 'token-1' })
   })
 
@@ -437,7 +437,7 @@ describe('a refusal of the start, in today’s words', () => {
     api.start.mockRejectedValueOnce(new Error('script error'))
     await toReview()
     await submitRegistration()
-    expect((await screen.findByRole('alert')).textContent).toBe('We could not complete facility sign-up. Please try again.')
+    expect((await screen.findByRole('alert')).textContent).toBe('Something went wrong with facility sign-up. Please try again.')
   })
 
   it.each([
@@ -457,7 +457,7 @@ describe('a refusal of the start, in today’s words', () => {
     api.start.mockRejectedValueOnce(new HidApiError(429, 'Rate limited', { code: 'QOREID_RATE_LIMITED' }))
     await toReview()
     await submitRegistration()
-    expect((await screen.findByRole('alert')).textContent).toBe('We couldn’t check your CAC registration number just now. '
+    expect((await screen.findByRole('alert')).textContent).toBe('We couldn’t check your CAC number just now. '
       + 'Please try again in a minute.')
     expect(screen.getByText(/^You can try again in (60|59) seconds\.$/)).toBeTruthy()
     expect(submitButton().disabled).toBe(true)
@@ -483,7 +483,7 @@ describe('a refusal of the start, in today’s words', () => {
     expect(screen.getByText(hint)).toBeTruthy()
     expect(submitButton().disabled).toBe(true)
     expect(stepHeading().textContent).toBe('Agreements')
-    expect(screen.queryByRole('heading', { level: 1, name: 'Facility registration submitted' })).toBeNull()
+    expect(screen.queryByRole('heading', { level: 1, name: 'Facility details sent' })).toBeNull()
   })
 })
 
@@ -498,8 +498,8 @@ describe('a changed facility type that Identity sent no code for', () => {
       resendAfterSeconds: 0 })
     await toReview()
     await submitRegistration()
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue to verification' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Change unverified email' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Use a different email' }))
     await step('Your account')
     next()
     await step('Facility type')
@@ -525,13 +525,13 @@ describe('a changed facility type that Identity sent no code for', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull()
 
     fireEvent.click(button('Use the details I gave before'))
-    await screen.findByRole('heading', { level: 1, name: 'Enter your verification code' })
+    await screen.findByRole('heading', { level: 1, name: 'Enter the code we emailed you' })
     expect(document.querySelector('.hid-ehr-signup-lede')?.textContent).toBe(`We didn’t send a new code, because one was sent to `
       + `${EMAIL} less than a minute ago. Enter the six digit code from that email.`)
     expect(screen.queryByRole('alert')).toBeNull()
     expect(api.start).toHaveBeenCalledTimes(2)
-    fireEvent.change(textbox('Verification code'), { target: { value: '111111' } })
-    fireEvent.click(button('Verify code'))
+    fireEvent.change(textbox('Code from the email'), { target: { value: '111111' } })
+    fireEvent.click(button('Check code'))
     await screen.findByRole('heading', { level: 1, name: 'Create your provider account' })
     expect(api.verify).toHaveBeenCalledWith('challenge-1', '111111')
   })
@@ -542,8 +542,8 @@ describe('another email for a sign-up that is open', () => {
     api.start.mockResolvedValueOnce({ accepted: true, codeSent: true, challengeId: 'challenge-1', resendAfterSeconds: 0 })
     await toReview()
     await submitRegistration()
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue to verification' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Change unverified email' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Use a different email' }))
     await expectFocusOnStep('Your account')
     expect(textbox('Email').value.trim().toLowerCase()).toBe(EMAIL)
     fireEvent.change(textbox('Email'), { target: { value: 'other@demo-hospital.example.test' } })
@@ -556,7 +556,7 @@ describe('another email for a sign-up that is open', () => {
     await submitRegistration()
     expect((await screen.findByRole('alert')).textContent).toBe(`This CAC number’s sign-up was started with ${EMAIL}, so it can’t `
       + `use another email yet. Finish it with the code sent to ${EMAIL}, or sign up with the new email 24 hours after the first `
-      + `sign-up started. Otherwise, contact Health ID support at ${SUPPORT}, and give your CAC registration number.`)
+      + `sign-up started. Otherwise, contact Health ID support at ${SUPPORT}, and give your CAC number.`)
     // It is about the email, not the number: the registration stays where it was submitted.
     expect(stepHeading().textContent).toBe('Agreements')
     fireEvent.click(button('Use the email I first gave'))

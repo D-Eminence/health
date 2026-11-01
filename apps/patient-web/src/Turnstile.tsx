@@ -12,7 +12,7 @@ declare global {
 }
 
 let scriptPromise: Promise<void> | null = null
-const UNAVAILABLE = 'Security check unavailable. Please try again.'
+const UNAVAILABLE = 'The security check isn’t working. Please try again.'
 
 /**
  * Cloudflare's normal and flexible widgets are at least 300px wide; in a
@@ -81,7 +81,7 @@ export function Turnstile({ action, onTokenChange, resetKey }: {
         size: turnstileSize(container.current, 'flexible'),
         callback: (token: string) => onToken.current(token),
         'expired-callback': () => onToken.current(null),
-        'error-callback': () => { onToken.current(null); setError('Security check failed. Please try again.') },
+        'error-callback': () => { onToken.current(null); setError('The security check didn’t work. Please try again.') },
       })
     }).catch(() => { if (active) setError(UNAVAILABLE) })
     return () => {
@@ -93,6 +93,6 @@ export function Turnstile({ action, onTokenChange, resetKey }: {
   }, [action, siteKey, localWithoutWidget, resetKey])
 
   if (localWithoutWidget) return null
-  if (!siteKey) return <p role="alert" className="patient-inline-error">Security verification is not configured for this environment.</p>
+  if (!siteKey) return <p role="alert" className="patient-inline-error">The security check isn’t set up on this site.</p>
   return <div className="patient-turnstile"><div ref={container} />{error && <p role="alert" className="patient-inline-error">{error}</p>}</div>
 }

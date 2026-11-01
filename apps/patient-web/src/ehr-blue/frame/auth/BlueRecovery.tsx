@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
+import { PasswordRules } from '../../../PasswordRules'
 import { Alert, Button, buttonClass } from '../../../kasuwa/ui'
 import { Turnstile } from '../../../Turnstile'
 import { createPrincipalRecoveryApi } from '../../../recoveryApi'
@@ -57,7 +58,7 @@ export function BlueRecovery() {
     try { await operation() } catch (reason) {
       if (isHidApiError(reason) && reason.code === 'OTP_INVALID_OR_EXPIRED') budget.refused(identifier)
       const aboutField = isFieldProblem(reason, stepCodes)
-      setError(isHidApiError(reason) ? reason.message : 'We could not complete that step. Please try again.')
+      setError(isHidApiError(reason) ? reason.message : 'Something went wrong. Please try again.')
       setFieldError(aboutField)
       setErrorAlert(!aboutField || fromField)
     } finally {
@@ -133,7 +134,7 @@ export function BlueRecovery() {
       {error ? <Alert id="blue-recovery-error" intent="error" size="sm" live={errorAlert}>{error}</Alert> : null}
       {step === 'start' ? (
         <form onSubmit={start} className="staff-form">
-          <p id="blue-recovery-start-hint" className={NOTE}>We’ll send a code to your work account’s verified contact.</p>
+          <p id="blue-recovery-start-hint" className={NOTE}>We’ll send a code to the email or phone on your work account.</p>
           <div className="auth-field-label">
             <label htmlFor="blue-recovery-email">Work email</label>
             <input id="blue-recovery-email" ref={stepFocus.target} required type="email" autoComplete="username" maxLength={254} value={identifier}
@@ -141,25 +142,24 @@ export function BlueRecovery() {
               aria-describedby={describedBy('blue-recovery-start-hint', errorId)} />
           </div>
           <Turnstile action="staff-reset" onTokenChange={setTurnstileToken} resetKey={turnstileResetKey} />
-          <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !turnstileToken}>{busy ? 'Sending…' : 'Send recovery code'}</Button>
+          <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !turnstileToken}>{busy ? 'Sending…' : 'Send code'}</Button>
         </form>
       ) : null}
       {step === 'code' ? (
         <form onSubmit={verify} className="staff-form">
           <p id="blue-recovery-code-hint" className={NOTE}>Enter the 6-digit code we sent.</p>
           <div className="auth-field-label">
-            <label htmlFor="blue-recovery-code">Recovery code</label>
+            <label htmlFor="blue-recovery-code">Code</label>
             <input id="blue-recovery-code" ref={stepFocus.target} required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code}
               onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} aria-invalid={invalid}
               aria-describedby={describedBy('blue-recovery-code-hint', errorId)} />
           </div>
-          <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</Button>
+          <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Check code'}</Button>
           {budget.shown ? <p className={HINT}>{CODE_BUDGET_HINT}</p> : null}
         </form>
       ) : null}
       {step === 'password' ? (
         <form onSubmit={complete} className="staff-form">
-          <p id="blue-recovery-password-hint" className={NOTE}>Use at least 12 characters.</p>
           <div className="auth-field-label">
             <label htmlFor="blue-recovery-password">New password</label>
             <PasswordInput appearance="plain" id="blue-recovery-password" toggleLabel="Show new password" ref={stepFocus.target} required
@@ -172,6 +172,7 @@ export function BlueRecovery() {
               minLength={12} maxLength={256} value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)}
               aria-invalid={mismatch || undefined} aria-describedby={mismatch ? 'blue-recovery-mismatch' : undefined} />
           </div>
+          <PasswordRules id="blue-recovery-password-hint" password={password} confirm={confirmPassword} />
           {/* Always mounted, so the mismatch is announced once when it appears, not on each keystroke. */}
           <div aria-live="polite">{mismatch ? <p id="blue-recovery-mismatch" className="m-0 text-[13px] font-medium text-danger-ink">Passwords do not match.</p> : null}</div>
           <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || password.length < 12 || password !== confirmPassword}>
@@ -181,7 +182,7 @@ export function BlueRecovery() {
       ) : null}
       {step === 'complete' ? (
         <div role="status" className="staff-form">
-          <h2 ref={stepFocus.target} tabIndex={-1}>Password reset complete.</h2>
+          <h2 ref={stepFocus.target} tabIndex={-1}>Your password is reset.</h2>
           <SiteLink href={signIn} className={buttonClass({ variant: 'primary', size: 'lg', block: true })}>Sign in</SiteLink>
         </div>
       ) : null}
@@ -189,7 +190,7 @@ export function BlueRecovery() {
         <div className="flex flex-col items-start gap-1">
           <Button variant="ghost" onClick={restart} disabled={busy}>Use a different work email</Button>
           <div role="status" className="flex flex-col items-start gap-1">{resend.ready ? <>
-            <p className={HINT}>No code, or a code refused? Start again with the same work email to get a new code.</p>
+            <p className={HINT}>No code, or the code didn’t work? Start again with the same work email to get a new one.</p>
             <Button variant="ghost" onClick={restart} disabled={busy}>Start again for a new code</Button>
           </> : null}</div>
         </div>

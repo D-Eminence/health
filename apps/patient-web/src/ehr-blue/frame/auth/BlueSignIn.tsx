@@ -83,7 +83,7 @@ export function BlueSignIn() {
   }
 
   function finish(session: StaffSession) {
-    try { completeSignIn(session) } catch (caught) { restart(caught instanceof Error ? caught.message : 'Sign in failed.'); return }
+    try { completeSignIn(session) } catch (caught) { restart(caught instanceof Error ? caught.message : 'We couldn’t sign you in. Please try again.'); return }
     navigate(getStaffLandingPath(location.search, session))
   }
 
@@ -97,7 +97,7 @@ export function BlueSignIn() {
   const recovery = staffRecoveryHref(window.location.hostname)
   return (
     <BlueAuthLayout title={challenge ? null : 'Welcome back'} titleId="blue-sign-in-title" titleRef={heading}
-      lede={challenge ? undefined : 'Sign in to your facility workspace.'} links={false}>
+      lede={challenge ? undefined : 'Sign in to work at your facility.'} links={false}>
       {challenge ? (
         <StaffMfaSteps challenge={challenge} look={BLUE_MFA_LOOK}
           calls={{ verify: verifyMfa, sendEnrollmentCode, startEnrollment, activate: activateEnrollment }}

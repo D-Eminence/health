@@ -16,7 +16,7 @@ export function SupportContact({ purpose }: { purpose: Support | 'register' | 'f
         : purpose === 'held' ? 'If it belongs to another company, tell Health ID support'
           : purpose === 'help' ? 'If you need help, contact Health ID support'
             : purpose === 'cac-otherwise' ? 'Otherwise, contact Health ID support' : 'Contact Health ID support'
-  const tail = purpose === 'cac' || purpose === 'cac-otherwise' ? ', and give your CAC registration number.' : purpose === 'finish'
+  const tail = purpose === 'cac' || purpose === 'cac-otherwise' ? ', and give your CAC number.' : purpose === 'finish'
     ? ' to finish setting up your facility.' : purpose === 'held' ? ', and give that number, so they can free it.' : '.'
   return <>{lead}{address ? <> at <a className="hid-ehr-signup-link" href={`mailto:${address}`}>{address}</a></> : null}{tail}</>
 }

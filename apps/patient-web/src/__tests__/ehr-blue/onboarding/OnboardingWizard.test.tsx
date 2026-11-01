@@ -22,14 +22,14 @@ afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(
 
 const STEPS = ['Facility', 'Type', 'Departments', 'Branches', 'Staff', 'Roles', 'Billing', 'Review', 'Launch']
 const SAMPLE = 'Sample only: not connected to Health ID yet. Nothing you do here is saved.'
-const NOT_COLLECTED = 'Not collected by Health ID yet'
+const NOT_COLLECTED = 'Health ID doesn’t save this yet'
 const PENDING = `Health ID support is checking ${RIVERSIDE}. This usually takes up to one working day.`
 const DONE = `Health ID support has checked ${RIVERSIDE}, and it now has full access.`
 
 async function openSetup(path = '/provider/onboarding', review: Review = 'reviewed', current = membership({ review })) {
   const sent = serve({ [SESSION]: [sessionWith(current)], [STAFF]: many(staffAnswer(current.name, current.id, review)) })
   await openStaffApp(path)
-  await screen.findByRole('navigation', { name: 'Onboarding steps' })
+  await screen.findByRole('navigation', { name: 'Setup steps' })
   return sent
 }
 
@@ -85,7 +85,7 @@ describe('the stepper and each step\'s heading', () => {
   it('opens at the step its address names', async () => {
     await openSetup('/provider/onboarding/review')
     expect(eyebrow()).toBe('Step 8 of 9 · Review')
-    expect(screen.getByRole('heading', { level: 2, name: 'Review your configuration' })).toBeDefined()
+    expect(screen.getByRole('heading', { level: 2, name: 'Check your choices' })).toBeDefined()
   })
 
   it('leaves for Choose workspace from Exit setup, as the design does', async () => {
@@ -101,7 +101,7 @@ describe('step 1, Facility', () => {
     const name = screen.getByRole('textbox', { name: 'Facility name' }) as HTMLInputElement
     expect(name.value).toBe(RIVERSIDE)
     expect(name.readOnly).toBe(true)
-    for (const label of ['Main phone', 'Main email', 'Address', 'City', 'State', 'Optional registration number', 'Optional facility logo']) {
+    for (const label of ['Main phone', 'Main email', 'Address', 'City', 'State', 'CAC number (optional)', 'Optional facility logo']) {
       const field = screen.getByLabelText(label) as HTMLInputElement
       expect(field.disabled, label).toBe(true)
       expect(field.value, label).toBe('')
@@ -131,7 +131,7 @@ describe('the sample steps send nothing', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Facility type' }), { target: { value: 'Diagnostic Centre' } })
     press('Next (sample)')
     const ask = await screen.findByRole('alertdialog', { name: 'Use suggested departments?' })
-    expect(within(ask).getByText('Cancel keeps your customized departments.')).toBeDefined()
+    expect(within(ask).getByText('Cancel keeps the departments you chose.')).toBeDefined()
     fireEvent.click(within(ask).getByRole('button', { name: 'Use suggested departments' }))
     expect(eyebrow()).toBe('Step 3 of 9 · Departments')
     expect(document.activeElement).toBe(heading())
@@ -180,11 +180,11 @@ describe('the sample steps send nothing', () => {
     // Billing (from the stepper): the design's fields, required.
     fireEvent.click(stepButton('Billing'))
     fireEvent.change(screen.getByRole('textbox', { name: 'Accepted payment methods (Cash,Transfer,Card,Insurance)' }), { target: { value: 'Cash, Transfer' } })
-    fireEvent.change(screen.getByRole('combobox', { name: 'Payment policy' }), { target: { value: '' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'When patients pay' }), { target: { value: '' } })
     press('Next (sample)')
     expect(screen.getByText('Complete this field.')).toBeDefined()
-    fireEvent.change(screen.getByRole('combobox', { name: 'Payment policy' }), { target: { value: 'Before service' } })
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Enable insurance support' }))
+    fireEvent.change(screen.getByRole('combobox', { name: 'When patients pay' }), { target: { value: 'Before service' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Accept insurance' }))
     press('Next (sample)')
     expect(eyebrow()).toBe('Step 8 of 9 · Review')
 
@@ -219,7 +219,7 @@ describe('the sample steps send nothing', () => {
     // Settings folds once its page is left: opened again from its heading.
     fireEvent.click(within(nav()).getByRole('button', { name: 'Settings' }))
     fireEvent.click(within(nav()).getByRole('link', { name: 'Facility setup' }))
-    await screen.findByRole('navigation', { name: 'Onboarding steps' })
+    await screen.findByRole('navigation', { name: 'Setup steps' })
     expect(eyebrow()).toBe('Step 1 of 9 · Facility')
     fireEvent.click(stepButton('Review'))
     expect(reviewFacts()).toMatchObject({ Type: 'Not chosen', Departments: 'General Outpatient' })
@@ -240,17 +240,17 @@ describe('the sample steps send nothing', () => {
 
   it('links into other samples only at a demo facility, never from a real one', async () => {
     await openSetup('/provider/onboarding/staff')
-    expect(screen.queryByRole('link', { name: 'Create a shift assignment' })).toBeNull()
-    expect(screen.queryByText('Reporting hierarchies are optional. Shifts can be configured now or after launch.')).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Add a shift' })).toBeNull()
+    expect(screen.queryByText('Who reports to whom is optional. You can set shifts now or after launch.')).toBeNull()
     fireEvent.click(stepButton('Billing'))
-    expect(screen.queryByRole('link', { name: 'Configure service catalogue' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Set up your list of services' })).toBeNull()
   })
 
   it('links into the Shifts and Service catalogue samples at a demo facility, as the design does', async () => {
     await openSetup('/provider/onboarding/staff', 'reviewed', membership({ id: DEMO_HOSPITAL, name: 'Demo Hospital' }))
-    expect((await screen.findByRole('link', { name: 'Create a shift assignment' })).getAttribute('href')).toBe('/provider/shifts/new')
+    expect((await screen.findByRole('link', { name: 'Add a shift' })).getAttribute('href')).toBe('/provider/shifts/new')
     fireEvent.click(stepButton('Billing'))
-    expect(screen.getByRole('link', { name: 'Configure service catalogue' }).getAttribute('href')).toBe('/provider/services')
+    expect(screen.getByRole('link', { name: 'Set up your list of services' }).getAttribute('href')).toBe('/provider/services')
   })
 })
 
@@ -268,11 +268,11 @@ describe('steps 5 and 6, Staff and Roles', () => {
     press('Continue to roles')
     expect(eyebrow()).toBe('Step 6 of 9 · Roles')
     expect(document.activeElement).toBe(heading())
-    const templates = screen.getByRole('heading', { level: 2, name: 'Role templates and permission scopes' }).closest('section') as HTMLElement
+    const templates = screen.getByRole('heading', { level: 2, name: 'Roles and what each can do' }).closest('section') as HTMLElement
     expect(within(templates).getByText(SAMPLE)).toBeDefined()
     // The design's words, but for its claim that branch access is edited in Staff & access: Health ID has no branches.
-    expect(within(templates).getByText(/^Administrative ownership/).textContent).toBe('Administrative ownership never grants clinical '
-      + 'signing, prescribing or dispensing rights. Health ID’s own roles are the ones Staff & access offers below.')
+    expect(within(templates).getByText(/^Being an owner or admin/).textContent).toBe('Being an owner or admin never lets someone sign '
+      + 'clinical notes, prescribe or dispense. Health ID’s own roles are the ones Staff & access offers below.')
     expect(within(templates).queryByText(/branch/i)).toBeNull()
     const rows = templates.querySelectorAll('details')
     expect([...rows].map(row => row.querySelector('summary')?.textContent)).toEqual(['Facility Owner', 'Medical Director', 'Facility Admin',
@@ -290,9 +290,9 @@ describe('steps 5 and 6, Staff and Roles', () => {
 describe('step 8, Review', () => {
   it('lists Health ID support\'s check as what stands before launch while it is pending, in today\'s words', async () => {
     const sent = await openSetup('/provider/onboarding/review', 'pending')
-    const review = screen.getByRole('heading', { level: 2, name: 'Review your configuration' }).closest('section') as HTMLElement
+    const review = screen.getByRole('heading', { level: 2, name: 'Check your choices' }).closest('section') as HTMLElement
     expect(within(review).getByText(PENDING).closest('.hid-ehr-onboarding-blocker')).not.toBeNull()
-    press('Review launch requirements')
+    press('Check what’s needed to launch')
     expect(eyebrow()).toBe('Step 9 of 9 · Launch')
     expect(screen.getByRole('heading', { level: 2, name: 'Ready to launch?' })).toBeDefined()
     expect(within(document.querySelector('.hid-ehr-onboarding-step') as HTMLElement).getByText(PENDING)).toBeDefined()
@@ -316,7 +316,7 @@ describe('step 9, Launch', () => {
     const before = sent.length
     press('Launch facility')
     await waitFor(() => expect(where()).toBe('/provider'))
-    expect(info).toHaveBeenCalledWith('Health ID has no launch step yet. Your EHR is already open.')
+    expect(info).toHaveBeenCalledWith('Health ID has no launch step yet. Your records system is already open.')
     expect(await screen.findByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), / })).toBeDefined()
     // Whatever Home reads, the launch itself wrote nothing.
     expect(sent.slice(before).every(request => request.route.startsWith('GET '))).toBe(true)

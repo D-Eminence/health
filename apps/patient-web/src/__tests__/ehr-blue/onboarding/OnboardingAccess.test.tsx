@@ -79,7 +79,7 @@ describe('in the frame', () => {
     expect(within(nav()).queryByRole('link', { name: 'Facility setup' })).toBeNull()
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Facility setup')
     expect(screen.getByText(sentence)).toBeDefined()
-    expect(screen.queryByRole('navigation', { name: 'Onboarding steps' })).toBeNull()
+    expect(screen.queryByRole('navigation', { name: 'Setup steps' })).toBeNull()
     expect(screen.queryByText(/is not open to you here/)).toBeNull()
 
     fireEvent.keyDown(document, { key: 'k', ctrlKey: true })

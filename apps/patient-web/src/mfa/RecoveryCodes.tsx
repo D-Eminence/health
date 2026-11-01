@@ -39,18 +39,18 @@ export function RecoveryCodes({ codes, onDone, doneLabel = 'Continue', limits, f
   }
 
   return <section className={classNames.root} aria-labelledby={headingId}>
-    <Heading id={headingId} ref={headingRef} tabIndex={headingRef ? -1 : undefined}>Save your recovery codes</Heading>
-    <p>These {codes.length} codes are shown only now. Each one signs you in once if you lose your authenticator.
-      {limits ? ` ${limits}` : ''} Store them offline, somewhere only you can reach.</p>
+    <Heading id={headingId} ref={headingRef} tabIndex={headingRef ? -1 : undefined}>Save your backup codes</Heading>
+    <p>These {codes.length} codes are shown only now. Each one signs you in once if you lose your phone.
+      {limits ? ` ${limits}` : ''} Write them down or print them, and keep them where only you can reach.</p>
     <ol className={classNames.list}>{codes.map(code => <li key={code}><code>{code}</code></li>)}</ol>
     <div className={classNames.actions}>
       <Button onClick={() => void copy()}>Copy codes</Button>
       <Button onClick={() => saveFile(new Blob([text], { type: 'text/plain' }), fileName)}>Download codes</Button>
     </div>
     {copyState === 'copied' && <p role="status" className={classNames.success}>Codes copied.</p>}
-    {copyState === 'failed' && <p role="alert" className={classNames.error}>Copying is not available here. Download the codes or write them down.</p>}
+    {copyState === 'failed' && <p role="alert" className={classNames.error}>Copying doesn’t work here. Download the codes or write them down.</p>}
     <label className={classNames.checkbox}><input type="checkbox" checked={saved} onChange={event => setSaved(event.target.checked)} />
-      I have stored these recovery codes somewhere safe</label>
+      I have saved these backup codes somewhere safe</label>
     <Button primary disabled={!saved} onClick={onDone}>{doneLabel}</Button>
   </section>
 }

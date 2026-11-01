@@ -28,7 +28,7 @@ const suspended = (reason: unknown) => isHidApiError(reason) && reason.code === 
  * own words are shown; these stand in only if a problem came without them. GOOGLE_LINK_REQUIRED's are always ours:
  * Identity's say to link Google from Settings, which the portal no longer has (the owner's decision of 2026-10-28).
  */
-export const GOOGLE_NOT_REGISTERED = 'This Google account is not registered on Health ID. Use Sign Up first.'
+export const GOOGLE_NOT_REGISTERED = 'This Google account has no Health ID yet. Sign up first.'
 export const GOOGLE_LINK_REQUIRED = 'This Google account can’t be linked automatically. Sign in with your email or Health ID and password.'
 const STAND_INS: Readonly<Record<string, string>> = { ACCOUNT_SUSPENDED, GOOGLE_NOT_REGISTERED }
 const googleNotRegistered = (reason: unknown) => isHidApiError(reason) && reason.code === 'GOOGLE_NOT_REGISTERED'
@@ -82,7 +82,7 @@ export function SignIn() {
       await signIn(signInPrincipal(email), password, turnstileToken)
       navigate('/', { replace: true })
     } catch (reason) {
-      setError(isHidApiError(reason) ? refusalText(reason) : 'Sign-in could not be completed. Please try again.')
+      setError(isHidApiError(reason) ? refusalText(reason) : 'We couldn’t sign you in. Please try again.')
       setRefusal(suspended(reason) ? 'suspended' : isHidApiError(reason) && reason.status === 401 ? 'unfinished' : null)
     } finally {
       setTurnstileToken(null)
@@ -102,7 +102,7 @@ export function SignIn() {
       acceptGoogleSession(result)
       navigate('/', { replace: true })
     } catch (reason) {
-      setError(isHidApiError(reason) ? refusalText(reason) : reason instanceof Error ? reason.message : 'Google sign-in could not be completed.')
+      setError(isHidApiError(reason) ? refusalText(reason) : reason instanceof Error ? reason.message : 'We couldn’t sign you in with Google.')
       setRefusal(suspended(reason) ? 'suspended' : googleNotRegistered(reason) ? 'google-not-registered' : null)
     } finally {
       setTurnstileToken(null)
@@ -122,8 +122,8 @@ export function SignIn() {
         {error && refusal === 'suspended' ? withSupportLink(error) : error || sessionError}
         {error && refusal === 'unfinished' && <> Didn't finish signing up? <Link to="/enroll" state={signupHandoff(signInPrincipal(email))}>Finish creating your Health ID</Link></>}
         {error && refusal === 'google-not-registered' && <> <Link to="/enroll">Sign up for a Health ID</Link></>}</Alert>}
-      {signedOutElsewhere && !error && <Alert intent="warning">You were signed out because this browser's Health ID sign-in changed in another tab. Sign in again to continue.</Alert>}
-      {otherPortalSession && <Alert intent="info" live={false}>A provider sign-in is active in this browser. Signing in here replaces it. <Link to="/provider">Go to the provider portal</Link></Alert>}
+      {signedOutElsewhere && !error && <Alert intent="warning">You were signed out because someone signed in or out on this device in another tab. Sign in again to continue.</Alert>}
+      {otherPortalSession && <Alert intent="info" live={false}>A provider is signed in on this device. Signing in here will sign them out. <Link to="/provider">Go to the provider site</Link></Alert>}
       <form onSubmit={event => void submit(event)} className="flex flex-col gap-4">
         <Field label="Email, phone or Health ID" htmlFor="sign-in-principal" errorId="sign-in-principal-error"
           error={principalError ? <span role="alert">{principalError}</span> : undefined}>

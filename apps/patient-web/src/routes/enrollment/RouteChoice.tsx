@@ -24,7 +24,7 @@ interface RouteChoiceProps {
  */
 export function RouteChoice({ focusTarget, busy, online, onlineNote, facility, onSend, onFacility, onDifferentNin }: RouteChoiceProps) {
   return <section className="flex flex-col gap-4 text-sm text-ink-2 [&_h2]:m-0 [&_h2]:text-title-2 [&_h2]:text-ink [&_h2]:outline-none [&_p]:m-0" aria-labelledby="enroll-choose-title">
-    <h2 id="enroll-choose-title" ref={focusTarget} tabIndex={-1}>Prove this NIN is yours</h2>
+    <h2 id="enroll-choose-title" ref={focusTarget} tabIndex={-1}>Show this NIN is yours</h2>
     <p>Choose one way. No Health ID is made until you do.</p>
     <section className="flex flex-col gap-2 rounded-xl p-4 ring-1 ring-line [&_:is(h2,h3)]:m-0 [&_:is(h2,h3)]:text-sm [&_:is(h2,h3)]:font-semibold [&_:is(h2,h3)]:text-ink [&_a]:font-medium [&_a]:text-brand-ink [&_p]:m-0" aria-labelledby="enroll-online-title">
       <h3 id="enroll-online-title">Get a code by text message</h3>
@@ -34,11 +34,11 @@ export function RouteChoice({ focusTarget, busy, online, onlineNote, facility, o
       </> : <p>{onlineNote}</p>}
     </section>
     <section className="flex flex-col gap-2 rounded-xl p-4 ring-1 ring-line [&_:is(h2,h3)]:m-0 [&_:is(h2,h3)]:text-sm [&_:is(h2,h3)]:font-semibold [&_:is(h2,h3)]:text-ink [&_a]:font-medium [&_a]:text-brand-ink [&_p]:m-0" aria-labelledby="enroll-facility-title">
-      <h3 id="enroll-facility-title">Register at a healthcare facility</h3>
+      <h3 id="enroll-facility-title">Sign up at a health facility</h3>
       {facility ? <>
-        <p>Lost your SIM, changed your number, or can't get the code? A staff member at a participating facility checks one original photo ID in person.</p>
-        <button type="button" className={buttonClass({ variant: online ? 'secondary' : 'primary', size: 'lg', block: true })} disabled={busy} onClick={onFacility}>Register at a facility</button>
-      </> : <p>Registering at a healthcare facility isn't available right now. If you can't use the phone linked to your NIN, try again later or contact Health ID support.</p>}
+        <p>Lost your SIM, changed your number, or can't get the code? A staff member at a facility that works with Health ID checks one original photo ID in person.</p>
+        <button type="button" className={buttonClass({ variant: online ? 'secondary' : 'primary', size: 'lg', block: true })} disabled={busy} onClick={onFacility}>Sign up at a facility</button>
+      </> : <p>Signing up at a facility isn't possible right now. If you can't use the phone linked to your NIN, try again later or contact Health ID support.</p>}
     </section>
     <button type="button" className={buttonClass({ variant: 'link', className: 'self-start' })} disabled={busy} onClick={onDifferentNin}>Use a different NIN</button>
   </section>

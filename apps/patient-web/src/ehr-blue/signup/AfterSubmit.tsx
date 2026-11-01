@@ -5,6 +5,7 @@ import { staffSignInHref, staffSiteForOrganizationType, staffSiteHostname } from
 import { organizationTypeNote } from '../../staff/routes/ProviderEnrollment'
 import { registeringDetails, seconds, waitWords, type OrganizationType } from './enrollmentRules'
 import { PasswordField } from './PasswordField'
+import { PasswordRules } from '../../PasswordRules'
 import { ErrorWords, ScreenHeading, SignInLink, SupportContact } from './parts'
 import type { Enrollment } from './useEnrollment'
 
@@ -19,10 +20,10 @@ function Alert({ e }: { readonly e: Enrollment }) {
 export function Submitted({ e }: { readonly e: Enrollment }) {
   return (
     <>
-      <ScreenHeading id="hid-ehr-signup-submitted-title">Facility registration submitted</ScreenHeading>
-      <p className="hid-ehr-signup-lede">We’ve checked your CAC registration number. Confirm your email next, then choose your
+      <ScreenHeading id="hid-ehr-signup-submitted-title">Facility details sent</ScreenHeading>
+      <p className="hid-ehr-signup-lede">We’ve checked your CAC number. Confirm your email next, then choose your
         password. Full access begins once Health ID support has checked your facility, usually within one working day.</p>
-      <EhrButton className="hid-ehr-signup-wide" onClick={() => e.setSubmitted(false)}>Continue to verification</EhrButton>
+      <EhrButton className="hid-ehr-signup-wide" onClick={() => e.setSubmitted(false)}>Continue</EhrButton>
     </>
   )
 }
@@ -36,7 +37,7 @@ export function CodeStep({ e }: { readonly e: Enrollment }) {
   const email = e.administratorEmail
   return (
     <>
-      <ScreenHeading id="hid-ehr-signup-code-title">Enter your verification code</ScreenHeading>
+      <ScreenHeading id="hid-ehr-signup-code-title">Enter the code we emailed you</ScreenHeading>
       <p className="hid-ehr-signup-lede">{e.unsent === 'recent'
         ? `We didn’t send a new code, because one was sent to ${email} less than a minute ago. Enter the six `
           + 'digit code from that email.'
@@ -47,12 +48,12 @@ export function CodeStep({ e }: { readonly e: Enrollment }) {
       <Alert e={e} />
       <form className="hid-ehr-signup-form hid-ehr-signup-stack" noValidate
         onSubmit={(event: FormEvent) => { event.preventDefault(); void e.verify() }}>
-        <EhrField label="Verification code" controlId="hid-ehr-signup-code">
+        <EhrField label="Code from the email" controlId="hid-ehr-signup-code">
           <EhrInput required inputMode="numeric" autoComplete="one-time-code" value={e.code}
             onChange={event => e.setCode(event.target.value)} pattern="[0-9]{6}" maxLength={6} />
         </EhrField>
         <EhrButton type="submit" className="hid-ehr-signup-wide" busy={e.busy} disabled={e.code.length !== 6}>
-          {e.busy ? 'Checking…' : 'Verify code'}
+          {e.busy ? 'Checking…' : 'Check code'}
         </EhrButton>
       </form>
       <section className="hid-ehr-signup-resend" aria-labelledby="hid-ehr-signup-resend-title">
@@ -74,7 +75,7 @@ export function CodeStep({ e }: { readonly e: Enrollment }) {
           : e.resent === 'in-force' ? 'We didn’t send a new code: the code in the latest email from Health ID still works.'
             : 'We didn’t send a new code, and the last one can no longer be used.'}</p>}</div>
       </section>
-      <EhrButton variant="secondary" className="hid-ehr-signup-wide" onClick={() => e.startAgain(0)}>Change unverified email</EhrButton>
+      <EhrButton variant="secondary" className="hid-ehr-signup-wide" onClick={() => e.startAgain(0)}>Use a different email</EhrButton>
     </>
   )
 }
@@ -113,18 +114,18 @@ export function PasswordStep({ e }: { readonly e: Enrollment }) {
       </div>
       <Alert e={e} />
       <form className="hid-ehr-signup-form hid-ehr-signup-stack" noValidate onSubmit={submit}>
-        <p id="hid-ehr-signup-password-hint" className="hid-ehr-hint">Choose a password of at least 12 characters. You’ll use
-          it with {e.accountEmail} to sign in. Once your account is created, you go straight into the Provider Portal as your
-          facility’s administrator.</p>
+        <p id="hid-ehr-signup-account-hint" className="hid-ehr-hint">You’ll sign in with {e.accountEmail} and this
+          password. Then you go straight into the Provider Portal as your facility’s administrator.</p>
         {/* Lets a password manager save the new password with its email. */}
         <input type="email" hidden readOnly autoComplete="username" value={e.accountEmail} />
         <PasswordField label="Password" controlId="hid-ehr-signup-password" required autoComplete="new-password"
-          minLength={12} maxLength={256} aria-describedby="hid-ehr-signup-password-hint" value={e.password}
+          minLength={12} maxLength={256} aria-describedby="hid-ehr-signup-account-hint hid-ehr-signup-password-hint" value={e.password}
           onChange={event => e.setPassword(event.target.value)} />
         <PasswordField label="Confirm password" controlId="hid-ehr-signup-confirm" toggleLabel="Show password confirmation" required
           autoComplete="new-password"
           maxLength={256} value={confirm} error={mismatch ? 'Passwords do not match.' : undefined}
           onChange={event => setConfirm(event.target.value)} />
+        <PasswordRules id="hid-ehr-signup-password-hint" password={e.password} confirm={confirm} />
         <EhrButton type="submit" className="hid-ehr-signup-wide" busy={e.busy} disabled={e.password.length < 12}>
           {e.busy ? 'Creating provider account…' : 'Create provider account'}
         </EhrButton>

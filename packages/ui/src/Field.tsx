@@ -123,11 +123,12 @@ export interface PasswordInputProps extends Omit<InputProps, 'type'> {
   readonly appearance?: 'control' | 'plain'
 }
 
+// The eye sits inside the field, at its end, as people expect: one box, not a field and a button side by side.
 const PASSWORD_TOGGLE =
-  'inline-flex min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-(--radius-control) border border-line-control bg-surface px-3 font-sans text-[13px] font-semibold text-brand transition-colors duration-150 hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-60 aria-pressed:border-brand aria-pressed:bg-brand-tint'
+  'absolute inset-y-0 right-0 inline-flex w-11 cursor-pointer items-center justify-center rounded-r-(--radius-control) border-0 bg-transparent text-muted transition-colors duration-150 hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-60 aria-pressed:text-brand'
 
 /**
- * A password field with a Show toggle beside it.
+ * A password field with a show/hide eye inside it, at its end.
  *
  * The toggle is a button outside the field's label: inside a label its text
  * becomes part of the field's name ("Password Show password"). Its name stays
@@ -139,7 +140,7 @@ const PASSWORD_TOGGLE =
  * the page is left (or kept in the back/forward cache) or the person switches
  * away from it (another tab or app, a locked screen): the device may be shared.
  * It is the only reveal control: Edge's own button in password fields is hidden.
- * The toggle takes the field's height, so it lines up with the fields beside it.
+ * The eye button is the field's full height and 44px wide; the field keeps room for it on the right.
  * Give the field a label with htmlFor={id}. Its ref is the field.
  */
 export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(function PasswordInput({
@@ -201,7 +202,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(fu
   }
 
   return (
-    <span className="flex min-w-0 items-stretch gap-2">
+    <span className="relative flex min-w-0 items-stretch">
       <input
         {...rest}
         ref={setField}
@@ -214,20 +215,20 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(fu
         aria-invalid={state.invalid || undefined}
         aria-describedby={state.describedBy}
         className={cx(appearance === 'control' && CONTROL_BASE, appearance === 'control' && controlState(state.invalid),
-          'min-w-0 flex-1 [&::-ms-reveal]:hidden', className)}
+          'min-w-0 flex-1 pr-12 [&::-ms-reveal]:hidden', className)}
       />
       <button
         type="button"
         className={PASSWORD_TOGGLE}
         aria-label={toggleLabel}
+        title={shown ? 'Hide password' : 'Show password'}
         aria-pressed={shown}
         aria-controls={id}
         disabled={disabled}
         onMouseDown={event => event.preventDefault()}
         onClick={toggle}
       >
-        <HugeiconsIcon icon={shown ? ViewOffSlashIcon : ViewIcon} size={16} strokeWidth={1.8} aria-hidden="true" />
-        Show
+        <HugeiconsIcon icon={shown ? ViewOffSlashIcon : ViewIcon} size={18} strokeWidth={1.8} aria-hidden="true" />
       </button>
     </span>
   )

@@ -15,8 +15,8 @@ const BASE = '/identity/patient-enrollments'
 const NIN = '12345678901'
 const PASSWORD = 'a-long-enough-password'
 const anonymous = { state: { status: 'anonymous', principal: null } } as const
-const HOLDER_PROOF_REQUIRED = 'We could not confirm that this NIN is yours, so this registration can\'t be finished. Start again with your NIN, and prove it with a code or at a participating facility.'
-const ENDED = 'This registration is no longer open on this device. It may have expired after 24 hours, been replaced by a newer registration for the same NIN, or ended when someone signed in or out in this browser.'
+const HOLDER_PROOF_REQUIRED = 'We couldn\'t confirm this NIN is yours, so this sign-up can\'t be finished. Start again with your NIN. Show it’s yours with a code or at a facility.'
+const ENDED = 'This sign-up is no longer open on this device. It may have run out after 24 hours, been replaced by a newer sign-up for the same NIN, or ended when someone signed in or out on this device.'
 
 function gateway(start: Handler, post: Record<string, Handler>): Handler {
   return (path, method, body) => {
@@ -61,7 +61,7 @@ describe('activation refused after the holder proof', () => {
     const outcome = heading.closest('section')!
     expect(within(outcome).getByRole('link', { name: 'Reset your password' }).getAttribute('href')).toBe('/recover')
     expect(within(outcome).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
-    expect(outcome.textContent).toContain('quote this reference: corr-activation.')
+    expect(outcome.textContent).toContain('give them this number: corr-activation.')
     expect(screen.queryByLabelText('Password')).toBeNull()
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
   })
@@ -143,10 +143,10 @@ describe('a registration this page started that was completed', () => {
     start = () => problem(409, 'IDEMPOTENCY_KEY_REUSED', 'This enrollment retry key belongs to a different request')
     await submitNin()
 
-    const heading = await screen.findByRole('heading', { name: 'This registration was completed' })
+    const heading = await screen.findByRole('heading', { name: 'This sign-up is already finished' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
     const outcome = heading.closest('section')!
-    expect(outcome.textContent).toContain('A Health ID was created with this registration, so it can\'t be started again.')
+    expect(outcome.textContent).toContain('A Health ID was already made with this sign-up, so it can\'t be started again.')
     expect(outcome.textContent).toContain('Sign in with your email or Health ID and the password you chose. If you can\'t, or you don\'t have your Health ID, reset your password.')
     expect(within(outcome).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
     expect(within(outcome).getByRole('link', { name: 'Reset your password' }).getAttribute('href')).toBe('/recover')

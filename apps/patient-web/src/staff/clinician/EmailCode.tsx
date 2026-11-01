@@ -166,7 +166,7 @@ export function EmailCode<Answer>({ idPrefix, action, email, onEmail, focusFirst
         maxLength={6} required {...problemProps(problem, codeId)} />
     </Field>
     <button type="submit" className={buttonClass({ variant: 'primary', block: true })} disabled={busy !== null || !isSixDigitCode(code)}>
-      {busy === 'verify' ? 'Checking…' : 'Verify email'}</button>
+      {busy === 'verify' ? 'Checking…' : 'Confirm email'}</button>
     {/* Mounted throughout, so each change is announced once. */}
     <p role="status" className="patient-field-hint">{notice && <span key={notice.id}>{notice.text}</span>}</p>
     {canResend ? <>

@@ -30,7 +30,7 @@ function open(element: ReactElement) {
 }
 
 async function confirmStepUp() {
-  fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
+  fireEvent.change(await screen.findByLabelText('Sign-in code'), { target: { value: '123456' } })
   fireEvent.click(screen.getByRole('button', { name: 'Confirm and continue' }))
 }
 

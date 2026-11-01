@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { isBlankHealthIdInput, signInPrincipal, signInPrincipalInput } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
+import { PasswordRules } from '../PasswordRules'
 import { Turnstile } from '../Turnstile'
 import { AuthLayout } from '../AuthLayout'
 import { useSession } from '../session'
@@ -47,7 +48,7 @@ export function Recovery() {
     catch (reason) {
       if (isHidApiError(reason) && reason.code === 'OTP_INVALID_OR_EXPIRED') budget.refused(signInPrincipal(identifier))
       const aboutField = isFieldProblem(reason, stepCodes)
-      setError(isHidApiError(reason) ? reason.message : 'We could not complete that step. Please try again.')
+      setError(isHidApiError(reason) ? reason.message : 'Something went wrong. Please try again.')
       setFieldError(aboutField)
       setErrorAlert(!aboutField || fromField)
     } finally { setBusy(false); stepFocus.focus() }
@@ -116,7 +117,7 @@ export function Recovery() {
     {error && !fieldError && <Alert intent="error" id="recovery-error" live={errorAlert}>{error}</Alert>}
     {step === 'start' && <form onSubmit={start} className="flex flex-col gap-4">
       <Field label="Email, phone or Health ID" htmlFor="recovery-identifier" hintId="recovery-start-hint"
-        hint="We’ll send a code to the verified email on your account." errorId={errorId} error={fieldError ? problem : undefined}>
+        hint="We’ll send a code to the email on your account." errorId={errorId} error={fieldError ? problem : undefined}>
         <InputR id="recovery-identifier" ref={stepFocus.target} required autoComplete="username" value={identifier} placeholder="HID-…, you@example.com or 0803…"
           onChange={event => setIdentifier(signInPrincipalInput(event.target.value))}
           aria-invalid={invalid} aria-describedby={describedBy('recovery-start-hint', errorId)} />
@@ -128,15 +129,16 @@ export function Recovery() {
       <CodeBoxes id="recovery-code" label="Code" value={code} onChange={setCode} inputRef={stepFocus.target} busy={busy}
         invalid={invalid} describedBy={describedBy('recovery-code-hint', errorId)} />
       {fieldError && <p id="recovery-error" className="m-0 text-xs font-medium text-danger-ink">{problem}</p>}
-      <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Verify code'}</Button>
+      <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Check code'}</Button>
       {budget.shown && <p className="m-0 text-[13px] text-ink-3">{CODE_BUDGET_HINT}</p>}</form>}
     {step === 'password' && <form onSubmit={complete} noValidate className="flex flex-col gap-4">
-      <Field label="New password" htmlFor="recovery-password" hintId="recovery-password-hint" hint="At least 12 characters. Tap Show to check it."
+      <Field label="New password" htmlFor="recovery-password"
         errorId={fieldError ? errorId : tooShort ? 'recovery-short' : undefined}
         error={fieldError ? problem : tooShort && password.length < 12 ? 'Use at least 12 characters.' : undefined}>
         <PasswordInput id="recovery-password" toggleLabel="Show new password" ref={stepFocus.target} required autoComplete="new-password" minLength={12} value={password}
           onChange={event => { setPassword(event.target.value); if (event.target.value.length >= 12) setTooShort(false) }}
           aria-invalid={invalid ?? (tooShort || undefined)} aria-describedby={describedBy('recovery-password-hint', errorId, tooShort && 'recovery-short')} />
+        <PasswordRules id="recovery-password-hint" password={password} />
       </Field>
       <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy}>{busy ? 'Saving…' : 'Reset password'}</Button></form>}
     {step === 'complete' && <div role="status" className="flex flex-col gap-4"><h2 ref={stepFocus.target} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">Your password is reset.</h2>

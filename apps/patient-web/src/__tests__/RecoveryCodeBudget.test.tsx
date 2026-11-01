@@ -26,7 +26,7 @@ vi.mock('../Turnstile', () => ({
  * 403 OTP_INVALID_OR_EXPIRED.
  */
 const refused = () => new HidApiError(403, 'The verification code is invalid or expired', { code: 'OTP_INVALID_OR_EXPIRED' })
-const BUDGET = /After 5 wrong codes within 15 minutes, every code is refused, even a correct one/
+const BUDGET = /After 5 wrong codes, no code works for 15 minutes, not even the right one/
 
 beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }) })
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.useRealTimers() })
@@ -38,11 +38,11 @@ const pages = [
     // Six boxes (CodeBoxes.tsx): the sixth digit sends the code.
     send: (code: HTMLElement, value: string) => enterCode(code, value) },
   { name: 'provider', field: 'Work email', identifier: 'clinician@example.test', same: /same work email/,
-    different: 'Use a different work email', sendCode: 'Send recovery code', codeLabel: 'Recovery code',
+    different: 'Use a different work email', sendCode: 'Send code', codeLabel: 'Code',
     start: principal.start, verify: principal.verify, open: () => render(<MemoryRouter><PrincipalRecovery audience="staff" /></MemoryRouter>),
     send: async (code: HTMLElement, value: string) => {
       fireEvent.change(code, { target: { value } })
-      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Check code' })) })
     } },
 ] as const
 const NEW_CODE = 'Start again for a new code'
@@ -122,7 +122,7 @@ describe.each(pages)('$name password recovery', page => {
     await screen.findByText(BUDGET)
     page.verify.mockResolvedValueOnce({ verified: true, challengeId: 'challenge-1', verificationToken: 'token-1' })
     fireEvent.change(screen.getByLabelText(page.codeLabel), { target: { value: '123456' } })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Check code' })) })
     await screen.findByLabelText('New password')
     fireEvent.click(screen.getByRole('button', { name: page.different }))
     await screen.findByLabelText(page.field)

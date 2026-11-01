@@ -85,7 +85,7 @@ describe('with the clinic switch on', () => {
 
   it('signs in on the blue page, with today\'s steps, into the blue EHR', async () => {
     await open('/provider/sign-in')
-    expect(await screen.findByText('Sign in to your facility workspace.')).toBeDefined()
+    expect(await screen.findByText('Sign in to work at your facility.')).toBeDefined()
     expect(blueRoot()).not.toBeNull()
     expect(loads.signIn).toBe(1)
     fireEvent.change(screen.getByRole('textbox', { name: 'Email' }), { target: { value: 'next.clinician@example.test' } })

@@ -23,7 +23,7 @@ import { capturedStaffInvitation } from '../invitationCapture'
  * Said when Identity ended the sign-in for want of an authenticator
  * (403 STAFF_MFA_REQUIRED, hid-system #71): here, and on the session-ended screen.
  */
-export const STAFF_MFA_NOTICE = 'Staff now need a code from an authenticator app to sign in. '
+export const STAFF_MFA_NOTICE = 'Staff now sign in with a code app on your phone (like Google Authenticator). '
   + 'Sign in again to set one up, or to use the one you have.'
 
 function StaffMfaButton({ primary, className, type = 'button', ...rest }: { primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -45,7 +45,7 @@ const STAFF_MFA_LOOK: StaffMfaLook = {
 function passwordRefusal(caught: unknown): string {
   if (isHidApiError(caught) && caught.code === 'STAFF_MFA_FACTOR_UNPROVEN') return STAFF_MFA_FACTOR_UNPROVEN
   if (isHidApiError(caught) && caught.code === 'MFA_UNAVAILABLE') return STAFF_MFA_UNAVAILABLE
-  return caught instanceof Error ? caught.message : 'Sign in failed.'
+  return caught instanceof Error ? caught.message : 'We couldn’t sign you in. Please try again.'
 }
 
 /**
@@ -65,7 +65,7 @@ function getStaffLandingPath(search: string, session: StaffSession): string {
   return product ? staffLandingPath(product, session) : '/provider'
 }
 
-const CHALLENGE_UNAVAILABLE = 'Human verification could not load. Refresh the page and try again.'
+const CHALLENGE_UNAVAILABLE = 'The security check didn’t load. Refresh the page and try again.'
 
 function TurnstileChallenge({ onToken, resetKey }: { onToken: (token: string) => void; resetKey: number }) {
   const siteKey = getEnvironment().turnstileSiteKey
@@ -157,7 +157,7 @@ export function SignIn() {
 
   function finish(session: StaffSession) {
     try { completeSignIn(session) }
-    catch (caught) { restart(caught instanceof Error ? caught.message : 'Sign in failed.'); return }
+    catch (caught) { restart(caught instanceof Error ? caught.message : 'We couldn’t sign you in. Please try again.'); return }
     navigate(getStaffLandingPath(location.search, session))
   }
 

@@ -6,7 +6,7 @@ import { ORGANIZATION_TYPE_NOTES, organizationTypeNote, ProviderEnrollment } fro
 import { focusWhenShown } from '../../__tests__/focusWhenShown'
 
 /** Where the sign-up is, as the shared stepper says it: "Step 2 of 4 · Email". */
-const stepper = () => screen.getByRole('group', { name: 'Provider enrollment steps' }).textContent
+const stepper = () => screen.getByRole('group', { name: 'Facility sign-up steps' }).textContent
 
 /**
  * The portal's self-service provider enrollment (/provider/enroll), which the
@@ -85,12 +85,12 @@ function open(entry = '/provider/enroll') {
 const select = (name: string) => screen.getByRole('combobox', { name }) as HTMLSelectElement
 
 function enterDetails() {
-  fireEvent.change(screen.getByRole('textbox', { name: 'CAC registration number' }), { target: { value: 'rc 123 456' } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'CAC number' }), { target: { value: 'rc 123 456' } })
   fireEvent.change(screen.getByRole('textbox', { name: 'Administrator full name' }), { target: { value: '  Ada Admin ' } })
   fireEvent.change(screen.getByRole('textbox', { name: 'Administrator email' }), { target: { value: ' Ada@Example.TEST ' } })
 }
 
-describe('provider enrollment', () => {
+describe('facility sign-up', () => {
   it('opens with the product the public site linked to', () => {
     open('/provider/enroll?product=pharmacy')
     expect(select('Product').value).toBe('pharmacy')
@@ -117,7 +117,7 @@ describe('provider enrollment', () => {
     open()
     fireEvent.click(screen.getByRole('radio', { name: 'Pharmacy' }))
     enterDetails()
-    expect((screen.getByRole('textbox', { name: 'CAC registration number' }) as HTMLInputElement).value).toBe('RC123456')
+    expect((screen.getByRole('textbox', { name: 'CAC number' }) as HTMLInputElement).value).toBe('RC123456')
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(await screen.findByRole('heading', { name: 'Confirm your administrator email' })).toBeTruthy()
@@ -134,9 +134,9 @@ describe('provider enrollment', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // The next step is said, with support's address, rather than Identity's "requires manual resolution".
-    expect((await screen.findByRole('alert')).textContent).toBe('This organization needs a check by Health ID before it can be '
-      + 'set up, for example because its CAC number is already linked to Health ID or another sign-up for it is in progress. '
-      + 'Contact Health ID support at support@healthidentitydirectory.com, and give your CAC registration number.')
+    expect((await screen.findByRole('alert')).textContent).toBe('Health ID must check this organization before it can be '
+      + 'set up. For example, its CAC number may already be on Health ID, or someone else may be signing it up. '
+      + 'Contact Health ID support at support@healthidentitydirectory.com, and give your CAC number.')
     expect(screen.getByRole('link', { name: 'support@healthidentitydirectory.com' }).getAttribute('href'))
       .toBe('mailto:support@healthidentitydirectory.com')
     expect(screen.queryByRole('heading', { name: 'Confirm your administrator email' })).toBeNull()
@@ -149,10 +149,10 @@ describe('provider enrollment', () => {
     expect(screen.queryByText(/sign-ups get the Provider Portal for now/)).toBeNull()
     enterDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
     await screen.findByLabelText('Password')
-    expect(screen.getByText(/After activation, you will set up an authenticator app/)).toBeTruthy()
+    expect(screen.getByText(/Next, you’ll set up sign-in codes on your phone/)).toBeTruthy()
     expect(api.availability).not.toHaveBeenCalled()
     // The organization panel is Novu's (main serves no …/profile), and main keeps its fine print.
     expect(api.profile).not.toHaveBeenCalled()
@@ -162,7 +162,7 @@ describe('provider enrollment', () => {
 
   it('keeps main\'s CAC hint, which names its review before activation', () => {
     open()
-    expect(screen.getByText('We check it with the official registry. One already linked to Health ID is reviewed by our team first.')).toBeTruthy()
+    expect(screen.getByText('From your business registration certificate. If it’s already on Health ID, our team checks it first.')).toBeTruthy()
   })
 
   it('verifies the six-digit code, then activates with a password of at least 12 characters', async () => {
@@ -175,18 +175,19 @@ describe('provider enrollment', () => {
     enterDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    const code = await screen.findByRole('textbox', { name: 'Email verification code' }) as HTMLInputElement
+    const code = await screen.findByRole('textbox', { name: 'Code from the email' }) as HTMLInputElement
     fireEvent.change(code, { target: { value: '12a34' } })
     expect(code.value).toBe('1234')
-    expect((screen.getByRole('button', { name: 'Verify email' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Confirm email' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.change(code, { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
     await waitFor(() => expect(api.verify).toHaveBeenCalledWith('challenge-1', '123456'))
 
     const password = await screen.findByLabelText('Password') as HTMLInputElement
-    // It can be shown (@hid/ui PasswordInput), and the step's hint describes it.
+    // It can be shown (@hid/ui PasswordInput), and the step's hint and the password rules describe it.
     expect(screen.getByRole('button', { name: 'Show password', pressed: false }).getAttribute('aria-controls')).toBe(password.id)
-    expect(password.getAttribute('aria-describedby')).toBe('provider-password-hint')
+    expect(password.getAttribute('aria-describedby')).toBe('provider-account-hint provider-password-hint')
+    expect(document.getElementById('provider-password-hint')?.textContent).toContain('At least 12 characters (not yet)')
     fireEvent.change(password, { target: { value: 'short-pass' } })
     expect((screen.getByRole('button', { name: 'Create provider account' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.change(password, { target: { value: 'a-long-enough-password' } })
@@ -216,8 +217,8 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
     open()
     enterDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create provider account' }))
     return reload
@@ -234,8 +235,8 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
     staff.activateEnrollment.mockResolvedValueOnce({ ...session, recoveryCodes: ['ABCDE-FGHJK', 'MNPQR-STVWX'] })
     const reload = await activate('mfa_enrollment_required')
 
-    await stepShown('Set up an authenticator app')
-    expect(screen.getByText(/^Your provider account is active\./)).toBeTruthy()
+    await stepShown('Set up sign-in codes')
+    expect(screen.getByText(/^Your provider account is ready\./)).toBeTruthy()
     expect(stepper()).toBe('Step 4 of 4 · Authenticator')
     // Activation is not a sign-in: nothing opens until the authenticator is set up.
     expect(reload).not.toHaveBeenCalled()
@@ -243,23 +244,23 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
     expect(TabChannel.posted).toEqual([])
     fireEvent.click(screen.getByRole('button', { name: 'Begin setup' }))
 
-    await stepShown('Add Health ID to your authenticator app')
+    await stepShown('Add Health ID to your code app')
     // The activation is the enrolment's proof: no code is emailed (Identity would answer 409 PROOF_COMPLETE).
     expect(staff.startEnrollment).toHaveBeenCalledWith(undefined)
     expect(staff.sendEnrollmentCode).not.toHaveBeenCalled()
-    expect(screen.getByRole('img', { name: 'QR code of the setup key, for your authenticator app' })).toBeTruthy()
+    expect(screen.getByRole('img', { name: 'Square code to scan with your code app' })).toBeTruthy()
     expect(screen.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeTruthy()
-    fireEvent.change(screen.getByRole('textbox', { name: 'Authenticator code' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Activate authenticator' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Sign-in code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Turn on sign-in codes' }))
 
-    await stepShown('Save your recovery codes')
+    await stepShown('Save your backup codes')
     expect(staff.activateEnrollment).toHaveBeenCalledWith('123456')
     // The browser holds the session now: the other tabs are told at once, though nothing on this page listens,
     // on a channel opened for the message and closed again.
     expect(TabChannel.posted).toEqual([TOLD])
     expect(TabChannel.open.size).toBe(0)
     expect(reload).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByLabelText('I have stored these recovery codes somewhere safe'))
+    fireEvent.click(screen.getByLabelText('I have saved these backup codes somewhere safe'))
     fireEvent.click(screen.getByRole('button', { name: 'Continue to the Provider Portal' }))
 
     expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
@@ -271,10 +272,10 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
     staff.verifyMfa.mockResolvedValueOnce(session)
     const reload = await activate('mfa_required')
 
-    await stepShown('Verify it’s you')
+    await stepShown('Confirm it’s you')
     expect(screen.queryByRole('button', { name: 'Start again' })).toBeNull()
     expect(TabChannel.posted).toEqual([])
-    fireEvent.change(screen.getByRole('textbox', { name: 'Authenticator code' }), { target: { value: '123456' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Sign-in code' }), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
 
     expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
@@ -287,12 +288,12 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
   it('sends the administrator to sign in when the setup step has expired (401 MFA_CHALLENGE_INVALID)', async () => {
     staff.startEnrollment.mockRejectedValueOnce(new HidApiError(401, 'Sign in again to continue', { code: 'MFA_CHALLENGE_INVALID' }))
     const reload = await activate('mfa_enrollment_required')
-    await stepShown('Set up an authenticator app')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Begin setup' }))
 
     await stepShown('Sign in to finish setting up')
-    expect((await screen.findByRole('alert')).textContent).toBe('This sign-in step expired or ran out of attempts. Sign in again.')
-    expect(screen.getByText(/^Your provider account is active\. Sign in with your administrator email/)).toBeTruthy()
+    expect((await screen.findByRole('alert')).textContent).toBe('This step timed out or had too many tries. Sign in again.')
+    expect(screen.getByText(/^Your provider account is ready\. Sign in with your administrator email/)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Sign in to the Provider Portal' }).getAttribute('href')).toBe('/provider/sign-in')
     expect(reload).not.toHaveBeenCalled()
     // No session was set.
@@ -305,7 +306,7 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
     const started = deferred<never>()
     staff.startEnrollment.mockReturnValueOnce(started.promise)
     await activate('mfa_enrollment_required')
-    await stepShown('Set up an authenticator app')
+    await stepShown('Set up sign-in codes')
     fireEvent.click(screen.getByRole('button', { name: 'Begin setup' }))
     const shown = focusWhenShown(() => screen.queryByRole('heading', { name: 'Sign in to finish setting up' }))
     answer(() => started.reject(new HidApiError(401, 'Sign in again to continue', { code: 'MFA_CHALLENGE_INVALID' })))
@@ -345,7 +346,7 @@ describe('facility self sign-up on Novu (P4)', () => {
   const SUPPORT = 'support@healthidentitydirectory.com'
   const START_UNAVAILABLE = 'We couldn’t finish checking your details just now. Please try again in a minute. '
     + 'If an email with a code arrives meanwhile, ignore it: you’ll get a new code when you try again.'
-  const STEP_UNAVAILABLE = 'Facility sign-up is temporarily unavailable. Please try again in a few minutes.'
+  const STEP_UNAVAILABLE = 'Facility sign-up isn’t working right now. Please try again in a few minutes.'
   const session = { activated: true, organizationId: 'org-1', facilityId: 'facility-1', accountId: 'account-1',
     actor: { id: 'staff-1', roles: ['org_admin'], permissions: [], facilities: [] }, expiresAt: '2026-10-24T20:00:00.000Z' }
 
@@ -371,8 +372,8 @@ describe('facility self sign-up on Novu (P4)', () => {
 
   async function toPassword() {
     await toCode()
-    fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
     await screen.findByLabelText('Password')
   }
 
@@ -388,8 +389,8 @@ describe('facility self sign-up on Novu (P4)', () => {
       + `pharmacies can’t sign themselves up on Health ID at the moment. To register your facility, contact Health ID support at ${SUPPORT}.`)
     expect(screen.getByRole('link', { name: SUPPORT }).getAttribute('href')).toBe(`mailto:${SUPPORT}`)
     expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
-    expect(screen.queryByRole('textbox', { name: 'CAC registration number' })).toBeNull()
-    expect(screen.queryByRole('group', { name: 'Provider enrollment steps' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'CAC number' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Facility sign-up steps' })).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
   }
 
@@ -439,16 +440,16 @@ describe('facility self sign-up on Novu (P4)', () => {
     expect(stepper()).toBe('Step 1 of 3 · Facility')
     expect(screen.getByText('Sign up your clinic, hospital, lab or pharmacy.')).toBeTruthy()
     // Novu reviews nothing before activation: a CAC number already linked is refused, so the CAC hint does not say so.
-    expect(screen.getByText('We check it with the official registry. Health ID support checks every new facility within one '
-      + 'working day.')).toBeTruthy()
+    expect(screen.getByText('From your business registration certificate. We check it, and Health ID support checks every new '
+      + 'facility within one working day.')).toBeTruthy()
     expect(screen.queryByText(/reviewed by our team/)).toBeNull()
     await submitDetails()
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
-    expect((await screen.findByLabelText('Password')).getAttribute('aria-describedby')).toBe('provider-password-hint')
-    expect(document.getElementById('provider-password-hint')?.textContent).toBe('Choose a password of at least 12 characters. '
-      + 'You’ll use it with ada@example.test to sign in. Once your account is created, you go straight into the Provider Portal '
-      + 'as your facility’s administrator.')
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+    expect((await screen.findByLabelText('Password')).getAttribute('aria-describedby')).toBe('provider-account-hint provider-password-hint')
+    expect(document.getElementById('provider-account-hint')?.textContent).toBe('You’ll sign in with ada@example.test and this '
+      + 'password. Then you go straight into the Provider Portal as your facility’s administrator.')
+    expect(document.getElementById('provider-password-hint')?.textContent).toContain('At least 12 characters')
     expect(screen.queryByText(/authenticator/i)).toBeNull()
     expect(stepper()).toBe('Step 3 of 3 · Password')
     // A password manager saves the new password with the administrator's email.
@@ -466,14 +467,14 @@ describe('facility self sign-up on Novu (P4)', () => {
       + 'add your doctors, nurses and other staff. If you are a licensed doctor or nurse, you can also get clinical access '
       + 'yourself.'],
     ['Laboratory', 'laboratory', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually '
-      + 'within one working day, the Laboratory workspace opens, and you can add your laboratory scientists and receptionists. '
+      + 'within one working day, the Laboratory pages open, and you can add your laboratory scientists and receptionists. '
       + 'Health ID is not sending test orders between facilities at the moment, so orders from hospitals and clinics can’t '
-      + 'reach your Laboratory workspace yet: it shows the tests ordered at your own laboratory. If you are a licensed '
-      + 'laboratory scientist, you can also work in the Laboratory workspace yourself.'],
+      + 'reach your Laboratory pages yet: it shows the tests ordered at your own laboratory. If you are a licensed '
+      + 'laboratory scientist, you can also work in the Laboratory pages yourself.'],
     ['Pharmacy', 'pharmacy', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually '
-      + 'within one working day, the Pharmacy workspace opens, and you can add your pharmacists and receptionists. Health ID '
+      + 'within one working day, the Pharmacy pages open, and you can add your pharmacists and receptionists. Health ID '
       + 'is not sending prescriptions between facilities at the moment, so prescriptions from hospitals and clinics can’t '
-      + 'reach your Pharmacy workspace yet. If you are a licensed pharmacist, you can also work in the Pharmacy workspace '
+      + 'reach your Pharmacy pages yet. If you are a licensed pharmacist, you can also work in the Pharmacy pages '
       + 'yourself.'],
     ['Other healthcare provider', 'ehr', 'Your Provider Portal opens at once. When Health ID support has checked your facility, '
       + 'usually within one working day, you can add your staff. Health ID support agrees with you which access you need.'],
@@ -489,13 +490,13 @@ describe('facility self sign-up on Novu (P4)', () => {
   // clinicians at other facilities can send it orders once support has checked it; a hospital's note is unchanged.
   it.each([
     ['Laboratory', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
-      + 'working day, the Laboratory workspace opens, and you can add your laboratory scientists and receptionists. Once Health '
+      + 'working day, the Laboratory pages open, and you can add your laboratory scientists and receptionists. Once Health '
       + 'ID support has checked your facility, Health ID clinicians at other facilities can send you lab requests. If you are '
-      + 'a licensed laboratory scientist, you can also work in the Laboratory workspace yourself.'],
+      + 'a licensed laboratory scientist, you can also work in the Laboratory pages yourself.'],
     ['Pharmacy', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
-      + 'working day, the Pharmacy workspace opens, and you can add your pharmacists and receptionists. Once Health ID support '
+      + 'working day, the Pharmacy pages open, and you can add your pharmacists and receptionists. Once Health ID support '
       + 'has checked your facility, Health ID clinicians at other facilities can send you prescriptions. If you are a licensed '
-      + 'pharmacist, you can also work in the Pharmacy workspace yourself.'],
+      + 'pharmacist, you can also work in the Pharmacy pages yourself.'],
     ['Hospital', ORGANIZATION_TYPE_NOTES.hospital],
   ])('says a %s sign-up can receive orders from other facilities when Health ID sends them (P4c)', async (type, note) => {
     api.availability.mockResolvedValue({ open: true, crossFacilityOrders: true })
@@ -556,8 +557,8 @@ describe('facility self sign-up on Novu (P4)', () => {
     api.activate.mockResolvedValueOnce(session)
     await toDetails('/provider/enroll?type=laboratory')
     await submitDetails()
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
     await screen.findByLabelText('Password')
     createAccount()
 
@@ -569,31 +570,31 @@ describe('facility self sign-up on Novu (P4)', () => {
 
   describe('a refused start says what to do, and stays at the details', () => {
     it.each([
-      [409, 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT', 'This browser is signed in to Health ID, for example to a patient account. '
-        + 'Sign out of Health ID first, or open this page in a private (incognito) window, then try again.'],
+      [409, 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT', 'Someone is signed in to Health ID on this device, for example to a patient account. '
+        + 'Sign out first, or open this page in a private (incognito) window, then try again.'],
       // Registered, held by another sign-up, closed on the way, or closed by support in the last 7 days for this email or
       // network (0086, A8 and R15; a lapse refuses no one): only support can say which, so no wait is promised.
-      [409, 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW', 'This organization can’t be set up automatically right now: its CAC number '
-        + 'may already be linked to Health ID, another sign-up for it may be in progress, or Health ID support may have '
-        + `recently closed a sign-up for it. Contact Health ID support at ${SUPPORT}, and give your CAC registration number.`],
-      [409, 'ORGANIZATION_REVIEW_REQUIRED', 'This organization needs a check by Health ID before it can be set up, for example '
-        + 'because its CAC number is already linked to Health ID or another sign-up for it is in progress. Contact Health ID '
-        + `support at ${SUPPORT}, and give your CAC registration number.`],
-      [409, 'PROVIDER_ALREADY_REGISTERED', 'This organization is already registered with Health ID. If you are its administrator, '
+      [409, 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW', 'We can’t set up this organization by ourselves right now. Its CAC number '
+        + 'may already be on Health ID, someone else may be signing it up, or Health ID support may have '
+        + `recently closed a sign-up for it. Contact Health ID support at ${SUPPORT}, and give your CAC number.`],
+      [409, 'ORGANIZATION_REVIEW_REQUIRED', 'Health ID must check this organization before it can be set up. For example, '
+        + 'its CAC number may already be on Health ID, or someone else may be signing it up. Contact Health ID '
+        + `support at ${SUPPORT}, and give your CAC number.`],
+      [409, 'PROVIDER_ALREADY_REGISTERED', 'This organization is already on Health ID. If you are its administrator, '
         + `sign in instead. Contact Health ID support at ${SUPPORT}.`],
-      [409, 'PROVIDER_CAC_PROFILE_INCOMPLETE', 'We couldn’t set up your organization automatically from its CAC record: the '
+      [409, 'PROVIDER_CAC_PROFILE_INCOMPLETE', 'We couldn’t set up your organization from its CAC record. The '
         + 'record is missing details we need, or it doesn’t show the company as active. Contact Health ID support at '
-        + `${SUPPORT}, and give your CAC registration number.`],
+        + `${SUPPORT}, and give your CAC number.`],
       [409, 'VERSION_CONFLICT', 'Your sign-up changed while we were working on it. Please try again.'],
-      [422, 'CAC_NOT_VERIFIED', 'We couldn’t verify this CAC registration number. Check the number on your CAC certificate '
+      [422, 'CAC_NOT_VERIFIED', 'We couldn’t check this CAC number. Check the number on your CAC certificate '
         + '(it starts with RC, BN or IT) and try again.'],
-      [429, 'APPLICATION_RATE_LIMITED', 'There have been too many sign-up attempts from your network. Please try again later.'],
-      [429, 'VERIFICATION_QUOTA_EXCEEDED', 'The limit on CAC checks has been reached for now. Please try again later.'],
+      [429, 'APPLICATION_RATE_LIMITED', 'Too many sign-up tries from your internet connection. Please try again later.'],
+      [429, 'VERIFICATION_QUOTA_EXCEEDED', 'We can’t check more CAC numbers for now. Please try again later.'],
       [403, 'ORIGIN_DENIED', 'This site isn’t allowed to send facility sign-ups. Open Set up your facility from '
         + 'healthidentitydirectory.com and try again.'],
-      [400, 'TURNSTILE_REQUIRED', 'The security check didn’t go through. Please complete it again, then retry.'],
-      [403, 'TURNSTILE_REJECTED', 'The security check didn’t go through. Please complete it again, then retry.'],
-      [403, 'TURNSTILE_EXPIRED_OR_REPLAYED', 'The security check didn’t go through. Please complete it again, then retry.'],
+      [400, 'TURNSTILE_REQUIRED', 'The security check didn’t work. Please do it again, then try again.'],
+      [403, 'TURNSTILE_REJECTED', 'The security check didn’t work. Please do it again, then try again.'],
+      [403, 'TURNSTILE_EXPIRED_OR_REPLAYED', 'The security check didn’t work. Please do it again, then try again.'],
       [403, 'TURNSTILE_CONTEXT_MISMATCH', 'The security check was made for another Health ID site. Open Set up your facility '
         + 'from healthidentitydirectory.com and try again.'],
       [403, 'TURNSTILE_HOSTNAME_MISMATCH', 'The security check was made for another Health ID site. Open Set up your facility '
@@ -605,7 +606,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       await submitDetails()
       expect((await screen.findByRole('alert')).textContent).toBe(text)
       expect(screen.queryByRole('heading', { name: 'Confirm your administrator email' })).toBeNull()
-      expect((screen.getByRole('textbox', { name: 'CAC registration number' }) as HTMLInputElement).value).toBe('RC123456')
+      expect((screen.getByRole('textbox', { name: 'CAC number' }) as HTMLInputElement).value).toBe('RC123456')
       // Only an outage is followed by another availability read.
       expect(api.availability).toHaveBeenCalledTimes(1)
       // A refusal that was answered sent no code, so Continue can be pressed again at once (with a new check).
@@ -623,8 +624,8 @@ describe('facility self sign-up on Novu (P4)', () => {
     } else if (step === 'verify') {
       api.verify.mockRejectedValueOnce(closed)
       await toCode()
-      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
     } else {
       api.activate.mockRejectedValueOnce(closed)
       await toPassword()
@@ -682,8 +683,8 @@ describe('facility self sign-up on Novu (P4)', () => {
     it('at verify says sign-up is temporarily unavailable and keeps the code step', async () => {
       api.verify.mockRejectedValueOnce(problem(503, 'UPSTREAM_UNAVAILABLE'))
       await toCode()
-      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
       expect((await screen.findByRole('alert')).textContent).toBe(STEP_UNAVAILABLE)
       expect(api.availability).toHaveBeenCalledTimes(2)
       expect(screen.getByRole('heading', { name: 'Confirm your administrator email' })).toBeTruthy()
@@ -692,8 +693,8 @@ describe('facility self sign-up on Novu (P4)', () => {
     it('at verify after a lost connection asks to check the connection', async () => {
       api.verify.mockRejectedValueOnce(new HidApiError(0, 'We could not reach the service.', { code: 'NETWORK_ERROR' }))
       await toCode()
-      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
       expect((await screen.findByRole('alert')).textContent).toBe('We couldn’t reach Health ID. Check your internet connection and try again.')
     })
 
@@ -709,9 +710,9 @@ describe('facility self sign-up on Novu (P4)', () => {
   it('says a wrong or expired code plainly, and keeps the code step', async () => {
     api.verify.mockRejectedValueOnce(problem(401, 'ORGANIZATION_COMPLETION_CODE_INVALID', 'The confirmation code is invalid or expired'))
     await toCode()
-    fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('That code isn’t right, or it has expired. Check the latest '
+    fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('That code is wrong or too old. Check the latest '
       + 'email from Health ID and try again, or send a new code.')
     expect(screen.getByRole('heading', { name: 'Confirm your administrator email' })).toBeTruthy()
   })
@@ -721,9 +722,9 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.activate.mockRejectedValueOnce(problem(401, 'ORGANIZATION_COMPLETION_SESSION_INVALID'))
       await toPassword()
       createAccount()
-      expect((await screen.findByRole('alert')).textContent).toBe('Your sign-up session has expired. Check your details and '
+      expect((await screen.findByRole('alert')).textContent).toBe('Your sign-up timed out. Check your details and '
         + 'select Continue to get a new code.')
-      expect((screen.getByRole('textbox', { name: 'CAC registration number' }) as HTMLInputElement).value).toBe('RC123456')
+      expect((screen.getByRole('textbox', { name: 'CAC number' }) as HTMLInputElement).value).toBe('RC123456')
       expect((screen.getByRole('textbox', { name: 'Administrator email' }) as HTMLInputElement).value).toBe('Ada@Example.TEST')
       // The last code was sent less than a minute ago: a start now would send none.
       expect(screen.getByText(/^You can try again in \d+ seconds?\.$/)).toBeTruthy()
@@ -742,12 +743,12 @@ describe('facility self sign-up on Novu (P4)', () => {
         + `help, contact Health ID support at ${SUPPORT}.`)
       expect(screen.queryByText(/24 hours/)).toBeNull()
       expect(screen.queryByLabelText('Password')).toBeNull()
-      expect(screen.queryByRole('group', { name: 'Provider enrollment steps' })).toBeNull()
+      expect(screen.queryByRole('group', { name: 'Facility sign-up steps' })).toBeNull()
 
       fireEvent.click(screen.getByRole('button', { name: 'Start again with another email' }))
       await screen.findByRole('button', { name: 'Continue' })
       const field = (name: string) => screen.getByRole('textbox', { name }) as HTMLInputElement
-      expect(field('CAC registration number').value).toBe('RC123456')
+      expect(field('CAC number').value).toBe('RC123456')
       expect(field('Administrator full name').value.trim()).toBe('Ada Admin')
       expect(field('Administrator email').value).toBe('')
       expect(screen.queryByRole('alert')).toBeNull()
@@ -761,8 +762,8 @@ describe('facility self sign-up on Novu (P4)', () => {
       await screen.findByRole('heading', { name: 'Confirm your administrator email' })
       expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ cacRegistrationNumber: 'RC123456',
         administratorEmail: 'ada@clinic.example' }))
-      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '654321' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '654321' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
       await screen.findByLabelText('Password')
       expect(api.verify).toHaveBeenLastCalledWith('challenge-2', '654321')
       expect((screen.getByLabelText('Password') as HTMLInputElement).value).toBe('')
@@ -773,8 +774,8 @@ describe('facility self sign-up on Novu (P4)', () => {
       await toPassword()
       createAccount()
       const heading = await screen.findByRole('heading', { name: 'Health ID needs to check this organization' })
-      expect(heading.nextElementSibling?.textContent).toBe('This organization can’t be set up automatically. It may already be '
-        + `registered with Health ID, for example for another product. Contact Health ID support at ${SUPPORT} to finish setting up your facility.`)
+      expect(heading.nextElementSibling?.textContent).toBe('We can’t set up this organization by ourselves. It may already be '
+        + `on Health ID, for example for another product. Contact Health ID support at ${SUPPORT} to finish setting up your facility.`)
     })
 
     it.each([
@@ -811,7 +812,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect((await screen.findByRole('alert')).textContent).toBe(STEP_UNAVAILABLE)
       createAccount()
       expect(await screen.findByRole('heading', { name: 'Your account may already be ready' })).toBeTruthy()
-      expect(screen.queryByRole('textbox', { name: 'CAC registration number' })).toBeNull()
+      expect(screen.queryByRole('textbox', { name: 'CAC number' })).toBeNull()
     })
   })
 
@@ -836,8 +837,8 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect((await screen.findByText('We’ve sent a new code to ada@example.test.')).parentElement?.getAttribute('role')).toBe('status')
       // The wait starts again for the new code.
       await waitFor(() => expect(resend().disabled).toBe(true))
-      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '222222' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '222222' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
       await waitFor(() => expect(api.verify).toHaveBeenCalledWith('challenge-2', '222222'))
     })
 
@@ -887,9 +888,9 @@ describe('facility self sign-up on Novu (P4)', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
       await waitFor(() => expect(continueButton().disabled).toBe(false))
       fireEvent.click(continueButton())
-      fireEvent.change(await screen.findByRole('textbox', { name: 'Email verification code' }), { target: { value: '555555' } })
+      fireEvent.change(await screen.findByRole('textbox', { name: 'Code from the email' }), { target: { value: '555555' } })
       expect(api.start).toHaveBeenCalledTimes(5)
-      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
       await waitFor(() => expect(api.verify).toHaveBeenCalledWith('challenge-5', '555555'))
     })
 
@@ -905,8 +906,8 @@ describe('facility self sign-up on Novu (P4)', () => {
         fireEvent.click(resend())
         await waitFor(() => expect(api.start).toHaveBeenCalledTimes(code))
       }
-      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '555555' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '555555' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
       await screen.findByLabelText('Password')
       fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
       await act(async () => { vi.advanceTimersByTime(61_000) })
@@ -938,8 +939,8 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect(screen.queryByText(/We’ve sent as many codes as we can for now/)).toBeNull()
       fireEvent.click(resend())
       await waitFor(() => expect(api.start).toHaveBeenCalledTimes(6))
-      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '666666' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '666666' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
       await waitFor(() => expect(api.verify).toHaveBeenCalledWith('challenge-6', '666666'))
     })
   })
@@ -950,7 +951,7 @@ describe('facility self sign-up on Novu (P4)', () => {
     await toDetails()
     await submitDetails()
     // Not Identity's own sentence: the page's, and a wait, so the day's CAC checks are not spent at once.
-    expect((await screen.findByRole('alert')).textContent).toBe('We couldn’t check your CAC registration number just now. '
+    expect((await screen.findByRole('alert')).textContent).toBe('We couldn’t check your CAC number just now. '
       + 'Please try again in a minute.')
     expect(api.availability).toHaveBeenCalledTimes(2)
     await waitFor(() => expect(screen.getByText(/^You can try again in \d+ seconds?\.$/)).toBeTruthy())
@@ -994,7 +995,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       await toPassword()
       expect(registering()).toBe('You’re registering LEKKI LABS LTD, CAC number RC7654321, as a hospital, with Dr Ada Obi as '
         + 'its administrator. Check that this is your organization before you create the account.')
-      expect(document.getElementById('provider-password-hint')?.textContent).toMatch(/You’ll use it with ada\.obi@example\.test to sign in\./)
+      expect(document.getElementById('provider-account-hint')?.textContent).toMatch(/You’ll sign in with ada\.obi@example\.test and this password\./)
       expect((document.querySelector('input[autocomplete="username"]') as HTMLInputElement).value).toBe('ada.obi@example.test')
     })
 
@@ -1079,11 +1080,11 @@ describe('facility self sign-up on Novu (P4)', () => {
     it('goes back to the details when the enrollment session is gone (401), as activation would', async () => {
       api.profile.mockRejectedValueOnce(problem(401, 'ORGANIZATION_COMPLETION_SESSION_INVALID'))
       await toCode()
-      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
-      expect((await screen.findByRole('alert')).textContent).toBe('Your sign-up session has expired. Check your details and '
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+      expect((await screen.findByRole('alert')).textContent).toBe('Your sign-up timed out. Check your details and '
         + 'select Continue to get a new code.')
-      expect((screen.getByRole('textbox', { name: 'CAC registration number' }) as HTMLInputElement).value).toBe('RC123456')
+      expect((screen.getByRole('textbox', { name: 'CAC number' }) as HTMLInputElement).value).toBe('RC123456')
       expect(screen.queryByLabelText('Password')).toBeNull()
       expect(api.activate).not.toHaveBeenCalled()
     })
@@ -1091,15 +1092,15 @@ describe('facility self sign-up on Novu (P4)', () => {
     it('shows the closed notice when sign-up closed after the code (423)', async () => {
       api.profile.mockRejectedValueOnce(problem(423, 'PROVIDER_ENROLLMENT_UNAVAILABLE', 'Facility self sign-up is not open'))
       await toCode()
-      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
       await closedNoticeShown()
     })
 
     it('says to sign out first when the browser signed in meanwhile (409), at the password step', async () => {
       api.profile.mockRejectedValueOnce(problem(409, 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT'))
       await toPassword()
-      expect((screen.getByRole('alert')).textContent).toMatch(/^This browser is signed in to Health ID/)
+      expect((screen.getByRole('alert')).textContent).toMatch(/^Someone is signed in to Health ID on this device/)
       expect(registering()).toMatch(/^You’re registering the organization with CAC number RC123456\./)
     })
 
@@ -1131,12 +1132,12 @@ describe('facility self sign-up on Novu (P4)', () => {
       fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
 
       // The confirmed sign-up is closed (P4b, …/withdraw), so the mistyped number holds nothing.
-      expect((await screen.findByRole('alert')).textContent).toBe('Check your details, and the CAC registration number on your '
+      expect((await screen.findByRole('alert')).textContent).toBe('Check your details, and the CAC number on your '
         + 'CAC certificate. Correct them, then select Continue. No account has been created. We’ve closed that sign-up, so the '
         + 'CAC number you entered is free again.')
       expect(api.withdraw).toHaveBeenCalledTimes(1)
       expect(screen.queryByRole('link', { name: SUPPORT })).toBeNull()
-      const cacField = screen.getByRole('textbox', { name: 'CAC registration number' }) as HTMLInputElement
+      const cacField = screen.getByRole('textbox', { name: 'CAC number' }) as HTMLInputElement
       expect(cacField.value).toBe('RC123456')
       expect(api.activate).not.toHaveBeenCalled()
       // Main's answers (no codeSent): the same CAC number is the same sign-up, whose last code is under a minute old.
@@ -1149,8 +1150,8 @@ describe('facility self sign-up on Novu (P4)', () => {
       await screen.findByRole('heading', { name: 'Confirm your administrator email' })
       expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ cacRegistrationNumber: 'RC123465',
         administratorEmail: 'ada@example.test' }))
-      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '222222' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '222222' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
       await screen.findByLabelText('Password')
       expect(api.verify).toHaveBeenLastCalledWith('challenge-2', '222222')
       // The password typed for the wrong organization is not kept, and the new sign-up is read afresh.
@@ -1159,7 +1160,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect(registering()).toMatch(/^You’re registering IKEJA CARE LIMITED, CAC number RC123465,/)
     })
 
-    const HELD = 'Check your details, and the CAC registration number on your CAC certificate. Correct them, then select '
+    const HELD = 'Check your details, and the CAC number on your CAC certificate. Correct them, then select '
       + 'Continue. No account has been created. For up to 24 hours, nobody else can sign up with the CAC number you entered. '
       + `If it belongs to another company, tell Health ID support at ${SUPPORT}, and give that number, so they can free it.`
 
@@ -1177,7 +1178,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
       expect((await screen.findByRole('alert')).textContent).toBe(text)
       expect(screen.getByRole('link', { name: SUPPORT }).getAttribute('href')).toBe(`mailto:${SUPPORT}`)
-      expect((screen.getByRole('textbox', { name: 'CAC registration number' }) as HTMLInputElement).value).toBe('RC123456')
+      expect((screen.getByRole('textbox', { name: 'CAC number' }) as HTMLInputElement).value).toBe('RC123456')
       expect(api.activate).not.toHaveBeenCalled()
     })
 
@@ -1194,8 +1195,8 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.profile.mockResolvedValueOnce({ ...PROFILE, organizationName: 'OTHER COMPANY LTD' })
       await toPassword()
       fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
-      expect((await screen.findByRole('alert')).textContent).toBe('This browser is signed in to Health ID, for example to a '
-        + 'patient account. Sign out of Health ID first, or open this page in a private (incognito) window, then try again.')
+      expect((await screen.findByRole('alert')).textContent).toBe('Someone is signed in to Health ID on this device, for example to a '
+        + 'patient account. Sign out first, or open this page in a private (incognito) window, then try again.')
       expect(screen.getByLabelText('Password')).toBeTruthy()
       expect(screen.getByRole('button', { name: 'This isn’t my organization' })).toBeTruthy()
     })
@@ -1221,8 +1222,8 @@ describe('facility self sign-up on Novu (P4)', () => {
     const codeHint = () => screen.getByRole('heading', { name: 'Confirm your administrator email' }).nextElementSibling?.textContent
 
     async function verifyWith(code: string) {
-      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: code } })
-      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: code } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
     }
 
     it('says a sent code was sent, and waits as long as Identity says', async () => {
@@ -1287,7 +1288,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect(screen.getByText('You can try again in about 22 hours.')).toBeTruthy()
       expect(continueButton().disabled).toBe(true)
       // Other details are another sign-up.
-      fireEvent.change(screen.getByRole('textbox', { name: 'CAC registration number' }), { target: { value: 'RC654321' } })
+      fireEvent.change(screen.getByRole('textbox', { name: 'CAC number' }), { target: { value: 'RC654321' } })
       await waitFor(() => expect(continueButton().disabled).toBe(false))
     })
 
@@ -1358,7 +1359,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.activate.mockRejectedValueOnce(problem(401, 'ORGANIZATION_COMPLETION_SESSION_INVALID'))
       await toPassword()
       createAccount()
-      expect((await screen.findByRole('alert')).textContent).toMatch(/^Your sign-up session has expired\./)
+      expect((await screen.findByRole('alert')).textContent).toMatch(/^Your sign-up timed out\./)
       await waitFor(() => expect(continueButton().disabled).toBe(false))
       expect(screen.queryByText(/You can try again in/)).toBeNull()
     })
@@ -1388,8 +1389,8 @@ describe('facility self sign-up on Novu (P4)', () => {
         + `our side. Please try again in a few minutes. If this keeps happening, contact Health ID support at ${SUPPORT}.`)
       expect(screen.queryByRole('heading', { name: 'Facility sign-up isn’t open right now' })).toBeNull()
       expect(screen.queryByText(/can’t sign themselves up/)).toBeNull()
-      expect(screen.queryByRole('textbox', { name: 'CAC registration number' })).toBeNull()
-      expect(screen.queryByRole('group', { name: 'Provider enrollment steps' })).toBeNull()
+      expect(screen.queryByRole('textbox', { name: 'CAC number' })).toBeNull()
+      expect(screen.queryByRole('group', { name: 'Facility sign-up steps' })).toBeNull()
     }
 
     it('shows the closed notice for reason closed', async () => {
@@ -1422,7 +1423,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect((await screen.findByRole('alert')).textContent).toBe(START_UNAVAILABLE)
       expect(api.availability).toHaveBeenCalledTimes(2)
       expect(screen.queryByRole('heading', { name: 'Facility sign-up isn’t open right now' })).toBeNull()
-      expect(screen.getByRole('textbox', { name: 'CAC registration number' })).toBeTruthy()
+      expect(screen.getByRole('textbox', { name: 'CAC number' })).toBeTruthy()
     })
 
     it('shows the closed notice after an outage when availability answers closed', async () => {
@@ -1482,7 +1483,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect((await screen.findByRole('alert')).textContent).toBe('This CAC number’s sign-up was started with ada@example.test, '
         + 'so it can’t use another email yet. Finish it with the code sent to ada@example.test, or sign up with the new email '
         + `24 hours after the first sign-up started. Otherwise, contact Health ID support at ${SUPPORT}, and give your CAC `
-        + 'registration number.')
+        + 'number.')
       expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ administratorEmail: 'ada@example.org' }))
 
       fireEvent.click(screen.getByRole('button', { name: 'Use the email I first gave' }))
@@ -1535,7 +1536,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.start.mockRejectedValueOnce(problem(409, 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW'))
       await toDetails()
       await submitDetails()
-      expect((await screen.findByRole('alert')).textContent).toMatch(/^This organization can’t be set up automatically right now:/)
+      expect((await screen.findByRole('alert')).textContent).toMatch(/^We can’t set up this organization by ourselves right now\./)
       expect(keptNote()).toBeNull()
     })
 
@@ -1562,8 +1563,8 @@ describe('facility self sign-up on Novu (P4)', () => {
       }
 
       async function verifyWith(code: string) {
-        fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: code } })
-        fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+        fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: code } })
+        fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
       }
 
       it('stays at the details, says the change was not applied, and continues with it once a code can carry it', async () => {
@@ -1737,7 +1738,7 @@ describe('provider enrollment on main keeps Identity’s words for a refused act
     open()
     enterDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findByRole('textbox', { name: 'Email verification code' })
+    await screen.findByRole('textbox', { name: 'Code from the email' })
     fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
     fireEvent.change(await screen.findByRole('textbox', { name: 'Administrator email' }), { target: { value: 'ada@example.org' } })
     expect(screen.queryByText(/can’t be changed until 24 hours after it started/)).toBeNull()
@@ -1745,7 +1746,7 @@ describe('provider enrollment on main keeps Identity’s words for a refused act
       { code: 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW' }))
     await waitFor(() => expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(false))
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    expect((await screen.findByRole('alert')).textContent).toMatch(/^This organization needs a check by Health ID before it can be set up/)
+    expect((await screen.findByRole('alert')).textContent).toMatch(/^Health ID must check this organization before it can be set up/)
   })
 
   it('says an administrator email that already has an account can’t be used, as before (main has no 24-hour lapse)', async () => {
@@ -1754,8 +1755,8 @@ describe('provider enrollment on main keeps Identity’s words for a refused act
     open()
     enterDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create provider account' }))
     const heading = await screen.findByRole('heading', { name: 'This email already has a Health ID account' })
@@ -1771,8 +1772,8 @@ describe('provider enrollment on main keeps Identity’s words for a refused act
     open()
     enterDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create provider account' }))
     expect((await screen.findByRole('alert')).textContent).toBe('Organization profile completion session is invalid or expired')
@@ -1801,7 +1802,7 @@ describe('provider enrollment opened on a staff product host', () => {
     open(entry)
     expect(screen.getByRole('link', { name: 'Continue to facility sign-up' }).getAttribute('href')).toBe(href)
     expect(screen.getByText('Facility sign-up is done on the main Health ID site.')).toBeTruthy()
-    expect(screen.queryByRole('textbox', { name: 'CAC registration number' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'CAC number' })).toBeNull()
     expect(api.availability).not.toHaveBeenCalled()
   })
 })

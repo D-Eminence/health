@@ -259,10 +259,10 @@ function StatusPage() {
     return <ClinicianFrame labelledBy="clinician-status-title">
       <StepHeading id="clinician-status-title" level={1} focus={false}>Check your clinician application</StepHeading>
       <section className="clinician-panel" aria-labelledby="clinician-status-staff-title">
-        <StepHeading id="clinician-status-staff-title" focus>Your authenticator can't be set up here</StepHeading>
+        <StepHeading id="clinician-status-staff-title" focus>Sign-in codes can't be set up here</StepHeading>
         <p role="alert" className="patient-inline-error">{STAFF_SIGN_IN_REQUIRED}</p>
         <div className="clinician-actions">
-          <Link className={buttonClass({ variant: 'primary', block: true })} to="/provider/sign-in">Sign in to the provider portal</Link>
+          <Link className={buttonClass({ variant: 'primary', block: true })} to="/provider/sign-in">Sign in to the provider site</Link>
           <TextButton onClick={() => toForm(null)}>Check another email address</TextButton>
         </div>
       </section>
@@ -277,10 +277,10 @@ function StatusPage() {
         {formNotice && <p role={formNotice.tone} className={formNotice.tone === 'alert' ? 'patient-inline-error' : 'patient-inline-success'}>
           {formNotice.text}</p>}
         <p className="patient-page-copy">Enter the email address you applied with. We'll send it a code. This doesn't sign you in to the
-          provider portal.</p>
+          provider site.</p>
         <EmailCode key={formRound} idPrefix="clinician-status" action="clinician-application-status" email={email} onEmail={setEmail}
           focusFirst={false}
-          copy={{ emailHeading: 'Your work email', emailIntro: null, sent: statusCodeSentCopy, codeInvalid: 'That code is wrong or has expired.' }}
+          copy={{ emailHeading: 'Your work email', emailIntro: null, sent: statusCodeSentCopy, codeInvalid: 'That code is wrong or too old.' }}
           send={clinicianApplicationApi.sendStatusCode} verify={clinicianApplicationApi.verifyStatusCode} refused={statusRefused}
           onStage={() => setMoved(true)}
           onVerified={(answer: ClinicianStatusVerified) => {
@@ -308,7 +308,7 @@ function StatusPage() {
   const view = account!
   return <ClinicianFrame labelledBy="clinician-status-title">
     <StepHeading id="clinician-status-title" level={1} focus={moved}>Your clinician applications</StepHeading>
-    <p className="patient-page-copy">Applications made with {view.account.email}. This page doesn't sign you in to the provider portal.</p>
+    <p className="patient-page-copy">Applications made with {view.account.email}. This page doesn't sign you in to the provider site.</p>
     <p ref={noticeLine} tabIndex={-1} role="status" className="patient-field-hint">{notice && <span key={notice.id}>{notice.text}</span>}</p>
     {listError && <div className="clinician-actions">
       <StepError error={listError} />
@@ -317,10 +317,10 @@ function StatusPage() {
     {/* The account has no authenticator (reset, or its waiting applications closed) and no card offers to set one up. */}
     {view.stage === 'enrolment_required' && !view.applications.some(application => application.state === 'awaiting_authenticator') &&
       <div className="clinician-panel">
-        <p className="patient-page-copy">Your account has no authenticator app set up.
+        <p className="patient-page-copy">Your account has no code app set up.
           {view.applications.some(application => OPEN_STATES.has(application.state))
-            ? " HID can't go on with your applications until you set one up." : ''}</p>
-        <div><PrimaryButton onClick={() => toAuthenticator('enrol')}>Set up authenticator</PrimaryButton></div>
+            ? " Health ID can't go on with your applications until you set one up." : ''}</p>
+        <div><PrimaryButton onClick={() => toAuthenticator('enrol')}>Set up sign-in codes</PrimaryButton></div>
       </div>}
     {view.applications.length === 0 && <p className="patient-page-copy">There are no applications for this address.</p>}
     <ul className="clinician-applications">
@@ -330,7 +330,7 @@ function StatusPage() {
       </li>)}
     </ul>
     <ApplyAnother account={view} takeOver={takeOver} onWorking={setApplyWorking} onClosed={intakeClosed} onApplied={async (created, facility) => {
-      await load({ fromList: true, done: { notice: `Your application to ${facility} was sent. It is in HID's verification queue.`,
+      await load({ fromList: true, done: { notice: `Your application to ${facility} was sent. Health ID will check it soon.`,
         change: shown => shown.applications.some(application => application.applicationId === created.applicationId) ? shown
           : { ...shown, applications: [created, ...shown.applications] } } })
     }} />
@@ -364,8 +364,8 @@ function ApplicationCard({ view, stage, onSetUp, onWithdraw }: {
     {stateCopy(view).map(text => <p key={text}>{text}</p>)}
     <div className="clinician-actions">
       {view.state === 'awaiting_authenticator' && stage === 'enrolment_required' &&
-        <PrimaryButton onClick={onSetUp}>Set up authenticator</PrimaryButton>}
-      {active && <Link className={buttonClass({ variant: 'primary', block: true })} to="/provider/sign-in">Sign in to the provider portal</Link>}
+        <PrimaryButton onClick={onSetUp}>Set up sign-in codes</PrimaryButton>}
+      {active && <Link className={buttonClass({ variant: 'primary', block: true })} to="/provider/sign-in">Sign in to the provider site</Link>}
       {view.canWithdraw && <button type="button" className={buttonClass({ variant: 'secondary' })} onClick={onWithdraw}>
         Withdraw<span className="patient-visually-hidden"> application to {view.facility.name}</span></button>}
     </div>
@@ -407,7 +407,7 @@ function WithdrawDialog({ view, busy, error, onConfirm, onCancel }: {
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="clinician-withdraw-title" aria-describedby="clinician-withdraw-copy"
       className="clinician-dialog" onKeyDown={holdFocus}>
       <h2 id="clinician-withdraw-title">Withdraw this application?</h2>
-      <p id="clinician-withdraw-copy">HID will stop reviewing it. You can apply again later.</p>
+      <p id="clinician-withdraw-copy">Health ID will stop reviewing it. You can apply again later.</p>
       <p>Application to {view.facility.name}.</p>
       <StepError error={error} />
       <div className="clinician-actions">
@@ -452,7 +452,7 @@ function ApplyAnother({ account, onApplied, takeOver, onWorking, onClosed }: {
 
   if (!account.canApply) {
     const refusal = account.applyRefusal
-    const note = refusal === 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED' ? 'Set up your authenticator before applying to another facility.'
+    const note = refusal === 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED' ? 'Set up your code app before applying to another facility.'
       : refusal && Object.hasOwn(APPLY_REFUSAL, refusal) ? APPLY_REFUSAL[refusal] : null
     return note ? <p className="patient-field-hint clinician-panel">{note}</p> : null
   }

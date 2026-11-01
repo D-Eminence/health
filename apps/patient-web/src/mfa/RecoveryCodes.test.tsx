@@ -25,12 +25,12 @@ afterEach(() => { vi.unstubAllGlobals() })
 
 describe('recovery codes, shown once', () => {
   it('lists every code and says how many there are, what each does, and what the portal says they cannot do', () => {
-    show({ limits: 'They cannot confirm high-risk actions.' })
-    const section = screen.getByRole('region', { name: 'Save your recovery codes' })
+    show({ limits: 'They can’t be used for important actions.' })
+    const section = screen.getByRole('region', { name: 'Save your backup codes' })
     expect(section.className).toBe('p-recovery')
-    expect(screen.getByRole('heading', { level: 2, name: 'Save your recovery codes' }).id).toBe('portal-recovery-title')
+    expect(screen.getByRole('heading', { level: 2, name: 'Save your backup codes' }).id).toBe('portal-recovery-title')
     expect(screen.getByText(/^These 3 codes are shown only now\./).textContent).toBe('These 3 codes are shown only now. Each one signs you in once '
-      + 'if you lose your authenticator. They cannot confirm high-risk actions. Store them offline, somewhere only you can reach.')
+      + 'if you lose your phone. They can’t be used for important actions. Write them down or print them, and keep them where only you can reach.')
     expect(screen.getAllByRole('listitem').map(item => item.textContent)).toEqual(CODES)
     expect(screen.getByRole('list').className).toBe('p-codes')
   })
@@ -38,7 +38,7 @@ describe('recovery codes, shown once', () => {
   it('says nothing of limits a portal does not name', () => {
     show()
     expect(screen.getByText(/^These 3 codes/).textContent).toBe('These 3 codes are shown only now. Each one signs you in once '
-      + 'if you lose your authenticator. Store them offline, somewhere only you can reach.')
+      + 'if you lose your phone. Write them down or print them, and keep them where only you can reach.')
   })
 
   it('continues only once the person says the codes are stored', () => {
@@ -48,7 +48,7 @@ describe('recovery codes, shown once', () => {
     expect(proceed.dataset.primary).toBe('yes')
     fireEvent.click(proceed)
     expect(onDone).not.toHaveBeenCalled()
-    const stored = screen.getByLabelText('I have stored these recovery codes somewhere safe')
+    const stored = screen.getByLabelText('I have saved these backup codes somewhere safe')
     expect(stored.closest('label')?.className).toBe('p-checkbox')
     fireEvent.click(stored)
     fireEvent.click(proceed)
@@ -74,7 +74,7 @@ describe('recovery codes, shown once', () => {
     show()
     fireEvent.click(screen.getByRole('button', { name: 'Copy codes' }))
     const refused = await screen.findByRole('alert')
-    expect(refused.textContent).toBe('Copying is not available here. Download the codes or write them down.')
+    expect(refused.textContent).toBe('Copying doesn’t work here. Download the codes or write them down.')
     expect(refused.className).toBe('p-error')
   })
 
@@ -91,7 +91,7 @@ describe('recovery codes, shown once', () => {
   it('can be the page\'s own step: its heading level, and a heading that takes focus', () => {
     const heading = createRef<HTMLHeadingElement>()
     show({ headingAs: 'h1', headingRef: heading })
-    expect(screen.getByRole('heading', { level: 1, name: 'Save your recovery codes' })).toBe(heading.current)
+    expect(screen.getByRole('heading', { level: 1, name: 'Save your backup codes' })).toBe(heading.current)
     expect(heading.current?.tabIndex).toBe(-1)
   })
 })

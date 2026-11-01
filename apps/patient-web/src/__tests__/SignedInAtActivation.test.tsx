@@ -225,7 +225,7 @@ describe('a reload of the Health ID after the activation signed the patient in',
     // The enrollment check has answered; the session read has not.
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.length).toBe(4))
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
-    expect(screen.getByRole('status', { name: 'Checking for an enrollment in progress' })).toBeTruthy()
+    expect(screen.getByRole('status', { name: 'Checking for a sign-up in progress' })).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
 
     await act(async () => { answerSession() })

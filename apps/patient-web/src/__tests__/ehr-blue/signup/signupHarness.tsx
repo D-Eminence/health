@@ -59,7 +59,7 @@ export async function toReview({ entry, type, product }: { entry?: string; type?
   if (type) fireEvent.change(combobox('Facility type'), { target: { value: type } })
   next()
   await step('CAC number')
-  fireEvent.change(textbox('CAC registration number'), { target: { value: 'rc 123 456' } })
+  fireEvent.change(textbox('CAC number'), { target: { value: 'rc 123 456' } })
   next()
   await step('Product')
   if (product) fireEvent.change(combobox('Product to start with'), { target: { value: product } })
@@ -77,28 +77,28 @@ export function agreeToAll() {
   }
 }
 
-export const submitButton = () => button('Submit facility for verification')
+export const submitButton = () => button('Send facility details')
 
 /** Ticks the agreements, submits, and accepts in the dialog. */
 export async function submitRegistration() {
   agreeToAll()
   fireEvent.click(submitButton())
-  const dialog = await screen.findByRole('alertdialog', { name: 'Submit this registration?' })
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm and submit' }))
+  const dialog = await screen.findByRole('alertdialog', { name: 'Send these details?' })
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Yes, send them' }))
 }
 
 /** Through the "Registration submitted" screen to the code. */
 export async function toCode() {
   await toReview()
   await submitRegistration()
-  await screen.findByRole('heading', { level: 1, name: 'Facility registration submitted' })
-  fireEvent.click(button('Continue to verification'))
-  await screen.findByRole('heading', { level: 1, name: 'Enter your verification code' })
+  await screen.findByRole('heading', { level: 1, name: 'Facility details sent' })
+  fireEvent.click(button('Continue'))
+  await screen.findByRole('heading', { level: 1, name: 'Enter the code we emailed you' })
 }
 
 export async function verifyWith(code = '123456') {
-  fireEvent.change(textbox('Verification code'), { target: { value: code } })
-  fireEvent.click(button('Verify code'))
+  fireEvent.change(textbox('Code from the email'), { target: { value: code } })
+  fireEvent.click(button('Check code'))
 }
 
 /** Through the code to the password step. */

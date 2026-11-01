@@ -165,7 +165,7 @@ describe('joining signed in', () => {
   })
 
   it.each([
-    ['STAFF_INVITATION_EXPIRED', 410, 'This invitation has expired. Ask the facility to send it again.'],
+    ['STAFF_INVITATION_EXPIRED', 410, 'This invitation is too old. Ask the facility to send it again.'],
     ['STAFF_INVITATION_ALREADY_MEMBER', 409, 'You already work at the facility on Health ID.'],
     ['STAFF_INVITATION_ACCOUNT_UNAVAILABLE', 409, 'This account can’t join a facility by invitation. Contact Health ID support.'],
     ['STAFF_INVITATIONS_UNAVAILABLE', 423, 'Joining is paused by Health ID. Try again later.'],
@@ -178,9 +178,9 @@ describe('joining signed in', () => {
   })
 
   it.each([
-    ['no answer (the gateway’s 503)', 503, 'UPSTREAM_UNAVAILABLE', 'Joining a facility is temporarily unavailable. Please try again in a few minutes.'],
+    ['no answer (the gateway’s 503)', 503, 'UPSTREAM_UNAVAILABLE', 'Joining a facility isn’t working right now. Please try again in a few minutes.'],
     ['joining paused', 423, 'STAFF_INVITATIONS_UNAVAILABLE', 'Joining is paused by Health ID. Try again later.'],
-    ['too many tries from the network', 429, 'STAFF_INVITATION_RATE_LIMITED', 'Too many invitations have been opened from your network. Please try again in an hour.'],
+    ['too many tries from the network', 429, 'STAFF_INVITATION_RATE_LIMITED', 'Too many invitations opened from your internet connection. Please try again in an hour.'],
     ['the account changed', 409, 'STAFF_INVITATION_ACCOUNT_CHANGED', 'Your Health ID account changed while you were joining. Open the invitation again from the email.'],
   ])('after %s, offers to try the held link again, which then previews it', async (_case, status, code, text) => {
     let answers = 0

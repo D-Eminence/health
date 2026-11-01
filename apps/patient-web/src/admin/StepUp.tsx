@@ -106,7 +106,7 @@ function StepUpDialog({ expired, what, onConfirmed, onCancel }: { expired: boole
       onConfirmed()
     } catch (caught) {
       setCode('')
-      setError(failure(caught, 'Your code could not be checked. Try again.'))
+      setError(failure(caught, 'We couldn’t check your code. Try again.'))
     } finally { setBusy(false) }
   }
 
@@ -115,10 +115,10 @@ function StepUpDialog({ expired, what, onConfirmed, onCancel }: { expired: boole
       <Button type="submit" form="admin-step-up-form" variant="primary" loading={busy} disabled={busy || !valid}>{busy ? 'Checking…' : 'Confirm and continue'}</Button></>}>
     <form id="admin-step-up-form" onSubmit={event => void submit(event)} className="flex flex-col gap-4">
       <p className="m-0 text-body text-ink">{what
-        ? <>To {what}, enter the 6-digit code from your authenticator app.</>
-        : <>Enter the 6-digit code from your authenticator app to continue.</>} Nothing has changed yet.</p>
+        ? <>To {what}, enter the 6-digit code from your code app.</>
+        : <>Enter the 6-digit code from your code app to continue.</>} Nothing has changed yet.</p>
       {expired && <p className="m-0 text-caption text-ink-3">Your last code was more than 5 minutes ago.</p>}
-      <Field label="Authenticator code" htmlFor="admin-step-up-code" hint="Recovery codes can’t be used here.">
+      <Field label="Sign-in code" htmlFor="admin-step-up-code" hint="Backup codes can’t be used here.">
         <Input id="admin-step-up-code" value={code} onChange={event => setCode(sixDigitCode(event.target.value))}
           {...SIX_DIGIT_CODE_FIELD} required className="tracking-[.2em]" />
       </Field>

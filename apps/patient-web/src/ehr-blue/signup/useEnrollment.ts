@@ -199,7 +199,7 @@ export function useEnrollment() {
       return
     }
     if (refusal.kind === 'session-expired') {
-      setError({ text: 'Your sign-up session has expired. Check your details and select Continue to get a new code.' })
+      setError({ text: 'Your sign-up timed out. Check your details and select Continue to get a new code.' })
       setChallengeId(''); setCodeValue(''); setPassword(''); setRegistering(null); setRegisteringFailed(false)
       // An answer that did not say whether it sent a code: a start within resendAfterSeconds of the last code sends none.
       if (!codesReported) holdFor(codeFor, resendAt)
@@ -518,7 +518,7 @@ export function useEnrollment() {
       setUnapplied(null)
     }
     startAgain(CAC_STEP)
-    const check = 'Check your details, and the CAC registration number on your CAC certificate. Correct them, then select '
+    const check = 'Check your details, and the CAC number on your CAC certificate. Correct them, then select '
       + 'Continue. No account has been created.'
     setError(outcome === 'withdrawn'
       ? { text: `${check} We’ve closed that sign-up, so the CAC number you entered is free again.` }

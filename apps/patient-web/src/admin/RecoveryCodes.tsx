@@ -17,6 +17,6 @@ export function RecoveryCodes({ codes, onDone, doneLabel = 'Continue', headingAs
   /** 'h1' where the codes are the page itself (sign-in's last step, which has no other title). */
   headingAs?: 'h1' | 'h2'
 }) {
-  return <SharedRecoveryCodes codes={codes} onDone={onDone} doneLabel={doneLabel} limits="They cannot confirm high-risk actions."
+  return <SharedRecoveryCodes codes={codes} onDone={onDone} doneLabel={doneLabel} limits="They can’t be used for important actions."
     fileName="hid-admin-recovery-codes.txt" headingId="admin-recovery-title" headingAs={headingAs} classNames={CLASS_NAMES} Button={AdminButton} />
 }

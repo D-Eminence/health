@@ -4,8 +4,8 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { Field, PasswordInput } from '@hid/ui'
 
 /**
- * A password field with a Show toggle (@hid/ui PasswordInput). The toggle is a
- * real button beside the field, never inside its label (inside, Chromium names
+ * A password field with a show/hide eye (@hid/ui PasswordInput). The toggle is a
+ * real icon-only button inside the field's box, at its end, never inside its label (inside, Chromium names
  * the field "Password Show password"). Its name stays "Show password" and
  * aria-pressed says whether the password is shown (the WAI-ARIA toggle button
  * pattern: a toggle's name does not change with its state). Showing the
@@ -26,13 +26,18 @@ const field = () => screen.getByLabelText('Password') as HTMLInputElement
 const toggle = (pressed?: boolean) => screen.getByRole('button', { name: 'Show password', ...(pressed === undefined ? {} : { pressed }) }) as HTMLButtonElement
 
 describe('PasswordInput', () => {
-  it('starts hidden, with a Show toggle that controls it and is not part of its label', () => {
+  it('starts hidden, with an eye toggle inside the field that controls it and is not part of its label', () => {
     render(<Login />)
     expect(field().type).toBe('password')
     const button = toggle(false)
     expect(button.type).toBe('button')
     expect(button.getAttribute('aria-controls')).toBe('password')
-    expect(button.textContent).toBe('Show')
+    // An icon-only eye inside the field, at its end: no visible text, named by aria-label alone.
+    expect(button.textContent).toBe('')
+    expect(button.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(button.getAttribute('aria-label')).toBe('Show password')
+    expect(button.parentElement).toBe(field().parentElement)
+    expect(field().className).toContain('pr-12')
     // Named by its label alone: the toggle is outside it (its name is checked revealed, below).
     expect(Array.from(field().labels ?? []).some(label => label.contains(button))).toBe(false)
   })

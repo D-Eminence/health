@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } fro
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Field, Input, PasswordInput } from '@hid/ui'
+import { PasswordRules } from '../../PasswordRules'
 import './providerSetup.css'
 import { AuthLayout } from '../../AuthLayout'
 import { useDocumentTitle } from '../../authSteps'
@@ -195,8 +196,8 @@ function InvitationSteps() {
     {accepted && opened && <section className="patient-form" aria-labelledby="staff-invitation-done-title">
       <FocusedHeading id="staff-invitation-done-title">You’ve joined {accepted.facilityName}</FocusedHeading>
       <p className="patient-field-hint">{doneSentence(accepted.roleCode, opened.email)}</p>
-      {licenceBodyForRole(accepted.roleCode) && <p className="patient-field-hint">Your facility administrator vouched for your
-        licence; Health ID records it.</p>}
+      {licenceBodyForRole(accepted.roleCode) && <p className="patient-field-hint">Your facility administrator confirmed your
+        licence. Health ID keeps a note of it.</p>}
       <SignInOnSite role={accepted.roleCode}>Go to staff sign-in</SignInOnSite>
     </section>}
   </AuthLayout>
@@ -231,20 +232,21 @@ function Opened({ opened, link, busy, password, confirm, onPassword, onConfirm, 
     return <form className="patient-form" noValidate onSubmit={onAccept} aria-labelledby="staff-invitation-opened-title">
       <FocusedHeading id="staff-invitation-opened-title">{dormant ? 'Set a new password' : 'Choose a password'}</FocusedHeading>
       {intro}
-      <p id="staff-invitation-password-hint" className="patient-field-hint">{dormant
-        ? `Your Health ID staff account ${opened.email} isn’t active at any facility now. Choose a new password of at least 12 `
-          + `characters to use it at ${opened.facilityName}. Your old password will stop working.`
-        : `Your Health ID staff account will use ${opened.email}. Choose a password of at least 12 characters.`}</p>
+      <p id="staff-invitation-account-hint" className="patient-field-hint">{dormant
+        ? `Your staff account ${opened.email} isn’t in use at any facility now. Choose a new password to use it at `
+          + `${opened.facilityName}. Your old password will stop working.`
+        : `Your staff account will use ${opened.email}.`}</p>
       {/* Lets a password manager save the new password with its email. */}
       <input type="email" hidden readOnly autoComplete="username" value={opened.email} />
       <Field label="Password" htmlFor="staff-invitation-password">
         <PasswordInput id="staff-invitation-password" autoComplete="new-password" minLength={12} maxLength={256} value={password}
-          aria-describedby="staff-invitation-password-hint" onChange={event => onPassword(event.target.value)} />
+          aria-describedby="staff-invitation-account-hint staff-invitation-password-hint" onChange={event => onPassword(event.target.value)} />
       </Field>
       <Field label="Confirm password" htmlFor="staff-invitation-confirm">
-        <PasswordInput id="staff-invitation-confirm" autoComplete="new-password" minLength={12} maxLength={256} value={confirm}
+        <PasswordInput id="staff-invitation-confirm" toggleLabel="Show confirmed password" autoComplete="new-password" minLength={12} maxLength={256} value={confirm}
           onChange={event => onConfirm(event.target.value)} />
       </Field>
+      <PasswordRules id="staff-invitation-password-hint" password={password} confirm={confirm} />
       {fieldError && <p role="alert" className="patient-inline-error">{fieldError}</p>}
       <button type="submit" className="patient-primary-button" disabled={busy}>{busy ? 'Joining…' : `Join ${opened.facilityName}`}</button>
     </form>

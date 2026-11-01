@@ -13,16 +13,16 @@ import { FacilityList } from './enrollment/FacilityList'
  */
 export function ParticipatingFacilitiesPage() {
   const { api } = useSession()
-  useDocumentTitle('Participating facilities · Health ID')
-  return <AuthLayout brandTo="/" title="Register at a healthcare facility" titleId="facilities-title"
+  useDocumentTitle('Facilities that work with Health ID · Health ID')
+  return <AuthLayout brandTo="/" title="Sign up at a health facility" titleId="facilities-title"
     lede="Can't get a code on the phone linked to your NIN? A staff member at one of these facilities can check your ID in person.">
     <ol className="m-0 flex list-decimal flex-col gap-1.5 pl-5 text-sm text-ink-2">
-      <li>Start on your phone with your NIN, and choose to register at a facility.</li>
+      <li>Start on your phone with your NIN, and choose to sign up at a facility.</li>
       <li>Bring what's listed below, and show the staff member the desk code on your phone.</li>
-      <li>Finish on your phone: add a contact and choose a password.</li>
+      <li>Finish on your phone: add a phone or email and choose a password.</li>
     </ol>
     <FacilityList api={api} titleLevel="h2" />
-    <Link className={buttonClass({ variant: 'primary', size: 'lg', block: true })} to="/enroll">Start registration</Link>
+    <Link className={buttonClass({ variant: 'primary', size: 'lg', block: true })} to="/enroll">Start signing up</Link>
     <p className="m-0 text-center text-sm text-ink-2 [&_a]:inline-flex [&_a]:min-h-11 [&_a]:items-center [&_a]:font-medium [&_a]:text-brand-ink">Already have a Health ID? <Link to="/sign-in">Sign in</Link></p>
   </AuthLayout>
 }

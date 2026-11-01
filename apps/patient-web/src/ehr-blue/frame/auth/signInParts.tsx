@@ -21,7 +21,7 @@ import { Alert } from '../../../kasuwa/ui'
 export function passwordRefusal(caught: unknown): string {
   if (isHidApiError(caught) && caught.code === 'STAFF_MFA_FACTOR_UNPROVEN') return STAFF_MFA_FACTOR_UNPROVEN
   if (isHidApiError(caught) && caught.code === 'MFA_UNAVAILABLE') return STAFF_MFA_UNAVAILABLE
-  return caught instanceof Error ? caught.message : 'Sign in failed.'
+  return caught instanceof Error ? caught.message : 'We couldn’t sign you in. Please try again.'
 }
 
 /** Where a sign-in lands: an invitation carried through it, the page to return to, the product host's page, else Overview. */
@@ -33,7 +33,7 @@ export function getStaffLandingPath(search: string, session: StaffSession): stri
   return product ? staffLandingPath(product, session) : '/provider'
 }
 
-const CHALLENGE_UNAVAILABLE = 'Human verification could not load. Refresh the page and try again.'
+const CHALLENGE_UNAVAILABLE = 'The security check didn’t load. Refresh the page and try again.'
 
 /** The sign-in's human check (Turnstile), with the staff login action for this host. Nothing renders without a site key. */
 export function TurnstileChallenge({ onToken, resetKey }: { readonly onToken: (token: string) => void; readonly resetKey: number }) {

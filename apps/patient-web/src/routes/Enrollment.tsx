@@ -57,11 +57,11 @@ const NO_ONLINE: EnrollmentOnlineRoute = { available: false }
 const NO_FACILITY: EnrollmentFacilityRoute = { available: false }
 
 /** 422 OTP_INVALID at the holder code: wrong, expired, used, or its five attempts spent. */
-const HOLDER_CODE_REFUSED = 'That code is wrong or has expired. Check the latest text message, or ask for a new code.'
+const HOLDER_CODE_REFUSED = 'That code is wrong or too old. Check the latest text message, or ask for a new code.'
 /** 429 NIN_HOLDER_ROUTE_LIMITED: a send or failure budget is spent, three codes were sent, or the phone proved five other NINs. */
-const HOLDER_LIMITED = 'This NIN can\'t be proved by a text message code now. Use a participating facility to register.'
+const HOLDER_LIMITED = 'We can\'t text a code for this NIN now. Sign up at a facility that works with Health ID instead.'
 /** 503 OTP_DELIVERY_UNAVAILABLE: the provider refused the text, which still counts as one of the codes. */
-const DELIVERY_FAILED = 'We couldn\'t send the code just now. Try again later, or register at a participating facility. Each try counts toward this registration\'s 3 codes.'
+const DELIVERY_FAILED = 'We couldn\'t send the code just now. Try again later, or sign up at a facility that works with Health ID. Each try counts as one of your 3 codes.'
 /**
  * 409 NIN_HOLDER_PROOF_CONFLICT after a correct code: another registration of
  * this NIN was already checked in person and waits for its contact and
@@ -72,13 +72,13 @@ const DELIVERY_FAILED = 'We couldn\'t send the code just now. Try again later, o
  * second in-person check would delete the one already done, so the page stays
  * at the choice and the facility is the fallback only.
  */
-const PROOF_CHECKED_IN_PERSON = 'This NIN was already checked in person at a facility, in another registration. Finish that registration on the phone used at the facility: add a contact and choose a password there. Only if you can\'t, register at a facility and be checked again.'
+const PROOF_CHECKED_IN_PERSON = 'This NIN was already checked in person at a facility, in another sign-up. Finish that sign-up on the phone you used at the facility: add a phone or email and choose a password there. If you can\'t, go to a facility and be checked again.'
 /** Why no code can be texted while that registration is open: each would be refused the same way. */
-const ONLINE_WHILE_CHECKED = 'A code by text message can\'t prove this NIN while the registration checked at a facility is open.'
+const ONLINE_WHILE_CHECKED = 'We can\'t text a code for this NIN while the sign-up checked at a facility is still open.'
 /** "I have been checked" found the facility route closed (no facility takes part, or the flag is off). */
-const FACILITY_CLOSED = 'Registration at a facility is not available now, so no check can be recorded. Try again later, or get a code by text message if you can.'
+const FACILITY_CLOSED = 'Signing up at a facility isn\'t possible right now. Try again later, or get a code by text message if you can.'
 /** GET .../current at verify_contact after "I have been checked". */
-const CHECKED_AT_FACILITY = 'Your identity was checked at the facility. Now add a contact we can send a code to.'
+const CHECKED_AT_FACILITY = 'Your identity was checked at the facility. Now add a phone number or email we can send a code to.'
 const resendWaitText = (seconds: number) => `A code was sent recently. You can ask for a new code in ${seconds} seconds.`
 
 /**
@@ -101,7 +101,7 @@ const requiresSignOut = (reason: unknown) => isHidApiError(reason) && reason.sta
  * refusal (row 17).
  */
 const enrollmentEnded = (reason: unknown) => isHidApiError(reason) && reason.status === 404 && reason.code === 'ENROLLMENT_NOT_FOUND'
-const ENDED = 'This registration is no longer open on this device. It may have expired after 24 hours, been replaced by a newer registration for the same NIN, or ended when someone signed in or out in this browser.'
+const ENDED = 'This sign-up is no longer open on this device. It may have run out after 24 hours, been replaced by a newer sign-up for the same NIN, or ended when someone signed in or out on this device.'
 const ENDED_HERE = `${ENDED} Enter your NIN to start again.`
 /**
  * 409 ENROLLMENT_HOLDER_PROOF_REQUIRED at activation (hid-system #84, ADR-062):
@@ -109,13 +109,13 @@ const ENDED_HERE = `${ENDED} Enter your NIN to start again.`
  * stopped taking part. The kept key would only resume that registration, so it
  * is dropped and the patient starts again at the NIN step (row 9).
  */
-const HOLDER_PROOF_REQUIRED = 'We could not confirm that this NIN is yours, so this registration can\'t be finished. Start again with your NIN, and prove it with a code or at a participating facility.'
+const HOLDER_PROOF_REQUIRED = 'We couldn\'t confirm this NIN is yours, so this sign-up can\'t be finished. Start again with your NIN. Show it’s yours with a code or at a facility.'
 /**
  * "Use a different NIN" refused while a Google sign-up is tied to this registration: Identity ties a
  * Google sign-up to one registration only (0059), for 30 minutes, so another NIN's start would be
  * refused (404 GOOGLE_ONBOARDING_NOT_FOUND) after its paid lookup.
  */
-const googleTiedUntil = (ends: number | null, named: boolean) => `You continued with Google for this registration, so a different NIN can be used here only ${ends === null
+const googleTiedUntil = (ends: number | null, named: boolean) => `You continued with Google for this sign-up, so a different NIN can be used here only ${ends === null
   ? 'once that Google sign-up ends, 30 minutes after you continued'
   // Rounded up to the minute shown: a press during the minute named would still be refused.
   : `after ${new Date(Math.ceil(ends / 60_000) * 60_000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}. ${named
@@ -125,8 +125,8 @@ const googleTiedUntil = (ends: number | null, named: boolean) => `You continued 
  * start (clock_timestamp() + 24 hours), and the start answer computes it again just after.
  */
 const SAME_REGISTRATION_MS = 5_000
-const DIFFERENT_NIN_UNCHECKED = 'We could not check this registration just now, so you are still on it. Try again.'
-const ENDS_ENROLLMENT = 'Signing out also ends an enrollment in progress on this device; continue it by entering the same NIN before reloading this page.'
+const DIFFERENT_NIN_UNCHECKED = 'We couldn’t check this sign-up just now, so you are still on it. Try again.'
+const ENDS_ENROLLMENT = 'Signing out also ends a sign-up in progress on this device. To continue it, enter the same NIN before you refresh this page.'
 /**
  * Whether a new enrollment may start (hid-system#68, FE-4): only `200 { open: true }`
  * from the availability read says so, and a read that failed is said as such. Only
@@ -149,8 +149,8 @@ type Registration = 'open' | 'closed' | 'unknown'
  */
 const contactReverifyRequired = (reason: unknown) => isHidApiError(reason) && reason.status === 409
   && reason.code === 'ENROLLMENT_CONTACT_REVERIFY_REQUIRED'
-const REVERIFY_CONTACT = 'Your contact was verified more than 30 minutes ago, so it must be verified again before activation. Send a new code, enter it, then choose your password.'
-const REVERIFY_CODE_SENT = 'Your contact was verified more than 30 minutes ago, so it must be verified again before activation. Enter the new code sent to it, then choose your password.'
+const REVERIFY_CONTACT = 'You confirmed your phone or email more than 30 minutes ago, so please confirm it again. Send a new code, enter it, then choose your password.'
+const REVERIFY_CODE_SENT = 'You confirmed your phone or email more than 30 minutes ago, so please confirm it again. Enter the new code we sent, then choose your password.'
 /**
  * That return seen without its 409, which was lost or answered another tab's
  * activation: any further activation is refused as not at the password step
@@ -727,7 +727,7 @@ export function Enrollment() {
     const fromField = sentFromField(event)
     const missing = profileFields.some(field => field === 'dateOfBirth' ? dateOfBirth === '' : gender === '')
     if (busy || password.length < 12 || missing) return
-    if (googleRequired && !googlePending) { setError('Reconnect Google before activation.'); setFieldError(false); return }
+    if (googleRequired && !googlePending) { setError('Connect Google again to finish.'); setFieldError(false); return }
     if (profileFields.includes('dateOfBirth') && !plausibleDateOfBirth(dateOfBirth)) {
       setProfileError('dateOfBirth'); setError(DATE_OF_BIRTH_RULE); setFieldError(true); setErrorAlert(fromField); stepFocus.focus()
       return
@@ -845,34 +845,34 @@ export function Enrollment() {
   const stepProps = { focusTarget: stepFocus.target, busy, invalid, errorId }
 
   // Google's own step: on the NIN step, the chosen path's start is also where the step's focus goes (useStepFocus).
-  const googleSection = <section className="flex flex-col gap-3" aria-label="Google enrollment">
+  const googleSection = <section className="flex flex-col gap-3" aria-label="Sign up with Google">
     <span ref={element => { googleHeading.current = element; if (element && stage === 'nin') stepFocus.target(element) }} tabIndex={-1} className="text-title-3 text-ink outline-none">{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
-    {stage === 'nin' && <p className="m-0 text-[13px] text-ink-3">You’ll still verify your NIN after Google, unless that Google account already has a Health ID.</p>}
+    {stage === 'nin' && <p className="m-0 text-[13px] text-ink-3">You’ll still check your NIN after Google, unless that Google account already has a Health ID.</p>}
     {accountExists && <ExistingAccountAlert account={accountExists} />}
     <Turnstile action="patient-login" onTokenChange={setGoogleTurnstileToken} resetKey={googleResetKey} />
     <GoogleButton text="signup_with" disabled={busy || !googleTurnstileToken} onCredential={onGoogle}
       disabledReason={googleTurnstileToken ? undefined : 'Complete the security check to continue with Google.'} />
-    {stage === 'nin' && <Button variant="link" className="self-start" disabled={busy} onClick={chooseNin}>Verify your NIN without Google</Button>}
+    {stage === 'nin' && <Button variant="link" className="self-start" disabled={busy} onClick={chooseNin}>Use your NIN without Google</Button>}
   </section>
   return <AuthLayout brandTo="/" title={stage === 'complete' ? null : 'Get your Health ID'} titleId="enroll-title"
     panelLabelledBy={stage === 'complete' ? 'enroll-title' : undefined}
     steps={!closed && STEP_STAGES.includes(stage) ? steps.map(([label, stages]) => ({ label, current: stages.includes(stage) })) : undefined}
-    stepsLabel="Enrollment steps">
+    stepsLabel="Sign-up steps">
     <div className="flex flex-col gap-5">
-      {checking || (signOutRequired && sessionUnread) ? <LoadingRows rows={1} label="Checking for an enrollment in progress" /> : null}
+      {checking || (signOutRequired && sessionUnread) ? <LoadingRows rows={1} label="Checking for a sign-up in progress" /> : null}
       {checkError && <Alert intent="error" action={<button ref={checkRetry} type="button" className={buttonClass({ size: 'sm' })} onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button>}>
         We couldn’t check for a sign-up in progress. Try again before starting.</Alert>}
       {signOutRequired && !sessionUnread && <div ref={signOutNote} tabIndex={-1} role="group" aria-labelledby="enroll-sign-out" className="flex flex-col gap-2 rounded-lg border border-notice-line bg-notice p-4 text-[13.5px] text-ink outline-none [&_a]:font-medium [&_a]:text-brand-ink [&_p]:m-0">
         {otherPortalSession ? <>
-          <p id="enroll-sign-out" className="font-medium" role={signOutAlert ? 'alert' : undefined}>A provider sign-in is active in this browser. Sign out of the provider portal before starting a new Health ID.</p>
+          <p id="enroll-sign-out" className="font-medium" role={signOutAlert ? 'alert' : undefined}>A provider is signed in on this device. Sign out of the provider site before you start a new Health ID.</p>
           <p>{ENDS_ENROLLMENT}</p>
-          <Link to="/provider">Go to the provider portal</Link>
+          <Link to="/provider">Go to the provider site</Link>
         </> : <>
-          <p id="enroll-sign-out" className="font-medium" role={signOutAlert ? 'alert' : undefined}>This browser is still signed in to Health ID. Sign out of the patient or provider portal before starting a new Health ID.</p>
+          <p id="enroll-sign-out" className="font-medium" role={signOutAlert ? 'alert' : undefined}>Someone is still signed in to Health ID on this device. Sign them out before you start a new Health ID.</p>
           {/* No link to the patient portal: this tab has no patient session, so it would open sign-in. Check again opens it once the session check finds the patient. */}
-          <p>If a patient is signed in, Check again opens the patient portal, where you can sign out.</p>
+          <p>If a patient is signed in, Check again opens their Health ID, where you can sign out.</p>
           <p>{ENDS_ENROLLMENT}</p>
-          <Link to="/provider">Go to the provider portal</Link>
+          <Link to="/provider">Go to the provider site</Link>
         </>}
         {/* Once it is signed out elsewhere, as asked, the browser's session and the enrollment are checked again. */}
         <Button size="sm" className="self-start" onClick={() => { retriedCheck.current = true; retrySessionCheck(); setCheckKey(value => value + 1) }}>Check again</Button>
@@ -881,12 +881,12 @@ export function Enrollment() {
       {/* Kept mounted, so a notice set with a step change is a change of a live region, not a new one. */}
       <div role="status" className="empty:hidden">{notice && <Alert intent="success" size="sm" live={false} id="enroll-notice">{notice}</Alert>}</div>
       {/* Not at a NIN step that offers no start, where Google is not offered either. */}
-      {googleRequired && !googlePending && startOffered && <p role="status" className="m-0 text-[13px] font-medium text-danger-ink">Reconnect the Google account used to start this enrollment.</p>}
+      {googleRequired && !googlePending && startOffered && <p role="status" className="m-0 text-[13px] font-medium text-danger-ink">Connect again the Google account you used to start this sign-up.</p>}
       {ready && stage === 'nin' && registration === 'unknown' && <Alert intent="error" action={<button ref={retryInPlaceOfNin} type="button" className={buttonClass({ size: 'sm' })} onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button>}>
         We couldn’t check whether new sign-ups are open. Try again before starting.</Alert>}
       {closed && <RegistrationClosed focusTarget={stepFocus.target} />}
       {/* Google first, where it is offered: on the NIN step it is a path of its own, opened by its button. */}
-      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && stage === 'nin' && !googleChosen && <section className="flex flex-col gap-3" aria-label="Google enrollment">
+      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && stage === 'nin' && !googleChosen && <section className="flex flex-col gap-3" aria-label="Sign up with Google">
         <Button size="lg" block disabled={busy} onClick={chooseGoogle}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</Button>
         <p className="m-0 flex items-center gap-3 text-[13px] text-ink-3 before:h-px before:flex-1 before:bg-line after:h-px after:flex-1 after:bg-line">or use your NIN</p>
       </section>}

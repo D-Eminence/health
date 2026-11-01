@@ -26,7 +26,7 @@ function Command({ name, command }: { name: string; command: (key: string) => Pr
 }
 
 function enterCode(code: string) {
-  fireEvent.change(screen.getByLabelText('Authenticator code'), { target: { value: code } })
+  fireEvent.change(screen.getByLabelText('Sign-in code'), { target: { value: code } })
   fireEvent.click(screen.getByRole('button', { name: 'Confirm and continue' }))
 }
 
@@ -102,7 +102,7 @@ describe('step-up for high-risk actions', () => {
     enterCode('111111')
     expect(await screen.findByText(/Each code works only once/)).toBeTruthy()
     enterCode('222222')
-    expect(await screen.findByText(/locked for up to 15 minutes/)).toBeTruthy()
+    expect(await screen.findByText(/Wait 15 minutes and try again/)).toBeTruthy()
     expect(command).toHaveBeenCalledTimes(1)
     enterCode('333333')
     expect(await screen.findByText('Export done: done')).toBeTruthy()

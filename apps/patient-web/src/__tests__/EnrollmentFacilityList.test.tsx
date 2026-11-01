@@ -29,13 +29,13 @@ describe('the participating facilities page', () => {
 
     const bring = await screen.findByRole('region', { name: 'What to bring' })
     expect(within(bring).getAllByRole('listitem').map(item => item.textContent)).toEqual(WHAT_TO_BRING)
-    const facilities = screen.getByRole('region', { name: 'Participating facilities' })
+    const facilities = screen.getByRole('region', { name: 'Facilities that work with Health ID' })
     expect(within(facilities).getAllByRole('listitem').map(item => item.textContent)).toEqual([
       'Synthetic General Hospital1 Example Road, Ikeja, Ikeja LGA, Lagos StateHours: Mon-Fri 08:00-16:00',
       'Synthetic Health CentreGarki, AMAC LGA, FCT State',
     ])
-    expect(screen.getByRole('heading', { level: 1, name: 'Register at a healthcare facility' })).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Start registration' }).getAttribute('href')).toBe('/enroll')
+    expect(screen.getByRole('heading', { level: 1, name: 'Sign up at a health facility' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Start signing up' }).getAttribute('href')).toBe('/enroll')
     expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
     expect(sent).toEqual([{ path: LIST, method: 'GET', body: null }])
     expect(setItem).not.toHaveBeenCalled()
@@ -43,15 +43,15 @@ describe('the participating facilities page', () => {
 
   it('says no facility is taking part while the list is empty', async () => {
     renderPortal(<ParticipatingFacilitiesPage />, () => json({ facilities: [], whatToBring: WHAT_TO_BRING }), anonymous)
-    const facilities = await screen.findByRole('region', { name: 'Participating facilities' })
-    expect(facilities.textContent).toContain('No healthcare facility is taking part right now. Try again later.')
+    const facilities = await screen.findByRole('region', { name: 'Facilities that work with Health ID' })
+    expect(facilities.textContent).toContain('No facility can do this right now. Try again later.')
   })
 
   it('says it could not load the list, and Try again reads it again, with focus on the list once shown', async () => {
     let answer = () => problem(503, 'UPSTREAM_UNAVAILABLE', 'A required platform service is temporarily unavailable.')
     renderPortal(<ParticipatingFacilitiesPage />, () => answer(), anonymous)
     const alert = await screen.findByRole('alert', {}, { timeout: 5000 })
-    expect(alert.textContent).toContain('We could not load the list of participating facilities.')
+    expect(alert.textContent).toContain('We couldn’t load the list of facilities.')
     answer = () => json({ facilities: FACILITIES, whatToBring: WHAT_TO_BRING })
     await press(within(alert).getByRole('button', { name: 'Try again' }))
     const heading = await screen.findByRole('heading', { name: 'What to bring' })

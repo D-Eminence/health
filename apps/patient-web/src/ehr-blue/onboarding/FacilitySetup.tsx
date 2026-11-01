@@ -101,7 +101,7 @@ export function FacilitySetup() {
         primaryAction={<EhrButton variant="secondary" onClick={() => navigate('/provider/institutions')}>Exit setup</EhrButton>}
       />
       {SAMPLE_STEPS.has(name) ? <EhrSampleBanner /> : null}
-      <nav className="hid-ehr-onboarding-stepper" aria-label="Onboarding steps">
+      <nav className="hid-ehr-onboarding-stepper" aria-label="Setup steps">
         {STEPS.map((candidate, index) => (
           <EhrButton key={candidate} variant="secondary" aria-current={index === step ? 'step' : undefined}
             onClick={() => setStep(index)}>{index + 1}. {candidate}</EhrButton>

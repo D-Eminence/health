@@ -26,7 +26,7 @@ describe('the setup key as a QR code', () => {
   it('draws every dark module of the URI\'s code, and only those, inside a four-module quiet zone', () => {
     render(<OtpauthQr uri={URI} />)
 
-    const image = screen.getByRole('img', { name: 'QR code of the setup key, for your authenticator app' })
+    const image = screen.getByRole('img', { name: 'Square code to scan with your code app' })
     const reference = qrcode(0, 'M')
     reference.addData(URI)
     reference.make()

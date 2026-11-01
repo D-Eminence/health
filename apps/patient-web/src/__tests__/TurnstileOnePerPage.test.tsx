@@ -96,7 +96,7 @@ describe('the enrollment NIN step with Google sign-up configured', () => {
     expect(turnstile.remove).toHaveBeenCalled()
     // Focus goes to where the chosen path starts, not to the page.
     expect(document.activeElement).toBe(screen.getByText('Continue with Google', { selector: '[tabindex="-1"]' }))
-    expect(screen.getByText(/still verify your NIN/)).toBeTruthy()
+    expect(screen.getByText(/still check your NIN/)).toBeTruthy()
   })
 
   it('going back to the NIN shows a fresh check, and the NIN start sends that check’s token', async () => {
@@ -105,7 +105,7 @@ describe('the enrollment NIN step with Google sign-up configured', () => {
     const first = turnstile.render.mock.calls.length
     fireEvent.click(screen.getByRole('button', { name: 'Continue with Google' }))
     await waitFor(() => expect(shown()).toEqual(['patient-login']))
-    fireEvent.click(screen.getByRole('button', { name: 'Verify your NIN without Google' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Use your NIN without Google' }))
     await waitFor(() => expect(shown()).toEqual(['patient-enrollment']))
     expect(turnstile.render.mock.calls.length).toBeGreaterThan(first + 1)
     const nin = screen.getByLabelText('National Identification Number (NIN)')
@@ -136,7 +136,7 @@ describe('the enrollment NIN step with Google sign-up configured', () => {
     await ninStep()
     expect(shown()).toEqual(['patient-enrollment'])
     expect(screen.queryByRole('button', { name: 'Continue with Google' })).toBeNull()
-    expect(screen.queryByRole('region', { name: 'Google enrollment' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Sign up with Google' })).toBeNull()
   })
 })
 

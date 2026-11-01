@@ -31,7 +31,7 @@ export function BlueProviderEnrollment() {
 
 /** Today's EnrollOnMainSite (staff/routes/ProviderEnrollment.tsx:438-449), in the design's look. */
 function EnrollOnMainSite({ href }: { readonly href: string }) {
-  useDocumentTitle('Provider enrollment · Health ID Provider')
+  useDocumentTitle('Facility sign-up · Health ID Provider')
   const [params] = useSearchParams()
   const product = params.get('product')
   const target = isProduct(product) ? `${href}?product=${product}` : href
@@ -45,7 +45,7 @@ function EnrollOnMainSite({ href }: { readonly href: string }) {
 }
 
 function BlueEnrollmentSteps() {
-  useDocumentTitle('Provider enrollment · Health ID Provider')
+  useDocumentTitle('Facility sign-up · Health ID Provider')
   const e = useEnrollment()
   // The four agreements: React state only, kept while the page is open (Health ID does not record them yet).
   const [agreed, setAgreed] = useState<Agreements>(NO_AGREEMENTS)

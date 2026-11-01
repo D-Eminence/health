@@ -42,7 +42,7 @@ export const IDS = {
 type Checked = 'name' | 'email' | 'cac'
 type Problems = Partial<Record<Checked, string>>
 
-const REQUIRED = 'This field is required.'
+const REQUIRED = 'Fill in this field.'
 // The WHATWG's valid e-mail address, as the browser checks type="email".
 const EMAIL = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
 // Today's CAC pattern (ProviderEnrollment.tsx:1038).
@@ -57,7 +57,7 @@ function problemsOf(step: number, e: Enrollment): Problems {
     else if (name.length < 2) problems.name = 'Enter at least two characters.'
     const email = e.email.trim()
     if (!email) problems.email = REQUIRED
-    else if (!EMAIL.test(email)) problems.email = 'Enter a valid email address.'
+    else if (!EMAIL.test(email)) problems.email = 'Enter an email address, like name@example.com.'
   }
   if (step === CAC_STEP) {
     if (!e.cac) problems.cac = REQUIRED
@@ -136,7 +136,7 @@ export function Registration({ e, agreed, onAgree }: {
 
   return (
     <>
-      {checking ? null : <AuthStepper label="Registration progress"
+      {checking ? null : <AuthStepper label="Sign-up progress"
         steps={REGISTRATION_STEPS.map((name, index) => ({ label: name, current: index === step }))} />}
       <h1 className="hid-ehr-page-title hid-ehr-signup-title">Register a facility</h1>
       <p className="hid-ehr-signup-intro">Sign up your clinic, hospital, lab or pharmacy.</p>
@@ -169,8 +169,8 @@ export function Registration({ e, agreed, onAgree }: {
           </div>}
 
           {step === CAC_STEP && <div className="hid-ehr-signup-grid">
-            <EhrField label={<Required>CAC registration number</Required>} controlId={IDS.cac}
-              hint="We check your CAC against the official registry, and Health ID support checks every new facility within one working day."
+            <EhrField label={<Required>CAC number</Required>} controlId={IDS.cac}
+              hint="From your business registration certificate. Health ID support checks every new facility within one working day."
               error={problems.cac ?? (refusalAtCac ? <span role="alert"><ErrorWords error={refusalAtCac} /></span> : undefined)}>
               <EhrInput required value={e.cac} onChange={event => e.setCac(event.target.value)}
                 autoCapitalize="characters" autoComplete="off" spellCheck={false}
@@ -203,7 +203,7 @@ export function Registration({ e, agreed, onAgree }: {
             {step > 0 ? <EhrButton type="button" variant="secondary" onClick={() => move(step - 1)}>Back</EhrButton> : null}
             {step === REVIEW_STEP
               ? <EhrButton type="submit" busy={e.busy} disabled={!allAgreed || !e.turnstileToken || e.retryIn > 0}>
-                {e.busy ? 'Verifying CAC…' : 'Submit facility for verification'}
+                {e.busy ? 'Checking CAC…' : 'Send facility details'}
               </EhrButton>
               : <EhrButton type="submit">Continue</EhrButton>}
           </div>
@@ -212,9 +212,9 @@ export function Registration({ e, agreed, onAgree }: {
         </form>
 
 
-        <EhrDialog open={confirming} title="Submit this registration?"
-          description="Check the details above, then submit. Health ID checks your CAC registration number and emails you a six digit code."
-          confirmLabel="Confirm and submit"
+        <EhrDialog open={confirming} title="Send these details?"
+          description="Check the details above, then send them. Health ID checks your CAC number and emails you a 6-digit code."
+          confirmLabel="Yes, send them"
           onCancel={() => setConfirming(false)}
           onConfirm={() => { setConfirming(false); void e.start() }} />
       </>}
@@ -233,7 +233,7 @@ function Review({ e, agreed, onAgree, onEdit }: {
   const sections: ReadonlyArray<ReadonlyArray<readonly [string, string]>> = [
     [['Full name', e.name.trim()], ['Email', e.administratorEmail]],
     [['Facility type', organizationTypeLabel(e.organizationType)]],
-    [['CAC registration number', e.cac]],
+    [['CAC number', e.cac]],
     [['Product', productLabel(e.productCode)]],
   ]
   const kept = e.kept
@@ -257,8 +257,8 @@ function Review({ e, agreed, onAgree, onEdit }: {
         })}
       </div>
 
-      <p className="hid-ehr-signup-info">No payment is taken at sign-up. When you submit, we check your CAC registration
-        number against the official registry and email a six digit code to {e.administratorEmail || 'your email address'}.</p>
+      <p className="hid-ehr-signup-info">No payment is taken at sign-up. When you send this, we check your CAC
+        number and email a 6-digit code to {e.administratorEmail || 'your email address'}.</p>
 
       <details className="hid-ehr-signup-agreements">
         <summary>Read the agreements</summary>

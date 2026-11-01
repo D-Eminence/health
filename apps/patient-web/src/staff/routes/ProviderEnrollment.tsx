@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Field, Input, PasswordInput, Select } from '@hid/ui'
+import { PasswordRules } from '../../PasswordRules'
 import './providerSetup.css'
 import { AuthLayout } from '../../AuthLayout'
 import { useDocumentTitle } from '../../authSteps'
@@ -62,16 +63,16 @@ export function organizationTypeNote(type: OrganizationType, ordersOn: boolean):
 
 function laboratoryNote(ordersOn: boolean): string {
   return 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
-    + 'working day, the Laboratory workspace opens, and you can add your laboratory scientists and receptionists. '
+    + 'working day, the Laboratory pages open, and you can add your laboratory scientists and receptionists. '
     + `${BETWEEN_FACILITIES.laboratory.signUp(ordersOn)} If you are a licensed laboratory scientist, you can also work in the `
-    + 'Laboratory workspace yourself.'
+    + 'Laboratory pages yourself.'
 }
 
 function pharmacyNote(ordersOn: boolean): string {
   return 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
-    + 'working day, the Pharmacy workspace opens, and you can add your pharmacists and receptionists. '
+    + 'working day, the Pharmacy pages open, and you can add your pharmacists and receptionists. '
     + `${BETWEEN_FACILITIES.pharmacy.signUp(ordersOn)} If you are a licensed pharmacist, you can also work in the Pharmacy `
-    + 'workspace yourself.'
+    + 'pages yourself.'
 }
 
 /** The notes while orders between facilities are off, or before the backend says (organizationTypeNote). */
@@ -155,8 +156,8 @@ const OPEN_SIGN_UP_MS = DAY_MS
 
 const START_UNAVAILABLE = 'We couldn’t finish checking your details just now. Please try again in a minute. '
   + 'If an email with a code arrives meanwhile, ignore it: you’ll get a new code when you try again.'
-const STEP_UNAVAILABLE = 'Facility sign-up is temporarily unavailable. Please try again in a few minutes.'
-const CAC_CHECK_BUSY = 'We couldn’t check your CAC registration number just now. Please try again in a minute.'
+const STEP_UNAVAILABLE = 'Facility sign-up isn’t working right now. Please try again in a few minutes.'
+const CAC_CHECK_BUSY = 'We couldn’t check your CAC number just now. Please try again in a minute.'
 const OFFLINE = 'We couldn’t reach Health ID. Check your internet connection and try again.'
 
 type Step = 'start' | 'resend' | 'verify' | 'activate'
@@ -185,7 +186,7 @@ type Refusal =
  * 423 for that reason (P4).
  */
 function refusalOf(reason: unknown, step: Step, activationUncertain: boolean, novu: boolean): Refusal {
-  if (!isHidApiError(reason)) return { kind: 'message', text: 'We could not complete facility sign-up. Please try again.' }
+  if (!isHidApiError(reason)) return { kind: 'message', text: 'Something went wrong with facility sign-up. Please try again.' }
   const { status, code } = reason
   if (status === 423 && code === 'PROVIDER_ENROLLMENT_UNAVAILABLE') return { kind: 'closed' }
   const starting = step === 'start' || step === 'resend'
@@ -215,43 +216,43 @@ function refusalOf(reason: unknown, step: Step, activationUncertain: boolean, no
           + 'also be this facility’s administrator. Signing up again with another email for the same CAC number won’t work '
           + 'either.' }
     if (code === 'ORGANIZATION_REVIEW_REQUIRED') return { kind: 'help', title: 'Health ID needs to check this organization',
-      text: 'This organization can’t be set up automatically. It may already be registered with Health ID, for example '
+      text: 'We can’t set up this organization by ourselves. It may already be on Health ID, for example '
         + 'for another product.' }
   }
   if (code === 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT') return { kind: 'message',
-    text: 'This browser is signed in to Health ID, for example to a patient account. Sign out of Health ID first, or '
+    text: 'Someone is signed in to Health ID on this device, for example to a patient account. Sign out first, or '
       + 'open this page in a private (incognito) window, then try again.' }
   // Novu answers this for a CAC number and product already registered, held by a governed application or by an open
   // sign-up with another email, closed on the way, or whose sign-up from this email or network support closed in the
   // last 7 days (0086, A8 and R15; a lapse refuses no one). Only support can say which, so the page promises no wait.
   if (code === 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW' && novu) return { kind: 'message', support: 'cac',
-    text: 'This organization can’t be set up automatically right now: its CAC number may already be linked to Health '
-      + 'ID, another sign-up for it may be in progress, or Health ID support may have recently closed a sign-up for it.' }
+    text: 'We can’t set up this organization by ourselves right now. Its CAC number may already be on Health '
+      + 'ID, someone else may be signing it up, or Health ID support may have recently closed a sign-up for it.' }
   if (code === 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW' || code === 'ORGANIZATION_REVIEW_REQUIRED') return { kind: 'message',
-    support: 'cac', text: 'This organization needs a check by Health ID before it can be set up, for example because '
-      + 'its CAC number is already linked to Health ID or another sign-up for it is in progress.' }
+    support: 'cac', text: 'Health ID must check this organization before it can be set up. For example, '
+      + 'its CAC number may already be on Health ID, or someone else may be signing it up.' }
   if (code === 'PROVIDER_ALREADY_REGISTERED') return { kind: 'message', support: 'plain',
-    text: 'This organization is already registered with Health ID. If you are its administrator, sign in instead.' }
+    text: 'This organization is already on Health ID. If you are its administrator, sign in instead.' }
   if (code === 'PROVIDER_CAC_PROFILE_INCOMPLETE') return { kind: 'message', support: 'cac',
-    text: 'We couldn’t set up your organization automatically from its CAC record: the record is missing details we '
+    text: 'We couldn’t set up your organization from its CAC record. The record is missing details we '
       + 'need, or it doesn’t show the company as active.' }
-  if (code === 'CAC_NOT_VERIFIED') return { kind: 'message', text: 'We couldn’t verify this CAC registration number. '
+  if (code === 'CAC_NOT_VERIFIED') return { kind: 'message', text: 'We couldn’t check this CAC number. '
     + 'Check the number on your CAC certificate (it starts with RC, BN or IT) and try again.' }
   if (code === 'APPLICATION_RATE_LIMITED') return { kind: 'message',
-    text: 'There have been too many sign-up attempts from your network. Please try again later.' }
+    text: 'Too many sign-up tries from your internet connection. Please try again later.' }
   if (code === 'VERIFICATION_QUOTA_EXCEEDED') return { kind: 'message',
-    text: 'The limit on CAC checks has been reached for now. Please try again later.' }
+    text: 'We can’t check more CAC numbers for now. Please try again later.' }
   if (code === 'VERSION_CONFLICT') return { kind: 'message',
     text: 'Your sign-up changed while we were working on it. Please try again.' }
   if (code === 'ORGANIZATION_COMPLETION_CODE_INVALID') return { kind: 'message',
-    text: 'That code isn’t right, or it has expired. Check the latest email from Health ID and try again, or send a new code.' }
+    text: 'That code is wrong or too old. Check the latest email from Health ID and try again, or send a new code.' }
   if (code === 'ORIGIN_DENIED') return { kind: 'message',
     text: 'This site isn’t allowed to send facility sign-ups. Open Set up your facility from healthidentitydirectory.com and try again.' }
   if (code.startsWith('TURNSTILE_') && code.endsWith('_MISMATCH')) return { kind: 'message',
     text: 'The security check was made for another Health ID site. Open Set up your facility from '
       + 'healthidentitydirectory.com and try again.' }
   if (code.startsWith('TURNSTILE_')) return { kind: 'message',
-    text: 'The security check didn’t go through. Please complete it again, then retry.' }
+    text: 'The security check didn’t work. Please do it again, then try again.' }
   if (code === 'PROVIDER_ENROLLMENT_DENIED') return { kind: 'message', text: STEP_UNAVAILABLE }
   if (code === 'VALIDATION_FAILED') return { kind: 'message', text: 'Some of the details weren’t accepted. Check them and try again.' }
   return { kind: 'message', text: reason.message }
@@ -273,7 +274,7 @@ function SupportContact({ purpose }: { purpose: Support | 'register' | 'finish' 
         : purpose === 'held' ? 'If it belongs to another company, tell Health ID support'
           : purpose === 'help' ? 'If you need help, contact Health ID support'
             : purpose === 'cac-otherwise' ? 'Otherwise, contact Health ID support' : 'Contact Health ID support'
-  const tail = purpose === 'cac' || purpose === 'cac-otherwise' ? ', and give your CAC registration number.' : purpose === 'finish'
+  const tail = purpose === 'cac' || purpose === 'cac-otherwise' ? ', and give your CAC number.' : purpose === 'finish'
     ? ' to finish setting up your facility.' : purpose === 'held' ? ', and give that number, so they can free it.' : '.'
   return <>{lead}{address ? <> at <a className="provider-setup-link" href={`mailto:${address}`}>{address}</a></> : null}{tail}</>
 }
@@ -438,7 +439,7 @@ export function ProviderEnrollment() {
 }
 
 function EnrollOnMainSite({ href }: { href: string }) {
-  useDocumentTitle('Provider enrollment · Health ID Provider')
+  useDocumentTitle('Facility sign-up · Health ID Provider')
   const [params] = useSearchParams()
   const product = params.get('product')
   const target = isProduct(product) ? `${href}?product=${product}` : href
@@ -451,7 +452,7 @@ function EnrollOnMainSite({ href }: { href: string }) {
 }
 
 function EnrollmentSteps() {
-  useDocumentTitle('Provider enrollment · Health ID Provider')
+  useDocumentTitle('Facility sign-up · Health ID Provider')
   const navigate = useNavigate()
   const novu = usesNovuBackend()
   // On main (hid-system #71) the administrator's account is active after activation, but signed in only once its
@@ -596,7 +597,7 @@ function EnrollmentSteps() {
       return
     }
     if (refusal.kind === 'session-expired') {
-      setError({ text: 'Your sign-up session has expired. Check your details and select Continue to get a new code.' })
+      setError({ text: 'Your sign-up timed out. Check your details and select Continue to get a new code.' })
       setChallengeId(''); setCode(''); setPassword(''); setRegistering(null); setRegisteringFailed(false)
       // Main: a start within resendAfterSeconds of the last code sends none (hid-system 0056); Novu says so itself.
       if (!codesReported) holdFor(codeFor, resendAt)
@@ -914,7 +915,7 @@ function EnrollmentSteps() {
       setUnapplied(null)
     }
     startAgain()
-    const check = 'Check your details, and the CAC registration number on your CAC certificate. Correct them, then select '
+    const check = 'Check your details, and the CAC number on your CAC certificate. Correct them, then select '
       + 'Continue. No account has been created.'
     setError(outcome === 'withdrawn'
       ? { text: `${check} We’ve closed that sign-up, so the CAC number you entered is free again.` }
@@ -986,7 +987,7 @@ function EnrollmentSteps() {
       audience="provider" lede={stage === 'details' && availability === 'open' ? FACILITY_LEDE : undefined}
       steps={closed || availability === 'checking' || availability === 'unavailable' || stage === 'help'
         ? undefined : steps.map(([step, label]) => ({ label, current: step === currentStep }))}
-      stepsLabel="Provider enrollment steps">
+      stepsLabel="Facility sign-up steps">
         {error && !closed ? <p role="alert" className="patient-inline-error">{error.text}
           {error.support ? <> <SupportContact purpose={error.support} /></> : null}</p> : null}
 
@@ -1031,9 +1032,9 @@ function EnrollmentSteps() {
               </Field>
               {productNote && <p id="provider-product-note" className="patient-field-hint">{productNote}</p>}
 
-              <Field label="CAC registration number" htmlFor="provider-cac" hint={novu
-                ? 'We check it with the official registry. Health ID support checks every new facility within one working day.'
-                : 'We check it with the official registry. One already linked to Health ID is reviewed by our team first.'}>
+              <Field label="CAC number" htmlFor="provider-cac" hint={novu
+                ? 'From your business registration certificate. We check it, and Health ID support checks every new facility within one working day.'
+                : 'From your business registration certificate. If it’s already on Health ID, our team checks it first.'}>
                 <Input id="provider-cac" required value={cac}
                   onChange={event => setCac(event.target.value.replace(/\s+/g, '').toUpperCase())}
                   autoCapitalize="characters" autoComplete="off" spellCheck={false}
@@ -1068,7 +1069,7 @@ function EnrollmentSteps() {
             <div className="provider-setup-actions">
               <Turnstile action="provider-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />
               <button type="submit" className="patient-primary-button provider-setup-submit" disabled={busy || !turnstileToken || retryIn > 0}>
-                {busy ? 'Verifying CAC…' : 'Continue'}
+                {busy ? 'Checking CAC…' : 'Continue'}
               </button>
               {retryIn > 0 && !busy && <p className="patient-field-hint">{carried
                 ? 'You can continue with your changes in ' : 'You can try again in '}{waitWords(retryIn)}.</p>}
@@ -1086,13 +1087,13 @@ function EnrollmentSteps() {
                 ? 'We didn’t send a new code, because we’ve sent as many as we can for now. Enter the six digit code from the '
                   + `latest email Health ID sent to ${administratorEmail}.`
                 : `Enter the six digit code sent to ${administratorEmail}.`}</p>
-            <label>Email verification code
+            <label>Code from the email
               <Input required inputMode="numeric" autoComplete="one-time-code" value={code}
                 onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
                 pattern="[0-9]{6}" maxLength={6} />
             </label>
             <button type="submit" className="patient-primary-button" disabled={busy || code.length !== 6}>
-              {busy ? 'Checking…' : 'Verify email'}
+              {busy ? 'Checking…' : 'Confirm email'}
             </button>
             <button type="button" className="patient-text-button" onClick={startAgain}>
               Start again
@@ -1133,16 +1134,17 @@ function EnrollmentSteps() {
                   onClick={() => void readRegisteringAgain()}>Try again</button></p>}
               <button type="button" className="patient-text-button" disabled={busy} onClick={() => void notMine()}>This isn’t my organization</button>
             </div>}
-            <p id="provider-password-hint" className="patient-field-hint">{novu
-              ? `Choose a password of at least 12 characters. You’ll use it with ${accountEmail} to sign in. Once your account `
-                + 'is created, you go straight into the Provider Portal as your facility’s administrator.'
-              : 'Choose a password of at least 12 characters. After activation, you will set up an authenticator app, then enter '
-                + 'the Provider Portal as your facility administrator.'}</p>
+            <p id="provider-account-hint" className="patient-field-hint">{novu
+              ? `You’ll sign in with ${accountEmail} and this password. Then you go straight into the Provider Portal as `
+                + 'your facility’s administrator.'
+              : 'Next, you’ll set up sign-in codes on your phone. Then you go into the Provider Portal as your facility’s '
+                + 'administrator.'}</p>
             {/* Lets a password manager save the new password with its email. */}
             <input type="email" hidden readOnly autoComplete="username" value={accountEmail} />
             <Field label="Password" htmlFor="provider-password">
               <PasswordInput id="provider-password" required autoComplete="new-password" minLength={12} maxLength={256}
-                aria-describedby="provider-password-hint" value={password} onChange={event => setPassword(event.target.value)} />
+                aria-describedby="provider-account-hint provider-password-hint" value={password} onChange={event => setPassword(event.target.value)} />
+              <PasswordRules id="provider-password-hint" password={password} />
             </Field>
             <button type="submit" className="patient-primary-button" disabled={busy || password.length < 12}>
               {busy ? 'Creating provider account…' : 'Create provider account'}
@@ -1225,8 +1227,8 @@ function SignInToFinish({ reason }: { reason: string | null }) {
   return <section className="patient-form" aria-labelledby="provider-enroll-sign-in-title">
     <h2 id="provider-enroll-sign-in-title" ref={heading} tabIndex={-1} className="hid-mfa-heading">Sign in to finish setting up</h2>
     {reason && <p role="alert" className="patient-inline-error">{reason}</p>}
-    <p className="patient-field-hint">Your provider account is active. Sign in with your administrator email and the password you chose,
-      then set up your authenticator app.</p>
+    <p className="patient-field-hint">Your provider account is ready. Sign in with your administrator email and password.
+      Then set up a code app on your phone (like Google Authenticator).</p>
     <Link className="patient-primary-button" to="/provider/sign-in">Sign in to the Provider Portal</Link>
   </section>
 }

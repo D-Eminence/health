@@ -17,7 +17,7 @@ type Step =
   | { kind: 'recovery-codes'; codes: string[] }
   | { kind: 'finishing' }
 
-const SIGN_IN_FAILED = 'Sign-in failed. Check your email and password. Only platform administrators can sign in here.'
+const SIGN_IN_FAILED = 'We couldn’t sign you in. Check your email and password. Only Health ID admins can sign in here.'
 
 /** The setup key's grouping is shared with the provider portal; re-exported for the console's callers. */
 export { formatSetupKey }
@@ -44,7 +44,7 @@ export function AdminSignIn({ onSignedIn, notice }: {
     setError(null)
     setStep({ kind: 'finishing' })
     try { await onSignedIn() }
-    catch (caught) { restart(caught instanceof Error ? caught.message : 'Platform administration could not be opened.') }
+    catch (caught) { restart(caught instanceof Error ? caught.message : 'We couldn’t open the admin area.') }
   }
 
   /**
@@ -67,15 +67,15 @@ export function AdminSignIn({ onSignedIn, notice }: {
       onChallenge={challenge => { setError(null); setStep(challenge.status === 'mfa_required'
         ? { kind: 'verify', challenge } : { kind: 'enroll', challenge }) }} />}
     {step.kind === 'verify' && <VerifyStep challenge={step.challenge} error={error}
-      onFailure={caught => mfaFailure(caught, 'Your code could not be checked. Try again.')}
+      onFailure={caught => mfaFailure(caught, 'We couldn’t check your code. Try again.')}
       onVerified={() => void finish()} onRestart={() => restart(null)} />}
     {step.kind === 'enroll' && <EnrollStep challenge={step.challenge} error={error}
-      onFailure={caught => mfaFailure(caught, 'Authenticator setup could not be completed. Try again.')}
+      onFailure={caught => mfaFailure(caught, 'We couldn’t finish setting up sign-in codes. Try again.')}
       onActivated={codes => { setError(null); setStep({ kind: 'recovery-codes', codes }) }}
       onRestart={() => restart(null)} />}
-    {step.kind === 'recovery-codes' && <RecoveryCodes headingAs="h1" codes={step.codes} doneLabel="Continue to platform administration"
+    {step.kind === 'recovery-codes' && <RecoveryCodes headingAs="h1" codes={step.codes} doneLabel="Continue to the admin area"
       onDone={() => void finish()} />}
-    {step.kind === 'finishing' && <p role="status">Opening platform administration…</p>}
+    {step.kind === 'finishing' && <p role="status">Opening the admin area…</p>}
   </AuthLayout>
 }
 
@@ -98,13 +98,13 @@ function CredentialsStep({ error, onError, onChallenge }: {
       onChallenge(await adminApi.login(email.trim(), password, token ?? ''))
       setPassword('')
     } catch (caught) {
-      onError(isProblem(caught, 'AUTHENTICATION_REQUIRED') ? SIGN_IN_FAILED : failure(caught, 'Sign-in could not be completed.'))
+      onError(isProblem(caught, 'AUTHENTICATION_REQUIRED') ? SIGN_IN_FAILED : failure(caught, 'We couldn’t sign you in.'))
     } finally { setPending(false); setToken(null); setResetKey(value => value + 1) }
   }
 
   return <form onSubmit={event => void submit(event)} className="admin-auth-form">
     <h1 id="admin-sign-in-title">Administration sign in</h1>
-    <p>For platform administrators. You’ll also need your authenticator app.</p>
+    <p>For Health ID admins. You’ll also need a code app on your phone (like Google Authenticator).</p>
     <label>Email<input type="email" autoComplete="username" required value={email} onChange={event => setEmail(event.target.value)} /></label>
     <div className="admin-field"><label htmlFor="admin-password">Password</label><PasswordInput appearance="plain" id="admin-password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} /></div>
     {(config.turnstileSiteKey || config.name !== 'local') &&
@@ -143,24 +143,24 @@ function VerifyStep({ challenge, error, onFailure, onVerified, onRestart }: {
   }
 
   return <form onSubmit={event => void submit(event)} className="admin-auth-form">
-    <h1 id="admin-sign-in-title">Verify it’s you</h1>
+    <h1 id="admin-sign-in-title">Confirm it’s you</h1>
     {mode === 'totp' ? <>
-      <p>Enter the 6-digit code from your authenticator app. Email codes are not accepted for administrators.</p>
-      <label>Authenticator code<input value={code} onChange={event => setCode(sixDigitCode(event.target.value))}
+      <p>Enter the 6-digit code from your code app. Admins can’t use email codes.</p>
+      <label>Sign-in code<input value={code} onChange={event => setCode(sixDigitCode(event.target.value))}
         {...SIX_DIGIT_CODE_FIELD} required autoFocus /></label>
     </> : <>
-      <p>Enter one of your recovery codes. Each code works once. You can sign in with it, but high-risk actions still
-        need your authenticator app.</p>
-      <label>Recovery code<input value={recoveryCode} onChange={event => setRecoveryCode(event.target.value)}
+      <p>Enter one of your backup codes. Each code works once. It signs you in, but some important actions still
+        need your code app.</p>
+      <label>Backup code<input value={recoveryCode} onChange={event => setRecoveryCode(event.target.value)}
         autoComplete="off" spellCheck={false} maxLength={16} required autoFocus /></label>
     </>}
     <p className="admin-note">This step expires at {date(challenge.expiresAt)}.</p>
     {error ? <p role="alert" className="admin-error">{error}</p> : null}
     <button type="submit" className="admin-primary" disabled={pending || !valid}>{pending ? 'Verifying…' : 'Verify'}</button>
     <button type="button" className="admin-link" onClick={() => setMode(mode === 'totp' ? 'recovery' : 'totp')}>
-      {mode === 'totp' ? 'Use a recovery code instead' : 'Use my authenticator app instead'}</button>
-    <p className="admin-note">Lost your authenticator and recovery codes? Ask another administrator to request an
-      authenticator reset; a second Super Admin must approve it.</p>
+      {mode === 'totp' ? 'Use a backup code instead' : 'Use my code app instead'}</button>
+    <p className="admin-note">Lost your phone and backup codes? Ask another admin to reset your
+      sign-in codes. A second Super Admin must agree.</p>
     <button type="button" className="admin-link" onClick={onRestart}>Start again</button>
   </form>
 }
@@ -198,9 +198,9 @@ function EnrollStep({ challenge, error, onFailure, onActivated, onRestart }: {
   }
 
   if (!enrollment) return <div className="admin-auth-form">
-    <h1 id="admin-sign-in-title">Set up your authenticator</h1>
-    <p>Platform administration requires an authenticator app (for example one that supports time-based codes). This
-      account has none: it is new, or its authenticator was reset. Email codes are not accepted for administrators.</p>
+    <h1 id="admin-sign-in-title">Set up sign-in codes</h1>
+    <p>Admins must sign in with a code app on your phone (like Google Authenticator). This account has none set up
+      yet. Admins can’t use email codes.</p>
     <p className="admin-note">Setup must be finished by {date(challenge.expiresAt)}.</p>
     {error ? <p role="alert" className="admin-error">{error}</p> : null}
     <button type="button" className="admin-primary" disabled={pending} onClick={() => void begin()}>
@@ -209,21 +209,21 @@ function EnrollStep({ challenge, error, onFailure, onActivated, onRestart }: {
   </div>
 
   return <form onSubmit={event => void activate(event)} className="admin-auth-form">
-    <h1 id="admin-sign-in-title">Add Health ID to your authenticator</h1>
+    <h1 id="admin-sign-in-title">Add Health ID to your code app</h1>
     <ol className="admin-steps">
-      <li>In your authenticator app, add an account and enter this setup key. On a phone with the app installed you can
+      <li>In your code app, add an account and type in this key. On a phone with the app installed you can
         instead <a href={enrollment.otpauthUri}>open it in the app</a>.
         <code className="admin-setup-key" aria-label="Setup key">{formatSetupKey(enrollment.secret)}</code>
         <small>Time-based · {enrollment.algorithm} · {enrollment.digits} digits · every {enrollment.periodSeconds} seconds.
-          This key is shown only during setup and cannot be retrieved later.</small></li>
+          This key is shown only now. You can’t see it again later.</small></li>
       <li>Enter the code the app now shows.</li>
     </ol>
-    <label>Authenticator code<input value={code} onChange={event => setCode(sixDigitCode(event.target.value))}
+    <label>Sign-in code<input value={code} onChange={event => setCode(sixDigitCode(event.target.value))}
       {...SIX_DIGIT_CODE_FIELD} required autoFocus /></label>
     <p className="admin-note">Setup must be finished by {date(enrollment.expiresAt)}.</p>
     {error ? <p role="alert" className="admin-error">{error}</p> : null}
     <button type="submit" className="admin-primary" disabled={pending || !isSixDigitCode(code)}>
-      {pending ? 'Activating…' : 'Activate authenticator'}</button>
+      {pending ? 'Activating…' : 'Turn on sign-in codes'}</button>
     <button type="button" className="admin-link" onClick={onRestart}>Start again</button>
   </form>
 }

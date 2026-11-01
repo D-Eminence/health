@@ -52,7 +52,7 @@ describe('platform controls', () => {
     fireEvent.change(within(sheet).getByLabelText('Reason for this change'), { target: { value: '  Scheduled database upgrade ' } })
     fireEvent.click(within(sheet).getByRole('button', { name: 'Turn on' }))
 
-    fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
+    fireEvent.change(await screen.findByLabelText('Sign-in code'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm and continue' }))
     expect(await screen.findByText('Maintenance mode is on.')).toBeTruthy()
     await waitFor(() => expect(mocks.api.controls).toHaveBeenCalledTimes(2))

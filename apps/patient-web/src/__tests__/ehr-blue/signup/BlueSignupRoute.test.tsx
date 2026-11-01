@@ -62,7 +62,7 @@ describe('the clinic switch chooses the page at /provider/enroll', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Register a facility' })).toBeTruthy()
     expect(await screen.findByRole('textbox', { name: 'Administrator email' })).toBeTruthy()
     expect(document.querySelector('.hid-ehr')).toBeNull()
-    expect(screen.queryByRole('group', { name: 'Registration progress' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Sign-up progress' })).toBeNull()
   })
 
   it('keeps today’s page on hid-system main (main-v1) even with the switch on: the blue flow is Novu only', async () => {
@@ -71,7 +71,7 @@ describe('the clinic switch chooses the page at /provider/enroll', () => {
     await openPortal()
     expect(await screen.findByRole('heading', { level: 1, name: 'Register a facility' })).toBeTruthy()
     // Main's four steps, the last of them the authenticator.
-    expect(screen.getByRole('group', { name: 'Provider enrollment steps' }).textContent).toBe('Step 1 of 4 · Facility')
+    expect(screen.getByRole('group', { name: 'Facility sign-up steps' }).textContent).toBe('Step 1 of 4 · Facility')
     expect(document.querySelector('.hid-ehr')).toBeNull()
   })
 })
@@ -97,7 +97,7 @@ describe('the blue registration opened on a staff product host or the admin site
     expect(screen.getByRole('link', { name: 'Continue to facility sign-up' }).getAttribute('href')).toBe(href)
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Complete the security check' })).toBeNull()
-    expect(document.title).toBe('Provider enrollment · Health ID Provider')
+    expect(document.title).toBe('Facility sign-up · Health ID Provider')
     expect(api.availability).not.toHaveBeenCalled()
     expect(api.start).not.toHaveBeenCalled()
     expect(clinician.availability).not.toHaveBeenCalled()

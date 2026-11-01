@@ -71,7 +71,7 @@ describe('pricing catalogue', () => {
 
     fireEvent.change(editor.getByLabelText('Amount in minor NGN units'), { target: { value: '1250000' } })
     fireEvent.click(editor.getByRole('button', { name: 'Save price' }))
-    fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
+    fireEvent.change(await screen.findByLabelText('Sign-in code'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm and continue' }))
     expect(await screen.findByText('Pricing saved. Current catalog is being refreshed.')).toBeTruthy()
     await waitFor(() => expect(mocks.api.pricing).toHaveBeenCalledTimes(2))

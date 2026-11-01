@@ -109,7 +109,7 @@ describe('patient password recovery', () => {
     api.recoveryVerify.mockResolvedValue({ verified: true, challengeId: 'challenge-1', verificationToken: 'token-1' })
     fireEvent.change(code, { target: { value: '123456' } })
     expect(api.recoveryVerify).toHaveBeenCalledTimes(1)
-    await press('Verify code')
+    await press('Check code')
     await waitFor(() => expect(screen.getByLabelText('New password').getAttribute('aria-invalid')).toBeNull())
   })
 
@@ -158,7 +158,7 @@ describe('patient password recovery', () => {
     await press('Reset password')
     await waitFor(() => expect(document.activeElement).toBe(password))
     expect(password.getAttribute('aria-invalid')).toBeNull()
-    expect(described(password)).toBe('At least 12 characters. Tap Show to check it.')
+    expect(described(password)).toBe('At least 12 characters (done) Tip: a few words together is easy to remember.')
     expect(shownText(screen.getByRole('alert'))).toBe('The verification code is invalid or expired')
   })
 
@@ -196,10 +196,10 @@ describe('provider and platform password recovery', () => {
     open('staff')
     fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'clinician@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await press('Send recovery code')
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Recovery code')))
-    fireEvent.change(screen.getByLabelText('Recovery code'), { target: { value: '123456' } })
-    await press('Verify code')
+    await press('Send code')
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Code')))
+    fireEvent.change(screen.getByLabelText('Code'), { target: { value: '123456' } })
+    await press('Check code')
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('New password')))
   }
 
@@ -265,7 +265,7 @@ describe('provider and platform password recovery', () => {
     const email = screen.getByLabelText('Work email')
     fireEvent.change(email, { target: { value: 'clinician@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await press('Send recovery code')
+    await press('Send code')
     await waitFor(() => expect(document.activeElement).toBe(email))
     expect(email.getAttribute('aria-invalid')).toBe('true')
     expect(described(email)).toContain('identifier must be an email')
@@ -277,7 +277,7 @@ describe('provider and platform password recovery', () => {
     fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'a-long-new-password' } })
     fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a-long-new-password' } })
     await press('Reset password')
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Password reset complete.' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Your password is reset.' })))
   })
 })
 
@@ -307,7 +307,7 @@ describe('patient enrollment', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     await press('Continue')
     // Focus moves to the note, which is read there once: it is not also an alert.
-    const note = await screen.findByRole('group', { name: /Sign out of the patient or provider portal before starting a new Health ID\./ })
+    const note = await screen.findByRole('group', { name: /Sign them out before you start a new Health ID\./ })
     expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     await waitFor(() => expect(document.activeElement).toBe(note))
     expect(screen.queryByRole('alert')).toBeNull()
@@ -323,7 +323,7 @@ describe('patient enrollment', () => {
     await waitFor(() => expect(document.activeElement).toBe(nin))
     expect(nin.getAttribute('aria-invalid')).toBe('true')
     expect(described(nin)).toContain('The NIN could not be verified')
-    expect(described(nin)).toContain('It isn’t stored in this browser.')
+    expect(described(nin)).toContain('We don’t keep it on this device.')
   })
 
   it('moves focus through each stage, and keeps the contact for another code', async () => {
@@ -338,7 +338,7 @@ describe('patient enrollment', () => {
     await waitFor(() => expect(document.activeElement).toBe(code))
     expect(described(code)).toBe('We sent a 6-digit code to +2348000000000.')
 
-    await press('Get another code or change contact')
+    await press('Get another code, or use another phone or email')
     const again = screen.getByLabelText('Phone number') as HTMLInputElement
     await waitFor(() => expect(document.activeElement).toBe(again))
     expect(again.value).toBe('+2348000000000')
@@ -354,11 +354,11 @@ describe('patient enrollment', () => {
     expect(document.activeElement).toBe(screen.getByLabelText('Code'))
 
     fireEvent.change(screen.getByLabelText('Code'), { target: { value: '123456' } })
-    await press('Verify code')
+    await press('Check code')
     const password = screen.getByLabelText('Password')
     await waitFor(() => expect(document.activeElement).toBe(password))
     expect(password.getAttribute('aria-invalid')).toBeNull()
-    expect(described(password)).toBe('At least 12 characters. Tap Show to check it.')
+    expect(described(password)).toBe('At least 12 characters (not yet) Tip: a few words together is easy to remember.')
 
     api.enrollmentActivate.mockResolvedValue({ hidCode: 'HID-ABCDEF23' })
     fireEvent.change(password, { target: { value: 'a-long-new-password' } })
@@ -387,7 +387,7 @@ describe('patient enrollment', () => {
     await press('Send code')
     api.enrollmentVerify.mockReturnValue(new Promise(() => {}))
     await enterCode(await screen.findByLabelText('Code'), '123456')
-    expect((screen.getByRole('button', { name: 'Get another code or change contact' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Get another code, or use another phone or email' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('does not move focus when the page opens at a stage already reached', async () => {

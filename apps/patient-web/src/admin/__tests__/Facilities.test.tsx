@@ -90,7 +90,7 @@ describe('facilities list', () => {
     const sheet = changeStatus('verified', 'Documents reviewed and accepted')
     expect(within(sheet).getByText(/Ikeja Clinic becomes verified/)).toBeTruthy()
     fireEvent.click(within(sheet).getByRole('button', { name: 'Verify facility' }))
-    fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
+    fireEvent.change(await screen.findByLabelText('Sign-in code'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm and continue' }))
     expect(await screen.findByText('Ikeja Clinic is verified.')).toBeTruthy()
     await waitFor(() => expect(mocks.api.facilities).toHaveBeenCalledTimes(2))

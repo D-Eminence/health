@@ -168,7 +168,7 @@ it.each([
 })
 
 describe('a sign-in that Identity ended for want of an authenticator (403 STAFF_MFA_REQUIRED)', () => {
-  const NOTICE = 'Staff now need a code from an authenticator app to sign in. Sign in again to set one up, or to use the one you have.'
+  const NOTICE = 'Staff now sign in with a code app on your phone (like Google Authenticator). Sign in again to set one up, or to use the one you have.'
 
   it.each([
     ['signed out at load', 'signed-out'],
@@ -385,8 +385,8 @@ describe('focus as soon as it is shown', () => {
 
   /** Sends a code from the authenticator, whose answer `verifyMfa` gives. */
   async function verify() {
-    await screen.findByRole('heading', { name: 'Verify it’s you' })
-    fireEvent.change(screen.getByRole('textbox', { name: 'Authenticator code' }), { target: { value: '123456' } })
+    await screen.findByRole('heading', { name: 'Confirm it’s you' })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Sign-in code' }), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
   }
 
@@ -394,7 +394,7 @@ describe('focus as soon as it is shown', () => {
     const sent = deferred<unknown>()
     calls.login.mockReturnValueOnce(sent.promise)
     await signIn()
-    const shown = focusWhenShown(heading('Verify it’s you'))
+    const shown = focusWhenShown(heading('Confirm it’s you'))
     answer(() => sent.resolve(CHALLENGE))
     const { element, focused } = await shown
     expect(focused).toBe(element)
@@ -406,10 +406,10 @@ describe('focus as soon as it is shown', () => {
     calls.verifyMfa.mockReturnValueOnce(verified.promise)
     await signIn()
     await verify()
-    const shown = focusWhenShown(() => screen.queryByText(/^That code was not accepted\./))
+    const shown = focusWhenShown(() => screen.queryByText(/^That code didn’t work\./))
     answer(() => verified.reject(new HidApiError(401, 'Invalid code', { code: 'MFA_INVALID_CODE' })))
     const { focused } = await shown
-    expect(focused).toBe(screen.getByRole('textbox', { name: 'Authenticator code' }))
+    expect(focused).toBe(screen.getByRole('textbox', { name: 'Sign-in code' }))
   })
 
   it('has focus on the password step’s heading as soon as a spent challenge goes back to it', async () => {
