@@ -1750,7 +1750,11 @@ export function Outreach() {
     finally { setBusy(false) }
   }
 
-  if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState titleAs="h1" title="Outreach unavailable" description="This facility membership needs outreach campaign or registration read permission." />
+  // Screens name no permission (the owner's rule): at a facility, what the role there doesn't include, as the blue page
+  // says it; before one is chosen (the only time this portal shows on its own) there is no role yet, so it asks for one.
+  if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState titleAs="h1" title="Outreach unavailable" description={facilityId
+    ? 'Your role at this facility doesn’t include outreach campaigns or registration cases. Ask your facility administrator.'
+    : 'Choose a facility under “Working at” first.'} />
   return <>
     <PageHead eyebrow="Community care" title="Outreach">View facility campaigns and manage registration cases. A temporary registration is pending identity resolution until it is linked to a verified patient.</PageHead>
     {error && <p className="staff-error" role="alert">{error}</p>}

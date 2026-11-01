@@ -11,11 +11,13 @@ const api = vi.hoisted(() => ({
 // Every staff API member the page reaches for that this test does not provide, such as a campaign write.
 const unprovided = vi.hoisted(() => new Set<string>())
 const permissions = vi.hoisted(() => ({ value: [] as string[] }))
+// Whether a facility is being worked at (the only case this portal now shows on its own is before one is chosen).
+const working = vi.hoisted(() => ({ atFacility: true }))
 
 vi.mock('../../App', () => ({
-  useStaff: () => ({ state: { status: 'ready', session: { actor: { id: 'staff-1', facility: {
+  useStaff: () => ({ state: { status: 'ready', session: { actor: { id: 'staff-1', facility: working.atFacility ? {
     id: 'facility-1', membershipId: 'member-1', permissions: permissions.value,
-  } } } }, lock: null }),
+  } : undefined } } }, lock: null }),
 }))
 vi.mock('../../api', () => ({
   staffApi: new Proxy(api, {
@@ -37,6 +39,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   unprovided.clear()
   permissions.value = ALL
+  working.atFacility = true
   api.outreachCampaigns.mockResolvedValue([campaign('campaign-1', 'Ikeja screening week', 'active'), campaign('campaign-2', 'Epe follow-up', 'planned')])
   api.outreachCases.mockResolvedValue([])
   api.outreachCampaignMembers.mockImplementation(async (_facilityId: string, campaignId: string) =>
@@ -276,5 +279,32 @@ describe('linking a registration case to an existing patient', () => {
     render(<Outreach />)
     await screen.findByText('Amaka Obi')
     expect(screen.queryByText('Link verified existing patient')).toBeNull()
+  })
+})
+
+/*
+ * Outreach opened without campaign or registration read named the permission it needs. Screens name no permission (the
+ * owner's rule), so it says in plain words what the role doesn't include, as the blue page does; before a facility is
+ * chosen there is no role there yet, so it asks for one.
+ */
+describe('who can open Outreach', () => {
+  const PERMISSION_WORDS = /permission|membership|outreach\.(campaign|registration)\.read/i
+
+  it('refuses a role with neither read in plain words, and reads nothing', () => {
+    permissions.value = ['outreach.registration.write', 'outreach.campaign.write']
+    render(<Outreach />)
+    const heading = screen.getByRole('heading', { level: 1, name: 'Outreach unavailable' })
+    expect(heading.parentElement?.textContent).toBe('Outreach unavailableYour role at this facility doesn’t include outreach campaigns or registration cases. Ask your facility administrator.')
+    expect(heading.parentElement?.textContent).not.toMatch(PERMISSION_WORDS)
+    expect(api.outreachCases).not.toHaveBeenCalled()
+    expect(api.outreachCampaigns).not.toHaveBeenCalled()
+  })
+
+  it('asks for a facility before one is chosen', () => {
+    working.atFacility = false
+    render(<Outreach />)
+    const heading = screen.getByRole('heading', { level: 1, name: 'Outreach unavailable' })
+    expect(heading.parentElement?.textContent).toBe('Outreach unavailableChoose a facility under “Working at” first.')
+    expect(api.outreachCases).not.toHaveBeenCalled()
   })
 })

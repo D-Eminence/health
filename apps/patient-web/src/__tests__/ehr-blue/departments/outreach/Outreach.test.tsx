@@ -114,9 +114,10 @@ describe('who can open Outreach', () => {
   it('refuses a membership with no outreach read permission, and reads nothing', async () => {
     session.permissions = ['outreach.registration.write', 'outreach.campaign.write']
     renderPage()
-    // Today's words (staff/routes/Operations.tsx Outreach): "Outreach unavailable" and the permission it needs.
+    // Today's heading, and in plain words what the role doesn't include: no permission is named (owner's rule).
     expect(heading().textContent).toBe('Outreach unavailable')
-    expect(screen.getByText('This facility membership needs outreach campaign or registration read permission.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility doesn’t include outreach campaigns or registration cases. Ask your facility administrator.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/permission|membership|outreach\.(campaign|registration)\.read/i)
     expect(screen.queryByRole('button', { name: 'New registration' })).toBeNull()
     expect(api.outreachCases).not.toHaveBeenCalled()
     expect(api.outreachCampaigns).not.toHaveBeenCalled()
