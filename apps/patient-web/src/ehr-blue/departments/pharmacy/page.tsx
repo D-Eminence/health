@@ -20,12 +20,17 @@ import { StockPage } from './Stock'
  */
 const GROUP = 'Pharmacy'
 const icon = (I: typeof ShoppingBag) => <I aria-hidden strokeWidth={1.8} />
-/** Opened by its address without the permission: today's own words (staff/routes/Operations.tsx Pharmacy), and nothing is read. */
-const pharmacyUnavailable = <DeptUnavailable title="Pharmacy unavailable" message="This facility membership needs pharmacy work-item read permission." />
+/**
+ * Opened by its address without the permission: today's refusal (staff/routes/Operations.tsx Pharmacy) in plain words,
+ * and nothing is read.
+ */
+const pharmacyUnavailable = <DeptUnavailable title="Pharmacy unavailable" message="Your role at this facility doesn’t include pharmacy work. Ask your facility administrator." />
 
 /**
  * The old addresses, so nothing breaks: /pharmacy opens the counter in a pharmacy and Prescriptions in a hospital (or
- * whichever the role may open), /pharmacy?rx=<id> the prescription, /pharmacy/new-sale the counter.
+ * whichever the role may open), /pharmacy?rx=<id> the prescription, /pharmacy/new-sale the counter. A role that may
+ * open neither goes to Prescriptions, which says why: never to Sell, which would send it back to /provider, and on the
+ * pharmacy. site /provider comes back here.
  */
 function PharmacyHome() {
   const { rest } = useBluePage()
@@ -35,7 +40,7 @@ function PharmacyHome() {
   const reads = permissions.includes('pharmacy.work-item.read')
   const rx = new URLSearchParams(search).get('rx')
   const below = rest.replace(/\/+$/, '')
-  const sellFirst = productOf(window.location.hostname, permissions) === 'pharmacy' ? sells || !reads : sells && !reads
+  const sellFirst = productOf(window.location.hostname, permissions) === 'pharmacy' ? sells : sells && !reads
   const to = rx ? `prescriptions/${encodeURIComponent(rx)}` : below === 'new-sale' ? 'sell' : sellFirst ? 'sell' : 'prescriptions'
   return <Navigate replace to={`/provider/pharmacy/${to}`} />
 }
