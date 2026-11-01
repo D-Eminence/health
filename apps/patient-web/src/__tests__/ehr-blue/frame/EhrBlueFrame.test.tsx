@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { BLUE_PAGES, basePath, collectPages, matchBluePage, pageAllowed, pageTabs } from '../../../ehr-blue/routes'
 import { navigationGroups } from '../../../ehr-blue/frame/BlueFrame'
 import { pages as framePages } from '../../../ehr-blue/frame/pages'
@@ -34,8 +34,9 @@ const DESIGN_WORKSPACES = ['Patients', 'Appointments', 'Patient visits', 'Triage
   'Dispatch', 'Blood Bank', 'Telemedicine', 'Shifts & Roster', 'HR & Credentials', 'Quality & Safety', 'Supply', 'Service catalogue',
   'Ward configuration', 'Vehicle configuration']
 
-async function openDemo(path: string, permissions: readonly string[] = ['identity.consent.write'], routes: Record<string, (() => Response)[]> = {}) {
-  const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', permissions)
+async function openDemo(path: string, permissions: readonly string[] = ['identity.consent.write'], routes: Record<string, (() => Response)[]> = {},
+  roles: readonly string[] = ['clinician']) {
+  const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', permissions, roles)
   const lab = facility(DEMO_LABORATORY, 'Demo Laboratory', ['lab.work-item.read'])
   const sent = serve({ [SESSION]: [sessionAt(demo, [demo, lab])], [REQUESTS]: [() => json([{ accessRequestId: 'r1', status: 'pending' }])], ...routes })
   await openStaffApp(path)
@@ -187,12 +188,12 @@ describe('the blue frame', () => {
     expect(sent.length).toBe(before)
   })
 
-  it('says an unknown address is no page, and the sidebar still leads Home', async () => {
+  it('opens Home for an address that is no page, as the design does (admin/unknown-route)', async () => {
     await openDemo('/provider/not-a-page')
-    expect(screen.getByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
-    expect(screen.getByText('This page is not part of Health ID EHR')).toBeDefined()
-    act(() => { fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('link', { name: 'Home' })) })
     await waitFor(() => expect(where()).toBe('/provider'))
+    expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
+    expect(screen.queryByRole('status', { name: /permissions/ })).toBeNull()
+    expect(screen.queryByText(/no longer allow that page/)).toBeNull()
   })
 
   it('leaves today\'s page to refuse a live stand-in without its permission, in today\'s words', async () => {

@@ -967,13 +967,27 @@
   color: var(--ehr-ink);
 }
 
-/* Beside the sidebar rail, a drawer's scrim leaves the rail undimmed, as the design's does (the rail stays inert). */
+/* A drawer's scrim covers the whole window but is clear, so a press anywhere outside the drawer still lands on it and
+   keeps focus in the drawer. The dimming is its ::before, behind the drawer, which can leave parts of the page undimmed. */
+.hid-ehr .hid-ehr-scrim.hid-ehr-scrim-drawer {
+  background: transparent;
+}
+
+.hid-ehr .hid-ehr-scrim.hid-ehr-scrim-drawer::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--ehr-scrim);
+}
+
+/* Beside the sidebar rail, the dimming leaves the rail undimmed, as the design's does (the rail stays inert). */
 @media (min-width: 769px) {
-  .hid-ehr .hid-ehr-scrim.hid-ehr-scrim-drawer {
+  .hid-ehr .hid-ehr-scrim.hid-ehr-scrim-drawer::before {
     left: var(--ehr-sidebar-width);
   }
 
-  .hid-ehr.hid-ehr-shell:has(.hid-ehr-sidebar-collapsed) .hid-ehr-scrim.hid-ehr-scrim-drawer {
+  .hid-ehr.hid-ehr-shell:has(.hid-ehr-sidebar-collapsed) .hid-ehr-scrim.hid-ehr-scrim-drawer::before {
     left: var(--ehr-sidebar-collapsed-width);
   }
 }

@@ -88,7 +88,7 @@ describe('1. design-only entries are only at the demo facilities', () => {
 
   // Design tools are no longer listed even at a demo facility (only working screens are): they stay by address.
   it.each([
-    ['/provider/whats-left', 'What’s left'], ['/provider/tour', 'Design tour'], ['/provider/platform', 'Facility review'],
+    ['/provider/whats-left', 'What’s left'], ['/provider/tour', 'Design tour'],
   ])('keeps %s by address at a demo facility, unlisted', async (path, heading) => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
@@ -96,6 +96,18 @@ describe('1. design-only entries are only at the demo facilities', () => {
     expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeDefined()
     expect(screen.queryByText(/is part of the Health ID demo only/)).toBeNull()
     for (const name of DESIGN) expect(within(nav()).queryByRole('link', { name })).toBeNull()
+  })
+
+  // A sample, so the design's roles decide who opens it (sampleAccess.ts): Facility review is the Platform Super Admin's
+  // alone, and a clinician's address for it opens Home with the design's notice.
+  it('keeps Facility review for the design\'s Platform Super Admin alone: a clinician is sent Home', async () => {
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
+    serve({ [SESSION]: [sessionAt(demo, [demo])] })
+    await openStaffApp('/provider/platform')
+    expect(await screen.findByText('Your current permissions no longer allow that page. Choose an authorized workflow.')).toBeDefined()
+    expect(where()).toBe('/provider')
+    expect(screen.queryByRole('heading', { level: 1, name: 'Facility review' })).toBeNull()
+    expect(within(nav()).queryByRole('link', { name: 'Facility review' })).toBeNull()
   })
 })
 
@@ -157,13 +169,14 @@ describe('4. a live stand-in opened without its permission refuses in today\'s w
     expect(sent.some(call => call.route === LAB_WORK)).toBe(false)
   })
 
-  it('still refuses in the frame\'s words for a blue page that replaced its stand-in', async () => {
+  it('sends Home with the design\'s notice from a blue page that replaced its stand-in', async () => {
     withFramePages(() => [{ path: 'laboratory/*', group: 'Diagnostics', label: 'Laboratory', status: 'live',
       permission: 'lab.work-item.read', element: <p>Fictional blue laboratory</p> }])
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp('/provider/laboratory')
-    expect(await screen.findByText('Laboratory is not open to you here')).toBeDefined()
+    expect(await screen.findByText('Your current permissions no longer allow that page. Choose an authorized workflow.')).toBeDefined()
+    expect(where()).toBe('/provider')
     expect(screen.queryByText('Fictional blue laboratory')).toBeNull()
   })
 })
@@ -210,7 +223,8 @@ describe('6. cosmetic', () => {
     ['/provider/insurance/policies', '/provider/policies', 'Policies'],
     ['/provider/supply/procurement', '/provider/procurement', 'Procurement'],
   ])('sends an old address, %s, to %s', async (old, now, heading) => {
-    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
+    // A facility administrator: the design opens Policies and Procurement to a Hospital Admin.
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [], ['org_admin'])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp(old)
     await waitFor(() => expect(where()).toBe(now))

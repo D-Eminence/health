@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { parse } from '../../cssRules'
+import { contrast, token } from '../../ehr-ui/ehrCss'
 import { security } from './signupFakes'
 import { open, TabChannel } from './signupHarness'
 
@@ -102,11 +103,18 @@ describe('the blue registration opened on a staff product host or the admin site
 })
 
 describe('the registration’s stylesheet', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const css = readFileSync(resolve(here, '../../../ehr-blue/signup/signup.css'), 'utf8')
+
   it('styles only under .hid-ehr, with its own hid-ehr-signup class', () => {
-    const here = dirname(fileURLToPath(import.meta.url))
-    const css = readFileSync(resolve(here, '../../../ehr-blue/signup/signup.css'), 'utf8')
     const selectors = parse(css).flatMap(rule => rule.selectors)
     expect(selectors.length).toBeGreaterThan(40)
     for (const selector of selectors) expect(selector).toMatch(/^\.hid-ehr(?:\.hid-ehr-signup\b| \.hid-ehr-signup-)/)
+  })
+
+  it('writes placeholder text on its tinted inputs in the muted ink, at 4.5:1 or more', () => {
+    const placeholder = parse(css).find(rule => rule.selectors.includes('.hid-ehr.hid-ehr-signup .hid-ehr-control::placeholder'))
+    expect(placeholder?.body).toMatch(/(?:^|;|\s)color:\s*var\(--ehr-muted\)/)
+    expect(contrast(token('muted'), token('surface-tint'))).toBeGreaterThanOrEqual(4.5)
   })
 })

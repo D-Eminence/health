@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import {
   DEMO_HOSPITAL, DEMO_LABORATORY, REAL_FACILITY, REQUESTS, SESSION, accountButton, facility, homeHeading, json, openStaffApp, serve, sessionAt,
-  withFramePages,
+  where, withFramePages,
 } from './blueHarness'
 
 /**
@@ -54,7 +54,7 @@ describe('2. the demo\'s sample dashboards, and Choose workspace as the live fac
     expect(screen.queryByRole('button', { name: 'Doctor' })).toBeNull()
   })
 
-  it('lists Choose workspace beside Home, out of the design review, for whoever has a facility to switch to', async () => {
+  it('opens Choose workspace from Switch facility as a page of its own, with no sidebar entry (admin/institutions)', async () => {
     switchedOn()
     const riverside = facility(REAL_FACILITY, 'Riverside Teaching Hospital (fictional)', [])
     const annex = facility(ANNEX, 'Riverside Annex (fictional)', [])
@@ -68,6 +68,18 @@ describe('2. the demo\'s sample dashboards, and Choose workspace as the live fac
     expect(within(nav()).queryByRole('button', { name: 'Design review' })).toBeNull()
     fireEvent.click(choose)
     expect(await screen.findByRole('heading', { level: 1, name: 'Switch facility' })).toBeDefined()
+  })
+
+  it('names the tab Choose workspace, not today\'s Page not found', async () => {
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
+    const laboratory = facility(DEMO_LABORATORY, 'Demo Laboratory', [])
+    serve({ [SESSION]: [sessionAt(demo, [demo, laboratory])] })
+    await openStaffApp('/provider')
+    await screen.findByRole('heading', { level: 1, name: homeHeading() })
+    fireEvent.click(within(nav()).getByRole('link', { name: 'Choose workspace' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Switch facility' })).toBeDefined()
+    expect(where()).toBe('/provider/institutions')
+    await waitFor(() => expect(document.title).toBe('Choose workspace · Health ID EHR'))
   })
 
   // The design review is no longer listed, even at a demo facility (only working screens are).
@@ -130,19 +142,22 @@ describe('3. the page is hidden under the lock screen', () => {
 })
 
 describe('5. today\'s page refuses only where it reads nothing first', () => {
+  const NOTICE = 'Your current permissions no longer allow that page. Choose an authorized workflow.'
+
   async function standIns() {
     const { TODAY_PATHS } = await import('../../../ehr-blue/frame/pages')
     return [...TODAY_PATHS]
   }
 
-  it('leaves Access requests and Clinical record to the frame: they read before refusing', async () => {
-    for (const [path, label] of [['requests', 'Access requests'], ['clinical', 'Consultation']] as const) {
+  it('leaves Access requests and Clinical record to the frame, which sends Home: they read before refusing', async () => {
+    for (const path of ['requests', 'clinical']) {
       vi.resetModules()
       withFramePages()
       const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
       const sent = serve({ [SESSION]: [sessionAt(demo, [demo])] })
       const { unmount } = await openStaffApp(`/provider/${path}`)
-      expect(await screen.findByText(`${label} is not open to you here`)).toBeDefined()
+      expect(await screen.findByText(NOTICE)).toBeDefined()
+      expect(where()).toBe('/provider')
       await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
       expect(sent.map(call => call.route)).toEqual([SESSION])
       unmount()

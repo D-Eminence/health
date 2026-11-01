@@ -1,6 +1,6 @@
 import { normalizeHealthIdInput } from '@hid/contracts'
 import { Bell, ChevronRight, IdCard, RotateCcw, Search, ShieldAlert } from 'lucide-react'
-import { useEffect, useState, type FormEvent, type MouseEvent } from 'react'
+import { isValidElement, useEffect, useState, type FormEvent, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { EhrButton, EhrDrawer, EhrIcon, EhrPopover, EhrSampleBanner } from '@hid/ui/ehr'
 import { Drawer } from '../../kasuwa/interactive'
@@ -12,9 +12,9 @@ import { useStaff } from '../../staff/App'
 import { roleLabels } from '../../staff/staffAccess'
 import { usesNovuBackend } from '../../backendContract'
 import { useAccessRequests, useReloadAccessRequests } from './attention'
-import { DEMO_ROLES, useRoleView } from './roleView'
-import { modulePath } from './sample/paths'
 import { sampleModule, sampleRecords } from './sample/store'
+import { useBluePages, useSampleHref } from './pageContext'
+import { SampleWorkspace } from './sample/SampleWorkspace'
 import { basePath, pageHrefOf } from './pageHref'
 import type { EhrBluePage } from './types'
 
@@ -109,6 +109,21 @@ export function NotificationsButton() {
   const { state } = useStaff()
   const read = useAccessRequests()
   const reload = useReloadAccessRequests()
+  // Sample activity links only into a sample this session may open: a workspace closed to the role would send them
+  // Home, and a live page at the module's address would not find a sample record.
+  const hrefOf = useSampleHref()
+  // The frame's sample records are found only by the frame's own sample page: a clinical or department sample at the
+  // same address keeps records of its own, so its row opens that workspace's list instead.
+  const pages = useBluePages()
+  const ownsRecords = (href: string, moduleId: string) => pages.some(page => pageHrefOf(page) === href
+    && isValidElement<{ moduleId?: string }>(page.element) && page.element.type === SampleWorkspace
+    && page.element.props.moduleId === moduleId)
+  const activity = SAMPLE_ACTIVITY.flatMap(moduleId => {
+    const module = sampleModule(moduleId)
+    const record = sampleRecords(moduleId)[0]
+    const href = hrefOf(moduleId)
+    return module && record && href !== null ? [{ moduleId, module, href: ownsRecords(href, moduleId) ? `${href}/${record.id}` : null, list: href }] : []
+  })
   const pending = read.state === 'ready' ? read.pending : 0
   // Recent activity is sample data: shown only at a demo facility.
   const demo = isDemoFacility(state.status === 'ready' ? state.session.actor.facility?.id : null)
@@ -127,16 +142,14 @@ export function NotificationsButton() {
                 : <Card><ListRow onClick={() => { setOpen(false); navigate('/provider/requests') }}
                   leading={<IconChip size="sm" icon={ShieldAlert} tone="warn" />} title={`${read.pending} access request${read.pending === 1 ? '' : 's'} waiting`}
                   subtitle="Review them" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></Card>}
-        {demo ? <section aria-labelledby="ehr-notifications-recent" className="flex flex-col gap-2">
+        {/* No sample workspace open to this role: no Recent activity at all, rather than an empty list. */}
+        {demo && activity.length > 0 ? <section aria-labelledby="ehr-notifications-recent" className="flex flex-col gap-2">
           <h3 id="ehr-notifications-recent" className="m-0 text-[12px] font-semibold tracking-[.06em] text-ink-3 uppercase">Recent activity · sample</h3>
           <Card><ul className="m-0 list-none divide-y divide-line p-0">
-            {SAMPLE_ACTIVITY.map(moduleId => {
-              const module = sampleModule(moduleId)
-              const record = sampleRecords(moduleId)[0]
-              if (!module || !record) return null
-              return <li key={moduleId}><ListRow onClick={() => { setOpen(false); navigate(`${modulePath(moduleId)}/${record.id}`) }}
-                title={`${module.title} record created`} trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>
-            })}
+            {/* A row opens the record where the frame's own sample page keeps it, else that workspace's list. */}
+            {activity.map(({ moduleId, module, href, list }) => <li key={moduleId}><ListRow title={`${module.title} record created`}
+              trailing={<Button size="sm" iconRight={ChevronRight} aria-label={href ? `Open ${module.title} record` : `Open ${module.title}`}
+                onClick={() => { setOpen(false); navigate(href ?? list) }}>{href ? 'Open record' : 'Open list'}</Button>} /></li>)}
           </ul></Card>
         </section> : null}
       </div>
@@ -165,14 +178,15 @@ function initials(name: string): string {
   return (letters.length > 1 ? letters[0]! + letters.at(-1)! : letters[0] ?? 'H').slice(0, 2)
 }
 
-export function AccountMenu({ onSample, onClassic }: {
+/**
+ * The account menu, as the design draws it (screens/panels/account-menu.png). The frame's own account controls are the
+ * sidebar person's menu (Sign out, facility switch); there is one EHR for everyone, so no classic EHR here.
+ */
+export function AccountMenu({ onSample }: {
   readonly onSample?: (panel: 'profile' | 'preferences' | 'help') => void
-  /** "Use the classic EHR": back to today's staff portal in this tab, until it reloads. */
-  readonly onClassic?: () => void
 }) {
   const { state, signOut } = useStaff()
   const navigate = useNavigate()
-  const role = useRoleView()
   const [signingOut, setSigningOut] = useState(false)
   const [error, setError] = useState('')
   if (state.status !== 'ready') return null
@@ -195,27 +209,19 @@ export function AccountMenu({ onSample, onClassic }: {
       {close => (
         <div className="hid-ehr-blue-menu">
           <p className="hid-ehr-blue-menu-name">{name}</p>
-          <p className="hid-ehr-blue-muted">{roles}{facility ? ` · ${facility.name}` : ''}</p>
+          <p className="hid-ehr-blue-muted">{roles}</p>
           {onSample ? <>
             <EhrButton variant="secondary" onClick={() => { close(false); onSample('profile') }}>My profile</EhrButton>
-            <EhrButton variant="secondary" onClick={() => { close(false); onSample('profile') }}>Status: Online</EhrButton>
+            <EhrButton variant="secondary" className="hid-ehr-blue-menu-status" onClick={() => { close(false); onSample('profile') }}>
+              Status: Online
+            </EhrButton>
             <EhrButton variant="secondary" onClick={() => { close(false); onSample('preferences') }}>Preferences</EhrButton>
             <EhrButton variant="secondary" onClick={() => { close(false); onSample('help') }}>Help</EhrButton>
           </> : null}
           {actor.facilities.length > 1 ? (
             <EhrButton variant="secondary" onClick={() => { close(false); navigate('/provider/institutions') }}>Switch facility</EhrButton>
           ) : null}
-          {onClassic ? <EhrButton variant="secondary" onClick={() => { close(false); onClassic() }}>Use the classic EHR</EhrButton> : null}
-          {/* The 16 sample dashboards are part of the demo: only at the demo facilities. */}
-          {isDemoFacility(facility?.id) ? <div className="hid-ehr-blue-roles" role="group" aria-labelledby="hid-ehr-blue-roles-title">
-            <p id="hid-ehr-blue-roles-title" className="hid-ehr-blue-muted">View Home as a demo role (sample)</p>
-            {role.viewing ? <EhrButton variant="quiet" size="sm" onClick={() => { close(); role.view(null); navigate('/provider') }}>My own dashboard</EhrButton> : null}
-            {DEMO_ROLES.map(demo => (
-              <EhrButton key={demo} variant="quiet" size="sm" aria-pressed={role.viewing === demo}
-                onClick={() => { close(); role.view(demo); navigate('/provider') }}>{demo}</EhrButton>
-            ))}
-          </div> : null}
-          <EhrButton variant="secondary" icon={<EhrIcon name="signOut" />} busy={signingOut} onClick={leave}>
+          <EhrButton variant="secondary" busy={signingOut} onClick={leave}>
             {signingOut ? 'Signing out…' : 'Sign out'}
           </EhrButton>
         </div>

@@ -27,7 +27,7 @@ const follow = (name: string) => act(() => { fireEvent.click(within(nav()).getBy
  */
 function openFirstAppointment() {
   fireEvent.click(screen.getByRole('button', { name: /^Notifications/ }))
-  fireEvent.click(within(screen.getByRole('dialog', { name: 'Notifications' })).getByRole('button', { name: /^Appointments record created/ }))
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Notifications' })).getByRole('button', { name: 'Open Appointments record' }))
 }
 
 /** The blue EHR at every facility: the clinic switch on, and both page sets present (as pageSets.ts lists them). */

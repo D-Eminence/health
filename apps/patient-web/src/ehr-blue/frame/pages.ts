@@ -96,6 +96,7 @@ export const pages: EhrBluePage[] = [
   page('staff', 'People', 'Staff & access', 'users', 'partial', createElement(StaffAccessPage), 'workforce.manage'),
 
   sample('quality', 'Administration', 'Quality & Safety', 'flag'),
+  // A sample, so the design's roles decide (sampleAccess.ts): Platform Super Admin only.
   demoOnly(page('platform', 'Administration', 'Facility review', 'review', 'sample', createElement(PlatformReviewSample))),
 
   sample('services', 'Settings', 'Service catalogue', 'tag'),

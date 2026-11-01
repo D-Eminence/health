@@ -14,6 +14,7 @@ import { CreateOrder } from './CreateOrder'
 import { OrderPage } from './OrderPage'
 import { FlashContext, KINDS, learnFrom, orderTitle, text, type Flash, type OrderKind } from './orders'
 import { isDemoFacility } from '../../../blueFacilities'
+import { useSampleCan } from '../../../frame/sampleAccess'
 
 export type { OrderKind } from './orders'
 
@@ -174,6 +175,7 @@ export function EncounterOrders({ chart, encounter }: { chart: Chart; encounter:
   const readLab = chart.can(KINDS.laboratory.read)
   const prescriptions = useOrderList(chart, encounter.id, 'pharmacy', readRx && chart.purpose === 'direct-care')
   const labs = useOrderList(chart, encounter.id, 'laboratory', readLab && chart.purpose === 'direct-care')
+  const sampleCan = useSampleCan()
   if (chart.purpose !== 'direct-care') return null
 
   const createRx = chart.canWrite && chart.can(KINDS.pharmacy.write)
@@ -190,11 +192,12 @@ export function EncounterOrders({ chart, encounter }: { chart: Chart; encounter:
       {createRx ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'pharmacy'))}>New prescription</EhrButton></Step> : null}
       {createLab ? <Step><EhrButton variant="secondary" onClick={() => navigate(href(encounter.id, 'orders', 'new', 'laboratory'))}>New lab request</EhrButton></Step> : null}
       {/* Radiology and referrals are samples: offered only at the demo facilities, so a live page at a real facility
-          never leads into a sample. */}
+          never leads into a sample; each only to a design role that may create there (sampleAccess.ts), as a role
+          the sample is closed to would land on Home instead. */}
       {chart.canWrite && isDemoFacility(chart.facilityId) ? (
         <>
-          <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('radiology', 'new'))}>New radiology request</EhrButton></Step>
-          <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('referrals', 'new'))}>New referral</EhrButton></Step>
+          {sampleCan('radiology', 'create') ? <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('radiology', 'new'))}>New radiology request</EhrButton></Step> : null}
+          {sampleCan('referrals', 'create') ? <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('referrals', 'new'))}>New referral</EhrButton></Step> : null}
         </>
       ) : null}
       {createRx || createLab ? <p className="hid-ehr-clinical-note">{CONNECTED_ORDERS_NOTE}</p> : null}

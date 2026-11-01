@@ -56,10 +56,18 @@ describe('18. the drawer', () => {
   })
 
   it('leaves the sidebar rail undimmed beside it, expanded or collapsed, and covers the whole screen on a phone', () => {
-    expect(at('.hid-ehr .hid-ehr-scrim.hid-ehr-scrim-drawer', 'left')).toBe('var(--ehr-sidebar-width)')
-    expect(at('.hid-ehr.hid-ehr-shell:has(.hid-ehr-sidebar-collapsed) .hid-ehr-scrim.hid-ehr-scrim-drawer', 'left'))
+    expect(at('.hid-ehr .hid-ehr-scrim.hid-ehr-scrim-drawer::before', 'left')).toBe('var(--ehr-sidebar-width)')
+    expect(at('.hid-ehr.hid-ehr-shell:has(.hid-ehr-sidebar-collapsed) .hid-ehr-scrim.hid-ehr-scrim-drawer::before', 'left'))
       .toBe('var(--ehr-sidebar-collapsed-width)')
-    expect(at('.hid-ehr .hid-ehr-scrim.hid-ehr-scrim-drawer', 'left', PHONE)).toBeUndefined()
+    expect(at('.hid-ehr .hid-ehr-scrim.hid-ehr-scrim-drawer::before', 'left', PHONE)).toBeUndefined()
+    expect(at('.hid-ehr .hid-ehr-scrim.hid-ehr-scrim-drawer::before', 'background', PHONE)).toBe('var(--ehr-scrim)')
+  })
+
+  it('keeps the clear scrim over the rail, so a press there keeps focus in the drawer', () => {
+    // Only the dimming moves aside: the scrim itself still covers the whole window, where its press keeps focus.
+    expect(at('.hid-ehr .hid-ehr-scrim.hid-ehr-scrim-drawer', 'left')).toBeUndefined()
+    expect(at('.hid-ehr .hid-ehr-scrim.hid-ehr-scrim-drawer', 'background')).toBe('transparent')
+    expect(at('.hid-ehr .hid-ehr-scrim.hid-ehr-scrim-drawer::before', 'z-index')).toBe('-1')
   })
 })
 

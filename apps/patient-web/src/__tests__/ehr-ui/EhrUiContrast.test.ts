@@ -23,6 +23,7 @@ describe('EHR text colours', () => {
     ['text', 'surface', 10.46],
     ['muted', 'surface', 7.69],
     ['muted', 'surface-tint', 7.16],
+    ['#757575', 'surface', 4.61],
     ['muted', 'surface-sunk', 6.98],
     ['muted', 'tint', 7.06],
     ['brand-dark', 'tint', 5.5],

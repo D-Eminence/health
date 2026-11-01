@@ -13,6 +13,7 @@ import type { KeyValue } from '../parts/KeyValueList'
 import type { PatientFacts } from '../parts/PatientHeader'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isDemoFacility } from '../../blueFacilities'
+import { useSampleCan } from '../../frame/sampleAccess'
 import { CLOSE_GRANT, CLOSE_REASON, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
 import type { ActivePatient } from '../../../staff/App'
 
@@ -126,6 +127,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
   const { facility, permissions, can, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
+  const sampleCan = useSampleCan()
   const [error, setError] = useState('')
   const [ending, setEnding] = useState(false)
   const emergency = chart.purpose === 'emergency'
@@ -215,8 +217,9 @@ function PatientRecord({ chart }: { chart: Chart }) {
           <ul className="m-0 list-none divide-y divide-line p-0">
             {mayStart ? <li><ListRow onClick={() => navigate(href.to('consult', 'new'))} leading={<IconChip size="sm" icon={Stethoscope} />} title="Start a consultation" subtitle="Notes, diagnoses and orders in one place" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
             {mayRecordVitals ? <li><ListRow onClick={() => navigate(href.to('triage', 'new'))} leading={<IconChip size="sm" icon={Activity} />} title="Record vitals" subtitle="Blood pressure, temperature, pulse, oxygen" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
-            {/* Appointments and walk-in visits are samples: offered only at the demo facilities. */}
-            {isDemoFacility(chart.facilityId) ? <li><ListRow onClick={() => navigate(href.to('journey', 'new'))} leading={<IconChip size="sm" icon={UserPlus} />} title="Register a walk-in visit" subtitle="Sample at demo facilities" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            {/* Appointments and walk-in visits are samples: offered only at the demo facilities, and only to a design role
+                that may create there (sampleAccess.ts), as a role the sample is closed to would land on Home instead. */}
+            {isDemoFacility(chart.facilityId) && sampleCan('journey', 'create') ? <li><ListRow onClick={() => navigate(href.to('journey', 'new'))} leading={<IconChip size="sm" icon={UserPlus} />} title="Register a walk-in visit" subtitle="Sample at demo facilities" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
             {mayOpenConsent ? <li><ListRow onClick={openConsent} leading={<IconChip size="sm" icon={Send} />} title="Ask for more access" subtitle="More time, or the right to add records. The patient approves." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
           </ul>
         </Card> : null}

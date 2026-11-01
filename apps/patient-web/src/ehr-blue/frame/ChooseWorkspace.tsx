@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { ArrowLeft, ArrowRight, Hospital, LogOut } from 'lucide-react'
@@ -32,13 +32,19 @@ function refusal(caught: unknown, facility: string): string {
  * facility's button is pressed. Asked before any page opens (`reason`), or opened from the account menu to switch.
  */
 export function ChooseWorkspace({ reason, onChosen }: { readonly reason: WorkspaceQuestion; readonly onChosen?: () => void }) {
-  const { state, selectFacility, signOut, activePatient } = useStaff()
+  const { state, selectFacility, signOut, activePatient, lock } = useStaff()
   const navigate = useNavigate()
   const heading = useRef<HTMLHeadingElement>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [signOutError, setSignOutError] = useState('')
   useLayoutEffect(() => { heading.current?.focus() }, [])
+  // Today's ProviderTitle (staff/App.tsx) names this address "Page not found": today's portal has no such page. Switch
+  // facility is the blue EHR's own page, so it names the tab as the frame names its pages, again after the lock screen.
+  // The question asked before any page opens keeps today's "Where are you working?".
+  useEffect(() => {
+    if (reason === 'switch' && lock === null) document.title = 'Choose workspace · Health ID EHR'
+  }, [reason, lock])
   if (state.status !== 'ready') return null
   const { actor } = state.session
   const current = reason === 'switch' ? actor.facility?.id : undefined

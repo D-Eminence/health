@@ -10,8 +10,8 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules()
 
 const SAMPLE_NOTICE = 'Sample only: not connected to Health ID yet. Nothing you do here is saved.'
 
-async function openDemo(path: string) {
-  const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write'])
+async function openDemo(path: string, roles?: readonly string[]) {
+  const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write'], roles)
   const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [REQUESTS]: [() => json([])] })
   await openStaffApp(path)
   await screen.findByRole('navigation', { name: 'Main navigation' })
@@ -56,7 +56,7 @@ describe('the frame\'s sample panels', () => {
     expect(screen.queryByRole('button', { name: /Needs attention/ })).toBeNull()
     // Sample pages are no longer listed in the sidebar: the notifications drawer's sample activity opens one.
     fireEvent.click(screen.getByRole('button', { name: 'Notifications' }))
-    act(() => { fireEvent.click(within(screen.getByRole('dialog', { name: 'Notifications' })).getByRole('button', { name: /^Appointments record created/ })) })
+    act(() => { fireEvent.click(within(screen.getByRole('dialog', { name: 'Notifications' })).getByRole('button', { name: 'Open Appointments record' })) })
     expect(await screen.findByRole('button', { name: 'Sample · Needs attention · 4 pending' })).toBeDefined()
     expect(screen.getByRole('button', { name: 'Sample · Needs attention · 4 pending' }).textContent).toBe('Sample · Needs attention · 4 pending')
   })
@@ -77,7 +77,19 @@ describe('the frame\'s sample panels', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Notifications' }))
     const drawer = screen.getByRole('dialog', { name: 'Notifications' })
     // Each row names its record and opens it.
-    fireEvent.click(within(drawer).getByRole('button', { name: /^Appointments record created/ }))
+    expect(within(drawer).getByText('Appointments record created')).toBeDefined()
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Open Appointments record' }))
+    await waitFor(() => expect(where()).toMatch(/^\/provider\/appointments\/[0-9a-f]{8}$/))
+  })
+
+  it('lists only the sample activity the role may open: a receptionist\'s is Appointments alone', async () => {
+    await openDemo('/provider/whats-left', ['receptionist'])
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }))
+    const drawer = screen.getByRole('dialog', { name: 'Notifications' })
+    // The design gives a Receptionist no Quality & Safety, Nursing observations, ICU or Referral Network.
+    expect(within(drawer).getAllByRole('button', { name: /^Open .+ record$/ }).map(button => button.getAttribute('aria-label')))
+      .toEqual(['Open Appointments record'])
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Open Appointments record' }))
     await waitFor(() => expect(where()).toMatch(/^\/provider\/appointments\/[0-9a-f]{8}$/))
   })
 

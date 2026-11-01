@@ -15,10 +15,12 @@ import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, movedAddress,
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
 import { ConnectionStatus } from './ConnectionStatus'
-import { DeniedPage, LivePage, UnknownPage } from './LivePages'
+import { DeniedPage, LivePage } from './LivePages'
 import { BluePageProvider, BluePagesProvider, OpenPagesProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
 import { TODAY_PAGES } from './pages'
+import { DENIED_NOTICE, RedirectNotice } from './RedirectNotice'
+import { useRoleView } from './roleView'
 import { AccountSamplePanel, DemoChip, NotificationsButton, WorkspaceSearch } from './TopBarParts'
 import type { EhrBluePage } from './types'
 
@@ -78,7 +80,8 @@ const READS_BEFORE_REFUSING: ReadonlySet<string> = new Set(['requests', 'clinica
 /**
  * The blue Hospital EHR's frame: EhrAppShell with the design's sidebar and top bar, and the page
  * the address opens. Session, sign-out and facility switch are today's (useStaff). A page another folder exports
- * replaces the frame's stand-in for its path; an address no page takes says so.
+ * replaces the frame's stand-in for its path. An address no page takes opens Home, and so does a page this session may
+ * not open, with a note saying why (the design's admin/unknown-route and denied-route-redirect).
  */
 export function BlueFrame() {
   const { state, lock, signOut } = useStaff()
@@ -89,11 +92,13 @@ export function BlueFrame() {
   // Today's sign-out: a refusal is said, and the session stays, as the account menu said it.
   const [signingOut, setSigningOut] = useState(false)
   const [signOutError, setSignOutError] = useState('')
+  const { viewing } = useRoleView()
   useFocusOnPageChange(pageRef, lock !== null)
   const session = state.status === 'ready' ? state.session : null
   const facility = session?.actor.facility
   const permissions = useMemo(() => facility?.permissions ?? [], [facility])
-  const allowed = useMemo(() => BLUE_PAGES.filter(page => pageAllowed(page, session)), [session])
+  // A sample page opens to the design roles of the person, or of the demo role whose Home is being viewed.
+  const allowed = useMemo(() => BLUE_PAGES.filter(page => pageAllowed(page, session, viewing)), [session, viewing])
   // What the sidebar and search offer: the allowed pages this session lists.
   // Only working screens are offered (the owner's decision of 2026-10-31): sample modules with fictional figures stay in
   // the code for demos but are not listed in the sidebar or search. Home is always listed.
@@ -138,11 +143,12 @@ export function BlueFrame() {
   const todayRefuses = match !== null && TODAY_PAGES.has(match.page) && shownHere
     && !READS_BEFORE_REFUSING.has(basePath(match.page.path))
   const content = match
-    ? pageAllowed(match.page, session) || todayRefuses
+    ? pageAllowed(match.page, session, viewing) || todayRefuses
       ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
-      : match.page.refusal ?? <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'}
-        reason={shownHere ? 'permission' : 'not-here'} />
-    : isLiveOnlyPath(location.pathname) ? <LivePage /> : <UnknownPage />
+      : match.page.refusal ?? (shownHere
+        ? <Navigate replace to="/provider" state={{ frameNotice: DENIED_NOTICE }} />
+        : <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'} />)
+    : isLiveOnlyPath(location.pathname) ? <LivePage /> : <Navigate replace to="/provider" />
 
   const name = session.actor.displayName ?? session.actor.email ?? 'Staff member'
   const roles = facility ? facility.roles.join(', ') || 'Staff' : 'Staff'
@@ -213,6 +219,7 @@ export function BlueFrame() {
           >
             <div ref={pageRef} className="hid-ehr-blue-page @container">
               {signOutError ? <Alert intent="error" title="Couldn’t sign out">{signOutError}</Alert> : null}
+              <RedirectNotice />
               <ReviewBanner />
               <BillingBanner />
               {tabs.length > 0 ? (

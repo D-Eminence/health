@@ -55,7 +55,8 @@ function Where() {
 
 export const where = () => screen.getByTestId('where').textContent
 
-export async function openStaffApp(path: string) {
+/** Opens the staff app at `path`, or at an address with the history entry's state (as a page's navigate leaves it). */
+export async function openStaffApp(path: string | { pathname: string; state: unknown }) {
   const { App } = await import('../../../staff/App')
   return render(<MemoryRouter initialEntries={[path]}><Where /><Routes><Route path="/provider/*" element={<App />} /></Routes></MemoryRouter>)
 }
