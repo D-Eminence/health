@@ -5,9 +5,10 @@ import type * as StaffApi from '../../../staff/api'
 import { BlueFrame } from '../../../ehr-blue/frame/BlueFrame'
 
 /**
- * The EHR's Start menu says what each item does. "Request record access" asks a patient to share their record with
- * this facility (Access requests): nothing is sent to another facility, so it never says so. Every account and
- * facility is fictional.
+ * The EHR's Start menu says what each item does. "Ask a patient for access" asks a patient to share their record with
+ * this facility (Access requests): nothing is sent to another facility, so it never says so. It uses the words of the
+ * page it opens ("Ask a patient") and of copy.ts, never "Request record access". Every account and facility is
+ * fictional.
  */
 
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
@@ -35,13 +36,14 @@ vi.mock('../../../staff/App', () => ({
 }))
 
 describe('the Start menu', () => {
-  it('says "Request record access" asks a patient to share their record here, not that it reaches another facility', async () => {
+  it('says "Ask a patient for access" asks a patient to share their record here, not that it reaches another facility', async () => {
     render(<MemoryRouter initialEntries={['/provider/requests']}><Routes><Route path="/provider/*" element={<BlueFrame />} /></Routes></MemoryRouter>)
     fireEvent.click(await screen.findByRole('button', { name: 'Start' }))
     const start = screen.getByRole('dialog', { name: 'Start' })
-    const item = within(start).getByRole('link', { name: /^Request record access/ })
+    const item = within(start).getByRole('link', { name: /^Ask a patient for access/ })
     expect(item.getAttribute('href')).toBe('/provider/requests')
-    expect(item.textContent).toBe('Request record accessAsk a patient to share their record here')
+    expect(item.textContent).toBe('Ask a patient for accessAsk a patient to share their record here')
     expect(start.textContent).not.toMatch(/another facility/i)
+    expect(start.textContent).not.toMatch(/request record access/i)
   })
 })

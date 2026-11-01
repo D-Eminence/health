@@ -215,7 +215,8 @@ export function BlueFrame() {
               ...(tabsFor('registration') ? [{ to: '/provider/registration', label: 'Register a patient', hint: 'New Health ID at the front desk', icon: UserPlus }] : []),
               ...(tabsFor('triage/*') || tabsFor('triage') ? [{ to: '/provider/triage', label: 'Record vitals', hint: 'Triage and observations', icon: Activity }] : []),
               // Access requests ask the patient to share their record with this facility: nothing goes to another facility.
-              ...(tabsFor('requests/*') || tabsFor('requests') ? [{ to: '/provider/requests', label: 'Request record access', hint: 'Ask a patient to share their record here', icon: ShieldCheck }] : []),
+              // Said as the page and copy.ts say it ("Ask a patient"), not "Request record access".
+              ...(tabsFor('requests/*') || tabsFor('requests') ? [{ to: '/provider/requests', label: 'Ask a patient for access', hint: 'Ask a patient to share their record here', icon: ShieldCheck }] : []),
             ] }}
           >
             <div ref={pageRef} className="hid-ehr-blue-page @container">
