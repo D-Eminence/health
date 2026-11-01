@@ -1,11 +1,18 @@
 import type { PharmacyWorkItem } from '../../../staff/api'
 
 /**
- * The medicine's form, worked out from what the prescription says (its name, dose unit and route), so the queue can lead
- * with a picture of what to pick. Pharmacy sends no image or dosage form of its own yet (BACKEND-NEEDS.md, "Pharmacy
- * items need an optional drug image/cover URL"); until it does, a plain line drawing of the form stands in.
+ * The medicine's form, so the queue can lead with a picture of what to pick: the form the prescriber chose when Pharmacy
+ * sends it (`medication.doseForm`, proposed hid-system 0107), else worked out from what the prescription says (its name,
+ * dose unit and route). Pharmacy sends no image yet (BACKEND-NEEDS.md, "Pharmacy items need an optional drug image/cover
+ * URL"); until it does, a plain line drawing of the form stands in.
  */
 export type DrugForm = 'tablet' | 'capsule' | 'syrup' | 'injection' | 'cream' | 'inhaler' | 'drops' | 'other'
+
+/** The forms a prescriber chooses from (0107), as the drawings name them: a liquid is drawn as the syrup bottle. */
+const SENT_FORM: Readonly<Record<string, DrugForm>> = {
+  tablet: 'tablet', capsule: 'capsule', liquid: 'syrup', injection: 'injection', cream: 'cream', inhaler: 'inhaler', drops: 'drops',
+  other: 'other',
+}
 
 const RULES: ReadonlyArray<readonly [DrugForm, RegExp]> = [
   ['inhaler', /\b(inhaler|inhal\w*|puffs?|nebuli[sz]\w*|mdi|rotacaps?)\b/],
@@ -18,6 +25,9 @@ const RULES: ReadonlyArray<readonly [DrugForm, RegExp]> = [
 ]
 
 export function drugFormOf(item: Pick<PharmacyWorkItem, 'medication' | 'doseUnit' | 'routeCode'>): DrugForm {
+  // The prescriber's own choice when it is sent; a value not on the list is ignored, as if not sent.
+  const sent = SENT_FORM[item.medication.doseForm?.trim().toLowerCase() ?? '']
+  if (sent) return sent
   // The medicine's own name first ("Salbutamol 100 mcg inhaler"), then its unit and route ("2 puffs", "oral").
   for (const text of [item.medication.display, item.doseUnit ?? '', item.routeCode ?? '']) {
     const lower = text.toLowerCase()
@@ -42,6 +52,23 @@ export function nameAndStrength(display: string): { name: string; strength: stri
   const name = (display.slice(0, match.index) + display.slice(match.index + match[0].length)).replace(/\s{2,}/g, ' ').trim()
   const strength = match[0].trim().replace(/(^|\/\s*)\./g, '$10.')
   return name ? { name, strength } : { name: display, strength: null }
+}
+
+const compact = (text: string) => text.toLowerCase().replace(/\s+/g, '')
+
+/**
+ * What to pick, as the queue and the picking view lead with it: the form drawn, the name, and the strength. The strength
+ * is the prescriber's (`medication.strength`, proposed 0107) when Pharmacy sends it, else the one written in the name. The
+ * name loses a written strength only when it is the same as the one shown, so a strength in the name that differs from
+ * the prescriber's is never hidden.
+ */
+export function drugOf(item: Pick<PharmacyWorkItem, 'medication' | 'doseUnit' | 'routeCode'>): { form: DrugForm; name: string; strength: string | null } {
+  const written = nameAndStrength(item.medication.display)
+  const sent = item.medication.strength?.trim()
+  const form = drugFormOf(item)
+  if (!sent) return { form, ...written }
+  const same = written.strength !== null && compact(written.strength) === compact(sent)
+  return { form, name: same || written.strength === null ? written.name : item.medication.display, strength: sent }
 }
 
 export const FORM_WORD: Readonly<Record<DrugForm, string>> = {
