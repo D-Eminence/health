@@ -275,25 +275,35 @@ describe('what the invited person does next', () => {
   })
 })
 
-describe('on a staff or admin site', () => {
-  it('carries the link to the signed-in join page on a staff site', async () => {
-    vi.stubGlobal('location', { ...window.location, hostname: 'lab.healthidentitydirectory.com', hash: `#${INVITATION}.${TOKEN}` })
-    render(<MemoryRouter initialEntries={[linkAddress]}><Routes>
-      <Route path="/provider/invitation" element={<StaffInvitation />} />
-      <Route path="/provider/staff/join" element={<><h1>Join on the staff site</h1><Where /></>} />
-    </Routes></MemoryRouter>)
-    expect(await screen.findByRole('heading', { name: 'Join on the staff site' })).toBeTruthy()
-    expect(screen.getByTestId('where').textContent).toBe(`/provider/staff/join#${INVITATION}.${TOKEN}`)
-    expect(api.open).not.toHaveBeenCalled()
-  })
+describe('on a product site, and on a site that serves no staff pages', () => {
+  it.each(['lab.healthidentitydirectory.com', 'pharmacy.healthidentitydirectory.com', 'ehr.staging.healthidentitydirectory.com'])(
+    'on the product site %s, opens the invitation itself (hid-system accepts it there): never the signed-in join page', async hostname => {
+      const replace = vi.fn()
+      vi.stubGlobal('location', { ...window.location, hostname, replace })
+      render(<MemoryRouter initialEntries={['/provider/invitation']}><Routes>
+        <Route path="/provider/invitation" element={<><StaffInvitation /><Where /></>} />
+        <Route path="/provider/staff/join" element={<h1>Join on the staff site</h1>} />
+      </Routes></MemoryRouter>)
+      expect(screen.getByTestId('where').textContent).toBe('/provider/invitation')
+      expect(screen.queryByRole('heading', { name: 'Join on the staff site' })).toBeNull()
+      expect(screen.getByRole('textbox', { name: /email/i })).toBeTruthy()
+      expect(replace).not.toHaveBeenCalled()
+      expect(api.open).not.toHaveBeenCalled()
+    })
 
-  it('links to the main site’s page from the admin site, without the link', () => {
-    vi.stubGlobal('location', { ...window.location, hostname: 'admin.healthidentitydirectory.com' })
-    render(<MemoryRouter initialEntries={[linkAddress]}><Routes>
+  it.each([
+    ['admin.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com'],
+    ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com'],
+    ['admin.staging.healthidentitydirectory.com', 'https://ehr.staging.healthidentitydirectory.com'],
+  ])('on %s, opens the EHR site’s page at once, with the link', (hostname, origin) => {
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname, replace })
+    render(<MemoryRouter initialEntries={[`/provider/invitation#${INVITATION}.${TOKEN}`]}><Routes>
       <Route path="/provider/invitation" element={<StaffInvitation />} />
     </Routes></MemoryRouter>)
-    expect(screen.getByRole('link', { name: 'Continue to the invitation page' }).getAttribute('href'))
-      .toBe('https://app.healthidentitydirectory.com/provider/invitation')
+    expect(replace).toHaveBeenCalledWith(`${origin}/provider/invitation#${INVITATION}.${TOKEN}`)
+    expect(screen.queryByText(/continue|main site/i)).toBeNull()
+    expect(api.open).not.toHaveBeenCalled()
   })
 })
 

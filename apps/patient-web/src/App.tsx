@@ -14,8 +14,8 @@ import { ParticipatingFacilitiesPage } from './routes/ParticipatingFacilities'
 import { Recovery } from './routes/Recovery'
 import { PrincipalRecovery } from './routes/PrincipalRecovery'
 import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, SettingsRedirect } from './routes/Portal'
-import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE, STAFF_RECOVERY_PATH, staffSignInHref } from './productHostname'
-import { isStaffSignInEntrance, OpenEhrSignIn } from './staffSignIn'
+import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE, STAFF_RECOVERY_PATH, staffPagesOrigin } from './productHostname'
+import { isStaffPath, OpenStaffPage, sameStaffPageOn } from './staffSignIn'
 import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_INVITATION_PATH } from './productHostname'
 import { usesNovuBackend } from './backendContract'
 import { LEGACY_PATIENT_PATHS } from './legacyPaths'
@@ -83,9 +83,11 @@ function ProductHostnameGate({ children }: { children: React.ReactNode }) {
   const hostname = window.location.hostname
   const product = resolveStaffProductHostname(hostname)
 
-  // The production portal serves patients only: its staff entrance and sign-in, however they are reached, open the EHR
-  // site's sign-in at once (staffSignIn.tsx), before the staff workspace loads or asks anything.
-  if (staffSignInHref(hostname) && isStaffSignInEntrance(location.pathname)) return <OpenEhrSignIn />
+  // The production portal serves patients only, and an admin site platform administrators only: any staff page there
+  // (/provider and every page under it), however it is reached, opens the same page on the EHR site at once
+  // (staffSignIn.tsx), before the staff workspace loads or asks anything.
+  const staffOrigin = staffPagesOrigin(hostname)
+  if (staffOrigin && isStaffPath(location.pathname)) return <OpenStaffPage href={sameStaffPageOn(staffOrigin, location)} />
 
   if (isPlatformAdminHostname(hostname) && location.pathname === '/') {
     return <Navigate to={PLATFORM_ADMIN_ROUTE} replace />

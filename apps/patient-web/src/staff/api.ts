@@ -1697,7 +1697,7 @@ export interface StaffInvitationPreview {
 }
 
 /**
- * Joining a facility by invitation (P4b, Novu only). Open and accept are public, on the main site, with no session:
+ * Joining a facility by invitation (P4b, Novu only). Open and accept are public, on each product site, with no session:
  * open proves the invitation (Turnstile action staff-invitation) and, for a new or dormant account, sets the
  * invitation cookie that accept reads; accept sets the password and issues no session. Existing staff preview and
  * accept signed in on their own site, with no facility named.

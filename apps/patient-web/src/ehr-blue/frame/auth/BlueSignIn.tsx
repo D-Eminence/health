@@ -9,10 +9,10 @@ import { getEnvironment } from '../../../staff/env'
 import { STAFF_MFA_NOTICE } from '../../../staff/routes/SignIn'
 import { StaffMfaSteps, type StaffMfaLook } from '../../../staff/routes/StaffMfaSteps'
 import { ClinicianSignUpEntry, PageLink } from '../../../staff/clinician/ClinicianSignUpEntry'
-import { CLINICIAN_STATUS_PATH, STAFF_RECOVERY_PATH, staffRecoveryHref, staffSignInHref } from '../../../productHostname'
-import { OpenEhrSignIn } from '../../../staffSignIn'
+import { CLINICIAN_STATUS_PATH, staffRecoveryHref, staffSignInHref } from '../../../productHostname'
+import { OpenStaffPage } from '../../../staffSignIn'
 import { servesClinicianApplications } from '../../../backendContract'
-import { authHrefs, BlueAuthLayout, HINT, LINK, NOTE, SiteLink } from './BlueAuthLayout'
+import { authHrefs, BlueAuthLayout, HINT, LINK, NOTE, registerLabel, SiteLink } from './BlueAuthLayout'
 import { getStaffLandingPath, passwordRefusal, TurnstileChallenge } from './signInParts'
 
 function BlueMfaButton({ primary, className, type = 'button', ...rest }: { primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -28,8 +28,9 @@ const BLUE_MFA_LOOK: StaffMfaLook = {
 
 /**
  * The Hospital EHR's staff sign-in, working as today's does (staff/routes/SignIn.tsx): work email and password with
- * Turnstile, then the authenticator or its set-up, recovery codes, today's refusals and landing. On a site where staff
- * do not sign in (the production patient portal), it opens the EHR site's sign-in at once, with no step of its own.
+ * Turnstile, then the authenticator or its set-up, recovery codes, today's refusals and landing. Each product site's
+ * own ways in (Register, Accept invitation, Forgot password?) stay on that site. On a site where staff do not sign in
+ * (the production patient portal, an admin site), it opens the EHR site's sign-in at once, with no step of its own.
  * staff/App.tsx opens it at /provider/sign-in in place of today's page once the clinic switch is on (README.md).
  */
 export function BlueSignIn() {
@@ -52,7 +53,8 @@ export function BlueSignIn() {
   const mfaRequired = (state.status === 'signed-out' || state.status === 'ended') && state.reason === 'mfa-required'
 
   if (state.status === 'ready') return <Navigate to={getStaffLandingPath(location.search, state.session)} replace />
-  if (staffSignInHref(window.location.hostname)) return <OpenEhrSignIn />
+  const elsewhere = staffSignInHref(window.location.hostname)
+  if (elsewhere) return <OpenStaffPage href={elsewhere} />
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -113,7 +115,6 @@ export function BlueSignIn() {
               onChange={event => setPassword(event.target.value)} />
           </div>
           <p className="-mt-3 m-0 flex flex-wrap items-center justify-end gap-x-2 text-[13px]">
-            {recovery !== STAFF_RECOVERY_PATH ? <span className="text-ink-3">You reset it on the main Health ID site.</span> : null}
             <SiteLink className={LINK} href={recovery}>Forgot password?</SiteLink>
           </p>
           <TurnstileChallenge onToken={setToken} resetKey={turnstileResetKey} />
@@ -122,7 +123,7 @@ export function BlueSignIn() {
           </Button>
         </form>
         <div className="flex flex-col gap-1">
-          <p className={NOTE}>New to Health ID? <SiteLink className={LINK} href={hrefs.register}>Register a hospital</SiteLink></p>
+          <p className={NOTE}>New to Health ID? <SiteLink className={LINK} href={hrefs.register}>{registerLabel()}</SiteLink></p>
           <p className={NOTE}>Joining your team? <SiteLink className={LINK} href={hrefs.invitation}>Accept invitation</SiteLink></p>
           <ClinicianSignUpEntry className={HINT} />
         </div>

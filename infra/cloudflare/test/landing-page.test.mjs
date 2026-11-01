@@ -54,6 +54,8 @@ const PATIENTS_PAGE = '<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8
   + '<a href="https://app.healthidentitydirectory.com/sign-in">I already have a Health ID</a>'
   + '<a href="https://app.healthidentitydirectory.com/">Open Health ID</a>'
   + '<a href="/products/laboratory">Laboratory</a><a href="/providers">For providers</a>'
+  // A facility's call to action (the public site's /provider/apply, as its pricing cards link it).
+  + '<a href="/provider/apply?product=pharmacy">Register your facility</a>'
   // The module showcase's Identity card (content/module-showcase.ts), whose call to action is sign-up.
   + '<a class="module-showcase-cta" href="https://app.healthidentitydirectory.com/enroll">Get your Health ID</a></main>'
   + '<footer><a href="/privacy">Privacy</a><a href="mailto:support@healthidentitydirectory.com">Email us</a>'
@@ -144,7 +146,8 @@ test('the lab site\'s front page is the Laboratory page, its links rewritten for
     Providers: 'https://healthidentitydirectory.com/providers#products',
     // The workspace's entrance on this site, which asks for a sign-in itself.
     'Sign in': 'https://lab.healthidentitydirectory.com/provider',
-    'Setup Your Facility': 'https://app.healthidentitydirectory.com/provider/enroll?product=laboratory',
+    // This site's own facility sign-up, which Identity accepts here.
+    'Setup Your Facility': 'https://lab.healthidentitydirectory.com/provider/enroll?product=laboratory',
     'Book a demo': '#demo',
     Blog: 'https://healthidentitydirectory.com/blog?tag=a&amp;page=2',
     // A section of this same page: it stays here.
@@ -251,6 +254,8 @@ test('the patient portal shows a stranger the Health ID page from the public sit
     ['Open Health ID', 'https://app.healthidentitydirectory.com/sign-in'],
     ['Laboratory', 'https://lab.healthidentitydirectory.com/'],
     ['For providers', 'https://healthidentitydirectory.com/providers'],
+    // The portal serves patients only: a facility signs up on the EHR site, straight from this page.
+    ['Register your facility', 'https://ehr.healthidentitydirectory.com/provider/enroll?product=pharmacy'],
     ['Get your Health ID', 'https://app.healthidentitydirectory.com/enroll'],
     ['Privacy', 'https://healthidentitydirectory.com/privacy'],
     ['Email us', 'mailto:support@healthidentitydirectory.com'],
@@ -303,18 +308,18 @@ test('the patient portal is a signed-in patient\'s front page, as before', async
   assert.match(await (await portal.fetch('https://app.healthidentitydirectory.com/sw.js')).text(), /push/)
 })
 
-test('the patient portal sends its staff entrance and sign-in to the EHR site\'s sign-in, signed in or not', async () => {
-  for (const path of ['/provider', '/provider/sign-in', '/provider/sign-in?returnTo=https://evil.example']) {
+test('the patient portal sends every staff page to the same page on the EHR site, signed in or not', async () => {
+  for (const path of ['/provider', '/provider/sign-in', '/provider/sign-in?returnTo=/provider/clinical', '/provider/recover',
+    '/provider/enroll?product=pharmacy', '/provider/invitation', '/provider/join', '/provider/join/status', '/provider/staff/join']) {
     for (const headers of [{}, { cookie: 'hid_access_csrf=4f9c2b' }]) {
       const response = await portal.fetch(`https://app.healthidentitydirectory.com${path}`, { headers, redirect: 'manual' })
       assert.equal(response.status, 302, path)
-      assert.equal(response.headers.get('location'), 'https://ehr.healthidentitydirectory.com/provider/sign-in', path)
+      assert.equal(response.headers.get('location'), `https://ehr.healthidentitydirectory.com${path}`, path)
       await response.arrayBuffer()
     }
   }
-  // Staff recovery, facility sign-up, invitations and the clinician pages stay the portal's own until hid-system
-  // accepts their security checks on the product sites.
-  for (const path of ['/provider/recover', '/provider/enroll', '/provider/invitation', '/provider/join', '/provider/join/status']) {
+  // Its patient pages stay its own.
+  for (const path of ['/sign-in', '/enroll', '/providers']) {
     assert.equal(await (await portal.fetch(`https://app.healthidentitydirectory.com${path}`)).text(), PORTAL_INDEX, path)
   }
 })

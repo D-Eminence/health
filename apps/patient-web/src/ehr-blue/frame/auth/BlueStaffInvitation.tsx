@@ -1,13 +1,12 @@
 import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { Link, Navigate, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import { Alert, Button, buttonClass } from '../../../kasuwa/ui'
 import { useDocumentTitle } from '../../../authSteps'
 import { Turnstile } from '../../../Turnstile'
-import {
-  isPlatformAdminHostname, resolveStaffProductHostname, STAFF_JOIN_PATH, STAFF_SIGN_IN_PATH, staffHostForRole, staffInvitationHref,
-} from '../../../productHostname'
+import { STAFF_JOIN_PATH, STAFF_SIGN_IN_PATH, staffHostForRole, staffPagesOrigin } from '../../../productHostname'
+import { OpenStaffPage, sameStaffPageOn } from '../../../staffSignIn'
 import { getEnvironment } from '../../../staff/env'
 import { staffInvitationApi, type StaffInvitationOpened, type StaffInvitationProof } from '../../../staff/api'
 import { invitationLinkOf, type InvitationLink } from '../../../staff/invitationCapture'
@@ -19,7 +18,10 @@ import { BlueAuthLayout, NOTE } from './BlueAuthLayout'
  * Joining a facility by invitation, in the redesign's auth look, working as today's page does
  * (staff/routes/StaffInvitation.tsx): the link from the email, or the email address and 6-digit code, proven with
  * Turnstile (action staff-invitation); who invited whom to what; a password for a new or dormant account; signed-in
- * acceptance on the person's own site for existing staff; and today's refusals. The page's private helpers are copied
+ * acceptance on the person's own site for existing staff; and today's refusals. Each product site opens invitations
+ * itself (hid-system accepts staff-invitation there, and the email links to the site of the invitee's role); a site
+ * that serves no staff pages (the production patient portal, an admin site) opens the EHR site's page at once, with
+ * the link. The page's private helpers are copied
  * below, word for word, until both pages share them (README.md). App.tsx opens it at /provider/invitation in place of
  * today's page once the clinic switch is on (BLUE_FOR_ALL).
  */
@@ -76,17 +78,8 @@ function SignInOnSite({ role, children }: { readonly role: string; readonly chil
 export function BlueStaffInvitation() {
   useDocumentTitle('Accept your invitation · Health ID Hospital EHR')
   const location = useLocation()
-  const hostname = window.location.hostname
-  // A staff site is where existing staff accept, signed in: the link is carried there.
-  if (resolveStaffProductHostname(hostname)) return <Navigate to={{ pathname: STAFF_JOIN_PATH, hash: location.hash }} replace />
-  if (isPlatformAdminHostname(hostname)) {
-    return (
-      <BlueAuthLayout title="Accept your invitation" titleId="blue-invitation-title" lede="You open invitations on the main Health ID site.">
-        <a className={buttonClass({ variant: 'primary', size: 'lg', block: true })} href={staffInvitationHref(hostname)}>Continue to the invitation page</a>
-      </BlueAuthLayout>
-    )
-  }
-  return <InvitationSteps />
+  const elsewhere = staffPagesOrigin(window.location.hostname)
+  return elsewhere ? <OpenStaffPage href={sameStaffPageOn(elsewhere, location)} /> : <InvitationSteps />
 }
 
 function InvitationSteps() {

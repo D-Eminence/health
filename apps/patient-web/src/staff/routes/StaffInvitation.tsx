@@ -1,25 +1,23 @@
 import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { Link, Navigate, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Field, Input, PasswordInput } from '@hid/ui'
 import './providerSetup.css'
 import { AuthLayout } from '../../AuthLayout'
 import { useDocumentTitle } from '../../authSteps'
 import { Turnstile } from '../../Turnstile'
-import {
-  isPlatformAdminHostname, resolveStaffProductHostname, STAFF_JOIN_PATH, STAFF_SIGN_IN_PATH, staffHostForRole,
-  staffInvitationHref,
-} from '../../productHostname'
+import { STAFF_JOIN_PATH, STAFF_SIGN_IN_PATH, staffHostForRole, staffPagesOrigin } from '../../productHostname'
 import { getEnvironment } from '../env'
-import { staffSignInAddress } from '../../staffSignIn'
+import { OpenStaffPage, sameStaffPageOn, staffSignInAddress } from '../../staffSignIn'
 import { staffInvitationApi, type StaffInvitationOpened, type StaffInvitationProof } from '../api'
 import { invitationLinkOf, type InvitationLink } from '../invitationCapture'
 import { licenceBodyForRole, roleInSentence } from '../staffAccess'
 import { isRouteMissing, joinProblemText } from '../staffProblems'
 
 /**
- * Joining a facility by invitation (Novu, P4b SPEC 8.2), the page the invitation email links to on the main site
- * (app in production, staging on staging): `/provider/invitation#<invitationId>.<token>`, or, without the link, the
+ * Joining a facility by invitation (Novu, P4b SPEC 8.2), the page the invitation email links to on the staff site of
+ * the invitee's role (each product site opens invitations itself; staging's portal and local too):
+ * `/provider/invitation#<invitationId>.<token>`, or, without the link, the
  * email address and the 6-digit code. The page proves the invitation with Identity (Turnstile action
  * `staff-invitation`), shows who invited whom to what, and lets a new person, or one whose staff account works nowhere
  * now, set a password. Nobody is signed in here: they sign in on their role's site afterwards. Someone who already
@@ -80,17 +78,10 @@ function SignInOnSite({ role, children }: { role: string; children: ReactNode })
 export function StaffInvitation() {
   useDocumentTitle('Join your facility · Health ID Provider')
   const location = useLocation()
-  const hostname = window.location.hostname
-  // A staff site (ehr, lab, pharmacy …) is where existing staff accept, signed in: the link is carried there.
-  if (resolveStaffProductHostname(hostname)) return <Navigate to={{ pathname: STAFF_JOIN_PATH, hash: location.hash }} replace />
-  // The admin site accepts no invitation check: the person is sent to the main site's page, without the link.
-  if (isPlatformAdminHostname(hostname)) {
-    return <AuthLayout brandTo="/provider/sign-in" title="Join your facility." titleId="staff-invitation-title"
-      lede="Invitations are opened on the main Health ID site.">
-      <p><a className="patient-primary-button" href={staffInvitationHref(hostname)}>Continue to the invitation page</a></p>
-    </AuthLayout>
-  }
-  return <InvitationSteps />
+  // A site that serves no staff pages (the production portal, an admin site) opens the EHR site's page at once, with
+  // the link: hid-system accepts the invitation check there.
+  const elsewhere = staffPagesOrigin(window.location.hostname)
+  return elsewhere ? <OpenStaffPage href={sameStaffPageOn(elsewhere, location)} /> : <InvitationSteps />
 }
 
 function InvitationSteps() {

@@ -2,17 +2,18 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { parse } from '../../cssRules'
 import { contrast, token } from '../../ehr-ui/ehrCss'
 import { security } from './signupFakes'
-import { open, TabChannel } from './signupHarness'
+import { combobox, next, open, step, TabChannel, textbox } from './signupHarness'
 
 /**
  * Which facility sign-up /provider/enroll opens: the blue registration only once the clinic switch is on
- * (clinicSwitch.ts BLUE_FOR_ALL), and only on Novu; today's page otherwise. On a staff product host or the admin site
- * the blue page, as today's, sends the administrator to the main site and asks nothing. No new address exists.
+ * (clinicSwitch.ts BLUE_FOR_ALL), and only on Novu; today's page otherwise. Each product site has its own, starting
+ * with its own product; the production patient portal and the admin sites open the EHR site's at once and ask nothing.
+ * No new address exists.
  */
 const api = vi.hoisted(() => ({ availability: vi.fn(), start: vi.fn(), verify: vi.fn(), profile: vi.fn(), activate: vi.fn(),
   withdraw: vi.fn() }))
@@ -55,19 +56,33 @@ describe('the clinic switch chooses the page at /provider/enroll', () => {
     expect(screen.queryByRole('heading', { name: 'Set up your facility.' })).toBeNull()
   })
 
-  it.each([
-    ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
-    ['staging.healthidentitydirectory.com', '/provider/sign-in'],
-  ])('on %s, its logo and Sign in lead to %s, while recovery and invitations stay the main site’s own', async (hostname, href) => {
+  it.each(['ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com', 'pharmacy.staging.healthidentitydirectory.com',
+    'staging.healthidentitydirectory.com'])('on %s, the registration is the site’s own, and every way in under it stays there', async hostname => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
-    vi.stubGlobal('location', { ...window.location, hostname })
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname, replace })
     clinic.switchedOn = true
     await openPortal()
     expect(await screen.findByRole('heading', { level: 1, name: 'Register your facility' })).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Health ID provider sign in' }).getAttribute('href')).toBe(href)
-    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe(href)
+    expect(await screen.findByRole('heading', { level: 2, name: 'Your account' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Health ID provider sign in' }).getAttribute('href')).toBe('/provider/sign-in')
+    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/provider/sign-in')
     expect(screen.getByRole('link', { name: 'Recover access' }).getAttribute('href')).toBe('/provider/recover')
     expect(screen.getByRole('link', { name: 'Accept invitation' }).getAttribute('href')).toBe('/provider/invitation')
+    expect(api.availability).toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
+  })
+
+  it('on the production patient portal, opens the EHR site’s registration at once, with its address', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname: 'app.healthidentitydirectory.com', replace })
+    clinic.switchedOn = true
+    await openPortal('/provider/enroll?product=laboratory')
+    expect(screen.getByRole('status').textContent).toBe('Opening Health ID EHR…')
+    expect(replace).toHaveBeenCalledWith('https://ehr.healthidentitydirectory.com/provider/enroll?product=laboratory')
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(api.availability).not.toHaveBeenCalled()
   })
 
   it('keeps today’s page while the switch is off', async () => {
@@ -89,28 +104,65 @@ describe('the clinic switch chooses the page at /provider/enroll', () => {
   })
 })
 
-/** hid-system accepts the sign-up's security check only on the main site (productHostname.ts providerEnrollmentHref). */
-describe('the blue registration opened on a staff product host or the admin site', () => {
+/** Each product site has its own facility sign-up, which hid-system accepts there (productHostname.ts providerEnrollmentHref). */
+describe('the blue registration on a product site, and where it is not', () => {
   const jsdom = (globalThis as unknown as { jsdom: { reconfigure(options: { url: string }): void } }).jsdom
   const servedFrom = window.location.href
   afterEach(() => { jsdom.reconfigure({ url: servedFrom }) })
 
+  /** The facility type and product the form holds: Facility details, then Platform setup. */
+  async function startingChoice() {
+    fireEvent.change(textbox('Full name'), { target: { value: 'Demo Administrator' } })
+    fireEvent.change(textbox('Email'), { target: { value: 'admin@demo-facility.example.test' } })
+    next()
+    await step('Facility details')
+    const type = combobox('Facility type').value
+    next()
+    await step('Regulatory identity')
+    fireEvent.change(textbox('CAC registration number'), { target: { value: 'RC123456' } })
+    next()
+    await step('Platform setup')
+    return { type, product: combobox('Product to start with').value }
+  }
+
   it.each([
-    ['ehr.healthidentitydirectory.com', '/provider/enroll', 'https://app.healthidentitydirectory.com/provider/enroll'],
-    ['lab.healthidentitydirectory.com', '/provider/enroll?product=laboratory', 'https://app.healthidentitydirectory.com/provider/enroll?product=laboratory'],
-    ['admin.healthidentitydirectory.com', '/provider/enroll', 'https://app.healthidentitydirectory.com/provider/enroll'],
-    ['pharmacy.staging.healthidentitydirectory.com', '/provider/enroll?product=pharmacy', 'https://staging.healthidentitydirectory.com/provider/enroll?product=pharmacy'],
-    ['ehr.healthidentitydirectory.com', '/provider/enroll?product=https://evil.example', 'https://app.healthidentitydirectory.com/provider/enroll'],
-  ])('on %s (%s) links to the main site with today’s link, and sends nothing', async (hostname, entry, href) => {
+    ['lab.healthidentitydirectory.com', '/provider/enroll', { type: 'laboratory', product: 'laboratory' }],
+    ['pharmacy.healthidentitydirectory.com', '/provider/enroll', { type: 'pharmacy', product: 'pharmacy' }],
+    ['lab.staging.healthidentitydirectory.com', '/provider/enroll', { type: 'laboratory', product: 'laboratory' }],
+    ['migrate.healthidentitydirectory.com', '/provider/enroll', { type: 'hospital', product: 'migrate' }],
+    ['ehr.healthidentitydirectory.com', '/provider/enroll', { type: 'hospital', product: 'ehr' }],
+    ['outreach.healthidentitydirectory.com', '/provider/enroll', { type: 'hospital', product: 'ehr' }],
+    // A product the address names wins over the site's own, as the public site's links ask.
+    ['lab.healthidentitydirectory.com', '/provider/enroll?product=ehr', { type: 'hospital', product: 'ehr' }],
+    ['pharmacy.healthidentitydirectory.com', '/provider/enroll?type=clinic', { type: 'clinic', product: 'ehr' }],
+    // An address naming nothing the form knows is the site's own again.
+    ['lab.healthidentitydirectory.com', '/provider/enroll?product=https://evil.example', { type: 'laboratory', product: 'laboratory' }],
+  ])('on %s (%s), signs up there, starting with %o', async (hostname, entry, choice) => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     jsdom.reconfigure({ url: `https://${hostname}${entry}` })
     open(entry)
-    expect(screen.getByRole('heading', { level: 1, name: 'Register your facility' })).toBeTruthy()
-    expect(screen.getByText('Facility sign-up is done on the main Health ID site.')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Continue to facility sign-up' }).getAttribute('href')).toBe(href)
+    expect(await step('Your account')).toBeTruthy()
+    expect(screen.queryByText(/main Health ID site/)).toBeNull()
+    expect(await startingChoice()).toEqual(choice)
+    expect(api.availability).toHaveBeenCalled()
+  })
+
+  it.each([
+    ['admin.healthidentitydirectory.com', '/provider/enroll', 'https://ehr.healthidentitydirectory.com/provider/enroll'],
+    ['admin.staging.healthidentitydirectory.com', '/provider/enroll?product=pharmacy',
+      'https://ehr.staging.healthidentitydirectory.com/provider/enroll?product=pharmacy'],
+    ['app.healthidentitydirectory.com', '/provider/enroll?product=laboratory',
+      'https://ehr.healthidentitydirectory.com/provider/enroll?product=laboratory'],
+    ['app.healthidentitydirectory.com', '/provider/enroll?product=https://evil.example', 'https://ehr.healthidentitydirectory.com/provider/enroll'],
+  ])('on %s (%s), which serves no staff pages, opens %s at once and sends nothing', async (hostname, entry, href) => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname, replace })
+    open(entry)
+    expect(replace).toHaveBeenCalledWith(href)
+    expect(screen.getByRole('link', { name: 'Go to Health ID EHR' }).getAttribute('href')).toBe(href)
     expect(screen.queryByRole('textbox')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Complete the security check' })).toBeNull()
-    expect(document.title).toBe('Provider enrollment · Health ID Provider')
+    expect(screen.queryByText(/continue|main site/i)).toBeNull()
     expect(api.availability).not.toHaveBeenCalled()
     expect(api.start).not.toHaveBeenCalled()
     expect(clinician.availability).not.toHaveBeenCalled()

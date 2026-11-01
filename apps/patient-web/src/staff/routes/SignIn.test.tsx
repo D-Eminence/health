@@ -72,36 +72,34 @@ it('asks the challenge for the sign-in action of the host the portal is served o
   expect(calls.loginAction).toHaveBeenCalledWith(window.location.hostname)
 })
 
-it.each([
-  ['lab.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
-  ['pharmacy.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
-  ['migrate.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
-  ['outreach.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
-  ['ehr.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
-  ['lab.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com/provider/recover'],
-])('on %s, links password recovery to the main site, where hid-system accepts it', async (hostname, href) => {
+/** Each product site has its own password recovery and facility sign-up, which hid-system accepts there. */
+it.each(['lab.healthidentitydirectory.com', 'pharmacy.healthidentitydirectory.com', 'migrate.healthidentitydirectory.com',
+  'outreach.healthidentitydirectory.com', 'ehr.healthidentitydirectory.com', 'lab.staging.healthidentitydirectory.com',
+  'ehr.staging.healthidentitydirectory.com'])('on %s, password recovery and facility sign-up are the site’s own', hostname => {
   serveFrom(hostname)
   vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
 
   render(<MemoryRouter><SignIn /></MemoryRouter>)
 
-  const link = screen.getByRole('link', { name: 'Forgot your password?' })
-  expect(link.getAttribute('href')).toBe(href)
-  expect(screen.getByText(/You reset it on the main Health ID site\./)).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Forgot your password?' }).getAttribute('href')).toBe('/provider/recover')
+  expect(screen.getByRole('link', { name: 'Set up your facility' }).getAttribute('href')).toBe('/provider/enroll')
+  expect(screen.queryByText(/main Health ID site/)).toBeNull()
 })
 
-it('on the production portal opens the EHR site’s sign-in at once, with no step of its own and no form hid-system would refuse', () => {
+it.each([
+  ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+  ['admin.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+])('on %s, which serves no staff pages, opens the EHR site’s sign-in at once, with no step of its own and no form hid-system would refuse', (hostname, ehr) => {
   const replace = vi.fn()
-  vi.stubGlobal('location', { ...window.location, hostname: 'app.healthidentitydirectory.com', replace })
+  vi.stubGlobal('location', { ...window.location, hostname, replace })
   vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
 
-  render(<MemoryRouter initialEntries={['/provider/sign-in?returnTo=https://evil.example']}><SignIn /></MemoryRouter>)
+  render(<MemoryRouter initialEntries={['/provider/sign-in']}><SignIn /></MemoryRouter>)
 
   expect(replace).toHaveBeenCalledTimes(1)
-  expect(replace).toHaveBeenCalledWith('https://ehr.healthidentitydirectory.com/provider/sign-in')
-  expect(screen.getByRole('status').textContent).toBe('Opening the EHR sign-in…')
-  expect(screen.getByRole('link', { name: 'Go to the EHR sign-in' }).getAttribute('href'))
-    .toBe('https://ehr.healthidentitydirectory.com/provider/sign-in')
+  expect(replace).toHaveBeenCalledWith(ehr)
+  expect(screen.getByRole('status').textContent).toBe('Opening Health ID EHR…')
+  expect(screen.getByRole('link', { name: 'Go to Health ID EHR' }).getAttribute('href')).toBe(ehr)
   expect(screen.queryByRole('heading')).toBeNull()
   expect(screen.queryByText(/continue/i)).toBeNull()
   expect(screen.queryByLabelText('Work email')).toBeNull()
@@ -115,30 +113,9 @@ it.each(['staging.healthidentitydirectory.com', 'ehr.healthidentitydirectory.com
     vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
     render(<MemoryRouter><SignIn /></MemoryRouter>)
     expect(screen.getByLabelText(/Work email/)).toBeTruthy()
-    expect(screen.queryByText('Opening the EHR sign-in…')).toBeNull()
+    expect(screen.queryByText('Opening Health ID EHR…')).toBeNull()
     expect(replace).not.toHaveBeenCalled()
   })
-
-/**
- * Facility self sign-up's security check (`provider-enrollment`) is accepted only on the main site: a product
- * host accepts only its own sign-in action, so a sign-up started there would always be refused (P4, W1).
- */
-it.each([
-  ['ehr.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/enroll'],
-  ['lab.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/enroll'],
-  ['pharmacy.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/enroll'],
-  ['migrate.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/enroll'],
-  ['outreach.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/enroll'],
-  ['ehr.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com/provider/enroll'],
-  ['lab.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com/provider/enroll'],
-])('on %s, opens facility sign-up on the main site', (hostname, href) => {
-  serveFrom(hostname)
-  vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
-
-  render(<MemoryRouter><SignIn /></MemoryRouter>)
-
-  expect(screen.getByRole('link', { name: 'Set up your facility' }).getAttribute('href')).toBe(href)
-})
 
 it.each(['staging.healthidentitydirectory.com', 'localhost'])('on %s keeps facility sign-up on this site', hostname => {
   if (hostname !== 'localhost') serveFrom(hostname)

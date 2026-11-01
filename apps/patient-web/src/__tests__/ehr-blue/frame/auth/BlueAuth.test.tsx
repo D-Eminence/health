@@ -71,16 +71,18 @@ describe('BlueSignIn', () => {
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider'))
   })
 
-  it('on the production portal opens the EHR site\'s sign-in at once: no "Continue" step, no form', () => {
+  it.each([
+    ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+    ['admin.staging.healthidentitydirectory.com', 'https://ehr.staging.healthidentitydirectory.com/provider/sign-in'],
+  ])('on %s, which serves no staff pages, opens the EHR site\'s sign-in at once: no "Continue" step, no form', (hostname, ehr) => {
     const replace = vi.fn()
-    vi.stubGlobal('location', { ...window.location, hostname: 'app.healthidentitydirectory.com', replace })
+    vi.stubGlobal('location', { ...window.location, hostname, replace })
     try {
-      open('/provider/sign-in?returnTo=https://evil.example', <BlueSignIn />)
+      open('/provider/sign-in', <BlueSignIn />)
       expect(replace).toHaveBeenCalledTimes(1)
-      expect(replace).toHaveBeenCalledWith('https://ehr.healthidentitydirectory.com/provider/sign-in')
-      expect(screen.getByText('Opening the EHR sign-in…').getAttribute('role')).toBe('status')
-      expect(screen.getByRole('link', { name: 'Go to the EHR sign-in' }).getAttribute('href'))
-        .toBe('https://ehr.healthidentitydirectory.com/provider/sign-in')
+      expect(replace).toHaveBeenCalledWith(ehr)
+      expect(screen.getByText('Opening Health ID EHR…').getAttribute('role')).toBe('status')
+      expect(screen.getByRole('link', { name: 'Go to Health ID EHR' }).getAttribute('href')).toBe(ehr)
       expect(screen.queryByText(/continue/i)).toBeNull()
       expect(screen.queryByRole('heading')).toBeNull()
       expect(screen.queryByRole('textbox')).toBeNull()
@@ -99,6 +101,26 @@ describe('BlueSignIn', () => {
         expect(replace).not.toHaveBeenCalled()
       } finally { vi.unstubAllGlobals() }
     })
+
+  it.each([
+    ['ehr.healthidentitydirectory.com', 'Register a hospital'],
+    ['lab.healthidentitydirectory.com', 'Register a laboratory'],
+    ['pharmacy.healthidentitydirectory.com', 'Register a pharmacy'],
+    ['migrate.healthidentitydirectory.com', 'Register a hospital'],
+    ['outreach.staging.healthidentitydirectory.com', 'Register a hospital'],
+    ['lab.staging.healthidentitydirectory.com', 'Register a laboratory'],
+  ])('on %s, every way in stays on the site itself: %s, Forgot password? and Accept invitation', (hostname, register) => {
+    vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
+    try {
+      open('/provider/sign-in', <BlueSignIn />)
+      expect(screen.getByRole('link', { name: register }).getAttribute('href')).toBe('/provider/enroll')
+      expect(screen.getByRole('link', { name: 'Forgot password?' }).getAttribute('href')).toBe('/provider/recover')
+      expect(screen.getByRole('link', { name: 'Accept invitation' }).getAttribute('href')).toBe('/provider/invitation')
+      // Nothing here leads to another site, the patient portal least of all.
+      for (const link of screen.getAllByRole('link')) expect(link.getAttribute('href')).toMatch(/^\/provider\//)
+      expect(screen.queryByText(/main Health ID site/)).toBeNull()
+    } finally { vi.unstubAllGlobals() }
+  })
 
   it('shows and hides the password with the design\'s button', () => {
     open('/provider/sign-in', <BlueSignIn />)
@@ -189,6 +211,38 @@ describe('BlueRecovery', () => {
     fireEvent.submit(code.closest('form')!)
     expect((await screen.findByText('The code is invalid or has expired.')).closest('[data-intent="error"]')).not.toBeNull()
   })
+  it.each(['ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com', 'pharmacy.staging.healthidentitydirectory.com',
+    'outreach.healthidentitydirectory.com'])('on the product site %s, shows the recovery itself, which hid-system accepts there', hostname => {
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname, replace })
+    try {
+      open('/provider/recover', <BlueRecovery />)
+      expect(screen.getByRole('heading', { level: 1, name: 'Recover account access' })).toBeDefined()
+      expect(screen.getByRole('textbox', { name: 'Work email' })).toBeDefined()
+      expect(screen.getByRole('button', { name: 'Send recovery code' })).toBeDefined()
+      expect(replace).not.toHaveBeenCalled()
+      expect(screen.queryByText(/main Health ID site|main site/)).toBeNull()
+      // Its way back is this site's own sign-in.
+      for (const link of screen.getAllByRole('link')) expect(link.getAttribute('href')).toMatch(/^\/provider\//)
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it.each([
+    ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/recover'],
+    ['admin.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/recover'],
+    ['admin.staging.healthidentitydirectory.com', 'https://ehr.staging.healthidentitydirectory.com/provider/recover'],
+  ])('on %s, which serves no staff pages, opens %s at once, with no step of its own', (hostname, href) => {
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname, replace })
+    try {
+      open('/provider/recover', <BlueRecovery />)
+      expect(replace).toHaveBeenCalledWith(href)
+      expect(screen.getByRole('link', { name: 'Go to Health ID EHR' }).getAttribute('href')).toBe(href)
+      expect(screen.queryByRole('textbox')).toBeNull()
+      expect(screen.queryByText(/continue|main site/i)).toBeNull()
+      expect(recovery.start).not.toHaveBeenCalled()
+    } finally { vi.unstubAllGlobals() }
+  })
 })
 
 describe('BlueStaffInvitation', () => {
@@ -226,6 +280,39 @@ describe('BlueStaffInvitation', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
     expect(await screen.findByRole('heading', { level: 2, name: 'Sign in to accept' })).toBeDefined()
     expect(screen.getByRole('link', { name: 'Sign in to accept' }).getAttribute('href')).toBe('/provider/staff/join')
+  })
+
+  it.each(['lab.healthidentitydirectory.com', 'pharmacy.healthidentitydirectory.com', 'ehr.staging.healthidentitydirectory.com'])(
+    'on the product site %s, opens invitations itself (no sign-in first), as hid-system accepts them there', hostname => {
+      const replace = vi.fn()
+      vi.stubGlobal('location', { ...window.location, hostname, replace })
+      try {
+        open('/provider/invitation', <BlueStaffInvitation />)
+        // The invitation page, not the signed-in join page a product site used to send it to.
+        expect(screen.getByTestId('where').textContent).toBe('/provider/invitation')
+        expect(screen.getByRole('heading', { level: 1, name: 'Accept your invitation' })).toBeDefined()
+        expect(screen.getByRole('heading', { level: 2, name: 'Enter your invitation code' })).toBeDefined()
+        expect(screen.getByRole('textbox', { name: 'Email address' })).toBeDefined()
+        expect(screen.getByRole('textbox', { name: 'Invitation code' })).toBeDefined()
+        expect(replace).not.toHaveBeenCalled()
+        expect(screen.queryByText(/main Health ID site/)).toBeNull()
+      } finally { vi.unstubAllGlobals() }
+    })
+
+  it.each([
+    ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com'],
+    ['admin.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com'],
+    ['admin.staging.healthidentitydirectory.com', 'https://ehr.staging.healthidentitydirectory.com'],
+  ])('on %s, which serves no staff pages, opens the EHR site\'s page at once, with the link', (hostname, origin) => {
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname, replace })
+    try {
+      open('/provider/invitation#3f1d2c4b-0000-4000-8000-000000000003.tok', <BlueStaffInvitation />)
+      expect(replace).toHaveBeenCalledWith(`${origin}/provider/invitation#3f1d2c4b-0000-4000-8000-000000000003.tok`)
+      expect(screen.queryByRole('textbox')).toBeNull()
+      expect(screen.queryByText(/continue|main site/i)).toBeNull()
+      expect(invitations.open).not.toHaveBeenCalled()
+    } finally { vi.unstubAllGlobals() }
   })
 })
 

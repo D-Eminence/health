@@ -5,7 +5,7 @@ import { STAFF_INVITATION_PATH, STAFF_RECOVERY_PATH, staffInvitationHref, staffR
 import { ClinicianSignUpEntry } from '../../staff/clinician/ClinicianSignUpEntry'
 import { StaffSignInLink } from '../../staffSignIn'
 
-/** A link to this site's own page, or to the main site's from a staff product host (the fixed addresses productHostname gives). */
+/** A link to this site's own page, or to the EHR site's from a site that serves no staff pages (productHostname.ts). */
 function PageLink({ path, href, children }: { path: string; href: string; children: ReactNode }) {
   return href === path ? <Link to={path}>{children}</Link> : <a href={href}>{children}</a>
 }
@@ -16,11 +16,9 @@ function PageLink({ path, href, children }: { path: string; href: string; childr
  * vertically centred column of the screens after the registration (08 Registration submitted, 09 the code). Its own
  * `.hid-ehr` root carries the blue tokens and fonts: the sign-up runs before any session, outside the blue frame.
  */
-export function SignupShell({ children, centered = false, onMainSite = true }: {
+export function SignupShell({ children, centered = false }: {
   readonly children: ReactNode
   readonly centered?: boolean
-  /** False on a staff product host, which offers only Sign in, as today's page there does. */
-  readonly onMainSite?: boolean
 }) {
   const hostname = window.location.hostname
   return (
@@ -33,18 +31,16 @@ export function SignupShell({ children, centered = false, onMainSite = true }: {
           {children}
           <p className="hid-ehr-signup-links">
             <StaffSignInLink>Sign in</StaffSignInLink>
-            {onMainSite ? <>
-              <PageLink path={STAFF_RECOVERY_PATH} href={staffRecoveryHref(hostname)}>Recover access</PageLink>
-              <PageLink path={STAFF_INVITATION_PATH} href={staffInvitationHref(hostname)}>Accept invitation</PageLink>
-            </> : null}
+            <PageLink path={STAFF_RECOVERY_PATH} href={staffRecoveryHref(hostname)}>Recover access</PageLink>
+            <PageLink path={STAFF_INVITATION_PATH} href={staffInvitationHref(hostname)}>Accept invitation</PageLink>
           </p>
         </div>
-        {onMainSite ? <div className="hid-ehr-signup-footer">
+        <div className="hid-ehr-signup-footer">
           {/* Today's footer (ProviderEnrollment.tsx:1176-1183, Novu), where the design has its footer line. */}
           <p>Provider enrollment sets up a facility and its administrator’s account. Once Health ID support has checked the
             facility, its administrator adds the doctors, nurses and other staff on the Staff page.</p>
           <ClinicianSignUpEntry className="hid-ehr-signup-footer-line" />
-        </div> : null}
+        </div>
       </main>
       <div className="hid-ehr-signup-visual">
         <div className="hid-ehr-signup-story">

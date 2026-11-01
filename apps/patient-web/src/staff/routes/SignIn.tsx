@@ -16,7 +16,7 @@ import { staffLandingPath } from '../navigation'
 import { staffReturnPath } from '../session'
 import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE, StaffMfaSteps, type StaffMfaLook } from './StaffMfaSteps'
 import { ClinicianSignUpEntry, PageLink } from '../clinician/ClinicianSignUpEntry'
-import { OpenEhrSignIn } from '../../staffSignIn'
+import { OpenStaffPage } from '../../staffSignIn'
 import { servesClinicianApplications, usesNovuBackend } from '../../backendContract'
 import { capturedStaffInvitation } from '../invitationCapture'
 
@@ -122,9 +122,10 @@ export function SignIn() {
   const mfaRequired = (state.status === 'signed-out' || state.status === 'ended') && state.reason === 'mfa-required'
 
   if (state.status === 'ready') return <Navigate to={getStaffLandingPath(location.search, state.session)} replace />
-  // The production portal serves patients only: it opens the EHR site's sign-in, which hid-system accepts, at once; a
-  // form here would always be refused.
-  if (staffSignInHref(window.location.hostname)) return <OpenEhrSignIn />
+  // The production portal serves patients only, and an admin site platform administrators only: there it opens the EHR
+  // site's sign-in, which hid-system accepts, at once; a form here would always be refused.
+  const elsewhere = staffSignInHref(window.location.hostname)
+  if (elsewhere) return <OpenStaffPage href={elsewhere} />
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
@@ -162,8 +163,7 @@ export function SignIn() {
     setReturned(value => value + 1)
   }
 
-  // hid-system accepts facility self sign-up's security check only on the main site, so a staff
-  // product host (ehr, lab, pharmacy, migrate, outreach) links to the main site's page.
+  // Each product site (ehr, lab, pharmacy, migrate, outreach) has its own facility sign-up, which hid-system accepts there.
   const enrollHref = providerEnrollmentHref(window.location.hostname)
   return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
     headerLink={enrollHref === PROVIDER_ENROLLMENT_PATH
@@ -190,16 +190,11 @@ export function SignIn() {
   </AuthLayout>
 }
 
-/**
- * hid-system accepts a staff password reset only on the main site, so a staff
- * product site links to the main site's recovery page and says so.
- */
+/** This site's own staff password recovery: each product site has its own, which hid-system accepts there (staff-reset). */
 function RecoveryLink() {
   const href = staffRecoveryHref(window.location.hostname)
-  const central = href !== STAFF_RECOVERY_PATH
   return <p className="m-0 text-[13px] text-ink-3">
-    {central ? <a href={href}>Forgot your password?</a> : <Link to={href}>Forgot your password?</Link>}
-    {central && ' You reset it on the main Health ID site.'}
+    {href === STAFF_RECOVERY_PATH ? <Link to={href}>Forgot your password?</Link> : <a href={href}>Forgot your password?</a>}
     {' '}Need a staff account? Ask your facility administrator.
   </p>
 }

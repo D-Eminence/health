@@ -45,13 +45,22 @@ describe('the clinician sign-up entry', () => {
     expect(screen.queryByText(/clinician/i)).toBeNull()
   })
 
-  it('links the main site from a staff product host', async () => {
+  it('links the product site’s own clinician pages from a product site', async () => {
     vi.stubGlobal('location', { ...window.location, hostname: 'pharmacy.healthidentitydirectory.com' })
     api.availability.mockResolvedValueOnce({ open: true })
     show()
-    expect((await screen.findByRole('link', { name: 'Sign up as a clinician' })).getAttribute('href'))
-      .toBe('https://app.healthidentitydirectory.com/provider/join')
-    expect(screen.getByRole('link', { name: 'Check your application' }).getAttribute('href'))
-      .toBe('https://app.healthidentitydirectory.com/provider/join/status')
+    expect((await screen.findByRole('link', { name: 'Sign up as a clinician' })).getAttribute('href')).toBe('/provider/join')
+    expect(screen.getByRole('link', { name: 'Check your application' }).getAttribute('href')).toBe('/provider/join/status')
+  })
+
+  it.each([
+    ['admin.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com'],
+    ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com'],
+  ])('links the EHR site’s clinician pages from %s, which serves no staff pages', async (hostname, origin) => {
+    vi.stubGlobal('location', { ...window.location, hostname })
+    api.availability.mockResolvedValueOnce({ open: true })
+    show()
+    expect((await screen.findByRole('link', { name: 'Sign up as a clinician' })).getAttribute('href')).toBe(`${origin}/provider/join`)
+    expect(screen.getByRole('link', { name: 'Check your application' }).getAttribute('href')).toBe(`${origin}/provider/join/status`)
   })
 })
