@@ -251,6 +251,9 @@ def prepared_configs():
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
     return module.build.prepare(dry_run=False, environment="production")["configs"]
 
+# The product sites, whose front page is their landing page from the public site's Worker, bound as PUBLIC_SITE.
+LANDING_APPS = ("ehr","lab","pharmacy","ocr","outreach")
+
 def validate_config(config,app,assets):
     expected = {"name":"hid-"+app+"-production","main":(ROOT/"infra/cloudflare/src/frontend-worker.mjs").as_posix(),
         "compatibility_date":"2026-10-01","workers_dev":False,"preview_urls":False,
@@ -259,6 +262,7 @@ def validate_config(config,app,assets):
                   "not_found_handling":"404-page" if app == "public" else "single-page-application"},
         "vars":{"DEPLOYMENT_ENV":"production","APP_NAME":app,"EXPECTED_HOST":HOSTS[app],
                 "API_ORIGIN":"https://api.healthidentitydirectory.com"}}
+    if app in LANDING_APPS: expected["services"] = [{"binding":"PUBLIC_SITE","service":"hid-public-production"}]
     require(config == expected, "UNEXPECTED_WORKER_CONFIGURATION")
 
 class AssetRefs(HTMLParser):
@@ -283,19 +287,22 @@ def matches(data,digest,html=False):
 PROPAGATION_SECONDS = 90
 PROPAGATION_RETRY_SECONDS = 3
 PROPAGATION_CODES = frozenset({"WORKER_ASSET_NOT_YET_SERVED","WORKER_ASSET_UNREACHABLE","LIVE_HTML_BYTES_DIFFER",
-    "LIVE_ENTRY_ASSET_BYTES_DIFFER","WORKER_DEEP_LINK_DIFFERS","PUBLIC_DEEP_LINK_DIFFERS"})
+    "LIVE_ENTRY_ASSET_BYTES_DIFFER","WORKER_DEEP_LINK_DIFFERS","PUBLIC_DEEP_LINK_DIFFERS","LANDING_PAGE_NOT_YET_SERVED"})
 
-def verify_assets(app,manifest_entry):
+def verify_assets(app,manifest_entry,landing=None):
+    # landing: whether the version checked answers its front page with its landing page. A version this run uploads
+    # does if it is a product site's; a version restored by a rollback does if its release recorded so.
+    landing = app in LANDING_APPS if landing is None else bool(landing)
     deadline = time.monotonic()+PROPAGATION_SECONDS
     while True:
-        try: return verify_live_assets(app,manifest_entry)
+        try: return verify_live_assets(app,manifest_entry,landing)
         except ReleaseError as error:
             if str(error) not in PROPAGATION_CODES or time.monotonic() >= deadline: raise
             print(json.dumps({"app":app,"waiting_for_edge":str(error),
                 "seconds_left":round(deadline-time.monotonic())}), flush=True)
             time.sleep(PROPAGATION_RETRY_SECONDS)
 
-def verify_live_assets(app,manifest_entry):
+def verify_live_assets(app,manifest_entry,landing=False):
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs): return None
     opener = urllib.request.build_opener(NoRedirect())
@@ -316,7 +323,8 @@ def verify_live_assets(app,manifest_entry):
         except (urllib.error.URLError, OSError, http.client.HTTPException):
             # Includes a timeout, reset or cut-off body met after the request was sent, which urllib passes on unwrapped.
             raise ReleaseError("WORKER_ASSET_UNREACHABLE") from None
-    html = get("")
+    # A product site's front page is its landing page (below), so its own index.html is checked at its staff sign-in.
+    html = get("provider/sign-in" if landing else "")
     if not matches(html,manifest_entry["files"]["index.html"],html=True):
         # Bytes only, never the page: enough to tell the previous release or an unknown insertion apart.
         print(json.dumps({"app":app,"live_html_sha256":sha(html),"live_html_bytes":len(html),
@@ -330,7 +338,15 @@ def verify_live_assets(app,manifest_entry):
         require(matches(get("admin/sign-in" if app == "admin" else "sign-in"),manifest_entry["files"]["index.html"],html=True), "WORKER_DEEP_LINK_DIFFERS")
     else:
         require(matches(get("about"),manifest_entry["files"]["about.html"],html=True), "PUBLIC_DEEP_LINK_DIFFERS")
-    return {"entry_assets_verified":len(refs.paths),"deep_link_verified":True}
+    checks = {"entry_assets_verified":len(refs.paths),"deep_link_verified":True}
+    if landing:
+        # The landing page as this version serves it: from the public site, with this site's canonical address, which
+        # only this version writes (the previous one answers its index.html until the edge serves this one).
+        page = get("")
+        require(re.search(rb'<link rel="canonical" href="https://'+re.escape(HOSTS[app].encode())+rb'/">',page),
+                "LANDING_PAGE_NOT_YET_SERVED")
+        checks["landing_page_verified"] = True
+    return checks
 
 def error_code(error):
     return str(error) if isinstance(error,ReleaseError) else "CONTROLLER_FAILED"
@@ -407,7 +423,8 @@ def deploy(mode):
                     body = aws.call("s3api","get-object",{"Bucket":store.bucket,"Key":archive["key"],
                         "VersionId":archive["version_id"],"ExpectedBucketOwner":ACCOUNT},extra=[str(path)])
                     require(body.get("SSEKMSKeyId") == store.key and file_sha(path) == archive["sha256"], "ROLLBACK_ARCHIVE_CHANGED")
-                    verify_assets(app,{"files":archive_files(path)})
+                    verify_assets(app,{"files":archive_files(path)},
+                                  landing=after[app].get("checks",{}).get("landing_page_verified",False))
         else:
             require(release.get("operation") == "deploy", "DEPLOYMENT_OPERATION_DIFFERS")
             selected = entries()

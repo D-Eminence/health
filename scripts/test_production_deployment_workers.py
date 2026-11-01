@@ -15,6 +15,14 @@ from test_production_deployment_core import ctx, index
 
 spec=importlib.util.spec_from_file_location('workers',pathlib.Path(__file__).with_name('deploy-production-workers.py'))
 w=importlib.util.module_from_spec(spec); spec.loader.exec_module(w)
+spec=importlib.util.spec_from_file_location('prepare_workers',pathlib.Path(__file__).with_name('prepare-staging-workers.py'))
+prepare=importlib.util.module_from_spec(spec); spec.loader.exec_module(prepare)
+
+
+def landing_page(app):
+    """A product site's front page as its new version serves it: the public site's page, with this site's address."""
+    return b'<html><head><title>Landing</title><link rel="canonical" href="https://' + w.HOSTS[app].encode() \
+        + b'/"></head><body><a href="https://healthidentitydirectory.com/pricing">Pricing</a></body></html>'
 
 
 class WorkerTests(unittest.TestCase):
@@ -25,11 +33,14 @@ class WorkerTests(unittest.TestCase):
             with self.subTest(app=app):
                 paths = []
                 deep_link = 'about' if app == 'public' else 'admin/sign-in' if app == 'admin' else 'sign-in'
+                landing = app in w.LANDING_APPS
+                # A product site's front page is its landing page, so its index.html is read at its staff sign-in.
+                expected = ['provider/sign-in', 'entry.js', deep_link, ''] if landing else ['', 'entry.js', deep_link]
                 def open_request(request, timeout):
                     path = request.full_url.split(w.HOSTS[app] + '/', 1)[1]
-                    self.assertIn(path, ('', 'entry.js', deep_link))
+                    self.assertIn(path, expected)
                     paths.append(path)
-                    response = BytesIO(script if path == 'entry.js' else html)
+                    response = BytesIO(script if path == 'entry.js' else landing_page(app) if landing and path == '' else html)
                     response.status = 200
                     response.headers = {'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY'}
                     return response
@@ -37,15 +48,57 @@ class WorkerTests(unittest.TestCase):
                 opener.open.side_effect = open_request
                 entry = {'files': {'index.html': c.sha(html), 'about.html': c.sha(html), 'entry.js': c.sha(script)}}
                 with patch.object(w.urllib.request, 'build_opener', return_value=opener) as build:
-                    self.assertTrue(w.verify_assets(app, entry)['deep_link_verified'])
+                    checks = w.verify_assets(app, entry)
+                    self.assertTrue(checks['deep_link_verified'])
+                    self.assertEqual(checks.get('landing_page_verified', False), landing)
                     self.assertIsNone(build.call_args.args[0].redirect_request(None))
-                self.assertEqual(paths, ['', 'entry.js', deep_link])
+                self.assertEqual(paths, expected)
+
+    def test_product_sites_and_only_they_bind_the_public_site(self):
+        self.assertEqual(set(w.LANDING_APPS), set(prepare.LANDING_APPS))
+        self.assertEqual(set(w.LANDING_APPS), {'ehr', 'lab', 'pharmacy', 'ocr', 'outreach'})
+        assets = pathlib.Path('assets')
+        for app, host in w.HOSTS.items():
+            with self.subTest(app=app):
+                config = prepare.worker_config(app, host, 'production', assets, 'https://api.healthidentitydirectory.com')
+                # Exactly what the release controller uploads.
+                w.validate_config(config, app, assets)
+                if app in w.LANDING_APPS:
+                    self.assertEqual(config['services'], [{'binding': 'PUBLIC_SITE', 'service': 'hid-public-production'}])
+                    without = {key: value for key, value in config.items() if key != 'services'}
+                    with self.assertRaisesRegex(c.ReleaseError, 'CONFIGURATION'): w.validate_config(without, app, assets)
+                    elsewhere = dict(config, services=[{'binding': 'PUBLIC_SITE', 'service': 'hid-public-staging'}])
+                    with self.assertRaisesRegex(c.ReleaseError, 'CONFIGURATION'): w.validate_config(elsewhere, app, assets)
+                else:
+                    self.assertNotIn('services', config)
+                    bound = dict(config, services=[{'binding': 'PUBLIC_SITE', 'service': 'hid-public-production'}])
+                    with self.assertRaisesRegex(c.ReleaseError, 'CONFIGURATION'): w.validate_config(bound, app, assets)
+        # Staging binds its own public site.
+        staging = prepare.worker_config('lab', 'lab.staging.healthidentitydirectory.com', 'staging', assets,
+                                        'https://api.staging.healthidentitydirectory.com')
+        self.assertEqual(staging['services'], [{'binding': 'PUBLIC_SITE', 'service': 'hid-public-staging'}])
+        self.assertNotIn('services', prepare.worker_config('public', 'www.staging.healthidentitydirectory.com', 'staging',
+                                                           assets, 'https://api.staging.healthidentitydirectory.com'))
+
+    def test_a_restored_version_is_checked_as_its_release_recorded_it(self):
+        # A rollback restores a release from before the landing pages: its product sites answered their index.html at
+        # the front page, as its receipt (no landing_page_verified) says, and are checked so.
+        calls = []
+        with patch.object(w, 'verify_live_assets', side_effect=lambda app, entry, landing: calls.append((app, landing)) or {}):
+            w.verify_assets('lab', {}, landing=False)
+            w.verify_assets('lab', {}, landing=True)
+            w.verify_assets('lab', {})
+            w.verify_assets('web', {})
+        self.assertEqual(calls, [('lab', False), ('lab', True), ('lab', True), ('web', False)])
+        source = pathlib.Path(w.__file__).read_text()
+        self.assertIn('landing=after[app].get("checks",{}).get("landing_page_verified",False)', source)
 
     def propagation(self, app, answers):
         """Runs verify_assets against an edge that answers each path from its queue first, on a fake clock."""
         html, script = b'<html><script src="/entry.js"></script></html>', b'console.log("release")'
         entry = {'files': {'index.html': c.sha(html), 'about.html': c.sha(html), 'entry.js': c.sha(script)}}
-        released = {'': html, 'entry.js': script, 'about': html, 'admin/sign-in': html, 'sign-in': html}
+        released = {'': landing_page(app) if app in w.LANDING_APPS else html, 'entry.js': script, 'about': html,
+                    'admin/sign-in': html, 'sign-in': html, 'provider/sign-in': html}
         clock = {'now': 1000.0, 'sleeps': [], 'requests': 0, 'printed': []}
         def open_request(request, timeout):
             path = request.full_url.split(w.HOSTS[app] + '/', 1)[1]
@@ -86,10 +139,27 @@ class WorkerTests(unittest.TestCase):
         result, clock = self.propagation('ehr', {'entry.js': [(b'<html>previous</html>', 200, None)]})
         self.assertTrue(result['deep_link_verified'])
         # A deep link still on the previous version, and a host the runner briefly cannot reach.
-        result, clock = self.propagation('pharmacy', {'sign-in': [previous], '': [(b'', 'unreachable', None)]})
+        result, clock = self.propagation('pharmacy', {'sign-in': [previous], 'provider/sign-in': [(b'', 'unreachable', None)]})
         self.assertTrue(result['deep_link_verified'])
         self.assertEqual([line['waiting_for_edge'] for line in clock['printed']],
                          ['WORKER_ASSET_UNREACHABLE', 'WORKER_DEEP_LINK_DIFFERS'])
+        # A product site's front page still the previous version's index.html, then its landing page.
+        result, clock = self.propagation('lab', {'': [previous, previous]})
+        self.assertTrue(result['landing_page_verified'])
+        self.assertEqual([line['waiting_for_edge'] for line in clock['printed']], ['LANDING_PAGE_NOT_YET_SERVED'] * 2)
+
+    def test_a_front_page_that_is_not_this_sites_landing_page_never_passes(self):
+        previous = (b'<html><script src="/previous.js"></script></html>', 200, None)
+        another = (landing_page('ehr'), 200, None)
+        for answer in [previous, another]:
+            with self.subTest(answer=answer[0][:30]):
+                result, clock = self.propagation('lab', {'': [answer] * 1000})
+                self.assertEqual(str(result), 'LANDING_PAGE_NOT_YET_SERVED')
+                self.assertEqual(sum(clock['sleeps']), w.PROPAGATION_SECONDS)
+        # The plain page a product site answers without its public-site binding is a 503: it fails at once.
+        result, clock = self.propagation('lab', {'': [(b'', 503, None)] * 1000})
+        self.assertEqual(str(result), 'WORKER_ASSET_REQUEST_FAILED')
+        self.assertEqual(clock['sleeps'], [])
 
     def test_a_timeout_reset_or_cut_off_answer_from_the_edge_is_waited_out(self):
         for status in ['timeout', 'reset', 'cut']:
@@ -130,9 +200,13 @@ class WorkerTests(unittest.TestCase):
 
     def test_header_and_size_failures_are_not_retried(self):
         unsafe = (b'<html><script src="/entry.js"></script></html>', 200, {'x-content-type-options': 'nosniff'})
-        result, clock = self.propagation('lab', {'': [unsafe] * 1000})
+        result, clock = self.propagation('lab', {'provider/sign-in': [unsafe] * 1000})
         self.assertEqual(str(result), 'WORKER_HEADERS_OR_STATUS_DIFFER')
         self.assertEqual((clock['sleeps'], clock['requests']), ([], 1))
+        # The landing page without the page headers fails as at once, after the three checks before it.
+        result, clock = self.propagation('lab', {'': [(landing_page('lab'), 200, {'x-content-type-options': 'nosniff'})] * 1000})
+        self.assertEqual(str(result), 'WORKER_HEADERS_OR_STATUS_DIFFER')
+        self.assertEqual((clock['sleeps'], clock['requests']), ([], 4))
         self.assertNotIn('WORKER_HEADERS_OR_STATUS_DIFFER', w.PROPAGATION_CODES)
         self.assertNotIn('LIVE_ASSET_SIZE_LIMIT', w.PROPAGATION_CODES)
 
