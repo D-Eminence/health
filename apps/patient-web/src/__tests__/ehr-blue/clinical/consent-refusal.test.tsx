@@ -27,7 +27,7 @@ describe('Access requests without identity.consent.write', () => {
     const { sent, opened } = openAs(['identity.patient.read'], '/provider/requests/new')
     await opened
     expect(await screen.findByRole('heading', { level: 1, name: 'Ask the patient for access' })).toBeDefined()
-    expect(screen.getByText('Your role at this facility cannot ask patients for access: it needs identity.consent.write. Ask your organization administrator.')).toBeDefined()
+    expect(screen.getByText('Your role at this facility cannot send access requests: it needs identity.consent.write. Ask your organization administrator.')).toBeDefined()
     expect(where()).toBe('/provider/requests/new')
     expect(screen.queryByText(DENIED_NOTICE)).toBeNull()
     expect(sent.some(call => call.route === REQUESTS)).toBe(false)

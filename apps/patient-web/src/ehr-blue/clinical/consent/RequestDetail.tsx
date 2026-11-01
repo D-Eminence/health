@@ -114,7 +114,7 @@ export function RequestDetail() {
   // alert, in place of any list error (AccessRequests.tsx:94-95,118).
   const refusedClose = failure ? <Alert intent="error" title="Couldn’t close access">{failure}</Alert> : null
 
-  // A request just sent is confirmed ("Request sent.") even while the list is read, cannot be read, or lacks it. The
+  // A request just sent is confirmed ("Request … is pending.") even while the list is read, cannot be read, or lacks it. The
   // page and its heading stay the same element while the request loads, so the focus the frame gave the heading stays.
   if (!request) {
     if (!list.error && list.requests !== null) return <><RecordNotFound backHref={href()} />{refusedClose}{statusRegion}</>
@@ -148,7 +148,7 @@ export function RequestDetail() {
         <div className="flex flex-col gap-2 p-5">
           {closeUnavailable ? <p id="close-access-unavailable" className="m-0 text-[13px] text-ink-3">{closeUnavailable}</p> : null}
           <Button variant="danger" className="self-start" disabled={closeUnavailable !== null}
-            aria-describedby={closeUnavailable ? 'close-access-unavailable' : undefined} loading={closing} onClick={() => void close()}>Close access</Button>
+            aria-describedby={closeUnavailable ? 'close-access-unavailable' : undefined} loading={closing} onClick={() => void close()}>{closing ? 'Closing…' : 'Close access'}</Button>
         </div>
       </Card> : null}
       {offerEmergency ? <Card>

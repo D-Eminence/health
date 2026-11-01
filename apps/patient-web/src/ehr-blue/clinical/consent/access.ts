@@ -15,9 +15,11 @@ import { useClinical } from '../parts/Workspace'
  */
 
 export const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health IDs never use 0, 1, I or O.'
-export const NOT_GRANTED = 'You don’t have access to this patient yet. Ask the patient, use their Access PIN, or use emergency access if it’s justified.'
+/** Patients.tsx:142, a lookup answered with anything but an allowed patient. */
+export const NOT_GRANTED = 'Health ID has not granted access to this patient. Request approval, verify their PIN, or use documented emergency access when justified.'
 export const CLOSE_REASON = 'Clinician closed completed patient access'
-export const ACCESS_CLOSED = 'Your access has ended.'
+/** AccessRequests.tsx:96 and Patients.tsx:226, once a grant is closed. */
+export const ACCESS_CLOSED = 'Access was closed.'
 
 export type AccessMethod = 'request' | 'pin' | 'emergency'
 
@@ -26,14 +28,14 @@ export interface Action { readonly routes: readonly MethodRoute[]; readonly acti
 
 /** Each backend route a method calls, whose every listed permission the role must hold (today's METHOD_ROUTES). */
 export const METHOD_ROUTES: Readonly<Record<AccessMethod, Action>> = {
-  request: { routes: [{ route: 'access.staffRequests', method: 'POST' }], action: 'ask patients for access' },
+  request: { routes: [{ route: 'access.staffRequests', method: 'POST' }], action: 'send access requests' },
   pin: { routes: [{ route: 'access.verifyPin', method: 'POST' },
-    { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' }], action: 'use a patient’s Access PIN' },
+    { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' }], action: 'verify a patient’s PIN' },
   emergency: { routes: [{ route: 'access.breakGlass', method: 'POST' },
     { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' },
     { route: 'ehr.emergencyRecords', method: 'GET', purpose: 'to read the emergency summary' }], action: 'activate emergency access' },
 }
-export const CLOSE_GRANT: Action = { routes: [{ route: 'access.closeOwnGrant', method: 'POST' }], action: 'end your access' }
+export const CLOSE_GRANT: Action = { routes: [{ route: 'access.closeOwnGrant', method: 'POST' }], action: 'close this grant' }
 export const OPEN_SHARED: Action = { routes: [{ route: 'identity.patientLookup', method: 'POST' }], action: 'open a patient’s record' }
 
 export type Administrator = 'pending' | 'reviewed' | null

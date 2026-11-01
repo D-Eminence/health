@@ -10,7 +10,7 @@ import { useClinical } from '../parts/Workspace'
 /** Today's filter wording (AccessRequests.tsx FILTER_LABELS, not exported there): the backend matches either. */
 export const FILTER_LABELS: Readonly<Record<AccessRequestStatus, string>> = {
   pending: 'Waiting for the patient', approved: 'Approved (any outcome)', denied: 'Denied',
-  active: 'Access active', expired: 'Expired', closed: 'Closed by you', revoked: 'Ended by the patient',
+  active: 'Access active', expired: 'Expired', closed: 'Closed by you', revoked: 'Revoked',
 }
 
 /** A Status filter from a request page's address, used only if it is one of today's. */
@@ -19,9 +19,10 @@ export function statusFilter(value: string | null): AccessRequestStatus | '' {
   return value !== null && filters.includes(value) ? value as AccessRequestStatus : ''
 }
 
+/** Today's scope options (Patients.tsx:241). */
 export const SCOPE_LABELS: Readonly<Record<AccessRequest['scope'], string>> = {
-  read_records: 'See their records',
-  write_records: 'See and add to their records',
+  read_records: 'Read records',
+  write_records: 'Read and write records',
 }
 
 /** Today's close refusals (AccessRequests.tsx closeError, not exported there). */

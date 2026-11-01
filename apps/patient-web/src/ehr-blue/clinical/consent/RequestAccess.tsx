@@ -11,12 +11,14 @@ import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import {
   HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem, offeredHealthId,
 } from './access'
+import { SCOPE_LABELS } from './requests'
 
 /** Today always asks for 60 minutes, so 60 is the default; the person may choose less (the design's 1 to 60). */
 export const DEFAULT_MINUTES = '60'
 export const DURATION_PROBLEM = 'Enter a number of minutes from 1 to 60.'
 export const REQUEST_TITLE = 'Ask the patient for access'
-export const REASON_PROBLEM = 'Say why in at least 8 characters.'
+/** Patients.tsx:165. */
+export const REASON_PROBLEM = 'Enter a clinical reason of at least 8 characters.'
 
 function text(values: FormValues, key: string): string {
   const value = values[key]
@@ -42,8 +44,8 @@ const ORDER = ['hid', 'scope', 'duration', 'reason'] as const
 type Key = (typeof ORDER)[number]
 
 const SCOPES: ReadonlyArray<{ value: Scope; label: string; hint: string }> = [
-  { value: 'read_records', label: 'See their records', hint: 'Read only' },
-  { value: 'write_records', label: 'See and add to their records', hint: 'For notes, vitals and orders' },
+  { value: 'read_records', label: SCOPE_LABELS.read_records, hint: 'Read only' },
+  { value: 'write_records', label: SCOPE_LABELS.write_records, hint: 'For notes, vitals and orders' },
 ]
 
 /**
@@ -99,11 +101,12 @@ export function RequestAccess() {
     setBusy(true)
     try {
       const request = await staffApi.requestAccess(facility.id, normalizeHealthIdInput(hid), scope, reason.trim(), Number(duration.trim()))
+      // Today's confirmation (Patients.tsx:178): the request's id and status, never the patient.
       navigate(href(request.accessRequestId), {
-        state: { notice: 'Request sent. You can see their records once the patient approves.' },
+        state: { notice: `Request ${request.accessRequestId} is ${request.status}. The patient must approve before records are available.` },
       })
     } catch (caught) {
-      setFormError(failureText(caught, 'Something went wrong. Please try again.'))
+      setFormError(failureText(caught, 'The access command failed.'))
     } finally {
       sending.current = false
       setBusy(false)
@@ -125,7 +128,7 @@ export function RequestAccess() {
           </Field>
 
           <fieldset className="m-0 flex flex-col gap-1.5 border-0 p-0">
-            <legend className="mb-1.5 p-0 text-[13px] font-medium text-ink-2">What do you need?</legend>
+            <legend className="mb-1.5 p-0 text-[13px] font-medium text-ink-2">Access scope</legend>
             <div className="grid gap-2 @md:grid-cols-2">
               {SCOPES.map((option, index) => <label key={option.value} className={cx('flex min-h-11 cursor-pointer items-start gap-3 rounded-lg p-3 ring-1',
                 scope === option.value ? 'bg-brand-soft ring-brand-line' : 'bg-surface ring-line-control')}>
@@ -143,7 +146,7 @@ export function RequestAccess() {
               onChange={event => { setDuration(event.target.value); clear('duration') }} />
           </Field>
 
-          <Field label="Why (the patient sees this)" htmlFor={`${id}-reason`} error={said('reason')} errorId={`${id}-reason-error`}>
+          <Field label="Clinical reason" htmlFor={`${id}-reason`} error={said('reason')} errorId={`${id}-reason-error`}>
             <Textarea id={`${id}-reason`} rows={3} maxLength={500} value={reason}
               aria-invalid={errors.reason ? true : undefined} aria-describedby={describe('reason')}
               onChange={event => { setReason(event.target.value); clear('reason') }} />
@@ -153,7 +156,7 @@ export function RequestAccess() {
           {unavailable ? <p id={unavailableId} className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
           <FormActions sticky={false}>
             <Button type="submit" variant="primary" icon={Send} loading={busy} disabled={!facility || unavailable !== null}
-              aria-describedby={unavailable ? unavailableId : undefined}>{busy ? 'Sending…' : 'Send request'}</Button>
+              aria-describedby={unavailable ? unavailableId : undefined}>{busy ? 'Working…' : 'Send access request'}</Button>
           </FormActions>
         </form>
       </Card>
