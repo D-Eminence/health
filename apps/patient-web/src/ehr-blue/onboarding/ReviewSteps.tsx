@@ -1,10 +1,10 @@
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { toast } from '@hid/ui'
 import { EhrButton, EhrCard, EhrSampleBanner } from '@hid/ui/ehr'
 import type { Facility } from '../../staff/api'
 import { selfServiceReview } from '../../staff/staffAccess'
 import { Detail } from './parts'
-import { NOT_COLLECTED, NO_LAUNCH_STEP, facilityCheckPending } from './setupText'
+import { ALREADY_OPEN, NOT_COLLECTED, NO_LAUNCH_STEP, facilityCheckPending } from './setupText'
 import { paymentMethods, type SampleSetup } from './setupState'
 
 /**
@@ -23,11 +23,15 @@ const LAUNCH_WAITING = 'hid-ehr-onboarding-launch-waiting'
  * hold for this visit. The design's other launch blockers judge sample settings, and launch nothing here: they are
  * left out. `setup` is null where the sample steps are not shown (a real facility): then nothing of theirs is listed,
  * not even their starting values, and there is no sample to mark.
+ *
+ * `onNext` is null where Review is the last step (a real facility, which has no Launch step): there is no launch to
+ * review, so the card says the EHR is already open and ends by going to Home, as Launch did, promising nothing more.
+ * Home opens while Health ID support's check is pending too: the facility is working in its EHR already.
  */
 export function ReviewStep({ facility, setup, onNext }: {
   readonly facility: Facility
   readonly setup: SampleSetup | null
-  readonly onNext: () => void
+  readonly onNext: (() => void) | null
 }) {
   return (
     <EhrCard title="Review your configuration">
@@ -60,17 +64,19 @@ export function ReviewStep({ facility, setup, onNext }: {
           </div>
         ) : null}
         {/* Service pricing, wards and beds, inventory and credential records are the demo facilities' samples: a real
-            facility is offered only what it can do. */}
+            facility is offered only what it can do, and has no launch to come. */}
         <p className="hid-ehr-onboarding-text">{setup ? 'Optional after launch: staff invitations, service pricing, wards and beds, '
-          + 'inventory and professional credential records.' : 'Optional after launch: staff invitations.'}</p>
-        <div><EhrButton onClick={onNext}>Review launch requirements</EhrButton></div>
+          + 'inventory and professional credential records.' : ALREADY_OPEN}</p>
+        <div>{onNext ? <EhrButton onClick={onNext}>Review launch requirements</EhrButton>
+          : <Link className="hid-ehr-button" to="/provider">Go to Home</Link>}</div>
       </div>
     </EhrCard>
   )
 }
 
 /**
- * Step 9, Launch (screen 22), a sample: Health ID has no launch step, and a facility's EHR opens as soon as it signs up.
+ * Step 9, Launch (screen 22), a sample, at the demo facilities alone (setupText.ts stepsAt): Health ID has no launch
+ * step, and a facility's EHR opens as soon as it signs up.
  * "Launch facility" waits for Health ID support's check, saying today's waiting sentence until it is done; then it sends
  * nothing: it opens Home, saying so in a status that outlives the page (the portal's toasts, whose words are generic).
  */

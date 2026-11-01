@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { BLUE_FACILITIES } from '../../../ehr-blue/blueFacilities'
 import { BluePageProvider } from '../../../ehr-blue/frame/pageContext'
@@ -8,8 +8,9 @@ import { onboardingPage } from '../../../ehr-blue/onboarding/page'
 
 /*
  * Facility setup when the working facility changes while the page stays open: the frame keys a page by its address
- * alone, and a demo facility has nine steps where a real one has five. The open step is the one it was, by name, among
- * the steps the facility has; one it does not have opens the first step. Fictional facilities only; nothing is sent.
+ * alone, and a demo facility has nine steps where a real one has four (no sample steps, and no Launch). The open step is
+ * the one it was, by name, among the steps the facility has; one it does not have opens the first step. Fictional
+ * facilities only; nothing is sent.
  */
 const staff = vi.hoisted(() => ({ facility: undefined as unknown }))
 vi.mock('../../../staff/App', () => ({
@@ -53,31 +54,52 @@ const eyebrow = () => document.querySelector('.hid-ehr-onboarding .hid-ehr-page-
 const stepper = () => screen.getByRole('navigation', { name: 'Onboarding steps' })
 const current = () => within(stepper()).getAllByRole('button').filter(button => button.getAttribute('aria-current') === 'step')
   .map(button => button.textContent)
+const SAMPLE = 'Sample only: not connected to Health ID yet. Nothing you do here is saved.'
 
 describe('the working facility changes while Facility setup is open', () => {
   it('opens the first step when a demo facility\'s sample step is open and the facility becomes a real one', () => {
     expect(openThenChange('billing', DEMO, REAL)).toBe('Step 7 of 9 · Billing')
-    expect(eyebrow()).toBe('Step 1 of 5 · Facility')
+    expect(eyebrow()).toBe('Step 1 of 4 · Facility')
     expect(current()).toEqual(['1. Facility'])
     expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
     // Nothing of the Billing sample stays on screen.
     expect(screen.queryByText('Payment policy')).toBeNull()
-    expect(screen.queryByText('Sample only: not connected to Health ID yet. Nothing you do here is saved.')).toBeNull()
+    expect(screen.queryByText(SAMPLE)).toBeNull()
+    expect(fetchStub).not.toHaveBeenCalled()
+  })
+
+  it('opens the first step when a demo facility\'s Launch is open and the facility becomes a real one, which has no Launch', () => {
+    expect(openThenChange('launch', DEMO, REAL)).toBe('Step 9 of 9 · Launch')
+    expect(eyebrow()).toBe('Step 1 of 4 · Facility')
+    expect(current()).toEqual(['1. Facility'])
+    expect(within(stepper()).queryByRole('button', { name: /Launch$/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+    // Nothing of Launch stays on screen.
+    expect(screen.queryByRole('heading', { name: 'Ready to launch?' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Launch facility' })).toBeNull()
+    expect(screen.queryByText(SAMPLE)).toBeNull()
     expect(fetchStub).not.toHaveBeenCalled()
   })
 
   it('keeps a step both facilities have, counted among the new facility\'s steps', () => {
     expect(openThenChange('review', DEMO, REAL)).toBe('Step 8 of 9 · Review')
-    expect(eyebrow()).toBe('Step 4 of 5 · Review')
+    expect(eyebrow()).toBe('Step 4 of 4 · Review')
     expect(current()).toEqual(['4. Review'])
     expect(screen.getByRole('heading', { level: 2, name: 'Review your configuration' })).toBeDefined()
+    // Review is now the last step: it goes to Home, not on to a Launch the facility does not have.
+    expect(screen.queryByRole('button', { name: 'Review launch requirements' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Go to Home' }).getAttribute('href')).toBe('/provider')
     expect(fetchStub).not.toHaveBeenCalled()
   })
 
   it('does the same the other way, from a real facility to a demo one', () => {
-    expect(openThenChange('review', REAL, DEMO)).toBe('Step 4 of 5 · Review')
+    expect(openThenChange('review', REAL, DEMO)).toBe('Step 4 of 4 · Review')
     expect(eyebrow()).toBe('Step 8 of 9 · Review')
     expect(current()).toEqual(['8. Review'])
+    // Launch follows it again.
+    expect(screen.queryByRole('link', { name: 'Go to Home' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Review launch requirements' }))
+    expect(eyebrow()).toBe('Step 9 of 9 · Launch')
     expect(fetchStub).not.toHaveBeenCalled()
   })
 })

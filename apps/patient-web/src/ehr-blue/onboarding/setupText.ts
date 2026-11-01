@@ -10,11 +10,16 @@ export type StepName = (typeof STEPS)[number]
 
 /**
  * The steps that are samples and nothing else: what a facility types there is never sent to Health ID. A real facility
- * could believe it set them up, so they show at the demo facilities only (parity report 3.2).
+ * could believe it set them up, so they show at the demo facilities only (parity report 3.2). Launch too, by the owner's
+ * decision: it sends nothing and changes nothing (Health ID has no launch step, and a facility's EHR opens as soon as it
+ * signs up), so at a real facility it would only say so, after a button that promised more.
  */
-const DEMO_ONLY_STEPS: ReadonlySet<StepName> = new Set(['Type', 'Departments', 'Branches', 'Billing'])
+const DEMO_ONLY_STEPS: ReadonlySet<StepName> = new Set(['Type', 'Departments', 'Branches', 'Billing', 'Launch'])
 
-/** The steps the wizard shows, in the design's order: all nine at a demo facility; at a real one, the five others. */
+/**
+ * The steps the wizard shows, in the design's order: all nine at a demo facility; at a real one, the four others
+ * (Facility, Staff, Roles, Review), Review the last.
+ */
 export function stepsAt(demo: boolean): readonly StepName[] {
   return demo ? STEPS : STEPS.filter(step => !DEMO_ONLY_STEPS.has(step))
 }
@@ -25,7 +30,7 @@ export const PAGE_LABEL = 'Facility setup'
 /** The wizard's h1 (src/admin.tsx:488-489). */
 export const SETUP_TITLE = 'Set up your facility'
 
-/** "Step 3 of 9 · Departments" (src/admin.tsx:490), counted among the steps shown ("Step 2 of 5 · Staff" at a real facility). */
+/** "Step 3 of 9 · Departments" (src/admin.tsx:490), counted among the steps shown ("Step 2 of 4 · Staff" at a real facility). */
 export function stepEyebrow(index: number, steps: readonly StepName[] = STEPS): string {
   return `Step ${index + 1} of ${steps.length} · ${steps[index] ?? STEPS[0]}`
 }
@@ -57,8 +62,14 @@ export function facilityCheckDone(facility: string): string {
   return `Health ID support has checked ${facility}, and it now has full access.`
 }
 
-/** Said, as a status, when "Launch facility" opens Home: there is nothing to launch on Health ID. */
+/** Said, as a status, when "Launch facility" (the demo facilities' alone) opens Home: there is nothing to launch on Health ID. */
 export const NO_LAUNCH_STEP = 'Health ID has no launch step yet. Your EHR is already open.'
+
+/**
+ * The Review step's last line at a real facility, where it is the last step: there is no launch to come, and the one
+ * thing still to do there is optional. Staff & access says when invitations open, so this promises no time.
+ */
+export const ALREADY_OPEN = 'Your EHR is already open. Inviting staff is optional, from Staff & access.'
 
 /** The design's facility types (src/model.ts:366-375). */
 export const FACILITY_TYPES = ['Clinic', 'Specialist Clinic', 'Diagnostic Centre', 'Maternity Centre', 'Community Hospital',

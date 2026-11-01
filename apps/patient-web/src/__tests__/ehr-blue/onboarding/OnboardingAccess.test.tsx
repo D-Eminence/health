@@ -57,8 +57,8 @@ describe('in the frame', () => {
     expect(link.getAttribute('href')).toBe('/provider/onboarding')
     expect(link.getAttribute('aria-current')).toBe('page')
     expect(heading()).toBeDefined()
-    // A real facility: the sample steps are the demo facilities' alone (OnboardingWizard.test.tsx).
-    expect(eyebrow()).toBe('Step 1 of 5 · Facility')
+    // A real facility: the sample steps, and Launch, are the demo facilities' alone (OnboardingWizard.test.tsx).
+    expect(eyebrow()).toBe('Step 1 of 4 · Facility')
     expect(document.title).toBe('Facility setup · Health ID EHR')
     // The frame's own Facility settings sample is not listed (only working screens are), and is not this page.
     expect(within(nav()).queryByRole('link', { name: 'Facility settings' })).toBeNull()

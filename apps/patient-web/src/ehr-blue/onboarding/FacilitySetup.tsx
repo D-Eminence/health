@@ -15,7 +15,7 @@ import { SETUP_TITLE, STEPS, stepEyebrow, stepsAt, type StepName } from './setup
 import { newSetup, type SampleSetup } from './setupState'
 import './onboarding.css'
 
-/** The steps that are samples throughout: the sample notice sits right under the heading. */
+/** The steps that are samples throughout: the sample notice sits right under the heading. All are the demo facilities' alone. */
 const SAMPLE_STEPS: ReadonlySet<StepName> = new Set(['Type', 'Departments', 'Branches', 'Billing', 'Launch'])
 
 /**
@@ -49,8 +49,9 @@ export function openingStep(rest: string, steps: readonly StepName[] = STEPS): n
  * billing policy, and has no launch step.
  *
  * The steps that are samples and nothing else (Type, Departments, Branches, Billing) show at the demo facilities only:
- * a real facility would type its settings there and believe them kept (parity report 3.2). It has the five other steps,
- * in the design's order, and the stepper and the eyebrow count those five.
+ * a real facility would type its settings there and believe them kept (parity report 3.2). So does Launch, which sends
+ * nothing (setupText.ts stepsAt). A real facility has the four other steps, in the design's order, and the stepper and
+ * the eyebrow count those four; Review, its last, ends by going to Home.
  */
 export function FacilitySetup() {
   const { state } = useStaff()
@@ -102,7 +103,9 @@ export function FacilitySetup() {
     Roles: <RolesStep templates={demo} />,
     Billing: <BillingStep billing={setup.billing} serviceCatalogue={demoSample('services')}
       onSave={billing => { update({ billing }); next() }} />,
-    Review: <ReviewStep facility={facility} setup={demo ? setup : null} onNext={next} />,
+    // Review leads on to Launch only where Launch is shown: elsewhere it is the last step, and has its own way out.
+    Review: <ReviewStep facility={facility} setup={demo ? setup : null}
+      onNext={steps.includes('Launch') ? next : null} />,
     Launch: <LaunchStep facility={facility} />,
   }
   const below = continueBelow(name, steps[step + 1])
