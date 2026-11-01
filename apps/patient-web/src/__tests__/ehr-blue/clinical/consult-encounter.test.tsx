@@ -3,6 +3,7 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
+import { REVISION_RECORDED } from '../../../ehr-blue/clinical/consult/encounters'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { TONE_OUTLINE } from '../../../kasuwa/ui'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
@@ -892,7 +893,7 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     for (const label of ['Diagnosis', 'Code system', 'Code', 'Clinical status', 'Verification']) expect(saved.queryByLabelText(labelled(label))).toBeNull()
     fireEvent.change(saved.getByLabelText(labelled('Reason for revision')), { target: { value: 'Assessment added' } })
     fireEvent.click(saved.getByRole('button', { name: 'Save draft' }))
-    expect(await screen.findByText('Note changes saved.')).toBeTruthy()
+    expect(await screen.findByText(REVISION_RECORDED)).toBeTruthy()
     expect(api.addNoteRevision).toHaveBeenCalledTimes(1)
     expect(api.createRecord).not.toHaveBeenCalled()
   })
@@ -907,7 +908,7 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     fireEvent.change(actions().getByLabelText(labelled('Amendment')), { target: { value: 'Smear positive (fictional).' } })
     fireEvent.change(actions().getByLabelText(labelled('Reason')), { target: { value: 'Result back' } })
     fireEvent.click(submitOf('Amend signed note'))
-    expect(await screen.findByText('Note changes saved.')).toBeTruthy()
+    expect(await screen.findByText(REVISION_RECORDED)).toBeTruthy()
     expect(api.createRecord).not.toHaveBeenCalled()
   })
 
