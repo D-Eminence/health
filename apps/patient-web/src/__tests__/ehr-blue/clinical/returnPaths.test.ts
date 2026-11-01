@@ -258,10 +258,10 @@ describe('clinicalReturnPath is dark', () => {
     })
   }
 
-  it('is called by nothing in the app yet, so every page works exactly as today until the sign-in hand-off uses it', () => {
+  it('is called only by the sign-in hand-off (sso/handOff.ts), itself dark until VITE_HID_SSO, so every page works as today until then', () => {
     const files = sources(src)
     expect(files.length).toBeGreaterThan(100)
     const callers = files.filter(file => !file.endsWith(join('clinical', 'returnPaths.ts')) && /returnPaths|clinicalReturnPath/.test(readFileSync(file, 'utf8')))
-    expect(callers.map(file => relative(src, file))).toEqual([])
+    expect(callers.map(file => relative(src, file))).toEqual([join('sso', 'handOff.ts')])
   })
 })

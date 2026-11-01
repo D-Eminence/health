@@ -24,6 +24,8 @@ import { LEGACY_PATIENT_PATHS } from './legacyPaths'
 import { ShareRecords } from './routes/ShareRecords'
 import { SharedCardPage, SharedCardPreview } from './routes/SharedCard'
 import { BLUE_FOR_ALL } from './ehr-blue/clinicSwitch'
+import { portalHandsOff, staffHandOffSite } from './sso/singleSignOn'
+import { StaffSignInHandOff } from './sso/SignInHandOff'
 
 const StaffApp = lazy(async () => ({ default: (await import('./staff/App')).App }))
 // Facility sign-up: the blue registration once the clinic switch is on (clinicSwitch.ts, a one-line constant module, so
@@ -54,7 +56,9 @@ function PatientNotFound() {
 function PatientRoutes() {
   return (
     <Routes>
-      <Route path="/sign-in" element={<SignIn />} />
+      {/* With single sign-on on (sso/singleSignOn.ts), app.'s sign-in entrance hands off to auth. once the session check
+          finds none (RequireAccess), and a signed-in patient goes Home; unset, today's sign-in page. */}
+      <Route path="/sign-in" element={portalHandsOff() ? <RequireAccess requirement={PATIENT_ROUTE}><Navigate to="/" replace /></RequireAccess> : <SignIn />} />
       <Route path="/enroll" element={<Enrollment />} />
       <Route path="/enroll/facilities" element={<ParticipatingFacilitiesPage />} />
       <Route path="/recover" element={<Recovery />} />
@@ -125,6 +129,8 @@ function ProductHostnameGate({ children }: { children: React.ReactNode }) {
  * the main element itself would replace the landmark.
  */
 export function App() {
+  const staffWorkspace = <Suspense fallback={<main><p role="status">Opening provider workspace…</p></main>}><StaffApp /></Suspense>
+  const staffSite = staffHandOffSite()
   return <ProductHostnameGate><Routes>
     <Route path={STAFF_RECOVERY_PATH} element={BLUE_FOR_ALL
       ? <Suspense fallback={<main><p role="status">Opening account recovery…</p></main>}><BlueRecovery /></Suspense>
@@ -137,7 +143,9 @@ export function App() {
     <Route path={CLINICIAN_SIGNUP_PATH} element={<Suspense fallback={<main><p role="status">Opening clinician sign-up…</p></main>}><ClinicianSignUp /></Suspense>} />
     <Route path={CLINICIAN_STATUS_PATH} element={<Suspense fallback={<main><p role="status">Opening your clinician application…</p></main>}><ClinicianApplicationStatus /></Suspense>} />
     <Route path="/admin/recover" element={<PrincipalRecovery audience="admin" />} />
-    <Route path="/provider/*" element={<Suspense fallback={<main><p role="status">Opening provider workspace…</p></main>}><StaffApp /></Suspense>} />
+    {/* With single sign-on on (sso/singleSignOn.ts), on a staff product site, the workspace's sign-in hands off to auth.
+        (sso/SignInHandOff.tsx); unset, today's workspace exactly. */}
+    <Route path="/provider/*" element={staffSite ? <StaffSignInHandOff site={staffSite}>{staffWorkspace}</StaffSignInHandOff> : staffWorkspace} />
     <Route path="/admin/*" element={<Suspense fallback={<main><p role="status">Opening platform workspace…</p></main>}><AdminApp /></Suspense>} />
     <Route path="/*" element={<SessionProvider><PatientRoutes /><PatientSupport /></SessionProvider>} />
   </Routes></ProductHostnameGate>
