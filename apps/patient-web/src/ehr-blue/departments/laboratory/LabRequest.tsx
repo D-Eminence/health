@@ -190,9 +190,11 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
       </div>
     </Card>
 
-    {/* Every version of each result is kept: read when asked, as on today's Laboratory page. */}
-    {record.executions.filter(execution => execution.result).map(execution => <ResultHistory key={execution.id} facilityId={facilityId}
-      execution={execution} onRefused={record.recheck} />)}
+    {/* Every version of each result is kept: read when asked, as on today's Laboratory page. Like there, it is offered
+        only with lab.result.released.read: the server refuses the read without it, so a role without it would get only a
+        failing request. Nothing is shown in its place, as there. */}
+    {permissions.includes('lab.result.released.read') ? record.executions.filter(execution => execution.result).map(execution =>
+      <ResultHistory key={execution.id} facilityId={facilityId} execution={execution} onRefused={record.recheck} />) : null}
 
     <Card>
       <CardHeader as="h2" title="Request" actions={bill !== undefined ? <BillBadge bill={bill} /> : undefined} />

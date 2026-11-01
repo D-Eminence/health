@@ -831,6 +831,31 @@ describe('testing and results', () => {
     await waitFor(() => expect(api.labResultHistory).toHaveBeenCalledTimes(2))
   })
 
+  // Today's Laboratory page offers the history only with lab.result.released.read (the server refuses it otherwise).
+  it('reads and shows the result history with lab.result.released.read alone, no step permission needed', async () => {
+    const result = publishedResult()
+    api.labExecutions.mockResolvedValue({ items: [execution({ result })] })
+    api.labResultHistory.mockResolvedValue(result)
+    await openReceived([...ACCESSION, 'lab.execution.read', 'lab.result.released.read'])
+    const history = cardOf(/^Preserved versions & amendments/)
+    fireEvent.click(within(history).getByRole('button', { name: 'View result history' }))
+    expect(await within(history).findByText('Version 1 · released')).toBeTruthy()
+    expect(api.labResultHistory).toHaveBeenCalledWith(DEMO_LABORATORY_ID, 'result-1')
+  })
+
+  it('offers no result history, and never reads it, without lab.result.released.read', async () => {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: publishedResult() })] })
+    api.labResultHistory.mockResolvedValue(publishedResult())
+    const card = await openReceived(PROCESSING.filter(permission => permission !== 'lab.result.released.read'))
+    // The result itself is still there to read: only its history is left out.
+    expect(within(card).getByText('Hemoglobin')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /^Preserved versions & amendments/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'View result history' })).toBeNull()
+    expect(screen.queryByText('Every version of this result is kept. View the history to read them.')).toBeNull()
+    expect(screen.queryByText(/result history/i)).toBeNull()
+    expect(api.labResultHistory).not.toHaveBeenCalled()
+  })
+
   it('reads the record again when the history read is refused', async () => {
     api.labExecutions.mockResolvedValueOnce({ items: [execution({ result: publishedResult() })] })
       .mockRejectedValue(problem(403, 'LAB_EXECUTION_ACCESS_DENIED', 'Lab execution/result access is not authorized'))
