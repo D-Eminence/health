@@ -65,3 +65,12 @@ export function inProduct(product: Product, path: string): boolean {
   return base === PRODUCTS[product].home || base.startsWith(`${PRODUCTS[product].home}/`) || SHARED.has(base)
     || (SELLS.has(product) && COUNTER_PAGES.has(base))
 }
+
+/**
+ * Whether this product's workspace offers a page: the frame lists only these (each still under its own permission), and
+ * What's left shows only these, so a lab's, pharmacy's, outreach team's or migration site never offers the hospital's
+ * pages (Patient registration is the EHR's alone). A single product has no Home: its first page is its own.
+ */
+export function productLists(product: Product, path: string): boolean {
+  return inProduct(product, path) && (product === 'ehr' || path !== '')
+}

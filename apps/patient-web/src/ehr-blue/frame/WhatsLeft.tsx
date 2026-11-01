@@ -1,7 +1,9 @@
 import { Link } from 'react-router-dom'
 import { EhrBadge, EhrCard, EhrDataTable, EhrPageHeading, EhrStatCard, type EhrBadgeTone } from '@hid/ui/ehr'
+import { useStaff } from '../../staff/App'
 import { useBluePages } from './pageContext'
 import { pageHrefOf } from './pageHref'
+import { PRODUCTS, productLists, productOf } from './product'
 import type { EhrBluePageStatus } from './types'
 
 /** How each status reads, with its badge tone: never colour alone. */
@@ -32,12 +34,18 @@ export const FRAME_PARTS: readonly { readonly name: string; readonly status: Ehr
 /**
  * What's left: every page the blue EHR has, from every pages.ts, with its status, and the frame's own parts. The owner's
  * checklist: as pages go live, their entries change here on their own. It names no permission: screens show no codes.
+ * On a lab's, pharmacy's, outreach team's or migration site it lists only the pages that site offers, by the frame's own
+ * rule (productLists), for the product the frame decides from the same address and permissions.
  */
 export function WhatsLeft() {
-  const pages = useBluePages()
+  const { state } = useStaff()
+  const product = productOf(window.location.hostname, state.status === 'ready' ? state.session.actor.facility?.permissions ?? [] : [])
+  const pages = useBluePages().filter(page => productLists(product, page.path))
   const counts = (['live', 'partial', 'sample'] as const).map(status => ({ status, count: pages.filter(page => page.status === status).length }))
   return <>
-    <EhrPageHeading title="What’s left" description="Every workspace, flow and admin page of the design, and how much of it runs on Health ID today." />
+    <EhrPageHeading title="What’s left" description={product === 'ehr'
+      ? 'Every workspace, flow and admin page of the design, and how much of it runs on Health ID today.'
+      : `Every page of the ${PRODUCTS[product].name} workspace, and how much of it runs on Health ID today.`} />
     <div className="hid-ehr-blue-stats">
       {counts.map(({ status, count }) => (
         <EhrStatCard key={status} label={STATUS_WORDS[status].label} value={count} detail={STATUS_WORDS[status].meaning} />
