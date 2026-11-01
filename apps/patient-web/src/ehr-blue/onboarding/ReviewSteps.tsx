@@ -21,40 +21,44 @@ const LAUNCH_WAITING = 'hid-ehr-onboarding-launch-waiting'
 /**
  * Step 8, Review (screen 21): the facility's name and Health ID support's check (live), then what the sample steps
  * hold for this visit. The design's other launch blockers judge sample settings, and launch nothing here: they are
- * left out.
+ * left out. `setup` is null where the sample steps are not shown (a real facility): then nothing of theirs is listed,
+ * not even their starting values, and there is no sample to mark.
  */
 export function ReviewStep({ facility, setup, onNext }: {
   readonly facility: Facility
-  readonly setup: SampleSetup
+  readonly setup: SampleSetup | null
   readonly onNext: () => void
 }) {
-  const { billing } = setup
   return (
     <EhrCard title="Review your configuration">
       <div className="hid-ehr-onboarding-stack">
         <FacilityCheckBlocker facility={facility} />
-        <EhrSampleBanner />
+        {setup ? <EhrSampleBanner /> : null}
         <dl className="hid-ehr-onboarding-details">
           <Detail term="Name">{facility.name}</Detail>
-          <Detail term="Type">{setup.type || 'Not chosen'}</Detail>
+          {setup ? <Detail term="Type">{setup.type || 'Not chosen'}</Detail> : null}
           <Detail term="Phone">{NOT_COLLECTED}</Detail>
           <Detail term="Email">{NOT_COLLECTED}</Detail>
           <Detail term="Address">{NOT_COLLECTED}</Detail>
           <Detail term="City">{NOT_COLLECTED}</Detail>
           <Detail term="State">{NOT_COLLECTED}</Detail>
-          <Detail term="Departments">{setup.departments.join(', ')}</Detail>
-          <Detail term="Currency">{billing.currency}</Detail>
-          <Detail term="Payment Methods">{paymentMethods(billing.methods).join(', ')}</Detail>
-          <Detail term="Payment Timing">{billing.paymentTiming}</Detail>
-          <Detail term="Insurance">{billing.insurance ? 'Yes' : 'No'}</Detail>
+          {setup ? <>
+            <Detail term="Departments">{setup.departments.join(', ')}</Detail>
+            <Detail term="Currency">{setup.billing.currency}</Detail>
+            <Detail term="Payment Methods">{paymentMethods(setup.billing.methods).join(', ')}</Detail>
+            <Detail term="Payment Timing">{setup.billing.paymentTiming}</Detail>
+            <Detail term="Insurance">{setup.billing.insurance ? 'Yes' : 'No'}</Detail>
+          </> : null}
         </dl>
-        <div>
-          <h3 className="hid-ehr-onboarding-subheading">Branches</h3>
-          {setup.branches.map(branch => (
-            <p key={branch.id} className="hid-ehr-onboarding-text">
-              {[branch.name, branch.address, branch.departments.join(', ')].filter(Boolean).join(' · ')}</p>
-          ))}
-        </div>
+        {setup ? (
+          <div>
+            <h3 className="hid-ehr-onboarding-subheading">Branches</h3>
+            {setup.branches.map(branch => (
+              <p key={branch.id} className="hid-ehr-onboarding-text">
+                {[branch.name, branch.address, branch.departments.join(', ')].filter(Boolean).join(' · ')}</p>
+            ))}
+          </div>
+        ) : null}
         <p className="hid-ehr-onboarding-text">Optional after launch: staff invitations, service pricing, wards and beds, inventory and
           professional credential records.</p>
         <div><EhrButton onClick={onNext}>Review launch requirements</EhrButton></div>

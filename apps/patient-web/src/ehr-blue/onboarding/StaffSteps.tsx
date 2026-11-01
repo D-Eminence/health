@@ -21,15 +21,17 @@ export function StaffStep({ shiftAssignment }: { readonly shiftAssignment: strin
 
 /**
  * Step 6, Roles (screen 19): the design's role templates and their permission scopes, read-only and a sample (they are
- * the design's, not Health ID's roles), above today's Staff & access page, live.
+ * the design's, not Health ID's roles), above today's Staff & access page, live. The templates show at the demo
+ * facilities only (`templates`): at a real facility they would read as its own roles, and their scopes as Health ID's
+ * permissions, so there the step is Staff & access alone.
  *
  * The design's second sentence, "Branch access and restrictions are editable in Staff & Roles.", is replaced: Health ID
  * has no branches, and its Staff & access (Memberships.tsx) edits a member's role and account access only. The words
  * say instead where Health ID's own roles are (inviteOptions.roles, offered by Identity).
  */
-export function RolesStep() {
+export function RolesStep({ templates }: { readonly templates: boolean }) {
   return <>
-    <EhrCard title="Role templates and permission scopes">
+    {templates ? <EhrCard title="Role templates and permission scopes">
       <div className="hid-ehr-onboarding-stack">
         <EhrSampleBanner />
         <p className="hid-ehr-onboarding-text">Administrative ownership never grants clinical signing, prescribing or dispensing rights.
@@ -43,7 +45,7 @@ export function RolesStep() {
           ))}
         </div>
       </div>
-    </EhrCard>
+    </EhrCard> : null}
     <div className="hid-ehr-onboarding-embedded"><StaffAccess /></div>
   </>
 }

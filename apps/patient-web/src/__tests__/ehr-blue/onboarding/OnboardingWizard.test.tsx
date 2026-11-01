@@ -10,7 +10,8 @@ import {
  * Facility setup, the design's nine-step wizard (screens 14-22), for the administrator of a fictional facility that
  * signed itself up, with the clinic switch on: its stepper, each step's heading and where focus goes, the live parts
  * (the facility's name and check from the session, Staff & access through its own reads) and the sample steps, which
- * send nothing.
+ * send nothing. The sample steps (Type, Departments, Branches, Billing) are the demo facilities' alone: a real facility
+ * has the five others, counted as five (parity report 3.2).
  */
 vi.mock('../../../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: true }))
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
@@ -21,6 +22,9 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
 const STEPS = ['Facility', 'Type', 'Departments', 'Branches', 'Staff', 'Roles', 'Billing', 'Review', 'Launch']
+/** The steps at a real facility: the sample steps left out. */
+const REAL_STEPS = ['Facility', 'Staff', 'Roles', 'Review', 'Launch']
+const DEMO = 'Demo Hospital'
 const SAMPLE = 'Sample only: not connected to Health ID yet. Nothing you do here is saved.'
 const NOT_COLLECTED = 'Not collected by Health ID yet'
 const PENDING = `Health ID support is checking ${RIVERSIDE}. This usually takes up to one working day.`
@@ -32,6 +36,10 @@ async function openSetup(path = '/provider/onboarding', review: Review = 'review
   await screen.findByRole('navigation', { name: 'Onboarding steps' })
   return sent
 }
+
+/** The same at Demo Hospital, one of the demo facilities, here signed up by itself: the wizard's nine steps. */
+const openDemoSetup = (path?: string, review: Review = 'reviewed') =>
+  openSetup(path, review, membership({ id: DEMO_HOSPITAL, name: DEMO, review }))
 
 const routes = (sent: readonly Sent[]) => sent.map(request => request.route)
 /** The Review step's rows, term to value. */
@@ -45,8 +53,8 @@ const bannerUnderHeading = () => {
 }
 
 describe('the stepper and each step\'s heading', () => {
-  it('opens at step 1 with the design\'s heading, Exit setup, and a stepper of nine steps', async () => {
-    await openSetup()
+  it('opens at step 1 with the design\'s heading, Exit setup, and a stepper of nine steps at a demo facility', async () => {
+    await openDemoSetup()
     expect(eyebrow()).toBe('Step 1 of 9 · Facility')
     // The heading names the step for a screen reader; the eyebrow shows it.
     expect(heading().textContent).toBe('Step 1 of 9 · Facility: Set up your facility')
@@ -58,7 +66,7 @@ describe('the stepper and each step\'s heading', () => {
   })
 
   it.each(STEPS.map((step, index) => [step, index] as const))('goes straight to %s from the stepper, keeping focus on it', async (step, index) => {
-    await openSetup()
+    await openDemoSetup()
     const button = stepButton(step)
     button.focus()
     fireEvent.click(button)
@@ -73,7 +81,7 @@ describe('the stepper and each step\'s heading', () => {
   })
 
   it('moves focus to the heading when the step\'s own button takes it on, or Back takes it back', async () => {
-    await openSetup()
+    await openDemoSetup()
     press('Continue')
     expect(eyebrow()).toBe('Step 2 of 9 · Type')
     expect(document.activeElement).toBe(heading())
@@ -83,7 +91,7 @@ describe('the stepper and each step\'s heading', () => {
   })
 
   it('opens at the step its address names', async () => {
-    await openSetup('/provider/onboarding/review')
+    await openDemoSetup('/provider/onboarding/review')
     expect(eyebrow()).toBe('Step 8 of 9 · Review')
     expect(screen.getByRole('heading', { level: 2, name: 'Review your configuration' })).toBeDefined()
   })
@@ -92,6 +100,78 @@ describe('the stepper and each step\'s heading', () => {
     await openSetup()
     press('Exit setup')
     await waitFor(() => expect(where()).toBe('/provider/institutions'))
+  })
+})
+
+describe('at a real facility, the sample steps are left out', () => {
+  /** What only the sample steps draw: none of it shows at a real facility, whichever step is open. */
+  const SAMPLE_PARTS = ['Next (sample)', 'Add branch (sample)', 'Facility type', 'Enabled departments', 'Branch configuration',
+    'Payment policy', 'Role templates and permission scopes']
+
+  it('has the five other steps, in the design\'s order, counted as five', async () => {
+    await openSetup()
+    expect(eyebrow()).toBe('Step 1 of 5 · Facility')
+    expect(heading().textContent).toBe('Step 1 of 5 · Facility: Set up your facility')
+    const buttons = within(stepper()).getAllByRole('button')
+    expect(buttons.map(button => button.textContent)).toEqual(REAL_STEPS.map((step, index) => `${index + 1}. ${step}`))
+    for (const step of ['Type', 'Departments', 'Branches', 'Billing']) {
+      expect(within(stepper()).queryByRole('button', { name: new RegExp(`${step}$`) }), step).toBeNull()
+    }
+  })
+
+  it.each(REAL_STEPS.map((step, index) => [step, index] as const))('goes straight to %s, showing nothing of the sample steps', async (step, index) => {
+    await openSetup()
+    fireEvent.click(stepButton(step))
+    expect(eyebrow()).toBe(`Step ${index + 1} of 5 · ${step}`)
+    expect(stepButton(step).getAttribute('aria-current')).toBe('step')
+    // Launch keeps its sample notice: Health ID has no launch step, and it says so.
+    expect(bannerUnderHeading()).toBe(step === 'Launch' ? SAMPLE : null)
+    for (const text of SAMPLE_PARTS) expect(screen.queryByText(text), text).toBeNull()
+    expect(screen.queryByText(/dashboard\.view/)).toBeNull()
+  })
+
+  it.each([
+    ['/provider/onboarding/type', 'Step 1 of 5 · Facility'],
+    ['/provider/onboarding/billing', 'Step 1 of 5 · Facility'],
+    ['/provider/onboarding/roles', 'Step 3 of 5 · Roles'],
+    ['/provider/onboarding/review', 'Step 4 of 5 · Review'],
+  ])('opens %s at %s: a sample step\'s address opens the first step', async (path, step) => {
+    await openSetup(path)
+    expect(eyebrow()).toBe(step)
+  })
+
+  it('goes from Staff to Roles to Review, the Roles step without the design\'s role templates', async () => {
+    await openSetup('/provider/onboarding/staff')
+    expect(eyebrow()).toBe('Step 2 of 5 · Staff')
+    expect(await screen.findByText('Demo Administrator', { selector: 'strong' })).toBeDefined()
+    press('Continue to roles')
+    expect(eyebrow()).toBe('Step 3 of 5 · Roles')
+    expect(document.activeElement).toBe(heading())
+    // Staff & access, live, and nothing of the design's own roles and their permission scopes.
+    expect(await screen.findByText('Demo Administrator', { selector: 'strong' })).toBeDefined()
+    expect(screen.queryByRole('heading', { name: 'Role templates and permission scopes' })).toBeNull()
+    expect(screen.queryByText(SAMPLE)).toBeNull()
+    expect(screen.queryByText('Facility Owner')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Continue to billing' })).toBeNull()
+    press('Continue to review')
+    expect(eyebrow()).toBe('Step 4 of 5 · Review')
+    press('Back')
+    expect(eyebrow()).toBe('Step 3 of 5 · Roles')
+  })
+
+  it('reviews only what Health ID holds: the facility\'s name, and what it does not collect', async () => {
+    await openSetup('/provider/onboarding/review')
+    const review = screen.getByRole('heading', { level: 2, name: 'Review your configuration' }).closest('section') as HTMLElement
+    expect(reviewFacts()).toEqual({
+      Name: RIVERSIDE, Phone: NOT_COLLECTED, Email: NOT_COLLECTED, Address: NOT_COLLECTED, City: NOT_COLLECTED, State: NOT_COLLECTED,
+    })
+    // No sample notice and no sample settings: no type, departments, branches or billing, chosen or by default.
+    expect(within(review).queryByText(SAMPLE)).toBeNull()
+    expect(within(review).queryByRole('heading', { name: 'Branches' })).toBeNull()
+    expect(within(review).queryByText(/^Main/)).toBeNull()
+    expect(within(review).queryByText('NGN')).toBeNull()
+    press('Review launch requirements')
+    expect(eyebrow()).toBe('Step 5 of 5 · Launch')
   })
 })
 
@@ -110,9 +190,10 @@ describe('step 1, Facility', () => {
     }
     expect(screen.getByText(DONE)).toBeDefined()
     expect(bannerUnderHeading()).toBeNull()
-    press('Continue')
-    expect(eyebrow()).toBe('Step 2 of 9 · Type')
     expect(routes(sent)).toEqual([SESSION])
+    // At a real facility the step after it is Staff: the sample steps are the demo facilities'.
+    press('Continue')
+    expect(eyebrow()).toBe('Step 2 of 5 · Staff')
   })
 
   it('says Health ID support is checking the facility while it is', async () => {
@@ -123,7 +204,7 @@ describe('step 1, Facility', () => {
 
 describe('the sample steps send nothing', () => {
   it('takes the design\'s type, departments, branch and billing into the review, asking nothing of Health ID', async () => {
-    const sent = await openSetup('/provider/onboarding/type')
+    const sent = await openDemoSetup('/provider/onboarding/type')
 
     // Type: nothing chosen is refused in the design's words; a type whose suggestion differs asks first.
     press('Next (sample)')
@@ -190,7 +271,7 @@ describe('the sample steps send nothing', () => {
 
     // Review: the facility's name from Health ID, what this visit chose, and what Health ID does not collect.
     expect(reviewFacts()).toEqual({
-      Name: RIVERSIDE, Type: 'Diagnostic Centre', Phone: NOT_COLLECTED, Email: NOT_COLLECTED, Address: NOT_COLLECTED,
+      Name: DEMO, Type: 'Diagnostic Centre', Phone: NOT_COLLECTED, Email: NOT_COLLECTED, Address: NOT_COLLECTED,
       City: NOT_COLLECTED, State: NOT_COLLECTED, Departments: 'General Outpatient, Laboratory', Currency: 'NGN',
       'Payment Methods': 'Cash, Transfer', 'Payment Timing': 'Before service', Insurance: 'Yes',
     })
@@ -203,7 +284,7 @@ describe('the sample steps send nothing', () => {
   })
 
   it('keeps nothing once the page is left: coming back starts again, and the browser holds nothing', async () => {
-    const sent = await openSetup('/provider/onboarding/type')
+    const sent = await openDemoSetup('/provider/onboarding/type')
     fireEvent.change(screen.getByRole('combobox', { name: 'Facility type' }), { target: { value: 'Clinic' } })
     press('Next (sample)')
     // A clinic suggests General Outpatient, as already chosen: nothing to ask.
@@ -229,7 +310,7 @@ describe('the sample steps send nothing', () => {
   })
 
   it('keeps the departments chosen when the suggestion is cancelled', async () => {
-    await openSetup('/provider/onboarding/type')
+    await openDemoSetup('/provider/onboarding/type')
     fireEvent.change(screen.getByRole('combobox', { name: 'Facility type' }), { target: { value: 'Maternity Centre' } })
     press('Next (sample)')
     fireEvent.click(within(await screen.findByRole('alertdialog', { name: 'Use suggested departments?' })).getByRole('button', { name: 'Cancel' }))
@@ -242,12 +323,13 @@ describe('the sample steps send nothing', () => {
     await openSetup('/provider/onboarding/staff')
     expect(screen.queryByRole('link', { name: 'Create a shift assignment' })).toBeNull()
     expect(screen.queryByText('Reporting hierarchies are optional. Shifts can be configured now or after launch.')).toBeNull()
-    fireEvent.click(stepButton('Billing'))
+    // Billing, whose card leads to the Service catalogue sample, is itself a sample step: not here.
+    expect(within(stepper()).queryByRole('button', { name: /Billing$/ })).toBeNull()
     expect(screen.queryByRole('link', { name: 'Configure service catalogue' })).toBeNull()
   })
 
   it('links into the Shifts and Service catalogue samples at a demo facility, as the design does', async () => {
-    await openSetup('/provider/onboarding/staff', 'reviewed', membership({ id: DEMO_HOSPITAL, name: 'Demo Hospital' }))
+    await openDemoSetup('/provider/onboarding/staff')
     expect((await screen.findByRole('link', { name: 'Create a shift assignment' })).getAttribute('href')).toBe('/provider/shifts/new')
     fireEvent.click(stepButton('Billing'))
     expect(screen.getByRole('link', { name: 'Configure service catalogue' }).getAttribute('href')).toBe('/provider/services')
@@ -256,7 +338,7 @@ describe('the sample steps send nothing', () => {
 
 describe('steps 5 and 6, Staff and Roles', () => {
   it('reads the staff through Staff & access alone, once on each step, and nothing else', async () => {
-    const sent = await openSetup()
+    const sent = await openDemoSetup()
     expect(routes(sent)).toEqual([SESSION])
     fireEvent.click(stepButton('Staff'))
     expect(await screen.findByText('Demo Administrator', { selector: 'strong' })).toBeDefined()
@@ -293,7 +375,7 @@ describe('step 8, Review', () => {
     const review = screen.getByRole('heading', { level: 2, name: 'Review your configuration' }).closest('section') as HTMLElement
     expect(within(review).getByText(PENDING).closest('.hid-ehr-onboarding-blocker')).not.toBeNull()
     press('Review launch requirements')
-    expect(eyebrow()).toBe('Step 9 of 9 · Launch')
+    expect(eyebrow()).toBe('Step 5 of 5 · Launch')
     expect(screen.getByRole('heading', { level: 2, name: 'Ready to launch?' })).toBeDefined()
     expect(within(document.querySelector('.hid-ehr-onboarding-step') as HTMLElement).getByText(PENDING)).toBeDefined()
     // The frame's own review banner reads the staff for its licence hint; the wizard reads nothing.

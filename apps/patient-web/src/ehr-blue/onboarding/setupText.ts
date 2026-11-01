@@ -8,15 +8,26 @@
 export const STEPS = ['Facility', 'Type', 'Departments', 'Branches', 'Staff', 'Roles', 'Billing', 'Review', 'Launch'] as const
 export type StepName = (typeof STEPS)[number]
 
+/**
+ * The steps that are samples and nothing else: what a facility types there is never sent to Health ID. A real facility
+ * could believe it set them up, so they show at the demo facilities only (parity report 3.2).
+ */
+const DEMO_ONLY_STEPS: ReadonlySet<StepName> = new Set(['Type', 'Departments', 'Branches', 'Billing'])
+
+/** The steps the wizard shows, in the design's order: all nine at a demo facility; at a real one, the five others. */
+export function stepsAt(demo: boolean): readonly StepName[] {
+  return demo ? STEPS : STEPS.filter(step => !DEMO_ONLY_STEPS.has(step))
+}
+
 /** The page as the sidebar, search and the tab title name it. */
 export const PAGE_LABEL = 'Facility setup'
 
 /** The wizard's h1 (src/admin.tsx:488-489). */
 export const SETUP_TITLE = 'Set up your facility'
 
-/** "Step 3 of 9 · Departments" (src/admin.tsx:490). */
-export function stepEyebrow(index: number): string {
-  return `Step ${index + 1} of ${STEPS.length} · ${STEPS[index] ?? STEPS[0]}`
+/** "Step 3 of 9 · Departments" (src/admin.tsx:490), counted among the steps shown ("Step 2 of 5 · Staff" at a real facility). */
+export function stepEyebrow(index: number, steps: readonly StepName[] = STEPS): string {
+  return `Step ${index + 1} of ${steps.length} · ${steps[index] ?? STEPS[0]}`
 }
 
 /** On every design field Health ID does not take: shown, disabled, never sent or kept. */

@@ -11,24 +11,30 @@ import { LaunchStep, ReviewStep } from './ReviewSteps'
 import { BillingStep, BranchesStep, DepartmentsStep, TypeStep } from './SampleSteps'
 import { RolesStep, StaffStep } from './StaffSteps'
 import { SetupRefusal } from './SetupRefusal'
-import { SETUP_TITLE, STEPS, stepEyebrow, type StepName } from './setupText'
+import { SETUP_TITLE, STEPS, stepEyebrow, stepsAt, type StepName } from './setupText'
 import { newSetup, type SampleSetup } from './setupState'
 import './onboarding.css'
 
 /** The steps that are samples throughout: the sample notice sits right under the heading. */
 const SAMPLE_STEPS: ReadonlySet<StepName> = new Set(['Type', 'Departments', 'Branches', 'Billing', 'Launch'])
 
-/** The design's "Continue to …" below the card, where the step's card has no button of its own to go on. */
-const CONTINUE_BELOW: Partial<Record<StepName, string>> = {
-  Branches: 'Next (sample)',
-  Staff: 'Continue to roles',
-  Roles: 'Continue to billing',
+/**
+ * The design's "Continue to …" below the card, where the step's card has no button of its own to go on, naming the step
+ * that follows among those shown: Roles goes on to Billing at a demo facility, and to Review at a real one.
+ */
+function continueBelow(name: StepName, following: StepName | undefined): string | undefined {
+  if (name === 'Branches') return 'Next (sample)'
+  if ((name === 'Staff' || name === 'Roles') && following) return `Continue to ${following.toLowerCase()}`
+  return undefined
 }
 
-/** The step an address below the page names (/provider/onboarding/review), or the first. */
-export function openingStep(rest: string): number {
+/**
+ * The step an address below the page names (/provider/onboarding/review), among the steps shown, or the first: a sample
+ * step's address at a real facility opens the first step.
+ */
+export function openingStep(rest: string, steps: readonly StepName[] = STEPS): number {
   const named = rest.split('/')[0]?.toLowerCase() ?? ''
-  return Math.max(0, STEPS.findIndex(step => step.toLowerCase() === named))
+  return Math.max(0, steps.findIndex(step => step.toLowerCase() === named))
 }
 
 /**
@@ -41,14 +47,20 @@ export function openingStep(rest: string): number {
  * the Staff and Roles steps (today's staff API, through that page alone). The rest is a sample under the sample
  * notice, and sends nothing: Health ID does not collect the design's facility details, type, departments, branches or
  * billing policy, and has no launch step.
+ *
+ * The steps that are samples and nothing else (Type, Departments, Branches, Billing) show at the demo facilities only:
+ * a real facility would type its settings there and believe them kept (parity report 3.2). It has the five other steps,
+ * in the design's order, and the stepper and the eyebrow count those five.
  */
 export function FacilitySetup() {
   const { state } = useStaff()
   const facility = state.status === 'ready' ? state.session.actor.facility : undefined
+  const demo = isDemoFacility(facility?.id)
+  const steps = stepsAt(demo)
   const { rest } = useBluePage()
   const navigate = useNavigate()
   const hrefOf = useSampleHref()
-  const [step, setStep] = useState(() => openingStep(rest))
+  const [step, setStep] = useState(() => openingStep(rest, steps))
   const [setup, setSetup] = useState<SampleSetup>(newSetup)
   const root = useRef<HTMLDivElement>(null)
   const shown = useRef(step)
@@ -62,12 +74,12 @@ export function FacilitySetup() {
   }, [step])
 
   if (!facility) return <SetupRefusal />
-  const name = STEPS[step] ?? STEPS[0]
-  const next = () => setStep(current => Math.min(STEPS.length - 1, current + 1))
+  const name = steps[step] ?? STEPS[0]
+  const next = () => setStep(current => Math.min(steps.length - 1, current + 1))
   const update = (change: Partial<SampleSetup>) => setSetup(current => ({ ...current, ...change }))
   // The design's links into other samples, only where those open at a demo facility: never from here into a sample at a
   // real one.
-  const demoSample = (moduleId: string) => (isDemoFacility(facility.id) ? hrefOf(moduleId) : null)
+  const demoSample = (moduleId: string) => (demo ? hrefOf(moduleId) : null)
   const shifts = demoSample('shifts')
 
   const body: Record<StepName, ReactNode> = {
@@ -82,25 +94,25 @@ export function FacilitySetup() {
         : [...current.branches, branch],
     }))} />,
     Staff: <StaffStep shiftAssignment={shifts ? `${shifts}/new` : null} />,
-    Roles: <RolesStep />,
+    Roles: <RolesStep templates={demo} />,
     Billing: <BillingStep billing={setup.billing} serviceCatalogue={demoSample('services')}
       onSave={billing => { update({ billing }); next() }} />,
-    Review: <ReviewStep facility={facility} setup={setup} onNext={next} />,
+    Review: <ReviewStep facility={facility} setup={demo ? setup : null} onNext={next} />,
     Launch: <LaunchStep facility={facility} />,
   }
-  const continueBelow = CONTINUE_BELOW[name]
+  const below = continueBelow(name, steps[step + 1])
 
   return (
     <div ref={root} className="hid-ehr-onboarding">
       <EhrPageHeading
         // The heading names the step for a screen reader, where the eyebrow shows it.
-        eyebrow={<span aria-hidden="true">{stepEyebrow(step)}</span>}
-        title={<><span className="hid-ehr-sr-only">{stepEyebrow(step)}: </span>{SETUP_TITLE}</>}
+        eyebrow={<span aria-hidden="true">{stepEyebrow(step, steps)}</span>}
+        title={<><span className="hid-ehr-sr-only">{stepEyebrow(step, steps)}: </span>{SETUP_TITLE}</>}
         primaryAction={<EhrButton variant="secondary" onClick={() => navigate('/provider/institutions')}>Exit setup</EhrButton>}
       />
       {SAMPLE_STEPS.has(name) ? <EhrSampleBanner /> : null}
       <nav className="hid-ehr-onboarding-stepper" aria-label="Onboarding steps">
-        {STEPS.map((candidate, index) => (
+        {steps.map((candidate, index) => (
           <EhrButton key={candidate} variant="secondary" aria-current={index === step ? 'step' : undefined}
             onClick={() => setStep(index)}>{index + 1}. {candidate}</EhrButton>
         ))}
@@ -108,9 +120,9 @@ export function FacilitySetup() {
       {/* Each step's own controls are new, so a step change that took the one used moves focus to the heading. */}
       <div key={name} className="hid-ehr-onboarding-step">
         {body[name]}
-        {continueBelow !== undefined || step > 0 ? (
+        {below !== undefined || step > 0 ? (
           <div className="hid-ehr-actions">
-            {continueBelow !== undefined ? <EhrButton onClick={next}>{continueBelow}</EhrButton> : null}
+            {below !== undefined ? <EhrButton onClick={next}>{below}</EhrButton> : null}
             {step > 0 ? <EhrButton variant="secondary" onClick={() => setStep(step - 1)}>Back</EhrButton> : null}
           </div>
         ) : null}
