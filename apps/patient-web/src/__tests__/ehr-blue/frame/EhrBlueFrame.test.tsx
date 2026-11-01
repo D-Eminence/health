@@ -188,12 +188,29 @@ describe('the blue frame', () => {
     expect(sent.length).toBe(before)
   })
 
-  it('opens Home for an address that is no page, as the design does (admin/unknown-route)', async () => {
+  // Today's words (staff/App.tsx's catch-all), inside the frame, with one way back; the address itself is never shown.
+  it('says Page not found for an address that is no page, with one way Home and no address', async () => {
     await openDemo('/provider/not-a-page')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
+    expect(where()).toBe('/provider/not-a-page')
+    expect(screen.getByText('This provider page is unavailable.')).toBeDefined()
+    await waitFor(() => expect(document.title).toBe('Page not found · Health ID EHR'))
+    const page = document.querySelector<HTMLElement>('.hid-ehr-blue-page')!
+    expect(page.textContent).not.toMatch(/not-a-page|\/provider/)
+    expect(screen.queryByText(/no longer allow that page/)).toBeNull()
+    const home = within(page).getByRole('link', { name: 'Go to Home' })
+    expect(within(page).getAllByRole('link')).toEqual([home])
+    expect(home.getAttribute('href')).toBe('/provider')
+    fireEvent.click(home)
     await waitFor(() => expect(where()).toBe('/provider'))
     expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
-    expect(screen.queryByRole('status', { name: /permissions/ })).toBeNull()
-    expect(screen.queryByText(/no longer allow that page/)).toBeNull()
+  })
+
+  // Moved addresses and today's live-only routes keep opening their pages (EhrBlueSwitchFixes, EhrBlueMinorFixes).
+  it('says Page not found below a page that takes no further address, naming neither', async () => {
+    await openDemo('/provider/whats-left/not-a-page')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
+    expect(document.querySelector('.hid-ehr-blue-page')!.textContent).not.toMatch(/what|not-a-page/i)
   })
 
   it('leaves today\'s page to refuse a live stand-in without its permission, in today\'s words', async () => {

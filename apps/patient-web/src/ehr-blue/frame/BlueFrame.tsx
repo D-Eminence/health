@@ -16,6 +16,7 @@ import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
 import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage } from './LivePages'
+import { NotFoundPage } from './NotFoundPage'
 import { BluePageProvider, BluePagesProvider, OpenPagesProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
 import { TODAY_PAGES } from './pages'
@@ -80,8 +81,8 @@ const READS_BEFORE_REFUSING: ReadonlySet<string> = new Set(['requests', 'clinica
 /**
  * The blue Hospital EHR's frame: EhrAppShell with the design's sidebar and top bar, and the page
  * the address opens. Session, sign-out and facility switch are today's (useStaff). A page another folder exports
- * replaces the frame's stand-in for its path. An address no page takes opens Home, and so does a page this session may
- * not open, with a note saying why (the design's admin/unknown-route and denied-route-redirect).
+ * replaces the frame's stand-in for its path. A page this session may not open sends it Home, with a note saying why
+ * (the design's denied-route-redirect); an address no page takes says "Page not found", as today's portal does.
  */
 export function BlueFrame() {
   const { state, lock, signOut } = useStaff()
@@ -148,7 +149,8 @@ export function BlueFrame() {
       : match.page.refusal ?? (shownHere
         ? <Navigate replace to="/provider" state={{ frameNotice: DENIED_NOTICE }} />
         : <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'} />)
-    : isLiveOnlyPath(location.pathname) ? <LivePage /> : <Navigate replace to="/provider" />
+    // Today's "Page not found", not the design's silent trip Home (admin/unknown-route).
+    : isLiveOnlyPath(location.pathname) ? <LivePage /> : <NotFoundPage />
 
   const name = session.actor.displayName ?? session.actor.email ?? 'Staff member'
   const roles = facility ? facility.roles.join(', ') || 'Staff' : 'Staff'
