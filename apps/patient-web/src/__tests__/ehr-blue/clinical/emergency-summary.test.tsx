@@ -368,8 +368,10 @@ describe('the emergency summary shows every section EHR returns that the role ma
     expect(entry('Diagnoses', 'Severe malaria').textContent).toContain('ICD-10 X00 · active · confirmed')
     expect(within(section('Prescriptions')).getByText('Artesunate')).toBeTruthy()
     const lab = entry('Lab requests', 'Haemoglobin')
-    expect(within(lab).getByText('Urgent')).toBeTruthy()
+    // The priority is said once, in today's line, beside the status badge alone (Clinical.tsx:1155-1158).
     expect(lab.textContent).toMatch(/LOINC 718-7 · urgent priority · Requested \d/)
+    expect(within(lab).queryByText('Urgent')).toBeNull()
+    expect(lab.textContent!.match(/urgent/gi)).toHaveLength(1)
     expect(entry('Documents', 'referral-letter.pdf').textContent).toMatch(/application\/pdf · 20 KiB · Uploaded \d/)
   })
 
@@ -669,7 +671,9 @@ describe('released Lab results in the emergency summary', () => {
     await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'View released results' })) })
     expect(await within(request).findByText('Result 1')).toBeTruthy()
     expect(request.textContent).toContain('Haemoglobin · LOINC 718-7 · accepted by Lab ')
-    expect(request.textContent).toMatch(/9\.1\s*g\/dL\s*Low/)
+    // "{value} · {flag}" (staff/labRevisions.tsx:34).
+    expect(request.textContent).toContain('9.1 g/dL · low')
+    expect(within(request).queryByText('Low')).toBeNull()
     expect(request.textContent).toContain('Reference range: 12-16')
     expect(request.textContent).toContain('Reason: Recalibrated analyser')
     expect(request.textContent).toContain('Version numbers skip revisions that were never released; those are not shown.')
@@ -699,6 +703,28 @@ describe('released Lab results in the emergency summary', () => {
     expect(within(result).queryByText('Critical')).toBeNull()
     expect(result.textContent).toMatch(/Entered [^·]+ · unverified/)
     expect(result.textContent).toMatch(/Entered [^·]+ · verified/)
+  })
+
+  it('says high and abnormal as Lab says them, after a number or a text value, as today (staff/labRevisions.tsx:34)', async () => {
+    staff.permissions = [...EVERY_READ, 'lab.result.released.read']
+    const revision = (version: number, values: Record<string, unknown>) => ({ version, resultType: 'numeric', numericValue: null, textValue: null,
+      unit: null, referenceRange: null, abnormalFlag: 'normal', entrySource: 'manual', verificationStatus: 'verified', releaseStatus: 'released',
+      enteredAt: '2026-10-01T09:00:00.000Z', releasedAt: '2026-10-01T09:30:00.000Z', correctionReason: null, ...values })
+    api.labReleasedResultsForOrder.mockResolvedValue(released([
+      { id: 'result-1', executionId: 'execution-1', status: 'released', verificationStatus: 'verified', currentVersion: 3, currentReleasedVersion: 3,
+        revisions: [revision(1, { numericValue: 17.4, unit: 'g/dL', abnormalFlag: 'high' }),
+          revision(2, { resultType: 'text', textValue: 'Fictional parasites seen', abnormalFlag: 'abnormal' }),
+          revision(3, { abnormalFlag: 'unknown' })] },
+    ]))
+    await renderSummary()
+    const request = entry('Lab requests', 'Haemoglobin')
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'View released results' })) })
+    const result = (await within(request).findByText('Result 1')).closest('li')!
+    expect(result.textContent).toContain('17.4 g/dL · high')
+    expect(result.textContent).toContain('Fictional parasites seen · abnormal')
+    expect(result.textContent).toContain('Not recorded · unknown')
+    expect(within(result).queryByText('High')).toBeNull()
+    expect(within(result).queryByText('Abnormal')).toBeNull()
   })
 
   it('says why released results could not be read', async () => {

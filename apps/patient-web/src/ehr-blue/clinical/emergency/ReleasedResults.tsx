@@ -1,8 +1,8 @@
 import { RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Flag, LoadingRows, Value, type FlagLevel } from '../../../kasuwa/parts'
+import { LoadingRows } from '../../../kasuwa/parts'
 import { Alert, Badge, Button } from '../../../kasuwa/ui'
-import { staffApi, type LabAbnormalFlag, type LabOrderReleasedResults, type LabResultRevision } from '../../../staff/api'
+import { staffApi, type LabOrderReleasedResults, type LabResultRevision } from '../../../staff/api'
 import { revisionValue, skipsVersions } from '../../../staff/labRevisions'
 // Today's words for a refused released-results read (Clinical.tsx:893-901), as Consultation's released results say them.
 import { releasedResultsRefusal } from '../consult/orders/words'
@@ -13,20 +13,9 @@ function when(value: string | null | undefined) {
 }
 
 /**
- * The flags the design draws as a word with an icon. Lab's others are said in their own words, as today's RevisionList
- * says every flag (staff/labRevisions.tsx:34): "normal" and "unknown" (no flag would look normal), and "critical
- * candidate", which is not a confirmed critical value.
- */
-const FLAGS: Partial<Record<LabAbnormalFlag, FlagLevel>> = { high: 'high', low: 'low', abnormal: 'abnormal' }
-
-function OtherFlag({ flag }: { flag: LabAbnormalFlag }) {
-  if (FLAGS[flag]) return null
-  return <span className={flag === 'critical_candidate' ? 'font-medium text-danger-ink' : undefined}>· {flag.replaceAll('_', ' ')}</span>
-}
-
-/**
- * A Lab result's released revisions in today's words (staff/labRevisions.tsx:30-40): the value with its unit and flag,
- * when it was entered and its verification, when it was released, the reference range and the reason for a correction.
+ * A Lab result's released revisions in today's words (staff/labRevisions.tsx:30-40): the value with its unit, then its
+ * flag as Lab says it, every flag ("normal", "unknown" and "critical candidate" too); when it was entered and its
+ * verification, when it was released, the reference range and the reason for a correction.
  */
 function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
   return (
@@ -38,12 +27,8 @@ function Revisions({ revisions }: { revisions: readonly LabResultRevision[] }) {
             <Badge size="sm" tone={revision.releaseStatus === 'released' ? 'success' : 'warn'}>{revision.releaseStatus.replaceAll('_', ' ')}</Badge>
             {revision.verificationStatus === 'entered_in_error' ? <Badge size="sm" tone="danger" solid>Entered in error</Badge> : null}
           </div>
-          <span className="inline-flex flex-wrap items-baseline gap-1.5">
-            {revision.resultType === 'numeric'
-              ? <Value value={revision.numericValue} unit={revision.unit} flag={FLAGS[revision.abnormalFlag] ?? null} />
-              : <><span className="font-semibold text-ink">{revisionValue(revision)}</span>{FLAGS[revision.abnormalFlag] ? <Flag level={FLAGS[revision.abnormalFlag]!} /> : null}</>}
-            <OtherFlag flag={revision.abnormalFlag} />
-          </span>
+          {/* "{value} · {flag}" (labRevisions.tsx:34). */}
+          <span><span className="font-semibold text-ink">{revisionValue(revision)}</span> · {revision.abnormalFlag.replaceAll('_', ' ')}</span>
           {/* Whether the value was verified (labRevisions.tsx:35). */}
           <span>Entered {when(revision.enteredAt)} · {revision.verificationStatus.replaceAll('_', ' ')}</span>
           {revision.releasedAt ? <span>Released {when(revision.releasedAt)}</span> : null}
