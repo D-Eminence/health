@@ -21,7 +21,7 @@ import { errorText } from '../parts/errors'
 
 type PagePosition = { facilityId: string; cursors: Array<string | undefined> }
 type LoadedPage = { facilityId: string; cursor: string | undefined; page: FacilityAuditPage }
-/** A refused read: 403 (this membership may not review audit events) or another failure, in words. */
+/** A refused read: 403 (said at render, as the refusal is, by who reads it) or another failure, in words. */
 type LoadProblem = { facilityId: string; cursor: string | undefined; forbidden: boolean; message: string }
 /** Where focus goes once the read a button started has answered, if that button is gone by then. */
 type FocusAfter = { facilityId: string; pressed: string; settledAt: number }
@@ -74,9 +74,9 @@ export function AuditCompliance() {
   const cursor = cursors[cursors.length - 1]
   const page = loaded?.facilityId === facilityId && loaded.cursor === cursor ? loaded.page : null
   const current = problem?.facilityId === facilityId && problem.cursor === cursor ? problem : null
-  const error = !current ? '' : current.forbidden
-    ? `Your membership at ${facility?.name ?? 'this facility'} can’t review audit events. Ask your facility administrator for audit access.`
-    : current.message
+  // Refused on reading: the refusal's own words, by who reads them (refusedWorkText), as the classic page says it, so a
+  // facility's own administrator is never told to ask themselves, and the page says one thing whichever refuses first.
+  const error = !current ? '' : current.forbidden ? refusedWorkText(facility, facility?.permissions ?? [], AUDIT_WORK) : current.message
   // No answer yet for this page: its read is starting or running.
   const waiting = !page && !error
   const busy = loading || waiting

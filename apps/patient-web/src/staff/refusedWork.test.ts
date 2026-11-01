@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AUDIT_WORK, LAB_WORK, OUTREACH_WORK, PHARMACY_WORK, refusedWorkText, type NamedRole, type RefusedWork } from './refusedWork'
+import { AUDIT_WORK, LAB_WORK, OUTREACH_WORK, PHARMACY_WORK, pharmacyWorkFor, refusedWorkText, type NamedRole, type RefusedWork } from './refusedWork'
 import { roleInSentence, roleLabel } from './staffAccess'
 
 describe('the role a refusal names', () => {
   /** Every NamedRole, once: the type lists them, so leaving one out here, or adding one there only, fails to build. */
   const NAMED: Readonly<Record<NamedRole, true>> = { doctor: true, clinician: true, nurse: true, lab: true, pharmacist: true, receptionist: true }
 
-  it.each(Object.keys(NAMED))('%s has words, so the step names the role, never its code', code => {
-    expect(roleLabel(code)).not.toBe(code)
+  // A code with no words reads "Staff" and "a member of staff" (staffAccess.ts), never itself: so those are what to rule out.
+  it.each(Object.keys(NAMED))('%s has words, so the step names the role, never its code or "a member of staff"', code => {
+    expect(roleLabel(code)).not.toBe('Staff')
+    expect(roleInSentence(code)).not.toBe('a member of staff')
     expect(roleInSentence(code)).toMatch(/^an? [a-z ]+$/)
   })
 
@@ -19,11 +21,12 @@ describe('the role a refusal names', () => {
 })
 
 /*
- * Outreach and Audit by who reads their refusal (#104's rule, the owner's decision for #107). Every kind of facility that
- * signs itself up has both from the start: no locked list names them (staff/routes/ReviewBanner.tsx), and its
- * administrator holds both while Health ID support checks it and after. So an administrator is never told either opens
- * after the check, nor to add someone, who would not give it to them: only that their role doesn't include it. Everyone
- * else is told to ask the facility administrator. Every facility here is fictional.
+ * Outreach and Audit by who reads their refusal (#104's rule, the owner's decision for #107). No locked list names either
+ * (staff/routes/ReviewBanner.tsx), so neither opens only after the check and no role is named: an administrator is
+ * never told either opens after the check, nor to add someone, only that their role doesn't include it. Everyone else
+ * is told to ask the facility administrator. On Novu the administrator holds both (P4b SPEC 3.3), so their cases here
+ * are for an administrator role without them; off Novu no administrator has words of their own. Every facility here is
+ * fictional.
  */
 describe('Outreach and Audit, by who reads the refusal', () => {
   const KINDS = ['hospital', 'clinic', 'laboratory', 'pharmacy', 'other']
@@ -90,5 +93,20 @@ describe('Pharmacy, by who reads the refusal', () => {
     ['anyone else at a checked pharmacy', at('reviewed', 'pharmacy'), [], `${ROLE} Ask your facility administrator.`],
   ])('%s', (_reader, facility, permissions, sentence) => {
     expect(refusedWorkText(facility, permissions, PHARMACY_WORK)).toBe(sentence)
+  })
+})
+
+/*
+ * The work a refusal of Prescriptions names, in the blue Pharmacy and the classic page alike: a role that may open another
+ * Pharmacy page (it sells, keeps stock, takes payment…) is told only that prescriptions are not in it.
+ */
+describe('the Pharmacy work a refusal names', () => {
+  it.each([[[]], [['pharmacy.dispensing.read', 'pharmacy.dispensing.create']], [['ehr.encounter.read']]])('with %j: pharmacy work', permissions => {
+    expect(pharmacyWorkFor(permissions)).toBe(PHARMACY_WORK)
+  })
+
+  it.each(['pharmacy.walk-in.create', 'billing.bill.read', 'pharmacy.stock.read', 'billing.catalogue.read', 'billing.shift.own',
+    'billing.settings.manage'])('with %s, which opens another Pharmacy page: prescriptions, by the same rule', permission => {
+    expect(pharmacyWorkFor([permission])).toEqual({ ...PHARMACY_WORK, work: 'prescriptions' })
   })
 })

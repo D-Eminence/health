@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { CalendarCheck, PackageOpen, ReceiptText, ShoppingBag, SlidersHorizontal, Tags } from 'lucide-react'
+import { pharmacyWorkFor } from '../../../staff/refusedWork'
 import type { EhrBluePage } from '../types'
 import { useBluePage } from '../../frame/pageContext'
 import { productOf } from '../../frame/product'
@@ -24,12 +25,11 @@ const icon = (I: typeof ShoppingBag) => <I aria-hidden strokeWidth={1.8} />
 /**
  * Opened by its address without the permission: today's refusal in plain words (pharmacyRefusalText), and nothing is
  * read. A role that may open another Pharmacy page (Sell, Stock, Sales & receipts…) is told only prescriptions are not
- * in it.
+ * in it (staff/refusedWork.ts pharmacyWorkFor, which the classic Pharmacy page uses too).
  */
 function PharmacyUnavailable() {
   const { facility, permissions } = useDeptAccess()
-  const otherPharmacyWork = pharmacyPages.some(page => page !== pharmacyPage && page.permission !== undefined && permissions.includes(page.permission))
-  const message = pharmacyRefusalText(otherPharmacyWork ? 'prescriptions' : 'pharmacy work', facility, permissions)
+  const message = pharmacyRefusalText(pharmacyWorkFor(permissions).work, facility, permissions)
   return <DeptUnavailable title="Pharmacy unavailable" message={message} />
 }
 

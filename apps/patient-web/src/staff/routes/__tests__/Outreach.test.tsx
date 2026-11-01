@@ -306,12 +306,13 @@ describe('who can open Outreach', () => {
   })
 
   /*
-   * Who reads the refusal (#104's rule, the owner's decision for #107), as the blue page says it: every kind of facility
-   * has Outreach from the start (its administrator holds it while Health ID support checks it, and after), so a
-   * facility's own administrator is never told to ask themselves, to wait for the check, or to add someone.
+   * Who reads the refusal (#104's rule, the owner's decision for #107), as the blue page says it: no locked list names
+   * Outreach, so a facility's own administrator is never told to ask themselves, to wait for the check, or to add
+   * someone. On hid-system main no role holds Outreach (migration 0091) and no administrator has words of their own:
+   * everyone is told to ask.
    */
   describe('by who reads the refusal', () => {
-    /** A self-signed-up facility's administrator whose role here holds no Outreach (fictional: theirs holds it today). */
+    /** A self-signed-up facility's administrator whose role here holds no Outreach (fictional: on Novu theirs holds it, P4b SPEC 3.3). */
     const ADMINISTRATOR = ['organization.manage', 'workforce.manage', 'audit.read']
     beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
 

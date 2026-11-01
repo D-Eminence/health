@@ -89,15 +89,14 @@ describe('facility audit review', () => {
 })
 
 /*
- * Who reads the refusal (#104's rule, the owner's decision for #107), in the blue page's words: every kind of facility
- * has its own audit trail from the start (its administrator holds audit review while Health ID support checks it, and
- * after), so a facility's own administrator is never told to ask themselves, to wait for the check, or to add someone.
- * A refused read says the same as the refusal, whoever reads it. Every facility here is fictional.
+ * Who reads the refusal (#104's rule, the owner's decision for #107), in the blue page's words: no locked list names
+ * audit review, so a facility's own administrator is never told to ask themselves, to wait for the check, or to add
+ * someone. A refused read says the same as the refusal, whoever reads it. Every facility here is fictional.
  */
 describe('facility audit refusal, by who reads it', () => {
   const ROLE = 'Your role at this facility doesn’t include reviewing audit events.'
   const ASK = `${ROLE} Ask your facility administrator.`
-  /** A self-signed-up facility's administrator whose role here holds no audit review (fictional: theirs holds it today). */
+  /** A self-signed-up facility's administrator whose role here holds no audit review (fictional: org_admin holds it). */
   const ADMINISTRATOR = ['organization.manage', 'workforce.manage', 'outreach.registration.read']
   const NO_CODES = /permission|membership|workforce|audit\.read|PERMISSION_DENIED|_|\/provider/i
   beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })

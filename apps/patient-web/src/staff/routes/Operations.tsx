@@ -15,7 +15,7 @@ import { learnLateCorrectionServed, saysLateCorrection, useLateCorrectionServed 
 import { learnCannotCompleteFrom, useCannotCompleteServed } from '../../cannotCompleteServed'
 import { BETWEEN_FACILITIES } from '../betweenFacilities'
 import { selfServiceReview, selfServiceType } from '../staffAccess'
-import { LAB_WORK, OUTREACH_WORK, PHARMACY_WORK, refusedWorkText } from '../refusedWork'
+import { LAB_WORK, OUTREACH_WORK, pharmacyWorkFor, refusedWorkText } from '../refusedWork'
 import {
   cannotCompleteOffered, handOverCheckText, holdsReceivePermission, licenceLine, receivingAnswer, receivingHere,
   rememberedReceiving, rememberReceiving, routeClosedForWork, routedWorkEndedText, sampleCheckText, wrongPatientOffered,
@@ -1092,8 +1092,9 @@ export function Pharmacy() {
   const notCompleted = useNotCompletedEndings(facilityId)
   const said = useRowSaid('pharmacy', read.value, list.refresh, (mode, route) => mode === 'wrong_patient'
     ? wrongPatientOffered(route, permissions, 'pharmacy') : cannotCompleteOffered(route, permissions, 'pharmacy', cannotServed))
-  // The blue Pharmacy's words for the same facts (refusedWorkText), so a facility's own administrator is never told to ask themselves.
-  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description={refusalAt(facilityId, refusedWorkText(facility, permissions, PHARMACY_WORK))} />
+  // The blue Prescriptions' words for the same facts (refusedWorkText, pharmacyWorkFor), so a facility's own
+  // administrator is never told to ask themselves, and a role that sells is told only prescriptions are not in it.
+  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description={refusalAt(facilityId, refusedWorkText(facility, permissions, pharmacyWorkFor(permissions)))} />
   function notCompletedHere(ending: Omit<CannotCompleteEnding, 'key'>) {
     notCompleted.add(ending)
     said.clear()

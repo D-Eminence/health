@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import type { PharmacyWorkItem } from '../../../../staff/api'
-import { pharmacyPage } from '../../../../ehr-blue/departments/pharmacy/page'
+import { pharmacyPage, pharmacyPages } from '../../../../ehr-blue/departments/pharmacy/page'
+import { OTHER_PHARMACY_PAGE_PERMISSIONS } from '../../../../staff/refusedWork'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
 import { dateText } from '../../../../ehr-blue/departments/parts/format'
 import { DEMO_HOSPITAL_ID, DEMO_PHARMACY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
@@ -78,6 +79,12 @@ describe('the page entry', () => {
     renderDept(<>{pharmacyPage.refusal}</>)
     expect(screen.getByRole('heading', { level: 1, name: 'Pharmacy unavailable' })).toBeTruthy()
     expect(screen.getByText('Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.')).toBeTruthy()
+  })
+
+  // The classic Pharmacy chooses its words from the same list without loading these pages (staff/refusedWork.ts).
+  it('names the other pages’ permissions as the classic Pharmacy reads them, so both refusals name the same work', () => {
+    const others = pharmacyPages.filter(page => page !== pharmacyPage).flatMap(page => page.permission === undefined ? [] : [page.permission])
+    expect([...OTHER_PHARMACY_PAGE_PERMISSIONS].sort()).toEqual(others.sort())
   })
 })
 

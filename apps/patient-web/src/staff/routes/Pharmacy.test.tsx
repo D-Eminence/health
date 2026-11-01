@@ -234,6 +234,21 @@ describe('Pharmacy page access', () => {
       render(<Pharmacy />)
       expectUnavailable(NO_PHARMACY_WORK)
     })
+
+    // A role that sells, or takes payment, does pharmacy work: like the blue Prescriptions, only prescriptions are not in it.
+    const PRESCRIPTIONS = 'Your role at this facility doesn’t include prescriptions.'
+    it.each([
+      ['a seller at a checked pharmacy', ['pharmacy.walk-in.create'], { review: 'reviewed', organizationType: 'pharmacy' }, `${PRESCRIPTIONS} Ask your facility administrator.`],
+      ['a cashier at a hospital Health ID support manages', ['billing.bill.read'], undefined, `${PRESCRIPTIONS} Ask your facility administrator.`],
+      ['the administrator of a checked pharmacy who sells', ['workforce.manage', 'pharmacy.walk-in.create'], { review: 'reviewed', organizationType: 'pharmacy' },
+        `${PRESCRIPTIONS} Add a pharmacist on the Staff page.`],
+    ])('%s: the blue Prescriptions’ words', (_reader, permissions, selfService, sentence) => {
+      staff.permissions = permissions
+      staff.selfService = selfService
+      render(<Pharmacy />)
+      expectUnavailable(sentence)
+      expect(sentence).toBe(pharmacyRefusalText('prescriptions', selfService ? { selfService } : {}, permissions))
+    })
   })
 })
 
