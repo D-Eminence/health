@@ -105,15 +105,15 @@ export function BlueFrame() {
   // A lab, pharmacy or outreach on its own sees only its product (product.ts); a hospital's EHR has them all.
   const product = productOf(window.location.hostname, permissions)
   const info = PRODUCTS[product]
-  // What sample links (Notifications' Recent activity, role dashboards, Facility setup) may point to: a page this product
-  // opens, so none of them leads to a page the frame sends to the product's Home (below).
-  const openHere = useMemo(() => allowed.filter(page => opensInProduct(product, page.path)), [allowed, product])
   const listed = useMemo(() => allowed.filter(page => (page.status !== 'sample' || page.path === '') && !INTERNAL_GROUPS.has(page.group)
     && inProduct(product, page.path) && (product === 'ehr' || page.path !== '')
     && (!session || (page.listed?.(session) ?? true))), [allowed, session, product])
   const match = matchBluePage(BLUE_PAGES, location.pathname)
   // A pharmacy or lab on its own lists a product's pages in the sidebar, so it draws no tabs above them as well.
   const tabs = match && product === 'ehr' ? pageTabs(allowed, match.page) : []
+  // What sample links (Notifications' Recent activity, role dashboards, Facility setup) may point to: a page this product
+  // opens, so none of them leads to a page the frame sends to the product's Home (below).
+  const openHere = useMemo(() => allowed.filter(page => opensInProduct(product, page.path)), [allowed, product])
   const shownTitle = match ? match.page.label : liveOnlyTitle(location.pathname) ?? 'Page not found'
   // Today's tab title names today's pages only: the blue page names itself once the workspace is open.
   useEffect(() => {
