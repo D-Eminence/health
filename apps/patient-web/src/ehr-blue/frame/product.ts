@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react'
 import { FlaskConical, Hospital, Pill, ScanText, Users } from 'lucide-react'
 import { resolveStaffProductHostname } from '../../productHostname'
 import { PUBLIC_ENVIRONMENT } from '../../publicEnvironment'
+import type { StaffSession } from '../../staff/api'
 import { basePath } from './pageHref'
 
 /**
@@ -55,6 +56,14 @@ export function productOf(hostname: string, permissions: readonly string[]): Pro
   if (clinical) return 'ehr'
   const held = SINGLE.filter(product => permissions.some(p => p.startsWith(PRODUCTS[product].prefix)))
   return held.length === 1 ? held[0]! : 'ehr'
+}
+
+/**
+ * The product this workspace is for this session, here: by this page's address and the current facility's permissions.
+ * The frame and What's left both ask this way, so its sidebar and What's left never disagree about which site this is.
+ */
+export function productHere(session: StaffSession | null): Product {
+  return productOf(window.location.hostname, session?.actor.facility?.permissions ?? [])
 }
 
 /** Whether a page belongs in this product's workspace. The EHR has them all. */

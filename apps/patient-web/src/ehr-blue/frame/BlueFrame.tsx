@@ -10,7 +10,7 @@ import { BillingBanner } from '../../staff/routes/Billing'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { isDemoFacility } from '../blueFacilities'
-import { PRODUCTS, productLists, productOf } from './product'
+import { PRODUCTS, productHere, productLists } from './product'
 import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
@@ -104,7 +104,7 @@ export function BlueFrame() {
   // Only working screens are offered (the owner's decision of 2026-10-31): sample modules with fictional figures stay in
   // the code for demos but are not listed in the sidebar or search. Home is always listed.
   // A lab, pharmacy or outreach on its own sees only its product (product.ts); a hospital's EHR has them all.
-  const product = productOf(window.location.hostname, permissions)
+  const product = productHere(session)
   const info = PRODUCTS[product]
   const listed = useMemo(() => allowed.filter(page => (page.status !== 'sample' || page.path === '') && !INTERNAL_GROUPS.has(page.group)
     && productLists(product, page.path)

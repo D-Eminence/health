@@ -3,7 +3,7 @@ import { EhrBadge, EhrCard, EhrDataTable, EhrPageHeading, EhrStatCard, type EhrB
 import { useStaff } from '../../staff/App'
 import { useBluePages } from './pageContext'
 import { pageHrefOf } from './pageHref'
-import { PRODUCTS, productLists, productOf } from './product'
+import { PRODUCTS, productHere, productLists, type Product } from './product'
 import type { EhrBluePageStatus } from './types'
 
 /** How each status reads, with its badge tone: never colour alone. */
@@ -32,14 +32,29 @@ export const FRAME_PARTS: readonly { readonly name: string; readonly status: Ehr
 ]
 
 /**
+ * Two of those notes describe the hospital's EHR. A lab's, pharmacy's, outreach team's or migration site lists no
+ * Patients page, so its search finds pages only (TopBarParts: canFind), and it has no Consultation.
+ */
+const PRODUCT_SITE_NOTES: Readonly<Record<string, string>> = {
+  'Workspace search': 'Finds this workspace’s pages; there is no patient or staff search here yet.',
+  'Record quick view': 'On sample workspace lists, and on some working lists.',
+}
+
+/** The frame's parts as this product's site has them: the EHR's notes, or a single product's where they differ. */
+export function framePartsOf(product: Product): typeof FRAME_PARTS {
+  if (product === 'ehr') return FRAME_PARTS
+  return FRAME_PARTS.map(part => part.name in PRODUCT_SITE_NOTES ? { ...part, note: PRODUCT_SITE_NOTES[part.name]! } : part)
+}
+
+/**
  * What's left: every page the blue EHR has, from every pages.ts, with its status, and the frame's own parts. The owner's
  * checklist: as pages go live, their entries change here on their own. It names no permission: screens show no codes.
  * On a lab's, pharmacy's, outreach team's or migration site it lists only the pages that site offers, by the frame's own
- * rule (productLists), for the product the frame decides from the same address and permissions.
+ * rule (productLists), for the product the frame decides the same way (productHere), and its frame notes match that site.
  */
 export function WhatsLeft() {
   const { state } = useStaff()
-  const product = productOf(window.location.hostname, state.status === 'ready' ? state.session.actor.facility?.permissions ?? [] : [])
+  const product = productHere(state.status === 'ready' ? state.session : null)
   const pages = useBluePages().filter(page => productLists(product, page.path))
   const counts = (['live', 'partial', 'sample'] as const).map(status => ({ status, count: pages.filter(page => page.status === status).length }))
   return <>
@@ -59,7 +74,7 @@ export function WhatsLeft() {
       ]} />
     </EhrCard>
     <EhrCard title="Panels and route pages">
-      <EhrDataTable caption="Panels and route pages, and their status" captionHidden rows={FRAME_PARTS} rowKey={part => part.name} columns={[
+      <EhrDataTable caption="Panels and route pages, and their status" captionHidden rows={framePartsOf(product)} rowKey={part => part.name} columns={[
         { id: 'name', header: 'Part', cell: part => part.name },
         { id: 'status', header: 'Status', cell: part => <EhrBadge tone={STATUS_WORDS[part.status].tone}>{STATUS_WORDS[part.status].label}</EhrBadge> },
         { id: 'note', header: 'Notes', cell: part => part.note },

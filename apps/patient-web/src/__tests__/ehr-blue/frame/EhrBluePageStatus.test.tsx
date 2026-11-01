@@ -3,7 +3,7 @@ import { screen, within } from '@testing-library/react'
 import type * as ProductHostname from '../../../productHostname'
 import { BLUE_PAGES, pageAllowed } from '../../../ehr-blue/routes'
 import { TODAY_PAGES, pages as framePages } from '../../../ehr-blue/frame/pages'
-import { FRAME_PARTS, STATUS_WORDS } from '../../../ehr-blue/frame/WhatsLeft'
+import { FRAME_PARTS, STATUS_WORDS, framePartsOf } from '../../../ehr-blue/frame/WhatsLeft'
 import { JOURNEYS } from '../../../ehr-blue/frame/tour/journeys'
 import type { StaffSession } from '../../../staff/api'
 import { DEMO_HOSPITAL, DEMO_LABORATORY, SESSION, facility, openStaffApp, serve, sessionAt } from './blueHarness'
@@ -99,6 +99,20 @@ describe('What\'s left', () => {
     expect(part('Record quick view').note).toBe('On sample workspace lists, and on some working lists such as Consultation and Document OCR.')
   })
 
+  // A single product's site lists no Patients page and no Consultation: its notes say what that site's frame does.
+  it.each(['lab', 'pharmacy', 'outreach', 'migrate'] as const)('on the %s site, says its search finds pages only and names no EHR page', product => {
+    const parts = framePartsOf(product)
+    expect(parts.map(part => part.name)).toEqual(FRAME_PARTS.map(part => part.name))
+    expect(parts.find(candidate => candidate.name === 'Workspace search')!.note).toBe('Finds this workspace’s pages; there is no patient or staff search here yet.')
+    expect(parts.find(candidate => candidate.name === 'Record quick view')!.note).toBe('On sample workspace lists, and on some working lists.')
+    const notes = parts.map(part => part.note).join(' ')
+    for (const ehrOnly of ['Consultation', 'patient by a typed Health ID']) expect(notes).not.toContain(ehrOnly)
+  })
+
+  it('keeps the EHR\'s notes in the EHR', () => {
+    expect(framePartsOf('ehr')).toBe(FRAME_PARTS)
+  })
+
   it('claims no control the frame no longer has, in its notes or in the design tour', () => {
     const notes = FRAME_PARTS.map(part => part.note).join(' ')
     for (const gone of ['View Home as', 'Preferences', 'Help', 'Every workspace in the design', 'says so']) expect(notes).not.toContain(gone)
@@ -110,12 +124,14 @@ describe('What\'s left', () => {
 /**
  * On a product's own site What's left lists only the pages that site shows, by the frame's own rule: its own pages and
  * the shared ones (staff, audit, facility), never Patient registration (the EHR's alone, by the owner's rule) or another
- * EHR-only page. In the EHR it lists every page, as before.
+ * EHR-only page, and its frame notes describe that site's frame. The product is the frame's own (productHere): from the
+ * address, or off a product's address from the facility's permissions. In the EHR it lists every page, as before.
  */
 describe('What\'s left on a product\'s own site', () => {
   const DEMO_PHARMACY = '98d00002-0000-4000-8000-000000000003'
 
-  async function openWhatsLeft(site: string, current: ReturnType<typeof facility>) {
+  /** Opens What's left at this address (null: the test page's own, which is no product's) for a session at this facility. */
+  async function openWhatsLeft(site: string | null, current: ReturnType<typeof facility>) {
     host.name = site
     serve({ [SESSION]: [sessionAt(current, [current])] })
     await openStaffApp('/provider/whats-left')
@@ -130,13 +146,8 @@ describe('What\'s left on a product\'s own site', () => {
   const EHR_ONLY = ['Patient registration', 'Home', 'Patients', 'In-person check', 'Triage & Vitals', 'Consultation', 'Nursing observations',
     'Emergency', 'Access requests', 'Radiology', 'Patient billing', 'Facility subscription', 'Reports & Analytics']
 
-  it.each([
-    ['lab.healthidentitydirectory.com', facility(DEMO_LABORATORY, 'Demo Laboratory', ['lab.work-item.read']), 'Lab', 'laboratory',
-      ['Laboratory', 'Work list', 'Results'], 'Pharmacy'],
-    ['pharmacy.healthidentitydirectory.com', facility(DEMO_PHARMACY, 'Demo Pharmacy', ['pharmacy.work-item.read']), 'Pharmacy', 'pharmacy',
-      ['Pharmacy', 'Sell', 'Prescriptions', 'Stock'], 'Laboratory'],
-  ])('on %s lists only that site\'s own pages and the shared ones', async (site, current, product, home, own, other) => {
-    const table = await openWhatsLeft(site, current)
+  /** What's left lists only this product's own pages and the shared ones, says so, counts only those, and notes no EHR part. */
+  function expectOnly(table: HTMLElement, product: string, home: string, own: readonly string[], other: string) {
     for (const label of [...EHR_ONLY, other]) expect(within(table).queryByRole('link', { name: label })).toBeNull()
     for (const address of addresses(table)) expect(address).toMatch(new RegExp(`^(${home}(/|$)|(staff|audit|facility|hr|institutions)$)`))
     // Its own pages, and the facility's own (its people, its audit trail), are still there.
@@ -147,6 +158,26 @@ describe('What\'s left on a product\'s own site', () => {
     const counted = [...document.querySelectorAll('.hid-ehr-stat-card .hid-ehr-stat-value')].map(value => Number(value.textContent))
     expect(counted).toHaveLength(3)
     expect(counted.reduce((sum, count) => sum + count, 0)).toBe(within(table).getAllByRole('row').length - 1)
+    // The frame's parts as this site has them: its search finds no patient, and no note names Consultation.
+    const parts = screen.getByRole('table', { name: 'Panels and route pages, and their status' }).textContent
+    expect(parts).toContain('Finds this workspace’s pages; there is no patient or staff search here yet.')
+    for (const ehrOnly of ['Consultation', 'patient by a typed Health ID']) expect(parts).not.toContain(ehrOnly)
+  }
+
+  it.each([
+    ['lab.healthidentitydirectory.com', facility(DEMO_LABORATORY, 'Demo Laboratory', ['lab.work-item.read']), 'Lab', 'laboratory',
+      ['Laboratory', 'Work list', 'Results'], 'Pharmacy'],
+    ['pharmacy.healthidentitydirectory.com', facility(DEMO_PHARMACY, 'Demo Pharmacy', ['pharmacy.work-item.read']), 'Pharmacy', 'pharmacy',
+      ['Pharmacy', 'Sell', 'Prescriptions', 'Stock'], 'Laboratory'],
+  ])('on %s lists only that site\'s own pages and the shared ones', async (site, current, product, home, own, other) => {
+    expectOnly(await openWhatsLeft(site, current), product, home, own, other)
+  })
+
+  // Off a product's own address (www., a preview, this test page) the frame takes the product from the facility's
+  // permissions: a facility holding only the lab's is the Lab, there as here (EhrBlueFrame.test.tsx: "Go to Lab").
+  it('on an address that is no product\'s own, takes the product from the facility\'s permissions, as the frame does', async () => {
+    const table = await openWhatsLeft(null, facility(DEMO_LABORATORY, 'Demo Laboratory', ['lab.work-item.read']))
+    expectOnly(table, 'Lab', 'laboratory', ['Laboratory', 'Work list', 'Results'], 'Pharmacy')
   })
 
   it('in the EHR lists every page, Patient registration among them, as before', async () => {
@@ -156,5 +187,8 @@ describe('What\'s left on a product\'s own site', () => {
       expect(within(table).getAllByRole('link', { name: label }).length).toBeGreaterThan(0)
     }
     expect(screen.getByText('Every workspace, flow and admin page of the design, and how much of it runs on Health ID today.')).toBeDefined()
+    // The EHR's frame notes, unchanged.
+    const parts = screen.getByRole('table', { name: 'Panels and route pages, and their status' })
+    for (const { note } of FRAME_PARTS) expect(within(parts).getAllByText(note).length).toBeGreaterThan(0)
   })
 })
