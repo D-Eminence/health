@@ -41,9 +41,10 @@ const SOMEONE = 'Someone'
 
 /**
  * Labels that already say their outcome, so a refused or failed row keeps them as written (the spec's "No prefix" list,
- * with its *.email.failed, *.email.retry-scheduled and *.notification.failed codes), and the outcome each one says. A
- * row stored as a success takes the label's outcome: ocr.publication.fail is written as a success, and "Scanned
- * document could not be added" beside Allowed would contradict itself (and the Failed filter would miss it).
+ * with its *.email.failed, *.email.retry-scheduled and *.notification.failed codes, and four more labels that say it
+ * themselves, which the owner added on 1 Nov 2026), and the outcome each one says. A row stored as a success takes the
+ * label's outcome: ocr.publication.fail is written as a success, and "Scanned document could not be added" beside
+ * Allowed would contradict itself (and the Failed filter would miss it).
  */
 const STATES_ITS_OUTCOME: ReadonlyMap<string, 'denied' | 'failure'> = new Map([
   ['auth.authorization.denied', 'denied'], ['security.authorization', 'denied'], ['security.authorization.denied', 'denied'],
@@ -52,6 +53,8 @@ const STATES_ITS_OUTCOME: ReadonlyMap<string, 'denied' | 'failure'> = new Map([
   ['identity.patient.contact-change.delivery', 'failure'], ['ehr.document.scan.rejected', 'failure'],
   ['ehr.document.scan.failed', 'failure'], ['ocr.worker.fail', 'failure'], ['ocr.worker.lease_recovered', 'failure'],
   ['ocr.publication.fail', 'failure'],
+  ['ehr.order-route.not-completed', 'failure'], ['identity.emergency-contact.notification.intent-failed', 'failure'],
+  ['identity.emergency-contact.verification-failed', 'failure'], ['identity.patient-account-deletion.confirmation-rejected', 'denied'],
 ])
 const STATES_ITS_OUTCOME_ENDING = /\.(email\.failed|email\.retry-scheduled|notification\.failed)$/
 
@@ -162,6 +165,10 @@ const PLAIN_WORD = /^[a-z]+([-_][a-z]+)*$/
 /**
  * An unlisted code in words, and the outcome it stands for: a name saying it was refused ('…denied', '…-denied') is
  * refused, and one saying it could not complete ('…fail') failed, whatever the outcome column says.
+ *
+ * The spec starts a system or workload actor's row with 'Automatic: ' and a platform actor's with 'Health ID support: '.
+ * Neither is added: who did it ('Health ID (automatic)', 'Health ID background service', 'Health ID support') is shown
+ * beside the row and already says so, and the owner asked for it to be said once (1 Nov 2026).
  */
 function fallbackWhat(code: string, actorType: string, stored: AuditRow['outcome']) {
   const parts = code.split('.')
@@ -181,12 +188,12 @@ function fallbackWhat(code: string, actorType: string, stored: AuditRow['outcome
   const outcome = refused ? 'denied' : saysFailed && (stored === null || stored === 'success') ? 'failure' : stored
   const phrase = verb && thing ? `${verb} ${thing}` : null
   const failedOrRefused = outcome === 'denied' || outcome === 'failure' ? outcome : null
-  let what = phrase === null
+  const done = phrase !== null && failedOrRefused && !saysFailed ? attempt(phrase, failedOrRefused) : phrase
+  // A support code's area is 'Health ID support': done by Health ID support, who did it says that already, so the
+  // area is not said again in front of what was done.
+  const what = done === null
     ? (failedOrRefused ? attempt(`${area} activity`, failedOrRefused, false) : `${area} activity`)
-    : `${area}: ${failedOrRefused && !saysFailed ? attempt(phrase, failedOrRefused) : phrase}`
-  if (actorType === 'system' || actorType === 'workload') what = `Automatic: ${what}`
-  // A support code already leads with 'Health ID support'.
-  else if (actorType === 'platform' && area !== FALLBACK_AREAS.admin) what = `Health ID support: ${what}`
+    : area === own(WHO, actorType) ? done : `${area}: ${done}`
   return { what: repeated ? `${what} (repeated, nothing changed)` : what, outcome }
 }
 

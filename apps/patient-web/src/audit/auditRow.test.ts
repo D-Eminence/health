@@ -54,6 +54,14 @@ describe('an audit event in words', () => {
     expect(what('identity.record-access-notice.email.failed', { outcome: 'failure' })).toBe('Record-opened email to patient failed')
     expect(what('identity.patient-account-deletion.email.retry-scheduled', { outcome: 'failure' })).toBe('Account deletion email will be retried')
     expect(what('identity.emergency-contact.notification.failed', { outcome: 'failure' })).toBe('Emergency contact alert failed')
+    // Four more labels say their own outcome (owner decision, 1 Nov 2026): no "(didn't go through)" or "Tried to" is added.
+    expect(auditRow(event('ehr.order-route.not-completed', { outcome: 'failure' }))).toMatchObject({ what: 'Order could not be completed', outcomeText: 'Failed' })
+    expect(auditRow(event('identity.emergency-contact.notification.intent-failed', { outcome: 'failure' })))
+      .toMatchObject({ what: 'Could not queue emergency contact alert', outcomeText: 'Failed' })
+    expect(auditRow(event('identity.emergency-contact.verification-failed', { outcome: 'failure' })))
+      .toMatchObject({ what: 'Emergency contact verification failed', outcomeText: 'Failed' })
+    expect(auditRow(event('identity.patient-account-deletion.confirmation-rejected', { outcome: 'denied' })))
+      .toMatchObject({ what: 'Account deletion confirmation refused', outcomeText: 'Refused' })
   })
 
   it('takes the outcome a label says when the row was stored as a success', () => {
@@ -64,6 +72,14 @@ describe('an audit event in words', () => {
     expect(auditRow(event('identity.patient-access-pin.verify-denied'))).toMatchObject({ outcome: 'denied', outcomeText: 'Refused' })
     expect(auditRow(event('identity.record-access-notice.email.failed'))).toMatchObject({ outcome: 'failure', outcomeText: 'Failed' })
     expect(auditRow(event('ocr.publication.fail', { outcome: 'pending' as unknown as Event['outcome'] }))).toMatchObject({ outcomeText: 'Failed' })
+    expect(auditRow(event('ehr.order-route.not-completed'))).toEqual({
+      what: 'Order could not be completed', who: 'Staff member', outcome: 'failure', outcomeText: 'Failed' })
+    expect(auditRow(event('identity.emergency-contact.notification.intent-failed', { actorType: 'system' }))).toEqual({
+      what: 'Could not queue emergency contact alert', who: 'Health ID (automatic)', outcome: 'failure', outcomeText: 'Failed' })
+    expect(auditRow(event('identity.emergency-contact.verification-failed', { actorType: 'patient' }))).toEqual({
+      what: 'Emergency contact verification failed', who: 'Patient', outcome: 'failure', outcomeText: 'Failed' })
+    expect(auditRow(event('identity.patient-account-deletion.confirmation-rejected', { actorType: 'patient' }))).toEqual({
+      what: 'Account deletion confirmation refused', who: 'Patient', outcome: 'denied', outcomeText: 'Refused' })
     // A stored refusal or failure stays as stored: "NIN could not be verified" is written as either.
     expect(auditRow(event('identity.nin.verify', { outcome: 'failure' }))).toMatchObject({ outcome: 'failure', outcomeText: 'Failed' })
     expect(auditRow(event('identity.nin.verify', { outcome: 'denied' }))).toMatchObject({ outcome: 'denied', outcomeText: 'Refused' })
@@ -129,11 +145,17 @@ describe('an audit event in words', () => {
     expect(what('lab.QcRun.create')).toBe('Lab activity')
     expect(what('lab.sample-batch.create.replay')).toBe('Lab: Added sample batch (repeated, nothing changed)')
     expect(what('lab.sample-batch.idempotent-replay')).toBe('Lab activity (repeated, nothing changed)')
-    expect(what('ocr.job.export', { actorType: 'system' })).toBe('Automatic: Scanned documents: Exported scanned-document reading')
-    expect(what('lab.sample-batch.close', { actorType: 'workload' })).toBe('Automatic: Lab: Closed sample batch')
-    expect(what('billing.invoice.list', { actorType: 'platform' })).toBe('Health ID support: Other: Viewed the list of invoice')
-    // A support code already says Health ID support once.
-    expect(what('admin.foo.list', { actorType: 'platform' })).toBe('Health ID support: Viewed the list of foo')
+    // Who did it already says it was automatic, or Health ID support: the row says so once, there (owner decision).
+    expect(auditRow(event('ocr.job.export', { actorType: 'system' }))).toMatchObject({
+      what: 'Scanned documents: Exported scanned-document reading', who: 'Health ID (automatic)' })
+    expect(auditRow(event('lab.sample-batch.close', { actorType: 'workload' }))).toMatchObject({
+      what: 'Lab: Closed sample batch', who: 'Health ID background service' })
+    expect(auditRow(event('billing.invoice.list', { actorType: 'platform' }))).toMatchObject({
+      what: 'Other: Viewed the list of invoice', who: 'Health ID support' })
+    // A support code's area is Health ID support, which who did it already says.
+    expect(auditRow(event('admin.foo.list', { actorType: 'platform' }))).toMatchObject({ what: 'Viewed the list of foo', who: 'Health ID support' })
+    // Done by anyone else, the area still says it was Health ID support's.
+    expect(what('admin.foo.list', { actorType: 'system' })).toBe('Health ID support: Viewed the list of foo')
     // A code ending in "denied" was refused, whatever its outcome column says; the line says what was tried.
     expect(auditRow(event('pharmacy.stock.verify-denied'))).toMatchObject({ what: 'Pharmacy: Tried to check stock', outcome: 'denied', outcomeText: 'Refused' })
     expect(auditRow(event('identity.access.denied'))).toMatchObject({ what: 'Patient access and registration activity (refused)', outcomeText: 'Refused' })
@@ -141,7 +163,7 @@ describe('an audit event in words', () => {
     expect(auditRow(event('lab.sample-batch.create', { outcome: 'failure' }))).toMatchObject({ what: 'Lab: Tried to add sample batch', outcomeText: 'Failed' })
     expect(what('outreach.campaign.close', { outcome: 'denied' })).toBe('Outreach: Closed outreach campaign (refused)')
     expect(what('lab.sample-batch.create.replay', { outcome: 'denied' })).toBe('Lab: Tried to add sample batch (repeated, nothing changed)')
-    expect(what('ocr.job.export', { actorType: 'system', outcome: 'failure' })).toBe('Automatic: Scanned documents: Exported scanned-document reading (didn\'t go through)')
+    expect(what('ocr.job.export', { actorType: 'system', outcome: 'failure' })).toBe('Scanned documents: Exported scanned-document reading (didn\'t go through)')
     // A code saying it could not complete failed, even when stored as a success, and is not said twice.
     expect(auditRow(event('ocr.job.fail'))).toMatchObject({ what: 'Scanned documents: Could not complete scanned-document reading', outcome: 'failure', outcomeText: 'Failed' })
     expect(auditRow(event('ocr.job.fail', { outcome: 'denied' }))).toMatchObject({ outcome: 'denied', outcomeText: 'Refused' })
@@ -159,6 +181,24 @@ describe('an audit event in words', () => {
         if (action) expect(shown).not.toContain(action)
         // Nothing that reads like a code: no dotted names, no snake_case.
         expect(shown).not.toMatch(/[a-z]\.[a-z]|[a-z]_[a-z]/i)
+      }
+    }
+  })
+
+  it('says automatic, or Health ID support, once in a row: in who did it', () => {
+    const actions = [...Object.keys(AUDIT_ACTION_LABELS), 'lab.sample-batch.create', 'ocr.job.export', 'admin.foo.list',
+      'billing.invoice.list', 'identity.access.denied', 'lab.sample-batch.create.replay', 'ocr.job.fail']
+    for (const action of actions) {
+      for (const actorType of ['system', 'workload', 'platform']) {
+        for (const outcome of ['success', 'denied', 'failure'] as const) {
+          const row = auditRow(event(action, { actorType, outcome }))
+          expect(row?.what).not.toMatch(/^Automatic: /)
+          const shown = `${row?.what} ${row?.who}`
+          expect(shown.match(/\(automatic\)|Automatic: /g)?.length ?? 0).toBeLessThanOrEqual(1)
+          if (actorType === 'platform' && action.includes('.') && !Object.hasOwn(AUDIT_ACTION_LABELS, action)) {
+            expect(shown.match(/Health ID support/g)).toHaveLength(1)
+          }
+        }
       }
     }
   })
