@@ -8,8 +8,7 @@ import { useDocumentTitle } from '../../authSteps'
 import { Turnstile } from '../../Turnstile'
 import { usesNovuBackend } from '../../backendContract'
 import {
-  PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref, STAFF_SIGN_IN_PATH, staffSignInHref, staffSiteForOrganizationType,
-  staffSiteHostname,
+  facilitySignInHref, PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref, STAFF_SIGN_IN_PATH, staffSignInHref,
 } from '../../productHostname'
 import { getEnvironment } from '../env'
 import { StaffSignInLink, staffSignInAddress } from '../../staffSignIn'
@@ -1196,16 +1195,18 @@ function EnrollmentSteps() {
  * (ORGANIZATION_TYPE_NOTES).
  */
 function FacilityReady({ email, organizationType, ordersOn, onContinue }: { email: string; organizationType: OrganizationType; ordersOn: boolean; onContinue: () => void }) {
-  const hostname = window.location.hostname
-  const site = staffSignInHref(hostname) !== null ? staffSiteHostname(staffSiteForOrganizationType(organizationType), hostname) : null
+  // In production, where this portal serves patients only, the administrator signs in on the staff site of the
+  // facility's type, by a plain link (facilitySignInHref); elsewhere the workspace opens here.
+  const signIn = facilitySignInHref(organizationType, window.location.hostname)
   return <section className="patient-form" aria-labelledby="provider-enroll-done-title">
     <FocusedHeading id="provider-enroll-done-title">Your facility is set up</FocusedHeading>
-    <p className="patient-field-hint">You’re signed in as your facility’s administrator.</p>
-    <p className="patient-field-hint">{site
-      ? `Next time, sign in at ${site} with ${email} and the password you just chose.`
+    <p className="patient-field-hint">{signIn ? 'Your administrator account is ready.' : 'You’re signed in as your facility’s administrator.'}</p>
+    <p className="patient-field-hint">{signIn
+      ? `Sign in at ${new URL(signIn).hostname} with ${email} and the password you just chose.`
       : `Next time, sign in to the Provider Portal with ${email} and the password you just chose.`}</p>
     <p className="patient-field-hint">{organizationTypeNote(organizationType, ordersOn)}</p>
-    <button type="button" className="patient-primary-button" onClick={onContinue}>Continue to the Provider Portal</button>
+    {signIn ? <a className="patient-primary-button" href={signIn}>Go to sign in</a>
+      : <button type="button" className="patient-primary-button" onClick={onContinue}>Continue to the Provider Portal</button>}
   </section>
 }
 

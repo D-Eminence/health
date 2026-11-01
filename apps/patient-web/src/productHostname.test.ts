@@ -8,6 +8,7 @@ import {
   staffLoginAction,
   staffRecoveryHref,
   staffSignInHref,
+  facilitySignInHref,
   CLINICIAN_SIGNUP_PATH,
   CLINICIAN_STATUS_PATH,
   clinicianMainSiteHref,
@@ -312,5 +313,24 @@ describe('staff invitations and staff sites (P4b)', () => {
       expect(staffSiteHostname('ehr', host)).toBeNull()
       expect(staffHostForRole('pharmacist', host)).toBeNull()
     }
+  })
+})
+
+describe('facilitySignInHref', () => {
+  it.each([
+    ['hospital', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+    ['clinic', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+    ['other', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+    ['laboratory', 'https://lab.healthidentitydirectory.com/provider/sign-in'],
+    ['pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider/sign-in'],
+    ['https://evil.example', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+  ])('on the production portal, a %s signs in at %s, one of three fixed addresses', (type, href) => {
+    expect(facilitySignInHref(type, 'app.healthidentitydirectory.com')).toBe(href)
+    expect(facilitySignInHref(type, 'APP.healthidentitydirectory.com.')).toBe(href)
+  })
+
+  it.each(['staging.healthidentitydirectory.com', 'ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com', 'localhost',
+    'app.healthidentitydirectory.com.evil.example'])('is null on %s, where the workspace opens on this site', hostname => {
+    expect(facilitySignInHref('laboratory', hostname)).toBeNull()
   })
 })
