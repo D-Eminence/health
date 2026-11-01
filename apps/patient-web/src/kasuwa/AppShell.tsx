@@ -84,7 +84,14 @@ export function AppShell({ brand, switcher, nav, person, onSignOut, signingOut, 
   const menu = hash === '#menu'
   const openMenu = () => navigate({ pathname, search, hash: 'menu' })
   const closeMenu = () => navigate(-1)
-  useEffect(() => { setSwitching(false); setCreating(false); setPersonMenu(false) }, [pathname])
+  // Leaving a page closes its menus. Only a real change of address does: on mount there is nothing to close, and a
+  // close run then would undo a menu opened before the effect ran.
+  const shownPath = useRef(pathname)
+  useEffect(() => {
+    if (shownPath.current === pathname) return
+    shownPath.current = pathname
+    setSwitching(false); setCreating(false); setPersonMenu(false)
+  }, [pathname])
   const [folded, setFolded] = useState<Record<string, boolean>>({})
   const holdsCurrent = (group: NavGroup) => group.items.some(item => item.end ? pathname === item.to : pathname === item.to || pathname.startsWith(`${item.to}/`))
   const isOpen = (group: NavGroup) => !group.collapsible || !group.title ? true
