@@ -2,7 +2,7 @@ import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
 import { Siren } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Alert, Button, Card, Field, Input, Textarea } from '../../../kasuwa/ui'
+import { Alert, Badge, Button, Card, Field, Input, Textarea } from '../../../kasuwa/ui'
 import { FormActions } from '../../../kasuwa/parts'
 import { usesNovuBackend } from '../../../backendContract'
 import { isAllowedPatientLookup, staffApi } from '../../../staff/api'
@@ -23,14 +23,19 @@ type Problems = Partial<Record<FieldKey, string>>
 /** The acknowledgement, naming the expiry today's break-glass request asks for. */
 export const ACKNOWLEDGE = `I understand the patient is told, every view is reviewed, and access ends after ${EMERGENCY_MINUTES} minutes.`
 
-/** The open emergency patient, with the way back to their emergency summary. */
+/** The open emergency patient, with the way back to their emergency summary, in today's words (Patients.tsx:235). */
 export function CurrentEmergency() {
   const { activePatient } = useClinical()
   const href = useWorkspaceHref()
   if (activePatient?.purpose !== 'emergency') return null
   return (
-    <Alert intent="warning" icon={Siren} live={false} title={`${patientFacts(activePatient).name} is open with emergency access`}
-      action={<Button size="sm" to={href('summary')}>Open summary</Button>} />
+    <Alert intent="warning" icon={Siren} live={false} title="Current emergency summary"
+      action={<Button size="sm" to={href('summary')}>Open read-only emergency summary →</Button>}>
+      <span className="inline-flex flex-wrap items-center gap-2">
+        <strong>{patientFacts(activePatient).name}</strong>
+        <Badge size="sm" tone="danger">Emergency access</Badge>
+      </span>
+    </Alert>
   )
 }
 
@@ -153,7 +158,7 @@ export function BreakGlassCard() {
             className="font-medium tracking-[.06em] uppercase" aria-invalid={problems.hid ? true : undefined} aria-describedby={describe('hid', true)}
             onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); changed('hid') }} />
         </Field>
-        <Field label="Why do you need emergency access?" htmlFor={controlId('reason')} hint="What is happening, and why care can’t wait. It’s kept with the review."
+        <Field label="Emergency reason" htmlFor={controlId('reason')} hint="What is happening, and why care can’t wait. It’s kept with the review."
           hintId={`${controlId('reason')}-hint`} error={errorFor('reason')} errorId={`${controlId('reason')}-error`}>
           <Textarea id={controlId('reason')} required rows={3} maxLength={REASON_MAX} value={reason}
             aria-invalid={problems.reason ? true : undefined} aria-describedby={describe('reason', true)}
@@ -175,7 +180,7 @@ export function BreakGlassCard() {
               press sends nothing (submit returns while one is on its way). */}
           <Button type="submit" variant="destructive" icon={Siren} disabled={!facility || unavailable !== null}
             aria-disabled={busy || undefined}
-            aria-describedby={unavailable ? unavailableId : undefined}>{busy ? 'Opening…' : 'Open emergency access'}</Button>
+            aria-describedby={unavailable ? unavailableId : undefined}>{busy ? 'Working…' : 'Activate emergency access'}</Button>
         </FormActions>
       </form>
     </Card>
