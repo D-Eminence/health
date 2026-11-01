@@ -580,7 +580,7 @@ describe('Consultation record: documents', () => {
     const opened = vi.spyOn(window, 'open').mockReturnValue(null)
     await openEncounter()
     const documents = within(card('Documents'))
-    expect(documents.getByText('PDF · 20 KB · Checked')).toBeTruthy()
+    expect(documents.getByText('PDF · 20 KiB · Checked')).toBeTruthy()
     const checks = api.lookupPatient.mock.calls.length
     fireEvent.click(documents.getByRole('button', { name: 'Open file referral-letter.pdf' }))
     await waitFor(() => expect(opened).toHaveBeenCalledWith('https://storage.example.test/doc-1?signature=x', '_blank', 'noopener,noreferrer'))
@@ -593,8 +593,35 @@ describe('Consultation record: documents', () => {
     await openEncounter()
     const documents = within(card('Documents'))
     expect((documents.getByRole('button', { name: 'Open file referral-letter.pdf' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(documents.getByText('Upload didn’t finish. Upload the file again.')).toBeTruthy()
+    expect(documents.getByText('Upload not completed; only the person who started it can finish it. Upload the file again.')).toBeTruthy()
     expect(documents.queryByText(/scan:/)).toBeNull()
+  })
+
+  it('states each size in KiB, as it is counted, with an empty file as 0 KiB, as today', async () => {
+    api.documents.mockResolvedValue({ items: [
+      { ...DOCUMENT, id: 'doc-2', fileName: 'empty-form.pdf', sizeBytes: 0 },
+      { ...DOCUMENT, id: 'doc-3', fileName: 'chest-film.tiff', mediaType: 'image/tiff', sizeBytes: '1572864' },
+      { ...DOCUMENT, id: 'doc-4', fileName: 'unsized-letter.pdf', sizeBytes: '' },
+    ], nextCursor: null })
+    await openEncounter()
+    const row = async (fileName: string) => ((await within(card('Documents')).findByText(fileName)).closest('li') as HTMLElement).textContent
+    expect(await row('empty-form.pdf')).toContain(' · 0 KiB · ')
+    expect(await row('chest-film.tiff')).toContain(' · 1,536 KiB · ')
+    expect(await row('unsized-letter.pdf')).toContain(' · Size unknown · ')
+    expect(within(card('Documents')).queryByText(/\d KB|\d MB/)).toBeNull()
+  })
+
+  it('refuses a file over 50 MiB with today’s sentence, and uploads nothing', async () => {
+    await openEncounter()
+    const documents = within(card('Documents'))
+    const input = documents.getByLabelText(labelled('Clinical document')) as HTMLInputElement
+    const large = new File(['%PDF-1.4'], 'large-scan.pdf', { type: 'application/pdf' })
+    Object.defineProperty(large, 'size', { value: 52_428_801 })
+    fireEvent.change(input, { target: { files: [large] } })
+    fireEvent.click(documents.getByRole('button', { name: 'Upload document' }))
+    expect(documents.getByText('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')).toBeTruthy()
+    expect(document.activeElement).toBe(input)
+    expect(api.uploadDocument).not.toHaveBeenCalled()
   })
 
   it('refuses a link that is not a signed https link', async () => {
@@ -617,7 +644,7 @@ describe('Consultation record: documents', () => {
     expect(document.activeElement).toBe(input)
     fireEvent.change(input, { target: { files: [new File(['x'], 'notes.txt', { type: 'text/plain' })] } })
     fireEvent.click(upload)
-    expect(documents.getByText('Use a PDF, JPEG, PNG or TIFF file up to 50 MB.')).toBeTruthy()
+    expect(documents.getByText('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')).toBeTruthy()
     const file = new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })
     fireEvent.change(input, { target: { files: [file] } })
     fireEvent.click(upload)
