@@ -41,7 +41,7 @@ const ENCOUNTER = {
 }
 const SECOND = { ...ENCOUNTER, id: 'e2222222-0000-4000-8000-000000000002', status: 'completed', chiefComplaint: null }
 const NEW_ID = 'e1111111-0000-4000-8000-000000000003'
-const READ_ONLY = 'You can view this, but not change it. To add or change records, ask the patient to approve access that includes changes.'
+const READ_ONLY = 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -246,7 +246,7 @@ describe('Consultation list', () => {
     open()
     const ended = await screen.findByRole('alert')
     expect(ended.textContent).toContain('Access to this patient ended')
-    expect(ended.textContent).toContain('Open the patient again to keep working.')
+    expect(ended.textContent).toContain('Patient access has ended. Reopen the record through governed access.')
     expect(within(ended).getByRole('link', { name: 'Find a patient' }).getAttribute('href')).toBe('/provider/patients')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.encounters).not.toHaveBeenCalled()
@@ -574,7 +574,7 @@ describe('New consultation', () => {
     fireEvent.click(save)
     const ended = await screen.findByRole('alert')
     expect(ended.textContent).toContain('Access to this patient ended')
-    expect(ended.textContent).toContain('Open the patient again to keep working.')
+    expect(ended.textContent).toContain('Patient access has ended. Reopen the record through governed access.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.createEncounter).not.toHaveBeenCalled()
   })

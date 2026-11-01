@@ -53,14 +53,16 @@ export function SharedWithYou({ facilityId, permissions, openUnavailable, busy, 
 }) {
   const [load] = useCardLoad<SharedPatient[]>(facilityId, roleMay('identity.sharedWithMe', 'GET', permissions), readShared,
     'The patients shared with you could not be loaded.')
-  // Only when there is something to act on: nobody shared yet is not worth a card.
-  if (load.state === 'hidden' || (load.state === 'ready' && load.value.length === 0)) return null
+  // Today's words (staff/routes/SharedPatients.tsx:74-78), an empty list included.
+  if (load.state === 'hidden') return null
   if (load.state === 'failed') return <Alert intent="error" title="Couldn’t load patients shared with you">{load.message}</Alert>
   return (
     <Card>
-      <CardHeader as="h2" title="Shared with you" description={`${load.value.length} patient${load.value.length === 1 ? '' : 's'}`} icon={Share2} iconTone="brand" />
-      {openUnavailable ? <p id="shared-open-unavailable" className="m-0 px-5 pt-3 text-[12px] text-ink-3">{openUnavailable}</p> : null}
-      <ul className="m-0 list-none divide-y divide-line p-0">
+      <CardHeader as="h2" title="Shared with you" description="Patients who chose to share their record with you at this facility. Opening one checks access with the server."
+        icon={Share2} iconTone="brand" />
+      {load.value.length === 0 ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3">No patient has shared their record with you here.</p> : null}
+      {openUnavailable && load.value.length > 0 ? <p id="shared-open-unavailable" className="m-0 px-5 pt-3 text-[12px] text-ink-3">{openUnavailable}</p> : null}
+      {load.value.length > 0 ? <ul className="m-0 list-none divide-y divide-line p-0">
         {load.value.map(item => (
           <li key={item.consentGrantId} className="flex items-center gap-3 px-5 py-3">
             <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[12px] font-semibold text-brand-ink">{item.fullName.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()}</span>
@@ -71,7 +73,7 @@ export function SharedWithYou({ facilityId, permissions, openUnavailable, busy, 
               aria-describedby={openUnavailable ? 'shared-open-unavailable' : undefined} onClick={() => { if (!busy) onOpen(item.hid) }}>Open</Button>
           </li>
         ))}
-      </ul>
+      </ul> : null}
     </Card>
   )
 }
@@ -117,7 +119,8 @@ export function ShareInvitationsForMe({ facilityId, permissions }: { facilityId:
     try {
       await staffApi.acceptShareInvitation(facilityId, item.invitationId)
       withdraw(item.invitationId)
-      setAccepted('Accepted. Once the patient confirms, they appear under Shared with you.')
+      setAccepted(`You accepted invitation ${item.reference || 'to share'}. The patient must now confirm before you can open their `
+        + 'record. Once they do, they appear under Shared with you.')
     } catch (caught) {
       if (isHidApiError(caught) && ['SHARE_INVITATION_NOT_FOUND', 'SHARE_INVITATION_NOT_PENDING'].includes(caught.code)) withdraw(item.invitationId)
       setError(acceptProblem(caught))
@@ -135,15 +138,17 @@ export function ShareInvitationsForMe({ facilityId, permissions }: { facilityId:
   const { eligible, items } = load.value
   return (
     <Card>
-      <CardHeader as="h2" title="Invitations" description="From patients, to your email. They confirm after you accept." icon={Mail} iconTone="violet" />
+      <CardHeader as="h2" title="Invitations" icon={Mail} iconTone="violet"
+        description="Patients can invite you by email to see their record. Accept here, signed in with that email; the patient then confirms, and is not named until they do." />
       {!eligible ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3">Only a doctor, clinician or nurse at a facility Health ID has checked can accept
         invitations. Your role here cannot, so invitations sent to your email are not shown. Switch to such a facility to see them.</p>
       : items.length === 0 ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3">No invitations are waiting for your sign-in email.</p>
       : <ul className="m-0 list-none divide-y divide-line p-0">
         {items.map(item => (
           <li key={item.invitationId} className="flex items-center gap-3 px-5 py-3">
-            <span className="min-w-0 flex-1"><span className="block text-sm font-medium text-ink">{item.reference ? `Invitation ${item.reference}` : 'Invitation'}{item.inviteeName ? ` · to ${item.inviteeName}` : ''}</span>
-              <span className="block text-[12px] text-ink-3">{DURATION_LABELS[item.duration]} · open until {shareDay(item.expiresAt)}</span></span>
+            <span className="min-w-0 flex-1"><span className="block text-sm font-medium text-ink">{item.reference ? `Invitation ${item.reference}` : 'Invitation'}</span>
+              {item.inviteeName ? <span className="block text-[12px] text-ink-2">To {item.inviteeName}</span> : null}
+              <span className="block text-[12px] text-ink-3">{DURATION_LABELS[item.duration]} · sent {shareDay(item.createdAt)} · open until {shareDay(item.expiresAt)}</span></span>
             <Badge size="sm" tone="brand">{shareLevelLabel(item.level) ?? item.level}</Badge>
             <Button size="sm" loading={accepting === item.invitationId} disabled={!acceptAllowed || (accepting !== null && accepting !== item.invitationId)}
               aria-label={item.reference ? `Accept invitation ${item.reference}` : 'Accept invitation'} onClick={() => void accept(item)}>

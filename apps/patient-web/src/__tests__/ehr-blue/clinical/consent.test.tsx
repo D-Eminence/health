@@ -217,7 +217,7 @@ describe('Access requests list (once External record access)', () => {
     expect(api.listAccessRequests).toHaveBeenLastCalledWith(FACILITY_ID, 'approved')
     api.listAccessRequests.mockImplementation(async (_facilityId: string, status?: string) => status === 'approved' ? [{ ...OLD, effectiveStatus: 'closed' }] : NEWEST)
     fireEvent.click(screen.getByRole('button', { name: 'Close access' }))
-    expect(await screen.findByText('Your access has ended.')).toBeTruthy()
+    expect(await screen.findByText('Access was closed.')).toBeTruthy()
     expect(api.closeGrant).toHaveBeenCalledWith(FACILITY_ID, 'grant-old', 'Clinician closed completed patient access')
     expect(screen.getAllByText('Closed by you').length).toBeGreaterThan(0)
   })
@@ -346,7 +346,7 @@ describe('Ask the patient for access (once New external record access)', () => {
   it('names the permission a role lacks and offers no submit', () => {
     staff.permissions = ['identity.patient.read']
     open('/new')
-    expect(screen.getByText('Your role at this facility cannot ask patients for access: it needs identity.consent.write. Ask your organization administrator.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility cannot send access requests: it needs identity.consent.write. Ask your organization administrator.')).toBeTruthy()
     expect((screen.getByRole('button', { name: SEND }) as HTMLButtonElement).disabled).toBe(true)
   })
 })
@@ -387,7 +387,7 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
     fireEvent.change(screen.getByLabelText(PIN), { target: { value: '1234' } })
     fireEvent.click(screen.getByRole('button', { name: OPEN_WITH_PIN }))
-    expect(shownText(await screen.findByRole('alert'))).toContain('You don’t have access to this patient yet. Ask the patient, use their Access PIN, or use emergency access if it’s justified.')
+    expect(shownText(await screen.findByRole('alert'))).toContain('Health ID has not granted access to this patient. Request approval, verify their PIN, or use documented emergency access when justified.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     api.lookupPatient.mockResolvedValue(allowedLookup)
     staff.setActivePatient.mockReturnValue(false)
@@ -433,7 +433,7 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
   it('names what a role lacks to verify a PIN', () => {
     staff.permissions = ['identity.patient-access-pin.verify']
     open('/pin')
-    expect(screen.getByText('Your role at this facility cannot use a patient’s Access PIN: it also needs identity.patient.read to open the record. Ask your organization administrator.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility cannot verify a patient’s PIN: it also needs identity.patient.read to open the record. Ask your organization administrator.')).toBeTruthy()
     expect((screen.getByRole('button', { name: OPEN_WITH_PIN }) as HTMLButtonElement).disabled).toBe(true)
   })
 })
@@ -471,7 +471,7 @@ describe('An access request’s page', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Close access' }))
     expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(screen.queryByRole('dialog')).toBeNull()
-    expect(await screen.findByText('Your access has ended.')).toBeTruthy()
+    expect(await screen.findByText('Access was closed.')).toBeTruthy()
     expect(api.closeGrant).toHaveBeenCalledWith(FACILITY_ID, 'grant-1', 'Clinician closed completed patient access')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(screen.getByRole('alert').textContent).toContain('Access to this patient ended')
@@ -490,7 +490,7 @@ describe('An access request’s page', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Close access/ }).getAttribute('aria-busy')).toBe('true'))
     api.listAccessRequests.mockResolvedValue([{ ...ACTIVE, effectiveStatus: 'closed' }])
     await act(async () => { finish({}) })
-    expect(await screen.findByText('Your access has ended.')).toBeTruthy()
+    expect(await screen.findByText('Access was closed.')).toBeTruthy()
     expect(api.closeGrant).toHaveBeenCalledTimes(1)
   })
 

@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropOfferedHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
 import { PatientsWorkspace, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
+import { shareDay } from '../../../shareRecords'
 import {
   BASE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage,
 } from './harness'
@@ -107,7 +108,7 @@ function searchField() {
 }
 
 const findButton = () => screen.getByRole('button', { name: 'Find' }) as HTMLButtonElement
-const REQUEST_UNAVAILABLE = 'Your role at this facility cannot ask patients for access: it needs identity.consent.write. Ask your organization administrator.'
+const REQUEST_UNAVAILABLE = 'Your role at this facility cannot send access requests: it needs identity.consent.write. Ask your organization administrator.'
 const EMERGENCY_UNAVAILABLE = 'Your role at this facility cannot activate emergency access: it also needs identity.break-glass.write. Ask your organization administrator.'
 const WRITES = ['ehr.encounter.write', 'ehr.vital.read', 'ehr.vital.write']
 const NONE_WAITING = 'No invitations are waiting for your sign-in email.'
@@ -486,7 +487,7 @@ describe('The open patient’s page', () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
     open('/open')
     expect(await screen.findByText('Access to this patient ended')).toBeTruthy()
-    expect(screen.getByText('Open the patient again to keep working.')).toBeTruthy()
+    expect(screen.getByText('Patient access has ended. Reopen the record through governed access.')).toBeTruthy()
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.encounters).not.toHaveBeenCalled()
   })
@@ -526,7 +527,7 @@ describe('The open patient’s page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'End my access' }))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(screen.queryByRole('alertdialog')).toBeNull()
-    const said = await screen.findByText('Your access has ended.')
+    const said = await screen.findByText('Access was closed.')
     expect(said.closest('[role="status"]')).toBeTruthy()
     expect(api.closeGrant).toHaveBeenCalledTimes(1)
     expect(api.closeGrant).toHaveBeenCalledWith(FACILITY_ID, 'grant-1', 'Clinician closed completed patient access')
@@ -554,7 +555,7 @@ describe('The open patient’s page', () => {
     const button = screen.getByRole('button', { name: 'End my access' }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
     expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent)
-      .toBe('Your role at this facility cannot end your access: it needs identity.consent.write. Ask your organization administrator.')
+      .toBe('Your role at this facility cannot close this grant: it needs identity.consent.write. Ask your organization administrator.')
     fireEvent.click(button)
     expect(api.closeGrant).not.toHaveBeenCalled()
   })
@@ -585,7 +586,7 @@ describe('Patient sharing', () => {
     api.acceptShareInvitation.mockResolvedValue({ invitationId: 'inv-1', status: 'accepted', acceptedAt: '2026-10-30T08:00:00.000Z', replayed: false })
     open()
     fireEvent.click(await screen.findByRole('button', { name: 'Accept invitation AB12' }))
-    const result = await screen.findByText('Accepted. Once the patient confirms, they appear under Shared with you.')
+    const result = await screen.findByText('You accepted invitation AB12. The patient must now confirm before you can open their record. Once they do, they appear under Shared with you.')
     expect(result.closest('[role="status"]')).toBeTruthy()
     expect(document.activeElement).toBe(result)
     expect(api.acceptShareInvitation).toHaveBeenCalledTimes(1)
@@ -603,7 +604,7 @@ describe('Patient sharing', () => {
 
 const SHARE = { consentGrantId: 'grant-9', patientId: PATIENT_ID, hid: PATIENT_HID, fullName: PATIENT_NAME, level: 'view_only', duration: '7d', scope: 'read_records', startsAt: '2026-10-29T08:00:00.000Z', expiresAt: '2026-11-05T08:00:00.000Z' }
 const INVITATION = { invitationId: 'inv-1', reference: 'AB12', inviteeName: null, level: 'clinical_review', duration: '24h', createdAt: '2026-10-29T08:00:00.000Z', expiresAt: '2026-11-05T08:00:00.000Z' }
-const ACCEPTED = 'Accepted. Once the patient confirms, they appear under Shared with you.'
+const ACCEPTED = 'You accepted invitation AB12. The patient must now confirm before you can open their record. Once they do, they appear under Shared with you.'
 const ACCEPT_ANSWER = { invitationId: 'inv-1', status: 'accepted', acceptedAt: '2026-10-30T08:00:00.000Z', replayed: false }
 const OPEN_SHARED_UNAVAILABLE = 'Your role at this facility cannot open a patient’s record: it needs identity.patient.read. Ask your organization administrator.'
 const PATIENT_TWO_ID = 'a0000000-0000-4000-8000-000000000002'
@@ -708,6 +709,25 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
     fireEvent.click(await screen.findByRole('button', { name: 'Accept invitation AB12' }))
     expect(await screen.findByText(ACCEPTED)).toBeTruthy()
     expect(screen.getByText(NONE_WAITING)).toBeTruthy()
+  })
+
+  it('parity words: the sharing cards say what today’s say (staff/routes/SharedPatients.tsx:74-78, :142-153, :129-130)', async () => {
+    api.sharedWithMe.mockResolvedValue([])
+    api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [{ ...INVITATION, inviteeName: 'Dr Fictional Example' }, { ...INVITATION, invitationId: 'inv-2', reference: null }] })
+    api.acceptShareInvitation.mockResolvedValue({ ...ACCEPT_ANSWER, invitationId: 'inv-2' })
+    open()
+    const shared = (await screen.findByRole('heading', { level: 2, name: 'Shared with you' })).closest('section')!
+    expect(within(shared).getByText('Patients who chose to share their record with you at this facility. Opening one checks access with the server.')).toBeTruthy()
+    expect(within(shared).getByText('No patient has shared their record with you here.')).toBeTruthy()
+    expect(within(shared).queryByRole('list')).toBeNull()
+    const invitations = (await screen.findByRole('heading', { level: 2, name: 'Invitations' })).closest('section')!
+    expect(within(invitations).getByText('Patients can invite you by email to see their record. Accept here, signed in with that email; the patient then '
+      + 'confirms, and is not named until they do.')).toBeTruthy()
+    expect(within(invitations).getByText('To Dr Fictional Example')).toBeTruthy()
+    expect(within(invitations).getAllByText(`24 hours · sent ${shareDay(INVITATION.createdAt)} · open until ${shareDay(INVITATION.expiresAt)}`)).toHaveLength(2)
+    fireEvent.click(within(invitations).getByRole('button', { name: 'Accept invitation' }))
+    expect(await screen.findByText('You accepted invitation to share. The patient must now confirm before you can open their record. Once they do, '
+      + 'they appear under Shared with you.')).toBeTruthy()
   })
 
   it('a refused Accept focuses today’s refusal and keeps a still-waiting invitation', async () => {
