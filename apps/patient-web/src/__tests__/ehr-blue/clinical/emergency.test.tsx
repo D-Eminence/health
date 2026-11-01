@@ -96,10 +96,11 @@ describe('the Emergency page', () => {
     expect(emergencyStatus).toBe('partial')
   })
 
-  it('shows the heading, the live emergency access form, then the sample board', () => {
+  it('shows the heading, the live emergency access form, then the sample board', async () => {
     staff.facilityId = DEMO_HOSPITAL_ID
     open()
     expect(screen.getByRole('heading', { level: 1, name: 'Emergency access' })).toBeTruthy()
+    // Owner, 31 October: the live break-glass form is on offer on the demo Emergency page too, as at a real facility.
     expect(within(card()).getByRole('textbox', { name: labelled('Health ID') })).toBeTruthy()
     expect(hidField().value).toBe('HID-')
     expect(card().textContent).toContain(HID_FORMAT)
@@ -115,6 +116,9 @@ describe('the Emergency page', () => {
     const board = screen.getByTestId('sample-list')
     expect(board.textContent).toBe('emergency')
     expect(card().compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Offering the form reads and sends nothing: only Open emergency access does.
+    await act(async () => {})
+    for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled()
   })
 
   it('names the tab “Emergency · Health ID EHR” on every page of the workspace, never the patient', () => {

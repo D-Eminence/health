@@ -1,9 +1,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type * as Contracts from '@hid/contracts'
 import { HidApiError } from '@hid/http'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { dropOfferedHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
+import { dropOfferedHealthId, offerHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
 import { PatientsWorkspace, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
 import {
   BASE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage,
@@ -124,6 +124,17 @@ async function refusedPanel() {
   return (await screen.findByText(`You don’t have access to ${PATIENT_HID} yet`)).closest<HTMLElement>('.border-t')!
 }
 
+/**
+ * Under the search, Obtain access (today's card title): the PIN and emergency access for the Health ID in the field.
+ * After a refused lookup the panel adds only Ask the patient.
+ */
+const accessGroup = () => screen.getByRole('group', { name: 'Obtain access' })
+const groupTile = (title: 'Use their Access PIN' | 'Emergency access') => tile(accessGroup(), title)
+/** The titles of the way-in tiles in `scope`, in order (each tile is named by its title, then its hint). */
+const TILE_TITLES = ['Ask the patient', 'Use their Access PIN', 'Emergency access']
+const tileTitles = (scope: HTMLElement) => within(scope).getAllByRole('button')
+  .map(button => TILE_TITLES.find(title => (button.textContent ?? '').startsWith(title)) ?? button.textContent)
+
 /** The text an element's aria-describedby names. */
 function describedBy(element: Element) {
   return (element.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean)
@@ -188,8 +199,11 @@ describe('Find a patient', () => {
     // In the search card, under the search.
     expect(panel.parentElement!.contains(searchField())).toBe(true)
     expect(within(panel).getByText('Patient access is not authorized')).toBeTruthy()
-    expect(tile(panel, 'Use their Access PIN')).toBeTruthy()
-    expect(tile(panel, 'Emergency access')).toBeTruthy()
+    // Ask the patient only: the PIN and emergency access are Obtain access's, for the Health ID still in the field.
+    expect(tileTitles(panel)).toEqual(['Ask the patient'])
+    expect(searchField().value).toBe(PATIENT_HID)
+    expect(groupTile('Use their Access PIN')).toBeTruthy()
+    expect(groupTile('Emergency access')).toBeTruthy()
     fireEvent.click(tile(panel, 'Ask the patient'))
     expect(where()).toBe('/provider/requests/new')
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
@@ -202,8 +216,8 @@ describe('Find a patient', () => {
     open()
     fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
     fireEvent.click(findButton())
-    const panel = (await screen.findByText(`You don’t have access to ${PATIENT_HID} yet`)).closest<HTMLElement>('.border-t')!
-    fireEvent.click(tile(panel, 'Use their Access PIN'))
+    await screen.findByText(`You don’t have access to ${PATIENT_HID} yet`)
+    fireEvent.click(groupTile('Use their Access PIN'))
     // patients/pin, not External record access (requests/pin), which the frame opens only with identity.consent.write.
     expect(where()).toBeNull()
     expect(screen.getByRole('heading', { level: 1, name: 'Use the patient’s Access PIN' })).toBeTruthy()
@@ -233,17 +247,19 @@ describe('Find a patient', () => {
     fireEvent.click(request)
     expect(where()).toBeNull()
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
-    // The PIN, which needs no identity.consent.write, is still offered.
-    expect(tile(panel, 'Use their Access PIN').disabled).toBe(false)
+    // The PIN, which needs no identity.consent.write, is still offered, in Obtain access.
+    expect(groupTile('Use their Access PIN').disabled).toBe(false)
   })
 
   it('review item 11: a role without identity.break-glass.write sees Emergency access turned off with today’s sentence', async () => {
     // This file's role holds every permission emergency access needs but identity.break-glass.write.
     const panel = await refusedPanel()
-    const emergency = tile(panel, 'Emergency access')
+    const emergency = groupTile('Emergency access')
     expect(emergency.disabled).toBe(true)
     expect(describedBy(emergency)).toBe(EMERGENCY_UNAVAILABLE)
-    expect(within(panel).getByText(EMERGENCY_UNAVAILABLE)).toBeTruthy()
+    // Said once, in Obtain access: the panel offers no emergency access of its own.
+    expect(screen.getAllByText(EMERGENCY_UNAVAILABLE)).toHaveLength(1)
+    expect(within(panel).queryByText(EMERGENCY_UNAVAILABLE)).toBeNull()
     fireEvent.click(emergency)
     expect(where()).toBeNull()
     // Sending a request needs only identity.consent.write, which the role holds.
@@ -253,14 +269,13 @@ describe('Find a patient', () => {
   it('review item 11: with identity.consent.write and identity.break-glass.write, Ask the patient and Emergency access are both on', async () => {
     staff.permissions = [...ALL, 'identity.break-glass.write']
     const panel = await refusedPanel()
-    for (const name of ['Ask the patient', 'Emergency access'] as const) {
-      const button = tile(panel, name)
+    for (const button of [tile(panel, 'Ask the patient'), groupTile('Emergency access')]) {
       expect(button.disabled).toBe(false)
       expect(button.getAttribute('aria-describedby')).toBeNull()
     }
     expect(screen.queryByText(REQUEST_UNAVAILABLE)).toBeNull()
     expect(screen.queryByText(EMERGENCY_UNAVAILABLE)).toBeNull()
-    fireEvent.click(tile(panel, 'Emergency access'))
+    fireEvent.click(groupTile('Emergency access'))
     expect(where()).toBe('/provider/emergency')
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
   })
@@ -488,15 +503,16 @@ describe('The open patient’s page', () => {
     expect(api.encounters).not.toHaveBeenCalled()
   })
 
-  it('keeps an emergency patient read-only: no visit, consent or chart steps, and no encounters read', async () => {
+  it('keeps an emergency patient read-only: no visit, Ask for more access or chart steps, only the ways to direct care, and no encounters read', async () => {
     // At a demo facility, where the visit step would otherwise show: emergency access alone hides it.
     atDemoHospital()
     staff.permissions = [...ALL, ...WRITES]
     staff.activePatient = activePatient('emergency')
     open('/open')
     expect(screen.getByText(`Emergency access shows the emergency summary only. Nothing can be added or changed for ${PATIENT_NAME}.`)).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: 'Next steps' })).toBeNull()
-    expect(nextSteps()).toEqual([])
+    // Next steps holds only the two steps that move the patient to direct care (owner, 31 October).
+    expect(screen.getByRole('heading', { level: 2, name: 'Next steps' })).toBeTruthy()
+    expect(nextSteps()).toEqual(['Use their Access PIN', 'Ask the patient'])
     expect(screen.queryByRole('button', { name: /^Register a walk-in visit/ })).toBeNull()
     expect(screen.queryByRole('button', { name: /^Ask for more access/ })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Open chart' })).toBeNull()
@@ -899,5 +915,324 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
     expect(screen.queryByText(/Fictional Med A/)).toBeNull()
     await act(async () => { answerTwo(profile('Fictional Med B')) })
     await waitFor(() => expect(allergies()).toBe('Fictional Med B (patient-reported)'))
+  })
+})
+
+/**
+ * Owner, 31 October: "I want access pin and emergency to work on demo too". The demo patients' seeded share opens them
+ * at Find, so the refused panel (the only place the PIN and emergency access were offered) never shows for them. Find a
+ * patient now always offers both under the search, as today's "Obtain access" card does, and the refused panel adds
+ * only Ask the patient; a patient's page offers emergency access under direct care (at a demo facility only) and the way
+ * back to direct care under emergency access; the PIN page says, at a demo facility only, that no demo patient has a PIN
+ * yet and how one gets one.
+ */
+describe('PIN and emergency access offered as today’s portal offers them', () => {
+  /** Every permission the PIN and emergency access need, with this file's role. */
+  const WITH_ACCESS = [...ALL, 'identity.patient-access-pin.verify', 'identity.break-glass.write']
+  const PIN_UNAVAILABLE = 'Your role at this facility cannot use a patient’s Access PIN: it also needs identity.patient-access-pin.verify. Ask your organization administrator.'
+  const DEMO_PIN_NOTE = 'No demo patient has a PIN yet. Demo Patient One or Two can set an Access PIN in the Health ID app, but not within 24 hours of a password reset. Patients Three to Ten have no login, so they never have one. Five wrong PINs in 15 minutes pause PIN checks for this demo login here for 15 minutes.'
+
+  /** Every address the router showed, in order, so a test can tell that none of them named the patient. */
+  const addresses: string[] = []
+  function Addresses() {
+    const location = useLocation()
+    addresses.push(`${location.pathname}${location.search}${location.hash}`)
+    return null
+  }
+  const address = () => addresses.at(-1)
+  function expectNoHealthIdInAnyAddress() {
+    expect(addresses.length).toBeGreaterThan(0)
+    for (const seen of addresses) {
+      expect(seen.toUpperCase()).not.toContain(PATIENT_HID)
+      expect(seen.toUpperCase()).not.toContain('ZDEMAAA2')
+      expect(seen).not.toContain(PATIENT_ID)
+    }
+  }
+
+  /** Patients at `rest`, with the address recorded, and every other workspace answered by nothing. */
+  function openTracked(rest = '') {
+    addresses.length = 0
+    return render(
+      <MemoryRouter initialEntries={[`${BASE}/patients${rest}`]}>
+        <Addresses />
+        <Routes>
+          <Route path={`${BASE}/patients/*`} element={<PatientsWorkspace />} />
+          <Route path="*" element={null} />
+        </Routes>
+      </MemoryRouter>,
+    )
+  }
+
+  /** How often each API call was made so far. */
+  function reads() {
+    return Object.fromEntries(Object.entries(api).map(([name, fn]) => [name, fn.mock.calls.length]))
+  }
+
+  describe('on Find a patient, Obtain access', () => {
+    it('is always under the Health ID form, before any lookup, with no lookup and no PIN check made', async () => {
+      atDemoHospital()
+      staff.permissions = [...WITH_ACCESS]
+      api.sharedWithMe.mockResolvedValue([SHARE])
+      openTracked()
+      const group = accessGroup()
+      // Today's card title, word for word.
+      expect(within(group).getByRole('heading', { level: 2, name: 'Obtain access' })).toBeTruthy()
+      expect(tileTitles(group)).toEqual(['Use their Access PIN', 'Emergency access'])
+      for (const button of within(group).getAllByRole('button') as HTMLButtonElement[]) {
+        expect(button.disabled).toBe(false)
+        expect(button.getAttribute('aria-describedby')).toBeNull()
+      }
+      // In the search card, under the form and before the list.
+      expect(group.parentElement!.contains(searchField())).toBe(true)
+      expect(searchField().compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(group.compareDocumentPosition(await screen.findByRole('heading', { name: 'Shared with you' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(screen.queryByText(/You don’t have access to/)).toBeNull()
+      await settle()
+      // Only the sharing lists are read on the list; the group reads nothing.
+      for (const name of ['lookupPatient', 'verifyPin', 'consentStatus', 'closeGrant', 'encounters', 'reportedHealthProfile', 'acceptShareInvitation'] as const) {
+        expect(api[name]).not.toHaveBeenCalled()
+      }
+    })
+
+    it('hands a complete Health ID typed in the search to the PIN page in memory, never in the address', async () => {
+      atDemoHospital()
+      staff.permissions = [...WITH_ACCESS]
+      openTracked()
+      fireEvent.change(searchField(), { target: { value: 'hid-zdemaaa2' } })
+      fireEvent.click(groupTile('Use their Access PIN'))
+      expect(screen.getByRole('heading', { level: 1, name: 'Use the patient’s Access PIN' })).toBeTruthy()
+      expect(address()).toBe('/provider/patients/pin')
+      expect((screen.getByLabelText(labelled('Health ID')) as HTMLInputElement).value).toBe(PATIENT_HID)
+      // Read once by the form.
+      expect(offeredHealthId(DEMO_HOSPITAL_ID, staff.setActivePatient)).toBe('')
+      expect(api.lookupPatient).not.toHaveBeenCalled()
+      expect(api.verifyPin).not.toHaveBeenCalled()
+      expectNoHealthIdInAnyAddress()
+    })
+
+    it('opens the PIN page with its field empty for an incomplete Health ID, and drops one offered before', () => {
+      staff.permissions = [...WITH_ACCESS]
+      offerHealthId('HID-ZDEMBBB3', FACILITY_ID, staff.setActivePatient)
+      openTracked()
+      fireEvent.change(searchField(), { target: { value: 'hid-zdem' } })
+      fireEvent.click(groupTile('Use their Access PIN'))
+      expect(screen.getByRole('heading', { level: 1, name: 'Use the patient’s Access PIN' })).toBeTruthy()
+      expect((screen.getByLabelText(labelled('Health ID')) as HTMLInputElement).value).toBe('HID-')
+      expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+    })
+
+    it('hands a complete Health ID to the Emergency page in memory, and none for an empty search', () => {
+      atDemoHospital()
+      staff.permissions = [...WITH_ACCESS]
+      const typed = openTracked()
+      fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+      fireEvent.click(groupTile('Emergency access'))
+      expect(address()).toBe('/provider/emergency')
+      expect(offeredHealthId(DEMO_HOSPITAL_ID, staff.setActivePatient)).toBe(PATIENT_HID)
+      expectNoHealthIdInAnyAddress()
+      typed.unmount()
+      openTracked()
+      fireEvent.click(groupTile('Emergency access'))
+      expect(address()).toBe('/provider/emergency')
+      expect(offeredHealthId(DEMO_HOSPITAL_ID, staff.setActivePatient)).toBe('')
+      expect(api.lookupPatient).not.toHaveBeenCalled()
+    })
+
+    it('is turned off with today’s reasons for a role without the permissions, and hands nothing over', () => {
+      // This file's role: neither identity.patient-access-pin.verify nor identity.break-glass.write.
+      atDemoHospital()
+      openTracked()
+      const pin = groupTile('Use their Access PIN')
+      const emergency = groupTile('Emergency access')
+      expect(pin.disabled).toBe(true)
+      expect(describedBy(pin)).toBe(PIN_UNAVAILABLE)
+      expect(emergency.disabled).toBe(true)
+      expect(describedBy(emergency)).toBe(EMERGENCY_UNAVAILABLE)
+      expect(within(accessGroup()).getByText(PIN_UNAVAILABLE)).toBeTruthy()
+      expect(within(accessGroup()).getByText(EMERGENCY_UNAVAILABLE)).toBeTruthy()
+      fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+      fireEvent.click(pin)
+      fireEvent.click(emergency)
+      expect(address()).toBe('/provider/patients')
+      expect(offeredHealthId(DEMO_HOSPITAL_ID, staff.setActivePatient)).toBe('')
+    })
+
+    it('after a refused lookup, the panel under the group keeps only Ask the patient, and goes once the field changes', async () => {
+      atDemoHospital()
+      staff.permissions = [...WITH_ACCESS]
+      const panel = await refusedPanel()
+      expect(tileTitles(panel)).toEqual(['Ask the patient'])
+      // One PIN and one emergency access on the page, both in Obtain access, for the Health ID in the field.
+      expect(screen.getAllByRole('button', { name: /^Use their Access PIN/ })).toEqual([groupTile('Use their Access PIN')])
+      expect(screen.getAllByRole('button', { name: /^Emergency access/ })).toEqual([groupTile('Emergency access')])
+      expect(accessGroup().compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      // The lookup is over: the group takes presses again.
+      expect(groupTile('Use their Access PIN').getAttribute('aria-disabled')).toBeNull()
+      // Another Health ID typed: the panel, which named the refused one, goes, and the group hands over the one typed.
+      fireEvent.change(searchField(), { target: { value: 'hid-zdembbb3' } })
+      expect(screen.queryByText(`You don’t have access to ${PATIENT_HID} yet`)).toBeNull()
+      fireEvent.click(groupTile('Emergency access'))
+      expect(where()).toBe('/provider/emergency')
+      expect(offeredHealthId(DEMO_HOSPITAL_ID, staff.setActivePatient)).toBe('HID-ZDEMBBB3')
+    })
+
+    it('after a refused share, the field shows the share’s Health ID, and the group hands that one over', async () => {
+      staff.permissions = [...WITH_ACCESS]
+      api.sharedWithMe.mockResolvedValue([SHARE])
+      api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
+      openTracked()
+      expect(searchField().value).toBe('HID-')
+      fireEvent.click(await screen.findByRole('button', { name: `Open ${PATIENT_NAME}’s record` }))
+      await screen.findByText(`You don’t have access to ${PATIENT_HID} yet`)
+      expect(searchField().value).toBe(PATIENT_HID)
+      fireEvent.click(groupTile('Emergency access'))
+      expect(address()).toBe('/provider/emergency')
+      expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
+      expectNoHealthIdInAnyAddress()
+    })
+
+    it('ignores a press while a lookup runs, so the lookup’s answer, not the press, decides where the user goes', async () => {
+      staff.permissions = [...WITH_ACCESS]
+      let answer: (value: unknown) => void = () => {}
+      api.lookupPatient.mockReturnValue(new Promise(resolve => { answer = resolve }))
+      openTracked()
+      fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+      fireEvent.click(findButton())
+      // Today's busy pattern: the tiles say they are unavailable while the lookup runs.
+      await waitFor(() => expect(groupTile('Use their Access PIN').getAttribute('aria-disabled')).toBe('true'))
+      expect(groupTile('Emergency access').getAttribute('aria-disabled')).toBe('true')
+      // Each press leaves the user on Find a patient with nothing handed over: no PIN or Emergency page the answer could
+      // take them away from.
+      for (const title of ['Use their Access PIN', 'Emergency access'] as const) {
+        fireEvent.click(groupTile(title))
+        expect(screen.getByRole('heading', { level: 1, name: 'Find a patient' })).toBeTruthy()
+        expect(address()).toBe('/provider/patients')
+        expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+      }
+      // The late "allowed" answer opens the patient Find asked for; the PIN page never showed.
+      await act(async () => { answer(allowedLookup) })
+      expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
+      expect(address()).toBe('/provider/patients/open')
+      expect(addresses).not.toContain('/provider/patients/pin')
+      expect(addresses).not.toContain('/provider/emergency')
+      expect(api.verifyPin).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('on the open patient’s page', () => {
+    it('under direct care, offers Emergency access to a role that may use it, handing the Health ID over in memory', async () => {
+      atDemoHospital()
+      staff.permissions = [...WITH_ACCESS]
+      staff.activePatient = activePatient()
+      openTracked('/open')
+      expect(nextSteps()).toEqual(['Register a walk-in visit', 'Ask for more access', 'Emergency access'])
+      const step = screen.getByRole('button', { name: /^Emergency access/ }) as HTMLButtonElement
+      expect(step.disabled).toBe(false)
+      fireEvent.click(step)
+      expect(address()).toBe('/provider/emergency')
+      expect(offeredHealthId(DEMO_HOSPITAL_ID, staff.setActivePatient)).toBe(PATIENT_HID)
+      expectNoHealthIdInAnyAddress()
+    })
+
+    it('under direct care, offers no emergency step without identity.break-glass.write, and hands nothing over', () => {
+      atDemoHospital()
+      staff.permissions = [...ALL, 'identity.patient-access-pin.verify']
+      staff.activePatient = activePatient()
+      openTracked('/open')
+      expect(nextSteps()).toEqual(['Register a walk-in visit', 'Ask for more access'])
+      expect(screen.queryByRole('button', { name: /^Emergency access/ })).toBeNull()
+      expect(offeredHealthId(DEMO_HOSPITAL_ID, staff.setActivePatient)).toBe('')
+    })
+
+    it('under direct care at a real facility, offers no emergency step even to a role that may use it', async () => {
+      // Today's portal offers break-glass only from Patients' Obtain access, never on an open record.
+      staff.permissions = [...WITH_ACCESS]
+      staff.activePatient = activePatient()
+      openTracked('/open')
+      expect(nextSteps()).toEqual(['Ask for more access'])
+      expect(screen.queryByRole('button', { name: /^Emergency access/ })).toBeNull()
+      await settle()
+    })
+
+    it('under emergency access, Use their Access PIN opens the PIN page with the Health ID, never in the address', () => {
+      atDemoHospital()
+      staff.permissions = [...WITH_ACCESS]
+      staff.activePatient = activePatient('emergency')
+      openTracked('/open')
+      expect(nextSteps()).toEqual(['Use their Access PIN', 'Ask the patient'])
+      for (const name of [/^Use their Access PIN/, /^Ask the patient/]) {
+        const button = screen.getByRole('button', { name }) as HTMLButtonElement
+        expect(button.disabled).toBe(false)
+        expect(button.getAttribute('aria-describedby')).toBeNull()
+      }
+      fireEvent.click(screen.getByRole('button', { name: /^Use their Access PIN/ }))
+      expect(screen.getByRole('heading', { level: 1, name: 'Use the patient’s Access PIN' })).toBeTruthy()
+      expect(address()).toBe('/provider/patients/pin')
+      expect((screen.getByLabelText(labelled('Health ID')) as HTMLInputElement).value).toBe(PATIENT_HID)
+      expect(api.verifyPin).not.toHaveBeenCalled()
+      expectNoHealthIdInAnyAddress()
+    })
+
+    it('under emergency access, Ask the patient opens the request form with the Health ID, never in the address', () => {
+      staff.permissions = [...WITH_ACCESS]
+      staff.activePatient = activePatient('emergency')
+      openTracked('/open')
+      fireEvent.click(screen.getByRole('button', { name: /^Ask the patient/ }))
+      expect(address()).toBe('/provider/requests/new')
+      expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
+      expectNoHealthIdInAnyAddress()
+    })
+
+    it('under emergency access, without the permissions, shows both turned off with today’s reasons and hands nothing over', () => {
+      staff.permissions = ['identity.patient.read']
+      staff.activePatient = activePatient('emergency')
+      openTracked('/open')
+      const pin = screen.getByRole('button', { name: /^Use their Access PIN/ }) as HTMLButtonElement
+      const request = screen.getByRole('button', { name: /^Ask the patient/ }) as HTMLButtonElement
+      expect(pin.disabled).toBe(true)
+      expect(describedBy(pin)).toBe(PIN_UNAVAILABLE)
+      expect(request.disabled).toBe(true)
+      expect(describedBy(request)).toBe(REQUEST_UNAVAILABLE)
+      fireEvent.click(pin)
+      fireEvent.click(request)
+      expect(address()).toBe('/provider/patients/open')
+      expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+    })
+
+    it.each([['direct-care'], ['emergency']] as const)('under %s, reads nothing more for the new steps than without them', async purpose => {
+      atDemoHospital()
+      staff.activePatient = activePatient(purpose)
+      const without = openTracked('/open')
+      await settle()
+      const before = reads()
+      without.unmount()
+      vi.clearAllMocks()
+      staff.permissions = [...WITH_ACCESS]
+      openTracked('/open')
+      await settle()
+      expect(nextSteps()).toContain(purpose === 'emergency' ? 'Use their Access PIN' : 'Emergency access')
+      expect(reads()).toEqual(before)
+    })
+  })
+
+  describe('on the PIN page', () => {
+    it('says that no demo patient has a PIN yet and how one gets one, at a demo facility only, and reads nothing', async () => {
+      const real = openTracked('/pin')
+      expect(screen.getByRole('heading', { level: 1, name: 'Use the patient’s Access PIN' })).toBeTruthy()
+      expect(screen.queryByText(DEMO_PIN_NOTE)).toBeNull()
+      // No part of the note, whatever its wording: nothing names a demo patient or the demo login at a real facility.
+      expect(document.body.textContent).not.toMatch(/demo patient|demo login|Patients? (One|Two|Three)/i)
+      real.unmount()
+      atDemoHospital()
+      openTracked('/pin')
+      const note = screen.getByText(DEMO_PIN_NOTE)
+      const hidField = screen.getByLabelText(labelled('Health ID'))
+      // In the form's card, after the page's sentence on who knows the PIN and before the fields.
+      expect(screen.getByText('Ask the patient to type their PIN. Only they should know it.').compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(note.closest('form')).toBe(hidField.closest('form'))
+      expect(note.compareDocumentPosition(hidField) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      await settle()
+      for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled()
+    })
   })
 })
