@@ -28,7 +28,9 @@ async function findAPatientOn(host: string, permissions: readonly string[]) {
   const current = facility(REAL_FACILITY, 'Riverside Clinic (fictional)', permissions)
   serve({ [SESSION]: [sessionAt(current, [current])] })
   await openStaffApp('/provider/patients')
-  return screen.findByRole('heading', { name: 'Find a patient' })
+  // The first case loads the real app's lazy pages cold: on a busy runner that can take longer than the ten seconds
+  // vitest.setup.ts gives an element, so this one wait has most of the test's 30 s (vitest.config.ts).
+  return screen.findByRole('heading', { name: 'Find a patient' }, { timeout: 25000 })
 }
 
 describe('Register a patient on a product’s site', () => {
