@@ -165,9 +165,11 @@ describe('at a clinic, on the real registry', () => {
 describe('the Start menu', () => {
   beforeEach(() => { withFramePages() })
 
-  // Registration stays in the EHR only. A single product's site draws no Start menu, so listing Patients and Access
-  // requests there brings no "Register a patient" with it, even to a session that holds registration's permissions.
-  it.each(SITES)('is not drawn on %s (%s), so nothing there offers Patient registration', async (_product, host, id, name, own) => {
+  // Registration stays in the EHR only. A single product's site draws no Start menu, and its sidebar lists no Patient
+  // registration, so the frame adds no way to registration there, even for a session that holds registration's
+  // permissions. This checks only the frame. The Patients page's own "Register a patient" button
+  // (clinical/PatientsWorkspace.tsx, Ola's lane) still shows on product sites and must be hidden before #78 merges.
+  it.each(SITES)('draws no Start menu on %s (%s), and its sidebar lists no Patient registration', async (_product, host, id, name, own) => {
     await openOn(host, id, name, [own, ...FIND_AND_ASK, ...EHR_ONLY])
     expect(listedInMenu('Patients')).toBe(true)
     expect(screen.queryByRole('button', { name: 'Start' })).toBeNull()
