@@ -27,13 +27,18 @@ export const SWITCH_ENTRY = '/provider'
  * A page address a switch may come back to: /provider, or a page under it named by at most two lower-case words
  * joined by single hyphens (/provider/patients, /provider/laboratory/work, /provider/in-person-check). Nothing else:
  * no host, scheme, query, fragment, dot segment, backslash, percent escape, upper case or trailing slash, and no
- * digit, so no record id (a UUID always holds one) and no Health ID.
+ * digit, so no record id (a UUID always holds one).
  */
 const BACK_PATH = /^\/provider(?:\/[a-z]+(?:-[a-z]+)*){0,2}$/
 const BACK_PATH_MAX = 64
+/**
+ * A Health ID may be letters only (HID-ABCDEFGH: @hid/contracts HEALTH_ID_PATTERN), which the words above would take
+ * once lower-cased. No part of the address may start as one does, whatever follows.
+ */
+const HEALTH_ID_PART = /\/hid-/
 
 export function isSwitchBackPath(path: unknown): path is string {
-  return typeof path === 'string' && path.length <= BACK_PATH_MAX && BACK_PATH.test(path)
+  return typeof path === 'string' && path.length <= BACK_PATH_MAX && BACK_PATH.test(path) && !HEALTH_ID_PART.test(path)
 }
 
 function isStaffSite(key: string): key is StaffProductKey {

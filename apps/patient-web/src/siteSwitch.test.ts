@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { HEALTH_ID_PATTERN } from '@hid/contracts'
 import { siteHref, siteOf, type Site } from './productSites'
 
 /**
@@ -35,6 +36,8 @@ const BAD_BACK_PATHS = [
   '/provider//patients', '/Provider/patients', '/provider/Patients', '/provider/patients ', ' /provider/patients',
   '/provider/patients\n', '/provider/pat\u0000ients', '/provider/@evil.example', '/provider/patients\\x',
   '/provider/clinical/HID-ABCDEF23', '/provider/clinical/b1000000-0000-4000-8000-00000000a7c3',
+  // A Health ID of letters only (HID-ABCDEFGH fits HEALTH_ID_PATTERN), lower-cased, anywhere in the address.
+  '/provider/clinical/hid-abcdefgh', '/provider/hid-abcdefgh', '/provider/hid-abcdefghjkmn/patients', '/provider/patients/hid-abc',
   '/provider/requests/7', '/provider/laboratory/work/item-1', '/provider/a/b/c', '/provider/-patients', '/provider/patients-',
   '/provider/in--person', '/records', '/admin/overview', '/', '', `/provider/${'a'.repeat(60)}`,
 ]
@@ -49,6 +52,18 @@ describe('isSwitchBackPath', () => {
   it.each(BAD_BACK_PATHS)('refuses %j', async path => {
     const { isSwitchBackPath } = await loadAt(`https://${EHR}/provider`)
     expect(isSwitchBackPath(path)).toBe(false)
+  })
+
+  it('refuses a Health ID made of letters only, which the words alone would take', async () => {
+    const { isSwitchBackPath } = await loadAt(`https://${EHR}/provider`)
+    // Real Health IDs by the contract's own pattern: without a digit, the lower-case words would let them through.
+    for (const healthId of ['HID-ABCDEFGH', 'HID-ABCDEFGHJKMN']) {
+      expect(HEALTH_ID_PATTERN.test(healthId)).toBe(true)
+      expect(isSwitchBackPath(`/provider/clinical/${healthId.toLowerCase()}`)).toBe(false)
+      expect(isSwitchBackPath(`/provider/${healthId.toLowerCase()}`)).toBe(false)
+    }
+    // A word that only starts with the same letters is not one.
+    expect(isSwitchBackPath('/provider/hidden')).toBe(true)
   })
 
   it('refuses anything that is not a string', async () => {
