@@ -56,6 +56,16 @@ Public forms require the Identity service's exact `www.staging` origin and
 Turnstile public actions; the portal rollouts do not depend on that added public
 host. Complete those scoped backend changes before deploying the public website.
 
+Each product site (`ehr`, `lab`, `pharmacy`, `migrate`, `outreach`) answers its
+`/` with its landing page from the public site, through a service binding,
+`PUBLIC_SITE`, to the public site's Worker (`hid-public-staging`), which
+`prepare-staging-workers.py` declares. The public site's Worker must exist when
+a product site is uploaded; it is never deleted. A product site whose binding
+is missing answers its `/` with a plain "not available right now" page and
+keeps every other address. After deploying, check that each product site's `/`
+shows its landing page with its own canonical address, and that the public
+site's `/products/<slug>` answers 308 to that product site.
+
 ## Developer handoff
 
 The supplied new patient UI does not render the `importedRecords` response from

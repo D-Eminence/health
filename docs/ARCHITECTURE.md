@@ -997,6 +997,22 @@ exactly as hid-system's `infra/cloudflare/src/frontend-worker.mjs` names them,
 the `ocr` hosts, hid-system's legacy redirects to `migrate`, are not mapped. The
 Vite dev and preview servers answer the same hosts.
 
+Since 2026-11-01 (owner: every product is its own site, with its own landing
+page) the edge answers a product host's `/` itself, before the portal sees it:
+on `ehr`, `lab`, `pharmacy`, `migrate` and `outreach` it is that product's page
+from the public site (`/products/<slug>`), fetched from the public site's Worker
+through the `PUBLIC_SITE` service binding, with its links rewritten for the
+product site, its canonical address set to the product site's `/`, and the
+public site's own static files it loads (`/_next/static/`, `/brand/`,
+`/icon.png`, `/apple-icon.png`) served through the same binding wherever the
+product site has no file of its own. The public site answers `/products/<slug>`
+for those five with a 308 to the product site, and its own product links point
+there (`PRODUCT_SITE_SUBDOMAINS` in `apps/public-web/content/site.ts`). The
+gate above still sends a `/` the portal itself navigates to (in the browser) to
+the workspace; every `/provider` address is unchanged, and the patient portal's
+and the admin site's `/` are their own. Without its binding, a product site's
+`/` is a plain page saying it is not available right now, with a sign-in link.
+
 The backend's current Turnstile service permits all three general login
 actions (`patient-login`, `staff-login`, `admin-login`) together, and
 enrollment and patient and staff recovery, only on
