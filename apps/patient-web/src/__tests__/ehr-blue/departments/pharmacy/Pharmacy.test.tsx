@@ -84,11 +84,11 @@ function renderRecord(item: PharmacyWorkItem, permissions: readonly string[], pr
 }
 
 describe('the page entry', () => {
-  it('is listed live in the Pharmacy group for members who read pharmacy work, and says today’s refusal to others', () => {
+  it('is listed live in the Pharmacy group for members who read pharmacy work, and says today’s refusal to others in plain words', () => {
     expect(pharmacyPage).toMatchObject({ path: 'pharmacy/prescriptions/*', group: 'Pharmacy', label: 'Prescriptions', permission: READ, status: 'live' })
     renderDept(<>{pharmacyPage.refusal}</>)
     expect(screen.getByRole('heading', { level: 1, name: 'Pharmacy unavailable' })).toBeTruthy()
-    expect(screen.getByText('This facility membership needs pharmacy work-item read permission.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.')).toBeTruthy()
   })
 })
 
@@ -174,6 +174,33 @@ describe('the queue', () => {
     api.pharmacyWorkItems.mockResolvedValue({ items: [{ ...accepted, frequency: null }] })
     await renderList()
     expect(within(row(AMOXICILLIN)).getByText('Can’t dispense: dose missing')).toBeTruthy()
+  })
+
+  it('marks a dose given without its unit, or a unit without its dose', async () => {
+    api.pharmacyWorkItems.mockResolvedValue({ items: [{ ...accepted, doseUnit: null },
+      { ...otherFacilityItem, doseQuantity: null }] })
+    await renderList()
+    expect(within(row(AMOXICILLIN)).getByText('Can’t dispense: dose missing')).toBeTruthy()
+    expect(within(row(IBUPROFEN)).getByText('Can’t dispense: dose missing')).toBeTruthy()
+    // A unit without its dose: "Dose not recorded" is the problem, so it is drawn as a warning.
+    expect(within(row(IBUPROFEN)).getByText('Dose not recorded').className).toContain('text-warn-ink')
+  })
+
+  it('does not mark a prescription saved with no dose and no unit (a cream, or “as directed”), and keeps it in its turn', async () => {
+    const cream: PharmacyWorkItem = { ...accepted, id: 'f6a7b8c9-work-item-6', acceptedAt: '2026-10-08T08:00:00.000Z',
+      medication: { display: 'Hydrocortisone 1% cream' }, doseQuantity: null, doseUnit: null, routeCode: 'topical',
+      frequency: 'Twice daily', instructions: 'Apply thinly to the rash' }
+    api.pharmacyWorkItems.mockResolvedValue({ items: [accepted, cream] })
+    await renderList()
+    const card = row('Hydrocortisone 1% cream')
+    // As classic said it: the dose is not recorded, which is no reason to stop the counter.
+    expect(card.textContent).toContain('Dose not recorded · Twice daily')
+    expect(within(card).queryByText('Can’t dispense: dose missing')).toBeNull()
+    // Nor drawn as a warning: that colour marks a prescription that can't be dispensed.
+    expect(within(card).getByText('Dose not recorded').className).not.toContain('text-warn-ink')
+    // Accepted first, so first in the queue.
+    const list = screen.getByRole('list', { name: 'Prescriptions' })
+    expect(within(list).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['Hydrocortisone 1% cream', AMOXICILLIN])
   })
 
   it('makes each card one real button named by its medicine and described by the rest', async () => {

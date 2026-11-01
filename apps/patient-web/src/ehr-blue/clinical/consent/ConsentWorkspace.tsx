@@ -61,7 +61,7 @@ function RequestList() {
   return (
     <div className="flex flex-col gap-6">
       {/* One primary: ask a patient. The PIN is the quieter second way in. */}
-      <PageHeader title={TITLE} description="The requests you sent to patients from this facility."
+      <PageHeader title={TITLE} description="The requests you sent to patients from this facility. A pending request never grants record access."
         actions={can('identity.consent.write') || can('identity.patient-access-pin.verify') ? <>
           {can('identity.patient-access-pin.verify') ? <Button to={href('pin')} icon={KeyRound}>Use an Access PIN</Button> : null}
           {can('identity.consent.write') ? <Button to={href('new')} variant="primary" icon={Send}>Ask a patient</Button> : null}
