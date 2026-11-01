@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EmergencyWorkspace } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
+import { TONE_OUTLINE } from '../../../kasuwa/ui'
 import { FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, renderPage } from './harness'
 
 /**
@@ -406,6 +407,20 @@ describe('the emergency summary shows every section EHR returns that the role ma
     expect(within(entry('Lab tests', 'Malaria smear')).getByText('Draft')).toBeTruthy()
   })
 
+  it('gives each order status today’s tone: active success, on hold a warning, draft information (Clinical.tsx:1006-1013)', async () => {
+    api.emergencyRecords.mockResolvedValue(summary({ prescriptions: [
+      prescription('prescription-3', 'Artesunate', 'active'),
+      prescription('prescription-5', 'Ceftriaxone', 'on_hold'),
+      prescription('prescription-1', 'Paracetamol', 'cancelled'),
+    ] }))
+    await renderSummary()
+    const badge = (sectionName: string, name: string, status: string) => within(entry(sectionName, name)).getByText(status)
+    expect(badge('Prescriptions', 'Artesunate', 'Active').className).toContain(TONE_OUTLINE.success)
+    expect(badge('Prescriptions', 'Ceftriaxone', 'On hold').className).toContain(TONE_OUTLINE.warn)
+    expect(badge('Prescriptions', 'Paracetamol', 'Cancelled').className).toContain(TONE_OUTLINE.neutral)
+    expect(badge('Lab tests', 'Malaria smear', 'Draft').className).toContain(TONE_OUTLINE.info)
+  })
+
   it('says a lab test entered in error is not this patient’s', async () => {
     api.emergencyRecords.mockResolvedValue(summary({ labRequests: [labRequest('lab-9', 'Wrong test', 'entered_in_error')] }))
     await renderSummary()
@@ -588,6 +603,30 @@ describe('released Lab results in the emergency summary', () => {
     expect(within(request).getByRole('button', { name: 'Hide results' }).getAttribute('aria-expanded')).toBe('true')
     await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Refresh' })) })
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps Refresh focusable while the results are read again, says it is busy, and a press then reads nothing (Clinical.tsx:930-931)', async () => {
+    staff.permissions = [...EVERY_READ, 'lab.result.released.read']
+    api.labReleasedResultsForOrder.mockResolvedValue(released())
+    await renderSummary()
+    const request = entry('Lab tests', 'Haemoglobin')
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
+    await within(request).findByText('No results released yet.')
+    let answer: (value: unknown) => void = () => {}
+    api.labReleasedResultsForOrder.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    const refresh = within(request).getByRole('button', { name: 'Refresh' }) as HTMLButtonElement
+    refresh.focus()
+    await act(async () => { fireEvent.click(refresh) })
+    await waitFor(() => expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2))
+    expect(refresh.getAttribute('aria-disabled')).toBe('true')
+    expect(refresh.disabled).toBe(false)
+    expect(document.activeElement).toBe(refresh)
+    await act(async () => { fireEvent.click(refresh) })
+    expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2)
+    await act(async () => { answer(released()) })
+    expect(await within(request).findByText('No results released yet.')).toBeTruthy()
+    expect(refresh.getAttribute('aria-disabled')).toBeNull()
+    expect(document.activeElement).toBe(refresh)
   })
 
   it('shows each released result and its versions, with the flag in words, and one marked entered in error', async () => {

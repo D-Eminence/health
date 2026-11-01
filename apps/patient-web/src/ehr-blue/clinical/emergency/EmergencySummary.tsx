@@ -1,7 +1,7 @@
 import { RotateCcw, Siren, UserSearch } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { FormPage, LoadingRows, PatientBanner, Value } from '../../../kasuwa/parts'
-import { Alert, Badge, Button, Card, CardHeader, EmptyState } from '../../../kasuwa/ui'
+import { Alert, Badge, Button, Card, CardHeader, EmptyState, type Tone } from '../../../kasuwa/ui'
 import { usesNovuBackend } from '../../../backendContract'
 import { staffApi, type EmergencyRecords, type EmergencySection } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
@@ -22,14 +22,15 @@ export const LOADING_SUMMARY = 'Loading emergency summary'
 // What EHR's emergency summary sends of each section at most (Clinical.tsx EMERGENCY_CAPS).
 const EMERGENCY_CAPS = { encounters: 50, notes: 50, diagnoses: 100, prescriptions: 100, labRequests: 100, documents: 100 } as const
 
-// Prescription and lab request statuses (EHR OrderStatus), what is current first (Clinical.tsx ORDER_STATUSES).
-const ORDER_STATUSES: Readonly<Record<string, { readonly label: string; readonly rank: number }>> = {
-  active: { label: 'Active', rank: 0 },
-  on_hold: { label: 'On hold', rank: 1 },
-  draft: { label: 'Draft', rank: 2 },
-  completed: { label: 'Completed', rank: 3 },
-  cancelled: { label: 'Cancelled', rank: 4 },
-  entered_in_error: { label: 'Entered in error', rank: 5 },
+// Prescription and lab request statuses (EHR OrderStatus), what is current first, each with today's tone
+// (Clinical.tsx:1006-1013 ORDER_STATUSES).
+const ORDER_STATUSES: Readonly<Record<string, { readonly label: string; readonly tone: Tone; readonly rank: number }>> = {
+  active: { label: 'Active', tone: 'success', rank: 0 },
+  on_hold: { label: 'On hold', tone: 'warn', rank: 1 },
+  draft: { label: 'Draft', tone: 'info', rank: 2 },
+  completed: { label: 'Completed', tone: 'neutral', rank: 3 },
+  cancelled: { label: 'Cancelled', tone: 'neutral', rank: 4 },
+  entered_in_error: { label: 'Entered in error', tone: 'danger', rank: 5 },
 }
 
 function orderRank(status: string) { return ORDER_STATUSES[status]?.rank ?? 3 }
@@ -76,9 +77,11 @@ function ErrorBadge() {
   return <Badge size="sm" tone="danger" solid>Entered in error</Badge>
 }
 
+/** An order's status in today's tone (Clinical.tsx:1047-1050 OrderStatus); entered in error as every other here. */
 function OrderStatus({ status }: { status: string }) {
   if (status === 'entered_in_error') return <ErrorBadge />
-  return <Badge size="sm" tone={status === 'active' ? 'success' : 'neutral'}>{ORDER_STATUSES[status]?.label ?? words(status)}</Badge>
+  const known = ORDER_STATUSES[status]
+  return <Badge size="sm" tone={known?.tone ?? 'neutral'}>{known?.label ?? words(status)}</Badge>
 }
 
 /**
