@@ -15,6 +15,7 @@ import {
 /** Today always asks for 60 minutes, so 60 is the default; the person may choose less (the design's 1 to 60). */
 export const DEFAULT_MINUTES = '60'
 export const DURATION_PROBLEM = 'Enter a number of minutes from 1 to 60.'
+export const REQUEST_TITLE = 'Ask the patient for access'
 export const REASON_PROBLEM = 'Say why in at least 8 characters.'
 
 function text(values: FormValues, key: string): string {
@@ -113,7 +114,7 @@ export function RequestAccess() {
   const describe = (key: Key, hint?: boolean) => [errors[key] ? `${id}-${key}-error` : hint ? `${id}-${key}-hint` : ''].filter(Boolean).join(' ') || undefined
 
   return (
-    <FormPage title="Ask the patient for access" description="They approve on their phone. You see nothing until they do."
+    <FormPage title={REQUEST_TITLE} description="They approve on their phone. You see nothing until they do."
       back={{ to: href(), label: 'Back to access requests' }}>
       <Card>
         <form noValidate className="flex flex-col gap-5 p-5" onSubmit={event => void submit(event)}>

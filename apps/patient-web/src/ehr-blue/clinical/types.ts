@@ -10,6 +10,8 @@ import type { ReactElement, ReactNode } from 'react'
  * - `permission`: shown only to an actor with this permission at the facility (the one today's page checks).
  * - `status`: `live`, fully on today's Health ID API; `partial`, some parts on today's API and the rest sample;
  *   `sample`, no backend yet (in memory only, fictional, nothing saved).
+ * - `refusal`: what the page's address shows when the permission turns the page down, in today's words; it stands in
+ *   for the page, so it reads nothing. Left out, the frame sends the person Home with its own notice.
  */
 export type EhrBluePageStatus = 'live' | 'partial' | 'sample'
 
@@ -21,4 +23,5 @@ export type EhrBluePage = {
   permission?: string
   status: 'live' | 'partial' | 'sample'
   element: ReactElement
+  refusal?: ReactElement
 }
