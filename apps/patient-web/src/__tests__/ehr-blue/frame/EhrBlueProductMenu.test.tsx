@@ -162,6 +162,33 @@ describe('at a clinic, on the real registry', () => {
   })
 })
 
+describe('the Start menu', () => {
+  beforeEach(() => { withFramePages() })
+
+  // Registration stays in the EHR only. A single product's site draws no Start menu, so listing Patients and Access
+  // requests there brings no "Register a patient" with it, even to a session that holds registration's permissions.
+  it.each(SITES)('is not drawn on %s (%s), so nothing there offers Patient registration', async (_product, host, id, name, own) => {
+    await openOn(host, id, name, [own, ...FIND_AND_ASK, ...EHR_ONLY])
+    expect(listedInMenu('Patients')).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Start' })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'Start' })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/Register a patient/)
+    // The frame's own menu offers no way there either. (What's left, the demo review page open below it, lists every
+    // page, so the check stays on the menu.)
+    expect(within(nav()).queryByRole('link', { name: /registration/i })).toBeNull()
+    expect(nav().querySelector('a[href="/provider/registration"]')).toBeNull()
+  })
+
+  it('at a hospital still offers finding, registering and asking a patient for access', async () => {
+    await openOn('ehr.healthidentitydirectory.com', DEMO_HOSPITAL, 'Demo Hospital', [...FIND_AND_ASK, ...EHR_ONLY])
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+    const start = screen.getByRole('dialog', { name: 'Start' })
+    expect(within(start).getAllByRole('link').map(link => link.getAttribute('href')))
+      .toEqual(['/provider/patients', '/provider/registration', '/provider/requests'])
+    expect(within(start).getByRole('link', { name: /^Ask a patient for access/ })).toBeTruthy()
+  })
+})
+
 describe('the EHR’s menu at a hospital', () => {
   beforeEach(() => { withFramePages() })
 
