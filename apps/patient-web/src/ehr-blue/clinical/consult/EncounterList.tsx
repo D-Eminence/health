@@ -5,11 +5,11 @@ import { staffApi, type Encounter, type OrderRouteKind } from '../../../staff/ap
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
 import { formatWhen, statusLabel } from '../parts/format'
-import { Banner, ErrorBox, ListHeading, Loading } from '../parts/Notices'
+import { ErrorBox, ListHeading, Loading } from '../parts/Notices'
 import { Pager, RecordTable, SearchField, type RecordRow } from '../parts/RecordTable'
 import { useWorkspaceHref } from '../parts/Workspace'
 import {
-  FIRST_PAGE, NO_COMPLAINT, NO_ENCOUNTERS, RESTARTED, TITLE, encounterTitle, encounterTypeLabel, readPage, useLatest, type Cursors,
+  FIRST_PAGE, NEW_TITLE, NO_COMPLAINT, NO_ENCOUNTERS, RESTARTED, TITLE, encounterTitle, encounterTypeLabel, readPage, useLatest, type Cursors,
 } from './encounters'
 import { orderPath, type OrderKind } from './orders'
 import { TodaySections } from './TodaySections'
@@ -22,7 +22,7 @@ export function EncounterList() {
   const chart = useChart()
   const linked = useLinkedOrder(chart)
   if (linked) return <OpenLinkedOrder to={linked} />
-  if (chart && chart.purpose === 'direct-care') return <Encounters chart={chart} />
+  if (chart && chart.purpose === 'direct-care') return <ChartGate>{open => <Encounters chart={open} />}</ChartGate>
   return (
     <>
       <ListHeading title={TITLE} />
@@ -52,6 +52,8 @@ function useLinkedOrder(chart: Chart | null): string | null {
   const { patientId, encounterId, kind, orderId } = value as Record<string, unknown>
   if (patientId !== chart.patientId || !isRecordId(encounterId) || !isRecordId(orderId)) return null
   if (kind !== 'lab_request' && kind !== 'prescription') return null
+  // Only a role that may read that kind of order is sent to its page.
+  if (!chart.can(kind === 'lab_request' ? 'ehr.lab-request.read' : 'ehr.prescription.read')) return null
   return href(orderPath(encounterId, LINKED_KINDS[kind], orderId))
 }
 
@@ -80,15 +82,14 @@ function Encounters({ chart }: { chart: Chart }) {
   const [notice, setNotice] = useState<Notice | null>(null)
   const [search, setSearch] = useState('')
   const sequence = useRef(0)
-  const shown = useLatest(position.cursors)
 
-  const load = useCallback(async (request: { cursors?: Cursors; fresh?: boolean; paging?: boolean } = {}) => {
+  const load = useCallback(async (request: { cursors: Cursors; fresh?: boolean; paging?: boolean }) => {
     const run = ++sequence.current
     setLoading(true)
     if (request.paging) setNotice(null)
     try {
       await verify.current()
-      const result = await readPage((cursor, fresh) => staffApi.encounters(facilityId, patientId, { cursor, fresh }), request.cursors ?? shown.current, request.fresh ?? false)
+      const result = await readPage((cursor, fresh) => staffApi.encounters(facilityId, patientId, { cursor, fresh }), request.cursors, request.fresh ?? false)
       if (run !== sequence.current) return
       setRows(result.page.items.filter(item => item.patientId === patientId && item.facilityId === facilityId))
       setPosition({ cursors: result.cursors, next: result.page.nextCursor ?? null })
@@ -97,11 +98,11 @@ function Encounters({ chart }: { chart: Chart }) {
     } catch (caught) {
       if (run !== sequence.current) return
       if (request.paging) setNotice({ text: `The page could not be loaded. ${refusalText(caught, '')}`.trim(), alert: true })
-      else setError(refusalText(caught, 'Encounters could not be loaded.'))
+      else setError(refusalText(caught, 'Consultations could not be loaded.'))
     } finally {
       if (run === sequence.current) setLoading(false)
     }
-  }, [facilityId, patientId, shown, verify])
+  }, [facilityId, patientId, verify])
 
   useEffect(() => {
     void load({ cursors: FIRST_PAGE })
@@ -111,16 +112,18 @@ function Encounters({ chart }: { chart: Chart }) {
   const tableRows = useMemo<RecordRow[]>(() => (rows ?? []).map(encounter => ({
     id: encounter.id,
     name: encounterTitle(encounter),
-    context: chart.facts.name,
+    // One patient's chart: the row says what the visit was for, not the patient's name again.
+    context: encounter.chiefComplaint || NO_COMPLAINT,
+    contextSub: encounterTypeLabel(encounter.encounterType),
     status: encounter.status,
     updated: encounter.startedAt,
     details: [
-      { label: 'Encounter type', value: encounterTypeLabel(encounter.encounterType) },
+      { label: 'Type of visit', value: encounterTypeLabel(encounter.encounterType) },
       { label: 'Complaint', value: encounter.chiefComplaint || NO_COMPLAINT },
       { label: 'Status', value: statusLabel(encounter.status) },
       { label: 'Started', value: formatWhen(encounter.startedAt) },
     ],
-  })), [chart.facts.name, rows])
+  })), [rows])
 
   const filtered = useMemo(() => {
     const words = search.trim().toLowerCase()
@@ -137,15 +140,10 @@ function Encounters({ chart }: { chart: Chart }) {
     <>
       <EhrPageHeading
         title={TITLE}
-        // The design's order: "Create record" first, then "Refresh encounters" (the heading draws its secondary actions first).
-        secondaryActions={(
-          <>
-            {canCreate ? <EhrButton onClick={() => navigate(href('new'))}>Create record</EhrButton> : null}
-            <EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void load({ fresh: true }) }}>Refresh encounters</EhrButton>
-          </>
-        )}
+        // One primary: "New consultation" (only when changes are allowed; read-only offers no dead end). Refresh is secondary.
+        primaryAction={canCreate ? <EhrButton onClick={() => navigate(href('new'))}>{NEW_TITLE}</EhrButton> : undefined}
+        secondaryActions={<EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void load({ cursors, fresh: true }) }}>Refresh</EhrButton>}
       />
-      {chart.writeNotice ? <Banner tone="warning" title="Changes are unavailable">{chart.writeNotice}</Banner> : null}
       <EhrCard>
         <SearchField label={`Search ${TITLE}`} value={search} onChange={setSearch} />
         {notice ? (
@@ -160,9 +158,10 @@ function Encounters({ chart }: { chart: Chart }) {
           />
         ) : null}
         {error ? <ErrorBox>{error}</ErrorBox> : null}
-        {rows === null ? (loading ? <Loading label="Loading encounters…" /> : null) : (
+        {rows === null ? (loading ? <Loading label="Loading consultations…" /> : null) : (
           <RecordTable
-            caption="Encounters"
+            caption="Consultations"
+            contextHeader="Complaint"
             rows={filtered}
             hrefFor={row => href(row.id)}
             emptyMessage={rows.length === 0 ? NO_ENCOUNTERS : 'Change your search.'}

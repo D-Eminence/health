@@ -102,6 +102,12 @@
   width: 100%;
 }
 
+/* The design's Status: Online is as wide as its words. */
+.hid-ehr .hid-ehr-blue-menu .hid-ehr-button.hid-ehr-blue-menu-status {
+  align-self: flex-start;
+  width: auto;
+}
+
 .hid-ehr .hid-ehr-blue-roles {
   display: flex;
   flex-direction: column;
@@ -199,7 +205,6 @@
 
 .hid-ehr .hid-ehr-blue-worklink:focus-visible,
 .hid-ehr .hid-ehr-blue-link:focus-visible,
-.hid-ehr .hid-ehr-blue-result:focus-visible,
 .hid-ehr .hid-ehr-blue-check-input:focus-visible {
   outline: var(--ehr-focus-ring-width) solid var(--ehr-focus-ring-color);
   outline-offset: var(--ehr-focus-ring-offset);
@@ -229,6 +234,7 @@
 .hid-ehr .hid-ehr-blue-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 24px;
 }
 
@@ -242,15 +248,45 @@
 .hid-ehr .hid-ehr-blue-grid .hid-ehr-card,
 .hid-ehr .hid-ehr-blue-column .hid-ehr-card {
   padding: 24px;
-  border: 1px solid var(--ehr-tab-rule);
-  border-radius: 12px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 16px;
+}
+
+/* Needs attention: the home's one warm card, so a waiting decision is the first thing seen. */
+.hid-ehr .hid-ehr-blue-grid .hid-ehr-card.hid-ehr-blue-attention {
+  border-color: #fcd9a5;
+  background: #fffaf0;
+}
+
+.hid-ehr .hid-ehr-blue-attention .hid-ehr-card-title::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin: 0 10px 2px 0;
+  border-radius: 50%;
+  background: var(--ehr-caution);
+  box-shadow: 0 0 0 4px #fdead2;
+}
+
+.hid-ehr .hid-ehr-blue-attention .hid-ehr-blue-list-item + .hid-ehr-blue-list-item {
+  border-top-color: #f8e3c2;
+}
+
+.hid-ehr .hid-ehr-blue-attention .hid-ehr-blue-worklink strong {
+  font-size: 15px;
+}
+
+.hid-ehr .hid-ehr-blue-activity-section {
+  display: grid;
+  gap: 16px;
 }
 
 .hid-ehr .hid-ehr-blue-section-title {
   margin: 0;
   color: var(--ehr-ink);
-  font-size: 18px;
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .hid-ehr .hid-ehr-blue-list {
@@ -267,7 +303,7 @@
 }
 
 .hid-ehr .hid-ehr-blue-list-item + .hid-ehr-blue-list-item {
-  border-top: 1px solid var(--ehr-tab-rule);
+  border-top: 1px solid var(--ehr-line);
 }
 
 .hid-ehr .hid-ehr-blue-list-item p {
@@ -294,7 +330,7 @@
 
 .hid-ehr .hid-ehr-blue-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   gap: 16px;
 }
 
@@ -324,7 +360,7 @@
 
 .hid-ehr .hid-ehr-blue-facts dd {
   margin: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .hid-ehr .hid-ehr-blue-form-grid {
@@ -398,7 +434,7 @@
 
 .hid-ehr .hid-ehr-blue-details dd {
   margin: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   white-space: pre-wrap;
 }
 
@@ -449,12 +485,13 @@
 
 .hid-ehr .hid-ehr-blue-list-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 14px 0;
   border-bottom: 1px solid var(--ehr-line);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .hid-ehr .hid-ehr-blue-version {
@@ -502,55 +539,11 @@
   font-weight: 500;
 }
 
-.hid-ehr .hid-ehr-blue-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
 .hid-ehr .hid-ehr-blue-step {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-}
-
-.hid-ehr .hid-ehr-blue-results {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.hid-ehr .hid-ehr-blue-result {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px;
-  border: 1px solid var(--ehr-line);
-  border-radius: var(--ehr-radius-md);
-  color: var(--ehr-ink);
-  font-size: 13px;
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.hid-ehr .hid-ehr-blue-result:hover {
-  background: var(--ehr-surface-tint);
-}
-
-.hid-ehr .hid-ehr-blue-notice-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.hid-ehr .hid-ehr-blue-notice-item p {
-  margin: 0;
 }
 
 /* ---- Design tour ---------------------------------------------------------- */
@@ -575,7 +568,7 @@
   outline: none;
 }
 
-@media (max-width: 1000px) {
+@container (max-width: 760px) {
   .hid-ehr .hid-ehr-blue-tour {
     grid-template-columns: 1fr;
   }
@@ -649,10 +642,32 @@
   height: calc(100vh - 56px);
 }
 
-/* A drawer's scrim leaves the status bar undimmed, as the design's does: only where the page has the bar. */
+/* A drawer's dimming (the scrim's ::before, ehr.css) leaves the status bar undimmed, as the design's does: only where
+   the page has the bar. The clear scrim still covers the bar, so a press on it keeps focus in the drawer. */
 @media (min-width: 701px) {
-  .hid-ehr.hid-ehr-shell:has(.hid-ehr-blue-statusbar) .hid-ehr-scrim.hid-ehr-scrim-drawer {
+  .hid-ehr.hid-ehr-shell:has(.hid-ehr-blue-statusbar) .hid-ehr-scrim.hid-ehr-scrim-drawer::before {
     bottom: 56px;
+  }
+
+  /* The drawer ends above the status bar too, as the design's does, so the bar's chips stay in view. */
+  .hid-ehr.hid-ehr-shell:has(.hid-ehr-blue-statusbar) .hid-ehr-scrim.hid-ehr-scrim-drawer > .hid-ehr-drawer {
+    height: calc(100% - 56px);
+  }
+}
+
+/* Below the desktop width the Demo chip wraps anywhere in the top bar, so its panel opens under the whole bar (the
+   sticky bar is its containing block), inside the window, instead of under the chip and off the screen's edge. */
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-topbar .hid-ehr-popover:has(> .hid-ehr-blue-chip) {
+    position: static;
+  }
+
+  .hid-ehr .hid-ehr-topbar .hid-ehr-popover:has(> .hid-ehr-blue-chip) > .hid-ehr-popover-panel {
+    top: calc(100% + 4px);
+    left: 16px;
+    right: 16px;
+    width: auto;
+    max-width: none;
   }
 }
 
@@ -675,7 +690,7 @@
 .hid-ehr .hid-ehr-button.hid-ehr-blue-status-chip {
   min-height: 36px;
   padding: 6px 16px;
-  border-color: #b9d6ef;
+  border-color: var(--ehr-line-strong);
   border-radius: 24px;
   background: var(--ehr-surface);
   color: var(--ehr-muted);
@@ -698,15 +713,8 @@
   margin: 0 0 4px;
 }
 
-.hid-ehr .hid-ehr-blue-sync-item p,
-.hid-ehr .hid-ehr-blue-drawer-section {
+.hid-ehr .hid-ehr-blue-sync-item p {
   margin-top: 16px;
-}
-
-.hid-ehr .hid-ehr-blue-notification {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
 }
 
 /* ---- Choose your workspace (screens/admin/institutions.png) --------------- */
@@ -781,7 +789,8 @@
   min-width: 0;
 }
 
-@media (max-width: 1000px) {
+/* By the room the page gives its content (a size container), not the window: the sidebar takes 264px from 1024px. */
+@container (max-width: 760px) {
   .hid-ehr .hid-ehr-blue-grid,
   .hid-ehr .hid-ehr-blue-two-col {
     grid-template-columns: 1fr;
@@ -789,10 +798,6 @@
 }
 
 @media (max-width: 768px) {
-  .hid-ehr .hid-ehr-blue-form-grid {
-    grid-template-columns: 1fr;
-  }
-
   .hid-ehr .hid-ehr-blue-facility {
     white-space: normal;
   }
@@ -800,6 +805,12 @@
   .hid-ehr .hid-ehr-topbar-end .hid-ehr-button:not(.hid-ehr-popover-trigger):not(.hid-ehr-blue-chip) {
     padding: 8px;
     font-size: 11px;
+  }
+}
+
+@container (max-width: 600px) {
+  .hid-ehr .hid-ehr-blue-form-grid {
+    grid-template-columns: 1fr;
   }
 
   .hid-ehr .hid-ehr-blue-facts {
@@ -875,7 +886,7 @@
 .hid-ehr .hid-ehr-blue-callout {
   margin: 0 0 18px;
   padding: 16px 20px;
-  border-left: 4px solid var(--ehr-warning-banner-text);
+  border: 1px solid var(--ehr-line);
   border-radius: 10px;
   background: var(--ehr-warning-banner-surface);
   color: var(--ehr-ink);
@@ -902,7 +913,7 @@
 
 .hid-ehr .hid-ehr-blue-department-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
   gap: 12px;
   margin-bottom: 20px;
 }
@@ -944,16 +955,116 @@
   font-size: 12px;
 }
 
-@media (max-width: 768px) {
+@container (max-width: 600px) {
   .hid-ehr .hid-ehr-blue-half {
     max-width: none;
   }
 
-  .hid-ehr .hid-ehr-blue-department-grid {
-    grid-template-columns: 1fr;
-  }
-
   .hid-ehr .hid-ehr-blue-picture {
     align-items: flex-start;
+  }
+}
+
+/* ---- 2026 redesign: the top bar ------------------------------------------- */
+
+.hid-ehr .hid-ehr-blue-kbd {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 6px;
+  background: var(--ehr-surface-tint);
+  color: var(--ehr-muted);
+  font: inherit;
+  font-size: 11px;
+}
+
+/* Phones: one row. Search and Notifications keep their spoken names and show only their icons; the demo chip hides
+   (each sample page carries its own banner). */
+@media (max-width: 768px) {
+  .hid-ehr .hid-ehr-blue-label,
+  .hid-ehr .hid-ehr-blue-kbd {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .hid-ehr .hid-ehr-topbar {
+    flex-wrap: nowrap;
+  }
+
+  .hid-ehr .hid-ehr-topbar-end {
+    display: flex;
+    gap: 6px;
+  }
+
+  .hid-ehr .hid-ehr-topbar-end > .hid-ehr-button,
+  .hid-ehr .hid-ehr-topbar-end .hid-ehr-popover > .hid-ehr-button {
+    min-width: 40px;
+    padding: 8px 10px;
+  }
+
+  .hid-ehr .hid-ehr-topbar-end .hid-ehr-blue-chip {
+    display: none;
+  }
+
+  .hid-ehr .hid-ehr-topbar .hid-ehr-blue-count {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    box-shadow: 0 0 0 2px var(--ehr-surface);
+  }
+}
+
+/* ---- Rebuild: the EHR inside paytrail's app shell ------------------------- */
+
+/* EhrAppShell stays as the invisible host of the EHR's overlays (drawers, popovers) and its .hid-ehr scope; the
+   Kasuwa AppShell inside it draws the chrome. */
+.hid-ehr.hid-ehr-shell.hid-ehr-host {
+  background: var(--color-canvas);
+}
+
+.hid-ehr.hid-ehr-host > .hid-ehr-workspace {
+  display: block;
+  min-height: 0;
+}
+
+.hid-ehr.hid-ehr-host .hid-ehr-main {
+  padding: 0;
+  background: transparent;
+}
+
+.hid-ehr.hid-ehr-host .hid-ehr-main-inner {
+  max-width: none;
+}
+
+.hid-ehr .hid-ehr-host-actions .hid-ehr-button {
+  min-height: 40px;
+  border-radius: 10px;
+}
+
+@media (max-width: 1023px) {
+  .hid-ehr .hid-ehr-host-actions .hid-ehr-blue-label,
+  .hid-ehr .hid-ehr-host-actions .hid-ehr-blue-kbd {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .hid-ehr .hid-ehr-host-actions .hid-ehr-button {
+    min-width: 40px;
+    padding: 8px 10px;
+  }
+
+  .hid-ehr .hid-ehr-host-actions .hid-ehr-blue-count {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    box-shadow: 0 0 0 2px var(--color-surface);
   }
 }

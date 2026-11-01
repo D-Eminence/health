@@ -92,7 +92,7 @@ export const NAVIGATION: readonly NavigationSection[] = [
   ] },
   { title: 'Operations', items: [
     { path: '/admin/operations', title: 'Service health', visible: can('platform.operations.read'),
-      description: 'Backend service checks and event delivery.' },
+      description: 'Service checks and event delivery.' },
     { path: '/admin/integrations', title: 'Integrations', visible: can('platform.integration.read'),
       description: 'Provider status, routing, configuration and history.' },
     { path: '/admin/controls', title: 'Platform controls', visible: can('platform.control.read'),

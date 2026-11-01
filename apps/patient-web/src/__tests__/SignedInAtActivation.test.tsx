@@ -123,27 +123,28 @@ async function signUp() {
   fireEvent.change(field('Gender'), { target: { value: 'female' } })
   fireEvent.click(screen.getByRole('checkbox', { name: 'I agree to the Terms of Service and Privacy Policy' }))
   await press('Continue')
-  await screen.findByRole('heading', { name: 'Create a secure password' })
-  type('Password', PASSWORD); type('Confirm password', PASSWORD)
+  // Typed once, with Show to check it (the review of 2026-10-31).
+  await screen.findByRole('heading', { name: 'Create a password' })
+  type('Password', PASSWORD)
   fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
   await press('Create account')
-  await enterCode(await screen.findByLabelText('Verification code'), '123456')
+  await enterCode(await screen.findByLabelText('Code'), '123456')
 }
 
 /** The NIN route, from its password step. */
 async function activateNinRoute() {
   fireEvent.change(await screen.findByLabelText('Password'), { target: { value: PASSWORD } })
-  await press('Activate Health ID')
+  await press('Get my Health ID')
 }
 
-const shown = async () => (await screen.findByRole('heading', { name: 'Your Health ID is ready.' })).closest<HTMLElement>('[role="status"]')!
+const shown = async () => (await screen.findByRole('heading', { name: 'Your Health ID is ready' })).closest<HTMLElement>('[role="status"]')!
 const session = () => screen.getByTestId('session').textContent
 
 describe.each([
   ['the sign-up without a NIN', false, signUp],
   ['the NIN route', true, activateNinRoute],
 ])('an activation that signs the patient in, on %s', (_route, nin, activate) => {
-  it('takes up the session, shows the Health ID with Copy HID and "Proceed to profile", and only then opens the profile', async () => {
+  it('takes up the session, shows the Health ID with Copy and "Go to my Health ID", and only then opens the profile', async () => {
     const { sent } = identity({ activation: { stage: 'active', hidCode: 'HID-NEW234', signedIn: true }, nin })
     openEnrollment()
     await waitFor(() => expect(session()).toBe('anonymous'))
@@ -151,7 +152,7 @@ describe.each([
 
     const done = await shown()
     expect(within(done).getByText('HID-NEW234')).toBeTruthy()
-    expect(within(done).getByRole('button', { name: 'Copy HID' })).toBeTruthy()
+    expect(within(done).getByRole('button', { name: 'Copy your Health ID' })).toBeTruthy()
     expect(within(done).getByText('You are signed in on this device. If other people use it, sign out when you finish.')).toBeTruthy()
     expect(within(done).queryByRole('link', { name: /Sign in/ })).toBeNull()
     // Signed in as sign-in signs in: the session read once after the activation, taken up, the other tabs told.
@@ -161,7 +162,7 @@ describe.each([
     // The Health ID stays: the session did not open the overview first.
     expect(visited).toEqual(['/enroll'])
 
-    await press('Proceed to profile')
+    await press('Go to my Health ID')
     expect(await screen.findByRole('heading', { name: 'Profile page' })).toBeTruthy()
     expect(visited).toEqual(['/enroll', '/profile'])
     expect(session()).toBe('authenticated')
@@ -178,8 +179,8 @@ describe.each([
 
     const done = await shown()
     expect(within(done).getByText('HID-NEW234')).toBeTruthy()
-    expect(within(done).getByRole('link', { name: nin ? 'Sign in' : 'Sign in to continue' }).getAttribute('href')).toBe('/sign-in')
-    expect(within(done).queryByRole('button', { name: 'Proceed to profile' })).toBeNull()
+    expect(within(done).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
+    expect(within(done).queryByRole('button', { name: 'Go to my Health ID' })).toBeNull()
     expect(within(done).queryByText(/You are signed in on this device/)).toBeNull()
     expect(sent.slice(sent.indexOf(`POST ${BASE}/activate`))).toEqual([`POST ${BASE}/activate`])
     expect(session()).toBe('anonymous')
@@ -195,8 +196,8 @@ describe.each([
 
     const done = await shown()
     expect(within(done).getByText('HID-NEW234')).toBeTruthy()
-    expect(within(done).getByRole('link', { name: nin ? 'Sign in' : 'Sign in to continue' })).toBeTruthy()
-    expect(within(done).queryByRole('button', { name: 'Proceed to profile' })).toBeNull()
+    expect(within(done).getByRole('link', { name: 'Sign in' })).toBeTruthy()
+    expect(within(done).queryByRole('button', { name: 'Go to my Health ID' })).toBeNull()
     expect(session()).toBe('anonymous')
     // The cookies may have changed all the same: the other tabs are told.
     expect(TabChannel.posted).toEqual(['changed'])
@@ -224,7 +225,7 @@ describe('a reload of the Health ID after the activation signed the patient in',
     // The enrollment check has answered; the session read has not.
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.length).toBe(4))
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
-    expect(screen.getByText('Checking for an enrollment in progress…').getAttribute('role')).toBe('status')
+    expect(screen.getByRole('status', { name: 'Checking for an enrollment in progress' })).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
 
     await act(async () => { answerSession() })

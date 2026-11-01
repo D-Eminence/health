@@ -18,6 +18,8 @@ import { RECORD_NAME_ID, RecordName } from './enrollment/RecordName'
 import { ContactCodeStep } from './enrollment/ContactCodeStep'
 import { DATE_OF_BIRTH_RULE, PasswordStep, plausibleDateOfBirth } from './enrollment/PasswordStep'
 import { Complete } from './enrollment/Complete'
+import { Alert, Button, buttonClass } from '../kasuwa/ui'
+import { LoadingRows } from '../kasuwa/parts'
 import { RegistrationClosed } from './enrollment/RegistrationClosed'
 import { routesOf, type OwnershipRoutes } from './enrollment/availability'
 import { NIN_CHECK_UNAVAILABLE, STEP_UNAVAILABLE, refusedWith, registrationClosed, temporarilyUnavailable } from './enrollment/problems'
@@ -842,34 +844,53 @@ export function Enrollment() {
   const errorId = fieldError ? 'enroll-error' : undefined
   const stepProps = { focusTarget: stepFocus.target, busy, invalid, errorId }
 
+  // Google's own step: on the NIN step, the chosen path's start is also where the step's focus goes (useStepFocus).
+  const googleSection = <section className="flex flex-col gap-3" aria-label="Google enrollment">
+    <span ref={element => { googleHeading.current = element; if (element && stage === 'nin') stepFocus.target(element) }} tabIndex={-1} className="text-title-3 text-ink outline-none">{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
+    {stage === 'nin' && <p className="m-0 text-[13px] text-ink-3">You’ll still verify your NIN after Google, unless that Google account already has a Health ID.</p>}
+    {accountExists && <ExistingAccountAlert account={accountExists} />}
+    <Turnstile action="patient-login" onTokenChange={setGoogleTurnstileToken} resetKey={googleResetKey} />
+    <GoogleButton text="signup_with" disabled={busy || !googleTurnstileToken} onCredential={onGoogle}
+      disabledReason={googleTurnstileToken ? undefined : 'Complete the security check to continue with Google.'} />
+    {stage === 'nin' && <Button variant="link" className="self-start" disabled={busy} onClick={chooseNin}>Verify your NIN without Google</Button>}
+  </section>
   return <AuthLayout brandTo="/" title="Get your Health ID." titleId="enroll-title"
-    lede="Verify your identity, confirm a contact, and activate your account."
+    lede="Verify who you are, confirm a contact, and choose a password."
     steps={!closed && STEP_STAGES.includes(stage) ? steps.map(([label, stages]) => ({ label, current: stages.includes(stage) })) : undefined}
     stepsLabel="Enrollment steps">
-      {checking || (signOutRequired && sessionUnread) ? <p role="status">Checking for an enrollment in progress…</p> : null}
-      {checkError && <div className="patient-inline-error" role="alert"><p>We could not check for an enrollment in progress. Try again before starting.</p><button ref={checkRetry} type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button></div>}
-      {signOutRequired && !sessionUnread && <div ref={signOutNote} tabIndex={-1} role="group" aria-labelledby="enroll-sign-out" className="patient-inline-error patient-session-note">
+    <div className="flex flex-col gap-5">
+      {checking || (signOutRequired && sessionUnread) ? <LoadingRows rows={1} label="Checking for an enrollment in progress" /> : null}
+      {checkError && <Alert intent="error" action={<button ref={checkRetry} type="button" className={buttonClass({ size: 'sm' })} onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button>}>
+        We couldn’t check for a sign-up in progress. Try again before starting.</Alert>}
+      {signOutRequired && !sessionUnread && <div ref={signOutNote} tabIndex={-1} role="group" aria-labelledby="enroll-sign-out" className="flex flex-col gap-2 rounded-lg border border-notice-line bg-notice p-4 text-[13.5px] text-ink outline-none [&_a]:font-medium [&_a]:text-brand-ink [&_p]:m-0">
         {otherPortalSession ? <>
-          <p id="enroll-sign-out" role={signOutAlert ? 'alert' : undefined}>A provider sign-in is active in this browser. Sign out of the provider portal before starting a new Health ID.</p>
+          <p id="enroll-sign-out" className="font-medium" role={signOutAlert ? 'alert' : undefined}>A provider sign-in is active in this browser. Sign out of the provider portal before starting a new Health ID.</p>
           <p>{ENDS_ENROLLMENT}</p>
           <Link to="/provider">Go to the provider portal</Link>
         </> : <>
-          <p id="enroll-sign-out" role={signOutAlert ? 'alert' : undefined}>This browser is still signed in to Health ID. Sign out of the patient or provider portal before starting a new Health ID.</p>
+          <p id="enroll-sign-out" className="font-medium" role={signOutAlert ? 'alert' : undefined}>This browser is still signed in to Health ID. Sign out of the patient or provider portal before starting a new Health ID.</p>
           {/* No link to the patient portal: this tab has no patient session, so it would open sign-in. Check again opens it once the session check finds the patient. */}
           <p>If a patient is signed in, Check again opens the patient portal, where you can sign out.</p>
           <p>{ENDS_ENROLLMENT}</p>
           <Link to="/provider">Go to the provider portal</Link>
         </>}
         {/* Once it is signed out elsewhere, as asked, the browser's session and the enrollment are checked again. */}
-        <button type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; retrySessionCheck(); setCheckKey(value => value + 1) }}>Check again</button>
+        <Button size="sm" className="self-start" onClick={() => { retriedCheck.current = true; retrySessionCheck(); setCheckKey(value => value + 1) }}>Check again</Button>
       </div>}
-      {error && <p id="enroll-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error === ENDED_HERE && registration !== 'open' ? ENDED : error}</p>}
+      {error && <Alert intent="error" id="enroll-error" live={errorAlert}>{error === ENDED_HERE && registration !== 'open' ? ENDED : error}</Alert>}
       {/* Kept mounted, so a notice set with a step change is a change of a live region, not a new one. */}
-      <div role="status">{notice && <p id="enroll-notice" className="patient-inline-success">{notice}</p>}</div>
+      <div role="status" className="empty:hidden">{notice && <Alert intent="success" size="sm" live={false} id="enroll-notice">{notice}</Alert>}</div>
       {/* Not at a NIN step that offers no start, where Google is not offered either. */}
-      {googleRequired && !googlePending && startOffered && <p role="status" className="patient-inline-error">Reconnect the Google account used to start this enrollment.</p>}
-      {ready && stage === 'nin' && registration === 'unknown' && <div className="patient-inline-error" role="alert"><p>We could not check whether new Health ID registration is open. Try again before starting.</p><button ref={retryInPlaceOfNin} type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button></div>}
+      {googleRequired && !googlePending && startOffered && <p role="status" className="m-0 text-[13px] font-medium text-danger-ink">Reconnect the Google account used to start this enrollment.</p>}
+      {ready && stage === 'nin' && registration === 'unknown' && <Alert intent="error" action={<button ref={retryInPlaceOfNin} type="button" className={buttonClass({ size: 'sm' })} onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button>}>
+        We couldn’t check whether new sign-ups are open. Try again before starting.</Alert>}
       {closed && <RegistrationClosed focusTarget={stepFocus.target} />}
+      {/* Google first, where it is offered: on the NIN step it is a path of its own, opened by its button. */}
+      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && stage === 'nin' && !googleChosen && <section className="flex flex-col gap-3" aria-label="Google enrollment">
+        <Button size="lg" block disabled={busy} onClick={chooseGoogle}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</Button>
+        <p className="m-0 flex items-center gap-3 text-[13px] text-ink-3 before:h-px before:flex-1 before:bg-line after:h-px after:flex-1 after:bg-line">or use your NIN</p>
+      </section>}
+      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && stage === 'nin' && googleChosen && googleSection}
       {ready && stage === 'nin' && registration === 'open' && !googleChosen && <NinStep {...stepProps} nin={nin} onNin={setNin} onSubmit={event => void submitNin(event)}
         turnstile={<Turnstile action="patient-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />}
         blocked={!turnstileToken || (googleRequired && !googlePending)} routes={routes} />}
@@ -901,25 +922,14 @@ export function Enrollment() {
         errorField={fieldError ? profileError ?? 'password' : null} />}
       {/* Without the name (sent only within 15 minutes of the start), the way back to the NIN step is still offered. */}
       {ready && !recordName && differentNinOffered && RECORD_NAME_STAGES.includes(stage)
-        && <button type="button" className="patient-text-button" disabled={busy} onClick={() => void differentNin()}>Use a different NIN</button>}
+        && <Button variant="link" className="self-start" disabled={busy} onClick={() => void differentNin()}>Use a different NIN</Button>}
       {/* Back to the sign-up's details with nothing typed kept; a new sign-up replaces this registration. */}
       {ready && signupServed && registration === 'open' && RECORD_NAME_STAGES.includes(stage)
-        && <button type="button" className="patient-text-button" disabled={busy} onClick={() => { clearError(); forgetRegistration(); setSignupRestarted(true) }}>Start a new sign-up</button>}
+        && <Button variant="link" className="self-start" disabled={busy} onClick={() => { clearError(); forgetRegistration(); setSignupRestarted(true) }}>Start a new sign-up</Button>}
       {ready && stage === 'complete' && <Complete focusTarget={stepFocus.target} hidCode={hidCode} signedIn={signedInHere} onProceed={proceedToProfile} />}
-      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && stage === 'nin' && !googleChosen && <section className="patient-auth-separator" aria-label="Google enrollment">
-        <button type="button" className="patient-secondary-button" disabled={busy} onClick={chooseGoogle}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</button>
-      </section>}
-      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && (stage !== 'nin' || googleChosen) && <section className="patient-auth-separator" aria-label="Google enrollment">
-        {/* On the NIN step, the chosen path's start is also where the step's focus goes (useStepFocus). */}
-        <span ref={element => { googleHeading.current = element; if (element && stage === 'nin') stepFocus.target(element) }} tabIndex={-1}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
-        {stage === 'nin' && <p className="patient-field-hint">You will still verify your NIN after Google confirms your account, unless that Google account already has a Health ID.</p>}
-        {accountExists && <ExistingAccountAlert account={accountExists} />}
-        <Turnstile action="patient-login" onTokenChange={setGoogleTurnstileToken} resetKey={googleResetKey} />
-        <GoogleButton text="signup_with" disabled={busy || !googleTurnstileToken} onCredential={onGoogle}
-          disabledReason={googleTurnstileToken ? undefined : 'Complete the security check to continue with Google.'} />
-        {stage === 'nin' && <button type="button" className="patient-text-button" disabled={busy} onClick={chooseNin}>Verify your NIN without Google</button>}
-      </section>}
-      {googlePending && !checkError && startOffered && stage !== 'complete' && <p role="status" className="patient-field-hint">Google identity confirmed for this enrollment.</p>}
-      <p className="patient-auth-footer">Already have a Health ID? <Link to="/sign-in">Sign in</Link></p>
+      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && stage !== 'nin' && googleSection}
+      {googlePending && !checkError && startOffered && stage !== 'complete' && <p role="status" className="m-0 text-[13px] text-ink-3">Google confirmed your account for this sign-up.</p>}
+      {stage !== 'complete' && <p className="m-0 text-center text-sm text-ink-2">Already have a Health ID? <Link to="/sign-in" className="font-medium text-brand-ink">Sign in</Link></p>}
+    </div>
   </AuthLayout>
 }

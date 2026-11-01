@@ -7,6 +7,7 @@ import { AuditPage } from '../Audit'
 import { DemosPage, OperationsPage, ReviewsPage } from '../Pages'
 import { PrincipalsPage } from '../Principals'
 import { StepUpProvider } from '../StepUp'
+import { ToastProvider } from '../../kasuwa/toast'
 
 const mocks = vi.hoisted(() => ({
   audit: vi.fn(), principals: vi.fn(), demos: vi.fn(), services: vi.fn(), events: vi.fn(), reviews: vi.fn(), command: vi.fn(),
@@ -25,7 +26,7 @@ function Location() {
 
 function open(path: string, element: ReactElement) {
   const route = new URL(path, 'http://admin.test').pathname
-  render(<MemoryRouter initialEntries={[path]}><Routes><Route path={route} element={<>{element}<Location /></>} /></Routes></MemoryRouter>)
+  render(<ToastProvider><MemoryRouter initialEntries={[path]}><Routes><Route path={route} element={<>{element}<Location /></>} /></Routes></MemoryRouter></ToastProvider>)
 }
 
 const location = () => decodeURIComponent(screen.getByTestId('location').textContent ?? '')
@@ -56,7 +57,9 @@ describe('audit filters', () => {
     expect(screen.getByRole('link', { name: /Facility/ }).getAttribute('href')).toBe(`/admin/facilities/${FACILITY_ID}`)
     expect(screen.getByText('System')).toBeTruthy()
     expect(screen.getByText('Platform')).toBeTruthy()
-    expect(screen.getAllByText('Not recorded')).toHaveLength(2)
+    expect(screen.getByText('Item: Not recorded')).toBeTruthy()
+    expect(screen.getByText('Purpose: Not recorded')).toBeTruthy()
+    expect(screen.getAllByText(/Not recorded/)).toHaveLength(2)
   })
 
   it('sends a target filter from the link, and only a target ID that has a valid type', async () => {
@@ -76,10 +79,10 @@ describe('audit filters', () => {
     mocks.audit.mockResolvedValue({ items: [], nextBeforeSequenceId: null })
     open('/admin/audit', <AuditPage />)
     await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(1))
-    fireEvent.change(screen.getByLabelText('Target ID'), { target: { value: FACILITY_ID } })
-    expect(screen.getByText(/Enter a target type such as facility/)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Item ID'), { target: { value: FACILITY_ID } })
+    expect(screen.getByText(/Enter an item type/)).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Apply filters' }) as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.change(screen.getByLabelText('Target type'), { target: { value: 'facility' } })
+    fireEvent.change(screen.getByLabelText('Item type'), { target: { value: 'facility' } })
     fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
     await waitFor(() => expect(location()).toBe(`/admin/audit?resourceType=facility&resourceId=${FACILITY_ID}`))
     await waitFor(() => expect(mocks.audit).toHaveBeenLastCalledWith({ resourceType: 'facility', resourceId: FACILITY_ID },
@@ -94,7 +97,7 @@ describe('audit filters', () => {
     expect(screen.getByText('Enter a full facility ID.')).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Apply filters' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.change(screen.getByLabelText('Facility ID'), { target: { value: FACILITY_ID } })
-    fireEvent.change(screen.getByLabelText('Action'), { target: { value: ' admin.account.status ' } })
+    fireEvent.change(screen.getByLabelText('What happened'), { target: { value: ' admin.account.status ' } })
     fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
     await waitFor(() => expect(location()).toBe(`/admin/audit?action=admin.account.status&facilityId=${FACILITY_ID}`))
     await waitFor(() => expect(mocks.audit).toHaveBeenLastCalledWith({ action: 'admin.account.status', facilityId: FACILITY_ID },
@@ -110,7 +113,7 @@ describe('users and roles lookup', () => {
     memberships: [{ id: 'm-1', facilityId: FACILITY_ID, facilityName: 'Ikeja Clinic', role: 'nurse', appRole: 'provider', active: false }] }
 
   function search(text: string) {
-    fireEvent.change(screen.getByLabelText('Search users'), { target: { value: text } })
+    fireEvent.change(screen.getByLabelText('Name or email'), { target: { value: text } })
     fireEvent.click(screen.getByRole('button', { name: 'Search' }))
   }
 
@@ -118,7 +121,7 @@ describe('users and roles lookup', () => {
     mocks.principals.mockImplementation((_query: string, filters: { page: number }) =>
       Promise.resolve({ items: [principal], page: filters.page, pageSize: 25, total: 26 }))
     open('/admin/principals', <PrincipalsPage actor={actor(['platform.principal.read', 'platform.audit.read'])} />)
-    fireEvent.change(screen.getByLabelText('Account status'), { target: { value: 'active' } })
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'active' } })
     search('ada@example.test')
     expect(await screen.findByText('Ada Operator')).toBeTruthy()
     expect(mocks.principals).toHaveBeenLastCalledWith('ada@example.test', { page: 1, status: 'active' }, expect.anything())
@@ -126,9 +129,13 @@ describe('users and roles lookup', () => {
     expect(await screen.findByText('Page 2 of 2')).toBeTruthy()
     expect(mocks.principals).toHaveBeenLastCalledWith('ada@example.test', { page: 2, status: 'active' }, expect.anything())
     expect(location()).toBe('/admin/principals')
-    expect(screen.getByText('Ikeja Clinic · Nurse (inactive)')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Activity in audit' }).getAttribute('href')).toBe('/admin/audit?actor=staff%3Aada')
-    expect(screen.getByText('View only')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Open Ada Operator' }))
+    const drawer = screen.getByRole('dialog', { name: 'Ada Operator' })
+    expect(within(drawer).getByText('Ikeja Clinic (Nurse, inactive)')).toBeTruthy()
+    expect(within(drawer).getByRole('link', { name: 'See their activity in Audit' }).getAttribute('href')).toBe('/admin/audit?actor=staff%3Aada')
+    // Read access only: no actions are offered.
+    expect(within(drawer).queryByRole('heading', { name: 'Actions' })).toBeNull()
+    expect(within(drawer).queryAllByRole('button').map(button => button.textContent)).toEqual([''])
   })
 
   it('shows authenticator enrolment and offers an MFA reset only for enrolled administrators', async () => {
@@ -143,14 +150,24 @@ describe('users and roles lookup', () => {
     search('example')
     const enrolled = (await screen.findByText('Bayo Enrolled')).closest('tr')!
     const unenrolled = screen.getByText('Chika Unenrolled').closest('tr')!
-    expect(within(enrolled).getByText('Enrolled')).toBeTruthy()
-    expect(within(unenrolled).getByText('Not set up')).toBeTruthy()
-    expect(within(enrolled).getByText('Request authenticator reset')).toBeTruthy()
-    expect(within(unenrolled).queryByText('Request authenticator reset')).toBeNull()
-    expect(within(unenrolled).getByText('View only')).toBeTruthy()
     const unreported = screen.getByText('Dele Unreported').closest('tr')!
+    expect(within(enrolled).getByText('On')).toBeTruthy()
+    expect(within(unenrolled).getByText('Off')).toBeTruthy()
     expect(within(unreported).getByText('Not reported')).toBeTruthy()
-    expect(within(unreported).getByText('Request authenticator reset')).toBeTruthy()
+    const resetOffered = (name: string) => {
+      fireEvent.click(screen.getByRole('button', { name: `Open ${name}` }))
+      const drawer = screen.getByRole('dialog', { name })
+      const offered = within(drawer).queryByRole('button', { name: 'Request authenticator reset' }) !== null
+      fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }))
+      return offered
+    }
+    expect(resetOffered('Bayo Enrolled')).toBe(true)
+    // Without enrolment there is nothing to do: no actions at all.
+    fireEvent.click(screen.getByRole('button', { name: 'Open Chika Unenrolled' }))
+    expect(within(screen.getByRole('dialog', { name: 'Chika Unenrolled' })).queryByRole('heading', { name: 'Actions' })).toBeNull()
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Chika Unenrolled' })).getByRole('button', { name: 'Close' }))
+    expect(resetOffered('Chika Unenrolled')).toBe(false)
+    expect(resetOffered('Dele Unreported')).toBe(true)
   })
 
   it('keeps the "Revoke all sessions" confirmation after the reload reports no sessions left', async () => {
@@ -161,19 +178,21 @@ describe('users and roles lookup', () => {
     open('/admin/principals', <StepUpProvider><PrincipalsPage actor={actor(['platform.principal.read', 'platform.session.revoke'])} />
     </StepUpProvider>)
     search('efe')
-    const row = (await screen.findByText('Efe Sessions')).closest('tr')!
-    const form = within(row).getByText('Revoke all sessions').closest('details')!
-    fireEvent.change(within(form).getByLabelText('Reason for this change'), { target: { value: 'Reported lost laptop' } })
-    fireEvent.click(within(form).getByRole('button', { name: 'Confirm change' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Efe Sessions' }))
+    const drawer = screen.getByRole('dialog', { name: 'Efe Sessions' })
+    expect(within(drawer).getByText('2 devices')).toBeTruthy()
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Sign out everywhere' }))
+    const sheet = screen.getByRole('dialog', { name: 'Sign Efe Sessions out everywhere?' })
+    fireEvent.change(within(sheet).getByLabelText('Reason for this change'), { target: { value: 'Reported lost laptop' } })
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Sign out everywhere' }))
     await waitFor(() => expect(mocks.principals).toHaveBeenCalledTimes(2))
-    await waitFor(() => expect(within(row).getByText('0')).toBeTruthy())
-    expect(within(row).getByText('Saved. Current information is being refreshed.')).toBeTruthy()
-    expect(within(row).getByText('This account has no active sessions.')).toBeTruthy()
-    // With a valid new reason the form still cannot be sent: there is nothing left to revoke.
-    fireEvent.change(within(form).getByLabelText('Reason for this change'), { target: { value: 'Second attempt reason' } })
-    const confirm = within(form).getByRole('button', { name: 'Confirm change' }) as HTMLButtonElement
-    expect(confirm.disabled).toBe(true)
-    fireEvent.click(confirm)
+    await waitFor(() => expect(within(drawer).getByText('0 devices')).toBeTruthy())
+    expect(screen.getByText('Efe Sessions is signed out everywhere.')).toBeTruthy()
+    // The action stays, disabled: there is nothing left to revoke.
+    const again = within(drawer).getByRole('button', { name: 'Sign out everywhere' }) as HTMLButtonElement
+    expect(again.disabled).toBe(true)
+    fireEvent.click(again)
+    expect(screen.queryByRole('dialog', { name: 'Sign Efe Sessions out everywhere?' })).toBeNull()
     expect(mocks.command).toHaveBeenCalledTimes(1)
     expect(mocks.command).toHaveBeenCalledWith('/api/v1/admin/principals/account-6/sessions/revoke',
       { reason: 'Reported lost laptop' }, { idempotencyKey: 'key-1' })
@@ -184,16 +203,18 @@ describe('users and roles lookup', () => {
     open('/admin/principals', <StepUpProvider><PrincipalsPage actor={actor(['platform.principal.read', 'platform.session.revoke'])} />
     </StepUpProvider>)
     search('ada')
-    const row = (await screen.findByText('Ada Operator')).closest('tr')!
-    expect(within(row).queryByText('Revoke all sessions')).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Ada Operator' }))
+    const drawer = screen.getByRole('dialog', { name: 'Ada Operator' })
+    expect(within(drawer).queryByRole('button', { name: 'Sign out everywhere' })).toBeNull()
   })
 
   it('leaves out the audit link without audit access', async () => {
     mocks.principals.mockResolvedValue({ items: [principal], page: 1, pageSize: 25, total: 1 })
     open('/admin/principals', <PrincipalsPage actor={actor(['platform.principal.read'])} />)
     search('ada')
-    await screen.findByText('Ada Operator')
-    expect(screen.queryByRole('link', { name: 'Activity in audit' })).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Ada Operator' }))
+    expect(within(screen.getByRole('dialog', { name: 'Ada Operator' })).getByText('Ikeja Clinic (Nurse, inactive)')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /activity in Audit/i })).toBeNull()
   })
 })
 
@@ -212,13 +233,13 @@ describe('demo requests, operations and identity reviews', () => {
     mocks.demos.mockResolvedValueOnce({ items: Array.from({ length: 50 }, (_, index) => demo(index)), nextCursor: 'cursor-2' })
       .mockResolvedValueOnce({ items: [demo(50), demo(51)], nextCursor: null })
     open('/admin/demos?status=bogus', <DemosPage actor={actor(['platform.demo.read'])} />)
-    expect(await screen.findByText('Showing 50 requests, newest first; more are available')).toBeTruthy()
+    expect(await screen.findByText('50 requests, newest first. More below.')).toBeTruthy()
     expect(mocks.demos).toHaveBeenCalledWith({}, {}, expect.anything())
     expect(screen.queryByText(/newest 100/)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
     expect(await screen.findByText('Contact 51')).toBeTruthy()
     expect(mocks.demos).toHaveBeenLastCalledWith({}, { cursor: 'cursor-2' }, expect.any(AbortSignal))
-    expect(screen.getByText('Showing 52 requests, newest first')).toBeTruthy()
+    expect(screen.getByText('52 requests, newest first')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Load more requests' })).toBeNull()
   })
 
@@ -233,16 +254,20 @@ describe('demo requests, operations and identity reviews', () => {
     await screen.findByText('Contact 0')
     fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
     const row = (await screen.findByText('Contact 1')).closest('tr')!
-    fireEvent.change(within(row).getByLabelText('Reason for this change'), { target: { value: 'Called back and booked a demo' } })
-    fireEvent.click(within(row).getByRole('button', { name: 'Confirm change' }))
+    fireEvent.click(within(row).getByRole('button', { name: 'Change status' }))
+    const sheet = screen.getByRole('dialog', { name: 'Change this request’s status?' })
+    fireEvent.change(within(sheet).getByLabelText('Change to'), { target: { value: 'contacted' } })
+    fireEvent.change(within(sheet).getByLabelText('Reason for this change'), { target: { value: 'Called back and booked a demo' } })
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Mark contacted' }))
     expect(await screen.findByText('The request from Contact 1 is now contacted.')).toBeTruthy()
-    // The reload starts again from the first page, which removes the row; the confirmation stays.
+    // The reload starts again from the first page, which removes the row; the confirmation (a toast) stays.
     await waitFor(() => expect(screen.queryByText('Contact 1')).toBeNull())
     expect(screen.getByText('The request from Contact 1 is now contacted.')).toBeTruthy()
     expect(mocks.command).toHaveBeenCalledWith('/api/v1/admin/demo-requests/d-1/status',
       { status: 'contacted', reason: 'Called back and booked a demo' }, { version: 1 })
+    // The confirmation is now a toast that times out by itself; a filter change still reloads the list with it.
     fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'new' } })
-    await waitFor(() => expect(screen.queryByText('The request from Contact 1 is now contacted.')).toBeNull())
+    await waitFor(() => expect(mocks.demos).toHaveBeenLastCalledWith({ status: 'new' }, {}, expect.anything()))
   })
 
   // A referral from the public site's "Earn with Health ID" form is sent as a demo request tagged

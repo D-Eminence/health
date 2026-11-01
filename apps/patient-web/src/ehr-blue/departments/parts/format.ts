@@ -3,11 +3,22 @@ export function shortId(value: string) {
   return `••••${value.slice(-6)}`
 }
 
-/** A server time in the reader's locale, or "Not available". */
+/**
+ * A server time as "26 Oct 2026, 12:41", or "Not available". Never all numbers ("3/4" is a different day in Lagos and
+ * in an American template) and on the 24-hour clock, as the clinical pages write it (clinical/parts/format.ts).
+ */
 export function dateText(value: string | null | undefined) {
   if (!value) return 'Not available'
   const time = new Date(value)
-  return Number.isNaN(time.getTime()) ? 'Not available' : time.toLocaleString()
+  return Number.isNaN(time.getTime()) ? 'Not available'
+    : time.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+}
+
+/** "4 Mar 1991", for a date of birth (a date-only value is read as that calendar day). */
+export function birthDateText(value: string | null | undefined) {
+  if (!value) return ''
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value)
+  return Number.isNaN(day.getTime()) ? '' : day.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 /** A count with its noun: "1 order", "3 orders". */

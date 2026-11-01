@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { ProfilePage } from '../routes/Portal'
-import { described, json, problem, profile, renderPortal, type Handler } from './portalHarness'
+import { SAY } from '../copy'
+import { described, json, problem, profile, renderPortal, shownText, type Handler } from './portalHarness'
 
 /**
  * The patient's Access PIN, at the end of the profile's Bio-data (Settings is gone: the owner's decision of 2026-10-28;
@@ -25,12 +26,12 @@ function renderSettings(pin: Handler) {
   }, {}, { at: '/profile#access-pin' })
 }
 
-const pinCard = () => within(screen.getByRole('heading', { name: 'Access PIN' }).closest('.patient-card') as HTMLElement)
+const pinCard = () => within(screen.getByRole('heading', { name: 'Access PIN' }).closest('#access-pin') as HTMLElement)
 
 describe('patient Access PIN', () => {
   it('sets a PIN of 4 to 8 digits, clears the field and shows it configured', async () => {
     const { sent } = renderSettings(() => json({ configured: true }))
-    expect(await screen.findByText('Not configured')).toBeTruthy()
+    expect(await screen.findByText('Not set')).toBeTruthy()
     const input = pinCard().getByLabelText('Set PIN') as HTMLInputElement
     const save = pinCard().getByRole('button', { name: 'Save PIN' }) as HTMLButtonElement
     fireEvent.change(input, { target: { value: '12a' } })
@@ -39,9 +40,9 @@ describe('patient Access PIN', () => {
     fireEvent.change(input, { target: { value: '1234' } })
     fireEvent.click(save)
 
-    expect(await screen.findByText('Access PIN configured.')).toBeTruthy()
-    expect(await screen.findByText('Configured')).toBeTruthy()
-    expect((pinCard().getByLabelText('Replace PIN') as HTMLInputElement).value).toBe('')
+    expect(await screen.findByText('PIN saved.')).toBeTruthy()
+    expect(await screen.findByText('Set')).toBeTruthy()
+    expect((pinCard().getByLabelText('New PIN') as HTMLInputElement).value).toBe('')
     expect(sent.filter(request => request.path === '/identity/me/access-pin')).toEqual([
       { path: '/identity/me/access-pin', method: 'POST', body: { pin: '1234' } },
     ])
@@ -51,12 +52,12 @@ describe('patient Access PIN', () => {
     const { sent } = renderSettings((_path, method) => method === 'POST' ? json({ configured: true }) : json({ revoked: true }))
     fireEvent.change(await screen.findByLabelText('Set PIN'), { target: { value: '87654321' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save PIN' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Revoke Access PIN' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove PIN' }))
 
-    expect(await screen.findByText('Access PIN revoked.')).toBeTruthy()
-    expect(await screen.findByText('Not configured')).toBeTruthy()
+    expect(await screen.findByText('PIN removed.')).toBeTruthy()
+    expect(await screen.findByText('Not set')).toBeTruthy()
     expect(sent.filter(request => request.path === '/identity/me/access-pin').map(request => request.method)).toEqual(['POST', 'DELETE'])
-    expect(screen.queryByRole('button', { name: 'Revoke Access PIN' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Remove PIN' })).toBeNull()
   })
 
   it('states the 10-minute sign-in rule beside the PIN', async () => {
@@ -70,9 +71,9 @@ describe('patient Access PIN', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save PIN' }))
 
     // As for account deletion: the patient is signed in, so 'sign in again' alone does not say how.
-    expect((await screen.findByRole('alert')).textContent)
-      .toBe('For your security, sign out, sign in again, and return here within 10 minutes to change your Access PIN.')
-    expect(screen.getByText('Not configured')).toBeTruthy()
+    expect(shownText(await screen.findByRole('alert'))).toBe(SAY.signInAgain)
+    expect(SAY.signInAgain).toContain('sign out, sign in again, then come back within 10 minutes')
+    expect(screen.getByText('Not set')).toBeTruthy()
     await waitFor(() => expect((screen.getByLabelText('Set PIN') as HTMLInputElement).value).toBe('1234'))
   })
 
@@ -83,8 +84,8 @@ describe('patient Access PIN', () => {
     renderSettings(() => problem(403, 'PATIENT_RECENT_RECOVERY_HOLD', detail))
     fireEvent.change(await screen.findByLabelText('Set PIN'), { target: { value: '1234' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save PIN' }))
-    expect((await screen.findByRole('alert')).textContent).toBe(detail)
-    expect(screen.getByText('Not configured')).toBeTruthy()
+    expect(shownText(await screen.findByRole('alert'))).toBe(detail)
+    expect(screen.getByText('Not set')).toBeTruthy()
   })
 
   it('says how to sign in again when revoking the PIN needs a recent sign-in', async () => {
@@ -92,20 +93,22 @@ describe('patient Access PIN', () => {
       : problem(403, 'PATIENT_RECENT_AUTH_REQUIRED', 'Sign in again before changing your Access PIN'))
     fireEvent.change(await screen.findByLabelText('Set PIN'), { target: { value: '1234' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save PIN' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Revoke Access PIN' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove PIN' }))
 
-    expect((await screen.findByRole('alert')).textContent)
-      .toBe('For your security, sign out, sign in again, and return here within 10 minutes to change your Access PIN.')
-    expect(screen.getByText('Configured')).toBeTruthy()
+    expect(shownText(await screen.findByRole('alert'))).toBe(SAY.signInAgain)
+    expect(SAY.signInAgain).toContain('sign out, sign in again, then come back within 10 minutes')
+    expect(screen.getByText('Set')).toBeTruthy()
   })
 
-  it('is in Bio-data, after the email and phone, and a link to #access-pin opens Bio-data with focus on its heading', async () => {
+  it('is in About you (once Bio-data), after the email and phone, and a link to #access-pin opens it with focus on its heading', async () => {
     renderSettings(() => json({ configured: true }))
     const title = await screen.findByRole('heading', { name: 'Access PIN', level: 3 })
     const bio = document.getElementById('bio-data-content') as HTMLElement
     expect(bio.hidden).toBe(false)
     expect(bio.contains(title)).toBe(true)
     await waitFor(() => expect(document.activeElement).toBe(title))
-    expect(screen.queryByRole('heading', { name: 'Settings' })).toBeNull()
+    // The profile's Settings section holds this device's settings only: the PIN is not in it.
+    const settings = screen.queryByRole('heading', { name: 'Settings' })?.closest('section')
+    expect(settings?.contains(title) ?? false).toBe(false)
   })
 })

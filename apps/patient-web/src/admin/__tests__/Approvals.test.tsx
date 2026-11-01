@@ -4,6 +4,7 @@ import { HidApiError } from '@hid/http'
 import { ApprovalsPage } from '../Approvals'
 import type { AdminActor, ApprovalRequest } from '../api'
 import { StepUpProvider } from '../StepUp'
+import { ToastProvider } from '../../kasuwa/toast'
 
 const mocks = vi.hoisted(() => ({ approvals: vi.fn(), decideApproval: vi.fn(), stepUp: vi.fn(), keys: 0 }))
 vi.mock('../api', () => ({
@@ -24,12 +25,16 @@ function request(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest {
 }
 
 function open(actor: AdminActor = superAdmin) {
-  render(<StepUpProvider><ApprovalsPage actor={actor} /></StepUpProvider>)
+  render(<ToastProvider><StepUpProvider><ApprovalsPage actor={actor} /></StepUpProvider></ToastProvider>)
 }
 
-function decide(button: string, reason = 'Confirmed with the requester by phone') {
-  fireEvent.change(screen.getByLabelText('Reason for your decision'), { target: { value: reason } })
-  fireEvent.click(screen.getByRole('button', { name: button }))
+/** Presses a decision's button, then gives the reason in its confirmation and confirms (the confirm repeats the decision's name). */
+function decide(button: string, reason = 'Confirmed with the requester by phone', scope: HTMLElement = document.body) {
+  fireEvent.click(within(scope).getByRole('button', { name: button }))
+  const sheet = screen.getByRole('dialog')
+  fireEvent.change(within(sheet).getByLabelText('Reason for this change'), { target: { value: reason } })
+  fireEvent.click(within(sheet).getByRole('button', { name: button }))
+  return sheet
 }
 
 beforeEach(() => { vi.clearAllMocks(); mocks.keys = 0 })
@@ -46,12 +51,12 @@ describe('two-person approvals', () => {
 
     expect(await screen.findByRole('heading', { name: 'Grant Super Admin' })).toBeTruthy()
     expect(mocks.approvals).toHaveBeenCalledWith('pending', {}, expect.anything())
-    expect(screen.getByText('Chidi Operator')).toBeTruthy()
+    expect(screen.getByText('For Chidi Operator · c@example.test')).toBeTruthy()
     decide('Approve')
     fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm and continue' }))
 
-    expect(await screen.findByText('Approved and carried out. Chidi Operator is now a Super Admin.')).toBeTruthy()
+    expect(await screen.findByText('Approved. Chidi Operator is now a Super Admin.')).toBeTruthy()
     const decision = expect.objectContaining({ id: 'request-1', version: 1 })
     expect(mocks.decideApproval.mock.calls).toEqual([
       [decision, 'approve', 'Confirmed with the requester by phone', 'decision-1'],
@@ -67,7 +72,7 @@ describe('two-person approvals', () => {
     open()
     await screen.findByRole('article')
     decide('Reject', 'Not agreed with the security lead')
-    expect(await screen.findByText('Request rejected. Nothing was changed.')).toBeTruthy()
+    expect(await screen.findByText('Request rejected. Nothing changed.')).toBeTruthy()
     expect(mocks.decideApproval).toHaveBeenCalledTimes(1)
     expect(mocks.decideApproval).toHaveBeenCalledWith(expect.objectContaining({ id: 'request-1', version: 1 }), 'reject',
       'Not agreed with the security lead', 'decision-1')
@@ -77,10 +82,10 @@ describe('two-person approvals', () => {
     mocks.approvals.mockResolvedValueOnce({ items: [request({ requestedBy: 'admin-b' })] })
     mocks.decideApproval.mockRejectedValueOnce(problem(403, 'SELF_APPROVAL_DENIED'))
     open()
-    expect(await screen.findByText(/You made this request\. A different Super Admin must approve/)).toBeTruthy()
+    expect(await screen.findByText('You made this request, so another Super Admin must decide. You can cancel it.')).toBeTruthy()
     // The page does not decide this: the request is sent and the server refuses it.
-    decide('Approve')
-    expect(await screen.findByText(/cannot decide a request you made/)).toBeTruthy()
+    const sheet = decide('Approve')
+    expect(await within(sheet).findByText(/cannot decide a request you made/)).toBeTruthy()
     expect(mocks.decideApproval).toHaveBeenCalledTimes(1)
   })
 
@@ -95,16 +100,15 @@ describe('two-person approvals', () => {
     expect(within(cards[0]!).getByRole('button', { name: 'Cancel request' })).toBeTruthy()
     expect(within(cards[1]!).queryByRole('button', { name: 'Cancel request' })).toBeNull()
 
-    fireEvent.change(within(cards[0]!).getByLabelText('Reason for your decision'), { target: { value: 'No longer needed now' } })
-    fireEvent.click(within(cards[0]!).getByRole('button', { name: 'Cancel request' }))
-    expect(await screen.findByText('Request cancelled. Nothing was changed.')).toBeTruthy()
+    decide('Cancel request', 'No longer needed now', cards[0]!)
+    expect(await screen.findByText('Request cancelled. Nothing changed.')).toBeTruthy()
     expect(mocks.decideApproval).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'request-1' }), 'cancel',
       'No longer needed now', 'decision-1')
 
     const remaining = await screen.findByRole('article')
-    fireEvent.change(within(remaining).getByLabelText('Reason for your decision'), { target: { value: 'Looks correct to me' } })
-    fireEvent.click(within(remaining).getByRole('button', { name: 'Approve' }))
-    expect(await within(remaining).findByText(/enrolled authenticator is required/)).toBeTruthy()
+    const sheet = decide('Approve', 'Looks correct to me', remaining)
+    expect(within(remaining).getByRole('dialog')).toBe(sheet)
+    expect(await within(sheet).findByText(/enrolled authenticator is required/)).toBeTruthy()
   })
 
   it('shows expired requests as never carried out and maps an expiry found when deciding', async () => {
@@ -113,14 +117,16 @@ describe('two-person approvals', () => {
     mocks.decideApproval.mockRejectedValueOnce(problem(409, 'APPROVAL_EXPIRED'))
     open()
     await screen.findByRole('article')
-    decide('Reject')
-    expect(await screen.findByText(/expired after 24 hours and was not carried out/)).toBeTruthy()
+    const sheet = decide('Reject')
+    expect(await within(sheet).findByText(/expired after 24 hours and was not carried out/)).toBeTruthy()
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Cancel' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Expired' }))
     expect(await screen.findByRole('heading', { name: 'Reset authenticator' })).toBeTruthy()
     expect(mocks.approvals).toHaveBeenLastCalledWith('expired', {}, expect.anything())
-    expect(screen.getByText(/expired 24 hours after it was made and was\s+never carried out/)).toBeTruthy()
-    expect(screen.queryByLabelText('Reason for your decision')).toBeNull()
+    expect(screen.getByText('Nobody decided within 24 hours, so nothing changed.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Reject' })).toBeNull()
   })
 
   it('pages beyond the first page with the backend cursor, for the same status, with no cap', async () => {
@@ -128,15 +134,15 @@ describe('two-person approvals', () => {
       .mockResolvedValueOnce({ items: [request({ id: 'request-2', targetDisplayName: 'Dayo Second' })], nextCursor: 'cursor-page-3' })
       .mockResolvedValueOnce({ items: [request({ id: 'request-3', targetDisplayName: 'Efe Third' })], nextCursor: null })
     open()
-    expect(await screen.findByText('Showing 1 requests, newest first; more are available')).toBeTruthy()
+    expect(await screen.findByText('1 requests, newest first. More below.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
-    expect(await screen.findByText('Dayo Second')).toBeTruthy()
+    expect(await screen.findByText('For Dayo Second · c@example.test')).toBeTruthy()
     expect(mocks.approvals).toHaveBeenLastCalledWith('pending', { cursor: 'cursor-page-2' }, expect.any(AbortSignal))
     fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
-    expect(await screen.findByText('Efe Third')).toBeTruthy()
+    expect(await screen.findByText('For Efe Third · c@example.test')).toBeTruthy()
     expect(mocks.approvals).toHaveBeenLastCalledWith('pending', { cursor: 'cursor-page-3' }, expect.any(AbortSignal))
     expect(screen.getAllByRole('article')).toHaveLength(3)
-    expect(screen.getByText('Showing 3 requests, newest first')).toBeTruthy()
+    expect(screen.getByText('3 requests, newest first')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Load more requests' })).toBeNull()
     expect(document.body.textContent).not.toMatch(/200\+/)
   })
@@ -151,7 +157,7 @@ describe('two-person approvals', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
     expect(await screen.findByText(/list position is no longer valid\. Refresh the list to start again/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Approved' }))
-    expect(await screen.findByText('Gbenga Approved')).toBeTruthy()
+    expect(await screen.findByText('For Gbenga Approved · c@example.test')).toBeTruthy()
     expect(mocks.approvals).toHaveBeenLastCalledWith('approved', {}, expect.anything())
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Load more requests' })).toBeNull()
@@ -167,14 +173,14 @@ describe('two-person approvals', () => {
     await screen.findByRole('article')
     fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
     fireEvent.click(screen.getByRole('button', { name: 'Approved' }))
-    expect(await screen.findByText('Gbenga Approved')).toBeTruthy()
+    expect(await screen.findByText('For Gbenga Approved · c@example.test')).toBeTruthy()
     const signal = mocks.approvals.mock.calls[1]![2] as AbortSignal
     expect(signal.aborted).toBe(true)
     answer({ items: [request({ id: 'request-2', targetDisplayName: 'Pending Two' })], nextCursor: 'cursor-pending-3' })
     await new Promise(resolve => setTimeout(resolve, 0))
-    expect(screen.queryByText('Pending Two')).toBeNull()
+    expect(screen.queryByText('For Pending Two · c@example.test')).toBeNull()
     expect(screen.getAllByRole('article')).toHaveLength(1)
-    expect(screen.getByText('Showing 1 requests, newest first')).toBeTruthy()
+    expect(screen.getByText('1 requests, newest first')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Load more requests' })).toBeNull()
   })
 
@@ -189,12 +195,12 @@ describe('two-person approvals', () => {
     await screen.findByRole('article')
     fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
-    expect(await screen.findByText('Newest Request')).toBeTruthy()
+    expect(await screen.findByText('For Newest Request · c@example.test')).toBeTruthy()
     answer({ items: [request({ id: 'request-2', targetDisplayName: 'Dayo Second' })], nextCursor: null })
     await new Promise(resolve => setTimeout(resolve, 0))
-    expect(screen.queryByText('Dayo Second')).toBeNull()
+    expect(screen.queryByText('For Dayo Second · c@example.test')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
-    expect(await screen.findByText('Dayo Second')).toBeTruthy()
+    expect(await screen.findByText('For Dayo Second · c@example.test')).toBeTruthy()
     expect(mocks.approvals).toHaveBeenLastCalledWith('pending', { cursor: 'cursor-new' }, expect.any(AbortSignal))
     expect(screen.getAllByRole('article')).toHaveLength(3)
   })
@@ -204,8 +210,8 @@ describe('two-person approvals', () => {
     mocks.decideApproval.mockRejectedValueOnce(problem(403, 'APPROVER_INELIGIBLE'))
     open({ ...superAdmin, accountId: 'auditor-1', platformRoles: ['security_auditor'],
       platformPermissions: ['platform.admin.access', 'platform.audit.read'] })
-    expect(await screen.findByText(/Only a Super Admin other than the requester and the affected\s+administrator can decide/)).toBeTruthy()
-    decide('Approve')
-    expect(await screen.findByText(/Only another active Super Admin with an enrolled authenticator/)).toBeTruthy()
+    expect(await screen.findByText('Only a Super Admin who didn’t make the request can decide.')).toBeTruthy()
+    const sheet = decide('Approve')
+    expect(await within(sheet).findByText(/Only another active Super Admin with an enrolled authenticator/)).toBeTruthy()
   })
 })

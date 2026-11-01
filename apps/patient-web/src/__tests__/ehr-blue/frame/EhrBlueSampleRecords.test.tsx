@@ -9,7 +9,9 @@ beforeEach(() => { withFramePages() })
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
 async function openDemo(path: string) {
-  const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write'])
+  // A facility administrator who is also a clinician: the design opens its clinical, finance and administration
+  // samples to a Hospital Admin and a Doctor between them.
+  const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write'], ['org_admin', 'clinician'])
   const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [REQUESTS]: [() => json([])] })
   await openStaffApp(path)
   await screen.findByRole('navigation', { name: 'Main navigation' })

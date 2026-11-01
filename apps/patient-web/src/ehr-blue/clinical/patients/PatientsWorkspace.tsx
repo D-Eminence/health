@@ -1,37 +1,39 @@
 import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
-import { EhrButton, EhrCard, EhrPageHeading } from '@hid/ui/ehr'
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { ArrowRight, IdCard, KeyRound, Lock, Search, Send, Siren, UserPlus } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { Alert, Badge, Button, Card, IconChip, Input, SectionHeader, cx, type Icon } from '../../../kasuwa/ui'
+import { FormPage } from '../../../kasuwa/parts'
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { ACCESS_ENDED, ChartProvider, NO_AUTHORIZED_PATIENT, OPEN_PATIENT_HOW, useAccessEnded } from '../parts/chart'
+import { ChartProvider, useAccessEnded } from '../parts/chart'
 import { formatWhen } from '../parts/format'
-import { Banner, ErrorBox, RecordNotFound } from '../parts/Notices'
+import { RecordNotFound } from '../parts/Notices'
 import { patientFacts } from '../parts/PatientHeader'
-import { RecordTable, SearchField, type RecordRow } from '../parts/RecordTable'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import type { EhrBluePageStatus } from '../types'
 import {
-  ACCESS_CLOSED, HID_FORMAT, METHOD_ROUTES, OPEN_SHARED, actionUnavailable, administratorOf, healthIdProblem, isRefusedLookup,
+  ACCESS_CLOSED, HID_FORMAT, METHOD_ROUTES, NOT_GRANTED, OPEN_SHARED, actionUnavailable, administratorOf, healthIdProblem, isRefusedLookup,
   offerHealthId, useOpenPatient,
 } from '../consent/access'
 import { PinAccess } from '../consent/PinAccess'
-import { CLOSED_NOTICE, PatientPage, accessLabel, patientDetails } from './PatientPage'
+import { CLOSED_NOTICE, PatientPage, accessLabel } from './PatientPage'
 import { ShareInvitationsForMe, SharedWithYou } from './SharingCards'
 
 /** Every part is on today's Health ID API: the Health ID lookup, the grant, encounters and patient sharing. */
 export const patientsStatus: EhrBluePageStatus = 'live'
 
 /**
- * Patients: search by Health ID (today's governed access), the patient open now, that patient's page at
+ * Patients: search by Health ID (today's access rules), the patient open now, that patient's page at
  * `patients/open`, and the patient PIN at `patients/pin` (as on today's Patients page, it needs no
  * identity.consent.write, which the frame asks for External record access). There is no list of every patient:
- * Health ID shows a patient only once this facility may see them.
+ * Health ID shows a patient only once this facility may see them. "Register a patient" is today's Patient registration
+ * page (/provider/registration), offered only with identity.registration.write; nothing of a patient goes with it.
  */
 export function PatientsWorkspace() {
   return (
     <Workspace path="patients" title="Patients">
       <ChartProvider>
         <Routes>
-          <Route index element={<PatientList />} />
+          <Route index element={<HandedPatientList />} />
           <Route path="open" element={<PatientPage />} />
           <Route path="pin" element={<PinAccess />} />
           <Route path="*" element={<NotFound />} />
@@ -46,6 +48,16 @@ function NotFound() {
   return <RecordNotFound backHref={href()} />
 }
 
+/**
+ * A Health ID handed over in location state (Registration, or the top-bar search) starts a fresh form, even when Find
+ * a patient is already open, so the handed one is what the field shows.
+ */
+function HandedPatientList() {
+  const location = useLocation()
+  const handed = (location.state as { hid?: unknown } | null)?.hid
+  return <PatientList key={typeof handed === 'string' ? location.key : 'list'} />
+}
+
 function noticeOf(state: unknown): string {
   return state && typeof state === 'object' && 'notice' in state && state.notice === CLOSED_NOTICE ? ACCESS_CLOSED : ''
 }
@@ -57,15 +69,16 @@ function PatientList() {
   const location = useLocation()
   const ended = useAccessEnded()
   const openPatient = useOpenPatient()
-  // Today's field starts at HID- and is normalized as it changes.
-  const [hid, setHid] = useState(HEALTH_ID_PREFIX)
+  // Registration hands over the new Health ID (location state), so the next step is one press of Find; otherwise
+  // today's field starts at HID- and is normalized as it changes.
+  const [hid, setHid] = useState(() => { const handed = (location.state as { hid?: unknown } | null)?.hid; return typeof handed === 'string' ? handed : HEALTH_ID_PREFIX })
   const [problem, setProblem] = useState<{ message: string; alert: boolean } | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
   const [refused, setRefused] = useState<{ hid: string; message: string } | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState(() => noticeOf(location.state))
-  const searchBox = useRef<HTMLDivElement>(null)
+  const searchBox = useRef<HTMLFormElement>(null)
   const canLook = !!facility && can('identity.patient.read')
   const administrator = administratorOf(facility, permissions)
   const openSharedUnavailable = actionUnavailable(OPEN_SHARED, permissions, administrator)
@@ -118,8 +131,16 @@ function PatientList() {
    * identity.consent.write, the permission sending a request needs: a role without it is not offered the step, so the
    * Health ID is handed over only where the form can open and read it.
    */
-  function obtain(target: 'new' | 'pin') {
+  function obtain(target: 'new' | 'pin' | 'emergency') {
     if (!refused || !facility) return
+    if (target === 'emergency') {
+      if (emergencyUnavailable) return
+      // The emergency form reads it too (the frame opens it only with identity.break-glass.write), so the Health ID
+      // just searched is not typed again.
+      if (can('identity.break-glass.write')) offerHealthId(refused.hid, facility.id, setActivePatient)
+      navigate(href.to('emergency'))
+      return
+    }
     if (target === 'pin') {
       offerHealthId(refused.hid, facility.id, setActivePatient)
       navigate(href('pin'))
@@ -130,93 +151,87 @@ function PatientList() {
     navigate(href.to('consent', 'new'))
   }
 
-  const rows = useMemo<RecordRow[]>(() => {
-    if (!activePatient) return []
-    const facts = patientFacts(activePatient)
-    const expires = activePatient.lookup.authorization.expiresAt
-    return [{
-      id: 'open',
-      name: facts.name,
-      reference: activePatient.purpose === 'emergency' ? 'Emergency' : 'Direct care',
-      context: facts.name,
-      contextSub: facts.hid,
-      status: accessLabel(activePatient),
-      statusNote: expires ? `until ${formatWhen(expires)}` : undefined,
-      details: patientDetails(activePatient, facts),
-    }]
-  }, [activePatient])
-
-  let hidError: ReactNode = undefined
-  if (problem) hidError = problem.alert ? <span key={attempt} role="alert">{problem.message}</span> : problem.message
+  const open_ = activePatient ? patientFacts(activePatient) : null
+  const expires = activePatient?.lookup.authorization.expiresAt
+  const hidError = problem ? (problem.alert ? <span key={attempt} role="alert">{problem.message}</span> : problem.message) : null
 
   return (
-    <>
-      <EhrPageHeading title="Patients" />
-      {ended && !activePatient ? (
-        <Banner tone="critical" title="Access to this patient ended">{ACCESS_ENDED}</Banner>
-      ) : null}
-      <EhrCard>
-        <div ref={searchBox}>
-          <SearchField
-            label="Search Patients"
-            type="text"
-            value={hid}
-            placeholder="Enter a Health ID…"
-            hint={HID_FORMAT}
-            error={hidError}
-            onChange={value => { setHid(normalizeHealthIdInput(value)); setProblem(null) }}
-            onSubmit={search}
-            blankValue={HEALTH_ID_PREFIX}
-          >
-            <EhrButton type="submit" className="hid-ehr-clinical-patients-verify" busy={busy} disabled={!canLook}>Verify access</EhrButton>
-          </SearchField>
-        </div>
-        {refused ? (
-          <Banner
-            tone="warning"
-            title="No access to this patient yet"
-            actions={(
-              <>
-                <EhrButton
-                  variant="secondary"
-                  disabled={requestUnavailable !== null}
-                  aria-describedby={requestUnavailable ? 'request-access-unavailable' : undefined}
-                  onClick={() => obtain('new')}
-                >
-                  Request access
-                </EhrButton>
-                <EhrButton variant="secondary" onClick={() => obtain('pin')}>Verify patient PIN</EhrButton>
-                <EhrButton
-                  variant="secondary"
-                  disabled={emergencyUnavailable !== null}
-                  aria-describedby={emergencyUnavailable ? 'emergency-access-unavailable' : undefined}
-                  onClick={() => { if (!emergencyUnavailable) navigate(href.to('emergency')) }}
-                >
-                  Emergency break-glass access
-                </EhrButton>
-              </>
-            )}
-          >
-            <p>{refused.message}</p>
-            {requestUnavailable ? <p id="request-access-unavailable" className="hid-ehr-clinical-note">{requestUnavailable}</p> : null}
-            {emergencyUnavailable ? <p id="emergency-access-unavailable" className="hid-ehr-clinical-note">{emergencyUnavailable}</p> : null}
-          </Banner>
-        ) : null}
-        {error ? <ErrorBox>{error}</ErrorBox> : null}
+    <FormPage title="Find a patient" description="Search by Health ID to open their record, or to get access if you don’t have it yet."
+      actions={can('identity.registration.write') ? <Button to="/provider/registration" icon={UserPlus}>Register a patient</Button> : undefined}>
+      {ended && !activePatient ? <Alert intent="error" title="Access to this patient ended">Open the patient again to keep working.</Alert> : null}
+
+      <Card>
+        <form ref={searchBox} noValidate className="flex flex-col gap-2 p-5" onSubmit={event => { event.preventDefault(); search() }}>
+          <label htmlFor="patient-hid" className="text-[13px] font-medium text-ink-2">Health ID</label>
+          <div className="flex gap-2">
+            <div className="min-w-0 flex-1"><Input id="patient-hid" icon={IdCard} value={hid} placeholder="HID-ADA2345" autoComplete="off" spellCheck={false}
+              aria-invalid={problem ? true : undefined} aria-describedby={problem ? 'patient-hid-hint patient-hid-problem' : 'patient-hid-hint'}
+              onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); setProblem(null) }} className="h-11 font-medium tracking-[.06em] uppercase" /></div>
+            <Button type="submit" variant="primary" icon={Search} loading={busy} disabled={!canLook} className="h-11">Find</Button>
+          </div>
+          <p id="patient-hid-hint" className="m-0 text-[12px] text-ink-3">It’s on the patient’s Health ID card. {HID_FORMAT}</p>
+          {hidError ? <p id="patient-hid-problem" className="m-0 text-[13px] font-medium text-danger-ink">{hidError}</p> : null}
+        </form>
+
+        {/* No access yet: the three ways in, as one choice, the usual one first (Hick's law: three, ordered). */}
+        {refused ? <div className="border-t border-line p-5">
+          <div className="mb-3 flex items-start gap-3">
+            <IconChip icon={Lock} tone="warn" />
+            <div className="min-w-0"><p className="m-0 text-title-3 text-ink">You don’t have access to {refused.hid} yet</p>
+              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{refused.message === NOT_GRANTED ? 'Choose how to get it.' : refused.message}</p></div>
+          </div>
+          {/* A way the role cannot take is not offered as a dead end: it is turned off, with today's reason. */}
+          {requestUnavailable ? <p id="request-access-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{requestUnavailable}</p> : null}
+          {emergencyUnavailable ? <p id="emergency-access-unavailable" className="m-0 mb-2 text-[13px] text-ink-3">{emergencyUnavailable}</p> : null}
+          <ul className="m-0 grid list-none gap-1.5 rounded-2xl bg-tray p-1.5 @xl:grid-cols-3">
+            <AccessWay icon={Send} title="Ask the patient" hint="They approve on their phone. You’re told the moment they do." primary
+              unavailableId={requestUnavailable ? 'request-access-unavailable' : undefined} onClick={() => obtain('new')} />
+            <AccessWay icon={KeyRound} title="Use their Access PIN" hint="If they’re with you and have set one." onClick={() => obtain('pin')} />
+            <AccessWay icon={Siren} title="Emergency access" hint="Only if they can’t consent. Time-limited and reviewed." danger
+              unavailableId={emergencyUnavailable ? 'emergency-access-unavailable' : undefined} onClick={() => obtain('emergency')} />
+          </ul>
+        </div> : null}
+        {error ? <div className="border-t border-line p-5"><Alert intent="error" title="Couldn’t check access">{error}</Alert></div> : null}
         {/* Mounted throughout, so what an access step says is announced. */}
-        <div role="status">{notice ? <p className="hid-ehr-clinical-status">{notice}</p> : null}</div>
-        <RecordTable
-          caption="Patients"
-          rows={rows}
-          hrefFor={() => href('open')}
-          emptyTitle={NO_AUTHORIZED_PATIENT}
-          emptyMessage={OPEN_PATIENT_HOW}
-        />
-      </EhrCard>
-      <div className="hid-ehr-clinical-patients-sharing">
+        <div role="status" className="empty:hidden">{notice ? <p className="m-0 border-t border-line px-5 py-3 text-[13px] text-ink-2">{notice}</p> : null}</div>
+      </Card>
+
+      {/* Shown only while a patient is open: a section shows only when it has something in it. */}
+      {activePatient && open_ ? <section aria-labelledby="patients-open" className="flex flex-col gap-3">
+        <SectionHeader id="patients-open" title="Open now" />
+        <Card>
+          <div className="flex flex-wrap items-center gap-4 p-5">
+            <span aria-hidden="true" className="inline-flex size-12 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[15px] font-semibold text-brand-ink">{open_.name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()}</span>
+            <div className="min-w-0 flex-1">
+              <p className="m-0 truncate text-title-3 text-ink">{open_.name}</p>
+              <p className="m-0 mt-0.5 text-[13px] text-ink-3"><span className="font-medium tracking-[.06em] text-ink-2">{open_.hid}</span>{expires ? ` · until ${formatWhen(expires)}` : ''}</p>
+            </div>
+            <Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'} size="sm">{accessLabel(activePatient)}</Badge>
+            <Button to={href('open')} iconRight={ArrowRight}>Open</Button>
+          </div>
+        </Card>
+      </section> : null}
+
+      <div className="flex flex-col gap-6 empty:hidden">
         <SharedWithYou facilityId={facility?.id} permissions={permissions} openUnavailable={openSharedUnavailable} busy={busy} onOpen={openShared} />
         <ShareInvitationsForMe facilityId={facility?.id} permissions={permissions} />
       </div>
-    </>
+    </FormPage>
   )
+}
+
+/**
+ * One way to get access, as a tile: what it is and when to use it. `unavailableId` names the reason the role cannot take
+ * it; the tile is then turned off and points to that reason.
+ */
+function AccessWay({ icon, title, hint, onClick, primary, danger, unavailableId }: {
+  icon: Icon; title: string; hint: string; onClick: () => void; primary?: boolean; danger?: boolean; unavailableId?: string
+}) {
+  return <li><button type="button" onClick={onClick} disabled={unavailableId !== undefined} aria-describedby={unavailableId}
+    className={cx('flex h-full w-full cursor-pointer flex-col items-start gap-2 rounded-xl border-0 p-4 text-left font-[inherit] ring-1 transition-shadow hover:shadow-[var(--shadow-card)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:shadow-none',
+      primary ? 'bg-brand-soft ring-brand-line' : 'bg-surface ring-line')}>
+    <IconChip icon={icon} tone={danger ? 'danger' : primary ? 'brand' : 'neutral'} size="sm" />
+    <span className="text-sm font-semibold text-ink">{title}</span>
+    <span className="text-[12px] leading-snug text-ink-3">{hint}</span>
+  </button></li>
 }

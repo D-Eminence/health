@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource-variable/figtree": "^5.3.0",
+    "@healthicons/react": "^1.2.1",
     "@hid/api": "*",
     "@hid/auth": "*",
     "@hid/config": "*",
@@ -16,6 +18,7 @@
     "@hid/http": "*",
     "@hid/observability": "*",
     "@hid/ui": "*",
+    "lucide-react": "^1.65.0",
     "qrcode-generator": "2.0.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

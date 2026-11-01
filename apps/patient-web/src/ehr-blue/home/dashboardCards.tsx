@@ -33,7 +33,7 @@ export function ReportingPeriod({ period, onChange }: { readonly period: string;
 }
 
 /** "NGN 30,000", as the design writes an amount. */
-function naira(minor: number): string {
+export function naira(minor: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(minor / 100)
 }
 
@@ -41,11 +41,18 @@ function naira(minor: number): string {
  * Patient billing (screens/roles/*-dashboard.png): what the sample invoices total, what was collected on them and
  * what is still due, from the sample records. Fictional: nothing is read from Health ID.
  */
+/** The sample invoices' totals, in kobo, as Patient billing shows them: invoiced, collected and still due. */
+export function billingTotals(): { readonly total: number; readonly paid: number; readonly due: number } {
+  const invoices = sampleRecords('billing').filter(record => record.status !== 'void').map(invoiceTotals)
+  const sum = (key: 'total' | 'paid' | 'due') => invoices.reduce((total, invoice) => total + invoice[key], 0)
+  return { total: sum('total'), paid: sum('paid'), due: sum('due') }
+}
+
 export function PatientBillingCard({ notice = false }: { readonly notice?: boolean }) {
   const hrefOf = useSampleHref()
   const href = hrefOf('billing')
-  const invoices = sampleRecords('billing').filter(record => record.status !== 'void').map(invoiceTotals)
-  const sum = (key: 'total' | 'paid' | 'due') => invoices.reduce((total, invoice) => total + invoice[key], 0)
+  const totals = billingTotals()
+  const sum = (key: 'total' | 'paid' | 'due') => totals[key]
   return <EhrCard title="Patient billing">
     {notice ? <EhrSampleBanner /> : null}
     <div className="hid-ehr-blue-activity">
@@ -80,9 +87,15 @@ export function PeopleCard({ count, notice = false }: { readonly count?: ReactNo
  * The way to Staff & access, only where this session may open the page: it refuses at a governed facility, and to
  * anyone without workforce.manage.
  */
-function StaffLink() {
+/** The address of Staff & access, where this session may open it. */
+export function useStaffHref(): string | null {
   const staff = useOpenPages().find(page => basePath(page.path) === 'staff')
-  return staff ? <Link className="hid-ehr-blue-link" to={pageHrefOf(staff)}>Manage staff & access</Link> : null
+  return staff ? pageHrefOf(staff) : null
+}
+
+function StaffLink() {
+  const href = useStaffHref()
+  return href ? <Link className="hid-ehr-blue-link" to={href}>Manage staff & access</Link> : null
 }
 
 /** Why the staff could not be read, in today's Staff page's words (staff/routes/Staff.tsx). */
@@ -107,7 +120,14 @@ type StaffRead = { readonly facilityId: string } & ({ readonly count: number } |
  * manages who works there, and the card shows the design's figure as a sample. At a real clinic the card shows no
  * figure and reads nothing: a staff read is audited, and today's Overview makes none.
  */
-export function LivePeopleCard({ facility }: { readonly facility: Facility }) {
+/**
+ * What People shows for a facility: nothing counted outside the demo; the sample figure at a demo facility where
+ * today's sidebar does not list Staff; else the staff read live, once per visit (loading, failed or the count).
+ */
+export type StaffCount = { readonly kind: 'none' } | { readonly kind: 'sample'; readonly count: number } | { readonly kind: 'loading' }
+  | { readonly kind: 'failed'; readonly message: string } | { readonly kind: 'ready'; readonly count: number }
+
+export function useStaffCount(facility: Facility): StaffCount {
   const demo = isDemoFacility(facility.id)
   const live = demo && visibleNavigation(facility).some(item => item.to === '/provider/staff')
   const [read, setRead] = useState<StaffRead | null>(null)
@@ -119,15 +139,24 @@ export function LivePeopleCard({ facility }: { readonly facility: Facility }) {
       caught => { if (active) setRead({ facilityId: facility.id, caught }) })
     return () => { active = false }
   }, [live, facility.id])
-  if (!demo) return <PeopleCard />
-  if (!live) return <PeopleCard count={SAMPLE_STAFF_COUNT} notice />
+  if (!demo) return { kind: 'none' }
+  if (!live) return { kind: 'sample', count: SAMPLE_STAFF_COUNT }
   const answer = read?.facilityId === facility.id ? read : null
-  if (!answer) return <EhrCard title="People"><EhrSkeleton label="Loading staff" bars={2} /></EhrCard>
-  if ('caught' in answer) return <EhrCard title="People">
-    <p className="hid-ehr-blue-flush">{staffFailure(answer.caught, facility.name)}</p>
+  if (!answer) return { kind: 'loading' }
+  if ('caught' in answer) return { kind: 'failed', message: staffFailure(answer.caught, facility.name) }
+  return { kind: 'ready', count: answer.count }
+}
+
+export function LivePeopleCard({ facility }: { readonly facility: Facility }) {
+  const staff = useStaffCount(facility)
+  if (staff.kind === 'none') return <PeopleCard />
+  if (staff.kind === 'sample') return <PeopleCard count={staff.count} notice />
+  if (staff.kind === 'loading') return <EhrCard title="People"><EhrSkeleton label="Loading staff" bars={2} /></EhrCard>
+  if (staff.kind === 'failed') return <EhrCard title="People">
+    <p className="hid-ehr-blue-flush">{staff.message}</p>
     <StaffLink />
   </EhrCard>
-  return <PeopleCard count={answer.count} />
+  return <PeopleCard count={staff.count} />
 }
 
 /** The Platform Super Admin's Facility review card: the sample has no facility waiting. */

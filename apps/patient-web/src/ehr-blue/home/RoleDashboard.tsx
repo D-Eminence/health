@@ -1,8 +1,8 @@
 import { useState, useSyncExternalStore, type ReactElement } from 'react'
-import { EhrButton, EhrCard, EhrPageHeading, EhrSampleBanner } from '@hid/ui/ehr'
+import { EhrBackButton, EhrButton, EhrCard, EhrPageHeading, EhrSampleBanner } from '@hid/ui/ehr'
 import { useBluePages, useOpenPages } from '../frame/pageContext'
 import { basePath, pageHrefOf } from '../frame/pageHref'
-import type { DemoRole } from '../frame/roleView'
+import { useRoleView, type DemoRole } from '../frame/roleView'
 import { sampleModule, sampleRecords, sampleVersion, subscribeSamples } from '../frame/sample/store'
 import {
   CustomizeShortcuts, FacilityReviewCard, Figure, NO_ATTENTION, NOTHING_TODAY, PatientBillingCard, PeopleCard, PinnedShortcuts,
@@ -73,6 +73,7 @@ const titleOf = (moduleId: string) => sampleModule(moduleId)?.title ?? moduleId
 
 export function RoleDashboard({ role }: { readonly role: DemoRole }) {
   useSyncExternalStore(subscribeSamples, sampleVersion, sampleVersion)
+  const { view } = useRoleView()
   const pages = useBluePages()
   // Shortcuts to pages this session may open: the design checks each one every time it is shown.
   const open = useOpenPages()
@@ -111,7 +112,7 @@ export function RoleDashboard({ role }: { readonly role: DemoRole }) {
   })
 
   return <>
-    <EhrPageHeading title={`Welcome, Demo ${role}`}
+    <EhrPageHeading title={`Welcome, Demo ${role}`} back={<EhrBackButton label="Back to my dashboard" onClick={() => view(null)} />}
       primaryAction={<EhrButton variant="secondary" onClick={() => setCustomizing(true)}>Customize shortcuts</EhrButton>} />
     <ReportingPeriod period={period} onChange={setPeriod} />
     <div className="hid-ehr-blue-grid">{cards.map((card, index) => card(index === 0))}</div>

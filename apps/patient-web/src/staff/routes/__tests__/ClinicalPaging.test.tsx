@@ -214,7 +214,7 @@ describe('paging the encounter list', () => {
     fireEvent.change(screen.getByLabelText(/^Chief complaint/), { target: { value: 'Chest pain' } })
     fireEvent.click(screen.getByRole('button', { name: 'Start encounter' }))
 
-    await screen.findByText('Encounter created by the backend.')
+    await screen.findByText('Encounter created.')
     await waitFor(() => expect(lastRecordList()).toEqual(['facility-1', PATIENT, created.id, 'vitals']))
     expect(screen.getByText(new Date(created.startedAt).toLocaleString() + ' · in progress')).toBeTruthy()
   })

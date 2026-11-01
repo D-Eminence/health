@@ -6,19 +6,24 @@ import { BLUE_PAGES } from '../../../ehr-blue/routes'
 import type * as BlueRoutes from '../../../ehr-blue/routes'
 import { BluePagesProvider } from '../../../ehr-blue/frame/pageContext'
 import { RoleViewProvider, type DemoRole } from '../../../ehr-blue/frame/roleView'
+import type * as RoleViews from '../../../ehr-blue/frame/roleView'
 import { RoleDashboard } from '../../../ehr-blue/home/RoleDashboard'
 import {
-  DEMO_HOSPITAL, REAL_FACILITY, REQUESTS, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, withFramePages,
+  DEMO_HOSPITAL, REAL_FACILITY, REQUESTS, SESSION, facility, homeHeading, json, openStaffApp, problem, serve, sessionAt, withFramePages,
 } from './blueHarness'
 
 /**
  * Home and the demo roles' dashboards as the design draws them (audit items 3-7 and 13; design/ehr-target
  * screens/roles, src/dashboard.tsx): the design's heading, cards, empty states, markup and pinned shortcuts; an
- * administrator's own People and Patient billing; and the My profile drawer. Every account, facility and record is
- * fictional.
+ * administrator's own People and Patient billing, drawn as the redesign draws Home; and the My profile drawer. The
+ * redesign took the role switcher out of the account menu: a role's dashboard still shows while the role view holds a
+ * role, and these tests set it. Every account, facility and record is fictional.
  */
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
-afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); vi.resetModules() })
+// A role view a test started on (viewAs) is that test's alone: a vi.doMock outlives vi.resetModules.
+afterEach(() => {
+  vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); vi.doUnmock('../../../ehr-blue/frame/roleView'); vi.resetModules()
+})
 
 const STAFF = 'GET /api/v1/identity/facility-staff'
 const SAMPLE_NOTICE = 'Sample only: not connected to Health ID yet. Nothing you do here is saved.'
@@ -37,11 +42,11 @@ const pinned = () => {
 }
 
 describe('3. the role dashboard heading', () => {
-  it('is the design\'s: the welcome, and Customize shortcuts in place of a description and a way back', () => {
+  it('is the design\'s: the welcome and Customize shortcuts in place of a description, with the redesign\'s way back', () => {
     dashboard('Doctor')
     const heading = screen.getByRole('heading', { level: 1, name: 'Welcome, Demo Doctor' })
     expect(heading.closest('.hid-ehr-page-heading')?.querySelector('.hid-ehr-page-description')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Back to my dashboard' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Back to my dashboard' })).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Customize shortcuts' }))
     const drawer = screen.getByRole('dialog', { name: 'Customize shortcuts' })
     fireEvent.click(within(drawer).getByRole('checkbox', { name: 'Appointments' }))
@@ -164,6 +169,9 @@ describe('6. pinned shortcuts', () => {
   })
 })
 
+/** A card of the person's own Home, which the redesign draws as a labelled region. */
+const homeCard = (title: string) => screen.getByRole('region', { name: title })
+
 describe('7. an administrator\'s own Home', () => {
   beforeEach(() => { withFramePages() })
 
@@ -171,12 +179,16 @@ describe('7. an administrator\'s own Home', () => {
     const governed = facility(DEMO_HOSPITAL, 'Demo Hospital', ['workforce.manage'], ['org_admin'])
     const sent = serve({ [SESSION]: [sessionAt(governed, [governed])] })
     await openStaffApp('/provider')
-    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
-    expect(screen.queryByRole('heading', { level: 2, name: 'Activity in period' })).toBeNull()
-    expect(within(card('Patient billing')).getByText(SAMPLE_NOTICE)).toBeDefined()
-    const people = within(card('People'))
+    await screen.findByRole('heading', { level: 1, name: homeHeading() })
+    expect(screen.queryByRole('region', { name: 'Activity in period' })).toBeNull()
+    const billing = within(homeCard('Patient billing'))
+    expect(billing.getByText('Sample')).toBeDefined()
+    expect(billing.getByText('Invoiced in period').previousElementSibling?.textContent).toMatch(/^NGN\s30,000$/)
+    expect(billing.getByText('Outstanding balance').previousElementSibling?.textContent).toMatch(/^NGN\s26,000$/)
+    expect(billing.getByRole('link', { name: 'View patient billing' }).getAttribute('href')).toBe('/provider/patient-billing')
+    const people = within(homeCard('People'))
     expect(people.getByText('16')).toBeDefined()
-    expect(people.getByText(SAMPLE_NOTICE)).toBeDefined()
+    expect(people.getByText('Sample')).toBeDefined()
     expect(sent.some(call => call.route === STAFF)).toBe(false)
   })
 
@@ -187,9 +199,9 @@ describe('7. an administrator\'s own Home', () => {
     const member = (name: string) => ({ membershipId: `m-${name}`, name: `${name} (fictional)`, roles: ['nurse'] })
     const sent = serve({ [SESSION]: [sessionAt(own, [own])], [STAFF]: [() => json({ members: [member('A'), member('B'), member('C')] })] })
     await openStaffApp('/provider')
-    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
-    await waitFor(() => expect(within(card('People')).getByText('3')).toBeDefined())
-    expect(within(card('People')).queryByText(SAMPLE_NOTICE)).toBeNull()
+    await screen.findByRole('heading', { level: 1, name: homeHeading() })
+    await waitFor(() => expect(within(homeCard('People')).getByText('3')).toBeDefined())
+    expect(within(homeCard('People')).queryByText('Sample')).toBeNull()
     expect(sent.filter(call => call.route === STAFF)).toHaveLength(1)
   })
 
@@ -197,10 +209,10 @@ describe('7. an administrator\'s own Home', () => {
     const clinic = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(clinic, [clinic])] })
     await openStaffApp('/provider')
-    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
-    expect(card('Activity in period')).toBeDefined()
-    expect(screen.queryByRole('heading', { level: 2, name: 'People' })).toBeNull()
-    expect(screen.queryByRole('heading', { level: 2, name: 'Patient billing' })).toBeNull()
+    await screen.findByRole('heading', { level: 1, name: homeHeading() })
+    expect(homeCard('Activity in period')).toBeDefined()
+    expect(screen.queryByRole('region', { name: 'People' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Patient billing' })).toBeNull()
   })
 })
 
@@ -222,13 +234,24 @@ function withStaffPage() {
 const selfSigned = (id: string, name: string, permissions: readonly string[]) => ({ ...facility(id, name, permissions, ['org_admin']),
   selfService: { review: 'reviewed', organizationType: 'hospital' } }) as ReturnType<typeof facility>
 
-/** Opens Home at `current` and views it as a demo role, from the account menu. */
+/**
+ * Opens Home at `current` as a demo role's dashboard. The redesign offers no role switcher: the role view starts on the
+ * role here, as the switcher left it, and Home shows that role's dashboard in the frame.
+ */
 async function viewAs(role: DemoRole, current: ReturnType<typeof facility>) {
+  vi.doMock('../../../ehr-blue/frame/roleView', async importOriginal => {
+    const actual = await importOriginal<typeof RoleViews>()
+    const { createContext, createElement, useContext, useMemo, useState } = await import('react')
+    const Context = createContext<{ viewing: DemoRole | null; view: (next: DemoRole | null) => void }>({ viewing: null, view: () => {} })
+    function RoleViewProvider({ children }: { readonly children: ReactNode }) {
+      const [viewing, setViewing] = useState<DemoRole | null>(role)
+      const value = useMemo(() => ({ viewing, view: setViewing }), [viewing])
+      return createElement(Context.Provider, { value }, children)
+    }
+    return { ...actual, RoleViewProvider, useRoleView: () => useContext(Context) }
+  })
   serve({ [SESSION]: [sessionAt(current, [current])], [STAFF]: [() => json({ members: [] })] })
   await openStaffApp('/provider')
-  await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
-  fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
-  fireEvent.click(within(screen.getByRole('region', { name: 'Account' })).getByRole('button', { name: role }))
   await screen.findByRole('heading', { level: 1, name: `Welcome, Demo ${role}` })
 }
 
@@ -262,12 +285,12 @@ describe('7c. People\'s live staff read', () => {
     // The staff route answers, so a read would be seen here rather than as a broken page.
     const sent = serve({ [SESSION]: [sessionAt(clinic, [clinic])], [REQUESTS]: [() => json([])], [STAFF]: [() => json({ members: [] })] })
     await openStaffApp('/provider')
-    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
+    await screen.findByRole('heading', { level: 1, name: homeHeading() })
     await waitFor(() => expect(sent.some(call => call.route === REQUESTS)).toBe(true))
     expect(sent.some(call => call.route === STAFF)).toBe(false)
-    const people = card('People')
-    expect(people.querySelector('.hid-ehr-blue-stat-value')).toBeNull()
-    expect(within(people).queryByText(SAMPLE_NOTICE)).toBeNull()
+    const people = homeCard('People')
+    expect(people.textContent).not.toMatch(/\d/)
+    expect(within(people).queryByText('Sample')).toBeNull()
     expect(within(people).getByRole('link', { name: 'Manage staff & access' }).getAttribute('href')).toBe('/provider/staff')
   })
 
@@ -275,8 +298,8 @@ describe('7c. People\'s live staff read', () => {
     const own = selfSigned(DEMO_HOSPITAL, 'Demo Hospital', ['workforce.manage'])
     serve({ [SESSION]: [sessionAt(own, [own])], [STAFF]: [() => problem(403, 'STAFF_MANAGEMENT_NOT_AVAILABLE', 'Not available')] })
     await openStaffApp('/provider')
-    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
-    const people = within(card('People'))
+    await screen.findByRole('heading', { level: 1, name: homeHeading() })
+    const people = within(homeCard('People'))
     expect(await people.findByText('Health ID support manages who works at Demo Hospital. Contact Health ID support to add or remove staff.'))
       .toBeDefined()
     expect(people.getByRole('link', { name: 'Manage staff & access' }).getAttribute('href')).toBe('/provider/staff')
@@ -290,8 +313,9 @@ describe('13. My profile', () => {
     const clinic = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     const sent = serve({ [SESSION]: [sessionAt(clinic, [clinic])] })
     await openStaffApp('/provider')
-    await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+    await screen.findByRole('heading', { level: 1, name: homeHeading() })
+    // The redesign's account controls are the sidebar's: My profile is in the facility switcher's menu.
+    fireEvent.click(screen.getByRole('button', { name: /^Demo Hospital/ }))
     fireEvent.click(screen.getByRole('button', { name: 'My profile' }))
     const drawer = within(screen.getByRole('dialog', { name: 'Edit my profile' }))
     expect(drawer.getByText('Personal details and account security')).toBeDefined()

@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react'
 import type { AccessRequest, EmergencyContact } from '../api'
 import { AccessPage, NotificationsPage } from '../routes/Portal'
 import { EmergencyContactsCard } from '../routes/AccountSafety'
-import { json, renderPortal } from './portalHarness'
+import { json, press, renderPortal } from './portalHarness'
 
 /**
  * NEW-AMBIGUOUS-ACTION-NAMES (advisory). Each item of a list repeated the same
@@ -35,11 +35,16 @@ describe('per-item action names', () => {
       grant('60000000-0000-4000-8000-000000000002', 'Lagos General', '2026-10-08T15:00:00Z'),
     ] }))
     await screen.findAllByText('Lagos General')
-    for (const action of [/^Approve /, /^Deny /, /^Revoke access /]) expect(distinct(names(action))).toBe(true)
-    expect(names(/^Approve .*Ikeja Clinic/)).toHaveLength(1)
-    expect(names(/^Approve .*Lagos General/)).toHaveLength(2)
-    expect(names(/^Deny .*Ikeja Clinic/)).toHaveLength(1)
-    expect(names(/^Revoke access .*Lagos General/)).toHaveLength(2)
+    // The redesign lists each request as one Review button; Approve and Deny are in the drawer it opens.
+    expect(distinct(names(/ Review the request from /))).toBe(true)
+    expect(names(/ Review the request from Ikeja Clinic/)).toHaveLength(1)
+    expect(names(/ Review the request from Lagos General/)).toHaveLength(2)
+    await press(screen.getAllByRole('button', { name: / Review the request from Lagos General/ })[1]!)
+    expect(names(/^Approve the request from Lagos General, read_records, /)).toHaveLength(1)
+    expect(names(/^Deny the request from Lagos General, read_records, /)).toHaveLength(1)
+    await press(screen.getByRole('button', { name: /^Who has access/ }))
+    expect(distinct(names(/^End access /))).toBe(true)
+    expect(names(/^End access for Lagos General/)).toHaveLength(2)
   })
 
   it('names the notification each Mark as read is for', async () => {
@@ -48,7 +53,7 @@ describe('per-item action names', () => {
       { id: 'n-2', notificationCode: 'ACCESS_REQUEST_RECEIVED', resourceType: 'access-request', resourceId: null, metadata: {}, readAt: null, createdAt: '2026-10-08T14:30:00Z' },
     ]))
     await screen.findAllByRole('listitem')
-    const marks = names(/^Mark as read: A facility asked to access your health information/)
+    const marks = names(/^Mark as read: A hospital or clinic asked to see your health records/)
     expect(marks).toHaveLength(2)
     expect(distinct(marks)).toBe(true)
   })
@@ -61,7 +66,7 @@ describe('per-item action names', () => {
     })
     renderPortal(<EmergencyContactsCard />, () => json([contact(1, 'Chidi Okafor'), contact(2, 'Ngozi Eze')]))
     await screen.findByText('Ngozi Eze')
-    expect(screen.getByRole('button', { name: 'Send verification code to Chidi Okafor, +234•••••561' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Send code to Chidi Okafor, +234•••••561' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Edit Ngozi Eze, +234•••••562' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Remove Chidi Okafor, +234•••••561' })).toBeTruthy()
   })

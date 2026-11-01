@@ -76,7 +76,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
     setNotice('')
     const refuse = (message: string) => { setFileError(message); input.current?.focus() }
     if (!file || file.size === 0) return refuse('Select a file first.')
-    if (!ACCEPTED.includes(file.type) || file.size > MAX_BYTES) return refuse('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')
+    if (!ACCEPTED.includes(file.type) || file.size > MAX_BYTES) return refuse('Use a PDF, JPEG, PNG or TIFF file up to 50 MB.')
     setFileError(undefined)
     sending.current = true
     setUploading(true)
@@ -85,7 +85,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       await staffApi.uploadDocument(facilityId, patientId, encounterId, file)
       const failure = await list.reload(true)
       form.reset()
-      setNotice('Document uploaded. It can be opened once its virus scan is clean.')
+      setNotice('Uploaded. It can be opened once the virus check is done.')
       if (failure !== null) setError(`${RELOAD_FAILED} ${failure}`.trim())
     } catch (caught) {
       setError(caught instanceof Error && caught.message ? caught.message : 'Document could not be uploaded.')
@@ -109,10 +109,10 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
               <span>
                 <strong>{document.fileName}</strong>
                 <span className="hid-ehr-clinical-cell-sub">
-                  {`${document.mediaType} · ${fileSize(document.sizeBytes)}${document.status === 'initiated' ? '' : ` · scan: ${document.scanStatus}`}`}
+                  {`${fileType(document.mediaType)} · ${fileSize(document.sizeBytes)}${document.status === 'initiated' ? '' : ` · ${scanWords(document.scanStatus)}`}`}
                 </span>
                 {document.status === 'initiated' ? (
-                  <span className="hid-ehr-clinical-cell-sub">Upload not completed; only the person who started it can finish it. Upload the file again.</span>
+                  <span className="hid-ehr-clinical-cell-sub">Upload didn’t finish. Upload the file again.</span>
                 ) : null}
               </span>
               <span className="hid-ehr-clinical-consult-document-actions">
@@ -134,12 +134,12 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       {canWrite ? (
         <form className="hid-ehr-clinical-form" noValidate onSubmit={event => void upload(event)}>
           <SubHeading>Upload a document</SubHeading>
-          <p className="hid-ehr-clinical-note">Files are scanned before download becomes available.</p>
+          <p className="hid-ehr-clinical-note">Files are checked for viruses before anyone can open them.</p>
           <EhrField label={<>Clinical document<span aria-hidden="true"> *</span></>} error={fileError}>
             <EhrInput ref={input} name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required onChange={() => setFileError(undefined)} />
           </EhrField>
           <div className="hid-ehr-clinical-form-footer">
-            <EhrButton type="submit" busy={uploading}>{uploading ? 'Uploading…' : 'Upload document'}</EhrButton>
+            <EhrButton type="submit" variant="secondary" busy={uploading}>{uploading ? 'Uploading…' : 'Upload document'}</EhrButton>
           </div>
           <div role="status" className="hid-ehr-clinical-status">{notice}</div>
         </form>
@@ -147,4 +147,16 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       {error ? <ErrorBox>{error}</ErrorBox> : null}
     </EhrCard>
   )
+}
+
+/** A file's type in words: "PDF", not "application/pdf". */
+function fileType(mediaType: string): string {
+  const named: Record<string, string> = { 'application/pdf': 'PDF', 'image/jpeg': 'JPEG image', 'image/png': 'PNG image', 'image/tiff': 'TIFF image' }
+  return named[mediaType] ?? mediaType
+}
+
+/** The virus check in words. */
+function scanWords(scanStatus: string): string {
+  const named: Record<string, string> = { clean: 'Checked', pending: 'Being checked', infected: 'Blocked: virus found', failed: 'Check failed' }
+  return named[scanStatus] ?? `Check: ${scanStatus.replaceAll('_', ' ')}`
 }

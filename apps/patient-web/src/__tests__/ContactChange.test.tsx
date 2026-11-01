@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { PatientProfile } from '../api'
 import { ProfilePage } from '../routes/Portal'
 import { enterCode } from './codeBoxes'
-import { described, json, openContactDetails, openSection, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
+import { described, json, openContactDetails, openSection, press, problem, profile, renderPortal, shownText, type Handler, type Sent } from './portalHarness'
 
 /**
  * The contact details on the profile (hid-1.0 parity B3, the lead's decisions), at the end of Bio-data with no heading
@@ -74,14 +74,14 @@ describe('Contact details', () => {
       : path === CHANGES && method === 'POST' ? json({ phone: (body as { phone: string }).phone, phoneVerified: false })
         : problem(404, 'NOT_FOUND', path), {}, { parityB3: true })
     const shown = await card()
-    expect(shown.getByText('Email').nextElementSibling?.textContent).toBe('a•••@example.com Not verified')
+    expect(shown.getByText('Email').nextElementSibling?.textContent).toBe('a•••@example.comNot verified')
     await press(shown.getByRole('button', { name: 'Change phone number' }))
     expect(screen.getByText(/Health ID can’t text it\s+yet, so it will show as not verified\.$/)).toBeTruthy()
     type('Phone number', '0805 555 1234')
     type('Current password', 'Secret-pass-1')
-    await press(screen.getByRole('button', { name: 'Change phone number' }))
+    await press(screen.getByRole('button', { name: 'Save phone number' }))
     const notice = await screen.findByText(/Your phone number is now \+234 •••• 1234\./)
-    expect(notice.textContent).toBe('Your phone number is now +234 •••• 1234. It shows as not verified, because Health ID can’t send it a text yet.')
+    expect(notice.textContent).toBe('Your phone number is now +234 •••• 1234. It shows as not verified.')
     expect(changes(sent)).toHaveLength(1)
   })
 
@@ -93,7 +93,7 @@ describe('Contact details', () => {
 
   it('is not shown by an Identity that does not send the contacts', async () => {
     renderPortal(<ProfilePage />, (path, method) => path === '/identity/me' && method === 'GET' ? json(profile) : problem(404, 'NOT_FOUND', path))
-    const bio = await openSection('Bio-data')
+    const bio = await openSection('About you')
     expect(within(bio).getByText('Ada Example')).toBeTruthy()
     expect(document.getElementById('contact-details')).toBeNull()
     expect(screen.queryByRole('button', { name: /email address/ })).toBeNull()
@@ -118,14 +118,14 @@ describe('changing the email', () => {
     type('Current password', 'Secret-pass-1')
     await press(screen.getByRole('button', { name: 'Send code' }))
 
-    expect(await screen.findByText(/We sent a 6-digit code to n•••@example\.com\. It works for 10 minutes\./)).toBeTruthy()
+    expect(await screen.findByText(/We sent it to n•••@example\.com\. It works for 10 minutes\./)).toBeTruthy()
     const first = screen.getByRole('textbox', { name: /Digit 1 of 6/ })
     await waitFor(() => expect(document.activeElement).toBe(first))
     // The password is not kept once the code is sent.
     expect(screen.queryByLabelText('Current password')).toBeNull()
     await enterCode(first, '123456')
 
-    expect(await screen.findByText(/Your email address is now n•••@example\.com\. Use it to sign in and to reset your password\. We told your previous address\./))
+    expect(await screen.findByText(/Your email is now n•••@example\.com\. Use it to sign in and reset your password\. We told your old address\./))
       .toBeTruthy()
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Change email address' })))
     expect(changes(sent)).toEqual([
@@ -146,12 +146,12 @@ describe('changing the email', () => {
     await waitFor(() => expect(password.value).toBe(''))
     await waitFor(() => expect(document.activeElement).toBe(password))
     expect(password.getAttribute('aria-invalid')).toBe('true')
-    expect(described(password)).toContain('That password is not right.')
+    expect(described(password)).toContain('Wrong password. Enter the password you use to sign in.')
   })
 
   it.each([
     ['CONTACT_UNAVAILABLE', 409, 'That email address or phone number can’t be used.'],
-    ['PASSWORD_REQUIRED', 409, 'Set a password first to change your contact details.'],
+    ['PASSWORD_REQUIRED', 409, 'Set a password first, then you can change these.'],
   ])('says %s plainly', async (code, status, message) => {
     renderPortal(<ProfilePage />, gateway({ start: () => problem(status, code, 'refused') }), {}, { parityB3: true })
     await press((await card()).getByRole('button', { name: 'Change email address' }))
@@ -172,7 +172,7 @@ describe('changing the email', () => {
     type('New email address', 'new.address@example.com')
     type('Current password', 'Secret-pass-1')
     await press(screen.getByRole('button', { name: 'Send code' }))
-    expect((await screen.findByRole('alert')).textContent).toBe(message)
+    expect(shownText(await screen.findByRole('alert'))).toBe(message)
   })
 
   it('refuses a wrong code on the code itself, and changes nothing', async () => {
@@ -220,12 +220,12 @@ describe('asking for a new code', () => {
     later(15)
     const resend = screen.getByRole('button', { name: 'Send a new code' })
     await press(resend)
-    expect(await screen.findByText('You can ask for a new code in 45 seconds. The code we sent to n•••@example.com still works.')).toBeTruthy()
+    expect(await screen.findByText('You can get a new code in 45 seconds. The last code we sent still works.')).toBeTruthy()
     // Nothing asked of Identity, the step and focus stay, and the first code still changes the address.
     expect(document.activeElement).toBe(resend)
     expect(screen.queryByLabelText('Current password')).toBeNull()
     await enterCode(screen.getByRole('textbox', { name: /Digit 1 of 6/ }), '123456')
-    expect(await screen.findByText(/Your email address is now n•••@example\.com\./)).toBeTruthy()
+    expect(await screen.findByText(/Your email is now n•••@example\.com\./)).toBeTruthy()
     expect(changes(sent).map(request => request.path)).toEqual([CHANGES, `${CHANGES}/change-1/verify`])
   })
 
@@ -237,7 +237,7 @@ describe('asking for a new code', () => {
     type('Current password', 'Secret-pass-1')
     await press(screen.getByRole('button', { name: 'Send code' }))
     await enterCode(await screen.findByRole('textbox', { name: /Digit 1 of 6/ }), '654321')
-    expect(await screen.findByText(/Your email address is now n•••@example\.com\./)).toBeTruthy()
+    expect(await screen.findByText(/Your email is now n•••@example\.com\./)).toBeTruthy()
     expect(changes(sent).map(request => request.path)).toEqual([CHANGES, CHANGES, `${CHANGES}/change-2/verify`])
   })
 
@@ -252,13 +252,13 @@ describe('asking for a new code', () => {
     await press(screen.getByRole('button', { name: 'Send a new code' }))
     type('Current password', 'Secret-pass-1')
     await press(screen.getByRole('button', { name: 'Send code' }))
-    expect((await screen.findByRole('alert')).textContent)
-      .toBe('Wait a moment before asking for another code. The code we sent to n•••@example.com still works: enter it here.')
+    expect(shownText(await screen.findByRole('alert')))
+      .toBe('Wait a moment before asking for another code. The code we sent to n•••@example.com still works. Enter it here.')
     const first = screen.getByRole('textbox', { name: /Digit 1 of 6/ })
     await waitFor(() => expect(document.activeElement).toBe(first))
     expect(screen.queryByLabelText('Current password')).toBeNull()
     await enterCode(first, '123456')
-    expect(await screen.findByText(/Your email address is now n•••@example\.com\./)).toBeTruthy()
+    expect(await screen.findByText(/Your email is now n•••@example\.com\./)).toBeTruthy()
     expect(changes(sent).map(request => request.path)).toEqual([CHANGES, CHANGES, `${CHANGES}/change-1/verify`])
   })
 
@@ -287,7 +287,7 @@ describe('asking for a new code', () => {
     next = () => problem(429, 'CONTACT_CHANGE_RATE_LIMITED', 'Wait a moment before asking for another code.')
     type('Current password', 'Secret-pass-1')
     await press(screen.getByRole('button', { name: 'Send code' }))
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Wait a moment before asking for another code.'))
+    await waitFor(() => expect(shownText(screen.getByRole('alert'))).toBe('Wait a moment before asking for another code.'))
     expect(screen.queryByRole('textbox', { name: /Digit 1 of 6/ })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Enter the code already sent' })).toBeNull()
     expect(changes(sent).some(request => request.path.endsWith('/verify'))).toBe(false)
@@ -301,12 +301,12 @@ describe('asking for a new code', () => {
     await press(await screen.findByRole('button', { name: 'Enter the code already sent' }))
     const first = await screen.findByRole('textbox', { name: /Digit 1 of 6/ })
     await waitFor(() => expect(document.activeElement).toBe(first))
-    expect(screen.getByText(/We sent a 6-digit code to n•••@example\.com\./)).toBeTruthy()
+    expect(screen.getByText(/We sent it to n•••@example\.com\./)).toBeTruthy()
 
     later(600)
     await press(screen.getByRole('button', { name: 'Send a new code' }))
     await press(await screen.findByRole('button', { name: 'Enter the code already sent' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('The code we sent has expired. Send a new code.')
+    expect(shownText(await screen.findByRole('alert'))).toBe('The code we sent has expired. Send a new code.')
     expect(screen.queryByRole('button', { name: 'Enter the code already sent' })).toBeNull()
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'New email address' })))
     expect(changes(sent)).toHaveLength(1)
@@ -337,11 +337,11 @@ describe('verifying an email that is not verified yet', () => {
   it('offers Verify, sends a code to the address itself, and then says it is verified', async () => {
     const { sent } = renderPortal(<ProfilePage />, unverifiedGateway(), {}, { parityB3: true })
     await press((await card()).getByRole('button', { name: 'Verify email address' }))
-    expect(screen.getByRole('heading', { name: 'Verify your email address' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Verify your email' })).toBeTruthy()
     const field = screen.getByRole('textbox', { name: 'Email address' }) as HTMLInputElement
     expect(field.value).toBe('ada.example@example.com')
     await waitFor(() => expect(document.activeElement).toBe(field))
-    expect(screen.getByText(/It shows as verified once you enter it\./)).toBeTruthy()
+    expect(screen.getByText(/Enter it to verify this email\./)).toBeTruthy()
     type('Current password', 'Secret-pass-1')
     await press(screen.getByRole('button', { name: 'Send code' }))
     await enterCode(await screen.findByRole('textbox', { name: /Digit 1 of 6/ }), '123456')
@@ -397,7 +397,7 @@ describe('changing the phone', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Phone number' })))
     type('Phone number', '0805 555 1234')
     type('Current password', 'Secret-pass-1')
-    await press(screen.getByRole('button', { name: 'Change phone number' }))
+    await press(screen.getByRole('button', { name: 'Save phone number' }))
 
     expect(await screen.findByText(/Your phone number is now \+234 •••• 1234\. It shows as not verified/)).toBeTruthy()
     // The form is gone: focus is on the Change button that started it.
@@ -405,7 +405,7 @@ describe('changing the phone', () => {
     expect(changes(sent)).toEqual([{ path: CHANGES, method: 'POST', body: { channel: 'phone', phone: '+2348055551234', currentPassword: 'Secret-pass-1' } }])
     const shown = await card()
     // The profile is read again: the phone row says the new number, not verified.
-    await waitFor(() => expect(shown.getByText('Phone').nextElementSibling?.textContent).toBe('+234 •••• 1234 Not verified'))
+    await waitFor(() => expect(shown.getByText('Phone').nextElementSibling?.textContent).toBe('+234 •••• 1234Not verified'))
     // No code is asked for: production sends no SMS.
     expect(screen.queryByRole('textbox', { name: /Digit 1 of 6/ })).toBeNull()
   })
@@ -415,10 +415,10 @@ describe('changing the phone', () => {
     await press((await card()).getByRole('button', { name: 'Change phone number' }))
     type('Phone number', '123')
     type('Current password', 'Secret-pass-1')
-    await press(screen.getByRole('button', { name: 'Change phone number' }))
-    expect(await screen.findByText(/Enter a valid phone number for the country chosen/)).toBeTruthy()
+    await press(screen.getByRole('button', { name: 'Save phone number' }))
+    expect(await screen.findByText(/Enter a valid phone number for the country you chose/)).toBeTruthy()
     type('Phone number', '0803 123 4567')
-    await press(screen.getByRole('button', { name: 'Change phone number' }))
+    await press(screen.getByRole('button', { name: 'Save phone number' }))
     expect(await screen.findByText('This is already your phone number.')).toBeTruthy()
     expect(changes(sent)).toEqual([])
   })
@@ -428,7 +428,7 @@ describe('changing the phone', () => {
     await press((await card()).getByRole('button', { name: 'Change phone number' }))
     type('Phone number', '+44 7700 900123')
     type('Current password', 'Secret-pass-1')
-    await press(screen.getByRole('button', { name: 'Change phone number' }))
+    await press(screen.getByRole('button', { name: 'Save phone number' }))
     const field = screen.getByRole('textbox', { name: 'Phone number' })
     await waitFor(() => expect(described(field)).toContain('That email address or phone number can’t be used.'))
     await waitFor(() => expect(document.activeElement).toBe(field))

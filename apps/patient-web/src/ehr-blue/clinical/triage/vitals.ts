@@ -1,33 +1,44 @@
-import { useEffect, useState } from 'react'
+import { createElement, useEffect, useState } from 'react'
+import { Value } from '../../../kasuwa/parts'
 import { staffApi, type ClinicalRecord, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import type { Chart } from '../parts/chart'
 import type { KeyValue } from '../parts/KeyValueList'
+import { vitalFlag, worstFlag } from './ranges'
 
 /** The sidebar label, the list's heading; the create page's heading ("New " + the label, lower case). */
 export const TITLE = 'Triage & Vitals'
 export const NEW_TITLE = 'New triage & vitals'
 export const AMEND_LABEL = 'Amend observation'
 
-/** Today's vital measurements (Clinical.tsx VITAL_FIELDS, as EHR's DTO limits them): label, step, range. */
+/**
+ * Today's vital measurements (as EHR's DTO limits them): a plain label, its unit, the input step and range. Steps are
+ * what a ward measures to: SpO₂ in whole percent, weight and temperature to one decimal place.
+ */
 export interface VitalField {
   readonly name: VitalMeasurement
   readonly label: string
+  readonly unit: string
   readonly step: string
   readonly min: string
   readonly max: string
 }
 
 export const VITAL_FIELDS: readonly VitalField[] = [
-  { name: 'systolicMmhg', label: 'Systolic BP (mmHg)', step: '1', min: '30', max: '350' },
-  { name: 'diastolicMmhg', label: 'Diastolic BP (mmHg)', step: '1', min: '10', max: '250' },
-  { name: 'pulseBpm', label: 'Pulse (bpm)', step: '1', min: '10', max: '350' },
-  { name: 'temperatureC', label: 'Temperature (°C)', step: '0.1', min: '20', max: '50' },
-  { name: 'respiratoryRate', label: 'Respirations / min', step: '1', min: '1', max: '100' },
-  { name: 'oxygenSaturationPercent', label: 'SpO₂ (%)', step: '0.01', min: '0', max: '100' },
-  { name: 'weightKg', label: 'Weight (kg)', step: '0.001', min: '0.2', max: '700' },
-  { name: 'heightCm', label: 'Height (cm)', step: '0.01', min: '20', max: '300' },
+  { name: 'systolicMmhg', label: 'BP systolic', unit: 'mmHg', step: '1', min: '30', max: '350' },
+  { name: 'diastolicMmhg', label: 'BP diastolic', unit: 'mmHg', step: '1', min: '10', max: '250' },
+  { name: 'pulseBpm', label: 'Pulse', unit: 'bpm', step: '1', min: '10', max: '350' },
+  { name: 'temperatureC', label: 'Temperature', unit: '°C', step: '0.1', min: '20', max: '50' },
+  { name: 'respiratoryRate', label: 'Respiratory rate', unit: 'breaths/min', step: '1', min: '1', max: '100' },
+  { name: 'oxygenSaturationPercent', label: 'SpO₂', unit: '%', step: '1', min: '0', max: '100' },
+  { name: 'weightKg', label: 'Weight', unit: 'kg', step: '0.1', min: '0.2', max: '700' },
+  { name: 'heightCm', label: 'Height', unit: 'cm', step: '0.1', min: '20', max: '300' },
 ]
+
+/** "Pulse (bpm)": a field's label with its unit. */
+export function fieldLabel(field: VitalField): string {
+  return `${field.label} (${field.unit})`
+}
 
 /** The order today's create sends the measurements in. */
 export const BODY_ORDER: readonly VitalMeasurement[] = [
@@ -79,21 +90,22 @@ function shown(value: unknown): string {
 }
 
 /**
- * The measurements as the design's saved record lists them ("Bp 120/80", "Pulse 80", "Temperature 37.2",
- * "Spo2 98"), each only when recorded; the measurements the design has no key for follow, named the same way.
+ * The measurements as a saved record lists them: "BP 120/80 mmHg", "Pulse 80 bpm", "Temperature 37.2 °C", each with
+ * its unit and, outside the adult range (ranges.ts), its flag; only those recorded.
  */
 export function measurementItems(values: VitalValues): KeyValue[] {
   const items: KeyValue[] = []
-  const add = (label: string, value: string) => { if (value) items.push({ label, value }) }
+  const add = (label: string, value: string, unit: string, flag: ReturnType<typeof vitalFlag>) => {
+    if (value) items.push({ label, value: createElement(Value, { value, unit, flag }) })
+  }
   const systolic = shown(values.systolicMmhg)
   const diastolic = shown(values.diastolicMmhg)
-  add('Bp', systolic && diastolic ? `${systolic}/${diastolic}` : '')
-  add('Pulse', shown(values.pulseBpm))
-  add('Temperature', shown(values.temperatureC))
-  add('Spo2', shown(values.oxygenSaturationPercent))
-  add('Respiratory Rate', shown(values.respiratoryRate))
-  add('Weight', shown(values.weightKg))
-  add('Height', shown(values.heightCm))
+  add('BP', systolic && diastolic ? `${systolic}/${diastolic}` : '', 'mmHg',
+    worstFlag(vitalFlag('systolicMmhg', values.systolicMmhg), vitalFlag('diastolicMmhg', values.diastolicMmhg)))
+  for (const name of ['pulseBpm', 'temperatureC', 'oxygenSaturationPercent', 'respiratoryRate', 'weightKg', 'heightCm'] as const) {
+    const field = VITAL_FIELDS.find(item => item.name === name)!
+    add(field.label, shown(values[name]), field.unit, vitalFlag(name, values[name]))
+  }
   return items
 }
 

@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { createTestSessionValue, SessionContext } from '../session'
 import { GOOGLE_LINK_REQUIRED, GOOGLE_NOT_REGISTERED, SignIn } from '../routes/SignIn'
 import { Enrollment } from '../routes/Enrollment'
-import { json, patientApi, problem, type Handler } from './portalHarness'
+import { json, patientApi, problem, shownText, type Handler } from './portalHarness'
 
 /**
  * Google sign-in for a registered patient whose Google account is not linked yet (hid-1.0 parity B2, owner decision
@@ -64,8 +64,8 @@ describe('Google sign-in for an account not linked yet', () => {
     openSignIn(exchange(() => problem(409, 'GOOGLE_LINK_REQUIRED', 'Sign in with your password, then link Google from Settings.')))
     await google()
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe('This Google account can’t be linked automatically. Sign in with your email or Health ID and password.')
-    expect(alert.textContent).toBe(GOOGLE_LINK_REQUIRED)
+    expect(shownText(alert)).toBe('This Google account can’t be linked automatically. Sign in with your email or Health ID and password.')
+    expect(shownText(alert)).toBe(GOOGLE_LINK_REQUIRED)
     expect(alert.textContent).not.toMatch(/Settings/)
     expect(within(alert).queryByRole('link')).toBeNull()
   })
@@ -82,7 +82,7 @@ describe('Google sign-in for an account not linked yet', () => {
     openSignIn(exchange(() => problem(401, 'GOOGLE_SIGN_IN_DENIED', 'Google sign-in could not be completed for this HID account')))
     await google()
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe('Google sign-in could not be completed for this HID account')
+    expect(shownText(alert)).toBe('Google sign-in could not be completed for this HID account')
     expect(within(alert).queryByRole('link')).toBeNull()
   })
 })
@@ -102,7 +102,7 @@ describe('Google on the NIN-first enrollment for an email that already has a Hea
     render(<MemoryRouter initialEntries={['/enroll']}><SessionContext.Provider value={createTestSessionValue(null, api)}>
       <Enrollment />
     </SessionContext.Provider></MemoryRouter>)
-    await screen.findByLabelText('National Identification Number')
+    await screen.findByLabelText('National Identification Number (NIN)')
     fireEvent.click(screen.getByRole('button', { name: 'Continue with Google' }))
     fireEvent.click(screen.getAllByRole('button', { name: 'Complete check' }).at(-1)!)
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Google' })) })

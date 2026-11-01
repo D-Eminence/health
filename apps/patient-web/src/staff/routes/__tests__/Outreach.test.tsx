@@ -48,14 +48,16 @@ beforeEach(() => {
  * is decided (hid-system authorize-outreach.dto.ts, ADR-045), so creating a
  * campaign, changing its status and adding a member always answer
  * 400 VALIDATION_FAILED, though six roles hold the permission. The page offers
- * none of them, and says so; campaigns and their members can still be read.
+ * none of them; campaigns and their members can still be read. The redesign removed the notice that said so (no
+ * disclaimers): the page offers nothing it cannot do, and says nothing about it.
  */
 describe('Outreach campaigns, read only', () => {
-  it('offers no campaign create, status or member control, even with outreach.campaign.write, and says why', async () => {
+  it('offers no campaign create, status or member control, even with outreach.campaign.write, and adds no disclaimer', async () => {
     render(<Outreach />)
     expect(await screen.findByText('Ikeja screening week')).toBeTruthy()
     await screen.findByText('Epe follow-up')
-    expect(screen.getByText(/^Campaign management is not yet available\./)).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Campaigns' })).toBeTruthy()
+    expect(screen.queryByText(/Campaign management is not yet available/)).toBeNull()
     expect(screen.queryByRole('heading', { name: 'New campaign' })).toBeNull()
     for (const name of [/create campaign/i, /activate campaign/i, /close campaign/i, /add member/i]) {
       expect(screen.queryByRole('button', { name })).toBeNull()

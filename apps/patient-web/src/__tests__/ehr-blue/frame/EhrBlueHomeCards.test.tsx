@@ -52,7 +52,7 @@ describe('Needs attention: access requests', () => {
     expect(screen.getByRole('status').textContent).toBe('Loading access requests')
     const link = await screen.findByRole('link', { name: '1 pending access request' })
     expect(link.getAttribute('href')).toBe('/provider/requests')
-    expect(screen.getByText('External record access · pending')).toBeDefined()
+    expect(screen.getByText('Access request · waiting')).toBeDefined()
   })
 
   it('says a refusal in today\'s words', async () => {
@@ -112,9 +112,9 @@ describe('A role\'s sample dashboard', () => {
     expect(screen.getByRole('heading', { name: 'Activity in period' })).toBeDefined()
     expect(screen.getByText('Laboratory created')).toBeDefined()
     expect(screen.getByText('Blood Bank created')).toBeDefined()
-    // The design's heading action; the way back is the demo's "My own dashboard".
+    // The design's heading action, and the redesign's way back to the person's own Home.
     expect(screen.getByRole('button', { name: 'Customize shortcuts' })).toBeDefined()
-    expect(screen.queryByRole('button', { name: 'Back to my dashboard' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Back to my dashboard' })).toBeDefined()
     expect(screen.queryByText(/dashboard, as the design shows it/)).toBeNull()
   })
 })

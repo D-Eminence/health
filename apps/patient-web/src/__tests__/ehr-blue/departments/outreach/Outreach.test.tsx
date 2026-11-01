@@ -6,8 +6,9 @@ import { DEMO_HOSPITAL_ID, renderDept } from '../harness'
 import { Outreach } from '../../../../ehr-blue/departments/outreach/Outreach'
 
 /*
- * The blue Outreach page: the design's workspace (list, Quick view, record view, create
- * form) on today's Outreach requests and rules (staff/routes/Operations.tsx Outreach,
+ * The blue Outreach page as the owner redesigned it: registrations as cards (filtered by what still needs doing), a
+ * three-step New registration, and a case view with one next step (link, confirmed against the person) and a done
+ * state; campaigns read only. On today's Outreach requests and rules (staff/routes/Operations.tsx Outreach,
  * CampaignCard, OutreachCaseCard; staff/routes/__tests__/Outreach.test.tsx). Fictional data.
  */
 
@@ -93,9 +94,20 @@ async function press(button: HTMLElement) {
   await act(async () => { fireEvent.click(button) })
 }
 
-const casesTable = () => screen.findByRole('region', { name: 'Registration cases' })
-const campaignsTable = () => screen.findByRole('region', { name: 'Campaigns' })
+const casesList = () => screen.findByRole('list', { name: 'Registrations' })
+const campaignsList = () => screen.findByRole('list', { name: 'Campaigns' })
 const heading = () => screen.getByRole('heading', { level: 1 })
+/** A card's one button, named by everything on it: the person first. */
+const card = (scope: HTMLElement, name: string) => within(scope).getByRole('button', { name: new RegExp(`^${name}(?![0-9])`) })
+const queryCard = (scope: HTMLElement, name: string) => within(scope).queryByRole('button', { name: new RegExp(`^${name}(?![0-9])`) })
+/** Shows the registrations in one tab of the list. */
+async function showTab(name: 'Waiting to link' | 'Linked' | 'All') {
+  const tabs = await screen.findByRole('navigation', { name: 'Show registrations' })
+  await press(within(tabs).getByRole('button', { name: new RegExp(`^${name}`) }))
+}
+/** The card a card header's heading titles. */
+const cardOf = (title: HTMLElement) => title.parentElement!.parentElement!.parentElement!.parentElement as HTMLElement
+const alertTexts = () => screen.queryAllByRole('alert').map(alert => alert.textContent ?? '')
 
 describe('who can open Outreach', () => {
   it('refuses a membership with no outreach read permission, and reads nothing', async () => {
@@ -104,7 +116,7 @@ describe('who can open Outreach', () => {
     // Today's words (staff/routes/Operations.tsx Outreach): "Outreach unavailable" and the permission it needs.
     expect(heading().textContent).toBe('Outreach unavailable')
     expect(screen.getByText('This facility membership needs outreach campaign or registration read permission.')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'New registration' })).toBeNull()
     expect(api.outreachCases).not.toHaveBeenCalled()
     expect(api.outreachCampaigns).not.toHaveBeenCalled()
   })
@@ -119,42 +131,47 @@ describe('who can open Outreach', () => {
   it('with registration read only, lists cases and offers neither campaigns nor a new case', async () => {
     session.permissions = ['outreach.registration.read']
     renderPage()
-    expect(await screen.findByRole('button', { name: 'Patient One' })).toBeTruthy()
+    expect(card(await casesList(), 'Patient One')).toBeTruthy()
     expect(api.outreachCases).toHaveBeenCalledWith(DEMO_HOSPITAL_ID)
     expect(api.outreachCampaigns).not.toHaveBeenCalled()
     expect(api.outreachCampaignMembers).not.toHaveBeenCalled()
-    expect(screen.queryByRole('region', { name: 'Campaigns' })).toBeNull()
-    expect(screen.queryByText('Campaigns are read only')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(screen.queryByRole('list', { name: 'Campaigns' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Campaigns' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'New registration' })).toBeNull()
   })
 
   it('with campaign read only, lists campaigns and reads no cases', async () => {
     session.permissions = ['outreach.campaign.read']
     renderPage()
-    expect(await campaignsTable()).toBeTruthy()
+    expect(await campaignsList()).toBeTruthy()
     expect(api.outreachCases).not.toHaveBeenCalled()
     expect(screen.queryByRole('searchbox', { name: 'Search Outreach' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'New registration' })).toBeNull()
   })
 })
 
 describe('the list', () => {
-  it('shows the design list: one h1, Create record, the search card and the table columns', async () => {
+  it('shows one h1, New registration, the search and the registrations as cards with their next step', async () => {
     renderPage()
-    const table = await casesTable()
+    const list = await casesList()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(heading().textContent).toBe('Outreach')
-    expect(screen.getByRole('button', { name: 'Create record' })).toBeTruthy()
-    expect(screen.getByRole('searchbox', { name: 'Search Outreach' }).getAttribute('placeholder')).toBe('Search saved records…')
-    expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Record', 'Patient / context', 'Status', 'Created', 'Actions'])
-    const row = within(table).getByRole('button', { name: 'Patient One' }).closest('tr') as HTMLElement
-    // The record's short reference, its age and sex, and its status in lowercase words.
-    expect(within(row).getByText('c0a5e000')).toBeTruthy()
-    expect(within(row).getByText('34 years · female')).toBeTruthy()
-    expect(within(row).getByText('identity resolution pending')).toBeTruthy()
-    expect(within(table).getByText('identity resolved')).toBeTruthy()
-    expect(within(row).getByRole('button', { name: 'Quick view' })).toBeTruthy()
-    expect(within(row).getByRole('button', { name: 'Open' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'New registration' })).toBeTruthy()
+    expect(screen.getByRole('searchbox', { name: 'Search Outreach' }).getAttribute('placeholder')).toBe('Search by name')
+    // The list opens on who still needs linking.
+    const tabs = screen.getByRole('navigation', { name: 'Show registrations' })
+    expect(within(tabs).getAllByRole('button').map(tab => [tab.textContent, tab.getAttribute('aria-pressed')]))
+      .toEqual([['Waiting to link1', 'true'], ['Linked1', 'false'], ['All2', 'false']])
+    const one = card(list, 'Patient One')
+    // Who, age and sex, the status in words, and the next step.
+    expect(within(one).getByText('34 years · Female · Demo screening week')).toBeTruthy()
+    expect(within(one).getByText('Waiting to link')).toBeTruthy()
+    expect(within(one).getByText('Next: link their Health ID')).toBeTruthy()
+    expect(queryCard(list, 'Patient Two')).toBeNull()
+    await showTab('Linked')
+    const two = card(await casesList(), 'Patient Two')
+    expect(within(two).getByText('Linked')).toBeTruthy()
+    expect(within(two).getByText('Done: nothing more to do')).toBeTruthy()
     // No export: today's API has none, and a download would keep identifying data on the device.
     expect(screen.queryByRole('button', { name: /export/i })).toBeNull()
   })
@@ -162,15 +179,16 @@ describe('the list', () => {
   it('says the list is loading', async () => {
     api.outreachCases.mockReturnValue(new Promise(() => {}))
     renderPage()
-    expect(await screen.findByText('Loading registration cases')).toBeTruthy()
-    expect(screen.getByText('Loading registration cases').getAttribute('role')).toBe('status')
+    const loading = await screen.findByRole('status', { name: 'Loading registrations' })
+    expect(loading.textContent).toBe('Loading registrations…')
   })
 
-  it('says when there are no cases yet', async () => {
+  it('says when there are no cases yet, and offers the first registration', async () => {
     api.outreachCases.mockResolvedValue([])
     renderPage()
-    expect(await screen.findByText('No matching records')).toBeTruthy()
-    expect(screen.getByText('Create the first record when you have the appropriate permission.')).toBeTruthy()
+    expect(await screen.findByText('No registrations yet')).toBeTruthy()
+    expect(screen.getByText('People you register in the field show here, with what each needs next.')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'New registration' })).toHaveLength(2)
   })
 
   it.each([
@@ -184,8 +202,9 @@ describe('the list', () => {
   ])('says %s when cases cannot be read', async (_name, error, message) => {
     api.outreachCases.mockRejectedValue(error)
     renderPage()
-    await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toContain(message))
-    expect(screen.queryByText('No matching records')).toBeNull()
+    await waitFor(() => expect(alertTexts().some(text => text.includes(message))).toBe(true))
+    expect(alertTexts().find(text => text.includes(message))).toContain('Couldn’t load registrations')
+    expect(screen.queryByText('No registrations yet')).toBeNull()
   })
 
   it('says when campaigns cannot be read', async () => {
@@ -196,20 +215,21 @@ describe('the list', () => {
 
   it('searches what is loaded without sending anything, and clears the search', async () => {
     renderPage()
-    const table = await casesTable()
+    await casesList()
+    await showTab('All')
     const reads = api.outreachCases.mock.calls.length
     const search = screen.getByRole('searchbox', { name: 'Search Outreach' })
     fireEvent.change(search, { target: { value: 'two male' } })
-    expect(within(table).queryByRole('button', { name: 'Patient One' })).toBeNull()
-    expect(within(table).getByRole('button', { name: 'Patient Two' })).toBeTruthy()
+    expect(queryCard(await casesList(), 'Patient One')).toBeNull()
+    expect(card(await casesList(), 'Patient Two')).toBeTruthy()
     fireEvent.change(search, { target: { value: 'nobody' } })
-    expect(screen.getByText('No matching records')).toBeTruthy()
-    expect(screen.getByText('Change your search.')).toBeTruthy()
+    expect(screen.getByText('No matching registrations')).toBeTruthy()
+    expect(screen.getByText('Check the spelling, or search by another name.')).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Clear search' }))
     expect((search as HTMLInputElement).value).toBe('')
     // The button removed itself: focus is back on the search.
     expect(document.activeElement).toBe(search)
-    expect(within(await casesTable()).getByRole('button', { name: 'Patient One' })).toBeTruthy()
+    expect(card(await casesList(), 'Patient One')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull()
     expect(api.outreachCases).toHaveBeenCalledTimes(reads)
   })
@@ -220,7 +240,7 @@ describe('the list', () => {
     })))
     renderPage()
     const pages = await screen.findByRole('navigation', { name: 'Registration case pages' })
-    expect(within(await casesTable()).getAllByRole('row')).toHaveLength(51)
+    expect(within(await casesList()).getAllByRole('listitem')).toHaveLength(50)
     expect(within(pages).getByText('Page 1 of 2')).toBeTruthy()
     const previous = within(pages).getByRole('button', { name: 'Previous page' })
     const next = within(pages).getByRole('button', { name: 'Next page' })
@@ -231,7 +251,7 @@ describe('the list', () => {
     expect(within(pages).getByText('Page 1 of 2')).toBeTruthy()
     await press(next)
     expect(within(pages).getByText('Page 2 of 2')).toBeTruthy()
-    expect(within(await casesTable()).getByRole('button', { name: 'Patient 51' })).toBeTruthy()
+    expect(within(await casesList()).getAllByRole('listitem')).toHaveLength(1)
     expect(next.getAttribute('aria-disabled')).toBe('true')
     expect((next as HTMLButtonElement).disabled).toBe(false)
     expect(document.activeElement).toBe(next)
@@ -242,39 +262,30 @@ describe('the list', () => {
 
   it('reads both lists again on Refresh', async () => {
     renderPage()
-    await casesTable()
-    await campaignsTable()
+    await casesList()
+    await campaignsList()
     await press(screen.getByRole('button', { name: 'Refresh' }))
     await waitFor(() => expect(api.outreachCases).toHaveBeenCalledTimes(2))
     expect(api.outreachCampaigns).toHaveBeenCalledTimes(2)
   })
 
-  it('shows a record in Quick view, and opens it from there', async () => {
+  // The design's Quick view drawer is gone: a card opens the case itself, which shows what the drawer showed.
+  it('opens a record from its card, with its saved details and campaign by name', async () => {
     renderPage()
-    const row = within(await casesTable()).getByRole('button', { name: 'Patient One' }).closest('tr') as HTMLElement
-    const quick = within(row).getByRole('button', { name: 'Quick view' })
-    await press(quick)
-    const drawer = screen.getByRole('dialog', { name: 'Record quick view' })
-    expect(within(drawer).getByRole('heading', { name: 'Patient One' })).toBeTruthy()
-    expect(within(drawer).getByText('Temporary patient ID')).toBeTruthy()
-    expect(within(drawer).getByText('tmp_c0000000-0000-4000-8000-000000000001')).toBeTruthy()
-    // The campaign the case was registered under, by name.
-    expect(within(drawer).getByText('Demo screening week')).toBeTruthy()
-    // Escape closes it, and focus goes back to Quick view.
-    fireEvent.keyDown(drawer, { key: 'Escape' })
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(document.activeElement).toBe(quick)
-    await press(quick)
-    await press(within(screen.getByRole('dialog', { name: 'Record quick view' })).getByRole('button', { name: 'Open full record' }))
-    expect(screen.queryByRole('dialog')).toBeNull()
+    await press(card(await casesList(), 'Patient One'))
     expect(heading().textContent).toBe('Patient One')
     expect(document.activeElement).toBe(heading())
+    const saved = cardOf(screen.getByRole('heading', { name: 'Registration' }))
+    expect(within(saved).getByText('Temporary patient ID')).toBeTruthy()
+    expect(within(saved).getByText('tmp_c0000000-0000-4000-8000-000000000001')).toBeTruthy()
+    // The campaign the case was registered under, by name.
+    expect(within(saved).getByText('Demo screening week')).toBeTruthy()
   })
 
   it('offers every control as a native button or field that the keyboard reaches', async () => {
     renderPage()
-    await casesTable()
-    await campaignsTable()
+    await casesList()
+    await campaignsList()
     const page = document.querySelector('.hid-ehr-dept') as HTMLElement
     for (const control of page.querySelectorAll<HTMLElement>('button, input, select, textarea, a')) {
       expect(['BUTTON', 'INPUT']).toContain(control.tagName)
@@ -287,16 +298,14 @@ describe('the list', () => {
 /**
  * GAP-L93, OUTREACH-01: Identity does not authorize outreach.campaign.write until campaign
  * governance is decided, so creating a campaign, changing its status and adding a member always
- * answer 400. The page offers none of them, and says so; campaigns and members can be read.
+ * answer 400. The page offers none of them; campaigns and members can be read.
  */
 describe('campaigns, read only', () => {
-  it('offers no campaign create, status or member control, even with outreach.campaign.write, and says why', async () => {
+  it('offers no campaign create, status or member control, even with outreach.campaign.write', async () => {
     renderPage()
-    const table = await campaignsTable()
-    expect(within(table).getByRole('button', { name: 'Demo screening week' })).toBeTruthy()
-    expect(within(table).getByText('planned')).toBeTruthy()
-    expect(screen.getByText('Campaigns are read only')).toBeTruthy()
-    expect(screen.getByText(/^You can view campaigns and their members here\. Creating, activating or closing a campaign, and adding members, is not available yet\.$/)).toBeTruthy()
+    const list = await campaignsList()
+    expect(card(list, 'Demo screening week')).toBeTruthy()
+    expect(within(card(list, 'Demo follow-up')).getByText('planned')).toBeTruthy()
     for (const name of [/create campaign/i, /activate/i, /close campaign/i, /add member/i, /new campaign/i]) {
       expect(screen.queryByRole('button', { name })).toBeNull()
     }
@@ -307,20 +316,19 @@ describe('campaigns, read only', () => {
 
   it('opens a campaign as a read-only record with its members', async () => {
     renderPage()
-    await press(within(await campaignsTable()).getByRole('button', { name: 'Demo screening week' }))
+    await press(card(await campaignsList(), 'Demo screening week'))
     expect(heading().textContent).toBe('Demo screening week')
     expect(document.activeElement).toBe(heading())
     expect(screen.getByRole('heading', { name: 'Saved record' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Available actions' })).toBeTruthy()
     expect(screen.getByText('No further actions for your permission and this record state.')).toBeTruthy()
-    expect(screen.getByText('Campaigns are read only')).toBeTruthy()
     const members = screen.getByRole('heading', { name: 'Members' }).closest('section') as HTMLElement
     expect(await within(members).findByText('Membership membersh')).toBeTruthy()
-    expect(within(members).getByText('health worker')).toBeTruthy()
-    expect(screen.queryAllByRole('button').map(button => button.textContent)).toEqual(['Back to list'])
+    expect(within(members).getByText('Health worker')).toBeTruthy()
+    expect(screen.getAllByRole('button')).toEqual([screen.getByRole('button', { name: 'Back to list' })])
     // Back to the list, focus returns to the campaign opened.
     await press(screen.getByRole('button', { name: 'Back to list' }))
-    expect(document.activeElement).toBe(within(await campaignsTable()).getByRole('button', { name: 'Demo screening week' }))
+    expect(document.activeElement).toBe(card(await campaignsList(), 'Demo screening week'))
   })
 
   it('says when a campaign has no members, and when its members cannot be read, with a retry', async () => {
@@ -329,46 +337,51 @@ describe('campaigns, read only', () => {
       return []
     })
     renderPage()
-    await press(within(await campaignsTable()).getByRole('button', { name: 'Demo screening week' }))
-    expect(await screen.findByText('No members')).toBeTruthy()
+    await press(card(await campaignsList(), 'Demo screening week'))
+    expect(await screen.findByText('No members yet')).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Back to list' }))
-    await press(within(await campaignsTable()).getByRole('button', { name: 'Demo follow-up' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('Members of this campaign cannot be read here.')
+    await press(card(await campaignsList(), 'Demo follow-up'))
+    expect((await screen.findByRole('alert')).textContent).toContain('Members of this campaign cannot be read here.')
     const reads = api.outreachCampaignMembers.mock.calls.filter(call => call[1] === 'campaign-2').length
     await press(screen.getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(api.outreachCampaignMembers.mock.calls.filter(call => call[1] === 'campaign-2')).toHaveLength(reads + 1))
   })
 })
 
-/** The new registration case form, filled in as given. */
+/** The New registration form. */
 async function openNew() {
-  await press(await screen.findByRole('button', { name: 'Create record' }))
-  return screen.getByRole('button', { name: 'Save record' }).closest('form') as HTMLFormElement
+  await press(await screen.findByRole('button', { name: 'New registration' }))
+  return screen.getByRole('button', { name: 'Save registration' }).closest('form') as HTMLFormElement
 }
 
 function fill(form: HTMLElement, values: { fullName?: string; sex?: string; age?: string; phone?: string; notes?: string; campaign?: string }) {
   const set = (label: RegExp, value: string | undefined) => { if (value !== undefined) fireEvent.change(within(form).getByLabelText(label), { target: { value } }) }
   set(/^Campaign/, values.campaign); set(/^Full name/, values.fullName); set(/^Sex/, values.sex); set(/^Age/, values.age); set(/^Phone/, values.phone)
-  set(/^Operational notes/, values.notes)
-  return within(form).getByRole('button', { name: 'Save record' })
+  set(/^Notes for the team/, values.notes)
+  return within(form).getByRole('button', { name: /^(Save registration|Saving…)$/ })
 }
+
+/** The form's header Back to list (Cancel at its foot does the same). */
+const formBack = () => screen.getByRole('button', { name: 'Back to list' })
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const commands = () => api.createOutreachCase.mock.calls.map(call => call[2] as { localCommandId: string; temporaryPatientId: string })
 const createdCase = { ...pendingCase, id: 'c0a5e000-0000-4000-8000-0000000000aa', fullName: 'Patient One', campaignId: undefined, rowVersion: 1 }
 
 describe('creating a registration case', () => {
-  it('opens the design form, its heading focused, with the required fields marked and required', async () => {
+  it('opens the form in three steps, its heading focused, with the required fields marked and required', async () => {
     renderPage()
     const form = await openNew()
-    expect(heading().textContent).toBe('New outreach')
+    expect(heading().textContent).toBe('New registration')
     expect(document.activeElement).toBe(heading())
     expect(form.noValidate).toBe(true)
+    expect(within(form).getAllByRole('heading', { level: 3 }).map(step => step.textContent))
+      .toEqual(['Who they are', 'How to reach them', 'Campaign and notes'])
     const marked = Array.from(form.querySelectorAll('label')).filter(label => label.querySelector('[aria-hidden="true"]')?.textContent === ' *')
-    expect(marked.map(label => label.textContent)).toEqual(['Full name *', 'Sex *', 'Age (years) *'])
+    expect(marked.map(label => label.textContent)).toEqual(['Full name *', 'Sex *', 'Age in years *'])
     for (const label of marked) expect((document.getElementById(label.htmlFor) as HTMLInputElement).required).toBe(true)
     expect((within(form).getByLabelText(/^Sex/) as HTMLSelectElement).value).toBe('unknown')
-    expect(within(form).getByRole('button', { name: 'Save record' }).getAttribute('type')).toBe('submit')
+    expect(within(form).getByRole('button', { name: 'Save registration' }).getAttribute('type')).toBe('submit')
   })
 
   it('offers only active registration campaigns this membership belongs to', async () => {
@@ -378,7 +391,7 @@ describe('creating a registration case', () => {
     const select = within(form).getByLabelText(/^Campaign/) as HTMLSelectElement
     await waitFor(() => expect(Array.from(select.options).map(option => option.textContent)).toEqual(['No campaign', 'Demo screening week']))
     expect(document.getElementById(select.getAttribute('aria-describedby') ?? '')?.textContent)
-      .toBe('Only active registration campaigns you belong to are listed. A case can also be saved without one.')
+      .toBe('Only active registration campaigns you belong to are listed.')
   })
 
   it('has no campaign field without campaign read permission', async () => {
@@ -402,31 +415,31 @@ describe('creating a registration case', () => {
     expect(commands()[0]!.temporaryPatientId).toMatch(/^tmp_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
     await waitFor(() => expect(heading().textContent).toBe('Patient One'))
     expect(document.activeElement).toBe(heading())
-    // Said in the page's status region, mounted throughout, and shown as the design's banner.
+    // Said in the page's status region, mounted throughout, and shown as a banner.
     const status = document.getElementById('outreach-status')!
     expect(status.getAttribute('role')).toBe('status')
     expect(status.textContent).toBe('Registration case created. It stays pending until it is linked to a verified Health ID patient.')
-    expect(screen.getByText('Registration case created')).toBeTruthy()
-    expect(screen.getByText('It stays pending until it is linked to a verified Health ID patient.')).toBeTruthy()
+    expect(screen.getByText('Registration saved')).toBeTruthy()
+    expect(screen.getByText('They have a temporary record. Link it to their Health ID when you find it.')).toBeTruthy()
     await waitFor(() => expect(api.outreachCases).toHaveBeenCalledTimes(2))
   })
 
   it('keeps one status region mounted through the views, and says a created case whatever its status', async () => {
     api.createOutreachCase.mockResolvedValue({ ...createdCase, status: 'identity_resolved' })
     renderPage()
-    await casesTable()
+    await casesList()
     const status = document.getElementById('outreach-status')!
     expect(status.getAttribute('role')).toBe('status')
     expect(status.textContent).toBe('')
     await press(fill(await openNew(), { fullName: 'Patient One', age: '34' }))
     await waitFor(() => expect(heading().textContent).toBe('Patient One'))
     expect(document.getElementById('outreach-status')).toBe(status)
-    expect(within(status).getByText('Registration case created. Its status is identity resolved.')).toBeTruthy()
-    expect(screen.getByText('Registration case created')).toBeTruthy()
-    expect(screen.getByText('Its status is identity resolved.')).toBeTruthy()
+    expect(within(status).getByText('Registration case created. Its status is linked.')).toBeTruthy()
+    expect(screen.getByText('Registration saved')).toBeTruthy()
+    expect(screen.getByText('Its status is linked.')).toBeTruthy()
     // Sending the next case clears what the last one said.
     api.createOutreachCase.mockReturnValue(new Promise(() => {}))
-    await press(screen.getByRole('button', { name: 'Back to list' }))
+    await press(screen.getAllByRole('button', { name: 'Back to list' })[0]!)
     expect(document.getElementById('outreach-status')).toBe(status)
     await press(fill(await openNew(), { fullName: 'Patient Two', age: '51' }))
     await waitFor(() => expect(status.textContent).toBe(''))
@@ -437,12 +450,15 @@ describe('creating a registration case', () => {
     api.createOutreachCase.mockReturnValue(new Promise(resolve => { answer = resolve }))
     renderPage()
     await press(fill(await openNew(), { fullName: 'Patient One', age: '34' }))
-    const back = screen.getByRole('button', { name: 'Back to list' })
+    const back = formBack()
+    const cancel = screen.getByRole('button', { name: 'Cancel' })
     expect(back.getAttribute('aria-disabled')).toBe('true')
+    expect(cancel.getAttribute('aria-disabled')).toBe('true')
     expect(screen.getByRole('button', { name: 'Saving…' }).getAttribute('aria-busy')).toBe('true')
     await press(back)
-    expect(heading().textContent).toBe('New outreach')
-    expect(document.activeElement).toBe(back)
+    await press(cancel)
+    expect(heading().textContent).toBe('New registration')
+    expect(document.activeElement).toBe(cancel)
     await act(async () => { answer(createdCase) })
     await waitFor(() => expect(heading().textContent).toBe('Patient One'))
     expect(document.getElementById('outreach-status')!.textContent).toContain('Registration case created.')
@@ -453,11 +469,11 @@ describe('creating a registration case', () => {
     api.createOutreachCase.mockReturnValue(new Promise((_resolve, reject) => { refuse = reject }))
     renderPage()
     await press(fill(await openNew(), { fullName: 'Patient One', age: '34' }))
-    await press(screen.getByRole('button', { name: 'Back to list' }))
+    await press(formBack())
     await act(async () => { refuse(new HidApiError(503, 'Outreach is unavailable.', { code: 'SERVICE_UNAVAILABLE' })) })
     expect((await screen.findByRole('alert')).textContent).toBe('Outreach is unavailable.')
-    expect(heading().textContent).toBe('New outreach')
-    expect(screen.getByRole('button', { name: 'Back to list' }).getAttribute('aria-disabled')).toBeNull()
+    expect(heading().textContent).toBe('New registration')
+    expect(formBack().getAttribute('aria-disabled')).toBeNull()
   })
 
   it('sends nothing but a campaign it is offered: no campaign by default', async () => {
@@ -496,9 +512,9 @@ describe('creating a registration case', () => {
     api.createOutreachCase.mockResolvedValueOnce(createdCase)
     await press(fill(form, { age: '43' }))
     await waitFor(() => expect(heading().textContent).toBe('Patient One'))
-    // The next case, though its details match the last.
-    await press(screen.getByRole('button', { name: 'Back to list' }))
-    form = await openNew()
+    // The next case, though its details match the last: from the case made, "Register another person".
+    await press(screen.getByRole('button', { name: 'Register another person' }))
+    form = screen.getByRole('button', { name: 'Save registration' }).closest('form') as HTMLFormElement
     api.createOutreachCase.mockResolvedValueOnce(createdCase)
     await press(fill(form, { fullName: 'Patient One', sex: 'female', age: '43' }))
     await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(3))
@@ -525,7 +541,7 @@ describe('creating a registration case', () => {
   })
 
   it.each([
-    ['Operational notes', { notes: '  ab ' }, 'outreach-case-notes', 'Enter at least 3 characters, or leave this blank.'],
+    ['Notes for the team', { notes: '  ab ' }, 'outreach-case-notes', 'Enter at least 3 characters, or leave this blank.'],
     ['Phone', { phone: ' 12 ' }, 'outreach-case-phone', 'Enter at least 3 characters, or leave this blank.'],
     ['an empty full name', { fullName: '   ' }, 'outreach-case-name', 'Complete this field.'],
     ['an empty age', { age: '' }, 'outreach-case-age', 'Complete this field.'],
@@ -557,8 +573,8 @@ describe('creating a registration case', () => {
     await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(1))
   })
 
-  // Refused from Save record, focus moves to the field, whose description says why. Refused from Enter in that field,
-  // focus cannot move, so the refusal is an alert there, new each time.
+  // Refused from Save registration, focus moves to the field, whose description says why. Refused from Enter in that
+  // field, focus cannot move, so the refusal is an alert there, new each time.
   it('says a refusal made from Enter in the refused field itself as an alert', async () => {
     renderPage()
     const form = await openNew()
@@ -576,10 +592,10 @@ describe('creating a registration case', () => {
     expect(api.createOutreachCase).not.toHaveBeenCalled()
   })
 
-  it('goes back to the list without sending anything', async () => {
+  it.each(['Back to list', 'Cancel'])('goes back to the list from %s without sending anything', async name => {
     renderPage()
     await openNew()
-    await press(screen.getByRole('button', { name: 'Back to list' }))
+    await press(screen.getByRole('button', { name }))
     expect(heading().textContent).toBe('Outreach')
     expect(document.activeElement).toBe(heading())
     expect(api.createOutreachCase).not.toHaveBeenCalled()
@@ -587,42 +603,71 @@ describe('creating a registration case', () => {
 })
 
 async function openCase(name = 'Patient One') {
-  await press(within(await casesTable()).getByRole('button', { name }))
+  await press(card(await casesList(), name))
 }
 
-const linkToggle = () => screen.getByRole('button', { name: 'Link existing patient', expanded: false })
+const linkOpener = () => screen.getByRole('button', { name: 'Link existing patient', expanded: false })
+/** The case's details card. */
+const registration = () => cardOf(screen.getByRole('heading', { name: 'Registration' }))
+
+/** Fills the link form and sends it, then answers the confirm sheet (Link patient, or Cancel). */
+async function link(patientId: string, reason: string, answer: 'Link patient' | 'Cancel' = 'Link patient') {
+  const form = screen.getByRole('form', { name: 'Link existing patient' })
+  fireEvent.change(within(form).getByLabelText(/^Patient ID/), { target: { value: patientId } })
+  fireEvent.change(within(form).getByLabelText(/^How you know/), { target: { value: reason } })
+  await press(within(form).getByRole('button', { name: 'Link existing patient' }))
+  const sheet = await screen.findByRole('dialog', { name: 'Confirm the link' })
+  await press(within(sheet).getByRole('button', { name: answer }))
+  return form
+}
 
 describe('a registration case', () => {
-  it('opens as the design record view, its heading focused', async () => {
+  it('opens as the case view, its heading focused, with its next step', async () => {
     renderPage()
     await openCase()
     expect(heading().textContent).toBe('Patient One')
     expect(document.activeElement).toBe(heading())
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
-    expect(screen.getByText('Patient One · c0a5e000')).toBeTruthy()
-    const saved = screen.getByRole('heading', { name: 'Saved record' }).closest('section') as HTMLElement
-    expect(within(saved).getAllByRole('term').map(term => term.textContent)).toEqual(['Full name', 'Age', 'Sex', 'Status', 'Temporary patient ID', 'Campaign', 'Created'])
-    expect(within(saved).getByText('34 years')).toBeTruthy()
-    expect(within(saved).getByText('Demo screening week')).toBeTruthy()
-    expect(screen.getByText('Identity resolution pending')).toBeTruthy()
-    expect(screen.getByText('This is a temporary registration. It stays pending until it is linked to a verified Health ID patient.')).toBeTruthy()
-    expect(linkToggle()).toBeTruthy()
+    expect(screen.getByText(/· case c0a5e000$/)).toBeTruthy()
+    expect(within(registration()).getAllByRole('term').map(term => term.textContent)).toEqual(['Full name', 'Age', 'Sex', 'Status', 'Temporary patient ID', 'Campaign', 'Created'])
+    expect(within(registration()).getByText('34 years')).toBeTruthy()
+    expect(within(registration()).getByText('Demo screening week')).toBeTruthy()
+    expect(screen.getAllByText('Waiting to link').length).toBeGreaterThan(0)
+    expect(screen.getByRole('heading', { name: 'Next step: link their Health ID' })).toBeTruthy()
+    expect(linkOpener()).toBeTruthy()
   })
 
-  it('opens the link form inline from Available actions, and closes it again', async () => {
+  it('opens the link form in place, and closes it again on Cancel', async () => {
     renderPage()
     await openCase()
-    const toggle = linkToggle()
-    await press(toggle)
-    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    const opener = linkOpener()
+    const controls = opener.getAttribute('aria-controls')
+    await press(opener)
     const form = screen.getByRole('form', { name: 'Link existing patient' }) as HTMLFormElement
-    expect(toggle.getAttribute('aria-controls')).toBe(form.id)
+    expect(controls).toBe(form.id)
     expect(within(form).getByLabelText(/^Patient ID/)).toBeTruthy()
-    expect(within(form).getByLabelText(/^Reason for linking/)).toBeTruthy()
+    expect(within(form).getByLabelText(/^How you know it’s the same person/)).toBeTruthy()
     expect(form.noValidate).toBe(true)
-    await press(toggle)
-    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    await press(within(form).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('form', { name: 'Link existing patient' })).toBeNull()
+    expect(linkOpener()).toBeTruthy()
+  })
+
+  it('asks to confirm the person before linking, and sends nothing when cancelled', async () => {
+    renderPage()
+    await openCase()
+    await press(linkOpener())
+    fireEvent.change(screen.getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
+    fireEvent.change(screen.getByLabelText(/^How you know/), { target: { value: 'Same name and phone as the record' } })
+    await press(screen.getByRole('button', { name: 'Link existing patient' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Confirm the link' })
+    expect(within(sheet).getByText('Patient One')).toBeTruthy()
+    expect(within(sheet).getByText('34 years · Female · case c0a5e000')).toBeTruthy()
+    expect(within(sheet).getByText(PATIENT)).toBeTruthy()
+    await press(within(sheet).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(api.linkExistingOutreachCase).not.toHaveBeenCalled()
+    expect(screen.getByRole('form', { name: 'Link existing patient' })).toBeTruthy()
   })
 
   it('sends the patient, the case and its version, and the reason, then reads the cases again and says so', async () => {
@@ -630,35 +675,33 @@ describe('a registration case', () => {
     api.linkExistingOutreachCase.mockResolvedValue({ ...pendingCase, status: 'identity_resolved', rowVersion: 4 })
     renderPage()
     await openCase()
-    await press(linkToggle())
-    const form = screen.getByRole('form', { name: 'Link existing patient' })
-    fireEvent.change(within(form).getByLabelText(/^Patient ID/), { target: { value: ` ${PATIENT} ` } })
-    fireEvent.change(within(form).getByLabelText(/^Reason for linking/), { target: { value: ' Same name, age and phone as the Health ID record ' } })
-    await press(within(form).getByRole('button', { name: 'Link existing patient' }))
+    await press(linkOpener())
+    await link(` ${PATIENT} `, ' Same name, age and phone as the Health ID record ')
     await waitFor(() => expect(api.linkExistingOutreachCase).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, pendingCase, PATIENT,
       'Same name, age and phone as the Health ID record'))
     const status = document.getElementById(`outreach-case-status-${CASE_ID}`)!
     expect(status.getAttribute('role')).toBe('status')
-    await waitFor(() => expect(within(status).getByText('Patient linked')).toBeTruthy())
+    await waitFor(() => expect(status.textContent).toBe('Patient linked. This registration case is now linked to the verified Health ID patient.'))
     expect(api.outreachCases).toHaveBeenCalledTimes(2)
-    // Resolved: the link is no longer offered, and focus, lost with the form, is on the case.
-    await waitFor(() => expect(screen.getByText('No further actions for your permission and this record state.')).toBeTruthy())
-    expect(screen.getAllByText('identity resolved').length).toBeGreaterThan(0)
-    expect(screen.queryByText('Identity resolution pending')).toBeNull()
-    expect(document.activeElement).toBe(heading())
+    // Linked: the link is no longer offered, and focus, lost with the form, is on what was done.
+    const done = await screen.findByRole('heading', { name: 'Patient linked' })
+    expect(screen.queryByRole('button', { name: 'Link existing patient' })).toBeNull()
+    expect(within(registration()).getByText('Linked')).toBeTruthy()
+    expect(screen.queryByText('Waiting to link')).toBeNull()
+    expect(document.activeElement).toBe(done)
   })
 
   it('sends nothing without a patient ID, or with a reason under 8 characters', async () => {
     renderPage()
     await openCase()
-    await press(linkToggle())
+    await press(linkOpener())
     const form = screen.getByRole('form', { name: 'Link existing patient' })
     const submit = within(form).getByRole('button', { name: 'Link existing patient' })
     await press(submit)
     const patient = within(form).getByLabelText(/^Patient ID/)
     await waitFor(() => expect(document.activeElement).toBe(patient))
     expect(document.getElementById(patient.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Complete this field.')
-    const reason = within(form).getByLabelText(/^Reason for linking/)
+    const reason = within(form).getByLabelText(/^How you know/)
     expect(reason.getAttribute('aria-invalid')).toBe('true')
 
     fireEvent.change(patient, { target: { value: PATIENT } })
@@ -668,6 +711,7 @@ describe('a registration case', () => {
     expect(reason.getAttribute('aria-invalid')).toBe('true')
     expect(document.getElementById(reason.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Enter at least 8 characters.')
     expect(patient.getAttribute('aria-invalid')).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
     expect(api.linkExistingOutreachCase).not.toHaveBeenCalled()
   })
 
@@ -681,11 +725,8 @@ describe('a registration case', () => {
     api.linkExistingOutreachCase.mockRejectedValue(error)
     renderPage()
     await openCase()
-    await press(linkToggle())
-    const form = screen.getByRole('form', { name: 'Link existing patient' })
-    fireEvent.change(within(form).getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
-    fireEvent.change(within(form).getByLabelText(/^Reason for linking/), { target: { value: 'Same name and phone as the record' } })
-    await press(within(form).getByRole('button', { name: 'Link existing patient' }))
+    await press(linkOpener())
+    const form = await link(PATIENT, 'Same name and phone as the record')
     expect((await within(form).findByRole('alert')).textContent).toBe(message)
     expect(within(form).getByText('The case has been read again, so a retry uses its latest version. Check the details, then retry using the same button. No success is reported until saved.')).toBeTruthy()
     expect(screen.queryByText('Patient linked')).toBeNull()
@@ -700,16 +741,14 @@ describe('a registration case', () => {
     api.linkExistingOutreachCase.mockResolvedValueOnce({ ...pendingCase, status: 'identity_resolved', rowVersion: 5 })
     renderPage()
     await openCase()
-    await press(linkToggle())
-    const form = screen.getByRole('form', { name: 'Link existing patient' })
-    fireEvent.change(within(form).getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
-    fireEvent.change(within(form).getByLabelText(/^Reason for linking/), { target: { value: 'Same name and phone as the record' } })
-    const submit = within(form).getByRole('button', { name: 'Link existing patient' })
-    await press(submit)
+    await press(linkOpener())
+    const form = await link(PATIENT, 'Same name and phone as the record')
     await within(form).findByRole('alert')
     await waitFor(() => expect(api.outreachCases).toHaveBeenCalledTimes(2))
+    const submit = within(form).getByRole('button', { name: 'Link existing patient' })
     await waitFor(() => expect(submit.getAttribute('aria-busy')).toBeNull())
     await press(submit)
+    await press(within(await screen.findByRole('dialog', { name: 'Confirm the link' })).getByRole('button', { name: 'Link patient' }))
     await waitFor(() => expect(api.linkExistingOutreachCase).toHaveBeenCalledTimes(2))
     expect((api.linkExistingOutreachCase.mock.calls[0]![1] as { rowVersion: number }).rowVersion).toBe(3)
     expect((api.linkExistingOutreachCase.mock.calls[1]![1] as { rowVersion: number }).rowVersion).toBe(4)
@@ -720,14 +759,12 @@ describe('a registration case', () => {
     api.linkExistingOutreachCase.mockRejectedValue(new HidApiError(409, 'This registration case has already been resolved.', { code: 'VERSION_CONFLICT' }))
     renderPage()
     await openCase()
-    await press(linkToggle())
-    const form = screen.getByRole('form', { name: 'Link existing patient' })
-    fireEvent.change(within(form).getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
-    fireEvent.change(within(form).getByLabelText(/^Reason for linking/), { target: { value: 'Same name and phone as the record' } })
-    await press(within(form).getByRole('button', { name: 'Link existing patient' }))
+    await press(linkOpener())
+    await link(PATIENT, 'Same name and phone as the record')
     await waitFor(() => expect(screen.queryByRole('form', { name: 'Link existing patient' })).toBeNull())
     expect(screen.getByRole('alert').textContent).toBe('This registration case has already been resolved.')
-    expect(screen.getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Nothing more to do' })).toBeTruthy()
+    expect(screen.queryByText('Patient linked')).toBeNull()
   })
 
   it('keeps the user on the case while a link is sent', async () => {
@@ -735,34 +772,35 @@ describe('a registration case', () => {
     api.linkExistingOutreachCase.mockReturnValue(new Promise(resolve => { answer = resolve }))
     renderPage()
     await openCase()
-    await press(linkToggle())
-    const form = screen.getByRole('form', { name: 'Link existing patient' })
-    fireEvent.change(within(form).getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
-    fireEvent.change(within(form).getByLabelText(/^Reason for linking/), { target: { value: 'Same name and phone as the record' } })
-    await press(within(form).getByRole('button', { name: 'Link existing patient' }))
+    await press(linkOpener())
+    await link(PATIENT, 'Same name and phone as the record')
     const back = screen.getByRole('button', { name: 'Back to list' })
     expect(back.getAttribute('aria-disabled')).toBe('true')
     await press(back)
     expect(heading().textContent).toBe('Patient One')
     await act(async () => { answer({ ...pendingCase, status: 'identity_resolved', rowVersion: 4 }) })
-    await waitFor(() => expect(screen.getByText('Patient linked')).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Patient linked' })).toBeTruthy())
     expect(back.getAttribute('aria-disabled')).toBeNull()
   })
 
-  it('offers no link without registration write permission', async () => {
+  it('offers no link without registration write permission, and says who may', async () => {
     session.permissions = READ
     renderPage()
     await openCase()
     expect(screen.queryByRole('button', { name: 'Link existing patient' })).toBeNull()
-    expect(screen.getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    expect(screen.getByText('Waiting to be linked')).toBeTruthy()
+    expect(screen.getByText('This is a temporary registration. Someone who may write registrations needs to link it to the person’s Health ID.')).toBeTruthy()
   })
 
   it('offers no link for a case already resolved', async () => {
     renderPage()
+    await casesList()
+    await showTab('Linked')
     await openCase('Patient Two')
     expect(screen.queryByRole('button', { name: 'Link existing patient' })).toBeNull()
-    expect(screen.queryByText('Identity resolution pending')).toBeNull()
-    expect(screen.getByText('No further actions for your permission and this record state.')).toBeTruthy()
+    expect(screen.queryByText('Waiting to link')).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Nothing more to do' })).toBeTruthy()
+    expect(screen.getByText('This registration is linked. No further step is needed here.')).toBeTruthy()
   })
 
   it('says a record the list no longer holds is not found', async () => {
@@ -770,23 +808,21 @@ describe('a registration case', () => {
     api.linkExistingOutreachCase.mockResolvedValue({ ...pendingCase, status: 'identity_resolved', rowVersion: 4 })
     renderPage()
     await openCase()
-    await press(linkToggle())
-    const form = screen.getByRole('form', { name: 'Link existing patient' })
-    fireEvent.change(within(form).getByLabelText(/^Patient ID/), { target: { value: PATIENT } })
-    fireEvent.change(within(form).getByLabelText(/^Reason for linking/), { target: { value: 'Same name and phone as the record' } })
-    await press(within(form).getByRole('button', { name: 'Link existing patient' }))
+    await press(linkOpener())
+    await link(PATIENT, 'Same name and phone as the record')
     // Read again, the list no longer holds the case: it is not shown from memory.
     await waitFor(() => expect(heading().textContent).toBe('Record not found'))
     expect(screen.getByText('The record is missing or outside your authorized hospital / branch.')).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Back to list' }))
-    expect(within(await casesTable()).queryByRole('button', { name: 'Patient One' })).toBeNull()
+    await showTab('All')
+    expect(queryCard(await casesList(), 'Patient One')).toBeNull()
   })
 
   it('goes back to the list with focus on the case it came from', async () => {
     renderPage()
     await openCase()
     await press(screen.getByRole('button', { name: 'Back to list' }))
-    expect(document.activeElement).toBe(within(await casesTable()).getByRole('button', { name: 'Patient One' }))
+    expect(document.activeElement).toBe(card(await casesList(), 'Patient One'))
   })
 
   it('opens on its lists at another facility, read for that facility', async () => {

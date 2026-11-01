@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
-import { json, press, problem, renderPortal, type Handler } from './portalHarness'
+import { json, press, problem, renderPortal, type Handler, shownText } from './portalHarness'
 
 vi.mock('../Turnstile', () => ({
   Turnstile: ({ onTokenChange }: { onTokenChange: (token: string | null) => void }) =>
@@ -25,10 +25,10 @@ function gateway(availability: unknown, start: Handler = (path, method) => probl
     return problem(500, 'UNEXPECTED', `${method} ${path}`)
   }
 }
-const routes = () => screen.findByRole('region', { name: 'How you\'ll prove this NIN is yours' })
+const routes = () => screen.findByRole('region', { name: 'How you’ll prove this NIN is yours' })
 
 async function submitNin() {
-  fireEvent.change(await screen.findByLabelText('National Identification Number'), { target: { value: NIN } })
+  fireEvent.change(await screen.findByLabelText('National Identification Number (NIN)'), { target: { value: NIN } })
   fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
   await press(screen.getByRole('button', { name: 'Continue' }))
 }
@@ -62,21 +62,21 @@ describe('how the NIN will be proved, told at the NIN step', () => {
   it('says registering at a facility is not available yet while only the online route is open', async () => {
     renderPortal(<Enrollment />, gateway({ open: true, online: true, facility: false }), anonymous)
     const region = await routes()
-    expect(region.textContent).toContain('Registering at a healthcare facility isn\'t available yet.')
+    expect(region.textContent).toContain('Registering at a healthcare facility isn\'t available right now.')
     expect(within(region).queryByRole('link')).toBeNull()
   })
 
   it('claims no route for an Identity before the holder step, which sends { open } only', async () => {
     renderPortal(<Enrollment />, gateway({ open: true }), anonymous)
-    expect(await screen.findByLabelText('National Identification Number')).toBeTruthy()
-    expect(screen.queryByRole('region', { name: 'How you\'ll prove this NIN is yours' })).toBeNull()
+    expect(await screen.findByLabelText('National Identification Number (NIN)')).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'How you’ll prove this NIN is yours' })).toBeNull()
   })
 
   it('keeps open as the only gate: the routes alone do not offer a start', async () => {
     renderPortal(<Enrollment />, gateway({ open: false, online: true, facility: true }), anonymous)
-    const notice = await screen.findByRole('region', { name: 'Registration is not open yet' })
+    const notice = await screen.findByRole('region', { name: 'Sign-ups aren’t open yet' })
     expect(within(notice).getByText(CLOSED)).toBeTruthy()
-    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
   })
 
   it('names the step\'s button for what it does, without claiming the NIN is verified', async () => {
@@ -92,9 +92,9 @@ describe('the start\'s refusals since the holder step', () => {
     const { sent } = renderPortal(<Enrollment />, gateway({ open: true, online: true, facility: true }, () =>
       problem(503, 'PATIENT_REGISTRATION_NOT_OPEN', CLOSED)), { ...anonymous, signOut })
     await submitNin()
-    const notice = await screen.findByRole('region', { name: 'Registration is not open yet' })
+    const notice = await screen.findByRole('region', { name: 'Sign-ups aren’t open yet' })
     expect(within(notice).getByText(CLOSED)).toBeTruthy()
-    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     expect(signOut).not.toHaveBeenCalled()
     expect(sent.filter(request => request.path.startsWith('/auth/') && request.path !== '/auth/google/onboarding')).toEqual([])
   })
@@ -108,8 +108,8 @@ describe('the start\'s refusals since the holder step', () => {
     const { sent } = renderPortal(<Enrollment />, gateway({ open: true, online: true, facility: true }, refusal), { ...anonymous, signOut })
     await submitNin()
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe('We could not check your NIN now. Try again later.')
-    expect((screen.getByLabelText('National Identification Number') as HTMLInputElement).value).toBe(NIN)
+    expect(shownText(alert)).toBe('We could not check your NIN now. Try again later.')
+    expect((screen.getByLabelText('National Identification Number (NIN)') as HTMLInputElement).value).toBe(NIN)
     expect(signOut).not.toHaveBeenCalled()
     expect(sent.filter(request => request.path.startsWith('/auth/') && request.path !== '/auth/google/onboarding')).toEqual([])
     await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy())

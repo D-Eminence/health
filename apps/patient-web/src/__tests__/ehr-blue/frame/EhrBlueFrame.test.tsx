@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { BLUE_PAGES, basePath, collectPages, matchBluePage, pageAllowed, pageTabs } from '../../../ehr-blue/routes'
 import { navigationGroups } from '../../../ehr-blue/frame/BlueFrame'
 import { pages as framePages } from '../../../ehr-blue/frame/pages'
@@ -7,8 +7,8 @@ import { pages as homePages } from '../../../ehr-blue/home/pages'
 import type { EhrBluePage } from '../../../ehr-blue/frame/types'
 import type { StaffSession } from '../../../staff/api'
 import {
-  DEMO_HOSPITAL, DEMO_LABORATORY, FACILITY, LAB_WORK, REQUESTS, SESSION, facility, json, openStaffApp, problem, serve, sessionAt, where,
-  withFramePages,
+  DEMO_HOSPITAL, DEMO_LABORATORY, FACILITY, LAB_WORK, REQUESTS, SESSION, accountButton, facility, homeHeading, json, openStaffApp, problem, serve,
+  sessionAt, switchFacilityTo, where, withFramePages,
 } from './blueHarness'
 
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
@@ -30,12 +30,13 @@ const DESIGN_GROUPS = ['Clinical', 'Diagnostics', 'Finance', 'Network & Services
 // The design's 33 workspaces (screens/README.md, workspaces/): Insurance & Claims holds Policies, Supply holds Stock and Procurement.
 const DESIGN_WORKSPACES = ['Patients', 'Appointments', 'Patient visits', 'Triage & Vitals', 'Consultation', 'Inpatient / Wards',
   'Wards & Beds', 'Nursing observations', 'Nursing tasks', 'Emergency', 'Maternity', 'Theatre & Procedures', 'ICU', 'Dental',
-  'External record access', 'Laboratory', 'Radiology', 'Pharmacy', 'Patient billing', 'Insurance & Claims', 'Referral Network',
+  'Access requests', 'Laboratory', 'Radiology', 'Pharmacy', 'Patient billing', 'Insurance & Claims', 'Referral Network',
   'Dispatch', 'Blood Bank', 'Telemedicine', 'Shifts & Roster', 'HR & Credentials', 'Quality & Safety', 'Supply', 'Service catalogue',
   'Ward configuration', 'Vehicle configuration']
 
-async function openDemo(path: string, permissions: readonly string[] = ['identity.consent.write'], routes: Record<string, (() => Response)[]> = {}) {
-  const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', permissions)
+async function openDemo(path: string, permissions: readonly string[] = ['identity.consent.write'], routes: Record<string, (() => Response)[]> = {},
+  roles: readonly string[] = ['clinician']) {
+  const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', permissions, roles)
   const lab = facility(DEMO_LABORATORY, 'Demo Laboratory', ['lab.work-item.read'])
   const sent = serve({ [SESSION]: [sessionAt(demo, [demo, lab])], [REQUESTS]: [() => json([{ accessRequestId: 'r1', status: 'pending' }])], ...routes })
   await openStaffApp(path)
@@ -127,13 +128,16 @@ describe('the page registry', () => {
 })
 
 describe('the blue frame', () => {
-  it('shows every design workspace in the sidebar, and the live pages this facility may open', async () => {
-    await openDemo('/provider/whats-left', ['identity.consent.write', 'lab.work-item.read'])
+  // Only working screens are listed (the owner's decision of 2026-10-31): sample workspaces stay by address.
+  it('lists the live pages this facility may open, and no sample workspace', async () => {
+    // A clinical permission too: a facility holding only the laboratory's is the Lab product (product.ts).
+    await openDemo('/provider/whats-left', ['identity.consent.write', 'identity.patient.read', 'lab.work-item.read'])
     const nav = screen.getByRole('navigation', { name: 'Main navigation' })
-    for (const group of DESIGN_GROUPS.filter(group => group !== 'Supply')) expect(within(nav).getByRole('button', { name: group })).toBeDefined()
-    expect(within(nav).getByRole('link', { name: 'Radiology' })).toBeDefined()
+    // Groups other than the front desk's and care's are folded until opened.
+    fireEvent.click(within(nav).getByRole('button', { name: 'Diagnostics' }))
+    for (const sample of ['Radiology', 'Appointments', 'Blood Bank']) expect(within(nav).queryByRole('link', { name: sample })).toBeNull()
     expect(within(nav).getByRole('link', { name: 'Laboratory' })).toBeDefined()
-    expect(within(nav).getByRole('link', { name: 'External record access' })).toBeDefined()
+    expect(within(nav).getByRole('link', { name: 'Access requests' })).toBeDefined()
     // Live pages this facility's permissions do not open are hidden.
     expect(within(nav).queryByRole('link', { name: 'Pharmacy' })).toBeNull()
     expect(within(nav).queryByRole('link', { name: 'Audit & Compliance' })).toBeNull()
@@ -184,12 +188,12 @@ describe('the blue frame', () => {
     expect(sent.length).toBe(before)
   })
 
-  it('says an unknown address is no page, and the sidebar still leads Home', async () => {
+  it('opens Home for an address that is no page, as the design does (admin/unknown-route)', async () => {
     await openDemo('/provider/not-a-page')
-    expect(screen.getByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
-    expect(screen.getByText('This page is not part of Health ID EHR')).toBeDefined()
-    act(() => { fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('link', { name: 'Home' })) })
     await waitFor(() => expect(where()).toBe('/provider'))
+    expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
+    expect(screen.queryByRole('status', { name: /permissions/ })).toBeNull()
+    expect(screen.queryByText(/no longer allow that page/)).toBeNull()
   })
 
   it('leaves today\'s page to refuse a live stand-in without its permission, in today\'s words', async () => {
@@ -200,12 +204,12 @@ describe('the blue frame', () => {
 
   it('signs out from the account menu with today\'s sign-out', async () => {
     const sent = await openDemo('/provider/whats-left', ['identity.consent.write'], { 'POST /api/v1/auth/logout': [() => new Response(null, { status: 204 })] })
-    const menu = screen.getByRole('button', { name: 'Account menu' })
+    const menu = accountButton()
     expect(menu.getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(menu)
-    const panel = screen.getByRole('region', { name: 'Account' })
-    expect(within(panel).getByText('Demo Clinician')).toBeDefined()
-    fireEvent.click(within(panel).getByRole('button', { name: 'Sign out' }))
+    expect(menu.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getAllByText('Demo Clinician').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
     await waitFor(() => expect(where()).toBe('/provider/sign-in'))
     expect(sent.some(call => call.route === 'POST /api/v1/auth/logout')).toBe(true)
   })
@@ -216,17 +220,16 @@ describe('the blue frame', () => {
       [FACILITY]: [() => problem(403, 'FACILITY_ACCESS_DENIED', 'The actor is not active at the facility.'), sessionAt(lab, [lab])],
       [LAB_WORK]: [() => json({ items: [] })],
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Switch facility' }))
+    switchFacilityTo('Demo Hospital', 'Demo Laboratory')
     await waitFor(() => expect(where()).toBe('/provider/institutions'))
-    expect(screen.getByRole('heading', { level: 1, name: 'Choose your workspace' })).toBeDefined()
+    expect(screen.getByRole('heading', { level: 1, name: 'Switch facility' })).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Work at Demo Laboratory' }))
     expect(await screen.findByRole('alert')).toBeDefined()
-    expect(screen.getByRole('alert').textContent).toBe('You are no longer active at Demo Laboratory. Choose another facility.')
+    expect(screen.getByRole('alert').textContent).toContain('You are no longer active at Demo Laboratory. Choose another facility.')
     fireEvent.click(screen.getByRole('button', { name: 'Work at Demo Laboratory' }))
-    await waitFor(() => expect(where()).toBe('/provider'))
+    // Demo Laboratory holds only the laboratory's permission: it is the Lab product, whose home is its queue.
+    await waitFor(() => expect(where()).toBe('/provider/laboratory'))
     expect(sent.filter(call => call.route === FACILITY).map(call => call.body)).toEqual([{ facilityId: DEMO_LABORATORY }, { facilityId: DEMO_LABORATORY }])
-    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })).toBeDefined()
   })
 
   it('asks where the person works, in blue, when every facility they could choose is a demo one', async () => {
@@ -234,22 +237,26 @@ describe('the blue frame', () => {
     const lab = facility(DEMO_LABORATORY, 'Demo Laboratory', ['lab.work-item.read'])
     serve({ [SESSION]: [sessionAt(demo, [demo, lab], 'default')] })
     await openStaffApp('/provider')
-    const heading = await screen.findByRole('heading', { level: 1, name: 'Choose your workspace' })
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Where are you working today?' })
     expect(document.activeElement).toBe(heading)
     expect(screen.getByText(/You work at more than one facility\./)).toBeDefined()
     expect(screen.getByRole('button', { name: 'Work at Demo Hospital' })).toBeDefined()
     expect(screen.queryByRole('navigation', { name: 'Main navigation' })).toBeNull()
   })
 
-  it('finds work areas in search, opened by its button or Ctrl+K', async () => {
+  // Search finds the pages listed (working screens only, so no sample's Blood Bank), opened by its button or Ctrl+K.
+  it('finds pages in search, opened by its button or Ctrl+K', async () => {
     await openDemo('/provider/whats-left')
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
-    const drawer = screen.getByRole('dialog', { name: 'Search Health ID' })
-    fireEvent.change(within(drawer).getByRole('searchbox', { name: 'Search work areas' }), { target: { value: 'blood' } })
-    const results = within(drawer).getByRole('navigation', { name: 'Search results' })
-    expect(within(results).getAllByRole('link').map(link => link.textContent)).toEqual(['Blood BankNetwork & Services · sample'])
+    const drawer = screen.getByRole('dialog', { name: 'Search' })
+    const box = within(drawer).getByRole('searchbox', { name: 'Health ID or page' })
+    fireEvent.change(box, { target: { value: 'blood' } })
+    expect(within(drawer).queryAllByRole('link')).toEqual([])
+    fireEvent.change(box, { target: { value: 'requests' } })
+    const results = within(drawer).getByRole('navigation', { name: 'Pages' })
+    expect(within(results).getAllByRole('link').map(link => link.textContent)).toEqual(['Access requestsClinical'])
     fireEvent.click(within(results).getByRole('link'))
-    await waitFor(() => expect(where()).toBe('/provider/bloodbank'))
+    await waitFor(() => expect(where()).toBe('/provider/requests'))
   })
 
   it('counts pending access requests on the bell once they are read: on opening its drawer, or Home', async () => {
@@ -258,24 +265,21 @@ describe('the blue frame', () => {
     expect(sent.some(call => call.route === REQUESTS)).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: 'Notifications' }))
     const drawer = screen.getByRole('dialog', { name: 'Notifications' })
-    expect(await within(drawer).findByText('1 pending access request')).toBeDefined()
-    expect(screen.getByRole('button', { name: 'Notifications, 1 pending' })).toBeDefined()
+    expect(await within(drawer).findByText('1 access request waiting')).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Notifications, 1 waiting' })).toBeDefined()
     expect(sent.filter(call => call.route === REQUESTS)).toHaveLength(1)
   })
 })
 
+// The top-bar account menu, and the sixteen sample dashboards in it, were removed (its remaining items were samples).
 describe('the demo role switcher', () => {
-  it('lists the sixteen demo roles in the account menu and shows each role\'s sample dashboard on Home', async () => {
-    await openDemo('/provider/whats-left')
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
-    const roles = within(screen.getByRole('group', { name: 'View Home as a demo role (sample)' })).getAllByRole('button')
-    expect(roles).toHaveLength(16)
-    fireEvent.click(within(screen.getByRole('region', { name: 'Account' })).getByRole('button', { name: 'Pharmacist' }))
-    await waitFor(() => expect(where()).toBe('/provider'))
-    expect(screen.getByRole('heading', { level: 1, name: 'Welcome, Demo Pharmacist' })).toBeDefined()
-    expect(screen.getByText(SAMPLE_NOTICE)).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
-    fireEvent.click(screen.getByRole('button', { name: 'My own dashboard' }))
-    expect(screen.getByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })).toBeDefined()
+  it('is no longer offered: the account menu holds Sign out, and Home is the person\'s own', async () => {
+    await openDemo('/provider')
+    expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
+    fireEvent.click(accountButton())
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeDefined()
+    expect(screen.queryByRole('group', { name: 'View Home as a demo role (sample)' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Pharmacist' })).toBeNull()
+    expect(screen.queryByText(SAMPLE_NOTICE)).toBeNull()
   })
 })
