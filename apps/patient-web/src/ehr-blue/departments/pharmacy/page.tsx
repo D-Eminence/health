@@ -30,17 +30,22 @@ const GETS_PHARMACY: ReadonlySet<string> = new Set(['pharmacy', 'hospital', 'cli
 
 /**
  * Opened by its address without the permission: today's refusal (staff/routes/Operations.tsx Pharmacy) in plain words,
- * and nothing is read. While Health ID support checks a facility that signed itself up and will get Pharmacy, Pharmacy
- * is locked for its administrator too (the banner above says so): they are told it opens after the check, not to ask
- * themselves. A role that may open another Pharmacy page (Sell, Stock, Sales & receipts…) is told only prescriptions
- * are not in it.
+ * and nothing is read. A role that may open another Pharmacy page (Sell, Stock, Sales & receipts…) is told only
+ * prescriptions are not in it. The administrator of a facility that signed itself up (the only role there that manages
+ * staff) is never told to ask the facility administrator, which they are. While Health ID support checks a facility
+ * that will get Pharmacy, Pharmacy is locked for them too (the banner above says so): it opens after the check. Once
+ * the facility is checked, they add a pharmacist on the Staff page. A facility that will not get Pharmacy has no step.
  */
 function PharmacyUnavailable() {
   const { facility, permissions } = useDeptAccess()
   const otherPharmacyWork = pharmacyPages.some(page => page !== pharmacyPage && page.permission !== undefined && permissions.includes(page.permission))
-  const message = usesNovuBackend() && selfServiceReview(facility) === 'pending' && GETS_PHARMACY.has(selfServiceType(facility) ?? '')
+  const review = usesNovuBackend() ? selfServiceReview(facility) : null
+  const getsPharmacy = GETS_PHARMACY.has(selfServiceType(facility) ?? '')
+  const administrator = review !== null && permissions.includes('workforce.manage')
+  const next = !administrator ? ' Ask your facility administrator.' : review === 'reviewed' && getsPharmacy ? ' Add a pharmacist on the Staff page.' : ''
+  const message = review === 'pending' && getsPharmacy
     ? 'Pharmacy opens once Health ID support has checked your facility.'
-    : `Your role at this facility doesn’t include ${otherPharmacyWork ? 'prescriptions' : 'pharmacy work'}. Ask your facility administrator.`
+    : `Your role at this facility doesn’t include ${otherPharmacyWork ? 'prescriptions' : 'pharmacy work'}.${next}`
   return <DeptUnavailable title="Pharmacy unavailable" message={message} />
 }
 

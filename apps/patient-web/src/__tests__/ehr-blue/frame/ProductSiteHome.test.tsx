@@ -119,14 +119,26 @@ describe('the pharmacy. site settles on a page whatever the role holds', () => {
     // The banner names no Pharmacy for this kind of facility, so the page below it promises none.
     expect(screen.getByText(/^Health ID support is checking/).textContent).not.toMatch(/Pharmacy (work|workspace)/)
     expect(document.body.textContent).not.toMatch(/Pharmacy opens/)
-    expect(screen.getByText(/^Your role at this facility doesn’t include pharmacy work\./)).toBeTruthy()
+    // Nor told to ask the facility administrator, which they are: there is no pharmacy step to give them.
+    expect(screen.getByText('Your role at this facility doesn’t include pharmacy work.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/Ask your facility administrator|Add a pharmacist/)
   })
 
-  it('the same administrator once the facility is checked: today\'s sentence', async () => {
+  it('the same administrator once the facility is checked: told the step that is theirs, adding a pharmacist', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     staff.selfService = { review: 'reviewed', organizationType: 'pharmacy' }
-    const landed = await settle(PHARMACY, ['workforce.manage', 'audit.read'])
+    const landed = await settle(PHARMACY, ['organization.manage', 'workforce.manage', 'audit.read', 'identity.registration.read',
+      'outreach.registration.read', 'outreach.campaign.read'])
     expect(landed).toEqual({ where: '/provider/pharmacy/prescriptions', heading: 'Pharmacy unavailable' })
+    expect(screen.getByText('Your role at this facility doesn’t include pharmacy work. Add a pharmacist on the Staff page.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/Ask your facility administrator/)
+    expect(document.body.textContent).not.toMatch(/work-item|walk-in|permission|pharmacy\.\w/)
+  })
+
+  it('anyone else at that checked facility is still told to ask its administrator', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    staff.selfService = { review: 'reviewed', organizationType: 'pharmacy' }
+    await settle(PHARMACY, ['outreach.registration.read'])
     expect(screen.getByText(NO_PHARMACY_WORK)).toBeTruthy()
   })
 
