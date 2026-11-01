@@ -10,6 +10,7 @@ import { useWorkspaceHref } from '../parts/Workspace'
 import {
   NO_CREATE, NO_ENCOUNTERS, NO_RECORD_ACCESS, NO_WRITE, RECORD_NOT_SAVED, recordKey, refusedFieldErrors, text, usePatientRecords, visitLabel,
 } from '../triage/records'
+import { TITLE as TRIAGE_TITLE } from '../triage/vitals'
 import { CATEGORIES, DETAILS_LIMIT, NEW_TITLE, NOTE_TYPE, UNITS_LIMIT, composeObservation } from './observations'
 
 /** "New nursing observations": the design's create page for the open patient, or the chart's own state. */
@@ -34,6 +35,8 @@ function NewObservationForm({ chart }: { chart: Chart }) {
   const reads = chart.can('ehr.note.read')
   const writes = chart.can('ehr.note.write')
   const canCreate = reads && chart.canWrite && writes
+  // Vital signs go to Triage & Vitals (a link only for a role that can record them there).
+  const recordsVitals = chart.can('ehr.vital.read') && chart.can('ehr.vital.write')
   const list = usePatientRecords(chart, null)
   const attempt = useRef<{ signature: string; key: string } | null>(null)
   const visits = list.encounters ?? []
@@ -79,6 +82,11 @@ function NewObservationForm({ chart }: { chart: Chart }) {
                   {chart.can('ehr.encounter.write') ? <> <Link className="hid-ehr-clinical-link" to={href.to('consult', 'new')}>New consultation</Link></> : null}
                 </p>
               ) : null}
+              <p className="hid-ehr-clinical-note">
+                To record BP, pulse, temperature or other vital signs, use {recordsVitals
+                  ? <Link className="hid-ehr-clinical-link" to={href.to('triage', 'new')}>{TRIAGE_TITLE}</Link>
+                  : TRIAGE_TITLE}.
+              </p>
               <RecordForm key={visits.map(encounter => encounter.id).join()} fields={fields} submitLabel="Save observation" onSubmit={submit} />
             </>
           )
