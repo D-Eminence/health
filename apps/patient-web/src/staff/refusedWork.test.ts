@@ -12,8 +12,8 @@ describe('the role a refusal names', () => {
   })
 
   it('cannot name a role the list has no words for', () => {
-    // @ts-expect-error: a code ROLE_LABELS does not name would reach the screen as it is ("Add an unnamed_role…").
+    // @ts-expect-error: a code ROLE_LABELS does not name would ask for no role in particular ("Add a member of staff…").
     const unnamed: RefusedWork = { ...LAB_WORK, doneBy: 'unnamed_role' }
-    expect(roleInSentence(unnamed.doneBy)).toBe('an unnamed_role')
+    expect(roleInSentence(unnamed.doneBy)).toBe('a member of staff')
   })
 })
