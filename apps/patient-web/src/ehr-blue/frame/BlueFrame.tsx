@@ -7,6 +7,7 @@ import { Alert, Badge, cx, type Icon } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
 import { ReviewBanner } from '../../staff/routes/ReviewBanner'
 import { BillingBanner } from '../../staff/routes/Billing'
+import { roleNames } from '../../staff/staffAccess'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { isDemoFacility } from '../blueFacilities'
@@ -151,7 +152,8 @@ export function BlueFrame() {
     : isLiveOnlyPath(location.pathname) ? <LivePage /> : <Navigate replace to="/provider" />
 
   const name = session.actor.displayName ?? session.actor.email ?? 'Staff member'
-  const roles = facility ? facility.roles.join(', ') || 'Staff' : 'Staff'
+  // Role names, never codes (parity report 3.1 #16): "Facility administrator, Doctor", not "org_admin, doctor".
+  const roles = roleNames(facility?.roles ?? [])
   // In the EHR a page that joins another's tabs has no sidebar entry; in a single product (a pharmacy or lab on its own)
   // each is listed by its tab name ("To dispense", "New sale", "Stock").
   // A single product's own pages come first (its menu), then anything else it holds (settings, insight).

@@ -6,8 +6,8 @@ import { facilityStaffApi } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import { normalizePersonName, personNameProblem } from '../../../staff/routes/Staff'
 import {
-  announceFacilityStaffChanged, isLicenceBody, LICENCE_BODIES, licenceBodyForRole, licenceNumberAcceptable,
-  normalizeLicenceNumber, roleLabel,
+  announceFacilityStaffChanged, hasRoleName, isLicenceBody, LICENCE_BODIES, licenceBodyForRole, licenceNumberAcceptable,
+  normalizeLicenceNumber, roleName,
 } from '../../../staff/staffAccess'
 import { DeptSection } from '../parts/DeptPage'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -17,11 +17,16 @@ import {
   attestationText, deliveryNotice, EMAIL, EMAIL_PROBLEM, holders, licenceNumberProblem, REQUIRED, type StaffNotice,
 } from './staffText'
 
-/** The role, and the licence number its regulator issues (none for a receptionist), as the target's form fields. */
-export function RoleFields({ idPrefix, roleLabelText, roles, role, onRole, number, onNumber, errors }: {
+/**
+ * The role, and the licence number its regulator issues (none for a receptionist), as the target's form fields. Only
+ * the roles Health ID names are offered: an administrator never grants a role they cannot read, and two unnamed roles
+ * would look the same. A member's own unnamed role (`current`) stays, as "Current role", so the form can keep it.
+ */
+export function RoleFields({ idPrefix, roleLabelText, roles, current = '', role, onRole, number, onNumber, errors }: {
   readonly idPrefix: string
   readonly roleLabelText: string
   readonly roles: ReadonlyArray<{ code: string }>
+  readonly current?: string
   readonly role: string
   readonly onRole: (role: string) => void
   readonly number: string
@@ -33,7 +38,9 @@ export function RoleFields({ idPrefix, roleLabelText, roles, role, onRole, numbe
     <EhrField controlId={`${idPrefix}-role`} label={<RequiredLabel>{roleLabelText}</RequiredLabel>} error={errors.role}>
       <EhrSelect value={role} required onChange={event => onRole(event.target.value)}>
         <option value="">Select…</option>
-        {roles.map(option => <option key={option.code} value={option.code}>{roleLabel(option.code)}</option>)}
+        {roles.filter(option => hasRoleName(option.code) || (current !== '' && option.code === current)).map(option => (
+          <option key={option.code} value={option.code}>{hasRoleName(option.code) ? roleName(option.code) : 'Current role'}</option>
+        ))}
       </EhrSelect>
     </EhrField>
     {body ? (

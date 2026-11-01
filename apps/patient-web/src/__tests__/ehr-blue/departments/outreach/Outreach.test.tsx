@@ -331,6 +331,17 @@ describe('campaigns, read only', () => {
     expect(document.activeElement).toBe(card(await campaignsList(), 'Demo screening week'))
   })
 
+  // A campaign role the page has no word for is never shown by its code (parity report 3.1 #16).
+  it.each(['field_supervisor', 'constructor'])('reads “Member” for a campaign role it has no word for (%s)', async role => {
+    api.outreachCampaignMembers.mockImplementation(async (_facilityId: string, campaignId: string) =>
+      [{ id: `${campaignId}-other`, campaignId, membershipId: 'membership-demo-9', role, createdAt: '2026-01-02T00:00:00.000Z' }])
+    renderPage()
+    await press(card(await campaignsList(), 'Demo screening week'))
+    const members = screen.getByRole('heading', { name: 'Members' }).closest('section') as HTMLElement
+    expect(await within(members).findByText('Member')).toBeTruthy()
+    expect(members.textContent).not.toMatch(/field.supervisor|constructor|function/i)
+  })
+
   it('says when a campaign has no members, and when its members cannot be read, with a retry', async () => {
     api.outreachCampaignMembers.mockImplementation(async (_facilityId: string, campaignId: string) => {
       if (campaignId === 'campaign-2') throw new HidApiError(403, 'Members of this campaign cannot be read here.', { code: 'FORBIDDEN' })
