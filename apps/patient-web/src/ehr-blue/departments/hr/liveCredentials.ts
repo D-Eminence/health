@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { isHidApiError } from '@hid/http'
 import { facilityStaffApi, type Facility, type FacilityStaff, type FacilityStaffMember } from '../../../staff/api'
-import { isLicenceBody, LICENCE_BODIES, roleNames, selfServiceReview } from '../../../staff/staffAccess'
+import { heldRoleNames, isLicenceBody, LICENCE_BODIES, selfServiceReview } from '../../../staff/staffAccess'
 import { isRouteMissing, isUnavailable, staffProblemText } from '../../../staff/staffProblems'
 import type { DeptFact } from '../parts/DeptRecord'
 
@@ -126,7 +126,8 @@ function reviewOf(licence: Licence, awaitingCheck: boolean): string | null {
 export function liveCredentials(staff: FacilityStaff): LiveCredential[] {
   return staff.members.map(member => {
     const { licence, awaitingCheck, recordedAt } = licenceOf(member, staff)
-    const roles = roleNames(member.roles)
+    // Every role counted: the administrator decides this member's access (heldRoleNames).
+    const roles = heldRoleNames(member.roles)
     const name = licence ? `${licence.body} licence` : 'No licence on record'
     const review = licence ? reviewOf(licence, awaitingCheck) : null
     const status: LiveCredential['status'] = !licence ? 'no licence' : awaitingCheck ? 'recorded'

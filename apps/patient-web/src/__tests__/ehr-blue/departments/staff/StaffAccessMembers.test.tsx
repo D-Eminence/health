@@ -95,6 +95,30 @@ describe('the memberships list', () => {
     expect(document.body.textContent).not.toContain('records_officer')
   })
 
+  // The administrator decides this member's access, so a second role with no name is counted, not hidden.
+  it('counts a role Health ID has no name for beside a named one, in the list and the drawer, never its code', async () => {
+    const { row, drawer } = await openAccess(staff({ members: [administrator(), nurse({ roles: ['nurse', 'records_officer'] })] }))
+    expect(within(row).getByText('Nurse and another role · active')).toBeTruthy()
+    expect(within(drawer).getByText('Nurse and another role / demo.nurse@example.test')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('records_officer')
+  })
+
+  // Only roles Health ID names are offered: two unnamed roles would read the same, and none says what it grants. A
+  // member's own unnamed role stays, as "Current role", so saving keeps it.
+  it('offers only named roles to change to, keeping the member’s own unnamed role as “Current role”', async () => {
+    const roles = [...staff().inviteOptions.roles, { code: 'records_officer', licenceBody: null }, { code: 'billing', licenceBody: null }]
+    const answer = staff({ members: [administrator(), nurse({ roles: ['records_officer'], licence: null })],
+      inviteOptions: { ...staff().inviteOptions, roles } })
+    const { drawer } = await openAccess(answer)
+    const role = within(drawer).getByLabelText(/^Role/) as HTMLSelectElement
+    expect([...role.options].map(option => option.textContent))
+      .toEqual(['Select…', 'Doctor', 'Nurse', 'Laboratory scientist', 'Pharmacist', 'Receptionist', 'Current role'])
+    expect(role.value).toBe('records_officer')
+    expect(role.selectedOptions[0]?.textContent).toBe('Current role')
+    expect([...role.options].map(option => option.value)).not.toContain('billing')
+    expect(document.body.textContent).not.toMatch(/records_officer|billing/)
+  })
+
   it('opens the drawer with the member’s record, and Escape closes it back to Edit access', async () => {
     const { edit, drawer } = await openAccess()
     expect(within(drawer).getByRole('heading', { name: 'Demo Nurse', level: 3 })).toBeTruthy()

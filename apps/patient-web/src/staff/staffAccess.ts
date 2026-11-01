@@ -1,8 +1,9 @@
 import type { Facility } from './api'
 
 /**
- * Facility roles and licences as the provider portal names them (P4b, Novu only). Identity reports role codes; the
- * portal shows these words instead. A code not listed here is shown as it is, except in the blue EHR (roleName below).
+ * Facility roles and licences as Health ID names them. Identity reports role codes; the classic portal shows these words
+ * on Novu (P4b), and a code not listed here as it is. The blue EHR shows them on both backends, and never a code
+ * (roleName below).
  */
 const ROLE_LABELS: Readonly<Record<string, string>> = {
   org_admin: 'Facility administrator',
@@ -54,6 +55,24 @@ export function roleName(code: string): string {
  */
 export function roleNames(codes: readonly string[]): string {
   return [...new Set(codes.flatMap(code => listedRole(code) ?? []))].join(', ') || 'Staff'
+}
+
+/** Whether the list names this role. The blue EHR offers only these when an administrator assigns a role. */
+export function hasRoleName(code: string): boolean {
+  return listedRole(code) !== undefined
+}
+
+/**
+ * Every role a member holds, for the blue screens where an administrator sees and changes access (Staff & access, HR &
+ * Credentials). A role the list does not name still carries its own permissions, so it is counted, never left out and
+ * never shown by its code: "Nurse and another role", "Nurse and 2 other roles"; "Staff" alone, "2 staff roles".
+ */
+export function heldRoleNames(codes: readonly string[]): string {
+  const named = [...new Set(codes.flatMap(code => listedRole(code) ?? []))]
+  const unnamed = new Set(codes.filter(code => !hasRoleName(code))).size
+  if (named.length === 0) return unnamed > 1 ? `${unnamed} staff roles` : 'Staff'
+  if (unnamed === 0) return named.join(', ')
+  return `${named.join(', ')} and ${unnamed === 1 ? 'another role' : `${unnamed} other roles`}`
 }
 
 /** A role in a blue EHR sentence: "a doctor"; "a staff member" for a code the list does not name. */

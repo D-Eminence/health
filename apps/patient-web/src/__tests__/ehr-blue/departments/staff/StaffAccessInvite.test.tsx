@@ -89,6 +89,17 @@ describe('what the facility may send', () => {
 })
 
 describe('inviting', () => {
+  // Only roles Health ID names are offered: an administrator never grants a role they cannot read, and two unnamed
+  // roles would look the same.
+  it('offers only the roles Health ID names, never one by its code', async () => {
+    const roles = [{ code: 'records_officer', licenceBody: null }, ...staff().inviteOptions.roles, { code: 'billing', licenceBody: null }]
+    const card = await openInvite(staff({ inviteOptions: { ...staff().inviteOptions, roles } }))
+    const role = within(card).getByLabelText(/^Assigned role/) as HTMLSelectElement
+    expect([...role.options].map(option => option.textContent))
+      .toEqual(['Select…', 'Doctor', 'Nurse', 'Laboratory scientist', 'Pharmacist', 'Receptionist'])
+    expect(document.body.textContent).not.toMatch(/records_officer|billing/)
+  })
+
   it('shows the target fields, fixes the licence to the role, fills the confirmation, and sends one invitation', async () => {
     api.invite.mockResolvedValueOnce({ invitationId: 'i-2', version: 1, expiresAt: '2026-11-06T09:30:00.000Z',
       deliveryOutcome: 'accepted', replayed: false })

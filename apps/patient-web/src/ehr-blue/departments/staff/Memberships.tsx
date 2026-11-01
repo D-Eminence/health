@@ -3,7 +3,7 @@ import { toast } from '@hid/ui'
 import { EhrButton, EhrDialog, EhrDrawer, EhrField, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { facilityStaffApi, type FacilityStaffMember } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
-import { licenceBodyForRole, licenceNumberAcceptable, normalizeLicenceNumber, roleNames } from '../../../staff/staffAccess'
+import { heldRoleNames, licenceBodyForRole, licenceNumberAcceptable, normalizeLicenceNumber } from '../../../staff/staffAccess'
 import { DeptSection } from '../parts/DeptPage'
 import { DeptFacts, type DeptFact } from '../parts/DeptRecord'
 import { RoleFields } from './InviteCard'
@@ -40,7 +40,7 @@ export function Memberships({ shared, reviewed }: { readonly shared: StaffShared
                     <span className="hid-ehr-dept-avatar" aria-hidden="true">{initials(entry.name)}</span>
                     <strong id={memberName(id)}>{entry.name}</strong>
                   </p>
-                  <p className="hid-ehr-dept-staff-sub">{roleNames(entry.roles)} · active</p>
+                  <p className="hid-ehr-dept-staff-sub">{heldRoleNames(entry.roles)} · active</p>
                 </div>
                 {manageable(entry) ? (
                   <EhrButton id={editButton(id)} variant="secondary" aria-haspopup="dialog" aria-describedby={memberName(id)}
@@ -155,12 +155,12 @@ function MemberAccess({ member, shared, onDirty, onClose }: {
   return <>
     <div className="hid-ehr-dept-staff-drawer">
       <h3>{member.name}</h3>
-      <p>{roleNames(member.roles)} / {member.email}</p>
+      <p>{heldRoleNames(member.roles)} / {member.email}</p>
       <DeptFacts facts={facts} />
       <form className="hid-ehr-dept-staff-form" noValidate onSubmit={submit} aria-label={`Access for ${member.name}`}>
         <div className="hid-ehr-dept-form-grid">
           {ending ? null : (
-            <RoleFields idPrefix={prefix} roleLabelText="Role" roles={staff.inviteOptions.roles} role={role}
+            <RoleFields idPrefix={prefix} roleLabelText="Role" roles={staff.inviteOptions.roles} current={current} role={role}
               onRole={value => { edit('role', setRole)(value); setErrors(({ licence: _cleared, ...rest }) => rest) }}
               number={number} onNumber={edit('licence', setNumber)} errors={{ role: errors.role, number: errors.licence }} />
           )}

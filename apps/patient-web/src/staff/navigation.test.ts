@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Facility, StaffSession } from './api'
 import { PROVIDER_NAVIGATION, staffLandingPath, visibleNavigation } from './navigation'
-import { roleInSentence, roleLabel, roleLabels, roleName, roleNameInSentence, roleNames } from './staffAccess'
+import { hasRoleName, heldRoleNames, roleInSentence, roleLabel, roleLabels, roleName, roleNameInSentence, roleNames } from './staffAccess'
 import { ASSISTED_REGISTRATION_PERMISSION } from './routes/InPersonCheck'
 import { STAFF_PRODUCT_ROUTES } from '../productHostname'
 
@@ -148,6 +148,23 @@ describe('role names shown in the blue EHR', () => {
     expect(roleNameInSentence('lab')).toBe('a laboratory scientist')
     expect(roleNameInSentence('org_admin')).toBe('a facility administrator')
     expect(roleNameInSentence('lab_scientist')).toBe('a staff member')
+  })
+
+  it('knows which roles it names, own keys only', () => {
+    expect(['org_admin', 'nurse', 'receptionist'].every(hasRoleName)).toBe(true)
+    expect(['records_officer', 'lab_scientist', '', 'constructor', 'toString'].some(hasRoleName)).toBe(false)
+  })
+
+  // Where an administrator sees and changes a member's access, a role with no name still carries permissions: it is
+  // counted, never left out, and never shown by its code.
+  it('counts every role a member holds for the access screens, never naming an unnamed one by its code', () => {
+    expect(heldRoleNames(['org_admin', 'org_admin_awaiting_review', 'nurse'])).toBe('Facility administrator, Nurse')
+    expect(heldRoleNames(['nurse', 'records_officer'])).toBe('Nurse and another role')
+    expect(heldRoleNames(['nurse', 'records_officer', 'records_officer'])).toBe('Nurse and another role')
+    expect(heldRoleNames(['org_admin', 'doctor', 'records_officer', 'billing'])).toBe('Facility administrator, Doctor and 2 other roles')
+    expect(heldRoleNames(['records_officer'])).toBe('Staff')
+    expect(heldRoleNames(['records_officer', 'billing'])).toBe('2 staff roles')
+    expect(heldRoleNames([])).toBe('Staff')
   })
 })
 
