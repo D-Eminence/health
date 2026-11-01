@@ -140,10 +140,10 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.contactChangeVerify',
       // Sharing with a clinician and invitations by email (hid-system 0095, Novu only; a backend before it answers 404).
       'identity.shareProviderSearch', 'identity.shares', 'identity.shareInvitations', 'identity.shareInvitationCancel',
-      'identity.shareInvitationConfirm'],
+      'identity.shareInvitationConfirm', 'identity.sharedCard'],
     access: ['access.patientRequests', 'access.approve', 'access.deny', 'access.revokeMyGrant'],
     // Imported history (#94) and patient record chat (#95, ADR-068) are patient-only routes.
-    ehr: ['ehr.myRecords', 'ehr.myImportedHistory', 'ehr.patientChatAvailability', 'ehr.patientChat', 'ehr.patientChatHistory',
+    ehr: ['ehr.myRecords', 'ehr.myPatientEntries', 'ehr.myImportedHistory', 'ehr.patientChatAvailability', 'ehr.patientChat', 'ehr.patientChatHistory',
       // Served by hid-system's staging branches, not main; off unless the build turns the screens on.
       'ehr.myImportedAttachment', 'ehr.patientChatSource',
       // The patient's orders sent to other facilities, and Stop before acceptance (P4c; Novu only, main answers 404).
@@ -202,7 +202,13 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.patientReportedHealthProfile'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
-      'commercial.subscriptionCheckout', 'commercial.invoices'],
+      'commercial.subscriptionCheckout', 'commercial.invoices',
+      // Point of care (docs/POINT_OF_CARE_SPEC.md; proposed, 404 until served): payment setup, the price list, bills
+      // and their payments, receipts, and end of day.
+      'commercial.paymentSettings', 'commercial.catalogueItems', 'commercial.catalogueItem', 'commercial.bills',
+      'commercial.bill', 'commercial.billPayments', 'commercial.billPaymentVoid', 'commercial.billPaymentConfirm',
+      'commercial.billReceipt', 'commercial.billDefer', 'commercial.billPatient', 'commercial.currentShift', 'commercial.shifts',
+      'commercial.shiftClose'],
   },
   'admin-web': {
     // Platform administration uses its own MFA-verified session (Stage 2A);

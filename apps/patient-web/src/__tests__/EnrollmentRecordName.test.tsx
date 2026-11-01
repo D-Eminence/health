@@ -36,14 +36,15 @@ function gateway(start: unknown, current?: unknown): Handler {
 }
 
 async function submitNin(nin = NIN) {
-  fireEvent.change(await screen.findByLabelText('National Identification Number'), { target: { value: nin } })
+  fireEvent.change(await screen.findByLabelText('National Identification Number (NIN)'), { target: { value: nin } })
   fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
   await press(screen.getByRole('button', { name: 'Continue' }))
 }
 
 const CHECK = 'Check that this is your name before you continue. If it is not, the NIN you typed may be wrong. '
   + 'Check it on your NIN slip or in the NIMC app, then select Use a different NIN. For help, contact Health ID support.'
-const verified = () => screen.queryByText('NIN verified')?.closest<HTMLElement>('.patient-inline-success') ?? null
+/** The panel headed "NIN verified" (RecordName.tsx), or null. */
+const verified = () => screen.queryByText('NIN verified')?.parentElement ?? null
 
 describe('the name on the NIN record, under "NIN verified"', () => {
   it('is shown once the NIN is checked, describes the contact field, and stays until activation', async () => {
@@ -59,14 +60,14 @@ describe('the name on the NIN record, under "NIN verified"', () => {
     expect(document.getElementById('enroll-record-name')?.textContent).toBe(`Name on your NIN record: ${NAME}${CHECK}`)
 
     fireEvent.change(phone, { target: { value: '+2348000000000' } })
-    await press(screen.getByRole('button', { name: 'Send verification code' }))
-    await screen.findByLabelText('Verification code')
+    await press(screen.getByRole('button', { name: 'Send code' }))
+    await screen.findByLabelText('Code')
     expect(verified()?.textContent).toContain(NAME)
-    await enterCode(screen.getByLabelText('Verification code'), '123456')
+    await enterCode(screen.getByLabelText('Code'), '123456')
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
     expect(verified()?.textContent).toContain(NAME)
 
-    await press(screen.getByRole('button', { name: 'Activate Health ID' }))
+    await press(screen.getByRole('button', { name: 'Get my Health ID' }))
     expect(await screen.findByText('HID-ABCDEF23')).toBeTruthy()
     expect(verified()).toBeNull()
     expect(screen.queryByText(NAME, { exact: false })).toBeNull()
@@ -94,7 +95,7 @@ describe('the name on the NIN record, under "NIN verified"', () => {
     await submitNin()
     const phone = await screen.findByLabelText('Phone number')
     fireEvent.change(phone, { target: { value: '+2348000000000' } })
-    await press(screen.getByRole('button', { name: 'Send verification code' }))
+    await press(screen.getByRole('button', { name: 'Send code' }))
     await screen.findByText('This contact is already associated with a Health ID')
     const described = phone.getAttribute('aria-describedby')?.split(' ') ?? []
     expect(described).toContain('enroll-error')
@@ -158,7 +159,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348000000000' } })
 
     await press(button()!)
-    const ninField = await screen.findByLabelText('National Identification Number')
+    const ninField = await screen.findByLabelText('National Identification Number (NIN)')
     expect((ninField as HTMLInputElement).value).toBe('')
     expect(document.activeElement).toBe(ninField)
     expect(verified()).toBeNull()
@@ -214,20 +215,20 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     const { sent } = renderIdentity()
     await submitNin()
     fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348000000000' } })
-    await press(screen.getByRole('button', { name: 'Send verification code' }))
-    await screen.findByLabelText('Verification code')
+    await press(screen.getByRole('button', { name: 'Send code' }))
+    await screen.findByLabelText('Code')
     await press(button()!)
-    expect((await screen.findByLabelText('National Identification Number') as HTMLInputElement).value).toBe('')
-    expect(screen.queryByLabelText('Verification code')).toBeNull()
+    expect((await screen.findByLabelText('National Identification Number (NIN)') as HTMLInputElement).value).toBe('')
+    expect(screen.queryByLabelText('Code')).toBeNull()
 
     await submitNin()
     fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348000000000' } })
-    await press(screen.getByRole('button', { name: 'Send verification code' }))
-    await enterCode(await screen.findByLabelText('Verification code'), '123456')
+    await press(screen.getByRole('button', { name: 'Send code' }))
+    await enterCode(await screen.findByLabelText('Code'), '123456')
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
     const before = sent.length
     await press(button()!)
-    expect((await screen.findByLabelText('National Identification Number') as HTMLInputElement).value).toBe('')
+    expect((await screen.findByLabelText('National Identification Number (NIN)') as HTMLInputElement).value).toBe('')
     expect(screen.queryByLabelText('Password')).toBeNull()
     // Going back cancels nothing: the only request is the read of the registration.
     expect(sent.slice(before).map(request => `${request.method} ${request.path}`)).toEqual([`GET ${BASE}/current`])
@@ -238,7 +239,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     await screen.findByLabelText('Phone number')
     expect(verified()).toBeNull()
     await press(button()!)
-    expect((await screen.findByLabelText('National Identification Number') as HTMLInputElement).value).toBe('')
+    expect((await screen.findByLabelText('National Identification Number (NIN)') as HTMLInputElement).value).toBe('')
   })
 
   it.each([
@@ -276,7 +277,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     + 'If the name is not yours, stop here and come back then.'
   const TIED_UNNAMED = (until: string) => `You continued with Google for this registration, so a different NIN can be used here only ${until}. `
     + 'If you meant to use a different NIN, stop here and come back then.'
-  const PENDING = 'Google identity confirmed for this enrollment.'
+  const PENDING = 'Google confirmed your account for this sign-up.'
   /**
    * The page's own reads say one thing; GET .../current, read when the button is pressed, says `current`.
    * GET auth/google/onboarding answers `onboarding`, or 404 (no Google sign-up pending in this browser).
@@ -300,7 +301,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     await press(button()!)
     expect(await screen.findByText(TIED(at(SOON)))).toBeTruthy()
     expect(screen.getByLabelText('Phone number')).toBeTruthy()
-    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     expect(verified()?.textContent).toContain(NAME)
   })
 
@@ -387,7 +388,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     await screen.findByLabelText('Phone number')
     await press(button()!)
     expect(await screen.findByText(TIED_UNNAMED('once that Google sign-up ends, 30 minutes after you continued'))).toBeTruthy()
-    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     expect(verified()).toBeNull()
   })
 
@@ -399,10 +400,10 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     renderPortal(<Enrollment />, pressedWith(shown, () => json({ stage: 'active', hidCode: 'HID-ABCDEF23', ...google })), anonymous)
     await screen.findByLabelText(/^Password/)
     await press(button()!)
-    expect(await screen.findByRole('heading', { name: 'Your Health ID is ready.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Your Health ID is ready' })).toBeTruthy()
     expect(screen.getByText('HID-ABCDEF23')).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
-    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(screen.queryByLabelText('National Identification Number (NIN)')).toBeNull()
     expect(screen.queryByText(NAME)).toBeNull()
   })
 
@@ -416,7 +417,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     await screen.findByLabelText('Phone number')
     expect(screen.getByText(PENDING)).toBeTruthy()
     await press(button()!)
-    expect((await screen.findByLabelText('National Identification Number') as HTMLInputElement).value).toBe('')
+    expect((await screen.findByLabelText('National Identification Number (NIN)') as HTMLInputElement).value).toBe('')
     expect(screen.queryByText(PENDING)).toBeNull()
     expect(screen.queryByText('Reconnect the Google account used to start this enrollment.')).toBeNull()
   })
@@ -426,7 +427,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
       { stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY', expiresAt: SOON }), anonymous)
     await screen.findByLabelText('Phone number')
     await press(button()!)
-    expect(await screen.findByLabelText('National Identification Number')).toBeTruthy()
+    expect(await screen.findByLabelText('National Identification Number (NIN)')).toBeTruthy()
     expect(screen.getByText(PENDING)).toBeTruthy()
   })
 
@@ -436,7 +437,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     await screen.findByLabelText('Phone number')
     expect(screen.getByText('Reconnect the Google account used to start this enrollment.')).toBeTruthy()
     await press(button()!)
-    expect((await screen.findByLabelText('National Identification Number') as HTMLInputElement).value).toBe('')
+    expect((await screen.findByLabelText('National Identification Number (NIN)') as HTMLInputElement).value).toBe('')
     expect(screen.queryByText('Reconnect the Google account used to start this enrollment.')).toBeNull()
     await submitNin()
     await screen.findByLabelText('Phone number')
@@ -457,7 +458,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     renderPortal(<Enrollment />, pressedWith({ stage: 'verify_contact' }, () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')), anonymous)
     await screen.findByLabelText('Phone number')
     await press(button()!)
-    expect(await screen.findByLabelText('National Identification Number')).toBeTruthy()
+    expect(await screen.findByLabelText('National Identification Number (NIN)')).toBeTruthy()
     expect(screen.getByText(/This registration is no longer open on this device/)).toBeTruthy()
   })
 })

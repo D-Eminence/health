@@ -32,13 +32,13 @@ beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }) })
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.useRealTimers() })
 
 const pages = [
-  { name: 'patient', field: 'Email, phone or Health ID', identifier: 'patient@example.test', same: /same email, phone number or Health ID/,
-    different: 'Use a different email, phone number or Health ID',
+  { name: 'patient', field: 'Email, phone or Health ID', identifier: 'patient@example.test', same: /^No code\? Start again to get a new one\./,
+    different: 'Use a different email, phone or Health ID', sendCode: 'Send code', codeLabel: 'Code',
     start: api.recoveryStart, verify: api.recoveryVerify, open: () => render(<MemoryRouter><Recovery /></MemoryRouter>),
     // Six boxes (CodeBoxes.tsx): the sixth digit sends the code.
     send: (code: HTMLElement, value: string) => enterCode(code, value) },
   { name: 'provider', field: 'Work email', identifier: 'clinician@example.test', same: /same work email/,
-    different: 'Use a different work email',
+    different: 'Use a different work email', sendCode: 'Send recovery code', codeLabel: 'Recovery code',
     start: principal.start, verify: principal.verify, open: () => render(<MemoryRouter><PrincipalRecovery audience="staff" /></MemoryRouter>),
     send: async (code: HTMLElement, value: string) => {
       fireEvent.change(code, { target: { value } })
@@ -53,8 +53,8 @@ async function toCode(page: (typeof pages)[number], resendAfterSeconds?: number)
   page.open()
   fireEvent.change(screen.getByLabelText(page.field), { target: { value: page.identifier } })
   fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' })) })
-  return screen.findByLabelText('Recovery code')
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: page.sendCode })) })
+  return screen.findByLabelText(page.codeLabel)
 }
 
 describe.each(pages)('$name password recovery', page => {
@@ -95,8 +95,8 @@ describe.each(pages)('$name password recovery', page => {
     fireEvent.click(screen.getByRole('button', { name: page.different }))
     fireEvent.change(await screen.findByLabelText(page.field), { target: { value: again(page.identifier) } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' })) })
-    await screen.findByLabelText('Recovery code')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: page.sendCode })) })
+    await screen.findByLabelText(page.codeLabel)
     expect(page.start).toHaveBeenCalledTimes(2)
     expect(screen.getByText(BUDGET)).toBeTruthy()
   })
@@ -109,8 +109,8 @@ describe.each(pages)('$name password recovery', page => {
     fireEvent.click(screen.getByRole('button', { name: page.different }))
     fireEvent.change(await screen.findByLabelText(page.field), { target: { value: `other.${page.identifier}` } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' })) })
-    await screen.findByLabelText('Recovery code')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: page.sendCode })) })
+    await screen.findByLabelText(page.codeLabel)
     expect(screen.queryByText(BUDGET)).toBeNull()
   })
 
@@ -121,14 +121,14 @@ describe.each(pages)('$name password recovery', page => {
     await page.send(code, '000000')
     await screen.findByText(BUDGET)
     page.verify.mockResolvedValueOnce({ verified: true, challengeId: 'challenge-1', verificationToken: 'token-1' })
-    fireEvent.change(screen.getByLabelText('Recovery code'), { target: { value: '123456' } })
+    fireEvent.change(screen.getByLabelText(page.codeLabel), { target: { value: '123456' } })
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
     await screen.findByLabelText('New password')
     fireEvent.click(screen.getByRole('button', { name: page.different }))
     await screen.findByLabelText(page.field)
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' })) })
-    await screen.findByLabelText('Recovery code')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: page.sendCode })) })
+    await screen.findByLabelText(page.codeLabel)
     expect(screen.queryByText(BUDGET)).toBeNull()
   })
 
@@ -155,13 +155,12 @@ describe.each(pages)('$name password recovery', page => {
  * the wait was the account's, and the start answered the same challenge.
  */
 describe('patient password recovery and the same account\'s other identifier', () => {
-  const OTHER = /^The same account's other email, phone number or Health ID will not get a new code until a new code is offered here/
+  const OTHER = /^Wait for a new code before using another email, phone or Health ID on the same account\.$/
   const patient = pages[0]
 
   it('says during the wait that the same account\'s other email, phone number or Health ID will not get a new code', async () => {
     await toCode(patient, 60)
     const said = screen.getByText(OTHER)
-    expect(said.textContent).toMatch(/using it before then may stop the code already sent from being accepted\.$/)
     // It describes the way back to another identifier, which is offered beside it.
     const different = screen.getByRole('button', { name: patient.different })
     expect(different.getAttribute('aria-describedby')).toBe(said.id)

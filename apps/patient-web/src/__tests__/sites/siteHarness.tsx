@@ -103,6 +103,18 @@ export async function openBlueOn(hostname: string, at: { id: string; name: strin
   return screen.findByRole('navigation', { name: 'Main navigation' })
 }
 
+/** The product the blue EHR names for itself, from its brand link ("Health ID Lab home" is "Lab"). */
+export function blueProduct(): string {
+  const brand = screen.getAllByRole('link', { name: /^Health ID .+ home$/ })[0]!
+  return brand.getAttribute('aria-label')!.replace(/^Health ID (.+) home$/, '$1')
+}
+
+/** The blue sidebar's links to pages of this site, by address. */
+export function blueAddresses(nav: HTMLElement): string[] {
+  return [...nav.querySelectorAll<HTMLAnchorElement>('a')].map(link => link.getAttribute('href') ?? '')
+    .filter(href => !href.startsWith('https:'))
+}
+
 /** The blue sidebar's links to pages of this site, by name. */
 export function bluePages(nav: HTMLElement): string[] {
   return [...nav.querySelectorAll<HTMLAnchorElement>('a')].filter(link => !link.getAttribute('href')?.startsWith('https:'))

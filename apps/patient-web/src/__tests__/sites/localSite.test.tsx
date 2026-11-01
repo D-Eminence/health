@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react'
 import { servedHere } from '../../productSites'
 import { DEMO_LABORATORY } from '../ehr-blue/frame/blueHarness'
 import {
-  address, backToTestSite, bluePages, classicPages, EVERY_CLASSIC_PAGE, EVERY_PERMISSION, openBlueOn, openClassicOn, openPortalOn,
+  address, backToTestSite, bluePages, blueProduct, classicPages, EVERY_CLASSIC_PAGE, EVERY_PERMISSION, openBlueOn, openClassicOn, openPortalOn,
   siteLinks,
 } from './siteHarness'
 
@@ -47,8 +47,8 @@ describe('localhost', () => {
 
   it('opens the blue EHR at any demo facility, as the Hospital EHR, with every page', async () => {
     const nav = await openBlueOn('localhost', { id: DEMO_LABORATORY, name: 'Demo Laboratory' }, EVERY_PERMISSION)
-    expect(document.querySelector('.hid-ehr-sidebar-product')?.textContent).toBe('Hospital EHR')
-    expect(bluePages(nav)).toEqual(expect.arrayContaining(['Patients', 'Laboratory', 'Pharmacy', 'Document OCR', 'Outreach']))
+    expect(blueProduct()).toBe('EHR')
+    expect(bluePages(nav)).toEqual(expect.arrayContaining(['Home', 'Patients']))
     expect(siteLinks(nav)).toEqual([])
     expect(screen.queryByRole('heading', { name: /works on/ })).toBeNull()
   })

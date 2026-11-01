@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createApiClient, HidApiError } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { createPatientApi } from '../api'
 import { ImportedHistorySharingCard, ImportedHistoryView, PatientImportedHistory, type ImportedHistoryLoad, type SharingApi } from '../ImportedHistoryPage'
 import { parseImportedHistory, type ImportedHistoryPage, type ImportedMedicalRecord } from '../importedRecords'
+import { shownText } from './portalHarness'
 
 /**
  * Imported legacy medical history as hid-system main serves it (#94, ADR-067; INTERFACE_CONTRACT.md, "Imported
@@ -57,9 +58,9 @@ describe('the history', () => {
     expect(await screen.findByText('Legacy record 1')).toBeTruthy()
     expect(screen.getByText('Text 1 <b>not markup</b>')).toBeTruthy()
     expect(document.querySelector('.imported-history-card b')).toBeNull()
-    expect(screen.getByText('Download pending safety verification.')).toBeTruthy()
+    expect(screen.getByText('This file is still being checked for safety.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Download/ })).toBeNull()
-    expect(screen.getByText('Showing 1 imported record, newest first.')).toBeTruthy()
+    expect(screen.getByText('Showing 1 older record, newest first.')).toBeTruthy()
     expect(load).toHaveBeenCalledWith(null, expect.any(AbortSignal))
   })
   it('loads the next page with its cursor and adds it without repeating a record', async () => {
@@ -67,19 +68,19 @@ describe('the history', () => {
       .mockResolvedValueOnce(parseImportedHistory(wire([record(1), record(2)], { truncated: { records: true }, nextCursor: 'cursor-abcdefghijklmnop' }), false))
       .mockResolvedValueOnce(patientPage(2, 3))
     render(<ImportedHistoryView load={load} audience="patient" />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Show more imported records' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Show more' }))
     expect(await screen.findByText('Legacy record 3')).toBeTruthy()
     expect(load).toHaveBeenLastCalledWith('cursor-abcdefghijklmnop', expect.any(AbortSignal))
     expect(screen.getAllByText('Legacy record 2')).toHaveLength(1)
-    expect(screen.queryByRole('button', { name: 'Show more imported records' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull()
   })
   it('keeps what is shown and says so when the next page fails', async () => {
     const load = vi.fn<ImportedHistoryLoad>()
       .mockResolvedValueOnce(parseImportedHistory(wire([record(1)], { truncated: { records: true }, nextCursor: 'cursor-abcdefghijklmnop' }), false))
       .mockRejectedValueOnce(new HidApiError(400, 'Private', { code: 'INVALID_CURSOR' }))
     render(<ImportedHistoryView load={load} audience="patient" />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Show more imported records' }))
-    expect((await screen.findByRole('alert')).textContent).toContain('could not be read')
+    fireEvent.click(await screen.findByRole('button', { name: 'Show more' }))
+    expect(shownText(await screen.findByRole('alert'))).toBe('Couldn’t load more older records. Reload the page.')
     expect(screen.getByText('Legacy record 1')).toBeTruthy()
   })
   it.each([
@@ -88,14 +89,15 @@ describe('the history', () => {
   ])('shows nothing, and no error, when it is %s', async (_name, reason) => {
     const load = vi.fn<ImportedHistoryLoad>().mockRejectedValue(reason)
     const view = render(<ImportedHistoryView load={load} audience="patient" />)
-    await waitFor(() => expect(screen.queryByText('Loading imported medical history…')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('Loading older records…')).toBeNull())
     expect(view.container.textContent).toBe('')
   })
   it('says a real failure, and retries', async () => {
     const load = vi.fn<ImportedHistoryLoad>().mockRejectedValueOnce(new HidApiError(503, 'Private', { code: 'IMPORTED_HISTORY_UNAVAILABLE' })).mockResolvedValue(patientPage(1))
     render(<ImportedHistoryView load={load} audience="patient" />)
-    expect((await screen.findByRole('alert')).textContent).toBe('Imported medical history could not be read right now. Please try again.')
-    fireEvent.click(screen.getByRole('button', { name: 'Retry imported history' }))
+    const alert = await screen.findByRole('alert')
+    expect(shownText(alert)).toMatch(/^Couldn’t load older recordsOlder records can’t be loaded right now\. Try again\./)
+    fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
     expect(await screen.findByText('Legacy record 1')).toBeTruthy()
   })
   it.each([
@@ -106,7 +108,7 @@ describe('the history', () => {
   ])('tells staff why a read was refused (%s %s)', async (status, code, message) => {
     const load = vi.fn<ImportedHistoryLoad>().mockRejectedValue(new HidApiError(status, 'Private detail', { code }))
     render(<ImportedHistoryView load={load} audience="staff" />)
-    expect((await screen.findByRole('alert')).textContent).toBe(message)
+    expect(within(await screen.findByRole('alert')).getByText(message)).toBeTruthy()
     expect(screen.queryByText(/Private detail/)).toBeNull()
   })
   it('tells staff when the patient has not shared, with no record shown', async () => {
@@ -123,23 +125,23 @@ describe('the sharing choice', () => {
   it('is off until the patient chooses, then shares, then stops', async () => {
     const api = sharing()
     render(<ImportedHistorySharingCard api={api} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Share with staff who treat me' }))
-    expect(await screen.findByText(/can now see your imported medical history/)).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: 'Share with health workers who treat me' }))
+    expect(await screen.findByText(/can now see your older records/)).toBeTruthy()
     expect(api.setImportedHistorySharing).toHaveBeenCalledWith(true)
     vi.mocked(api.setImportedHistorySharing).mockResolvedValue({ shared: false, changed: true, updatedAt: '2026-10-17T10:05:00.000Z' })
     fireEvent.click(screen.getByRole('button', { name: 'Stop sharing' }))
-    expect(await screen.findByText(/no longer see your imported medical history/)).toBeTruthy()
+    expect(await screen.findByText(/can’t load your older records any more/)).toBeTruthy()
   })
   it.each([
-    ['PATIENT_RECENT_AUTH_REQUIRED', 'Sharing needs a recent sign-in. Sign in again, then try again.'],
-    ['PATIENT_RECENT_RECOVERY_HOLD', 'Sharing cannot be turned on in the 24 hours after you recover your account. Please try again later.'],
-    ['IMPORTED_HISTORY_SHARING_DISABLED', 'Sharing imported medical history is not available yet.'],
+    ['PATIENT_RECENT_AUTH_REQUIRED', 'For your safety, sign in again first, then try again.'],
+    ['PATIENT_RECENT_RECOVERY_HOLD', 'You can’t turn on sharing for 24 hours after you recover your account. Try again later.'],
+    ['IMPORTED_HISTORY_SHARING_DISABLED', 'Sharing older records isn’t available right now.'],
   ])('says why turning sharing on was refused (%s) and keeps the choice off', async (code, message) => {
     const api = sharing({ setImportedHistorySharing: vi.fn().mockRejectedValue(new HidApiError(403, 'Private', { code })) })
     render(<ImportedHistorySharingCard api={api} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Share with staff who treat me' }))
-    expect((await screen.findByRole('alert')).textContent).toBe(message)
-    expect(screen.getByRole('button', { name: 'Share with staff who treat me' })).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: 'Share with health workers who treat me' }))
+    expect(shownText(await screen.findByRole('alert'))).toBe(message)
+    expect(screen.getByRole('button', { name: 'Share with health workers who treat me' })).toBeTruthy()
   })
   it.each([
     ['its switch is off', new HidApiError(503, 'Off', { code: 'IMPORTED_HISTORY_SHARING_DISABLED' })],
@@ -174,7 +176,7 @@ describe('through the registered cookie client', () => {
       setImportedHistorySharing: vi.fn() }
     render(<PatientImportedHistory api={api} />)
     expect(await screen.findByText('Legacy record 1')).toBeTruthy()
-    expect(await screen.findByRole('button', { name: 'Share with staff who treat me' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'Share with health workers who treat me' })).toBeTruthy()
   })
 })
 

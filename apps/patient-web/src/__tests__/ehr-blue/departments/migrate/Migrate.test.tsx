@@ -144,7 +144,8 @@ describe('Migrate list view', () => {
   it('shows one h1, the migration notice, Find document job, and the list with its columns empty', () => {
     renderMigrate()
     expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Document OCR'])
-    expect(screen.getByText('Project migration is not available yet')).toBeTruthy()
+    // The owner took the migration notice out: the list says what it holds in its search hint.
+    expect(screen.queryByText('Project migration is not available yet')).toBeNull()
     expect(heading('Find document job')).toBeTruthy()
     // The search is described by its hint, which says what the list holds.
     expect(descriptions(screen.getByRole('searchbox', { name: 'Search Document OCR' })))

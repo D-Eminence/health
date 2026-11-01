@@ -189,15 +189,16 @@ describe('clinician verification queue (A1)', () => {
     expect(screen.getByTestId('location').textContent).not.toMatch(/Chiamaka|example\.test|MDCN/)
   })
 
-  it('opens a linked state, keeps Refresh after an outage, and says when a list position is refused', async () => {
+  it('opens a linked state, keeps a retry after an outage, and says when a list position is refused', async () => {
     api.clinicianApplications.mockRejectedValueOnce(problem(503, 'ADMIN_COMMAND_UNAVAILABLE', 'req-503'))
       .mockResolvedValueOnce({ items: [summary({ state: 'rejected' })], nextCursor: 'cursor-2' })
       .mockRejectedValueOnce(problem(400, 'ADMIN_INVALID_CURSOR'))
     openAt('/admin/clinicians?state=rejected')
     const outage = await screen.findByRole('alert')
-    expect(outage.textContent).toMatch(/^Clinician applications could not be loaded\. Reference: req-503/)
+    expect(within(outage).getByText('Couldn’t load this')).toBeTruthy()
+    expect(outage.textContent).toMatch(/Clinician applications could not be loaded\. Reference: req-503/)
     expect(api.clinicianApplications).toHaveBeenCalledWith('rejected', {}, expect.any(AbortSignal))
-    fireEvent.click(within(outage).getByRole('button', { name: 'Refresh' }))
+    fireEvent.click(within(outage).getByRole('button', { name: 'Try again' }))
     expect(await screen.findByText('Showing 1 applications, newest first; more are available')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Load more applications' }))
     expect((await screen.findByRole('alert')).textContent).toMatch(/list position is no longer valid/)
@@ -264,12 +265,12 @@ describe('one clinician application (A2)', () => {
     expect(api.clinicianApplication).not.toHaveBeenCalled()
   })
 
-  it('says an application the server cannot find is gone, with Refresh', async () => {
+  it('says an application the server cannot find is gone, with a retry', async () => {
     api.clinicianApplication.mockRejectedValueOnce(problem(404, 'CLINICIAN_APPLICATION_NOT_FOUND'))
     openAt(`/admin/clinicians/${ID}`)
     const gone = await screen.findByRole('alert')
     expect(gone.textContent).toMatch(/This application no longer exists/)
-    expect(within(gone).getByRole('button', { name: 'Refresh' })).toBeTruthy()
+    expect(within(gone).getByRole('button', { name: 'Try again' })).toBeTruthy()
   })
 })
 
@@ -684,7 +685,7 @@ describe('changed, replayed and unanswered commands', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reject application' }))
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }))
     const panel = screen.getByRole('region', { name: 'Reject this application' })
-    expect((await within(panel).findByRole('alert')).textContent).toMatch(/cancelled, so the action was not carried out/)
+    expect((await within(panel).findByRole('alert')).textContent).toMatch(/You cancelled the code check, so nothing was changed\./)
     expect((within(panel).getByLabelText('Internal reason (never shown to the applicant)') as HTMLTextAreaElement).value)
       .toBe('Applicant asked to stop the review')
     expect(api.rejectClinicianApplication).toHaveBeenCalledTimes(1)

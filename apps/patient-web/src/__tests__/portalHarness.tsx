@@ -132,15 +132,18 @@ export async function openSection(name: string | RegExp): Promise<HTMLElement> {
   const toggle = sectionToggle(name)
   if (toggle.getAttribute('aria-expanded') !== 'true') await act(async () => { fireEvent.click(toggle) })
   expect(toggle.getAttribute('aria-expanded')).toBe('true')
-  return toggle.closest('.patient-card') as HTMLElement
+  return sectionCard(name)
 }
 
+/** The card of the profile's section headed `name` (a kasuwa Card holding its heading). */
+export const sectionCard = (name: string | RegExp) => heading(name).closest('h2, h3')!.parentElement as HTMLElement
+
 /**
- * The email and phone, at the end of the profile's Bio-data with no heading of their own (ProfileContact.tsx): opens
+ * The email and phone, at the end of the profile's About you (once Bio-data) with no heading of their own (ProfileContact.tsx): opens
  * Bio-data as the patient does, and returns the block (#contact-details) inside it.
  */
 export async function openContactDetails(): Promise<HTMLElement> {
-  const bio = await openSection('Bio-data')
+  const bio = await openSection('About you')
   const block = bio.querySelector<HTMLElement>('#contact-details')
   expect(block).not.toBeNull()
   return block as HTMLElement
@@ -148,7 +151,15 @@ export async function openContactDetails(): Promise<HTMLElement> {
 
 /** The profile's completion card, always shown and never closed (ProfileCompletion.tsx), once it is shown. */
 export async function completionCard(): Promise<HTMLElement> {
-  const title = await screen.findByRole('heading', { name: 'Profile completion', level: 2 })
+  // Headed "Finish your profile" until it is complete, then "Profile complete".
+  const title = await screen.findByRole('heading', { name: /^(Finish your profile|Profile complete)$/, level: 2 })
   expect(within(title).queryByRole('button')).toBeNull()
-  return title.closest('.patient-card') as HTMLElement
+  return title.closest('#profile-completion') as HTMLElement
+}
+
+/** What an alert shows: its text without the visually hidden intent label ("Error: ") a kasuwa Alert reads out first. */
+export function shownText(element: HTMLElement): string {
+  const copy = element.cloneNode(true) as HTMLElement
+  for (const hidden of copy.querySelectorAll('.sr-only')) hidden.remove()
+  return copy.textContent ?? ''
 }

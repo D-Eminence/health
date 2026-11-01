@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Outreach } from '../Operations'
 import { Registration } from '../Registration'
@@ -53,13 +54,13 @@ describe('registration', () => {
     const verifying = deferred<unknown>()
     api.resolveNin.mockReturnValueOnce(verifying.promise)
     api.registrationCase.mockResolvedValue({ caseId, status: 'pending_new_identity_approval', version: 1, candidateCount: 0 })
-    render(<Registration />)
-    fireEvent.change(await screen.findByLabelText(/National Identity Number/), { target: { value: '12345678901' } })
+    render(<MemoryRouter><Registration /></MemoryRouter>)
+    fireEvent.change(await screen.findByLabelText(/NIN \(11 digits\)/), { target: { value: '12345678901' } })
     fireEvent.change(screen.getByLabelText(/First name/), { target: { value: 'Amina' } })
     fireEvent.change(screen.getByLabelText(/Last name/), { target: { value: 'Example' } })
     fireEvent.change(screen.getByLabelText(/Date of birth/), { target: { value: '1990-01-02' } })
     const status = region('registration-status')
-    const button = screen.getByRole('button', { name: 'Verify and create case' })
+    const button = screen.getByRole('button', { name: 'Check NIN' })
     await press(button)
     expect(button.getAttribute('aria-disabled')).toBe('true')
     expect((button as HTMLButtonElement).disabled).toBe(false)
@@ -67,7 +68,7 @@ describe('registration', () => {
     await act(async () => { fireEvent.click(button) })
     expect(api.resolveNin).toHaveBeenCalledTimes(1)
     await act(async () => { verifying.resolve({ caseId, status: 'pending_new_identity_approval', version: 1, candidateCount: 0 }) })
-    await waitFor(() => expect(status.textContent).toBe('NIN verification created a governed registration case. Review its status before continuing.'))
+    await waitFor(() => expect(status.textContent).toBe('NIN checked. See the result below.'))
   })
 
   it('a case decision: focus moves to the case once its form goes, and the page says it', async () => {
@@ -75,15 +76,17 @@ describe('registration', () => {
       candidates: [{ patientId, fullName: 'Amina Example', dateOfBirth: '1990-01-02' }] })
     api.linkExistingRegistration.mockResolvedValue({ caseId, status: 'linked_existing', version: 4, candidateCount: 1,
       patient: { patientId, hid: 'HID-ABCDEFG' } })
-    render(<Registration />)
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Registration case ID' }), { target: { value: caseId } })
-    fireEvent.click(screen.getByRole('button', { name: 'Load case' }))
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Candidate to link' }), { target: { value: patientId } })
-    fireEvent.change(screen.getByRole('textbox', { name: 'Review reason' }), { target: { value: 'Identity match reviewed with patient' } })
+    render(<MemoryRouter><Registration /></MemoryRouter>)
+    fireEvent.click(await screen.findByText('Continue a registration'))
+    fireEvent.change(screen.getByRole('textbox', { name: /^Registration ID/ }), { target: { value: caseId } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+    fireEvent.change(await screen.findByRole('combobox', { name: /^Which person is it\?/ }), { target: { value: patientId } })
+    fireEvent.change(screen.getByRole('textbox', { name: /^Why \(for the record\)/ }), { target: { value: 'Identity match reviewed with patient' } })
     const status = region('registration-status')
-    await press(screen.getByRole('button', { name: 'Link selected patient' }))
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: `Case ${caseId}` })))
-    expect(status.textContent).toBe('The verified identity was linked to the selected patient.')
+    await press(screen.getByRole('button', { name: 'Link to this person' }))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: '3. Done' })))
+    expect(screen.getByText(caseId)).toBeTruthy()
+    expect(status.textContent).toBe('Linked to the existing patient.')
   })
 })
 

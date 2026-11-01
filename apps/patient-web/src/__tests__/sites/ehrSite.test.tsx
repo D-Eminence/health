@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { act, screen, within } from '@testing-library/react'
 import { rightSiteHref, servedHere } from '../../productSites'
 import { DEMO_HOSPITAL, DEMO_LABORATORY, facility } from '../ehr-blue/frame/blueHarness'
 import {
-  address, backToTestSite, bluePages, classicPages, EVERY_CLASSIC_PAGE, EVERY_PERMISSION, expectOpenedElsewhere, openBlueOn,
+  address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_CLASSIC_PAGE, EVERY_PERMISSION, expectOpenedElsewhere, openBlueOn,
   openClassicOn, openPortalOn, overviewWorkspaces, signInActionOn, siteLinks,
 } from './siteHarness'
 
@@ -87,9 +87,10 @@ describe(EHR, () => {
 
   it('opens the blue EHR at Demo Hospital as the Hospital EHR, with its own laboratory, pharmacy, OCR and outreach', async () => {
     const nav = await openBlueOn(EHR, { id: DEMO_HOSPITAL, name: 'Demo Hospital' }, EVERY_PERMISSION)
-    expect(document.querySelector('.hid-ehr-sidebar-product')?.textContent).toBe('Hospital EHR')
-    expect(bluePages(nav)).toEqual(expect.arrayContaining(['Home', 'Patients', 'Consultation', 'Laboratory', 'Pharmacy',
-      'Document OCR', 'Outreach', 'Facility subscription', 'Audit & Compliance']))
+    expect(blueProduct()).toBe('EHR')
+    // The redesign lists the EHR's working pages; the hospital's own laboratory, pharmacy, OCR and outreach are served here.
+    expect(blueAddresses(nav)).toEqual(expect.arrayContaining(['/provider', '/provider/patients', '/provider/clinical']))
+    for (const own of ['/provider/laboratory', '/provider/pharmacy', '/provider/ocr', '/provider/outreach']) expect(servedHere(own, EHR)).toBe(true)
     expect(siteLinks(nav)).toEqual([])
   })
 
@@ -101,8 +102,9 @@ describe(EHR, () => {
     expect(page.getByRole('link', { name: 'Open Laboratory' }).getAttribute('href')).toBe('https://lab.healthidentitydirectory.com/')
     expect(screen.queryByRole('heading', { name: 'Laboratory worklist' })).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Use the classic EHR' }))
+    // Today's workspace, as a tab that chose the classic EHR has it (the redesign offers no way there from the frame).
+    const { chooseClassicEhr } = await import('../../ehr-blue/blueFacilities')
+    act(() => chooseClassicEhr())
     const sidebar = await screen.findByRole('complementary', { name: 'Provider navigation' })
     expect(within(sidebar).getByRole('combobox', { name: 'Working at' })).toBeTruthy()
     expect(await screen.findByRole('heading', { level: 1, name: 'Demo Laboratory works on Laboratory' })).toBeTruthy()

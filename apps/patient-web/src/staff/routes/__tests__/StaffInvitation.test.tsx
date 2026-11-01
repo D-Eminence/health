@@ -125,7 +125,8 @@ describe('opening an invitation', () => {
     open(linkAddress)
     await waitFor(() => expect(continueButton().disabled).toBe(false))
     fireEvent.click(continueButton())
-    expect(await screen.findByRole('heading', { name: 'Invitations aren’t available yet' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Invitations aren’t available' })).toBeTruthy()
+    expect(screen.getByText('Joining a facility by invitation isn’t available. Contact the facility that invited you.')).toBeTruthy()
   })
 })
 

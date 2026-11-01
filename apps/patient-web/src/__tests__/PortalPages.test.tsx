@@ -41,19 +41,22 @@ beforeEach(async () => {
 afterEach(() => { session.value = null })
 
 const open = (path: string) => render(<MemoryRouter initialEntries={[path]}><App /></MemoryRouter>)
-const nav = () => within(screen.getByRole('navigation', { name: 'Patient pages' }))
+const nav = () => within(screen.getByRole('navigation', { name: 'Main navigation' }))
 const pageHeading = () => screen.getByRole('heading', { level: 1 })
 
 describe('patient portal pages', () => {
   it('names the tab after each page, and gives the title back on leaving', async () => {
     const { unmount } = open('/records')
-    await screen.findByRole('heading', { level: 1, name: 'Health records' })
+    await screen.findByRole('heading', { level: 1, name: 'Records' })
     expect(document.title).toBe('Health records · Health ID')
-    for (const [link, title] of [['Access', 'Access and consent · Health ID'], ['Notifications', 'Notifications · Health ID'],
+    for (const [link, title] of [['Access & sharing', 'Access and consent · Health ID'],
       ['Profile', 'Your profile · Health ID'], ['Overview', 'Overview · Health ID']] as const) {
       fireEvent.click(nav().getByRole('link', { name: link }))
       await waitFor(() => expect(document.title).toBe(title))
     }
+    // Notifications has no place in the navigation (the bell shows while something is unread): Home's Activity opens it.
+    fireEvent.click(within(await screen.findByRole('region', { name: 'Activity' })).getByRole('link', { name: 'All' }))
+    await waitFor(() => expect(document.title).toBe('Notifications · Health ID'))
     unmount()
     expect(document.title).toBe(TAB_TITLE)
   })
@@ -67,20 +70,21 @@ describe('patient portal pages', () => {
   it('moves focus to the new page\'s heading when a link inside the page opens it', async () => {
     open('/')
     await screen.findByText('HID-ABC234')
-    await press(screen.getByRole('link', { name: /Open records/ }))
-    await screen.findByRole('heading', { level: 1, name: 'Health records' })
+    await press(within(screen.getByRole('group', { name: 'Your record at a glance' })).getByRole('link', { name: /Records$/ }))
+    await screen.findByRole('heading', { level: 1, name: 'Records' })
     expect(document.activeElement).toBe(pageHeading())
 
     await act(async () => { fireEvent.click(nav().getByRole('link', { name: 'Overview' })) })
-    await press(await screen.findByRole('link', { name: 'View profile →' }))
-    await screen.findByRole('heading', { level: 1, name: 'Your profile' })
+    await press(await screen.findByRole('link', { name: 'View profile' }))
+    await screen.findByRole('heading', { level: 1, name: 'Profile' })
     expect(document.activeElement).toBe(pageHeading())
   })
 
   it('moves focus to the overview\'s heading from a page that does not exist', async () => {
     open('/no-such-page')
     await press(await screen.findByRole('link', { name: 'Go to overview' }))
-    await screen.findByRole('heading', { level: 1, name: 'Your health, connected.' })
+    // Home greets the patient by name.
+    await screen.findByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), Ada$/ })
     expect(document.activeElement).toBe(pageHeading())
   })
 
@@ -89,7 +93,7 @@ describe('patient portal pages', () => {
     await screen.findByText('HID-ABC234')
     const records = nav().getByRole('link', { name: 'Records' })
     await press(records)
-    await screen.findByRole('heading', { level: 1, name: 'Health records' })
+    await screen.findByRole('heading', { level: 1, name: 'Records' })
     expect(document.activeElement).toBe(records)
   })
 })

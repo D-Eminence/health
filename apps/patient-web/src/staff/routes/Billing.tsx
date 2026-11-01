@@ -8,11 +8,12 @@ import {
   readInvoices, readSubscription, TRIAL_DAYS, type BillingRead, type Invoice, type Subscription,
 } from '../billing'
 
-const PRODUCT_LABELS: Record<string, string> = {
+/** Shared with the blue EHR's Facility subscription page (ehr-blue/frame/BlueSubscription.tsx), word for word. */
+export const PRODUCT_LABELS: Record<string, string> = {
   ehr: 'Health ID EHR', laboratory: 'Health ID Laboratory', pharmacy: 'Health ID Pharmacy', migrate: 'Health ID Migrate',
 }
 
-const STATUS: Record<Subscription['status'], { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' | 'information' }> = {
+export const STATUS: Record<Subscription['status'], { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' | 'information' }> = {
   none: { label: 'No plan yet', tone: 'neutral' },
   trialing: { label: 'Free trial', tone: 'information' },
   active: { label: 'Active', tone: 'success' },
@@ -21,7 +22,7 @@ const STATUS: Record<Subscription['status'], { label: string; tone: 'success' | 
   cancelled: { label: 'Cancelled', tone: 'neutral' },
 }
 
-function statusDetail(subscription: Subscription): string {
+export function statusDetail(subscription: Subscription): string {
   switch (subscription.status) {
     case 'none': return `Start a ${TRIAL_DAYS}-day free trial, or pay now. No card is needed for the trial.`
     case 'trialing': {
@@ -75,8 +76,8 @@ export function Billing() {
   if (!facility || !canRead) return <EmptyState titleAs="h1" title="Billing access unavailable"
     description="Your facility administrator manages the plan and billing for this facility." />
 
-  if (subscription.kind === 'unavailable') return <EmptyState titleAs="h1" title="Billing isn't available yet"
-    description="Plans, free trials and payment are not switched on for Health ID yet. Your facility can keep using the Provider Portal in the meantime." />
+  if (subscription.kind === 'unavailable') return <EmptyState titleAs="h1" title="Billing"
+    description="Billing isn’t set up for your facility. Contact support." />
 
   async function startTrial() {
     if (busy) return
@@ -152,16 +153,16 @@ export function Billing() {
       <h2 id="billing-invoices-title" className="billing-heading">Invoices</h2>
       {invoices.kind === 'loading' && <p role="status" className="staff-muted">Loading invoices…</p>}
       {invoices.kind === 'error' && <p role="alert" className="staff-error">{invoices.message}</p>}
-      {invoices.kind === 'unavailable' && <p className="staff-muted">Invoices are not available yet.</p>}
+      {invoices.kind === 'unavailable' && <p className="staff-muted">No invoices.</p>}
       {invoices.kind === 'ready' && (invoices.value.length === 0
         ? <p className="staff-muted">No invoices yet. Your first invoice appears here after you pay.</p>
         : <div className="billing-table-wrap"><table className="billing-table">
           <thead><tr><th scope="col">Invoice</th><th scope="col">Date</th><th scope="col">Amount</th><th scope="col">Status</th></tr></thead>
           <tbody>{invoices.value.map(invoice => <tr key={invoice.id}>
-            <td>{invoice.number}</td>
-            <td>{formatDate(invoice.issuedAt)}</td>
-            <td className="billing-amount">{formatMoney(invoice.amount_minor, invoice.currency)}</td>
-            <td><Badge tone={invoice.status === 'paid' ? 'success' : invoice.status === 'open' ? 'warning' : 'neutral'}>
+            <td data-label="Invoice">{invoice.number}</td>
+            <td data-label="Date">{formatDate(invoice.issuedAt)}</td>
+            <td data-label="Amount" className="billing-amount">{formatMoney(invoice.amount_minor, invoice.currency)}</td>
+            <td data-label="Status"><Badge tone={invoice.status === 'paid' ? 'success' : invoice.status === 'open' ? 'warning' : 'neutral'}>
               {invoice.status === 'paid' ? 'Paid' : invoice.status === 'open' ? 'Open' : 'Void'}</Badge></td>
           </tr>)}</tbody>
         </table></div>)}

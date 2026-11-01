@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Mail } from 'lucide-react'
+import { Badge, Button, Card, statusTone } from '../kasuwa/ui'
+import { Actions, LoadProblem, Problem, Saved } from './profileParts'
 import { isHidApiError } from '@hid/http'
 import { useSession } from '../session'
 import { ItemName } from '../ItemName'
@@ -22,8 +24,8 @@ import { shareProblem } from './ShareRecords'
  */
 const STATUS_WORDS: Readonly<Record<ShareInvitationStatus, string>> = {
   pending: 'Waiting for them to accept',
-  accepted: 'Accepted: waiting for you to confirm',
-  confirmed: 'Confirmed: your records are shared',
+  accepted: 'Accepted · waiting for you to confirm',
+  confirmed: 'Confirmed · your records are shared',
   cancelled: 'Cancelled',
   expired: 'Expired',
 }
@@ -65,7 +67,7 @@ export function ShareInvitationsCard({ onShared }: { onShared?: () => Promise<un
     try {
       if (action === 'confirm') {
         const shared = await api.confirmShareInvitation(item.invitationId)
-        setNotice(`${shared.clinicianName ?? 'The provider'} at ${shared.facilityName} can see your records ${shareUntil(shared.duration, shared.expiresAt)}.`)
+        setNotice(`${shared.clinicianName ?? 'The health worker'} at ${shared.facilityName} can see your records ${shareUntil(shared.duration, shared.expiresAt)}.`)
         await Promise.all([invitations.reload(), onShared?.()])
       } else {
         await api.cancelShareInvitation(item.invitationId)
@@ -74,42 +76,50 @@ export function ShareInvitationsCard({ onShared }: { onShared?: () => Promise<un
       }
       focusAfter(() => heading.current)
     } catch (cause) {
-      setError(shareProblem(cause, action === 'confirm' ? 'Your records could not be shared. Please try again.'
-        : 'The invitation could not be updated. Please try again.'))
+      setError(shareProblem(cause, action === 'confirm' ? 'Couldn’t share your records. Try again.'
+        : 'Couldn’t update the invitation. Try again.'))
       focusAfter(() => document.getElementById(`${action}-invitation-${item.invitationId}`))
     } finally { setWorking(null) }
   }
 
   const list = invitations.data
   const busy = !!working || invitations.loading
-  return <div className="patient-card" aria-busy={(invitations.loading && list !== null) || undefined}>
-    <h2 ref={heading} tabIndex={-1}>Invitations to share</h2>
-    <p className="patient-field-hint">Providers you invited by email. Nothing is shared until they accept in Health ID and you confirm.</p>
-    {invitations.error && <div role="alert"><p>{invitations.error}</p>
-      <button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(invitations.reload)}>Try again</button></div>}
-    {error && <p role="alert" className="patient-inline-error">{error}</p>}
-    <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
-    {list && !invitations.error && (list.items.length === 0 ? <p className="patient-empty">You have not invited anyone.</p>
-      : <ul className="patient-list">{list.items.map(item => <li key={item.invitationId} className="patient-access-item"><div>
-        <strong>{invitee(item)}</strong>
-        <span>{[shareLevelLabel(item.level), shareDurationLabel(item.duration)].filter(Boolean).join(' · ')}</span>
-        <span>Sent {sentAt(item.createdAt)}{item.status === 'pending' || item.status === 'accepted' ? ` · Ends ${shareDay(item.expiresAt)}` : ''}</span>
-        <span>{STATUS_WORDS[item.status]}{item.status === 'pending' && item.deliveryOutcome === 'not_confirmed' ? ' · Delivery not confirmed' : ''}</span>
-        {item.status === 'accepted' && item.offer && <p>
-          {item.offer.clinicianName ?? 'A provider'}, {SHARE_ROLE_LABELS[item.offer.role]} at {[item.offer.facilityName, item.offer.organizationName].filter(Boolean).join(', ')}
-          {item.offer.newOnHealthId && <> <span className="patient-status-tag">New on Health ID</span></>}
-          . Confirm to share your records with them.</p>}
+  return <Card aria-busy={(invitations.loading && list !== null) || undefined} aria-labelledby="share-invitations-heading">
+    <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
+      <div className="min-w-0">
+        <h2 ref={heading} id="share-invitations-heading" tabIndex={-1} className="m-0 text-title-3 text-ink outline-none">Invitations to share</h2>
+        <p className="m-0 text-[13px] text-ink-3">Nothing is shared until they accept and you confirm.</p>
       </div>
-      {item.status === 'pending' && <div className="patient-decision-actions">
-        <button id={`cancel-invitation-${item.invitationId}`} type="button" className="patient-secondary-button" disabled={busy}
-          onClick={() => void act(item, 'cancel')}>Cancel invitation <ItemName>to {item.inviteeEmail}</ItemName></button></div>}
-      {item.status === 'accepted' && <div className="patient-decision-actions">
-        <button id={`confirm-invitation-${item.invitationId}`} type="button" className="patient-primary-button" disabled={busy}
-          onClick={() => void act(item, 'confirm')}>Confirm and share <ItemName>with {item.offer?.clinicianName ?? item.inviteeEmail}</ItemName></button>
-        <button id={`decline-invitation-${item.invitationId}`} type="button" className="patient-secondary-button" disabled={busy}
-          onClick={() => void act(item, 'decline')}>Decline <ItemName>the invitation to {item.inviteeEmail}</ItemName></button></div>}
-    </li>)}</ul>)}
-    {list?.limits && <p className="patient-field-hint">You can send {list.limits.remainingToday} more {list.limits.remainingToday === 1 ? 'invitation' : 'invitations'} today.</p>}
-    <Link to="/access/share?by=email">Invite a provider by email →</Link>
-  </div>
+      <Button to="/access/share?by=email" size="sm" icon={Mail}>Invite</Button>
+    </div>
+    {(invitations.error || error || notice) && <div className="flex flex-col gap-3 px-5 pt-4">
+      {invitations.error && <LoadProblem what="invitations" error={invitations.error} buttonRef={retryFocus.button} onRetry={() => retryFocus.retry(invitations.reload)} />}
+      {error && <Problem>{error}</Problem>}
+    </div>}
+    <div className="px-5 empty:hidden"><Saved>{notice}</Saved></div>
+    {list && !invitations.error && (list.items.length === 0 ? <p className="m-0 px-5 py-6 text-[13px] text-ink-3">No invitations yet.</p>
+      : <ul className="m-0 list-none divide-y divide-line p-0">{list.items.map(item => <li key={item.invitationId} className="flex flex-col gap-3 px-5 py-4">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="m-0 text-sm font-semibold [overflow-wrap:anywhere] text-ink">{invitee(item)}</p>
+            <p className="m-0 mt-0.5 text-[13px] text-ink-3">{[shareLevelLabel(item.level), shareDurationLabel(item.duration)].filter(Boolean).join(' · ')}</p>
+            <p className="m-0 text-[13px] text-ink-3">Sent {sentAt(item.createdAt)}{item.status === 'pending' || item.status === 'accepted' ? ` · Ends ${shareDay(item.expiresAt)}` : ''}
+              {item.status === 'pending' && item.deliveryOutcome === 'not_confirmed' ? ' · We aren’t sure the email arrived' : ''}</p>
+            {item.status === 'accepted' && item.offer && <p className="m-0 mt-1 text-[13px] text-ink-2">
+              {item.offer.clinicianName ?? 'A health worker'}, {SHARE_ROLE_LABELS[item.offer.role]} at {[item.offer.facilityName, item.offer.organizationName].filter(Boolean).join(', ')}.
+              {item.offer.newOnHealthId && <> <Badge size="sm" tone="warn">New on Health ID</Badge></>}</p>}
+          </div>
+          <Badge size="sm" tone={item.status === 'accepted' ? 'brand' : statusTone(item.status)}>{STATUS_WORDS[item.status]}</Badge>
+        </div>
+        {item.status === 'pending' && <Actions>
+          <Button id={`cancel-invitation-${item.invitationId}`} size="sm" variant="danger" disabled={busy}
+            onClick={() => void act(item, 'cancel')}>Cancel invitation <ItemName>to {item.inviteeEmail}</ItemName></Button></Actions>}
+        {item.status === 'accepted' && <div className="grid grid-cols-2 gap-2">
+          <Button id={`decline-invitation-${item.invitationId}`} block disabled={busy}
+            onClick={() => void act(item, 'decline')}>Decline <ItemName>the invitation to {item.inviteeEmail}</ItemName></Button>
+          <Button id={`confirm-invitation-${item.invitationId}`} block variant="primary" disabled={busy}
+            onClick={() => void act(item, 'confirm')}>Confirm and share <ItemName>with {item.offer?.clinicianName ?? item.inviteeEmail}</ItemName></Button></div>}
+      </li>)}</ul>)}
+    {list?.limits && <p className="m-0 border-t border-line px-5 py-3 text-[13px] text-ink-3">You can send {list.limits.remainingToday} more {list.limits.remainingToday === 1 ? 'invitation' : 'invitations'} today.</p>}
+  </Card>
 }

@@ -3,7 +3,7 @@ import { screen, within } from '@testing-library/react'
 import { servedHere, rightSiteHref } from '../../productSites'
 import { DEMO_HOSPITAL, DEMO_LABORATORY, facility } from '../ehr-blue/frame/blueHarness'
 import {
-  address, backToTestSite, bluePages, classicPages, EVERY_PERMISSION, expectOpenedElsewhere, openBlueOn, openClassicOn, openPortalOn,
+  address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_PERMISSION, expectOpenedElsewhere, openBlueOn, openClassicOn, openPortalOn,
   overviewWorkspaces, signInActionOn, siteLinks,
 } from './siteHarness'
 import type { Sent } from '../ehr-blue/frame/blueHarness'
@@ -101,8 +101,10 @@ describe(LAB, () => {
 
   it('opens the blue EHR at Demo Laboratory as the Laboratory, with this site’s pages only', async () => {
     const nav = await openBlueOn(LAB, { id: DEMO_LABORATORY, name: 'Demo Laboratory' }, EVERY_PERMISSION)
-    expect(document.querySelector('.hid-ehr-sidebar-product')?.textContent).toBe('Laboratory')
-    expect(bluePages(nav).sort()).toEqual(['Audit & Compliance', 'Facility subscription', 'Home', 'Laboratory'])
+    // The redesign names the product and lists its own pages (frame/product.ts): each is one this site serves.
+    expect(blueProduct()).toBe('Lab')
+    expect(blueAddresses(nav).some(address => address === '/provider/laboratory' || address.startsWith('/provider/laboratory/'))).toBe(true)
+    expect(blueAddresses(nav).filter(address => !servedHere(address, LAB))).toEqual([])
     expect(siteLinks(nav)).toEqual([
       ['Hospital EHR', 'https://ehr.healthidentitydirectory.com/'],
       ['Pharmacy', 'https://pharmacy.healthidentitydirectory.com/'],
@@ -116,7 +118,7 @@ describe(LAB, () => {
     await openBlueOn(LAB, { id: DEMO_HOSPITAL, name: 'Demo Hospital' }, EVERY_PERMISSION, [lab])
     expect(await screen.findByRole('heading', { level: 1, name: 'Demo Hospital works on Hospital EHR' })).toBeTruthy()
     const page = within(document.querySelector<HTMLElement>('.hid-ehr-blue-page')!)
-    expect(page.getByText('Demo Hospital is on ehr.healthidentitydirectory.com')).toBeTruthy()
+    expect(page.getByText(/^Demo Hospital is on ehr\.healthidentitydirectory\.com, where you sign in separately\./)).toBeTruthy()
     expect(page.getByRole('link', { name: 'Open Hospital EHR' }).getAttribute('href')).toBe('https://ehr.healthidentitydirectory.com/')
     expect(page.getByRole('link', { name: 'Choose workspace' }).getAttribute('href')).toBe('/provider/institutions')
   })

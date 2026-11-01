@@ -92,15 +92,18 @@ describe('integrations', () => {
     mocks.api.command.mockResolvedValueOnce({ capability: 'email', activeProvider: 'ses', fallbackProvider: null, version: 4 })
     open()
     const route = (await screen.findByRole('heading', { name: 'Email', level: 3 })).closest('article')!
-    const form = (title: string) => within(route).getByText(title).closest('details')!
-    const optionsOf = (title: string) => Array.from(within(form(title)).getByLabelText('New value').querySelectorAll('option'))
+    const sheetOf = (title: string) => { fireEvent.click(within(route).getByRole('button', { name: title })); return screen.getByRole('dialog') }
+    const optionsOf = (sheet: HTMLElement) => Array.from(within(sheet).getByLabelText('Change to').querySelectorAll('option'))
       .map(option => option.textContent)
-    expect(optionsOf('Select active provider')).toEqual(['Brevo', 'Termii'])
-    expect(optionsOf('Change fallback provider')).toEqual(['Termii', 'No fallback'])
-    const fallback = within(form('Change fallback provider'))
-    fireEvent.change(fallback.getByLabelText('New value'), { target: { value: '(none)' } })
-    fireEvent.change(fallback.getByLabelText('Reason for this change'), { target: { value: 'Brevo contract ended' } })
-    fireEvent.click(fallback.getByRole('button', { name: 'Confirm change' }))
+    const active = sheetOf('Change provider')
+    expect(optionsOf(active)).toEqual(['Brevo', 'Termii'])
+    fireEvent.click(within(active).getByRole('button', { name: 'Cancel' }))
+    const fallback = sheetOf('Change fallback')
+    expect(optionsOf(fallback)).toEqual(['Termii', 'No fallback'])
+    fireEvent.change(within(fallback).getByLabelText('Change to'), { target: { value: '(none)' } })
+    const sheet = screen.getByRole('dialog', { name: 'Remove the fallback?' })
+    fireEvent.change(within(sheet).getByLabelText('Reason for this change'), { target: { value: 'Brevo contract ended' } })
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Remove fallback' }))
     await waitFor(() => expect(mocks.api.command).toHaveBeenCalledWith('/api/v1/admin/integrations/capabilities/email/fallback',
       { provider: null, reason: 'Brevo contract ended' }, { version: 3, idempotencyKey: 'key-1' }))
   })

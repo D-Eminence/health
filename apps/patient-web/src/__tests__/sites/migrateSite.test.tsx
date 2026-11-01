@@ -3,7 +3,7 @@ import { screen, within } from '@testing-library/react'
 import { rightSiteHref, servedHere } from '../../productSites'
 import { DEMO_HOSPITAL, facility, REAL_FACILITY } from '../ehr-blue/frame/blueHarness'
 import {
-  address, backToTestSite, bluePages, classicPages, EVERY_PERMISSION, expectOpenedElsewhere, openBlueOn, openClassicOn, openPortalOn,
+  address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_PERMISSION, expectOpenedElsewhere, openBlueOn, openClassicOn, openPortalOn,
   signInActionOn, siteLinks,
 } from './siteHarness'
 
@@ -74,8 +74,10 @@ describe(SITE, () => {
   it('opens the blue EHR, once the clinic switch is on, as Migrate, with this site’s pages only', async () => {
     clinic.switchedOn = true
     const nav = await openBlueOn(SITE, { id: REAL_FACILITY, name: 'Fictional Records Office' }, EVERY_PERMISSION)
-    expect(document.querySelector('.hid-ehr-sidebar-product')?.textContent).toBe('Migrate')
-    expect(bluePages(nav).sort()).toEqual(['Audit & Compliance', 'Document OCR', 'Facility subscription', 'Home'])
+    // The redesign names the product and lists its own pages (frame/product.ts): each is one this site serves.
+    expect(blueProduct()).toBe('Migrate')
+    expect(blueAddresses(nav).some(address => address === '/provider/ocr' || address.startsWith('/provider/ocr/'))).toBe(true)
+    expect(blueAddresses(nav).filter(address => !servedHere(address, SITE))).toEqual([])
     expect(siteLinks(nav)).toEqual([
       ['Hospital EHR', 'https://ehr.healthidentitydirectory.com/'],
       ['Laboratory', 'https://lab.healthidentitydirectory.com/'],

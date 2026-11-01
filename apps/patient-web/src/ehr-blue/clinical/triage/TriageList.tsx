@@ -4,20 +4,20 @@ import { useNavigate } from 'react-router-dom'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
 import { shortId } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
-import { Banner, ListHeading } from '../parts/Notices'
+import { ListHeading } from '../parts/Notices'
 import type { RecordRow } from '../parts/RecordTable'
 import { useWorkspaceHref } from '../parts/Workspace'
 import { ListCard } from './ListCard'
 import { NO_COMPLAINT, NO_RECORD_ACCESS, recordKey, recordedAt, usePatientRecords } from './records'
 import {
   CORRECTION_UNREAD, LOADING_CORRECTION, RETRACTED_TEXT, TITLE, correctionNumber, currentValues, isRetracted, measurementItems, useCorrections,
-  vitalStatus,
+  vitalStatus, vitalSummary, type VitalValues,
 } from './vitals'
 
 /** The list page: the design's heading and table, or the chart's own state (no patient, access ended, emergency). */
 export function TriageList() {
   const chart = useChart()
-  if (chart && chart.purpose === 'direct-care') return <TriageRecords chart={chart} />
+  if (chart && chart.purpose === 'direct-care') return <ChartGate>{open => <TriageRecords chart={open} />}</ChartGate>
   return (
     <>
       <ListHeading title={TITLE} />
@@ -33,8 +33,7 @@ function TriageRecords({ chart }: { chart: Chart }) {
   const canCreate = reads && chart.canWrite && chart.can('ehr.vital.write')
   return (
     <>
-      <EhrPageHeading title={TITLE} primaryAction={canCreate ? <EhrButton onClick={() => navigate(href('new'))}>Create record</EhrButton> : undefined} />
-      {chart.writeNotice ? <Banner tone="warning" title="Changes are unavailable">{chart.writeNotice}</Banner> : null}
+      <EhrPageHeading title={TITLE} primaryAction={canCreate ? <EhrButton onClick={() => navigate(href('new'))}>Record vitals</EhrButton> : undefined} />
       {reads ? <VitalsTable chart={chart} /> : <EhrCard><p>{NO_RECORD_ACCESS}</p></EhrCard>}
     </>
   )
@@ -63,11 +62,13 @@ function VitalsTable({ chart }: { chart: Chart }) {
     if (values) details.push(...measurementItems(values))
     else if (read.state === 'failed') details.push({ label: 'Correction', value: `${CORRECTION_UNREAD} ${read.message}` }, ...measurementItems(record))
     else details.push({ label: 'Correction', value: LOADING_CORRECTION })
+    const readings = values ?? (read.state === 'failed' ? record : null)
     return {
       id: recordKey(encounter.id, record.id),
       name: shortId(record.id),
       reference: shortId(record.id),
-      context: chart.facts.name,
+      context: readings ? vitalSummary(readings) : '',
+      summary: readings ? <Readings values={readings} /> : null,
       status: vitalStatus(record),
       statusNote: number > 0 ? `Corrected (correction ${number})` : undefined,
       updated: read.state === 'shown' ? read.latest.createdAt : recordedAt(record),
@@ -77,5 +78,14 @@ function VitalsTable({ chart }: { chart: Chart }) {
 
   // The table waits for the corrections, so a row (and its quick view) never shows values that are not current.
   const pending = (list.records ?? []).some(({ record }) => corrections(record).state === 'loading')
-  return <ListCard title={TITLE} list={list} rows={rows} pending={pending} search={search} onSearch={setSearch} hrefFor={row => href(row.id)} />
+  return <ListCard title={TITLE} list={list} rows={rows} pending={pending} search={search} onSearch={setSearch} hrefFor={row => href(row.id)} contextHeader="Readings" />
+}
+
+/** A row's readings, each with its unit and, outside the adult range, its flag. */
+function Readings({ values }: { values: VitalValues }) {
+  return (
+    <span className="hid-ehr-clinical-readings">
+      {measurementItems(values).map(item => <span key={item.label}><span className="hid-ehr-clinical-cell-sub-inline">{item.label}</span> {item.value}</span>)}
+    </span>
+  )
 }

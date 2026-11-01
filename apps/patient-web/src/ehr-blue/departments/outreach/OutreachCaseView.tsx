@@ -1,26 +1,28 @@
-import { useState, type FormEvent } from 'react'
-import { EhrButton, EhrInput, EhrTextarea } from '@hid/ui/ehr'
+import { useRef, useState, type FormEvent } from 'react'
+import { EhrInput, EhrTextarea } from '@hid/ui/ehr'
+import { ArrowRight, CircleCheck, Link2, UserPlus } from 'lucide-react'
+import { FormActions } from '../../../kasuwa/parts'
+import { Alert, Badge, Button, Card, CardHeader } from '../../../kasuwa/ui'
+import { useConfirm } from '../../clinical/parts/confirm'
 import { staffApi, type OutreachCampaign, type OutreachCase } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
-import { DeptNotice } from '../parts/DeptNotice'
-import { DeptPage, DeptSection } from '../parts/DeptPage'
-import { DeptActions, DeptContextLine, DeptFacts, DeptRecordLayout } from '../parts/DeptRecord'
+import { DeptPage } from '../parts/DeptPage'
+import { DeptFacts } from '../parts/DeptRecord'
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import {
-  caseFacts, caseName, COMPLETE_FIELD, controlProps, ErrorBox, LINK_FAILED, NO_ACTIONS, OutreachField, PENDING, reference,
-  LINK_RETRY_NOTE, REASON_LENGTH, statusWords, type FieldErrors,
+  ageText, caseFacts, caseName, caseTone, COMPLETE_FIELD, controlProps, ErrorBox, LINK_FAILED, OutreachField, PENDING, reference,
+  LINK_RETRY_NOTE, REASON_LENGTH, sexText, statusLabel, type FieldErrors,
 } from './outreachParts'
 
 type LinkField = 'patient' | 'reason'
 
 /**
- * One registration case as the design's record view: its status line, "Saved record",
- * "Available actions" with today's one action (link a verified existing patient, while the
- * case is pending identity resolution and the membership may write registrations), and what
- * the last step said.
+ * One registration case: who it is, its status, and one clear next step. While the case waits for identity, the next
+ * step is today's one action (link a verified existing patient, for a membership that may write registrations); once
+ * linked, a done state with the way on.
  */
-export function OutreachCaseView({ facilityId, item, campaign, canLink, created, listError, onBack, onChanged, onFocusHeading }: {
+export function OutreachCaseView({ facilityId, item, campaign, canLink, created, listError, onBack, onNew, onChanged, onFocusHeading }: {
   readonly facilityId: string
   readonly item: OutreachCase
   readonly campaign: OutreachCampaign | undefined
@@ -30,6 +32,8 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
   /** The registration case list's last read failed: what is shown may be out of date. */
   readonly listError: string
   readonly onBack: () => void
+  /** Opens "New registration", when the membership may write registrations. */
+  readonly onNew?: () => void
   /** Reads the cases again. */
   readonly onChanged: () => Promise<void>
   /** Moves focus to the record's heading if focus was lost. */
@@ -46,10 +50,13 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
   const formId = `outreach-link-${item.id}`
   const pending = item.status === PENDING
   const offered = canLink && pending
+  const { ask, sheet } = useConfirm()
+  const asking = useRef(false)
+  const doneId = `outreach-case-${item.id}-done`
 
   async function linkExisting(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (busy) return
+    if (busy || asking.current) return
     const form = new FormData(event.currentTarget)
     const canonicalPatientId = String(form.get('patientId') ?? '').trim()
     const reason = String(form.get('reason') ?? '').trim()
@@ -68,14 +75,25 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
       return
     }
     setProblems(previous => (Object.keys(previous.errors).length ? { errors: {}, seq: previous.seq } : previous))
+    // Linking joins this person's field record to a patient's Health ID: confirm who, before it is sent.
+    asking.current = true
+    let confirmed = false
+    try {
+      confirmed = await ask({ title: 'Confirm the link', subject: <Card className="px-4 py-3"><p className="m-0 text-title-3 text-ink">{caseName(item)}</p>
+        <p className="m-0 text-caption text-ink-2">{ageText(item)} · {sexText(item)} · case {reference(item.id)}</p></Card>,
+      effect: <>Link this registration to the Health ID patient <strong className="tracking-[.04em]">{canonicalPatientId}</strong>? Check it is the same person.</>,
+      confirmLabel: 'Link patient' })
+    } finally { asking.current = false }
+    if (!confirmed) return
     setBusy(true)
     setLinked(false)
     try {
       await staffApi.linkExistingOutreachCase(facilityId, item, canonicalPatientId, reason)
       setLinked(true)
       setOpen(false)
+      // A link resolves the case, which removes its form: focus goes to what was done.
+      focus(doneId)
       await onChanged()
-      // A link resolves the case, which removes its form: focus goes to the case.
       onFocusHeading()
     } catch (caught) {
       setError(errorText(caught, LINK_FAILED))
@@ -88,55 +106,96 @@ export function OutreachCaseView({ facilityId, item, campaign, canLink, created,
 
   const field = (key: LinkField) => ({ error: problems.errors[key], alert: problems.alert === key, seq: problems.seq })
 
+  const back = () => { if (!busy) onBack() }
+  const facts = caseFacts(item, campaign)
+
+  // The one next step, or the done state.
+  let nextStep
+  if (linked || !pending) {
+    nextStep = (
+      <Card>
+        <div className="flex flex-col items-center gap-3 px-5 py-8 text-center">
+          <span className="inline-flex size-12 items-center justify-center rounded-full bg-success-soft text-success-ink"><CircleCheck className="size-7" aria-hidden /></span>
+          <h2 id={doneId} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">{linked ? 'Patient linked' : 'Nothing more to do'}</h2>
+          <p className="m-0 max-w-md text-body text-ink-2">{linked
+            ? 'This registration is now joined to the verified Health ID patient. Their care continues under their Health ID.'
+            : `This registration is ${statusLabel(item.status).toLowerCase()}. No further step is needed here.`}</p>
+          <FormActions sticky={false} align="start" className="mt-2">
+            {onNew ? <Button variant="primary" icon={UserPlus} onClick={onNew}>Register another person</Button> : null}
+            <Button onClick={back}>Back to list</Button>
+          </FormActions>
+        </div>
+      </Card>
+    )
+  } else if (offered) {
+    nextStep = (
+      <Card>
+        <CardHeader as="h2" icon={Link2} iconTone="brand" title="Next step: link their Health ID"
+          description="Once you have found this person’s Health ID record, link it here so the temporary record joins it." />
+        <div className="flex flex-col gap-4 p-5">
+          {!open ? (
+            <Button variant="primary" size="lg" aria-expanded={false} aria-controls={formId} className="self-start" onClick={() => setOpen(true)}>Link existing patient</Button>
+          ) : (
+            <form id={formId} className="flex flex-col gap-4" noValidate aria-label="Link existing patient" onSubmit={event => void linkExisting(event)}>
+              <OutreachField id={patientId} label="Patient ID" required hint="The patient ID shown on their Health ID record." {...field('patient')}>
+                <EhrInput name="patientId" required autoComplete="off" spellCheck={false} {...controlProps(patientId, problems.errors.patient, true)} />
+              </OutreachField>
+              <OutreachField id={reasonId} label="How you know it’s the same person" required hint="For example: name, age and phone match; seen in person." {...field('reason')}>
+                <EhrTextarea name="reason" rows={3} minLength={8} maxLength={1000} required {...controlProps(reasonId, problems.errors.reason, true)} />
+              </OutreachField>
+              <p className="hid-ehr-dept-muted m-0">Health ID checks that you may open this patient and that the case hasn’t changed since you opened it.</p>
+              <ErrorBox message={error} />
+              {error ? <small className="hid-ehr-dept-outreach-note">{LINK_RETRY_NOTE}</small> : null}
+              <FormActions sticky={false}>
+                <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={() => { if (!busy) { setOpen(false); setError('') } }}>Cancel</Button>
+                <Button type="submit" variant="primary" className="hid-ehr-dept-outreach-unavailable" aria-busy={busy || undefined} aria-disabled={busy || undefined}>{busy ? 'Saving…' : 'Link existing patient'}</Button>
+              </FormActions>
+            </form>
+          )}
+        </div>
+      </Card>
+    )
+  } else {
+    nextStep = (
+      <Alert intent="info" title="Waiting to be linked">
+        This is a temporary registration. Someone who may write registrations needs to link it to the person’s Health ID.
+      </Alert>
+    )
+  }
+
   return (
     <DeptPage title={caseName(item)} primaryAction={(
       // Unavailable while the link is sent, so its answer is not lost.
-      <EhrButton variant="secondary" className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined}
-        onClick={() => { if (!busy) onBack() }}>Back to list</EhrButton>
+      <Button className="hid-ehr-dept-outreach-unavailable" aria-disabled={busy || undefined} onClick={back}>Back to list</Button>
     )}>
-      <DeptContextLine status={statusWords(item.status)} items={[`${caseName(item)} · ${reference(item.id)}`, `Created ${dateText(item.createdAt)}`]} />
-      <ErrorBox message={listError} />
-      {/* Mounted throughout, so what was recorded is announced. */}
-      <div id={`outreach-case-status-${item.id}`} role="status">
-        {linked && (
-          <DeptNotice title="Patient linked">This registration case is now linked to the verified Health ID patient.</DeptNotice>
-        )}
-      </div>
-      {/* A refusal whose form is gone (the case, read again, no longer offers the link) is said here instead. */}
-      {error && !(offered && open) ? <><ErrorBox message={error} /><p className="hid-ehr-dept-outreach-note">{LINK_RETRY_NOTE}</p></> : null}
-      {created && !linked
-        ? <DeptNotice title="Registration case created">{pending ? 'It stays pending until it is linked to a verified Health ID patient.' : `Its status is ${statusWords(item.status)}.`}</DeptNotice>
-        : pending && !linked
-          ? <DeptNotice title="Identity resolution pending">This is a temporary registration. It stays pending until it is linked to a verified Health ID patient.</DeptNotice>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-2">
+          <Badge tone={linked ? 'success' : caseTone(item.status)}>{linked ? 'Linked' : statusLabel(item.status)}</Badge>
+          <span>{ageText(item)} · {sexText(item)}</span>
+          <span className="text-ink-3">Registered {dateText(item.createdAt)} · case {reference(item.id)}</span>
+        </div>
+        <ErrorBox message={listError} />
+        {/* Mounted throughout, so what was recorded is announced. */}
+        <div id={`outreach-case-status-${item.id}`} role="status" className="hid-ehr-sr-only">
+          {linked ? 'Patient linked. This registration case is now linked to the verified Health ID patient.' : ''}
+        </div>
+        {/* A refusal whose form is gone (the case, read again, no longer offers the link) is said here instead. */}
+        {error && !(offered && open) ? <><ErrorBox message={error} /><p className="hid-ehr-dept-outreach-note">{LINK_RETRY_NOTE}</p></> : null}
+        {created && !linked
+          ? <Alert intent="success" title="Registration saved">{pending ? 'They have a temporary record. Link it to their Health ID when you find it.' : `Its status is ${statusLabel(item.status).toLowerCase()}.`}</Alert>
           : null}
-      <DeptRecordLayout
-        main={<DeptSection title="Saved record"><DeptFacts facts={caseFacts(item, campaign)} /></DeptSection>}
-        aside={(
-          <DeptActions empty={NO_ACTIONS}>
-            {offered && (
-              <EhrButton variant="secondary" aria-expanded={open} aria-controls={open ? formId : undefined} onClick={() => setOpen(value => !value)}>
-                Link existing patient
-              </EhrButton>
-            )}
-            {offered && open && (
-              <form id={formId} className="hid-ehr-dept-action-form" noValidate aria-label="Link existing patient" onSubmit={event => void linkExisting(event)}>
-                <OutreachField id={patientId} label="Patient ID" required {...field('patient')}>
-                  <EhrInput name="patientId" required autoComplete="off" spellCheck={false} {...controlProps(patientId, problems.errors.patient)} />
-                </OutreachField>
-                <OutreachField id={reasonId} label="Reason for linking" required {...field('reason')}>
-                  <EhrTextarea name="reason" rows={3} minLength={8} maxLength={1000} required {...controlProps(reasonId, problems.errors.reason)} />
-                </OutreachField>
-                <p className="hid-ehr-dept-muted">Health ID checks that you may open this patient and that the case has not changed since you opened it.</p>
-                <ErrorBox message={error} />
-                <div className="hid-ehr-dept-outreach-footer">
-                  <EhrButton type="submit" busy={busy}>{busy ? 'Saving…' : 'Link existing patient'}</EhrButton>
-                  {error ? <small className="hid-ehr-dept-outreach-note">{LINK_RETRY_NOTE}</small> : null}
-                </div>
-              </form>
-            )}
-          </DeptActions>
-        )}
-      />
+        <div className="grid gap-4 @3xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] @3xl:items-start">
+          <div className="flex min-w-0 flex-col gap-4">{nextStep}</div>
+          <div className="flex min-w-0 flex-col gap-4">
+            <Card>
+              <CardHeader as="h2" title="Registration" />
+              <div className="p-5"><DeptFacts facts={facts} /></div>
+            </Card>
+          </div>
+        </div>
+        {onNew && pending && !linked ? <Button variant="link" iconRight={ArrowRight} className="self-start" onClick={onNew}>Register another person</Button> : null}
+      </div>
+      {sheet}
     </DeptPage>
   )
 }

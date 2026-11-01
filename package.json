@@ -12,6 +12,8 @@
     "apps/*"
   ],
   "scripts": {
+    "dev:mock": "node dev/mock-gateway/server.mjs",
+    "build:preview": "vite build --config dev/preview/vite.config.ts",
     "typecheck": "tsc --build --force",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -43,6 +45,7 @@
     "jsdom": "^30.0.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.0",
+    "vite-plugin-singlefile": "^2.3.4",
     "vitest": "4.1.12",
     "wrangler": "4.147.0"
   }

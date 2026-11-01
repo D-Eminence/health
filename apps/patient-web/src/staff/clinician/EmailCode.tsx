@@ -5,7 +5,8 @@ import { Turnstile } from '../../Turnstile'
 import { SIX_DIGIT_CODE_FIELD, isSixDigitCode, sixDigitCode } from '../../mfa/codes'
 import { problemProps, problemText, refusal, type FieldProblem } from '../fieldProblem'
 import type { ClinicianCodeSent } from '../clinicianApplicationApi'
-import { PrimaryButton, StepError, StepHeading, TextButton, shownError } from './ui'
+import { SecondaryButton, StepError, StepHeading, TextButton, shownError } from './ui'
+import { buttonClass } from '../../kasuwa/ui'
 
 export type EmailCodeStage = 'email' | 'code'
 
@@ -150,7 +151,7 @@ export function EmailCode<Answer>({ idPrefix, action, email, onEmail, focusFirst
           onChange={event => onEmail(event.target.value)} {...problemProps(problem, emailId)} />
       </Field>
       <Turnstile action={action} onTokenChange={setToken} resetKey={checkKey} />
-      <button type="submit" className="patient-primary-button" disabled={busy !== null || !token || !email.trim()}>
+      <button type="submit" className={buttonClass({ variant: 'primary', block: true })} disabled={busy !== null || !token || !email.trim()}>
         {busy === 'send' ? 'Sending…' : 'Send code'}</button>
     </form>
   }
@@ -164,15 +165,15 @@ export function EmailCode<Answer>({ idPrefix, action, email, onEmail, focusFirst
       <Input id={codeId} value={code} onChange={event => setCode(sixDigitCode(event.target.value))} {...SIX_DIGIT_CODE_FIELD}
         maxLength={6} required {...problemProps(problem, codeId)} />
     </Field>
-    <button type="submit" className="patient-primary-button" disabled={busy !== null || !isSixDigitCode(code)}>
+    <button type="submit" className={buttonClass({ variant: 'primary', block: true })} disabled={busy !== null || !isSixDigitCode(code)}>
       {busy === 'verify' ? 'Checking…' : 'Verify email'}</button>
     {/* Mounted throughout, so each change is announced once. */}
     <p role="status" className="patient-field-hint">{notice && <span key={notice.id}>{notice.text}</span>}</p>
     {canResend ? <>
       <Turnstile action={action} onTokenChange={setToken} resetKey={checkKey} />
       <div className="clinician-actions">
-        <PrimaryButton className="patient-secondary-button" onClick={() => void sendCode(true)} disabled={busy !== null || !token}>
-          {busy === 'send' ? 'Sending…' : 'Send a new code'}</PrimaryButton>
+        <SecondaryButton onClick={() => void sendCode(true)} disabled={busy !== null || !token}>
+          {busy === 'send' ? 'Sending…' : 'Send a new code'}</SecondaryButton>
         <TextButton onClick={() => moveTo('email')} disabled={busy !== null}>Use a different email</TextButton>
       </div>
     </> : <>

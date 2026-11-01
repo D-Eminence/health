@@ -21,7 +21,7 @@ import { isProblem } from './problems'
 const DESIGNATION_PROBLEMS: Readonly<Record<string, string>> = {
   ADMIN_STATE_CONFLICT: 'Nothing changed: the designation already has this status and location.',
   ADMIN_COMMAND_INVALID: 'This designation was refused. A facility’s first designation must be active; check the values and try again.',
-  PERMISSION_DENIED: 'Changing the designation needs the platform.facility.manage permission. Ask a Super Admin.',
+  PERMISSION_DENIED: 'Your roles don’t allow this. Ask a Super Admin.',
   VERSION_CONFLICT: 'The designation changed since it was read. It has been read again: check it, then make your change again.',
   VALIDATION_FAILED: 'Check the values: town, LGA and state are required (up to 120 characters), the address line and hours up to 200, and the reason 8 to 500 characters.',
   ADMIN_RESOURCE_NOT_FOUND: 'This facility was not found. Check the facility link.',
@@ -129,8 +129,7 @@ export function AssistedRegistrationPanel({ facilityId, facilityStatus, refresh,
         shows this facility’s name and the location below.</p>
     </div></div>
     <ResourceView resource={resource}>{designation => designation === NOT_OFFERED
-      ? <p className="admin-note">Registration in person is not available on this Identity service yet. Nothing can be read or
-        changed here until it is.</p>
+      ? <p className="admin-note">Registration in person isn’t set up. Contact support.</p>
       : <>
         <Designation designation={designation} facilityStatus={facilityStatus} />
         {canManage
@@ -151,7 +150,7 @@ export function AssistedRegistrationPanel({ facilityId, facilityStatus, refresh,
                 resource.reload()
               }
             }} />
-          : <p className="admin-note">Changing it needs the platform.facility.manage permission.</p>}
+          : <p className="admin-note">Your roles don’t let you change it.</p>}
       </>}</ResourceView>
     {outcome?.tone === 'error' && <p key={outcome.seq} className="admin-error" role="alert">{outcome.text}</p>}
     {/* Always present, so a notice is announced as it appears in it. */}

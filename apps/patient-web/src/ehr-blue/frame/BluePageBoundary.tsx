@@ -5,7 +5,7 @@ import { focusLost } from '../../pageFocus'
 interface BluePageBoundaryProps {
   readonly children: ReactNode
   /** "Use the classic EHR", as the account menu offers it. */
-  readonly onClassic: () => void
+  readonly onClassic?: () => void
   /** What Reload does: the page's own reload, unless a test says otherwise. */
   readonly reload?: () => void
 }
@@ -33,10 +33,10 @@ export class BluePageBoundary extends Component<BluePageBoundaryProps, { failed:
             <h1 ref={this.focusHeading} tabIndex={-1} className="hid-ehr-page-title">Something went wrong</h1>
           </div>
         </div>
-        <p className="hid-ehr-blue-flush">This page could not be shown. Reload it to try again, or use the classic EHR.</p>
+        <p className="hid-ehr-blue-flush">This page could not be shown. Reload it to try again, or go back to Home.</p>
         <div className="hid-ehr-actions">
           <EhrButton onClick={() => { if (this.props.reload) this.props.reload(); else window.location.reload() }}>Reload</EhrButton>
-          <EhrButton variant="secondary" onClick={this.props.onClassic}>Use the classic EHR</EhrButton>
+          <EhrButton variant="secondary" onClick={() => { window.location.assign('/provider') }}>Go to Home</EhrButton>
         </div>
       </div>
     )

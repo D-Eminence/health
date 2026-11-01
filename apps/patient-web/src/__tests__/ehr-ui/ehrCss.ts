@@ -14,7 +14,33 @@ const here = dirname(fileURLToPath(import.meta.url))
 export const ehrDirectory = resolve(here, '../../../../../packages/ui/src/ehr')
 export const ehrCss = readFileSync(join(ehrDirectory, 'ehr.css'), 'utf8')
 export const ehrCssWithoutComments = ehrCss.replace(/\/\*[\s\S]*?\*\//g, '')
-export const ehrRules: Rule[] = parse(ehrCss)
+/**
+ * The stylesheet's rules, with the style rules inside each @container block read as rules of their own (the shared
+ * reader keeps an @container block whole), so every check reaches them. Their `context` holds the @container prelude.
+ */
+export const ehrRules: Rule[] = parse(ehrCss).flatMap(rule => {
+  const prelude = rule.selectors.join(', ')
+  return /^@container\b/.test(prelude) ? parse(rule.body, [...rule.context, prelude]) : [rule]
+})
+
+/** Whether every @container width condition (max-width and min-width in px) holds at a content-area width. */
+function containerAppliesAt(context: readonly string[], width: number): boolean {
+  return context.filter(prelude => prelude.startsWith('@container')).every(prelude =>
+    [...prelude.matchAll(/\((max|min)-width:\s*(\d+)px\)/g)].every(([, bound, px]) => bound === 'max' ? width <= Number(px) : width >= Number(px)))
+}
+
+/**
+ * The value that wins for `selector` at a content-area width, among the rules outside @media and the @container
+ * rules that apply at that width (the page's own content follows the room the page gives it, not the window).
+ */
+export function valueInContainer(selector: string, property: string, width: number): string | undefined {
+  const value = ehrRules
+    .filter(rule => rule.selectors.includes(selector))
+    .filter(rule => !rule.context.some(prelude => prelude.startsWith('@media')) && containerAppliesAt(rule.context, width))
+    .flatMap(rule => declarations(rule.body, property))
+    .at(-1)
+  return value === undefined ? undefined : resolveVars(value)
+}
 
 /** Every file under packages/ui/src/ehr, subfolders included, relative to it. */
 export function ehrFiles(directory = ehrDirectory, prefix = ''): string[] {

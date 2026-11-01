@@ -197,6 +197,11 @@
   background: var(--ehr-surface-tint);
 }
 
+/* Placeholder text on those tinted inputs: the muted ink, which keeps 4.5:1 on surface-tint. */
+.hid-ehr.hid-ehr-signup .hid-ehr-control::placeholder {
+  color: var(--ehr-muted);
+}
+
 .hid-ehr.hid-ehr-signup .hid-ehr-control:disabled {
   background: var(--ehr-surface-sunk);
 }

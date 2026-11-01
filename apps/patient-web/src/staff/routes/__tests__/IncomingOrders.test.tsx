@@ -656,7 +656,7 @@ describe('the Accepted panel: this isn’t the order’s patient', () => {
     [new HidApiError(423, 'Paused', { code: 'CROSS_FACILITY_ORDERS_UNAVAILABLE' }), 'Health ID has paused work on orders from other '
       + 'facilities, so this can’t be done now. Try again when it resumes, and tell Health ID support now. Don’t ask support to '
       + 'close the order: closing it stops you withdrawing anything you sent back.'],
-    [new HidApiError(404, 'Missing', { code: 'API_ROUTE_NOT_FOUND' }), 'Ending an order for the wrong person isn’t available yet. '
+    [new HidApiError(404, 'Missing', { code: 'API_ROUTE_NOT_FOUND' }), 'Ending an order for the wrong person isn’t set up for your facility. '
       + 'Tell Health ID support, and phone General Hospital.'],
   ])('says the refusal %#, and the order stays as it is', async (refusal, says) => {
     routes.reportWrongPatient.mockRejectedValue(refusal)

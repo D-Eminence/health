@@ -31,7 +31,7 @@ export function AttentionLines({ activePatient }: { readonly activePatient: Acti
     {read.state === 'ready' ? (
       <li className="hid-ehr-blue-list-item">
         <Link to="/provider/requests" className="hid-ehr-blue-worklink"><strong>{read.pending} pending access request{read.pending === 1 ? '' : 's'}</strong></Link>
-        <span className="hid-ehr-blue-muted">External record access · pending</span>
+        <span className="hid-ehr-blue-muted">Access request · waiting</span>
       </li>
     ) : null}
     {activePatient ? (
@@ -205,9 +205,9 @@ function workError(error: unknown): string {
   return refusalText(error, 'Work could not be loaded.')
 }
 
-type WorkRead<T> = { state: 'off' } | { state: 'loading' } | { state: 'failed'; message: string } | { state: 'ready'; items: readonly T[] }
+export type WorkRead<T> = { state: 'off' } | { state: 'loading' } | { state: 'failed'; message: string } | { state: 'ready'; items: readonly T[] }
 
-function useWork<T>(facilityId: string, enabled: boolean, load: (id: string) => Promise<{ items: T[] }>): WorkRead<T> {
+export function useWork<T>(facilityId: string, enabled: boolean, load: (id: string) => Promise<{ items: T[] }>): WorkRead<T> {
   const [read, setRead] = useState<WorkRead<T>>({ state: enabled ? 'loading' : 'off' })
   useEffect(() => {
     if (!enabled) {
@@ -224,8 +224,8 @@ function useWork<T>(facilityId: string, enabled: boolean, load: (id: string) => 
   return read
 }
 
-const loadLab = (id: string) => staffApi.labWorkItems(id)
-const loadPharmacy = (id: string) => staffApi.pharmacyWorkItems(id)
+export const loadLab = (id: string) => staffApi.labWorkItems(id)
+export const loadPharmacy = (id: string) => staffApi.pharmacyWorkItems(id)
 
 /**
  * Today (screens/roles): the facility's laboratory and pharmacy work, as today's Laboratory and Pharmacy pages list it,

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { HEALTH_ID_PREFIX, isBlankHealthIdInput, signInPrincipal, signInPrincipalInput } from '@hid/contracts'
+import { isBlankHealthIdInput, signInPrincipal, signInPrincipalInput } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import { Turnstile } from '../Turnstile'
@@ -9,6 +9,8 @@ import { useSession } from '../session'
 import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
 import { CodeBoxes, codeComplete } from '../CodeBoxes'
 import { CODE_BUDGET_HINT, useCodeBudgetNote, useResendWait } from './recoveryWait'
+import { Alert, Button, Field } from '../kasuwa/ui'
+import { InputR } from './profileParts'
 
 type Step = 'start' | 'code' | 'password' | 'complete'
 
@@ -17,16 +19,12 @@ export function Recovery() {
   useDocumentTitle('Reset your password · Health ID')
   const stepFocus = useStepFocus()
   const [step, setStep] = useState<Step>('start')
-  // Starts at HID- (owner decision, 2026-10-27); an email or a phone number typed after it drops it (2026-10-28).
-  // Empty until focused, so a browser can still fill a saved sign-in; HID- as soon as the person starts.
+  // Empty, with "HID-" only in the placeholder, as on sign-in.
   const [identifier, setIdentifier] = useState('')
   const [code, setCode] = useState('')
+  // Typed once, with Show to check it (the review of 2026-10-31): no second field to match.
   const [password, setPassword] = useState('')
-  // Nothing is sent until it agrees with the new password (hid-1.0's "Passwords do not match"), as for staff.
-  const [confirm, setConfirm] = useState('')
-  // A confirmation was left, or Enter pressed with one: from then on one that differs is told, even one the new
-  // password begins with, which would otherwise leave Reset off with nothing to say why.
-  const [confirmChecked, setConfirmChecked] = useState(false)
+  const [tooShort, setTooShort] = useState(false)
   const [challengeId, setChallengeId] = useState('')
   const [verificationToken, setVerificationToken] = useState('')
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
@@ -87,10 +85,11 @@ export function Recovery() {
 
   const complete = (event: FormEvent) => {
     event.preventDefault()
-    if (!verificationToken || password.length < 12 || password !== confirm || busy) return
+    if (!verificationToken || busy) return
+    if (password.length < 12) { setTooShort(true); stepFocus.focus(); return }
     void run(async () => {
       await api.recoveryComplete(challengeId, verificationToken, password)
-      setVerificationToken(''); setPassword(''); setConfirm(''); setConfirmChecked(false); setStep('complete')
+      setVerificationToken(''); setPassword(''); setStep('complete')
     })
   }
 
@@ -100,50 +99,60 @@ export function Recovery() {
   const restart = () => {
     if (busy) return
     setStep('start'); setError(null); setFieldError(false); setCode(''); setChallengeId(''); setVerificationToken('')
-    setPassword(''); setConfirm(''); setConfirmChecked(false); resend.reset()
+    setPassword(''); setTooShort(false); resend.reset()
     stepFocus.focus()
   }
 
   // The error is about the step's one field when the server refused its value.
   const invalid = fieldError ? true : undefined
   const errorId = fieldError ? 'recovery-error' : undefined
-  // Not while the confirmation is still being typed and agrees so far.
-  const mismatch = confirm !== '' && password !== confirm && (confirmChecked || !password.startsWith(confirm))
+  const steps = (['Your account', 'Code', 'New password'] as const).map((label, index) => ({ label,
+    current: (step === 'start' && index === 0) || (step === 'code' && index === 1) || (step === 'password' && index === 2) }))
+  const problem = error && <span role={errorAlert ? 'alert' : undefined}>{error}</span>
 
-  return <AuthLayout brandTo="/sign-in" title="Reset your password." titleId="recovery-title">
-    {error && <p id="recovery-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
-    {step === 'start' && <form onSubmit={start} className="patient-form"><p id="recovery-start-hint" className="patient-page-copy">Enter your email, phone number or Health ID. We will send a code to the verified email address on your account.</p>
-      <label>Email, phone or Health ID<input ref={stepFocus.target} required autoComplete="username" value={identifier} onFocus={() => { if (!identifier) setIdentifier(HEALTH_ID_PREFIX) }} onChange={event => setIdentifier(signInPrincipalInput(event.target.value))}
-        aria-invalid={invalid} aria-describedby={describedBy('recovery-start-hint', errorId)} /></label>
+  return <AuthLayout brandTo="/sign-in" title="Reset your password." titleId="recovery-title"
+    steps={step === 'complete' ? undefined : steps} stepsLabel="Steps to reset your password">
+    <div className="flex flex-col gap-5">
+    {error && !fieldError && <Alert intent="error" id="recovery-error" live={errorAlert}>{error}</Alert>}
+    {step === 'start' && <form onSubmit={start} className="flex flex-col gap-4">
+      <Field label="Email, phone or Health ID" htmlFor="recovery-identifier" hintId="recovery-start-hint"
+        hint="We’ll send a code to the verified email on your account." errorId={errorId} error={fieldError ? problem : undefined}>
+        <InputR id="recovery-identifier" ref={stepFocus.target} required autoComplete="username" value={identifier} placeholder="HID-…, you@example.com or 0803…"
+          onChange={event => setIdentifier(signInPrincipalInput(event.target.value))}
+          aria-invalid={invalid} aria-describedby={describedBy('recovery-start-hint', errorId)} />
+      </Field>
       <Turnstile action="patient-reset-start" onTokenChange={setTurnstileToken} resetKey={resetKey} />
-      <button className="patient-primary-button" disabled={busy || !turnstileToken}>{busy ? 'Sending…' : 'Send recovery code'}</button></form>}
-    {step === 'code' && <form onSubmit={verify} className="patient-form"><p id="recovery-code-hint" className="patient-page-copy">Enter the six digit code sent to your verified contact.</p>
-      <CodeBoxes id="recovery-code" label="Recovery code" value={code} onChange={setCode} inputRef={stepFocus.target} busy={busy}
+      <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !turnstileToken}>{busy ? 'Sending…' : 'Send code'}</Button></form>}
+    {step === 'code' && <form onSubmit={verify} className="flex flex-col gap-4">
+      <p id="recovery-code-hint" className="m-0 text-sm text-ink-2">Enter the 6-digit code we sent.</p>
+      <CodeBoxes id="recovery-code" label="Code" value={code} onChange={setCode} inputRef={stepFocus.target} busy={busy}
         invalid={invalid} describedBy={describedBy('recovery-code-hint', errorId)} />
-      <button className="patient-primary-button" disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Verify code'}</button>
-      {budget.shown && <p className="patient-field-hint">{CODE_BUDGET_HINT}</p>}</form>}
-    {/* Enter sends nothing while Reset is off (the form's default button), so it checks the confirmation instead. */}
-    {step === 'password' && <form onSubmit={complete} onKeyDown={event => { if (event.key === 'Enter' && confirm) setConfirmChecked(true) }} className="patient-form"><p id="recovery-password-hint" className="patient-page-copy">Choose a new password of at least 12 characters.</p>
-      {/* Two fields, so each toggle is named for its own (a screen reader's list of buttons shows both). */}
-      <div className="patient-field"><label htmlFor="recovery-password">New password</label><PasswordInput appearance="plain" id="recovery-password" toggleLabel="Show new password" ref={stepFocus.target} required autoComplete="new-password" minLength={12} value={password} onChange={event => setPassword(event.target.value)}
-        aria-invalid={invalid} aria-describedby={describedBy('recovery-password-hint', errorId)} /></div>
-      <div className="patient-field"><label htmlFor="recovery-confirm">Confirm new password</label><PasswordInput appearance="plain" id="recovery-confirm" toggleLabel="Show confirmed password" required autoComplete="new-password" minLength={12} value={confirm} onChange={event => setConfirm(event.target.value)}
-        onBlur={() => { if (confirm) setConfirmChecked(true) }} aria-invalid={mismatch || undefined} aria-describedby={mismatch ? 'recovery-mismatch' : undefined} /></div>
-      {/* Always mounted, so the mismatch is announced once when it appears, not on each keystroke (PA-05). */}
-      <div aria-live="polite">{mismatch && <p id="recovery-mismatch" className="patient-inline-error">Passwords do not match.</p>}</div>
-      <button className="patient-primary-button" disabled={busy || password.length < 12 || password !== confirm}>{busy ? 'Saving…' : 'Reset password'}</button></form>}
-    {step === 'complete' && <div role="status" className="patient-success"><h2 ref={stepFocus.target} tabIndex={-1}>Password reset complete.</h2><Link className="patient-primary-button" to="/sign-in">Sign in</Link></div>}
+      {fieldError && <p id="recovery-error" className="m-0 text-xs font-medium text-danger-ink">{problem}</p>}
+      <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Verify code'}</Button>
+      {budget.shown && <p className="m-0 text-[13px] text-ink-3">{CODE_BUDGET_HINT}</p>}</form>}
+    {step === 'password' && <form onSubmit={complete} noValidate className="flex flex-col gap-4">
+      <Field label="New password" htmlFor="recovery-password" hintId="recovery-password-hint" hint="At least 12 characters. Tap Show to check it."
+        errorId={fieldError ? errorId : tooShort ? 'recovery-short' : undefined}
+        error={fieldError ? problem : tooShort && password.length < 12 ? 'Use at least 12 characters.' : undefined}>
+        <PasswordInput id="recovery-password" toggleLabel="Show new password" ref={stepFocus.target} required autoComplete="new-password" minLength={12} value={password}
+          onChange={event => { setPassword(event.target.value); if (event.target.value.length >= 12) setTooShort(false) }}
+          aria-invalid={invalid ?? (tooShort || undefined)} aria-describedby={describedBy('recovery-password-hint', errorId, tooShort && 'recovery-short')} />
+      </Field>
+      <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy}>{busy ? 'Saving…' : 'Reset password'}</Button></form>}
+    {step === 'complete' && <div role="status" className="flex flex-col gap-4"><h2 ref={stepFocus.target} tabIndex={-1} className="m-0 text-title-2 text-ink outline-none">Your password is reset.</h2>
+      <Button to="/sign-in" variant="primary" size="lg" block>Sign in</Button></div>}
     {/* A start within the previous one's wait sends no code for the same identifier, which answers the same
         challenge (hid-system #55, migration 0081), nor for the same account's other identifier, which since #55
         answers a new challengeId under which the code already sent is not accepted; another account's identifier
         may be entered at once. A new code is offered once the wait has passed, in a region mounted throughout,
         so it is announced. */}
-    {(step === 'code' || step === 'password') && <div className="patient-auth-footer">
-      <button className="patient-text-button" type="button" onClick={restart} disabled={busy}
-        aria-describedby={resend.ready ? undefined : 'recovery-other-identifier-hint'}>Use a different email, phone number or Health ID</button>
-      {!resend.ready && <p id="recovery-other-identifier-hint" className="patient-field-hint">The same account's other email, phone number or Health ID will not get a new code until a new code is offered here, and using it before then may stop the code already sent from being accepted.</p>}
-      <div role="status">{resend.ready && <><p className="patient-field-hint">No code, or a code refused? Start again with the same email, phone number or Health ID to get a new code.</p>
-        <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Start again for a new code</button></>}</div></div>}
-    <p className="patient-auth-footer"><Link to="/sign-in">Back to sign in</Link></p>
+    {(step === 'code' || step === 'password') && <div className="flex flex-col items-start gap-2">
+      <Button variant="link" onClick={restart} disabled={busy}
+        aria-describedby={resend.ready ? undefined : 'recovery-other-identifier-hint'}>Use a different email, phone or Health ID</Button>
+      {!resend.ready && <p id="recovery-other-identifier-hint" className="m-0 text-[13px] text-ink-3">Wait for a new code before using another email, phone or Health ID on the same account.</p>}
+      <div role="status">{resend.ready && <><p className="m-0 text-[13px] text-ink-3">No code? Start again to get a new one.</p>
+        <Button variant="link" onClick={restart} disabled={busy}>Start again for a new code</Button></>}</div></div>}
+    {step !== 'complete' && <p className="m-0 text-center text-sm"><Link to="/sign-in" className="font-medium text-brand-ink">Back to sign in</Link></p>}
+    </div>
   </AuthLayout>
 }

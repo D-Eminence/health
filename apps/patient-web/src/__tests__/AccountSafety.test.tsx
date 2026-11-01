@@ -7,7 +7,8 @@ import { createPatientApi, type AccountDeletionStatus, type EmergencyContact } f
 import { createTestSessionValue, SessionContext } from '../session'
 import { AccountDeletionCard, EmergencyContactsCard } from '../routes/AccountSafety'
 import { AccessPage } from '../routes/Portal'
-import { described } from './portalHarness'
+import { ToastProvider } from '../kasuwa/toast'
+import { described, shownText } from './portalHarness'
 import { enterCode } from './codeBoxes'
 
 function json(value: unknown, status = 200) {
@@ -57,7 +58,7 @@ describe('patient account deletion', () => {
       return json({}, 404)
     })
 
-    expect(await screen.findByText(/^Deleting your account signs you out everywhere and withdraws provider access and your Access PIN.*; your Health ID and medical records are kept, and after 14 days it can’t be undone\.$/)).toBeTruthy()
+    expect(await screen.findByText(/^This signs you out everywhere and removes your Access PIN.* and the access you gave\. Your Health ID and medical records are kept\. You have 14 days to change your mind; after that, it can’t be undone\.$/)).toBeTruthy()
     const proceed = screen.getByRole('button', { name: 'Continue to delete account' }) as HTMLButtonElement
     expect(proceed.disabled).toBe(true)
     fireEvent.click(screen.getByRole('checkbox', { name: /I understand/ }))
@@ -70,11 +71,11 @@ describe('patient account deletion', () => {
     fireEvent.change(phrase, { target: { value: 'delete my account' } })
     fireEvent.click(remove)
 
-    expect(await screen.findByText(/scheduled for deletion on/)).toBeTruthy()
+    expect(await screen.findByText(/^Your account will be deleted on/)).toBeTruthy()
     expect(requests.find(request => request.path.endsWith('/confirm'))?.body)
       .toEqual({ requestId: 'req-1', confirmationToken: token, confirmation: 'delete my account' })
     fireEvent.click(screen.getByRole('button', { name: 'Cancel deletion' }))
-    expect(await screen.findByText('Account deletion cancelled. Your account stays open.')).toBeTruthy()
+    expect(await screen.findByText('Deletion cancelled. Your account stays open.')).toBeTruthy()
     expect(requests.find(request => request.path.endsWith('/cancel'))?.body).toEqual({ requestId: 'req-1' })
   })
 
@@ -83,7 +84,7 @@ describe('patient account deletion', () => {
       : json({ code: 'PATIENT_RECENT_AUTH_REQUIRED', detail: 'Sign in again before deleting your account' }, 403))
     fireEvent.click(await screen.findByRole('checkbox', { name: /I understand/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Continue to delete account' }))
-    expect((await screen.findByRole('alert')).textContent).toContain('sign in again, and return here within 10 minutes')
+    expect((await screen.findByRole('alert')).textContent).toContain('For your safety, sign out, sign in again, then come back within 10 minutes.')
     expect(screen.queryByRole('textbox', { name: /Type DELETE MY ACCOUNT/ })).toBeNull()
   })
 
@@ -92,7 +93,7 @@ describe('patient account deletion', () => {
       requestedAt: '2026-10-08T10:00:00Z', confirmationExpiresAt: null, scheduledFor: null, blockedReasonCode: 'LEGAL_HOLD',
       cancelledAt: null, cancellable: false } }))
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('some of your records are under a legal hold')
+    expect(alert.textContent).toContain('some records are on legal hold')
     expect(alert.textContent).not.toMatch(/LEGAL_HOLD|legal_holds|retention_policies/)
   })
 
@@ -106,8 +107,8 @@ describe('patient account deletion', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue to delete account' }))
     fireEvent.change(await screen.findByRole('textbox', { name: /Type DELETE MY ACCOUNT/ }), { target: { value: 'DELETE MY ACCOUNT' } })
     fireEvent.click(screen.getByRole('button', { name: 'Delete my account' }))
-    expect(await screen.findByText('Your account has been deleted')).toBeTruthy()
-    expect(screen.getByText(/signed out everywhere/)).toBeTruthy()
+    expect(await screen.findByText('Your account is deleted')).toBeTruthy()
+    expect(screen.getByText(/signed out on all devices/)).toBeTruthy()
   })
 })
 
@@ -127,27 +128,27 @@ describe('patient emergency contacts', () => {
         verifiedAt: '2026-10-08T10:00:00Z', notifyOnEmergencyAccess: false, eligibleForEmergencyNotification: false }),
     ]))
     const items = await screen.findAllByRole('listitem')
-    expect(within(items[0]!).getByText('Not verified · will not be notified')).toBeTruthy()
-    expect(within(items[1]!).getByText('Verified · will be notified in an emergency')).toBeTruthy()
-    expect(within(items[2]!).getByText('Verified · notifications off')).toBeTruthy()
+    expect(within(items[0]!).getByText('Not verified · won’t be told')).toBeTruthy()
+    expect(within(items[1]!).getByText('Verified · will be told in an emergency')).toBeTruthy()
+    expect(within(items[2]!).getByText('Verified · alerts off')).toBeTruthy()
     // What hid-system main's alert carries: the first name, the facility and the time.
-    expect(screen.getByText('If a provider opens your record in an emergency, verified contacts are told your first name, where and when. Never medical details.')).toBeTruthy()
+    expect(screen.getByText('If a hospital opens your records in an emergency, verified contacts are told your first name, where and when. Never your medical details.')).toBeTruthy()
     expect(screen.queryByText(/last four characters of your Health ID/)).toBeNull()
   })
 
   it('keeps main\'s card where availability is not served (main-v1, 404): the list, every action and both channels', async () => {
     const requests = renderWith(<EmergencyContactsCard />, path => path.endsWith('/availability')
       ? json({ code: 'NOT_FOUND', detail: 'Cannot GET /api/v1/identity/me/emergency-contacts/availability' }, 404) : json([contact()]))
-    expect(await screen.findByText('Not verified · will not be notified')).toBeTruthy()
+    expect(await screen.findByText('Not verified · won’t be told')).toBeTruthy()
     expect(requests.map(request => `${request.method} ${request.path}`)).toEqual([
       'GET /api/v1/identity/me/emergency-contacts/availability', 'GET /api/v1/identity/me/emergency-contacts'])
     expect(screen.queryByRole('alert')).toBeNull()
-    for (const name of [/^Send verification code/, /^Edit/, /^Remove/]) expect(screen.getByRole('button', { name })).toBeTruthy()
+    for (const name of [/^Send code/, /^Edit/, /^Remove/]) expect(screen.getByRole('button', { name })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Add emergency contact' }))
     const reach = screen.getByRole('combobox', { name: 'How should we reach them?' }) as HTMLSelectElement
     expect([...reach.options].map(option => option.textContent)).toEqual(['SMS', 'Email'])
     expect(reach.value).toBe('sms')
-    expect(described(screen.getByRole('textbox', { name: 'Phone number' }))).toBe('For example 0803 123 4567 or +234 803 123 4567.')
+    expect(described(screen.getByRole('textbox', { name: 'Phone number' }))).toBe('Like 0803 123 4567 or +234 803 123 4567.')
   })
 
   it('adds a contact, sends a code, and verifies it with the challenge', async () => {
@@ -164,19 +165,19 @@ describe('patient emergency contacts', () => {
       return json({}, 404)
     })
     fireEvent.click(await screen.findByRole('button', { name: 'Add emergency contact' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Contact name' }), { target: { value: ' Chidi Okafor ' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: ' Chidi Okafor ' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Phone number' }), { target: { value: '0803 123 4567' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save contact' }))
     expect(await screen.findByText(/Contact added/)).toBeTruthy()
     expect(requests.find(request => request.method === 'POST' && request.path.endsWith('/emergency-contacts'))?.body)
       .toEqual({ name: 'Chidi Okafor', relationship: 'relative', channel: 'sms', destination: '0803 123 4567', notifyOnEmergencyAccess: true })
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Send verification code to Chidi Okafor, +234•••••567' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Send code to Chidi Okafor, +234•••••567' }))
     // Six boxes, as every code a patient types (CodeBoxes.tsx): the sixth digit sends it, once.
     const code = await screen.findByRole('textbox', { name: /Code from Chidi Okafor/ })
     expect(screen.getByRole('group', { name: 'Code from Chidi Okafor' }).querySelectorAll('input')).toHaveLength(6)
     await enterCode(code, '482913')
-    expect(await screen.findByText('Verified · will be notified in an emergency')).toBeTruthy()
+    expect(await screen.findByText('Verified · will be told in an emergency')).toBeTruthy()
     expect(requests.filter(request => request.path.endsWith('/verification/confirm')).map(request => request.body))
       .toEqual([{ challengeId: expect.any(String), code: '482913' }])
   })
@@ -184,10 +185,10 @@ describe('patient emergency contacts', () => {
   it('keeps the contact unverified when delivery is not yet available', async () => {
     const requests = renderWith(<EmergencyContactsCard />, (path, method) => method === 'GET' ? json([contact()])
       : json({ code: 'EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE', detail: 'Emergency contact verification is not yet available' }, 503))
-    fireEvent.click(await screen.findByRole('button', { name: 'Send verification code to Chidi Okafor, +234•••••567' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Send code to Chidi Okafor, +234•••••567' }))
     // Main's 503 carries its code: it is said as switched off, not as a send to try again later.
-    expect((await screen.findByRole('alert')).textContent)
-      .toBe('Contact verification is not available yet. This contact stays unverified and will not be notified.')
+    expect(shownText(await screen.findByRole('alert')))
+      .toBe('Codes can’t be sent right now. They stay unverified and won’t be told in an emergency.')
     expect(screen.queryByRole('textbox', { name: /Code from/ })).toBeNull()
     await waitFor(() => expect(requests.filter(request => request.path.endsWith('/availability'))).toHaveLength(2))
   })
@@ -195,9 +196,9 @@ describe('patient emergency contacts', () => {
   it('says a code could not be sent right now when the gateway answers 503 UPSTREAM_UNAVAILABLE', async () => {
     renderWith(<EmergencyContactsCard />, (path, method) => method === 'GET' ? json([contact()])
       : json({ code: 'UPSTREAM_UNAVAILABLE', detail: 'A required platform service is temporarily unavailable.', retryable: false }, 503))
-    fireEvent.click(await screen.findByRole('button', { name: 'Send verification code to Chidi Okafor, +234•••••567' }))
-    expect((await screen.findByRole('alert')).textContent).toBe('The code could not be sent right now. This contact stays '
-      + 'unverified and will not be notified until it is verified. Try again later.')
+    fireEvent.click(await screen.findByRole('button', { name: 'Send code to Chidi Okafor, +234•••••567' }))
+    expect(shownText(await screen.findByRole('alert'))).toBe('The code couldn’t be sent. They stay unverified and won’t be told '
+      + 'in an emergency. Try again later.')
     expect(screen.queryByRole('textbox', { name: /Code from/ })).toBeNull()
   })
 
@@ -206,14 +207,15 @@ describe('patient emergency contacts', () => {
       : json({ contactId: contact().contactId, status: 'deactivated', replayed: false }))
     fireEvent.click(await screen.findByRole('button', { name: 'Remove Chidi Okafor, +234•••••567' }))
     expect(requests.some(request => request.path.endsWith('/deactivate'))).toBe(false)
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm removal' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, remove' }))
     await waitFor(() => expect(requests.some(request => request.path.endsWith('/deactivate'))).toBe(true))
   })
 })
 
 describe('patient access revocation', () => {
   it('revokes through the patient route and never offers revocation of emergency access', async () => {
-    const requests = renderWith(<AccessPage />, (path, method) => {
+    // The outcome is said in a toast (the shell's ToastProvider).
+    const requests = renderWith(<ToastProvider><AccessPage /></ToastProvider>, (path, method) => {
       if (path.endsWith('/me/access-requests')) return json([])
       if (path.endsWith('/me/access-history')) return json({ items: [
         { consentGrantId: '60000000-0000-4000-8000-000000000001', scope: 'read_records', purpose: 'direct-care', status: 'active',
@@ -226,14 +228,18 @@ describe('patient access revocation', () => {
       if (method === 'POST') return json({ consentGrantId: '60000000-0000-4000-8000-000000000001', status: 'revoked', replayed: false })
       return json({}, 404)
     })
-    expect(await screen.findByText('Emergency access · emergency')).toBeTruthy()
-    expect(screen.getByText(/cannot be revoked here/)).toBeTruthy()
-    const revokeButtons = screen.getAllByRole('button', { name: /^Revoke access for / })
+    // Who has access: its own tab since the redesign.
+    fireEvent.click(await screen.findByRole('button', { name: /^Who has access/ }))
+    expect(await screen.findByText(/^Emergency access · until /)).toBeTruthy()
+    expect(screen.getByText(/you can’t end it here/)).toBeTruthy()
+    const revokeButtons = screen.getAllByRole('button', { name: /^End access for / })
     expect(revokeButtons).toHaveLength(1)
+    expect(revokeButtons[0]!.textContent).toMatch(/Lagos General/)
     fireEvent.click(revokeButtons[0]!)
-    fireEvent.change(screen.getByRole('textbox', { name: 'Reason for revocation' }), { target: { value: 'No longer needed' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm revocation' }))
-    expect(await screen.findByText('Access grant revoked.')).toBeTruthy()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Why are you ending it?' }), { target: { value: 'No longer needed' } })
+    const drawer = screen.getByRole('dialog')
+    fireEvent.click(within(drawer).getByRole('button', { name: 'End access' }))
+    expect(await screen.findByText('Lagos General can no longer see your records.')).toBeTruthy()
     const revoke = requests.find(request => request.method === 'POST')
     expect(revoke).toEqual({ path: '/api/v1/identity/me/consent-grants/60000000-0000-4000-8000-000000000001/revoke',
       method: 'POST', body: { reason: 'No longer needed' } })
@@ -251,9 +257,11 @@ describe('patient access revocation', () => {
       ] })
       return json({}, 404)
     })
-    const explanation = await screen.findByText(/^A provider used emergency access\./)
-    expect(explanation.textContent).toBe('A provider used emergency access. It is time-limited and audited; it cannot be revoked here.')
+    fireEvent.click(await screen.findByRole('button', { name: /^Who has access/ }))
+    const explanation = await screen.findByText(/^Used in an emergency\./)
+    // Time-limited (it ends by itself), and not the patient's to end; every view is recorded, as the page says.
+    expect(explanation.textContent).toBe('Used in an emergency. It ends by itself, and you can’t end it here.')
     expect(screen.queryByText(/reviewed/)).toBeNull()
-    expect(screen.queryByRole('button', { name: /^Revoke access/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^End access/ })).toBeNull()
   })
 })

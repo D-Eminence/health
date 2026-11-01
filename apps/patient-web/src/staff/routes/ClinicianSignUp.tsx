@@ -14,6 +14,7 @@ import { APPLICATIONS_LIMITED, FACILITY_UNAVAILABLE, PROFESSION_NAME, REGULATOR_
   SIGNUP_SEARCHES_USED, codeOf, codeSentCopy, formatDate, isUnavailable, refusalCopy } from '../clinician/copy'
 import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, StepHeading, TextButton, fieldError, shownError,
   type Problem } from '../clinician/ui'
+import { buttonClass } from '../../kasuwa/ui'
 
 /**
  * Clinician self sign-up at /provider/join (hid-system ADR-066, owner decision
@@ -262,10 +263,8 @@ function SignUp() {
 
   return <ClinicianFrame labelledBy="clinician-signup-title">
     <h1 id="clinician-signup-title" className="patient-page-title">Apply as a doctor or nurse</h1>
-    <p className="patient-page-copy">Apply to work as a doctor or nurse on Health ID. You'll set up an authenticator app as part of
-      applying. An HID administrator will check your licence and call you to confirm it's you, and a second administrator must approve
-      before your access is turned on. A facility administrator account can't also hold a clinical role at the same facility; use a
-      separate email address.</p>
+    <p className="patient-page-copy">Apply to work as a doctor or nurse on Health ID. You'll set up an authenticator app as you apply.
+      Health ID checks your licence and calls you to confirm it's you. Use your own email address, not your facility's admin account.</p>
 
     <ol className="patient-step-list clinician-steps" aria-label="Clinician sign-up steps">
       {STEPS.map(([name, text]) => <li key={name} aria-current={name === step ? 'step' : undefined}>{text}</li>)}
@@ -291,7 +290,7 @@ function SignUp() {
         submitted, check your application status; otherwise confirm your email again. Your other details are kept on this page.</p>
       <div className="clinician-actions">
         <PrimaryButton onClick={confirmEmailAgain}>Confirm email again</PrimaryButton>
-        <Link className="patient-secondary-button" to={CLINICIAN_STATUS_PATH}>Check application status</Link>
+        <Link className={buttonClass({ variant: 'secondary' })} to={CLINICIAN_STATUS_PATH}>Check application status</Link>
       </div>
     </section>}
 
@@ -299,7 +298,7 @@ function SignUp() {
       <StepHeading id="clinician-ended-title" focus>This page has closed</StepHeading>
       <p>For your security, this page closed after 30 minutes. Your application is saved: check your application to finish setting up
         your authenticator. HID can't review it until you do.</p>
-      <div><Link className="patient-primary-button" to={CLINICIAN_STATUS_PATH}>Check your application</Link></div>
+      <div><Link className={buttonClass({ variant: 'primary', block: true })} to={CLINICIAN_STATUS_PATH}>Check your application</Link></div>
     </section>}
 
     {screen === 'steps' && (step === 'email' || step === 'code') && <EmailCode key={emailRound} idPrefix="clinician-signup"
@@ -320,7 +319,7 @@ function SignUp() {
       <DetailsFields value={details} onChange={setDetails} problems={problems} fullName={fullName} onFullName={setFullName}
         onSearchRefused={searchRefused}
         searchesUsed={{ message: SIGNUP_SEARCHES_USED, action: { label: 'Confirm email again', onClick: confirmEmailAgain } }} />
-      <button type="submit" className="patient-primary-button">Continue</button>
+      <button type="submit" className={buttonClass({ variant: 'primary', block: true })}>Continue</button>
     </form>}
 
     {screen === 'steps' && step === 'password' && <form className="patient-form" aria-labelledby="clinician-password-title" noValidate
@@ -340,7 +339,7 @@ function SignUp() {
       <Declarations accurate={accurate} consent={consent} onAccurate={setAccurate} onConsent={setConsent} regulator={regulator}
         facility={facilityName} problems={problems} />
       <div className="clinician-actions">
-        <button type="submit" className="patient-primary-button" disabled={busy}>{busy ? 'Submitting…' : 'Submit application'}</button>
+        <button type="submit" className={buttonClass({ variant: 'primary', block: true })} disabled={busy}>{busy ? 'Submitting…' : 'Submit application'}</button>
         <TextButton onClick={() => goTo('details')} disabled={busy}>Back</TextButton>
       </div>
     </form>}
@@ -363,7 +362,7 @@ function SignUp() {
       <p id="clinician-signup-closed" tabIndex={-1} role="status" className="patient-inline-success">This page is closed on this device.
         Your application is saved: to set up your authenticator, enter your email on the status page. HID can't review your
         application until you do.</p>
-      <div><Link className="patient-primary-button" to={CLINICIAN_STATUS_PATH}>Check your application</Link></div>
+      <div><Link className={buttonClass({ variant: 'primary', block: true })} to={CLINICIAN_STATUS_PATH}>Check your application</Link></div>
     </section>}
 
     {screen === 'steps' && step === 'done' && submitted && <section className="patient-success" aria-labelledby="clinician-done-title">
@@ -373,10 +372,9 @@ function SignUp() {
         <dt>Profession</dt><dd>{PROFESSION_NAME[submitted.profession] ?? submitted.profession}</dd>
         {formatDate(submitted.expiresAt) && <><dt>Kept open until</dt><dd>{formatDate(submitted.expiresAt)}</dd></>}
       </dl>
-      <p className="patient-page-copy">Your application is in HID's verification queue. An HID administrator will contact you for a short
-        video call: have your photo ID and your authenticator app ready. A second administrator must approve before you can sign in to
-        the provider portal. We keep applications open for 30 days.</p>
-      <div><Link className="patient-primary-button" to={CLINICIAN_STATUS_PATH}>View application status</Link></div>
+      <p className="patient-page-copy">Health ID will call you for a short video check. Have your photo ID and your authenticator app
+        ready. You can sign in once you're approved. We keep applications open for 30 days.</p>
+      <div><Link className={buttonClass({ variant: 'primary', block: true })} to={CLINICIAN_STATUS_PATH}>View application status</Link></div>
       <p className="patient-page-copy">This page stays open on this device for up to 30 minutes, so your application can be checked here
         without a code. On a shared computer, close it when you're done.</p>
       <StepError error={closeError} />
