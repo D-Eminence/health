@@ -18,7 +18,6 @@ import { providerEnrollmentApi, staffApi, type ProviderEnrollmentAvailability, t
 import { announceStaffSessionChange } from '../session'
 import { StaffMfaSteps, type StaffMfaCalls, type StaffMfaLook } from './StaffMfaSteps'
 import { ClinicianSignUpEntry } from '../clinician/ClinicianSignUpEntry'
-import { BETWEEN_FACILITIES } from '../betweenFacilities'
 
 type Product = 'ehr' | 'migrate' | 'laboratory' | 'pharmacy'
 type OrganizationType = 'clinic' | 'hospital' | 'laboratory' | 'pharmacy' | 'other'
@@ -62,31 +61,22 @@ export function organizationTypeNote(type: OrganizationType, ordersOn: boolean):
 }
 
 function laboratoryNote(ordersOn: boolean): string {
-  return 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
-    + 'working day, the Laboratory pages open, and you can add your laboratory scientists and receptionists. '
-    + `${BETWEEN_FACILITIES.laboratory.signUp(ordersOn)} If you are a licensed laboratory scientist, you can also work in the `
-    + 'Laboratory pages yourself.'
+  return 'You can start right away. The lab pages open once we’ve checked your facility, usually within one working day.'
+    + (ordersOn ? ' Then other facilities can send you lab requests.' : '')
 }
 
 function pharmacyNote(ordersOn: boolean): string {
-  return 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
-    + 'working day, the Pharmacy pages open, and you can add your pharmacists and receptionists. '
-    + `${BETWEEN_FACILITIES.pharmacy.signUp(ordersOn)} If you are a licensed pharmacist, you can also work in the Pharmacy `
-    + 'pages yourself.'
+  return 'You can start right away. The pharmacy pages open once we’ve checked your facility, usually within one working day.'
+    + (ordersOn ? ' Then other facilities can send you prescriptions.' : '')
 }
 
-/** The notes while orders between facilities are off, or before the backend says (organizationTypeNote). */
+/** One short line under the facility type (owner's rule: say each thing once, in plain words). */
 export const ORGANIZATION_TYPE_NOTES: Readonly<Record<OrganizationType, string>> = {
-  hospital: 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
-    + 'working day, the clinical record, emergency access and the Laboratory and Pharmacy work lists open, and you can add '
-    + 'your doctors, nurses and other staff. If you are a licensed doctor or nurse, you can also get clinical access yourself.',
-  clinic: 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
-    + 'working day, the clinical record, emergency access and the Laboratory and Pharmacy work lists open, and you can add '
-    + 'your doctors, nurses and other staff. If you are a licensed doctor or nurse, you can also get clinical access yourself.',
+  hospital: 'You can start right away. Patient records open once we’ve checked your facility, usually within one working day.',
+  clinic: 'You can start right away. Patient records open once we’ve checked your facility, usually within one working day.',
   laboratory: laboratoryNote(false),
   pharmacy: pharmacyNote(false),
-  other: 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
-    + 'working day, you can add your staff. Health ID support agrees with you which access you need.',
+  other: 'You can start right away. Once we’ve checked your facility, usually within one working day, we’ll agree which pages you need.',
 }
 
 function EnrollmentButton({ primary, ...rest }: { primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -95,7 +85,8 @@ function EnrollmentButton({ primary, ...rest }: { primary?: boolean } & ButtonHT
 
 /** The authenticator steps, drawn as the rest of provider enrollment is. */
 const ENROLLMENT_MFA_LOOK: StaffMfaLook = {
-  headingAs: 'h2',
+  // The page's one heading while these steps are shown: the layout then has no title of its own.
+  headingAs: 'h1',
   classNames: { step: 'patient-form', note: 'patient-field-hint', error: 'patient-inline-error', status: 'patient-field-hint' },
   Button: EnrollmentButton,
 }
@@ -126,8 +117,8 @@ const ENROLLMENT_MFA_CALLS: StaffMfaCalls = {
  * administrator in (owner decision: a password, no authenticator). hid-system
  * main since #71 adds an authenticator step after it.
  */
-/** The one line under the title while the facility's details are asked. */
-const FACILITY_LEDE = 'Sign up your clinic, hospital, lab or pharmacy.'
+/** Each step's one heading: the page's title (the stepper says only "Step 2 of 3", never the name again). */
+const STAGE_TITLES = { details: 'Register a facility', otp: 'Confirm your email', password: 'Choose a password' } as const
 const NOVU_STEPS = [['details', 'Facility'], ['otp', 'Email'], ['password', 'Password']] as const
 const MAIN_STEPS = [...NOVU_STEPS, ['authenticator', 'Authenticator']] as const
 
@@ -286,11 +277,14 @@ function SignInLink({ children }: { children: ReactNode }) {
     : <Link className="patient-primary-button" to={STAFF_SIGN_IN_PATH}>{children}</Link>
 }
 
-/** A heading that takes focus, in the commit that shows it, when its panel replaces the step before it. */
+/**
+ * A panel's heading, the page's one h1 (the layout has no title then), that takes focus in the commit that shows it,
+ * when its panel replaces the step before it.
+ */
 function FocusedHeading({ id, children }: { id: string; children: ReactNode }) {
   const heading = useRef<HTMLHeadingElement>(null)
   useLayoutEffect(() => { heading.current?.focus() }, [])
-  return <h2 id={id} ref={heading} tabIndex={-1} className="hid-mfa-heading">{children}</h2>
+  return <h1 id={id} ref={heading} tabIndex={-1} className="hid-mfa-heading">{children}</h1>
 }
 
 function isOrganizationType(value: string | null): value is OrganizationType {
@@ -446,8 +440,8 @@ function EnrollOnMainSite({ href }: { href: string }) {
   return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
     headerLink={{ to: '/provider/sign-in', label: 'Sign in' }}
     audience="provider" title="Register a facility" titleId="provider-enroll-title"
-    lede="Facility sign-up is done on the main Health ID site.">
-    <p><a className="patient-primary-button" href={target}>Continue to facility sign-up</a></p>
+    lede="Facilities sign up on the main Health ID site.">
+    <div className="patient-success provider-setup-row"><a className="patient-primary-button" href={target}>Go to facility sign-up</a></div>
   </AuthLayout>
 }
 
@@ -980,88 +974,108 @@ function EnrollmentSteps() {
   // The CAC number as Identity has it (spaces removed, capitals), which the organization will be registered under.
   const cacNumber = registering?.registrationNumber ?? cac
 
+  // The page's one heading: the step's own while a step is shown, a panel's own otherwise (FocusedHeading, the
+  // authenticator steps).
+  const stageTitle = closed || availability === 'unavailable' ? null
+    : availability === 'checking' ? STAGE_TITLES.details
+      : stage === 'details' || stage === 'otp' || stage === 'password' ? STAGE_TITLES[stage] : null
+  const titled = stageTitle !== null && availability === 'open' ? stage : null
+  // A step change moves focus to the step's heading, in the commit that shows it; not on the first showing.
+  const titleRef = useRef<HTMLHeadingElement & HTMLParagraphElement>(null)
+  const firstTitle = useRef(true)
+  useLayoutEffect(() => {
+    if (titled === null) return
+    if (firstTitle.current) { firstTitle.current = false; return }
+    titleRef.current?.focus()
+  }, [titled])
+  const choosesProduct = productOptions[organizationType].length > 1
+
   return (
     <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
       headerLink={{ to: '/provider/sign-in', label: 'Sign in' }}
-      title="Register a facility" titleId="provider-enroll-title"
-      audience="provider" lede={stage === 'details' && availability === 'open' ? FACILITY_LEDE : undefined}
+      title={stageTitle} titleId="provider-enroll-title" titleRef={titleRef} titleFocusable
+      audience="provider"
       steps={closed || availability === 'checking' || availability === 'unavailable' || stage === 'help'
         ? undefined : steps.map(([step, label]) => ({ label, current: step === currentStep }))}
-      stepsLabel="Facility sign-up steps">
+      stepsLabel="Facility sign-up steps" stepsNamed={false}>
         {error && !closed ? <p role="alert" className="patient-inline-error">{error.text}
           {error.support ? <> <SupportContact purpose={error.support} /></> : null}</p> : null}
 
-        {availability === 'checking' && <p role="status" className="patient-field-hint">Checking that facility sign-up is open…</p>}
+        {availability === 'checking' && <p role="status" className="patient-field-hint">Checking that sign-up is open…</p>}
 
-        {closed && <section className="patient-form" aria-labelledby="provider-enroll-closed-title">
+        {closed && <section className="patient-form provider-setup-panel" aria-labelledby="provider-enroll-closed-title">
           <FocusedHeading id="provider-enroll-closed-title">Facility sign-up isn’t open right now</FocusedHeading>
-          <p className="patient-field-hint">Hospitals, laboratories and pharmacies can’t sign themselves up on Health ID at the
-            moment. <SupportContact purpose="register" /></p>
-          <p className="patient-field-hint">If your facility already uses Health ID, sign in instead.</p>
+          <p className="provider-setup-line">Facilities can’t sign themselves up at the moment. <SupportContact purpose="register" />
+            {' '}If your facility already uses Health ID, sign in instead.</p>
         </section>}
 
         {/* Identity answered that it could not tell whether sign-up is open (a fault): not closed, so it says so. */}
-        {availability === 'unavailable' && <section className="patient-form" aria-labelledby="provider-enroll-unavailable-title">
-          <FocusedHeading id="provider-enroll-unavailable-title">Facility sign-up is temporarily unavailable</FocusedHeading>
-          <p className="patient-field-hint">We can’t take facility sign-ups just now because of a problem on our side. Please
-            try again in a few minutes. <SupportContact purpose="persist" /></p>
-          <button type="button" className="patient-primary-button" onClick={checkAvailabilityAgain}>Try again</button>
+        {availability === 'unavailable' && <section className="patient-form provider-setup-panel" aria-labelledby="provider-enroll-unavailable-title">
+          <FocusedHeading id="provider-enroll-unavailable-title">Facility sign-up isn’t working right now</FocusedHeading>
+          <p className="provider-setup-line">This is a problem on our side. Please try again in a few
+            minutes. <SupportContact purpose="persist" /></p>
+          <div className="provider-setup-row">
+            <button type="button" className="patient-primary-button" onClick={checkAvailabilityAgain}>Try again</button>
+          </div>
         </section>}
 
         {availability === 'open' && stage === 'details' && (
-          <form onSubmit={event => void start(event)} className="auth-form provider-setup-form">
-            <fieldset className="provider-setup-choice">
-              <legend>Facility type</legend>
-              <div className="provider-setup-options">
-                {organizationTypes.map(option => (
-                  <label key={option.value} className="provider-setup-option">
-                    <input type="radio" name="provider-facility-type" value={option.value}
-                      checked={organizationType === option.value} onChange={() => setType(option.value)} />
-                    <span>{option.label}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
+          <form onSubmit={event => void start(event)} className="auth-form provider-setup-form" aria-labelledby="provider-enroll-title">
+            <div className="provider-setup-fields">
+              <Field label="Your full name" htmlFor="provider-admin-name">
+                <Input id="provider-admin-name" required minLength={2} maxLength={200}
+                  autoComplete="name" value={name} onChange={event => setName(event.target.value)} />
+              </Field>
+
+              <Field label="Your email" htmlFor="provider-admin-email">
+                <Input id="provider-admin-email" required type="email" maxLength={254}
+                  autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} />
+              </Field>
+            </div>
+
+            <div className="provider-setup-group">
+              <fieldset className="provider-setup-choice" aria-describedby={productNote ? 'provider-product-note' : undefined}>
+                <legend>Facility type</legend>
+                <div className="provider-setup-options">
+                  {organizationTypes.map(option => (
+                    <label key={option.value} className="provider-setup-option">
+                      <input type="radio" name="provider-facility-type" value={option.value}
+                        checked={organizationType === option.value} onChange={() => setType(option.value)} />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              {/* What the type gets, and when: said once, here, where the type is chosen. */}
+              {productNote && <p id="provider-product-note" className="patient-field-hint">{productNote}</p>}
+            </div>
 
             <div className="provider-setup-fields">
-              <Field label="Product" htmlFor="provider-product">
-                <Select id="provider-product" value={productCode} onChange={event => setProductCode(event.target.value as Product)}
-                  aria-describedby={productNote ? 'provider-product-note' : undefined}>
-                  {productOptions[organizationType].map(code => <option key={code} value={code}>{products.find(product => product.code === code)?.label}</option>)}
-                </Select>
-              </Field>
-              {productNote && <p id="provider-product-note" className="patient-field-hint">{productNote}</p>}
-
-              <Field label="CAC number" htmlFor="provider-cac" hint={novu
-                ? 'From your business registration certificate. We check it, and Health ID support checks every new facility within one working day.'
-                : 'From your business registration certificate. If it’s already on Health ID, our team checks it first.'}>
+              <Field label="CAC number" htmlFor="provider-cac" hint="From your business registration certificate.">
                 <Input id="provider-cac" required value={cac}
                   onChange={event => setCac(event.target.value.replace(/\s+/g, '').toUpperCase())}
                   autoCapitalize="characters" autoComplete="off" spellCheck={false}
                   pattern="(RC|BN|IT)[0-9]{4,20}" maxLength={22} placeholder="RC123456" />
               </Field>
 
-              <Field label="Administrator full name" htmlFor="provider-admin-name">
-                <Input id="provider-admin-name" required minLength={2} maxLength={200}
-                  autoComplete="name" value={name} onChange={event => setName(event.target.value)} />
-              </Field>
-
-              <Field label="Administrator email" htmlFor="provider-admin-email">
-                <Input id="provider-admin-email" required type="email" maxLength={254}
-                  autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} />
-              </Field>
+              {/* A type with one product (a laboratory, a pharmacy) is not asked: setType has chosen it, and it is sent. */}
+              {choosesProduct && <Field label="Product" htmlFor="provider-product">
+                <Select id="provider-product" value={productCode} onChange={event => setProductCode(event.target.value as Product)}>
+                  {productOptions[organizationType].map(code => <option key={code} value={code}>{products.find(product => product.code === code)?.label}</option>)}
+                </Select>
+              </Field>}
             </div>
 
             {kept && <div className="provider-setup-kept">
-              <p className="patient-field-hint">A sign-up for {kept.cacRegistrationNumber} was started with {kept.administratorEmail},
-                {' '}and only that email can finish it until 24 hours after it started. You can still correct the CAC number.</p>
+              <p>A sign-up for {kept.cacRegistrationNumber} was started with {kept.administratorEmail}. Until 24 hours after
+                {' '}it started, only that email can finish it. You can still correct the CAC number.</p>
               <button type="button" className="patient-text-button" onClick={() => firstEmail(kept)}>Use the email I first gave</button>
             </div>}
 
             {carried && <div className="provider-setup-kept">
-              <p className="patient-field-hint">A new facility type or administrator name takes effect only with a new code. The
-                {' '}code already sent is for the facility type {organizationTypeLabel(carried.carries.organizationType)}, with
-                {' '}{carried.carries.administratorName} as administrator.</p>
+              <p>A new facility type or name needs a new code. The code we already sent is
+                {' '}for {organizationTypeLabel(carried.carries.organizationType)}, with {carried.carries.administratorName} as
+                {' '}administrator.</p>
               {carried.enterableUntil > now && <button type="button" className="patient-text-button"
                 onClick={() => enterCodeInForce(carried)}>Use the details I gave before</button>}
             </div>}
@@ -1069,7 +1083,7 @@ function EnrollmentSteps() {
             <div className="provider-setup-actions">
               <Turnstile action="provider-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />
               <button type="submit" className="patient-primary-button provider-setup-submit" disabled={busy || !turnstileToken || retryIn > 0}>
-                {busy ? 'Checking CAC…' : 'Continue'}
+                {busy ? 'Checking…' : 'Continue'}
               </button>
               {retryIn > 0 && !busy && <p className="patient-field-hint">{carried
                 ? 'You can continue with your changes in ' : 'You can try again in '}{waitWords(retryIn)}.</p>}
@@ -1077,68 +1091,60 @@ function EnrollmentSteps() {
           </form>
         )}
 
-        {availability === 'open' && stage === 'otp' && (<>
-          <form onSubmit={event => void verify(event)} className="patient-form">
-            <h2>Confirm your administrator email</h2>
-            <p className="patient-field-hint">{unsent === 'recent'
-              ? `We didn’t send a new code, because one was sent to ${administratorEmail} less than a minute ago. Enter the six `
-                + 'digit code from that email.'
+        {availability === 'open' && stage === 'otp' && (
+          <form onSubmit={event => void verify(event)} className="patient-form" aria-labelledby="provider-enroll-title">
+            <p className="provider-setup-line">{unsent === 'recent'
+              ? `We sent a code to ${administratorEmail} less than a minute ago, so we didn’t send another. Enter the 6-digit `
+                + 'code from that email.'
               : unsent === 'limit'
-                ? 'We didn’t send a new code, because we’ve sent as many as we can for now. Enter the six digit code from the '
-                  + `latest email Health ID sent to ${administratorEmail}.`
-                : `Enter the six digit code sent to ${administratorEmail}.`}</p>
-            <label>Code from the email
+                ? `We’ve sent as many codes as we can for now. Enter the 6-digit code from the latest email we sent to ${administratorEmail}.`
+                : `Enter the 6-digit code we sent to ${administratorEmail}.`}</p>
+            <label>Code
               <Input required inputMode="numeric" autoComplete="one-time-code" value={code}
                 onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
                 pattern="[0-9]{6}" maxLength={6} />
             </label>
-            <button type="submit" className="patient-primary-button" disabled={busy || code.length !== 6}>
-              {busy ? 'Checking…' : 'Confirm email'}
-            </button>
-            <button type="button" className="patient-text-button" onClick={startAgain}>
-              Start again
-            </button>
+            <div className="provider-setup-resend">
+              <p className="patient-field-hint">No code? Check your spam folder, or get a new one. A new code replaces the last.</p>
+              <Turnstile action="provider-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />
+              <button type="button" className="patient-secondary-button" onClick={() => void resend()}
+                disabled={busy || !turnstileToken || resendIn > 0 || codeLimitIn > 0}>Send a new code</button>
+              {codeLimitIn > 0
+                ? <p className="patient-field-hint">{unsent === 'limit' ? null : <>We’ve sent as many codes as we can for now. </>}{codeInForce
+                  ? <>Use the code in the latest email, or ask for a new one in {waitWords(codeLimitIn)}.</>
+                  : <>You can ask for a new one in {waitWords(codeLimitIn)}.</>}</p>
+                : resendIn > 0 && <p className="patient-field-hint">You can ask for a new code in {codesReported
+                  ? waitWords(resendIn) : seconds(resendIn)}.</p>}
+              <div role="status">{resent && <p className="patient-field-hint">{resent === 'sent'
+                ? `We’ve sent a new code to ${administratorEmail}.`
+                : resent === 'in-force' ? 'We didn’t send a new code: the code in the latest email still works.'
+                  : 'We didn’t send a new code, and the last one no longer works.'}</p>}</div>
+            </div>
+            <div className="provider-setup-row">
+              <button type="button" className="patient-secondary-button" onClick={startAgain}>Use a different email</button>
+              <button type="submit" className="patient-primary-button" disabled={busy || code.length !== 6}>
+                {busy ? 'Checking…' : 'Confirm'}
+              </button>
+            </div>
           </form>
-          <section className="patient-form provider-setup-resend" aria-labelledby="provider-enroll-resend-title">
-            <h3 id="provider-enroll-resend-title">Didn’t get the code?</h3>
-            <p className="patient-field-hint">Check your spam or junk folder first. A new code replaces the last one.</p>
-            <Turnstile action="provider-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />
-            <button type="button" className="patient-secondary-button" onClick={() => void resend()}
-              disabled={busy || !turnstileToken || resendIn > 0 || codeLimitIn > 0}>Send a new code</button>
-            {codeLimitIn > 0
-              ? <p className="patient-field-hint">We’ve sent as many codes as we can for now. {codeInForce
-                ? <>Use the code in the latest email from{' '}Health ID, or ask for a new one in {waitWords(codeLimitIn)}.</>
-                : <>You can ask for a new one in {waitWords(codeLimitIn)}.</>}</p>
-              : resendIn > 0 && <p className="patient-field-hint">You can ask for a new code in {codesReported
-                ? waitWords(resendIn) : seconds(resendIn)}.</p>}
-            <div role="status">{resent && <p className="patient-field-hint">{resent === 'sent'
-              ? `We’ve sent a new code to ${administratorEmail}.`
-              : resent === 'in-force' ? 'We didn’t send a new code: the code in the latest email from Health ID still works.'
-                : 'We didn’t send a new code, and the last one can no longer be used.'}</p>}</div>
-          </section>
-        </>)}
+        )}
 
         {availability === 'open' && stage === 'password' && (
-          <form onSubmit={event => void activate(event)} className="patient-form">
-            <h2>Create your provider account</h2>
+          <form onSubmit={event => void activate(event)} className="patient-form" aria-labelledby="provider-enroll-title">
             {novu && <div className="provider-setup-registering">
               {/* The facility type and administrator are the confirmed code's (R6), which a start that sent no code may
                   not have changed: shown so they can be checked too. */}
-              <p id="provider-registering" className="patient-field-hint">{registering?.organizationName
+              <p id="provider-registering">{registering?.organizationName
                 ? <>You’re registering <strong>{registering.organizationName}</strong>, CAC number {cacNumber}
-                  {registeringDetails(registering)}. Check that this is your organization before you create the account.</>
-                : <>You’re registering the organization with CAC number {cacNumber}{registeringDetails(registering)}. Check
-                  {' '}that this is your organization’s number before you create the account.</>}</p>
-              {registeringFailed && <p className="patient-field-hint">We couldn’t load your organization’s registered name just
-                now. <button type="button" className="patient-text-button" disabled={busy}
-                  onClick={() => void readRegisteringAgain()}>Try again</button></p>}
-              <button type="button" className="patient-text-button" disabled={busy} onClick={() => void notMine()}>This isn’t my organization</button>
+                  {registeringDetails(registering)}.</>
+                : <>You’re registering the facility with CAC number {cacNumber}{registeringDetails(registering)}.</>}</p>
+              {registeringFailed && <p>We couldn’t load its registered name. <button type="button" className="patient-text-button" disabled={busy}
+                onClick={() => void readRegisteringAgain()}>Try again</button></p>}
+              <button type="button" className="patient-text-button" disabled={busy} onClick={() => void notMine()}>This isn’t my facility</button>
             </div>}
             <p id="provider-account-hint" className="patient-field-hint">{novu
-              ? `You’ll sign in with ${accountEmail} and this password. Then you go straight into the Provider Portal as `
-                + 'your facility’s administrator.'
-              : 'Next, you’ll set up sign-in codes on your phone. Then you go into the Provider Portal as your facility’s '
-                + 'administrator.'}</p>
+              ? `You’ll sign in with ${accountEmail} and this password.`
+              : 'Next, you’ll turn on sign-in codes with an app on your phone.'}</p>
             {/* Lets a password manager save the new password with its email. */}
             <input type="email" hidden readOnly autoComplete="username" value={accountEmail} />
             <Field label="Password" htmlFor="provider-password">
@@ -1146,29 +1152,33 @@ function EnrollmentSteps() {
                 aria-describedby="provider-account-hint provider-password-hint" value={password} onChange={event => setPassword(event.target.value)} />
               <PasswordRules id="provider-password-hint" password={password} />
             </Field>
-            <button type="submit" className="patient-primary-button" disabled={busy || password.length < 12}>
-              {busy ? 'Creating provider account…' : 'Create provider account'}
-            </button>
+            <div className="provider-setup-row">
+              <button type="submit" className="patient-primary-button" disabled={busy || password.length < 12}>
+                {busy ? 'Creating account…' : 'Create account'}
+              </button>
+            </div>
           </form>
         )}
 
-        {stage === 'authenticator' && challenge && (
+        {stage === 'authenticator' && challenge && <div className="provider-setup-mfa">
           <StaffMfaSteps challenge={challenge} proof={challenge.status === 'mfa_enrollment_required' ? 'activation' : undefined}
-            calls={ENROLLMENT_MFA_CALLS} look={ENROLLMENT_MFA_LOOK} doneLabel="Continue to the Provider Portal"
+            calls={ENROLLMENT_MFA_CALLS} look={ENROLLMENT_MFA_LOOK} doneLabel="Open the Provider Portal"
             onSignedIn={openWorkspace} onRestart={reason => { setChallenge(null); setSignInReason(reason); setStage('sign-in') }} />
-        )}
+        </div>}
 
         {!closed && stage === 'sign-in' && (novu ? <MaybeActive email={accountEmail} /> : <SignInToFinish reason={signInReason} />)}
 
-        {!closed && stage === 'done' && <FacilityReady email={accountEmail} ordersOn={ordersOn}
+        {!closed && stage === 'done' && <FacilityReady email={accountEmail}
           organizationType={registering?.organizationType ?? organizationType} onContinue={openWorkspace} />}
 
-        {!closed && stage === 'help' && help && <section className="patient-form" aria-labelledby="provider-enroll-help-title">
+        {!closed && stage === 'help' && help && <section className="patient-form provider-setup-panel" aria-labelledby="provider-enroll-help-title">
           <FocusedHeading id="provider-enroll-help-title">{help.title}</FocusedHeading>
           {help.restart ? <>
-            <p className="patient-field-hint">{help.text} <SupportContact purpose="help" /></p>
-            <button type="button" className="patient-primary-button" onClick={anotherEmail}>Start again with another email</button>
-          </> : <p className="patient-field-hint">{help.text} <SupportContact purpose="finish" /></p>}
+            <p className="provider-setup-line">{help.text} <SupportContact purpose="help" /></p>
+            <div className="provider-setup-row">
+              <button type="button" className="patient-primary-button" onClick={anotherEmail}>Use another email</button>
+            </div>
+          </> : <p className="provider-setup-line">{help.text} <SupportContact purpose="finish" /></p>}
         </section>}
 
         {/* Clinician self sign-up (hid-system ADR-066): a doctor or nurse applies with their own account, not this one. */}
@@ -1182,20 +1192,20 @@ function EnrollmentSteps() {
  * this host's only), and in production signs in on the staff site of the
  * facility's type from then on (P4b: ehr for a hospital, clinic or other
  * provider, lab for a laboratory, pharmacy for a pharmacy), where support's
- * check sends them once it is done. What the account opens is said as it is
- * (ORGANIZATION_TYPE_NOTES).
+ * check sends them once it is done. What the account opens, and when, was said
+ * where the type was chosen (ORGANIZATION_TYPE_NOTES), so it is not said again.
  */
-function FacilityReady({ email, organizationType, ordersOn, onContinue }: { email: string; organizationType: OrganizationType; ordersOn: boolean; onContinue: () => void }) {
+function FacilityReady({ email, organizationType, onContinue }: { email: string; organizationType: OrganizationType; onContinue: () => void }) {
   const hostname = window.location.hostname
   const site = staffSignInHref(hostname) !== null ? staffSiteHostname(staffSiteForOrganizationType(organizationType), hostname) : null
-  return <section className="patient-form" aria-labelledby="provider-enroll-done-title">
+  return <section className="patient-form provider-setup-panel" aria-labelledby="provider-enroll-done-title">
     <FocusedHeading id="provider-enroll-done-title">Your facility is set up</FocusedHeading>
-    <p className="patient-field-hint">You’re signed in as your facility’s administrator.</p>
-    <p className="patient-field-hint">{site
-      ? `Next time, sign in at ${site} with ${email} and the password you just chose.`
-      : `Next time, sign in to the Provider Portal with ${email} and the password you just chose.`}</p>
-    <p className="patient-field-hint">{organizationTypeNote(organizationType, ordersOn)}</p>
-    <button type="button" className="patient-primary-button" onClick={onContinue}>Continue to the Provider Portal</button>
+    <p className="provider-setup-line">{site
+      ? `You’re signed in. Next time, sign in at ${site} with ${email}.`
+      : `You’re signed in. Next time, sign in to the Provider Portal with ${email}.`}</p>
+    <div className="provider-setup-row">
+      <button type="button" className="patient-primary-button" onClick={onContinue}>Open the Provider Portal</button>
+    </div>
   </section>
 }
 
@@ -1205,12 +1215,11 @@ function FacilityReady({ email, organizationType, ordersOn, onContinue }: { emai
  * (its session is used up), so the administrator signs in instead.
  */
 function MaybeActive({ email }: { email: string }) {
-  return <section className="patient-form" aria-labelledby="provider-enroll-sign-in-title">
-    <FocusedHeading id="provider-enroll-sign-in-title">Your account may already be ready</FocusedHeading>
-    <p className="patient-field-hint">We couldn’t confirm that your facility was set up, but it may have been. Sign in with
-      {email ? ` ${email}` : ' your administrator email'} and the password you chose. If you can’t sign in,
-      {' '}<SupportContact purpose="inline" /></p>
-    <SignInLink>Sign in to the Provider Portal</SignInLink>
+  return <section className="patient-form provider-setup-panel" aria-labelledby="provider-enroll-sign-in-title">
+    <FocusedHeading id="provider-enroll-sign-in-title">Your account may be ready</FocusedHeading>
+    <p className="provider-setup-line">We couldn’t confirm it, but your facility may be set up. Sign in
+      with {email || 'your email'} and the password you chose. If you can’t, <SupportContact purpose="inline" /></p>
+    <div className="provider-setup-row"><SignInLink>Sign in to the Provider Portal</SignInLink></div>
   </section>
 }
 
@@ -1222,13 +1231,11 @@ function MaybeActive({ email }: { email: string }) {
  * administrator.
  */
 function SignInToFinish({ reason }: { reason: string | null }) {
-  const heading = useRef<HTMLHeadingElement>(null)
-  useLayoutEffect(() => { heading.current?.focus() }, [])
-  return <section className="patient-form" aria-labelledby="provider-enroll-sign-in-title">
-    <h2 id="provider-enroll-sign-in-title" ref={heading} tabIndex={-1} className="hid-mfa-heading">Sign in to finish setting up</h2>
+  return <section className="patient-form provider-setup-panel" aria-labelledby="provider-enroll-sign-in-title">
+    <FocusedHeading id="provider-enroll-sign-in-title">Sign in to finish setting up</FocusedHeading>
     {reason && <p role="alert" className="patient-inline-error">{reason}</p>}
-    <p className="patient-field-hint">Your provider account is ready. Sign in with your administrator email and password.
-      Then set up a code app on your phone (like Google Authenticator).</p>
-    <Link className="patient-primary-button" to="/provider/sign-in">Sign in to the Provider Portal</Link>
+    <p className="provider-setup-line">Your account is ready. Sign in, then turn on sign-in codes with an app on your
+      phone (like Google Authenticator).</p>
+    <div className="provider-setup-row"><Link className="patient-primary-button" to="/provider/sign-in">Sign in to the Provider Portal</Link></div>
   </section>
 }

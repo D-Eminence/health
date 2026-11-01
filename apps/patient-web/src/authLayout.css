@@ -19,6 +19,10 @@
   background: var(--color-page);
   color: var(--color-ink);
 }
+/* The EHR kit names its own font (Figtree) on .hid-ehr, and a control does not inherit a font by default: both are
+   pointed at Inter here, so every button, field and list on these pages is set in it. */
+.auth-page .hid-ehr { --ehr-font-body: var(--font-sans); --ehr-font-display: var(--font-sans); }
+.auth-page :is(button, input, select, textarea) { font-family: inherit; }
 
 /* ---- Top bar: brand left, the one other way in and the theme toggle right ---- */
 .auth-bar {

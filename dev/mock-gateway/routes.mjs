@@ -3,10 +3,11 @@
  * in-page preview shim (browser-shim.mjs). Sample data only. UI work only.
  */
 export const CSRF = 'mock-csrf'
-const options = { facility: 'blue', signup: false, enrol: 'open' }
+const options = { facility: 'blue', signup: false, enrol: 'open', activate: 'mfa' }
 /**
  * `facility`: 'blue' (Demo Hospital, blue EHR) or 'classic'. `signup`: the patient sign-up without a NIN is served.
- * `enrol`: 'open', 'closed' or 'unavailable', for patient and facility sign-up availability.
+ * `enrol`: 'open', 'closed' or 'unavailable', for patient and facility sign-up availability. `activate`: 'mfa' (main's
+ * answer to a facility activation: an authenticator step follows) or 'session' (Novu's: signed in, "set up" next).
  */
 export function configure(next) { Object.assign(options, next) }
 
@@ -1144,6 +1145,7 @@ function signedOutRoute(method, path, workspace, { body } = {}) {
   if (path === '/identity/provider-enrollments/profile') return [200, { organizationName: 'KEMSHEN HEALTHCARE LIMITED', registrationNumber: flow.provider?.cac ?? 'RC123456',
     productCode: flow.provider?.product ?? 'ehr', organizationType: flow.provider?.type ?? 'hospital', administratorName: flow.provider?.name ?? 'Ada Bello', administratorEmail: flow.provider?.email ?? 'ada@example.test' }]
   if (method === 'POST' && path === '/identity/provider-enrollments/activate') {
+    if (options.activate === 'session') return [200, { ...staffSession(), activated: true, organizationId: 'org-new' }]
     return [200, { activated: true, organizationId: 'org-new', facilityId: DEMO_FACILITY_ID, accountId: 'acct-new', status: 'mfa_enrollment_required', expiresAt: iso(10 * MIN) }]
   }
   if (path === '/identity/clinician-applications/availability') return [200, { open: true }]

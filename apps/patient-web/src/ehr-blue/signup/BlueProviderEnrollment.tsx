@@ -6,7 +6,7 @@ import { useDocumentTitle } from '../../authSteps'
 import { usesNovuBackend } from '../../backendContract'
 import { PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref } from '../../productHostname'
 import { ProviderEnrollment } from '../../staff/routes/ProviderEnrollment'
-import { ClosedPanel, CodeStep, FacilityReady, HelpPanel, MaybeActive, PasswordStep, Submitted, UnavailablePanel } from './AfterSubmit'
+import { ClosedPanel, CodeStep, FacilityReady, HelpPanel, MaybeActive, PasswordStep, UnavailablePanel } from './AfterSubmit'
 import { isProduct } from './enrollmentRules'
 import { NO_AGREEMENTS, Registration, type Agreements } from './Registration'
 import { SignupShell } from './SignupShell'
@@ -37,9 +37,9 @@ function EnrollOnMainSite({ href }: { readonly href: string }) {
   const target = isProduct(product) ? `${href}?product=${product}` : href
   return (
     <SignupShell centered onMainSite={false}>
-      <h1 className="hid-ehr-page-title hid-ehr-signup-title">Register a facility</h1>
-      <p className="hid-ehr-signup-lede">Facility sign-up is done on the main Health ID site.</p>
-      <a className="hid-ehr-button hid-ehr-signup-wide" href={target}>Continue to facility sign-up</a>
+      <h1 className="hid-ehr-signup-title">Register a facility</h1>
+      <p className="hid-ehr-signup-lede">Facilities sign up on the main Health ID site.</p>
+      <div className="hid-ehr-signup-actions"><a className="hid-ehr-button" href={target}>Go to facility sign-up</a></div>
     </SignupShell>
   )
 }
@@ -55,7 +55,7 @@ function BlueEnrollmentSteps() {
       {e.closed ? <ClosedPanel />
         : e.availability === 'unavailable' ? <UnavailablePanel e={e} />
           : registration ? <Registration e={e} agreed={agreed} onAgree={(key, value) => setAgreed(now => ({ ...now, [key]: value }))} />
-            : e.stage === 'otp' ? (e.submitted ? <Submitted e={e} /> : <CodeStep e={e} />)
+            : e.stage === 'otp' ? <CodeStep e={e} />
               : e.stage === 'password' ? <PasswordStep e={e} />
                 : e.stage === 'done' ? <FacilityReady e={e} />
                   : e.stage === 'sign-in' ? <MaybeActive e={e} />

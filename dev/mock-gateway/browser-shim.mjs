@@ -8,7 +8,8 @@ import { CSRF, EXPECTED_404, configure, notServed, respond, workspaceFor } from 
 
 const params = new URLSearchParams(window.location.search)
 configure({ facility: params.get('facility') === 'classic' ? 'classic' : 'blue', signup: params.get('signup') === '1',
-  enrol: ['closed', 'unavailable'].includes(params.get('enrol') ?? '') ? params.get('enrol') : 'open' })
+  enrol: ['closed', 'unavailable'].includes(params.get('enrol') ?? '') ? params.get('enrol') : 'open',
+  activate: params.get('activate') === 'session' ? 'session' : 'mfa' })
 // ?product=lab|pharmacy|outreach shows the provider workspace as that product alone (ehr-blue/frame/product.ts).
 const PRODUCTS = ['ehr', 'lab', 'pharmacy', 'outreach']
 const product = PRODUCTS.includes(params.get('product') ?? '') ? params.get('product') : 'ehr'

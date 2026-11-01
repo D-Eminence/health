@@ -5,13 +5,13 @@ import { ORGANIZATION_TYPE_NOTES, organizationTypeNote } from '../../../staff/ro
 import { focusWhenShown } from '../../focusWhenShown'
 import { security } from './signupFakes'
 import {
-  actAgain, agreeToAll, AGREEMENT_LABELS, answer, button, combobox, deferred, EMAIL, expectFocusOnStep, NAME, next, open, step,
-  stepHeading, submitButton, submitRegistration, SUPPORT, TabChannel, textbox, toForm, toReview,
+  actAgain, agreeToAll, AGREEMENT_LABELS, answer, button, choice, deferred, EMAIL, expectFocusOnStep, NAME, next, open, step,
+  stepHeading, STEPS, submitButton, submitRegistration, SUPPORT, TabChannel, textbox, toForm, toReview,
 } from './signupHarness'
 
 /**
- * The blue facility registration (design screens 02-07) as today's live sign-up: the design's five steps over today's
- * details form, the confirm dialog, and today's start with exactly today's payload and refusals. Every person, facility
+ * The blue facility registration as today's live sign-up: one question a step, each named once by its heading, over
+ * today's details form, then Check and send, and today's start with exactly today's payload and refusals. Every person, facility
  * and address here is fictional.
  */
 const api = vi.hoisted(() => ({ availability: vi.fn(), start: vi.fn(), verify: vi.fn(), profile: vi.fn(), activate: vi.fn(),
@@ -60,14 +60,17 @@ const PAYLOAD = { productCode: 'ehr', organizationType: 'hospital', cacRegistrat
   administratorEmail: EMAIL, turnstileToken: 'token-0' }
 
 describe('the registration opens as today’s page does', () => {
-  it('asks once whether sign-up is open, then shows step 1 of 5 with the design’s progress', async () => {
+  it('asks once whether sign-up is open, then shows step 1 of 5, its name said once (by its heading)', async () => {
     open()
-    expect(screen.getByRole('status').textContent).toBe('Checking that facility sign-up is open…')
+    expect(screen.getByRole('status').textContent).toBe('Checking that sign-up is open…')
     expect(screen.getByRole('heading', { level: 1, name: 'Register a facility' })).toBeTruthy()
-    expect(screen.getByText('Sign up your clinic, hospital, lab or pharmacy.')).toBeTruthy()
-    await step('Your account')
+    await step(STEPS.account)
     expect(api.availability).toHaveBeenCalledTimes(1)
-    expect(progress().textContent).toBe('Step 1 of 5 · Your account')
+    expect(progress().textContent).toBe('Step 1 of 5')
+    // One heading on the screen; "Register a facility" is said once, in the line under it.
+    expect(screen.getAllByRole('heading').map(heading => heading.textContent)).toEqual([STEPS.account])
+    expect(screen.getByText(/^Register your clinic, hospital, lab or pharmacy\./)).toBeTruthy()
+    expect(screen.queryByText('Register a facility')).toBeNull()
     expect(document.title).toBe('Facility sign-up · Health ID Provider')
     // The page itself sends nothing until it is submitted, and does not take focus when the form first shows.
     expect(api.start).not.toHaveBeenCalled()
@@ -84,8 +87,9 @@ describe('the registration opens as today’s page does', () => {
 })
 
 describe('step 1, Your account', () => {
-  it('takes the administrator’s name and email, as today’s fields', async () => {
+  it('takes the administrator’s name and email, as today’s fields, with no asterisks (every field is required)', async () => {
     await toForm()
+    expect(document.querySelector('main')?.textContent).not.toContain('*')
     const name = textbox('Full name')
     expect(name.required).toBe(true)
     expect(name.minLength).toBe(2)
@@ -108,19 +112,20 @@ describe('step 1, Your account', () => {
   it('stops Continue at a missing or wrong value with the design’s words, and focuses the field', async () => {
     await toForm()
     next()
-    expect(screen.getAllByText('Fill in this field.')).toHaveLength(2)
+    expect(screen.getByText('Enter your full name.')).toBeTruthy()
+    expect(screen.getByText('Enter your email address.')).toBeTruthy()
     expect(document.activeElement).toBe(textbox('Full name'))
     expect(textbox('Full name').getAttribute('aria-invalid')).toBe('true')
     fireEvent.change(textbox('Full name'), { target: { value: NAME } })
     fireEvent.change(textbox('Email'), { target: { value: 'not-an-email' } })
     next()
-    expect(screen.getByText('Enter an email address, like name@example.com.')).toBeTruthy()
+    expect(screen.getByText('Enter an email address like name@example.com.')).toBeTruthy()
     expect(document.activeElement).toBe(textbox('Email'))
-    expect(stepHeading().textContent).toBe('Your account')
+    expect(stepHeading().textContent).toBe(STEPS.account)
     fireEvent.change(textbox('Full name'), { target: { value: ' D ' } })
     fireEvent.change(textbox('Email'), { target: { value: EMAIL } })
     next()
-    expect(screen.getByText('Enter at least two characters.')).toBeTruthy()
+    expect(screen.getByText('Enter at least two letters.')).toBeTruthy()
     expect(api.start).not.toHaveBeenCalled()
   })
 
@@ -137,50 +142,75 @@ describe('moving between steps', () => {
     fireEvent.change(textbox('Full name'), { target: { value: NAME } })
     fireEvent.change(textbox('Email'), { target: { value: EMAIL } })
     next()
-    await expectFocusOnStep('Facility type')
-    expect(progress().textContent).toBe('Step 2 of 5 · Facility type')
+    await expectFocusOnStep(STEPS.type)
+    expect(progress().textContent).toBe('Step 2 of 5')
     next()
-    await expectFocusOnStep('CAC number')
+    await expectFocusOnStep(STEPS.cac)
     fireEvent.click(button('Back'))
-    await expectFocusOnStep('Facility type')
+    await expectFocusOnStep(STEPS.type)
     fireEvent.click(button('Back'))
-    await expectFocusOnStep('Your account')
+    await expectFocusOnStep(STEPS.account)
     // Values are kept in the page while it is open.
     expect(textbox('Full name').value).toBe(NAME)
     expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
   })
 })
 
-describe('step 2, Facility type', () => {
-  it('takes today’s five facility types, Hospital first, and draws no other design field', async () => {
+describe('step 2, What kind of facility is it?', () => {
+  it('takes today’s five facility types, Hospital first, as one choice named by the heading', async () => {
     await toReview()
     fireEvent.click(button('Edit facility type'))
-    await step('Facility type')
-    const type = combobox('Facility type')
-    expect([...type.options].map(option => [option.value, option.text])).toEqual([['hospital', 'Hospital'],
-      ['clinic', 'Clinic'], ['laboratory', 'Laboratory'], ['pharmacy', 'Pharmacy'], ['other', 'Other healthcare provider']])
-    expect(type.value).toBe('hospital')
+    await step(STEPS.type)
+    expect(screen.getByRole('group', { name: STEPS.type })).toBeTruthy()
+    expect(screen.getAllByRole('radio').map(radio => [(radio as HTMLInputElement).value, radio.closest('label')?.textContent]))
+      .toEqual([['hospital', 'Hospital'], ['clinic', 'Clinic'], ['laboratory', 'Laboratory'], ['pharmacy', 'Pharmacy'],
+        ['other', 'Other healthcare provider']])
+    expect(choice('Hospital').checked).toBe(true)
     noneOfTheUntaken()
   })
 
+  it.each([
+    ['hospital', 'Hospital'], ['laboratory', 'Laboratory'], ['pharmacy', 'Pharmacy'], ['other', 'Other healthcare provider'],
+  ])('says, where a %s is chosen, what it gets: once, read with the choice', async (type, label) => {
+    await toForm()
+    fireEvent.change(textbox('Full name'), { target: { value: NAME } })
+    fireEvent.change(textbox('Email'), { target: { value: EMAIL } })
+    next()
+    await step(STEPS.type)
+    fireEvent.click(choice(label))
+    expect(hintOf(screen.getByRole('group', { name: STEPS.type })))
+      .toBe(ORGANIZATION_TYPE_NOTES[type as keyof typeof ORGANIZATION_TYPE_NOTES])
+  })
+
+  it('says what a laboratory’s note says when orders between facilities are on (P4c)', async () => {
+    api.availability.mockResolvedValue({ open: true, crossFacilityOrders: true })
+    await toReview({ type: 'laboratory' })
+    fireEvent.click(button('Edit facility type'))
+    await step(STEPS.type)
+    expect(organizationTypeNote('laboratory', true)).not.toBe(ORGANIZATION_TYPE_NOTES.laboratory)
+    expect(hintOf(screen.getByRole('group', { name: STEPS.type }))).toBe(organizationTypeNote('laboratory', true))
+  })
+
   it('preselects ?type= and ?product= as today’s page does, keeping only a product the type allows', async () => {
-    await toReview({ entry: '/provider/enroll?type=laboratory&product=ehr' })
-    fireEvent.click(button('Edit product'))
-    await step('Product')
-    expect(combobox('Product to start with').value).toBe('laboratory')
+    await toReview({ entry: '/provider/enroll?type=laboratory&product=ehr', type: 'laboratory' })
+    // A laboratory has one product: it is not asked, and the review says it once, with the type.
+    expect(progress().textContent).toBe('Step 4 of 4')
+    expect(screen.queryByRole('button', { name: 'Edit product' })).toBeNull()
+    expect([...document.querySelectorAll('.hid-ehr-signup-facts > div')].map(row => row.textContent))
+      .toContain('ProductHealth ID Laboratory')
     fireEvent.click(button('Back'))
-    await step('CAC number')
+    await step(STEPS.cac)
     fireEvent.click(button('Back'))
-    await step('Facility type')
-    expect(combobox('Facility type').value).toBe('laboratory')
+    await step(STEPS.type)
+    expect(choice('Laboratory').checked).toBe(true)
   })
 })
 
 describe('step 3, CAC number', () => {
-  it('takes the CAC number as today’s field does, with today’s fine print, and nothing else', async () => {
+  it('takes the CAC number as today’s field does, with one hint that helps find it, and nothing else', async () => {
     await toReview()
     fireEvent.click(button('Edit CAC number'))
-    await step('CAC number')
+    await step(STEPS.cac)
     const cac = textbox('CAC number')
     expect(cac.value).toBe('RC123456')
     expect(cac.required).toBe(true)
@@ -188,86 +218,98 @@ describe('step 3, CAC number', () => {
     expect(cac.maxLength).toBe(22)
     expect(cac.placeholder).toBe('RC123456')
     expect(cac.getAttribute('autocomplete')).toBe('off')
-    expect(hintOf(cac)).toBe('From your business registration certificate. Health ID support checks every new facility '
-      + 'within one working day.')
+    expect(hintOf(cac)).toBe('From your business registration certificate.')
     noneOfTheUntaken()
   })
 
   it('needs a CAC number in today’s pattern before Continue', async () => {
     await toReview()
     fireEvent.click(button('Edit CAC number'))
-    await step('CAC number')
+    await step(STEPS.cac)
     fireEvent.change(textbox('CAC number'), { target: { value: '' } })
     next()
-    expect(screen.getByText('Fill in this field.')).toBeTruthy()
+    expect(screen.getByText('Enter your CAC number.')).toBeTruthy()
     fireEvent.change(textbox('CAC number'), { target: { value: 'ab 12' } })
     expect(textbox('CAC number').value).toBe('AB12')
     next()
-    expect(screen.getByText('Enter the number on your CAC certificate: RC, BN or IT, then its digits, for example RC123456.')).toBeTruthy()
+    expect(screen.getByText('Start with RC, BN or IT, then the digits, like RC123456.')).toBeTruthy()
     expect(document.activeElement).toBe(textbox('CAC number'))
-    expect(stepHeading().textContent).toBe('CAC number')
+    expect(stepHeading().textContent).toBe(STEPS.cac)
   })
 })
 
-describe('step 4, Product', () => {
+describe('step 4, Which Health ID do you need?', () => {
   it.each([
     ['hospital', ['ehr', 'laboratory', 'pharmacy', 'migrate']],
-    ['laboratory', ['laboratory']],
-    ['pharmacy', ['pharmacy']],
+    ['clinic', ['ehr', 'laboratory', 'pharmacy', 'migrate']],
     ['other', ['ehr', 'laboratory', 'pharmacy', 'migrate']],
-  ])('offers a %s today’s products, with the type’s note', async (type, codes) => {
+  ])('offers a %s today’s products, as one choice named by the heading', async (type, codes) => {
     await toReview({ type })
     fireEvent.click(button('Edit product'))
-    await step('Product')
-    const product = combobox('Product to start with')
-    expect([...product.options].map(option => option.value)).toEqual(codes)
-    expect(hintOf(product)).toBe(ORGANIZATION_TYPE_NOTES[type as keyof typeof ORGANIZATION_TYPE_NOTES])
-    expect([...combobox('Product to start with').options].map(option => option.text)[0])
-      .toBe(type === 'laboratory' ? 'Health ID Laboratory' : type === 'pharmacy' ? 'Health ID Pharmacy' : 'Health ID EHR')
+    await step(STEPS.product)
+    expect(screen.getByRole('group', { name: STEPS.product })).toBeTruthy()
+    expect(screen.getAllByRole('radio').map(radio => (radio as HTMLInputElement).value)).toEqual(codes)
+    expect(choice('Health ID EHR').checked).toBe(true)
     noneOfTheUntaken()
   })
 
-  it('says what a laboratory’s note says when orders between facilities are on (P4c)', async () => {
-    api.availability.mockResolvedValue({ open: true, crossFacilityOrders: true })
-    await toReview({ type: 'laboratory' })
-    fireEvent.click(button('Edit product'))
-    await step('Product')
-    expect(organizationTypeNote('laboratory', true)).not.toBe(ORGANIZATION_TYPE_NOTES.laboratory)
-    expect(hintOf(combobox('Product to start with'))).toBe(organizationTypeNote('laboratory', true))
+  it.each([
+    ['laboratory', 'Laboratory', 'Health ID Laboratory'],
+    ['pharmacy', 'Pharmacy', 'Health ID Pharmacy'],
+  ])('does not ask a %s, which has one product: it is chosen, said once in the review, and sent', async (type, label, product) => {
+    await toForm()
+    fireEvent.change(textbox('Full name'), { target: { value: NAME } })
+    fireEvent.change(textbox('Email'), { target: { value: EMAIL } })
+    next()
+    await step(STEPS.type)
+    fireEvent.click(choice(label))
+    next()
+    await step(STEPS.cac)
+    expect(progress().textContent).toBe('Step 3 of 4')
+    fireEvent.change(textbox('CAC number'), { target: { value: 'RC123456' } })
+    next()
+    await expectFocusOnStep(STEPS.review)
+    expect(screen.queryByRole('heading', { name: STEPS.product })).toBeNull()
+    expect(screen.getAllByText(product)).toHaveLength(1)
+    await submitRegistration()
+    await screen.findByRole('heading', { level: 1, name: 'Confirm your email' })
+    expect(api.start).toHaveBeenCalledWith({ ...PAYLOAD, organizationType: type, productCode: type })
   })
 })
 
-describe('step 5, Agreements', () => {
-  it('reviews each section with its Edit, and lists only what Health ID takes', async () => {
+describe('step 5, Check and send', () => {
+  it('lists the answers in one short list, one Edit a section, and only what Health ID takes', async () => {
     await toReview({ product: 'migrate' })
-    expect(progress().textContent).toBe('Step 5 of 5 · Agreements')
+    expect(progress().textContent).toBe('Step 5 of 5')
     const facts = [...document.querySelectorAll('.hid-ehr-signup-facts > div')].map(row => row.textContent)
-    expect(facts).toEqual([`Full name${NAME}`, `Email${EMAIL}`, 'Facility typeHospital', 'CAC numberRC123456',
+    expect(facts).toEqual([`Name${NAME}`, `Email${EMAIL}`, 'Facility typeHospital', 'CAC numberRC123456',
       'ProductHealth ID Migrate'])
-    fireEvent.click(button('Edit your account'))
-    await expectFocusOnStep('Your account')
+    expect(screen.getAllByRole('button', { name: /^Edit / }).map(edit => edit.getAttribute('aria-label')))
+      .toEqual(['Edit name and email', 'Edit facility type', 'Edit CAC number', 'Edit product'])
+    // No section headings or panels that say the list again.
+    expect(screen.getAllByRole('heading').map(heading => heading.textContent)).toEqual([STEPS.review])
+    fireEvent.click(button('Edit name and email'))
+    await expectFocusOnStep(STEPS.account)
   })
 
-  it('shows the agreements and needs all four boxes ticked before it can be submitted', async () => {
+  it('shows the agreements as four lines with their links, and needs all four ticked before it can be sent', async () => {
     await toReview()
-    fireEvent.click(screen.getByText('Read the agreements'))
-    expect(screen.getByRole('link', { name: 'Health ID Terms of Service' }).getAttribute('href'))
+    expect(screen.getByRole('link', { name: 'Terms of Service' }).getAttribute('href'))
       .toBe('https://healthidentitydirectory.com/terms')
-    expect(screen.getByRole('link', { name: 'Health ID Privacy Policy' }).getAttribute('href'))
+    expect(screen.getByRole('link', { name: 'Privacy Policy' }).getAttribute('href'))
       .toBe('https://healthidentitydirectory.com/privacy')
     // Nothing on the page says that the ticks are recorded: Health ID does not record them yet.
     expect(document.body.textContent).not.toMatch(/record(ed)? (your|the) (agreement|acceptance)|we keep a record/i)
     // Health ID has no Data Processing Agreement: no box and no paragraph name one.
     expect(document.body.textContent).not.toMatch(/Data Processing Agreement/)
-    expect(screen.getAllByRole('checkbox').map(box => box.closest('label')?.textContent?.replace('*', '')))
-      .toEqual(['I have read the Terms of Service', 'I have read the Privacy Policy',
-        'I acknowledge data protection and patient consent responsibilities', 'I am authorised to register this facility'])
+    expect(screen.getAllByRole('checkbox').map(box => box.closest('label')?.textContent)).toEqual(AGREEMENT_LABELS)
+    expect(screen.getAllByRole('checkbox').every(box => (box as HTMLInputElement).required)).toBe(true)
+    expect(document.querySelector('main')?.textContent).not.toContain('*')
     expect(submitButton().disabled).toBe(true)
     for (const name of AGREEMENT_LABELS.slice(0, 3)) fireEvent.click(screen.getByRole('checkbox', { name }))
     expect(submitButton().disabled).toBe(true)
     fireEvent.click(screen.getByRole('checkbox', { name: AGREEMENT_LABELS[3] }))
     expect(submitButton().disabled).toBe(false)
-    expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(api.start).not.toHaveBeenCalled()
   })
 
@@ -275,53 +317,46 @@ describe('step 5, Agreements', () => {
     await toReview()
     agreeToAll()
     fireEvent.click(button('Edit product'))
-    await step('Product')
+    await step(STEPS.product)
     next()
-    await step('Agreements')
+    await step(STEPS.review)
     expect(submitButton().disabled).toBe(false)
   })
 })
 
 describe('submitting', () => {
-  it('asks in the design’s dialog first; Cancel sends nothing', async () => {
+  it('sends at once on Send: the list is the check, so no dialog asks again', async () => {
     await toReview()
     agreeToAll()
+    expect(screen.getByText(`When you send, we check your CAC number and email a 6-digit code to ${EMAIL}. There’s nothing to `
+      + 'pay.')).toBeTruthy()
     fireEvent.click(submitButton())
-    const dialog = await screen.findByRole('alertdialog', { name: 'Send these details?' })
-    // Health ID records no acceptance: the dialog asks to confirm the details, not to accept anything.
-    expect(dialog.textContent).toContain('Check the details above, then send them. Health ID checks your CAC number '
-      + 'and emails you a 6-digit code.')
-    expect(dialog.textContent).not.toMatch(/accept/i)
-    expect(within(dialog).getByRole('button', { name: 'Yes, send them' })).toBeDefined()
-    expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Cancel' }))
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('alertdialog')).toBeNull()
-    expect(api.start).not.toHaveBeenCalled()
-    expect(stepHeading().textContent).toBe('Agreements')
+    await screen.findByRole('heading', { level: 1, name: 'Confirm your email' })
+    expect(api.start).toHaveBeenCalledTimes(1)
   })
 
-  it('runs today’s start once with exactly today’s payload, then says the registration is submitted', async () => {
+  it('runs today’s start once with exactly today’s payload, then asks for the code, saying the CAC number was checked', async () => {
     await toReview()
     await submitRegistration()
-    const heading = await screen.findByRole('heading', { level: 1, name: 'Facility details sent' })
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Confirm your email' })
     expect(api.start).toHaveBeenCalledTimes(1)
     expect(api.start).toHaveBeenCalledWith(PAYLOAD)
     expect(Object.keys(api.start.mock.calls[0]![0] as object).sort()).toEqual(Object.keys(PAYLOAD).sort())
     await waitFor(() => expect(document.activeElement).toBe(heading))
-    expect(screen.getByText('We’ve checked your CAC number. Confirm your email next, then choose your password. '
-      + 'Full access begins once Health ID support has checked your facility, usually within one working day.')).toBeTruthy()
+    expect(heading.nextElementSibling?.textContent).toBe(`We checked your CAC number. Enter the 6-digit code we sent to ${EMAIL}.`)
   })
 
   it('sends the type and product chosen, and never a field Health ID does not take', async () => {
     await toReview({ type: 'clinic', product: 'pharmacy' })
     // No field Health ID doesn't take is drawn, so none can be filled in.
-    fireEvent.click(button('Edit your account'))
-    await step('Your account')
+    fireEvent.click(button('Edit name and email'))
+    await step(STEPS.account)
     expect(screen.queryByLabelText('Phone')).toBeNull()
     for (let index = 0; index < 4; index++) next()
-    await step('Agreements')
+    await step(STEPS.review)
     await submitRegistration()
-    await screen.findByRole('heading', { level: 1, name: 'Facility details sent' })
+    await screen.findByRole('heading', { level: 1, name: 'Confirm your email' })
     expect(api.start).toHaveBeenCalledWith({ ...PAYLOAD, organizationType: 'clinic', productCode: 'pharmacy' })
     expect(JSON.stringify(api.start.mock.calls)).not.toContain('08012345678')
   })
@@ -341,18 +376,18 @@ describe('submitting', () => {
     fireEvent.click(check)
     expect(submitButton().disabled).toBe(false)
     await submitRegistration()
-    await screen.findByRole('heading', { level: 1, name: 'Facility details sent' })
+    await screen.findByRole('heading', { level: 1, name: 'Confirm your email' })
     expect(api.start).toHaveBeenCalledTimes(1)
   })
 
-  it('says the CAC check is running while the start waits for it', async () => {
+  it('says it is sending while the start (and its CAC check) runs', async () => {
     const started = deferred<unknown>()
     api.start.mockReturnValueOnce(started.promise)
     await toReview()
     await submitRegistration()
-    await waitFor(() => expect(button('Checking CAC…').getAttribute('aria-busy')).toBe('true'))
+    await waitFor(() => expect(button('Sending…').getAttribute('aria-busy')).toBe('true'))
     answer(() => started.resolve({ accepted: true, codeSent: true, challengeId: 'challenge-1' }))
-    await screen.findByRole('heading', { level: 1, name: 'Facility details sent' })
+    await screen.findByRole('heading', { level: 1, name: 'Confirm your email' })
   })
 })
 
@@ -380,7 +415,7 @@ describe('a refusal of the start, in today’s words', () => {
     api.start.mockReturnValueOnce(refused.promise)
     await toReview()
     await submitRegistration()
-    const shown = focusWhenShown(() => screen.queryByRole('heading', { level: 2, name: 'CAC number' }))
+    const shown = focusWhenShown(() => screen.queryByRole('heading', { level: 1, name: STEPS.cac }))
     answer(() => refused.reject(new HidApiError(status, 'Identity’s own words', { code })))
     const { element, focused } = await shown
     // Focus is on the step heading in the commit that shows it.
@@ -395,11 +430,11 @@ describe('a refusal of the start, in today’s words', () => {
     if (words.includes(SUPPORT)) expect(within(alert).getByRole('link', { name: SUPPORT }).getAttribute('href')).toBe(`mailto:${SUPPORT}`)
     // Correcting the number and coming back sends again, with a fresh security check.
     fireEvent.change(cac, { target: { value: 'RC654321' } })
-    next(); await step('Product')
-    next(); await step('Agreements')
+    next(); await step(STEPS.product)
+    next(); await step(STEPS.review)
     expect(screen.queryByRole('alert')).toBeNull()
     await submitRegistration()
-    await screen.findByRole('heading', { level: 1, name: 'Facility details sent' })
+    await screen.findByRole('heading', { level: 1, name: 'Confirm your email' })
     expect(api.start).toHaveBeenLastCalledWith({ ...PAYLOAD, cacRegistrationNumber: 'RC654321', turnstileToken: 'token-1' })
   })
 
@@ -420,16 +455,16 @@ describe('a refusal of the start, in today’s words', () => {
     [403, 'PROVIDER_ENROLLMENT_DENIED', 'Facility sign-up isn’t working right now. Please try again in a few minutes.'],
     [400, 'VALIDATION_FAILED', 'Some of the details weren’t accepted. Check them and try again.'],
     [409, 'SOMETHING_NEW', 'Identity’s own words'],
-  ])('%s %s stays on Agreements with today’s words', async (status, code, words) => {
+  ])('%s %s stays on Check and send with today’s words', async (status, code, words) => {
     api.start.mockRejectedValueOnce(new HidApiError(status, 'Identity’s own words', { code }))
     await toReview()
     await submitRegistration()
     expect((await screen.findByRole('alert')).textContent).toBe(words)
-    expect(stepHeading().textContent).toBe('Agreements')
+    expect(stepHeading().textContent).toBe(STEPS.review)
     // A new security check for the next try (today: the token is cleared and the widget reset after every start).
     await waitFor(() => expect(submitButton().disabled).toBe(false))
     await submitRegistration()
-    await screen.findByRole('heading', { level: 1, name: 'Facility details sent' })
+    await screen.findByRole('heading', { level: 1, name: 'Confirm your email' })
     expect(api.start).toHaveBeenLastCalledWith({ ...PAYLOAD, turnstileToken: 'token-1' })
   })
 
@@ -469,7 +504,7 @@ describe('a refusal of the start, in today’s words', () => {
     await submitRegistration()
     const heading = await screen.findByRole('heading', { level: 1, name: 'Facility sign-up isn’t open right now' })
     expect(document.activeElement).toBe(heading)
-    expect(screen.queryByRole('heading', { level: 2, name: 'Agreements' })).toBeNull()
+    expect(screen.queryByRole('heading', { level: 1, name: STEPS.review })).toBeNull()
   })
 
   it.each([
@@ -482,7 +517,7 @@ describe('a refusal of the start, in today’s words', () => {
     expect((await screen.findByRole('alert')).textContent).toBe(words)
     expect(screen.getByText(hint)).toBeTruthy()
     expect(submitButton().disabled).toBe(true)
-    expect(stepHeading().textContent).toBe('Agreements')
+    expect(stepHeading().textContent).toBe(STEPS.review)
     expect(screen.queryByRole('heading', { level: 1, name: 'Facility details sent' })).toBeNull()
   })
 })
@@ -490,22 +525,21 @@ describe('a refusal of the start, in today’s words', () => {
 /**
  * A changed facility type or administrator name goes only with a new code (R6): when Identity sends none (codeSent
  * false) and the code in force carries the earlier ones, today's page holds the change and offers that code
- * (ProviderEnrollment.tsx:726-735, 1058-1064). The blue registration shows it on Agreements.
+ * (ProviderEnrollment.tsx:726-735, 1058-1064). The blue registration shows it on Check and send.
  */
 describe('a changed facility type that Identity sent no code for', () => {
-  it('stays on Agreements, says the change was not applied, waits, and offers the code already sent', async () => {
+  it('stays on Check and send, says the change was not applied, waits, and offers the code already sent', async () => {
     api.start.mockResolvedValueOnce({ accepted: true, codeSent: true, challengeId: 'challenge-1', expiresInSeconds: 600,
       resendAfterSeconds: 0 })
     await toReview()
     await submitRegistration()
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Use a different email' }))
-    await step('Your account')
+    await step(STEPS.account)
     next()
-    await step('Facility type')
-    fireEvent.change(combobox('Facility type'), { target: { value: 'clinic' } })
-    for (const name of ['CAC number', 'Product', 'Agreements']) { next(); await step(name) }
-    expect(screen.queryByText(/^A new facility type or administrator name/)).toBeNull()
+    await step(STEPS.type)
+    fireEvent.click(choice('Clinic'))
+    for (const name of [STEPS.cac, STEPS.product, STEPS.review]) { next(); await step(name) }
+    expect(screen.queryByText(/^A new facility type or name/)).toBeNull()
 
     api.start.mockResolvedValueOnce({ accepted: true, codeSent: false, challengeId: 'challenge-1', expiresInSeconds: 590,
       resendAfterSeconds: 45 })
@@ -515,24 +549,23 @@ describe('a changed facility type that Identity sent no code for', () => {
     expect(api.start).toHaveBeenCalledTimes(2)
     expect(api.start).toHaveBeenLastCalledWith({ ...PAYLOAD, organizationType: 'clinic', turnstileToken: 'token-1' })
     // Not the code: its code would register a hospital.
-    expect(stepHeading().textContent).toBe('Agreements')
-    expect(screen.getByText(/^A new facility type or administrator name/).textContent).toBe('A new facility type or '
-      + `administrator name takes effect only with a new code. The code already sent is for the facility type Hospital, with ${NAME} `
-      + 'as administrator.')
-    expect(screen.getByText(/^You can continue with your changes in (45|44) seconds\.$/)).toBeTruthy()
+    expect(stepHeading().textContent).toBe(STEPS.review)
+    expect(screen.getByText(/^A new facility type or name/).textContent).toBe('A new facility type or name needs a new code. '
+      + `The code we already sent is for Hospital, with ${NAME} as administrator.`)
+    expect(screen.getByText(/^You can send your changes in (45|44) seconds\.$/)).toBeTruthy()
     expect(submitButton().disabled).toBe(true)
     fireEvent.submit(submitButton().closest('form')!)
     expect(screen.queryByRole('alertdialog')).toBeNull()
 
     fireEvent.click(button('Use the details I gave before'))
-    await screen.findByRole('heading', { level: 1, name: 'Enter the code we emailed you' })
-    expect(document.querySelector('.hid-ehr-signup-lede')?.textContent).toBe(`We didn’t send a new code, because one was sent to `
-      + `${EMAIL} less than a minute ago. Enter the six digit code from that email.`)
+    await screen.findByRole('heading', { level: 1, name: 'Confirm your email' })
+    expect(document.querySelector('.hid-ehr-signup-lede')?.textContent).toBe(`We sent a code to ${EMAIL} less than a minute `
+      + 'ago, so we didn’t send another. Enter the 6-digit code from that email.')
     expect(screen.queryByRole('alert')).toBeNull()
     expect(api.start).toHaveBeenCalledTimes(2)
-    fireEvent.change(textbox('Code from the email'), { target: { value: '111111' } })
-    fireEvent.click(button('Check code'))
-    await screen.findByRole('heading', { level: 1, name: 'Create your provider account' })
+    fireEvent.change(textbox('Code'), { target: { value: '111111' } })
+    fireEvent.click(button('Confirm'))
+    await screen.findByRole('heading', { level: 1, name: 'Choose a password' })
     expect(api.verify).toHaveBeenCalledWith('challenge-1', '111111')
   })
 })
@@ -542,15 +575,14 @@ describe('another email for a sign-up that is open', () => {
     api.start.mockResolvedValueOnce({ accepted: true, codeSent: true, challengeId: 'challenge-1', resendAfterSeconds: 0 })
     await toReview()
     await submitRegistration()
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Use a different email' }))
-    await expectFocusOnStep('Your account')
+    await expectFocusOnStep(STEPS.account)
     expect(textbox('Email').value.trim().toLowerCase()).toBe(EMAIL)
     fireEvent.change(textbox('Email'), { target: { value: 'other@demo-hospital.example.test' } })
     for (let index = 0; index < 4; index++) next()
-    await step('Agreements')
-    expect(screen.getByText(`A sign-up for RC123456 was started with ${EMAIL}, and only that email can finish it until 24 hours `
-      + 'after it started. You can still correct the CAC number.')).toBeTruthy()
+    await step(STEPS.review)
+    expect(screen.getByText(`A sign-up for RC123456 was started with ${EMAIL}. Until 24 hours after it started, only that `
+      + 'email can finish it. You can still correct the CAC number.')).toBeTruthy()
 
     api.start.mockRejectedValueOnce(new HidApiError(409, 'Requires review', { code: 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW' }))
     await submitRegistration()
@@ -558,7 +590,7 @@ describe('another email for a sign-up that is open', () => {
       + `use another email yet. Finish it with the code sent to ${EMAIL}, or sign up with the new email 24 hours after the first `
       + `sign-up started. Otherwise, contact Health ID support at ${SUPPORT}, and give your CAC number.`)
     // It is about the email, not the number: the registration stays where it was submitted.
-    expect(stepHeading().textContent).toBe('Agreements')
+    expect(stepHeading().textContent).toBe(STEPS.review)
     fireEvent.click(button('Use the email I first gave'))
     expect(screen.queryByText(/only that email can finish it/)).toBeNull()
     expect(document.querySelector('.hid-ehr-signup-facts')?.textContent).toContain(EMAIL)

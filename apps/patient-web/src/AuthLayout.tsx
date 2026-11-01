@@ -39,6 +39,8 @@ interface AuthLayoutProps {
   readonly lede?: ReactNode
   readonly steps?: readonly AuthStep[]
   readonly stepsLabel?: string
+  /** False when each step's own heading names it: the stepper then says only "Step 2 of 4" (said once). */
+  readonly stepsNamed?: boolean
   /** The panel's own label, when the title is not the panel's heading (or there is none: then a step's own h1). */
   readonly panelLabelledBy?: string
   readonly children: ReactNode
@@ -53,7 +55,7 @@ interface AuthLayoutProps {
  */
 export function AuthLayout({
   brandTo, brandLabel = 'Health ID', audience = 'patient', headerLink, title, titleId, titleAs = 'h1', titleRef, titleFocusable,
-  lede, steps, stepsLabel, panelLabelledBy, children,
+  lede, steps, stepsLabel, stepsNamed = true, panelLabelledBy, children,
 }: AuthLayoutProps) {
   const Title = titleAs
   const aside = audience === 'admin' ? null : audience === 'provider' ? <ProviderPanel /> : <PatientPanel />
@@ -71,7 +73,7 @@ export function AuthLayout({
         <div className="auth-center">
           <div className="auth-column">
             {(title !== null || lede || steps?.some(step => step.current)) && <div className="auth-intro">
-              {steps && steps.length > 0 && <AuthStepper steps={steps} label={stepsLabel} />}
+              {steps && steps.length > 0 && <AuthStepper steps={steps} label={stepsLabel} named={stepsNamed} />}
               {title !== null && <Title id={titleId} ref={titleRef} tabIndex={titleFocusable ? -1 : undefined} className="auth-title">{title}</Title>}
               {lede && <p className="auth-lede">{lede}</p>}
             </div>}
@@ -90,14 +92,19 @@ export function AuthLayout({
  * Where a multi-step flow is, in one line that fits a phone: "Step 2 of 4 · Email", over a thin bar. The line is the
  * named group's text, so it is read once; the bar only draws it.
  */
-export function AuthStepper({ steps, label }: { readonly steps: readonly AuthStep[]; readonly label?: string }) {
+export function AuthStepper({ steps, label, named = true }: {
+  readonly steps: readonly AuthStep[]
+  readonly label?: string
+  /** False when the step's own heading says its name: then only "Step 2 of 4". */
+  readonly named?: boolean
+}) {
   const index = steps.findIndex(step => step.current)
   const current = steps[index]
   // Past the last step (the ending), there is no step to show.
   if (!current) return null
   return (
     <div className="auth-stepper" role="group" aria-label={label}>
-      <p className="auth-stepper-text">{`Step ${index + 1} of ${steps.length} · ${current.label}`}</p>
+      <p className="auth-stepper-text">{named ? `Step ${index + 1} of ${steps.length} · ${current.label}` : `Step ${index + 1} of ${steps.length}`}</p>
       <div className="auth-stepper-bar" aria-hidden="true"><span style={{ width: `${((index + 1) / steps.length) * 100}%` }} /></div>
     </div>
   )

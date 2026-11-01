@@ -38,12 +38,37 @@ export function SignInLink({ children }: { children: ReactNode }) {
 export function ScreenHeading({ id, children }: { id: string; children: ReactNode }) {
   const heading = useRef<HTMLHeadingElement>(null)
   useLayoutEffect(() => { heading.current?.focus() }, [])
-  return <h1 id={id} ref={heading} tabIndex={-1} className="hid-ehr-page-title hid-ehr-signup-title">{children}</h1>
+  return <h1 id={id} ref={heading} tabIndex={-1} className="hid-ehr-signup-title">{children}</h1>
 }
 
-/** A required field's label: the design's " *", which the control's own `required` says to assistive technology. */
-export function Required({ children }: { children: ReactNode }) {
-  return <>{children}<span className="hid-ehr-signup-required" aria-hidden="true"> *</span></>
+/**
+ * One choice from a short list, as rows of radio buttons (each row a 44px+ target). The group is named by the step's
+ * heading, which asks the question, so it has no label of its own; `note` says what the chosen option means.
+ */
+export function Choices<Value extends string>({ name, labelledBy, value, options, onChange, note, noteId }: {
+  readonly name: string
+  readonly labelledBy: string
+  readonly value: Value
+  readonly options: ReadonlyArray<{ readonly value: Value; readonly label: string }>
+  readonly onChange: (value: Value) => void
+  readonly note?: string | null
+  readonly noteId?: string
+}) {
+  return (
+    <>
+      <fieldset className="hid-ehr-signup-choices" aria-labelledby={labelledBy}
+        aria-describedby={note && noteId ? noteId : undefined}>
+        {options.map(option => (
+          <label key={option.value} className="hid-ehr-signup-choice">
+            <input type="radio" name={name} value={option.value} checked={value === option.value}
+              onChange={() => onChange(option.value)} />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </fieldset>
+      {note && noteId ? <p id={noteId} className="hid-ehr-signup-hint">{note}</p> : null}
+    </>
+  )
 }
 
 /** An error's words, ending with support's address when it has one (today's alert, ProviderEnrollment.tsx:990-991). */

@@ -86,8 +86,8 @@ const select = (name: string) => screen.getByRole('combobox', { name }) as HTMLS
 
 function enterDetails() {
   fireEvent.change(screen.getByRole('textbox', { name: 'CAC number' }), { target: { value: 'rc 123 456' } })
-  fireEvent.change(screen.getByRole('textbox', { name: 'Administrator full name' }), { target: { value: '  Ada Admin ' } })
-  fireEvent.change(screen.getByRole('textbox', { name: 'Administrator email' }), { target: { value: ' Ada@Example.TEST ' } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Your full name' }), { target: { value: '  Ada Admin ' } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Your email' }), { target: { value: ' Ada@Example.TEST ' } })
 }
 
 describe('facility sign-up', () => {
@@ -100,6 +100,9 @@ describe('facility sign-up', () => {
   it('ignores a product the linked facility type cannot enroll for', () => {
     open('/provider/enroll?type=laboratory&product=ehr')
     expect((screen.getByRole('radio', { name: 'Laboratory' }) as HTMLInputElement).checked).toBe(true)
+    // A laboratory has one product: it is chosen, not asked.
+    expect(screen.queryByRole('combobox', { name: 'Product' })).toBeNull()
+    fireEvent.click(screen.getByRole('radio', { name: 'Hospital' }))
     expect(select('Product').value).toBe('laboratory')
   })
 
@@ -107,8 +110,8 @@ describe('facility sign-up', () => {
     open()
     expect([...select('Product').options].map(option => option.value)).toEqual(['ehr', 'laboratory', 'pharmacy', 'migrate'])
     fireEvent.click(screen.getByRole('radio', { name: 'Laboratory' }))
-    expect([...select('Product').options].map(option => option.value)).toEqual(['laboratory'])
-    expect(select('Product').value).toBe('laboratory')
+    // One product: chosen for the type, and not asked (the start sends it: see the laboratory sign-up below).
+    expect(screen.queryByRole('combobox', { name: 'Product' })).toBeNull()
     fireEvent.click(screen.getByRole('radio', { name: 'Clinic' }))
     expect(select('Product').value).toBe('laboratory')
   })
@@ -120,7 +123,7 @@ describe('facility sign-up', () => {
     expect((screen.getByRole('textbox', { name: 'CAC number' }) as HTMLInputElement).value).toBe('RC123456')
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(await screen.findByRole('heading', { name: 'Confirm your administrator email' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Confirm your email' })).toBeTruthy()
     expect(api.start).toHaveBeenCalledWith({ productCode: 'pharmacy', organizationType: 'pharmacy',
       cacRegistrationNumber: 'RC123456', administratorName: 'Ada Admin', administratorEmail: 'ada@example.test',
       turnstileToken: 'local-turnstile-disabled' })
@@ -139,30 +142,31 @@ describe('facility sign-up', () => {
       + 'Contact Health ID support at support@healthidentitydirectory.com, and give your CAC number.')
     expect(screen.getByRole('link', { name: 'support@healthidentitydirectory.com' }).getAttribute('href'))
       .toBe('mailto:support@healthidentitydirectory.com')
-    expect(screen.queryByRole('heading', { name: 'Confirm your administrator email' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Confirm your email' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy()
   })
 
   it('keeps main\'s four steps and its authenticator wording, and asks no availability (main has none)', async () => {
     open()
-    expect(stepper()).toBe('Step 1 of 4 · Facility')
+    expect(stepper()).toBe('Step 1 of 4')
     expect(screen.queryByText(/sign-ups get the Provider Portal for now/)).toBeNull()
     enterDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     await screen.findByLabelText('Password')
-    expect(screen.getByText(/Next, you’ll set up sign-in codes on your phone/)).toBeTruthy()
+    expect(screen.getByText(/Next, you’ll turn on sign-in codes with an app on your phone/)).toBeTruthy()
     expect(api.availability).not.toHaveBeenCalled()
     // The organization panel is Novu's (main serves no …/profile), and main keeps its fine print.
     expect(api.profile).not.toHaveBeenCalled()
     expect(screen.queryByText(/You’re registering/)).toBeNull()
-    expect(screen.queryByRole('button', { name: 'This isn’t my organization' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'This isn’t my facility' })).toBeNull()
   })
 
-  it('keeps main\'s CAC hint, which names its review before activation', () => {
+  it('gives the CAC number one hint, where to find it, and says nothing else there', () => {
     open()
-    expect(screen.getByText('From your business registration certificate. If it’s already on Health ID, our team checks it first.')).toBeTruthy()
+    expect(screen.getByText('From your business registration certificate.')).toBeTruthy()
+    expect(screen.queryByText(/our team checks it first/)).toBeNull()
   })
 
   it('verifies the six-digit code, then activates with a password of at least 12 characters', async () => {
@@ -175,12 +179,12 @@ describe('facility sign-up', () => {
     enterDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    const code = await screen.findByRole('textbox', { name: 'Code from the email' }) as HTMLInputElement
+    const code = await screen.findByRole('textbox', { name: 'Code' }) as HTMLInputElement
     fireEvent.change(code, { target: { value: '12a34' } })
     expect(code.value).toBe('1234')
-    expect((screen.getByRole('button', { name: 'Confirm email' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Confirm' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.change(code, { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     await waitFor(() => expect(api.verify).toHaveBeenCalledWith('challenge-1', '123456'))
 
     const password = await screen.findByLabelText('Password') as HTMLInputElement
@@ -189,9 +193,9 @@ describe('facility sign-up', () => {
     expect(password.getAttribute('aria-describedby')).toBe('provider-account-hint provider-password-hint')
     expect(document.getElementById('provider-password-hint')?.textContent).toContain('At least 12 characters (not yet)')
     fireEvent.change(password, { target: { value: 'short-pass' } })
-    expect((screen.getByRole('button', { name: 'Create provider account' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Create account' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.change(password, { target: { value: 'a-long-enough-password' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create provider account' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
 
     expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
     expect(api.activate).toHaveBeenCalledWith('a-long-enough-password')
@@ -217,10 +221,10 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
     open()
     enterDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create provider account' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
     return reload
   }
 
@@ -237,7 +241,7 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
 
     await stepShown('Set up sign-in codes')
     expect(screen.getByText(/^Your provider account is ready\./)).toBeTruthy()
-    expect(stepper()).toBe('Step 4 of 4 · Authenticator')
+    expect(stepper()).toBe('Step 4 of 4')
     // Activation is not a sign-in: nothing opens until the authenticator is set up.
     expect(reload).not.toHaveBeenCalled()
     expect(screen.queryByRole('heading', { name: 'Provider workspace' })).toBeNull()
@@ -261,7 +265,7 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
     expect(TabChannel.open.size).toBe(0)
     expect(reload).not.toHaveBeenCalled()
     fireEvent.click(screen.getByLabelText('I have saved these backup codes somewhere safe'))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to the Provider Portal' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open the Provider Portal' }))
 
     expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
     expect(TabChannel.posted).toEqual([TOLD])
@@ -273,7 +277,7 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
     const reload = await activate('mfa_required')
 
     await stepShown('Confirm it’s you')
-    expect(screen.queryByRole('button', { name: 'Start again' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Use a different email' })).toBeNull()
     expect(TabChannel.posted).toEqual([])
     fireEvent.change(screen.getByRole('textbox', { name: 'Sign-in code' }), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
@@ -293,7 +297,7 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
 
     await stepShown('Sign in to finish setting up')
     expect((await screen.findByRole('alert')).textContent).toBe('This step timed out or had too many tries. Sign in again.')
-    expect(screen.getByText(/^Your provider account is ready\. Sign in with your administrator email/)).toBeTruthy()
+    expect(screen.getByText(/^Your account is ready\. Sign in, then turn on sign-in codes/)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Sign in to the Provider Portal' }).getAttribute('href')).toBe('/provider/sign-in')
     expect(reload).not.toHaveBeenCalled()
     // No session was set.
@@ -367,26 +371,27 @@ describe('facility self sign-up on Novu (P4)', () => {
   async function toCode() {
     await toDetails()
     await submitDetails()
-    await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+    await screen.findByRole('heading', { name: 'Confirm your email' })
   }
 
   async function toPassword() {
     await toCode()
-    fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     await screen.findByLabelText('Password')
   }
 
   function createAccount() {
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create provider account' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
   }
 
   async function closedNoticeShown() {
     const heading = await screen.findByRole('heading', { name: 'Facility sign-up isn’t open right now' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
-    expect(screen.getByText(/can’t sign themselves up on Health ID at the moment/).textContent).toBe('Hospitals, laboratories and '
-      + `pharmacies can’t sign themselves up on Health ID at the moment. To register your facility, contact Health ID support at ${SUPPORT}.`)
+    expect(screen.getByText(/can’t sign themselves up at the moment/).textContent).toBe('Facilities can’t sign themselves up at '
+      + `the moment. To register your facility, contact Health ID support at ${SUPPORT}. If your facility already uses Health ID, `
+      + 'sign in instead.')
     expect(screen.getByRole('link', { name: SUPPORT }).getAttribute('href')).toBe(`mailto:${SUPPORT}`)
     expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
     expect(screen.queryByRole('textbox', { name: 'CAC number' })).toBeNull()
@@ -399,7 +404,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       let answer!: (value: { open: boolean }) => void
       api.availability.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
       open()
-      expect(screen.getByRole('status').textContent).toBe('Checking that facility sign-up is open…')
+      expect(screen.getByRole('status').textContent).toBe('Checking that sign-up is open…')
       expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
       await act(async () => { answer({ open: true }) })
       expect(await screen.findByRole('button', { name: 'Continue' })).toBeTruthy()
@@ -417,7 +422,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       staffEnvironment.supportContact = null
       api.availability.mockResolvedValueOnce({ open: false })
       open()
-      expect((await screen.findByText(/can’t sign themselves up/)).textContent).toMatch(/To register your facility, contact Health ID support\.$/)
+      expect((await screen.findByText(/can’t sign themselves up/)).textContent).toMatch(/To register your facility, contact Health ID support\. If/)
       expect(screen.queryByRole('link', { name: SUPPORT })).toBeNull()
     })
 
@@ -431,27 +436,27 @@ describe('facility self sign-up on Novu (P4)', () => {
       await toDetails()
       expect(screen.queryByRole('heading', { name: 'Facility sign-up isn’t open right now' })).toBeNull()
       await submitDetails()
-      expect(await screen.findByRole('heading', { name: 'Confirm your administrator email' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'Confirm your email' })).toBeTruthy()
     })
   })
 
   it('shows three steps ending with the password, and says the account is ready straight away', async () => {
     await toDetails()
-    expect(stepper()).toBe('Step 1 of 3 · Facility')
-    expect(screen.getByText('Sign up your clinic, hospital, lab or pharmacy.')).toBeTruthy()
+    expect(stepper()).toBe('Step 1 of 3')
+    // The title says what the page is for, once: no line under it that says it again.
+    expect(screen.queryByText('Sign up your clinic, hospital, lab or pharmacy.')).toBeNull()
     // Novu reviews nothing before activation: a CAC number already linked is refused, so the CAC hint does not say so.
-    expect(screen.getByText('From your business registration certificate. We check it, and Health ID support checks every new '
-      + 'facility within one working day.')).toBeTruthy()
+    expect(screen.getByText('From your business registration certificate.')).toBeTruthy()
     expect(screen.queryByText(/reviewed by our team/)).toBeNull()
     await submitDetails()
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     expect((await screen.findByLabelText('Password')).getAttribute('aria-describedby')).toBe('provider-account-hint provider-password-hint')
     expect(document.getElementById('provider-account-hint')?.textContent).toBe('You’ll sign in with ada@example.test and this '
-      + 'password. Then you go straight into the Provider Portal as your facility’s administrator.')
+      + 'password.')
     expect(document.getElementById('provider-password-hint')?.textContent).toContain('At least 12 characters')
     expect(screen.queryByText(/authenticator/i)).toBeNull()
-    expect(stepper()).toBe('Step 3 of 3 · Password')
+    expect(stepper()).toBe('Step 3 of 3')
     // A password manager saves the new password with the administrator's email.
     const username = document.querySelector('input[autocomplete="username"]') as HTMLInputElement
     expect(username.value).toBe('ada@example.test')
@@ -462,41 +467,25 @@ describe('facility self sign-up on Novu (P4)', () => {
   // pharmacy's workspace receive no orders from other facilities while Health ID does not send them (P4c's switch is
   // off, or the availability answer does not say: betweenFacilities.ts).
   it.each([
-    ['Hospital', 'ehr', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within '
-      + 'one working day, the clinical record, emergency access and the Laboratory and Pharmacy work lists open, and you can '
-      + 'add your doctors, nurses and other staff. If you are a licensed doctor or nurse, you can also get clinical access '
-      + 'yourself.'],
-    ['Laboratory', 'laboratory', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually '
-      + 'within one working day, the Laboratory pages open, and you can add your laboratory scientists and receptionists. '
-      + 'Health ID is not sending test orders between facilities at the moment, so orders from hospitals and clinics can’t '
-      + 'reach your Laboratory pages yet: it shows the tests ordered at your own laboratory. If you are a licensed '
-      + 'laboratory scientist, you can also work in the Laboratory pages yourself.'],
-    ['Pharmacy', 'pharmacy', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually '
-      + 'within one working day, the Pharmacy pages open, and you can add your pharmacists and receptionists. Health ID '
-      + 'is not sending prescriptions between facilities at the moment, so prescriptions from hospitals and clinics can’t '
-      + 'reach your Pharmacy pages yet. If you are a licensed pharmacist, you can also work in the Pharmacy pages '
-      + 'yourself.'],
-    ['Other healthcare provider', 'ehr', 'Your Provider Portal opens at once. When Health ID support has checked your facility, '
-      + 'usually within one working day, you can add your staff. Health ID support agrees with you which access you need.'],
+    ['Hospital', 'ehr', 'You can start right away. Patient records open once we’ve checked your facility, usually within one working day.'],
+    ['Laboratory', 'laboratory', 'You can start right away. The lab pages open once we’ve checked your facility, usually within one working day.'],
+    ['Pharmacy', 'pharmacy', 'You can start right away. The pharmacy pages open once we’ve checked your facility, usually within one working day.'],
+    ['Other healthcare provider', 'ehr', 'You can start right away. Once we’ve checked your facility, usually within one working day, we’ll agree which pages you need.'],
   ])('says honestly what a %s sign-up (%s) gets', async (type, product, note) => {
     await toDetails()
     fireEvent.click(screen.getByRole('radio', { name: type }))
-    expect(select('Product').value).toBe(product)
+    if (product === 'ehr') expect(select('Product').value).toBe(product)
+    else expect(screen.queryByRole('combobox', { name: 'Product' })).toBeNull()
     expect(document.getElementById('provider-product-note')?.textContent).toBe(note)
-    expect(select('Product').getAttribute('aria-describedby')).toBe('provider-product-note')
+    // Said where the type is chosen, and read with that choice.
+    expect(screen.getByRole('group', { name: 'Facility type' }).getAttribute('aria-describedby')).toBe('provider-product-note')
   })
 
   // P4c: with orders between facilities on (availability's crossFacilityOrders), a laboratory or pharmacy is told that
   // clinicians at other facilities can send it orders once support has checked it; a hospital's note is unchanged.
   it.each([
-    ['Laboratory', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
-      + 'working day, the Laboratory pages open, and you can add your laboratory scientists and receptionists. Once Health '
-      + 'ID support has checked your facility, Health ID clinicians at other facilities can send you lab requests. If you are '
-      + 'a licensed laboratory scientist, you can also work in the Laboratory pages yourself.'],
-    ['Pharmacy', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
-      + 'working day, the Pharmacy pages open, and you can add your pharmacists and receptionists. Once Health ID support '
-      + 'has checked your facility, Health ID clinicians at other facilities can send you prescriptions. If you are a licensed '
-      + 'pharmacist, you can also work in the Pharmacy pages yourself.'],
+    ['Laboratory', 'You can start right away. The lab pages open once we’ve checked your facility, usually within one working day. Then other facilities can send you lab requests.'],
+    ['Pharmacy', 'You can start right away. The pharmacy pages open once we’ve checked your facility, usually within one working day. Then other facilities can send you prescriptions.'],
     ['Hospital', ORGANIZATION_TYPE_NOTES.hospital],
   ])('says a %s sign-up can receive orders from other facilities when Health ID sends them (P4c)', async (type, note) => {
     api.availability.mockResolvedValue({ open: true, crossFacilityOrders: true })
@@ -520,9 +509,10 @@ describe('facility self sign-up on Novu (P4)', () => {
     }
   })
 
-  it('opens with one short line, not paragraphs about staff or clinical roles', async () => {
+  it('opens with its title alone: no line that says it again, and no paragraphs about staff or clinical roles', async () => {
     await toDetails()
-    expect(screen.getByText('Sign up your clinic, hospital, lab or pharmacy.')).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Register a facility' })).toBeTruthy()
+    expect(screen.queryByText('Sign up your clinic, hospital, lab or pharmacy.')).toBeNull()
     expect(screen.queryByText(/Provider enrollment sets up a facility/)).toBeNull()
     expect(screen.queryByText(/can't also hold a\s+clinical role there/)).toBeNull()
   })
@@ -538,33 +528,35 @@ describe('facility self sign-up on Novu (P4)', () => {
     const heading = await screen.findByRole('heading', { name: 'Your facility is set up' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
     expect(api.activate).toHaveBeenCalledWith('a-long-enough-password')
-    expect(screen.getByText('You’re signed in as your facility’s administrator.')).toBeTruthy()
-    expect(screen.getByText('Next time, sign in at ehr.healthidentitydirectory.com with ada@example.test and the password you just chose.')).toBeTruthy()
-    expect(screen.getByText(ORGANIZATION_TYPE_NOTES.hospital)).toBeTruthy()
+    // One line: what the type opens was said where it was chosen, so it is not said again here.
+    expect(heading.nextElementSibling?.textContent).toBe('You’re signed in. Next time, sign in at ehr.healthidentitydirectory.com '
+      + 'with ada@example.test.')
+    expect(screen.queryByText(ORGANIZATION_TYPE_NOTES.hospital)).toBeNull()
     // The browser holds the session already: the other tabs are told at once; the page waits for the administrator.
     expect(TabChannel.posted).toEqual([TOLD])
     expect(reload).not.toHaveBeenCalled()
     expect(screen.queryByLabelText('Password')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to the Provider Portal' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open the Provider Portal' }))
 
     expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
     expect(reload).toHaveBeenCalledTimes(1)
     expect(TabChannel.posted).toEqual([TOLD])
   })
 
-  it('outside production, says to sign in to the Provider Portal next time, and gives a laboratory its own note', async () => {
+  it('outside production, says to sign in to the Provider Portal next time; a laboratory gets its own note, before it signs up', async () => {
     vi.stubGlobal('location', { ...window.location, hostname: 'localhost', reload: vi.fn() })
     api.activate.mockResolvedValueOnce(session)
     await toDetails('/provider/enroll?type=laboratory')
+    expect(document.getElementById('provider-product-note')?.textContent).toBe(ORGANIZATION_TYPE_NOTES.laboratory)
     await submitDetails()
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     await screen.findByLabelText('Password')
     createAccount()
 
     await screen.findByRole('heading', { name: 'Your facility is set up' })
-    expect(screen.getByText('Next time, sign in to the Provider Portal with ada@example.test and the password you just chose.')).toBeTruthy()
-    expect(screen.getByText(ORGANIZATION_TYPE_NOTES.laboratory)).toBeTruthy()
+    expect(screen.getByText('You’re signed in. Next time, sign in to the Provider Portal with ada@example.test.')).toBeTruthy()
+    expect(screen.queryByText(ORGANIZATION_TYPE_NOTES.laboratory)).toBeNull()
     expect(api.start).toHaveBeenCalledWith(expect.objectContaining({ productCode: 'laboratory', organizationType: 'laboratory' }))
   })
 
@@ -605,7 +597,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       await toDetails()
       await submitDetails()
       expect((await screen.findByRole('alert')).textContent).toBe(text)
-      expect(screen.queryByRole('heading', { name: 'Confirm your administrator email' })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'Confirm your email' })).toBeNull()
       expect((screen.getByRole('textbox', { name: 'CAC number' }) as HTMLInputElement).value).toBe('RC123456')
       // Only an outage is followed by another availability read.
       expect(api.availability).toHaveBeenCalledTimes(1)
@@ -624,8 +616,8 @@ describe('facility self sign-up on Novu (P4)', () => {
     } else if (step === 'verify') {
       api.verify.mockRejectedValueOnce(closed)
       await toCode()
-      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code' }), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     } else {
       api.activate.mockRejectedValueOnce(closed)
       await toPassword()
@@ -659,7 +651,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       await waitFor(() => expect(continueButton().disabled).toBe(false))
       expect(screen.queryByText(/You can try again in/)).toBeNull()
       fireEvent.click(continueButton())
-      expect(await screen.findByRole('heading', { name: 'Confirm your administrator email' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'Confirm your email' })).toBeTruthy()
       expect(api.start).toHaveBeenCalledTimes(2)
     })
 
@@ -683,18 +675,18 @@ describe('facility self sign-up on Novu (P4)', () => {
     it('at verify says sign-up is temporarily unavailable and keeps the code step', async () => {
       api.verify.mockRejectedValueOnce(problem(503, 'UPSTREAM_UNAVAILABLE'))
       await toCode()
-      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code' }), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
       expect((await screen.findByRole('alert')).textContent).toBe(STEP_UNAVAILABLE)
       expect(api.availability).toHaveBeenCalledTimes(2)
-      expect(screen.getByRole('heading', { name: 'Confirm your administrator email' })).toBeTruthy()
+      expect(screen.getByRole('heading', { name: 'Confirm your email' })).toBeTruthy()
     })
 
     it('at verify after a lost connection asks to check the connection', async () => {
       api.verify.mockRejectedValueOnce(new HidApiError(0, 'We could not reach the service.', { code: 'NETWORK_ERROR' }))
       await toCode()
-      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code' }), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
       expect((await screen.findByRole('alert')).textContent).toBe('We couldn’t reach Health ID. Check your internet connection and try again.')
     })
 
@@ -710,11 +702,11 @@ describe('facility self sign-up on Novu (P4)', () => {
   it('says a wrong or expired code plainly, and keeps the code step', async () => {
     api.verify.mockRejectedValueOnce(problem(401, 'ORGANIZATION_COMPLETION_CODE_INVALID', 'The confirmation code is invalid or expired'))
     await toCode()
-    fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     expect((await screen.findByRole('alert')).textContent).toBe('That code is wrong or too old. Check the latest '
       + 'email from Health ID and try again, or send a new code.')
-    expect(screen.getByRole('heading', { name: 'Confirm your administrator email' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Confirm your email' })).toBeTruthy()
   })
 
   describe('recovery at activation', () => {
@@ -725,7 +717,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect((await screen.findByRole('alert')).textContent).toBe('Your sign-up timed out. Check your details and '
         + 'select Continue to get a new code.')
       expect((screen.getByRole('textbox', { name: 'CAC number' }) as HTMLInputElement).value).toBe('RC123456')
-      expect((screen.getByRole('textbox', { name: 'Administrator email' }) as HTMLInputElement).value).toBe('Ada@Example.TEST')
+      expect((screen.getByRole('textbox', { name: 'Your email' }) as HTMLInputElement).value).toBe('Ada@Example.TEST')
       // The last code was sent less than a minute ago: a start now would send none.
       expect(screen.getByText(/^You can try again in \d+ seconds?\.$/)).toBeTruthy()
     })
@@ -745,25 +737,25 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect(screen.queryByLabelText('Password')).toBeNull()
       expect(screen.queryByRole('group', { name: 'Facility sign-up steps' })).toBeNull()
 
-      fireEvent.click(screen.getByRole('button', { name: 'Start again with another email' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Use another email' }))
       await screen.findByRole('button', { name: 'Continue' })
       const field = (name: string) => screen.getByRole('textbox', { name }) as HTMLInputElement
       expect(field('CAC number').value).toBe('RC123456')
-      expect(field('Administrator full name').value.trim()).toBe('Ada Admin')
-      expect(field('Administrator email').value).toBe('')
+      expect(field('Your full name').value.trim()).toBe('Ada Admin')
+      expect(field('Your email').value).toBe('')
       expect(screen.queryByRole('alert')).toBeNull()
-      fireEvent.change(field('Administrator email'), { target: { value: 'ada@clinic.example' } })
+      fireEvent.change(field('Your email'), { target: { value: 'ada@clinic.example' } })
       // The closed sign-up holds nothing for its email any more: no note that only it can finish one, and no wait.
       expect(screen.queryByText(/^A sign-up for RC123456 was started with/)).toBeNull()
       await waitFor(() => expect(continueButton().disabled).toBe(false))
       api.start.mockResolvedValueOnce({ accepted: true, codeSent: true, challengeId: 'challenge-2', expiresInSeconds: 600,
         resendAfterSeconds: 60 })
       fireEvent.click(continueButton())
-      await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+      await screen.findByRole('heading', { name: 'Confirm your email' })
       expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ cacRegistrationNumber: 'RC123456',
         administratorEmail: 'ada@clinic.example' }))
-      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '654321' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code' }), { target: { value: '654321' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
       await screen.findByLabelText('Password')
       expect(api.verify).toHaveBeenLastCalledWith('challenge-2', '654321')
       expect((screen.getByLabelText('Password') as HTMLInputElement).value).toBe('')
@@ -786,11 +778,10 @@ describe('facility self sign-up on Novu (P4)', () => {
       await toPassword()
       vi.stubGlobal('location', { ...window.location, hostname: 'app.healthidentitydirectory.com', reload: vi.fn() })
       createAccount()
-      const heading = await screen.findByRole('heading', { name: 'Your account may already be ready' })
+      const heading = await screen.findByRole('heading', { name: 'Your account may be ready' })
       await waitFor(() => expect(document.activeElement).toBe(heading))
-      expect(heading.nextElementSibling?.textContent).toBe('We couldn’t confirm that your facility was set up, but it may have '
-        + 'been. Sign in with ada@example.test and the password you chose. If you can’t sign in, contact '
-        + `Health ID support at ${SUPPORT}.`)
+      expect(heading.nextElementSibling?.textContent).toBe('We couldn’t confirm it, but your facility may be set up. Sign in '
+        + `with ada@example.test and the password you chose. If you can’t, contact Health ID support at ${SUPPORT}.`)
       expect(screen.getByRole('link', { name: 'Sign in to the Provider Portal' }).getAttribute('href'))
         .toBe('https://ehr.healthidentitydirectory.com/provider/sign-in')
       expect(TabChannel.posted).toEqual([])
@@ -800,7 +791,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.activate.mockRejectedValueOnce(problem(401, 'AUTHENTICATION_REQUIRED'))
       await toPassword()
       createAccount()
-      await screen.findByRole('heading', { name: 'Your account may already be ready' })
+      await screen.findByRole('heading', { name: 'Your account may be ready' })
       expect(screen.getByRole('link', { name: 'Sign in to the Provider Portal' }).getAttribute('href')).toBe('/provider/sign-in')
     })
 
@@ -811,7 +802,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       createAccount()
       expect((await screen.findByRole('alert')).textContent).toBe(STEP_UNAVAILABLE)
       createAccount()
-      expect(await screen.findByRole('heading', { name: 'Your account may already be ready' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'Your account may be ready' })).toBeTruthy()
       expect(screen.queryByRole('textbox', { name: 'CAC number' })).toBeNull()
     })
   })
@@ -837,8 +828,8 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect((await screen.findByText('We’ve sent a new code to ada@example.test.')).parentElement?.getAttribute('role')).toBe('status')
       // The wait starts again for the new code.
       await waitFor(() => expect(resend().disabled).toBe(true))
-      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '222222' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code' }), { target: { value: '222222' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
       await waitFor(() => expect(api.verify).toHaveBeenCalledWith('challenge-2', '222222'))
     })
 
@@ -855,7 +846,7 @@ describe('facility self sign-up on Novu (P4)', () => {
 
     it('keeps the wait when the administrator starts again, so the next start is not one that sends no code', async () => {
       await toCode()
-      fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Use a different email' }))
       await screen.findByRole('button', { name: 'Continue' })
       expect(continueButton().disabled).toBe(true)
       expect(screen.getByText(/^You can try again in (60|59) seconds\.$/)).toBeTruthy()
@@ -881,16 +872,16 @@ describe('facility self sign-up on Novu (P4)', () => {
       // Five codes in the hour: another start would send none, so the page offers none and says why.
       await act(async () => { vi.advanceTimersByTime(61_000) })
       expect(resend().disabled).toBe(true)
-      expect(screen.getByText(/^We’ve sent as many codes as we can for now\. Use the code in the latest email from Health ID, or ask for a new one in (55|56) minutes\.$/)).toBeTruthy()
+      expect(screen.getByText(/^We’ve sent as many codes as we can for now\. Use the code in the latest email, or ask for a new one in (55|56) minutes\.$/)).toBeTruthy()
       expect(screen.queryByText(/You can ask for a new code in/)).toBeNull()
 
       // "Start again" with the same details goes back to the last code instead of a start that would send none.
-      fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Use a different email' }))
       await waitFor(() => expect(continueButton().disabled).toBe(false))
       fireEvent.click(continueButton())
-      fireEvent.change(await screen.findByRole('textbox', { name: 'Code from the email' }), { target: { value: '555555' } })
+      fireEvent.change(await screen.findByRole('textbox', { name: 'Code' }), { target: { value: '555555' } })
       expect(api.start).toHaveBeenCalledTimes(5)
-      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
       await waitFor(() => expect(api.verify).toHaveBeenCalledWith('challenge-5', '555555'))
     })
 
@@ -906,10 +897,10 @@ describe('facility self sign-up on Novu (P4)', () => {
         fireEvent.click(resend())
         await waitFor(() => expect(api.start).toHaveBeenCalledTimes(code))
       }
-      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '555555' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code' }), { target: { value: '555555' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
       await screen.findByLabelText('Password')
-      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
+      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my facility' }))
       await act(async () => { vi.advanceTimersByTime(61_000) })
       // The same details: Identity would send no code, and the last one is used.
       await waitFor(() => expect(continueButton().disabled).toBe(false))
@@ -918,7 +909,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect(screen.getByText(/^You can try again in (54|55) minutes\.$/)).toBeTruthy()
       expect(continueButton().disabled).toBe(true)
       expect(api.start).toHaveBeenCalledTimes(5)
-      expect(screen.queryByRole('heading', { name: 'Confirm your administrator email' })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'Confirm your email' })).toBeNull()
     })
 
     it('offers a new code again once the hour has passed', async () => {
@@ -939,8 +930,8 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect(screen.queryByText(/We’ve sent as many codes as we can for now/)).toBeNull()
       fireEvent.click(resend())
       await waitFor(() => expect(api.start).toHaveBeenCalledTimes(6))
-      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '666666' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code' }), { target: { value: '666666' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
       await waitFor(() => expect(api.verify).toHaveBeenCalledWith('challenge-6', '666666'))
     })
   })
@@ -959,7 +950,7 @@ describe('facility self sign-up on Novu (P4)', () => {
     await act(async () => { vi.advanceTimersByTime(61_000) })
     await waitFor(() => expect(continueButton().disabled).toBe(false))
     fireEvent.click(continueButton())
-    expect(await screen.findByRole('heading', { name: 'Confirm your administrator email' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Confirm your email' })).toBeTruthy()
   })
 
   /**
@@ -977,7 +968,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.activate.mockResolvedValueOnce(session)
       await toPassword()
       expect(registering()).toBe('You’re registering IKEJA CARE LIMITED, CAC number RC123456, as a hospital, with Ada Admin as '
-        + 'its administrator. Check that this is your organization before you create the account.')
+        + 'its administrator.')
       expect(screen.getByText('IKEJA CARE LIMITED').tagName).toBe('STRONG')
       expect(api.profile).toHaveBeenCalledTimes(1)
       expect(api.profile).toHaveBeenCalledWith()
@@ -994,7 +985,7 @@ describe('facility self sign-up on Novu (P4)', () => {
         administratorName: 'Dr Ada Obi', administratorEmail: 'ada.obi@example.test' })
       await toPassword()
       expect(registering()).toBe('You’re registering LEKKI LABS LTD, CAC number RC7654321, as a hospital, with Dr Ada Obi as '
-        + 'its administrator. Check that this is your organization before you create the account.')
+        + 'its administrator.')
       expect(document.getElementById('provider-account-hint')?.textContent).toMatch(/You’ll sign in with ada\.obi@example\.test and this password\./)
       expect((document.querySelector('input[autocomplete="username"]') as HTMLInputElement).value).toBe('ada.obi@example.test')
     })
@@ -1002,8 +993,7 @@ describe('facility self sign-up on Novu (P4)', () => {
     it('leaves out the administrator when Identity names none', async () => {
       api.profile.mockResolvedValueOnce({ organizationName: 'IKEJA CARE LIMITED', registrationNumber: 'RC123456' })
       await toPassword()
-      expect(registering()).toBe('You’re registering IKEJA CARE LIMITED, CAC number RC123456. Check that this is your '
-        + 'organization before you create the account.')
+      expect(registering()).toBe('You’re registering IKEJA CARE LIMITED, CAC number RC123456.')
     })
 
     /**
@@ -1019,21 +1009,21 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.profile.mockResolvedValueOnce({ ...PROFILE, organizationType })
       await toPassword()
       expect(registering()).toBe(`You’re registering IKEJA CARE LIMITED, CAC number RC123456, as ${phrase}, with Ada Admin as `
-        + 'its administrator. Check that this is your organization before you create the account.')
+        + 'its administrator.')
     })
 
     it('leaves out a facility type it does not know', async () => {
       api.profile.mockResolvedValueOnce({ ...PROFILE, organizationType: 'spaceport' })
       await toPassword()
       expect(registering()).toBe('You’re registering IKEJA CARE LIMITED, CAC number RC123456, with Ada Admin as its '
-        + 'administrator. Check that this is your organization before you create the account.')
+        + 'administrator.')
     })
 
     it('names the facility type and administrator with the CAC number when Identity gives no name', async () => {
       api.profile.mockResolvedValueOnce({ registrationNumber: 'RC123456', organizationType: 'clinic', administratorName: 'Ada Admin' })
       await toPassword()
-      expect(registering()).toBe('You’re registering the organization with CAC number RC123456, as a clinic, with Ada Admin '
-        + 'as its administrator. Check that this is your organization’s number before you create the account.')
+      expect(registering()).toBe('You’re registering the facility with CAC number RC123456, as a clinic, with Ada Admin '
+        + 'as its administrator.')
     })
 
     it('shows the facility type the code in force carries, when that code was not sent from this page', async () => {
@@ -1050,8 +1040,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.profile.mockRejectedValueOnce(problem(404, 'NOT_FOUND'))
       api.activate.mockResolvedValueOnce(session)
       await toPassword()
-      expect(registering()).toBe('You’re registering the organization with CAC number RC123456. Check that this is your '
-        + 'organization’s number before you create the account.')
+      expect(registering()).toBe('You’re registering the facility with CAC number RC123456.')
       expect(screen.queryByRole('alert')).toBeNull()
       expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
       createAccount()
@@ -1065,23 +1054,23 @@ describe('facility self sign-up on Novu (P4)', () => {
     ])('after %s, says the name could not be loaded, reads it again on request, and does not stop the account', async (_, failure) => {
       api.profile.mockRejectedValueOnce(failure).mockResolvedValueOnce(PROFILE)
       await toPassword()
-      expect(registering()).toMatch(/^You’re registering the organization with CAC number RC123456\./)
-      expect(screen.getByText(/^We couldn’t load your organization’s registered name just now\./)).toBeTruthy()
-      expect((screen.getByRole('button', { name: 'Create provider account' }) as HTMLButtonElement).disabled).toBe(true)
+      expect(registering()).toMatch(/^You’re registering the facility with CAC number RC123456\./)
+      expect(screen.getByText(/^We couldn’t load its registered name\./)).toBeTruthy()
+      expect((screen.getByRole('button', { name: 'Create account' }) as HTMLButtonElement).disabled).toBe(true)
       fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
-      expect((screen.getByRole('button', { name: 'Create provider account' }) as HTMLButtonElement).disabled).toBe(false)
+      expect((screen.getByRole('button', { name: 'Create account' }) as HTMLButtonElement).disabled).toBe(false)
       fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
       await waitFor(() => expect(registering()).toMatch(/^You’re registering IKEJA CARE LIMITED, CAC number RC123456,/))
       expect(api.profile).toHaveBeenCalledTimes(2)
-      expect(screen.queryByText(/We couldn’t load your organization’s registered name/)).toBeNull()
+      expect(screen.queryByText(/We couldn’t load its registered name/)).toBeNull()
       expect(api.activate).not.toHaveBeenCalled()
     })
 
     it('goes back to the details when the enrollment session is gone (401), as activation would', async () => {
       api.profile.mockRejectedValueOnce(problem(401, 'ORGANIZATION_COMPLETION_SESSION_INVALID'))
       await toCode()
-      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code' }), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
       expect((await screen.findByRole('alert')).textContent).toBe('Your sign-up timed out. Check your details and '
         + 'select Continue to get a new code.')
       expect((screen.getByRole('textbox', { name: 'CAC number' }) as HTMLInputElement).value).toBe('RC123456')
@@ -1092,8 +1081,8 @@ describe('facility self sign-up on Novu (P4)', () => {
     it('shows the closed notice when sign-up closed after the code (423)', async () => {
       api.profile.mockRejectedValueOnce(problem(423, 'PROVIDER_ENROLLMENT_UNAVAILABLE', 'Facility self sign-up is not open'))
       await toCode()
-      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code' }), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
       await closedNoticeShown()
     })
 
@@ -1101,7 +1090,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.profile.mockRejectedValueOnce(problem(409, 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT'))
       await toPassword()
       expect((screen.getByRole('alert')).textContent).toMatch(/^Someone is signed in to Health ID on this device/)
-      expect(registering()).toMatch(/^You’re registering the organization with CAC number RC123456\./)
+      expect(registering()).toMatch(/^You’re registering the facility with CAC number RC123456\./)
     })
 
     it.each([
@@ -1111,7 +1100,7 @@ describe('facility self sign-up on Novu (P4)', () => {
     ])('leaves the CAC number to check when …/profile gives %s', async (_, answer) => {
       api.profile.mockResolvedValueOnce(answer)
       await toPassword()
-      expect(registering()).toMatch(/^You’re registering the organization with CAC number RC123456\./)
+      expect(registering()).toMatch(/^You’re registering the facility with CAC number RC123456\./)
     })
 
     it('reads no name from verify’s answer, which says only that the code was right', async () => {
@@ -1129,7 +1118,7 @@ describe('facility self sign-up on Novu (P4)', () => {
         .mockResolvedValueOnce({ accepted: true, challengeId: 'challenge-2', resendAfterSeconds: 60 })
       await toPassword()
       fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
-      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
+      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my facility' }))
 
       // The confirmed sign-up is closed (P4b, …/withdraw), so the mistyped number holds nothing.
       expect((await screen.findByRole('alert')).textContent).toBe('Check your details, and the CAC number on your '
@@ -1147,11 +1136,11 @@ describe('facility self sign-up on Novu (P4)', () => {
       await waitFor(() => expect(continueButton().disabled).toBe(false))
       expect(screen.queryByText(/You can try again in/)).toBeNull()
       fireEvent.click(continueButton())
-      await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+      await screen.findByRole('heading', { name: 'Confirm your email' })
       expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ cacRegistrationNumber: 'RC123465',
         administratorEmail: 'ada@example.test' }))
-      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: '222222' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code' }), { target: { value: '222222' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
       await screen.findByLabelText('Password')
       expect(api.verify).toHaveBeenLastCalledWith('challenge-2', '222222')
       // The password typed for the wrong organization is not kept, and the new sign-up is read afresh.
@@ -1175,7 +1164,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.withdraw.mockRejectedValueOnce(refusal)
       api.profile.mockResolvedValueOnce({ ...PROFILE, organizationName: 'OTHER COMPANY LTD' })
       await toPassword()
-      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
+      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my facility' }))
       expect((await screen.findByRole('alert')).textContent).toBe(text)
       expect(screen.getByRole('link', { name: SUPPORT }).getAttribute('href')).toBe(`mailto:${SUPPORT}`)
       expect((screen.getByRole('textbox', { name: 'CAC number' }) as HTMLInputElement).value).toBe('RC123456')
@@ -1186,7 +1175,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.withdraw.mockRejectedValueOnce(new HidApiError(423, 'Closed', { code: 'PROVIDER_ENROLLMENT_UNAVAILABLE' }))
       api.profile.mockResolvedValueOnce({ ...PROFILE, organizationName: 'OTHER COMPANY LTD' })
       await toPassword()
-      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
+      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my facility' }))
       expect(await screen.findByRole('heading', { name: 'Facility sign-up isn’t open right now' })).toBeTruthy()
     })
 
@@ -1194,19 +1183,19 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.withdraw.mockRejectedValueOnce(new HidApiError(409, 'Signed in', { code: 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT' }))
       api.profile.mockResolvedValueOnce({ ...PROFILE, organizationName: 'OTHER COMPANY LTD' })
       await toPassword()
-      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
+      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my facility' }))
       expect((await screen.findByRole('alert')).textContent).toBe('Someone is signed in to Health ID on this device, for example to a '
         + 'patient account. Sign out first, or open this page in a private (incognito) window, then try again.')
       expect(screen.getByLabelText('Password')).toBeTruthy()
-      expect(screen.getByRole('button', { name: 'This isn’t my organization' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'This isn’t my facility' })).toBeTruthy()
     })
 
     it('forgets that the closed sign-up held its CAC number for its email: another email may start at once', async () => {
       api.profile.mockResolvedValueOnce({ ...PROFILE, organizationName: 'OTHER COMPANY LTD' })
       await toPassword()
-      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
+      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my facility' }))
       await screen.findByRole('alert')
-      fireEvent.change(screen.getByRole('textbox', { name: 'Administrator email' }), { target: { value: 'other@example.test' } })
+      fireEvent.change(screen.getByRole('textbox', { name: 'Your email' }), { target: { value: 'other@example.test' } })
       expect(screen.queryByText(/and only that email can finish it/)).toBeNull()
     })
   })
@@ -1219,17 +1208,17 @@ describe('facility self sign-up on Novu (P4)', () => {
     const resend = () => screen.getByRole('button', { name: 'Send a new code' }) as HTMLButtonElement
     const sent = (challengeId: string, resendAfterSeconds = 60) =>
       ({ accepted: true, codeSent: true, challengeId, expiresInSeconds: 600, resendAfterSeconds })
-    const codeHint = () => screen.getByRole('heading', { name: 'Confirm your administrator email' }).nextElementSibling?.textContent
+    const codeHint = () => screen.getByRole('form', { name: 'Confirm your email' }).querySelector('p')?.textContent
 
     async function verifyWith(code: string) {
-      fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: code } })
-      fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Code' }), { target: { value: code } })
+      fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     }
 
     it('says a sent code was sent, and waits as long as Identity says', async () => {
       api.start.mockResolvedValueOnce(sent('challenge-1', 45))
       await toCode()
-      expect(codeHint()).toBe('Enter the six digit code sent to ada@example.test.')
+      expect(codeHint()).toBe('Enter the 6-digit code we sent to ada@example.test.')
       expect(screen.getByText(/^You can ask for a new code in (45|44) seconds\.$/)).toBeTruthy()
     })
 
@@ -1237,8 +1226,8 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.start.mockResolvedValueOnce({ accepted: true, codeSent: false, challengeId: 'challenge-in-force',
         expiresInSeconds: 417, resendAfterSeconds: 41 })
       await toCode()
-      expect(codeHint()).toBe('We didn’t send a new code, because one was sent to ada@example.test less than a minute ago. '
-        + 'Enter the six digit code from that email.')
+      expect(codeHint()).toBe('We sent a code to ada@example.test less than a minute ago, so we didn’t send another. '
+        + 'Enter the 6-digit code from that email.')
       expect(screen.queryByText(/We’ve sent a new code/)).toBeNull()
       expect(screen.getByText(/^You can ask for a new code in (41|40) seconds\.$/)).toBeTruthy()
       expect(resend().disabled).toBe(true)
@@ -1251,10 +1240,11 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.start.mockResolvedValueOnce({ accepted: true, codeSent: false, challengeId: 'challenge-5', expiresInSeconds: 300,
         resendAfterSeconds: 3295 })
       await toCode()
-      expect(codeHint()).toBe('We didn’t send a new code, because we’ve sent as many as we can for now. Enter the six digit '
-        + 'code from the latest email Health ID sent to ada@example.test.')
-      // Identity's own wait, not one clamped to 10 minutes.
-      expect(screen.getByText(/^We’ve sent as many codes as we can for now\. Use the code in the latest email from Health ID, or ask for a new one in (55|54) minutes\.$/)).toBeTruthy()
+      expect(codeHint()).toBe('We’ve sent as many codes as we can for now. Enter the 6-digit '
+        + 'code from the latest email we sent to ada@example.test.')
+      // Identity's own wait, not one clamped to 10 minutes; the limit itself is said once, in the line above.
+      expect(screen.getByText(/^Use the code in the latest email, or ask for a new one in (55|54) minutes\.$/)).toBeTruthy()
+      expect(screen.getAllByText(/We’ve sent as many codes as we can for now/)).toHaveLength(1)
       expect(resend().disabled).toBe(true)
       await act(async () => { vi.advanceTimersByTime(20 * 60_000) })
       expect(resend().disabled).toBe(true)
@@ -1269,13 +1259,13 @@ describe('facility self sign-up on Novu (P4)', () => {
       await toDetails()
       await submitDetails()
       expect((await screen.findByRole('alert')).textContent).toBe('We can’t send a new code for these details yet.')
-      expect(screen.queryByRole('heading', { name: 'Confirm your administrator email' })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'Confirm your email' })).toBeNull()
       expect(screen.getByText(/^You can try again in (38|37) seconds\.$/)).toBeTruthy()
       expect(continueButton().disabled).toBe(true)
       await act(async () => { vi.advanceTimersByTime(39_000) })
       await waitFor(() => expect(continueButton().disabled).toBe(false))
       fireEvent.click(continueButton())
-      await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+      await screen.findByRole('heading', { name: 'Confirm your email' })
       await verifyWith('222222')
       await waitFor(() => expect(api.verify).toHaveBeenCalledWith('challenge-2', '222222'))
     })
@@ -1301,7 +1291,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       await act(async () => { vi.advanceTimersByTime(61_000) })
       await waitFor(() => expect(resend().disabled).toBe(false))
       fireEvent.click(resend())
-      expect((await screen.findByText('We didn’t send a new code: the code in the latest email from Health ID still works.'))
+      expect((await screen.findByText('We didn’t send a new code: the code in the latest email still works.'))
         .parentElement?.getAttribute('role')).toBe('status')
       expect(screen.queryByText(/We’ve sent a new code/)).toBeNull()
       expect(screen.getByText(/^You can ask for a new code in (20|19) seconds\.$/)).toBeTruthy()
@@ -1317,7 +1307,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       await act(async () => { vi.advanceTimersByTime(61_000) })
       await waitFor(() => expect(resend().disabled).toBe(false))
       fireEvent.click(resend())
-      expect((await screen.findByText('We didn’t send a new code, and the last one can no longer be used.'))
+      expect((await screen.findByText('We didn’t send a new code, and the last one no longer works.'))
         .parentElement?.getAttribute('role')).toBe('status')
       expect(screen.getByText('We’ve sent as many codes as we can for now. You can ask for a new one in about 23 hours.')).toBeTruthy()
       expect(resend().disabled).toBe(true)
@@ -1344,13 +1334,13 @@ describe('facility self sign-up on Novu (P4)', () => {
         .mockResolvedValueOnce({ accepted: true, codeSent: false, challengeId: 'challenge-1', expiresInSeconds: 590,
           resendAfterSeconds: 50 })
       await toCode()
-      fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Use a different email' }))
       await screen.findByRole('button', { name: 'Continue' })
       await waitFor(() => expect(continueButton().disabled).toBe(false))
       expect(screen.queryByText(/You can try again in/)).toBeNull()
       fireEvent.click(continueButton())
-      await screen.findByRole('heading', { name: 'Confirm your administrator email' })
-      expect(codeHint()).toMatch(/^We didn’t send a new code, because one was sent to ada@example\.test less than a minute ago\./)
+      await screen.findByRole('heading', { name: 'Confirm your email' })
+      expect(codeHint()).toMatch(/^We sent a code to ada@example\.test less than a minute ago, so we didn’t send another\./)
       expect(api.start).toHaveBeenCalledTimes(2)
     })
 
@@ -1367,7 +1357,7 @@ describe('facility self sign-up on Novu (P4)', () => {
     it('still waits a minute after a start whose answer was lost', async () => {
       api.start.mockResolvedValueOnce(sent('challenge-1')).mockRejectedValueOnce(problem(503, 'UPSTREAM_UNAVAILABLE'))
       await toCode()
-      fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Use a different email' }))
       await screen.findByRole('button', { name: 'Continue' })
       await waitFor(() => expect(continueButton().disabled).toBe(false))
       fireEvent.click(continueButton())
@@ -1383,10 +1373,10 @@ describe('facility self sign-up on Novu (P4)', () => {
    */
   describe('availability’s reason', () => {
     const unavailableShown = async () => {
-      const heading = await screen.findByRole('heading', { name: 'Facility sign-up is temporarily unavailable' })
+      const heading = await screen.findByRole('heading', { name: 'Facility sign-up isn’t working right now' })
       await waitFor(() => expect(document.activeElement).toBe(heading))
-      expect(heading.nextElementSibling?.textContent).toBe('We can’t take facility sign-ups just now because of a problem on '
-        + `our side. Please try again in a few minutes. If this keeps happening, contact Health ID support at ${SUPPORT}.`)
+      expect(heading.nextElementSibling?.textContent).toBe('This is a problem on our side. Please try again in a few minutes. '
+        + `If this keeps happening, contact Health ID support at ${SUPPORT}.`)
       expect(screen.queryByRole('heading', { name: 'Facility sign-up isn’t open right now' })).toBeNull()
       expect(screen.queryByText(/can’t sign themselves up/)).toBeNull()
       expect(screen.queryByRole('textbox', { name: 'CAC number' })).toBeNull()
@@ -1439,7 +1429,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       await toPassword()
       api.availability.mockResolvedValueOnce({ open: false, reason: 'closed' })
       createAccount()
-      expect(await screen.findByRole('heading', { name: 'Your account may already be ready' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'Your account may be ready' })).toBeTruthy()
       expect(screen.queryByRole('heading', { name: 'Facility sign-up isn’t open right now' })).toBeNull()
     })
 
@@ -1450,7 +1440,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       createAccount()
       expect((await screen.findByRole('alert')).textContent).toBe(STEP_UNAVAILABLE)
       createAccount()
-      expect(await screen.findByRole('heading', { name: 'Your account may already be ready' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'Your account may be ready' })).toBeTruthy()
       expect(screen.queryByRole('heading', { name: 'Facility sign-up isn’t open right now' })).toBeNull()
     })
   })
@@ -1462,17 +1452,17 @@ describe('facility self sign-up on Novu (P4)', () => {
    * kept with the next code and the account takes it (R6).
    */
   describe('starting again with other details', () => {
-    const KEPT = 'A sign-up for RC123456 was started with ada@example.test, and only that email can finish it until 24 hours '
-      + 'after it started. You can still correct the CAC number.'
+    const KEPT = 'A sign-up for RC123456 was started with ada@example.test. Until 24 hours after it started, '
+      + 'only that email can finish it. You can still correct the CAC number.'
     const keptNote = () => screen.queryByText(/^A sign-up for RC123456 was started with/)
     const field = (name: string) => screen.getByRole('textbox', { name }) as HTMLInputElement
 
     it('says another email can’t finish the sign-up, before and after the start, and offers the first one back', async () => {
       await toCode()
-      fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Use a different email' }))
       await screen.findByRole('button', { name: 'Continue' })
       expect(keptNote()).toBeNull()
-      fireEvent.change(field('Administrator email'), { target: { value: 'ada@example.org' } })
+      fireEvent.change(field('Your email'), { target: { value: 'ada@example.org' } })
       // Said before the start, too.
       expect(keptNote()?.textContent).toBe(KEPT)
       // Another email is another sign-up at Identity: no wait for the first one's code.
@@ -1487,7 +1477,7 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ administratorEmail: 'ada@example.org' }))
 
       fireEvent.click(screen.getByRole('button', { name: 'Use the email I first gave' }))
-      expect(field('Administrator email').value).toBe('ada@example.test')
+      expect(field('Your email').value).toBe('ada@example.test')
       expect(keptNote()).toBeNull()
       expect(screen.queryByRole('alert')).toBeNull()
     })
@@ -1495,14 +1485,14 @@ describe('facility self sign-up on Novu (P4)', () => {
     it('sends a changed administrator name or facility type, which the next code carries', async () => {
       api.start.mockResolvedValue({ accepted: true, challengeId: 'challenge-1', resendAfterSeconds: 0 })
       await toCode()
-      fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Use a different email' }))
       await screen.findByRole('button', { name: 'Continue' })
       fireEvent.click(screen.getByRole('radio', { name: 'Clinic' }))
-      fireEvent.change(field('Administrator full name'), { target: { value: 'Dr Ada Obi' } })
+      fireEvent.change(field('Your full name'), { target: { value: 'Dr Ada Obi' } })
       expect(keptNote()).toBeNull()
       await waitFor(() => expect(continueButton().disabled).toBe(false))
       fireEvent.click(continueButton())
-      await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+      await screen.findByRole('heading', { name: 'Confirm your email' })
       expect(api.start).toHaveBeenCalledTimes(2)
       expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ administratorName: 'Dr Ada Obi',
         organizationType: 'clinic', administratorEmail: 'ada@example.test' }))
@@ -1517,17 +1507,17 @@ describe('facility self sign-up on Novu (P4)', () => {
       await waitFor(() => expect(resendButton.disabled).toBe(false))
       fireEvent.click(resendButton)
       await screen.findByText('We’ve sent a new code to ada@example.test.')
-      fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Use a different email' }))
       await screen.findByRole('button', { name: 'Continue' })
-      fireEvent.change(field('Administrator email'), { target: { value: 'ada@example.org' } })
+      fireEvent.change(field('Your email'), { target: { value: 'ada@example.org' } })
       expect(keptNote()).toBeTruthy()
       await act(async () => { vi.advanceTimersByTime(24 * 60 * 60_000 - 61_000 + 5_000) })
       // Re-rendered by the next change; the page no longer knows whether the first sign-up holds anything.
-      fireEvent.change(field('Administrator full name'), { target: { value: 'Ada Obi' } })
+      fireEvent.change(field('Your full name'), { target: { value: 'Ada Obi' } })
       expect(keptNote()).toBeNull()
       await waitFor(() => expect(continueButton().disabled).toBe(false))
       fireEvent.click(continueButton())
-      await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+      await screen.findByRole('heading', { name: 'Confirm your email' })
       expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ administratorName: 'Ada Obi',
         administratorEmail: 'ada@example.org' }))
     })
@@ -1550,21 +1540,21 @@ describe('facility self sign-up on Novu (P4)', () => {
         ({ accepted: true, codeSent: true, challengeId, expiresInSeconds: 600, resendAfterSeconds })
       const inForce = (challengeId: string, resendAfterSeconds: number, expiresInSeconds = 590) =>
         ({ accepted: true, codeSent: false, challengeId, expiresInSeconds, resendAfterSeconds })
-      const panel = () => screen.queryByText(/^A new facility type or administrator name takes effect only with a new code\./)
+      const panel = () => screen.queryByText(/^A new facility type or name needs a new code\./)
       const useEarlier = () => screen.queryByRole('button', { name: 'Use the details I gave before' })
-      const codeHeading = () => screen.queryByRole('heading', { name: 'Confirm your administrator email' })
-      const codeHint = () => codeHeading()?.nextElementSibling?.textContent
+      const codeHeading = () => screen.queryByRole('heading', { name: 'Confirm your email' })
+      const codeHint = () => codeHeading() && screen.getByRole('form', { name: 'Confirm your email' }).querySelector('p')?.textContent
       const radio = (name: string) => screen.getByRole('radio', { name }) as HTMLInputElement
 
       async function startAgain() {
-        fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
+        fireEvent.click(screen.getByRole('button', { name: 'Use a different email' }))
         await screen.findByRole('button', { name: 'Continue' })
         await waitFor(() => expect(continueButton().disabled).toBe(false))
       }
 
       async function verifyWith(code: string) {
-        fireEvent.change(screen.getByRole('textbox', { name: 'Code from the email' }), { target: { value: code } })
-        fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+        fireEvent.change(screen.getByRole('textbox', { name: 'Code' }), { target: { value: code } })
+        fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
       }
 
       it('stays at the details, says the change was not applied, and continues with it once a code can carry it', async () => {
@@ -1574,7 +1564,7 @@ describe('facility self sign-up on Novu (P4)', () => {
         await toDetails()
         fireEvent.click(radio('Clinic'))
         await submitDetails()
-        await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+        await screen.findByRole('heading', { name: 'Confirm your email' })
         await startAgain()
         fireEvent.click(radio('Hospital'))
         fireEvent.click(continueButton())
@@ -1586,8 +1576,8 @@ describe('facility self sign-up on Novu (P4)', () => {
         // Not the code step: its code would register a clinic.
         expect(codeHeading()).toBeNull()
         expect(radio('Hospital').checked).toBe(true)
-        expect(panel()?.textContent).toBe('A new facility type or administrator name takes effect only with a new code. The '
-          + 'code already sent is for the facility type Clinic, with Ada Admin as administrator.')
+        expect(panel()?.textContent).toBe('A new facility type or name needs a new code. The code we '
+          + 'already sent is for Clinic, with Ada Admin as administrator.')
         expect(useEarlier()).toBeTruthy()
         expect(screen.getByText(/^You can continue with your changes in (50|49) seconds\.$/)).toBeTruthy()
         expect(continueButton().disabled).toBe(true)
@@ -1602,8 +1592,8 @@ describe('facility self sign-up on Novu (P4)', () => {
         expect(panel()).toBeNull()
         expect(screen.queryByText(/You can continue with your changes/)).toBeNull()
         fireEvent.click(continueButton())
-        await screen.findByRole('heading', { name: 'Confirm your administrator email' })
-        expect(codeHint()).toBe('Enter the six digit code sent to ada@example.test.')
+        await screen.findByRole('heading', { name: 'Confirm your email' })
+        expect(codeHint()).toBe('Enter the 6-digit code we sent to ada@example.test.')
         expect(api.start).toHaveBeenCalledTimes(3)
         expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ organizationType: 'hospital',
           administratorName: 'Ada Admin' }))
@@ -1615,21 +1605,21 @@ describe('facility self sign-up on Novu (P4)', () => {
         api.start.mockResolvedValueOnce(sent('challenge-1')).mockResolvedValueOnce(inForce('challenge-1', 45))
         await toCode()
         await startAgain()
-        fireEvent.change(field('Administrator full name'), { target: { value: 'Dr Ada Obi' } })
+        fireEvent.change(field('Your full name'), { target: { value: 'Dr Ada Obi' } })
         fireEvent.click(radio('Clinic'))
         fireEvent.click(continueButton())
         await screen.findByRole('alert')
-        expect(panel()?.textContent).toMatch(/The code already sent is for the facility type Hospital, with Ada Admin as administrator\.$/)
+        expect(panel()?.textContent).toMatch(/The code we already sent is for Hospital, with Ada Admin as administrator\.$/)
 
         fireEvent.click(useEarlier()!)
-        await screen.findByRole('heading', { name: 'Confirm your administrator email' })
-        expect(codeHint()).toBe('We didn’t send a new code, because one was sent to ada@example.test less than a minute ago. '
-          + 'Enter the six digit code from that email.')
+        await screen.findByRole('heading', { name: 'Confirm your email' })
+        expect(codeHint()).toBe('We sent a code to ada@example.test less than a minute ago, so we didn’t send another. '
+          + 'Enter the 6-digit code from that email.')
         expect(screen.queryByRole('alert')).toBeNull()
 
         // The form holds the details the code carries: not held, and nothing more was sent.
         await startAgain()
-        expect(field('Administrator full name').value).toBe('Ada Admin')
+        expect(field('Your full name').value).toBe('Ada Admin')
         expect(radio('Hospital').checked).toBe(true)
         expect(panel()).toBeNull()
         // Changed again, they wait as before, with no other start.
@@ -1642,8 +1632,8 @@ describe('facility self sign-up on Novu (P4)', () => {
         expect(continueButton().disabled).toBe(false)
         api.start.mockResolvedValueOnce(inForce('challenge-1', 30))
         fireEvent.click(continueButton())
-        await screen.findByRole('heading', { name: 'Confirm your administrator email' })
-        expect(codeHint()).toMatch(/^We didn’t send a new code, because one was sent to ada@example\.test less than a minute ago\./)
+        await screen.findByRole('heading', { name: 'Confirm your email' })
+        expect(codeHint()).toMatch(/^We sent a code to ada@example\.test less than a minute ago, so we didn’t send another\./)
         expect(api.start).toHaveBeenCalledTimes(3)
         await verifyWith('111111')
         await waitFor(() => expect(api.verify).toHaveBeenCalledWith('challenge-1', '111111'))
@@ -1655,12 +1645,12 @@ describe('facility self sign-up on Novu (P4)', () => {
           .mockResolvedValueOnce({ accepted: true, codeSent: false, resendAfterSeconds: 3_260 })
         await toCode()
         await startAgain()
-        fireEvent.change(field('Administrator full name'), { target: { value: 'Dr Ada Obi' } })
+        fireEvent.change(field('Your full name'), { target: { value: 'Dr Ada Obi' } })
         fireEvent.click(continueButton())
 
         expect((await screen.findByRole('alert')).textContent).toBe('We didn’t send a new code, because we’ve sent as many as '
           + 'we can for now, so your changes haven’t been applied.')
-        expect(panel()?.textContent).toMatch(/is for the facility type Hospital, with Ada Admin as administrator\.$/)
+        expect(panel()?.textContent).toMatch(/is for Hospital, with Ada Admin as administrator\.$/)
         expect(screen.getByText(/^You can continue with your changes in (55|54) minutes\.$/)).toBeTruthy()
         expect(useEarlier()).toBeTruthy()
         // The code in force expires: it is no longer offered, and the changes still wait.
@@ -1670,7 +1660,7 @@ describe('facility self sign-up on Novu (P4)', () => {
         expect(continueButton().disabled).toBe(true)
 
         // The details the code carried are not held by the changes: Identity answers for them.
-        fireEvent.change(field('Administrator full name'), { target: { value: 'Ada Admin' } })
+        fireEvent.change(field('Your full name'), { target: { value: 'Ada Admin' } })
         expect(panel()).toBeNull()
         await waitFor(() => expect(continueButton().disabled).toBe(false))
         fireEvent.click(continueButton())
@@ -1685,11 +1675,11 @@ describe('facility self sign-up on Novu (P4)', () => {
         await toCode()
         await startAgain()
         // A changed email is another sign-up, and a corrected one back is the same: neither is a type or name change.
-        fireEvent.change(field('Administrator email'), { target: { value: 'ada@example.org' } })
-        fireEvent.change(field('Administrator email'), { target: { value: 'ada@example.test' } })
+        fireEvent.change(field('Your email'), { target: { value: 'ada@example.org' } })
+        fireEvent.change(field('Your email'), { target: { value: 'ada@example.test' } })
         fireEvent.click(continueButton())
-        await screen.findByRole('heading', { name: 'Confirm your administrator email' })
-        expect(codeHint()).toMatch(/^We didn’t send a new code, because one was sent to ada@example\.test less than a minute ago\./)
+        await screen.findByRole('heading', { name: 'Confirm your email' })
+        expect(codeHint()).toMatch(/^We sent a code to ada@example\.test less than a minute ago, so we didn’t send another\./)
         expect(panel()).toBeNull()
       })
 
@@ -1702,10 +1692,10 @@ describe('facility self sign-up on Novu (P4)', () => {
         fireEvent.click(continueButton())
         await screen.findByRole('alert')
         fireEvent.click(useEarlier()!)
-        await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+        await screen.findByRole('heading', { name: 'Confirm your email' })
         await verifyWith('111111')
         await screen.findByLabelText('Password')
-        fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
+        fireEvent.click(screen.getByRole('button', { name: 'This isn’t my facility' }))
         await screen.findByRole('button', { name: 'Continue' })
         fireEvent.click(radio('Clinic'))
         expect(panel()).toBeNull()
@@ -1738,9 +1728,9 @@ describe('provider enrollment on main keeps Identity’s words for a refused act
     open()
     enterDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findByRole('textbox', { name: 'Code from the email' })
-    fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Administrator email' }), { target: { value: 'ada@example.org' } })
+    await screen.findByRole('textbox', { name: 'Code' })
+    fireEvent.click(screen.getByRole('button', { name: 'Use a different email' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Your email' }), { target: { value: 'ada@example.org' } })
     expect(screen.queryByText(/can’t be changed until 24 hours after it started/)).toBeNull()
     api.start.mockRejectedValueOnce(new HidApiError(409, 'This provider application requires manual resolution',
       { code: 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW' }))
@@ -1755,10 +1745,10 @@ describe('provider enrollment on main keeps Identity’s words for a refused act
     open()
     enterDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create provider account' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
     const heading = await screen.findByRole('heading', { name: 'This email already has a Health ID account' })
     expect(heading.nextElementSibling?.textContent).toBe('The administrator email already belongs to a Health ID account, '
       + 'for example a patient account, so it can’t also be this facility’s administrator. Signing up again with another '
@@ -1772,13 +1762,13 @@ describe('provider enrollment on main keeps Identity’s words for a refused act
     open()
     enterDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Code from the email' }), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm email' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create provider account' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
     expect((await screen.findByRole('alert')).textContent).toBe('Organization profile completion session is invalid or expired')
     expect(screen.getByLabelText('Password')).toBeTruthy()
-    expect(screen.queryByRole('heading', { name: 'Your account may already be ready' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Your account may be ready' })).toBeNull()
   })
 })
 
@@ -1800,8 +1790,8 @@ describe('provider enrollment opened on a staff product host', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     jsdom.reconfigure({ url: `https://${hostname}${entry}` })
     open(entry)
-    expect(screen.getByRole('link', { name: 'Continue to facility sign-up' }).getAttribute('href')).toBe(href)
-    expect(screen.getByText('Facility sign-up is done on the main Health ID site.')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Go to facility sign-up' }).getAttribute('href')).toBe(href)
+    expect(screen.getByText('Facilities sign up on the main Health ID site.')).toBeTruthy()
     expect(screen.queryByRole('textbox', { name: 'CAC number' })).toBeNull()
     expect(api.availability).not.toHaveBeenCalled()
   })
