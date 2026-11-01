@@ -9,19 +9,13 @@ import { CAC_STEP, REGISTRATION_STEPS, REVIEW_STEP, type Enrollment } from './us
 /** What every design field Health ID does not take says: shown, disabled, never sent or kept. */
 export const NOT_COLLECTED = 'Not collected by Health ID yet'
 
-/**
- * The design's agreements (facility-fields.ts step 5), required before submitting. Health ID records no acceptance, so
- * the boxes say what the applicant has read; there is no Data Processing Agreement, so it has no box.
+/*
+ * The design's four agreement boxes (facility-fields.ts step 5) are not drawn. The start Submit sends has no field for
+ * an agreement (providerEnrollmentApi.start in staff/api.ts; enrollment.providerStart in packages/contracts), so Health
+ * ID cannot record one, and a required box that is then forgotten would let an applicant believe their agreement was
+ * kept (parity report 3.2). Step 5 links the Terms of Service and Privacy Policy beside Submit instead. The boxes come
+ * back once the start can carry them. There is no Data Processing Agreement, so nothing names one.
  */
-export const AGREEMENTS = [
-  ['terms', 'I have read the Terms of Service'],
-  ['privacy', 'I have read the Privacy Policy'],
-  ['ndpa', 'I acknowledge data protection and patient consent responsibilities'],
-  ['authorised', 'I am authorised to register this facility'],
-] as const
-export type Agreement = (typeof AGREEMENTS)[number][0]
-export type Agreements = Readonly<Record<Agreement, boolean>>
-export const NO_AGREEMENTS: Agreements = { terms: false, privacy: false, ndpa: false, authorised: false }
 
 // The public site's legal pages, as the patient sign-up links them (routes/enrollment/Signup.tsx:92-93). Absolute: a
 // relative /terms on the portal's own origin opens the patient sign-in, not the legal page.
@@ -109,15 +103,11 @@ function Progress({ step }: { readonly step: number }) {
 /**
  * Register your facility (design screens 02-07): the design's five steps over today's one details form. Step 1 takes
  * the administrator's name and email, step 2 the facility type (today's five), step 3 the CAC number, step 4 the
- * product (today's one per type); step 5 reviews them, shows the agreements and their four required boxes, and submits
+ * product (today's one per type); step 5 reviews them, links the Terms of Service and Privacy Policy, and submits
  * beside today's security check. Submitting asks first (07), then runs today's start. Every other design field is shown
  * disabled and is never sent or kept.
  */
-export function Registration({ e, agreed, onAgree }: {
-  readonly e: Enrollment
-  readonly agreed: Agreements
-  readonly onAgree: (agreement: Agreement, value: boolean) => void
-}) {
+export function Registration({ e }: { readonly e: Enrollment }) {
   const stepHeading = useRef<HTMLHeadingElement>(null)
   const [problems, setProblems] = useState<Problems>({})
   const [incomplete, setIncomplete] = useState(false)
@@ -154,7 +144,7 @@ export function Registration({ e, agreed, onAgree }: {
 
   /** The design re-checks every step first and returns to the first one missing something. */
   function submit() {
-    if (e.busy || !allAgreed || !e.turnstileToken || e.retryIn > 0) return
+    if (e.busy || !e.turnstileToken || e.retryIn > 0) return
     for (let earlier = 0; earlier < REVIEW_STEP; earlier++) {
       const found = problemsOf(earlier, e)
       if (Object.keys(found).length) {
@@ -167,7 +157,6 @@ export function Registration({ e, agreed, onAgree }: {
     setConfirming(true)
   }
 
-  const allAgreed = AGREEMENTS.every(([key]) => agreed[key])
   const refusalAtCac = e.error?.at === 'cac' ? e.error : null
   const stepError = e.error && !refusalAtCac ? e.error : null
 
@@ -270,7 +259,7 @@ export function Registration({ e, agreed, onAgree }: {
             </div>
           </>}
 
-          {step === REVIEW_STEP && <Review e={e} agreed={agreed} onAgree={onAgree} onEdit={move} />}
+          {step === REVIEW_STEP && <Review e={e} onEdit={move} />}
 
           {stepError ? <p role="alert" className="hid-ehr-signup-alert"><ErrorWords error={stepError} /></p> : null}
 
@@ -279,7 +268,7 @@ export function Registration({ e, agreed, onAgree }: {
               <div className="hid-ehr-signup-turnstile">
                 <Turnstile action="provider-enrollment" onTokenChange={e.setTurnstileToken} resetKey={e.resetKey} />
               </div>
-              <EhrButton type="submit" busy={e.busy} disabled={!allAgreed || !e.turnstileToken || e.retryIn > 0}>
+              <EhrButton type="submit" busy={e.busy} disabled={!e.turnstileToken || e.retryIn > 0}>
                 {e.busy ? 'Verifying CAC…' : 'Submit facility for verification'}
               </EhrButton>
             </> : <EhrButton type="submit">Continue</EhrButton>}
@@ -305,11 +294,12 @@ export function Registration({ e, agreed, onAgree }: {
   )
 }
 
-/** Step 5, Agreements (design screen 06): each section with its Edit, the agreements, and today's waits and panels. */
-function Review({ e, agreed, onAgree, onEdit }: {
+/**
+ * Step 5, Agreements (design screen 06): each section with its Edit, today's waits and panels, and last, just above the
+ * security check and Submit, the Terms of Service and Privacy Policy to read (with no box: see the note at the top).
+ */
+function Review({ e, onEdit }: {
   readonly e: Enrollment
-  readonly agreed: Agreements
-  readonly onAgree: (agreement: Agreement, value: boolean) => void
   readonly onEdit: (step: number) => void
 }) {
   // Only what has a value, as the design lists it; never a password.
@@ -343,27 +333,6 @@ function Review({ e, agreed, onAgree, onEdit }: {
       <p className="hid-ehr-signup-info">No payment is taken at sign-up. When you submit, we check your CAC registration
         number against the official registry and email a six digit code to {e.administratorEmail || 'your email address'}.</p>
 
-      <details className="hid-ehr-signup-agreements">
-        <summary>Read the agreements</summary>
-        <p><strong>Terms of Service:</strong> read the <a className="hid-ehr-signup-link" href={TERMS_URL} target="_blank"
-          rel="noopener">Health ID Terms of Service</a> (opens in a new tab).</p>
-        <p><strong>Privacy Policy:</strong> read the <a className="hid-ehr-signup-link" href={PRIVACY_URL} target="_blank"
-          rel="noopener">Health ID Privacy Policy</a> (opens in a new tab).</p>
-        <p><strong>Data protection and patient consent:</strong> Facility users acknowledge responsibility for appropriate
-          data protection and patient consent.</p>
-      </details>
-
-      <fieldset className="hid-ehr-signup-checks">
-        <legend className="hid-ehr-sr-only">Agreements</legend>
-        {AGREEMENTS.map(([key, label]) => (
-          <label key={key} className="hid-ehr-signup-check">
-            <input type="checkbox" required checked={agreed[key]} onChange={event => onAgree(key, event.target.checked)} />
-            <span className="hid-ehr-signup-required" aria-hidden="true">*</span>
-            <span>{label}</span>
-          </label>
-        ))}
-      </fieldset>
-
       {kept ? <div className="hid-ehr-signup-note">
         <p>A sign-up for {kept.cacRegistrationNumber} was started with {kept.administratorEmail}, and only that email can
           {' '}finish it until 24 hours after it started. You can still correct the CAC number.</p>
@@ -377,6 +346,14 @@ function Review({ e, agreed, onAgree, onEdit }: {
         {carried.enterableUntil > e.now ? <EhrButton variant="secondary" size="sm"
           onClick={() => e.enterCodeInForce(carried)}>Use the details I gave before</EhrButton> : null}
       </div> : null}
+
+      {/* Shown, not folded away, now that no box asks for them: what to read before Submit, never an acceptance. */}
+      <div className="hid-ehr-signup-agreements">
+        <p>Before you submit, please read the <a className="hid-ehr-signup-link" href={TERMS_URL} target="_blank"
+          rel="noopener">Health ID Terms of Service</a> and the <a className="hid-ehr-signup-link" href={PRIVACY_URL}
+          target="_blank" rel="noopener">Health ID Privacy Policy</a> (each opens in a new tab).</p>
+        <p>Facility users are responsible for appropriate data protection and patient consent.</p>
+      </div>
     </>
   )
 }

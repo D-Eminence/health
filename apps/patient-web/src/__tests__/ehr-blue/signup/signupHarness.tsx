@@ -67,21 +67,10 @@ export async function toReview({ entry, type, product }: { entry?: string; type?
   await step('Agreements')
 }
 
-export const AGREEMENT_LABELS = ['I have read the Terms of Service', 'I have read the Privacy Policy',
-  'I acknowledge data protection and patient consent responsibilities', 'I am authorised to register this facility']
-
-export function agreeToAll() {
-  for (const name of AGREEMENT_LABELS) {
-    const box = screen.getByRole('checkbox', { name }) as HTMLInputElement
-    if (!box.checked) fireEvent.click(box)
-  }
-}
-
 export const submitButton = () => button('Submit facility for verification')
 
-/** Ticks the agreements, submits, and accepts in the dialog. */
+/** Submits, and accepts in the dialog (there is no agreement box to tick: Health ID cannot record one yet). */
 export async function submitRegistration() {
-  agreeToAll()
   fireEvent.click(submitButton())
   const dialog = await screen.findByRole('alertdialog', { name: 'Submit this registration?' })
   fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm and submit' }))

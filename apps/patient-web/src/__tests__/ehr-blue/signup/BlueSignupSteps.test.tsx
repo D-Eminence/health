@@ -5,7 +5,7 @@ import { ORGANIZATION_TYPE_NOTES, organizationTypeNote } from '../../../staff/ro
 import { focusWhenShown } from '../../focusWhenShown'
 import { security } from './signupFakes'
 import {
-  actAgain, agreeToAll, AGREEMENT_LABELS, answer, button, combobox, deferred, EMAIL, expectFocusOnStep, NAME, next, open, step,
+  actAgain, answer, button, combobox, deferred, EMAIL, expectFocusOnStep, NAME, next, open, step,
   stepHeading, submitButton, submitRegistration, SUPPORT, TabChannel, textbox, toForm, toReview,
 } from './signupHarness'
 
@@ -284,44 +284,49 @@ describe('step 5, Agreements', () => {
     await expectFocusOnStep('Your account')
   })
 
-  it('shows the agreements and needs all four boxes ticked before it can be submitted', async () => {
+  // Parity report 3.2: the start has no field for an agreement, so Health ID cannot record one. The page draws no box
+  // that blocks Submit and is then forgotten; it shows the two documents beside Submit instead.
+  it('has no agreement boxes, and links the Terms of Service and Privacy Policy beside Submit', async () => {
     await toReview()
-    fireEvent.click(screen.getByText('Read the agreements'))
-    expect(screen.getByRole('link', { name: 'Health ID Terms of Service' }).getAttribute('href'))
-      .toBe('https://healthidentitydirectory.com/terms')
-    expect(screen.getByRole('link', { name: 'Health ID Privacy Policy' }).getAttribute('href'))
-      .toBe('https://healthidentitydirectory.com/privacy')
-    // Nothing on the page says that the ticks are recorded: Health ID does not record them yet.
-    expect(document.body.textContent).not.toMatch(/record(ed)? (your|the) (agreement|acceptance)|we keep a record/i)
-    // Health ID has no Data Processing Agreement: no box and no paragraph name one.
+    expect(screen.queryAllByRole('checkbox')).toEqual([])
+    const terms = screen.getByRole('link', { name: 'Health ID Terms of Service' })
+    const privacy = screen.getByRole('link', { name: 'Health ID Privacy Policy' })
+    expect(terms.getAttribute('href')).toBe('https://healthidentitydirectory.com/terms')
+    expect(privacy.getAttribute('href')).toBe('https://healthidentitydirectory.com/privacy')
+    for (const link of [terms, privacy]) {
+      // In the form that Submit sends, shown rather than folded away, and opening in a new tab as the page says.
+      expect(link.closest('form')).toBe(submitButton().closest('form'))
+      expect(link.closest('details')).toBeNull()
+      expect(link.getAttribute('target')).toBe('_blank')
+    }
+    expect(terms.closest('p')?.textContent).toBe('Before you submit, please read the Health ID Terms of Service and the '
+      + 'Health ID Privacy Policy (each opens in a new tab).')
+    expect(screen.getByText('Facility users are responsible for appropriate data protection and patient consent.'))
+      .toBeTruthy()
+    // Nothing on the page asks for an acceptance or says that one is recorded.
+    expect(document.body.textContent)
+      .not.toMatch(/record(ed)? (your|the) (agreement|acceptance)|we keep a record|I agree|you agree|by submitting|acknowledge/i)
+    // Health ID has no Data Processing Agreement: no paragraph names one.
     expect(document.body.textContent).not.toMatch(/Data Processing Agreement/)
-    expect(screen.getAllByRole('checkbox').map(box => box.closest('label')?.textContent?.replace('*', '')))
-      .toEqual(['I have read the Terms of Service', 'I have read the Privacy Policy',
-        'I acknowledge data protection and patient consent responsibilities', 'I am authorised to register this facility'])
-    expect(submitButton().disabled).toBe(true)
-    for (const name of AGREEMENT_LABELS.slice(0, 3)) fireEvent.click(screen.getByRole('checkbox', { name }))
-    expect(submitButton().disabled).toBe(true)
-    fireEvent.click(screen.getByRole('checkbox', { name: AGREEMENT_LABELS[3] }))
-    expect(submitButton().disabled).toBe(false)
-    expect(screen.queryByRole('alertdialog')).toBeNull()
-    expect(api.start).not.toHaveBeenCalled()
   })
 
-  it('keeps the ticks while the page is open, through an Edit and back', async () => {
+  it('no longer waits for any box: Submit is ready with the security check, and sends today’s payload alone', async () => {
     await toReview()
-    agreeToAll()
-    fireEvent.click(button('Edit platform setup'))
-    await step('Platform setup')
-    next()
-    await step('Agreements')
     expect(submitButton().disabled).toBe(false)
+    expect(api.start).not.toHaveBeenCalled()
+    fireEvent.click(submitButton())
+    const dialog = await screen.findByRole('alertdialog', { name: 'Submit this registration?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm and submit' }))
+    await screen.findByRole('heading', { level: 1, name: 'Facility registration submitted' })
+    expect(api.start).toHaveBeenCalledTimes(1)
+    expect(api.start).toHaveBeenCalledWith(PAYLOAD)
+    expect(Object.keys(api.start.mock.calls[0]![0] as object).sort()).toEqual(Object.keys(PAYLOAD).sort())
   })
 })
 
 describe('submitting', () => {
   it('asks in the design’s dialog first; Cancel sends nothing', async () => {
     await toReview()
-    agreeToAll()
     fireEvent.click(submitButton())
     const dialog = await screen.findByRole('alertdialog', { name: 'Submit this registration?' })
     // Health ID records no acceptance: the dialog asks to confirm the details, not to accept anything.
@@ -365,7 +370,6 @@ describe('submitting', () => {
   it('sends nothing without the security check, which sits beside the submit', async () => {
     security.auto = false
     await toReview()
-    agreeToAll()
     expect(submitButton().disabled).toBe(true)
     fireEvent.submit(submitButton().closest('form')!)
     expect(screen.queryByRole('alertdialog')).toBeNull()
