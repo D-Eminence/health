@@ -28,7 +28,9 @@ function open(path = '/admin/overview') {
 const inMinutes = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString()
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  // resetAllMocks, not clearAllMocks: a test that ends before using every queued answer (a slow machine) must not
+  // hand its leftover sessions to the next test. Every default is set again below.
+  vi.resetAllMocks()
   clearSessionWindow()
   api.mfaStatus.mockResolvedValue({ enrolled: true, session: null })
   api.overview.mockResolvedValue({ registeredPatients: 3, facilities: 2, verifiedFacilities: 1, suspendedFacilities: 0,
