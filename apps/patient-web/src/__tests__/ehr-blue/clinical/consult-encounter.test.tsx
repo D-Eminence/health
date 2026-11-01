@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
+import { TONE_OUTLINE } from '../../../kasuwa/ui'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 
 /**
@@ -570,8 +571,61 @@ describe('Consultation record: diagnoses', () => {
     records.diagnoses = [{ ...DIAGNOSIS, verificationStatus: 'entered_in_error' }]
     await openEncounter()
     const diagnoses = within(card('Diagnoses'))
-    expect(diagnoses.getByText('Entered in error')).toBeTruthy()
+    // Today's warning badge (Clinical.tsx:1809), not the neutral tone of a status the shared map does not know.
+    const badge = diagnoses.getByText('Entered in error')
+    expect(badge.className).toContain(TONE_OUTLINE.warn)
+    expect(badge.className).not.toContain(TONE_OUTLINE.neutral)
     expect(diagnoses.queryByRole('button', { name: 'Change this diagnosis' })).toBeNull()
+  })
+
+  it('says when each diagnosis was recorded, as today’s "Recorded" detail does', async () => {
+    records.diagnoses = [DIAGNOSIS, { ...DIAGNOSIS, id: 'dx-2', display: 'Fever (fictional)', createdAt: undefined }]
+    await openEncounter()
+    const diagnoses = within(card('Diagnoses'))
+    const row = (name: string) => within(diagnoses.getByText(name).closest('li') as HTMLElement)
+    expect(row('Malaria (fictional)').getByText(`Recorded: ${formatWhen('2026-10-30T08:20:00.000Z')}`)).toBeTruthy()
+    // Today shows no "Recorded" line for a diagnosis without its time.
+    expect(row('Fever (fictional)').queryByText(/^Recorded:/)).toBeNull()
+  })
+
+  it('offers today’s statuses only when changing a diagnosis, with no blank choice that would send an empty status', async () => {
+    await openEncounter()
+    const diagnoses = within(card('Diagnoses'))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Change this diagnosis' }))
+    const change = within(diagnoses.getByText('Malaria (fictional)').closest('li') as HTMLElement)
+    const values = (label: string) => Array.from((change.getByLabelText(labelled(label)) as HTMLSelectElement).options, option => option.value)
+    expect(values('Clinical status')).toEqual(['active', 'recurrence', 'relapse', 'inactive', 'remission', 'resolved'])
+    expect(values('Verification')).toEqual(['unconfirmed', 'provisional', 'differential', 'confirmed', 'refuted', 'entered_in_error'])
+    // Each opens on the diagnosis's current value.
+    expect((change.getByLabelText(labelled('Clinical status')) as HTMLSelectElement).value).toBe('active')
+    expect((change.getByLabelText(labelled('Verification')) as HTMLSelectElement).value).toBe('provisional')
+  })
+
+  it('blocks "Update diagnosis" while the diagnoses are read again, so no stale row version is sent', async () => {
+    await openEncounter()
+    const diagnoses = within(card('Diagnoses'))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Change this diagnosis' }))
+    const change = within(diagnoses.getByText('Malaria (fictional)').closest('li') as HTMLElement)
+    fireEvent.change(change.getByLabelText(labelled('Verification')), { target: { value: 'confirmed' } })
+    fireEvent.change(change.getByLabelText(labelled('Reason for change')), { target: { value: 'Smear positive' } })
+    // A diagnosis added meanwhile reads the list again; that read is held.
+    let release: ((page: { items: unknown[]; nextCursor: null }) => void) | null = null
+    api.records.mockImplementation((_f: string, _p: string, _e: string, kind: string) => kind === 'diagnoses'
+      ? new Promise(done => { release = done })
+      : Promise.resolve({ items: records[kind] ?? [], nextCursor: null }))
+    fireEvent.change(diagnoses.getByLabelText(labelled('Code system')), { target: { value: 'ICD-10' } })
+    fireEvent.change(diagnoses.getByLabelText(labelled('Code')), { target: { value: 'R50.9' } })
+    fireEvent.change(diagnoses.getByLabelText(labelled('Diagnosis')), { target: { value: 'Fever (fictional)' } })
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Add diagnosis' }))
+    await waitFor(() => expect(release).not.toBeNull())
+    const update = change.getByRole('button', { name: 'Update diagnosis' }) as HTMLButtonElement
+    // Today's disabled={recordsLoading} (Clinical.tsx:1828).
+    expect(update.disabled).toBe(true)
+    fireEvent.click(update)
+    expect(api.updateDiagnosis).not.toHaveBeenCalled()
+    await act(async () => { release!({ items: [DIAGNOSIS], nextCursor: null }) })
+    await waitFor(() => expect(update.disabled).toBe(false))
+    expect(api.updateDiagnosis).not.toHaveBeenCalled()
   })
 })
 
@@ -815,6 +869,33 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
     expect(api.createRecord).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'diagnoses', {
       codeSystem: 'ICD-10', code: 'B54', display: 'Malaria (fictional)', clinicalStatus: 'active', verificationStatus: 'confirmed',
     }, expect.any(String))
+  })
+
+  it('offers no diagnosis fields with a draft edit to a role that may write diagnoses but not read them, and adds none', async () => {
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.diagnosis.read')
+    await openEncounter()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit draft' }))
+    const saved = within(card('Note'))
+    for (const label of ['Diagnosis', 'Code system', 'Code', 'Clinical status', 'Verification']) expect(saved.queryByLabelText(labelled(label))).toBeNull()
+    fireEvent.change(saved.getByLabelText(labelled('Reason for revision')), { target: { value: 'Assessment added' } })
+    fireEvent.click(saved.getByRole('button', { name: 'Save draft' }))
+    expect(await screen.findByText('Note changes saved.')).toBeTruthy()
+    expect(api.addNoteRevision).toHaveBeenCalledTimes(1)
+    expect(api.createRecord).not.toHaveBeenCalled()
+  })
+
+  it('offers no diagnosis fields with an amendment to a role that may write diagnoses but not read them', async () => {
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.diagnosis.read')
+    records['clinical-notes'] = [{ ...NOTE, status: 'signed' }]
+    await openEncounter()
+    fireEvent.click(actions().getByRole('button', { name: 'Amend signed note' }))
+    expect(actions().getByLabelText(labelled('Amendment'))).toBeTruthy()
+    for (const label of ['Diagnosis', 'Code system', 'Code', 'Clinical status', 'Verification']) expect(actions().queryByLabelText(labelled(label))).toBeNull()
+    fireEvent.change(actions().getByLabelText(labelled('Amendment')), { target: { value: 'Smear positive (fictional).' } })
+    fireEvent.change(actions().getByLabelText(labelled('Reason')), { target: { value: 'Result back' } })
+    fireEvent.click(submitOf('Amend signed note'))
+    expect(await screen.findByText('Note changes saved.')).toBeTruthy()
+    expect(api.createRecord).not.toHaveBeenCalled()
   })
 
   it('offers no diagnosis fields with a note change without ehr.diagnosis.write', async () => {

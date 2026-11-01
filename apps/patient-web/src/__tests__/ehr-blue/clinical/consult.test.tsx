@@ -395,6 +395,18 @@ describe('New consultation', () => {
     expect(screen.getByLabelText(labelled('Code system')).getAttribute('aria-invalid')).toBe('true')
   })
 
+  it('offers no diagnosis fields to a role that may write diagnoses but not read them, and adds none', async () => {
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.diagnosis.read')
+    const save = await openNew()
+    for (const label of ['Diagnosis', 'Code system', 'Code', 'Clinical status', 'Verification']) expect(screen.queryByLabelText(labelled(label))).toBeNull()
+    fill('Presenting complaint', 'Cough')
+    fill('History', 'Three days of cough.')
+    fireEvent.click(save)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e1111111' })).toBeTruthy()
+    expect(api.createRecord).toHaveBeenCalledTimes(1)
+    expect(api.createRecord.mock.calls.filter(call => call[3] === 'diagnoses')).toHaveLength(0)
+  })
+
   it('keeps today’s field limits', async () => {
     await openNew()
     expect((screen.getByLabelText(labelled('Presenting complaint')) as HTMLInputElement).maxLength).toBe(4000)
