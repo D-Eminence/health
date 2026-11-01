@@ -77,8 +77,13 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const lab = kind === 'laboratory'
   const back = href(encounterId)
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
-  const [success, setSuccess] = useState(() => flash?.orderId === orderId ? flash.success ?? '' : '')
-  const [pageError, setPageError] = useState(() => flash?.orderId === orderId ? flash.error ?? '' : '')
+  // Arrived from the create page: what it said is shown here whatever the read below finds, as today's page says it
+  // beside the list after a create (Clinical.tsx createRecord), so a save or a "Do not create it again" is never lost.
+  const [afterCreate] = useState(() => flash?.orderId === orderId)
+  const [success, setSuccess] = useState(() => afterCreate && flash ? flash.success ?? '' : '')
+  const [pageError, setPageError] = useState(() => afterCreate && flash ? flash.error ?? '' : '')
+  // The order is being read again after a change: no change may start from the version shown (today's recordsLoading).
+  const [reloading, setReloading] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
   const [resultsOpen, setResultsOpen] = useState(false)
   const [resultsRevision, setResultsRevision] = useState(0)
@@ -106,18 +111,24 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const { facilityId, patientId } = chart
   useEffect(() => {
     let active = true
-    readOrder(chartRef.current, encounterId, kind, orderId, false).then(
+    // After a create the list is read afresh, as today's page reads it after a change (Clinical.tsx loadRecords).
+    readOrder(chartRef.current, encounterId, kind, orderId, afterCreate).then(
       read => {
         if (!active) return
         setLoaded(read.record ? { status: 'ready', record: read.record, crossFacilityOrders: read.crossFacilityOrders } : { status: 'missing' })
       },
-      caught => { if (active) setLoaded({ status: 'error', text: caught instanceof Error ? caught.message : 'Records could not be loaded.' }) },
+      caught => {
+        if (!active) return
+        setLoaded({ status: 'error', text: afterCreate ? `The change was saved, but the records could not be reloaded. ${refusalText(caught, '')}`.trim()
+          : caught instanceof Error ? caught.message : 'Records could not be loaded.' })
+      },
     )
     return () => { active = false }
-  }, [facilityId, patientId, encounterId, kind, orderId])
+  }, [facilityId, patientId, encounterId, kind, orderId, afterCreate])
 
   /** The order read again after a change, as today's page re-reads its list: the rows, or 'failed'. */
   const reload = async (): Promise<Reload> => {
+    setReloading(true)
     try {
       const read = await readOrder(chartRef.current, encounterId, kind, orderId, true)
       setLoaded(read.record ? { status: 'ready', record: read.record, crossFacilityOrders: read.crossFacilityOrders } : { status: 'missing' })
@@ -125,12 +136,22 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     } catch (caught) {
       setPageError(`The change was saved, but the records could not be reloaded. ${refusalText(caught, '')}`.trim())
       return 'failed'
+    } finally {
+      setReloading(false)
     }
   }
 
+  // What a change said, drawn on every state of the page below the loading one.
+  const said = (
+    <>
+      <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
+      {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
+    </>
+  )
+
   if (loaded.status === 'loading') return <Loading label="Loading records…" />
-  if (loaded.status === 'error') return <><RecordHeadingOnly title={info.title} back={back} /><ErrorBox>{loaded.text}</ErrorBox></>
-  if (loaded.status === 'missing') return <RecordNotFound backHref={back} />
+  if (loaded.status === 'error') return <><RecordHeadingOnly title={info.title} back={back} />{said}<ErrorBox>{loaded.text}</ErrorBox></>
+  if (loaded.status === 'missing') return <>{said}<RecordNotFound backHref={back} /></>
 
   const record = loaded.record
   const status = text(record.status)
@@ -292,6 +313,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
         validate={values => minimum(values, 3)}
         submitLabel={label}
         busyLabel="Updating…"
+        disabled={reloading}
         onSubmit={submit}
       >
         {warning ? <div className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{warning}</div> : null}
@@ -308,6 +330,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
         validate={values => minimum(values, 8)}
         submitLabel="Send to Pharmacy"
         busyLabel="Working…"
+        disabled={reloading}
         onSubmit={async values => {
           const why = reason(values)
           if (pharmacyAttempt.current?.reason !== why) pharmacyAttempt.current = { reason: why, key: crypto.randomUUID() }
@@ -329,6 +352,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
         fields={[]}
         submitLabel="Send to Lab"
         busyLabel="Sending…"
+        disabled={reloading}
         onSubmit={async () => {
           labAttempt.current ??= crypto.randomUUID()
           try {
@@ -386,24 +410,30 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
         back={<EhrBackButton label="Back to consultation" onClick={() => navigate(back)} />}
       />
       <DetailMeta status={status || 'unknown'} saved={text(record.updatedAt) || record.createdAt} />
-      <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
-      {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
+      {said}
       <DetailGrid>
         <SavedRecord items={items} />
         <EhrCard title={<span id={ACTIONS_ID} tabIndex={-1}>Actions</span>}>
           {actions.length > 0 ? (
             <div className="hid-ehr-clinical-orders-actions">
               <ActionList>
-                {actions.map(action => (
-                  <EhrButton key={action.id} id={actionId(action.id)} variant="secondary"
-                    aria-expanded={action.toggle ? resultsOpen : selected === action.id}
-                    onClick={() => {
-                      if (action.toggle) { setResultsOpen(open => !open); return }
-                      setSelected(open => open === action.id ? null : action.id)
-                    }}>
-                    {action.label}
-                  </EhrButton>
-                ))}
+                {actions.map(action => {
+                  // While the order is read again, a change can't be opened on the version shown (today's
+                  // disabled={recordsLoading}): the button stays focusable and says so, and a press does nothing.
+                  const locked = reloading && !action.toggle && selected !== action.id
+                  return (
+                    <EhrButton key={action.id} id={actionId(action.id)} variant="secondary"
+                      aria-expanded={action.toggle ? resultsOpen : selected === action.id}
+                      aria-disabled={locked || undefined}
+                      onClick={() => {
+                        if (action.toggle) { setResultsOpen(open => !open); return }
+                        if (locked) return
+                        setSelected(open => open === action.id ? null : action.id)
+                      }}>
+                      {action.label}
+                    </EhrButton>
+                  )
+                })}
               </ActionList>
             </div>
           ) : <NoActions />}

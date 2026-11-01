@@ -34,11 +34,15 @@ export function leadingZero(value: string): string {
 /** A dose: a positive number with at most four decimal places, written with its leading zero. */
 const DOSE_NUMBER = /^\d+(\.\d{1,4})?$/
 
-/** The prescription's fields and limits, one column; the dose and its unit side by side. */
+/**
+ * The prescription's fields and limits, one column; the dose and its unit side by side. As today, the dose and its unit
+ * may both be left blank ("as directed", a cream applied thinly): only one without the other is refused (DOSE_PAIR,
+ * staff/routes/Clinical.tsx:505-510, :567).
+ */
 const PRESCRIPTION_FIELDS: readonly FieldDef[] = [
   { key: 'medicationDisplay', label: 'Medicine', required: true, maxLength: 500 },
-  { key: 'doseQuantity', label: 'Dose', required: true, inputMode: 'decimal', placeholder: '0.5', maxLength: 12, row: 'dose', normalise: leadingZero },
-  { key: 'doseUnitChoice', label: 'Unit', required: true, row: 'dose',
+  { key: 'doseQuantity', label: 'Dose', inputMode: 'decimal', placeholder: '0.5', maxLength: 12, row: 'dose', normalise: leadingZero },
+  { key: 'doseUnitChoice', label: 'Unit', row: 'dose',
     choices: [...DOSE_UNITS.map(unit => ({ value: unit, label: unit })), { value: OTHER_UNIT, label: 'Other…' }] },
   { key: 'doseUnit', label: 'Other unit', required: true, maxLength: 80, when: values => values.doseUnitChoice === OTHER_UNIT },
   { key: 'routeCode', label: 'Route', placeholder: 'Oral', maxLength: 100 },
@@ -93,7 +97,9 @@ export function CreateOrder({ kind, chart, encounterId }: { kind: OrderKind; cha
   const back = href(encounterId)
   const heading = <RecordHeading title={kind === 'pharmacy' ? 'New prescription' : 'New lab request'} backHref={back} />
 
-  if (!chart.can(info.write)) {
+  // Today's form sits in the records tab that needs the read permission (staff/routes/Clinical.tsx:1232, :1853): a role
+  // that can't see this encounter's orders adds none.
+  if (!chart.can(info.read) || !chart.can(info.write)) {
     return <>{heading}<ErrorBox>Your role can’t add this order.</ErrorBox></>
   }
   if (!chart.canWrite) {
@@ -426,6 +432,10 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
       if (toAnother && choice.destination && choice.attestation) await createAndSend(body, key, choice.destination, choice.attestation.version)
       else await create(body, key)
     } catch (caught) {
+      // A refused request handling ('status') is marked at its select, as today's markRefused marks the control named
+      // status (staff/routes/Clinical.tsx:546-548, :570).
+      const handlingRefused = refusedFields(caught).find(item => item.field === 'status')
+      if (handlingRefused) setHandlingError(refusalSentences(handlingRefused).join(' '))
       return refused(caught, LAB_FIELDS)
     }
   }

@@ -475,8 +475,10 @@ describe('New pharmacy (prescription)', () => {
     expect(options('Unit')).toEqual(['Select…', 'mg', 'g', 'mcg', 'mL', 'units', 'tablet(s)', 'capsule(s)', 'drop(s)', 'puff(s)', 'Other…'])
     expect(screen.queryByLabelText(labelled('Other unit'))).toBeNull()
     fireEvent.click(save)
-    // Medicine, dose, unit, how often and instructions are required.
-    expect(screen.getAllByText('Complete this field.')).toHaveLength(5)
+    // Medicine, how often and instructions are required; the dose and its unit may both be left blank, as today.
+    expect(screen.getAllByText('Complete this field.')).toHaveLength(3)
+    expect(field('Dose').getAttribute('aria-invalid')).toBeNull()
+    expect(field('Unit').getAttribute('aria-invalid')).toBeNull()
     expect(document.activeElement).toBe(field('Medicine'))
     change('Medicine', 'Amoxicillin')
     change('How often', 'Twice daily')
@@ -508,6 +510,20 @@ describe('New pharmacy (prescription)', () => {
     change('How often', 'Twice daily')
     change('Instructions', 'After meals')
   }
+
+  it('gap: saves a prescription with no dose, the dose and its unit both left blank, as today (Clinical.tsx:505-512, :567)', async () => {
+    const save = await form()
+    change('Medicine', 'Hydrocortisone 1% cream')
+    change('How often', 'Twice daily')
+    change('Instructions', 'Apply thinly to the rash')
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX('Hydrocortisone 1% cream'), 'Save prescription')
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(1))
+    const body = api.createRecord.mock.calls[0]![4] as Record<string, unknown>
+    expect(body).toEqual({ medicationDisplay: 'Hydrocortisone 1% cream', doseQuantity: undefined, doseUnit: undefined, routeCode: undefined,
+      frequency: 'Twice daily', instructions: 'Apply thinly to the rash', status: 'draft' })
+    expect(screen.queryByText('Complete this field.')).toBeNull()
+  })
 
   it('marks the fields the EHR refused, and says each refusal', async () => {
     const save = await form()
@@ -1082,6 +1098,188 @@ describe('Sending to another facility, and what it reported', () => {
     expect(await screen.findByText(/^Haemoglobin: Released by Demo Laboratory on .*: 9\.8 g\/dL, flagged low, reference 12\.0-15\.5$/)).toBeTruthy()
     expect(routes.routes).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab_request', LAB)
     expect(screen.getByRole('button', { name: 'Hide details' }).getAttribute('aria-expanded')).toBe('true')
+  })
+})
+
+/** A promise the test answers itself, once the call it stands for has been made. */
+function deferred<T>() {
+  let answer: (value: T) => void = () => {}
+  const promise = new Promise<T>(resolve => { answer = resolve })
+  return { promise, answer }
+}
+
+const UNAVAILABLE = () => new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })
+
+/** The lab request form filled with today's fields, and the handling chosen. */
+async function labForm(handling: 'draft' | 'active' | 'route' = 'draft') {
+  open(`${ENCOUNTER_ID}/orders/new/laboratory`)
+  await screen.findByRole('button', { name: 'Save draft' })
+  if (handling === 'route') await waitFor(() => expect(Array.from((field('What to do with it') as unknown as HTMLSelectElement).options).map(option => option.value)).toContain('route'))
+  change('Code system', 'LOINC')
+  change('Test code', '718-7')
+  change('Test', 'Haemoglobin')
+  if (handling !== 'draft') fireEvent.change(field('What to do with it'), { target: { value: handling } })
+}
+
+/**
+ * Today's page says what a create came to beside the list, whatever its re-read finds (Clinical.tsx createRecord, :1453-1505,
+ * createAndSend :1637-1673). The blue create page carries it to the saved order's page: it must be said there too when
+ * that page cannot read the order, or does not find it, or a clinician may create the order again.
+ */
+describe('blockers: what a create said is shown even when the saved order’s page cannot show the order', () => {
+  async function savePrescription() {
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    const save = await screen.findByRole('button', { name: 'Save prescription' })
+    change('Medicine', 'Amoxicillin')
+    change('Dose', '500')
+    change('Unit', 'mg')
+    change('How often', 'Twice daily')
+    change('Instructions', 'After meals')
+    fireEvent.click(save)
+    await confirmPatient(SAVE_RX(), 'Save prescription')
+  }
+
+  it('blocker: a saved prescription says it was saved when its page cannot be read, which reads the list afresh as today after a change', async () => {
+    api.records.mockRejectedValue(UNAVAILABLE())
+    await savePrescription()
+    expect(await screen.findByText('The change was saved, but the records could not be reloaded. EHR is unavailable.')).toBeTruthy()
+    expect(screen.getByText('Saved.')).toBeTruthy()
+    expect(api.createRecord).toHaveBeenCalledTimes(1)
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: undefined, fresh: true })
+    expect(api.records).not.toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions')
+  })
+
+  it('blocker: a saved prescription says it was saved when its page does not find it', async () => {
+    setLists([], [])
+    await savePrescription()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
+    expect(screen.getByText('Saved.')).toBeTruthy()
+  })
+
+  it('blocker: "Do not create it again" stays on the page when the saved active lab request is not found there', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.work-item.accept']
+    setLists([], [])
+    api.createRecord.mockRejectedValue(new HidApiError(409, `Lab request ${LAB} is saved and active in the EHR, but Lab refused it (LAB_TEST_UNKNOWN)`, { code: 'LAB_HANDOFF_REFUSED' }))
+    await labForm('active')
+    fireEvent.click(screen.getByRole('button', { name: 'Send lab request' }))
+    await confirmPatient(SEND_LAB(), 'Send lab request')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
+    expect(screen.getByText('Lab request saved and active in the EHR, but Lab refused it (LAB_TEST_UNKNOWN), so the Laboratory does not have it. '
+      + 'Do not create it again: once that is resolved, use Send to Lab on the request.')).toBeTruthy()
+  })
+
+  it('blocker: an active lab request Lab did not accept says so when its page cannot be read', async () => {
+    staff.permissions = [...READ_WRITE, 'lab.work-item.accept']
+    api.createRecord.mockResolvedValue({ ...labRequest({ status: 'active' }), labHandoff: { state: 'failed', status: 409, code: 'LAB_TEST_UNKNOWN' } })
+    await labForm('active')
+    api.records.mockRejectedValue(UNAVAILABLE())
+    fireEvent.click(screen.getByRole('button', { name: 'Send lab request' }))
+    await confirmPatient(SEND_LAB(), 'Send lab request')
+    expect(await screen.findByText('Lab request created in the EHR: its status is saved, but Lab refused it (LAB_TEST_UNKNOWN). Once that is resolved, '
+      + 'use Send to Lab on the request. The list could not be reloaded; refresh it to see the request.')).toBeTruthy()
+    expect(screen.getByText('The change was saved, but the records could not be reloaded. EHR is unavailable.')).toBeTruthy()
+  })
+
+  it('blocker: a lab request saved but not sent to another laboratory says so when its page cannot be read', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    staff.permissions = [...READ_WRITE, 'ehr.order-route.send']
+    setLists([], [labRequest()], { crossFacilityOrders: true })
+    api.createRecord.mockResolvedValue(labRequest())
+    routes.send.mockRejectedValue(new HidApiError(409, 'Not eligible', { code: 'ORDER_ROUTE_DESTINATION_INELIGIBLE' }))
+    await labForm('route')
+    change('Search for the laboratory', 'Demo')
+    fireEvent.keyDown(field('Search for the laboratory'), { key: 'Enter' })
+    fireEvent.click(await screen.findByRole('radio', { name: /^Demo Laboratory/ }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: /^I confirm that Patient One agreed/ }))
+    api.records.mockRejectedValue(UNAVAILABLE())
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Demo Laboratory' }))
+    await confirmPatient(`Send this lab request (Haemoglobin) for ${PATIENT_NAME} to Demo Laboratory?`, 'Send lab request')
+    expect(await screen.findByText('Saved as a draft. Not sent: Demo Laboratory can’t receive this order on Health ID at the moment. Choose another laboratory. '
+      + 'The list could not be reloaded; refresh it to see the lab requests.')).toBeTruthy()
+    expect(screen.getByText('The change was saved, but the records could not be reloaded. EHR is unavailable.')).toBeTruthy()
+  })
+})
+
+describe('gaps: who may add an order, and the request handling the EHR refused', () => {
+  it('gap: offers no create step, and the create page refuses, without the list’s read permission (today’s tab gate, Clinical.tsx:1853)', async () => {
+    staff.permissions = ['ehr.encounter.read', 'ehr.prescription.write', 'ehr.lab-request.read', 'ehr.lab-request.write']
+    const first = open(ENCOUNTER_ID)
+    await screen.findByRole('button', { name: 'New lab request' })
+    expect(screen.queryByRole('button', { name: 'New prescription' })).toBeNull()
+    first.unmount()
+    staff.permissions = ['ehr.encounter.read', 'ehr.prescription.read', 'ehr.prescription.write', 'ehr.lab-request.write']
+    const second = open(ENCOUNTER_ID)
+    await screen.findByRole('button', { name: 'New prescription' })
+    expect(screen.queryByRole('button', { name: 'New lab request' })).toBeNull()
+    second.unmount()
+    open(`${ENCOUNTER_ID}/orders/new/laboratory`)
+    expect((await screen.findByRole('alert')).textContent).toBe('Your role can’t add this order.')
+    expect(screen.queryByLabelText(labelled('Test'))).toBeNull()
+  })
+
+  it('gap: marks the request handling where it was chosen when the EHR refuses it (status), as today’s markRefused', async () => {
+    api.createRecord.mockRejectedValue(new HidApiError(400, 'One or more request fields are invalid.', {
+      code: 'VALIDATION_FAILED', details: [{ field: 'status', messages: ['status must be one of the following values: draft, active'] }],
+    }))
+    await labForm()
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await confirmPatient(SAVE_LAB(), 'Save draft')
+    expect((await screen.findByRole('alert')).textContent).toBe('One or more request fields are invalid. Status must be one of the following values: draft, active.')
+    const handling = field('What to do with it')
+    expect(handling.getAttribute('aria-invalid')).toBe('true')
+    const described = (handling.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent)
+    expect(described).toContain('Status must be one of the following values: draft, active.')
+  })
+})
+
+describe('gap: no change starts from an order while it is read again after a change (today’s disabled={recordsLoading})', () => {
+  it('gap: the other changes do nothing while the order is read again, then the new ones are offered', async () => {
+    await openOrder('pharmacy', RX)
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }))
+    change('Reason for change', 'Treatment starts today')
+    const read = deferred<unknown>()
+    api.records.mockImplementation(() => read.promise)
+    fireEvent.submit(field('Reason for change').closest('form')!)
+    expect(await screen.findByText('Prescription status updated.')).toBeTruthy()
+    await waitFor(() => expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: undefined, fresh: true }))
+    // The page still shows the draft (version 1): Cancel order says it can't be used yet, stays focusable, and opens nothing.
+    const cancel = screen.getByRole('button', { name: 'Cancel order' }) as HTMLButtonElement
+    expect(cancel.getAttribute('aria-disabled')).toBe('true')
+    expect(cancel.disabled).toBe(false)
+    fireEvent.click(cancel)
+    expect(cancel.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByLabelText(labelled('Reason for change'))).toBeNull()
+    await act(async () => { read.answer({ items: [prescription({ status: 'active', rowVersion: 2 })], nextCursor: null }) })
+    const hold = await screen.findByRole('button', { name: 'Put on hold' })
+    expect(hold.getAttribute('aria-disabled')).toBeNull()
+    fireEvent.click(hold)
+    expect(field('Reason for change')).toBeTruthy()
+    expect(api.updateRecord).toHaveBeenCalledTimes(1)
+  })
+
+  it('gap: a change already open is not sent while the order is read again after a withdrawal', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    staff.permissions = [...READ_WRITE, 'ehr.order-route.send']
+    setLists([], [labRequest({ status: 'active', rowVersion: 2, orderRoute: route() })], { crossFacilityOrders: true })
+    routes.withdraw.mockResolvedValue({ route: route({ effectiveState: 'withdrawn' }) })
+    await openOrder('laboratory', LAB)
+    fireEvent.click(screen.getByRole('button', { name: 'Put on hold' }))
+    change('Reason for change', 'Waiting for the patient')
+    fireEvent.change(field('Withdraw it from Demo Laboratory'), { target: { value: 'patient_request' } })
+    const read = deferred<unknown>()
+    api.records.mockImplementation(() => read.promise)
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }))
+    expect(await screen.findByText('Withdrawn from Demo Laboratory. Patient One is told in the Health ID app.')).toBeTruthy()
+    await waitFor(() => expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests', { cursor: undefined, fresh: true }))
+    const submit = screen.getAllByRole('button', { name: 'Put on hold' })[1] as HTMLButtonElement
+    expect(submit.disabled).toBe(true)
+    await act(async () => { fireEvent.submit(field('Reason for change').closest('form')!) })
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+    expect(api.updateRecord).not.toHaveBeenCalled()
+    await act(async () => {
+      read.answer({ items: [labRequest({ status: 'active', rowVersion: 3, orderRoute: route({ effectiveState: 'withdrawn', resendAllowed: true }) })], nextCursor: null, crossFacilityOrders: true })
+    })
+    expect(await screen.findByText('Withdrawn.')).toBeTruthy()
   })
 })
 

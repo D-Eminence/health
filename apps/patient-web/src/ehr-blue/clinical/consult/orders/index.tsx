@@ -178,8 +178,9 @@ export function EncounterOrders({ chart, encounter }: { chart: Chart; encounter:
   const sampleCan = useSampleCan()
   if (chart.purpose !== 'direct-care') return null
 
-  const createRx = chart.canWrite && chart.can(KINDS.pharmacy.write)
-  const createLab = chart.canWrite && chart.can(KINDS.laboratory.write)
+  // As today, an order is added only beside its list: with the read permission too (staff/routes/Clinical.tsx:1853).
+  const createRx = readRx && chart.canWrite && chart.can(KINDS.pharmacy.write)
+  const createLab = readLab && chart.canWrite && chart.can(KINDS.laboratory.write)
   const lists = [
     ...(readRx ? [{ kind: 'pharmacy' as const, list: prescriptions }] : []),
     ...(readLab ? [{ kind: 'laboratory' as const, list: labs }] : []),
