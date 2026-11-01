@@ -31,7 +31,10 @@ const BLUE_MFA_LOOK: StaffMfaLook = {
  * do not sign in, it points to the one where they do. staff/App.tsx opens it at /provider/sign-in in place of today's
  * page once the clinic switch is on (README.md).
  */
-export function BlueSignIn() {
+export function BlueSignIn({ leavesAfterSignIn = false }: {
+  /** The page around it takes the person on once signed in (the auth. site, authHandoff.ts): no landing page here. */
+  leavesAfterSignIn?: boolean
+} = {}) {
   const { state, login, verifyMfa, sendEnrollmentCode, startEnrollment, activateEnrollment, completeSignIn } = useStaff()
   const location = useLocation()
   const navigate = useNavigate()
@@ -84,7 +87,7 @@ export function BlueSignIn() {
 
   function finish(session: StaffSession) {
     try { completeSignIn(session) } catch (caught) { restart(caught instanceof Error ? caught.message : 'Sign in failed.'); return }
-    navigate(getStaffLandingPath(location.search, session))
+    if (!leavesAfterSignIn) navigate(getStaffLandingPath(location.search, session))
   }
 
   function restart(message: string | null) {

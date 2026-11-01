@@ -36,13 +36,16 @@ import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { blueForAll, demoFacilitySite, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
 import { otherStaffSites, servedHere, siteElsewhere, siteHref, SITE_NAMES, type Site } from '../productSites'
+import { openSite } from '../openSite'
+import { centralSignInEnabled, signInStartHref } from '../authHandoff'
 import './style.css'
 
 // The blue Hospital EHR (ehr-blue/blueFacilities.ts says for whom): loaded on demand, so no other facility downloads
 // it. "Use the classic EHR" brings this tab back to today's workspace until it reloads.
 const EhrBlueApp = lazy(() => import('../ehr-blue/EhrBlueApp'))
 // The blue EHR's sign-in, once the clinic switch is on (blueForAll): today's steps and words, in the design's look.
-const BlueSignIn = lazy(async () => ({ default: (await import('../ehr-blue/frame/auth/BlueSignIn')).BlueSignIn }))
+/** The blue staff sign-in, loaded only once opened (also the auth. site's, staff/CentralSignIn.tsx). */
+export const BlueSignIn = lazy(async () => ({ default: (await import('../ehr-blue/frame/auth/BlueSignIn')).BlueSignIn }))
 
 /** `reason`: why Identity ended the session, when it said (see StaffSessionEndReason). */
 type SessionState =
@@ -467,6 +470,13 @@ function SessionCheck({ unconfirmed }: { unconfirmed: boolean }) {
   </main>
 }
 
+/** On the way to the sign-in, through this site's own server: says so, and links there in case the browser does not go. */
+function LeavingForSignIn({ href }: { href: string }) {
+  useEffect(() => { openSite(href) }, [href])
+  return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><div role="status"><h1>Opening Health ID sign-in…</h1>
+    <p><a className="staff-text-link" href={href}>Continue to sign-in</a></p></div></main>
+}
+
 function Gate({ children }: { children: ReactNode }) {
   const { state, lock, refresh } = useStaff()
   const { pathname } = useLocation()
@@ -479,6 +489,11 @@ function Gate({ children }: { children: ReactNode }) {
     // waits in this page's memory (invitationCapture.ts), never in the return address.
     const asked = pathname.replace(/\/+$/, '').toLowerCase()
     const joining = usesNovuBackend() && asked === STAFF_JOIN_PATH
+    // One sign-in for every staff site (authHandoff.ts, off unless the build turns it on): this site's own server starts
+    // it at the auth. site, which signs in or finds its session already held, and this site's server sets its own session
+    // and comes back here. Not from the join page: its invitation waits in this page.
+    const central = !joining && centralSignInEnabled() ? signInStartHref(asked, window.location.hostname) : null
+    if (central) return <LeavingForSignIn href={central} />
     // On a product site, the sign-in comes back to the page asked for when it may (each site signs in on its own, so a
     // link from another product lands here), else to the site's own page.
     const product = resolveStaffProductHostname(window.location.hostname)?.route

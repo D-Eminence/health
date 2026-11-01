@@ -19,6 +19,7 @@ import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_RO
 import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_INVITATION_PATH } from './productHostname'
 import { rightSiteHref } from './productSites'
 import { openSite } from './openSite'
+import { AUTH_SIGN_IN_PATH, authDeploymentOf, centralSignInEnabled } from './authHandoff'
 import { usesNovuBackend } from './backendContract'
 import { LEGACY_PATIENT_PATHS } from './legacyPaths'
 import { ShareRecords } from './routes/ShareRecords'
@@ -26,6 +27,11 @@ import { SharedCardPage, SharedCardPreview } from './routes/SharedCard'
 import { BLUE_FOR_ALL } from './ehr-blue/clinicSwitch'
 
 const StaffApp = lazy(async () => ({ default: (await import('./staff/App')).App }))
+/** The auth. site's one sign-in for every staff site (authHandoff.ts), inside the staff session it checks first. */
+const CentralSignInSite = lazy(async () => {
+  const [{ StaffProvider }, { CentralSignIn }] = await Promise.all([import('./staff/App'), import('./staff/CentralSignIn')])
+  return { default: () => <StaffProvider><CentralSignIn /></StaffProvider> }
+})
 // Facility sign-up: the blue registration once the clinic switch is on (clinicSwitch.ts, a one-line constant module, so
 // no blue code reaches this bundle), today's page until then. Both load lazily, at the same address.
 const ProviderEnrollment = lazy(async () => BLUE_FOR_ALL
@@ -125,6 +131,11 @@ function ProductHostnameGate({ children }: { children: React.ReactNode }) {
  * the main element itself would replace the landmark.
  */
 export function App() {
+  // The auth. site serves its sign-in and nothing else (DRAFT: only once the build turns central sign-in on).
+  if (centralSignInEnabled() && authDeploymentOf(window.location.hostname)) return <Routes>
+    <Route path={AUTH_SIGN_IN_PATH} element={<Suspense fallback={<main><p role="status">Opening sign-in…</p></main>}><CentralSignInSite /></Suspense>} />
+    <Route path="*" element={<Navigate to={AUTH_SIGN_IN_PATH} replace />} />
+  </Routes>
   return <ProductHostnameGate><Routes>
     <Route path={STAFF_RECOVERY_PATH} element={BLUE_FOR_ALL
       ? <Suspense fallback={<main><p role="status">Opening account recovery…</p></main>}><BlueRecovery /></Suspense>
