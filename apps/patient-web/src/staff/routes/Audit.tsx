@@ -87,7 +87,9 @@ export function FacilityAudit() {
     <p className="staff-muted">Search and outcome filters apply to the current page only. Use Older page to review earlier events.</p>
     {loading && <p className="staff-muted" role="status">Loading audit events…</p>}
     {error && <p className="staff-error" role="alert">{error} <Button tone="quiet" size="sm" onClick={() => setReload(value => value + 1)}>Try again</Button></p>}
-    {!loading && page?.items.length === 0 && <EmptyState title="No audit events" description="The server returned no events for this page and facility." />}
+    {!loading && page?.items.length === 0 && (page.nextBeforeSequenceId
+      ? <EmptyState title="Nothing to show on this page" description="This page held only request records, which aren’t shown here. Use Older page to look further back." />
+      : <EmptyState title="No audit events" description="The server returned no events for this page and facility." />)}
     {!loading && page && page.items.length > 0 && visible.length === 0 && <EmptyState title="No matching events on this page" description="Change the search or outcome filter, or review another page." />}
     {page && visible.length > 0 && <Card className="staff-table-wrap"><table className="staff-table">
       <thead><tr><th>Occurred</th><th>Action</th><th>Outcome</th><th>Actor type</th><th>Resource type</th><th>Correlation ID</th></tr></thead>
