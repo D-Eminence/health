@@ -15,4 +15,6 @@ export const PUBLIC_ENVIRONMENT = {
   VITE_HID_PATIENT_CHAT_ENABLED: import.meta.env.VITE_HID_PATIENT_CHAT_ENABLED as string | undefined,
   VITE_HID_SUPPORT_CHAT_ENABLED: import.meta.env.VITE_HID_SUPPORT_CHAT_ENABLED as string | undefined,
   VITE_HID_SUPPORT_CONTACT: import.meta.env.VITE_HID_SUPPORT_CONTACT as string | undefined,
+  // Single sign-on on auth. (contract v2), off unless a build sets it to 1: unset, the product sign-in pages are today's.
+  VITE_HID_SSO: import.meta.env.VITE_HID_SSO as string | undefined,
 }
