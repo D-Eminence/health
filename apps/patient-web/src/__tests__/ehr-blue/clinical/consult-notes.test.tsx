@@ -370,7 +370,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     // A read only: nothing to change, add or update.
     expect(view().queryByRole('button', { name: 'Change this diagnosis' })).toBeNull()
     expect(view().queryByRole('button', { name: 'Update diagnosis' })).toBeNull()
-    expect(view().queryByRole('button', { name: 'Add diagnosis' })).toBeNull()
+    expect(view().queryByRole('button', { name: 'Save record' })).toBeNull()
   })
 
   it('item 6: pages the Diagnoses card past 50 under "Record pages", a change re-reading the page shown', async () => {

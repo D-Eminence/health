@@ -111,7 +111,7 @@ export const RESTARTED = 'This list changed since it was opened, so it shows the
 export const NO_ENCOUNTERS = 'No consultations for this patient here yet.'
 export const NO_COMPLAINT = 'No complaint recorded'
 export const ENCOUNTER_CREATED = 'Consultation started.'
-export const RECORD_SAVED = 'Saved.'
+export const RECORD_SAVED = 'Clinical record saved.'
 export const NOTE_STATUS_UPDATED = 'Note updated.'
 export const ENCOUNTER_STATUS_UPDATED = 'Consultation updated.'
 export const REVISION_RECORDED = 'Note changes saved.'
@@ -119,7 +119,7 @@ export const DIAGNOSIS_UPDATED = 'Diagnosis updated.'
 export const REASON_SHORT = 'Give a reason of at least 3 characters.'
 export const ENCOUNTER_CHANGED = 'Someone changed this consultation while you had it open. It now shows its current status; choose the change again if it’s still needed.'
 export const NOTES_ARE_DRAFTS = 'The note saves as a draft. Sign it on the consultation’s page.'
-export const NO_WRITE = 'Your access doesn’t allow changes to this patient’s records.'
+export const NO_WRITE = 'This access does not permit changes to the patient record.'
 
 // EHR lists encounters and each record kind newest first, 50 to a page, with an opaque cursor for the next and no
 // total. A list keeps the cursors that led to the page shown, the first page's being none.
