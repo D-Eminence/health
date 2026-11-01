@@ -111,6 +111,19 @@ export const APP_ENTRY = {
   providerSignUp: `${PORTAL_ORIGIN}/provider/enroll`,
 } as const
 
+/**
+ * Where a product page's Sign in goes: the staff sign-in on that product's own site (each product its own sign-in,
+ * owner 2026-11-01), the same site productSiteHref names, so the page's Sign in and its front page are always one host.
+ * Where productSiteHref names no site (local development, or a page with no site of its own), the portal's own staff
+ * sign-in. Absolute even though the page is that site's own front page in production and on staging: the edge reads the
+ * page's addresses as this site's (frontend-worker.mjs, landingHref), so a relative /provider/sign-in would open this
+ * site's, which has none. The edge leaves an address on the product site's own host as it is.
+ */
+export function productSignInHref(slug: string): string {
+  const site = productSiteHref(slug)
+  return site ? new URL('provider/sign-in', site).href : APP_ENTRY.staffSignIn
+}
+
 export interface Audience {
   readonly id: 'patient' | 'provider'
   readonly title: string
