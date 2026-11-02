@@ -7,14 +7,11 @@ import type { ActivePatient } from '../../../staff/App'
 import { patientFacts, type PatientFacts } from './PatientHeader'
 import { useClinical, useWorkspaceHref } from './Workspace'
 
-/**
- * The chart's wording. READ_ONLY and WRITE_UNKNOWN are today's, word for word (staff/routes/Clinical.tsx:1771 and :1770).
- * ACCESS_ENDED is today's (:1254, :1260) in plain words.
- */
+/** The chart's wording, in plain words. */
 export const OPEN_FIRST = 'Open a patient first.'
 export const ACCESS_ENDED = 'Patient access has ended. Find the patient again to reopen their record.'
-export const READ_ONLY = 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'
-export const WRITE_UNKNOWN = 'Write access could not be confirmed, so changes are unavailable. Refresh the page to try again.'
+export const READ_ONLY = 'You can view this record but not change it.'
+export const WRITE_UNKNOWN = 'We couldn’t check whether you can make changes, so changes are off. Refresh the page to try again.'
 export const CHOOSE_FIRST = 'Choose a patient first.'
 export const CHOOSE_FIRST_DETAIL = 'Records show only for a patient you have access to at this facility.'
 export const NO_AUTHORIZED_PATIENT = 'No patient open'
@@ -188,7 +185,7 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
   if (ended && !chart) {
     return (
       <Alert intent="error" title="Access to this patient ended" action={<Button size="sm" to={href.to('patients')}>Find a patient</Button>}>
-        {ACCESS_ENDED}
+        Open the patient again to keep working.
       </Alert>
     )
   }

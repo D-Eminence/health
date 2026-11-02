@@ -465,7 +465,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
           <EhrField label={<>Request handling<span aria-hidden="true"> *</span></>} error={handlingError || undefined}>
             <EhrSelect ref={handlingRef} required value={handling} aria-describedby={warningId}
               onChange={event => { setHandling(event.target.value); setHandlingError(''); setRouteErrors({}) }}>
-              <option value="draft">Save EHR draft</option>
+              <option value="draft">Save as a draft</option>
               {canSendToLab ? <option value="active">{routable ? 'Create active request and send to this facility’s Lab' : 'Create active request and send to Lab'}</option> : null}
               {routable ? <option value="route">Create and send to another laboratory</option> : null}
             </EhrSelect>

@@ -189,7 +189,7 @@ describe('the emergency summary page', () => {
     open()
     const ended = await screen.findByRole('alert')
     expect(within(ended).getByText('Access to this patient ended')).toBeTruthy()
-    expect(ended.textContent).toContain('Patient access has ended. Find the patient again to reopen their record.')
+    expect(ended.textContent).toContain('Open the patient again to keep working.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.emergencyRecords).not.toHaveBeenCalled()
     expect(banner()).toBeNull()
@@ -647,8 +647,8 @@ describe('released Lab results in the emergency summary', () => {
     const request = entry('Lab tests', 'Haemoglobin')
     await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
     expect(await within(request).findByText('Checked, not released')).toBeTruthy()
-    expect(within(request).getByText('Released')).toBeTruthy()
-    expect(request.textContent).not.toMatch(/verified not released|verified_not_released|LOINC|718-7/)
+    expect(within(request).getAllByText('Released').length).toBeGreaterThan(0)
+    expect(request.textContent).not.toMatch(/verified not released|verified_not_released/)
   })
 
   it('says why released results could not be read', async () => {

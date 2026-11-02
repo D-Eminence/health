@@ -40,7 +40,7 @@ const CORRECTIONS = [
   { id: 'correction-1', vitalId: VITAL_ID, correctionNo: 1, replacementValues: { systolicMmhg: 122, diastolicMmhg: 82, pulseBpm: 76 }, reason: 'Cuff too small', createdAt: '2026-10-30T08:10:00.000Z' },
   { id: 'correction-2', vitalId: VITAL_ID, correctionNo: 2, replacementValues: { systolicMmhg: 118, diastolicMmhg: 76, pulseBpm: 80 }, reason: 'Repeat reading', createdAt: '2026-10-30T08:20:00.000Z' },
 ]
-const READ_ONLY = 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'
+const READ_ONLY = 'You can view this record but not change it.'
 const RECORD = `/${ENCOUNTER_ID}~${VITAL_ID}`
 const OBSERVATION_ID = 'c0000000-0000-4000-8000-000000000001'
 const LAB_ID = 'b0000000-0000-4000-8000-000000000001'
@@ -232,7 +232,7 @@ describe('Triage & Vitals list', () => {
     open()
     const ended = await screen.findByRole('alert')
     expect(ended.textContent).toContain('Access to this patient ended')
-    expect(ended.textContent).toContain('Patient access has ended. Find the patient again to reopen their record.')
+    expect(ended.textContent).toContain('Open the patient again to keep working.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.encounters).not.toHaveBeenCalled()
   })
@@ -669,7 +669,7 @@ describe('Triage & Vitals record', () => {
     api.lookupPatient.mockResolvedValue({ authorization: { decision: 'deny' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Amend observation' }))
     const ended = await screen.findByText('Access to this patient ended')
-    expect(ended.closest('[role="alert"]')?.textContent).toContain('Patient access has ended. Find the patient again to reopen their record.')
+    expect(ended.closest('[role="alert"]')?.textContent).toContain('Open the patient again to keep working.')
     expect(api.correctVital).not.toHaveBeenCalled()
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
   })

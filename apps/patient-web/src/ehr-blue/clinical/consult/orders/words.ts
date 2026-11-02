@@ -58,7 +58,7 @@ export const LAB_NOT_TOLD: Readonly<Record<string, string>> = {
  * order's own page, not in the encounter's list, so the hints say to open the order first.
  */
 export const PRESCRIPTION_ROUTING_HINT = 'This saves a draft. To send it to a pharmacy elsewhere, open it and choose Send to a pharmacy.'
-export const PRESCRIPTION_HINT = 'This creates an EHR draft. Pharmacy acceptance and dispensing are separate steps.'
+export const PRESCRIPTION_HINT = 'This saves a draft. The pharmacy accepts and dispenses it as a next step.'
 /** Classic's both-or-neither rule for a dose (Clinical.tsx RecordForm :505-510), word for word. */
 export const DOSE_PAIR = 'Enter both dose quantity and dose unit, or leave both blank.'
 export const DOSE_NUMBER_TEXT = 'Enter the dose as a number, like 0.5 or 250 (up to 4 decimal places).'

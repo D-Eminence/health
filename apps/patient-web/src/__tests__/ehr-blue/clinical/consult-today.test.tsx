@@ -148,7 +148,7 @@ describe('Consultation record: today’s chart sections', () => {
     renderPage(<ConsultWorkspace />, 'consult')
     expect(await screen.findByText('No consultations for this patient here yet.')).toBeTruthy()
     // The read-only grant is said once, under the patient banner, whose access says "Read only".
-    expect(await screen.findByText('Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.')).toBeTruthy()
+    expect(await screen.findByText('You can view this record but not change it.')).toBeTruthy()
     expect(within(patientBanner()).getByText('Read only')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'New consultation' })).toBeNull()
     const card = (await screen.findByRole('heading', { level: 2, name: 'Reported by the patient' })).closest('section')!

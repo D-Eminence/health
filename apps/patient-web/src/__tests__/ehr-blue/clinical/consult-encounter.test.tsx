@@ -55,8 +55,8 @@ const DOCUMENT = {
   id: 'doc-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, fileName: 'referral-letter.pdf', mediaType: 'application/pdf',
   sizeBytes: '20480', status: 'available', scanStatus: 'clean', createdAt: '2026-10-30T08:30:00.000Z',
 }
-const READ_ONLY = 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'
-const ENDED = 'Patient access has ended. Find the patient again to reopen their record.'
+const READ_ONLY = 'You can view this record but not change it.'
+const ENDED = 'Open the patient again to keep working.'
 const STALE = new HidApiError(412, 'The record changed since it was read.', { code: 'PRECONDITION_FAILED' })
 
 let records: Record<string, unknown[]>

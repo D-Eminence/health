@@ -84,7 +84,7 @@ export function ReleasedResults({ facilityId, requestId }: { facilityId: string;
       <div className="flex flex-wrap gap-2">
         <Button size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? 'Hide results' : 'Show results'}</Button>
         {/* Busy, it stays focusable (aria-disabled, not disabled), so focus stays on it; a press while it reads does nothing
-            (today’s Refresh released results, staff/routes/Clinical.tsx:930-931). */}
+            (Clinical.tsx:930-931). */}
         {open ? <Button size="sm" variant="ghost" icon={RotateCcw} aria-disabled={loading || undefined}
           onClick={() => { if (!loading) setRevision(value => value + 1) }}>Refresh</Button> : null}
       </div>
