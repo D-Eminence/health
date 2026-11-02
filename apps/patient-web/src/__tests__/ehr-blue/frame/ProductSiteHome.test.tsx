@@ -1,9 +1,11 @@
 import { useEffect } from 'react'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as ProductHostname from '../../../productHostname'
+import type * as StaffApi from '../../../staff/api'
 import { BlueFrame } from '../../../ehr-blue/frame/BlueFrame'
+import { forgetReceiving } from '../../../staff/orderRoutes'
 
 /**
  * Signing in on a product's own site (pharmacy., lab., outreach., migrate.) opens /provider, which the frame takes to
@@ -14,8 +16,27 @@ import { BlueFrame } from '../../../ehr-blue/frame/BlueFrame'
  */
 
 const host = vi.hoisted(() => ({ name: 'ehr.healthidentitydirectory.com' }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], selfService: undefined as { review: string; organizationType: string } | undefined }))
+const staff = vi.hoisted(() => ({ permissions: [] as string[], selfService: undefined as { review: string; organizationType: string } | undefined,
+  activePatient: null as unknown }))
 
+/**
+ * The order routes Home reads (Incoming orders, Orders accepted for the wrong person), answered here by service: the
+ * mocked session above is not the API client's, which would hold every protected request until one is ready.
+ */
+const orders = vi.hoisted(() => ({ answers: {} as Record<string, unknown>, asked: [] as string[] }))
+vi.mock('../../../staff/api', async importOriginal => {
+  const actual = await importOriginal<typeof StaffApi>()
+  const answer = (route: string, otherwise: () => Promise<never>) => {
+    orders.asked.push(route)
+    return route in orders.answers ? Promise.resolve(orders.answers[route] as never) : otherwise()
+  }
+  return { ...actual, orderRoutesApi: { ...actual.orderRoutesApi,
+    incoming: (facilityId: string, service: StaffApi.ReceivingService, healthId?: string) =>
+      answer(`incoming ${service}`, () => actual.orderRoutesApi.incoming(facilityId, service, healthId) as Promise<never>),
+    sentWrongPatient: (facilityId: string) =>
+      answer('wrong-patient', () => actual.orderRoutesApi.sentWrongPatient(facilityId) as Promise<never>),
+  } }
+})
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 vi.mock('../../../productHostname', async importOriginal => {
   const actual = await importOriginal<typeof ProductHostname>()
@@ -28,7 +49,7 @@ vi.mock('../../../staff/App', () => ({
     return {
       state: { status: 'ready', session: { actor: { id: 'staff-1', email: 'admin@example.test', displayName: 'Demo Admin', roles: [], permissions: [],
         facilities: [facility], facility }, expiresAt: '2026-11-30T12:00:00.000Z' } },
-      lock: null, signOut: async () => {}, refresh: async () => {}, activePatient: null, setActivePatient: () => true,
+      lock: null, signOut: async () => {}, refresh: async () => {}, activePatient: staff.activePatient, setActivePatient: () => true,
     }
   },
 }))
@@ -66,6 +87,9 @@ beforeEach(() => {
   host.name = 'ehr.healthidentitydirectory.com'
   staff.permissions = []
   staff.selfService = undefined
+  staff.activePatient = null
+  orders.answers = {}
+  orders.asked = []
 })
 afterEach(() => { vi.unstubAllEnvs() })
 
@@ -226,4 +250,105 @@ describe('the lab., outreach. and migrate. sites settle too', () => {
   ])('%s opened at %s with none of the product\'s work settles on "%s"', async (site, where, heading) => {
     expect(await settle(site, [], where)).toEqual({ where, heading })
   })
+})
+
+/**
+ * Home on lab. (where /provider stays Home for a role without the work list) links only to pages lab. opens: the frame
+ * sends any other page back Home (product.ts opensInProduct), so a link to Consultation or to Pharmacy would only come
+ * back. In the EHR, where every page opens, the same links are as they were.
+ */
+describe('Home on a product site links only to pages that site opens', () => {
+  const LAB = 'lab.healthidentitydirectory.com'
+  const EHR = 'ehr.healthidentitydirectory.com'
+  const PATIENT_ID = 'a0000000-0000-4000-8000-0000000000d1'
+  const PATIENT = 'Ada Obi (fictional)'
+  const openPatient = {
+    hid: 'HID-ZDEMOAD1', purpose: 'direct-care',
+    lookup: {
+      patient: { patientId: PATIENT_ID, hid: 'HID-ZDEMOAD1', fullName: PATIENT, dateOfBirth: '1990-04-12', gender: 'female', version: 1 },
+      authorization: { decision: 'allow', consentGrantId: 'grant-d1', expiresAt: '2026-11-30T12:00:00.000Z', breakGlass: false },
+    },
+  }
+
+  // A lab request this facility sent, which a laboratory reports it accepted for someone who was not the patient.
+  const WRONG_PATIENT = {
+    windowDays: 30,
+    others: { count: 0, references: [] },
+    items: [{
+      routeId: 'route-wrong-1', kind: 'lab_request', reference: 'AB12CD34', endedAt: '2026-10-30T10:00:00.000Z', resultsWithdrawn: 0,
+      dispensingReversed: false, patient: { name: PATIENT }, receivingFacility: { id: null, name: 'Hilltop Laboratory (fictional)' },
+      link: { patientId: PATIENT_ID, encounterId: 'e0000000-0000-4000-8000-0000000000d1', kind: 'lab_request', orderId: 'o0000000-0000-4000-8000-0000000000d1' },
+    }],
+  }
+
+  /** Answers the order routes named; nothing else is answered (and nothing reaches the network), so nothing else shows. */
+  function answer(routes: Record<string, unknown>) {
+    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL) => new Promise<Response>(() => {})))
+    orders.answers = routes
+  }
+
+  afterEach(() => { vi.unstubAllGlobals(); forgetReceiving() })
+
+  it('the open patient leads to their page under Patients, not to Consultation, and it stays there', async () => {
+    answer({})
+    staff.activePatient = openPatient
+    const landed = await settle(LAB, ['audit.read', 'identity.patient.read'])
+    expect(landed.where).toBe('/provider')
+    const row = screen.getByRole('link', { name: new RegExp(PATIENT.replace(/[()]/g, '\\$&')) })
+    expect(row.getAttribute('href')).toBe('/provider/patients/open')
+    fireEvent.click(row)
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider/patients/open'))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+    expect(screen.getByTestId('where').textContent).toBe('/provider/patients/open')
+  })
+
+  it('without Patients, the open patient is not offered there at all', async () => {
+    answer({})
+    staff.activePatient = openPatient
+    const landed = await settle(LAB, ['audit.read'])
+    expect(landed.where).toBe('/provider')
+    expect(screen.queryByText(PATIENT)).toBeNull()
+    expect(document.querySelector('a[href="/provider/clinical"]')).toBeNull()
+  })
+
+  it('in the EHR, the open patient still leads to Consultation', async () => {
+    answer({})
+    staff.activePatient = openPatient
+    await settle(EHR, ['identity.patient.read', 'ehr.encounter.read'])
+    expect(screen.getByRole('link', { name: new RegExp(PATIENT.replace(/[()]/g, '\\$&')) }).getAttribute('href')).toBe('/provider/clinical')
+  })
+
+  it('incoming orders offer the laboratory only, and read no prescriptions', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    answer({
+      'incoming lab': { items: [{ routeId: 'route-lab-1' }], receives: true },
+      'incoming pharmacy': { items: [{ routeId: 'route-rx-1' }], receives: true },
+    })
+    const landed = await settle(LAB, ['audit.read', 'lab.order-route.receive', 'pharmacy.order-route.receive'])
+    expect(landed.where).toBe('/provider')
+    expect((await screen.findByRole('link', { name: 'Open Laboratory →' })).getAttribute('href')).toBe('/provider/laboratory')
+    expect(screen.queryByRole('link', { name: 'Open Pharmacy →' })).toBeNull()
+    expect(orders.asked).toEqual(['incoming lab'])
+  })
+
+  it('an order accepted for the wrong person is still told, with no way to open it in Consultation, which lab. does not open', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    answer({ 'wrong-patient': WRONG_PATIENT })
+    staff.activePatient = openPatient
+    await settle(LAB, ['audit.read', 'identity.patient.read', 'ehr.order-route.send'])
+    expect(await screen.findByText(/Hilltop Laboratory \(fictional\) reports that it accepted it/)).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /Open the lab request/ })).toBeNull()
+    expect(document.querySelector('a[href="/provider/clinical"]')).toBeNull()
+    // Nor sent round Patients to a consultation it cannot open here.
+    expect(screen.queryByText(/To see it/)).toBeNull()
+  })
+
+  it('in the EHR, the same order still opens in Consultation', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    answer({ 'wrong-patient': WRONG_PATIENT })
+    staff.activePatient = openPatient
+    await settle(EHR, ['identity.patient.read', 'ehr.encounter.read', 'ehr.order-route.send'])
+    expect((await screen.findByRole('link', { name: /Open the lab request/ })).getAttribute('href')).toBe('/provider/clinical')
+  })
+
 })
