@@ -40,7 +40,7 @@ export function PatientsWorkspace() {
         <Routes>
           <Route index element={<HandedPatientList />} />
           <Route path="open" element={<PatientPage />} />
-          <Route path="pin" element={<PinAccess />} />
+          <Route path="pin" element={<PinAccess backLabel="Back to find a patient" />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </ChartProvider>

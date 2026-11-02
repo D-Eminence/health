@@ -28,7 +28,7 @@ export interface Action { readonly routes: readonly MethodRoute[]; readonly acti
 
 /** Each backend route a method calls, whose every listed permission the role must hold (today's METHOD_ROUTES). */
 export const METHOD_ROUTES: Readonly<Record<AccessMethod, Action>> = {
-  request: { routes: [{ route: 'access.staffRequests', method: 'POST' }], action: 'send access requests' },
+  request: { routes: [{ route: 'access.staffRequests', method: 'POST' }], action: 'ask patients for access' },
   pin: { routes: [{ route: 'access.verifyPin', method: 'POST' },
     { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' }], action: 'use a patient’s Access PIN' },
   emergency: { routes: [{ route: 'access.breakGlass', method: 'POST' },

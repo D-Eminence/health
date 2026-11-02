@@ -109,7 +109,7 @@ function searchField() {
 }
 
 const findButton = () => screen.getByRole('button', { name: 'Find' }) as HTMLButtonElement
-const REQUEST_UNAVAILABLE = 'Your role at this facility can’t send access requests. Ask your facility administrator.'
+const REQUEST_UNAVAILABLE = 'Your role at this facility can’t ask patients for access. Ask your facility administrator.'
 const EMERGENCY_UNAVAILABLE = 'Your role at this facility can’t open emergency access. Ask your facility administrator.'
 const WRITES = ['ehr.encounter.write', 'ehr.vital.read', 'ehr.vital.write']
 const NONE_WAITING = 'No invitations are waiting for your sign-in email.'
@@ -238,7 +238,8 @@ describe('Find a patient', () => {
   it('goes back to Find a patient from its PIN page', async () => {
     open('/pin')
     expect(screen.getByRole('heading', { level: 1, name: 'Use the patient’s Access PIN' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('link', { name: 'Back to access requests' }))
+    // Named for where it goes: Patients' list, Find a patient (requests/pin keeps "Back to access requests").
+    fireEvent.click(screen.getByRole('link', { name: 'Back to find a patient' }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Find a patient' })).toBeTruthy()
   })
 
