@@ -238,7 +238,7 @@ describe('Consultation list', () => {
   it('fails closed when write access cannot be confirmed', async () => {
     api.consentStatus.mockRejectedValue(new HidApiError(503, 'Identity is unavailable.', { code: 'UNAVAILABLE' }))
     open()
-    expect(await screen.findByText('Write access could not be confirmed, so changes are unavailable. Refresh the page to try again.')).toBeTruthy()
+    expect(await screen.findByText('We couldn’t check whether you can make changes, so changes are off. Refresh the page to try again.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'New consultation' })).toBeNull()
   })
 
@@ -247,7 +247,7 @@ describe('Consultation list', () => {
     open()
     const ended = await screen.findByRole('alert')
     expect(ended.textContent).toContain('Access to this patient ended')
-    expect(ended.textContent).toContain('Open the patient again to keep working.')
+    expect(ended.textContent).toContain('Your access to this patient has ended. Open the patient again to keep working.')
     expect(within(ended).getByRole('link', { name: 'Find a patient' }).getAttribute('href')).toBe('/provider/patients')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.encounters).not.toHaveBeenCalled()
@@ -587,7 +587,7 @@ describe('New consultation', () => {
     fireEvent.click(save)
     const ended = await screen.findByRole('alert')
     expect(ended.textContent).toContain('Access to this patient ended')
-    expect(ended.textContent).toContain('Open the patient again to keep working.')
+    expect(ended.textContent).toContain('Your access to this patient has ended. Open the patient again to keep working.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.createEncounter).not.toHaveBeenCalled()
   })
