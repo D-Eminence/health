@@ -3,7 +3,7 @@ import { toast } from '@hid/ui'
 import { EhrButton, EhrDialog, EhrDrawer, EhrEmptyState } from '@hid/ui/ehr'
 import { facilityStaffApi, type FacilityStaffInvitation } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
-import { roleLabel } from '../../../staff/staffAccess'
+import { roleName } from '../../../staff/staffAccess'
 import { DeptSection } from '../parts/DeptPage'
 import { DeptFacts, type DeptFact } from '../parts/DeptRecord'
 import type { StaffShared } from './shared'
@@ -210,7 +210,7 @@ function InvitationRow({ invitation, shared, selected, onSelect, onDetails }: {
         onClick={onDetails}>Invitation details</EhrButton>
       <div className="hid-ehr-dept-staff-row-main">
         <strong id={nameId(id)}>{invitation.name}</strong>
-        <p className="hid-ehr-dept-staff-sub">{invitation.email} · {roleLabel(invitation.roleCode)} · {invitationStatus(invitation.status)}</p>
+        <p className="hid-ehr-dept-staff-sub">{invitation.email} · {roleName(invitation.roleCode)} · {invitationStatus(invitation.status)}</p>
         {open && waiting ? <p id={waitId} className="hid-ehr-dept-staff-note">You can resend it at {dateText(invitation.resendAvailableAt)}.</p> : null}
         {error ? <ErrorBox>{error}</ErrorBox> : null}
       </div>
@@ -244,7 +244,7 @@ function InvitationDetails({ invitation }: { readonly invitation: FacilityStaffI
   return (
     <div className="hid-ehr-dept-staff-drawer">
       <h3>{invitation.name}</h3>
-      <p>{invitation.email} / {roleLabel(invitation.roleCode)} / {status}</p>
+      <p>{invitation.email} / {roleName(invitation.roleCode)} / {status}</p>
       {invitation.status === 'pending' && invitation.expiresAt ? <p>Expires {dateText(invitation.expiresAt)}</p> : null}
       {invitation.status === 'expired' && invitation.expiresAt ? <p>Expired {dateText(invitation.expiresAt)}</p> : null}
       <DeptFacts facts={facts} />

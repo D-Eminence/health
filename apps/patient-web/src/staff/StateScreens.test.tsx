@@ -145,3 +145,39 @@ describe('PEHR-13: every provider state screen has a main landmark and an h1', (
     await expectScreen('Your session has ended')
   })
 })
+
+/*
+ * The Laboratory's and Document OCR's refusals (and Health ID Migrate's, which leads only to Document OCR) named the
+ * permission they lack. Screens name no permission (the owner's rule), so they say in plain words, as the blue pages do,
+ * what the role doesn't include, or for Document OCR, which no role holds yet, that it isn't available; before a facility
+ * is chosen there is no role there yet, so they ask for one.
+ */
+describe('the Laboratory and Document OCR refusals name no permission', () => {
+  const PERMISSION_WORDS = /permission|membership|work-item|OCR job read|lab\.work-item\.read|ocr\.job\.read/i
+  const LAB = 'Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator.'
+  const OCR = 'Reading scanned documents isn’t available at your facility yet.'
+  const PAGES = [
+    ['/provider/laboratory', 'Laboratory unavailable', LAB],
+    ['/provider/ocr', 'Document OCR unavailable', OCR],
+    ['/provider/migrate', 'Migration workspace unavailable', OCR],
+  ] as const
+
+  it.each(PAGES)('%s, for a role without it, says so plainly', async (path, title, sentence) => {
+    serve({ 'GET /api/v1/auth/session': [() => session()] })
+    await open(path)
+    const heading = await screen.findByRole('heading', { level: 1, name: title }, { timeout: 3000 })
+    expect(heading.parentElement?.textContent).toBe(`${title}${sentence}`)
+    expect(heading.parentElement?.textContent).not.toMatch(PERMISSION_WORDS)
+  })
+
+  it.each(PAGES)('%s, before a facility is chosen, asks for one', async (path, title) => {
+    const ABUJA = { ...LAGOS, id: 'facility-2', membershipId: 'member-2', name: 'Abuja Clinic', isPrimary: false }
+    serve({ 'GET /api/v1/auth/session': [() => json({ actor: { kind: 'staff', id: 'staff-1', email: 'ada@example.test',
+      displayName: 'Ada Clinician', roles: ['clinician'], permissions: [], facilities: [LAGOS, ABUJA] },
+    expiresAt: '2026-10-12T12:00:00.000Z' })] })
+    await open(path)
+    const heading = await screen.findByRole('heading', { level: 1, name: title }, { timeout: 3000 })
+    expect(heading.parentElement?.textContent).toBe(`${title}Choose a facility under “Working at” first.`)
+    expect(screen.getByLabelText('Working at')).toBeDefined()
+  })
+})

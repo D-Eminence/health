@@ -5,6 +5,7 @@ import { Alert, Button, buttonClass } from '../../../kasuwa/ui'
 import { Turnstile } from '../../../Turnstile'
 import { createPrincipalRecoveryApi } from '../../../recoveryApi'
 import { STAFF_RECOVERY_PATH, staffRecoveryHref } from '../../../productHostname'
+import { OpenStaffPage } from '../../../staffSignIn'
 import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../../../authSteps'
 import { CODE_BUDGET_HINT, useCodeBudgetNote, useResendWait } from '../../../routes/recoveryWait'
 import { authHrefs, BlueAuthLayout, HINT, NOTE, SiteLink } from './BlueAuthLayout'
@@ -15,7 +16,8 @@ type Step = 'start' | 'code' | 'password' | 'complete'
  * The Hospital EHR's staff password recovery, in the redesign's auth look, working as today's does
  * (routes/PrincipalRecovery.tsx, audience 'staff'): the work email with Turnstile, a neutral answer whether or not the
  * account exists, the six-digit code, then a new password of at least 12 characters. The challenge and its token live
- * in component memory only. On a site where staff do not reset, it points to the main site. App.tsx opens it at
+ * in component memory only. Each product site has its own, which hid-system accepts there (staff-reset); on a site that
+ * serves no staff pages (the production patient portal, an admin site) it opens the EHR site's at once. App.tsx opens it at
  * /provider/recover in place of today's page once the clinic switch is on (BLUE_FOR_ALL).
  */
 export function BlueRecovery() {
@@ -39,14 +41,8 @@ export function BlueRecovery() {
   const resend = useResendWait()
   const signIn = authHrefs().signIn
 
-  const mainSiteRecovery = staffRecoveryHref(window.location.hostname)
-  if (mainSiteRecovery !== STAFF_RECOVERY_PATH) {
-    return (
-      <BlueAuthLayout title="Recover account access" titleId="blue-recovery-title" lede="You reset staff passwords on the main Health ID site.">
-        <a className={buttonClass({ variant: 'primary', size: 'lg', block: true })} href={mainSiteRecovery}>Reset your password on the main site</a>
-      </BlueAuthLayout>
-    )
-  }
+  const elsewhere = staffRecoveryHref(window.location.hostname)
+  if (elsewhere !== STAFF_RECOVERY_PATH) return <OpenStaffPage href={elsewhere} />
 
   async function run(operation: () => Promise<void>, stepCodes: readonly string[] = []) {
     const fromField = stepFocus.onTarget()

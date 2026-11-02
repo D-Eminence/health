@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 're
 import { Link } from 'react-router-dom'
 import { Field, PasswordInput } from '@hid/ui'
 import { useDocumentTitle } from '../../authSteps'
-import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_RECOVERY_PATH, clinicianMainSiteHref } from '../../productHostname'
+import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_RECOVERY_PATH, clinicianOtherSiteHref } from '../../productHostname'
 import { servesClinicianApplications } from '../../backendContract'
 import { CLINICIAN_REGULATOR_OF, clinicianApplicationApi, newClinicianIdempotencyKey, type ClinicianSignUp as SignUpInput,
   type ClinicianSubmitted } from '../clinicianApplicationApi'
@@ -12,9 +12,10 @@ import { Declarations, DetailsFields, EMPTY_DETAILS, applicationDetails, declara
 import { EmailCode } from '../clinician/EmailCode'
 import { APPLICATIONS_LIMITED, FACILITY_UNAVAILABLE, PROFESSION_NAME, REGULATOR_NAME, SIGNUP_CLOSED, SIGNUP_CLOSED_KEPT,
   SIGNUP_SEARCHES_USED, codeOf, codeSentCopy, formatDate, isUnavailable, refusalCopy } from '../clinician/copy'
-import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, StepHeading, TextButton, fieldError, shownError,
+import { ClinicianFrame, ErrorSummary, PrimaryButton, StepError, StepHeading, TextButton, fieldError, shownError,
   type Problem } from '../clinician/ui'
 import { buttonClass } from '../../kasuwa/ui'
+import { OpenStaffPage, StaffSignInLink } from '../../staffSignIn'
 
 /**
  * Clinician self sign-up at /provider/join (hid-system ADR-066, owner decision
@@ -44,8 +45,9 @@ const SUBMIT_REFUSAL: Readonly<Record<string, string>> = {
 }
 
 export function ClinicianSignUp() {
-  const mainSite = clinicianMainSiteHref(window.location.hostname, CLINICIAN_SIGNUP_PATH)
-  return mainSite ? <MainSiteOnly href={mainSite} path={CLINICIAN_SIGNUP_PATH} /> : <SignUp />
+  // A site that serves no staff pages (the production portal, an admin site) opens the EHR site's page at once.
+  const elsewhere = clinicianOtherSiteHref(window.location.hostname, CLINICIAN_SIGNUP_PATH)
+  return elsewhere ? <OpenStaffPage href={elsewhere} /> : <SignUp />
 }
 
 function SignUp() {
@@ -252,7 +254,7 @@ function SignUp() {
         <PrimaryButton onClick={() => { setMoved(true); setChecks(value => value + 1) }}>Retry</PrimaryButton>
       </div>}
       <ul className="clinician-links clinician-panel">
-        <li><Link to="/provider/sign-in">Sign in</Link></li>
+        <li><StaffSignInLink>Sign in</StaffSignInLink></li>
         {servesClinicianApplications() && <li><Link to={CLINICIAN_STATUS_PATH}>Check an application</Link></li>}
       </ul>
     </ClinicianFrame>
@@ -276,7 +278,7 @@ function SignUp() {
       <p>Clinician accounts need their own address. If you're a facility administrator or a patient on Health ID, apply with a
         different email.</p>
       <ul className="clinician-links">
-        <li><Link to="/provider/sign-in">Sign in</Link></li>
+        <li><StaffSignInLink>Sign in</StaffSignInLink></li>
         <li><Link to={STAFF_RECOVERY_PATH}>Forgot your password?</Link></li>
         <li><Link to={CLINICIAN_STATUS_PATH}>Check an application</Link></li>
       </ul>
@@ -386,7 +388,7 @@ function SignUp() {
     </section>}
 
     <p className="patient-auth-footer">Already applied? <Link to={CLINICIAN_STATUS_PATH}>Check an application's status</Link>.
-      {' '}Have provider access? <Link to="/provider/sign-in">Sign in to the provider portal</Link>.</p>
+      {' '}Have provider access? <StaffSignInLink>Sign in to the provider portal</StaffSignInLink>.</p>
   </ClinicianFrame>
 }
 
