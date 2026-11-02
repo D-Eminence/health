@@ -64,29 +64,29 @@ describe('staff and admin password recovery', () => {
     expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/provider/sign-in')
   })
 
-  it('on the production portal links staff to the EHR site to sign in after the reset', async () => {
-    jsdom.reconfigure({ url: 'https://app.healthidentitydirectory.com/provider/recover' })
-    calls.start.mockResolvedValueOnce({ accepted: true, challengeId: 'challenge-1' })
-    calls.verify.mockResolvedValueOnce({ verified: true, challengeId: 'challenge-1', verificationToken: 'verified' })
-    calls.complete.mockResolvedValueOnce({ completed: true })
-    open('staff', '/provider/recover')
+  it.each(['lab.healthidentitydirectory.com', 'ehr.healthidentitydirectory.com', 'outreach.staging.healthidentitydirectory.com'])(
+    'on the product site %s, runs the reset itself (hid-system accepts it there) and returns to its own sign-in', async hostname => {
+      jsdom.reconfigure({ url: `https://${hostname}/provider/recover` })
+      calls.start.mockResolvedValueOnce({ accepted: true, challengeId: 'challenge-1' })
+      calls.verify.mockResolvedValueOnce({ verified: true, challengeId: 'challenge-1', verificationToken: 'verified' })
+      calls.complete.mockResolvedValueOnce({ completed: true })
+      open('staff', '/provider/recover')
 
-    const ehr = 'https://ehr.healthidentitydirectory.com/provider/sign-in'
-    expect(screen.getByRole('link', { name: 'Back to provider sign in' }).getAttribute('href')).toBe(ehr)
-    // The logo too: the portal serves patients only, so nothing here leads to a staff sign-in of its own.
-    expect(screen.getByRole('link', { name: 'Health ID' }).getAttribute('href')).toBe(ehr)
-    fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'nurse@example.test' } })
-    fireEvent.click(screen.getByRole('button', { name: /Complete staff-reset security check/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
-    fireEvent.change(await screen.findByLabelText('Recovery code'), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
-    fireEvent.change(await screen.findByLabelText('New password'), { target: { value: 'correct horse battery' } })
-    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'correct horse battery' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Reset password' }))
+      expect(screen.getByRole('link', { name: 'Back to provider sign in' }).getAttribute('href')).toBe('/provider/sign-in')
+      expect(screen.queryByText(/main Health ID site/)).toBeNull()
+      fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'nurse@example.test' } })
+      fireEvent.click(screen.getByRole('button', { name: /Complete staff-reset security check/ }))
+      fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
+      fireEvent.change(await screen.findByLabelText('Recovery code'), { target: { value: '123456' } })
+      expect(calls.start).toHaveBeenCalledWith('nurse@example.test', 'siteverify-token')
+      fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
+      fireEvent.change(await screen.findByLabelText('New password'), { target: { value: 'correct horse battery' } })
+      fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'correct horse battery' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Reset password' }))
 
-    await screen.findByText('Password reset complete.')
-    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe(ehr)
-  })
+      await screen.findByText('Password reset complete.')
+      for (const link of screen.getAllByRole('link')) expect(link.getAttribute('href')).toBe('/provider/sign-in')
+    })
 
   it('follows no return address given in the link, so it cannot send anyone to another site', async () => {
     // Product sites link here without one; a crafted link must not turn this page into a redirect.
@@ -110,20 +110,21 @@ describe('staff and admin password recovery', () => {
   })
 
   it.each([
-    ['lab.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
-    ['ehr.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
-    ['outreach.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com/provider/recover'],
-    ['admin.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
-  ])('opened directly on %s, sends staff to the main site instead of a reset hid-system refuses there', (hostname, href) => {
-    // A bookmark, history or a typed address can still reach this page on a product site.
-    jsdom.reconfigure({ url: `https://${hostname}/provider/recover` })
-    open('staff', '/provider/recover')
-
-    expect(screen.queryByLabelText('Work email')).toBeNull()
-    expect(screen.queryByRole('button', { name: /security check/ })).toBeNull()
-    expect(screen.getByText(/Password resets are done on the main Health ID site/)).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Reset your password on the main site' }).getAttribute('href')).toBe(href)
-    expect(calls.start).not.toHaveBeenCalled()
+    ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/recover'],
+    ['admin.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/recover'],
+    ['admin.staging.healthidentitydirectory.com', 'https://ehr.staging.healthidentitydirectory.com/provider/recover'],
+  ])('opened on %s, which serves no staff pages, opens %s at once instead of a reset hid-system refuses there', (hostname, href) => {
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname, replace })
+    try {
+      open('staff', '/provider/recover')
+      expect(replace).toHaveBeenCalledWith(href)
+      expect(screen.getByRole('link', { name: 'Go to Health ID EHR' }).getAttribute('href')).toBe(href)
+      expect(screen.queryByLabelText('Work email')).toBeNull()
+      expect(screen.queryByRole('button', { name: /security check/ })).toBeNull()
+      expect(screen.queryByText(/continue|main site/i)).toBeNull()
+      expect(calls.start).not.toHaveBeenCalled()
+    } finally { vi.unstubAllGlobals() }
   })
 
   it('keeps the platform reset on the admin site, which accepts it', () => {

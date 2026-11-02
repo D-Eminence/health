@@ -88,11 +88,11 @@ export function ConnectedHistory({ chart, encounter, owner }: { chart: Chart; en
 }
 
 /**
- * One history list's "Record pages" (today's pager), with its notice, named by the list it pages, as the encounter
- * page's history shows them. Shown only while the list spans more than one page, or has something to say; a list the
+ * One history list's "Record pages" (today's pager), with its notice, named by the list it pages: here and in the
+ * encounter page's history. Shown only while the list spans more than one page, or has something to say; a list the
  * role may not read has neither.
  */
-function HistoryPages({ title, list }: { title: string; list: RecordList<unknown> }) {
+export function HistoryPages({ title, list }: { title: string; list: RecordList<unknown> }) {
   const captionId = useId()
   if (!pagerProps(list) && !list.notice) return null
   return (

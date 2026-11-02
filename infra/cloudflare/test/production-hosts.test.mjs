@@ -32,11 +32,14 @@ test('www redirect preserves path query and apex authority', () => {
   assert.equal(www.fetch(new Request('https://app.healthidentitydirectory.com/')).status, 421)
 })
 
-test('provider recovery goes to patient app, not the public website', async () => {
-  const response = await worker.fetch(new Request('https://ehr.healthidentitydirectory.com/provider/recover'),
-    env('ehr', 'ehr.healthidentitydirectory.com'))
-  assert.equal(response.status, 302)
-  assert.equal(response.headers.get('location'), 'https://app.healthidentitydirectory.com/provider/recover?returnTo=ehr')
+test('staff recovery stays on each production product site, never the patient portal or the public website', async () => {
+  for (const [app, host] of [['ehr', 'ehr.healthidentitydirectory.com'], ['lab', 'lab.healthidentitydirectory.com'],
+    ['pharmacy', 'pharmacy.healthidentitydirectory.com'], ['ocr', 'migrate.healthidentitydirectory.com'],
+    ['outreach', 'outreach.healthidentitydirectory.com']]) {
+    const response = await worker.fetch(new Request(`https://${host}/provider/recover`), env(app, host))
+    assert.equal(response.status, 200, host)
+    assert.equal(response.headers.get('location'), null, host)
+  }
 })
 
 test('production product sites open their own landing page; the public site sends its product pages there', async () => {

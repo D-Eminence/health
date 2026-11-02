@@ -58,8 +58,8 @@ function DeptBackButton({ label, unavailable, onClick }: { readonly label: strin
 }
 
 /**
- * A page this membership cannot use here: its heading and today's message, word for
- * word. Identity would refuse the reads anyway; this only says so first.
+ * A page this membership cannot use here: its heading and the page's own refusal
+ * message. Identity would refuse the reads anyway; this only says so first.
  */
 export function DeptUnavailable({ title, message }: { readonly title: string; readonly message: ReactNode }) {
   return (

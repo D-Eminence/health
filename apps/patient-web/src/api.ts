@@ -142,17 +142,6 @@ export interface EnrollmentSignupDetails {
   hospitalCurrentlyUsing?: string
 }
 
-/** What the proposed identity/shared-cards/:token answers (BACKEND-NEEDS.md §2). */
-export interface SharedCardAnswer {
-  card: { fullName: string; hid: string; ninVerified: boolean | null; bloodGroup: string | null; genotype: string | null; allergies: string | null; photoUrl: string | null }
-  sharedBy: string
-  recipientEmail: string
-  level: string
-  duration: string
-  expiresAt: string
-  records: PatientRecords
-}
-
 /**
  * A record the patient adds themselves ("Add a record"), PROPOSED (BACKEND-NEEDS.md §1, routes ehr.myPatientEntries and
  * the three after it in packages/contracts): the entry is saved first, with no file bytes in it; then each photo or file
@@ -839,11 +828,8 @@ export function createPatientApi(sender: ApiClient) {
       if (signal?.aborted) throw cancelled()
       return { alreadyUploaded: false, document: await completeOwnRecordDocument(entryId, intent.document.id, signal) }
     },
-    /**
-     * The card a provider opens from the email a patient's share sends (PROPOSED, BACKEND-NEEDS.md §2): the patient's card
-     * and the records the share allows, for as long as the share lasts. No session: the link's token is the access.
-     */
-    sharedCard: (token: string, signal?: AbortSignal) => call<SharedCardAnswer>('GET', `identity/shared-cards/${encodeURIComponent(token)}`, undefined, { signal }),
+    // The card a shared link opens is dormant (routes/SharedCard.tsx): it waits for the one-time-code routes of the owner's
+    // decision 25, and the open read with the link's secret in its address (identity.sharedCard) is no longer called.
     // ADR-063: public, by name and place only. Empty while the facility route is off.
     participatingFacilities: () => call<ParticipatingFacilities>('GET', 'identity/patient-enrollments/participating-facilities'),
     enrollmentStart: (nin: string, turnstileToken: string, idempotencyKey: string) =>

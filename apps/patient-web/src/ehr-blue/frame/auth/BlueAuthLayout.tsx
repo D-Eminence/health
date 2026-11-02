@@ -2,7 +2,7 @@ import type { ReactNode, Ref } from 'react'
 import { Link } from 'react-router-dom'
 import { AuthLayout } from '../../../AuthLayout'
 import {
-  providerEnrollmentHref, STAFF_SIGN_IN_PATH, staffInvitationHref, staffRecoveryHref, staffSignInHref,
+  providerEnrollmentHref, resolveStaffProductHostname, STAFF_SIGN_IN_PATH, staffInvitationHref, staffRecoveryHref, staffSignInHref,
 } from '../../../productHostname'
 
 /**
@@ -47,7 +47,11 @@ export function SiteLink({ href, className, children }: { readonly href: string;
     : <Link className={className} to={href}>{children}</Link>
 }
 
-/** Where each way in is for this host: today's rules, as today's pages link them. */
+/**
+ * Where each way in is for this host (productHostname.ts): on each product site, its own pages, so someone who opens
+ * lab.'s sign-in registers, recovers access and accepts an invitation on lab.; from the production patient portal or an
+ * admin site, the EHR site's.
+ */
 export function authHrefs(hostname = window.location.hostname) {
   return {
     register: providerEnrollmentHref(hostname),
@@ -57,12 +61,18 @@ export function authHrefs(hostname = window.location.hostname) {
   }
 }
 
-/** The other ways in: Register a hospital · Sign in · Recover access · Accept invitation. */
+/** What registering is called on this site: the laboratory's or the pharmacy's on its own site, a hospital's elsewhere. */
+export function registerLabel(hostname = window.location.hostname): string {
+  const product = resolveStaffProductHostname(hostname)?.key
+  return product === 'lab' ? 'Register a laboratory' : product === 'pharmacy' ? 'Register a pharmacy' : 'Register a hospital'
+}
+
+/** The other ways in: Register a hospital (a laboratory, a pharmacy) · Sign in · Recover access · Accept invitation. */
 export function BlueAuthLinks() {
   const hrefs = authHrefs()
   return (
     <nav className="flex flex-wrap gap-x-5 text-[13px]" aria-label="Other ways in">
-      <SiteLink className={LINK} href={hrefs.register}>Register a hospital</SiteLink>
+      <SiteLink className={LINK} href={hrefs.register}>{registerLabel()}</SiteLink>
       <SiteLink className={LINK} href={hrefs.signIn}>Sign in</SiteLink>
       <SiteLink className={LINK} href={hrefs.recover}>Recover access</SiteLink>
       <SiteLink className={LINK} href={hrefs.invitation}>Accept invitation</SiteLink>

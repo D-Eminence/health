@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent, type ReactNode } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Field, Input, PasswordInput, Select } from '@hid/ui'
 import './providerSetup.css'
@@ -8,10 +8,11 @@ import { useDocumentTitle } from '../../authSteps'
 import { Turnstile } from '../../Turnstile'
 import { usesNovuBackend } from '../../backendContract'
 import {
-  facilitySignInHref, PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref, STAFF_SIGN_IN_PATH, staffSignInHref,
+  facilitySignInHref, offersFacilityProduct, offersFacilityType, otherFacilitySignUps, PROVIDER_ENROLLMENT_PATH,
+  providerEnrollmentHref, STAFF_SIGN_IN_PATH,
 } from '../../productHostname'
 import { getEnvironment } from '../env'
-import { StaffSignInLink, staffSignInAddress } from '../../staffSignIn'
+import { StaffPageElsewhere, StaffSignInLink, staffSignInAddress } from '../../staffSignIn'
 import { providerEnrollmentApi, staffApi, type ProviderEnrollmentAvailability, type ProviderEnrollmentProfile,
   type ProviderEnrollmentStart, type StaffLoginChallenge } from '../api'
 import { announceStaffSessionChange } from '../session'
@@ -276,11 +277,11 @@ function SupportContact({ purpose }: { purpose: Support | 'register' | 'finish' 
   return <>{lead}{address ? <> at <a className="provider-setup-link" href={`mailto:${address}`}>{address}</a></> : null}{tail}</>
 }
 
-/** Where this administrator signs in next time: the EHR site in production, this portal elsewhere. */
-function SignInLink({ children }: { children: ReactNode }) {
-  const elsewhere = staffSignInHref(window.location.hostname)
-  return elsewhere ? <a className="patient-primary-button" href={elsewhere}>{children}</a>
-    : <Link className="patient-primary-button" to={STAFF_SIGN_IN_PATH}>{children}</Link>
+/** Where this administrator signs in next time: the facility's own site's staff sign-in (facilitySignInHref). */
+function SignInLink({ organizationType, children }: { organizationType: string | null; children: ReactNode }) {
+  const href = facilitySignInHref(organizationType, window.location.hostname)
+  return href === STAFF_SIGN_IN_PATH ? <Link className="patient-primary-button" to={href}>{children}</Link>
+    : <a className="patient-primary-button" href={href}>{children}</a>
 }
 
 /** A heading that takes focus, in the commit that shows it, when its panel replaces the step before it. */
@@ -429,23 +430,68 @@ function availabilityOf(answer: ProviderEnrollmentAvailability | null | undefine
 type StartOutcome = 'sent' | 'in-force' | 'none'
 
 export function ProviderEnrollment() {
-  // hid-system accepts the sign-up's security check only on the main site: a staff product host (a bookmark, an old
-  // link) sends the administrator there, keeping only a product it knows.
-  const elsewhere = providerEnrollmentHref(window.location.hostname)
-  return elsewhere === PROVIDER_ENROLLMENT_PATH ? <EnrollmentSteps /> : <EnrollOnMainSite href={elsewhere} />
+  // Each product site has its own facility sign-up, which hid-system accepts there. A site that serves no staff pages
+  // (the production portal, an admin site; a page kept from before) opens the one the address belongs on at once: the
+  // product site it names, else the EHR site's.
+  return providerEnrollmentHref(window.location.hostname) === PROVIDER_ENROLLMENT_PATH ? <EnrollmentSteps /> : <EnrollElsewhere />
 }
 
-function EnrollOnMainSite({ href }: { href: string }) {
-  useDocumentTitle('Provider enrollment · Health ID Provider')
-  const [params] = useSearchParams()
+/** The same sign-up on the product site the address names (a laboratory's on lab.), else the EHR site's. */
+function EnrollElsewhere() {
+  return <StaffPageElsewhere location={useLocation()} />
+}
+
+/**
+ * The kinds of facility sign-up offers on this site: on a product site, its own only (a laboratory on lab., a pharmacy
+ * on pharmacy., a hospital, clinic or other provider on ehr., migrate. and outreach.: facilitySignUpScope); every kind
+ * anywhere else.
+ */
+export function facilityTypeChoices(hostname: string): Array<{ value: OrganizationType; label: string }> {
+  return organizationTypes.filter(option => offersFacilityType(hostname, option.value))
+}
+
+/** The products a facility of this type can start with on this site: on a product site, its own product only. */
+export function facilityProductChoices(type: OrganizationType, hostname: string): Product[] {
+  const offered = productOptions[type].filter(code => offersFacilityProduct(hostname, code))
+  return offered.length > 0 ? offered : productOptions[type]
+}
+
+/**
+ * What facility sign-up starts with: the address's ?type= and ?product= (the public site's product links) when either
+ * names a choice this site offers; otherwise this site's own kind of facility and product (a laboratory with Health ID
+ * Laboratory on lab., a pharmacy on pharmacy., a hospital with Health ID Migrate on migrate.); otherwise a hospital
+ * with Health ID EHR. The person can change either, among this site's own choices, before sending; nothing new is sent
+ * to Identity.
+ */
+export function initialFacilityChoice(params: URLSearchParams, hostname: string): { organizationType: OrganizationType; productCode: Product } {
+  const type = params.get('type')
   const product = params.get('product')
-  const target = isProduct(product) ? `${href}?product=${product}` : href
-  return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
-    headerLink={{ to: '/provider/sign-in', label: 'Sign in' }}
-    title="Set up your facility." titleId="provider-enroll-title"
-    lede="Facility sign-up is done on the main Health ID site.">
-    <p><a className="patient-primary-button" href={target}>Continue to facility sign-up</a></p>
-  </AuthLayout>
+  const types = facilityTypeChoices(hostname).map(option => option.value)
+  const organizationType = isOrganizationType(type) && types.includes(type) ? type : types[0] ?? 'hospital'
+  const allowed = facilityProductChoices(organizationType, hostname)
+  return { organizationType, productCode: isProduct(product) && allowed.includes(product) ? product : allowed[0]! }
+}
+
+/** Whether this site sends some kinds of facility to another product site's sign-up (OtherFacilitySignUps). */
+export function hasOtherFacilitySignUps(): boolean {
+  return otherFacilitySignUps(window.location.hostname).length > 0
+}
+
+/**
+ * For someone on a product site registering another kind of facility: where that kind signs up ("Registering a
+ * laboratory? Use Health ID Laboratory."), with a plain link to that site's own sign-up. Nothing anywhere else. In a
+ * paragraph of its own, or `inline` in one the caller draws (a field's hint).
+ */
+export function OtherFacilitySignUps({ className, linkClassName, inline = false }: {
+  className?: string; linkClassName?: string; inline?: boolean
+}) {
+  const others = otherFacilitySignUps(window.location.hostname)
+  if (others.length === 0) return null
+  const words = others.map((other, index) => (
+    <span key={other.kind}>{index > 0 ? ' ' : ''}Registering {other.kind === 'hospital' ? 'a hospital or clinic' : `a ${other.kind}`}?
+      {' '}Use <a className={linkClassName} href={other.href}>{other.name}</a>.</span>
+  ))
+  return inline ? <>{words}</> : <p className={className}>{words}</p>
 }
 
 function EnrollmentSteps() {
@@ -464,18 +510,12 @@ function EnrollmentSteps() {
   const [challenge, setChallenge] = useState<StaffLoginChallenge | null>(null)
   const [signInReason, setSignInReason] = useState<string | null>(null)
   const [help, setHelp] = useState<{ title: string; text: string; restart?: boolean } | null>(null)
-  // The public site's product links arrive here with ?product= (and may name ?type=), preselecting the choice.
+  // The public site's product links arrive here with ?product= (and may name ?type=), preselecting the choice; without
+  // either, a product site starts with its own product (initialFacilityChoice).
   const [params] = useSearchParams()
-  const [organizationType, setOrganizationType] = useState<OrganizationType>(() => {
-    const type = params.get('type')
-    return isOrganizationType(type) ? type : 'hospital'
-  })
-  const [productCode, setProductCode] = useState<Product>(() => {
-    const product = params.get('product')
-    const type = params.get('type')
-    const allowed = productOptions[isOrganizationType(type) ? type : 'hospital']
-    return isProduct(product) && allowed.includes(product) ? product : allowed[0]!
-  })
+  const [organizationType, setOrganizationType] = useState<OrganizationType>(
+    () => initialFacilityChoice(params, window.location.hostname).organizationType)
+  const [productCode, setProductCode] = useState<Product>(() => initialFacilityChoice(params, window.location.hostname).productCode)
   const [cac, setCac] = useState('')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -545,7 +585,7 @@ function EnrollmentSteps() {
 
   function setType(value: OrganizationType) {
     setOrganizationType(value)
-    const allowed = productOptions[value]
+    const allowed = facilityProductChoices(value, window.location.hostname)
     if (!allowed.includes(productCode)) setProductCode(allowed[0]!)
   }
 
@@ -1013,7 +1053,7 @@ function EnrollmentSteps() {
             <fieldset className="provider-setup-choice">
               <legend>Facility type</legend>
               <div className="provider-setup-options">
-                {organizationTypes.map(option => (
+                {facilityTypeChoices(window.location.hostname).map(option => (
                   <label key={option.value} className="provider-setup-option">
                     <input type="radio" name="provider-facility-type" value={option.value}
                       checked={organizationType === option.value} onChange={() => setType(option.value)} />
@@ -1021,13 +1061,14 @@ function EnrollmentSteps() {
                   </label>
                 ))}
               </div>
+              <OtherFacilitySignUps className="patient-field-hint" linkClassName="provider-setup-link" />
             </fieldset>
 
             <div className="provider-setup-fields">
               <Field label="Product" htmlFor="provider-product">
                 <Select id="provider-product" value={productCode} onChange={event => setProductCode(event.target.value as Product)}
                   aria-describedby={productNote ? 'provider-product-note' : undefined}>
-                  {productOptions[organizationType].map(code => <option key={code} value={code}>{products.find(product => product.code === code)?.label}</option>)}
+                  {facilityProductChoices(organizationType, window.location.hostname).map(code => <option key={code} value={code}>{products.find(product => product.code === code)?.label}</option>)}
                 </Select>
               </Field>
               {productNote && <p id="provider-product-note" className="patient-field-hint">{productNote}</p>}
@@ -1161,7 +1202,7 @@ function EnrollmentSteps() {
             onSignedIn={openWorkspace} onRestart={reason => { setChallenge(null); setSignInReason(reason); setStage('sign-in') }} />
         )}
 
-        {!closed && stage === 'sign-in' && (novu ? <MaybeActive email={accountEmail} /> : <SignInToFinish reason={signInReason} />)}
+        {!closed && stage === 'sign-in' && (novu ? <MaybeActive email={accountEmail} organizationType={registering?.organizationType ?? organizationType} /> : <SignInToFinish reason={signInReason} />)}
 
         {!closed && stage === 'done' && <FacilityReady email={accountEmail} ordersOn={ordersOn}
           organizationType={registering?.organizationType ?? organizationType} onContinue={openWorkspace} />}
@@ -1194,19 +1235,17 @@ function EnrollmentSteps() {
  * check sends them once it is done. What the account opens is said as it is
  * (ORGANIZATION_TYPE_NOTES).
  */
+/**
+ * The administrator is signed in on this site, where the sign-up ran: each product site has its own (a site that
+ * serves no staff pages opens the EHR site's sign-up instead, so a sign-up never ends there), and the workspace opens here.
+ */
 function FacilityReady({ email, organizationType, ordersOn, onContinue }: { email: string; organizationType: OrganizationType; ordersOn: boolean; onContinue: () => void }) {
-  // In production, where this portal serves patients only, the administrator signs in on the staff site of the
-  // facility's type, by a plain link (facilitySignInHref); elsewhere the workspace opens here.
-  const signIn = facilitySignInHref(organizationType, window.location.hostname)
   return <section className="patient-form" aria-labelledby="provider-enroll-done-title">
     <FocusedHeading id="provider-enroll-done-title">Your facility is set up</FocusedHeading>
-    <p className="patient-field-hint">{signIn ? 'Your administrator account is ready.' : 'You’re signed in as your facility’s administrator.'}</p>
-    <p className="patient-field-hint">{signIn
-      ? `Sign in at ${new URL(signIn).hostname} with ${email} and the password you just chose.`
-      : `Next time, sign in to the Provider Portal with ${email} and the password you just chose.`}</p>
+    <p className="patient-field-hint">You’re signed in as your facility’s administrator.</p>
+    <p className="patient-field-hint">{`Next time, sign in to the Provider Portal with ${email} and the password you just chose.`}</p>
     <p className="patient-field-hint">{organizationTypeNote(organizationType, ordersOn)}</p>
-    {signIn ? <a className="patient-primary-button" href={signIn}>Go to sign in</a>
-      : <button type="button" className="patient-primary-button" onClick={onContinue}>Continue to the Provider Portal</button>}
+    <button type="button" className="patient-primary-button" onClick={onContinue}>Continue to the Provider Portal</button>
   </section>
 }
 
@@ -1215,13 +1254,13 @@ function FacilityReady({ email, organizationType, ordersOn, onContinue }: { emai
  * after the account may have been created. A new activation would be refused
  * (its session is used up), so the administrator signs in instead.
  */
-function MaybeActive({ email }: { email: string }) {
+function MaybeActive({ email, organizationType }: { email: string; organizationType: string | null }) {
   return <section className="patient-form" aria-labelledby="provider-enroll-sign-in-title">
     <FocusedHeading id="provider-enroll-sign-in-title">Your account may already be ready</FocusedHeading>
     <p className="patient-field-hint">We couldn’t confirm that your facility was set up, but it may have been. Sign in with
       {email ? ` ${email}` : ' your administrator email'} and the password you chose. If you can’t sign in,
       {' '}<SupportContact purpose="inline" /></p>
-    <SignInLink>Sign in to the Provider Portal</SignInLink>
+    <SignInLink organizationType={organizationType}>Sign in to the Provider Portal</SignInLink>
   </section>
 }
 
