@@ -1,7 +1,7 @@
 import { EhrButton, EhrDataTable, EhrDrawer, EhrField, EhrInput, type EhrDataTableColumn } from '@hid/ui/ehr'
 import { useId, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { formatWhen, shortId } from './format'
+import { formatWhen } from './format'
 import { KeyValueList, type KeyValue } from './KeyValueList'
 import { StatusBadge } from './StatusBadge'
 
@@ -10,7 +10,7 @@ export interface RecordRow {
   readonly id: string
   /** The "Record" link text. */
   readonly name: string
-  /** Under the link; the first eight characters of `id` by default. */
+  /** Under the link, when a person needs to quote one ("Reference …"); nothing by default: an id is never shown. */
   readonly reference?: string
   /** "Patient / context", or the column `contextHeader` names; also searched. */
   readonly context: string
@@ -119,7 +119,7 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
       cell: row => (
         <>
           {opener(row, row.name)}
-          <span className="hid-ehr-clinical-record-id">{row.reference ?? shortId(row.id)}</span>
+          {row.reference ? <span className="hid-ehr-clinical-record-id">{row.reference}</span> : null}
         </>
       ),
     },

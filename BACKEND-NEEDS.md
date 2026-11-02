@@ -3,12 +3,25 @@
 The redesign changes the frontend only. Where a screen needs something the backend doesn't serve yet, it's
 listed here instead. The UI calls the proposed endpoint and says plainly when it isn't served.
 
-## 1. Patient-added records — `POST /api/v1/ehr/me/patient-entries` (proposed)
+## 1. Patient-added records, with photos and files (proposed)
 
-Patients record their own care: a visit, test result, medicine, diagnosis or vaccine from any hospital, clinic,
-lab or pharmacy, with photos or PDFs of the paper.
+Patients record their own care: a visit, test result, medicine, diagnosis or vaccine from any hospital, clinic, lab
+or pharmacy, with photos or PDFs of the paper. The entry is saved first, with no file bytes in it. Then each file goes
+up under it in turn, in the three steps staff uploads take: ask for an upload link, PUT the exact bytes, confirm. A
+file's bytes never pass through the API, so production's edge limit on a request body (8000 bytes) never applies to
+them. Every route takes a patient session only, with no facility. A 404 on a served route carries its own code, never
+`NOT_FOUND`.
 
-Request (patient session):
+**Limits (the owner's).** JPG, PNG or PDF (`image/jpeg`, `image/png`, `application/pdf`), each 1 byte to 10 MB
+(10485760 bytes), at most 5 files per entry, and at most 10 files per patient per Lagos calendar day (step 2). The UI
+checks the type, size and 5 per entry before anything is sent. It also reads each file's first 8 bytes as it is picked,
+and they must be its type's: JPEG `FF D8 FF`, PNG `89 50 4E 47 0D 0A 1A 0A`, PDF `25 50 44 46 2D` (`%PDF-`). A file
+whose bytes aren't (a program renamed `scan.png`, say) is refused in the browser ("This file isn't a JPEG, PNG or
+PDF."), never listed and never sent. Only the server can count the day, so it enforces the 10 a day (step 2), and
+enforces the type (step 4), size and 5 per entry again.
+
+**1. Save the entry.** `POST /api/v1/ehr/me/patient-entries`, with an `Idempotency-Key` header, one per Save and
+reused when that Save is retried. The body is at most 8000 bytes of JSON:
 
 ```json
 {
@@ -16,18 +29,121 @@ Request (patient session):
   "title": "Malaria test",
   "facilityName": "Lagos General Hospital",
   "occurredOn": "2026-10-20",
-  "notes": "Positive, given ACT",
-  "attachments": [{ "fileName": "slip.jpg", "mediaType": "image/jpeg", "sizeBytes": 812345, "contentBase64": "…" }]
+  "notes": "Positive, given ACT"
 }
 ```
 
-Response: `201 { "id": "…" }`. Limits the UI enforces: up to 5 files, 10 MB each, images or PDF, title 2–160
-characters, date not in the future.
+`title` 2–160 characters; `facilityName` up to 160 characters or null, free text that gives that facility no access;
+`occurredOn` not after today in Lagos; `notes` ("Anything else to note?") up to 2000 characters or null. Answers
+`201 { entry }`; the same key with the same body replays the 201.
 
-The records answer (`GET /ehr/me/records`) should then return these entries marked as patient-entered (for
-example `source: "patient"`), so the UI can label them "Added by you" and clinicians can tell them apart.
+**2. Ask for an upload link.** `POST /api/v1/ehr/me/patient-entries/:entryId/documents/upload-intents`, with an
+`Idempotency-Key` header, one per file. Body `{ fileName, mediaType, sizeBytes, sha256Hex }`: `mediaType` is
+`application/pdf`, `image/jpeg` or `image/png`; `sizeBytes` 1 to 10485760; at most 5 files per entry. The server
+sets the patient, the classification and the retention; the browser sends none of them. Answers
+`201 { document: { id, status: 'initiated', scanStatus: 'pending' }, upload: { method: 'PUT', url, requiredHeaders, expiresInSeconds } }`,
+the staff shape. The UI's Try again sends the same key with the same body for a file that didn't upload: before that
+file is confirmed, it answers `201` again for the same document, with a link that is still valid (the first may have
+expired). The same key asked again once that file is confirmed (a confirm that went through though its answer
+was lost) answers `409 PATIENT_DOCUMENT_ALREADY_UPLOADED` with `document: { id, status, scanStatus }`: the UI counts
+that file as uploaded and sends no PUT and no confirm for it. The UI goes by the 409 and its `code` alone and does not
+read `document`. Any other 409 (but `409 PATIENT_DOCUMENT_TYPE_MISMATCH`, step 4), or that code with another status, is
+a failed upload.
 
-Registered as `ehr.myPatientEntries` (status `proposed`) in `packages/contracts/src/registry.ts`.
+*The day's limit.* At most 10 files per patient per calendar day in Lagos (`Africa/Lagos`), across all the patient's
+entries. What counts: each new upload-intent key answered `201` counts once, whether or not its file is then confirmed,
+and a removed entry's files still count. An upload intent with a new key, once 10 have been counted that day, answers
+`429` with `code: 'PATIENT_DOCUMENT_DAILY_LIMIT'` (the usual problem shape) and opens no document. A replayed key is
+never refused for the limit: it answers its `201` or `409` as above. The server sends `Retry-After` with the seconds
+until the next Lagos midnight; the UI does not depend on it. The UI reads the status and `code` alone: it says "You can
+add up to 10 photos or files a day. Your record is saved; add the rest tomorrow.", sends nothing more for that file and
+offers no Try again for it, and closing the drawer keeps the saved entry without it. It still asks for each of that
+Save's other files, and goes by each answer. A `429` with any other code (the edge's rate limit, for one) is an
+ordinary failed upload, which Try again may send again with the same key.
+
+*Photos arrive without their metadata.* Before a JPEG or PNG is hashed, the browser takes out its metadata without
+re-encoding it (`apps/patient-web/src/photoMetadata.ts`), so the picture's own bytes are unchanged. From a JPEG it
+drops APP1 (EXIF, with the GPS position, the camera's make and model and the EXIF thumbnail; XMP), APP13 (IPTC), COM,
+every other APPn (the APP2 MPF index among them) and everything after the primary image's end of image (the further
+pictures phones append, each with its own EXIF and GPS); it keeps APP0 JFIF (without a thumbnail), APP2
+`ICC_PROFILE`, APP14 Adobe (its 12 bytes, nothing after them), the tables, the one frame and each scan byte for byte.
+From a PNG it keeps the critical chunks (IHDR, PLTE, IDAT, IEND) and the ancillary chunks display needs (tRNS; cHRM,
+gAMA, iCCP, sBIT, sRGB, cICP, mDCV, cLLI; bKGD, hIST, pHYs; APNG's acTL, fcTL, fdAT), each byte for byte, and drops
+every other chunk: eXIf (and its earlier spellings exIf and zxIf), tEXt, zTXt, iTXt, tIME, C2PA's caBX (which can
+carry the place), private chunks (Apple's iDOT among them), and anything after IEND. `sizeBytes`, `sha256Hex` and the
+PUT body are all of the stripped bytes, and the same file always strips to the same bytes, so Try again sends the
+same body. A photo that can't be walked cleanly is refused in the browser and never sent: among others, a JPEG table,
+frame or scan header whose length says more than its fields, a second frame, a PNG chunk whose CRC is wrong, and a
+critical chunk other than IHDR, PLTE, IDAT and IEND (or a second IHDR). PDFs are sent as they are, once their first
+bytes are `%PDF-` (above): a photo or a phone's video under a PDF's name, which would go up with its metadata, is
+refused, as is anything else that isn't a PDF. The server must not rely on any of this (an older page or another client
+may send a photo as taken): it may strip again, after the confirm has checked the stored object against `sizeBytes`,
+`sha256Hex` and `mediaType`.
+
+**3. PUT the file** to `upload.url` with `requiredHeaders`: the exact bytes that were hashed (for a photo, its stripped
+bytes), no cookies. The document bucket's CORS must allow this PUT from the patient host (app.) and its staging and
+development hosts.
+
+**4. Confirm.** `POST /api/v1/ehr/me/patient-entries/:entryId/documents/:documentId/complete`, no body; only the
+account that asked for the link may confirm. The server checks the stored object's size and SHA-256 against `sizeBytes`
+and `sha256Hex`, and its leading bytes against `mediaType` (JPEG `FF D8 FF`, PNG `89 50 4E 47 0D 0A 1A 0A`, PDF
+`%PDF-`), not the request's `Content-Type`. Answers `200 { document: { id, status, scanStatus } }`. A missing object,
+or one whose size or SHA-256 doesn't match, answers `409 PATIENT_DOCUMENT_UPLOAD_INCOMPLETE`: the UI counts it as a
+failed upload, which Try again sends again. One whose leading bytes aren't `mediaType`'s answers
+`409 PATIENT_DOCUMENT_TYPE_MISMATCH`: the UI says "This file isn't a JPEG, PNG or PDF." beside it and offers no Try
+again for it, since the same bytes would be refused again.
+
+**List.** No route of its own: the records answer the Records page already reads, `GET /api/v1/ehr/me/records`,
+carries a new key
+`patientEntries: [{ id, source: 'patient', kind, title, facilityName, occurredOn, notes, createdAt, documents: [{ id, fileName, mediaType, sizeBytes, status, scanStatus, createdAt }] }]`,
+newest first. Only confirmed documents are listed, and removed entries are left out. The UI lists these as "Added by
+you" on the Records page from that answer, and reads the records again after a Save or a removal. An entry or file
+missing what it needs is left out, and a status the UI does not know never reads as clean. Each file shows its name,
+type, size and virus check ("Checking for viruses" while `scanStatus` is `pending`; "This file couldn't be added" when
+rejected, with no word of a virus); no file can be opened there yet, since this contract has no patient download.
+
+**Remove.** `POST /api/v1/ehr/me/patient-entries/:entryId/withdraw`, no body, answers
+`200 { entry: { id, status: 'withdrawn', withdrawnAt } }`, and a replay answers the same. From then on the entry and
+its files are gone from `patientEntries`, the patient chat and every staff read. Nothing is erased, so the UI says "Removed
+from your records", never "deleted". An id that is not one of the patient's entries answers `404 PATIENT_ENTRY_NOT_FOUND`:
+the UI says "This record has already been removed." and reads the records again.
+
+**What the UI says of a refusal.** Its own fixed words, chosen by the status and `code` alone. It never shows the
+server's `detail`, `title` or any other text from an answer to any of these routes. The Save: `404 NOT_FOUND`,
+"This isn't set up for your account. Contact support. What you entered is still here."; `413`, or the UI's own
+`PATIENT_ENTRY_TOO_LARGE` (a body over 8000 bytes, refused before it is sent), "It's too long to send. Shorten the
+notes, then save again. What you entered is still here."; anything else, "Your record couldn't be saved. Please try
+again." A file's upload link, PUT and confirm: `429 PATIENT_DOCUMENT_DAILY_LIMIT`,
+`409 PATIENT_DOCUMENT_ALREADY_UPLOADED`, `409 PATIENT_DOCUMENT_TYPE_MISMATCH` and
+`409 PATIENT_DOCUMENT_UPLOAD_INCOMPLETE` as above; anything else is a file that didn't upload (counted in "2 of your
+photos or files didn't upload."), which Try again sends again. Remove: `404 PATIENT_ENTRY_NOT_FOUND` as above; anything
+else, "This record couldn't be removed. Please try again."
+
+**Who reads.** The patient, always. Staff only as they read the patient's imported history: at a facility whose own
+membership holds an active consent grant for the patient (a share at any level, an approved access request, the desk
+PIN, or emergency access); a deny overrides it, and revoking or expiry ends it. The facility name the patient types
+gives that facility nothing. Every staff read is logged and raises "Your records were opened". Nobody but the patient
+writes, at any share level.
+
+**The patient chat** reads each live, confirmed, scan-clean patient document as it reads other documents, labelled
+"Patient provided file; machine extracted, not clinician verified", and each entry's kind, title, place, date and notes
+as patient-reported.
+
+**Served or not.** The records answer carrying `patientEntries` (a list, empty or not), or a Save answering 201, means
+served. A records answer without the key (today's), or a Save's 404 `NOT_FOUND` (an unrouted path), means not served,
+but only while nothing has said otherwise; a `patientEntries` that is not a list is left out and says neither. The UI
+keeps this in memory only (`apps/patient-web/src/patientEntriesServed.ts`). Without the key the Records page sends
+exactly today's requests and looks exactly as today. Until served, the drawer's Save gets that 404 and says "This
+isn't set up for your account"; no file leaves the device until the Save and that file's upload link have both been
+answered. While patient uploads are off (before NDPA sign-off or migration 0110), the records answer leaves out
+`patientEntries`, and every patient-entry route answers exactly as if it were not built (`404 NOT_FOUND`): off must
+look the same as not built, never a code of its own (a `404 PATIENT_ENTRIES_DISABLED`, say, would only read "Your
+record couldn't be saved. Please try again."). The backend must not send `patientEntries` until uploads are cleared
+under the NDPA, because that one served signal turns on both the entries list and uploads.
+
+Registered as `ehr.myPatientEntries` (POST), `ehr.myPatientEntryUploadIntent`, `ehr.myPatientEntryDocumentComplete`
+and `ehr.myPatientEntryWithdraw` (status `proposed`) in `packages/contracts/src/registry.ts`; the list is part of
+`ehr.myRecords`.
 
 ## 2. Sharing by card: the email and the link it carries
 

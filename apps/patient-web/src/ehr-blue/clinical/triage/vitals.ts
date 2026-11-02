@@ -3,11 +3,18 @@ import { Value } from '../../../kasuwa/parts'
 import { staffApi, type ClinicalRecord, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import type { Chart } from '../parts/chart'
+import { formatWhen } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import { vitalFlag, worstFlag } from './ranges'
 
 /** The sidebar label, the list's heading; the create page's heading ("New " + the label, lower case). */
 export const TITLE = 'Triage & Vitals'
+
+/** A vitals entry named by when it was taken ("Vitals · 2 Nov 2026, 09:14"), never by its id. */
+export function vitalName(record: Pick<ClinicalRecord, 'createdAt'>): string {
+  const when = formatWhen(record.createdAt)
+  return when ? `Vitals · ${when}` : 'Vitals'
+}
 export const NEW_TITLE = 'New triage & vitals'
 /** Today's correction button, open and closed, and its form's submit (staff/routes/Clinical.tsx:792, :748). */
 export const CORRECT_LABEL = 'Correct these vitals'

@@ -6,6 +6,7 @@ import { RecordNotFound } from '../parts/Notices'
 import { FormPage } from '../../../kasuwa/parts'
 import { Button } from '../../../kasuwa/ui'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
+import { useSampleAccess } from '../sample/access'
 import { SampleCreate, SampleDetail, SampleList } from '../sample/SampleWorkspace'
 import { BreakGlassCard, CurrentEmergency } from './BreakGlass'
 import { EmergencySummaryPage } from './EmergencySummary'
@@ -22,14 +23,19 @@ function useDemoFacility() {
   return isDemoFacility(useClinical().facility?.id)
 }
 
-/** emergency: emergency access as one form column, then (at a demo facility) the sample board. */
+/**
+ * emergency: emergency access as one form column, then (at a demo facility) the sample board. The board's "New board
+ * entry" makes a sample record, so it follows the design's role mapping (audit item 16); the page itself keeps its live
+ * permission.
+ */
 function EmergencyHome() {
   const href = useWorkspaceHref()
   const demo = useDemoFacility()
+  const can = useSampleAccess()
   return (
     <div className="flex flex-col gap-8">
       <FormPage title="Emergency access" description="See the emergency summary of a patient who can’t consent."
-        actions={demo ? <Button to={href('new')}>New board entry</Button> : undefined}>
+        actions={demo && can('emergency', 'create') ? <Button to={href('new')}>New board entry</Button> : undefined}>
         <CurrentEmergency />
         <BreakGlassCard />
       </FormPage>

@@ -106,8 +106,8 @@ describe('Access requests list (once External record access)', () => {
     expect(within(rows).getByText('Access active')).toBeTruthy()
     expect(within(rows).getByText('Denied by the patient')).toBeTruthy()
     // Today's extras after the status (AccessRequests.tsx:123-125): how it was given, until when, the patient's reason.
-    expect(within(rows).getByText(`Patient ••••0001 · Read records · updated ${formatWhen('2026-10-30T09:05:00.000Z')} · Patient approval · until ${formatWhen('2026-10-30T10:05:00.000Z')}`)).toBeTruthy()
-    expect(within(rows).getByText(`Patient ••••0001 · Read records · updated ${formatWhen('2026-10-30T09:10:00.000Z')} · Not my clinician`)).toBeTruthy()
+    expect(within(rows).getByText(`Patient ••••0001 · Can view records · updated ${formatWhen('2026-10-30T09:05:00.000Z')} · Patient approval · until ${formatWhen('2026-10-30T10:05:00.000Z')}`)).toBeTruthy()
+    expect(within(rows).getByText(`Patient ••••0001 · Can view records · updated ${formatWhen('2026-10-30T09:10:00.000Z')} · Not my clinician`)).toBeTruthy()
     // No patient name or Health ID anywhere on the list.
     expect(document.body.textContent).not.toContain(PATIENT_HID)
   })
@@ -125,7 +125,7 @@ describe('Access requests list (once External record access)', () => {
     open()
     fireEvent.click(within(await list()).getByRole('link', { name: /^Review of results/ }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
-    expect(screen.getAllByText('Read records').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Can view records').length).toBeGreaterThan(0)
   })
 
   it('puts Patient PIN first and Ask for access last, the one primary action, with today’s PIN name and lede', () => {
@@ -272,7 +272,7 @@ describe('Ask the patient for access (once New external record access)', () => {
     open('/new')
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: 'hid-zdemaaa2' } })
     fireEvent.change(screen.getByLabelText(REASON), { target: { value: '  Follow-up consultation ' } })
-    fireEvent.click(screen.getByRole('radio', { name: /^Read and write records/ }))
+    fireEvent.click(screen.getByRole('radio', { name: /^Can view and add records/ }))
     fireEvent.change(screen.getByLabelText(DURATION), { target: { value: '45' } })
     fireEvent.submit(screen.getByLabelText(REASON).closest('form')!)
     await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith(FACILITY_ID, PATIENT_HID, 'write_records', 'Follow-up consultation', 45))
@@ -387,10 +387,11 @@ describe('Ask the patient for access (once New external record access)', () => {
     expect(shownText(await screen.findByRole('alert'))).toContain('The request couldn’t be sent. Please try again.')
   })
 
-  it('names the permission a role lacks and offers no submit', () => {
+  it('says in plain words that the role can’t send requests, naming no permission, and offers no submit', () => {
     staff.permissions = ['identity.patient.read']
     open('/new')
-    expect(screen.getByText('Your role at this facility cannot send access requests: it needs identity.consent.write. Ask your organization administrator.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility can’t send access requests. Ask your facility administrator.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('identity.consent.write')
     expect((screen.getByRole('button', { name: SEND }) as HTMLButtonElement).disabled).toBe(true)
   })
 })
@@ -474,10 +475,11 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
   })
 
-  it('names what a role lacks to verify a PIN', () => {
+  it('says in plain words that the role can’t use a patient’s Access PIN, naming no permission', () => {
     staff.permissions = ['identity.patient-access-pin.verify']
     open('/pin')
-    expect(screen.getByText('Your role at this facility cannot verify a patient’s PIN: it also needs identity.patient.read to open the record. Ask your organization administrator.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility can’t use a patient’s Access PIN. Ask your facility administrator.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('identity.patient.read')
     expect((screen.getByRole('button', { name: OPEN_WITH_PIN }) as HTMLButtonElement).disabled).toBe(true)
   })
 })

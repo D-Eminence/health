@@ -5,13 +5,14 @@ import { PageState } from '../../../kasuwa/parts'
 import { Button, Card, Field, Input, ListRow, PageHeader, Select } from '../../../kasuwa/ui'
 import { ACCESS_OUTCOME_FILTERS, ACCESS_REQUEST_STATUSES, type AccessRequestStatus } from '../../../staff/api'
 import { outcome } from '../../../staff/routes/AccessRequests'
+import { accessLevelLabel } from '../../../plainLabels'
 import { formatWhen } from '../parts/format'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
 import type { EhrBluePageStatus } from '../types'
 import { PinAccess } from './PinAccess'
 import { RequestAccess } from './RequestAccess'
 import { OutcomeBadge, RequestDetail } from './RequestDetail'
-import { FILTER_LABELS, SCOPE_LABELS, latest, patientContext, statusNote, useAccessRequests } from './requests'
+import { FILTER_LABELS, latest, patientContext, statusNote, useAccessRequests } from './requests'
 
 /** Every part is on today's Health ID API: access requests, their outcomes, closing a grant and the patient PIN. */
 export const consentStatus: EhrBluePageStatus = 'live'
@@ -50,7 +51,7 @@ function RequestList() {
     if (!words) return all
     // A request is also found by its own status in today's filter words, so "approved" finds every approved request,
     // whatever came of it (today's "Approved (any outcome)").
-    return all.filter(request => [request.reason, patientContext(request), SCOPE_LABELS[request.scope], outcome(request).label, statusNote(request),
+    return all.filter(request => [request.reason, patientContext(request), accessLevelLabel(request.scope), outcome(request).label, statusNote(request),
       FILTER_LABELS[request.status as AccessRequestStatus]].join(' ').toLowerCase().includes(words))
   }, [requests, search])
   const empty = !requests || shown.length > 0 ? null
@@ -86,7 +87,7 @@ function RequestList() {
             {shown.map(request => <li key={request.accessRequestId}>
               {/* A request found through a filter is read with it on its page too: the address names the filter, not the patient. */}
               <ListRow to={status ? `${href(request.accessRequestId)}?status=${status}` : href(request.accessRequestId)} title={request.reason}
-                subtitle={[patientContext(request), SCOPE_LABELS[request.scope] ?? request.scope, `updated ${formatWhen(latest(request))}`, statusNote(request)].filter(Boolean).join(' · ')}
+                subtitle={[patientContext(request), accessLevelLabel(request.scope), `updated ${formatWhen(latest(request))}`, statusNote(request)].filter(Boolean).join(' · ')}
                 trailing={<><OutcomeBadge request={request} /><ChevronRight className="size-4 text-ink-3" aria-hidden /></>} />
             </li>)}
           </ul>
