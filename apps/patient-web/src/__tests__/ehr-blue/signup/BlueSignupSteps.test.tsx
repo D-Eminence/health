@@ -5,7 +5,7 @@ import { ORGANIZATION_TYPE_NOTES, organizationTypeNote } from '../../../staff/ro
 import { focusWhenShown } from '../../focusWhenShown'
 import { security } from './signupFakes'
 import {
-  actAgain, agreeToAll, AGREEMENT_LABELS, answer, button, combobox, deferred, EMAIL, expectFocusOnStep, NAME, next, open, step,
+  actAgain, answer, button, combobox, deferred, EMAIL, expectFocusOnStep, NAME, next, open, step,
   stepHeading, submitButton, submitRegistration, SUPPORT, TabChannel, textbox, toForm, toReview,
 } from './signupHarness'
 
@@ -60,7 +60,7 @@ describe('the registration opens as today’s page does', () => {
     expect(api.availability).toHaveBeenCalledTimes(1)
     expect(within(progress()).getByText('Step 1 of 5 · Your account')).toBeTruthy()
     expect(within(progress()).getAllByRole('listitem').map(item => item.textContent)).toEqual(['1. Your account',
-      '2. Facility details', '3. Regulatory identity', '4. Platform setup', '5. Agreements'])
+      '2. Facility details', '3. Regulatory identity', '4. Platform setup', '5. Check and send'])
     expect(within(progress()).getByText('1. Your account').getAttribute('aria-current')).toBe('step')
     expect(document.title).toBe('Provider enrollment · Health ID Provider')
     // The page itself sends nothing until it is submitted, and does not take focus when the form first shows.
@@ -273,10 +273,10 @@ describe('step 4, Platform setup', () => {
   })
 })
 
-describe('step 5, Agreements', () => {
+describe('step 5, Check and send', () => {
   it('reviews each section with its Edit, and lists only what Health ID takes', async () => {
     await toReview({ product: 'migrate' })
-    expect(within(progress()).getByText('Step 5 of 5 · Agreements')).toBeTruthy()
+    expect(within(progress()).getByText('Step 5 of 5 · Check and send')).toBeTruthy()
     const facts = [...document.querySelectorAll('.hid-ehr-signup-facts > div')].map(row => row.textContent)
     expect(facts).toEqual([`Full name${NAME}`, `Email${EMAIL}`, 'Facility typeHospital', 'CAC registration numberRC123456',
       'ProductHealth ID Migrate'])
@@ -284,44 +284,52 @@ describe('step 5, Agreements', () => {
     await expectFocusOnStep('Your account')
   })
 
-  it('shows the agreements and needs all four boxes ticked before it can be submitted', async () => {
+  // Parity report 3.2: the start has no field for an agreement, so Health ID cannot record one. The page draws no box
+  // that blocks Submit and is then forgotten; it shows the two documents beside Submit instead.
+  it('has no agreement boxes, and links the Terms of Service and Privacy Policy beside Submit', async () => {
     await toReview()
-    fireEvent.click(screen.getByText('Read the agreements'))
-    expect(screen.getByRole('link', { name: 'Health ID Terms of Service' }).getAttribute('href'))
-      .toBe('https://healthidentitydirectory.com/terms')
-    expect(screen.getByRole('link', { name: 'Health ID Privacy Policy' }).getAttribute('href'))
-      .toBe('https://healthidentitydirectory.com/privacy')
-    // Nothing on the page says that the ticks are recorded: Health ID does not record them yet.
-    expect(document.body.textContent).not.toMatch(/record(ed)? (your|the) (agreement|acceptance)|we keep a record/i)
-    // Health ID has no Data Processing Agreement: no box and no paragraph name one.
+    expect(screen.queryAllByRole('checkbox')).toEqual([])
+    // Nor is the step named for agreements it no longer asks for: no heading or step in the progress says so.
+    expect(screen.queryAllByRole('heading', { name: /agreement/i })).toEqual([])
+    expect(progress().textContent).not.toMatch(/agreement/i)
+    const terms = screen.getByRole('link', { name: 'Health ID Terms of Service' })
+    const privacy = screen.getByRole('link', { name: 'Health ID Privacy Policy' })
+    expect(terms.getAttribute('href')).toBe('https://healthidentitydirectory.com/terms')
+    expect(privacy.getAttribute('href')).toBe('https://healthidentitydirectory.com/privacy')
+    for (const link of [terms, privacy]) {
+      // In the form that Submit sends, shown rather than folded away, and opening in a new tab as the page says.
+      expect(link.closest('form')).toBe(submitButton().closest('form'))
+      expect(link.closest('details')).toBeNull()
+      expect(link.getAttribute('target')).toBe('_blank')
+    }
+    expect(terms.closest('p')?.textContent).toBe('Before you submit, please read the Health ID Terms of Service and the '
+      + 'Health ID Privacy Policy (each opens in a new tab).')
+    expect(screen.getByText('Facility users are responsible for appropriate data protection and patient consent.'))
+      .toBeTruthy()
+    // Nothing on the page asks for an acceptance or says that one is recorded.
+    expect(document.body.textContent)
+      .not.toMatch(/record(ed)? (your|the) (agreement|acceptance)|we keep a record|I agree|you agree|by submitting|acknowledge/i)
+    // Health ID has no Data Processing Agreement: no paragraph names one.
     expect(document.body.textContent).not.toMatch(/Data Processing Agreement/)
-    expect(screen.getAllByRole('checkbox').map(box => box.closest('label')?.textContent?.replace('*', '')))
-      .toEqual(['I have read the Terms of Service', 'I have read the Privacy Policy',
-        'I acknowledge data protection and patient consent responsibilities', 'I am authorised to register this facility'])
-    expect(submitButton().disabled).toBe(true)
-    for (const name of AGREEMENT_LABELS.slice(0, 3)) fireEvent.click(screen.getByRole('checkbox', { name }))
-    expect(submitButton().disabled).toBe(true)
-    fireEvent.click(screen.getByRole('checkbox', { name: AGREEMENT_LABELS[3] }))
-    expect(submitButton().disabled).toBe(false)
-    expect(screen.queryByRole('alertdialog')).toBeNull()
-    expect(api.start).not.toHaveBeenCalled()
   })
 
-  it('keeps the ticks while the page is open, through an Edit and back', async () => {
+  it('no longer waits for any box: Submit is ready with the security check, and sends today’s payload alone', async () => {
     await toReview()
-    agreeToAll()
-    fireEvent.click(button('Edit platform setup'))
-    await step('Platform setup')
-    next()
-    await step('Agreements')
     expect(submitButton().disabled).toBe(false)
+    expect(api.start).not.toHaveBeenCalled()
+    fireEvent.click(submitButton())
+    const dialog = await screen.findByRole('alertdialog', { name: 'Submit this registration?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm and submit' }))
+    await screen.findByRole('heading', { level: 1, name: 'Facility registration submitted' })
+    expect(api.start).toHaveBeenCalledTimes(1)
+    expect(api.start).toHaveBeenCalledWith(PAYLOAD)
+    expect(Object.keys(api.start.mock.calls[0]![0] as object).sort()).toEqual(Object.keys(PAYLOAD).sort())
   })
 })
 
 describe('submitting', () => {
   it('asks in the design’s dialog first; Cancel sends nothing', async () => {
     await toReview()
-    agreeToAll()
     fireEvent.click(submitButton())
     const dialog = await screen.findByRole('alertdialog', { name: 'Submit this registration?' })
     // Health ID records no acceptance: the dialog asks to confirm the details, not to accept anything.
@@ -333,7 +341,7 @@ describe('submitting', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(api.start).not.toHaveBeenCalled()
-    expect(stepHeading().textContent).toBe('Agreements')
+    expect(stepHeading().textContent).toBe('Check and send')
   })
 
   it('runs today’s start once with exactly today’s payload, then says the registration is submitted', async () => {
@@ -355,7 +363,7 @@ describe('submitting', () => {
     await step('Your account')
     fireEvent.change(textbox('Phone'), { target: { value: '08012345678' } })
     for (let index = 0; index < 4; index++) next()
-    await step('Agreements')
+    await step('Check and send')
     await submitRegistration()
     await screen.findByRole('heading', { level: 1, name: 'Facility registration submitted' })
     expect(api.start).toHaveBeenCalledWith({ ...PAYLOAD, organizationType: 'clinic', productCode: 'pharmacy' })
@@ -365,7 +373,6 @@ describe('submitting', () => {
   it('sends nothing without the security check, which sits beside the submit', async () => {
     security.auto = false
     await toReview()
-    agreeToAll()
     expect(submitButton().disabled).toBe(true)
     fireEvent.submit(submitButton().closest('form')!)
     expect(screen.queryByRole('alertdialog')).toBeNull()
@@ -430,7 +437,7 @@ describe('a refusal of the start, in today’s words', () => {
     // Correcting the number and coming back sends again, with a fresh security check.
     fireEvent.change(cac, { target: { value: 'RC654321' } })
     next(); await step('Platform setup')
-    next(); await step('Agreements')
+    next(); await step('Check and send')
     expect(screen.queryByRole('alert')).toBeNull()
     await submitRegistration()
     await screen.findByRole('heading', { level: 1, name: 'Facility registration submitted' })
@@ -454,12 +461,12 @@ describe('a refusal of the start, in today’s words', () => {
     [403, 'PROVIDER_ENROLLMENT_DENIED', 'Facility sign-up is temporarily unavailable. Please try again in a few minutes.'],
     [400, 'VALIDATION_FAILED', 'Some of the details weren’t accepted. Check them and try again.'],
     [409, 'SOMETHING_NEW', 'Identity’s own words'],
-  ])('%s %s stays on Agreements with today’s words', async (status, code, words) => {
+  ])('%s %s stays on Check and send with today’s words', async (status, code, words) => {
     api.start.mockRejectedValueOnce(new HidApiError(status, 'Identity’s own words', { code }))
     await toReview()
     await submitRegistration()
     expect((await screen.findByRole('alert')).textContent).toBe(words)
-    expect(stepHeading().textContent).toBe('Agreements')
+    expect(stepHeading().textContent).toBe('Check and send')
     // A new security check for the next try (today: the token is cleared and the widget reset after every start).
     await waitFor(() => expect(submitButton().disabled).toBe(false))
     await submitRegistration()
@@ -503,7 +510,7 @@ describe('a refusal of the start, in today’s words', () => {
     await submitRegistration()
     const heading = await screen.findByRole('heading', { level: 1, name: 'Facility sign-up isn’t open right now' })
     expect(document.activeElement).toBe(heading)
-    expect(screen.queryByRole('heading', { level: 2, name: 'Agreements' })).toBeNull()
+    expect(screen.queryByRole('heading', { level: 2, name: 'Check and send' })).toBeNull()
   })
 
   it.each([
@@ -516,7 +523,7 @@ describe('a refusal of the start, in today’s words', () => {
     expect((await screen.findByRole('alert')).textContent).toBe(words)
     expect(screen.getByText(hint)).toBeTruthy()
     expect(submitButton().disabled).toBe(true)
-    expect(stepHeading().textContent).toBe('Agreements')
+    expect(stepHeading().textContent).toBe('Check and send')
     expect(screen.queryByRole('heading', { level: 1, name: 'Facility registration submitted' })).toBeNull()
   })
 })
@@ -524,10 +531,10 @@ describe('a refusal of the start, in today’s words', () => {
 /**
  * A changed facility type or administrator name goes only with a new code (R6): when Identity sends none (codeSent
  * false) and the code in force carries the earlier ones, today's page holds the change and offers that code
- * (ProviderEnrollment.tsx:726-735, 1058-1064). The blue registration shows it on Agreements.
+ * (ProviderEnrollment.tsx:726-735, 1058-1064). The blue registration shows it on Check and send.
  */
 describe('a changed facility type that Identity sent no code for', () => {
-  it('stays on Agreements, says the change was not applied, waits, and offers the code already sent', async () => {
+  it('stays on Check and send, says the change was not applied, waits, and offers the code already sent', async () => {
     api.start.mockResolvedValueOnce({ accepted: true, codeSent: true, challengeId: 'challenge-1', expiresInSeconds: 600,
       resendAfterSeconds: 0 })
     await toReview()
@@ -538,7 +545,7 @@ describe('a changed facility type that Identity sent no code for', () => {
     next()
     await step('Facility details')
     fireEvent.change(combobox('Facility type'), { target: { value: 'clinic' } })
-    for (const name of ['Regulatory identity', 'Platform setup', 'Agreements']) { next(); await step(name) }
+    for (const name of ['Regulatory identity', 'Platform setup', 'Check and send']) { next(); await step(name) }
     expect(screen.queryByText(/^A new facility type or administrator name/)).toBeNull()
 
     api.start.mockResolvedValueOnce({ accepted: true, codeSent: false, challengeId: 'challenge-1', expiresInSeconds: 590,
@@ -549,7 +556,7 @@ describe('a changed facility type that Identity sent no code for', () => {
     expect(api.start).toHaveBeenCalledTimes(2)
     expect(api.start).toHaveBeenLastCalledWith({ ...PAYLOAD, organizationType: 'clinic', turnstileToken: 'token-1' })
     // Not the code: its code would register a hospital.
-    expect(stepHeading().textContent).toBe('Agreements')
+    expect(stepHeading().textContent).toBe('Check and send')
     expect(screen.getByText(/^A new facility type or administrator name/).textContent).toBe('A new facility type or '
       + `administrator name takes effect only with a new code. The code already sent is for the facility type Hospital, with ${NAME} `
       + 'as administrator.')
@@ -582,7 +589,7 @@ describe('another email for a sign-up that is open', () => {
     expect(textbox('Email').value.trim().toLowerCase()).toBe(EMAIL)
     fireEvent.change(textbox('Email'), { target: { value: 'other@demo-hospital.example.test' } })
     for (let index = 0; index < 4; index++) next()
-    await step('Agreements')
+    await step('Check and send')
     expect(screen.getByText(`A sign-up for RC123456 was started with ${EMAIL}, and only that email can finish it until 24 hours `
       + 'after it started. You can still correct the CAC number.')).toBeTruthy()
 
@@ -592,7 +599,7 @@ describe('another email for a sign-up that is open', () => {
       + `use another email yet. Finish it with the code sent to ${EMAIL}, or sign up with the new email 24 hours after the first `
       + `sign-up started. Otherwise, contact Health ID support at ${SUPPORT}, and give your CAC registration number.`)
     // It is about the email, not the number: the registration stays where it was submitted.
-    expect(stepHeading().textContent).toBe('Agreements')
+    expect(stepHeading().textContent).toBe('Check and send')
     fireEvent.click(button('Use the email I first gave'))
     expect(screen.queryByText(/only that email can finish it/)).toBeNull()
     expect(document.querySelector('.hid-ehr-signup-facts')?.textContent).toContain(EMAIL)
