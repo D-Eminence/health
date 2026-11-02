@@ -9,11 +9,11 @@ import { backToTestSite, onSite } from '../../sites/siteHarness'
 
 /**
  * On the EHR's own site, Consultation › Documents' "Extract with OCR" opens Document OCR there, with the document
- * filled in: the whole app as ehr. serves it (its own redirects first, then the staff app and the blue EHR on the real,
- * merged registry), at a fictional clinic, through Find a patient (the patient's permission), the visit and its
- * Documents card. ehr. serves every staff page, OCR included (productSites.ts, #68), so the hand-off stays here and is
- * never sent to Migrate's site. The host is only the page's address and fetch is stubbed: nothing is sent anywhere.
- * Every account, facility, patient and document here is fictional.
+ * filled in (and the patient, for a new job): the whole app as ehr. serves it (its own redirects first, then the staff
+ * app and the blue EHR on the real, merged registry), at a fictional clinic, through Find a patient (the patient's
+ * permission), the visit and its Documents card. ehr. serves every staff page, OCR included (productSites.ts, #68), so
+ * the hand-off stays here and is never sent to Migrate's site. The host is only the page's address and fetch is
+ * stubbed: nothing is sent anywhere. Every account, facility, patient and document here is fictional.
  */
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 vi.mock('../../../staff/clinicianApplicationApi', () => ({ clinicianApplicationApi: { availability: () => Promise.resolve({ open: false }) } }))
@@ -26,8 +26,8 @@ afterEach(() => { backToTestSite(); vi.unstubAllGlobals(); vi.restoreAllMocks();
 
 const EHR = 'ehr.healthidentitydirectory.com'
 const CLINIC = 'Riverside Clinic (fictional)'
-/** Finding a patient, Consultation, the visit's documents, and Document OCR: nothing more. */
-const PERMISSIONS = ['identity.patient.read', 'ehr.encounter.read', 'ehr.document.read', 'ocr.job.read']
+/** Finding a patient, Consultation, the visit's documents, and Document OCR with its new job: nothing more. */
+const PERMISSIONS = ['identity.patient.read', 'ehr.encounter.read', 'ehr.document.read', 'ocr.job.read', 'ocr.job.write']
 const ACTOR_ID = 'staff-demo-1'
 const GRANT_ID = 'grant-ocr-c1'
 const PATIENT_ID = 'a0000000-0000-4000-8000-0000000000c1'
@@ -72,7 +72,7 @@ const address = () => screen.getByTestId('address').textContent
 /** The whole app, signed in at the clinic, as the browser opens `path` on the EHR's site. */
 async function openOnEhr(path: string) {
   const clinic = facility(REAL_FACILITY, CLINIC, PERMISSIONS)
-  const sent = serve({
+  serve({
     [SESSION]: many(sessionAt(clinic, [clinic])),
     [LOOKUP]: many(allowed),
     [CONSENT]: many(() => json({ patientId: PATIENT_ID, facilityId: REAL_FACILITY, purpose: 'direct-care', readAllowed: true, writeAllowed: false })),
@@ -85,11 +85,11 @@ async function openOnEhr(path: string) {
   const { App } = await import('../../../App')
   const seen: string[] = []
   render(<MemoryRouter initialEntries={[path]}><Address seen={seen} /><App /></MemoryRouter>)
-  return { sent, seen }
+  return { seen }
 }
 
 describe('Extract with OCR on the EHR’s own site', () => {
-  it('opens Document OCR here, with the document filled in, and puts nothing about the patient in the address', async () => {
+  it('opens Document OCR here, with the document and the patient filled in, and puts nothing about them in the address', async () => {
     const { seen } = await openOnEhr('/provider/patients')
 
     // The chart opens only with the patient's permission: Find a patient's lookup, which Identity allows.
@@ -124,16 +124,20 @@ describe('Extract with OCR on the EHR’s own site', () => {
     expect(await screen.findByText('No OCR job for this document')).toBeTruthy()
     const asked = vi.mocked(fetch).mock.calls.map(([url]) => new URL(String(url))).filter(url => url.pathname === '/api/v1/ocr/jobs')
     expect(asked.map(url => url.searchParams.get('documentId'))).toEqual([DOCUMENT_ID])
+    // And the patient: Create record opens the new job with the patient filled in. The page header has its own
+    // Create record, so this is the one under the answer.
+    fireEvent.click(within(find.parentElement as HTMLElement).getByRole('button', { name: 'Create record' }))
+    expect((screen.getByLabelText(/^Patient ID/) as HTMLInputElement).value).toBe(PATIENT_ID)
 
-    // Still on ehr., and nothing ever opened another site.
-    expect(window.location.hostname).toBe(EHR)
+    // Nothing ever opened another site.
     expect(address()).toBe('/provider/ocr')
     expect(opened).not.toHaveBeenCalled()
-    // Every address the journey took: main's own, the encounter's id the only id among them, as before.
-    expect(seen).toEqual(['/provider/patients', '/provider/patients/open', `/provider/clinical/${ENCOUNTER_ID}`, '/provider/ocr'])
+    // No address the journey took holds the patient's, the document's, the clinic's, the account's or the grant's id.
     for (const id of [PATIENT_ID, PATIENT_HID, DOCUMENT_ID, REAL_FACILITY, ACTOR_ID, GRANT_ID]) {
       for (const at of seen) expect(at).not.toContain(id)
     }
+    // Every address it took: main's own, the encounter's id the only id among them, as before.
+    expect(seen).toEqual(['/provider/patients', '/provider/patients/open', `/provider/clinical/${ENCOUNTER_ID}`, '/provider/ocr'])
     // And the rule behind it (#68): the EHR's site serves Document OCR itself.
     expect(servedHere('/provider/ocr', EHR)).toBe(true)
   })
