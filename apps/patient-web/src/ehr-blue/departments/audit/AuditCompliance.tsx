@@ -22,8 +22,8 @@ import { dateText } from '../parts/format'
  * Layout (design audit, #64): under the heading's line (Refresh beside it) and the intro, the page is one list card
  * ('hid-ehr-card hid-ehr-dept-section hid-ehr-dept-list-card', DeptSearch's): the search and outcome filter at its top,
  * then every event of the page loaded that they match (all of them as the page opens), with Newer and Older events
- * under them. The request log (health#70) is never a row. The target draws no Refresh, search or filter; whether they
- * go is the owner's design decision, so they stay until it is made (coordinator review, 2 Nov 2026).
+ * under them. The request log (health#70) is never a row. The target draws no Refresh, search or filter; the owner
+ * chose to keep all three (2 Nov 2026).
  *
  * Each event reads as a plain sentence (owner rule of 1 Nov 2026, docs/AUDIT_ACTION_LABELS.md): what was done, by whom,
  * when, and Allowed, Refused or Failed, in the words audit/auditRow.ts gives the classic page too. The action code, the
