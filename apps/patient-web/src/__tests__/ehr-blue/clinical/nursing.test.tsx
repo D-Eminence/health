@@ -3,6 +3,9 @@ import { HidApiError } from '@hid/http'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NursingWorkspace, nursingStatus } from '../../../ehr-blue/clinical/nursing/NursingWorkspace'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
+import { consultationLabel } from '../../../plainLabels'
+import { observationName } from '../../../ehr-blue/clinical/nursing/observations'
+import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 
 /**
  * Nursing observations: today's clinical notes of type "Nursing observation" (the design's category as the title,
@@ -120,8 +123,8 @@ describe('Nursing observations list', () => {
     await act(async () => page.resolve({ items: [ENCOUNTER], nextCursor: null }))
 
     const table = await screen.findByRole('table', { name: 'Nursing observations' })
-    const links = within(table).getAllByRole('link', { name: /^c/ })
-    expect(links.map(link => link.textContent)).toEqual(['c0000000'])
+    const links = within(table).getAllByRole('link', { name: /^Observation · / })
+    expect(links.map(link => link.textContent)).toEqual([observationName(NOTE)])
     expect(links[0]!.getAttribute('href')).toBe(`/provider/nursing/${ENCOUNTER_ID}~${NOTE_ID}`)
     // One patient's chart: the patient is named once, in the banner, not on each row.
     expect(within(table).queryByText(PATIENT_NAME)).toBeNull()
@@ -134,21 +137,21 @@ describe('Nursing observations list', () => {
     expect(window.location.href).not.toContain(PATIENT_HID)
   })
 
-  it('names the tab after the workspace, and repeats each record’s own id under its link, not its visit’s', async () => {
+  it('names the tab after the workspace, and names each record by when it was recorded, never by an id', async () => {
     document.title = ''
     open()
     const table = await screen.findByRole('table', { name: 'Nursing observations' })
     expect(document.title).toBe('Nursing observations · Health ID EHR')
-    expect(within(table).getAllByText('c0000000').map(element => element.tagName)).toEqual(['A', 'SPAN'])
-    expect(within(table).queryByText('e0000000')).toBeNull()
+    expect(within(table).getAllByText(observationName(NOTE)).map(element => element.tagName)).toEqual(['A'])
+    expect(within(table).queryByText(consultationLabel(ENCOUNTER))).toBeNull()
   })
 
   it('opens the record quick view, and Escape closes it', async () => {
     open()
-    fireEvent.click(await screen.findByRole('button', { name: 'Quick view c0000000' }))
+    fireEvent.click(await screen.findByRole('button', { name: `Quick view ${observationName(NOTE)}` }))
     const drawer = await screen.findByRole('dialog', { name: 'Record quick view' })
     expect(within(drawer).getByText('Vitals')).toBeTruthy()
-    expect(within(drawer).getByText('e0000000')).toBeTruthy()
+    expect(within(drawer).getByText(consultationLabel(ENCOUNTER))).toBeTruthy()
     expect(within(drawer).getByRole('button', { name: 'Open full record' }).tagName).toBe('BUTTON')
     fireEvent.keyDown(drawer, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Record quick view' })).toBeNull())
@@ -247,7 +250,7 @@ describe('New nursing observations', () => {
       noteType: 'Nursing observation', title: 'Medication administration', status: 'draft', content: 'Gave paracetamol by mouth\n\nUnits / dose: 500 mg',
     }, expect.any(String))
     expect(api.lookupPatient.mock.invocationCallOrder.at(-2)!).toBeLessThan(api.createRecord.mock.invocationCallOrder[0]!)
-    expect(screen.getByRole('heading', { level: 1, name: 'c1111111' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: /^Observation · \d/ })).toBeTruthy()
     const saved = screen.getByRole('heading', { level: 2, name: 'Saved record' }).closest('section')!
     expect(await within(saved).findByText('Gave paracetamol by mouth')).toBeTruthy()
     expect(within(saved).getByText('500 mg')).toBeTruthy()
@@ -281,8 +284,8 @@ describe('New nursing observations', () => {
     open()
     const table = await screen.findByRole('table')
     expect(within(table).getByText('Vitals')).toBeTruthy()
-    fireEvent.click(within(table).getByRole('link', { name: 'c0000000' }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'c0000000' })).toBeTruthy()
+    fireEvent.click(within(table).getByRole('link', { name: observationName(NOTE) }))
+    expect(await screen.findByRole('heading', { level: 1, name: observationName(NOTE) })).toBeTruthy()
     expect(screen.getAllByText('Vitals').length).toBeGreaterThan(0)
   })
 
@@ -325,7 +328,7 @@ describe('New nursing observations', () => {
 describe('Nursing observation record', () => {
   async function openRecord() {
     open(RECORD)
-    expect(await screen.findByRole('heading', { level: 1, name: 'c0000000' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: observationName(NOTE) })).toBeTruthy()
   }
 
   function saved() {
@@ -345,7 +348,7 @@ describe('Nursing observation record', () => {
     expect(within(saved()).getByText('Loading note revisions…')).toBeTruthy()
     await act(async () => read.resolve([FIRST]))
     const card = saved()
-    expect(within(card).getByText('e0000000')).toBeTruthy()
+    expect(within(card).getByText(consultationLabel(ENCOUNTER))).toBeTruthy()
     expect(within(card).getByText('Vitals')).toBeTruthy()
     expect(within(card).getByText('Fictional vitals observation')).toBeTruthy()
     expect(within(card).getByText('demo')).toBeTruthy()
@@ -589,7 +592,7 @@ describe('Nursing observation record', () => {
     notes = [NOTE]
     revisions = []
     view = open(RECORD)
-    await screen.findByRole('heading', { level: 1, name: 'c0000000' })
+    await screen.findByRole('heading', { level: 1, name: observationName(NOTE) })
     expect(await within(saved()).findByText('No note content is available.')).toBeTruthy()
     expect(actionNames()).toEqual(['Amend observation'])
     expect(moreButton()).toBeNull()
@@ -830,8 +833,8 @@ describe('Nursing observation record', () => {
     await openRecord()
     await waitFor(() => expect(within(history()).queryByText('Loading records…')).toBeNull())
     expect(historyRows()).toEqual([
-      ['Consultation · e0000000', `/provider/clinical/${ENCOUNTER_ID}`],
-      ['Triage & Vitals · f0000000', `/provider/triage/${ENCOUNTER_ID}~${VITAL_ID}`],
+      [consultationLabel(ENCOUNTER), `/provider/clinical/${ENCOUNTER_ID}`],
+      [`Triage & Vitals · ${formatWhen(VITAL.createdAt)}`, `/provider/triage/${ENCOUNTER_ID}~${VITAL_ID}`],
       ['Laboratory · Malaria parasite test', `/provider/clinical/${ENCOUNTER_ID}/orders/laboratory/${LAB_ID}`],
       ['Pharmacy · Paracetamol 500 mg', `/provider/clinical/${ENCOUNTER_ID}/orders/pharmacy/${PRESCRIPTION_ID}`],
     ])
@@ -850,10 +853,10 @@ describe('Nursing observation record', () => {
     others = { vitals: [VITAL], 'lab-requests': [LAB], prescriptions: [PRESCRIPTION] }
     staff.permissions = ['ehr.note.read', 'ehr.note.write']
     let view = open(RECORD)
-    await screen.findByRole('heading', { level: 1, name: 'c0000000' })
+    await screen.findByRole('heading', { level: 1, name: observationName(NOTE) })
     await act(async () => {})
     // Without encounter read the visit is named, not linked; nothing else is read.
-    expect(historyRows()).toEqual([['Consultation · e0000000', null]])
+    expect(historyRows()).toEqual([[consultationLabel(ENCOUNTER), null]])
     expect(api.records.mock.calls.map(call => call[3])).toEqual(['clinical-notes'])
     view.unmount()
 
@@ -865,13 +868,13 @@ describe('Nursing observation record', () => {
       return { items: kind === 'clinical-notes' ? notes : others[kind] ?? [], nextCursor: null }
     })
     view = open(RECORD)
-    await screen.findByRole('heading', { level: 1, name: 'c0000000' })
+    await screen.findByRole('heading', { level: 1, name: observationName(NOTE) })
     expect(await within(history()).findByText('Loading records…')).toBeTruthy()
     await act(async () => vitalsRead.resolve({ items: [VITAL], nextCursor: null }))
     expect(within(history()).queryByText('Loading records…')).toBeNull()
     expect(within(history()).getByRole('alert').textContent).toBe('EHR is unavailable.')
     // The other rows still show, and the record itself is unaffected.
-    expect(historyRows().map(row => row[0])).toEqual(['Consultation · e0000000', 'Triage & Vitals · f0000000', 'Pharmacy · Paracetamol 500 mg'])
+    expect(historyRows().map(row => row[0])).toEqual([consultationLabel(ENCOUNTER), `Triage & Vitals · ${formatWhen(VITAL.createdAt)}`, 'Pharmacy · Paracetamol 500 mg'])
     expect(within(saved()).getByText('Fictional vitals observation')).toBeTruthy()
     view.unmount()
   })
@@ -891,25 +894,25 @@ describe('Nursing observation record', () => {
     const pages = await within(history()).findByRole('group', { name: 'Triage & Vitals' })
     expect(within(pages).getByRole('navigation', { name: 'Record pages' })).toBeTruthy()
     expect(within(pages).getByText('Page 1')).toBeTruthy()
-    expect(historyRows().map(row => row[0])).toEqual(['Consultation · e0000000', 'Triage & Vitals · f0000000'])
+    expect(historyRows().map(row => row[0])).toEqual([consultationLabel(ENCOUNTER), `Triage & Vitals · ${formatWhen(VITAL.createdAt)}`])
     // Only the list that has more than one page shows a pager.
     expect(within(history()).getAllByRole('group')).toEqual([pages])
 
     // The next page is today's page read (its cursor, not fresh), and its rows replace the first page's.
     fireEvent.click(within(pages).getByRole('button', { name: 'Next page' }))
-    expect(await within(history()).findByText('Triage & Vitals · f3333333')).toBeTruthy()
+    expect(await within(history()).findByText(`Triage & Vitals · ${formatWhen(OLDER.createdAt)}`)).toBeTruthy()
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { cursor: 'vitals-2', fresh: false })
     expect(within(pages).getByText('Page 2')).toBeTruthy()
-    expect(historyRows()).toContainEqual(['Triage & Vitals · f3333333', `/provider/triage/${ENCOUNTER_ID}~${OLDER.id}`])
-    expect(within(history()).queryByText('Triage & Vitals · f0000000')).toBeNull()
+    expect(historyRows()).toContainEqual([`Triage & Vitals · ${formatWhen(OLDER.createdAt)}`, `/provider/triage/${ENCOUNTER_ID}~${OLDER.id}`])
+    expect(within(history()).queryByText(`Triage & Vitals · ${formatWhen(VITAL.createdAt)}`)).toBeNull()
 
     // Back to the first page, then forward with a cursor EHR no longer accepts: the list starts again, saying so.
     fireEvent.click(within(pages).getByRole('button', { name: 'Previous page' }))
-    expect(await within(history()).findByText('Triage & Vitals · f0000000')).toBeTruthy()
+    expect(await within(history()).findByText(`Triage & Vitals · ${formatWhen(VITAL.createdAt)}`)).toBeTruthy()
     refuseCursor = true
     fireEvent.click(within(history()).getByRole('button', { name: 'Next page' }))
     expect(await within(history()).findByText('This list changed since it was opened, so it shows the newest entries again.')).toBeTruthy()
-    expect(within(history()).getByText('Triage & Vitals · f0000000')).toBeTruthy()
+    expect(within(history()).getByText(`Triage & Vitals · ${formatWhen(VITAL.createdAt)}`)).toBeTruthy()
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals', { cursor: undefined, fresh: true })
     // The record itself is unaffected.
     expect(within(saved()).getByText('Fictional vitals observation')).toBeTruthy()
@@ -920,11 +923,11 @@ describe('Nursing observation record', () => {
     staff.permissions = ['ehr.note.read', 'ehr.note.write', 'ehr.lab-request.read', 'ehr.prescription.read']
     others = { 'lab-requests': [LAB], prescriptions: [PRESCRIPTION] }
     open(RECORD)
-    await screen.findByRole('heading', { level: 1, name: 'c0000000' })
+    await screen.findByRole('heading', { level: 1, name: observationName(NOTE) })
     await waitFor(() => expect(within(history()).queryByText('Loading records…')).toBeNull())
     // Named, not linked: Consultation (where the visit and its orders open) needs encounter read.
     expect(historyRows()).toEqual([
-      ['Consultation · e0000000', null],
+      [consultationLabel(ENCOUNTER), null],
       ['Laboratory · Malaria parasite test', null],
       ['Pharmacy · Paracetamol 500 mg', null],
     ])

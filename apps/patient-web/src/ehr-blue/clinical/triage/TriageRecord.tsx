@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 import { staffApi, type ClinicalRecord, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
+import { encounterTitle } from '../consult/encounters'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
 import { ActionList, DetailGrid, DetailMeta, SavedRecord, VersionsCard, type VersionItem } from '../parts/Detail'
-import { formatWhen, shortId, statusLabel } from '../parts/format'
+import { formatWhen, statusLabel } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import { Banner, ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
 import type { SubmitOutcome } from '../parts/RecordForm'
@@ -17,7 +18,7 @@ import {
 } from './records'
 import {
   CHANGED_SINCE, CLOSE_CORRECTION, CORRECT_LABEL, CORRECTION_FAILED, CORRECTION_HINT, CORRECTION_SAVED, CORRECTION_UNREAD, LOADING_CORRECTION,
-  RELOAD_FIRST, RETRACTED_SINCE, RETRACTED_TEXT, SAVE_CORRECTION, TITLE, VITAL_FIELDS, correctionNumber, currentValues, isRetracted,
+  RELOAD_FIRST, RETRACTED_SINCE, RETRACTED_TEXT, SAVE_CORRECTION, TITLE, VITAL_FIELDS, correctionNumber, currentValues, isRetracted, vitalName,
   measurementItems, readCorrections, reloadSentence, vitalStatus, type Corrections,
 } from './vitals'
 import { VitalsForm, type VitalsInput } from './VitalsForm'
@@ -180,7 +181,7 @@ function VitalRecord({ chart, encounter, vital, reload }: {
   }
 
   const saved: KeyValue[] = [
-    { label: 'Visit', value: shortId(encounter.id) },
+    { label: 'Visit', value: encounterTitle(encounter) },
     { label: 'Complaint', value: encounter.chiefComplaint || NO_COMPLAINT },
     ...(current ? measurementItems(current) : corrections.state === 'failed' ? measurementItems(vital) : []),
     ...(latest ? [{ label: 'Reason', value: latest.reason }, { label: 'Corrected at', value: formatWhen(latest.createdAt) }] : []),
@@ -188,7 +189,7 @@ function VitalRecord({ chart, encounter, vital, reload }: {
 
   return (
     <>
-      <RecordHeading title={shortId(vital.id)} backHref={href()} />
+      <RecordHeading title={vitalName(vital)} backHref={href()} />
       {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
       <div className="hid-ehr-clinical-status" role="status">{success}</div>
       <DetailMeta

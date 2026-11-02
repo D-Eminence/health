@@ -434,7 +434,7 @@ describe('New pharmacy (prescription)', () => {
     // The patient is the banner; the consultation carries in.
     expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
     expect(within(patientBanner()).getByText(new RegExp(PATIENT_HID))).toBeTruthy()
-    expect(screen.getByText('For consultation e0000000')).toBeTruthy()
+    expect(screen.getByText('For this consultation')).toBeTruthy()
     expect(screen.getByText('This saves a draft. The pharmacy accepts and dispenses it as a next step.')).toBeTruthy()
     change('Medication', ' Amoxicillin ')
     change('Dose quantity', '500')
@@ -1626,7 +1626,7 @@ const NOT_LOADED = 'Recorded allergies: what the patient entered about their hea
 
 /**
  * Hand-off 06, as the redesign settled it: the one-option "Patient *" and "Encounter *" selects are gone. The patient is
- * the banner (and is confirmed before saving), the consultation is the one in the address ("For consultation …"), and
+ * the banner (and is confirmed before saving), the consultation is the one in the address ("For this consultation"), and
  * neither is a field that could be blanked or sent.
  */
 describe('Hand-off 06: the open patient and this consultation carry in on New lab request and New prescription', () => {
@@ -1638,7 +1638,7 @@ describe('Hand-off 06: the open patient and this consultation carry in on New la
     expect(await screen.findByRole('heading', { level: 1, name: title })).toBeTruthy()
     expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
     expect(within(patientBanner()).getByText(new RegExp(PATIENT_HID))).toBeTruthy()
-    expect(screen.getByText('For consultation e0000000')).toBeTruthy()
+    expect(screen.getByText('For this consultation')).toBeTruthy()
     expect(screen.queryByLabelText(labelled('Patient'))).toBeNull()
     expect(screen.queryByLabelText(labelled('Encounter'))).toBeNull()
     // The form starts with today's first field; the address names record ids only.
@@ -1698,7 +1698,7 @@ describe('Hand-off 06: the open patient and this consultation carry in on New la
     fireEvent.click(save)
     await confirmPatient(SAVE_LAB(), 'Save draft')
     expect((await screen.findByRole('alert')).textContent).toBe('Network error')
-    expect(screen.getByText('For consultation e0000000')).toBeTruthy()
+    expect(screen.getByText('For this consultation')).toBeTruthy()
     api.createRecord.mockResolvedValueOnce(labRequest())
     fireEvent.click(screen.getByRole('button', { name: 'Create lab request' }))
     await confirmPatient(SAVE_LAB(), 'Save draft')
@@ -1716,7 +1716,7 @@ describe('Hand-off 06: the open patient and this consultation carry in on New la
     fireEvent.click(save)
     await confirmPatient(SAVE_LAB(), 'Save draft')
     expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
-    expect(screen.getByText('For consultation e0000000')).toBeTruthy()
+    expect(screen.getByText('For this consultation')).toBeTruthy()
     expect(field('Test code').value).toBe('')
   })
 

@@ -6,7 +6,6 @@ import { orderRoutesApi, staffApi, type SavedRecord } from '../../../../staff/ap
 import { refusalSentences, refusalText, refusedFields } from '../../../../staff/fieldProblem'
 import { sendRefusal } from '../../../../staff/orderRoutes'
 import { choiceProblem, NO_DESTINATION, savedNotSent, type DestinationChoice, type RouteContext } from '../../../../staff/routes/OrderRoutes'
-import { shortId } from '../../parts/format'
 import { ChartBanner, type Chart } from '../../parts/chart'
 import { useConfirm } from '../../parts/confirm'
 import { ErrorBox, Loading, RecordHeading } from '../../parts/Notices'
@@ -115,8 +114,8 @@ export function CreateOrder({ kind, chart, encounterId }: { kind: OrderKind; cha
 }
 
 /** The consultation the order belongs to (the patient is in the banner above, and confirmed before saving). */
-function OrderContext({ encounterId }: { encounterId: string }) {
-  return <p className="hid-ehr-clinical-note">For consultation {shortId(encounterId)}</p>
+function OrderContext() {
+  return <p className="hid-ehr-clinical-note">For this consultation</p>
 }
 
 /** "Send this lab request for Adaeze Okafor?": the patient, compact, and what saving does, before anything is sent. */
@@ -232,7 +231,7 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
 
   return (
     <EhrCard>
-      <OrderContext encounterId={encounterId} />
+      <OrderContext />
       <RecordedAllergies chart={chart} />
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
       <RecordForm key={form} fields={PRESCRIPTION_FIELDS} validate={validate} onSubmit={submit} submitLabel="Save draft"
@@ -444,7 +443,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
 
   return (
     <EhrCard>
-      <OrderContext encounterId={encounterId} />
+      <OrderContext />
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
       {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
       {sheet}

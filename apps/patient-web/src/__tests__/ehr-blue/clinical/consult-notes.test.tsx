@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
 import { WRITE_NOTE_LABEL } from '../../../ehr-blue/clinical/consult/encounters'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, activePatient, allowedLookup, labelled, renderPage } from './harness'
+import { consultationLabel } from '../../../plainLabels'
+import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 
 /**
  * Consultation, one encounter: the Notes card (every clinical note of the encounter, each with today's NotePanel
@@ -100,7 +102,7 @@ afterEach(() => { vi.restoreAllMocks() })
 
 async function openEncounter() {
   renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-  expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
   await screen.findByText('Cough for three days.', { exact: false })
 }
 
@@ -160,7 +162,7 @@ describe('Consultation record: the Notes card (item 1)', () => {
     const handover = { ...OBSERVATION, id: 'b2c6ef36-0000-4000-8000-000000000002', title: 'Handover', status: 'draft' }
     pages['clinical-notes'] = { '': { items: [OBSERVATION, handover], nextCursor: null } }
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     const notes = () => within(card('Notes'))
     await waitFor(() => expect(notes().getAllByRole('listitem')).toHaveLength(2))
     expect(notes().getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['Vitals', 'Handover'])
@@ -170,7 +172,7 @@ describe('Consultation record: the Notes card (item 1)', () => {
   it('says "No notes for this encounter." when the visit has no notes at all', async () => {
     pages['clinical-notes'] = { '': { items: [], nextCursor: null } }
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     expect(await within(card('Notes')).findByText('No notes for this encounter.')).toBeTruthy()
   })
 
@@ -342,16 +344,16 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     pages['clinical-notes'] = { '': { items: first, nextCursor: 'notes-cursor-2' }, 'notes-cursor-2': { items: second, nextCursor: null } }
     await openEncounter()
     const history = () => within(card('History'))
-    expect(history().getByRole('link', { name: 'Nursing observations · b1c6ef36' })).toBeTruthy()
-    expect(history().queryByText('Nursing observations · b2d7f047')).toBeNull()
+    expect(history().getByRole('link', { name: `Nursing observations · ${formatWhen(OBSERVATION.createdAt)}` })).toBeTruthy()
+    expect(history().queryByText(`Nursing observations · ${formatWhen(older.createdAt)}`)).toBeNull()
     const notes = () => within(card('Notes'))
     fireEvent.click(within(notes().getByRole('navigation', { name: 'Record pages' })).getByRole('button', { name: 'Next page' }))
     expect(await notes().findByText('Older progress note 1')).toBeTruthy()
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: 'notes-cursor-2', fresh: false })
     // The page shown, as the other notes: the second page's observation links to its own page, by record ids only.
-    const link = await history().findByRole('link', { name: 'Nursing observations · b2d7f047' })
+    const link = await history().findByRole('link', { name: `Nursing observations · ${formatWhen(older.createdAt)}` })
     expect(link.getAttribute('href')).toBe(`/provider/nursing/${ENCOUNTER_ID}~${older.id}`)
-    expect(history().queryByText('Nursing observations · b1c6ef36')).toBeNull()
+    expect(history().queryByText(`Nursing observations · ${formatWhen(OBSERVATION.createdAt)}`)).toBeNull()
     // The card lists it on that page too, as a nursing note, as classic's Notes tab did; the Saved record keeps the
     // newest consultation note.
     expect(notes().getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['Older progress note 1', 'Older progress note 2', 'Vitals'])
@@ -407,7 +409,7 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
   it('follow-up 3: offers no note form to a role that may write notes but not read them', async () => {
     staff.permissions = ALL.filter(permission => permission !== 'ehr.note.read')
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     await within(card('Documents')).findByText('referral-letter.pdf')
     // The note form's own button, whichever words it has.
     expect(within(card('Actions')).queryByRole('button', { name: WRITE_NOTE_LABEL })).toBeNull()

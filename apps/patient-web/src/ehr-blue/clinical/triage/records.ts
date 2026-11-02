@@ -3,7 +3,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { staffApi, type ClinicalRecord, type Encounter, type Page, type RecordKind } from '../../../staff/api'
 import { refusalSentences, refusalText, refusedFields } from '../../../staff/fieldProblem'
 import type { Chart } from '../parts/chart'
-import { formatWhen, shortId, statusLabel } from '../parts/format'
+import { visitClassLabel, visitStatusLabel } from '../../../plainLabels'
+import { formatWhen } from '../parts/format'
 import type { FieldErrors } from '../parts/RecordForm'
 
 /**
@@ -98,9 +99,9 @@ export function parseRecordKey(key: string): { encounterId: string; recordId: st
   return { encounterId: key.slice(0, at), recordId: key.slice(at + 1) }
 }
 
-/** A visit as the design's record picker names one: "{name} · {status} · {when}". */
+/** A visit as the record picker names one, in plain words: "Outpatient visit · In progress · 2 Nov 2026, 09:00". */
 export function visitLabel(encounter: Encounter): string {
-  return [shortId(encounter.id), statusLabel(encounter.status), formatWhen(encounter.startedAt)].filter(Boolean).join(' · ')
+  return [visitClassLabel(encounter.encounterType), visitStatusLabel(encounter.status), formatWhen(encounter.startedAt)].filter(Boolean).join(' · ')
 }
 
 /**
@@ -108,7 +109,7 @@ export function visitLabel(encounter: Encounter): string {
  * its time in the page's own day-and-time format.
  */
 export function onAnotherPage(encounter: Encounter): string {
-  return `The encounter being documented, ${statusLabel(encounter.encounterType)} started ${formatWhen(encounter.startedAt)}, is on another page.`
+  return `The visit being documented (${visitClassLabel(encounter.encounterType)}, started ${formatWhen(encounter.startedAt)}) is on another page.`
 }
 
 /** When a record was made, as today's "Recorded" line says it (Clinical.tsx:1813): when EHR saved it. */
