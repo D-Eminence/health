@@ -6,6 +6,7 @@ import {
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, Field, Input, Select, Textarea } from '@hid/ui'
 import { usesNovuBackend } from '../../backendContract'
+import { offeredHere } from '../../productSites'
 import { isAllowedPatientLookup, staffApi } from '../api'
 import { useStaff } from '../App'
 import { BUSY, UNAVAILABLE, useFocusById } from '../focus'
@@ -122,6 +123,9 @@ export function Patients() {
   const unavailable = actionUnavailable(METHOD_ROUTES[mode], permissions, administrator)
   const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administrator)
   const openSharedUnavailable = actionUnavailable(OPEN_SHARED, permissions, administrator)
+  // A product site (lab., pharmacy., migrate., outreach.) opens no clinical record (productSites.ts): there, an opened
+  // patient stays on this page, which says so, and nothing links to a record the site would not open.
+  const clinicalHere = offeredHere('/provider/clinical')
 
   function clearFeedback() { setMessage(''); setError(''); problems.clear() }
 
@@ -142,7 +146,9 @@ export function Patients() {
       throw new Error('Health ID has not granted access to this patient. Request approval, verify their PIN, or use documented emergency access when justified.')
     }
     // A lookup answered after the session or facility changed opens nothing.
-    if (setActivePatient({ hid: candidate, lookup, purpose })) navigate('/provider/clinical')
+    if (!setActivePatient({ hid: candidate, lookup, purpose })) return
+    if (clinicalHere) navigate('/provider/clinical')
+    else setMessage('Access is allowed.')
   }
 
   async function checkAccess(event: FormEvent<HTMLFormElement>) {
@@ -232,7 +238,7 @@ export function Patients() {
 
   return <>
     <div className="staff-page-head"><p className="staff-eyebrow">Governed access</p><h1 id="patients-title" tabIndex={-1}>Open a patient record.</h1><p>Enter the patient’s Health ID. Their identity and records remain hidden until Health ID authorizes this facility and purpose.</p></div>
-    {activePatient && <Card className="staff-card staff-current"><h2>{activePatient.purpose === 'emergency' ? 'Current emergency summary' : 'Current authorized record'}</h2><div className="staff-row"><strong>{activePatient.lookup.patient.fullName ?? activePatient.hid}</strong><Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'}>{activePatient.purpose === 'emergency' ? 'Emergency access' : 'Access allowed'}</Badge><Link to="/provider/clinical" className="staff-text-link">{activePatient.purpose === 'emergency' ? 'Open read-only emergency summary →' : 'Open clinical record →'}</Link></div>{grantId && <>{closeUnavailable && <p id="close-grant-unavailable" className="staff-muted">{closeUnavailable}</p>}<Button tone="secondary" size="sm" onClick={() => void closeGrant()} disabled={closeUnavailable !== null} aria-disabled={busy || undefined} className={UNAVAILABLE} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}>Close my grant</Button></>}</Card>}
+    {activePatient && <Card className="staff-card staff-current"><h2>{activePatient.purpose === 'emergency' ? 'Current emergency summary' : 'Current authorized record'}</h2><div className="staff-row"><strong>{activePatient.lookup.patient.fullName ?? activePatient.hid}</strong><Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'}>{activePatient.purpose === 'emergency' ? 'Emergency access' : 'Access allowed'}</Badge>{clinicalHere && <Link to="/provider/clinical" className="staff-text-link">{activePatient.purpose === 'emergency' ? 'Open read-only emergency summary →' : 'Open clinical record →'}</Link>}</div>{grantId && <>{closeUnavailable && <p id="close-grant-unavailable" className="staff-muted">{closeUnavailable}</p>}<Button tone="secondary" size="sm" onClick={() => void closeGrant()} disabled={closeUnavailable !== null} aria-disabled={busy || undefined} className={UNAVAILABLE} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}>Close my grant</Button></>}</Card>}
     <div className="staff-two-col">
       <Card className="staff-card"><h2>Check current access</h2><p>Already approved? Verify with the server before opening the chart.</p><form className="staff-form" noValidate onSubmit={event => void checkAccess(event)}><Field label="Health ID" htmlFor="patient-hid" hint={HID_FORMAT} error={hidError ? hidAlert ? <span key={focusHid} role="alert">{hidError}</span> : hidError : undefined} required><Input id="patient-hid" autoComplete="off" value={hid} onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); setHidError('') }} required invalid={!!hidError} aria-describedby={hidError ? 'patient-hid-error' : 'patient-hid-hint'} /></Field><Button type="submit" disabled={!facility || !permissions.includes('identity.patient.read')} aria-disabled={busy || undefined} className={BUSY}>Verify access</Button></form></Card>
       <Card className="staff-card"><h2>Obtain access</h2><div className="staff-tabs" role="group" aria-label="Access method"><button type="button" aria-pressed={mode === 'request'} onClick={() => { problems.clear(); setMode('request') }}>Request</button><button type="button" aria-pressed={mode === 'pin'} onClick={() => { problems.clear(); setMode('pin') }}>Patient PIN</button><button type="button" aria-pressed={mode === 'emergency'} onClick={() => { problems.clear(); setMode('emergency') }}>Emergency</button></div>

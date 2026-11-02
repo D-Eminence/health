@@ -1,7 +1,8 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { PATIENT_ROUTE } from '@hid/auth'
 import { RequireAccess } from './RequireAccess'
+import { BrandLogo } from './BrandLogo'
 import { useDocumentTitle } from './authSteps'
 import { SessionProvider } from './session'
 import { PatientSupport } from './PatientSupport'
@@ -17,6 +18,8 @@ import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, S
 import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE, STAFF_RECOVERY_PATH, staffSignInHref } from './productHostname'
 import { isStaffSignInEntrance, OpenEhrSignIn } from './staffSignIn'
 import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_INVITATION_PATH } from './productHostname'
+import { rightSiteHref, siteNameOf } from './productSites'
+import { openSite } from './openSite'
 import { usesNovuBackend } from './backendContract'
 import { LEGACY_PATIENT_PATHS } from './legacyPaths'
 import { ShareRecords } from './routes/ShareRecords'
@@ -78,6 +81,24 @@ function PatientRoutes() {
   )
 }
 
+/**
+ * A page another Health ID site serves (productSites.ts): it opens there, in place of this address. Until the browser
+ * leaves, and if it does not, the page says where it went, by the product's plain name, and links there.
+ */
+function OnAnotherSite({ href }: { href: string }) {
+  const name = siteNameOf(href)
+  useDocumentTitle('Opening another Health ID site · Health ID')
+  useEffect(() => { openSite(href) }, [href])
+  return <main className="patient-page">
+    <BrandLogo className="patient-state-logo" />
+    <div className="patient-access-state">
+      <h1>Opening another Health ID site</h1>
+      <p role="status">This page is on {name}. Opening it there…</p>
+      <div className="patient-state-actions"><a className="patient-primary-button" href={href}>Continue to {name}</a></div>
+    </div>
+  </main>
+}
+
 function ProductHostnameGate({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const hostname = window.location.hostname
@@ -94,6 +115,13 @@ function ProductHostnameGate({ children }: { children: React.ReactNode }) {
   if (product && location.pathname === '/') {
     return <Navigate to={product.route} replace />
   }
+
+  // Each product on its own site (owner, 2026-10-31): an address another site serves, typed or followed from a link,
+  // opens there. That is only another product's own page, or the patient portal's: a product site keeps the hospital
+  // EHR's pages, where the frame opens the product's Home, and the main site's staff addresses are the rule above's
+  // (owner, 2026-11-02).
+  const elsewhere = rightSiteHref(location, hostname)
+  if (elsewhere) return <OnAnotherSite href={elsewhere} />
 
   return <>{children}</>
 }

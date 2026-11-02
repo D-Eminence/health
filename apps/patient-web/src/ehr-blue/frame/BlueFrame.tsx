@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { EhrAppShell, EhrModuleTabs, type EhrNavGroup, type EhrNavItem } from '@hid/ui/ehr'
-import { Activity, Check, Hospital, House, Search, ShieldCheck, UserPlus, UserRound } from 'lucide-react'
+import { Activity, Check, ExternalLink, Hospital, House, Search, ShieldCheck, UserPlus, UserRound } from 'lucide-react'
 import { AppShell, type NavGroup, type NavItem } from '../../kasuwa/AppShell'
-import { Alert, Badge, cx, type Icon } from '../../kasuwa/ui'
+import { Alert, Badge, Button, cx, EmptyState, type Icon } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
 import { ReviewBanner } from '../../staff/routes/ReviewBanner'
 import { BillingBanner } from '../../staff/routes/Billing'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
-import { isDemoFacility } from '../blueFacilities'
-import { PRODUCTS, inProduct, productOf } from './product'
+import { otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../../productSites'
+import { demoFacilitySite, isDemoFacility } from '../blueFacilities'
+import { PRODUCTS, inProduct, opensInProduct, productOf } from './product'
 import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
@@ -72,6 +73,36 @@ export function navigationGroups(pages: readonly EhrBluePage[]): EhrNavGroup[] {
 }
 
 /**
+ * The sidebar's links to the other Health ID sites that serve live pages this session may open (productSites.ts): each
+ * product is on its own site, and only another product's own pages are served elsewhere. A product site keeps the
+ * hospital EHR's pages and opens its own Home in their place, so it never links to the EHR site. Sample pages are the
+ * hospital EHR's design, not a reason to link anywhere. None on a host that is not a Health ID site, which serves every
+ * page.
+ */
+export function otherSitesGroup(pages: readonly EhrBluePage[]): NavGroup | null {
+  const sites = otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf))
+  return sites.length === 0 ? null : {
+    title: 'Other Health ID sites',
+    collapsible: true,
+    defaultOpen: true,
+    items: sites.map(site => ({ to: siteHref(site), label: SITE_NAMES[site.key], icon: ExternalLink, external: true })),
+  }
+}
+
+/**
+ * A demo facility opened on another staff site than its own: it works on its own site, where the person signs in again
+ * (each site keeps its own sign-in). Nothing opens here; Facility switches to another facility.
+ */
+function FacilityOnAnotherSite({ facility, site, choosing }: { facility: string; site: Site; choosing: boolean }) {
+  return <EmptyState titleAs="h1" icon={ExternalLink} title={`${facility} works on ${SITE_NAMES[site.key]}`}
+    description={`${facility} is on ${SITE_PRODUCT_NAMES[site.key]}, where you sign in separately.${choosing ? ' To work at another facility here, choose it.' : ''}`}
+    action={<div className="flex flex-wrap justify-center gap-2">
+      <Button href={siteHref(site)} variant="primary">Open {SITE_NAMES[site.key]}</Button>
+      {choosing ? <Button to="/provider/institutions">Choose workspace</Button> : null}
+    </div>} />
+}
+
+/**
  * Today's pages that send a request before they refuse (Access requests reads the requests; Clinical record looks up
  * the patient, consent and encounters): without the permission, the frame refuses for them instead.
  */
@@ -111,6 +142,9 @@ export function BlueFrame() {
   const match = matchBluePage(BLUE_PAGES, location.pathname)
   // A pharmacy or lab on its own lists a product's pages in the sidebar, so it draws no tabs above them as well.
   const tabs = match && product === 'ehr' ? pageTabs(allowed, match.page) : []
+  // What sample links (Notifications' Recent activity, role dashboards, Facility setup) may point to: a page this product
+  // opens, so none of them leads to a page the frame sends to the product's Home (below).
+  const openHere = useMemo(() => allowed.filter(page => opensInProduct(product, page.path)), [allowed, product])
   const shownTitle = match ? match.page.label : liveOnlyTitle(location.pathname) ?? 'Page not found'
   // Today's tab title names today's pages only: the blue page names itself once the workspace is open.
   useEffect(() => {
@@ -121,6 +155,11 @@ export function BlueFrame() {
   if (moved) return <Navigate replace to={{ pathname: moved, search: location.search, hash: location.hash }} />
   // A single product's home is its own queue.
   if (product !== 'ehr' && /^\/provider\/?$/.test(location.pathname)) return <Navigate replace to={{ pathname: `/provider/${info.home}`, search: location.search }} />
+  // On a single product's site, a page of the hospital EHR's (Patient registration, Consultation, a sample), typed or a
+  // sign-in's return address, opens the product's Home instead (review, 2026-11-01): its menu never offers one. The
+  // page never mounts, so it reads nothing, and its query stays behind with it. What the product opens unlisted
+  // (product.ts) still opens; an address no page takes is left to the frame below.
+  if (product !== 'ehr' && match && !opensInProduct(product, match.page.path)) return <Navigate replace to="/provider" />
 
   function leave() {
     if (signingOut) return
@@ -142,7 +181,12 @@ export function BlueFrame() {
   const shownHere = match === null || (match.page.visible?.(session) ?? true)
   const todayRefuses = match !== null && TODAY_PAGES.has(match.page) && shownHere
     && !READS_BEFORE_REFUSING.has(basePath(match.page.path))
-  const content = match
+  // A demo facility works on its own site (productSites.ts): opened on another, the page says so and opens nothing.
+  const demoSite = demoFacilitySite(facility?.id)
+  const facilitySite = demoSite ? siteElsewhere(demoSite) : null
+  const content = facilitySite
+    ? <FacilityOnAnotherSite facility={facility?.name ?? 'This facility'} site={facilitySite} choosing={session.actor.facilities.length > 1} />
+    : match
     ? pageAllowed(match.page, session, viewing) || todayRefuses
       ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
       : match.page.refusal ?? (shownHere
@@ -171,6 +215,9 @@ export function BlueFrame() {
     items: group.items.map(item => ({ to: item.href, label: item.label, icon: iconOf(item.icon), // A single product lists pages below its home (pharmacy/new-sale): its home is current only at its own address.
       end: item.href === '/provider' || (product !== 'ehr' && item.href === `/provider/${info.home}`) })),
   }))
+  // Each product on its own site: the other sites that serve the rest of what this session may open.
+  const otherSites = otherSitesGroup(allowed)
+  if (otherSites) nav.push(otherSites)
   const tabsFor = (path: string) => listed.find(page => page.path === path || page.path === `${path}/*`)
   const tab = (path: string, label: string, fallback: NavItem) => { const page = tabsFor(path); return page ? { to: pageHrefOf(page), label, icon: iconOf(page.icon) } : fallback }
   const home: NavItem = product === 'ehr' ? { to: '/provider', label: 'Home', icon: House, end: true }
@@ -178,7 +225,7 @@ export function BlueFrame() {
   const facilityTab: NavItem = { to: '/provider/institutions', label: 'Facility', icon: Hospital }
 
   return (
-    <BluePagesProvider value={BLUE_PAGES}><OpenPagesProvider value={allowed}>
+    <BluePagesProvider value={BLUE_PAGES}><OpenPagesProvider value={openHere}>
       <AttentionProvider facilityId={facility?.id} permissions={permissions}>
         <EhrAppShell className="hid-ehr-host" sidebar={null} topBar={null}
           // While the session is checked, today's lock screen stands in for the page, as today's <main> hides.
