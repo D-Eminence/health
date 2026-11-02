@@ -3,12 +3,16 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { AuditCompliance } from '../../../../ehr-blue/departments/audit/AuditCompliance'
+import { dateText } from '../../../../ehr-blue/departments/parts/format'
+import type * as StaffApi from '../../../../staff/api'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 
 /**
  * Audit & Compliance in the blue EHR (target admin/audit.png): today's facility audit read (staff/routes/Audit.tsx)
  * drawn as the target's event list. The API's own mapping keeps only seven fields; the page shows only those, so a
- * patient identifier, a reason or event details that reach it are never shown.
+ * patient identifier, a reason or event details that reach it are never shown. Each event reads as a plain sentence
+ * (docs/AUDIT_ACTION_LABELS.md, owner rule of 1 Nov 2026): what was done, by whom, when, and Allowed, Refused or Failed.
+ * Its action code, correlation ID and resource type are never shown.
  */
 const session = vi.hoisted(() => ({ facility: undefined as unknown }))
 vi.mock('../../../../staff/App', async () => {
@@ -29,6 +33,8 @@ const api = vi.hoisted(() => {
   return { facilityAudit, touched, staffApi }
 })
 vi.mock('../../../../staff/api', () => ({ staffApi: api.staffApi }))
+// One test runs the server's page through the real facility audit read (vi.importActual); its client needs an address.
+vi.mock('../../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 
 const HOSPITAL = fakeFacility(['audit.read'], { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital', roles: ['org_admin'], membershipId: 'membership-demo-h' })
 const LABORATORY = fakeFacility(['audit.read'], { id: DEMO_LABORATORY_ID, name: 'Demo Laboratory' })
@@ -75,27 +81,30 @@ describe('Audit & Compliance: the event list', () => {
     expect(api.facilityAudit).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, undefined)
 
     const [first, second] = within(list).getAllByRole('listitem')
-    expect(within(first!).getByText('identity.patient.lookup').tagName).toBe('STRONG')
-    expect(within(first!).getByText('2026-01-01T12:00:00.000Z · actor staff · correlation corr-51')).toBeTruthy()
-    expect(within(first!).getByText('patient · success')).toBeTruthy()
-    expect(within(second!).getByText('identity.access.denied')).toBeTruthy()
-    expect(within(second!).getByText('time unavailable · actor service · correlation corr-50')).toBeTruthy()
-    expect(within(second!).getByText('resource not recorded · denied')).toBeTruthy()
-    for (const withheld of ['patient-secret', 'sensitive reason', 'sensitive payload', 'actor-secret', 'membership-secret']) {
-      expect(document.body.textContent).not.toContain(withheld)
+    // What was done, in the spec's words; then by whom, when, and the outcome in words.
+    expect(within(first!).getByText('Looked up a patient by Health ID').tagName).toBe('STRONG')
+    expect(within(first!).getByText(`Staff member · ${dateText('2026-01-01T12:00:00.000Z')} · Allowed`)).toBeTruthy()
+    // A code the spec does not list is worded by its fallback rule; an actor it has no words for is "Someone".
+    expect(within(second!).getByText('Patient access and registration activity (refused)').tagName).toBe('STRONG')
+    expect(within(second!).getByText('Someone · Time not available · Refused')).toBeTruthy()
+    // No code, ID or stored type anywhere on the page, in its text or its attributes (a title, a label, a data field).
+    for (const withheld of ['patient-secret', 'sensitive reason', 'sensitive payload', 'actor-secret', 'membership-secret',
+      'identity.patient.lookup', 'identity.access.denied', 'corr-51', 'corr-50', 'service', '2026-01-01T12:00:00.000Z']) {
+      expect(document.body.innerHTML).not.toContain(withheld)
     }
+    expect(within(list).queryByText(/^patient$|success|denied/)).toBeNull()
 
     expect(screen.getByText('Page 1 · 2 events')).toBeTruthy()
     expect(button('Older events')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Newer events' })).toBeNull()
     // Today's search and outcome filter, as the target's list search, and Refresh beside the heading.
     const search = screen.getByRole('searchbox', { name: 'Search Audit & Compliance' })
-    expect(search.getAttribute('placeholder')).toBe('Search actions, actor types, resources or correlation IDs…')
+    expect(search.getAttribute('placeholder')).toBe('Search what happened, who did it or the outcome…')
     expect(document.getElementById(search.getAttribute('aria-describedby') ?? '')?.textContent)
       .toBe('Search and outcome apply to the events loaded on this page. Use Older events to look further back.')
     const outcome = screen.getByRole('combobox', { name: 'Outcome' }) as HTMLSelectElement
     expect(outcome.value).toBe('all')
-    expect(within(outcome).getAllByRole('option').map(option => option.textContent)).toEqual(['All outcomes', 'Success', 'Denied', 'Failure'])
+    expect(within(outcome).getAllByRole('option').map(option => option.textContent)).toEqual(['All outcomes', 'Allowed', 'Refused', 'Failed'])
     expect(button('Refresh').getAttribute('type')).toBe('button')
     onlyAuditRead()
   })
@@ -126,27 +135,38 @@ describe('Audit & Compliance: search, outcome and refresh', () => {
   const shown = () => within(screen.getByRole('list', { name: 'Audit events, page 1' })).getAllByRole('listitem')
     .map(item => item.querySelector('strong')?.textContent)
 
-  it('searches the loaded page by action, correlation ID, resource type or actor type, and filters by outcome, sending nothing', async () => {
+  it('searches the loaded page by what happened, who did it, the outcome or the action code, and filters by outcome, sending nothing', async () => {
     api.facilityAudit.mockResolvedValueOnce(PAGE)
     renderDept(<AuditCompliance />)
     await screen.findByRole('list')
+    expect(shown()).toEqual(['Looked up a patient by Health ID', 'Patient access and registration activity (refused)', 'Tried to start a new visit'])
     const search = screen.getByRole('searchbox', { name: 'Search Audit & Compliance' })
     const outcome = screen.getByRole('combobox', { name: 'Outcome' })
 
+    // The code is never shown, but it still finds its event.
     fireEvent.change(search, { target: { value: '  ENCOUNTER ' } })
-    expect(shown()).toEqual(['ehr.encounter.create'])
-    fireEvent.change(search, { target: { value: 'corr-xyz' } })
-    expect(shown()).toEqual(['identity.access.denied'])
-    fireEvent.change(search, { target: { value: 'service' } })
-    expect(shown()).toEqual(['identity.access.denied'])
-    fireEvent.change(search, { target: { value: 'patient' } })
-    expect(shown()).toEqual(['identity.patient.lookup'])
+    expect(shown()).toEqual(['Tried to start a new visit'])
+    fireEvent.change(search, { target: { value: 'ehr.encounter.create' } })
+    expect(shown()).toEqual(['Tried to start a new visit'])
+    fireEvent.change(search, { target: { value: 'new visit' } })
+    expect(shown()).toEqual(['Tried to start a new visit'])
+    fireEvent.change(search, { target: { value: 'someone' } })
+    expect(shown()).toEqual(['Patient access and registration activity (refused)'])
+    fireEvent.change(search, { target: { value: 'health id' } })
+    expect(shown()).toEqual(['Looked up a patient by Health ID'])
+    fireEvent.change(search, { target: { value: 'refused' } })
+    expect(shown()).toEqual(['Patient access and registration activity (refused)'])
+    // What is never shown beside the code is not searched: the correlation ID, the resource type, the actor type as stored.
+    for (const hidden of ['corr-xyz', 'service']) {
+      fireEvent.change(search, { target: { value: hidden } })
+      expect(screen.queryByRole('list')).toBeNull()
+    }
 
     fireEvent.change(search, { target: { value: '' } })
     fireEvent.change(outcome, { target: { value: 'denied' } })
-    expect(shown()).toEqual(['identity.access.denied'])
+    expect(shown()).toEqual(['Patient access and registration activity (refused)'])
     fireEvent.change(outcome, { target: { value: 'failure' } })
-    expect(shown()).toEqual(['ehr.encounter.create'])
+    expect(shown()).toEqual(['Tried to start a new visit'])
 
     fireEvent.change(search, { target: { value: 'lookup' } })
     expect(screen.queryByRole('list')).toBeNull()
@@ -156,9 +176,50 @@ describe('Audit & Compliance: search, outcome and refresh', () => {
     expect(screen.getByText('Page 1 · 3 events')).toBeTruthy()
 
     fireEvent.change(outcome, { target: { value: 'all' } })
-    expect(shown()).toEqual(['identity.patient.lookup'])
+    expect(shown()).toEqual(['Looked up a patient by Health ID'])
     expect(api.facilityAudit).toHaveBeenCalledTimes(1)
     onlyAuditRead()
+  })
+
+  it('shows a row whose label says it failed as Failed, even when it was stored as a success, and the Failed filter finds it', async () => {
+    api.facilityAudit.mockResolvedValueOnce(pageOf([
+      event('61', { action: 'ocr.publication.fail', outcome: 'success', resourceType: 'ocr-job' }),
+      event('60', { action: 'identity.patient.lookup', outcome: 'success' }),
+    ]))
+    renderDept(<AuditCompliance />)
+    const list = await screen.findByRole('list')
+    const [first] = within(list).getAllByRole('listitem')
+    expect(within(first!).getByText('Scanned document could not be added').tagName).toBe('STRONG')
+    expect(within(first!).getByText(`Staff member · ${dateText('2026-01-01T12:00:00.000Z')} · Failed`)).toBeTruthy()
+    expect(within(first!).queryByText(/Allowed/)).toBeNull()
+
+    const outcome = screen.getByRole('combobox', { name: 'Outcome' })
+    fireEvent.change(outcome, { target: { value: 'failure' } })
+    expect(shown()).toEqual(['Scanned document could not be added'])
+    fireEvent.change(outcome, { target: { value: 'success' } })
+    expect(shown()).toEqual(['Looked up a patient by Health ID'])
+  })
+
+  it('shows a refused access check as a plain sentence beside Refused, and still leaves the request log out (owner decision)', async () => {
+    // staffApi.facilityAudit returns facilityAuditPageFrom of the server's page. Running the page through the real one here
+    // shows that a security refusal, stored with resource http-request, now reaches the page, and a route still does not.
+    const { facilityAuditPageFrom } = await vi.importActual<typeof StaffApi>('../../../../staff/api')
+    api.facilityAudit.mockResolvedValueOnce(facilityAuditPageFrom(pageOf([
+      event('72', { action: 'api.get./api/v1/ehr/patients/:patientId/encounters', resourceType: 'http-request' }),
+      event('71', { action: 'security.authorization.denied', outcome: 'denied', resourceType: 'http-request' }),
+      event('70', { action: 'identity.patient.lookup', outcome: 'success' }),
+    ]) as Parameters<typeof facilityAuditPageFrom>[0]))
+    renderDept(<AuditCompliance />)
+    const list = await screen.findByRole('list')
+    const items = within(list).getAllByRole('listitem')
+    expect(items).toHaveLength(2)
+    const [first] = items
+    expect(within(first!).getByText('Their role here does not allow this action').tagName).toBe('STRONG')
+    expect(within(first!).getByText(`Staff member · ${dateText('2026-01-01T12:00:00.000Z')} · Refused`)).toBeTruthy()
+    for (const withheld of ['security', 'authorization', 'http-request', '/api/', 'encounters']) expect(document.body.innerHTML).not.toContain(withheld)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Outcome' }), { target: { value: 'denied' } })
+    expect(shown()).toEqual(['Their role here does not allow this action'])
   })
 
   it('keeps the search and outcome on the next page loaded', async () => {
@@ -171,7 +232,7 @@ describe('Audit & Compliance: search, outcome and refresh', () => {
     fireEvent.click(button('Older events'))
 
     const list = await screen.findByRole('list', { name: 'Audit events, page 2' })
-    expect(within(list).getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['identity.consent.write'])
+    expect(within(list).getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['Patient access and registration activity (refused)'])
     expect(api.facilityAudit).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, '51')
   })
 
@@ -193,13 +254,13 @@ describe('Audit & Compliance: search, outcome and refresh', () => {
     const status = screen.getByRole('status')
     expect(status.textContent).toBe('Loading audit events')
     expect(status.className).toBe('hid-ehr-sr-only')
-    expect(screen.getByText('ehr.encounter.create')).toBeTruthy()
+    expect(screen.getByText('Tried to start a new visit')).toBeTruthy()
     fireEvent.click(refresh)
     expect(api.facilityAudit).toHaveBeenCalledTimes(2)
 
-    await act(async () => { again.resolve(pageOf([event('54', { action: 'identity.session.start' })])) })
-    expect(screen.getByText('identity.session.start')).toBeTruthy()
-    expect(screen.queryByText('ehr.encounter.create')).toBeNull()
+    await act(async () => { again.resolve(pageOf([event('54', { action: 'auth.facility.select' })])) })
+    expect(screen.getByText('Switched to this facility')).toBeTruthy()
+    expect(screen.queryByText('Tried to start a new visit')).toBeNull()
     expect(screen.queryByRole('status')).toBeNull()
     expect(refresh.hasAttribute('aria-busy')).toBe(false)
     expect(document.activeElement).toBe(refresh)
@@ -235,7 +296,7 @@ describe('Audit & Compliance: older and newer pages', () => {
 
     await act(async () => { older.resolve(pageOf([event('49', { action: 'ehr.encounter.read' })])) })
     expect(screen.getByRole('list', { name: 'Audit events, page 2' })).toBeTruthy()
-    expect(screen.getByText('ehr.encounter.read')).toBeTruthy()
+    expect(screen.getByText('Opened a patient\'s visit')).toBeTruthy()
     expect(screen.getByText('Page 2 · 1 event')).toBeTruthy()
     // The last page offers no older one: focus moves to Newer events.
     expect(screen.queryByRole('button', { name: 'Older events' })).toBeNull()
@@ -245,9 +306,9 @@ describe('Audit & Compliance: older and newer pages', () => {
     await waitFor(() => expect(api.facilityAudit).toHaveBeenCalledTimes(3))
     expect(api.facilityAudit).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, undefined)
     expect(document.activeElement).toBe(button('Newer events'))
-    await act(async () => { newer.resolve(pageOf([event('52', { action: 'identity.consent.write' })], '52')) })
+    await act(async () => { newer.resolve(pageOf([event('52', { action: 'identity.consent-grant.close' })], '52')) })
 
-    expect(screen.getByText('identity.consent.write')).toBeTruthy()
+    expect(screen.getByText('Access to a patient\'s record ended')).toBeTruthy()
     expect(screen.getByText('Page 1 · 1 event')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Newer events' })).toBeNull()
     expect(document.activeElement).toBe(button('Older events'))
@@ -300,7 +361,7 @@ describe('Audit & Compliance: refusals and failures', () => {
     retry.focus()
     fireEvent.click(retry)
 
-    await screen.findByText('identity.patient.lookup')
+    await screen.findByText('Looked up a patient by Health ID')
     expect(api.facilityAudit).toHaveBeenCalledTimes(2)
     expect(api.facilityAudit).toHaveBeenNthCalledWith(2, DEMO_HOSPITAL_ID, undefined)
     expect(screen.queryByRole('alert')).toBeNull()
@@ -310,7 +371,8 @@ describe('Audit & Compliance: refusals and failures', () => {
   })
 
   it.each([
-    ['a refusal with a message', new HidApiError(500, 'The audit service is unavailable.', { code: 'INTERNAL_ERROR' }), 'The audit service is unavailable.'],
+    // The server's own text is never shown (owner rule): the page says it in its words.
+    ['a refusal with a message', new HidApiError(500, 'The audit service is unavailable.', { code: 'INTERNAL_ERROR' }), 'Audit events could not be loaded. Try again.'],
     ['a failure between services', new HidApiError(503, 'x', { code: 'EHR_SERVICE_AUTH_UNAVAILABLE' }),
       'A connection between Health ID services failed; retry in about 15 seconds.'],
     ['a failure with no message', 'boom', 'Audit events could not be loaded. Try again.'],
@@ -321,6 +383,9 @@ describe('Audit & Compliance: refusals and failures', () => {
     expect(within(alert).getByText(words)).toBeTruthy()
     expect(within(alert).getByRole('button', { name: 'Try again' })).toBeTruthy()
     expect(screen.queryByRole('list')).toBeNull()
+    for (const withheld of ['The audit service is unavailable.', 'INTERNAL_ERROR', 'EHR_SERVICE_AUTH_UNAVAILABLE', '500', '503']) {
+      expect(document.body.textContent).not.toContain(withheld)
+    }
   })
 
   it('moves focus to Try again when an older page fails, with Newer events still offered', async () => {
@@ -331,18 +396,20 @@ describe('Audit & Compliance: refusals and failures', () => {
     fireEvent.click(olderButton)
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('Health ID did not answer.')
+    expect(alert.textContent).toContain('Audit events could not be loaded. Try again.')
+    expect(alert.textContent).not.toContain('Health ID did not answer.')
     expect(document.activeElement).toBe(within(alert).getByRole('button', { name: 'Try again' }))
     expect(button('Newer events')).toBeTruthy()
     expect(api.facilityAudit).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, '51')
   })
 
-  it('refuses a membership without audit.read, reading nothing', () => {
+  it('refuses a membership without audit.read in the refusal’s own words, naming no permission and reading nothing', () => {
     session.facility = fakeFacility(['lab.work-item.read'], { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital' })
     renderDept(<AuditCompliance />)
 
     expect(screen.getByRole('heading', { level: 1, name: 'Audit & Compliance' })).toBeTruthy()
-    expect(screen.getByRole('status').textContent).toBe('Your current permissions at Demo Hospital don’t allow audit review. Choose an authorized workflow.')
+    expect(screen.getByRole('status').textContent).toBe('Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.')
+    expect(document.body.textContent).not.toContain('audit.read')
     expect(screen.queryByRole('list')).toBeNull()
     expect(api.facilityAudit).not.toHaveBeenCalled()
     expect(api.touched).toEqual([])
@@ -360,26 +427,26 @@ describe('Audit & Compliance: switching facility', () => {
   it('reads the new facility’s first page and drops the earlier facility’s late answer', async () => {
     const hospitalOlder = deferred<unknown>()
     api.facilityAudit
-      .mockResolvedValueOnce(pageOf([event('51', { action: 'hospital.first' })], '51'))
+      .mockResolvedValueOnce(pageOf([event('51', { action: 'ehr.encounter.list' })], '51'))
       .mockReturnValueOnce(hospitalOlder.promise)
-      .mockResolvedValueOnce(pageOf([event('9', { action: 'laboratory.first' })]))
+      .mockResolvedValueOnce(pageOf([event('9', { action: 'lab.result.enter' })]))
     const { rerender } = renderDept(<AuditCompliance />)
     fireEvent.click(await screen.findByRole('button', { name: 'Older events' }))
     await waitFor(() => expect(api.facilityAudit).toHaveBeenCalledTimes(2))
 
     session.facility = LABORATORY
     rerender(view())
-    expect(await screen.findByText('laboratory.first')).toBeTruthy()
+    expect(await screen.findByText('Entered a lab result')).toBeTruthy()
     expect(api.facilityAudit).toHaveBeenLastCalledWith(DEMO_LABORATORY_ID, undefined)
     expect(screen.getByText(/^Audit events for Demo Laboratory\./)).toBeTruthy()
     // One page only: no pager, and the hospital's page 2 is not carried over.
     expect(screen.queryByText(/^Page /)).toBeNull()
     expect(screen.queryByRole('button', { name: 'Newer events' })).toBeNull()
 
-    await act(async () => { hospitalOlder.resolve(pageOf([event('40', { action: 'hospital.older' })])) })
-    expect(screen.queryByText('hospital.older')).toBeNull()
-    expect(screen.queryByText('hospital.first')).toBeNull()
-    expect(screen.getByText('laboratory.first')).toBeTruthy()
+    await act(async () => { hospitalOlder.resolve(pageOf([event('40', { action: 'ehr.note.create' })])) })
+    expect(screen.queryByText('Wrote a clinical note')).toBeNull()
+    expect(screen.queryByText('Viewed a patient\'s visits')).toBeNull()
+    expect(screen.getByText('Entered a lab result')).toBeTruthy()
     onlyAuditRead()
   })
 })

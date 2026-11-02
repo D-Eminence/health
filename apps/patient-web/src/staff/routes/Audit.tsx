@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Badge, Button, Card, EmptyState, Field, Input, Select } from '@hid/ui'
+import { Badge, Button, EmptyState, Field, Input, Select } from '@hid/ui'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type FacilityAuditPage } from '../api'
 import { useStaff } from '../App'
+import { auditRow, matchesAuditSearch, type AuditRow } from '../../audit/auditRow'
+
+/*
+ * Each event reads as a plain sentence (owner rule of 1 Nov 2026, docs/AUDIT_ACTION_LABELS.md): what was done, by whom,
+ * when, and Allowed, Refused or Failed, in the words audit/auditRow.ts gives the blue Audit & Compliance page too. The
+ * action code, the correlation ID and the resource type are never shown; the search still finds an event by its code.
+ */
 
 type PagePosition = { facilityId: string; cursors: Array<string | undefined> }
 type LoadedPage = { facilityId: string; cursor: string | undefined; page: FacilityAuditPage }
@@ -13,7 +20,7 @@ function displayTime(value: string): string {
   return Number.isNaN(time.getTime()) ? 'Time unavailable' : time.toLocaleString()
 }
 
-function outcomeTone(outcome: string): 'success' | 'warning' | 'danger' | 'neutral' {
+function outcomeTone(outcome: AuditRow['outcome']): 'success' | 'warning' | 'danger' | 'neutral' {
   if (outcome === 'success') return 'success'
   if (outcome === 'denied') return 'warning'
   if (outcome === 'failure') return 'danger'
@@ -46,20 +53,23 @@ export function FacilityAudit() {
       if (active) setLoaded({ facilityId, cursor, page: next })
     }).catch(caught => {
       if (!active) return
+      // The page's own words, never the server's text.
       setProblem({ facilityId, cursor, message: isHidApiError(caught) && caught.status === 403
         ? 'Your current facility membership cannot review audit events.'
-        : caught instanceof Error ? caught.message : 'Audit events could not be loaded.' })
+        : 'Audit events could not be loaded.' })
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [facilityId, allowed, cursor, reload])
 
-  if (!facility || !allowed) return <EmptyState titleAs="h1" title="Audit access unavailable" description="Your active facility membership needs audit.read permission to review its events." />
+  // With no facility chosen there is no role here to speak of: ask for the facility, as the blue page does.
+  if (!facility) return <EmptyState titleAs="h1" title="Audit access unavailable" description="Choose the facility you are working at to review its audit events." />
+  if (!allowed) return <EmptyState titleAs="h1" title="Audit access unavailable" description="Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator." />
 
-  const query = search.trim().toLocaleLowerCase()
-  const visible = page?.items.filter(event =>
-    (outcome === 'all' || event.outcome === outcome)
-    && (!query || [event.action, event.correlationId, event.resourceType ?? '', event.actorType]
-      .some(value => value.toLocaleLowerCase().includes(query)))) ?? []
+  // What the row says, and its action code, which is searchable but not shown.
+  const visible = (page?.items ?? []).flatMap(event => {
+    const row = auditRow(event)
+    return row && (outcome === 'all' || row.outcome === outcome) && matchesAuditSearch(event, search) ? [{ event, row }] : []
+  })
 
   return <>
     <div className="staff-page-head">
@@ -75,12 +85,12 @@ export function FacilityAudit() {
     </div>
     <div className="staff-form-row" style={{ maxWidth: 650, margin: '18px 0 7px' }}>
       <Field label="Search this page" htmlFor="audit-search">
-        <Input id="audit-search" type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Action, actor type, resource, correlation ID" />
+        <Input id="audit-search" type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="What happened, who or outcome" />
       </Field>
       <Field label="Outcome on this page" htmlFor="audit-outcome">
         <Select id="audit-outcome" value={outcome} onChange={event => setOutcome(event.target.value)}>
-          <option value="all">All outcomes</option><option value="success">Success</option>
-          <option value="denied">Denied</option><option value="failure">Failure</option>
+          <option value="all">All outcomes</option><option value="success">Allowed</option>
+          <option value="denied">Refused</option><option value="failure">Failed</option>
         </Select>
       </Field>
     </div>
@@ -91,16 +101,12 @@ export function FacilityAudit() {
       ? <EmptyState title="Nothing to show on this page" description="This page held only request records, which aren’t shown here. Use Older page to look further back." />
       : <EmptyState title="No audit events" description="The server returned no events for this page and facility." />)}
     {!loading && page && page.items.length > 0 && visible.length === 0 && <EmptyState title="No matching events on this page" description="Change the search or outcome filter, or review another page." />}
-    {page && visible.length > 0 && <Card className="staff-table-wrap"><table className="staff-table">
-      <thead><tr><th>Occurred</th><th>Action</th><th>Outcome</th><th>Actor type</th><th>Resource type</th><th>Correlation ID</th></tr></thead>
-      <tbody>{visible.map(event => <tr key={event.sequenceId}>
-        <td data-label="Occurred">{displayTime(event.occurredAt)}</td>
-        <td data-label="Action">{event.action}</td>
-        <td data-label="Outcome"><Badge tone={outcomeTone(event.outcome)}>{event.outcome}</Badge></td>
-        <td data-label="Actor type">{event.actorType}</td>
-        <td data-label="Resource type">{event.resourceType ?? 'Not recorded'}</td>
-        <td data-label="Correlation ID"><code>{event.correlationId}</code></td>
-      </tr>)}</tbody>
-    </table></Card>}
+    {/* One sentence per event, in the order it is read: what was done, by whom, when, and the outcome (its badge for colour). */}
+    {page && visible.length > 0 && <ul className="staff-list staff-audit-events" aria-label={`Audit events, page ${cursors.length}`}>
+      {visible.map(({ event, row }) => <li key={event.sequenceId} className="staff-list-item staff-audit-event">
+        <strong>{row.what}</strong>
+        <p>{row.who} · {displayTime(event.occurredAt)} · <Badge tone={outcomeTone(row.outcome)}>{row.outcomeText}</Badge></p>
+      </li>)}
+    </ul>}
   </>
 }
