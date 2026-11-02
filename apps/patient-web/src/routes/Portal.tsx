@@ -22,6 +22,7 @@ import { useSession } from '../session'
 import { IMPORTED_NOTIFICATIONS_PAGE, type AccessHistory, type PatientProfile, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
 import type { PatientEntry, PatientEntryDocument, PatientEntryKind } from '../api'
 import { usePatientEntriesServed } from '../patientEntriesServed'
+import { sectionsShown } from './recordSections'
 import { IMPORTED_HEALTH_FIELDS, type ImportedHealthField, type ImportedHealthProfile, type ImportedMedicalRecord } from '../importedRecords'
 import { patientChatEnabled } from '../chatFeatures'
 import { usePatientResource } from './usePatientResource'
@@ -297,24 +298,23 @@ const SECTION_NAMES: Readonly<Record<RecordSection, string>> = {
   encounters: 'visits', notes: 'doctor’s notes', vitals: 'vital signs', diagnoses: 'diagnoses',
   prescriptions: 'prescriptions', labRequests: 'lab tests', documents: 'documents',
 }
-const ALL_SECTIONS = 'Everything your doctors and hospitals have signed, newest first.'
 const WITHHELD = 'Not shared with you yet.'
 
 /** The opening line until the record is read: what it holds is not known yet. */
 const RECORD_UNREAD = 'What your doctors and hospitals have shared with you.'
 
 /**
- * The page's opening line. An EHR with hid-system #52 names what it released to
- * the patient, and only that is promised; one before it sends every section.
- * Nothing is named while the record is read, or when it could not be.
+ * The page's opening line: only what the page shows (recordSections.ts), never more. An EHR with hid-system #52 names
+ * what it released to the patient, and only that is named; one that names nothing (production's) is said to send every
+ * section the page shows. Nothing is named while the record is read, or when it could not be.
  */
 function recordsIntro(data: PatientRecords | null) {
   if (!data) return RECORD_UNREAD
-  if (usesNovuBackend()) return 'Your visits, doctor’s notes and older records.'
-  if (!data.released) return ALL_SECTIONS
-  const names = data.released.filter(section => section in SECTION_NAMES).map(section => SECTION_NAMES[section])
+  const shown = sectionsShown()
+  const names = (data.released ?? shown).filter(section => shown.includes(section)).map(section => SECTION_NAMES[section])
   if (names.length === 0) return 'Nothing in your record is shared with you yet.'
   const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+  if (!data.released) return `Your ${listed}, newest first.`
   return `Your ${listed}.${data.withheld?.length ? ' Other parts aren’t shared with you yet.' : ''}`
 }
 
@@ -576,10 +576,6 @@ function OwnRecords({ entries, matches, searching, shown, loading, reload, pageH
     </Card>}
   </>
 }
-
-/** The sections each backend sends: Novu serves encounters and notes, and imported history with them. */
-const sectionsShown = (): RecordSection[] => usesNovuBackend() ? ['encounters', 'notes']
-  : ['encounters', 'notes', 'vitals', 'diagnoses', 'prescriptions', 'labRequests', 'documents']
 
 export function RecordsPage() {
   const { api } = useSession()

@@ -78,7 +78,7 @@ describe('the records the patient added, where the backend does not serve them',
     expect(screen.queryByRole('region', { name: 'Added by you' })).toBeNull()
     expect(screen.queryByText(/Added by you|records you added|Removed from your records/)).toBeNull()
     expect(screen.queryAllByRole('alert')).toEqual([])
-    expect(screen.getByText('Your visits, doctor’s notes and older records.')).toBeTruthy()
+    expect(screen.getByText('Your visits and doctor’s notes, newest first.')).toBeTruthy()
     // A search, and a tab, read nothing more.
     search('outpatient')
     expect(screen.getByText('1 record matches your search.')).toBeTruthy()

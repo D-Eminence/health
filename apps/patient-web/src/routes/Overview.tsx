@@ -25,6 +25,7 @@ import { useOnNotificationChange } from '../notificationBadge'
 import { useShareProbe } from './ShareRecords'
 import { ButtonR } from './profileParts'
 import { visitClassLabel } from '../plainLabels'
+import { sectionsShown } from './recordSections'
 
 /**
  * The home dashboard as hid-1.0 had it (HomeDashboard.tsx; hid-1.0 parity B3, contract D): the profile card with the
@@ -156,6 +157,9 @@ export function Overview() {
   const checklist = completion && completion.percent < 100 ? CHECKLIST.filter(c => steps.some(item => item.key === c.key)) : []
   const active = history.data && !history.error ? activeAccesses(history.data) : null
   const counts = records.data && !records.error ? recordCounts(records.data) : null
+  // A tile only for a section the backend sends (recordSections.ts): production sends no documents or prescriptions, and
+  // a tile there could only ever say 0. Each comes back by itself once the backend sends it.
+  const sections = sectionsShown()
 
   const today = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Lagos' }).format(new Date())
   // The heading is there while the profile is read, as the page's own: a link that opened Home takes focus to it
@@ -208,9 +212,9 @@ export function Overview() {
         {/* Blood group, genotype and allergies are on the card; these say what the record holds. */}
         <StatGroup label="Your record at a glance">
           <StatCard icon={FolderHeart} tone="brand" label="Records" value={counts ? counts.records : '…'} to="/records" />
-          <StatCard icon={FileText} tone="violet" label="Documents" value={counts ? counts.documents : '…'} to="/records?tab=documents" />
+          {sections.includes('documents') && <StatCard icon={FileText} tone="violet" label="Documents" value={counts ? counts.documents : '…'} to="/records?tab=documents" />}
           <StatCard icon={ShieldCheck} tone="success" label={active === 1 ? 'Facility with access' : 'Facilities with access'} value={active ?? (history.error ? '—' : '…')} to="/access" />
-          <StatCard icon={Pill} tone="warn" label="Medicines" value={counts ? counts.medicines : '…'} to="/records?tab=prescriptions" />
+          {sections.includes('prescriptions') && <StatCard icon={Pill} tone="warn" label="Medicines" value={counts ? counts.medicines : '…'} to="/records?tab=prescriptions" />}
         </StatGroup>
 
         <Card aria-labelledby="overview-contributions" aria-busy={(records.loading && records.data !== null) || undefined}>

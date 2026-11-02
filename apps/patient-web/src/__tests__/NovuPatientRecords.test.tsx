@@ -34,7 +34,8 @@ describe('Novu patient records contract', () => {
     expect(await screen.findByText('Preserved report')).toBeTruthy()
     expect(screen.getByText('Synthetic note content.')).toBeTruthy()
     expect(screen.getByText('Outpatient visit')).toBeTruthy()
-    expect(screen.getByText('Your visits, doctor’s notes and older records.')).toBeTruthy()
+    // What production sends (visits and notes), never "everything your doctors and hospitals have signed".
+    expect(screen.getByText('Your visits and doctor’s notes, newest first.')).toBeTruthy()
     for (const name of ['Vitals', 'Diagnoses', 'Medicines', 'Lab tests', 'Documents']) {
       expect(screen.queryByRole('heading', { name })).toBeNull()
     }
