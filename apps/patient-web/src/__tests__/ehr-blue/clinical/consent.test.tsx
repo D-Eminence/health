@@ -493,6 +493,8 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     expect(button.textContent).toBe('Checking…')
     expect(button.disabled).toBe(false)
     expect(button.getAttribute('aria-disabled')).toBe('true')
+    // jsdom leaves focus on a button that becomes disabled (a browser moves it to the page), so this line alone passes
+    // with a disabled button too: `disabled` being false above is what proves focus stays.
     expect(document.activeElement).toBe(button)
     await act(async () => { fireEvent.click(button) })
     expect(api.verifyPin).toHaveBeenCalledTimes(1)
