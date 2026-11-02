@@ -41,7 +41,7 @@ const ENCOUNTER = {
 }
 const SECOND = { ...ENCOUNTER, id: 'e2222222-0000-4000-8000-000000000002', status: 'completed', chiefComplaint: null }
 const NEW_ID = 'e1111111-0000-4000-8000-000000000003'
-const READ_ONLY = 'You can view this, but not change it. To add or change records, ask the patient to approve access that includes changes.'
+const READ_ONLY = 'You can view this record but not change it.'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -160,12 +160,12 @@ describe('Consultation list', () => {
     expect(screen.queryByText('Change your search.')).toBeNull()
   })
 
-  it('parity: names the facility over the list, and says today’s direct-care line with "Change patient →" under the patient', async () => {
+  it('parity: names the facility over the list, and says the direct-care line with "Change patient →" under the patient', async () => {
     open()
     await screen.findByRole('table', { name: 'Consultations' })
     expect(screen.getByText('Clinical record · Demo Hospital')).toBeTruthy()
     const line = screen.getByText(/· Direct care access\./)
-    expect(line.textContent).toBe(`HID ${PATIENT_HID} · Direct care access. The server rechecks authorization before changes. Change patient →`)
+    expect(line.textContent).toBe(`HID ${PATIENT_HID} · Direct care access. Change patient →`)
     expect(within(line).getByRole('link', { name: 'Change patient →' }).getAttribute('href')).toBe('/provider/patients')
   })
 
@@ -395,7 +395,7 @@ describe('New consultation', () => {
 
   it('parity: says what starting an encounter requires, and takes the complaint in a textarea, as today', async () => {
     await openNew()
-    expect(screen.getByText('Creating a clinical encounter requires current server authorization and a documented reason for care.')).toBeTruthy()
+    expect(screen.getByText('To start a consultation, you need current access to this patient and must give the reason for the visit.')).toBeTruthy()
     expect(screen.getByLabelText(labelled('Presenting complaint')).tagName).toBe('TEXTAREA')
   })
 

@@ -40,7 +40,7 @@ const CORRECTIONS = [
   { id: 'correction-1', vitalId: VITAL_ID, correctionNo: 1, replacementValues: { systolicMmhg: 122, diastolicMmhg: 82, pulseBpm: 76 }, reason: 'Cuff too small', createdAt: '2026-10-30T08:10:00.000Z' },
   { id: 'correction-2', vitalId: VITAL_ID, correctionNo: 2, replacementValues: { systolicMmhg: 118, diastolicMmhg: 76, pulseBpm: 80 }, reason: 'Repeat reading', createdAt: '2026-10-30T08:20:00.000Z' },
 ]
-const READ_ONLY = 'You can view this, but not change it. To add or change records, ask the patient to approve access that includes changes.'
+const READ_ONLY = 'You can view this record but not change it.'
 const RECORD = `/${ENCOUNTER_ID}~${VITAL_ID}`
 const OBSERVATION_ID = 'c0000000-0000-4000-8000-000000000001'
 const LAB_ID = 'b0000000-0000-4000-8000-000000000001'

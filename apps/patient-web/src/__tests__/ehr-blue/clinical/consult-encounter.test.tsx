@@ -56,7 +56,7 @@ const DOCUMENT = {
   id: 'doc-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, fileName: 'referral-letter.pdf', mediaType: 'application/pdf',
   sizeBytes: '20480', status: 'available', scanStatus: 'clean', createdAt: '2026-10-30T08:30:00.000Z',
 }
-const READ_ONLY = 'You can view this, but not change it. To add or change records, ask the patient to approve access that includes changes.'
+const READ_ONLY = 'You can view this record but not change it.'
 const ENDED = 'Open the patient again to keep working.'
 const STALE = new HidApiError(412, 'The record changed since it was read.', { code: 'PRECONDITION_FAILED' })
 /** Today's warnings on an encounter status change, word for word (staff/routes/Clinical.tsx:80 on main, :85 on Novu). */
@@ -297,7 +297,7 @@ describe('Consultation record', () => {
     staff.permissions = ['ehr.encounter.read', 'ehr.encounter.write']
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
-    expect(screen.getByText('Your role here can’t see these records.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility can’t open visit records. Ask your facility administrator.')).toBeTruthy()
     expect(api.records).not.toHaveBeenCalled()
     expect(api.documents).not.toHaveBeenCalled()
   })
@@ -306,7 +306,7 @@ describe('Consultation record', () => {
     staff.permissions = ['ehr.encounter.read', 'ehr.vital.read']
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     expect(await screen.findByRole('link', { name: 'Vitals · vital-1' })).toBeTruthy()
-    expect(screen.queryByText('Your role here can’t see these records.')).toBeNull()
+    expect(screen.queryByText('Your role at this facility can’t open visit records. Ask your facility administrator.')).toBeNull()
   })
 
   it('item 7: signs the consultation note under the clinician’s typed reason, only after SIGN is typed, after the access re-check', async () => {

@@ -31,8 +31,8 @@ const NOTE_LIMIT = 100_000
 const NOTE_TOO_LONG = 'The note is too long. History, Examination, Clinical note and Follow-up together can be up to 100,000 characters.'
 /** Said after a partial save, once the draft note is in: its fields are gone, and it is changed from the encounter's page. */
 const NOTE_SAVED = 'The draft note is saved; change it from the consultation’s page.'
-/** Today's line over the form, word for word (staff/routes/Clinical.tsx:455). */
-const START_REQUIRES = 'Creating a clinical encounter requires current server authorization and a documented reason for care.'
+/** Today's line over the form (staff/routes/Clinical.tsx:455), in plain words: what starting a consultation needs. */
+const START_REQUIRES = 'To start a consultation, you need current access to this patient and must give the reason for the visit.'
 
 const ENCOUNTER_FIELDS: readonly FieldDef[] = [
   { key: 'encounterType', label: 'Type of visit', required: true, choices: ENCOUNTER_TYPES },

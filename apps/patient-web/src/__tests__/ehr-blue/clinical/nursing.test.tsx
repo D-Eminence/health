@@ -36,7 +36,7 @@ const NOTE = {
 }
 const CONSULTATION = { ...NOTE, id: 'c2222222-0000-4000-8000-000000000003', noteType: 'Consultation', title: 'Consultation note' }
 const FIRST = { id: 'revision-1', revisionNo: 1, content: 'Fictional vitals observation\n\nUnits / dose: demo', changeReason: 'Initial draft', createdAt: '2026-10-30T09:00:00.000Z' }
-const READ_ONLY = 'You can view this, but not change it. To add or change records, ask the patient to approve access that includes changes.'
+const READ_ONLY = 'You can view this record but not change it.'
 const RECORD = `/${ENCOUNTER_ID}~${NOTE_ID}`
 const VITAL_ID = 'f0000000-0000-4000-8000-000000000001'
 const LAB_ID = 'b0000000-0000-4000-8000-000000000001'
@@ -176,7 +176,7 @@ describe('Nursing observations list', () => {
   it('says so, and reads nothing, when the role may not read notes', async () => {
     staff.permissions = ['ehr.vital.read']
     open()
-    expect(screen.getByText('Your role here can’t see these records.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility can’t open visit records. Ask your facility administrator.')).toBeTruthy()
     await act(async () => {})
     expect(api.encounters).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: 'New observation' })).toBeNull()
