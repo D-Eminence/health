@@ -15,8 +15,10 @@ import { useClinical } from '../parts/Workspace'
  */
 
 export const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health IDs never use 0, 1, I or O.'
+/** Patients.tsx:142, a lookup answered with anything but an allowed patient. */
 export const NOT_GRANTED = 'Health ID has not granted access to this patient. Request approval, verify their PIN, or use documented emergency access when justified.'
 export const CLOSE_REASON = 'Clinician closed completed patient access'
+/** AccessRequests.tsx:96 and Patients.tsx:226, once a grant is closed. */
 export const ACCESS_CLOSED = 'Access was closed.'
 
 export type AccessMethod = 'request' | 'pin' | 'emergency'
@@ -38,7 +40,7 @@ export const OPEN_SHARED: Action = { routes: [{ route: 'identity.patientLookup',
 
 export type Administrator = 'pending' | 'reviewed' | null
 
-function whoToAsk(administrator: Administrator): string {
+export function whoToAsk(administrator: Administrator): string {
   if (administrator === 'pending') return 'You are this facility’s administrator. Health ID support gives your own role '
     + 'clinical access when it checks your facility: add your licence on the Staff page.'
   if (administrator === 'reviewed') return 'You are this facility’s administrator. Health ID support gives your own role '
