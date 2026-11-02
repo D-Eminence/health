@@ -163,7 +163,8 @@ describe('with single sign-on on, on a staff site', () => {
     await openSignedOut(EHR, '/provider/patients')
     expect((await screen.findByText('Signing you out of every Health ID site…')).getAttribute('role')).toBe('status')
     expect(address()).toBe('/provider/sign-in?returnTo=%2Fprovider%2Fpatients')
-    expect(document.title).toBe('Signing out · Health ID')
+    // The title is set in an effect, which a busy runner can run just after the words show.
+    await waitFor(() => expect(document.title).toBe('Signing out · Health ID'))
     expect(screen.queryByRole('link', { name: 'Continue to sign in' })).toBeNull()
     expect(left.mock.calls).toEqual([[end]])
   })
