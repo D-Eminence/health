@@ -5,7 +5,7 @@ import { opensInProduct, PRODUCTS } from './ehr-blue/frame/product'
  * Each Health ID product on its own site (owner, 2026-10-31: "Each product should be on their '.'"; 2026-11-02: each
  * product works on its own, and app. is for patients only):
  * - the main site (app in production, staging on staging) is the patient portal. Its staff addresses are the portal's
- *   own rule (staffSignIn.tsx: on app., the EHR site's sign-in), not this table's, which adds no staff page there;
+ *   own rule (staffSignIn.tsx, which sends app.'s to the EHR site), not this table's, which adds no staff page there;
  * - ehr is the hospital EHR, with every staff page, the hospital's own laboratory, pharmacy, OCR, migration and
  *   outreach included;
  * - lab, pharmacy, migrate and outreach each serve what their product opens (ehr-blue/frame/product.ts opensInProduct:
