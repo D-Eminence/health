@@ -14,7 +14,8 @@ import { ParticipatingFacilitiesPage } from './routes/ParticipatingFacilities'
 import { Recovery } from './routes/Recovery'
 import { PrincipalRecovery } from './routes/PrincipalRecovery'
 import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, SettingsRedirect } from './routes/Portal'
-import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE, STAFF_RECOVERY_PATH } from './productHostname'
+import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE, STAFF_RECOVERY_PATH, staffPageElsewhere } from './productHostname'
+import { isStaffPath, OpenStaffPage } from './staffSignIn'
 import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_INVITATION_PATH } from './productHostname'
 import { usesNovuBackend } from './backendContract'
 import { LEGACY_PATIENT_PATHS } from './legacyPaths'
@@ -55,8 +56,10 @@ function PatientRoutes() {
       <Route path="/enroll" element={<Enrollment />} />
       <Route path="/enroll/facilities" element={<ParticipatingFacilitiesPage />} />
       <Route path="/recover" element={<Recovery />} />
-      {/* Sharing by card: the patient's preview of the provider's page, and the provider's page itself (the email's link). */}
+      {/* Sharing by card: the patient's preview of the provider's page, and the page a shared link opens (dormant until the
+          one-time-code routes exist: it says it isn't available yet and reads nothing). */}
       <Route path="/card/preview" element={<RequireAccess requirement={PATIENT_ROUTE}><SharedCardPreview /></RequireAccess>} />
+      <Route path="/card" element={<SharedCardPage />} />
       <Route path="/card/:token" element={<SharedCardPage />} />
       {/* hid-1.0's old addresses open the page that replaces each; nothing of the old address is kept. */}
       {Object.entries(LEGACY_PATIENT_PATHS).map(([from, to]) => <Route key={from} path={from} element={<Navigate to={to} replace />} />)}
@@ -81,6 +84,13 @@ function ProductHostnameGate({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const hostname = window.location.hostname
   const product = resolveStaffProductHostname(hostname)
+
+  // The production portal serves patients only, and an admin site platform administrators only: any staff page there
+  // (/provider and every page under it), however it is reached, opens the same page on the product site it belongs on
+  // at once (the EHR site unless the address names another product: staffSignIn.tsx), before the staff workspace
+  // loads or asks anything.
+  const elsewhere = isStaffPath(location.pathname) ? staffPageElsewhere(hostname, location) : null
+  if (elsewhere) return <OpenStaffPage href={elsewhere.href} site={elsewhere.product} />
 
   if (isPlatformAdminHostname(hostname) && location.pathname === '/') {
     return <Navigate to={PLATFORM_ADMIN_ROUTE} replace />

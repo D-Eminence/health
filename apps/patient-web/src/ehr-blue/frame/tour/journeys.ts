@@ -74,7 +74,7 @@ export const JOURNEYS: readonly Journey[] = [
       { title: 'Verify sign-in', route: '/verify', kind: 'form', fields: [CODE], action: 'Verify', rule: 'Live keeps its second step: the authenticator code or a recovery code.' },
       { title: 'Simulation controls', route: '/simulation', kind: 'notice', text: 'In the prototype a simulated inbox shows the code. In Health ID it comes from the authenticator app.' },
       { title: 'Choose workspace / branch', route: '/institutions', kind: 'choice', text: 'Select one of your actual hospital memberships and authorised branches.', action: 'Main' },
-      { title: 'Doctor dashboard', route: '/dashboard', kind: 'notice', text: 'Home opens with the work that needs you. Choose "View Home as" in the account menu to see each role.' },
+      { title: 'Doctor dashboard', route: '/dashboard', kind: 'notice', text: 'Home opens with the work that needs you.' },
       { title: 'Recover account access', route: '/recover', kind: 'form', fields: [{ label: 'Email or phone', type: 'email' }], action: 'Send recovery code' },
       { title: 'Accept an invitation', route: '/accept-invitation', kind: 'form', fields: [{ label: 'Invitation link or ID' }], action: 'Open invitation' },
       { title: 'Patient-side consent', route: '/patient-simulation', kind: 'notice', text: 'The patient approves or declines a request in their Health ID app.' },

@@ -517,6 +517,11 @@ describe('application boundaries', () => {
     expect(findEndpoint('enrollment.providerAvailability')?.note).toContain('crossFacilityOrders')
   })
 
+  it('records the refusals of Pharmacy\'s own check of a prescription sent to it (hid-system 0100)', () => {
+    for (const code of ['PRESCRIPTION_SOURCE_NOT_FOUND', 'PRESCRIPTION_SOURCE_NOT_ACTIVE', 'PRESCRIPTION_SOURCE_VERSION_MISMATCH',
+      'PRESCRIPTION_SOURCE_MISMATCH']) expect(findEndpoint('ehr.prescriptionPharmacy')?.note, code).toContain(code)
+  })
+
   it('registers item 3\'s wrong-patient report: the receiver\'s command for Lab and Pharmacy, the ordering facility\'s '
     + 'Overview read for the provider portal, and support\'s list and review for the console, served since bd8676e', () => {
     const routeId = '9c1b2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e'

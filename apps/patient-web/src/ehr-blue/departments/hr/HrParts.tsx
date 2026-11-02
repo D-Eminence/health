@@ -34,7 +34,8 @@ export interface HrRow {
   /** The id of the row's record link, which its Quick view and Open name it by, and which focus returns to. */
   readonly linkId: string
   readonly name: string
-  readonly reference: string
+  /** A sample record's reference, under its name; a live record has none (no membership id is shown). */
+  readonly reference?: string
   readonly context: ReactNode
   readonly status: string
   readonly updatedAt: string | null

@@ -12,7 +12,8 @@ export const registrationPage: EhrBluePage = {
   group: 'Clinical',
   label: 'Patient registration',
   permission: 'identity.registration.write',
-  status: 'live',
+  // Partial, not live: it works on Health ID, but not yet with today's words and steps throughout.
+  status: 'partial',
   icon: <RegistrationIcon />,
   element: <PatientRegistration />,
   refusal: <RegistrationUnavailable />,

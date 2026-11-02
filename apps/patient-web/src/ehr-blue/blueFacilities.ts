@@ -52,19 +52,14 @@ export function showsBlueEhr(actor: Pick<Actor, 'facility' | 'facilities'>, choo
 }
 
 /*
- * "Use the classic EHR" (the account menu): this tab goes back to today's staff portal while the switch-over beds in.
- * Memory only, never stored, so a reload opens the blue EHR again.
+ * The classic EHR is gone for good (the owner's decision, clinicSwitch.ts): nothing offers a way back to it, and
+ * nothing sets this flag any more, so it stays false. The reset on sign-in and sign-out and the check in staff/App.tsx
+ * are left as they were.
  */
 let classic = false
 const classicListeners = new Set<() => void>()
 
-export function chooseClassicEhr(): void {
-  if (classic) return
-  classic = true
-  classicListeners.forEach(listener => listener())
-}
-
-/** Back to the blue EHR for whoever signs in next in this tab: StaffProvider calls it on sign-out. */
+/** Clears the flag for whoever signs in next in this tab: StaffProvider calls it on sign-in and sign-out. */
 export function resetClassicEhr(): void {
   if (!classic) return
   classic = false
@@ -78,7 +73,7 @@ function subscribeClassic(listener: () => void): () => void {
 
 const classicChosen = () => classic
 
-/** Whether this tab chose the classic EHR. */
+/** The flag above: always false now that nothing sets it. */
 export function useClassicEhrChosen(): boolean {
   return useSyncExternalStore(subscribeClassic, classicChosen, classicChosen)
 }

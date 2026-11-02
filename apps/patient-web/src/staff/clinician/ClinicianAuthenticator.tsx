@@ -1,5 +1,4 @@
 import { useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Field, Input } from '@hid/ui'
 import { OtpauthQr } from '../../mfa/OtpauthQr'
@@ -12,6 +11,7 @@ import { clinicianApplicationApi, type ClinicianAccountView, type ClinicianActiv
 import { ACCOUNT_INELIGIBLE, FACTOR_UNPROVEN, MAINTENANCE, STAFF_SIGN_IN_REQUIRED } from './copy'
 import { PrimaryButton, StepError, StepHeading, TextButton, shownError } from './ui'
 import { buttonClass } from '../../kasuwa/ui'
+import { StaffSignInLink } from '../../staffSignIn'
 
 /**
  * The authenticator an applicant sets up, or verifies, before any review
@@ -431,6 +431,6 @@ function BlockedStep({ message, signIn }: { message: string; signIn: boolean }) 
   return <section className="patient-form" aria-labelledby="clinician-mfa-blocked-title">
     <StepHeading id="clinician-mfa-blocked-title" focus>Your authenticator can't be set up here</StepHeading>
     <p role="alert" className="patient-inline-error">{message}</p>
-    {signIn && <div><Link className={buttonClass({ variant: 'primary', block: true })} to="/provider/sign-in">Sign in to the provider portal</Link></div>}
+    {signIn && <div><StaffSignInLink className={buttonClass({ variant: 'primary', block: true })}>Sign in to the provider portal</StaffSignInLink></div>}
   </section>
 }

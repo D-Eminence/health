@@ -1,4 +1,4 @@
-import { ROUTES } from '@/content/site'
+import { APP_ENTRY, ROUTES } from '@/content/site'
 
 export type HealthIDModuleSlug = 'identity' | 'ehr' | 'migrate' | 'laboratory' | 'pharmacy' | 'outreach' | 'api'
 
@@ -20,7 +20,9 @@ export const HEALTH_ID_MODULES: readonly HealthIDModule[] = [
     slug: 'identity', name: 'Health ID Identity', shortName: 'Identity',
     statement: 'Your Health ID, connected to your care history.',
     description: 'Carry one persistent identity between participating providers while you remain in control of access to your health information.',
-    href: ROUTES.patients, cta: 'Get your Health ID',
+    // Its call to action is sign-up, as it says, like every other "Get your Health ID" (owner, 1 Nov 2026). The patient
+    // page shows this card too, there and at the patient portal's front page, so /patients would open that page again.
+    href: APP_ENTRY.patientSignUp, cta: 'Get your Health ID',
     visual: { src: '/brand/patient-app.png', alt: 'Health ID patient app' },
   },
   {

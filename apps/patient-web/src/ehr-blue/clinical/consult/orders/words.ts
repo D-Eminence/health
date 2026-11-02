@@ -53,15 +53,20 @@ export const LAB_NOT_TOLD: Readonly<Record<string, string>> = {
   on_hold: 'Putting this request on hold was not passed to Lab, which may still be working on the version it accepted. Cancelling it or marking it entered in error would not be passed to Lab either, so neither is offered here; contact the laboratory to stop or correct it.',
 }
 
-/** Today's form hints and notes (Clinical.tsx RecordForm and SendToLab). */
+/**
+ * Today's form hints and notes (Clinical.tsx RecordForm and SendToLab). Send to a pharmacy and Send to Lab are on the
+ * order's own page, not in the encounter's list, so the hints say to open the order first.
+ */
 export const PRESCRIPTION_ROUTING_HINT = 'This saves a draft. To send it to a pharmacy elsewhere, open it and choose Send to a pharmacy.'
 export const PRESCRIPTION_HINT = 'This saves a draft. The pharmacy accepts and dispenses it as a next step.'
-export const DOSE_PAIR = 'Enter the dose and pick its unit.'
+/** Classic's both-or-neither rule for a dose (Clinical.tsx RecordForm :505-510), word for word. */
+export const DOSE_PAIR = 'Enter both dose quantity and dose unit, or leave both blank.'
 export const DOSE_NUMBER_TEXT = 'Enter the dose as a number, like 0.5 or 250 (up to 4 decimal places).'
-export const LAB_ACTIVE_NOTE = 'If the laboratory doesn’t accept it, the request is still saved. Check the orders list before sending it again.'
+export const LAB_ACTIVE_NOTE = 'Active creation saves the request, then asks Lab to accept it. If Lab does not, the request stays saved and active, even when an error is shown: check the list before creating it again, then open the request and use Send to Lab.'
 export const LAB_SEND_HINT = 'Sends this active request to Lab if Lab does not have it yet. Lab keeps one work item per request, so sending again changes nothing Lab already holds.'
-export const NO_CHANGES = 'Your access doesn’t allow changes to this patient’s records.'
-export const SAVED = 'Saved.'
+/** Today's refusal and result of a create (Clinical.tsx:1455, :1502). */
+export const NO_CHANGES = 'This access does not permit changes to the patient record.'
+export const SAVED = 'Clinical record saved.'
 
 /** The draft warning under "Request handling" (Clinical.tsx RecordForm). */
 export function labDraftWarning(sendingElsewhere: boolean, canSendToLab: boolean, routable: boolean): string {
@@ -151,15 +156,20 @@ export function labSendRefusal(caught: unknown): LabSendRefusal {
   return { text: `This lab request was not sent to Lab: it was refused${code ? ` (${code})` : ''}. Contact the laboratory if the test is still needed.` }
 }
 
-/** Clinical.tsx `handoffPrescription`: the refusals that mean the prescription changed under the handoff. */
+/** Clinical.tsx `handoffPrescription`: what an IDEMPOTENCY_CONFLICT from Send to Pharmacy says. */
 export const PHARMACY_ALREADY_HOLDS = 'Pharmacy already holds work for this prescription, sent earlier, perhaps at an earlier version or with another reason, so it was not sent again. If the prescription changed since, contact the pharmacy: it may refuse to dispense the version it holds, and if it cannot dispense it, create a new prescription and send that.'
 
+/**
+ * Clinical.tsx `handoffPrescription`: the refusals that mean the prescription changed under the handoff, or that
+ * Pharmacy's own check of it refused it (hid-system 0100); each is answered by reading the order again.
+ */
 export function prescriptionChanged(caught: unknown): string | null {
   if (!isHidApiError(caught)) return null
   if (caught.code === 'PHARMACY_PRESCRIPTION_NOT_ELIGIBLE') return 'This prescription no longer matches what was sent (it was changed, put on hold or cancelled meanwhile), so Pharmacy did not accept it.'
-  if (caught.status === 412) return 'This prescription changed since it was loaded, so it was not sent to Pharmacy: check it, and send it again if it is still needed.'
-  if (caught.code === 'PRESCRIPTION_NOT_ELIGIBLE') return 'This prescription is no longer active, so it was not sent to Pharmacy.'
+  if (caught.status === 412 || caught.code === 'PRESCRIPTION_SOURCE_VERSION_MISMATCH') return 'This prescription changed since it was loaded, so it was not sent to Pharmacy: check it, and send it again if it is still needed.'
+  if (caught.code === 'PRESCRIPTION_NOT_ELIGIBLE' || caught.code === 'PRESCRIPTION_SOURCE_NOT_ACTIVE') return 'This prescription is no longer active, so it was not sent to Pharmacy.'
   if (caught.code === 'PRESCRIPTION_ROUTED') return 'This prescription was sent to a pharmacy at another facility, so this facility’s Pharmacy can’t take it.'
+  if (caught.code === 'PRESCRIPTION_SOURCE_NOT_FOUND' || caught.code === 'PRESCRIPTION_SOURCE_MISMATCH') return 'This prescription can’t be sent to Pharmacy as it is: check it, and try again if it is still needed.'
   return null
 }
 
