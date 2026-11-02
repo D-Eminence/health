@@ -71,7 +71,7 @@ To use offline mode you need a staff password of at least 12 characters and a re
 
 **Your own phone, tablet or computer is allowed** (owner decision, 2 Nov 2026). You may keep an offline copy on a device you own, as well as on one your facility issued to you alone. Every rule here applies to both. On a device you own, neither your facility nor Health ID controls its updates, apps or who else uses it, so following these rules is up to you.
 
-A device you own counts as personal only if nobody else uses it, or everyone else who uses it has their own sign-in on the device. A family phone, tablet or computer that other people use under your sign-in is a shared computer: do not keep an offline copy on it.
+A device you own counts as personal only if nobody else uses it. A family phone, tablet or computer that other people also use, even with their own sign-in, is a shared computer: do not keep an offline copy on it.
 
 **4.2 Rules**
 
@@ -82,7 +82,7 @@ A device you own counts as personal only if nobody else uses it, or everyone els
 5. Turn on the device's own screen lock (recommended).
 6. Never share your password. Offline opening needs your password only, with no authenticator code, so the password is what protects the copy.
 7. Use a password of at least 12 characters.
-8. On a device you own: do not let anyone else use it under your sign-in while an offline copy is on it.
+8. On a device you own: do not let anyone else use it while an offline copy is on it.
 9. On a device you own: before you sell it, give it away, trade it in or hand it over for repair, connect, send your waiting work and sign out of Health ID. Signing out wipes the readable copy (section 6.4).
 
 **4.3 Shared computers.** Automated tests check that, on a shared computer with two accounts, one account cannot open the other's copy. They also check that a wrong password, or the key of another device copy, opens nothing. The check on a real shared computer is planned but not yet done. Do not rely on it. Also note that 5 wrong passwords erase the readable copy for every account on that device.
