@@ -14,6 +14,11 @@ export interface FieldDef {
   readonly options?: readonly string[]
   readonly choices?: readonly { readonly value: string; readonly label: string }[]
   readonly multiple?: boolean
+  /**
+   * false: a single select offers only its choices, with no blank "Select…" first, so it can never send an empty
+   * value (a status that always has one, as today's selects that open on the current value).
+   */
+  readonly blank?: boolean
   readonly suggestions?: readonly string[]
   readonly hint?: string
   readonly placeholder?: string
@@ -259,7 +264,7 @@ function FieldControl({ id, field, value, error, disabled, register, onChange }:
         value={field.multiple ? [...(Array.isArray(value) ? value : [])] : typeof value === 'string' ? value : ''}
         onChange={event => onChange(field.multiple ? Array.from(event.target.selectedOptions, option => option.value) : event.target.value)}
       >
-        {field.multiple ? null : <option value="">Select…</option>}
+        {field.multiple || field.blank === false ? null : <option value="">Select…</option>}
         {choices.map(choice => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
       </EhrSelect>
     )
