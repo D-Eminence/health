@@ -13,7 +13,7 @@ import { pageHrefOf } from '../pageHref'
 import type { Action, Field, Module } from './catalog'
 import {
   actOnSample, clearSampleHandoff, connectedSamples, createSample, editSampleDraft, FICTIONAL_PATIENTS, findSample,
-  handOffSample, sampleFacilityChoices, sampleHandoff, sampleModule, samplePatientAllergies, samplePatientLine,
+  handOffSample, invoiceTotals, sampleFacilityChoices, sampleHandoff, sampleModule, samplePatientAllergies, samplePatientLine,
   sampleRecords, sampleRecordsOfKind, sampleTitle, sampleVersion, subscribeSamples,
   type SampleFields, type SampleRecord, type SampleValue,
 } from './store'
@@ -57,8 +57,6 @@ const CONTINUE_CARE: Readonly<Record<string, readonly string[]>> = {
   journey: ['triage', 'consult'], inpatient: ['nursing', 'nursing-tasks'], icu: ['nursing', 'nursing-tasks'],
 }
 const CARRIED_KINDS = ['encounter', 'visit', 'admission']
-/** A fictional unit price for invoices, in minor units, as the design's service catalogue prices them. */
-const SAMPLE_UNIT_PRICE = 500000
 
 export function SampleWorkspace({ moduleId }: SampleWorkspaceProps) {
   const { page, rest } = useBluePage()
@@ -554,11 +552,7 @@ function ConnectedHistory({ module, record, patient, hrefOf }: {
 
 /** An invoice's totals in minor units (kobo): its quantity at a fictional price, less the simulated payments. */
 function InvoiceTotals({ record }: { readonly record: SampleRecord }) {
-  const total = Number(record.fields.quantity || 1) * SAMPLE_UNIT_PRICE
-  const paid = record.steps.reduce((sum, step) => {
-    const amount = Number(step.fields.amount || 0) * 100
-    return step.action === 'pay' ? sum + amount : step.action === 'refund' ? sum - amount : sum
-  }, 0)
+  const { total, paid } = invoiceTotals(record)
   return (
     <>
       <SavedFields fields={{ total: String(total), paid: String(paid), due: String(total - paid) }} />

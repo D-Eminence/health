@@ -198,12 +198,92 @@ afterEach(() => {
   forgetReceiving(); forgetCannotCompleteServed(); forgetLateCorrectionServed(); forgetWrongPatientServed()
 })
 
+/** The Laboratory's refusal at its addresses, in the words of the Pharmacy's. */
+const LAB_REFUSAL = 'Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator.'
+/** A permission's name, Identity's code or the old "membership needs … permission" words: none belongs on a screen. */
+const PERMISSION_WORDS = /permission|membership|work-item|lab\.work-item\.read/i
+
 describe('the page entries', () => {
-  it('keeps the hospital’s Laboratory entry, with today’s refusal at its address', () => {
-    expect(laboratoryPage).toMatchObject({ path: 'laboratory', group: 'Diagnostics', label: 'Laboratory', permission: 'lab.work-item.read', status: 'live' })
+  it('keeps the hospital’s Laboratory entry, refusing at its address in plain words that name no permission', () => {
+    expect(laboratoryPage).toMatchObject({ path: 'laboratory', group: 'Diagnostics', label: 'Laboratory', permission: 'lab.work-item.read', status: 'partial' })
     renderDept(<>{laboratoryPage.refusal}</>)
     expect(screen.getByRole('heading', { level: 1, name: 'Laboratory unavailable' })).toBeTruthy()
-    expect(screen.getByText('This facility membership needs lab work-item read permission.')).toBeTruthy()
+    expect(screen.getByText(LAB_REFUSAL)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
+  })
+
+  it.each(['laboratory/work/*', 'laboratory/results/*'])('refuses %s in the same plain words', path => {
+    renderDept(<>{labPages.find(page => page.path === path)?.refusal}</>)
+    expect(screen.getByRole('heading', { level: 1, name: 'Laboratory unavailable' })).toBeTruthy()
+    expect(screen.getByText(LAB_REFUSAL)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
+  })
+
+  /*
+   * Who reads what (#104's rule, as the Pharmacy's refusal says it): the administrator of a facility that signed itself
+   * up is never told to ask the facility administrator, which they are. Every facility here is fictional.
+   */
+  describe('by who reads it', () => {
+    /** What a self-signed-up facility's administrator holds once Health ID support has checked it: no lab work. */
+    const ADMINISTRATOR = ['organization.manage', 'workforce.manage', 'audit.read', 'identity.registration.read',
+      'outreach.registration.read', 'outreach.campaign.read']
+    /** What the same administrator holds while Health ID support checks the facility. */
+    const AWAITING_REVIEW = ['workforce.manage', 'audit.read', 'outreach.registration.read', 'outreach.registration.write',
+      'outreach.campaign.read', 'outreach.campaign.write']
+    const ROLE_SENTENCE = 'Your role at this facility doesn’t include the lab’s work list and results.'
+    beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+
+    /** The refusal at a lab page's address, which every page refused here has. */
+    function refusalOf(path: string) {
+      const refusal = labPages.find(page => page.path === path)?.refusal
+      if (!refusal) throw new Error(`No refusal at ${path}`)
+      return refusal
+    }
+
+    /** The Laboratory's refusal as `permissions` reads it, at a facility that signed itself up when `selfService` says so. */
+    function refusalAs(permissions: string[], selfService?: FakeFacility['selfService'], refusal = laboratoryPage.refusal) {
+      as(permissions, selfService ? { selfService } : {})
+      renderDept(<>{refusal}</>)
+      expect(screen.getByRole('heading', { level: 1, name: 'Laboratory unavailable' })).toBeTruthy()
+      expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
+      return document.querySelector('.hid-ehr-state-message')?.textContent
+    }
+
+    it.each(['laboratory', 'hospital', 'clinic'])('the administrator of a checked %s: the role sentence and the step that is theirs, adding a laboratory scientist', organizationType => {
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType })).toBe(`${ROLE_SENTENCE} Add a laboratory scientist on the Staff page.`)
+      expect(document.body.textContent).not.toMatch(/Ask your facility administrator/)
+    })
+
+    it.each(['laboratory/work/*', 'laboratory/results/*'])('the same administrator at %s: the same step', path => {
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'laboratory' }, refusalOf(path)))
+        .toBe(`${ROLE_SENTENCE} Add a laboratory scientist on the Staff page.`)
+    })
+
+    it.each([
+      ['checked', 'pharmacy', 'reviewed', ADMINISTRATOR], ['checked', 'other', 'reviewed', ADMINISTRATOR],
+      ['being checked', 'pharmacy', 'pending', AWAITING_REVIEW], ['being checked', 'other', 'pending', AWAITING_REVIEW],
+    ])('the administrator of a %s %s facility, which will not get the Laboratory: the role sentence only', (_checked, organizationType, review, permissions) => {
+      expect(refusalAs(permissions, { review, organizationType })).toBe(ROLE_SENTENCE)
+      expect(document.body.textContent).not.toMatch(/Ask your facility administrator|Add a laboratory scientist|Laboratory opens/)
+    })
+
+    it.each(['laboratory', 'hospital', 'clinic'])('the administrator of a %s Health ID support is still checking: the Laboratory opens after the check', organizationType => {
+      expect(refusalAs(AWAITING_REVIEW, { review: 'pending', organizationType })).toBe('Laboratory opens once Health ID support has checked your facility.')
+    })
+
+    it('anyone else at a checked laboratory: told to ask its administrator', () => {
+      expect(refusalAs(['outreach.registration.read'], { review: 'reviewed', organizationType: 'laboratory' })).toBe(LAB_REFUSAL)
+    })
+
+    it('an administrator at a facility Health ID support manages: told to ask its administrator, as before', () => {
+      expect(refusalAs(ADMINISTRATOR)).toBe(LAB_REFUSAL)
+    })
+
+    // Only Novu checks self-signed-up facilities (P4b), so on today's backend nobody is that facility's administrator.
+    it.each(['', 'main-v1'])('the administrator of a checked laboratory on today’s backend (%j): told to ask its administrator, as before', contract => {
+      vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'laboratory' })).toBe(LAB_REFUSAL)
+    })
   })
 
   it('lists the lab’s pages in order, each with the permission it needs', () => {
@@ -1293,5 +1373,45 @@ describe('ending an order from its request', () => {
     expect(said.textContent).toMatch(/This order has already ended, so it can’t be ended here\./)
     await waitFor(() => expect(document.activeElement).toBe(said))
     expect(within(routedLines()).getByText('Cancelled by Demo Hospital: stop work.')).toBeTruthy()
+  })
+})
+
+/*
+ * The patient card on this facility's own work (proposed hid-system 0106; not served today) and the priority Lab already
+ * sends: each used when present, and today's screens when absent (the work list's and request's tests above).
+ */
+describe('the patient and the priority on this facility\'s own work', () => {
+  it('names the patient Lab sends on own work, on its card and request, and asks to check them before a sample is taken', async () => {
+    as([...ACCESSION, 'lab.specimen.collect'])
+    api.labWorkItems.mockResolvedValue({ items: [workItem({ patient: PERSON }), local] })
+    renderPage()
+    const card = (await findCard('Haemoglobin')).closest('li')!
+    expect(within(card).getByText('Patient One')).toBeTruthy()
+    expect(card.textContent).not.toContain(MASKED)
+    // Work without the card is masked as today.
+    expect(cardButton('Malaria parasite').textContent).toMatch(/Patient ••••aa11bb/)
+    await openRecord()
+    expect(screen.getByRole('region', { name: 'Patient: Patient One' }).textContent).toContain('Health ID ending AAA2')
+    expect(within(stageCard()).getByText('Check that the person is Patient One before you take a sample.')).toBeTruthy()
+  })
+
+  it('asks no check on own work Lab sends no patient for, as today', async () => {
+    as([...ACCESSION, 'lab.specimen.collect'])
+    api.labWorkItems.mockResolvedValue({ items: [workItem()] })
+    renderPage()
+    await openRecord()
+    expect(within(stageCard()).queryByText(/^Check that the person is/)).toBeNull()
+  })
+
+  it('puts an as-soon-as-possible request first and marks it urgent, as it does stat and urgent ones', async () => {
+    api.labWorkItems.mockResolvedValue({ items: [workItem({ id: 'w-old', testName: 'Old', acceptedAt: '2026-10-09T07:00:00.000Z', priority: 'routine' }),
+      workItem({ id: 'w-asap', testName: 'Soon one', priority: 'asap', acceptedAt: '2026-10-09T10:00:00.000Z' })] })
+    renderPage()
+    await findCard('Old')
+    const list = screen.getByRole('list', { name: 'Waiting for sample' })
+    expect(within(list).getAllByRole('listitem').map(item => within(item).getByRole('button').textContent?.split(', ').at(-1))).toEqual(['Soon one', 'Old'])
+    expect(within(cardButton('Soon one').closest('li')!).getByText('Urgent')).toBeTruthy()
+    await openRecord('Soon one')
+    expect(requestFacts().Priority).toBe('Urgent')
   })
 })

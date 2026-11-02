@@ -10,7 +10,7 @@ against `hid-system` `main`, most recently at `54f79d2`. The supplied `Dashboard
 | App | Local origin | Purpose |
 | --- | --- | --- |
 | `apps/public-web` | `http://localhost:3100` | Next.js public information, live public pricing, demo requests and links into the portal |
-| `apps/patient-web` | `http://localhost:3200` | Vite authenticated portal: patient routes at `/`, provider routes at `/provider/*`, platform routes at `/admin/*` |
+| `apps/patient-web` | `http://localhost:3200` | Vite authenticated portal: patient routes at `/`, provider routes at `/provider/*`, platform routes at `/admin/*`. Deployed, `app.` serves patients only, each product site (`ehr.`, `lab.`, `pharmacy.`, `migrate.`, `outreach.`) its own staff sign-in, facility sign-up, password reset and invitations, and the admin sites platform administrators ([architecture](./docs/ARCHITECTURE.md)) |
 
 ## Local development
 

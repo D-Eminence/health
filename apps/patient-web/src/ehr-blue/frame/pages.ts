@@ -26,11 +26,14 @@ const icon = (name: EhrIconName) => createElement(EhrIcon, { name })
 const todayPaths: string[] = []
 const todayPages = new Set<EhrBluePage>()
 
-/** A stand-in for today's page at its address: today's page itself, unless `element` draws it in the design. */
+/**
+ * A stand-in for today's page at its address: today's page itself, unless `element` draws it in the design. Today's page
+ * is `live`; one drawn in the design is `partial` while its words or steps still differ from today's.
+ */
 function live(path: string, group: string, label: string, iconName: EhrIconName, permission: string,
-  element: EhrBluePage['element'] = createElement(LivePage)): EhrBluePage {
+  element: EhrBluePage['element'] = createElement(LivePage), status: EhrBluePageStatus = 'live'): EhrBluePage {
   todayPaths.push(path)
-  const entry: EhrBluePage = { path, group, label, icon: icon(iconName), permission, status: 'live', element }
+  const entry: EhrBluePage = { path, group, label, icon: icon(iconName), permission, status, element }
   todayPages.add(entry)
   return entry
 }
@@ -45,14 +48,21 @@ function page(path: string, group: string, label: string, iconName: EhrIconName,
 }
 
 /**
- * A page for reviewing the design (the checklist, the tour, Health ID's own facility review): only at the four demo
- * facilities. A clinic switches facility from the account menu, as today.
+ * A page for reviewing the design (the checklist, the tour, Health ID's own facility review), or a sample a real
+ * administrator could take for a working screen (Facility settings, Reports & Analytics): only at the four demo
+ * facilities. Elsewhere its address says it is part of the demo (DeniedPage). A clinic switches facility from the
+ * account menu, as today.
  */
 function demoOnly(entry: EhrBluePage): EhrBluePage {
   return { ...entry, visible: atDemoFacility }
 }
 
 const atDemoFacility = (session: StaffSession) => isDemoFacility(session.actor.facility?.id)
+
+/** Whether a page opens only at the demo facilities (demoOnly): a clinic's sign-in never returns to one (returnPaths.ts). */
+export function isDemoOnly(page: Pick<EhrBluePage, 'visible'>): boolean {
+  return page.visible === atDemoFacility
+}
 
 export const pages: EhrBluePage[] = [
   // Replaced by home/pages.ts.
@@ -103,14 +113,18 @@ export const pages: EhrBluePage[] = [
   sample('ward-config', 'Settings', 'Ward configuration', 'wardSettings'),
   sample('vehicles', 'Settings', 'Vehicle configuration', 'vehicleSettings'),
   page('facility', 'Settings', 'Facility profile', 'building', 'sample', createElement(FacilityProfileSample)),
-  page('setup', 'Settings', 'Facility settings', 'edit', 'sample', createElement(FacilitySetupSample)),
-  live('billing', 'Settings', 'Facility subscription', 'subscription', 'billing.subscription.read', createElement(FacilitySubscriptionPage)),
+  // A fictional hospital's settings with "Save and continue", which sends nothing: a real administrator could believe it
+  // saved, so it is the demo facilities' alone (parity report 3.2).
+  demoOnly(page('setup', 'Settings', 'Facility settings', 'edit', 'sample', createElement(FacilitySetupSample))),
+  // Partial: it drops today's "Card details never pass through Health ID." from Pay now.
+  live('billing', 'Settings', 'Facility subscription', 'subscription', 'billing.subscription.read', createElement(FacilitySubscriptionPage), 'partial'),
 
   { ...sample('inventory', 'Supply', 'Supply', 'box', 'supply/*'), tabLabel: 'Stock' },
   { ...sample('procurement', 'Supply', 'Procurement', 'box'), tabOf: 'supply' },
 
-  page('reports', 'Insight', 'Reports & Analytics', 'chart', 'sample', createElement(ReportsSample)),
-  live('audit', 'Insight', 'Audit & Compliance', 'history', 'audit.read'),
+  // Made-up figures that read as the facility's own: the demo facilities' alone (parity report 3.2).
+  demoOnly(page('reports', 'Insight', 'Reports & Analytics', 'chart', 'sample', createElement(ReportsSample))),
+  live('audit', 'Insight', 'Audit trail', 'history', 'audit.read'),
 
   // Listed only at the demo facilities; everywhere, the account menu's Switch facility opens it.
   demoOnly(page('whats-left', 'Design review', 'What’s left', 'checklist', 'live', createElement(WhatsLeft))),
@@ -128,7 +142,7 @@ export const pages: EhrBluePage[] = [
 
 /**
  * The addresses today's provider portal serves, where these live stand-ins show today's page (a clinical or department
- * page that replaces one keeps its address). "Use the classic EHR" stays on them.
+ * page that replaces one keeps its address).
  */
 export const TODAY_PATHS: ReadonlySet<string> = new Set(todayPaths)
 

@@ -78,14 +78,15 @@ export function CollectStep({ facilityId, permissions, subject, routed, onDone, 
   const test = item.testName ?? 'Lab test'
   // The check guards the step that leads to taking the sample, so it is said only to a role that can take it (register
   // it, or collect it), as today's page says it only beside Prepare accession: never beside a refusal, nor to a role that
-  // can only reject a sample, which takes nothing from the person.
+  // can only reject a sample, which takes nothing from the person. It is said whenever Lab names the patient: on work
+  // from another facility, and on own work with its patient card (0106).
   const acts = permissions.includes(accession ? 'lab.specimen.collect' : 'lab.accession.create')
 
   if (accession && required.length === 0) return rejected.length > 0
     ? <p className="m-0 text-[15px] text-ink-2">The sample was rejected. Make a new request to take another.</p>
     : <p className="m-0 text-[15px] text-ink-2">Nothing to collect.</p>
   return <div className="flex flex-col gap-4">
-    {routed && item.patient && acts ? <Alert intent="warning" size="sm">{sampleCheckText(item.patient.fullName)}</Alert> : null}
+    {item.patient && acts ? <Alert intent="warning" size="sm">{sampleCheckText(item.patient.fullName)}</Alert> : null}
     {accession ? required.map(specimen => <SpecimenForm key={`${specimen.id}-${specimen.version}`} {...base} specimen={specimen}
       accessionId={accession.id} test={test} />)
       : <RegisterForm {...base} item={item} defaultType={defaultType} defaultReason={defaultReason} onRegistered={onRegistered}
