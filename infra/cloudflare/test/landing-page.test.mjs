@@ -254,8 +254,9 @@ test('the patient portal shows a stranger the Health ID page from the public sit
     ['Open Health ID', 'https://app.healthidentitydirectory.com/sign-in'],
     ['Laboratory', 'https://lab.healthidentitydirectory.com/'],
     ['For providers', 'https://healthidentitydirectory.com/providers'],
-    // The portal serves patients only: a facility signs up on the EHR site, straight from this page.
-    ['Register your facility', 'https://ehr.healthidentitydirectory.com/provider/enroll?product=pharmacy'],
+    // The portal serves patients only: a facility signs up on its product's own site (here a pharmacy, on the pharmacy
+    // site), straight from this page.
+    ['Register your facility', 'https://pharmacy.healthidentitydirectory.com/provider/enroll?product=pharmacy'],
     ['Get your Health ID', 'https://app.healthidentitydirectory.com/enroll'],
     ['Privacy', 'https://healthidentitydirectory.com/privacy'],
     ['Email us', 'mailto:support@healthidentitydirectory.com'],
@@ -308,13 +309,15 @@ test('the patient portal is a signed-in patient\'s front page, as before', async
   assert.match(await (await portal.fetch('https://app.healthidentitydirectory.com/sw.js')).text(), /push/)
 })
 
-test('the patient portal sends every staff page to the same page on the EHR site, signed in or not', async () => {
-  for (const path of ['/provider', '/provider/sign-in', '/provider/sign-in?returnTo=/provider/clinical', '/provider/recover',
-    '/provider/enroll?product=pharmacy', '/provider/invitation', '/provider/join', '/provider/join/status', '/provider/staff/join']) {
+test('the patient portal sends every staff page to the same page on its product site, signed in or not', async () => {
+  for (const [path, site] of [['/provider', 'ehr'], ['/provider/sign-in', 'ehr'], ['/provider/sign-in?returnTo=/provider/clinical', 'ehr'],
+    ['/provider/recover', 'ehr'], ['/provider/enroll', 'ehr'], ['/provider/enroll?product=pharmacy', 'pharmacy'],
+    ['/provider/enroll?product=laboratory', 'lab'], ['/provider/laboratory', 'lab'], ['/provider/invitation', 'ehr'],
+    ['/provider/join', 'ehr'], ['/provider/join/status', 'ehr'], ['/provider/staff/join', 'ehr']]) {
     for (const headers of [{}, { cookie: 'hid_access_csrf=4f9c2b' }]) {
       const response = await portal.fetch(`https://app.healthidentitydirectory.com${path}`, { headers, redirect: 'manual' })
       assert.equal(response.status, 302, path)
-      assert.equal(response.headers.get('location'), `https://ehr.healthidentitydirectory.com${path}`, path)
+      assert.equal(response.headers.get('location'), `https://${site}.healthidentitydirectory.com${path}`, path)
       await response.arrayBuffer()
     }
   }

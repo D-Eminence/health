@@ -269,14 +269,14 @@ test('the production portal sends staff sign-in to the EHR site, and staging kee
   assert.notEqual(staging.status, 302)
 })
 
-test('the production portal serves patients only: every staff page is the same page on the EHR site', async () => {
+test('the production portal serves patients only: every staff page is the same page on the EHR site, unless it names a product', async () => {
   const portal = environment({ APP_NAME: 'web', PUBLIC_SITE: UNUSED_BINDING })
   const ehr = 'https://ehr.healthidentitydirectory.com'
   for (const path of ['/provider', '/provider/', '/provider/sign-in', '/provider/sign-in/', '/Provider/Sign-In', '/PROVIDER',
-    '/provider?returnTo=https://evil.example', '/provider/sign-in?returnTo=/provider/laboratory', '/provider/recover',
-    '/provider/recover?returnTo=ehr', '/provider/enroll', '/provider/enroll?product=laboratory&type=laboratory', '/provider/invitation',
+    '/provider?returnTo=https://evil.example', '/provider/sign-in?returnTo=/provider/clinical', '/provider/recover',
+    '/provider/recover?returnTo=ehr', '/provider/enroll', '/provider/enroll?product=ehr', '/provider/invitation',
     '/provider/join', '/provider/join/status', '/provider/staff/join', '/provider/clinical', '/provider/sign-in/extra',
-    '/provider/a%2Fb?x=%2F%2Fevil.example']) {
+    '/provider/a%2Fb?x=%2F%2Fevil.example', '/provider/recover?product=laboratory']) {
     for (const cookie of [null, 'hid_access_csrf=4f9c2b']) {
       for (const method of ['GET', 'HEAD']) {
         const label = `${method} ${path} ${cookie}`
@@ -318,6 +318,68 @@ test('the production portal serves patients only: every staff page is the same p
         environment({ DEPLOYMENT_ENV: deployment, APP_NAME: app, PUBLIC_SITE: UNUSED_BINDING }))
       assert.equal(response.status, 200, `${deployment} ${app} ${path}`)
       assert.equal(await response.text(), `<p>${path}</p>`)
+    }
+  }
+})
+
+test('the production portal sends a staff address that names a product to that product\'s own site', async () => {
+  const portal = environment({ APP_NAME: 'web', PUBLIC_SITE: UNUSED_BINDING })
+  const lab = 'https://lab.healthidentitydirectory.com'
+  const pharmacy = 'https://pharmacy.healthidentitydirectory.com'
+  const migrate = 'https://migrate.healthidentitydirectory.com'
+  const outreach = 'https://outreach.healthidentitydirectory.com'
+  const ehr = 'https://ehr.healthidentitydirectory.com'
+  for (const [path, origin] of [
+    // Facility sign-up for one product, or for a laboratory or a pharmacy, is that product's own sign-up.
+    ['/provider/enroll?product=laboratory', lab],
+    ['/provider/enroll?product=laboratory&type=laboratory', lab],
+    ['/provider/enroll?type=laboratory', lab],
+    ['/provider/enroll/?product=laboratory', lab],
+    ['/Provider/Enroll?product=pharmacy', pharmacy],
+    ['/provider/enroll?type=pharmacy&product=ehr', pharmacy],
+    ['/provider/enroll?product=migrate', migrate],
+    ['/provider/enroll?type=hospital&product=migrate', migrate],
+    // A product's workspace, or a page in it, is that product's.
+    ['/provider/laboratory', lab],
+    ['/provider/laboratory/queue?tab=new', lab],
+    ['/PROVIDER/PHARMACY', pharmacy],
+    ['/provider/ocr', migrate],
+    ['/provider/outreach/', outreach],
+    // The staff sign-in returning to a product's workspace is that product's sign-in.
+    ['/provider/sign-in?returnTo=/provider/laboratory', lab],
+    ['/provider/sign-in?returnTo=%2Fprovider%2Fpharmacy%3Ftab%3Dqueue', pharmacy],
+    // Nothing else of the address chooses a site: anything unknown stays on the EHR site.
+    ['/provider/enroll?product=outreach', ehr],
+    ['/provider/enroll?product=toString', ehr],
+    ['/provider/enroll?type=__proto__', ehr],
+    ['/provider/enroll?product=https://lab.healthidentitydirectory.com', ehr],
+    ['/provider/sign-in?returnTo=//lab.healthidentitydirectory.com/provider/laboratory', ehr],
+    ['/provider/sign-in?returnTo=https://lab.healthidentitydirectory.com/provider/laboratory', ehr],
+    ['/provider/laboratoryx', ehr],
+  ]) {
+    for (const method of ['GET', 'HEAD']) {
+      const label = `${method} ${path}`
+      const response = await worker.fetch(new Request(`https://app.healthidentitydirectory.com${path}`, { method }), portal)
+      assert.equal(response.status, 302, label)
+      const location = new URL(response.headers.get('location'))
+      const asked = new URL(path, 'https://app.healthidentitydirectory.com')
+      assert.equal(location.origin, origin, label)
+      assert.equal(location.pathname, asked.pathname, label)
+      assert.equal(location.search, asked.search, label)
+      assert.equal(response.headers.get('cache-control'), null, label)
+    }
+  }
+  // A write is never redirected, whichever product it names.
+  const post = await worker.fetch(new Request('https://app.healthidentitydirectory.com/provider/enroll?product=laboratory',
+    { method: 'POST' }), portal)
+  assert.equal(post.status, 200)
+  // Staging's portal keeps its own staff pages, the product-named ones too; the product sites keep theirs.
+  for (const [deployment, app] of [['staging', 'web'], ['production', 'ehr'], ['production', 'pharmacy'], ['staging', 'lab']]) {
+    const host = deploymentProfiles[deployment].hosts[app]
+    for (const path of ['/provider/enroll?product=laboratory', '/provider/laboratory', '/provider/sign-in?returnTo=/provider/pharmacy']) {
+      const response = await worker.fetch(new Request(`https://${host}${path}`),
+        environment({ DEPLOYMENT_ENV: deployment, APP_NAME: app, PUBLIC_SITE: UNUSED_BINDING }))
+      assert.equal(response.status, 200, `${deployment} ${app} ${path}`)
     }
   }
 })
@@ -951,6 +1013,10 @@ const LAB_LANDING_SITE = Object.freeze({
   staffSignIn: 'https://lab.healthidentitydirectory.com/provider',
   patientSignIn: '',
   enroll: 'https://lab.healthidentitydirectory.com/provider/enroll',
+  enrollSites: { ehr: 'https://ehr.healthidentitydirectory.com/provider/enroll',
+    laboratory: 'https://lab.healthidentitydirectory.com/provider/enroll',
+    pharmacy: 'https://pharmacy.healthidentitydirectory.com/provider/enroll',
+    migrate: 'https://migrate.healthidentitydirectory.com/provider/enroll' },
   applicationProducts: ['ehr', 'migrate', 'laboratory', 'pharmacy'],
 })
 
@@ -988,15 +1054,19 @@ test('rewrites each landing page link for the product site that shows it', () =>
     ['https://healthidentitydirectory.com/products/pharmacy', 'https://pharmacy.healthidentitydirectory.com/'],
     ['/products/outreach', 'https://outreach.healthidentitydirectory.com/'],
     // The product's own calls to action: sign up on this site, where Identity accepts it, and sign in at this site's
-    // workspace entrance. Only a product the sign-up knows is kept.
+    // workspace entrance. A sign-up for another product opens on that product's own site, which signs up its own kind
+    // of facility. Only a product the sign-up knows is kept; with none, this site's.
     ['/provider/apply?product=laboratory', 'https://lab.healthidentitydirectory.com/provider/enroll?product=laboratory'],
-    ['/provider/apply?product=ehr', 'https://lab.healthidentitydirectory.com/provider/enroll?product=ehr'],
+    ['/provider/apply?product=ehr', 'https://ehr.healthidentitydirectory.com/provider/enroll?product=ehr'],
+    ['/provider/apply?product=pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider/enroll?product=pharmacy'],
+    ['/provider/apply?product=migrate', 'https://migrate.healthidentitydirectory.com/provider/enroll?product=migrate'],
     ['/provider/apply', 'https://lab.healthidentitydirectory.com/provider/enroll'],
     ['/provider/apply?product=https://evil.example', 'https://lab.healthidentitydirectory.com/provider/enroll'],
     ['/provider/apply?product=outreach', 'https://lab.healthidentitydirectory.com/provider/enroll'],
-    // The portal's facility sign-up, as the public site's own address for it: this site's too.
+    ['/provider/apply?product=toString', 'https://lab.healthidentitydirectory.com/provider/enroll'],
+    // The portal's facility sign-up, as the public site's own address for it: the same.
     ['https://app.healthidentitydirectory.com/provider/enroll', 'https://lab.healthidentitydirectory.com/provider/enroll'],
-    ['https://app.healthidentitydirectory.com/provider/enroll?product=pharmacy', 'https://lab.healthidentitydirectory.com/provider/enroll?product=pharmacy'],
+    ['https://app.healthidentitydirectory.com/provider/enroll?product=pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider/enroll?product=pharmacy'],
     ['https://app.healthidentitydirectory.com/provider/enroll?product=//evil.example', 'https://lab.healthidentitydirectory.com/provider/enroll'],
     ['https://app.healthidentitydirectory.com/provider/sign-in', 'https://lab.healthidentitydirectory.com/provider'],
     ['https://app.healthidentitydirectory.com/provider/sign-in?returnTo=/provider/laboratory', 'https://lab.healthidentitydirectory.com/provider'],
@@ -1018,7 +1088,8 @@ test('rewrites each landing page link for the product site that shows it', () =>
 test('rewrites each link of the Health ID page for the patient portal that shows it', () => {
   // A portal that keeps its own staff pages, as staging's does (enroll is its own); the production portal is next.
   const site = { ...LAB_LANDING_SITE, page: 'https://healthidentitydirectory.com/patients', staffSignIn: '',
-    patientSignIn: 'https://app.healthidentitydirectory.com/sign-in', enroll: 'https://app.healthidentitydirectory.com/provider/enroll' }
+    patientSignIn: 'https://app.healthidentitydirectory.com/sign-in', enroll: 'https://app.healthidentitydirectory.com/provider/enroll',
+    enrollSites: {} }
   assertLandingLinks(site, [
     // Its own buttons: sign in and get a Health ID on the portal, at pages that exist there (App.tsx).
     ['https://app.healthidentitydirectory.com/sign-in', 'https://app.healthidentitydirectory.com/sign-in'],
@@ -1044,13 +1115,14 @@ test('rewrites each link of the Health ID page for the patient portal that shows
     ['/products/laboratory', 'https://lab.healthidentitydirectory.com/'],
     ['/products/laboratory#pricing', 'https://lab.healthidentitydirectory.com/#pricing'],
     ['/provider/apply?product=ehr', 'https://app.healthidentitydirectory.com/provider/enroll?product=ehr'],
+    ['/provider/apply?product=laboratory', 'https://app.healthidentitydirectory.com/provider/enroll?product=laboratory'],
     ['https://app.healthidentitydirectory.com/provider/enroll?product=ehr', 'https://app.healthidentitydirectory.com/provider/enroll?product=ehr'],
     ['#main', '#main'],
     ['mailto:support@healthidentitydirectory.com', 'mailto:support@healthidentitydirectory.com'],
   ])
 })
 
-test('on the production portal, the Health ID page\'s staff links open the EHR site, never the portal', () => {
+test('on the production portal, the Health ID page\'s staff links open the product sites, never the portal', () => {
   const site = { ...LAB_LANDING_SITE, page: 'https://healthidentitydirectory.com/patients',
     staffSignIn: 'https://ehr.healthidentitydirectory.com/provider/sign-in', patientSignIn: 'https://app.healthidentitydirectory.com/sign-in',
     enroll: 'https://ehr.healthidentitydirectory.com/provider/enroll' }
@@ -1058,15 +1130,20 @@ test('on the production portal, the Health ID page\'s staff links open the EHR s
     ['https://app.healthidentitydirectory.com/provider/sign-in', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
     ['https://app.healthidentitydirectory.com/provider/sign-in?returnTo=https://evil.example', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
     ['https://ehr.healthidentitydirectory.com/provider/sign-in', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
-    // Facility sign-up opens the EHR site's, whether the page names the public site's address or the portal's.
+    // Facility sign-up opens the chosen product's own site's, else the EHR site's, whether the page names the public
+    // site's address or the portal's.
     ['/provider/apply?product=ehr', 'https://ehr.healthidentitydirectory.com/provider/enroll?product=ehr'],
-    ['/provider/apply?product=laboratory', 'https://ehr.healthidentitydirectory.com/provider/enroll?product=laboratory'],
+    ['/provider/apply?product=laboratory', 'https://lab.healthidentitydirectory.com/provider/enroll?product=laboratory'],
+    ['/provider/apply?product=pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider/enroll?product=pharmacy'],
+    ['/provider/apply?product=migrate', 'https://migrate.healthidentitydirectory.com/provider/enroll?product=migrate'],
+    ['/provider/apply', 'https://ehr.healthidentitydirectory.com/provider/enroll'],
     ['https://app.healthidentitydirectory.com/provider/enroll', 'https://ehr.healthidentitydirectory.com/provider/enroll'],
+    ['https://app.healthidentitydirectory.com/provider/enroll?product=laboratory', 'https://lab.healthidentitydirectory.com/provider/enroll?product=laboratory'],
     // Patients still sign in and sign up on the portal: its patient links stay there.
     ['https://app.healthidentitydirectory.com/sign-in', 'https://app.healthidentitydirectory.com/sign-in'],
     ['https://app.healthidentitydirectory.com/', 'https://app.healthidentitydirectory.com/sign-in'],
     ['https://app.healthidentitydirectory.com/enroll', 'https://app.healthidentitydirectory.com/enroll'],
-    // Any other portal staff page is left to the edge, which sends it to the same page on the EHR site.
+    // Any other portal staff page is left to the edge, which sends it to the same page on its product site.
     ['https://app.healthidentitydirectory.com/provider/recover', 'https://app.healthidentitydirectory.com/provider/recover'],
   ])
 })
