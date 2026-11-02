@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EmergencyWorkspace } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
+import { TONE_OUTLINE } from '../../../kasuwa/ui'
 import { FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, renderPage } from './harness'
 
 /**
@@ -359,14 +360,14 @@ describe('the emergency summary shows every section EHR returns that the role ma
     }
     expect(entry('Finished visits', 'Emergency').textContent).toMatch(/\d{4}, \d\d:\d\d to \d/)
     const signed = entry('Signed notes', 'Triage note 1')
-    expect(signed.textContent).toMatch(/Triage · version 1 · signed \d/)
+    expect(signed.textContent).toMatch(/Triage · Signed · version 1 · signed \d/)
     expect(signed.textContent).toContain('Alert and oriented.\nNo distress.')
     expect(within(section('Diagnoses')).getByText('Severe malaria')).toBeTruthy()
-    expect(entry('Diagnoses', 'Severe malaria').textContent).toContain('Active · Confirmed · code X00')
+    expect(entry('Diagnoses', 'Severe malaria').textContent).toContain('Active · Confirmed · code ICD-10 X00')
     expect(within(section('Prescriptions')).getByText('Artesunate')).toBeTruthy()
     const lab = entry('Lab tests', 'Haemoglobin')
     expect(within(lab).getByText('Urgent')).toBeTruthy()
-    expect(lab.textContent).toMatch(/Asked for \d/)
+    expect(lab.textContent).toMatch(/LOINC 718-7 · Priority: Urgent · Asked for \d/)
     expect(entry('Documents', 'referral-letter.pdf').textContent).toMatch(/PDF · 20 KB · added \d/)
   })
 
@@ -404,6 +405,38 @@ describe('the emergency summary shows every section EHR returns that the role ma
     expect(within(entry('Prescriptions', 'Paracetamol')).getByText('Cancelled')).toBeTruthy()
     expect(within(entry('Lab tests', 'Blood film')).getByText('Cancelled')).toBeTruthy()
     expect(within(entry('Lab tests', 'Malaria smear')).getByText('Draft')).toBeTruthy()
+  })
+
+  it('gives each order status today’s tone: active success, on hold a warning, draft information (Clinical.tsx:1006-1013)', async () => {
+    api.emergencyRecords.mockResolvedValue(summary({ prescriptions: [
+      prescription('prescription-3', 'Artesunate', 'active'),
+      prescription('prescription-5', 'Ceftriaxone', 'on_hold'),
+      prescription('prescription-1', 'Paracetamol', 'cancelled'),
+    ] }))
+    await renderSummary()
+    const badge = (sectionName: string, name: string, status: string) => within(entry(sectionName, name)).getByText(status)
+    expect(badge('Prescriptions', 'Artesunate', 'Active').className).toContain(TONE_OUTLINE.success)
+    expect(badge('Prescriptions', 'Ceftriaxone', 'On hold').className).toContain(TONE_OUTLINE.warn)
+    expect(badge('Prescriptions', 'Paracetamol', 'Cancelled').className).toContain(TONE_OUTLINE.neutral)
+    expect(badge('Lab tests', 'Malaria smear', 'Draft').className).toContain(TONE_OUTLINE.info)
+  })
+
+  it('says a note was amended, a diagnosis’s code system, and a lab test’s code and priority, routine too (Clinical.tsx:1130,1141,1158)', async () => {
+    api.emergencyRecords.mockResolvedValue(summary({
+      notes: [{ ...note(2), status: 'amended', revisionNo: 2 }],
+      diagnoses: [{ ...diagnosis('diagnosis-5', 'Sepsis', 'active', 'provisional'), codeSystem: 'SNOMED', code: '91302008' }],
+      labRequests: [{ ...labRequest('lab-4', 'Blood culture', 'active'), testCodeSystem: 'LOINC', testCode: '600-7', priority: 'routine' },
+        { ...labRequest('lab-5', 'Troponin', 'active'), testCodeSystem: 'LOINC', testCode: '6598-7', priority: 'asap' }],
+    }))
+    await renderSummary()
+    expect(entry('Signed notes', 'Triage note 2').textContent).toMatch(/Triage · Amended · version 2 · signed \d/)
+    expect(entry('Diagnoses', 'Sepsis').textContent).toContain('Active · Provisional · code SNOMED 91302008')
+    const lab = entry('Lab tests', 'Blood culture')
+    expect(lab.textContent).toMatch(/LOINC 600-7 · Priority: Routine · Asked for \d/)
+    expect(within(lab).queryByText('Routine')).toBeNull()
+    // The priority is said in words, never as the raw value (the owner's rule).
+    expect(entry('Lab tests', 'Troponin').textContent).toMatch(/LOINC 6598-7 · Priority: As soon as possible · Asked for \d/)
+    expect(entry('Lab tests', 'Troponin').textContent).not.toMatch(/asap/)
   })
 
   it('says a lab test entered in error is not this patient’s', async () => {
@@ -530,13 +563,23 @@ describe('a summary that names what EHR withheld and what it cut short', () => {
     await renderSummary()
     expect(within(section('Prescriptions')).queryByText(/most recent/)).toBeNull()
     expect(within(section('Finished visits')).queryByText(/most recent/)).toBeNull()
-    expect(within(section('Signed notes')).getByText('Only the 50 most recent are shown.')).toBeTruthy()
+    expect(within(section('Signed notes')).getByText('Only the 50 most recent are shown; older ones exist and are not shown.')).toBeTruthy()
   })
 
   it('says a section with fewer rows than its limit was cut short when EHR says so', async () => {
     api.emergencyRecords.mockResolvedValue(releasedSummary([], { diagnoses: true }))
     await renderSummary()
     expect(within(section('Diagnoses')).getByText(/100 most recent/)).toBeTruthy()
+  })
+
+  it('says older entries exist only when EHR reports the section cut short (Clinical.tsx:1070-1072)', async () => {
+    api.emergencyRecords.mockResolvedValue(releasedSummary([], { diagnoses: true }))
+    await renderSummary()
+    expect(within(section('Diagnoses')).getByText('Only the 100 most recent are shown; older ones exist and are not shown.')).toBeTruthy()
+    api.emergencyRecords.mockResolvedValue(summary({ encounters: Array.from({ length: 50 }, (_, n) => encounter(n)) }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh' })) })
+    expect(await within(section('Finished visits')).findByText('Only the 50 most recent are shown.')).toBeTruthy()
+    expect(screen.queryByText(/older ones exist/)).toBeNull()
   })
 
   it('says listed documents passed the virus check', async () => {
@@ -590,6 +633,30 @@ describe('released Lab results in the emergency summary', () => {
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2)
   })
 
+  it('keeps Refresh focusable while the results are read again, says it is busy, and a press then reads nothing (Clinical.tsx:930-931)', async () => {
+    staff.permissions = [...EVERY_READ, 'lab.result.released.read']
+    api.labReleasedResultsForOrder.mockResolvedValue(released())
+    await renderSummary()
+    const request = entry('Lab tests', 'Haemoglobin')
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
+    await within(request).findByText('No results released yet.')
+    let answer: (value: unknown) => void = () => {}
+    api.labReleasedResultsForOrder.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    const refresh = within(request).getByRole('button', { name: 'Refresh' }) as HTMLButtonElement
+    refresh.focus()
+    await act(async () => { fireEvent.click(refresh) })
+    await waitFor(() => expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2))
+    expect(refresh.getAttribute('aria-disabled')).toBe('true')
+    expect(refresh.disabled).toBe(false)
+    expect(document.activeElement).toBe(refresh)
+    await act(async () => { fireEvent.click(refresh) })
+    expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2)
+    await act(async () => { answer(released()) })
+    expect(await within(request).findByText('No results released yet.')).toBeTruthy()
+    expect(refresh.getAttribute('aria-disabled')).toBeNull()
+    expect(document.activeElement).toBe(refresh)
+  })
+
   it('shows each released result and its versions, with the flag in words, and one marked entered in error', async () => {
     staff.permissions = [...EVERY_READ, 'lab.result.released.read']
     const revision = (version: number) => ({ version, resultType: 'numeric', numericValue: 9.1, textValue: null, unit: 'g/dL', referenceRange: '12-16',
@@ -603,12 +670,37 @@ describe('released Lab results in the emergency summary', () => {
     const request = entry('Lab tests', 'Haemoglobin')
     await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
     expect(await within(request).findByText('Result 1')).toBeTruthy()
-    expect(request.textContent).toContain('Haemoglobin · accepted by the lab ')
+    expect(request.textContent).toContain('Haemoglobin · LOINC 718-7 · accepted by the lab ')
     expect(request.textContent).toMatch(/9\.1\s*g\/dL\s*Low/)
     expect(request.textContent).toContain('Normal range: 12-16')
     expect(request.textContent).toContain('Why it changed: Recalibrated analyser')
     expect(request.textContent).toContain('Versions that were never released are not shown.')
     expect(request.textContent).toContain('The latest version was marked entered in error. Don’t use it.')
+  })
+
+  it('says what Lab sent: the test’s code and Released on each released result, with the flags in main’s friendly labels and no raw values (Clinical.tsx:935,938)', async () => {
+    staff.permissions = [...EVERY_READ, 'lab.result.released.read']
+    const revision = (version: number, abnormalFlag: string, verificationStatus: string) => ({ version, resultType: 'numeric', numericValue: 9.1 + version,
+      textValue: null, unit: 'g/dL', referenceRange: '12-16', abnormalFlag, entrySource: 'manual', verificationStatus, releaseStatus: 'released',
+      enteredAt: '2026-10-01T09:00:00.000Z', releasedAt: '2026-10-01T09:30:00.000Z', correctionReason: null })
+    api.labReleasedResultsForOrder.mockResolvedValue(released([
+      { id: 'result-1', executionId: 'execution-1', status: 'released', verificationStatus: 'verified', currentVersion: 3, currentReleasedVersion: 3,
+        revisions: [revision(1, 'normal', 'unverified'), revision(2, 'unknown', 'verified'), revision(3, 'critical_candidate', 'verified')] },
+    ]))
+    await renderSummary()
+    const request = entry('Lab tests', 'Haemoglobin')
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
+    expect(await within(request).findByText('Result 1')).toBeTruthy()
+    expect(request.textContent).toContain('Haemoglobin · LOINC 718-7 · accepted by the lab ')
+    const result = within(request).getByText('Result 1').closest('li')!
+    expect(within(result).getByText('Result 1').parentElement!.textContent).toBe('Result 1Released')
+    // Main's labels: a critical candidate is the design's Critical flag; normal, unknown and the verification are not shown as raw values.
+    expect(result.textContent).toMatch(/12\.1\s*g\/dL\s*Critical/)
+    expect(result.textContent).toMatch(/10\.1\s*g\/dL\s*Normal range: /)
+    expect(result.textContent).toMatch(/11\.1\s*g\/dL\s*Normal range: /)
+    for (const raw of ['· normal', 'unknown', 'critical candidate', 'critical_candidate', 'unverified', '· verified']) {
+      expect(result.textContent).not.toContain(raw)
+    }
   })
 
   it('says why released results could not be read', async () => {
