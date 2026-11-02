@@ -1,4 +1,4 @@
-import { Activity, ChevronRight, FolderOpen, History, ListChecks, LogOut, Send, ShieldCheck, Siren, Stethoscope, UserPlus } from 'lucide-react'
+import { Activity, ChevronRight, FolderOpen, History, KeyRound, ListChecks, LogOut, Send, ShieldCheck, Siren, Stethoscope, UserPlus } from 'lucide-react'
 import { Alert, Badge, Button, Card, CardHeader, IconChip, ListRow, PageHeader } from '../../../kasuwa/ui'
 import { CardFace } from '../../../routes/HealthIdCard'
 import { isHidApiError } from '@hid/http'
@@ -14,7 +14,7 @@ import type { PatientFacts } from '../parts/PatientHeader'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { isDemoFacility } from '../../blueFacilities'
 import { useSampleCan } from '../../frame/sampleAccess'
-import { CLOSE_GRANT, CLOSE_REASON, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
+import { CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
 import type { ActivePatient } from '../../../staff/App'
 
 export const CLOSED_NOTICE = 'closed'
@@ -134,7 +134,12 @@ function PatientRecord({ chart }: { chart: Chart }) {
   // Read only (emergency, or a grant without changes): write actions are hidden, not offered as a dead end.
   const readOnly = emergency || chart.writeNotice !== null
   const grantId = chart.patient.lookup.authorization.consentGrantId ?? null
-  const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administratorOf(facility, permissions))
+  const administrator = administratorOf(facility, permissions)
+  const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administrator)
+  // The access steps today's Patients page offers (its METHOD_ROUTES), each with today's reason when the role cannot take it.
+  const pinUnavailable = actionUnavailable(METHOD_ROUTES.pin, permissions, administrator)
+  const requestUnavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administrator)
+  const emergencyUnavailable = actionUnavailable(METHOD_ROUTES.emergency, permissions, administrator)
   const expires = chart.patient.lookup.authorization.expiresAt
   const facts = chart.facts
   const about = [ageOf(facts.dateOfBirth), sexText(facts.sex), facts.dateOfBirth ? `born ${formatDate(facts.dateOfBirth)}` : ''].filter(Boolean).join(' · ')
@@ -158,7 +163,9 @@ function PatientRecord({ chart }: { chart: Chart }) {
 
   /**
    * As the design's Next steps, a step shows only to a role that may take it: External record access opens only with
-   * identity.consent.write (the frame's rule, the permission its request form needs).
+   * identity.consent.write (the frame's rule, the permission its request form needs). The two steps that move an
+   * emergency patient to direct care are the exception: a role that cannot take one sees it turned off with today's
+   * reason, as on Find a patient.
    */
   const mayOpenConsent = can('identity.consent.write')
   const mayOpenChart = chart.can('ehr.encounter.read')
@@ -172,6 +179,22 @@ function PatientRecord({ chart }: { chart: Chart }) {
     if (!mayOpenConsent) return
     offerHealthId(chart.patient.hid, chart.facilityId, setActivePatient)
     navigate(href.to('consent', 'new'))
+  }
+
+  /**
+   * The access steps, as Find a patient takes them: under direct care at the demo facilities only, emergency access
+   * (Emergency's own page, which needs identity.break-glass.write; today's portal offers it only from Patients' Obtain
+   * access, never on an open record); under emergency access, the patient's Access PIN (Patients' own page) or Ask the
+   * patient (External record access), which move the patient to direct care. Each hands the Health ID over in memory,
+   * never in the URL, and only to a step the role may take.
+   */
+  function accessStep(target: 'pin' | 'request' | 'emergency') {
+    const unavailable = target === 'pin' ? pinUnavailable : target === 'request' ? requestUnavailable : emergencyUnavailable
+    if (unavailable) return
+    offerHealthId(chart.patient.hid, chart.facilityId, setActivePatient)
+    if (target === 'pin') navigate(href('pin'))
+    else if (target === 'request') navigate(href.to('consent', 'new'))
+    else navigate(href.to('emergency'))
   }
 
   const initials = facts.name.split(/\s+/).filter(Boolean).map(w => w[0]).slice(0, 2).join('').toUpperCase()
@@ -221,8 +244,28 @@ function PatientRecord({ chart }: { chart: Chart }) {
                 that may create there (sampleAccess.ts), as a role the sample is closed to would land on Home instead. */}
             {isDemoFacility(chart.facilityId) && sampleCan('journey', 'create') ? <li><ListRow onClick={() => navigate(href.to('journey', 'new'))} leading={<IconChip size="sm" icon={UserPlus} />} title="Register a walk-in visit" subtitle="Sample at demo facilities" trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
             {mayOpenConsent ? <li><ListRow onClick={openConsent} leading={<IconChip size="sm" icon={Send} />} title="Ask for more access" subtitle="More time, or the right to add records. The patient approves." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
+            {/* At the demo facilities only, like the sample steps: today's portal never offers break-glass on an open
+                record, so a real facility keeps it on Find a patient's Obtain access. Shown, as this card's steps are,
+                only to a role that may take it. */}
+            {isDemoFacility(chart.facilityId) && emergencyUnavailable === null ? <li><ListRow onClick={() => accessStep('emergency')} leading={<IconChip size="sm" icon={Siren} tone="danger" />} title="Emergency access" subtitle="Only if they can’t consent. Time-limited and reviewed." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li> : null}
           </ul>
-        </Card> : null}
+        </Card> : <Card>
+          <CardHeader as="h2" title="Next steps" icon={ListChecks} iconTone="brand" />
+          {/* Emergency access is read-only: the patient's Access PIN or their approval moves them to direct care (owner,
+              31 October). A step the role cannot take is turned off, with today's reason. */}
+          <ul className="m-0 list-none divide-y divide-line p-0">
+            <li>
+              <ListRow onClick={() => accessStep('pin')} disabled={pinUnavailable !== null} describedBy={pinUnavailable ? 'pin-step-unavailable' : undefined}
+                leading={<IconChip size="sm" icon={KeyRound} />} title="Use their Access PIN" subtitle="If they’re with you and have set one." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} />
+              {pinUnavailable ? <p id="pin-step-unavailable" className="m-0 px-5 pb-3 text-[12px] text-ink-3">{pinUnavailable}</p> : null}
+            </li>
+            <li>
+              <ListRow onClick={() => accessStep('request')} disabled={requestUnavailable !== null} describedBy={requestUnavailable ? 'request-step-unavailable' : undefined}
+                leading={<IconChip size="sm" icon={Send} />} title="Ask the patient" subtitle="They approve on their phone. You’re told the moment they do." trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} />
+              {requestUnavailable ? <p id="request-step-unavailable" className="m-0 px-5 pb-3 text-[12px] text-ink-3">{requestUnavailable}</p> : null}
+            </li>
+          </ul>
+        </Card>}
         {!emergency && chart.can('ehr.encounter.read') ? <EncounterHistory chart={chart} canStart={mayStart} /> : null}
       </div>
     </div>
