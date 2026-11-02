@@ -26,7 +26,7 @@ DRAFT for legal and DPO review. Not legal advice. Not yet approved by the owner.
 
 **Why**
 
-Clinics often lose internet. Health ID can let a staff member keep an encrypted copy of some patient records on their own device, so work can go on. Changes made offline are sent when the connection returns. This is for clinic staff only.
+Clinics often lose internet. Health ID can let a staff member keep an encrypted copy of some patient records on their own device, so work can go on. This is a device only that staff member uses: it may be their own phone or computer, or one the clinic gave to them alone. It is never a shared or public computer. Changes made offline are sent when the connection returns. This is for clinic staff only.
 
 **What is kept**
 
@@ -58,7 +58,7 @@ If a device is lost or stolen, staff must tell their facility administrator at o
 
 **Your rights**
 
-You have rights over your personal data. Ask your facility first. You can also write to support@healthidentitydirectory.com or [DPO name and contact].
+You have rights over your personal data. Ask your facility first. You can also write to support@healthidentitydirectory.com, or contact Health ID's data protection officer, Ibrahim Umar, ibrahim@healthidentitydirectory.com, +2347026717252.
 
 **Where**
 
@@ -70,7 +70,7 @@ At first, offline copies run only in a test setup with made-up patients. Real us
 
 # Working without internet: your record
 
-- This clinic may keep an encrypted copy of your record on a staff member's own device, so work can go on if the internet drops.
+- This clinic may keep an encrypted copy of your record on a staff member's own device (their own phone or computer, or one the clinic gave to them alone), so work can go on if the internet drops.
 - A clinic working without internet may keep seeing records it already opened for up to 8 hours, never longer than your permission.
 - Emergency records are never kept on the device.
 - You see how long the clinic is asking for before you approve or decline.
@@ -80,6 +80,6 @@ At first, offline copies run only in a test setup with made-up patients. Real us
 
 **Questions?** Ask the clinic first.
 Health ID support: support@healthidentitydirectory.com
-Data protection officer: [DPO name and contact]
+Data protection officer: Ibrahim Umar, ibrahim@healthidentitydirectory.com, +2347026717252
 
 In effect from [effective date]. Offline copies start at [first real pilot facility].

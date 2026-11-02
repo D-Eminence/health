@@ -69,7 +69,9 @@ To use offline mode you need a staff password of at least 12 characters and a re
 
 **4.1 What "personal device" means.** In these rules, a personal device is a device used only by you, whether you own it or it was issued to you alone. It is never a shared ward, reception or public computer.
 
-[owner to confirm: privately owned devices allowed?]
+**Your own phone, tablet or computer is allowed** (owner decision, 2 Nov 2026). You may keep an offline copy on a device you own, as well as on one your facility issued to you alone. Every rule here applies to both. On a device you own, neither your facility nor Health ID controls its updates, apps or who else uses it, so following these rules is up to you.
+
+A device you own counts as personal only if nobody else uses it, or everyone else who uses it has their own sign-in on the device. A family phone, tablet or computer that other people use under your sign-in is a shared computer: do not keep an offline copy on it.
 
 **4.2 Rules**
 
@@ -80,6 +82,8 @@ To use offline mode you need a staff password of at least 12 characters and a re
 5. Turn on the device's own screen lock (recommended).
 6. Never share your password. Offline opening needs your password only, with no authenticator code, so the password is what protects the copy.
 7. Use a password of at least 12 characters.
+8. On a device you own: do not let anyone else use it under your sign-in while an offline copy is on it.
+9. On a device you own: before you sell it, give it away, trade it in or hand it over for repair, connect, send your waiting work and sign out of Health ID. Signing out wipes the readable copy (section 6.4).
 
 **4.3 Shared computers.** Automated tests check that, on a shared computer with two accounts, one account cannot open the other's copy. They also check that a wrong password, or the key of another device copy, opens nothing. The check on a real shared computer is planned but not yet done. Do not rely on it. Also note that 5 wrong passwords erase the readable copy for every account on that device.
 
@@ -139,9 +143,11 @@ Escrow is a spare key that lets unsent work survive a password change. Health ID
 
 ## 7. If a device is lost or stolen
 
+This applies to your own devices as well as to devices your facility issued.
+
 1. Tell your facility administrator at once. Give the device, when it was last online and how many changes were waiting.
-2. The administrator tells the owner: [owner escalation contact for lost devices].
-3. The data protection officer ([DPO name and contact]) decides whether this is a reportable personal data breach. The Nigeria Data Protection Commission's notification is commonly cited as within 72 hours [verify]. Do not wait to be sure. Report first.
+2. The administrator tells Health ID's data protection officer at once: Ibrahim Umar, ibrahim@healthidentitydirectory.com, +2347026717252.
+3. The data protection officer decides whether this is a reportable personal data breach. The Nigeria Data Protection Commission's notification is commonly cited as within 72 hours [verify]. Do not wait to be sure. Report first.
 
 Work not yet sent from a lost device is lost.
 
@@ -155,7 +161,7 @@ What limits the exposure: the encryption and password, the 8-hour and 24-hour li
 
 ## 8. When someone leaves the facility
 
-**If you are leaving:** connect and send your waiting work first. If you cannot, it is kept locked on the device for 30 days and then deleted. The screens say:
+**If you are leaving:** connect and send your waiting work first. If the device is your own, you keep it, so also sign out of Health ID on it before your last day; signing out wipes the readable copy. If you cannot send your work, it is kept locked on the device for 30 days and then deleted. The screens say:
 
 > You no longer work at [facility]. These [N] changes cannot be sent.
 
@@ -163,7 +169,7 @@ What limits the exposure: the encryption and password, the 8-hour and 24-hour li
 
 **If you are an administrator:**
 
-- Let the person's devices send waiting work before you remove them.
+- Let the person's devices send waiting work before you remove them. If they used their own device, ask them to sign out of Health ID on it before they leave.
 - Ending a membership needs a reason and your own password. It also ends that person's patient permissions at the facility.
 - Once a membership has ended or the account is disabled, the readable copy is wiped the next time the device goes online.
 - Neither action reaches a device that stays offline.

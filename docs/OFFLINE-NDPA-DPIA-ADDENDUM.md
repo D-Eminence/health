@@ -7,9 +7,9 @@ DRAFT for legal and DPO review. Not legal advice. Not yet approved by the owner.
 | Item | Entry |
 |---|---|
 | Document | DPIA addendum for the offline copy (wave 1) |
-| Entity | Health Identity Directory Technologies Ltd ("Health ID (HID)") |
+| Entity | Health Identity Directory Technologies Ltd ("Health ID (HID)"). Certified by the Nigeria Data Protection Commission (NDPC), as the owner stated on 2 Nov 2026 [owner to add: certificate number and date] |
 | Owner | The owner of Health ID |
-| Data protection officer | [DPO name and contact] |
+| Data protection officer | Ibrahim Umar, ibrahim@healthidentitydirectory.com, +2347026717252 (named by the owner, 2 Nov 2026) |
 | Status | Draft for legal and DPO review |
 | Effective date | [effective date] |
 | Approval needed | Owner, DPO and legal, before the first real facility is switched on (owner decision D10) |
@@ -82,12 +82,14 @@ No lawful basis for the offline copy has been decided here. The patient's permis
 
 The Privacy Policy section "Role as Data Controller & Processor" says: "HID acts as a Data Controller for user account data. HID may act as a Data Processor when handling data on behalf of healthcare providers." It does not address a copy held on a staff member's device, or a privately owned device.
 
+Health ID is certified by the NDPC, as the owner stated on 2 Nov 2026 [owner to add: certificate number and date]. This addendum does not treat the certification as answering the controller and processor question below.
+
 **Controller and processor for the offline copy:** [controller/processor determination]. This is an open question. It affects who answers patient requests, who assesses breaches, and who must hold the records of processing [verify section].
 
 ## 6. Necessity and proportionality
 
 - Staff only. Switched on one facility at a time. At facilities that are not switched on, nothing is stored.
-- Opt-in on each device, at sign-in, for personal devices only. Nothing is written if the person declines.
+- Opt-in on each device, at sign-in, for personal devices only: a device used by one staff member, which they own or which was issued to them alone. Nothing is written if the person declines.
 - Only patients the staff member opened online while they had the patient's permission. The copy is not filled in bulk.
 - A per-patient button ("Keep available offline"). The button saves only the latest 3 visits with their records, the health profile and the document list.
 - Limits: 100 patients, 2 MB per patient, 50 MB per device copy. The least recently used patient is removed first.
@@ -131,9 +133,9 @@ The Privacy Policy section "Role as Data Controller & Processor" says: "HID acts
 - **Access length.** The patient sees the access length before approving. A patient can end access early on the Access and consent page. A device working offline learns this only when it reconnects.
 - **Access log.** Online reads that fill the copy are recorded in Health ID's audit log as usual. Each chart section opened offline is recorded on the device and sent on reconnect, with both device time and server time. A time more than 26 hours old is recorded as 26 hours ago and flagged. The patient sees these as "Viewed your record" under "Who viewed or changed your record" on the Access and consent page, possibly some hours later. Changes sent from offline carry the time they were captured and a mark that they were made offline.
 - **Gap in the Privacy Policy wording.** The Privacy Policy section "Health Data Access & Audit Trails" says: "All access to sensitive health data is logged and monitored. Users may request a record of access to their data where applicable." Re-opens on a device that never reconnects are never recorded centrally. The original online reads are. Legal should check whether that wording remains accurate.
-- **Rights and contacts.** The facility first, then support@healthidentitydirectory.com and [DPO name and contact]. The Privacy Policy sections "User Rights" and "Data Subject Rights" apply. How patient rights apply to the device copy depends on [controller/processor determination].
+- **Rights and contacts.** The facility first, then support@healthidentitydirectory.com and the data protection officer, Ibrahim Umar, ibrahim@healthidentitydirectory.com, +2347026717252. The Privacy Policy sections "User Rights" and "Data Subject Rights" apply. How patient rights apply to the device copy depends on [controller/processor determination].
 - **Opt-out (open).** Whether a patient can ask that their record never be kept offline has not been decided. This addendum does not promise it.
-- **DPO.** The Privacy Policy says "HID may appoint a Data Protection Officer (DPO)". No DPO has been named yet. Whether appointment is required is a legal question [verify section].
+- **DPO.** The owner named Ibrahim Umar as Health ID's DPO on 2 Nov 2026. The published Privacy Policy still says "HID may appoint a Data Protection Officer (DPO)"; a change that names him is prepared and is not yet live.
 
 ## 9. Retention
 
@@ -159,7 +161,7 @@ Likelihood and severity are left for the reviewer.
 |---|---|---|---|
 | Lost or stolen device | For reviewer | For reviewer | Encryption and password; 5 wrong passwords erase the readable copy; 8-hour and 24-hour limits; copy readable only while the patient's permission lasts; report to the facility administrator, then the owner, then DPO decision on breach. Support can sign the account out everywhere (locks the copy if it reconnects, does not wipe it). Ending membership or disabling the account wipes only on reconnect. A password change does not affect the lost copy. Health ID's audit log shows which patient records reached the device through online reads. |
 | Shared computer | For reviewer | For reviewer | Opt-in screen warns "Do not choose this on a shared or public computer". Staff rules forbid it. One account cannot open another's copy (tested automatically; real shared-computer check planned, not done). 5 wrong passwords erase the readable copy for every account on the device, so another user can cause that erase. Unsent work is kept. |
-| BYOD (privately owned devices) | For reviewer | For reviewer | Case A, device owned by the staff member: the facility and Health ID have little control over browser updates, extensions, screen lock, other household users, or return of the device when staff leave. Case B, device issued to one person: the facility can set controls (for example screen lock and browser updates). Staff rules set minimum rules for both. [owner to confirm: privately owned devices allowed?] |
+| BYOD (privately owned devices) | For reviewer | For reviewer | Case A, device owned by the staff member: the facility and Health ID have little control over browser updates, extensions, screen lock, other household users, or return of the device when staff leave. Case B, device issued to one person: the facility can set controls (for example screen lock and browser updates). Staff rules set minimum rules for both. Owner decision (2 Nov 2026): privately owned devices are allowed. Staff rules section 4 adds rules for them: nobody else uses the device under the staff member's sign-in; connect, send waiting work and sign out before selling, giving away or repairing it, and before leaving the facility; report a loss as for any device. |
 | Script running in the page while unlocked | For reviewer | For reviewer | The honest limit in section 7 applies. CSP watches first and is enforced after 48 hours without problems. Staff are told to avoid unknown extensions (recommended) and to use a recent browser. The 5-minute lock shortens the unlocked window. Not removed. |
 | Limits enforced by the app, not by cryptography (including password guessing on a copied store) | For reviewer | For reviewer | See the inference in section 7. Mitigations: PBKDF2-SHA256 (600,000 rounds by default, at least 310,000 on slow devices), 12-character minimum, keys not copyable by the app's own code. These slow guessing. They do not stop it. |
 | A permission withdrawn while offline | For reviewer | For reviewer | The device learns this only on reconnect. Until then, access ends when the permission expires or the 8-hour limit passes, whichever comes first. The patient sees the access length before approving. Servers check every change on arrival. |
@@ -187,8 +189,8 @@ Likelihood and severity are left for the reviewer.
 
 ## 12. Breach handling
 
-- A lost or stolen device is reported to the facility administrator first, then to the owner ([owner escalation contact for lost devices]).
-- Whether the loss is a reportable personal data breach is for the DPO to decide ([DPO name and contact]). The NDPA's notification to the Nigeria Data Protection Commission is commonly cited as within 72 hours [verify].
+- A lost or stolen device, owned by the staff member or issued by the facility, is reported to the facility administrator first, then to Health ID's data protection officer (Ibrahim Umar, ibrahim@healthidentitydirectory.com, +2347026717252), who handles it for the owner.
+- Whether the loss is a reportable personal data breach is for the DPO to decide. The NDPA's notification to the Nigeria Data Protection Commission is commonly cited as within 72 hours [verify].
 - Information to gather: the device, when it was last online, how many changes were waiting, and which patient records reached the device (from Health ID's audit log of online reads).
 - Whether encryption lowers the reporting risk is a legal question [verify].
 - Support can sign the account out everywhere. The administrator can end the membership or disable the account. Both take full effect only if the device reconnects.
@@ -210,14 +212,14 @@ Health ID's servers run in Amazon Web Services eu-west-1 (Ireland). Traffic betw
 
 1. Controller or processor for the offline copy: [controller/processor determination].
 2. May a patient ask that their record never be kept offline? Not decided.
-3. Are privately owned devices allowed? [owner to confirm: privately owned devices allowed?]
+3. Privately owned devices: allowed (owner, 2 Nov 2026). Are the staff rules in section 4 enough for them?
 4. What can a facility administrator do when escrow is off? The staff screen says to ask the administrator, but no steps are defined.
 5. The Terms of Service cite the NDPR [verify]. Neither the Terms nor the Privacy Policy cites the NDPA 2023 [verify].
 6. Does the daily gap check continue after the pilot?
 7. Does the 2025 General Application and Implementation Directive (GAID) apply, and what does it require for DPIAs [verify]?
 8. Is a lost, encrypted device a reportable breach, and does encryption change the answer [verify]?
 9. Is the Privacy Policy wording "All access to sensitive health data is logged and monitored" accurate for offline re-opens?
-10. Must a DPO be appointed, and by when [verify section]?
+10. A DPO is now named (Ibrahim Umar, owner, 2 Nov 2026). Does the appointment need anything more under the NDPA, such as telling the NDPC [verify section]?
 11. Is prior consultation with the NDPC needed [verify]?
 12. How does the 8-hour and 24-hour design fit "never longer than your permission" when a patient withdraws while a device is offline?
 13. What happens to held changes (permission ended) when a switch-off wipes the device copy?
