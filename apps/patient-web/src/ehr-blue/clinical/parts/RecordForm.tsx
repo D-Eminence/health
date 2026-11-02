@@ -14,6 +14,11 @@ export interface FieldDef {
   readonly options?: readonly string[]
   readonly choices?: readonly { readonly value: string; readonly label: string }[]
   readonly multiple?: boolean
+  /**
+   * false: a single select offers only its choices, with no blank "Select…" first, so it can never send an empty
+   * value (a status that always has one, as today's selects that open on the current value).
+   */
+  readonly blank?: boolean
   readonly suggestions?: readonly string[]
   readonly hint?: string
   readonly placeholder?: string
@@ -76,7 +81,7 @@ export function checkFields(fields: readonly FieldDef[], values: FormValues): Fi
  * the submit button. Checks run on submit; the first problem gets focus; a field's problem clears as it changes.
  * `onSubmit` may answer a form error or field errors from the server, shown in the same places.
  */
-export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 'Saving…', onSubmit, validate, confirm, disabled = false, footer, children, className, submitVariant = 'primary' }: {
+export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 'Saving…', onSubmit, validate, confirm, disabled = false, footer, children, className, submitVariant = 'primary', describedBy }: {
   fields: readonly FieldDef[]
   /** A page with another primary action makes this form's submit secondary (one focal point per screen). */
   submitVariant?: 'primary' | 'secondary'
@@ -97,6 +102,8 @@ export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 
   /** Between the fields and the footer. */
   children?: ReactNode
   className?: string
+  /** The id of what the submit button is described by (a warning about what the change does, as today's status form). */
+  describedBy?: string
 }) {
   const id = useId()
   const [values, setValues] = useState<FormValues>(() => {
@@ -187,7 +194,7 @@ export function RecordForm({ fields, initial, submitLabel = 'Save', busyLabel = 
       {/* [secondary…, primary]: the primary rightmost on a computer, last (bottom, in thumb reach) on a phone. */}
       <div className="hid-ehr-clinical-form-footer hid-ehr-clinical-form-footer-sticky">
         {footer}
-        <EhrButton type="submit" variant={submitVariant} busy={busy} disabled={disabled}>{busy ? busyLabel : submitLabel}</EhrButton>
+        <EhrButton type="submit" variant={submitVariant} busy={busy} disabled={disabled} aria-describedby={describedBy}>{busy ? busyLabel : submitLabel}</EhrButton>
       </div>
     </form>
   )
@@ -259,7 +266,7 @@ function FieldControl({ id, field, value, error, disabled, register, onChange }:
         value={field.multiple ? [...(Array.isArray(value) ? value : [])] : typeof value === 'string' ? value : ''}
         onChange={event => onChange(field.multiple ? Array.from(event.target.selectedOptions, option => option.value) : event.target.value)}
       >
-        {field.multiple ? null : <option value="">Select…</option>}
+        {field.multiple || field.blank === false ? null : <option value="">Select…</option>}
         {choices.map(choice => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
       </EhrSelect>
     )

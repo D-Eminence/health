@@ -38,6 +38,9 @@ export function CampaignMembersRead({ facilityId, membershipId, campaign, onMemb
 
 const ROLE_WORDS: Readonly<Record<string, string>> = { enumerator: 'Enumerator', health_worker: 'Health worker', admin: 'Campaign admin' }
 
+/** A campaign member's role in words: "Member" for one the page has no word for, never its code (parity report 3.1 #16). */
+const roleWords = (role: string): string => (Object.hasOwn(ROLE_WORDS, role) ? ROLE_WORDS[role] : undefined) ?? 'Member'
+
 /**
  * A campaign as the design's record view: read only, since Identity does not authorize
  * campaign writes until campaign governance is decided, so no action is offered and the page
@@ -69,7 +72,7 @@ export function OutreachCampaignView({ campaign, members, onBack }: {
                   <span className="hid-ehr-dept-row-title">Membership {reference(member.membershipId)}</span>
                   <span className="hid-ehr-dept-muted">Added {dateText(member.createdAt)}</span>
                 </div>
-                <EhrBadge>{ROLE_WORDS[member.role] ?? statusWords(member.role)}</EhrBadge>
+                <EhrBadge>{roleWords(member.role)}</EhrBadge>
               </li>
             ))}
           </ul>

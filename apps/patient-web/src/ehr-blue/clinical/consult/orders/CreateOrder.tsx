@@ -12,7 +12,7 @@ import { useConfirm } from '../../parts/confirm'
 import { ErrorBox, Loading, RecordHeading } from '../../parts/Notices'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../../parts/RecordForm'
 import { useWorkspaceHref } from '../../parts/Workspace'
-import { KINDS, learnFrom, orderRights, patientWord, useFlash, type OrderKind } from './orders'
+import { KINDS, learnFrom, orderRights, patientWord, useFlash, type CreateWarning, type OrderKind } from './orders'
 import { DestinationFields, type RouteErrors } from './Routing'
 import {
   DOSE_NUMBER_TEXT, DOSE_PAIR, handoffNames, LAB_ACTIVE_NOTE, labDraftWarning, labHandoffOutcome, NO_CHANGES, PRESCRIPTION_HINT, PRESCRIPTION_ROUTING_HINT,
@@ -38,14 +38,15 @@ const DOSE_NUMBER = /^\d+(\.\d{1,4})?$/
  * The prescription's fields and limits, one column; the dose and its unit side by side. As in classic, the dose and its
  * unit are optional but go together (a cream, or "as directed", has neither): `validate` asks for both or neither.
  */
+// Today's labels and placeholders, word for word (Clinical.tsx:567); the unit is picked from a list.
 const PRESCRIPTION_FIELDS: readonly FieldDef[] = [
-  { key: 'medicationDisplay', label: 'Medicine', required: true, maxLength: 500 },
-  { key: 'doseQuantity', label: 'Dose', inputMode: 'decimal', placeholder: '0.5', maxLength: 12, row: 'dose', normalise: leadingZero },
-  { key: 'doseUnitChoice', label: 'Unit', row: 'dose',
+  { key: 'medicationDisplay', label: 'Medication', required: true, maxLength: 500 },
+  { key: 'doseQuantity', label: 'Dose quantity', inputMode: 'decimal', placeholder: '0.5', maxLength: 12, row: 'dose', normalise: leadingZero },
+  { key: 'doseUnitChoice', label: 'Dose unit', row: 'dose',
     choices: [...DOSE_UNITS.map(unit => ({ value: unit, label: unit })), { value: OTHER_UNIT, label: 'Other…' }] },
   { key: 'doseUnit', label: 'Other unit', maxLength: 80, when: values => values.doseUnitChoice === OTHER_UNIT },
-  { key: 'routeCode', label: 'Route', placeholder: 'Oral', maxLength: 100 },
-  { key: 'frequency', label: 'How often', required: true, placeholder: 'Twice daily', maxLength: 240 },
+  { key: 'routeCode', label: 'Route code', placeholder: 'oral', maxLength: 100 },
+  { key: 'frequency', label: 'Frequency', required: true, placeholder: 'Twice daily', maxLength: 240 },
   { key: 'instructions', label: 'Instructions', type: 'textarea', required: true, maxLength: 4000 },
 ]
 
@@ -55,12 +56,12 @@ function doseUnitOf(values: FormValues): string {
   return choice === OTHER_UNIT ? value(values, 'doseUnit') : choice
 }
 
-/** The lab request's fields and limits; Priority and what happens to it follow as controlled choices. */
+/** The lab request's fields and limits, with today's labels (Clinical.tsx:570); Priority and Request handling follow as controlled choices. */
 const LAB_FIELDS: readonly FieldDef[] = [
-  { key: 'testDisplay', label: 'Test', required: true, maxLength: 500 },
-  { key: 'testCodeSystem', label: 'Code system', required: true, placeholder: 'LOINC', maxLength: 255, row: 'code' },
+  { key: 'testDisplay', label: 'Test display', required: true, maxLength: 500 },
+  { key: 'testCodeSystem', label: 'Test code system', required: true, placeholder: 'LOINC', maxLength: 255, row: 'code' },
   { key: 'testCode', label: 'Test code', required: true, maxLength: 100, row: 'code' },
-  { key: 'specimenTypeCode', label: 'Specimen type', maxLength: 100 },
+  { key: 'specimenTypeCode', label: 'Specimen type code', maxLength: 100 },
   { key: 'clinicalInformation', label: 'Clinical information', type: 'textarea', maxLength: 4000 },
 ]
 
@@ -94,7 +95,8 @@ export function CreateOrder({ kind, chart, encounterId }: { kind: OrderKind; cha
   const href = useWorkspaceHref()
   const info = KINDS[kind]
   const back = href(encounterId)
-  const heading = <RecordHeading title={kind === 'pharmacy' ? 'New prescription' : 'New lab request'} backHref={back} />
+  // Today's form heading, "Add {tab}" (Clinical.tsx:561).
+  const heading = <RecordHeading title={kind === 'pharmacy' ? 'Add prescriptions' : 'Add lab requests'} backHref={back} />
 
   // As in classic, an order is added only where it can be read back: the saved order opens next.
   if (!chart.can(info.write) || !chart.can(info.read)) {
@@ -233,7 +235,7 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
       <OrderContext encounterId={encounterId} />
       <RecordedAllergies chart={chart} />
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
-      <RecordForm key={form} fields={PRESCRIPTION_FIELDS} validate={validate} onSubmit={submit} submitLabel="Save prescription"
+      <RecordForm key={form} fields={PRESCRIPTION_FIELDS} validate={validate} onSubmit={submit} submitLabel="Save draft"
         confirm={values => confirm(`Save this prescription of ${value(values, 'medicationDisplay')} for ${chart.facts.name}?`, 'Save prescription')}>
         <p className="hid-ehr-clinical-note">{rights.canRoute('pharmacy') ? PRESCRIPTION_ROUTING_HINT : PRESCRIPTION_HINT}</p>
       </RecordForm>
@@ -315,15 +317,23 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
     }
   }
 
-  /** Opens the saved request with what the create said, or says it here when the request can't be named. */
-  const open = (requestId: string | undefined, said: { success?: string; error?: string }) => {
+  /**
+   * Opens the saved request with what the create said, or says it here when the request can't be named. The saved
+   * request's page reads the list afresh and ends a warning with what that read came to; here, with no request to
+   * open, this page reads it (or has read it, `read`). Either way the list is read once after the create and the
+   * warning says once what the read came to, as today's (Clinical.tsx labWarning :1447-1448, createAndSend :1659-1667).
+   */
+  const open = async (requestId: string | undefined, said: { success: string } | { warning: CreateWarning }, read?: Reload) => {
     if (requestId) {
       setFlash({ orderId: requestId, ...said })
       navigate(href(encounterId, 'orders', 'laboratory', requestId))
       return
     }
-    if (said.success) setSuccess(said.success)
-    if (said.error) setPageError(said.error)
+    if ('success' in said) setSuccess(said.success)
+    else {
+      const { text, what, listChanged } = said.warning
+      setPageError(`${text}${reloadSentence(read ?? await reload(), what, listChanged)}`)
+    }
     reset()
   }
 
@@ -341,32 +351,29 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
         throw new Error(`${/[.!?]$/.test(said) ? said : `${said}.`} The lab request may have been saved and active even so: check the list before creating it again.${reloadSentence(items, 'lab requests', false)}`)
       }
       const named = handoffNames(caught.message)
-      const items = await reload()
-      const requestId = named.requestId ?? (Array.isArray(items) ? (items as SavedRecord[]).find(item => item.status === 'active'
-        && item.testCodeSystem === body.testCodeSystem && item.testCode === body.testCode)?.id : undefined)
       attempt.clear()
       const text = caught.code === 'LAB_HANDOFF_REFUSED'
         ? `Lab request saved and active in the EHR, but Lab refused it${named.code ? ` (${named.code})` : ''}, so the Laboratory does not have it. Do not create it again: once that is resolved, ${sendItFrom(canSendToLab)}.`
         : `Lab request saved and active in the EHR, but Lab did not confirm it, so the Laboratory may not have it. Do not create it again: to send it again, ${sendItFrom(canSendToLab)}.`
-      open(requestId, { error: `${text}${reloadSentence(items, 'request', false)}` })
-      return
+      const warning = { text, what: 'request', listChanged: false }
+      if (named.requestId) return open(named.requestId, { warning })
+      // A 502 names no request; the newest active one for this test heads the list read (Clinical.tsx:1480-1484).
+      const items = await reload()
+      const requestId = Array.isArray(items) ? (items as SavedRecord[]).find(item => item.status === 'active'
+        && item.testCodeSystem === body.testCodeSystem && item.testCode === body.testCode)?.id : undefined
+      return open(requestId, { warning }, items)
     }
     attempt.clear()
     if (activeLab && !saved) {
       await reload()
-      open(undefined, { success: 'Active lab request created; check it in the list.' })
-      return
+      return open(undefined, { success: 'Active lab request created; check it in the list.' })
     }
     const outcome: LabOutcome | null = !activeLab ? null : saved.labHandoff === undefined || saved.labHandoff?.state === 'accepted'
       ? { accepted: true, text: 'Active lab request created and accepted by Lab.' }
       : labHandoffOutcome(saved.labHandoff ?? null, 'created', canSendToLab)
     const savedId = typeof saved?.id === 'string' ? saved.id : undefined
-    if (!outcome || outcome.accepted) {
-      open(savedId, { success: outcome?.text ?? SAVED })
-      return
-    }
-    const items = await reload()
-    open(savedId, { error: `${outcome.text}${reloadSentence(items, 'request', outcome.listChanged === true)}` })
+    if (!outcome || outcome.accepted) return open(savedId, { success: outcome?.text ?? SAVED })
+    return open(savedId, { warning: { text: outcome.text, what: 'request', listChanged: outcome.listChanged === true } })
   }
 
   const createAndSend = async (body: Record<string, unknown>, key: string, destination: NonNullable<DestinationChoice['destination']>, attestationTextVersion: string) => {
@@ -387,17 +394,12 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
         else notSent = refusal.text
       }
     }
-    const items = await reload()
     if (unanswered) {
-      open(savedId, { error: `Saved. Health ID did not answer the send, so it may or may not have gone to ${destination.facilityName}: `
-        + `check the row below before sending it again.${reloadSentence(items, 'lab requests', true)}` })
-      return
+      return open(savedId, { warning: { text: `Saved. Health ID did not answer the send, so it may or may not have gone to ${destination.facilityName}: `
+        + 'check the row below before sending it again.', what: 'lab requests', listChanged: true } })
     }
-    if (notSent) {
-      open(savedId, { error: `${savedNotSent(notSent)}${reloadSentence(items, 'lab requests', false)}` })
-      return
-    }
-    open(savedId, { success: `Lab request created and sent to ${destination.facilityName}. It waits there until ${destination.facilityName} accepts it, and ${context.patient} is told in the Health ID app.` })
+    if (notSent) return open(savedId, { warning: { text: savedNotSent(notSent), what: 'lab requests', listChanged: false } })
+    return open(savedId, { success: `Lab request created and sent to ${destination.facilityName}. It waits there until ${destination.facilityName} accepts it, and ${context.patient} is told in the Health ID app.` })
   }
 
   const submit = async (values: FormValues): Promise<SubmitOutcome> => {
@@ -407,7 +409,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
     setRouteErrors({})
     const toAnother = handling === 'route' && routable
     if (handling !== 'draft' && !(handling === 'active' && canSendToLab) && !toAnother) {
-      setHandlingError(canSendToLab ? 'Choose to save a draft or send it.' : 'Choose to save it as a draft.')
+      setHandlingError(canSendToLab ? 'Choose draft or active request.' : 'Choose a draft request.')
       handlingRef.current?.focus()
       return false
     }
@@ -432,6 +434,10 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
       if (toAnother && choice.destination && choice.attestation) await createAndSend(body, key, choice.destination, choice.attestation.version)
       else await create(body, key)
     } catch (caught) {
+      // A refused request handling ('status') is marked at its select, as today's markRefused marks the control named
+      // status (staff/routes/Clinical.tsx:546-548, :570).
+      const handlingRefused = refusedFields(caught).find(item => item.field === 'status')
+      if (handlingRefused) setHandlingError(refusalSentences(handlingRefused).join(' '))
       return refused(caught, LAB_FIELDS)
     }
   }
@@ -447,7 +453,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
         fields={LAB_FIELDS}
         onSubmit={submit}
         confirm={confirmLab}
-        submitLabel={sendingElsewhere && choice.destination ? `Send to ${choice.destination.facilityName}` : handling === 'active' && canSendToLab ? 'Send lab request' : 'Save draft'}
+        submitLabel={sendingElsewhere && choice.destination ? `Create and send to ${choice.destination.facilityName}` : 'Create lab request'}
         busyLabel={sendingElsewhere ? 'Sending…' : 'Saving…'}
       >
         <div className="hid-ehr-clinical-form-grid hid-ehr-clinical-orders-choices">
@@ -456,12 +462,12 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
               {PRIORITIES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
             </EhrSelect>
           </EhrField>
-          <EhrField label={<>What to do with it<span aria-hidden="true"> *</span></>} error={handlingError || undefined}>
+          <EhrField label={<>Request handling<span aria-hidden="true"> *</span></>} error={handlingError || undefined}>
             <EhrSelect ref={handlingRef} required value={handling} aria-describedby={warningId}
               onChange={event => { setHandling(event.target.value); setHandlingError(''); setRouteErrors({}) }}>
               <option value="draft">Save as a draft</option>
-              {canSendToLab ? <option value="active">{routable ? 'Send to this facility’s laboratory' : 'Send to the laboratory'}</option> : null}
-              {routable ? <option value="route">Send to another laboratory</option> : null}
+              {canSendToLab ? <option value="active">{routable ? 'Create active request and send to this facility’s Lab' : 'Create active request and send to Lab'}</option> : null}
+              {routable ? <option value="route">Create and send to another laboratory</option> : null}
             </EhrSelect>
           </EhrField>
         </div>

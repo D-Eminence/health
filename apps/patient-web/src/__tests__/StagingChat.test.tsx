@@ -228,3 +228,36 @@ it('allows an explicit new conversation after saved-history loading fails, then 
  fireEvent.change(screen.getByLabelText('Your question'),{target:{value:'What can you do?'}})
  await waitFor(()=>expect((screen.getByRole('button',{name:'Send question'}) as HTMLButtonElement).disabled).toBe(false))
 })
+// Where each source's facts came from (the owner's decision 25), in the screen's own words: to the patient "You added
+// this", "Recorded by a health worker" or "From a scanned paper record", to a clinician the same about the patient; a
+// source the service gave no origin for shows as before.
+const typed = (number: number, title: string, origin?: string) => ({ number, kind: 'note', id: `2222222${number}-2222-4222-8222-222222222222`,
+  version: '1', title, recordedAt: '2026-10-01T10:00:00Z', effectiveAt: null, provenance: 'Clinical note', quality: 'signed', ...(origin ? { origin } : {}) })
+const sourced = { status: 'ready' as const, answer: 'Here is what your records say [1] [2] [3] [4] [5].', sources: [
+  typed(1, 'Malaria test you added', 'patient'), typed(2, 'Clinic visit', 'health_worker'), typed(3, 'Old discharge letter', 'scanned_paper'),
+  typed(4, 'Your profile', 'health_id_profile'), typed(5, 'Older note'),
+] }
+async function ask(view: () => void) {
+  view()
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
+  fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'Where is this from?' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
+  await screen.findByText(sourced.answer)
+}
+const sourceRow = (title: string) => screen.getByText(title).closest('li') as HTMLElement
+it('says to the patient where each source came from', async () => {
+  await ask(() => render(<SessionContext.Provider value={createTestSessionValue(patient, apiFor(vi.fn().mockResolvedValue(sourced)) as never)}><PatientChat /></SessionContext.Provider>))
+  expect(sourceRow('Malaria test you added').textContent).toContain('You added this')
+  expect(sourceRow('Clinic visit').textContent).toContain('Recorded by a health worker')
+  expect(sourceRow('Old discharge letter').textContent).toContain('From a scanned paper record')
+  expect(sourceRow('Your profile').textContent).toContain('From your Health ID profile')
+  expect(sourceRow('Older note').querySelector('.record-chat-source-origin')).toBeNull()
+})
+it('says to a clinician where each source came from, about the patient', async () => {
+  const api = { ...apiFor(vi.fn().mockResolvedValue(sourced)), chatSource: vi.fn() } as unknown as StagingChatConversationApi
+  await ask(() => render(<StagingChatConversation api={api} staff={{ patientName: 'Synthetic A', hid: 'HID-AAAAAA', facilityName: 'Synthetic hospital' }} />))
+  expect(sourceRow('Malaria test you added').textContent).toContain('Added by the patient')
+  expect(sourceRow('Malaria test you added').textContent).not.toContain('You added this')
+  expect(sourceRow('Clinic visit').textContent).toContain('Recorded by a health worker')
+  expect(sourceRow('Your profile').textContent).toContain('From the patient’s Health ID profile')
+})

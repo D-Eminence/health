@@ -28,6 +28,21 @@ class ProductionContractTests(unittest.TestCase):
             bad = copy.deepcopy(self.config); bad['hosts'][app] = 'evil.example'
             with self.assertRaises(ValueError): validate_config(bad, 'production')
 
+    def test_release_puts_the_product_sites_live_before_app(self):
+        # build-production.py builds the sites in the order of config/production.json hosts, the manifest keeps
+        # that order and deploy-production-workers.py puts them live in it (a failed release is undone in
+        # reverse). app. sends every /provider/* address to a product site, and a product site released before
+        # app. went patient-only sends /provider/recover back to app.: if app. went live first, the two would
+        # redirect to each other until the browser gave up. So every product site goes live before app.
+        order = list(self.config['hosts'])
+        for product in ('ehr', 'lab', 'pharmacy', 'ocr', 'outreach'):
+            self.assertLess(order.index(product), order.index('web'), product + ' must go live before app.')
+        # Undoing a release with the rollback workflow restores the sites in PRODUCTION_HOSTS order, so there
+        # the older app. (which still serves the staff pages) comes back before the older product sites.
+        rollback = list(release_profile('production')[0])
+        for product in ('ehr', 'lab', 'pharmacy', 'ocr', 'outreach'):
+            self.assertLess(rollback.index('web'), rollback.index(product), 'app. must be restored before ' + product)
+
     def test_production_manifest_rejects_cross_environment_and_asset_changes(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
