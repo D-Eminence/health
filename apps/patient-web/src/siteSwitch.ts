@@ -6,7 +6,8 @@ import { offeredHere, siteElsewhere, siteHref, siteOf, SITE_NAMES, STAFF_SITES, 
  * staff site, a person opens another from its list of sites. The link says which site they left (`from`) and the page
  * they were on (`back`), and nothing else. The site they arrive on reads both once, as the page loads, takes them out
  * of the address, keeps them in this page's memory only, and offers "Back to <site>" to that page on that site's fixed
- * hostname.
+ * hostname. A single product's site never links to the EHR site (owner: #68, #113), so it offers no way back there; the
+ * EHR site offers the way back to any product's site.
  *
  * Dark: only a build that sets VITE_HID_SSO to "1" or "true" does any of this, as the sign-in hand-off reads it
  * (packages/config ssoEnabled, #100). Unset or anything else, every link is today's siteHref, and no address is read or
@@ -80,7 +81,10 @@ const SWITCH_KEYS: ReadonlySet<string> = new Set(['from', 'back'])
 let arrival: SwitchArrival | null = null
 let taken = false
 
-/** The arrival `from` and `back` describe, or null when they do not name a page of another staff site. */
+/**
+ * The arrival `from` and `back` describe, or null when they do not name a page of another staff site, or when they name
+ * the EHR site and this is a single product's site, which never links there.
+ */
 function arrivalFrom(from: readonly string[], back: readonly string[], hostname: string): SwitchArrival | null {
   // One of each at most, and a site: a repeated key is a link no site of ours writes.
   if (from.length !== 1 || back.length > 1) return null
@@ -89,6 +93,8 @@ function arrivalFrom(from: readonly string[], back: readonly string[], hostname:
   // Another staff site of this deployment: null on that site itself, and on any host that is not a Health ID site.
   const site = siteElsewhere(key, hostname)
   if (!site) return null
+  // This host is a staff site other than `key`'s, so from the EHR site it is a single product's: no way back there.
+  if (key === 'ehr') return null
   const asked = back[0]
   // A page the site left opens itself (productSites.ts offeredHere): never another product's page, nor, on a product's
   // site, a page of the hospital EHR's, which would only open that product's Home.

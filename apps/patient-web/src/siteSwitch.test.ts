@@ -162,10 +162,10 @@ describe('takeSwitchArrival, on', () => {
   it('takes from and back out of the address, keeping the rest of it and the history entry’s state', async () => {
     vi.stubEnv('VITE_HID_SSO', '1')
     const { takeSwitchArrival, switchArrival } = await loadAt(
-      `https://${LAB}/provider/laboratory?view=day&from=ehr&q=a+b%20c&back=%2Fprovider%2Fpatients#top`)
+      `https://${LAB}/provider/laboratory?view=day&from=pharmacy&q=a+b%20c&back=%2Fprovider%2Fpatients#top`)
     window.history.replaceState({ usr: null, key: 'router-key', idx: 0 }, '')
     const arrival = takeSwitchArrival()
-    expect(arrival).toEqual({ from: 'ehr', name: 'Hospital EHR', path: '/provider/patients', href: 'https://ehr.healthidentitydirectory.com/provider/patients' })
+    expect(arrival).toEqual({ from: 'pharmacy', name: 'Pharmacy', path: '/provider/patients', href: 'https://pharmacy.healthidentitydirectory.com/provider/patients' })
     expect(switchArrival()).toBe(arrival)
     expect(address()).toBe('/provider/laboratory?view=day&q=a+b%20c#top')
     expect(window.history.state).toEqual({ usr: null, key: 'router-key', idx: 0 })
@@ -173,20 +173,20 @@ describe('takeSwitchArrival, on', () => {
 
   it('takes them out however their names are written', async () => {
     vi.stubEnv('VITE_HID_SSO', '1')
-    const { takeSwitchArrival } = await loadAt(`https://${LAB}/provider?%66rom=ehr&b%61ck=%2Fprovider%2Fpatients`)
-    expect(takeSwitchArrival()?.href).toBe('https://ehr.healthidentitydirectory.com/provider/patients')
+    const { takeSwitchArrival } = await loadAt(`https://${LAB}/provider?%66rom=pharmacy&b%61ck=%2Fprovider%2Fpatients`)
+    expect(takeSwitchArrival()?.href).toBe('https://pharmacy.healthidentitydirectory.com/provider/patients')
     expect(address()).toBe('/provider')
   })
 
   it('reads once: later addresses are never read, and the first arrival stays', async () => {
     vi.stubEnv('VITE_HID_SSO', '1')
-    const { takeSwitchArrival, switchArrival } = await loadAt(`https://${LAB}/provider?from=ehr`)
+    const { takeSwitchArrival, switchArrival } = await loadAt(`https://${LAB}/provider?from=pharmacy`)
     const first = takeSwitchArrival()
-    window.history.pushState(null, '', '/provider/laboratory?from=pharmacy&back=%2Fprovider%2Fpharmacy')
+    window.history.pushState(null, '', '/provider/laboratory?from=outreach&back=%2Fprovider%2Foutreach')
     const replace = vi.spyOn(window.history, 'replaceState')
     expect(takeSwitchArrival()).toBe(first)
-    expect(switchArrival()?.from).toBe('ehr')
-    expect(address()).toBe('/provider/laboratory?from=pharmacy&back=%2Fprovider%2Fpharmacy')
+    expect(switchArrival()?.from).toBe('pharmacy')
+    expect(address()).toBe('/provider/laboratory?from=outreach&back=%2Fprovider%2Foutreach')
     expect(replace).not.toHaveBeenCalled()
   })
 
@@ -194,21 +194,21 @@ describe('takeSwitchArrival, on', () => {
     vi.stubEnv('VITE_HID_SSO', '1')
     const { takeSwitchArrival } = await loadAt(`https://${LAB}/provider`)
     expect(takeSwitchArrival()).toBeNull()
-    window.history.pushState(null, '', '/provider?from=ehr')
+    window.history.pushState(null, '', '/provider?from=pharmacy')
     expect(takeSwitchArrival()).toBeNull()
-    expect(address()).toBe('/provider?from=ehr')
+    expect(address()).toBe('/provider?from=pharmacy')
   })
 
   it.each([
-    [`https://${LAB}//evil.example/?from=ehr`, '//evil.example/'],
-    [`https://${LAB}/\\evil.example?from=ehr&back=%2Fprovider`, '//evil.example'],
-    [`https://${LAB}//evil.example/provider?view=day&from=ehr#top`, '//evil.example/provider'],
+    [`https://${LAB}//evil.example/?from=pharmacy`, '//evil.example/'],
+    [`https://${LAB}/\\evil.example?from=pharmacy&back=%2Fprovider`, '//evil.example'],
+    [`https://${LAB}//evil.example/provider?view=day&from=pharmacy#top`, '//evil.example/provider'],
   ])('takes them out of %s and stays on this site, though the path reads like a host', async (url, pathname) => {
     vi.stubEnv('VITE_HID_SSO', '1')
     const { takeSwitchArrival } = await loadAt(url)
     let arrival: unknown
     expect(() => { arrival = takeSwitchArrival() }).not.toThrow()
-    expect(arrival).toEqual({ from: 'ehr', name: 'Hospital EHR', path: '/provider', href: 'https://ehr.healthidentitydirectory.com/provider' })
+    expect(arrival).toEqual({ from: 'pharmacy', name: 'Pharmacy', path: '/provider', href: 'https://pharmacy.healthidentitydirectory.com/provider' })
     expect(window.location.hostname).toBe(LAB)
     expect(window.location.pathname).toBe(pathname)
     expect(window.location.search).not.toMatch(/from|back/)
@@ -216,7 +216,7 @@ describe('takeSwitchArrival, on', () => {
 
   it('never throws, and offers no way back, when the address cannot be changed (main.tsx calls it before React)', async () => {
     vi.stubEnv('VITE_HID_SSO', '1')
-    const { takeSwitchArrival, switchArrival } = await loadAt(`https://${LAB}/provider?from=ehr&back=%2Fprovider%2Fpatients`)
+    const { takeSwitchArrival, switchArrival } = await loadAt(`https://${LAB}/provider?from=pharmacy&back=%2Fprovider%2Fpatients`)
     vi.spyOn(window.history, 'replaceState').mockImplementation(() => { throw new DOMException('refused', 'SecurityError') })
     expect(() => takeSwitchArrival()).not.toThrow()
     expect(takeSwitchArrival()).toBeNull()
@@ -234,8 +234,8 @@ describe('takeSwitchArrival, on', () => {
 
   it.each(BAD_BACK_PATHS)('comes back to the other site’s workspace, never to %j', async path => {
     vi.stubEnv('VITE_HID_SSO', '1')
-    const { takeSwitchArrival } = await loadAt(`https://${LAB}/provider?from=ehr&back=${encodeURIComponent(path)}`)
-    expect(takeSwitchArrival()).toEqual({ from: 'ehr', name: 'Hospital EHR', path: '/provider', href: 'https://ehr.healthidentitydirectory.com/provider' })
+    const { takeSwitchArrival } = await loadAt(`https://${LAB}/provider?from=pharmacy&back=${encodeURIComponent(path)}`)
+    expect(takeSwitchArrival()).toEqual({ from: 'pharmacy', name: 'Pharmacy', path: '/provider', href: 'https://pharmacy.healthidentitydirectory.com/provider' })
     expect(address()).toBe('/provider')
   })
 
@@ -271,8 +271,32 @@ describe('takeSwitchArrival, on', () => {
     expect(address()).toBe('/provider')
   })
 
+  it.each([LAB, PHARMACY, 'migrate.healthidentitydirectory.com', 'outreach.healthidentitydirectory.com', 'lab.staging.healthidentitydirectory.com'])(
+    'offers no way back to the EHR site on %s, a single product’s site, which never links there (#68, #113)', async hostname => {
+      vi.stubEnv('VITE_HID_SSO', '1')
+      const { takeSwitchArrival, switchArrival, switchArrivalQuery } =
+        await loadAt(`https://${hostname}/provider?view=day&from=ehr&back=%2Fprovider%2Fpatients`)
+      expect(takeSwitchArrival()).toBeNull()
+      expect(switchArrival()).toBeNull()
+      expect(switchArrivalQuery()).toBe('')
+      // Still taken out of the address, as any arrival is.
+      expect(address()).toBe('/provider?view=day')
+    })
+
   it.each([
-    'from=ehr&from=pharmacy', 'from=ehr&back=%2Fprovider&back=%2Fprovider%2Fpatients', 'back=%2Fprovider%2Fpatients',
+    ['lab', '/provider/laboratory/work', 'https://lab.healthidentitydirectory.com/provider/laboratory/work', 'Laboratory'],
+    ['pharmacy', '/provider/pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider/pharmacy', 'Pharmacy'],
+    ['migrate', '/provider/ocr', 'https://migrate.healthidentitydirectory.com/provider/ocr', 'Migrate'],
+    ['outreach', '/provider/outreach', 'https://outreach.healthidentitydirectory.com/provider/outreach', 'Outreach'],
+  ])('on the EHR site, offers the way back to %s’s site', async (from, back, href, name) => {
+    vi.stubEnv('VITE_HID_SSO', '1')
+    const { takeSwitchArrival } = await loadAt(`https://${EHR}/provider?from=${from}&back=${encodeURIComponent(back)}`)
+    expect(takeSwitchArrival()).toEqual({ from, name, path: back, href })
+    expect(address()).toBe('/provider')
+  })
+
+  it.each([
+    'from=pharmacy&from=outreach', 'from=pharmacy&back=%2Fprovider&back=%2Fprovider%2Fpatients', 'back=%2Fprovider%2Fpatients',
   ])('offers no way back for a link no site writes (%s)', async query => {
     vi.stubEnv('VITE_HID_SSO', '1')
     const { takeSwitchArrival } = await loadAt(`https://${LAB}/provider?${query}`)
@@ -282,8 +306,8 @@ describe('takeSwitchArrival, on', () => {
 
   it('comes back within the deployment: staging to staging', async () => {
     vi.stubEnv('VITE_HID_SSO', '1')
-    const { takeSwitchArrival } = await loadAt('https://lab.staging.healthidentitydirectory.com/provider?from=ehr&back=%2Fprovider%2Fpatients')
-    expect(takeSwitchArrival()?.href).toBe('https://ehr.staging.healthidentitydirectory.com/provider/patients')
+    const { takeSwitchArrival } = await loadAt('https://lab.staging.healthidentitydirectory.com/provider?from=pharmacy&back=%2Fprovider%2Fpatients')
+    expect(takeSwitchArrival()?.href).toBe('https://pharmacy.staging.healthidentitydirectory.com/provider/patients')
   })
 
   it.each(['app.healthidentitydirectory.com', 'admin.healthidentitydirectory.com', 'localhost'])(
@@ -301,12 +325,12 @@ describe('switchArrivalQuery', () => {
     let loaded = await loadAt(`https://${LAB}/provider`)
     loaded.takeSwitchArrival()
     expect(loaded.switchArrivalQuery()).toBe('')
-    loaded = await loadAt(`https://${LAB}/provider?from=ehr&back=%2Fprovider%2Fpatients&view=day`)
+    loaded = await loadAt(`https://${LAB}/provider?from=pharmacy&back=%2Fprovider%2Fpatients&view=day`)
     loaded.takeSwitchArrival()
-    expect(loaded.switchArrivalQuery()).toBe('from=ehr&back=%2Fprovider%2Fpatients')
-    loaded = await loadAt(`https://${LAB}/provider?from=ehr&back=%2F%2Fevil.example`)
+    expect(loaded.switchArrivalQuery()).toBe('from=pharmacy&back=%2Fprovider%2Fpatients')
+    loaded = await loadAt(`https://${LAB}/provider?from=pharmacy&back=%2F%2Fevil.example`)
     loaded.takeSwitchArrival()
-    expect(loaded.switchArrivalQuery()).toBe('from=ehr')
+    expect(loaded.switchArrivalQuery()).toBe('from=pharmacy')
   })
 })
 

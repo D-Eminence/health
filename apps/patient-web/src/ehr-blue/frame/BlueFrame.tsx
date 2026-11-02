@@ -149,9 +149,10 @@ interface UsableSite { readonly key: Site['key']; readonly name: string; readonl
 /**
  * Signed in, at a facility whose roles give this person nothing of this site's product (pageAccess.ts productUsable):
  * the page says so, and offers the way back to the site they came from, never a sign-in. Without one in memory (an
- * address typed, or the sign-in hand-off's round trip, which leaves the page), it offers the other staff sites whose
- * product the same roles do open (a product's site never links to the EHR site, #113), or none. The pages every staff
- * site serves (staff, audit, subscription) still open from the sidebar where the roles allow them.
+ * address typed, the sign-in hand-off's round trip, which leaves the page, or an arrival from the EHR site, which a
+ * product's site never links back to), it offers the other staff sites whose product the same roles do open (a
+ * product's site never links to the EHR site, #113), or none. The pages every staff site serves (staff, audit,
+ * subscription) still open from the sidebar where the roles allow them.
  */
 function ProductNotForAccount({ product, facility, arrival, usable, choosing }: {
   product: string; facility: string; arrival: SwitchArrival | null; usable: readonly UsableSite[]; choosing: boolean
