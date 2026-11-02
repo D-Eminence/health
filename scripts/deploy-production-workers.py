@@ -251,6 +251,18 @@ def prepared_configs():
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
     return module.build.prepare(dry_run=False, environment="production")["configs"]
 
+# The sites whose front page depends on a sign-in there (frontend-worker.mjs, frontPage), each bound to the public
+# site's Worker as PUBLIC_SITE: to someone not signed in, a product site's "/" is its landing page and the patient
+# portal's is the public site's patient page; someone signed in goes to a product site's workspace (/provider) or gets
+# the portal's own index.html, as before.
+LANDING_APPS = ("ehr","lab","pharmacy","ocr","outreach","web")
+# Each one's canonical address on its landing page, which only a version with the landing page writes.
+LANDING_CANONICAL = {app:"https://"+HOSTS[app]+"/" for app in LANDING_APPS if app != "web"}
+LANDING_CANONICAL["web"] = "https://"+HOSTS["public"]+"/patients"
+# The cookie whose presence alone means "signed in" to the edge (identity-api session-cookies.ts, AUTH_COOKIE_NAME
+# 'hid_access'). The release sends a placeholder value: the edge never reads it, and no page it asks for does either.
+SIGNED_IN_COOKIE = "hid_access_csrf=release-check"
+
 def validate_config(config,app,assets):
     expected = {"name":"hid-"+app+"-production","main":(ROOT/"infra/cloudflare/src/frontend-worker.mjs").as_posix(),
         "compatibility_date":"2026-10-01","workers_dev":False,"preview_urls":False,
@@ -259,6 +271,7 @@ def validate_config(config,app,assets):
                   "not_found_handling":"404-page" if app == "public" else "single-page-application"},
         "vars":{"DEPLOYMENT_ENV":"production","APP_NAME":app,"EXPECTED_HOST":HOSTS[app],
                 "API_ORIGIN":"https://api.healthidentitydirectory.com"}}
+    if app in LANDING_APPS: expected["services"] = [{"binding":"PUBLIC_SITE","service":"hid-public-production"}]
     require(config == expected, "UNEXPECTED_WORKER_CONFIGURATION")
 
 class AssetRefs(HTMLParser):
@@ -283,32 +296,57 @@ def matches(data,digest,html=False):
 PROPAGATION_SECONDS = 90
 PROPAGATION_RETRY_SECONDS = 3
 PROPAGATION_CODES = frozenset({"WORKER_ASSET_NOT_YET_SERVED","WORKER_ASSET_UNREACHABLE","LIVE_HTML_BYTES_DIFFER",
-    "LIVE_ENTRY_ASSET_BYTES_DIFFER","WORKER_DEEP_LINK_DIFFERS","PUBLIC_DEEP_LINK_DIFFERS"})
+    "LIVE_ENTRY_ASSET_BYTES_DIFFER","WORKER_DEEP_LINK_DIFFERS","PUBLIC_DEEP_LINK_DIFFERS","LANDING_PAGE_NOT_YET_SERVED",
+    "SIGNED_IN_FRONT_PAGE_NOT_YET_SERVED",
+    # A front page without its private headers can still be the previous version's, which answers the same bytes: a
+    # version from before the patient page answers a signed-in patient the portal's index.html, unchanged if the portal's
+    # build is, and one from before the signed-in front pages answers a stranger the same landing page. Only an answer
+    # still without them when the wait is over is this version's.
+    "FRONT_PAGE_CACHE_HEADERS_DIFFER"})
 
-def verify_assets(app,manifest_entry):
+def verify_assets(app,manifest_entry,landing=None,signed_in=None):
+    # landing: whether the version checked answers a stranger at its front page with its landing page; signed_in:
+    # whether its front page is also private, and sends someone signed in to the workspace's entrance or the portal. A
+    # version this run uploads does both if it is one of LANDING_APPS; a version restored by a rollback does what its
+    # release recorded (recorded_front_page).
+    landing = app in LANDING_APPS if landing is None else bool(landing)
+    signed_in = landing if signed_in is None else landing and bool(signed_in)
     deadline = time.monotonic()+PROPAGATION_SECONDS
     while True:
-        try: return verify_live_assets(app,manifest_entry)
+        try: return verify_live_assets(app,manifest_entry,landing,signed_in)
         except ReleaseError as error:
             if str(error) not in PROPAGATION_CODES or time.monotonic() >= deadline: raise
             print(json.dumps({"app":app,"waiting_for_edge":str(error),
                 "seconds_left":round(deadline-time.monotonic())}), flush=True)
             time.sleep(PROPAGATION_RETRY_SECONDS)
 
-def verify_live_assets(app,manifest_entry):
+def recorded_front_page(checks):
+    # What a release verified at a site's front page, and so what a rollback to it checks there: its landing page since
+    # the first release with one (landing_page_verified), and its answers that depend on a sign-in since the first
+    # release with those (signed_in_front_page_verified). A release with the landing page alone recorded only the first.
+    return {"landing":bool(checks.get("landing_page_verified")),"signed_in":bool(checks.get("signed_in_front_page_verified"))}
+
+def private_front_page(headers):
+    # A front page that depends on a sign-in is never stored, and varies with the cookie (frontend-worker.mjs, frontPage).
+    vary = [name.strip().lower() for name in (headers.get("vary") or "").split(",")]
+    return "no-store" in (headers.get("cache-control") or "").lower() and "cookie" in vary
+
+def verify_live_assets(app,manifest_entry,landing=False,signed_in=False):
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs): return None
     opener = urllib.request.build_opener(NoRedirect())
-    def get(path, asset=False):
-        request = urllib.request.Request("https://"+HOSTS[app]+"/"+path,
-            headers={"User-Agent":"HID-Production-Release/1","Accept-Encoding":"identity","Cache-Control":"no-cache"})
+    def request_for(path, signed_in):
+        headers = {"User-Agent":"HID-Production-Release/1","Accept-Encoding":"identity","Cache-Control":"no-cache"}
+        if signed_in: headers["Cookie"] = SIGNED_IN_COOKIE
+        return urllib.request.Request("https://"+HOSTS[app]+"/"+path, headers=headers)
+    def get(path, asset=False, signed_in=False, front=False):
         try:
-            with opener.open(request,timeout=30) as response:
+            with opener.open(request_for(path,signed_in),timeout=30) as response:
                 require(response.status == 200 and response.headers.get("x-content-type-options") == "nosniff"
                         and response.headers.get("x-frame-options") == "DENY", "WORKER_HEADERS_OR_STATUS_DIFFER")
                 payload = response.read(25_000_001)
                 require(len(payload) <= 25_000_000, "LIVE_ASSET_SIZE_LIMIT")
-                return payload
+                return (payload, response.headers) if front else payload
         except urllib.error.HTTPError as error:
             # Only a new asset can be missing from an edge that still runs the previous version.
             raise ReleaseError("WORKER_ASSET_NOT_YET_SERVED" if asset and error.code == 404
@@ -316,12 +354,41 @@ def verify_live_assets(app,manifest_entry):
         except (urllib.error.URLError, OSError, http.client.HTTPException):
             # Includes a timeout, reset or cut-off body met after the request was sent, which urllib passes on unwrapped.
             raise ReleaseError("WORKER_ASSET_UNREACHABLE") from None
-    html = get("")
+    def redirect_of_front_page():
+        # A product site's "/" for someone signed in: its workspace's entrance, or (the previous version) its index.html.
+        try:
+            with opener.open(request_for("",True),timeout=30) as response:
+                response.read(25_000_001)
+                return None
+        except urllib.error.HTTPError as error:
+            require(error.code == 302 and error.headers.get("x-content-type-options") == "nosniff"
+                    and error.headers.get("x-frame-options") == "DENY", "WORKER_ASSET_REQUEST_FAILED")
+            require(private_front_page(error.headers), "FRONT_PAGE_CACHE_HEADERS_DIFFER")
+            return error.headers.get("location")
+        except (urllib.error.URLError, OSError, http.client.HTTPException):
+            raise ReleaseError("WORKER_ASSET_UNREACHABLE") from None
+    def landing_page():
+        # The landing page as this version serves it to someone not signed in: from the public site, with this site's
+        # canonical address, which no version from before the landing pages writes (it answers its index.html).
+        page, headers = get("",front=True)
+        require(('<link rel="canonical" href="'+LANDING_CANONICAL[app]+'">').encode() in page, "LANDING_PAGE_NOT_YET_SERVED")
+        if signed_in: require(private_front_page(headers), "FRONT_PAGE_CACHE_HEADERS_DIFFER")
+    # A site whose front page depends on a sign-in has its own index.html checked where it is always served: the
+    # portal's at its front page for someone signed in, a product site's at its staff sign-in. The portal's stranger is
+    # checked first: only a version with the patient page answers that, while every version answers its index.html.
+    if landing and app == "web":
+        landing_page()
+        html, headers = get("",signed_in=True,front=True)
+    else:
+        html, headers = get("provider/sign-in" if landing else ""), None
     if not matches(html,manifest_entry["files"]["index.html"],html=True):
         # Bytes only, never the page: enough to tell the previous release or an unknown insertion apart.
         print(json.dumps({"app":app,"live_html_sha256":sha(html),"live_html_bytes":len(html),
             "analytics_beacon":b"cloudflareinsights" in html}), flush=True)
         raise ReleaseError("LIVE_HTML_BYTES_DIFFER")
+    # Not only this version answers with this index.html: a previous one with the same portal build does too, without
+    # these headers, and is waited out (PROPAGATION_CODES).
+    if headers is not None and signed_in: require(private_front_page(headers), "FRONT_PAGE_CACHE_HEADERS_DIFFER")
     refs = AssetRefs(); refs.feed(html.decode("utf-8"))
     for path in refs.paths:
         require(path in manifest_entry["files"] and matches(get(path,asset=True),manifest_entry["files"][path]),
@@ -330,7 +397,20 @@ def verify_live_assets(app,manifest_entry):
         require(matches(get("admin/sign-in" if app == "admin" else "sign-in"),manifest_entry["files"]["index.html"],html=True), "WORKER_DEEP_LINK_DIFFERS")
     else:
         require(matches(get("about"),manifest_entry["files"]["about.html"],html=True), "PUBLIC_DEEP_LINK_DIFFERS")
-    return {"entry_assets_verified":len(refs.paths),"deep_link_verified":True}
+    checks = {"entry_assets_verified":len(refs.paths),"deep_link_verified":True}
+    if landing:
+        if app != "web":
+            # The landing page, then staff signed in there going to the workspace's entrance (the portal's two front
+            # pages are checked above).
+            landing_page()
+            if signed_in:
+                location = redirect_of_front_page()
+                require(location is not None, "SIGNED_IN_FRONT_PAGE_NOT_YET_SERVED")
+                require(location == "https://"+HOSTS[app]+"/provider", "SIGNED_IN_FRONT_PAGE_DIFFERS")
+        # Each recorded apart, as a rollback checks only what the release it restores recorded (recorded_front_page).
+        checks["landing_page_verified"] = True
+        if signed_in: checks["signed_in_front_page_verified"] = True
+    return checks
 
 def error_code(error):
     return str(error) if isinstance(error,ReleaseError) else "CONTROLLER_FAILED"
@@ -407,7 +487,7 @@ def deploy(mode):
                     body = aws.call("s3api","get-object",{"Bucket":store.bucket,"Key":archive["key"],
                         "VersionId":archive["version_id"],"ExpectedBucketOwner":ACCOUNT},extra=[str(path)])
                     require(body.get("SSEKMSKeyId") == store.key and file_sha(path) == archive["sha256"], "ROLLBACK_ARCHIVE_CHANGED")
-                    verify_assets(app,{"files":archive_files(path)})
+                    verify_assets(app,{"files":archive_files(path)},**recorded_front_page(after[app].get("checks",{})))
         else:
             require(release.get("operation") == "deploy", "DEPLOYMENT_OPERATION_DIFFERS")
             selected = entries()

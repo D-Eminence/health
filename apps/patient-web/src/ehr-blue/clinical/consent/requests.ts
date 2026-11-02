@@ -2,6 +2,7 @@ import { isHidApiError } from '@hid/http'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ACCESS_OUTCOME_FILTERS, ACCESS_REQUEST_STATUSES, staffApi, type AccessRequest, type AccessRequestStatus } from '../../../staff/api'
 import { accessRequestsError, outcome } from '../../../staff/routes/AccessRequests'
+import { accessLevelLabel } from '../../../plainLabels'
 import { formatWhen } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import type { RecordRow } from '../parts/RecordTable'
@@ -10,7 +11,7 @@ import { useClinical } from '../parts/Workspace'
 /** Today's filter wording (AccessRequests.tsx FILTER_LABELS, not exported there): the backend matches either. */
 export const FILTER_LABELS: Readonly<Record<AccessRequestStatus, string>> = {
   pending: 'Waiting for the patient', approved: 'Approved (any outcome)', denied: 'Denied',
-  active: 'Access active', expired: 'Expired', closed: 'Closed by you', revoked: 'Ended by the patient',
+  active: 'Access active', expired: 'Expired', closed: 'Closed by you', revoked: 'Revoked',
 }
 
 /** A Status filter from a request page's address, used only if it is one of today's. */
@@ -19,9 +20,10 @@ export function statusFilter(value: string | null): AccessRequestStatus | '' {
   return value !== null && filters.includes(value) ? value as AccessRequestStatus : ''
 }
 
+/** The access a facility asks for, in the words the patient sees for it too (plainLabels.ts). */
 export const SCOPE_LABELS: Readonly<Record<AccessRequest['scope'], string>> = {
-  read_records: 'See their records',
-  write_records: 'See and add to their records',
+  read_records: accessLevelLabel('read_records'),
+  write_records: accessLevelLabel('write_records'),
 }
 
 /** Today's close refusals (AccessRequests.tsx closeError, not exported there). */
@@ -60,7 +62,7 @@ export function statusNote(request: AccessRequest): string {
 export function requestDetails(request: AccessRequest): KeyValue[] {
   const items: KeyValue[] = [
     { label: 'Why', value: request.reason },
-    { label: 'What you asked for', value: SCOPE_LABELS[request.scope] ?? request.scope },
+    { label: 'What you asked for', value: accessLevelLabel(request.scope) },
     { label: 'How long', value: `${request.requestedDurationMinutes} minute${request.requestedDurationMinutes === 1 ? '' : 's'}` },
     { label: 'Patient', value: patientContext(request) },
     { label: 'Requested', value: formatWhen(request.requestedAt) },
@@ -85,7 +87,7 @@ export function requestRow(request: AccessRequest): RecordRow {
     id: request.accessRequestId,
     name: request.reason,
     context: patientContext(request),
-    contextSub: SCOPE_LABELS[request.scope] ?? request.scope,
+    contextSub: accessLevelLabel(request.scope),
     status: outcome(request).label,
     statusNote: statusNote(request) || undefined,
     updated: latest(request),

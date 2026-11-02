@@ -15,6 +15,7 @@ import { learnLateCorrectionServed, saysLateCorrection, useLateCorrectionServed 
 import { learnCannotCompleteFrom, useCannotCompleteServed } from '../../cannotCompleteServed'
 import { BETWEEN_FACILITIES } from '../betweenFacilities'
 import { selfServiceReview, selfServiceType } from '../staffAccess'
+import { LAB_WORK, refusedWorkText } from '../refusedWork'
 import {
   cannotCompleteOffered, handOverCheckText, holdsReceivePermission, licenceLine, receivingAnswer, receivingHere,
   rememberedReceiving, rememberReceiving, routeClosedForWork, routedWorkEndedText, sampleCheckText, wrongPatientOffered,
@@ -25,6 +26,7 @@ import { LateCorrectionDone, LateWrongPatient, type LateCorrection } from './Lat
 import {
   CannotCompleteEndings, endingKey, OrderEndingActions, type CannotCompleteEnding, type OrderEndingMode,
 } from './CannotComplete'
+import { useLearnDocumentTypesServed, useWorkItemDocumentsOffered, WorkItemDocuments, workItemDocumentsTitleId } from './WorkItemDocuments'
 
 /**
  * OCR's answer when EHR, Lab or Pharmacy refused OCR's own workload identity
@@ -84,6 +86,16 @@ function useFacilityAccess() {
   const { state } = useStaff()
   const facility = state.status === 'ready' ? state.session.actor.facility : undefined
   return { facilityId: facility?.id, membershipId: facility?.membershipId, permissions: facility?.permissions ?? [], facility }
+}
+
+/**
+ * A page this person can't open here, in plain words: screens name no permission (the owner's rule). Before a facility
+ * is chosen (the only time this portal shows on its own) there is no role yet, so it asks for one, beside "Working at";
+ * at a facility, it says `sentence`, whole. It is not named refusedHere, which took only the work a role lacks and
+ * wrote the sentence round it: a caller still passing that work fails to build rather than showing it on its own.
+ */
+function refusalAt(facilityId: string | undefined, sentence: string): string {
+  return facilityId ? sentence : 'Choose a facility under “Working at” first.'
 }
 
 /**
@@ -160,8 +172,10 @@ function RoutedWorkLines({ route }: { route: LabWorkItem['orderRoute'] }) {
  * backend that serves it, "We can't complete this order" while it is accepted (cannotCompleteOffered, D18). What a
  * refusal said stays beside the row's first line when the list read again no longer offers the form (`said`, UX-2).
  */
-function LabWorkRow({ facilityId, item, permissions, said, onOpen, onEnded, onNotCompleted, onReread }: {
+function LabWorkRow({ facilityId, item, permissions, said, onOpen, onDocuments, onEnded, onNotCompleted, onReread }: {
   facilityId: string; item: LabWorkItem; permissions: readonly string[]; said: string | null; onOpen: () => void
+  /** Opens the work item's result documents, once they are offered (documentTypes.ts); until then, nothing. */
+  onDocuments: (() => void) | null
   onEnded: (ending: WrongPatientEnding) => void
   onNotCompleted: (ending: Omit<CannotCompleteEnding, 'key'>) => void
   onReread: (routeId: string, mode: OrderEndingMode, said?: string) => Promise<void>
@@ -179,6 +193,7 @@ function LabWorkRow({ facilityId, item, permissions, said, onOpen, onEnded, onNo
     {item.accessionNumber && <p>Accession {item.accessionNumber}</p>}
     {prepare && route && item.patient && <p className="staff-muted">{sampleCheckText(item.patient.fullName)}</p>}
     {(open || prepare) && <Button tone="secondary" size="sm" onClick={onOpen}>{item.accessionId ? 'Open accession' : 'Prepare accession'}</Button>}
+    {onDocuments && <Button tone="secondary" size="sm" onClick={onDocuments}>Result documents</Button>}
     {wrongPatientOffered(route, permissions, 'lab') && <OrderEndingActions base={`lab-${item.id}`} service="lab"
       facilityId={facilityId} route={{ id: route.id, version: route.version, reference: route.reference }} title={title}
       patient={item.patient?.fullName ?? null} ordering={ordering}
@@ -894,7 +909,8 @@ export function Laboratory() {
   const canRead = permissions.includes('lab.work-item.read')
   const read = useFacilityRead(facilityId, canRead, useCallback(id => staffApi.labWorkItems(id), []))
   const list = { ...read, items: read.value ? read.value.items : null }
-  const [selection, setSelection] = useState<{ facilityId: string; item: LabWorkItem; created?: string } | null>(null)
+  // `documents`: chosen through its row's "Result documents" (documentTypes.ts), not "Open" or "Prepare accession".
+  const [selection, setSelection] = useState<{ facilityId: string; item: LabWorkItem; created?: string; documents?: true } | null>(null)
   // The chosen work, only while the list still holds it: work that has left the list (an order ended, here or elsewhere)
   // never shows its accession or its patient again, even once other work is listed (item 3).
   const selected = selection && selection.facilityId === facilityId
@@ -909,6 +925,10 @@ export function Laboratory() {
   useLearnWrongPatientServed(list.items)
   useLearnLateCorrectionServed(read.value)
   useLearnCannotCompleteServed(read.value)
+  // A work list answering `documentTypes: true` lets the chosen work show its result documents (documentTypes.ts). Until
+  // then nothing of them shows and nothing is read or sent: the page is exactly today's.
+  useLearnDocumentTypesServed(read.value)
+  const documents = useWorkItemDocumentsOffered('lab', permissions)
   // "Correct an order that has ended" (D17): for a member who receives lab requests from other facilities, once the
   // backend serves it; a laboratory that no longer receives may still hold past orders.
   const lateCorrection = useLateCorrectionServed() === true && holdsReceivePermission(facility, 'lab')
@@ -920,7 +940,7 @@ export function Laboratory() {
   const notCompleted = useNotCompletedEndings(facilityId)
   const said = useRowSaid('lab', read.value, list.refresh, (mode, route) => mode === 'wrong_patient'
     ? wrongPatientOffered(route, permissions, 'lab') : cannotCompleteOffered(route, permissions, 'lab', cannotServed))
-  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Laboratory unavailable" description="This facility membership needs lab work-item read permission." />
+  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Laboratory unavailable" description={refusalAt(facilityId, refusedWorkText(facility, permissions, LAB_WORK))} />
   function endedHere(item: LabWorkItem, ending: WrongPatientEnding) {
     if (!facilityId) return
     setEnded({ facilityId, ending })
@@ -942,6 +962,16 @@ export function Laboratory() {
     if (!readsKept(ending.result)) setSelection(current => current?.item.orderRoute?.id === ending.result.route.id ? null : current)
     void list.refresh()
   }
+  // The chosen work's accession (or the form preparing one), as today. Work chosen for its result documents shows only
+  // what its row offers (B3): the form only for work without an accession whose order may still be worked, never on a
+  // closed order nor on work already accessioned that this member cannot open.
+  const prepareOffered = !selection?.documents || (!selected?.accessionId && !routeClosedForWork(selectedRoute))
+  const accessionPanel = selected?.accessionId && permissions.includes('lab.accession.read') ? <AccessionView key={`${facilityId}-${selected.accessionId}`} facilityId={facilityId} id={selected.accessionId} permissions={permissions} created={selection?.created} routed={Boolean(selectedRoute)} closed={routeClosedForWork(selectedRoute)} onChanged={() => void list.refresh()} /> : selected && permissions.includes('lab.accession.create') && prepareOffered ? <AccessionForm facilityId={facilityId} item={selected} onCreated={accession => { setSelection({ facilityId, item: { ...selected, accessionId: accession.id, accessionNumber: accession.accessionNumber }, created: `Accession ${accession.accessionNumber} created.` }); focus('lab-accession-title', true); void list.refresh() }} /> : null
+  // Once offered, the chosen work's result documents below it: never attached to once its order has closed. The work
+  // item's own patient is sent, and never shown.
+  const resultDocuments = documents && selected ? <WorkItemDocuments kind="lab" facilityId={facilityId} workItemId={selected.id}
+    patientId={selected.patientId} permissions={permissions} writable={!routeClosedForWork(selectedRoute)}
+    about={selected.testName ?? 'Lab test'} /> : null
   return <>
     <PageHead eyebrow="Provider workspace" title="Laboratory">{holds
       ? 'Tests ordered at this facility, and lab requests from other facilities once you accept them. A separate accession records the specimen chain of custody.'
@@ -964,14 +994,18 @@ export function Laboratory() {
     {list.items && list.items.length > 0 && <div className="staff-two-col"><div className="staff-list">{notCompleted.shown(list.items).map(item => <LabWorkRow key={item.id}
       facilityId={facilityId} item={item} permissions={permissions} said={said.rowSaid(item.orderRoute?.id)}
       onOpen={() => setSelection({ facilityId, item })} onEnded={ending => endedHere(item, ending)}
+      onDocuments={documents && item.patientId ? () => { setSelection({ facilityId, item, documents: true }); focus(workItemDocumentsTitleId('lab', item.id)) } : null}
       onNotCompleted={notCompletedHere} onReread={said.reread} />)}</div>
-      {selected?.accessionId && permissions.includes('lab.accession.read') ? <AccessionView key={`${facilityId}-${selected.accessionId}`} facilityId={facilityId} id={selected.accessionId} permissions={permissions} created={selection?.created} routed={Boolean(selectedRoute)} closed={routeClosedForWork(selectedRoute)} onChanged={() => void list.refresh()} /> : selected && permissions.includes('lab.accession.create') ? <AccessionForm facilityId={facilityId} item={selected} onCreated={accession => { setSelection({ facilityId, item: { ...selected, accessionId: accession.id, accessionNumber: accession.accessionNumber }, created: `Accession ${accession.accessionNumber} created.` }); focus('lab-accession-title', true); void list.refresh() }} /> : <Card className="staff-card"><h2>Choose work</h2><p>Open an accession or prepare a specimen for an accepted order.</p></Card>}
+      {resultDocuments ? <div className="staff-stack">{accessionPanel}{resultDocuments}</div>
+        : accessionPanel ?? <Card className="staff-card"><h2>Choose work</h2><p>Open an accession or prepare a specimen for an accepted order.</p></Card>}
     </div>}
   </>
 }
 
-function PharmacyAction({ facilityId, item, permissions, said, onChanged, onEnded, onNotCompleted, onReread }: { facilityId: string
+function PharmacyAction({ facilityId, item, permissions, said, documents, onChanged, onEnded, onNotCompleted, onReread }: { facilityId: string
   item: PharmacyWorkItem; permissions: string[]; said: string | null
+  /** Whether its prescription sheets are offered (documentTypes.ts): until then, nothing of them shows. */
+  documents: boolean
   onChanged: () => Promise<void>; onEnded: (ending: WrongPatientEnding) => void
   onNotCompleted: (ending: Omit<CannotCompleteEnding, 'key'>) => void
   onReread: (routeId: string, mode: OrderEndingMode, said?: string) => Promise<void> }) {
@@ -983,6 +1017,8 @@ function PharmacyAction({ facilityId, item, permissions, said, onChanged, onEnde
   // as accepted, but cannot be dispensed. The list cannot tell, so it is known only once a
   // dispensing is refused (409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE), which does not say which.
   const [undispensable, setUndispensable] = useState(false)
+  // Its prescription sheets, once offered: shown, and read, only when asked for.
+  const [sheets, setSheets] = useState(false)
   // Recording removes the form once the work list is read again: focus goes to the prescription.
   const focus = useFocusById()
   const problems = useFieldProblems()
@@ -1041,6 +1077,11 @@ function PharmacyAction({ facilityId, item, permissions, said, onChanged, onEnde
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was recorded is announced. */}
     <div id={`pharmacy-status-${item.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
+    {/* Its prescription sheets, once offered (dormant until then): never attached to once its order has closed. The work
+        item's own patient is sent, and never shown. */}
+    {documents && item.patientId && <Button tone="secondary" size="sm" aria-expanded={sheets} onClick={() => setSheets(open => !open)}>Prescription sheets</Button>}
+    {documents && item.patientId && sheets && <WorkItemDocuments kind="pharmacy" facilityId={facilityId} workItemId={item.id} patientId={item.patientId}
+      permissions={permissions} writable={!closed} />}
     {wrongPatientOffered(route, permissions, 'pharmacy') && <OrderEndingActions base={`pharmacy-${item.id}`}
       service="pharmacy" facilityId={facilityId} route={{ id: route.id, version: route.version, reference: route.reference }}
       title={item.medication.display} patient={item.patient?.fullName ?? null} ordering={ordering}
@@ -1064,6 +1105,10 @@ export function Pharmacy() {
   useLearnWrongPatientServed(list.items)
   useLearnLateCorrectionServed(read.value)
   useLearnCannotCompleteServed(read.value)
+  // A work list answering `documentTypes: true` lets each prescription offer its prescription sheets (documentTypes.ts).
+  // Until then nothing of them shows and nothing is read or sent: the page is exactly today's.
+  useLearnDocumentTypesServed(read.value)
+  const documents = useWorkItemDocumentsOffered('pharmacy', permissions)
   // "Correct an order that has ended" (D17), as on the Laboratory page.
   const lateCorrection = useLateCorrectionServed() === true && holdsReceivePermission(facility, 'pharmacy')
   const cannotServed = useCannotCompleteServed()
@@ -1100,7 +1145,7 @@ export function Pharmacy() {
     <WorkListCap count={list.items?.length ?? 0}><p className="staff-notice">Work whose prescription changed after Pharmacy accepted it cannot be dispensed, but it stays listed and counts toward these {WORK_LIST_CAP}.</p>
       {cannotServed === true && lateCorrection && <p className="staff-notice">{CAP_CANNOT_COMPLETE}</p>}</WorkListCap>
     <SaidAboveList id="pharmacy-said" text={said.listSaid} />
-    {list.items && list.items.length > 0 && <div className="staff-list">{notCompleted.shown(list.items).map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} onChanged={list.refresh}
+    {list.items && list.items.length > 0 && <div className="staff-list">{notCompleted.shown(list.items).map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} documents={documents} onChanged={list.refresh}
       said={said.rowSaid(item.orderRoute?.id)} onNotCompleted={notCompletedHere} onReread={said.reread}
       onEnded={ending => { said.clear(); setEnded({ facilityId, ending }); void list.refresh() }} />)}</div>}
   </>
@@ -1469,6 +1514,12 @@ function OcrPublicationCard({ actorId, facilityId, validation, confirmationId, p
  */
 interface StepFocus { readonly targets: readonly string[]; readonly notice?: string; readonly confirmNext?: boolean }
 
+/**
+ * Document OCR's and Migrate's (which leads only to it) refusal at a facility: no role holds the OCR work (hid-system
+ * 0091), so nobody is told to ask anyone for it. It names the reading of scanned documents, not adding documents.
+ */
+const NO_DOCUMENT_OCR = 'Reading scanned documents isn’t available at your facility yet.'
+
 export function Ocr() {
   const { facilityId, permissions } = useFacilityAccess()
   const { state: staffState, lock } = useStaff()
@@ -1596,7 +1647,7 @@ export function Ocr() {
     finally { setBusy(false) }
   }
 
-  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Document OCR unavailable" description="This facility membership needs OCR job read permission." />
+  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Document OCR unavailable" description={refusalAt(facilityId, NO_DOCUMENT_OCR)} />
   return <>
     <PageHead eyebrow="Governed document processing" title="Document OCR">Find a job by its clinical document ID. The document must be available and virus scan clean before extraction can begin.</PageHead>
     <div className="staff-two-col"><Card className="staff-card"><h2>Find document job</h2><form className="staff-form" noValidate onSubmit={event => void find(event)}><Field label="Document ID" htmlFor="ocr-document" error={problemText(problem, 'ocr-document')} required><Input id="ocr-document" value={documentId} onChange={event => { setDocumentId(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} placeholder="Document UUID" required {...problemProps(problem, 'ocr-document')} /></Field><Button id="ocr-find-submit" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Find job'}</Button></form>
@@ -1752,7 +1803,7 @@ export function Outreach() {
 export function MigrateGap() {
   const { facilityId, permissions } = useFacilityAccess()
   // The workspace leads only to Document OCR, so it opens on the same permission (no role holds it since hid-system 0091).
-  if (!facilityId || !permissions.includes('ocr.job.read')) return <EmptyState titleAs="h1" title="Migration workspace unavailable" description="This facility membership needs OCR job read permission." />
+  if (!facilityId || !permissions.includes('ocr.job.read')) return <EmptyState titleAs="h1" title="Migration workspace unavailable" description={refusalAt(facilityId, NO_DOCUMENT_OCR)} />
   return <>
     <PageHead eyebrow="HID Migrate" title="Migration workspace">Process clinical documents tied to authorized clinical records.</PageHead>
     <EmptyState title="Use Document OCR" description="You can process an eligible clinical document in Document OCR." action={<Link className="staff-text-link" to="/provider/ocr">Open document OCR →</Link>} />

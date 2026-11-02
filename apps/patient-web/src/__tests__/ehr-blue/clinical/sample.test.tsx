@@ -4,18 +4,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONFIRM_BODY } from '../../../ehr-blue/clinical/parts/Detail'
 import { SAMPLE_NOTICE } from '../../../ehr-blue/clinical/parts/SampleBanner'
 import { Workspace } from '../../../ehr-blue/clinical/parts/Workspace'
+import type * as RoleView from '../../../ehr-blue/frame/roleView'
+import type { DemoRole } from '../../../ehr-blue/frame/roleView'
 import { SAMPLE_DEFINITIONS, SAMPLE_WORKSPACE_IDS } from '../../../ehr-blue/clinical/sample/definitions'
 import { FILE_TOO_LARGE } from '../../../ehr-blue/clinical/sample/SampleDetail'
 import { IDS } from '../../../ehr-blue/clinical/sample/seed'
 import { createSampleRecord, sampleState } from '../../../ehr-blue/clinical/sample/store'
 import { SampleCreate, SampleDetail, SampleList, SampleWorkspace, resetSampleStore, sampleStatus } from '../../../ehr-blue/clinical/sample/SampleWorkspace'
-import { BASE, FACILITY_ID, labelled, renderPage } from './harness'
+import { BASE, DEMO_HOSPITAL_ID, FACILITY_ID, labelled, renderPage } from './harness'
 
 /**
  * The sample engine: 14 sample-only workspaces (and the emergency board) drawn from one definition each, with
  * fictional records in memory only. Nothing here may reach today's API: the staff/api mock records whether anything
  * even imports it, and its staffApi throws when touched. The staff session's generation and the working facility
- * are set per test, so the store can be seen starting again in another session or at another facility.
+ * are set per test, so the store can be seen starting again in another session or at another facility. The person is
+ * the harness's doctor, the design's Doctor (audit item 16: sample pages follow the design's role mapping); a test that
+ * needs another design role views it at a demo facility, as Home's demo roles do.
  */
 
 const touched = vi.hoisted(() => ({ api: false }))
@@ -23,6 +27,8 @@ const staff = vi.hoisted(() => ({
   permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn(() => true), facilityId: null as string | null,
 }))
 const session = vi.hoisted(() => ({ generation: 1 }))
+/** The demo role whose Home is being viewed (frame/roleView.tsx), or null for the person's own roles. */
+const roleView = vi.hoisted(() => ({ viewing: null as DemoRole | null }))
 
 vi.mock('../../../staff/api', () => {
   touched.api = true
@@ -43,6 +49,10 @@ vi.mock('../../../staff/App', async () => {
   }
 })
 vi.mock('../../../staff/session', () => ({ staffSessionGeneration: () => session.generation }))
+vi.mock('../../../ehr-blue/frame/roleView', async importOriginal => ({
+  ...await importOriginal<typeof RoleView>(),
+  useRoleView: () => ({ viewing: roleView.viewing, view: () => {} }),
+}))
 
 const network = vi.fn()
 
@@ -50,6 +60,7 @@ beforeEach(() => {
   resetSampleStore()
   session.generation = 1
   staff.facilityId = null
+  roleView.viewing = null
   document.title = 'Health ID'
   vi.stubGlobal('fetch', network)
 })
@@ -105,7 +116,8 @@ describe('sample engine', () => {
       expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
       expect(document.querySelector('.hid-ehr-sample-banner[data-ehr-sample]')?.textContent).toBe(SAMPLE_NOTICE)
       expect(heading()).toBe(SAMPLE_DEFINITIONS[id]!.title)
-      expect(screen.getByRole('button', { name: 'New record' })).toBeTruthy()
+      // Audit item 16: the design's Doctor may create in every sample workspace but Blood Bank and Ward configuration.
+      expect(screen.queryAllByRole('button', { name: 'New record' })).toHaveLength(['bloodbank', 'ward-config'].includes(id) ? 0 : 1)
       view.unmount()
     }
   })
@@ -119,7 +131,8 @@ describe('sample engine', () => {
     expect(rows.map(row => within(row).getByRole('link', { name: /^(?!Open)/ }).textContent)).toEqual([
       'Review of results', 'Medication review', 'Patient requested another day', 'Antenatal review',
     ])
-    expect(rows[0]!.textContent).toContain('0b048a1b')
+    // No id under a row's name (owner, 2 November: never an id on a screen).
+    expect(rows[0]!.textContent).not.toContain('0b048a1b')
     expect(rows[0]!.textContent).toContain('Taylor Fiction')
     expect(rows[0]!.textContent).toContain('Checked-in')
     expect(within(rows[0]!).getByRole('link', { name: 'Open Review of results' }).getAttribute('href')).toBe(`${BASE}/appointments/${IDS.apptTaylor}`)
@@ -131,7 +144,7 @@ describe('sample engine', () => {
     view.unmount()
     open('wards')
     const cells = within(within(screen.getByRole('table')).getAllByRole('row')[1]!).getAllByRole('cell')
-    expect(cells[0]!.textContent).toBe('Bed 17fe7785d')
+    expect(cells[0]!.textContent).toBe('Bed 1')
     expect(cells[1]!.textContent).toBe('Bed 1')
   })
 
@@ -185,7 +198,8 @@ describe('sample engine', () => {
     open('ward-config')
     const pager = screen.getByRole('navigation', { name: 'Record pages' })
     expect(pager.textContent).toContain('Page 1 of 2')
-    expect((within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement).disabled).toBe(true)
+    const previous = within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement
+    expect([previous.disabled, previous.getAttribute('aria-disabled')]).toEqual([false, 'true'])
     expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(51)
     fireEvent.click(within(pager).getByRole('button', { name: 'Next page' }))
     expect(screen.getByRole('navigation', { name: 'Record pages' }).textContent).toContain('Page 2 of 2')
@@ -450,11 +464,11 @@ describe('sample engine', () => {
     expect(Array.from(versions.querySelectorAll('summary')).map(item => item.textContent)).toEqual([summary])
   })
 
-  it('shows the design’s telemedicine id and Abdominal ultrasound values', () => {
+  it('shows the telemedicine row without its id, and Abdominal ultrasound values', () => {
     const view = open('telemedicine')
     const row = within(screen.getByRole('table')).getAllByRole('row')[1]!
     expect(within(row).getByRole('link', { name: 'Open Remote follow-up' }).getAttribute('href')).toBe(`${BASE}/telemedicine/${IDS.telemedicine}`)
-    expect(row.textContent).toContain('9426ba7f')
+    expect(row.textContent).not.toContain('9426ba7f')
     view.unmount()
 
     open('radiology', `/${IDS.ultrasound}`)
@@ -465,6 +479,9 @@ describe('sample engine', () => {
   })
 
   it('attaches a study by choosing a file it never reads, refusing a large one', async () => {
+    // Recording and attaching are radiology "edit", the design's Radiology Reporter's (audit item 16).
+    staff.facilityId = DEMO_HOSPITAL_ID
+    roleView.viewing = 'Radiology Reporter'
     open('radiology', `/${IDS.ultrasound}`)
     fireEvent.click(within(actionsCard()).getByRole('button', { name: 'Record examination' }))
     fireEvent.change(field('Examination details', actionsCard()), { target: { value: 'Fictional exam' } })
@@ -518,8 +535,13 @@ describe('sample engine', () => {
     expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(3)
   })
 
-  /** "Temporary ward", saved through the create page; its list then has 3 rows below the header. */
+  /**
+   * "Temporary ward", saved through the create page; its list then has 3 rows below the header. Ward configuration is
+   * the design's Hospital Admin's to create (audit 16), viewed at a demo facility; the list reads at that facility too.
+   */
   async function saveTemporaryWard() {
+    staff.facilityId = DEMO_HOSPITAL_ID
+    roleView.viewing = 'Hospital Admin'
     const view = open('ward-config', '/new')
     fireEvent.change(field('Ward name'), { target: { value: 'Temporary ward' } })
     fireEvent.submit(screen.getByRole('button', { name: 'Save' }).closest('form')!)

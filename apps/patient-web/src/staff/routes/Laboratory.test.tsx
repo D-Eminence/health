@@ -1,6 +1,6 @@
 import { Profiler } from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import type { LabAccession, LabExecution, LabResult, LabResultRevision, LabSpecimen, LabWorkItem, staffApi } from '../api'
 import { Laboratory } from './Operations'
@@ -28,11 +28,11 @@ const api = vi.hoisted(() => ({
   releaseLabResult: vi.fn<StaffApi['releaseLabResult']>(),
   labResultHistory: vi.fn<StaffApi['labResultHistory']>(),
 }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[] }))
+const staff = vi.hoisted(() => ({ permissions: [] as string[], selfService: undefined as { review: string; organizationType: string } | undefined }))
 
 vi.mock('../App', () => ({
   useStaff: () => ({ state: { status: 'ready', session: { actor: { facility: {
-    id: 'facility-1', membershipId: 'member-1', permissions: staff.permissions,
+    id: 'facility-1', membershipId: 'member-1', permissions: staff.permissions, ...(staff.selfService ? { selfService: staff.selfService } : {}),
   } } } } }),
 }))
 vi.mock('../api', () => ({ staffApi: api }))
@@ -188,19 +188,79 @@ async function executionsSettled(panel: HTMLElement) {
 beforeEach(() => {
   vi.resetAllMocks()
   staff.permissions = [...WORK_READ]
+  staff.selfService = undefined
   api.labWorkItems.mockResolvedValue({ items: [] })
   api.labExecutions.mockResolvedValue({ items: [] })
 })
 
 describe('Laboratory page access', () => {
-  it('shows the unavailable state and loads nothing without lab work-item read permission', () => {
+  it('shows the unavailable state, in plain words that name no permission, and loads nothing without lab work-item read permission', () => {
     staff.permissions = ['lab.accession.read', 'lab.execution.read', 'lab.result.verify']
     render(<Laboratory />)
 
     expect(screen.getByRole('heading', { name: 'Laboratory unavailable' })).toBeTruthy()
-    expect(screen.getByText('This facility membership needs lab work-item read permission.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/permission|membership|work-item|lab\.work-item\.read/i)
     expect(screen.queryByRole('heading', { name: 'Laboratory' })).toBeNull()
     expect(api.labWorkItems).not.toHaveBeenCalled()
+  })
+
+  /*
+   * Who reads what (#104's rule, as the blue Pharmacy's and Laboratory's refusals say it): the administrator of a facility
+   * that signed itself up is never told to ask the facility administrator, which they are. Every facility is fictional.
+   */
+  describe('by who reads the refusal', () => {
+    /** What a self-signed-up facility's administrator holds once Health ID support has checked it: no lab work. */
+    const ADMINISTRATOR = ['organization.manage', 'workforce.manage', 'audit.read', 'identity.registration.read',
+      'outreach.registration.read', 'outreach.campaign.read']
+    /** What the same administrator holds while Health ID support checks the facility. */
+    const AWAITING_REVIEW = ['workforce.manage', 'audit.read', 'outreach.registration.read', 'outreach.registration.write',
+      'outreach.campaign.read', 'outreach.campaign.write']
+    const ROLE_SENTENCE = 'Your role at this facility doesn’t include the lab’s work list and results.'
+    beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+    afterEach(() => { vi.unstubAllEnvs() })
+
+    /** The refusal as `permissions` reads it, at a facility that signed itself up when `selfService` says so. */
+    function refusalAs(permissions: string[], selfService?: { review: string; organizationType: string }) {
+      staff.permissions = permissions
+      staff.selfService = selfService
+      render(<Laboratory />)
+      const heading = screen.getByRole('heading', { name: 'Laboratory unavailable' })
+      expect(document.body.textContent).not.toMatch(/permission|membership|work-item|lab\.work-item\.read/i)
+      expect(api.labWorkItems).not.toHaveBeenCalled()
+      return heading.parentElement?.textContent?.replace('Laboratory unavailable', '')
+    }
+
+    it.each(['laboratory', 'hospital', 'clinic'])('the administrator of a checked %s: the role sentence and the step that is theirs, adding a laboratory scientist', organizationType => {
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType })).toBe(`${ROLE_SENTENCE} Add a laboratory scientist on the Staff page.`)
+      expect(document.body.textContent).not.toMatch(/Ask your facility administrator/)
+    })
+
+    it.each([
+      ['checked', 'pharmacy', 'reviewed', ADMINISTRATOR], ['checked', 'other', 'reviewed', ADMINISTRATOR],
+      ['being checked', 'pharmacy', 'pending', AWAITING_REVIEW], ['being checked', 'other', 'pending', AWAITING_REVIEW],
+    ])('the administrator of a %s %s facility, which will not get the Laboratory: the role sentence only', (_checked, organizationType, review, permissions) => {
+      expect(refusalAs(permissions, { review, organizationType })).toBe(ROLE_SENTENCE)
+    })
+
+    it.each(['laboratory', 'hospital', 'clinic'])('the administrator of a %s Health ID support is still checking: the Laboratory opens after the check', organizationType => {
+      expect(refusalAs(AWAITING_REVIEW, { review: 'pending', organizationType })).toBe('Laboratory opens once Health ID support has checked your facility.')
+    })
+
+    it('anyone else at a checked laboratory: told to ask its administrator', () => {
+      expect(refusalAs(['outreach.registration.read'], { review: 'reviewed', organizationType: 'laboratory' }))
+        .toBe(`${ROLE_SENTENCE} Ask your facility administrator.`)
+    })
+
+    it('an administrator at a facility Health ID support manages: told to ask its administrator, as before', () => {
+      expect(refusalAs(ADMINISTRATOR)).toBe(`${ROLE_SENTENCE} Ask your facility administrator.`)
+    })
+
+    // Only Novu checks self-signed-up facilities (P4b), so on today's backend nobody is that facility's administrator.
+    it.each(['', 'main-v1'])('the administrator of a checked laboratory on today’s backend (%j): told to ask its administrator, as before', contract => {
+      vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'laboratory' })).toBe(`${ROLE_SENTENCE} Ask your facility administrator.`)
+    })
   })
 })
 

@@ -17,6 +17,9 @@ import {
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { heldByOtherPortal } from '../sessionChange'
 import { staffLoginAction } from '../productHostname'
+import {
+  DOCUMENT_TYPES_NOT_SERVED, DOCUMENT_TYPES_NOT_SERVED_MESSAGE, documentTypesServed, isDocumentType, type DocumentType,
+} from '../documentTypes'
 
 export interface Facility {
   id: string
@@ -269,9 +272,13 @@ function pageQuery(page: PageRequest) {
  * "http-request"). Each sits beside the action it carried out, which has its own event in words (ehr.encounter.list,
  * identity.authorization.check), so a facility's audit view leaves the routes out (owner, 2026-11-01). They stay
  * recorded on the server.
+ *
+ * Every request-log action starts 'api.', so that alone names it. The resource does not: the security refusals
+ * (security.authorization, security.authorization.denied) are written with resource "http-request" too, and a facility
+ * sees those (owner decision, 1 Nov 2026; docs/AUDIT_ACTION_LABELS.md note 8(i)).
  */
 export function isRequestLogEvent(event: { readonly action: string; readonly resourceType: string | null }): boolean {
-  return event.resourceType === 'http-request' || event.action.startsWith('api.')
+  return event.action.startsWith('api.')
 }
 
 /** The page the facility audit read returns: seven fields per event, the request log left out, the cursor kept. */
@@ -488,18 +495,83 @@ export interface EmergencyRecords {
 
 /**
  * A clinical document as EHR's list returns it (document.service.ts list):
- * size_bytes is selected as text.
+ * size_bytes is selected as text. Once the backend serves the document types
+ * (documentTypes.ts), each also says its type, and one uploaded on a Lab or
+ * Pharmacy work item names that work item instead of an encounter (its
+ * encounterId is then null). Read the type with documentTypeOf.
  */
 export interface DocumentRecord {
   id: string
   patientId: string
-  encounterId: string
+  encounterId: string | null
   fileName: string
   mediaType: string
   sizeBytes: number | string
   status: string
   scanStatus: string
   createdAt: string
+  documentType?: string
+  labWorkItemId?: string | null
+  pharmacyWorkItemId?: string | null
+}
+
+/** A document list's answer. With the document types it also answers `documentTypes: true` (an earlier backend, nothing). */
+export interface DocumentPage extends Page<DocumentRecord> {
+  documentTypes?: boolean
+}
+
+/** The Lab or Pharmacy work item a laboratory's or pharmacy's document is kept on (lab and pharmacy staff open no encounters). */
+export interface DocumentWorkItem {
+  kind: 'lab' | 'pharmacy'
+  id: string
+}
+
+/** Where a document is kept: exactly one of an encounter, a Lab work item or a Pharmacy work item. */
+type DocumentPlace = { encounterId: string } | { labWorkItemId: string } | { pharmacyWorkItemId: string }
+
+function workItemPlace(workItem: DocumentWorkItem): DocumentPlace {
+  return workItem.kind === 'lab' ? { labWorkItemId: workItem.id } : { pharmacyWorkItemId: workItem.id }
+}
+
+/** Refused here, before any request, while the backend has not said it serves the document types. */
+function assertDocumentTypesServed(documentType?: DocumentType): void {
+  if (documentTypesServed() === true && (documentType === undefined || isDocumentType(documentType))) return
+  throw new HidApiError(400, DOCUMENT_TYPES_NOT_SERVED_MESSAGE, { code: DOCUMENT_TYPES_NOT_SERVED, retryable: false })
+}
+
+/**
+ * Uploads one file to the EHR's document store, kept at `place`. The upload
+ * intent's body is today's eight fields with the encounter, and `documentType`
+ * only when one is given, so an upload without one sends exactly what it always
+ * has. The file is stored exactly as chosen: its SHA-256 is taken of its exact
+ * bytes, and the File itself is the storage PUT's body, never re-encoded.
+ */
+async function sendDocument(facilityId: string, patientId: string, place: DocumentPlace, file: File, documentType?: DocumentType) {
+  // Every step runs only while the session the upload started in is ready: each
+  // waits while that session is checked, unconfirmed or away, and the upload is
+  // abandoned once it has ended (another account signed in, or signed out), so
+  // a document is never completed as the next account. The storage PUT is
+  // cancelled with the session. The server's own ownership check is separate.
+  const sentIn = staffSessionGeneration()
+  const signal = staffSessionSignal()
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  const sha256Hex = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
+  await untilStaffSessionReady(sentIn)
+  const intent = await client.post<{
+    document: { id: string }
+    upload: { method: 'PUT'; url: string; requiredHeaders: Record<string, string>; expiresInSeconds: number }
+  }>('/api/v1/ehr/documents/upload-intents', {
+    patientId, ...place, fileName: file.name, mediaType: file.type, sizeBytes: file.size,
+    sha256Hex, classification: 'phi', retentionClass: 'clinical-10y',
+    ...(documentType === undefined ? {} : { documentType }),
+  }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } })
+  await untilStaffSessionReady(sentIn)
+  await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders, signal,
+    allowLocalHttp: getEnvironment().name === 'local' })
+  await untilStaffSessionReady(sentIn)
+  await client.post(`/api/v1/ehr/documents/${encodeURIComponent(intent.document.id)}/complete`, undefined,
+    { headers: facilityHeaders(facilityId) })
+  return intent.document.id
 }
 
 export interface LabWorkItem {
@@ -516,7 +588,10 @@ export interface LabWorkItem {
   priority?: string | null
   /** Novu since P4c, only on work from an order another facility sent here: the order and its route. */
   orderRoute?: WorkItemOrderRoute
-  /** Novu since P4c, only on such work while its route allows reading it: who the patient is. */
+  /**
+   * Who the patient is. Novu since P4c on such work while its route allows reading it; with the patient card on this
+   * facility's own work (proposed, hid-system 0106) on own work too, while the member may read it. Absent otherwise.
+   */
   patient?: OrderRoutePatient
 }
 
@@ -656,21 +731,41 @@ export type LabResultValue = {
   abnormalFlag?: LabAbnormalFlag
 }
 
-/** A Pharmacy work item as hid-system pharmacy.service.ts projectWorkItem() returns it. */
+/**
+ * A Pharmacy work item as hid-system pharmacy.service.ts projectWorkItem() returns it. The prescription details (proposed,
+ * hid-system 0107: `priority`, `medication.strength`, `medication.doseForm`, `duration`, `quantityToDispense` and
+ * `quantityUnit`) come only on prescriptions written with them; today's backend sends none of them, and every screen
+ * then shows what it does today.
+ */
 export interface PharmacyWorkItem {
   id: string
   patientId: string
   version: number
   acceptedAt: string
-  medication: { display: string }
+  /**
+   * The medicine as prescribed, and (proposed 0107) its strength as the prescriber wrote it ("500 mg") and its form:
+   * tablet, capsule, liquid, injection, cream, inhaler, drops or other.
+   */
+  medication: { display: string; strength?: string | null; doseForm?: string | null }
   doseQuantity?: number | null
   doseUnit?: string | null
   routeCode?: string | null
   frequency?: string
   instructions?: string | null
   dispensing?: { id: string; reversed: boolean } | null
+  /** The prescription's priority (routine, urgent, asap, stat), as Lab sends a request's (proposed 0107). */
+  priority?: string | null
+  /** How long the medicine is for: a number of days, weeks or months (proposed 0107). */
+  duration?: { value: number; unit: string } | null
+  /** How much to hand over, as the prescriber wrote it (proposed 0107). The pharmacist still confirms it. */
+  quantityToDispense?: number | null
+  quantityUnit?: string | null
   /** Novu since P4c, only on work from a prescription another facility sent here. */
   orderRoute?: WorkItemOrderRoute
+  /**
+   * Who the patient is: on work from another facility (Novu since P4c) and, with the patient card on this facility's own
+   * work (proposed, hid-system 0106), on own work too.
+   */
   patient?: OrderRoutePatient
 }
 
@@ -1136,6 +1231,13 @@ export interface OutreachCase {
   temporaryPatientId?: string
   ageYears?: number
   sex?: string
+  /**
+   * The phone number and the notes for the team given when the case was registered, null when none was given. Outreach
+   * sends both on every case (outreach.types.ts registrationCase()); a backend without them sends neither key. The page
+   * shows the phone masked, and never searches it.
+   */
+  phone?: string | null
+  operationalNotes?: string | null
   rowVersion: number
 }
 
@@ -1697,7 +1799,7 @@ export interface StaffInvitationPreview {
 }
 
 /**
- * Joining a facility by invitation (P4b, Novu only). Open and accept are public, on the main site, with no session:
+ * Joining a facility by invitation (P4b, Novu only). Open and accept are public, on each product site, with no session:
  * open proves the invitation (Turnstile action staff-invitation) and, for a new or dormant account, sets the
  * invitation cookie that accept reads; accept sets the password and issues no session. Existing staff preview and
  * accept signed in on their own site, with no facility named.
@@ -1926,6 +2028,11 @@ export const staffApi = {
     input: { expectedRowVersion: number; changeReason: string; replacementValues: VitalMeasurements }, idempotencyKey?: string) =>
     client.post<VitalCorrection>(`${encounterPath(patientId, encounterId)}/vitals/${encodeURIComponent(vitalId)}/corrections`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
+  // Sends an active prescription to this facility's Pharmacy at the version read. Besides the EHR's own refusals (412,
+  // 409 PRESCRIPTION_NOT_ELIGIBLE, PRESCRIPTION_ROUTED), the EHR passes Pharmacy's on unchanged, among them, from
+  // hid-system 0100, its check of the prescription: 404 PRESCRIPTION_SOURCE_NOT_FOUND, 409 PRESCRIPTION_SOURCE_NOT_ACTIVE
+  // or PRESCRIPTION_SOURCE_VERSION_MISMATCH, 422 PRESCRIPTION_SOURCE_MISMATCH. Both callers (Clinical.tsx and the blue
+  // OrderPage.tsx, through words.ts prescriptionChanged) read the prescription again and say these in words.
   acceptPrescription: (facilityId: string, patientId: string, encounterId: string,
     prescriptionId: string, expectedRowVersion: number, reason: string, idempotencyKey?: string) =>
     client.post<unknown>(`${encounterPath(patientId, encounterId)}/prescriptions/${encodeURIComponent(prescriptionId)}/pharmacy-work-item`,
@@ -1945,38 +2052,35 @@ export const staffApi = {
     client.post<NoteRevision>(`${encounterPath(patientId, encounterId)}/clinical-notes/${encodeURIComponent(noteId)}/revisions`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
   documents: (facilityId: string, patientId: string, encounterId: string) =>
-    client.get<Page<DocumentRecord>>('/api/v1/ehr/documents', {
+    client.get<DocumentPage>('/api/v1/ehr/documents', {
       query: { patientId, encounterId }, headers: facilityHeaders(facilityId),
     }),
+  // The documents kept on one Lab or Pharmacy work item (lab.document.read or
+  // pharmacy.document.read). Read only once the backend has said it serves the
+  // document types; before then it is refused here and nothing is sent.
+  async workItemDocuments(facilityId: string, patientId: string, workItem: DocumentWorkItem) {
+    assertDocumentTypesServed()
+    return client.get<DocumentPage>('/api/v1/ehr/documents', {
+      query: { patientId, ...workItemPlace(workItem) }, headers: facilityHeaders(facilityId),
+    })
+  },
   // A signed storage link valid for expiresInSeconds (s3-storage.provider.ts createDownload).
   documentDownload: (facilityId: string, documentId: string) =>
     client.get<{ url: string; expiresInSeconds: number }>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
       { headers: facilityHeaders(facilityId) }),
-  async uploadDocument(facilityId: string, patientId: string, encounterId: string, file: File) {
-    // Every step runs only while the session the upload started in is ready: each
-    // waits while that session is checked, unconfirmed or away, and the upload is
-    // abandoned once it has ended (another account signed in, or signed out), so
-    // a document is never completed as the next account. The storage PUT is
-    // cancelled with the session. The server's own ownership check is separate.
-    const sentIn = staffSessionGeneration()
-    const signal = staffSessionSignal()
-    const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
-    const sha256Hex = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
-    await untilStaffSessionReady(sentIn)
-    const intent = await client.post<{
-      document: { id: string }
-      upload: { method: 'PUT'; url: string; requiredHeaders: Record<string, string>; expiresInSeconds: number }
-    }>('/api/v1/ehr/documents/upload-intents', {
-      patientId, encounterId, fileName: file.name, mediaType: file.type, sizeBytes: file.size,
-      sha256Hex, classification: 'phi', retentionClass: 'clinical-10y',
-    }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } })
-    await untilStaffSessionReady(sentIn)
-    await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders, signal,
-      allowLocalHttp: getEnvironment().name === 'local' })
-    await untilStaffSessionReady(sentIn)
-    await client.post(`/api/v1/ehr/documents/${encodeURIComponent(intent.document.id)}/complete`, undefined,
-      { headers: facilityHeaders(facilityId) })
-    return intent.document.id
+  // Without a type, exactly today's upload. A type is sent only when given, and
+  // only once the backend has said it serves the types; before then it is
+  // refused here and nothing is sent.
+  async uploadDocument(facilityId: string, patientId: string, encounterId: string, file: File, documentType?: DocumentType) {
+    if (documentType !== undefined) assertDocumentTypesServed(documentType)
+    return sendDocument(facilityId, patientId, { encounterId }, file, documentType)
+  },
+  // A laboratory's or pharmacy's upload, kept on its Lab or Pharmacy work item
+  // instead of an encounter (lab.document.write or pharmacy.document.write),
+  // with its type. Refused here, and nothing sent, until the backend serves it.
+  async uploadWorkItemDocument(facilityId: string, patientId: string, workItem: DocumentWorkItem, file: File, documentType: DocumentType) {
+    assertDocumentTypesServed(documentType)
+    return sendDocument(facilityId, patientId, workItemPlace(workItem), file, documentType)
   },
 
   labWorkItems: (facilityId: string) =>

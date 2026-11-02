@@ -1,7 +1,7 @@
 import { EhrButton, EhrDataTable, EhrDrawer, EhrField, EhrInput, type EhrDataTableColumn } from '@hid/ui/ehr'
 import { useId, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { formatWhen, shortId } from './format'
+import { formatWhen } from './format'
 import { KeyValueList, type KeyValue } from './KeyValueList'
 import { StatusBadge } from './StatusBadge'
 
@@ -10,7 +10,7 @@ export interface RecordRow {
   readonly id: string
   /** The "Record" link text. */
   readonly name: string
-  /** Under the link; the first eight characters of `id` by default. */
+  /** Under the link, when a person needs to quote one ("Reference …"); nothing by default: an id is never shown. */
   readonly reference?: string
   /** "Patient / context", or the column `contextHeader` names; also searched. */
   readonly context: string
@@ -119,7 +119,7 @@ export function RecordTable({ caption, rows, hrefFor, loading = false, emptyTitl
       cell: row => (
         <>
           {opener(row, row.name)}
-          <span className="hid-ehr-clinical-record-id">{row.reference ?? shortId(row.id)}</span>
+          {row.reference ? <span className="hid-ehr-clinical-record-id">{row.reference}</span> : null}
         </>
       ),
     },
@@ -225,19 +225,25 @@ export function SearchField({ label, value, onChange, placeholder = 'Search save
   )
 }
 
-/** "Previous page | Page n of m | Next page" (`total` unknown: "Page n"). */
-export function Pager({ page, total, onPrevious, onNext, busy = false }: {
+/**
+ * "Previous page | Page n of m | Next page" (`total` unknown: "Page n"), named by `label` (today's "Record pages", or
+ * the list's own, such as "Encounter pages"). As today's pager (staff/routes/Clinical.tsx:355-374), a button that
+ * cannot act is marked unavailable (aria-disabled) rather than disabled, so the one just pressed keeps focus at either
+ * end and while its page loads, and a press does nothing; the page reached is announced.
+ */
+export function Pager({ page, total, onPrevious, onNext, busy = false, label = 'Record pages' }: {
   page: number
   total?: number
   onPrevious?: () => void
   onNext?: () => void
   busy?: boolean
+  label?: string
 }) {
   return (
-    <nav className="hid-ehr-clinical-pager" aria-label="Record pages">
-      <EhrButton variant="secondary" disabled={!onPrevious} busy={busy} onClick={onPrevious}>Previous page</EhrButton>
-      <span>{total ? `Page ${page} of ${total}` : `Page ${page}`}</span>
-      <EhrButton variant="secondary" disabled={!onNext} busy={busy} onClick={onNext}>Next page</EhrButton>
+    <nav className="hid-ehr-clinical-pager" aria-label={label}>
+      <EhrButton variant="secondary" aria-disabled={!onPrevious || undefined} busy={busy} onClick={() => onPrevious?.()}>Previous page</EhrButton>
+      <span role="status">{total ? `Page ${page} of ${total}` : `Page ${page}`}</span>
+      <EhrButton variant="secondary" aria-disabled={!onNext || undefined} busy={busy} onClick={() => onNext?.()}>Next page</EhrButton>
     </nav>
   )
 }

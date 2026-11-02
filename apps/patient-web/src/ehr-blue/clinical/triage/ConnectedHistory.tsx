@@ -1,6 +1,6 @@
 import { useId } from 'react'
 import type { ClinicalRecord, Encounter } from '../../../staff/api'
-import { TITLE as CONSULT_TITLE, recordStatus } from '../consult/encounters'
+import { encounterTitle, recordStatus } from '../consult/encounters'
 import { orderPath } from '../consult/orders'
 import { KINDS, orderTitle, type OrderKind } from '../consult/orders/orders'
 import { ListPaging } from '../consult/Notes'
@@ -8,7 +8,7 @@ import { pagerProps, useRecordList, type RecordList } from '../consult/records'
 import { TITLE as NURSING_TITLE, isObservation, noteStatus } from '../nursing/observations'
 import type { Chart } from '../parts/chart'
 import { HistoryCard, type HistoryItem } from '../parts/Detail'
-import { shortId } from '../parts/format'
+import { formatWhen } from '../parts/format'
 import { ErrorBox } from '../parts/Notices'
 import { useWorkspaceHref } from '../parts/Workspace'
 import { recordKey } from './records'
@@ -47,13 +47,13 @@ export function ConnectedHistory({ chart, encounter, owner }: { chart: Chart; en
   const items: HistoryItem[] = [
     {
       key: `encounter-${encounterId}`,
-      label: `${CONSULT_TITLE} · ${shortId(encounterId)}`,
+      label: encounterTitle(encounter),
       href: opensConsultation ? href.to('consult', encounterId) : undefined,
       status: encounter.status,
     },
     ...mine(vitals).map(record => ({
       key: `vital-${record.id}`,
-      label: `${TRIAGE_TITLE} · ${shortId(record.id)}`,
+      label: `${TRIAGE_TITLE} · ${formatWhen(record.createdAt) || 'recorded'}`,
       href: href.to('triage', recordKey(encounterId, record.id)),
       status: vitalStatus(record),
     })),
@@ -65,7 +65,7 @@ export function ConnectedHistory({ chart, encounter, owner }: { chart: Chart; en
     }))),
     ...mine(notes).filter(isObservation).map(record => ({
       key: `observation-${record.id}`,
-      label: `${NURSING_TITLE} · ${shortId(record.id)}`,
+      label: `${NURSING_TITLE} · ${formatWhen(record.createdAt) || 'recorded'}`,
       href: href.to('nursing', recordKey(encounterId, record.id)),
       status: noteStatus(record),
     })),
@@ -88,11 +88,11 @@ export function ConnectedHistory({ chart, encounter, owner }: { chart: Chart; en
 }
 
 /**
- * One history list's "Record pages" (today's pager), with its notice, named by the list it pages, as the encounter
- * page's history shows them. Shown only while the list spans more than one page, or has something to say; a list the
+ * One history list's "Record pages" (today's pager), with its notice, named by the list it pages: here and in the
+ * encounter page's history. Shown only while the list spans more than one page, or has something to say; a list the
  * role may not read has neither.
  */
-function HistoryPages({ title, list }: { title: string; list: RecordList<unknown> }) {
+export function HistoryPages({ title, list }: { title: string; list: RecordList<unknown> }) {
   const captionId = useId()
   if (!pagerProps(list) && !list.notice) return null
   return (

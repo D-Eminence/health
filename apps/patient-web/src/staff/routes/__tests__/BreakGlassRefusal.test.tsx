@@ -98,22 +98,23 @@ describe('a role that cannot reach patients', () => {
       + 'checks your facility: add your licence on the Staff page.'],
     ['novu-v1', 'reviewed', 'You are this facility’s administrator. Health ID support gives your own role clinical access; ask '
       + 'them, or invite a colleague who holds this role.'],
-    ['novu-v1', null, 'Ask your organization administrator.'],
-    ['main-v1', 'pending', 'Ask your organization administrator.'],
+    ['novu-v1', null, 'Ask your facility administrator.'],
+    ['main-v1', 'pending', 'Ask your facility administrator.'],
   ])('on a %s build, at a facility whose review is %s, ends: %s', (contract, review, ending) => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
     working.facility = { ...DOCTOR, name: 'Ikeja Care', roles: ['org_admin'], permissions: ADMIN,
       ...(review ? { selfService: { review, organizationType: 'hospital' } } : {}) }
     render(<MemoryRouter><Patients /></MemoryRouter>)
-    expect(reason()).toMatch(/^Your role at this facility cannot /)
+    expect(reason()).toMatch(/^Your role at this facility can’t /)
+    expect(reason()).not.toMatch(/identity\.|ehr\.|outreach\.|workforce\./)
     expect(reason().endsWith(ending)).toBe(true)
   })
 
-  it('asks the organization administrator when a member without workforce.manage lacks a permission', () => {
+  it('asks the facility administrator when a member without workforce.manage lacks a permission', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     working.facility = { ...DOCTOR, roles: ['receptionist'], permissions: ['outreach.registration.read'],
       selfService: { review: 'reviewed', organizationType: 'hospital' } }
     render(<MemoryRouter><Patients /></MemoryRouter>)
-    expect(reason().endsWith('Ask your organization administrator.')).toBe(true)
+    expect(reason().endsWith('Ask your facility administrator.')).toBe(true)
   })
 })

@@ -6,15 +6,18 @@ import { Alert, Badge, Button, Card, CardHeader, DescriptionList, cx } from '../
 import type { LabAccession, LabExecution, LabWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import { cannotCompleteOffered, licenceLine, routeClosedForWork, wrongPatientOffered } from '../../../staff/orderRoutes'
+import { isUrgent } from '../parts/WorkQueue'
 import { OrderEndingActions, type CannotCompleteEnding, type OrderEndingMode } from '../../../staff/routes/CannotComplete'
 import type { WrongPatientEnding } from '../../../staff/routes/WrongPatient'
 import { useCannotCompleteServed } from '../../../cannotCompleteServed'
 import { commerce, type CatalogueItem, type ListPage, type PaymentSettings, type WorkItemBill } from '../commerce/api'
 import { BillBadge } from '../commerce/BillBadge'
+import { pointOfCareOpen } from '../commerce/served'
 import { useCommerceRead } from '../commerce/useCommerceRead'
 import { DeptEmbedded } from '../parts/DeptEmbedded'
 import { DeptNotice } from '../parts/DeptNotice'
 import { RoutedWorkLines } from '../parts/routedWork'
+import { WorkItemDocuments } from '../parts/WorkItemDocuments'
 import { PaidLine, PaymentStep } from '../pharmacy/pointOfCare'
 import { billOf, billOwing, outsideOf, paysFirst } from '../pharmacy/pocFields'
 import { useLabRecord } from './labRecord'
@@ -96,8 +99,10 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
   const bill = cleared ?? billOf(item)
   const collects = permissions.includes('lab.accession.create') || permissions.includes('lab.specimen.collect')
   const waitsForPayment = stage === 'collect' && collects && !closed && paysFirst(settings, 'lab') && billOwing(bill)
-  // The price list's sample for this test ("Blood, EDTA tube"), as the first guess at collection.
-  const catalogue = useCommerceRead<ListPage<CatalogueItem>>(stage === 'collect' && !accessionId ? `lab-test:${facilityId}:${test}` : null,
+  // The price list's sample for this test ("Blood, EDTA tube"), as the first guess at collection. The price list is a
+  // point-of-care route Health ID does not serve yet, so it is read only where it may answer (commerce/served.ts).
+  const guesses = stage === 'collect' && !accessionId && pointOfCareOpen(facilityId)
+  const catalogue = useCommerceRead<ListPage<CatalogueItem>>(guesses ? `lab-test:${facilityId}:${test}` : null,
     signal => commerce.catalogueItems(facilityId, { kind: 'lab_test', q: test }, signal))
   const sampleGuess = catalogue.data?.items.find(entry => entry.name.toLowerCase() === test.toLowerCase())?.packSize ?? null
   const [notice, setNotice] = useState('')
@@ -137,7 +142,7 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
 
   return <FormPage wide back={{ to: backTo, label: 'Back to the work list' }}
     title={<span id="lab-record-title" tabIndex={-1} className="outline-none">{test}</span>}
-    description={[item.priority === 'urgent' || item.priority === 'stat' ? 'Urgent' : null, waitedText(item.acceptedAt) ? `waiting ${waitedText(item.acceptedAt)}` : null]
+    description={[isUrgent(item.priority) ? 'Urgent' : null, waitedText(item.acceptedAt) ? `waiting ${waitedText(item.acceptedAt)}` : null]
       .filter(Boolean).join(' · ') || undefined}>
     {personBanner(person)}
     <StageTrack stage={stage} />
@@ -161,13 +166,15 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         {record.error ? <Alert intent="error" title="Couldn’t load this request" action={<Button size="sm" icon={RotateCcw} onClick={record.reload}>Try again</Button>}>{record.error}</Alert> : null}
         {record.hidden ? <Alert intent="warning" action={<Button size="sm" icon={RotateCcw} onClick={record.reload}>Refresh</Button>}>{LAB_RESULTS_HIDDEN[record.hidden]}</Alert> : null}
         {record.loading && !accession && accessionId ? <p role="status" className="m-0 text-[14px] text-ink-3">Loading…</p> : null}
-        {stage === 'collect' && !waitsForPayment && !(accessionId && !accession) ? <CollectStep {...step} item={item} accession={accession}
-          defaultType={sampleGuess} defaultReason={defaultReason} onCollected={value => setMade(value)} /> : null}
+        {/* On an ended order the alert above says why nothing can be recorded: the step would blame the role instead. */}
+        {stage === 'collect' && !closed && !waitsForPayment && !(accessionId && !accession) ? <CollectStep {...step} item={item} accession={accession}
+          defaultType={sampleGuess} defaultReason={defaultReason} onRegistered={value => setMade(value)} onListChanged={onListChanged} /> : null}
         {stage === 'collect' && waitsForPayment ? <p className="m-0 text-[15px] text-ink-2">Take payment above, then collect the sample.</p> : null}
-        {/* Results hidden (their read was refused or could not be checked): no step is offered on what can't be seen. */}
-        {stage === 'testing' && accession && !record.hidden ? accession.specimens.filter(specimen => specimen.status === 'collected' || specimen.status === 'received')
-          .map(specimen => <TestingStep key={`${specimen.id}-${specimen.version}`} {...step} specimen={specimen} accessionId={accession.id}
-            executions={bySpecimen(specimen.id)} executionsRead={record.executionsRead} />) : null}
+        {/* Results hidden (their read was refused or could not be checked): no step is offered on what can't be seen. A sample
+            still waiting beside one taken keeps its step, since each sample is collected on its own. */}
+        {stage === 'testing' && accession && !record.hidden ? accession.specimens.filter(specimen => specimen.status === 'required' || specimen.status === 'collected'
+          || specimen.status === 'received').map(specimen => <TestingStep key={`${specimen.id}-${specimen.version}`} {...step} specimen={specimen}
+            accessionId={accession.id} test={test} executions={bySpecimen(specimen.id)} executionsRead={record.executionsRead} />) : null}
         {stage === 'enter' && !record.hidden ? (permissions.includes('lab.result.enter')
           ? toEnter.map(execution => <ResultForm key={execution.id} {...step} execution={execution} result={null} />)
           : <p className="m-0 text-[15px] text-ink-2">Waiting for someone who can enter results.</p>) : null}
@@ -198,7 +205,8 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
       <CardHeader as="h2" title="Request" actions={bill !== undefined ? <BillBadge bill={bill} /> : undefined} />
       <DescriptionList items={[
         ['Test', test],
-        ['Priority', item.priority === 'urgent' || item.priority === 'stat' ? <Badge size="sm" tone="warn">Urgent</Badge> : 'Routine'],
+        // Stat, as soon as possible and urgent requests are all marked Urgent, as the work list sorts them first.
+        ['Priority', isUrgent(item.priority) ? <Badge size="sm" tone="warn">Urgent</Badge> : 'Routine'],
         requestOf(item) ? ['Request', requestOf(item)!.number] : null,
         accession ? ['Sample number', accession.accessionNumber] : item.accessionNumber ? ['Sample number', item.accessionNumber] : null,
         person.phone ? ['Phone', person.phone] : null,
@@ -208,6 +216,11 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
         ['Waiting', waitedText(item.acceptedAt) ?? 'Not known'],
       ]} />
     </Card>
+
+    {/* Its result documents, beside what is known of the request, once the backend serves them (dormant until then):
+        never written once its order from another facility has closed. */}
+    <WorkItemDocuments kind="lab" facilityId={facilityId} workItemId={item.id} patientId={item.patientId} permissions={permissions}
+      writable={!closed} />
 
     {siblings.length > 0 ? <Card>
       <CardHeader as="h2" title="Also on this request" />

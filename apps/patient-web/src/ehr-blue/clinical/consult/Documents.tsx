@@ -10,11 +10,13 @@ import { SubHeading } from '../parts/Detail'
 import { ErrorBox, Loading } from '../parts/Notices'
 import { StatusBadge } from '../parts/StatusBadge'
 import { useClinical } from '../parts/Workspace'
+import { fileTypeLabel, scanStatusLabel } from '../../../plainLabels'
 import { RELOAD_FAILED, fileSize } from './encounters'
 import { ListPaging } from './Notes'
 import type { RecordList } from './records'
 
 const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff']
+/** 50 MiB, today's limit (staff/routes/Clinical.tsx Documents). */
 const MAX_BYTES = 52_428_800
 /**
  * Today's OCR page, where today's link goes (staff/routes/Clinical.tsx Documents). It is today's provider route, not a
@@ -76,7 +78,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
     setNotice('')
     const refuse = (message: string) => { setFileError(message); input.current?.focus() }
     if (!file || file.size === 0) return refuse('Select a file first.')
-    if (!ACCEPTED.includes(file.type) || file.size > MAX_BYTES) return refuse('Use a PDF, JPEG, PNG or TIFF file up to 50 MB.')
+    if (!ACCEPTED.includes(file.type) || file.size > MAX_BYTES) return refuse('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')
     setFileError(undefined)
     sending.current = true
     setUploading(true)
@@ -109,10 +111,10 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
               <span>
                 <strong>{document.fileName}</strong>
                 <span className="hid-ehr-clinical-cell-sub">
-                  {`${fileType(document.mediaType)} · ${fileSize(document.sizeBytes)}${document.status === 'initiated' ? '' : ` · ${scanWords(document.scanStatus)}`}`}
+                  {[fileTypeLabel(document.mediaType), fileSize(document.sizeBytes), document.status === 'initiated' ? '' : scanStatusLabel(document.scanStatus)].filter(Boolean).join(' · ')}
                 </span>
                 {document.status === 'initiated' ? (
-                  <span className="hid-ehr-clinical-cell-sub">Upload didn’t finish. Upload the file again.</span>
+                  <span className="hid-ehr-clinical-cell-sub">Upload not completed; only the person who started it can finish it. Upload the file again.</span>
                 ) : null}
               </span>
               <span className="hid-ehr-clinical-consult-document-actions">
@@ -147,16 +149,4 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       {error ? <ErrorBox>{error}</ErrorBox> : null}
     </EhrCard>
   )
-}
-
-/** A file's type in words: "PDF", not "application/pdf". */
-function fileType(mediaType: string): string {
-  const named: Record<string, string> = { 'application/pdf': 'PDF', 'image/jpeg': 'JPEG image', 'image/png': 'PNG image', 'image/tiff': 'TIFF image' }
-  return named[mediaType] ?? mediaType
-}
-
-/** The virus check in words. */
-function scanWords(scanStatus: string): string {
-  const named: Record<string, string> = { clean: 'Checked', pending: 'Being checked', infected: 'Blocked: virus found', failed: 'Check failed' }
-  return named[scanStatus] ?? `Check: ${scanStatus.replaceAll('_', ' ')}`
 }

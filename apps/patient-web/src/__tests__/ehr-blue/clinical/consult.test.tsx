@@ -3,6 +3,7 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace, consultStatus } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
+import { consultationLabel } from '../../../plainLabels'
 import { BASE, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 
 /**
@@ -39,9 +40,9 @@ const ENCOUNTER = {
   id: ENCOUNTER_ID, patientId: PATIENT_ID, facilityId: FACILITY_ID, encounterType: 'ambulatory', status: 'in_progress',
   startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: 'Fever for two days', rowVersion: 1,
 }
-const SECOND = { ...ENCOUNTER, id: 'e2222222-0000-4000-8000-000000000002', status: 'completed', chiefComplaint: null }
+const SECOND = { ...ENCOUNTER, id: 'e2222222-0000-4000-8000-000000000002', status: 'completed', chiefComplaint: null, startedAt: '2026-09-21T08:00:00.000Z' }
 const NEW_ID = 'e1111111-0000-4000-8000-000000000003'
-const READ_ONLY = 'You can view this, but not change it. To add or change records, ask the patient to approve access that includes changes.'
+const READ_ONLY = 'You can view this record but not change it.'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -111,7 +112,7 @@ describe('Consultation list', () => {
     const table = await screen.findByRole('table', { name: 'Consultations' })
     // One patient's chart: the second column says what the visit was for; the patient is named once, in the banner.
     expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Record', 'Complaint', 'Status', 'Updated', 'Actions'])
-    const link = within(table).getByRole('link', { name: 'e0000000' })
+    const link = within(table).getByRole('link', { name: consultationLabel(ENCOUNTER) })
     expect(link.getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
     expect(within(table).getByText('Fever for two days')).toBeTruthy()
     expect(within(table).getByText('No complaint recorded')).toBeTruthy()
@@ -128,9 +129,9 @@ describe('Consultation list', () => {
 
   it('opens the record quick view, and Escape closes it', async () => {
     open()
-    fireEvent.click(await screen.findByRole('button', { name: 'Quick view e0000000' }))
+    fireEvent.click(await screen.findByRole('button', { name: `Quick view ${consultationLabel(ENCOUNTER)}` }))
     const drawer = await screen.findByRole('dialog', { name: 'Record quick view' })
-    expect(within(drawer).getByRole('heading', { level: 3, name: 'e0000000' })).toBeTruthy()
+    expect(within(drawer).getByRole('heading', { level: 3, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     expect(within(drawer).getByText('Outpatient')).toBeTruthy()
     expect(within(drawer).getByText('Fever for two days')).toBeTruthy()
     expect(within(drawer).getByRole('button', { name: 'Open full record' })).toBeTruthy()
@@ -155,6 +156,18 @@ describe('Consultation list', () => {
     api.encounters.mockResolvedValue({ items: [], nextCursor: null })
     open()
     expect(await screen.findByText('No consultations for this patient here yet.')).toBeTruthy()
+    // Said once, as the empty list's title: no search was made, so nothing reads as a search that found nothing.
+    expect(screen.queryByText('No matching records')).toBeNull()
+    expect(screen.queryByText('Change your search.')).toBeNull()
+  })
+
+  it('parity: names the facility over the list, and says the direct-care line with "Change patient →" under the patient', async () => {
+    open()
+    await screen.findByRole('table', { name: 'Consultations' })
+    expect(screen.getByText('Clinical record · Demo Hospital')).toBeTruthy()
+    const line = screen.getByText(/· Direct care access\./)
+    expect(line.textContent).toBe(`HID ${PATIENT_HID} · Direct care access. Change patient →`)
+    expect(within(line).getByRole('link', { name: 'Change patient →' }).getAttribute('href')).toBe('/provider/patients')
   })
 
   it('shows a refused read as an alert', async () => {
@@ -181,14 +194,15 @@ describe('Consultation list', () => {
       return { items: [ENCOUNTER], nextCursor: 'cursor-2' }
     })
     open()
-    const pager = await screen.findByRole('navigation', { name: 'Record pages' })
-    expect(within(pager).getByText('Page 1')).toBeTruthy()
-    expect((within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement).disabled).toBe(true)
+    const pager = await screen.findByRole('navigation', { name: 'Encounter pages' })
+    expect(within(pager).getByRole('status').textContent).toBe('Page 1')
+    const previous = within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement
+    expect([previous.disabled, previous.getAttribute('aria-disabled')]).toEqual([false, 'true'])
     fireEvent.click(within(pager).getByRole('button', { name: 'Next page' }))
     expect(await within(pager).findByText('Page 2')).toBeTruthy()
     expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: 'cursor-2', fresh: false })
     expect(api.lookupPatient).toHaveBeenCalledTimes(2)
-    expect(screen.getByRole('link', { name: 'e2222222' }).getAttribute('href')).toBe(`/provider/clinical/${SECOND.id}`)
+    expect(screen.getByRole('link', { name: consultationLabel(SECOND) }).getAttribute('href')).toBe(`/provider/clinical/${SECOND.id}`)
 
     // A failed page read is an alert; the page shown stays.
     api.encounters.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
@@ -203,7 +217,7 @@ describe('Consultation list', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
     expect(await screen.findByText('This list changed since it was opened, so it shows the newest entries again.')).toBeTruthy()
-    expect(within(screen.getByRole('navigation', { name: 'Record pages' })).getByText('Page 1')).toBeTruthy()
+    expect(within(screen.getByRole('navigation', { name: 'Encounter pages' })).getByText('Page 1')).toBeTruthy()
     expect(api.encounters).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, { cursor: 'cursor-2', fresh: true })
     expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: undefined, fresh: true })
   })
@@ -211,7 +225,33 @@ describe('Consultation list', () => {
   it('hides the pager when there is one page', async () => {
     open()
     await screen.findByRole('table', { name: 'Consultations' })
-    expect(screen.queryByRole('navigation', { name: 'Record pages' })).toBeNull()
+    expect(screen.queryByRole('navigation', { name: 'Encounter pages' })).toBeNull()
+  })
+
+  it('parity: the pager is today’s "Encounter pages": a button that cannot act stays focusable and does nothing, and the page reached is announced', async () => {
+    api.encounters.mockImplementation(async (_f: string, _p: string, page: { cursor?: string }) => {
+      if (page.cursor === 'cursor-2') return { items: [SECOND], nextCursor: null }
+      return { items: [ENCOUNTER], nextCursor: 'cursor-2' }
+    })
+    open()
+    const pager = await screen.findByRole('navigation', { name: 'Encounter pages' })
+    const previous = within(pager).getByRole('button', { name: 'Previous page' }) as HTMLButtonElement
+    const next = within(pager).getByRole('button', { name: 'Next page' }) as HTMLButtonElement
+    // Marked unavailable, not disabled: it keeps focus, and a press reads nothing.
+    expect(previous.disabled).toBe(false)
+    expect(previous.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(previous)
+    await act(async () => {})
+    expect(api.encounters).toHaveBeenCalledTimes(1)
+    act(() => { next.focus() })
+    fireEvent.click(next)
+    await waitFor(() => expect(within(pager).getByRole('status').textContent).toBe('Page 2'))
+    expect(next.disabled).toBe(false)
+    expect(next.getAttribute('aria-disabled')).toBe('true')
+    expect(document.activeElement).toBe(next)
+    fireEvent.click(next)
+    await act(async () => {})
+    expect(api.encounters).toHaveBeenCalledTimes(2)
   })
 
   it('offers "New consultation" as the heading’s one primary action, a real button, only when the grant allows changes', async () => {
@@ -256,7 +296,14 @@ describe('Consultation list', () => {
     staff.activePatient = null
     open()
     expect(screen.getByRole('heading', { level: 1, name: 'Consultation' })).toBeTruthy()
+    expect(screen.getByText('Clinical record')).toBeTruthy()
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()
+    // Today's sentences (staff/routes/Clinical.tsx:1375), none dropped: "documented" is today's, the rest keeps the
+    // redesign's plain words (the owner's rule: no "authorized").
+    expect(screen.getByText('No patient open.').parentElement!.textContent).toBe(
+      'Records show only for a patient you have access to at this facility. No patient open. Open a patient with an approved request, the patient’s PIN, or documented emergency access.')
+    expect(document.body.textContent).not.toMatch(/authori[sz]/i)
+    expect(screen.queryByText(/Direct care access/)).toBeNull()
     expect(screen.getByRole('link', { name: 'Find a patient' }).getAttribute('href')).toBe('/provider/patients')
     expect(api.encounters).not.toHaveBeenCalled()
   })
@@ -302,7 +349,19 @@ describe('Consultation list', () => {
     expect(address()).toMatch(/^POP \/provider\/clinical /)
   })
 
-  it('shows the read-only emergency notice for an emergency patient, and nothing to create', () => {
+  it('parity: under emergency access, a role that may open the emergency summary is taken there, as today’s /provider/clinical shows it', async () => {
+    staff.permissions = [...ALL, 'identity.break-glass.write']
+    staff.activePatient = activePatient('emergency')
+    openFromHome(undefined)
+    await waitFor(() => expect(address()).toBe('REPLACE /provider/emergency/summary null'))
+    expect(address()).not.toContain(PATIENT_ID)
+    expect(address()).not.toContain(PATIENT_HID)
+    expect(screen.queryByText('Emergency access shows the emergency summary only')).toBeNull()
+    expect(api.encounters).not.toHaveBeenCalled()
+    expect(api.consentStatus).not.toHaveBeenCalled()
+  })
+
+  it('shows the read-only emergency notice for an emergency patient to a role that may not open the summary, and nothing to create', () => {
     staff.activePatient = activePatient('emergency')
     open()
     expect(screen.getByText('Emergency access shows the emergency summary only')).toBeTruthy()
@@ -333,8 +392,14 @@ describe('New consultation', () => {
     const context = await screen.findByRole('region', { name: 'Allergies' })
     expect(within(context).getByText('Penicillin (told us by the patient, not checked by a clinician).')).toBeTruthy()
     expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
-    expect(screen.getByText('The note saves as a draft. Sign it on the consultation’s page.')).toBeTruthy()
+    expect(screen.getByText('Notes are saved as drafts. Signing needs its own reviewed action.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Back to list' })).toBeTruthy()
+  })
+
+  it('parity: says what starting an encounter requires, and takes the complaint in a textarea, as today', async () => {
+    await openNew()
+    expect(screen.getByText('To start a consultation, you need current access to this patient and must give the reason for the visit.')).toBeTruthy()
+    expect(screen.getByLabelText(labelled('Presenting complaint')).tagName).toBe('TEXTAREA')
   })
 
   it('says no allergies are recorded when the patient reported none', async () => {
@@ -395,6 +460,18 @@ describe('New consultation', () => {
     expect(screen.getByLabelText(labelled('Code system')).getAttribute('aria-invalid')).toBe('true')
   })
 
+  it('offers no diagnosis fields to a role that may write diagnoses but not read them, and adds none', async () => {
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.diagnosis.read')
+    const save = await openNew()
+    for (const label of ['Diagnosis', 'Code system', 'Code', 'Clinical status', 'Verification']) expect(screen.queryByLabelText(labelled(label))).toBeNull()
+    fill('Presenting complaint', 'Cough')
+    fill('History', 'Three days of cough.')
+    fireEvent.click(save)
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
+    expect(api.createRecord).toHaveBeenCalledTimes(1)
+    expect(api.createRecord.mock.calls.filter(call => call[3] === 'diagnoses')).toHaveLength(0)
+  })
+
   it('keeps today’s field limits', async () => {
     await openNew()
     expect((screen.getByLabelText(labelled('Presenting complaint')) as HTMLInputElement).maxLength).toBe(4000)
@@ -416,7 +493,7 @@ describe('New consultation', () => {
     fill('Presenting complaint', 'Cough')
     fireEvent.click(save)
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e1111111' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     expect(api.createEncounter).toHaveBeenCalledTimes(1)
     expect(api.createEncounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID,
       { encounterType: 'virtual', status: 'in_progress', startedAt: expect.any(String), chiefComplaint: 'Cough' }, expect.any(String))
@@ -430,7 +507,7 @@ describe('New consultation', () => {
       fill('Presenting complaint', 'Cough')
       fill(label, 'Fictional text.')
       fireEvent.click(save)
-      expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e1111111' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
       const notes = api.createRecord.mock.calls.filter(call => call[3] === 'clinical-notes')
       expect(notes).toHaveLength(1)
       expect(notes[0]!.slice(0, 5)).toEqual([FACILITY_ID, PATIENT_ID, NEW_ID, 'clinical-notes', {
@@ -472,7 +549,7 @@ describe('New consultation', () => {
     expect(checks.some(order => order < api.createEncounter.mock.invocationCallOrder[0]!)).toBe(true)
     expect(checks.filter(order => order > api.createEncounter.mock.invocationCallOrder[0]! && order < api.createRecord.mock.invocationCallOrder[0]!)).toHaveLength(1)
     // The new encounter's page.
-    expect(screen.getByRole('heading', { level: 1, name: 'Consultation e1111111' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
   })
 
   it('shows a refused note at its field, keeps the encounter started and reuses its keys on retry', async () => {
@@ -493,7 +570,7 @@ describe('New consultation', () => {
     expect(screen.queryByLabelText(labelled('Presenting complaint'))).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Save the rest' }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e1111111' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     expect(api.createEncounter).toHaveBeenCalledTimes(1)
     expect(api.createRecord).toHaveBeenCalledTimes(2)
     expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
@@ -526,7 +603,7 @@ describe('New consultation', () => {
 
     fill('Code', 'J06.9')
     fireEvent.click(screen.getByRole('button', { name: 'Save the rest' }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e1111111' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     expect(api.createEncounter).toHaveBeenCalledTimes(1)
     expect(api.createRecord.mock.calls.filter(call => call[3] === 'clinical-notes')).toHaveLength(1)
     const diagnoses = api.createRecord.mock.calls.filter(call => call[3] === 'diagnoses')

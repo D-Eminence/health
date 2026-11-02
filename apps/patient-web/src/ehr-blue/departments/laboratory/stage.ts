@@ -93,7 +93,8 @@ export function factsOfRecord(accession: LabAccession | null, executions: readon
 /** The one next thing to do at this stage, in a word or two: the card's button. */
 export function nextAction(stage: LabStage, facts: StageFacts, paymentFirst: boolean): string {
   switch (stage) {
-    case 'collect': return paymentFirst ? 'Take payment' : 'Collect sample'
+    // Nothing can be collected until the sample is registered (its accession made): the card names the step it opens on.
+    case 'collect': return paymentFirst ? 'Take payment' : facts.accessioned ? 'Collect sample' : 'Register sample'
     case 'testing':
       if (facts.executions.includes('in_progress')) return 'Finish test'
       if (facts.specimens.includes('collected')) return 'Receive sample'
