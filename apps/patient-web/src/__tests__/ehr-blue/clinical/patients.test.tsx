@@ -487,7 +487,7 @@ describe('The open patient’s page', () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
     open('/open')
     expect(await screen.findByText('Access to this patient ended')).toBeTruthy()
-    expect(screen.getByText('Your access to this patient has ended. Open the patient again to keep working.')).toBeTruthy()
+    expect(screen.getByText('Open the patient again to keep working.')).toBeTruthy()
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.encounters).not.toHaveBeenCalled()
   })

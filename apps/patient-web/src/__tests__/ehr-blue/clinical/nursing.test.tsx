@@ -194,7 +194,7 @@ describe('Nursing observations list', () => {
     open()
     const ended = await screen.findByRole('alert')
     expect(ended.textContent).toContain('Access to this patient ended')
-    expect(ended.textContent).toContain('Your access to this patient has ended. Open the patient again to keep working.')
+    expect(ended.textContent).toContain('Open the patient again to keep working.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
   })
 

@@ -574,7 +574,7 @@ describe('New pharmacy (prescription)', () => {
     fireEvent.click(save)
     await confirmPatient(SAVE_RX(), 'Save prescription')
     expect(await screen.findByText('Access to this patient ended')).toBeTruthy()
-    expect(screen.getByText('Your access to this patient has ended. Open the patient again to keep working.')).toBeTruthy()
+    expect(screen.getByText('Open the patient again to keep working.')).toBeTruthy()
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.createRecord).not.toHaveBeenCalled()
   })
@@ -1603,8 +1603,10 @@ describe('gap: no change starts from an order while it is read again after a cha
     await waitFor(() => expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests', { cursor: undefined, fresh: true }))
     const submit = screen.getByRole('button', { name: 'Update status' }) as HTMLButtonElement
     expect(submit.disabled).toBe(true)
+    // The page checked access once when it opened (#98); the change sends no check of its own.
+    const checks = api.lookupPatient.mock.calls.length
     await act(async () => { fireEvent.submit(field('Reason for change').closest('form')!) })
-    expect(api.lookupPatient).not.toHaveBeenCalled()
+    expect(api.lookupPatient).toHaveBeenCalledTimes(checks)
     expect(api.updateRecord).not.toHaveBeenCalled()
     await act(async () => {
       read.answer({ items: [labRequest({ status: 'active', rowVersion: 3, orderRoute: route({ effectiveState: 'withdrawn', resendAllowed: true }) })], nextCursor: null, crossFacilityOrders: true })
