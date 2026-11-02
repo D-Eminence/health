@@ -169,8 +169,8 @@ export function prescriptionChanged(caught: unknown): string | null {
 export function releasedResultsRefusal(caught: unknown): string {
   if (!isHidApiError(caught)) return refusalText(caught, 'Released results could not be loaded.')
   if (caught.status === 404) return caught.code === 'LAB_WORK_ITEM_NOT_FOUND'
-    ? 'Lab has no work item for this request that you can see: Lab has not accepted it, accepted it at another facility, or your access to this patient does not cover it.'
-    : 'Released results are not available from this Lab service.'
+    ? 'The laboratory hasn’t accepted this request here yet, or your access to this patient doesn’t cover it.'
+    : 'This laboratory doesn’t share results here yet.'
   if (caught.status === 403) return 'You can’t see this request’s lab results here.'
   return refusalText(caught, 'Released results could not be loaded.')
 }

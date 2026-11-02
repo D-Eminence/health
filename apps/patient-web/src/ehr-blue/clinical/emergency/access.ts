@@ -95,7 +95,7 @@ export function whoToAsk(administrator: Administrator): string {
 /** Patients.tsx:65-78: why the role cannot take `action`, or null when it holds every permission its routes need. (in plain words: never a permission's name). */
 export function actionUnavailable({ routes, action }: AccessAction, permissions: readonly string[], administrator: Administrator = null): string | null {
   const needs = routes.map(item => ({ ...item, required: findEndpoint(item.route)?.permissions?.[item.method] ?? [] }))
-  if (needs.some(item => item.required.length === 0)) return `This portal cannot ${action} here.`
+  if (needs.some(item => item.required.length === 0)) return `You can’t ${action} here.`
   // The permissions themselves are never named: the role is told, in plain words, what it can't do and whom to ask.
   return needs.every(item => item.required.every(permission => permissions.includes(permission))) ? null
     : `Your role at this facility can’t ${action}. ${whoToAsk(administrator)}`

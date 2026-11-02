@@ -111,8 +111,8 @@ describe('shared error helpers say every failure in plain English', () => {
   it('never names a Lab code in a sentence', () => {
     const outcome = labHandoffOutcome({ state: 'failed', status: 409, code: 'LAB_ORDER_PATIENT_MISMATCH' } as never, 'activated', true)
     expect(outcome.text).not.toMatch(/LAB_|\(/)
-    expect(outcome.text).toMatch(/didn’t accept it/)
-    expect(releasedResultsRefusal(hostile(403, 'LAB_RESULT_FORBIDDEN'))).toBe('You can’t see this test’s results here.')
+    expect(outcome.text).toMatch(/Lab refused it\. Once that is resolved/)
+    expect(releasedResultsRefusal(hostile(403, 'LAB_RESULT_FORBIDDEN'))).toBe('You can’t see this request’s lab results here.')
   })
 
   it('never shows a role’s internal key', () => {

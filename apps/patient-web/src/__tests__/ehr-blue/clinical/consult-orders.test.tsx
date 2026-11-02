@@ -1480,7 +1480,7 @@ describe('review: after a create the list is read once, and what the read came t
     submitWith('Test code')
     await confirmPatient(SEND_LAB(), 'Send lab request')
     const heading = await screen.findByRole('heading', { level: 1, name: 'Record not found' })
-    const said = screen.getByText(/^Lab request saved and active in the EHR, but the laboratory didn’t accept it/)
+    const said = screen.getByText(/^Lab request saved and active in the EHR, but Lab refused it/)
     expect(heading.compareDocumentPosition(said) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
