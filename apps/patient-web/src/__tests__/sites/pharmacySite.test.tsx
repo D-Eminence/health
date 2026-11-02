@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { offeredHere, rightSiteHref, servedHere } from '../../productSites'
-import { facility, serve, sessionAt, where } from '../ehr-blue/frame/blueHarness'
+import { facility, serve, sessionAt } from '../ehr-blue/frame/blueHarness'
 import {
   address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_PERMISSION, expectNoHostnameShown, expectOpenedElsewhere, onSite,
-  openBlueOn, openClassicOn, openPortalOn, OUTREACH_DEMO, PHARMACY_DEMO, REAL_CLINIC, SESSION, signInActionOn, siteLinks,
+  openBlueOn, openClassicOn, openPortalOn, openPortalSignedInOn, OUTREACH_DEMO, PHARMACY_DEMO, REAL_CLINIC, SESSION, signInActionOn, siteLinks,
 } from './siteHarness'
 
 /**
@@ -54,16 +54,18 @@ describe(SITE, () => {
     expect(opened).not.toHaveBeenCalled()
   })
 
-  it.each(['/provider/registration', '/provider/clinical'])('opens the Pharmacy’s Home in place of the Hospital EHR’s %s, on this site', async path => {
-    await openBlueOn(SITE, { id: PHARMACY_DEMO, name: 'Demo Pharmacy' }, EVERY_PERMISSION, [], path)
-    await waitFor(() => expect(where()).toMatch(/^\/provider\/pharmacy(\/|$)/))
+  it.each(['/provider/registration', '/provider/clinical'])('opens the Pharmacy’s Home in place of the Hospital EHR’s %s, signed in, on this site', async path => {
+    await openPortalSignedInOn(SITE, path, { id: PHARMACY_DEMO, name: 'Demo Pharmacy' }, EVERY_PERMISSION)
+    await waitFor(() => expect(address()).toMatch(/^\/provider\/pharmacy(\/|$)/))
+    expect(screen.queryByText(/Opening it there/)).toBeNull()
     expect(opened).not.toHaveBeenCalled()
   })
 
-  it.each(['/provider/payments', '/provider/whats-left'])('keeps %s open here, a page the Pharmacy opens unlisted', async path => {
-    await openBlueOn(SITE, { id: PHARMACY_DEMO, name: 'Demo Pharmacy' }, [...EVERY_PERMISSION, 'billing.bill.read'], [], path)
+  it.each(['/provider/payments', '/provider/whats-left'])('keeps %s open here, signed in, a page the Pharmacy opens unlisted', async path => {
+    await openPortalSignedInOn(SITE, path, { id: PHARMACY_DEMO, name: 'Demo Pharmacy' }, [...EVERY_PERMISSION, 'billing.bill.read'])
+    await screen.findByRole('navigation', { name: 'Main navigation' })
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
-    expect(where()).toBe(path)
+    expect(address()).toBe(path)
     expect(opened).not.toHaveBeenCalled()
   })
 
@@ -159,7 +161,8 @@ async function openStaffAt(path: string, at: ReturnType<typeof facility>) {
 /**
  * #104 stopped this site sending a role that can open neither Sell nor Prescriptions round /provider, Pharmacy and
  * Sell for ever: it lands on Prescriptions, which says plainly why it is not open. This site's own redirects (an
- * address another site serves, the product's home in place of Home) must not bring the loop back.
+ * address another site serves, the product's home in place of Home or of a page of the hospital EHR's) must not bring
+ * the loop back.
  */
 describe(`${SITE}, for a role without the pharmacy page’s permission`, () => {
   const NONE = 'Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.'
@@ -168,6 +171,8 @@ describe(`${SITE}, for a role without the pharmacy page’s permission`, () => {
   it.each([
     ['/provider', 'Demo Pharmacy', ['audit.read'], NONE],
     ['/provider/pharmacy', 'Demo Pharmacy', ['audit.read'], NONE],
+    // A page of the hospital EHR's stays on this site now, where the frame opens the Pharmacy's Home in its place.
+    ['/provider/registration', 'Demo Pharmacy', ['audit.read'], NONE],
     ['/provider', 'Demo Pharmacy', ['billing.bill.read'], NO_PRESCRIPTIONS],
     ['/provider', 'a fictional pharmacy, with the clinic switch on', ['audit.read'], NONE],
   ])('opened at %s at %s holding %j, settles on Pharmacy’s plain refusal here, without going round', async (path, at, permissions, message) => {

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import { offeredHere, rightSiteHref, servedHere } from '../../productSites'
-import { facility, where } from '../ehr-blue/frame/blueHarness'
+import { facility } from '../ehr-blue/frame/blueHarness'
 import {
   address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_PERMISSION, expectNoHostnameShown, expectOpenedElsewhere, openBlueOn,
-  openClassicOn, openPortalOn, OUTREACH_DEMO, PHARMACY_DEMO, signInActionOn, siteLinks,
+  openClassicOn, openPortalOn, openPortalSignedInOn, OUTREACH_DEMO, PHARMACY_DEMO, signInActionOn, siteLinks,
 } from './siteHarness'
 
 /**
@@ -51,9 +51,10 @@ describe(SITE, () => {
     expect(opened).not.toHaveBeenCalled()
   })
 
-  it('opens Outreach’s Home in place of Patient registration, on this site', async () => {
-    await openBlueOn(SITE, { id: OUTREACH_DEMO, name: 'Demo Outreach' }, EVERY_PERMISSION, [], '/provider/registration')
-    await waitFor(() => expect(where()).toBe('/provider/outreach'))
+  it('opens Outreach’s Home in place of Patient registration, signed in, on this site', async () => {
+    await openPortalSignedInOn(SITE, '/provider/registration', { id: OUTREACH_DEMO, name: 'Demo Outreach' }, EVERY_PERMISSION)
+    await waitFor(() => expect(address()).toBe('/provider/outreach'))
+    expect(screen.queryByText(/Opening it there/)).toBeNull()
     expect(opened).not.toHaveBeenCalled()
   })
 

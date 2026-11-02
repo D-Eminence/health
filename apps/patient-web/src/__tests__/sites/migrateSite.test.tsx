@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import { offeredHere, rightSiteHref, servedHere } from '../../productSites'
-import { DEMO_HOSPITAL, facility, REAL_FACILITY, where } from '../ehr-blue/frame/blueHarness'
+import { DEMO_HOSPITAL, facility, REAL_FACILITY } from '../ehr-blue/frame/blueHarness'
 import {
   address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_PERMISSION, expectNoHostnameShown, expectOpenedElsewhere, openBlueOn,
-  openClassicOn, openPortalOn, signInActionOn, siteLinks,
+  openClassicOn, openPortalOn, openPortalSignedInOn, signInActionOn, siteLinks,
 } from './siteHarness'
 
 /**
@@ -51,10 +51,11 @@ describe(SITE, () => {
     expect(opened).not.toHaveBeenCalled()
   })
 
-  it('opens Migrate’s Home in place of Patient registration, once the clinic switch is on, on this site', async () => {
+  it('opens Migrate’s Home in place of Patient registration, signed in once the clinic switch is on, on this site', async () => {
     clinic.switchedOn = true
-    await openBlueOn(SITE, { id: REAL_FACILITY, name: 'Fictional Records Office' }, EVERY_PERMISSION, [], '/provider/registration')
-    await waitFor(() => expect(where()).toBe('/provider/ocr'))
+    await openPortalSignedInOn(SITE, '/provider/registration', { id: REAL_FACILITY, name: 'Fictional Records Office' }, EVERY_PERMISSION)
+    await waitFor(() => expect(address()).toBe('/provider/ocr'))
+    expect(screen.queryByText(/Opening it there/)).toBeNull()
     expect(opened).not.toHaveBeenCalled()
   })
 

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { offeredHere, servedHere, rightSiteHref } from '../../productSites'
-import { DEMO_HOSPITAL, DEMO_LABORATORY, facility, homeHeading, where } from '../ehr-blue/frame/blueHarness'
+import { DEMO_HOSPITAL, DEMO_LABORATORY, facility, homeHeading, json, where } from '../ehr-blue/frame/blueHarness'
 import {
   address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_PERMISSION, expectNoHostnameShown, expectOpenedElsewhere, openBlueOn,
-  openClassicOn, openPortalOn, overviewWorkspaces, signInActionOn, siteLinkNotes, siteLinks,
+  openClassicOn, openPortalOn, openPortalSignedInOn, overviewWorkspaces, signInActionOn, siteLinkNotes, siteLinks,
 } from './siteHarness'
 import type { Sent } from '../ehr-blue/frame/blueHarness'
 
@@ -25,6 +25,7 @@ beforeEach(() => { opened.mockClear(); vi.stubGlobal('BroadcastChannel', TabChan
 afterEach(() => { backToTestSite(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
 const LAB = 'lab.healthidentitydirectory.com'
+const LOOKUP = 'POST /api/v1/identity/patient-lookup'
 const LAB_STAGING = 'lab.staging.healthidentitydirectory.com'
 
 describe(LAB, () => {
@@ -57,10 +58,13 @@ describe(LAB, () => {
     expect(opened).not.toHaveBeenCalled()
   })
 
+  // Signed in, through this site's own redirects and then the blue EHR: the page stays on this site, where the frame's
+  // guard (#113) opens the Laboratory's Home in its place.
   it.each(['/provider/registration', '/provider/clinical', '/provider/in-person-check'])(
-    'opens the Laboratory’s Home in place of the Hospital EHR’s %s, in the blue EHR, on this site', async path => {
-      await openBlueOn(LAB, { id: DEMO_LABORATORY, name: 'Demo Laboratory' }, EVERY_PERMISSION, [], path)
-      await waitFor(() => expect(where()).toBe('/provider/laboratory'))
+    'opens the Laboratory’s Home in place of the Hospital EHR’s %s, signed in, on this site: nothing opens the EHR site', async path => {
+      await openPortalSignedInOn(LAB, path, { id: DEMO_LABORATORY, name: 'Demo Laboratory' }, EVERY_PERMISSION)
+      await waitFor(() => expect(address()).toBe('/provider/laboratory'))
+      expect(screen.queryByText(/Opening it there/)).toBeNull()
       expect(screen.queryByRole('heading', { name: homeHeading() })).toBeNull()
       expect(opened).not.toHaveBeenCalled()
     })
@@ -139,6 +143,42 @@ describe(LAB, () => {
   it('offers Patients and Access requests only to a role holding their own permissions', async () => {
     const sidebar = await openClassicOn(LAB, '/provider', [], ['lab.work-item.read'])
     expect(classicPages(sidebar)).toEqual(['Overview', 'Laboratory'])
+  })
+
+  it('counts no Hospital EHR workspace as elsewhere on the Overview: nothing links to one', async () => {
+    const sidebar = await openClassicOn(LAB, '/provider', [], ['lab.work-item.read', 'ehr.encounter.read', 'identity.registration.write'])
+    expect(await screen.findByRole('heading', { level: 2, name: 'Workspaces' })).toBeTruthy()
+    expect(overviewWorkspaces()).toEqual(['Laboratory'])
+    expect(screen.queryByText('Your other workspaces are on other Health ID sites, linked in the sidebar.')).toBeNull()
+    expect(screen.queryByText(/has no workspace/)).toBeNull()
+    expect(siteLinks(sidebar)).toEqual([])
+  })
+
+  it('says plainly when a role’s workspaces are all the Hospital EHR’s, in place of an empty list', async () => {
+    await openClassicOn(LAB, '/provider', [], ['ehr.encounter.read'])
+    expect(await screen.findByRole('heading', { level: 2, name: 'Workspaces' })).toBeTruthy()
+    expect(overviewWorkspaces()).toEqual([])
+    expect(screen.getByText('Your role has no workspace in Health ID Lab. Ask an administrator to review your assignment.')).toBeTruthy()
+    expect(screen.queryByText('Your other workspaces are on other Health ID sites, linked in the sidebar.')).toBeNull()
+    expectNoHostnameShown()
+  })
+
+  it('keeps a patient opened from Patient access on that page, with no link to a clinical record this site does not open', async () => {
+    const lookup = () => json({ authorization: { decision: 'allow', consentGrantId: 'grant-1', scope: 'read_records' },
+      patient: { patientId: 'b1000000-0000-4000-8000-00000000a7c3', hid: 'HID-ABCDEF23', fullName: 'Chidi Okafor' } })
+    const sidebar = await openClassicOn(LAB, '/provider/patients', [], ['identity.patient.read', 'lab.work-item.read'], { [LOOKUP]: [lookup] })
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: 'HID-ABCDEF23' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify access' }))
+    expect(await screen.findByText('Access is allowed.')).toBeTruthy()
+    expect(where()).toBe('/provider/patients')
+    expect(screen.getByRole('heading', { level: 2, name: 'Current authorized record' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /Open clinical record|emergency summary/ })).toBeNull()
+    // The Overview offers no clinical record for it either.
+    fireEvent.click(within(sidebar).getByRole('link', { name: 'Overview' }))
+    expect(await screen.findByRole('heading', { level: 2, name: 'Workspaces' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Current patient' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Open clinical record →' })).toBeNull()
+    expect(opened).not.toHaveBeenCalled()
   })
 
   it('opens the blue EHR at Demo Laboratory as the Laboratory, with this site’s pages only', async () => {

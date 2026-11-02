@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, screen, waitFor } from '@testing-library/react'
 import { rightSiteHref, servedHere } from '../../productSites'
-import { backToTestSite, onSite, openPortalOn } from './siteHarness'
+import { DEMO_HOSPITAL, homeHeading } from '../ehr-blue/frame/blueHarness'
+import { backToTestSite, onSite, openBlueOn, openPortalOn } from './siteHarness'
 
 /**
  * app. (staging. on staging): the patient portal, for patients only (owner, 2026-11-02). Its staff addresses follow the
@@ -68,6 +69,16 @@ describe(STAGING, () => {
   it('leaves staff sign-in to the portal, which keeps staging’s own (#114): this branch sends it nowhere', async () => {
     await openPortalOn(STAGING, '/provider/sign-in')
     expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(opened).not.toHaveBeenCalled()
+  })
+
+  // staging.'s staff pages work as on a local build (#114, #115): the main site is not a staff site, so a demo facility
+  // signed in here opens its pages, with no notice that it works on another site.
+  it('opens a demo facility’s pages here, signed in, with no notice that it works on another site', async () => {
+    await openBlueOn(STAGING, { id: DEMO_HOSPITAL, name: 'Demo Hospital' }, ['identity.patient.read'], [], '/provider')
+    expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /works on/ })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Open Hospital EHR' })).toBeNull()
     expect(opened).not.toHaveBeenCalled()
   })
 })

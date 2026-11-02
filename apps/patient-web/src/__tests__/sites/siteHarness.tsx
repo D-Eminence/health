@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { expect, type Mock } from 'vitest'
-import { facility, json, openStaffApp, problem, REQUESTS, serve, sessionAt, type Sent } from '../ehr-blue/frame/blueHarness'
+import { facility, json, openStaffApp, problem, REQUESTS, serve, sessionAt, type Answer, type Sent } from '../ehr-blue/frame/blueHarness'
 
 /**
  * Each product on its own site (productSites.ts): the portal as each Health ID host serves it. jsdom's page address
@@ -55,6 +55,19 @@ export async function openPortalOn(hostname: string, path: string) {
   return sent
 }
 
+/**
+ * The portal at `path` on `hostname`, as the browser opens it there, signed in at `at` holding `permissions`: the site's
+ * own redirects (ProductHostnameGate) first, then the staff app.
+ */
+export async function openPortalSignedInOn(hostname: string, path: string, at: { id: string; name: string }, permissions: readonly string[]) {
+  const here = facility(at.id, at.name, permissions)
+  const sent = serve({ [SESSION]: [sessionAt(here, [here])] })
+  onSite(hostname, path)
+  const { App } = await import('../../App')
+  render(<MemoryRouter initialEntries={[path]}><Address /><App /></MemoryRouter>)
+  return sent
+}
+
 /** What a page calls each Health ID site, by the first part of its hostname: the product's plain name. */
 const PLAIN_NAMES: Readonly<Record<string, string>> = {
   app: 'the main Health ID site', staging: 'the main Health ID site', ehr: 'Health ID EHR', lab: 'Health ID Lab',
@@ -88,10 +101,14 @@ export function siteLinkNotes(sidebar: HTMLElement): string[] {
   return [...sidebar.querySelectorAll('.staff-nav-sites .staff-nav-meta')].map(note => note.textContent ?? '')
 }
 
-/** Today's workspace at a fictional clinic holding `permissions` (every one), on `hostname`; what it sent is in `sent`. */
-export async function openClassicOn(hostname: string, path = '/provider', sent: Sent[] = [], permissions: readonly string[] = EVERY_PERMISSION) {
+/**
+ * Today's workspace at a fictional clinic holding `permissions` (every one), on `hostname`, answering `routes` besides
+ * its session and access requests; what it sent is in `sent`.
+ */
+export async function openClassicOn(hostname: string, path = '/provider', sent: Sent[] = [], permissions: readonly string[] = EVERY_PERMISSION,
+  routes: Record<string, Answer[]> = {}) {
   const clinic = facility(REAL_CLINIC, 'Fictional Clinic', permissions)
-  serve({ [SESSION]: [sessionAt(clinic, [clinic])], [REQUESTS]: [() => json([])] }, sent)
+  serve({ [SESSION]: [sessionAt(clinic, [clinic])], [REQUESTS]: [() => json([])], ...routes }, sent)
   onSite(hostname, path)
   await openStaffApp(path)
   return screen.findByRole('complementary', { name: 'Provider navigation' })

@@ -196,8 +196,12 @@ export function otherStaffSites(paths: readonly string[], hostname: string = win
   return STAFF_SITES.filter(key => key !== here.key && elsewhere.has(key)).map(key => siteIn(here.deployment, key))
 }
 
-/** The staff site `key` when this host is another Health ID site: null on that site itself, and on any other host. */
+/**
+ * The staff site `key` when this host is another staff site: null on that site itself, and on any other host. The main
+ * site is not a staff site: its staff pages are the portal's own rule (staffSignIn.tsx), and where staging's serves
+ * them (#114, #115) they work as on a local build, for every facility.
+ */
 export function siteElsewhere(key: StaffProductKey, hostname: string = window.location.hostname): Site | null {
   const here = siteOf(hostname)
-  return here && here.key !== key ? siteIn(here.deployment, key) : null
+  return here && here.key !== 'web' && here.key !== key ? siteIn(here.deployment, key) : null
 }

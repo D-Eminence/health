@@ -199,6 +199,12 @@ describe('siteElsewhere', () => {
     expect(siteElsewhere('lab', 'localhost')).toBeNull()
     expect(siteElsewhere('ehr', 'admin.healthidentitydirectory.com')).toBeNull()
   })
+
+  it('names none from the main site, which is not a staff site: staging’s staff pages work for every facility', () => {
+    expect(siteElsewhere('ehr', 'staging.healthidentitydirectory.com')).toBeNull()
+    expect(siteElsewhere('lab', 'staging.healthidentitydirectory.com')).toBeNull()
+    expect(siteElsewhere('ehr', 'app.healthidentitydirectory.com')).toBeNull()
+  })
 })
 
 describe('siteNameOf', () => {
