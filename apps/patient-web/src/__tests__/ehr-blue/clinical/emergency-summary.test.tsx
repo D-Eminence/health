@@ -367,7 +367,7 @@ describe('the emergency summary shows every section EHR returns that the role ma
     expect(within(section('Prescriptions')).getByText('Artesunate')).toBeTruthy()
     const lab = entry('Lab tests', 'Haemoglobin')
     expect(within(lab).getByText('Urgent')).toBeTruthy()
-    expect(lab.textContent).toMatch(/LOINC 718-7 · urgent priority · Asked for \d/)
+    expect(lab.textContent).toMatch(/LOINC 718-7 · Priority: Urgent · Asked for \d/)
     expect(entry('Documents', 'referral-letter.pdf').textContent).toMatch(/PDF · 20 KB · added \d/)
   })
 
@@ -425,14 +425,18 @@ describe('the emergency summary shows every section EHR returns that the role ma
     api.emergencyRecords.mockResolvedValue(summary({
       notes: [{ ...note(2), status: 'amended', revisionNo: 2 }],
       diagnoses: [{ ...diagnosis('diagnosis-5', 'Sepsis', 'active', 'provisional'), codeSystem: 'SNOMED', code: '91302008' }],
-      labRequests: [{ ...labRequest('lab-4', 'Blood culture', 'active'), testCodeSystem: 'LOINC', testCode: '600-7', priority: 'routine' }],
+      labRequests: [{ ...labRequest('lab-4', 'Blood culture', 'active'), testCodeSystem: 'LOINC', testCode: '600-7', priority: 'routine' },
+        { ...labRequest('lab-5', 'Troponin', 'active'), testCodeSystem: 'LOINC', testCode: '6598-7', priority: 'asap' }],
     }))
     await renderSummary()
     expect(entry('Signed notes', 'Triage note 2').textContent).toMatch(/Triage · Amended · version 2 · signed \d/)
     expect(entry('Diagnoses', 'Sepsis').textContent).toContain('Active · Provisional · code SNOMED 91302008')
     const lab = entry('Lab tests', 'Blood culture')
-    expect(lab.textContent).toMatch(/LOINC 600-7 · routine priority · Asked for \d/)
+    expect(lab.textContent).toMatch(/LOINC 600-7 · Priority: Routine · Asked for \d/)
     expect(within(lab).queryByText('Routine')).toBeNull()
+    // The priority is said in words, never as the raw value (the owner's rule).
+    expect(entry('Lab tests', 'Troponin').textContent).toMatch(/LOINC 6598-7 · Priority: As soon as possible · Asked for \d/)
+    expect(entry('Lab tests', 'Troponin').textContent).not.toMatch(/asap/)
   })
 
   it('says a lab test entered in error is not this patient’s', async () => {

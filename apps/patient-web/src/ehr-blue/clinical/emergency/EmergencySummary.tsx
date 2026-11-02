@@ -5,6 +5,7 @@ import { Alert, Badge, Button, Card, CardHeader, EmptyState, type Tone } from '.
 import { usesNovuBackend } from '../../../backendContract'
 import { staffApi, type EmergencyRecords, type EmergencySection } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
+import { priorityLabel } from '../../../staff/orderRoutes'
 import { selfServiceReview } from '../../../staff/staffAccess'
 import { ChartGate, type Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
@@ -193,8 +194,8 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
           empty="No lab tests at this facility." render={item => <>
             <Head>{item.testDisplay}<OrderStatus status={item.status} />{item.priority && item.priority !== 'routine' ? <Badge size="sm" tone="danger">{words(item.priority)}</Badge> : null}</Head>
             {item.status === 'entered_in_error' ? <span className="font-medium text-danger-ink">Recorded in error: not a test for this patient.</span> : null}
-            {/* The test's code with its code system, and its priority, routine too (Clinical.tsx:1158). */}
-            <span>{item.testCodeSystem} {item.testCode} · {item.priority} priority · Asked for {formatWhen(item.createdAt)}</span>
+            {/* The test's code with its code system, and its priority in words, routine too (Clinical.tsx:1158). */}
+            <span>{item.testCodeSystem} {item.testCode}{item.priority ? ` · Priority: ${priorityLabel(item.priority)}` : ''} · Asked for {formatWhen(item.createdAt)}</span>
             {item.clinicalInformation ? <Text>{item.clinicalInformation}</Text> : null}
             {/* Lab allows a released-results read under an active emergency grant; a draft never reached Lab. */}
             {item.status !== 'draft' && may('lab.result.released.read') ? <ReleasedResults facilityId={facilityId} requestId={item.id} /> : null}
