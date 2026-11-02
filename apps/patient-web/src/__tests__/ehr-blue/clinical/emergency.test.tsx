@@ -446,30 +446,32 @@ describe('recording emergency access', () => {
   })
 })
 
-describe('a role that cannot activate emergency access', () => {
+describe('a role that cannot open emergency access', () => {
   const reason = () => document.getElementById(submitButton().getAttribute('aria-describedby') ?? '')?.textContent ?? ''
+  const NO_EMERGENCY = 'Your role at this facility can’t open emergency access. Ask your facility administrator.'
 
-  it('is not offered the button, and is told exactly what it lacks', async () => {
+  it('is not offered the button, and is told in plain words, naming no permission', async () => {
     staff.permissions = ['identity.patient.read', 'identity.break-glass.write']
     open()
     expect(submitButton().disabled).toBe(true)
-    expect(reason()).toBe('Your role at this facility cannot activate emergency access: it also needs identity.consent.write, and '
-      + 'ehr.encounter.read and ehr.note.read to read the emergency summary. Ask your organization administrator.')
+    expect(reason()).toBe(NO_EMERGENCY)
+    expect(document.body.textContent).not.toMatch(/identity\.|ehr\.(encounter|note)\./)
     fill()
     await act(async () => { fireEvent.submit(submitButton().form!) })
     expect(api.breakGlass).not.toHaveBeenCalled()
   })
 
   it.each([
-    ['identity.consent.write', 'identity.consent.write'],
-    ['identity.break-glass.write', 'identity.break-glass.write'],
-    ['identity.patient.read', 'identity.patient.read to open the record'],
-    ['ehr.note.read', 'ehr.note.read to read the emergency summary'],
-  ])('without %s, names it', (missing, named) => {
+    ['identity.consent.write'],
+    ['identity.break-glass.write'],
+    ['identity.patient.read'],
+    ['ehr.note.read'],
+  ])('without %s, is turned off with the plain reason, which never names it', missing => {
     staff.permissions = EMERGENCY_PERMISSIONS.filter(permission => permission !== missing)
     open()
     expect(submitButton().disabled).toBe(true)
-    expect(reason()).toContain(`also needs ${named}.`)
+    expect(reason()).toBe(NO_EMERGENCY)
+    expect(document.body.textContent).not.toContain(missing)
   })
 
   it('at a self-signed-up facility, tells its administrator who gives clinical access', () => {
@@ -477,7 +479,7 @@ describe('a role that cannot activate emergency access', () => {
     staff.permissions = ['workforce.manage', 'audit.read']
     open()
     // The harness facility carries no self-service review, so the administrator is asked as usual.
-    expect(reason().endsWith('Ask your organization administrator.')).toBe(true)
+    expect(reason()).toBe(NO_EMERGENCY)
   })
 
   it.each([
@@ -485,8 +487,7 @@ describe('a role that cannot activate emergency access', () => {
     ['reviewed', 'You are this facility’s administrator. Health ID support gives your own role clinical access; ask them, or invite a colleague who holds this role.'],
   ] as const)('ends with today’s words for an administrator whose facility review is %s', (review, ending) => {
     const said = actionUnavailable(EMERGENCY_ACCESS, ['workforce.manage'], review)
-    expect(said?.startsWith('Your role at this facility cannot activate emergency access: it needs ')).toBe(true)
-    expect(said?.endsWith(ending)).toBe(true)
+    expect(said).toBe(`Your role at this facility can’t open emergency access. ${ending}`)
   })
 
   it('offers the button with every permission', () => {

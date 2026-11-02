@@ -387,10 +387,11 @@ describe('Ask the patient for access (once New external record access)', () => {
     expect(shownText(await screen.findByRole('alert'))).toContain('The request couldn’t be sent. Please try again.')
   })
 
-  it('names the permission a role lacks and offers no submit', () => {
+  it('says in plain words that the role can’t send requests, naming no permission, and offers no submit', () => {
     staff.permissions = ['identity.patient.read']
     open('/new')
-    expect(screen.getByText('Your role at this facility cannot send access requests: it needs identity.consent.write. Ask your organization administrator.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility can’t send access requests. Ask your facility administrator.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('identity.consent.write')
     expect((screen.getByRole('button', { name: SEND }) as HTMLButtonElement).disabled).toBe(true)
   })
 })
@@ -474,10 +475,11 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
   })
 
-  it('names what a role lacks to verify a PIN', () => {
+  it('says in plain words that the role can’t use a patient’s Access PIN, naming no permission', () => {
     staff.permissions = ['identity.patient-access-pin.verify']
     open('/pin')
-    expect(screen.getByText('Your role at this facility cannot verify a patient’s PIN: it also needs identity.patient.read to open the record. Ask your organization administrator.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility can’t use a patient’s Access PIN. Ask your facility administrator.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('identity.patient.read')
     expect((screen.getByRole('button', { name: OPEN_WITH_PIN }) as HTMLButtonElement).disabled).toBe(true)
   })
 })

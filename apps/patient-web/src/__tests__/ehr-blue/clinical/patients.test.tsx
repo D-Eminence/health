@@ -108,8 +108,8 @@ function searchField() {
 }
 
 const findButton = () => screen.getByRole('button', { name: 'Find' }) as HTMLButtonElement
-const REQUEST_UNAVAILABLE = 'Your role at this facility cannot send access requests: it needs identity.consent.write. Ask your organization administrator.'
-const EMERGENCY_UNAVAILABLE = 'Your role at this facility cannot activate emergency access: it also needs identity.break-glass.write. Ask your organization administrator.'
+const REQUEST_UNAVAILABLE = 'Your role at this facility can’t send access requests. Ask your facility administrator.'
+const EMERGENCY_UNAVAILABLE = 'Your role at this facility can’t open emergency access. Ask your facility administrator.'
 const WRITES = ['ehr.encounter.write', 'ehr.vital.read', 'ehr.vital.write']
 const NONE_WAITING = 'No invitations are waiting for your sign-in email.'
 const NOT_ELIGIBLE = 'Only a doctor, clinician or nurse at a facility Health ID has checked can accept invitations. Your role here cannot, '
@@ -564,14 +564,14 @@ describe('The open patient’s page', () => {
     expect(screen.getByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
   })
 
-  it('names what a role lacks to end its access', () => {
+  it('says in plain words that a role can’t end its access, naming no permission', () => {
     staff.permissions = ['identity.patient.read']
     staff.activePatient = activePatient()
     open('/open')
     const button = screen.getByRole('button', { name: 'End my access' }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
     expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent)
-      .toBe('Your role at this facility cannot close this grant: it needs identity.consent.write. Ask your organization administrator.')
+      .toBe('Your role at this facility can’t end this access. Ask your facility administrator.')
     fireEvent.click(button)
     expect(api.closeGrant).not.toHaveBeenCalled()
   })
@@ -622,7 +622,7 @@ const SHARE = { consentGrantId: 'grant-9', patientId: PATIENT_ID, hid: PATIENT_H
 const INVITATION = { invitationId: 'inv-1', reference: 'AB12', inviteeName: null, level: 'clinical_review', duration: '24h', createdAt: '2026-10-29T08:00:00.000Z', expiresAt: '2026-11-05T08:00:00.000Z' }
 const ACCEPTED = 'You accepted invitation AB12. The patient must now confirm before you can open their record. Once they do, they appear under Shared with you.'
 const ACCEPT_ANSWER = { invitationId: 'inv-1', status: 'accepted', acceptedAt: '2026-10-30T08:00:00.000Z', replayed: false }
-const OPEN_SHARED_UNAVAILABLE = 'Your role at this facility cannot open a patient’s record: it needs identity.patient.read. Ask your organization administrator.'
+const OPEN_SHARED_UNAVAILABLE = 'Your role at this facility can’t open a patient’s record. Ask your facility administrator.'
 const PATIENT_TWO_ID = 'a0000000-0000-4000-8000-000000000002'
 const lookupTwo = {
   patient: { ...allowedLookup.patient, patientId: PATIENT_TWO_ID, hid: 'HID-ZDEMBBB3', fullName: 'Patient Two' },
@@ -976,7 +976,7 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
 describe('PIN and emergency access offered as today’s portal offers them', () => {
   /** Every permission the PIN and emergency access need, with this file's role. */
   const WITH_ACCESS = [...ALL, 'identity.patient-access-pin.verify', 'identity.break-glass.write']
-  const PIN_UNAVAILABLE = 'Your role at this facility cannot verify a patient’s PIN: it also needs identity.patient-access-pin.verify. Ask your organization administrator.'
+  const PIN_UNAVAILABLE = 'Your role at this facility can’t use a patient’s Access PIN. Ask your facility administrator.'
   const DEMO_PIN_NOTE = 'No demo patient has a PIN yet. Demo Patient One or Two can set an Access PIN in the Health ID app, but not within 24 hours of a password reset. Patients Three to Ten have no login, so they never have one. Five wrong PINs in 15 minutes pause PIN checks for this demo login here for 15 minutes.'
 
   /** Every address the router showed, in order, so a test can tell that none of them named the patient. */
@@ -1097,6 +1097,8 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       expect(describedBy(emergency)).toBe(EMERGENCY_UNAVAILABLE)
       expect(within(accessGroup()).getByText(PIN_UNAVAILABLE)).toBeTruthy()
       expect(within(accessGroup()).getByText(EMERGENCY_UNAVAILABLE)).toBeTruthy()
+      // The reasons name no permission code.
+      expect(document.body.textContent).not.toMatch(/identity\.(patient-access-pin|break-glass)\./)
       fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
       fireEvent.click(pin)
       fireEvent.click(emergency)

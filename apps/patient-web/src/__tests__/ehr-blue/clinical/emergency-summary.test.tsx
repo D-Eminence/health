@@ -340,13 +340,14 @@ describe('ending my emergency access', () => {
     expect(screen.queryByRole('button', { name: 'End emergency access' })).toBeNull()
   })
 
-  it('is disabled, with the reason, without identity.consent.write', async () => {
+  it('is disabled, with the plain reason (no permission named), without identity.consent.write', async () => {
     staff.permissions = EVERY_READ.filter(permission => permission !== 'identity.consent.write')
     await renderSummary()
     const button = screen.getByRole('button', { name: 'End emergency access' }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
     expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent)
-      .toBe('Your role at this facility cannot end your access: it needs identity.consent.write. Ask your organization administrator.')
+      .toBe('Your role at this facility can’t end your access. Ask your facility administrator.')
+    expect(document.body.textContent).not.toContain('identity.consent.write')
     fireEvent.click(button)
     expect(api.closeGrant).not.toHaveBeenCalled()
   })

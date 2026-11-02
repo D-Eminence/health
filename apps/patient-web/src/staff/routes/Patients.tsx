@@ -59,7 +59,7 @@ function whoToAsk(administrator: 'pending' | 'reviewed' | null): string {
     + 'clinical access when it checks your facility: add your licence on the Staff page.'
   if (administrator === 'reviewed') return 'You are this facility’s administrator. Health ID support gives your own role '
     + 'clinical access; ask them, or invite a colleague who holds this role.'
-  return 'Ask your organization administrator.'
+  return 'Ask your facility administrator.'
 }
 
 /** Why the role cannot take `action`, or null when it holds every permission its routes require. */
@@ -68,14 +68,9 @@ function actionUnavailable({ routes, action }: Action, permissions: readonly str
   const needs = routes.map(item => ({ ...item, required: findEndpoint(item.route)?.permissions?.[item.method] ?? [] }))
   // A route the registry does not describe is never offered.
   if (needs.some(item => item.required.length === 0)) return `This portal cannot ${action} here.`
-  const required = new Set(needs.flatMap(item => item.required))
-  const missing = needs.flatMap(item => {
-    const lacking = item.required.filter(permission => !permissions.includes(permission))
-    return lacking.length ? [`${lacking.join(' and ')}${item.purpose ? ` ${item.purpose}` : ''}`] : []
-  })
-  const missingCount = [...required].filter(permission => !permissions.includes(permission)).length
-  return missing.length === 0 ? null
-    : `Your role at this facility cannot ${action}: it ${missingCount < required.size ? 'also ' : ''}needs ${missing.join(', and ')}. ${whoToAsk(administrator)}`
+  // The permissions themselves are never named: the role is told, in plain words, what it can't do and whom to ask.
+  return needs.every(item => item.required.every(permission => permissions.includes(permission))) ? null
+    : `Your role at this facility can’t ${action}. ${whoToAsk(administrator)}`
 }
 
 /** Why `normalized` is not a Health ID, or null when it is one. */
