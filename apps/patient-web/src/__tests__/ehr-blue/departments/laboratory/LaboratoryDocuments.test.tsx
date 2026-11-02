@@ -270,22 +270,30 @@ describe('served, for a member who reads and attaches lab documents', () => {
       specimens: [{ ...specimen, status: 'required' }] }
     api.createLabAccession.mockResolvedValue(made)
     api.transitionSpecimen.mockResolvedValue({ ...specimen, status: 'collected', version: 3 })
-    api.labAccession.mockResolvedValue({ ...made, specimens: [{ ...specimen, status: 'collected', version: 3 }] })
+    api.labAccession.mockResolvedValue(made)
     renderPage()
     await openRecord()
     await within(card()).findByText('full-blood-count.jpg')
-    // Collecting its sample reads the work list again and renders the request with the work as now listed.
+    // Registering its sample reads the work list again and renders the request with the work as now listed.
     api.labWorkItems.mockResolvedValue(served([workItem({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123',
-      specimenStatuses: ['collected'] })]))
+      specimenStatuses: ['required'] })]))
     fireEvent.change(screen.getByRole('textbox', { name: 'Sample' }), { target: { value: 'Venous blood' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Why the test' }), { target: { value: 'Routine check' } })
-    const collect = screen.getByRole('button', { name: 'Collect sample' })
-    collect.focus()
-    fireEvent.click(collect)
+    const register = screen.getByRole('button', { name: 'Register sample' })
+    register.focus()
+    fireEvent.click(register)
+    const sample = await screen.findByRole('group', { name: 'Venous blood, SPC-000123' })
+    await waitFor(() => expect(api.labWorkItems).toHaveBeenCalledTimes(2))
+    expect(api.workItemDocuments).toHaveBeenCalledTimes(1)
+    // Collecting the sample, its own step, reads the work list again too.
+    api.labAccession.mockResolvedValue({ ...made, specimens: [{ ...specimen, status: 'collected', version: 3 }] })
+    api.labWorkItems.mockResolvedValue(served([workItem({ accessionId: 'accession-1', accessionNumber: 'ACC-2026-000123',
+      specimenStatuses: ['collected'] })]))
+    fireEvent.click(within(sample).getByRole('button', { name: 'Collect sample' }))
     const sheet = await screen.findByRole('dialog', { name: 'Collect the sample' })
     await act(async () => { fireEvent.click(within(sheet).getByRole('button', { name: 'Collect sample' })) })
     expect(await screen.findByText('Sample collected. Print the label.')).toBeTruthy()
-    await waitFor(() => expect(api.labWorkItems).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(api.labWorkItems).toHaveBeenCalledTimes(3))
     await act(async () => { await Promise.resolve() })
     expect(window.document.getElementById('lab-stage-title')?.textContent).toBe('Testing')
     expect(api.workItemDocuments).toHaveBeenCalledTimes(1)
