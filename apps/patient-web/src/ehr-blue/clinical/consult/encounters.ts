@@ -118,8 +118,8 @@ export const ENCOUNTER_STATUS_UPDATED = 'Consultation updated.'
 export const REVISION_RECORDED = 'Note changes saved.'
 export const DIAGNOSIS_UPDATED = 'Diagnosis updated.'
 export const REASON_SHORT = 'Give a reason of at least 3 characters.'
-/** Today's failed encounter read, word for word (staff/routes/Clinical.tsx:1306). */
-export const ENCOUNTERS_FAILED = 'Encounters could not be loaded.'
+/** A failed re-read of this consultation, in the redesign's word (today's says "Encounters could not be loaded.", staff/routes/Clinical.tsx:1306). */
+export const ENCOUNTERS_FAILED = 'This consultation could not be loaded.'
 export const ENCOUNTER_CHANGED = 'Someone changed this consultation while you had it open. It now shows its current status; choose the change again if it’s still needed.'
 export const NOTES_ARE_DRAFTS = 'The note saves as a draft. Sign it on the consultation’s page.'
 export const NO_WRITE = 'Your access doesn’t allow changes to this patient’s records.'

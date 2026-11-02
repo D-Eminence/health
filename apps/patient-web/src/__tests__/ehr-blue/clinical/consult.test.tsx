@@ -296,10 +296,11 @@ describe('Consultation list', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Consultation' })).toBeTruthy()
     expect(screen.getByText('Clinical record')).toBeTruthy()
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()
-    // Today's sentences (staff/routes/Clinical.tsx:1375), none dropped: "No authorized patient" and "documented" are
-    // today's, the rest keeps the redesign's words.
-    expect(screen.getByText('No authorized patient.').parentElement!.textContent).toBe(
-      'Records show only for a patient you have access to at this facility. No authorized patient. Open a patient with an approved request, the patient’s PIN, or documented emergency access.')
+    // Today's sentences (staff/routes/Clinical.tsx:1375), none dropped: "documented" is today's, the rest keeps the
+    // redesign's plain words (the owner's rule: no "authorized").
+    expect(screen.getByText('No patient open.').parentElement!.textContent).toBe(
+      'Records show only for a patient you have access to at this facility. No patient open. Open a patient with an approved request, the patient’s PIN, or documented emergency access.')
+    expect(document.body.textContent).not.toMatch(/authori[sz]/i)
     expect(screen.queryByText(/Direct care access/)).toBeNull()
     expect(screen.getByRole('link', { name: 'Find a patient' }).getAttribute('href')).toBe('/provider/patients')
     expect(api.encounters).not.toHaveBeenCalled()
