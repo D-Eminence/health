@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { LogoImage } from '@/components/layout/Logo'
+import { PRODUCT_SITE_SUBDOMAINS } from '@/content/site'
 import { HealthIcon, type HealthIconName } from './HealthIcon'
 
 const WORKSPACES: Record<string, { label: string; icon: HealthIconName; items: readonly string[] }> = {
@@ -13,13 +14,22 @@ const WORKSPACES: Record<string, { label: string; icon: HealthIconName; items: r
 }
 const NAV_ICONS: readonly HealthIconName[] = ['dashboard', 'people', 'file', 'calendar', 'activity']
 
+/**
+ * The address the illustration's browser bar shows: the product's own site (ehr., lab., pharmacy., ...), as staff open
+ * it; app. is the patients' site, never a product's. A product without a site of its own shows the main site.
+ */
+export function illustrationHost(slug: string): string {
+  const subdomain = Object.hasOwn(PRODUCT_SITE_SUBDOMAINS, slug) ? PRODUCT_SITE_SUBDOMAINS[slug] : undefined
+  return subdomain ? `${subdomain}.healthidentitydirectory.com` : 'healthidentitydirectory.com'
+}
+
 export function DashboardShell({ slug, title, children }: { slug: string; title: string; children: ReactNode }) {
   const workspace = WORKSPACES[slug] ?? WORKSPACES.ehr!
   return <div className="product-console" role="img" aria-label={`Illustration of the Health ID ${slug.toUpperCase()} dashboard: ${title}, showing example workload figures and queues.`}>
     <div aria-hidden="true">
       <div className="console-browser">
         <span className="console-window-dots"><i /><i /><i /></span>
-        <span className="console-address"><HealthIcon name="shield" size={12} /> app.healthidentitydirectory.com</span>
+        <span className="console-address"><HealthIcon name="shield" size={12} /> {illustrationHost(slug)}</span>
         <span className="console-browser-label">Illustrative view</span>
       </div>
       <div className="console-workspace">
