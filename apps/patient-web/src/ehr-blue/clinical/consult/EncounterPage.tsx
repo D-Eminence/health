@@ -22,7 +22,7 @@ import { DiagnosesCard } from './Diagnoses'
 import { DocumentsCard } from './Documents'
 import {
   AMEND_LABEL, CLOSING_STATUSES, EDIT_DRAFT_LABEL, ENCOUNTER_CHANGED, ENCOUNTER_CREATED, ENCOUNTER_STATUS_UPDATED, ENCOUNTER_TRANSITIONS, ENCOUNTERS_FAILED,
-  NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NOTES_ARE_DRAFTS, NOTE_EIE_LABEL, NOTE_STATUS_UPDATED, NO_COMPLAINT, NO_WRITE, REASON_FIELD, RECORD_NOT_SAVED, RECORD_SAVED, RELOAD_FAILED, RELOAD_NOTE,
+  NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NOTES_ARE_DRAFTS, NOTE_EIE_LABEL, NOTE_ON_LATER_PAGE, NOTE_STATUS_ON_LATER_PAGE, NOTE_STATUS_UPDATED, NO_COMPLAINT, NO_WRITE, REASON_FIELD, RECORD_NOT_SAVED, RECORD_SAVED, RELOAD_FAILED, RELOAD_NOTE,
   RELOAD_RECORD, REVISION_FAILED, REVISION_REASON_FIELD, REVISION_RECORDED, SAVE_DRAFT, SIGN_LABEL, STATUS_FAILED, TITLE, UPDATING,
   WRITE_NOTE_LABEL, consultationNote, contentCheck, diagnosisStatus, encounterClosesRecords, encounterTitle, encounterTypeLabel, field,
   isoNow, newDiagnosisBody, newDiagnosisCheck, reasonCheck, recordStatus, refusedFieldErrors, retractionNotPermitted, rowVersion, text, useLatest,
@@ -418,8 +418,11 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   ]
   if (reads.diagnoses) saved.push({ label: 'Diagnosis', value: currentDiagnoses.join(', ') })
   if (reads.notes) {
-    saved.push({ label: 'Note status', value: note ? statusLabel(recordStatus(note, 'unknown')) : '' })
-    saved.push({ label: 'Note', value: noteValue(notes, note, revisions, latest) })
+    // Nursing notes share the visit's notes, as in today's one Notes tab: when they fill the first page and there are
+    // more pages, the consultation note may be on a later one, so the Saved record says so instead of "Not recorded".
+    const onLaterPage = !note && (notes.first?.length ?? 0) > 0 && (notes.cursors.length >= 2 || notes.next !== null)
+    saved.push({ label: 'Note status', value: note ? statusLabel(recordStatus(note, 'unknown')) : onLaterPage ? NOTE_STATUS_ON_LATER_PAGE : '' })
+    saved.push({ label: 'Note', value: onLaterPage ? NOTE_ON_LATER_PAGE : noteValue(notes, note, revisions, latest) })
   }
 
   // The page's one primary is "Sign note"; other note actions are secondary, and changes to the consultation itself sit

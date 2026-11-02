@@ -67,7 +67,14 @@ export const WRITE_NOTE_LABEL = 'Add notes'
 /** The Notes card (today's Notes tab): every clinical note of the encounter, nursing observations included. */
 export const NOTES_TITLE = 'Notes'
 export const NO_NOTES = 'No notes for this encounter.'
-export const NO_NOTES_ON_PAGE = 'No clinical notes on this page.'
+export const NO_NOTES_ON_PAGE = 'No notes on this page.'
+/**
+ * The Saved record's note lines when nursing notes fill the first page of Notes and there are more pages (EHR lists
+ * notes newest first, 50 to a page): a consultation note, if there is one, is on a later page, so "Not recorded" would
+ * be untrue.
+ */
+export const NOTE_STATUS_ON_LATER_PAGE = 'See Notes below'
+export const NOTE_ON_LATER_PAGE = 'The newest notes are all nursing notes. A consultation note, if there is one, is on a later page of Notes below.'
 export const REVIEW_NOTE = 'Review note content'
 export const HIDE_NOTE = 'Hide note content'
 export const ADD_REVISION_LABEL = 'Add a note revision'
