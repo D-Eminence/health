@@ -439,6 +439,26 @@ describe('the ending, and the panels in place of a step', () => {
     expect(api.activate).toHaveBeenCalledTimes(1)
   })
 
+  // The facility's own site's sign-in (facilitySignInHref): this site's own on a product site, which signs up its own
+  // kind of facility; the facility type's site from a site that serves no staff pages.
+  it.each([
+    ['lab.healthidentitydirectory.com', 'laboratory', '/provider/sign-in'],
+    ['pharmacy.healthidentitydirectory.com', 'pharmacy', '/provider/sign-in'],
+    ['migrate.healthidentitydirectory.com', 'hospital', '/provider/sign-in'],
+    ['app.healthidentitydirectory.com', 'laboratory', 'https://lab.healthidentitydirectory.com/provider/sign-in'],
+    ['app.healthidentitydirectory.com', 'pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider/sign-in'],
+    ['admin.staging.healthidentitydirectory.com', 'clinic', 'https://ehr.staging.healthidentitydirectory.com/provider/sign-in'],
+  ])('on %s, a %s’s “may already be ready” links to %s', async (hostname, organizationType, href) => {
+    api.profile.mockResolvedValueOnce({ organizationName: 'Demo Facility Limited', registrationNumber: 'RC123456',
+      organizationType, administratorName: NAME, administratorEmail: EMAIL })
+    api.activate.mockRejectedValueOnce(new HidApiError(401, 'Unauthorized', { code: 'AUTHENTICATION_REQUIRED' }))
+    await toPassword()
+    vi.stubGlobal('location', { ...window.location, hostname, reload: vi.fn() })
+    choosePassword()
+    await screen.findByRole('heading', { level: 1, name: 'Your account may already be ready' })
+    expect(screen.getByRole('link', { name: 'Sign in to the Provider Portal' }).getAttribute('href')).toBe(href)
+  })
+
   it('links to the EHR site’s sign-in in production when the account may already be ready', async () => {
     api.activate.mockRejectedValueOnce(new HidApiError(405, 'Method not allowed', { code: 'METHOD_NOT_ALLOWED' }))
     await toPassword()

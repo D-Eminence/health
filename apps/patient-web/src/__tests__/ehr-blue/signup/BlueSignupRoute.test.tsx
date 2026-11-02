@@ -112,17 +112,29 @@ describe('the blue registration on a product site, and where it is not', () => {
 
   /** The facility type and product the form holds: Facility details, then Platform setup. */
   async function startingChoice() {
+    const choices = await offered()
+    return { type: choices.type, product: choices.product }
+  }
+
+  /** The facility type and product the form holds, every one it offers, and what the type field says. */
+  async function offered() {
     fireEvent.change(textbox('Full name'), { target: { value: 'Demo Administrator' } })
     fireEvent.change(textbox('Email'), { target: { value: 'admin@demo-facility.example.test' } })
     next()
     await step('Facility details')
-    const type = combobox('Facility type').value
+    const typeField = combobox('Facility type')
+    const type = typeField.value
+    const types = [...typeField.options].map(option => option.value)
+    const typeHint = document.getElementById(typeField.getAttribute('aria-describedby')?.split(' ').at(-1) ?? '')
+    const hint = typeHint?.textContent ?? ''
+    const links = [...(typeHint?.querySelectorAll('a') ?? [])].map(link => [link.textContent, link.getAttribute('href')])
     next()
     await step('Regulatory identity')
     fireEvent.change(textbox('CAC registration number'), { target: { value: 'RC123456' } })
     next()
     await step('Platform setup')
-    return { type, product: combobox('Product to start with').value }
+    const productField = combobox('Product to start with')
+    return { type, product: productField.value, types, products: [...productField.options].map(option => option.value), hint, links }
   }
 
   it.each([
@@ -132,9 +144,12 @@ describe('the blue registration on a product site, and where it is not', () => {
     ['migrate.healthidentitydirectory.com', '/provider/enroll', { type: 'hospital', product: 'migrate' }],
     ['ehr.healthidentitydirectory.com', '/provider/enroll', { type: 'hospital', product: 'ehr' }],
     ['outreach.healthidentitydirectory.com', '/provider/enroll', { type: 'hospital', product: 'ehr' }],
-    // A product the address names wins over the site's own, as the public site's links ask.
-    ['lab.healthidentitydirectory.com', '/provider/enroll?product=ehr', { type: 'hospital', product: 'ehr' }],
-    ['pharmacy.healthidentitydirectory.com', '/provider/enroll?type=clinic', { type: 'clinic', product: 'ehr' }],
+    // What the address names is kept where this site signs it up, and never makes a site sign up another kind of facility.
+    ['ehr.healthidentitydirectory.com', '/provider/enroll?type=clinic&product=ehr', { type: 'clinic', product: 'ehr' }],
+    ['migrate.healthidentitydirectory.com', '/provider/enroll?type=other', { type: 'other', product: 'migrate' }],
+    ['lab.healthidentitydirectory.com', '/provider/enroll?product=ehr', { type: 'laboratory', product: 'laboratory' }],
+    ['pharmacy.healthidentitydirectory.com', '/provider/enroll?type=clinic', { type: 'pharmacy', product: 'pharmacy' }],
+    ['ehr.healthidentitydirectory.com', '/provider/enroll?type=laboratory&product=laboratory', { type: 'hospital', product: 'ehr' }],
     // An address naming nothing the form knows is the site's own again.
     ['lab.healthidentitydirectory.com', '/provider/enroll?product=https://evil.example', { type: 'laboratory', product: 'laboratory' }],
   ])('on %s (%s), signs up there, starting with %o', async (hostname, entry, choice) => {
@@ -145,6 +160,42 @@ describe('the blue registration on a product site, and where it is not', () => {
     expect(screen.queryByText(/main Health ID site/)).toBeNull()
     expect(await startingChoice()).toEqual(choice)
     expect(api.availability).toHaveBeenCalled()
+  })
+
+  // Each product site signs up its own kind of facility only (owner, 2026-11-02), and says where the others sign up.
+  it.each([
+    ['lab.healthidentitydirectory.com', ['laboratory'], ['laboratory'],
+      'Registering a hospital or clinic? Use Health ID EHR. Registering a pharmacy? Use Health ID Pharmacy.',
+      [['Health ID EHR', 'https://ehr.healthidentitydirectory.com/provider/enroll'],
+        ['Health ID Pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider/enroll']]],
+    ['pharmacy.healthidentitydirectory.com', ['pharmacy'], ['pharmacy'],
+      'Registering a hospital or clinic? Use Health ID EHR. Registering a laboratory? Use Health ID Laboratory.',
+      [['Health ID EHR', 'https://ehr.healthidentitydirectory.com/provider/enroll'],
+        ['Health ID Laboratory', 'https://lab.healthidentitydirectory.com/provider/enroll']]],
+    ['ehr.healthidentitydirectory.com', ['hospital', 'clinic', 'other'], ['ehr'],
+      'Registering a laboratory? Use Health ID Laboratory. Registering a pharmacy? Use Health ID Pharmacy.',
+      [['Health ID Laboratory', 'https://lab.healthidentitydirectory.com/provider/enroll'],
+        ['Health ID Pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider/enroll']]],
+    ['migrate.staging.healthidentitydirectory.com', ['hospital', 'clinic', 'other'], ['migrate'],
+      'Registering a laboratory? Use Health ID Laboratory. Registering a pharmacy? Use Health ID Pharmacy.',
+      [['Health ID Laboratory', 'https://lab.staging.healthidentitydirectory.com/provider/enroll'],
+        ['Health ID Pharmacy', 'https://pharmacy.staging.healthidentitydirectory.com/provider/enroll']]],
+    ['outreach.healthidentitydirectory.com', ['hospital', 'clinic', 'other'], ['ehr'],
+      'Registering a laboratory? Use Health ID Laboratory. Registering a pharmacy? Use Health ID Pharmacy.',
+      [['Health ID Laboratory', 'https://lab.healthidentitydirectory.com/provider/enroll'],
+        ['Health ID Pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider/enroll']]],
+    ['staging.healthidentitydirectory.com', ['hospital', 'clinic', 'laboratory', 'pharmacy', 'other'],
+      ['ehr', 'laboratory', 'pharmacy', 'migrate'], '', []],
+  ])('on %s, offers the facility types %o and the products %o only', async (hostname, types, products, hint, links) => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    jsdom.reconfigure({ url: `https://${hostname}/provider/enroll` })
+    open('/provider/enroll')
+    expect(await step('Your account')).toBeTruthy()
+    const choices = await offered()
+    expect(choices.types).toEqual(types)
+    expect(choices.products).toEqual(products)
+    expect(choices.hint).toBe(hint)
+    expect(choices.links).toEqual(links)
   })
 
   it.each([

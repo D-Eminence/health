@@ -3,10 +3,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { providerEnrollmentApi, type ProviderEnrollmentStart } from '../../staff/api'
 import { announceStaffSessionChange } from '../../staff/session'
-import { initialFacilityChoice, organizationTypeNote } from '../../staff/routes/ProviderEnrollment'
+import {
+  facilityProductChoices, facilityTypeChoices, initialFacilityChoice, organizationTypeNote,
+} from '../../staff/routes/ProviderEnrollment'
 import {
   availabilityOf, CAC_REFUSALS, cacProductKey, carriesOtherThan, DAY_MS, DEFAULT_RESEND_SECONDS,
-  MAX_CODE_WAIT_SECONDS, nextCodeAt, OPEN_SIGN_UP_MS, productOptions, refusalOf, registeringOf, secondsUntil, signUpKey,
+  MAX_CODE_WAIT_SECONDS, nextCodeAt, OPEN_SIGN_UP_MS, refusalOf, registeringOf, secondsUntil, signUpKey,
   type CodeCarries, type OrganizationType, type Product, type Registering, type StartDetails, type StartOutcome, type Step,
   type Support, type Unapplied,
 } from './enrollmentRules'
@@ -136,7 +138,7 @@ export function useEnrollment() {
 
   function setType(value: OrganizationType) {
     setOrganizationType(value)
-    const allowed = productOptions[value]
+    const allowed = facilityProductChoices(value, window.location.hostname)
     if (!allowed.includes(productCode)) setProductCode(allowed[0]!)
   }
 
@@ -569,6 +571,9 @@ export function useEnrollment() {
   // Back at the details of a sign-up Identity accepted, with its email changed (otherEmailThanFirst).
   const kept = stage === 'details' ? otherEmailThanFirst(details) : null
   const productNote = organizationTypeNote(organizationType, ordersOn)
+  // What this site's sign-up offers: on a product site, its own kind of facility and product only.
+  const typeChoices = facilityTypeChoices(window.location.hostname)
+  const productChoices = facilityProductChoices(organizationType, window.location.hostname)
   // The address as Identity has it: the code was sent to it, and the administrator signs in with it.
   const administratorEmail = email.trim().toLowerCase()
   const accountEmail = registering?.administratorEmail ?? administratorEmail
@@ -578,7 +583,7 @@ export function useEnrollment() {
   return {
     stage, availability, closed, ordersOn, help, organizationType, productCode, cac, name, email, code, password, busy, error,
     resent, unsent, codesReported, codeInForce, turnstileToken, resetKey, registering, registeringFailed, regStep, submitted,
-    headingFocus, carried, retryIn, resendIn, codeLimitIn, kept, productNote, administratorEmail, accountEmail, cacNumber, now,
+    headingFocus, carried, retryIn, resendIn, codeLimitIn, kept, productNote, typeChoices, productChoices, administratorEmail, accountEmail, cacNumber, now,
     setType, setProductCode, setCac, setName, setEmail, setCode, setPassword, setTurnstileToken, setError, setSubmitted,
     toStep, checkAvailabilityAgain, start, resend, verify, readRegisteringAgain, activate, openWorkspace, startAgain, notMine,
     enterCodeInForce, anotherEmail, firstEmail,

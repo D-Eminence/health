@@ -122,15 +122,34 @@ describe('provider enrollment', () => {
     ['migrate.healthidentitydirectory.com', '/provider/enroll', 'Hospital', 'migrate'],
     ['ehr.healthidentitydirectory.com', '/provider/enroll', 'Hospital', 'ehr'],
     ['outreach.healthidentitydirectory.com', '/provider/enroll', 'Hospital', 'ehr'],
-    // What the address names wins over the site's own product.
-    ['lab.healthidentitydirectory.com', '/provider/enroll?product=pharmacy', 'Hospital', 'pharmacy'],
-    ['pharmacy.healthidentitydirectory.com', '/provider/enroll?type=clinic', 'Clinic', 'ehr'],
+    // What the address names is kept only where this site signs that kind of facility up.
+    ['ehr.healthidentitydirectory.com', '/provider/enroll?type=clinic', 'Clinic', 'ehr'],
+    ['lab.healthidentitydirectory.com', '/provider/enroll?product=pharmacy', 'Laboratory', 'laboratory'],
+    ['pharmacy.healthidentitydirectory.com', '/provider/enroll?type=clinic', 'Pharmacy', 'pharmacy'],
   ])('on %s (%s), opens the form itself with %s and %s chosen', (hostname, entry, type, product) => {
     vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
     open(entry)
     expect((screen.getByRole('radio', { name: type }) as HTMLInputElement).checked).toBe(true)
     expect(select('Product').value).toBe(product)
     expect(screen.queryByText(/main Health ID site/)).toBeNull()
+  })
+
+  // Each product site signs up its own kind of facility only (owner, 2026-11-02), and says where the others sign up.
+  it.each([
+    ['lab.healthidentitydirectory.com', ['Laboratory'], ['laboratory'],
+      'Registering a hospital or clinic? Use Health ID EHR. Registering a pharmacy? Use Health ID Pharmacy.'],
+    ['pharmacy.healthidentitydirectory.com', ['Pharmacy'], ['pharmacy'],
+      'Registering a hospital or clinic? Use Health ID EHR. Registering a laboratory? Use Health ID Laboratory.'],
+    ['ehr.healthidentitydirectory.com', ['Hospital', 'Clinic', 'Other healthcare provider'], ['ehr'],
+      'Registering a laboratory? Use Health ID Laboratory. Registering a pharmacy? Use Health ID Pharmacy.'],
+    ['migrate.healthidentitydirectory.com', ['Hospital', 'Clinic', 'Other healthcare provider'], ['migrate'],
+      'Registering a laboratory? Use Health ID Laboratory. Registering a pharmacy? Use Health ID Pharmacy.'],
+  ])('on %s, offers %o with %o only, and names the other sites', (hostname, types, products, others) => {
+    vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
+    open()
+    expect(screen.getAllByRole('radio').map(radio => radio.closest('label')?.textContent)).toEqual(types)
+    expect([...select('Product').options].map(option => option.value)).toEqual(products)
+    expect(screen.getByText(others.split('?')[0]!, { exact: false }).closest('p')?.textContent).toBe(others)
   })
 
   it('sends the CAC in capitals with the facility details and the provider-enrollment check', async () => {

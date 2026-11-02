@@ -160,7 +160,7 @@ export function MaybeActive({ e }: { readonly e: Enrollment }) {
       <p className="hid-ehr-signup-lede">We couldn’t confirm that your facility was set up, but it may have been. Sign in with
         {e.accountEmail ? ` ${e.accountEmail}` : ' your administrator email'} and the password you chose. If you can’t sign in,
         {' '}<SupportContact purpose="inline" /></p>
-      <SignInLink>Sign in to the Provider Portal</SignInLink>
+      <SignInLink organizationType={e.registering?.organizationType ?? e.organizationType}>Sign in to the Provider Portal</SignInLink>
     </>
   )
 }

@@ -217,6 +217,21 @@ export function staffRecoveryHref(hostname: string): string {
   return staffPageHref(hostname, STAFF_RECOVERY_PATH)
 }
 
+/**
+ * Where the administrator of a facility that has just signed up signs in ("Your account may already be ready"): the
+ * staff sign-in of the facility's own site. On each product site that is this site's own sign-in, as it signs up its
+ * own kind of facility only (facilitySignUpScope). On a site that serves no staff pages (the production patient portal,
+ * an admin site), where no sign-up runs any more, the facility type's site (a laboratory's on lab., a pharmacy's on
+ * pharmacy., anyone else's on ehr.) in that deployment. Anywhere else (staging's portal, local) this site's own. One of
+ * a few fixed values: nothing copied from the hostname.
+ */
+export function facilitySignInHref(organizationType: string | null | undefined, hostname: string): string {
+  const origin = staffPagesOrigin(hostname)
+  if (!origin) return STAFF_SIGN_IN_PATH
+  const deployment = origin === EHR_SITE_ORIGINS.production ? 'production' : 'staging'
+  return `${staffSiteOrigin(staffSiteForOrganizationType(organizationType ?? ''), deployment)}${STAFF_SIGN_IN_PATH}`
+}
+
 /** The facility self sign-up page ("Register your facility"). */
 export const PROVIDER_ENROLLMENT_PATH = '/provider/enroll'
 
@@ -229,28 +244,74 @@ export function providerEnrollmentHref(hostname: string): string {
   return staffPageHref(hostname, PROVIDER_ENROLLMENT_PATH)
 }
 
-/** What facility sign-up starts with on a product site whose product it is (facilitySignUpPreset). */
-export interface FacilitySignUpPreset {
-  organizationType: 'hospital' | 'laboratory' | 'pharmacy'
-  productCode: 'laboratory' | 'pharmacy' | 'migrate'
+/** The kinds of facility and the products facility sign-up knows (staff/routes/ProviderEnrollment.tsx). */
+export type FacilityTypeCode = 'hospital' | 'clinic' | 'laboratory' | 'pharmacy' | 'other'
+export type FacilityProductCode = 'ehr' | 'laboratory' | 'pharmacy' | 'migrate'
+
+/** What facility sign-up on a product site offers: that site's own kinds of facility and its own product. */
+export interface FacilitySignUpScope {
+  readonly organizationTypes: readonly FacilityTypeCode[]
+  readonly products: readonly FacilityProductCode[]
 }
 
-const FACILITY_SIGN_UP_PRESETS: Partial<Record<StaffProductKey, FacilitySignUpPreset>> = {
-  lab: { organizationType: 'laboratory', productCode: 'laboratory' },
-  pharmacy: { organizationType: 'pharmacy', productCode: 'pharmacy' },
-  migrate: { organizationType: 'hospital', productCode: 'migrate' },
+/** A hospital, a clinic or another healthcare provider: the facilities Health ID EHR is for. */
+const HOSPITAL_TYPES: readonly FacilityTypeCode[] = ['hospital', 'clinic', 'other']
+
+/**
+ * Each product site signs up its own kind of facility only (owner, 2026-11-02: sign-up, sign-in and password reset on
+ * each product site, individually). lab. a laboratory for Health ID Laboratory; pharmacy. a pharmacy for Health ID
+ * Pharmacy; ehr. a hospital, clinic or other provider for Health ID EHR; migrate. the same facilities for Health ID
+ * Migrate (a hospital moving its records: the public site's Migrate page). Outreach has no product of its own to sign
+ * up for (the public site offers a demo, not sign-up); outreach teams work for a hospital or another provider, so
+ * outreach. signs up the facilities Health ID EHR is for. A laboratory or a pharmacy signs up on its own site.
+ */
+const FACILITY_SIGN_UP_SCOPES: Readonly<Record<StaffProductKey, FacilitySignUpScope>> = {
+  ehr: { organizationTypes: HOSPITAL_TYPES, products: ['ehr'] },
+  lab: { organizationTypes: ['laboratory'], products: ['laboratory'] },
+  pharmacy: { organizationTypes: ['pharmacy'], products: ['pharmacy'] },
+  migrate: { organizationTypes: HOSPITAL_TYPES, products: ['migrate'] },
+  outreach: { organizationTypes: HOSPITAL_TYPES, products: ['ehr'] },
 }
 
 /**
- * The choice facility sign-up starts with on this site when its address names no facility type or product: a
- * laboratory signing up for Health ID Laboratory on lab., a pharmacy for Health ID Pharmacy on pharmacy., a hospital
- * for Health ID Migrate on migrate. (production and staging). Null anywhere else, where the form starts as before (a
- * hospital, Health ID EHR); outreach has no product of its own to sign up for. Only the form's own choices: nothing new
- * is sent to Identity.
+ * What facility sign-up offers on this site (FACILITY_SIGN_UP_SCOPES), on each product site in production and on
+ * staging; null anywhere else (staging's portal, a local or preview build), where it offers every kind of facility
+ * and product, as before. Only the form's own choices: nothing new is sent to Identity.
  */
-export function facilitySignUpPreset(hostname: string): FacilitySignUpPreset | null {
+export function facilitySignUpScope(hostname: string): FacilitySignUpScope | null {
   const product = resolveStaffProductHostname(hostname)?.key
-  return (product && FACILITY_SIGN_UP_PRESETS[product]) || null
+  return product ? FACILITY_SIGN_UP_SCOPES[product] : null
+}
+
+/** Whether facility sign-up on this site offers this kind of facility. */
+export function offersFacilityType(hostname: string, type: FacilityTypeCode): boolean {
+  return facilitySignUpScope(hostname)?.organizationTypes.includes(type) ?? true
+}
+
+/** Whether facility sign-up on this site offers this product. */
+export function offersFacilityProduct(hostname: string, product: FacilityProductCode): boolean {
+  return facilitySignUpScope(hostname)?.products.includes(product) ?? true
+}
+
+/** The site whose facility sign-up registers each kind of facility, and what it is called there. */
+const FACILITY_TYPE_SITES: Readonly<Record<FacilityTypeCode, StaffProductKey>> = {
+  hospital: 'ehr', clinic: 'ehr', other: 'ehr', laboratory: 'lab', pharmacy: 'pharmacy',
+}
+
+/**
+ * The other product sites' facility sign-ups, for someone on this product site who registers another kind of facility:
+ * a hospital or clinic on Health ID EHR's, a laboratory on Health ID Laboratory's, a pharmacy on Health ID Pharmacy's,
+ * those this site does not sign up. Each a fixed address in this site's deployment; none anywhere else (no scope).
+ */
+export function otherFacilitySignUps(hostname: string): ReadonlyArray<{ kind: 'hospital' | 'laboratory' | 'pharmacy'; name: string; href: string }> {
+  const scope = facilitySignUpScope(hostname)
+  const deployment = deploymentOf(hostname)
+  if (!scope || !deployment) return []
+  const kinds = (['hospital', 'laboratory', 'pharmacy'] as const).filter(kind => !scope.organizationTypes.includes(kind))
+  return kinds.map(kind => {
+    const site = FACILITY_TYPE_SITES[kind]
+    return { kind, name: PRODUCT_SITE_NAMES[site], href: `https://${PRODUCT_SITE_HOSTNAMES[deployment][site]}${PROVIDER_ENROLLMENT_PATH}` }
+  })
 }
 
 export function isStaffProductRoute(pathname: string): boolean {

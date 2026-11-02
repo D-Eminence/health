@@ -12,7 +12,8 @@ import {
   CLINICIAN_STATUS_PATH,
   clinicianOtherSiteHref,
   clinicianPageHref,
-  facilitySignUpPreset,
+  facilitySignUpScope,
+  otherFacilitySignUps,
   PROVIDER_ENROLLMENT_PATH,
   providerEnrollmentHref,
   STAFF_INVITATION_PATH,
@@ -252,22 +253,44 @@ describe('providerEnrollmentHref', () => {
     })
 })
 
-describe('facilitySignUpPreset', () => {
+/** Each product site signs up its own kind of facility only (owner, 2026-11-02). */
+describe('facilitySignUpScope', () => {
+  const hospitals = { organizationTypes: ['hospital', 'clinic', 'other'] }
   it.each([
-    ['lab.healthidentitydirectory.com', { organizationType: 'laboratory', productCode: 'laboratory' }],
-    ['lab.staging.healthidentitydirectory.com', { organizationType: 'laboratory', productCode: 'laboratory' }],
-    ['PHARMACY.HEALTHIDENTITYDIRECTORY.COM.', { organizationType: 'pharmacy', productCode: 'pharmacy' }],
-    ['pharmacy.staging.healthidentitydirectory.com', { organizationType: 'pharmacy', productCode: 'pharmacy' }],
-    ['migrate.healthidentitydirectory.com', { organizationType: 'hospital', productCode: 'migrate' }],
-  ])('starts facility sign-up on %s with its own product', (hostname, preset) => {
-    expect(facilitySignUpPreset(hostname)).toEqual(preset)
+    ['lab.healthidentitydirectory.com', { organizationTypes: ['laboratory'], products: ['laboratory'] }],
+    ['lab.staging.healthidentitydirectory.com', { organizationTypes: ['laboratory'], products: ['laboratory'] }],
+    ['PHARMACY.HEALTHIDENTITYDIRECTORY.COM.', { organizationTypes: ['pharmacy'], products: ['pharmacy'] }],
+    ['pharmacy.staging.healthidentitydirectory.com', { organizationTypes: ['pharmacy'], products: ['pharmacy'] }],
+    ['ehr.healthidentitydirectory.com', { ...hospitals, products: ['ehr'] }],
+    ['ehr.staging.healthidentitydirectory.com', { ...hospitals, products: ['ehr'] }],
+    ['migrate.healthidentitydirectory.com', { ...hospitals, products: ['migrate'] }],
+    ['outreach.healthidentitydirectory.com', { ...hospitals, products: ['ehr'] }],
+  ])('on %s offers %o', (hostname, scope) => {
+    expect(facilitySignUpScope(hostname)).toEqual(scope)
   })
 
-  it.each(['ehr.healthidentitydirectory.com', 'outreach.healthidentitydirectory.com', 'app.healthidentitydirectory.com',
-    'staging.healthidentitydirectory.com', 'admin.healthidentitydirectory.com', 'localhost', ...LOOKALIKE_HOSTS])(
-    'names no preset on %s, where the form starts as before', hostname => {
-      expect(facilitySignUpPreset(hostname)).toBeNull()
-    })
+  it.each(['app.healthidentitydirectory.com', 'staging.healthidentitydirectory.com', 'admin.healthidentitydirectory.com', 'localhost',
+    ...LOOKALIKE_HOSTS])('offers every kind of facility on %s, as before', hostname => {
+    expect(facilitySignUpScope(hostname)).toBeNull()
+    expect(otherFacilitySignUps(hostname)).toEqual([])
+  })
+
+  it('sends every other kind of facility to its own site’s sign-up, in the same deployment', () => {
+    expect(otherFacilitySignUps('lab.healthidentitydirectory.com')).toEqual([
+      { kind: 'hospital', name: 'Health ID EHR', href: 'https://ehr.healthidentitydirectory.com/provider/enroll' },
+      { kind: 'pharmacy', name: 'Health ID Pharmacy', href: 'https://pharmacy.healthidentitydirectory.com/provider/enroll' },
+    ])
+    expect(otherFacilitySignUps('pharmacy.staging.healthidentitydirectory.com')).toEqual([
+      { kind: 'hospital', name: 'Health ID EHR', href: 'https://ehr.staging.healthidentitydirectory.com/provider/enroll' },
+      { kind: 'laboratory', name: 'Health ID Laboratory', href: 'https://lab.staging.healthidentitydirectory.com/provider/enroll' },
+    ])
+    for (const hostname of ['ehr.healthidentitydirectory.com', 'migrate.healthidentitydirectory.com', 'outreach.healthidentitydirectory.com']) {
+      expect(otherFacilitySignUps(hostname), hostname).toEqual([
+        { kind: 'laboratory', name: 'Health ID Laboratory', href: 'https://lab.healthidentitydirectory.com/provider/enroll' },
+        { kind: 'pharmacy', name: 'Health ID Pharmacy', href: 'https://pharmacy.healthidentitydirectory.com/provider/enroll' },
+      ])
+    }
+  })
 })
 
 /** P4b (Novu only): where an invitation is opened, and the staff site each role and facility type signs in on. */
