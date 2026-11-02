@@ -2787,3 +2787,14 @@ Novu only; every page, route, label and note below is behind `usesNovuBackend()`
 - **Public privacy notice** (P4 leftover 4): an application no longer "does not create a staff account"; facility sign-up creates the facility and its administrator's account, and support reviews every new facility.
 - **Registry and boundaries.** Sixteen routes added as `proposed`, Novu only (nine staff, three public, four console); `admin.selfServiceFacilityReview` needs both permissions.
 - **Not verified live.** Component, API and contract tests and both builds; no run against a deployed Identity.
+
+## 2026-11-02: Support chat stays clear of fields and the bottom menu on phones
+
+A pass over the patient pages at 320, 360 and 390px (production's signed-out pages, and the website's preview, `npm run dev:mock`, for the signed-in ones) found the Support chat launcher, 156 by 48px in the bottom-right corner, on top of the patient bottom menu (➕, Access and Menu) and of form fields on sign-in, sign-up and password reset.
+
+- **On a phone (480px and narrower)** the launcher is a 48px round icon; "Support chat" stays its name for assistive technology (`.hid-chat-launcher-label`, hidden visually only).
+- **Above the bottom menu.** The shell's quick navigation carries `data-hid-bottom-nav`; below 1024px, wherever it is shown, the launcher sits 76px above the bottom (the menu is 64px). The shell's main area leaves 144px under the content (`max-lg:pb-36`, was 112px) so the last line scrolls clear of both.
+- **Out of the way while typing.** On a phone (640px and narrower) it fades while a form field outside the chat has focus (text, email, phone, password, search, a text area), and comes back when the field is left. It fades, it does not leave the page or the tab order.
+- **Sign-in, sign-up and recovery** leave 88px under the form on a phone, so the last line scrolls clear of the launcher.
+- `packages/ui` is shared, so the public website's launcher is a round icon on a phone too and steps aside while its forms are typed in.
+- **Checked** in Chromium on the preview at 320, 360, 390 and 1366px: the menu is no longer covered, the launcher fades on focus in a field and returns after it, and nothing it covers is out of reach at the end of a page. Not checked on a real phone or on production.

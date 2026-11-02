@@ -8,6 +8,9 @@ export interface SupportChatProps {
   send: (text: string, sessionId: string | undefined, options: { signal: AbortSignal }) =>
     Promise<{ sessionId: string; messages: string[] }>
 }
+/** Inputs that open no keyboard: the launcher stays in place while one of these has focus. */
+const NO_KEYBOARD = new Set(['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'])
+
 /** Public FAQs only. Exchanges and session identifiers never leave component memory. */
 export function SupportChat({ contact, send }: SupportChatProps) {
   const [open, setOpen] = useState(false)
@@ -15,6 +18,9 @@ export function SupportChat({ contact, send }: SupportChatProps) {
   const [messages, setMessages] = useState<Array<{ role: string; text: string }>>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A form field outside the chat is being typed in: on a phone the launcher steps aside (tokens.css), so it never
+  // sits on top of the field or the keyboard's view of it.
+  const [typing, setTyping] = useState(false)
   const session = useRef<string | undefined>(undefined)
   const flight = useRef<AbortController | null>(null)
   const dialog = useRef<HTMLDialogElement>(null)
@@ -26,6 +32,17 @@ export function SupportChat({ contact, send }: SupportChatProps) {
   const [restarted, setRestarted] = useState(0)
   const id = useId()
   useEffect(() => () => { flight.current?.abort() }, [])
+  useEffect(() => {
+    const entry = (node: EventTarget | null) => node instanceof HTMLElement && !dialog.current?.contains(node)
+      && (node instanceof HTMLTextAreaElement || node.isContentEditable
+        || (node instanceof HTMLInputElement && !NO_KEYBOARD.has(node.type)))
+    const focusIn = (event: FocusEvent) => { setTyping(entry(event.target)) }
+    const focusOut = (event: FocusEvent) => { if (!entry(event.relatedTarget)) setTyping(false) }
+    document.addEventListener('focusin', focusIn)
+    document.addEventListener('focusout', focusOut)
+    setTyping(entry(document.activeElement))
+    return () => { document.removeEventListener('focusin', focusIn); document.removeEventListener('focusout', focusOut) }
+  }, [])
   // In the commit that opens or closes the chat, not an effect after it, so focus has moved as soon as it is shown.
   useLayoutEffect(() => {
     if (open) { dialog.current?.showModal(); input.current?.focus() }
@@ -63,9 +80,9 @@ export function SupportChat({ contact, send }: SupportChatProps) {
   }
   return <>
     <button ref={launcher} type="button" aria-haspopup="dialog" aria-expanded={open} aria-controls={id}
-      onClick={() => setOpen(true)} className="hid-chat-launcher">
+      onClick={() => setOpen(true)} className="hid-chat-launcher" data-typing={typing ? 'true' : undefined}>
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M20 11.5a8 8 0 0 1-8 8H4l-1 2V11.5a8.5 8.5 0 1 1 17 0Z" /><path d="M7 9h10M7 13h6" /></svg>
-      Support chat
+      <span className="hid-chat-launcher-label">Support chat</span>
     </button>
     <dialog ref={dialog} id={id} aria-labelledby={`${id}-title`} aria-describedby={`${id}-privacy`} onCancel={close} className="hid-chat-panel">
       <header className="hid-chat-header">
