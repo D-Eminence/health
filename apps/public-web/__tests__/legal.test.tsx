@@ -8,7 +8,7 @@ vi.mock('@/components/layout/SiteNav', () => ({ ProviderNav: () => null }))
 vi.mock('@/components/layout/SiteFooter', () => ({ SiteFooter: () => null }))
 vi.mock('@/components/shared/BackToTop', () => ({ BackToTop: () => null }))
 vi.mock('@/components/shared/DemoDialog', () => ({ DemoDialog: () => null }))
-import { PRIVACY_POLICY, TERMS_OF_SERVICE } from '../content/legal'
+import { DATA_PROTECTION_OFFICER, PRIVACY_POLICY, TERMS_OF_SERVICE } from '../content/legal'
 import { ROUTES } from '../content/site'
 
 /** hid-1.0's agreement had 36 sections; the two pages share them out, each once. */
@@ -39,11 +39,32 @@ describe('the Terms of Service and Privacy Policy', () => {
     expect(within(screen.getByRole('main')).getByRole('link', { name: 'Read the Privacy Policy' }).getAttribute('href')).toBe('/privacy')
   })
 
-  it('renders the privacy policy as numbered sections, linking to the terms', () => {
+  it('renders the privacy policy as the privacy notice, then numbered sections, linking to the terms', () => {
     render(<PrivacyPage />)
     expect(screen.getByRole('heading', { level: 1, name: 'Privacy Policy' })).toBeTruthy()
-    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(21)
+    // The notice's own heading comes first, then hid-1.0's 21 numbered sections.
+    expect(screen.getAllByRole('heading', { level: 2 }).map(heading => heading.textContent))
+      .toEqual(['Privacy notice', ...PRIVACY_POLICY.sections.map((section, index) => `${index + 1}. ${section.title}`)])
     expect(screen.getByText('Data Breach Notification', { exact: false }).tagName).toBe('H2')
     expect(screen.getByRole('link', { name: 'Read the Terms of Service' }).getAttribute('href')).toBe('/terms')
+  })
+
+  it('names the Data Protection Officer, with their email and phone, in the notice and in the policy', () => {
+    expect(DATA_PROTECTION_OFFICER).toEqual({ name: 'Ibrahim Umar', email: 'ibrahim@healthidentitydirectory.com', phone: '+2347026717252' })
+    render(<PrivacyPage />)
+    const notice = screen.getByRole('region', { name: 'Privacy notice' })
+    expect(within(notice).getByText(/contact our Data Protection Officer, Ibrahim Umar/)).toBeTruthy()
+    expect(within(notice).getByRole('link', { name: 'ibrahim@healthidentitydirectory.com' }).getAttribute('href')).toBe('mailto:ibrahim@healthidentitydirectory.com')
+    expect(within(notice).getByRole('link', { name: '+2347026717252' }).getAttribute('href')).toBe('tel:+2347026717252')
+    expect(within(notice).getByText(/certified by the Nigeria Data Protection Commission \(NDPC\)\. \[owner to add: certificate number and date\]/)).toBeTruthy()
+    expect(within(notice).getByText(/complain to the Nigeria Data Protection Commission \(NDPC\) at ndpc\.gov\.ng/)).toBeTruthy()
+
+    const dpoSection = screen.getByRole('heading', { level: 2, name: /Data Protection Officer \(DPO\)$/ }).closest('li')
+    expect(dpoSection).not.toBeNull()
+    expect(within(dpoSection as HTMLElement).getByText('HID\'s Data Protection Officer (DPO) is Ibrahim Umar. Email ibrahim@healthidentitydirectory.com or call +2347026717252.')).toBeTruthy()
+    expect(within(dpoSection as HTMLElement).getAllByRole('listitem').map(item => item.textContent)).toEqual([
+      'Monitoring compliance with data protection laws.', 'Advising on data privacy obligations.', 'Serving as a point of contact for users and regulators.',
+    ])
+    expect(screen.queryByText(/may appoint/)).toBeNull()
   })
 })
