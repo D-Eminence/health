@@ -105,12 +105,12 @@ function open(rest = '/summary') {
 
 async function renderSummary() {
   open()
-  await screen.findByRole('heading', { level: 2, name: 'Completed encounters' })
+  await screen.findByRole('heading', { level: 2, name: 'Finished visits' })
 }
 
 const banner = () => screen.queryByRole('region', { name: `Patient: ${PATIENT_NAME}` })
-const LEDE = 'This read-only summary holds this facility’s completed encounters and signed clinical notes, and the diagnoses, prescriptions, lab requests and documents your role may read. The server checks the active emergency grant on each request.'
-const VITALS_NOTICE = 'Vital signs are not shown in this summary. EHR sends them as first recorded, without later corrections, so a value here could be one a clinician has since corrected.'
+const LEDE = 'View only. This facility’s finished visits, signed notes, diagnoses, prescriptions, lab tests and documents that your role may see. Every view is reviewed.'
+const VITALS_NOTICE = 'Vital signs aren’t shown here: a recorded value may have been corrected since.'
 
 function section(name: string) {
   return screen.getByRole('heading', { level: 2, name }).closest<HTMLElement>('section')!
@@ -135,15 +135,14 @@ describe('the emergency summary page', () => {
     expect(api.consentStatus).not.toHaveBeenCalled()
   })
 
-  it('has the page heading, the patient banner with its emergency access, and today’s words (Clinical.tsx:1109-1110)', async () => {
+  it('has the page heading, the patient banner with its emergency access, and today’s words', async () => {
     await renderSummary()
     expect(screen.getByRole('heading', { level: 1, name: 'Emergency summary' })).toBeTruthy()
     const patient = banner()!
     expect(within(patient).getByText(PATIENT_NAME)).toBeTruthy()
     expect(patient.textContent).toContain(PATIENT_HID)
     expect(within(patient).getByText('Emergency access')).toBeTruthy()
-    expect(screen.getByText('Emergency record · audited access')).toBeTruthy()
-    const lede = screen.getByText(/^This read-only summary/)
+    const lede = screen.getByText(/^View only\./)
     expect(lede.textContent).toMatch(new RegExp(`^${LEDE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} Access ends at \\d\\d:\\d\\d\\.$`))
   })
 
@@ -154,7 +153,7 @@ describe('the emergency summary page', () => {
     expect(await screen.findByRole('status', { name: 'Loading emergency summary' })).toBeTruthy()
     await act(async () => { answer(summary()) })
     expect(screen.queryByRole('status', { name: 'Loading emergency summary' })).toBeNull()
-    expect(screen.getByRole('heading', { level: 2, name: 'Completed encounters' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 2, name: 'Finished visits' })).toBeTruthy()
   })
 
   it('shows a failed read in an alert, with its words and a way to try again, and keeps the patient open', async () => {
@@ -167,7 +166,7 @@ describe('the emergency summary page', () => {
     expect(banner()).toBeTruthy()
     api.emergencyRecords.mockResolvedValue(summary())
     await act(async () => { fireEvent.click(within(alert).getByRole('button', { name: 'Try again' })) })
-    expect(await screen.findByRole('heading', { level: 2, name: 'Completed encounters' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 2, name: 'Finished visits' })).toBeTruthy()
     expect(api.emergencyRecords).toHaveBeenCalledTimes(2)
     expect(api.lookupPatient).toHaveBeenCalledTimes(2)
   })
@@ -177,7 +176,7 @@ describe('the emergency summary page', () => {
     open()
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain('Couldn’t load the emergency summary')
-    expect(alert.textContent).toContain('Emergency records could not be loaded.')
+    expect(alert.textContent).toContain('Please try again.')
   })
 
   it('shows a refused summary read as it is', async () => {
@@ -229,7 +228,7 @@ describe('the emergency summary page', () => {
     await renderSummary()
     let answer: (value: unknown) => void = () => {}
     api.emergencyRecords.mockReturnValue(new Promise(resolve => { answer = resolve }))
-    const refresh = screen.getByRole('button', { name: 'Refresh summary' })
+    const refresh = screen.getByRole('button', { name: 'Refresh' })
     refresh.focus()
     await act(async () => { fireEvent.click(refresh) })
     expect(refresh.getAttribute('aria-disabled')).toBe('true')
@@ -244,7 +243,7 @@ describe('the emergency summary page', () => {
 
   it('leads to Find a patient', async () => {
     await renderSummary()
-    fireEvent.click(screen.getByRole('link', { name: 'Change patient →' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Find another patient' }))
     expect(screen.getByTestId('elsewhere').textContent).toBe('/provider/patients')
   })
 
@@ -267,21 +266,21 @@ describe('the summary is read-only', () => {
     staff.permissions = [...EVERY_READ, 'lab.result.released.read', 'ehr.note.write', 'ehr.prescription.write', 'ehr.lab-request.write']
     await renderSummary()
     const names = screen.getAllByRole('button').map(button => button.textContent)
-    for (const name of names) expect(['Refresh summary', 'Close my grant', 'View released results']).toContain(name)
+    for (const name of names) expect(['Refresh', 'End emergency access', 'Show results']).toContain(name)
     expect(screen.queryAllByRole('textbox')).toEqual([])
     expect(screen.queryAllByRole('combobox')).toEqual([])
     expect(screen.queryAllByRole('checkbox')).toEqual([])
     expect(document.querySelector('form')).toBeNull()
     expect(screen.getAllByRole('link')).toEqual([
-      screen.getByRole('link', { name: 'Back to emergency access' }), screen.getByRole('link', { name: 'Change patient →' }),
+      screen.getByRole('link', { name: 'Back to emergency access' }), screen.getByRole('link', { name: 'Find another patient' }),
     ])
   })
 })
 
 describe('ending my emergency access', () => {
-  /** Presses "Close my grant": as today, it ends at once, with no question in between. */
+  /** Presses "End emergency access": as today, it ends at once, with no question in between. */
   async function end() {
-    const button = screen.getByRole('button', { name: 'Close my grant' })
+    const button = screen.getByRole('button', { name: 'End emergency access' })
     button.focus()
     await act(async () => { fireEvent.click(button) })
     return button
@@ -299,7 +298,7 @@ describe('ending my emergency access', () => {
     let answer: (value: unknown) => void = () => {}
     api.closeGrant.mockReturnValue(new Promise(resolve => { answer = resolve }))
     await renderSummary()
-    const button = screen.getByRole('button', { name: 'Close my grant' })
+    const button = screen.getByRole('button', { name: 'End emergency access' })
     await act(async () => { fireEvent.click(button); fireEvent.click(button) })
     expect(button.getAttribute('aria-disabled')).toBe('true')
     await act(async () => { fireEvent.click(button) })
@@ -308,7 +307,7 @@ describe('ending my emergency access', () => {
     await act(async () => { answer({ consentGrantId: 'grant-1', status: 'closed' }) })
     expect(api.closeGrant).toHaveBeenCalledTimes(1)
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
-    const said = await screen.findByText('Access was closed.')
+    const said = await screen.findByText('Your access has ended.')
     expect(said.closest('[role="status"]')).toBeTruthy()
     expect(document.activeElement).toBe(said)
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()
@@ -332,51 +331,50 @@ describe('ending my emergency access', () => {
     api.closeGrant.mockRejectedValue('offline')
     await renderSummary()
     await end()
-    expect((await screen.findByRole('alert')).textContent).toContain('Grant could not be closed.')
+    expect((await screen.findByRole('alert')).textContent).toContain('Couldn’t end your access. Please try again.')
   })
 
   it('is not offered without a grant to close', async () => {
     staff.activePatient = { ...emergencyPatient(), lookup: { ...allowedLookup, authorization: { ...allowedLookup.authorization, consentGrantId: null } } }
     await renderSummary()
-    expect(screen.queryByRole('button', { name: 'Close my grant' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'End emergency access' })).toBeNull()
   })
 
   it('is disabled, with the reason, without identity.consent.write', async () => {
     staff.permissions = EVERY_READ.filter(permission => permission !== 'identity.consent.write')
     await renderSummary()
-    const button = screen.getByRole('button', { name: 'Close my grant' }) as HTMLButtonElement
+    const button = screen.getByRole('button', { name: 'End emergency access' }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
     expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent)
-      .toBe('Your role at this facility cannot close this grant: it needs identity.consent.write. Ask your organization administrator.')
+      .toBe('Your role at this facility cannot end your access: it needs identity.consent.write. Ask your organization administrator.')
     fireEvent.click(button)
     expect(api.closeGrant).not.toHaveBeenCalled()
   })
 })
 
 describe('the emergency summary shows every section EHR returns that the role may read', () => {
-  it('shows diagnoses, prescriptions, lab requests and documents alongside completed encounters and notes', async () => {
+  it('shows diagnoses, prescriptions, lab tests and documents alongside finished visits and notes', async () => {
     await renderSummary()
-    for (const name of ['Completed encounters', 'Signed notes', 'Diagnoses', 'Prescriptions', 'Lab requests', 'Documents']) {
+    for (const name of ['Finished visits', 'Signed notes', 'Diagnoses', 'Prescriptions', 'Lab tests', 'Documents']) {
       expect(screen.getByRole('heading', { level: 2, name })).toBeTruthy()
     }
-    expect(entry('Completed encounters', 'Emergency').textContent).toMatch(/Started \d.*\d{4}, \d\d:\d\dEnded \d/)
+    expect(entry('Finished visits', 'Emergency').textContent).toMatch(/\d{4}, \d\d:\d\d to \d/)
     const signed = entry('Signed notes', 'Triage note 1')
-    expect(signed.textContent).toContain('Triage · signed · revision 1')
-    expect(within(signed).getByText(/^Signed \d/)).toBeTruthy()
+    expect(signed.textContent).toMatch(/Triage · Signed · version 1 · signed \d/)
     expect(signed.textContent).toContain('Alert and oriented.\nNo distress.')
     expect(within(section('Diagnoses')).getByText('Severe malaria')).toBeTruthy()
-    expect(entry('Diagnoses', 'Severe malaria').textContent).toContain('ICD-10 X00 · active · confirmed')
+    expect(entry('Diagnoses', 'Severe malaria').textContent).toContain('Active · Confirmed · code ICD-10 X00')
     expect(within(section('Prescriptions')).getByText('Artesunate')).toBeTruthy()
-    const lab = entry('Lab requests', 'Haemoglobin')
+    const lab = entry('Lab tests', 'Haemoglobin')
     expect(within(lab).getByText('Urgent')).toBeTruthy()
-    expect(lab.textContent).toMatch(/LOINC 718-7 · urgent priority · Requested \d/)
-    expect(entry('Documents', 'referral-letter.pdf').textContent).toMatch(/application\/pdf · 20 KiB · Uploaded \d/)
+    expect(lab.textContent).toMatch(/LOINC 718-7 · urgent priority · Asked for \d/)
+    expect(entry('Documents', 'referral-letter.pdf').textContent).toMatch(/PDF · 20 KB · added \d/)
   })
 
   it.each([
     ['ehr.diagnosis.read', 'Diagnoses', 'Severe malaria'],
     ['ehr.prescription.read', 'Prescriptions', 'Artesunate'],
-    ['ehr.lab-request.read', 'Lab requests', 'Haemoglobin'],
+    ['ehr.lab-request.read', 'Lab tests', 'Haemoglobin'],
     ['ehr.document.read', 'Documents', 'referral-letter.pdf'],
   ])('without %s the role sees no %s section, though the server sent it', async (permission, name, shown) => {
     staff.permissions = EVERY_READ.filter(item => item !== permission)
@@ -386,27 +384,27 @@ describe('the emergency summary shows every section EHR returns that the role ma
     expect(screen.getByRole('heading', { level: 2, name: 'Signed notes' })).toBeTruthy()
   })
 
-  it('puts current entries first and labels entered-in-error, refuted and cancelled ones', async () => {
+  it('puts current entries first and labels entered-in-error, ruled-out and cancelled ones', async () => {
     api.emergencyRecords.mockResolvedValue(summary({ diagnoses: [
       diagnosis('diagnosis-1', 'Recorded against the wrong patient', 'active', 'entered_in_error'),
-      diagnosis('diagnosis-4', 'Typhoid fever', 'active', 'refuted'),
+      diagnosis('diagnosis-4', 'Ruled out typhoid', 'active', 'refuted'),
       diagnosis('diagnosis-2', 'Old fracture', 'resolved', 'confirmed'),
       diagnosis('diagnosis-3', 'Severe malaria', 'active', 'confirmed'),
     ] }))
     await renderSummary()
-    expect(entries('Diagnoses')).toEqual(['Severe malaria', 'Old fracture', 'Typhoid fever', 'Recorded against the wrong patient'])
+    expect(entries('Diagnoses')).toEqual(['Severe malaria', 'Old fracture', 'Ruled out typhoid', 'Recorded against the wrong patient'])
     expect(entries('Prescriptions')).toEqual(['Artesunate', 'Paracetamol', 'Wrong drug'])
-    expect(entries('Lab requests')).toEqual(['Haemoglobin', 'Malaria smear', 'Blood film'])
+    expect(entries('Lab tests')).toEqual(['Haemoglobin', 'Malaria smear', 'Blood film'])
     const wrongDiagnosis = entry('Diagnoses', 'Recorded against the wrong patient')
     expect(within(wrongDiagnosis).getAllByText('Entered in error').length).toBeGreaterThan(0)
     expect(wrongDiagnosis.textContent).toContain('Recorded in error: not a diagnosis of this patient.')
-    expect(within(entry('Diagnoses', 'Typhoid fever')).getByText('Refuted')).toBeTruthy()
+    expect(within(entry('Diagnoses', 'Ruled out typhoid')).getByText('Ruled out')).toBeTruthy()
     const wrongDrug = entry('Prescriptions', 'Wrong drug')
     expect(within(wrongDrug).getByText('Entered in error')).toBeTruthy()
     expect(wrongDrug.textContent).toContain('Recorded in error: not a prescription for this patient.')
     expect(within(entry('Prescriptions', 'Paracetamol')).getByText('Cancelled')).toBeTruthy()
-    expect(within(entry('Lab requests', 'Blood film')).getByText('Cancelled')).toBeTruthy()
-    expect(within(entry('Lab requests', 'Malaria smear')).getByText('Draft')).toBeTruthy()
+    expect(within(entry('Lab tests', 'Blood film')).getByText('Cancelled')).toBeTruthy()
+    expect(within(entry('Lab tests', 'Malaria smear')).getByText('Draft')).toBeTruthy()
   })
 
   it('gives each order status today’s tone: active success, on hold a warning, draft information (Clinical.tsx:1006-1013)', async () => {
@@ -420,7 +418,7 @@ describe('the emergency summary shows every section EHR returns that the role ma
     expect(badge('Prescriptions', 'Artesunate', 'Active').className).toContain(TONE_OUTLINE.success)
     expect(badge('Prescriptions', 'Ceftriaxone', 'On hold').className).toContain(TONE_OUTLINE.warn)
     expect(badge('Prescriptions', 'Paracetamol', 'Cancelled').className).toContain(TONE_OUTLINE.neutral)
-    expect(badge('Lab requests', 'Malaria smear', 'Draft').className).toContain(TONE_OUTLINE.info)
+    expect(badge('Lab tests', 'Malaria smear', 'Draft').className).toContain(TONE_OUTLINE.info)
   })
 
   it('says a note was amended, a diagnosis’s code system, and a lab test’s code and priority, routine too (Clinical.tsx:1130,1141,1158)', async () => {
@@ -430,17 +428,17 @@ describe('the emergency summary shows every section EHR returns that the role ma
       labRequests: [{ ...labRequest('lab-4', 'Blood culture', 'active'), testCodeSystem: 'LOINC', testCode: '600-7', priority: 'routine' }],
     }))
     await renderSummary()
-    expect(entry('Signed notes', 'Triage note 2').textContent).toContain('Triage · amended · revision 2')
-    expect(entry('Diagnoses', 'Sepsis').textContent).toContain('SNOMED 91302008 · active · provisional')
-    const lab = entry('Lab requests', 'Blood culture')
-    expect(lab.textContent).toMatch(/LOINC 600-7 · routine priority · Requested \d/)
+    expect(entry('Signed notes', 'Triage note 2').textContent).toMatch(/Triage · Amended · version 2 · signed \d/)
+    expect(entry('Diagnoses', 'Sepsis').textContent).toContain('Active · Provisional · code SNOMED 91302008')
+    const lab = entry('Lab tests', 'Blood culture')
+    expect(lab.textContent).toMatch(/LOINC 600-7 · routine priority · Asked for \d/)
     expect(within(lab).queryByText('Routine')).toBeNull()
   })
 
-  it('says a lab request entered in error is not this patient’s', async () => {
+  it('says a lab test entered in error is not this patient’s', async () => {
     api.emergencyRecords.mockResolvedValue(summary({ labRequests: [labRequest('lab-9', 'Wrong test', 'entered_in_error')] }))
     await renderSummary()
-    expect(entry('Lab requests', 'Wrong test').textContent).toContain('Recorded in error: not a request for this patient.')
+    expect(entry('Lab tests', 'Wrong test').textContent).toContain('Recorded in error: not a test for this patient.')
   })
 
   it('shows a prescription’s dose with its unit, route, frequency and instructions, and says what was not recorded', async () => {
@@ -450,9 +448,9 @@ describe('the emergency summary shows every section EHR returns that the role ma
     ] }))
     await renderSummary()
     const item = entry('Prescriptions', 'Artesunate')
-    expect(item.textContent).toMatch(/Dose\s*500\s*mg\s*· Route oral · Twice daily/)
+    expect(item.textContent).toMatch(/Dose\s*500\s*mg\s*· route oral · Twice daily/)
     expect(item.textContent).toContain('Take with food')
-    expect(entry('Prescriptions', 'Oral rehydration salts').textContent).toMatch(/Dose not recorded\s*· Route not recorded · Twice daily/)
+    expect(entry('Prescriptions', 'Oral rehydration salts').textContent).toMatch(/Dose not recorded\s*· route not recorded · Twice daily/)
   })
 
   it.each([
@@ -485,7 +483,7 @@ describe('the emergency summary shows every section EHR returns that the role ma
     expect(within(documents).queryAllByRole('link')).toEqual([])
     expect(screen.queryByRole('button', { name: 'Open file' })).toBeNull()
     expect(screen.queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
-    expect(documents.textContent).toContain('Uploaded documents are listed for reference. They cannot be opened from this summary, and their virus scan result is not included.')
+    expect(documents.textContent).toContain('Listed only: documents can’t be opened here, and they may not have been checked for viruses.')
     expect(api.documentDownload).not.toHaveBeenCalled()
   })
 
@@ -497,12 +495,12 @@ describe('the emergency summary shows every section EHR returns that the role ma
   })
 
   it.each([
-    ['encounters', 'Completed encounters', 'No completed encounters are available from this facility.'],
-    ['notes', 'Signed notes', 'No signed notes are available from this facility.'],
-    ['diagnoses', 'Diagnoses', 'No diagnoses are available from this facility.'],
-    ['prescriptions', 'Prescriptions', 'No prescriptions are available from this facility.'],
-    ['labRequests', 'Lab requests', 'No lab requests are available from this facility.'],
-    ['documents', 'Documents', 'No uploaded documents are available from this facility.'],
+    ['encounters', 'Finished visits', 'No finished visits at this facility.'],
+    ['notes', 'Signed notes', 'No signed notes at this facility.'],
+    ['diagnoses', 'Diagnoses', 'No diagnoses at this facility.'],
+    ['prescriptions', 'Prescriptions', 'No prescriptions at this facility.'],
+    ['labRequests', 'Lab tests', 'No lab tests at this facility.'],
+    ['documents', 'Documents', 'No documents at this facility.'],
   ])('says when %s holds nothing', async (key, title, empty) => {
     api.emergencyRecords.mockResolvedValue(summary({ [key]: [] }))
     await renderSummary()
@@ -516,7 +514,7 @@ describe('each section says when the backend cut it short', () => {
       encounters: Array.from({ length: 50 }, (_, n) => encounter(n)), notes: Array.from({ length: 50 }, (_, n) => note(n)),
     }))
     await renderSummary()
-    expect(within(section('Completed encounters')).getByText('Only the 50 most recent are shown.')).toBeTruthy()
+    expect(within(section('Finished visits')).getByText('Only the 50 most recent are shown.')).toBeTruthy()
     expect(within(section('Signed notes')).getByText(/50 most recent/)).toBeTruthy()
     expect(within(section('Diagnoses')).queryByText(/most recent/)).toBeNull()
   })
@@ -536,7 +534,7 @@ describe('each section says when the backend cut it short', () => {
     delete (older as Record<string, unknown>).diagnoses
     api.emergencyRecords.mockResolvedValue(older)
     await renderSummary()
-    expect(within(section('Diagnoses')).getByText('Diagnoses are not available in this summary.')).toBeTruthy()
+    expect(within(section('Diagnoses')).getByText('Diagnoses aren’t available in this summary.')).toBeTruthy()
     expect(within(section('Diagnoses')).queryByText(/No diagnoses/)).toBeNull()
   })
 })
@@ -545,11 +543,11 @@ describe('a summary that names what EHR withheld and what it cut short', () => {
   it('never calls a withheld section empty, though the role may read it here', async () => {
     api.emergencyRecords.mockResolvedValue(releasedSummary(['diagnoses']))
     await renderSummary()
-    expect(screen.queryByText('No diagnoses are available from this facility.')).toBeNull()
-    expect(within(section('Diagnoses')).getByText('Diagnoses are not included in this summary: EHR did not release them to your role at this facility.')).toBeTruthy()
+    expect(screen.queryByText('No diagnoses at this facility.')).toBeNull()
+    expect(within(section('Diagnoses')).getByText('Diagnoses aren’t shared with your role here.')).toBeTruthy()
     api.emergencyRecords.mockResolvedValue(releasedSummary([], {}, { prescriptions: [] }))
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh summary' })) })
-    expect(await within(section('Prescriptions')).findByText('No prescriptions are available from this facility.')).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh' })) })
+    expect(await within(section('Prescriptions')).findByText('No prescriptions at this facility.')).toBeTruthy()
   })
 
   it('says a section was cut short only when EHR says so', async () => {
@@ -560,7 +558,7 @@ describe('a summary that names what EHR withheld and what it cut short', () => {
     }))
     await renderSummary()
     expect(within(section('Prescriptions')).queryByText(/most recent/)).toBeNull()
-    expect(within(section('Completed encounters')).queryByText(/most recent/)).toBeNull()
+    expect(within(section('Finished visits')).queryByText(/most recent/)).toBeNull()
     expect(within(section('Signed notes')).getByText('Only the 50 most recent are shown; older ones exist and are not shown.')).toBeTruthy()
   })
 
@@ -575,8 +573,8 @@ describe('a summary that names what EHR withheld and what it cut short', () => {
     await renderSummary()
     expect(within(section('Diagnoses')).getByText('Only the 100 most recent are shown; older ones exist and are not shown.')).toBeTruthy()
     api.emergencyRecords.mockResolvedValue(summary({ encounters: Array.from({ length: 50 }, (_, n) => encounter(n)) }))
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh summary' })) })
-    expect(await within(section('Completed encounters')).findByText('Only the 50 most recent are shown.')).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh' })) })
+    expect(await within(section('Finished visits')).findByText('Only the 50 most recent are shown.')).toBeTruthy()
     expect(screen.queryByText(/older ones exist/)).toBeNull()
   })
 
@@ -585,7 +583,7 @@ describe('a summary that names what EHR withheld and what it cut short', () => {
     await renderSummary()
     const documents = section('Documents')
     expect(documents.textContent).not.toMatch(/may not have been checked for viruses/)
-    expect(documents.textContent).toContain('Documents that passed the virus scan are listed for reference; they cannot be opened from this summary.')
+    expect(documents.textContent).toContain('Listed only: documents can’t be opened here. Only files that passed the virus check are listed.')
     expect(within(documents).queryAllByRole('button')).toEqual([])
   })
 
@@ -619,15 +617,15 @@ describe('released Lab results in the emergency summary', () => {
     staff.permissions = [...EVERY_READ, 'lab.result.released.read']
     api.labReleasedResultsForOrder.mockResolvedValue(released())
     await renderSummary()
-    const request = entry('Lab requests', 'Haemoglobin')
+    const request = entry('Lab tests', 'Haemoglobin')
     expect(api.labReleasedResultsForOrder).not.toHaveBeenCalled()
-    const view = within(request).getByRole('button', { name: 'View released results' })
+    const view = within(request).getByRole('button', { name: 'Show results' })
     expect(view.getAttribute('aria-expanded')).toBe('false')
     await act(async () => { fireEvent.click(view) })
-    expect(await within(request).findByText('No result released yet.')).toBeTruthy()
+    expect(await within(request).findByText('No results released yet.')).toBeTruthy()
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledWith(FACILITY_ID, 'lab-2', 'emergency')
-    expect(within(request).getByRole('button', { name: 'Hide released results' }).getAttribute('aria-expanded')).toBe('true')
-    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Refresh released results' })) })
+    expect(within(request).getByRole('button', { name: 'Hide results' }).getAttribute('aria-expanded')).toBe('true')
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Refresh' })) })
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2)
   })
 
@@ -635,12 +633,12 @@ describe('released Lab results in the emergency summary', () => {
     staff.permissions = [...EVERY_READ, 'lab.result.released.read']
     api.labReleasedResultsForOrder.mockResolvedValue(released())
     await renderSummary()
-    const request = entry('Lab requests', 'Haemoglobin')
-    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'View released results' })) })
-    await within(request).findByText('No result released yet.')
+    const request = entry('Lab tests', 'Haemoglobin')
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
+    await within(request).findByText('No results released yet.')
     let answer: (value: unknown) => void = () => {}
     api.labReleasedResultsForOrder.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
-    const refresh = within(request).getByRole('button', { name: 'Refresh released results' }) as HTMLButtonElement
+    const refresh = within(request).getByRole('button', { name: 'Refresh' }) as HTMLButtonElement
     refresh.focus()
     await act(async () => { fireEvent.click(refresh) })
     await waitFor(() => expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2))
@@ -650,7 +648,7 @@ describe('released Lab results in the emergency summary', () => {
     await act(async () => { fireEvent.click(refresh) })
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2)
     await act(async () => { answer(released()) })
-    expect(await within(request).findByText('No result released yet.')).toBeTruthy()
+    expect(await within(request).findByText('No results released yet.')).toBeTruthy()
     expect(refresh.getAttribute('aria-disabled')).toBeNull()
     expect(document.activeElement).toBe(refresh)
   })
@@ -665,15 +663,15 @@ describe('released Lab results in the emergency summary', () => {
       { id: 'result-2', executionId: 'execution-1', status: 'entered_in_error', verificationStatus: 'entered_in_error', currentVersion: 1, currentReleasedVersion: 1, revisions: [revision(1)] },
     ]))
     await renderSummary()
-    const request = entry('Lab requests', 'Haemoglobin')
-    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'View released results' })) })
+    const request = entry('Lab tests', 'Haemoglobin')
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
     expect(await within(request).findByText('Result 1')).toBeTruthy()
-    expect(request.textContent).toContain('Haemoglobin · LOINC 718-7 · accepted by Lab ')
+    expect(request.textContent).toContain('Haemoglobin · LOINC 718-7 · accepted by the lab ')
     expect(request.textContent).toMatch(/9\.1\s*g\/dL\s*Low/)
-    expect(request.textContent).toContain('Reference range: 12-16')
-    expect(request.textContent).toContain('Reason: Recalibrated analyser')
-    expect(request.textContent).toContain('Version numbers skip revisions that were never released; those are not shown.')
-    expect(request.textContent).toContain('The latest released version was marked entered in error: do not use it.')
+    expect(request.textContent).toContain('Normal range: 12-16')
+    expect(request.textContent).toContain('Why it changed: Recalibrated analyser')
+    expect(request.textContent).toContain('Versions that were never released are not shown.')
+    expect(request.textContent).toContain('The latest version was marked entered in error. Don’t use it.')
   })
 
   it('says what Lab sent: the test’s code, Released on each released result, every flag in words and each version’s verification (Clinical.tsx:935,938, labRevisions.tsx:34-35)', async () => {
@@ -686,10 +684,10 @@ describe('released Lab results in the emergency summary', () => {
         revisions: [revision(1, 'normal', 'unverified'), revision(2, 'unknown', 'verified'), revision(3, 'critical_candidate', 'verified')] },
     ]))
     await renderSummary()
-    const request = entry('Lab requests', 'Haemoglobin')
-    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'View released results' })) })
+    const request = entry('Lab tests', 'Haemoglobin')
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
     expect(await within(request).findByText('Result 1')).toBeTruthy()
-    expect(request.textContent).toContain('Haemoglobin · LOINC 718-7 · accepted by Lab ')
+    expect(request.textContent).toContain('Haemoglobin · LOINC 718-7 · accepted by the lab ')
     const result = within(request).getByText('Result 1').closest('li')!
     expect(within(result).getByText('Result 1').parentElement!.textContent).toBe('Result 1Released')
     expect(result.textContent).toMatch(/10\.1\s*g\/dL\s*· normal/)
@@ -697,27 +695,27 @@ describe('released Lab results in the emergency summary', () => {
     // A critical candidate is not a confirmed critical value: it is said as Lab says it.
     expect(result.textContent).toMatch(/12\.1\s*g\/dL\s*· critical candidate/)
     expect(within(result).queryByText('Critical')).toBeNull()
-    expect(result.textContent).toMatch(/Entered [^·]+ · unverified/)
-    expect(result.textContent).toMatch(/Entered [^·]+ · verified/)
+    expect(result.textContent).toMatch(/Entered [^·]+ · unverified · released /)
+    expect(result.textContent).toMatch(/Entered [^·]+ · verified · released /)
   })
 
   it('says why released results could not be read', async () => {
     staff.permissions = [...EVERY_READ, 'lab.result.released.read']
     api.labReleasedResultsForOrder.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'LAB_WORK_ITEM_NOT_FOUND' }))
     await renderSummary()
-    const request = entry('Lab requests', 'Haemoglobin')
-    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'View released results' })) })
-    await waitFor(() => expect(within(request).getByRole('alert').textContent).toContain('Lab has no work item for this request that you can see: Lab has not accepted it, accepted it at another facility, or your access to this patient does not cover it.'))
+    const request = entry('Lab tests', 'Haemoglobin')
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
+    await waitFor(() => expect(within(request).getByRole('alert').textContent).toContain('The lab hasn’t taken this test here yet, or your access doesn’t cover it.'))
   })
 
   it('offers no released results for a draft, or without lab.result.released.read', async () => {
     staff.permissions = [...EVERY_READ, 'lab.result.released.read']
     const first = open()
-    await screen.findByRole('heading', { level: 2, name: 'Lab requests' })
-    expect(within(entry('Lab requests', 'Malaria smear')).queryByRole('button')).toBeNull()
+    await screen.findByRole('heading', { level: 2, name: 'Lab tests' })
+    expect(within(entry('Lab tests', 'Malaria smear')).queryByRole('button')).toBeNull()
     first.unmount()
     staff.permissions = [...EVERY_READ]
     await renderSummary()
-    expect(screen.queryByRole('button', { name: 'View released results' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Show results' })).toBeNull()
   })
 })

@@ -41,11 +41,11 @@ const EMERGENCY_PERMISSIONS = ['identity.patient.read', 'identity.consent.write'
 const ACKNOWLEDGE = 'I understand the patient is told, every view is reviewed, and access ends after 30 minutes.'
 const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health IDs never use 0, 1, I or O.'
 const REASON = 'Unconscious after a road traffic collision; needs allergy and medication history before treatment'
-const REASON_TOO_SHORT = 'Document the emergency reason in at least 8 characters.'
+const REASON_TOO_SHORT = 'Say why in at least 8 characters.'
 const WHEN = 'Only when the patient can’t consent and care can’t wait'
-const BEFORE = 'Use emergency access only when the patient cannot consent and care cannot wait. The action is time limited and audited.'
-const CONTACTS_TOLD = 'While emergency-contact alerts are on, each verified emergency contact the patient has chosen to notify is told that the patient’s record was opened for emergency care, with your name, this facility and the time, but never the reason you type or any medical details.'
-const AFTER = 'It opens a read-only summary from this facility: completed encounters and signed notes, and the diagnoses, prescriptions, lab requests and documents your role may read. It shows no vital signs and opens no files.'
+const BEFORE = 'Emergency access lets you see the emergency summary without the patient’s approval. It ends by itself and every view is reviewed.'
+const CONTACTS_TOLD = 'The patient’s chosen emergency contacts are told your name, this facility and the time. They never see your reason or any medical details.'
+const AFTER = 'You see this facility’s finished visits, signed notes, diagnoses, prescriptions, lab requests and documents. You can’t change anything.'
 const FAILED_TITLE = 'Couldn’t open emergency access'
 const emergencyLookup = { ...allowedLookup, authorization: { ...allowedLookup.authorization, breakGlass: true } }
 
@@ -72,9 +72,9 @@ function open(rest = '') {
 /** The emergency access form, one column under the page heading. */
 const card = () => hidField().closest<HTMLElement>('form')!
 const hidField = () => screen.getByRole('textbox', { name: labelled('Health ID') }) as HTMLInputElement
-const reasonField = () => screen.getByRole('textbox', { name: labelled('Emergency reason') }) as HTMLTextAreaElement
+const reasonField = () => screen.getByRole('textbox', { name: labelled('Why do you need emergency access?') }) as HTMLTextAreaElement
 const ackBox = () => screen.getByRole('checkbox', { name: ACKNOWLEDGE }) as HTMLInputElement
-const submitButton = () => screen.getByRole('button', { name: /^(Activate emergency access|Working…)$/ }) as HTMLButtonElement
+const submitButton = () => screen.getByRole('button', { name: /^(Open emergency access|Opening…)$/ }) as HTMLButtonElement
 
 /** The text of the error tied to a control by aria-describedby. */
 function errorOf(control: HTMLElement) {
@@ -203,13 +203,11 @@ describe('the Emergency page', () => {
     expect(card().textContent).toContain(`${BEFORE} ${CONTACTS_TOLD} ${AFTER}`)
   })
 
-  it('shows the open emergency patient, with the way back to their summary, in today’s words (Patients.tsx:235)', async () => {
+  it('shows the open emergency patient, with the way back to their summary', async () => {
     staff.activePatient = activePatient('emergency')
     open()
-    const current = screen.getByText('Current emergency summary').closest<HTMLElement>('[role="note"]')!
-    expect(within(current).getByText(PATIENT_NAME)).toBeTruthy()
-    expect(within(current).getByText('Emergency access')).toBeTruthy()
-    const link = within(current).getByRole('link', { name: 'Open read-only emergency summary →' })
+    expect(screen.getByText(`${PATIENT_NAME} is open with emergency access`)).toBeTruthy()
+    const link = screen.getByRole('link', { name: 'Open summary' })
     // Straight to the summary, as today's link goes.
     expect(link.getAttribute('href')).toBe('/provider/emergency/summary')
     fireEvent.click(link)
@@ -236,8 +234,8 @@ describe('the Emergency page', () => {
     staff.activePatient = activePatient('direct-care')
     api.consentStatus.mockResolvedValue({ writeAllowed: true })
     open()
-    expect(screen.queryByText('Current emergency summary')).toBeNull()
-    expect(screen.queryByRole('link', { name: 'Open read-only emergency summary →' })).toBeNull()
+    expect(screen.queryByText(/is open with emergency access/)).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Open summary' })).toBeNull()
     // The list reads nothing about the open patient.
     await act(async () => {})
     expect(api.consentStatus).not.toHaveBeenCalled()
@@ -350,7 +348,7 @@ describe('recording emergency access', () => {
     await record()
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain(FAILED_TITLE)
-    expect(alert.textContent).toContain('Health ID has not granted access to this patient. Request approval, verify their PIN, or use documented emergency access when justified.')
+    expect(alert.textContent).toContain('You don’t have access to this patient yet. Ask the patient, use their Access PIN, or use emergency access if it’s justified.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
   })
 
@@ -375,11 +373,11 @@ describe('recording emergency access', () => {
 
   it.each([
     ['423 BREAK_GLASS_DISABLED', new HidApiError(423, 'Emergency access is currently disabled by the platform administrator', { code: 'BREAK_GLASS_DISABLED' }),
-      'Emergency access is switched off for Health ID right now, so the record was not opened. Ask your Health ID administrator.'],
+      'Emergency access is switched off right now, so the record was not opened. Ask Health ID support.'],
     ['429 EMERGENCY_PROBATION_LIMITED', new HidApiError(429, 'Too many emergency activations', { code: 'EMERGENCY_PROBATION_LIMITED' }),
       `${FACILITY_NAME} is new to Health ID: emergency access is limited to 5 times a day in its first 30 days. Contact Health ID support to lift the limit.`],
     ['400 INVALID_CONSENT_COMMAND', new HidApiError(400, 'The consent command failed integrity validation', { code: 'INVALID_CONSENT_COMMAND' }),
-      'Emergency access may not be enabled for this deployment: Identity refused it (INVALID_CONSENT_COMMAND). Ask your Health ID administrator to enable it.'],
+      'Emergency access isn’t set up for your facility, so the record was not opened. Contact support.'],
     ['any other refusal, as it is', new HidApiError(403, 'Break-glass access is not authorized', { code: 'CONSENT_COMMAND_DENIED' }),
       'Break-glass access is not authorized'],
   ])('says what a %s means, and looks nothing up', async (_name, refusal, said) => {
@@ -403,7 +401,7 @@ describe('recording emergency access', () => {
     open()
     fill()
     await record()
-    expect((await screen.findByRole('alert')).textContent).toContain('The access command failed.')
+    expect((await screen.findByRole('alert')).textContent).toContain('Something went wrong. Please try again.')
   })
 
   it('keeps the button focusable and busy while it runs, and sends once', async () => {
@@ -414,7 +412,7 @@ describe('recording emergency access', () => {
     const button = submitButton()
     button.focus()
     await record()
-    expect(button.textContent).toBe('Working…')
+    expect(button.textContent).toBe('Opening…')
     expect(button.getAttribute('aria-disabled')).toBe('true')
     expect(button.disabled).toBe(false)
     expect(document.activeElement).toBe(button)
