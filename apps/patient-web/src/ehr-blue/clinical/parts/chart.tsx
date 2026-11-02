@@ -8,11 +8,11 @@ import { patientFacts, type PatientFacts } from './PatientHeader'
 import { useClinical, useWorkspaceHref } from './Workspace'
 
 /**
- * The chart's wording. ACCESS_ENDED, READ_ONLY and WRITE_UNKNOWN are today's, word for word (staff/routes/Clinical.tsx:1254,1260,
- * :1771 and :1770).
+ * The chart's wording. READ_ONLY and WRITE_UNKNOWN are today's, word for word (staff/routes/Clinical.tsx:1771 and :1770).
+ * ACCESS_ENDED is today's (:1254, :1260) in plain words.
  */
 export const OPEN_FIRST = 'Open a patient first.'
-export const ACCESS_ENDED = 'Patient access has ended. Reopen the record through governed access.'
+export const ACCESS_ENDED = 'Patient access has ended. Find the patient again to reopen their record.'
 export const READ_ONLY = 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'
 export const WRITE_UNKNOWN = 'Write access could not be confirmed, so changes are unavailable. Refresh the page to try again.'
 export const CHOOSE_FIRST = 'Choose a patient first.'

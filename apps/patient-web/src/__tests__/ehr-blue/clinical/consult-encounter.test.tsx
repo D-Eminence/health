@@ -56,7 +56,7 @@ const DOCUMENT = {
   sizeBytes: '20480', status: 'available', scanStatus: 'clean', createdAt: '2026-10-30T08:30:00.000Z',
 }
 const READ_ONLY = 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'
-const ENDED = 'Patient access has ended. Reopen the record through governed access.'
+const ENDED = 'Patient access has ended. Find the patient again to reopen their record.'
 const STALE = new HidApiError(412, 'The record changed since it was read.', { code: 'PRECONDITION_FAILED' })
 
 let records: Record<string, unknown[]>
