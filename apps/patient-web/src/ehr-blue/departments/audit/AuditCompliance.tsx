@@ -1,20 +1,26 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { EhrButton, EhrEmptyState, EhrSkeleton } from '@hid/ui/ehr'
 import { isHidApiError } from '@hid/http'
-import { staffApi, type FacilityAuditEvent, type FacilityAuditPage } from '../../../staff/api'
+import { staffApi, type FacilityAuditPage } from '../../../staff/api'
 import { focusIsLost } from '../../../staff/focus'
+import { auditRow, type AuditRow } from '../../../audit/auditRow'
 import { useDeptAccess } from '../parts/access'
 import { DeptPage } from '../parts/DeptPage'
 import { DeptNotice } from '../parts/DeptNotice'
-import { errorText } from '../parts/errors'
+import { SERVICE_AUTH_UNAVAILABLE, errorText } from '../parts/errors'
+import { dateText } from '../parts/format'
 
 /*
- * Audit & Compliance (target admin/audit.png): the working facility's audit events, newest first, as the target lists
+ * Audit trail (target admin/audit.png): the working facility's audit events, newest first, as the target lists
  * them. The reads are today's (staff/routes/Audit.tsx): staffApi.facilityAudit for the working facility, 50 events a
  * page, an older page by the last page's cursor; only for a membership holding audit.read; an answer for an earlier
  * facility or page is dropped. Only what the API returns is shown: it withholds patient identifiers, reasons and event
  * details, and names no actor or membership. As the target draws it, the page has no Refresh, search or outcome filter:
  * the events of the page loaded are listed in one card, with the pager under them.
+ *
+ * Each event reads as a plain sentence (owner rule of 1 Nov 2026, docs/AUDIT_ACTION_LABELS.md): what was done, by whom,
+ * when, and Allowed, Refused or Failed, in the words audit/auditRow.ts gives the classic page too. The action code, the
+ * correlation ID and the resource type are never shown.
  */
 
 type PagePosition = { facilityId: string; cursors: Array<string | undefined> }
@@ -29,19 +35,25 @@ const NEWER = 'hid-ehr-dept-audit-newer'
 const OLDER = 'hid-ehr-dept-audit-older'
 const TRY_AGAIN = 'hid-ehr-dept-audit-try-again'
 
-/** The time as the target shows it (ISO, UTC), or that it is not available. */
-function eventTime(value: string): string {
-  const time = new Date(value)
-  return Number.isNaN(time.getTime()) ? 'time unavailable' : time.toISOString()
+const LOAD_FAILED = 'Audit events could not be loaded. Try again.'
+
+/** A failed read in the page's own words, never the server's: only a fault between services has its own sentence. */
+function loadProblemText(caught: unknown): string {
+  return isHidApiError(caught) && SERVICE_AUTH_UNAVAILABLE.has(caught.code) ? errorText(caught, LOAD_FAILED) : LOAD_FAILED
 }
 
-function AuditEvent({ event }: { readonly event: FacilityAuditEvent }) {
+/** When it happened, as the department pages write a time ("26 Oct 2026, 12:41"), or that it is not available. */
+function eventTime(value: string): string {
+  return Number.isNaN(new Date(value).getTime()) ? 'Time not available' : dateText(value)
+}
+
+/** One event: what was done in bold, then by whom, when, and the outcome in words. No code, in its text or an attribute. */
+function AuditEvent({ row, occurredAt }: { readonly row: AuditRow; readonly occurredAt: string }) {
   return (
     <li>
       <span className="hid-ehr-dept-audit-event">
-        <strong className="hid-ehr-dept-audit-action">{event.action}</strong>
-        <small className="hid-ehr-dept-audit-meta">{eventTime(event.occurredAt)} · actor {event.actorType} · correlation {event.correlationId}</small>
-        <small className="hid-ehr-dept-audit-meta">{event.resourceType ?? 'resource not recorded'} · {event.outcome}</small>
+        <strong className="hid-ehr-dept-audit-action">{row.what}</strong>
+        <small className="hid-ehr-dept-audit-meta">{row.who} · {eventTime(occurredAt)} · {row.outcomeText}</small>
       </span>
     </li>
   )
@@ -80,8 +92,7 @@ export function AuditCompliance() {
       if (active) setLoaded({ facilityId, cursor, page: next })
     }).catch(caught => {
       if (!active) return
-      setProblem({ facilityId, cursor, forbidden: isHidApiError(caught) && caught.status === 403,
-        message: errorText(caught, 'Audit events could not be loaded. Try again.') })
+      setProblem({ facilityId, cursor, forbidden: isHidApiError(caught) && caught.status === 403, message: loadProblemText(caught) })
     }).finally(() => { if (active) { setLoading(false); setSettled(count => count + 1) } })
     return () => { active = false }
   }, [facilityId, allowed, cursor, reload])
@@ -101,9 +112,10 @@ export function AuditCompliance() {
 
   if (!facility || !allowed) {
     return (
-      <DeptPage title="Audit & Compliance">
+      <DeptPage title="Audit trail">
+        {/* The same words as the page's refusal (page.tsx) and the classic page: no permission named. */}
         <DeptNotice role="status">{facility
-          ? `Your current permissions at ${facility.name} don’t allow audit review. Choose an authorized workflow.`
+          ? 'Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.'
           : 'Choose the facility you are working at to review its audit events.'}</DeptNotice>
       </DeptPage>
     )
@@ -127,10 +139,14 @@ export function AuditCompliance() {
     setReload(value => value + 1)
   }
 
-  const items = page?.items ?? []
+  // Every event of the page loaded, in words; the request log (an 'api.' action) is never one (health#70).
+  const rows = (page?.items ?? []).flatMap(event => {
+    const row = auditRow(event)
+    return row ? [{ event, row }] : []
+  })
 
   return (
-    <DeptPage title="Audit & Compliance">
+    <DeptPage title="Audit trail">
       <p className="hid-ehr-dept-audit-intro">Audit events for {facility.name}. Health ID checks your membership and records each review.
         Patient identifiers, reasons and event details are not shown here.</p>
       <section className="hid-ehr-card hid-ehr-dept-section hid-ehr-dept-list-card">
@@ -149,9 +165,9 @@ export function AuditCompliance() {
             : cursors.length > 1
               ? <EhrEmptyState title="No older events" message={`There are no earlier audit events at ${facility.name}.`} />
               : <EhrEmptyState title="No audit events yet" message={`Events at ${facility.name} appear here once they are recorded.`} />)}
-          {items.length > 0 && (
+          {rows.length > 0 && (
             <ul className="hid-ehr-dept-rows" aria-label={`Audit events, page ${cursors.length}`} aria-busy={loading || undefined}>
-              {items.map(event => <AuditEvent key={event.sequenceId} event={event} />)}
+              {rows.map(({ event, row }) => <AuditEvent key={event.sequenceId} row={row} occurredAt={event.occurredAt} />)}
             </ul>
           )}
           {(showNewer || showOlder) && (

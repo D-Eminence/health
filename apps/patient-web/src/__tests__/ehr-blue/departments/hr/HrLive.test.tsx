@@ -66,7 +66,7 @@ const fact = (scope: HTMLElement, label: string) => within(scope).getByText(labe
 const savedRecord = () => screen.getByRole('heading', { name: 'Saved record' }).closest('section') as HTMLElement
 /** The page's one list card. */
 const list = () => screen.getByRole('region', { name: 'Search HR & Credentials' })
-/** Each row's record name and the reference under it, in order. */
+/** Each row's record name and the reference under it (a sample row's only: a live row has none), in order. */
 const listed = () => within(list()).getAllByRole('row').slice(1)
   .map(tableRow => tableRow.querySelector('.hid-ehr-dept-record-name')?.textContent)
 
@@ -89,6 +89,27 @@ describe('the page entry', () => {
 })
 
 describe('the live list', () => {
+  // Role names, never role codes (parity report 3.1 #16): a role Health ID has no name for reads "Staff". "porter" is a
+  // fictional code Health ID has no name for.
+  it('reads "Staff" for a role Health ID has no name for, never its code', async () => {
+    api.read.mockResolvedValue(staff({ members: [administrator(), { ...receptionist(), roles: ['porter'] }] }))
+    open()
+    expect(await screen.findByRole('button', { name: 'MDCN licence' })).toBeTruthy()
+    expect(within(row('No licence on record')).getByText('Staff')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/\bporter\b/)
+  })
+
+  // A role with no name still carries permissions: the administrator's view counts it rather than leaving it out.
+  it('counts a role Health ID has no name for beside a named one, in the list and under Employment, never its code', async () => {
+    api.read.mockResolvedValue(staff({ members: [administrator(), { ...receptionist(), roles: ['receptionist', 'porter'] }] }))
+    open()
+    await screen.findByRole('button', { name: 'No licence on record' })
+    expect(within(row('No licence on record')).getByText('Receptionist and another role')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'No licence on record' }))
+    expect(fact(savedRecord(), 'Employment')).toBe('Receptionist and another role')
+    expect(document.body.textContent).not.toMatch(/\bporter\b/)
+  })
+
   it('lists each member’s licence as a record, from the one Staff read', async () => {
     api.read.mockResolvedValue(staff())
     open()
@@ -103,7 +124,9 @@ describe('the live list', () => {
     expect(within(admin).getByText('Demo Administrator')).toBeTruthy()
     expect(within(admin).getByText('Facility administrator, Doctor · You')).toBeTruthy()
     expect(within(admin).getByText('reviewed')).toBeTruthy()
-    expect(within(admin).getByText(ADMIN_ID.slice(0, 8))).toBeTruthy()
+    // The design draws a reference under the record's name; here it would be part of the membership id, and screens show no ids.
+    expect(admin.textContent).not.toContain(ADMIN_ID.slice(0, 8))
+    expect(within(admin).getByRole('button', { name: 'MDCN licence' }).parentElement?.querySelector('.hid-ehr-dept-reference')).toBeNull()
     expect(within(admin).getByText(dateText('2026-10-24T12:00:00.000Z'))).toBeTruthy()
     const vouched = row('NMCN licence')
     expect(within(vouched).getByText('Demo Nurse')).toBeTruthy()
@@ -111,6 +134,7 @@ describe('the live list', () => {
     const none = row('No licence on record')
     expect(within(none).getByText('Demo Receptionist')).toBeTruthy()
     expect(within(none).getByText('no licence')).toBeTruthy()
+    for (const id of [ADMIN_ID, NURSE_ID, DESK_ID]) expect(table.textContent).not.toContain(id.slice(0, 8))
     expectOnlyTheRead()
   })
 
@@ -122,6 +146,9 @@ describe('the live list', () => {
     expect(screen.getByRole('button', { name: 'NMCN licence' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'MDCN licence' })).toBeNull()
     fireEvent.keyDown(search, { key: 'Enter' })
+    // The membership id is not on screen, so a search for it finds nothing.
+    fireEvent.change(search, { target: { value: NURSE_ID.slice(0, 8) } })
+    expect(screen.queryByRole('button', { name: 'NMCN licence' })).toBeNull()
     fireEvent.change(search, { target: { value: 'nobody here' } })
     const list = screen.getByRole('region', { name: 'Search HR & Credentials' })
     expect(within(list).getByText('No matching records')).toBeTruthy()
@@ -141,7 +168,10 @@ describe('the live list', () => {
 
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('NMCN licence')
     expect(document.activeElement?.id).toBe('hr-title')
-    expect(screen.getByText(`Demo Nurse · ${NURSE_ID.slice(0, 8)}`)).toBeTruthy()
+    // The line under the title names the member, and no part of their membership id.
+    const context = document.querySelector('.hid-ehr-dept-context') as HTMLElement
+    expect(within(context).getByText('Demo Nurse')).toBeTruthy()
+    expect(document.body.textContent).not.toContain(NURSE_ID.slice(0, 8))
     expect(screen.getByText('vouched')).toBeTruthy()
     expect(screen.getByText(`Saved ${dateText('2026-10-25T08:00:00.000Z')}`)).toBeTruthy()
     const saved = savedRecord()
@@ -220,7 +250,7 @@ describe('one list, as the design draws it', () => {
     expect(heading.parentElement?.children).toHaveLength(2)
 
     expect(listed()).toEqual([
-      `MDCN licence${ADMIN_ID.slice(0, 8)}`, `NMCN licence${NURSE_ID.slice(0, 8)}`, `No licence on record${DESK_ID.slice(0, 8)}`,
+      'MDCN licence', 'NMCN licence', 'No licence on record',
       'Medical licence (fictional)f8f25d2e · sample', 'Nursing registration (fictional)b459b486 · sample',
     ])
     expect(screen.queryByRole('note')).toBeNull()
@@ -233,11 +263,11 @@ describe('one list, as the design draws it', () => {
     open()
     const search = await screen.findByRole('searchbox', { name: 'Search HR & Credentials' })
     fireEvent.change(search, { target: { value: 'demo nurse' } })
-    expect(listed()).toEqual([`NMCN licence${NURSE_ID.slice(0, 8)}`, 'Nursing registration (fictional)b459b486 · sample'])
+    expect(listed()).toEqual(['NMCN licence', 'Nursing registration (fictional)b459b486 · sample'])
     fireEvent.change(search, { target: { value: 'sample' } })
     expect(listed()).toEqual(['Medical licence (fictional)f8f25d2e · sample', 'Nursing registration (fictional)b459b486 · sample'])
     fireEvent.change(search, { target: { value: 'MDCN' } })
-    expect(listed()).toEqual([`MDCN licence${ADMIN_ID.slice(0, 8)}`])
+    expect(listed()).toEqual(['MDCN licence'])
     fireEvent.change(search, { target: { value: '' } })
     expect(listed()).toHaveLength(5)
     expectOnlyTheRead()
@@ -259,6 +289,51 @@ describe('one list, as the design draws it', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Medical licence (fictional)' }))
     expectOnlyTheRead()
+  })
+
+  // A real facility has no sample rows (parity report 3.2): the one list holds its live rows alone, once they are read.
+  describe('at a real facility', () => {
+    const REAL_ID = 'f0000000-0000-4000-8000-000000000002'
+    const RIVERSIDE = 'Riverside Clinic (fictional)'
+    beforeEach(() => {
+      session.facility = fakeFacility(['workforce.manage'], { id: REAL_ID, name: RIVERSIDE, roles: ['org_admin'],
+        selfService: { review: 'reviewed', organizationType: 'clinic' } })
+    })
+
+    it('lists the live rows alone, with no sample row or Create record', async () => {
+      api.read.mockResolvedValue(staff({}, { id: REAL_ID, name: RIVERSIDE }))
+      open()
+      await screen.findByRole('button', { name: 'MDCN licence' })
+      expect(listed()).toEqual(['MDCN licence', 'NMCN licence', 'No licence on record'])
+      expect(screen.queryByText(/ · sample$/)).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+      fireEvent.change(screen.getByRole('searchbox', { name: 'Search HR & Credentials' }), { target: { value: 'sample' } })
+      expect(within(list()).getByText('No matching records')).toBeTruthy()
+      expect(api.read).toHaveBeenCalledWith(REAL_ID)
+      expectOnlyTheRead()
+    })
+
+    it('says the live rows are loading in a card of its own, with no empty list under it', () => {
+      api.read.mockReturnValue(new Promise(() => {}))
+      open()
+      const status = screen.getByText('Loading staff records…')
+      expect(status.getAttribute('role')).toBe('status')
+      expect(status.closest('section')?.getAttribute('aria-label')).toBe('HR & Credentials')
+      expect(screen.queryByRole('searchbox')).toBeNull()
+      expect(screen.queryByRole('table')).toBeNull()
+      expect(screen.queryByText('No matching records')).toBeNull()
+      expectOnlyTheRead()
+    })
+
+    it('draws no list beside a refused read, only the refusal and Try again', async () => {
+      api.read.mockRejectedValueOnce(new HidApiError(500, 'x', { code: 'INTERNAL_ERROR' }))
+      open()
+      const alert = await screen.findByRole('alert')
+      expect(within(alert).getByRole('button', { name: 'Try again' })).toBeTruthy()
+      expect(screen.queryByRole('searchbox')).toBeNull()
+      expect(screen.queryByRole('table')).toBeNull()
+      expect(alert.nextElementSibling).toBeNull()
+    })
   })
 })
 
@@ -355,7 +430,7 @@ describe('where the live list does not apply', () => {
     expect(await screen.findByRole('button', { name: 'MDCN licence' })).toBeTruthy()
     expect(screen.queryByText('Loading staff records…')).toBeNull()
     expect(listed()).toEqual([
-      `MDCN licence${ADMIN_ID.slice(0, 8)}`, `NMCN licence${NURSE_ID.slice(0, 8)}`, `No licence on record${DESK_ID.slice(0, 8)}`,
+      'MDCN licence', 'NMCN licence', 'No licence on record',
       'Medical licence (fictional)f8f25d2e · sample', 'Nursing registration (fictional)b459b486 · sample',
     ])
     // The same element, not one drawn anew: the sample rows are keyed by their own ids.

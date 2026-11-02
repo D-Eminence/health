@@ -4,7 +4,7 @@ import type { StaffSession } from '../../staff/api'
 /**
  * How much of a page runs on Health ID today:
  * - `live`: fully on today's API;
- * - `partial`: some parts on today's API, the rest a sample;
+ * - `partial`: on today's API, but something is missing, worded differently or still a sample (What's left says so);
  * - `sample`: no backend yet. Fictional data, kept in memory only, reset by a reload, under EhrSampleBanner.
  */
 export type EhrBluePageStatus = 'live' | 'partial' | 'sample'

@@ -80,7 +80,7 @@ describe('the sample rows', () => {
     expect(screen.queryByRole('region', { name: 'Search sample records' })).toBeNull()
     expect(within(sampleList()).getAllByRole('row').slice(1).map(tableRow => within(tableRow).getAllByRole('button')[0]?.textContent))
       .toEqual(['No licence on record', 'Medical licence (fictional)', 'Nursing registration (fictional)'])
-    // The live row's reference is its own; only the sample rows are marked.
+    // The live row has no reference (no part of a membership id is shown); only the sample rows are marked.
     expect(within(row('No licence on record')).queryByText(/ · sample$/)).toBeNull()
     const medical = row('Medical licence (fictional)')
     expect(within(medical).getByText('f8f25d2e · sample').className).toBe('hid-ehr-dept-reference')
@@ -343,5 +343,40 @@ describe('without the live list', () => {
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('New hr & credentials')
     expect(api.read).not.toHaveBeenCalled()
     expect(touched).toEqual([])
+  })
+})
+
+describe('at a real facility', () => {
+  const RIVERSIDE = 'Riverside Teaching Hospital (fictional)'
+  const REAL_FACILITY_ID = 'f0000000-0000-4000-8000-000000000001'
+  const real = (permissions: string[]) => fakeFacility(permissions, { id: REAL_FACILITY_ID, name: RIVERSIDE, roles: ['org_admin'],
+    selfService: { review: 'reviewed', organizationType: 'hospital' } })
+  /** Nothing of the sample half: no notice, no fictional records, no way to create, edit or review one. */
+  function expectNoSampleHalf() {
+    expect(screen.queryByRole('note')).toBeNull()
+    expect(screen.queryByText(SAMPLE_NOTICE)).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Search sample records' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    // The design's fictional records (the facility's own name here is fictional too, as every test name is).
+    expect(screen.queryByText(/^(Medical licence|Nursing registration) \(fictional\)$/)).toBeNull()
+  }
+
+  it('shows the live list alone: the sample half, and its Create record, are the demo facilities’ only', async () => {
+    session.facility = real(['workforce.manage'])
+    api.read.mockResolvedValue({ ...staff, facility: { ...staff.facility, id: REAL_FACILITY_ID, name: RIVERSIDE } })
+    renderDept(<HrCredentials />)
+    expect(await screen.findByRole('button', { name: 'No licence on record' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('HR & Credentials')
+    expectNoSampleHalf()
+    expect(api.read).toHaveBeenCalledWith(REAL_FACILITY_ID)
+    expectNoSampleRequest()
+  })
+
+  it('offers no sample either where the live list does not apply', () => {
+    session.facility = real(['ehr.encounter.read'])
+    renderDept(<HrCredentials />)
+    expect(screen.getByText(`Permission denied. Only ${RIVERSIDE}’s administrator can open its staff records.`)).toBeTruthy()
+    expectNoSampleHalf()
+    expect(api.read).not.toHaveBeenCalled()
   })
 })

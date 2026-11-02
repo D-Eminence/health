@@ -1,6 +1,7 @@
 import { Fragment, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactElement } from 'react'
-import { EhrButton, EhrField, EhrInput } from '@hid/ui/ehr'
+import { EhrButton, EhrField, EhrInput, EhrSkeleton } from '@hid/ui/ehr'
 import { useFocusById } from '../../../staff/focus'
+import { isDemoFacility } from '../../blueFacilities'
 import { useDeptAccess } from '../parts/access'
 import { useListAtBase } from '../parts/baseAddress'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -22,10 +23,12 @@ import {
  * the id is never looked up.
  *
  * Partial: one list, as the design draws it. Its live rows are each member of the facility and the licence on record for
- * them, from today's Staff read (read only; role and licence changes stay on Staff & access). Its sample rows, marked
- * "· sample" after their reference, with "Create record", editing and the credential review, are fictional records in
- * this page's memory, which a reload resets; the sample notice opens each of them and the create form. One search, in
- * memory, filters both.
+ * them, from today's Staff read (read only; role and licence changes stay on Staff & access); a live row shows no
+ * reference, since it would be part of the member's membership id. Its sample rows, marked "· sample" after their
+ * reference, with "Create record", editing and the credential review, are fictional records in this page's memory, which
+ * a reload resets; the sample notice opens each of them and the create form. One search, in memory, filters both. The
+ * sample rows show at the demo facilities only: at a real one, a credential record created there would seem kept and is
+ * not (parity report 3.2), so the list holds the live rows alone, once they are read.
  */
 
 const TITLE = 'HR & Credentials'
@@ -45,6 +48,7 @@ type View =
 
 export function HrCredentials() {
   const { facility } = useDeptAccess()
+  const demo = isDemoFacility(facility?.id)
   const leaving = useListAtBase('hr')
   const live = useLiveStaff(facility, leaving)
   const staff = live.kind === 'ready' ? live.staff : null
@@ -72,7 +76,9 @@ export function HrCredentials() {
   const toList = (target: string) => { setView({ kind: 'list' }); setAnnouncement(''); focus([target, TITLE_ID]) }
   const announced = (content: ReactElement) => <>{content}<p className="hid-ehr-sr-only" role="status">{announcement}</p></>
 
-  if (view.kind === 'new') {
+  // A sample view is reached only from a sample row or Create record, which a real facility does not draw; a facility
+  // switch keeps none.
+  if (view.kind === 'new' && demo) {
     return announced(<NewRecord onBack={() => toList(CREATE_ID)} onSave={values => {
       const record = createSample(values, crypto.randomUUID(), new Date().toISOString())
       setRecords(current => [record, ...current])
@@ -80,7 +86,7 @@ export function HrCredentials() {
       setAnnouncement(`Record created: ${record.data.name}.`)
     }} />)
   }
-  if (view.kind === 'sample') {
+  if (view.kind === 'sample' && demo) {
     const record = records.find(entry => entry.id === view.id)
     if (record) {
       return announced(<SampleDetail key={record.id} record={record} onBack={() => toList(`hr-sample-${record.id}`)} onAnnounce={setAnnouncement}
@@ -92,16 +98,16 @@ export function HrCredentials() {
     if (credential) return announced(<LiveDetail credential={credential} onBack={() => toList(`hr-live-${credential.key}`)} />)
   }
 
-  // One list: the live rows, then the sample rows, each marked as such, under one search.
+  // One list: the live rows, then (at a demo facility) the sample rows, each marked as such, under one search.
   const liveRows: HrRow[] = credentials
-    .filter(entry => matchesSearch(search, [entry.name, entry.staff, entry.roles, entry.status, entry.reference,
+    .filter(entry => matchesSearch(search, [entry.name, entry.staff, entry.roles, entry.status,
       ...entry.facts.map(fact => typeof fact.value === 'string' ? fact.value : '')]))
     .map(entry => ({
-      key: entry.key, linkId: `hr-live-${entry.key}`, name: entry.name, reference: entry.reference, status: entry.status,
-      updatedAt: entry.updatedAt, facts: entry.facts,
+      key: entry.key, linkId: `hr-live-${entry.key}`, name: entry.name, status: entry.status, updatedAt: entry.updatedAt, facts: entry.facts,
       context: <><span>{entry.staff}</span><span className="hid-ehr-dept-reference">{entry.roles}{entry.isSelf ? ' · You' : ''}</span></>,
     }))
-  const sampleRows: HrRow[] = records
+  const sampleRecords = demo ? records : []
+  const sampleRows: HrRow[] = sampleRecords
     .filter(record => matchesSearch(search, [...sampleTexts(record), SAMPLE_MARK]))
     .map(record => ({
       key: record.id, sample: true, linkId: `hr-sample-${record.id}`, name: record.data.name,
@@ -115,14 +121,19 @@ export function HrCredentials() {
 
   return announced(
     <DeptPage title={<HrTitle>{TITLE}</HrTitle>}
-      primaryAction={<EhrButton id={CREATE_ID} onClick={() => show({ kind: 'new' })}>Create record</EhrButton>}>
+      primaryAction={demo ? <EhrButton id={CREATE_ID} onClick={() => show({ kind: 'new' })}>Create record</EhrButton> : undefined}>
       <LiveState live={live} onRetry={() => { if (live.kind !== 'failed') return; retrying.current = true; live.retry() }} />
-      {/* The sample rows stay listed, searchable and open while the staff are read, as they are today; the card says the
-          live rows are loading, and they come in above the sample rows (each row keyed, so focus stays where it is). */}
-      <div id={LIST_ID}>
-        <HrRecordList label={`Search ${TITLE}`} search={search} onSearch={setSearch} rows={[...liveRows, ...sampleRows]}
-          total={credentials.length + records.length} onOpen={openRow} loading={live.kind === 'loading' ? LIVE_LOADING : undefined} />
-      </div>
+      {/* At a demo facility the sample rows stay listed, searchable and open while the staff are read, as they are today;
+          the card says the live rows are loading, and they come in above the sample rows (each row keyed, so focus stays
+          where it is). At a real facility there is no list until the staff are read: the card says they are loading. */}
+      {demo || live.kind === 'ready' ? (
+        <div id={LIST_ID}>
+          <HrRecordList label={`Search ${TITLE}`} search={search} onSearch={setSearch} rows={[...liveRows, ...sampleRows]}
+            total={credentials.length + sampleRecords.length} onOpen={openRow} loading={live.kind === 'loading' ? LIVE_LOADING : undefined} />
+        </div>
+      ) : live.kind === 'loading' ? (
+        <section className="hid-ehr-card hid-ehr-dept-section hid-ehr-dept-list-card" aria-label={TITLE}><EhrSkeleton label={LIVE_LOADING} /></section>
+      ) : null}
     </DeptPage>,
   )
 }
@@ -130,7 +141,7 @@ export function HrCredentials() {
 /**
  * What the list says about its live rows, over it: a line on why there are none, a refused read with a retry, or that
  * Health ID support has not checked the facility yet. Nothing while the staff are read (the list card says so, over the
- * sample rows) or once they are read at a checked facility.
+ * sample rows at a demo facility, alone at a real one) or once they are read at a checked facility.
  */
 function LiveState({ live, onRetry }: { readonly live: LiveStaff; readonly onRetry: () => void }) {
   if (live.kind === 'notice') return <DeptNotice tone={live.tone}>{live.message}</DeptNotice>
@@ -150,7 +161,7 @@ function LiveState({ live, onRetry }: { readonly live: LiveStaff; readonly onRet
 function LiveDetail({ credential, onBack }: { readonly credential: LiveCredential; readonly onBack: () => void }) {
   return (
     <DeptPage title={<HrTitle>{credential.name}</HrTitle>} onBack={onBack}>
-      <HrContextLine status={credential.status} context={`${credential.staff} · ${credential.reference}`} saved={`Saved ${dateText(credential.updatedAt)}`} />
+      <HrContextLine status={credential.status} context={credential.staff} saved={`Saved ${dateText(credential.updatedAt)}`} />
       <DeptRecordLayout
         main={<DeptSection title="Saved record"><DeptFacts facts={credential.facts} /></DeptSection>}
         aside={<DeptActions empty={NO_ACTIONS} />}

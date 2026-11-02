@@ -110,6 +110,16 @@ describe('Facility profile: the target’s sections, read-only', () => {
     expect(page.querySelectorAll('.hid-ehr-card')).toHaveLength(2)
   })
 
+  // "porter" is a fictional code Health ID has no name for. With no "Facility details" card (design audit item 9) the
+  // page lists no roles at all, so a role's code is never shown on either build (parity report 3.1 #16).
+  it.each(['main-v1', 'novu-v1'])('never shows a role’s code on a %s build: no card lists the member’s roles', contract => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+    session.facility = fakeFacility([], { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital', roles: ['porter'] })
+    renderDept(<FacilityProfile />)
+    expect(screen.queryByText('Your roles here')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/\bporter\b/)
+  })
+
   it('follows a switch of the working facility', () => {
     const { rerender } = renderDept(<FacilityProfile />)
     session.facility = fakeFacility(['lab.work-item.read'], { id: DEMO_LABORATORY_ID, name: 'Demo Laboratory', isPrimary: false })

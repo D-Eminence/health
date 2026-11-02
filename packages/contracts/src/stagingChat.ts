@@ -8,9 +8,21 @@
 export interface StagingLegacyPatientChatSource {
   number: number; noteId: string; revisionNo: number; title: string; signedAt: string
 }
+/**
+ * Where a source's facts came from (the owner's decision 25; hid-system's chat source labels): the patient added them, a
+ * health worker recorded them, they came from a scanned paper record, or from the patient's Health ID profile. The
+ * service works it out in code, never the model; the screens say it in their own words.
+ */
+export const STAGING_CHAT_SOURCE_ORIGINS = ['patient', 'health_worker', 'scanned_paper', 'health_id_profile'] as const
+export type StagingChatSourceOrigin = typeof STAGING_CHAT_SOURCE_ORIGINS[number]
 export interface StagingTypedPatientChatSource {
   number:number;kind:'note'|'encounter'|'diagnosis'|'prescription'|'investigation'|'vital'|'import'|'import_version'|'health_profile'|'lab_result'|'attachment'|'document'|'profile';
   id:string;version:string;title:string;recordedAt:string|null;effectiveAt:string|null;provenance:string;quality:string
+  /**
+   * Where its facts came from, from a service that says (absent from one before the chat source labels). A value not on
+   * the list is left out, as if not sent, so a newer service never stops the answer from showing.
+   */
+  origin?:StagingChatSourceOrigin
 }
 export type StagingPatientChatSource = StagingLegacyPatientChatSource | StagingTypedPatientChatSource
 export interface StagingPatientChatReply {
@@ -45,8 +57,10 @@ export function parseStagingPatientChat(value: unknown): StagingPatientChatReply
       if(!kinds.includes(String(source.kind)) || !text(source.id,36) || !recordUuid.test(source.id)
         || !text(source.version,1024)|| !text(source.provenance,500)||!text(source.quality,200)
         || !date(source.recordedAt)||!date(source.effectiveAt))throw new Error('Record chat returned invalid sources.')
+      const origin=STAGING_CHAT_SOURCE_ORIGINS.find(known=>known===source.origin)
       return {number:Number(source.number),kind:source.kind as StagingTypedPatientChatSource['kind'],id:source.id,version:source.version,
-        title:source.title,recordedAt:source.recordedAt, effectiveAt:source.effectiveAt,provenance:source.provenance,quality:source.quality} as StagingTypedPatientChatSource
+        title:source.title,recordedAt:source.recordedAt, effectiveAt:source.effectiveAt,provenance:source.provenance,quality:source.quality,
+        ...(origin?{origin}:{})} as StagingTypedPatientChatSource
     }
     if(!text(source.noteId,100)||!Number.isSafeInteger(source.revisionNo)||Number(source.revisionNo)<1
       ||!text(source.signedAt,100)||!Number.isFinite(Date.parse(source.signedAt)))throw new Error('Record chat returned invalid sources.')
