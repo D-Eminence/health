@@ -53,16 +53,20 @@ export const LAB_NOT_TOLD: Readonly<Record<string, string>> = {
   on_hold: 'Putting this request on hold was not passed to Lab, which may still be working on the version it accepted. Cancelling it or marking it entered in error would not be passed to Lab either, so neither is offered here; contact the laboratory to stop or correct it.',
 }
 
-/** Today's form hints and notes (Clinical.tsx RecordForm and SendToLab). */
+/**
+ * Today's form hints and notes (Clinical.tsx RecordForm and SendToLab). Send to a pharmacy and Send to Lab are on the
+ * order's own page, not in the encounter's list, so the hints say to open the order first.
+ */
 export const PRESCRIPTION_ROUTING_HINT = 'This saves a draft. To send it to a pharmacy elsewhere, open it and choose Send to a pharmacy.'
 export const PRESCRIPTION_HINT = 'This saves a draft. The pharmacy accepts and dispenses it as a next step.'
-/** Classic's both-or-neither rule for a dose (Clinical.tsx RecordForm), in plain words. */
-export const DOSE_PAIR = 'Enter both the dose and its unit, or leave both blank.'
+/** Classic's both-or-neither rule for a dose (Clinical.tsx RecordForm :505-510), word for word. */
+export const DOSE_PAIR = 'Enter both dose quantity and dose unit, or leave both blank.'
 export const DOSE_NUMBER_TEXT = 'Enter the dose as a number, like 0.5 or 250 (up to 4 decimal places).'
-export const LAB_ACTIVE_NOTE = 'If the laboratory doesn’t accept it, the request is still saved. Check the orders list before sending it again.'
+export const LAB_ACTIVE_NOTE = 'Active creation saves the request, then asks Lab to accept it. If Lab does not, the request stays saved and active, even when an error is shown: check the list before creating it again, then open the request and use Send to Lab.'
 export const LAB_SEND_HINT = 'Sends this active request to Lab if Lab does not have it yet. Lab keeps one work item per request, so sending again changes nothing Lab already holds.'
-export const NO_CHANGES = 'Your access doesn’t allow changes to this patient’s records.'
-export const SAVED = 'Saved.'
+/** Today's refusal and result of a create (Clinical.tsx:1455, :1502). */
+export const NO_CHANGES = 'This access does not permit changes to the patient record.'
+export const SAVED = 'Clinical record saved.'
 
 /** The draft warning under "Request handling" (Clinical.tsx RecordForm). */
 export function labDraftWarning(sendingElsewhere: boolean, canSendToLab: boolean, routable: boolean): string {

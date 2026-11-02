@@ -41,7 +41,7 @@ const ENCOUNTER = {
 }
 const SECOND = { ...ENCOUNTER, id: 'e2222222-0000-4000-8000-000000000002', status: 'completed', chiefComplaint: null }
 const NEW_ID = 'e1111111-0000-4000-8000-000000000003'
-const READ_ONLY = 'You can view this, but not change it. To add or change records, ask the patient to approve access that includes changes.'
+const READ_ONLY = 'You can view this record but not change it.'
 
 function deferred<T>() {
   let resolve!: (value: T) => void

@@ -590,6 +590,29 @@ describe('released Lab results in the emergency summary', () => {
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2)
   })
 
+  it('format: Refresh stays focused while the results are read again, says it is busy, and a press then reads nothing (Clinical.tsx:930-931)', async () => {
+    staff.permissions = [...EVERY_READ, 'lab.result.released.read']
+    api.labReleasedResultsForOrder.mockResolvedValue(released())
+    await renderSummary()
+    const request = entry('Lab tests', 'Haemoglobin')
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
+    await within(request).findByText('No results released yet.')
+    let answer: (value: unknown) => void = () => {}
+    api.labReleasedResultsForOrder.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    const refresh = within(request).getByRole('button', { name: 'Refresh' }) as HTMLButtonElement
+    refresh.focus()
+    await act(async () => { fireEvent.click(refresh) })
+    await waitFor(() => expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2))
+    expect(refresh.getAttribute('aria-disabled')).toBe('true')
+    expect(refresh.disabled).toBe(false)
+    expect(document.activeElement).toBe(refresh)
+    await act(async () => { fireEvent.click(refresh) })
+    expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2)
+    await act(async () => { answer(released()) })
+    expect(refresh.getAttribute('aria-disabled')).toBeNull()
+    expect(document.activeElement).toBe(refresh)
+  })
+
   it('shows each released result and its versions, with the flag in words, and one marked entered in error', async () => {
     staff.permissions = [...EVERY_READ, 'lab.result.released.read']
     const revision = (version: number) => ({ version, resultType: 'numeric', numericValue: 9.1, textValue: null, unit: 'g/dL', referenceRange: '12-16',
@@ -609,6 +632,23 @@ describe('released Lab results in the emergency summary', () => {
     expect(request.textContent).toContain('Why it changed: Recalibrated analyser')
     expect(request.textContent).toContain('Versions that were never released are not shown.')
     expect(request.textContent).toContain('The latest version was marked entered in error. Don’t use it.')
+  })
+
+  it('says where each version is in friendly words, never the raw status (review)', async () => {
+    staff.permissions = [...EVERY_READ, 'lab.result.released.read']
+    const revision = (version: number, releaseStatus: string) => ({ version, resultType: 'numeric', numericValue: 9.1, textValue: null, unit: 'g/dL',
+      referenceRange: '12-16', abnormalFlag: 'low', entrySource: 'manual', verificationStatus: 'verified', releaseStatus, enteredAt: '2026-10-01T09:00:00.000Z',
+      releasedAt: releaseStatus === 'released' ? '2026-10-01T09:30:00.000Z' : null, correctionReason: null })
+    api.labReleasedResultsForOrder.mockResolvedValue(released([
+      { id: 'result-1', executionId: 'execution-1', status: 'released', verificationStatus: 'verified', currentVersion: 2, currentReleasedVersion: 1,
+        revisions: [revision(1, 'released'), revision(2, 'verified_not_released')] },
+    ]))
+    await renderSummary()
+    const request = entry('Lab tests', 'Haemoglobin')
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
+    expect(await within(request).findByText('Checked, not released')).toBeTruthy()
+    expect(within(request).getAllByText('Released').length).toBeGreaterThan(0)
+    expect(request.textContent).not.toMatch(/verified not released|verified_not_released/)
   })
 
   it('says why released results could not be read', async () => {
