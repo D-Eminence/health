@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { EhrEmptyState } from '@hid/ui/ehr'
 import { usesNovuBackend } from '../../../backendContract'
-import { roleLabels, selfServiceReview, selfServiceType, type OrganizationType } from '../../../staff/staffAccess'
+import { roleNames, selfServiceReview, selfServiceType, type OrganizationType } from '../../../staff/staffAccess'
 import { reviewPendingText } from '../../../staff/routes/ReviewBanner'
 import { useDeptAccess } from '../parts/access'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
@@ -91,7 +91,7 @@ export function FacilityProfile() {
   const novu = usesNovuBackend()
   const review: Review = novu ? selfServiceReview(facility) : null
   const type = novu ? selfServiceType(facility) : null
-  const roles = (novu ? roleLabels(facility.roles) : facility.roles.join(', ')) || 'Staff'
+  const roles = roleNames(facility.roles)
   const permissions = facility.permissions
 
   return (

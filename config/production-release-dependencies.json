@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now, after backend release backend-41191658905-1-12d98e3f095d7031 (D-Eminence/hid-system#136 at 82f52b9). That release rebuilt and deployed every service at 82f52b9, because the runtime assessment it updates (CVE-2026-84243) is a build input, so every service pins to 82f52b9. Browser-facing changes since the previous pins: ehr-api's document upload link now carries the checksum and declared-sha256 as signed headers, which this frontend already sends from requiredHeaders (health#60), so uploads can complete; ocr-api publishes validated OCR evidence by default. gateway, lab-api, pharmacy-api, outreach-api, support-api and notification-api have no code change since 61fb36b. Nothing else this frontend calls changed shape. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-31 (\"approve re-pin\" and \"Approve both\", for re-pinning the website after the upload fix and OCR publishing release).",
+  "review_reference": "The services as deployed now, after backend releases backend-41369624838-1-e9666a23262ea216 (D-Eminence/hid-system#145 at a42b48a: identity-api and notification-api) and backend-41371342099-1-69bbfeff0bebc8f6 (D-Eminence/hid-system#146 at 6f900b6: ehr-api, lab-api and pharmacy-api). gateway, ocr-api, outreach-api and support-api are unchanged since 6c6fc18. Browser-facing changes since the previous pins (6c6fc18): identity-api accepts the staff-reset, provider-enrollment and staff-invitation security checks on the five product sites (ehr., lab., pharmacy., migrate., outreach.) as well as app., and notification-api's staff emails link to the staff member's product site; lab-api and pharmacy-api work lists answer open work first, then done work, with the same shape (a reversed dispensing counts as done); ehr-api's chat sources may carry origin and originLabel, which this frontend reads as optional. Nothing else this frontend calls changed shape. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-11-01 (\"approve re-pin\", for the backend release that lets staff pages run on each product site) and on 2026-11-02 (\"all recommended\", which included re-pinning after the step 1 backend release).",
   "backend_commits": {
-    "gateway": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "identity-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "ehr-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "lab-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "pharmacy-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "ocr-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "outreach-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "support-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be",
-    "notification-api": "82f52b959323d8af30aaf7c8e06ae0a300e195be"
+    "gateway": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
+    "identity-api": "a42b48ae78da2fad0c1ed8cf939275ef71956cc6",
+    "ehr-api": "6f900b6ccedcd572dd7a0e02ecb971a68f3a78a5",
+    "lab-api": "6f900b6ccedcd572dd7a0e02ecb971a68f3a78a5",
+    "pharmacy-api": "6f900b6ccedcd572dd7a0e02ecb971a68f3a78a5",
+    "ocr-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
+    "outreach-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
+    "support-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
+    "notification-api": "a42b48ae78da2fad0c1ed8cf939275ef71956cc6"
   }
 }

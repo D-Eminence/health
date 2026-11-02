@@ -272,9 +272,13 @@ function pageQuery(page: PageRequest) {
  * "http-request"). Each sits beside the action it carried out, which has its own event in words (ehr.encounter.list,
  * identity.authorization.check), so a facility's audit view leaves the routes out (owner, 2026-11-01). They stay
  * recorded on the server.
+ *
+ * Every request-log action starts 'api.', so that alone names it. The resource does not: the security refusals
+ * (security.authorization, security.authorization.denied) are written with resource "http-request" too, and a facility
+ * sees those (owner decision, 1 Nov 2026; docs/AUDIT_ACTION_LABELS.md note 8(i)).
  */
 export function isRequestLogEvent(event: { readonly action: string; readonly resourceType: string | null }): boolean {
-  return event.resourceType === 'http-request' || event.action.startsWith('api.')
+  return event.action.startsWith('api.')
 }
 
 /** The page the facility audit read returns: seven fields per event, the request log left out, the cursor kept. */
@@ -584,7 +588,10 @@ export interface LabWorkItem {
   priority?: string | null
   /** Novu since P4c, only on work from an order another facility sent here: the order and its route. */
   orderRoute?: WorkItemOrderRoute
-  /** Novu since P4c, only on such work while its route allows reading it: who the patient is. */
+  /**
+   * Who the patient is. Novu since P4c on such work while its route allows reading it; with the patient card on this
+   * facility's own work (proposed, hid-system 0106) on own work too, while the member may read it. Absent otherwise.
+   */
   patient?: OrderRoutePatient
 }
 
@@ -724,21 +731,41 @@ export type LabResultValue = {
   abnormalFlag?: LabAbnormalFlag
 }
 
-/** A Pharmacy work item as hid-system pharmacy.service.ts projectWorkItem() returns it. */
+/**
+ * A Pharmacy work item as hid-system pharmacy.service.ts projectWorkItem() returns it. The prescription details (proposed,
+ * hid-system 0107: `priority`, `medication.strength`, `medication.doseForm`, `duration`, `quantityToDispense` and
+ * `quantityUnit`) come only on prescriptions written with them; today's backend sends none of them, and every screen
+ * then shows what it does today.
+ */
 export interface PharmacyWorkItem {
   id: string
   patientId: string
   version: number
   acceptedAt: string
-  medication: { display: string }
+  /**
+   * The medicine as prescribed, and (proposed 0107) its strength as the prescriber wrote it ("500 mg") and its form:
+   * tablet, capsule, liquid, injection, cream, inhaler, drops or other.
+   */
+  medication: { display: string; strength?: string | null; doseForm?: string | null }
   doseQuantity?: number | null
   doseUnit?: string | null
   routeCode?: string | null
   frequency?: string
   instructions?: string | null
   dispensing?: { id: string; reversed: boolean } | null
+  /** The prescription's priority (routine, urgent, asap, stat), as Lab sends a request's (proposed 0107). */
+  priority?: string | null
+  /** How long the medicine is for: a number of days, weeks or months (proposed 0107). */
+  duration?: { value: number; unit: string } | null
+  /** How much to hand over, as the prescriber wrote it (proposed 0107). The pharmacist still confirms it. */
+  quantityToDispense?: number | null
+  quantityUnit?: string | null
   /** Novu since P4c, only on work from a prescription another facility sent here. */
   orderRoute?: WorkItemOrderRoute
+  /**
+   * Who the patient is: on work from another facility (Novu since P4c) and, with the patient card on this facility's own
+   * work (proposed, hid-system 0106), on own work too.
+   */
   patient?: OrderRoutePatient
 }
 
@@ -1204,6 +1231,13 @@ export interface OutreachCase {
   temporaryPatientId?: string
   ageYears?: number
   sex?: string
+  /**
+   * The phone number and the notes for the team given when the case was registered, null when none was given. Outreach
+   * sends both on every case (outreach.types.ts registrationCase()); a backend without them sends neither key. The page
+   * shows the phone masked, and never searches it.
+   */
+  phone?: string | null
+  operationalNotes?: string | null
   rowVersion: number
 }
 
@@ -1765,7 +1799,7 @@ export interface StaffInvitationPreview {
 }
 
 /**
- * Joining a facility by invitation (P4b, Novu only). Open and accept are public, on the main site, with no session:
+ * Joining a facility by invitation (P4b, Novu only). Open and accept are public, on each product site, with no session:
  * open proves the invitation (Turnstile action staff-invitation) and, for a new or dormant account, sets the
  * invitation cookie that accept reads; accept sets the password and issues no session. Existing staff preview and
  * accept signed in on their own site, with no facility named.
@@ -1994,6 +2028,11 @@ export const staffApi = {
     input: { expectedRowVersion: number; changeReason: string; replacementValues: VitalMeasurements }, idempotencyKey?: string) =>
     client.post<VitalCorrection>(`${encounterPath(patientId, encounterId)}/vitals/${encodeURIComponent(vitalId)}/corrections`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
+  // Sends an active prescription to this facility's Pharmacy at the version read. Besides the EHR's own refusals (412,
+  // 409 PRESCRIPTION_NOT_ELIGIBLE, PRESCRIPTION_ROUTED), the EHR passes Pharmacy's on unchanged, among them, from
+  // hid-system 0100, its check of the prescription: 404 PRESCRIPTION_SOURCE_NOT_FOUND, 409 PRESCRIPTION_SOURCE_NOT_ACTIVE
+  // or PRESCRIPTION_SOURCE_VERSION_MISMATCH, 422 PRESCRIPTION_SOURCE_MISMATCH. Both callers (Clinical.tsx and the blue
+  // OrderPage.tsx, through words.ts prescriptionChanged) read the prescription again and say these in words.
   acceptPrescription: (facilityId: string, patientId: string, encounterId: string,
     prescriptionId: string, expectedRowVersion: number, reason: string, idempotencyKey?: string) =>
     client.post<unknown>(`${encounterPath(patientId, encounterId)}/prescriptions/${encodeURIComponent(prescriptionId)}/pharmacy-work-item`,

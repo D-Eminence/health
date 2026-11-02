@@ -45,6 +45,7 @@ const REASON_TOO_SHORT = 'Say why in at least 8 characters.'
 const WHEN = 'Only when the patient can’t consent and care can’t wait'
 const BEFORE = 'Emergency access lets you see the emergency summary without the patient’s approval. It ends by itself and every view is reviewed.'
 const CONTACTS_TOLD = 'The patient’s chosen emergency contacts are told your name, this facility and the time. They never see your reason or any medical details.'
+const AFTER = 'You see this facility’s finished visits, signed notes, diagnoses, prescriptions, lab requests and documents. You can’t change anything.'
 const FAILED_TITLE = 'Couldn’t open emergency access'
 const emergencyLookup = { ...allowedLookup, authorization: { ...allowedLookup.authorization, breakGlass: true } }
 
@@ -187,19 +188,19 @@ describe('the Emergency page', () => {
     for (const part of [SampleList, SampleCreate, SampleDetail]) expect(vi.mocked(part)).not.toHaveBeenCalled()
   })
 
-  it('on main, says when to use emergency access and what it does, and nothing about emergency contacts', () => {
+  it('on main, says when to use emergency access, what it does and what it opens, and nothing about emergency contacts (Patients.tsx:243)', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'main-v1')
     open()
     expect(within(card()).getByText(WHEN)).toBeTruthy()
-    expect(card().textContent).toContain(BEFORE)
+    expect(card().textContent).toContain(`${BEFORE} ${AFTER}`)
     expect(card().textContent).not.toContain(CONTACTS_TOLD)
   })
 
-  it('on Novu, says verified emergency contacts are told, with the staff member’s name, and never the reason', () => {
+  it('on Novu, says verified emergency contacts are told, with the staff member’s name, and never the reason, then what it opens (Patients.tsx:243)', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     open()
     expect(within(card()).getByText(WHEN)).toBeTruthy()
-    expect(card().textContent).toContain(`${BEFORE} ${CONTACTS_TOLD}`)
+    expect(card().textContent).toContain(`${BEFORE} ${CONTACTS_TOLD} ${AFTER}`)
   })
 
   it('shows the open emergency patient, with the way back to their summary', async () => {

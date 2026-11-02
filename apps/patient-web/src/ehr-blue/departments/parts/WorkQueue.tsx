@@ -31,9 +31,23 @@ export interface QueueRow {
 
 const RANK: Readonly<Record<string, number>> = { stat: 0, asap: 1, urgent: 2 }
 
+/**
+ * A priority's place in a queue: stat 0, as soon as possible 1, urgent 2, and 3 for routine, none or anything else, so
+ * work with no priority keeps the order it had.
+ */
+export function urgencyRank(priority: string | null | undefined): number {
+  const key = (priority ?? '').toLowerCase()
+  return Object.hasOwn(RANK, key) ? RANK[key]! : 3
+}
+
+/** Whether a priority puts work ahead of routine work, and marks it: stat, as soon as possible, or urgent. */
+export function isUrgent(priority: string | null | undefined): boolean {
+  return urgencyRank(priority) < 3
+}
+
 /** Stat, then as soon as possible, then urgent, then the rest, each group in the order it came. */
 export function urgentFirst<T>(items: readonly T[], priorityOf: (item: T) => string | null | undefined): T[] {
-  return items.map((item, index) => ({ item, index, rank: RANK[(priorityOf(item) ?? '').toLowerCase()] ?? 3 }))
+  return items.map((item, index) => ({ item, index, rank: urgencyRank(priorityOf(item)) }))
     .sort((a, b) => a.rank - b.rank || a.index - b.index).map(entry => entry.item)
 }
 

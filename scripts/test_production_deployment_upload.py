@@ -165,6 +165,8 @@ class UploadTests(unittest.TestCase):
                                      'not_found_handling': '404-page' if app == 'public' else 'single-page-application'},
                           'vars': {'DEPLOYMENT_ENV': 'production', 'APP_NAME': app, 'EXPECTED_HOST': host,
                                    'API_ORIGIN': 'https://api.healthidentitydirectory.com'}}
+                if app in w.LANDING_APPS:
+                    config['services'] = [{'binding': 'PUBLIC_SITE', 'service': 'hid-public-production'}]
                 path = root / ('build/production/' + app + '.wrangler.json')
                 c.atomic_json(path, config)
                 configs.append({'app': app, 'path': str(path)})
