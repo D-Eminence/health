@@ -109,7 +109,8 @@ describe('with single sign-on on, on a staff site', () => {
   })
 
   it.each([
-    ['another site’s page', LAB, '/provider/patients', '%2Fprovider%2Flaboratory'],
+    ['another product’s page', LAB, '/provider/pharmacy', '%2Fprovider%2Flaboratory'],
+    ['a page of the hospital EHR’s', LAB, `/provider/clinical/${ENCOUNTER}`, '%2Fprovider%2Flaboratory'],
     ['another host', EHR, '//evil.example/provider', '%2Fprovider%2Fclinical'],
     ['an absolute address', EHR, 'https://evil.example/provider', '%2Fprovider%2Fclinical'],
     ['a page with a Health ID', EHR, '/provider/patients?q=HID-ZDEMAAA2', '%2Fprovider%2Fclinical'],
@@ -224,11 +225,19 @@ describe('with single sign-on on, on app.', () => {
 describe('with single sign-on on, on a host that is not a product site', () => {
   beforeEach(() => { environment.ssoEnabled = true })
 
-  it.each([['localhost', '/provider/patients', '/provider/sign-in'], ['localhost', '/records', '/sign-in'],
-    ['admin.healthidentitydirectory.com', '/provider/patients', '/provider/sign-in']])('shows today’s sign-in on %s for %s', async (host, path, signInAddress) => {
-    const sent = await openSignedOut(host, path)
-    await expectTodaysSignIn(sent)
-    expect(address()).toBe(signInAddress)
+  it.each([['localhost', '/provider/patients', '/provider/sign-in'], ['localhost', '/records', '/sign-in']])(
+    'shows today’s sign-in on %s for %s', async (host, path, signInAddress) => {
+      const sent = await openSignedOut(host, path)
+      await expectTodaysSignIn(sent)
+      expect(address()).toBe(signInAddress)
+    })
+
+  it('hands nothing off on the admin site: a staff page there opens on the EHR site, as without single sign-on (#114)', async () => {
+    const sent = await openSignedOut('admin.healthidentitydirectory.com', '/provider/patients')
+    expect(await screen.findByRole('link', { name: 'Go to Health ID EHR' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Go to Health ID EHR' }).getAttribute('href')).toBe('https://ehr.healthidentitydirectory.com/provider/patients')
+    expect(left).not.toHaveBeenCalled()
+    expect(ssoRequests(sent)).toEqual([])
   })
 })
 

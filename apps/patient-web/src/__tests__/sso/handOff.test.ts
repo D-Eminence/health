@@ -94,12 +94,18 @@ describe('a return path on a staff site', () => {
     expect(isSafeReturnPath(path, EHR)).toBe(false)
   })
 
-  it('takes the Laboratory’s own pages and the pages every staff site serves', () => {
-    for (const path of ['/provider/laboratory', '/provider', '/provider/audit']) expect(isSafeReturnPath(path, LAB), path).toBe(true)
+  it('takes the Laboratory’s own pages, the pages every staff site serves, and Patients and Access requests (#78)', () => {
+    for (const path of ['/provider/laboratory', '/provider', '/provider/audit', '/provider/patients', '/provider/requests', `/provider/requests/${REQUEST}`]) {
+      expect(isSafeReturnPath(path, LAB), path).toBe(true)
+    }
   })
 
-  it.each(['/provider/patients', '/provider/requests', '/provider/clinical', `/provider/clinical/${ENCOUNTER}`, '/provider/pharmacy', '/provider/ocr'])(
-    'refuses %s on the Laboratory: another site serves it (#68 siteServing), so it never comes back here', path => {
+  it.each(['/provider/pharmacy', '/provider/ocr'])('refuses %s on the Laboratory: another product’s page opens on its own site', path => {
+    expect(isSafeReturnPath(path, LAB)).toBe(false)
+  })
+
+  it.each(['/provider/clinical', `/provider/clinical/${ENCOUNTER}`, `/provider/triage/${ENCOUNTER}~${REQUEST}`, '/provider/appointments', '/provider/registration'])(
+    'refuses %s on the Laboratory: a page of the hospital EHR’s would only open the Laboratory’s Home (#113)', path => {
       expect(isSafeReturnPath(path, LAB)).toBe(false)
     })
 })

@@ -1,6 +1,6 @@
 import { patientChatEnabled } from '../chatFeatures'
 import { clinicalReturnPath } from '../ehr-blue/clinical/returnPaths'
-import { siteOf, siteServing } from '../productSites'
+import { offeredHere, siteOf } from '../productSites'
 import { staffReturnPath } from '../staff/session'
 
 /**
@@ -79,7 +79,8 @@ function isPortalReturnPath(path: string): boolean {
  * Whether `path` is a page a sign-in on `hostname` may come back to. Only a Health ID product site has any (productSites.ts
  * siteOf); local, preview and admin hosts never hand off. Then:
  * - the shared shape (hasSafeReturnShape);
- * - this host serves the page (#68's siteServing): a page of another product opens on its own site, never here;
+ * - this host opens the page itself (productSites.ts offeredHere): a page of another product opens on its own site, and
+ *   on a product's site a page of the hospital EHR's would only open the product's Home (#113), so neither comes back;
  * - this site's own exact list. On app. the portal's pages (PORTAL_RETURN_PATHS). On a staff site the provider workspace
  *   pages of staff/session.ts (staffReturnPath, read there and never copied) and the clinical record pages
  *   (ehr-blue/clinical/returnPaths.ts clinicalReturnPath), whose only query is an access request's status filter.
@@ -89,7 +90,7 @@ export function isSafeReturnPath(path: string, hostname: string): boolean {
   const site = siteOf(hostname)
   if (!site) return false
   const pathname = path.split('?', 1)[0] ?? ''
-  if (siteServing(pathname, hostname) !== null) return false
+  if (!offeredHere(pathname, hostname)) return false
   if (site.key === 'web') return isPortalReturnPath(path)
   return staffReturnPath(path) !== null || clinicalReturnPath(path) !== null
 }
