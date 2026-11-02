@@ -155,8 +155,10 @@ describe('platform administration session', () => {
     api.logout.mockResolvedValueOnce(undefined)
     open()
     await screen.findByRole('heading', { name: 'Overview' })
+    // Let the overview finish loading first: a late answer re-renders the shell and would close an open menu.
+    await screen.findByText('Registered patients')
     fireEvent.click(screen.getByRole('button', { name: 'Ada Admin: account' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }))
     expect(await screen.findByText('You’ve signed out.')).toBeTruthy()
     expect(api.logout).toHaveBeenCalledTimes(1)
   })

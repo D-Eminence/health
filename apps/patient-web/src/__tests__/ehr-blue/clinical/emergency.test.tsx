@@ -19,7 +19,10 @@ const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), breakGlass: vi.fn(), closeGrant: vi.fn(), emergencyRecords: vi.fn(),
   labReleasedResultsForOrder: vi.fn(),
 }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined }))
+const staff = vi.hoisted(() => ({
+  permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined,
+  roles: undefined as string[] | undefined,
+}))
 const session = vi.hoisted(() => ({
   staffSessionGeneration: vi.fn(() => 7), untilStaffSessionReady: vi.fn(async (_sentIn: number) => {}),
   staffSessionSignal: vi.fn(() => new AbortController().signal),
@@ -52,6 +55,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   dropOfferedHealthId()
   staff.facilityId = undefined
+  staff.roles = undefined
   staff.permissions = [...EMERGENCY_PERMISSIONS]
   staff.activePatient = null
   staff.setActivePatient.mockImplementation(value => { staff.activePatient = value; return true })
@@ -94,6 +98,20 @@ async function record() {
 describe('the Emergency page', () => {
   it('is partial: break-glass and the summary are live, the board is sample', () => {
     expect(emergencyStatus).toBe('partial')
+  })
+
+  it('audit 16: at a demo facility, the board’s New board entry follows the design’s roles (a Doctor’s, not a Nurse’s); the live page is unchanged', () => {
+    staff.facilityId = DEMO_HOSPITAL_ID
+    const doctor = open()
+    expect(screen.getByRole('link', { name: 'New board entry' })).toBeTruthy()
+    doctor.unmount()
+    // The design gives a Nurse no Emergency module: no sample record to create, but the same live form and board.
+    staff.roles = ['nurse']
+    open()
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency access' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'New board entry' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Open emergency access' })).toBeTruthy()
+    expect(screen.getByTestId('sample-list').textContent).toBe('emergency')
   })
 
   it('shows the heading, the live emergency access form, then the sample board', () => {

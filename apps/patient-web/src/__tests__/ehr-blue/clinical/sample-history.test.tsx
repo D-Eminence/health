@@ -20,7 +20,7 @@ import { BASE } from './harness'
  */
 
 const touched = vi.hoisted(() => ({ api: false }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn(() => true) }))
+const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn(() => true), roles: undefined as string[] | undefined }))
 
 vi.mock('../../../staff/api', () => {
   touched.api = true
@@ -39,6 +39,8 @@ const network = vi.fn()
 
 beforeEach(() => {
   resetSampleStore()
+  // The harness's doctor, the design's Doctor, who may view every workspace these records are in (audit item 16).
+  staff.roles = undefined
   vi.stubGlobal('fetch', network)
 })
 
@@ -159,16 +161,19 @@ describe('audit 17: the design’s connected history rows from the live modules,
   })
 
   it('audit 17: Taylor’s nursing task lists the design’s rows in its order (nursing-tasks-3-detail.png)', () => {
+    // The design's capture is a nurse's, who views fewer workspaces (audit item 16): exactly its rows, in its order.
+    staff.roles = ['nurse']
     open('nursing-tasks', IDS.taskObs)
-    // The design's capture is a nurse's, who sees fewer workspaces (audit item 16, not built here): its rows appear in
-    // the same order among the others.
-    const shown = links()
-    const design = [
-      'Appointments · Review of results', 'Patient visits · b57e94c9', 'Patient visits · Review of results', 'Triage & Vitals · 329417b6',
-      'Inpatient / Wards · Observation (fictional)', 'Nursing observations · 637d9f70', 'Nursing observations · 76354f18',
-    ]
-    expect(shown.filter(label => design.includes(label as string))).toEqual(design)
-    expect(shown).not.toContain('Nursing tasks · 4-hourly observations')
+    expect(historyRows()).toEqual(worded([
+      'Appointments · Review of results [checked-in]',
+      'Patient visits · b57e94c9 [consulting]',
+      'Patient visits · Review of results [waiting]',
+      'Triage & Vitals · 329417b6 [completed]',
+      'Inpatient / Wards · Observation (fictional) [admitted]',
+      'Nursing observations · 637d9f70 [recorded]',
+      'Nursing observations · 76354f18 [recorded]',
+    ]))
+    expect(within(screen.getByRole('heading', { name: 'Available actions' }).closest('section')!).getAllByRole('button').map(button => button.textContent)).toEqual(['Complete task'])
   })
 
   it('audit 17: a connected row opens its workspace’s list, an address the frame serves, carrying no id, state or call', () => {
