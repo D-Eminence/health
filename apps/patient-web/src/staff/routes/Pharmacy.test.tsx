@@ -224,7 +224,7 @@ describe('Pharmacy page access', () => {
       staff.selfService = selfService
       render(<Pharmacy />)
       expectUnavailable(sentence)
-      expect(sentence).toBe(pharmacyRefusalText('pharmacy work', selfService ? { selfService } : {}, permissions))
+      expect(sentence).toBe(pharmacyRefusalText('pharmacy work', { selfService, roles: [] }, permissions))
     })
 
     it.each(['', 'main-v1'])('the administrator of a checked pharmacy on today’s backend (%j): told to ask its administrator', contract => {
@@ -247,7 +247,7 @@ describe('Pharmacy page access', () => {
       staff.selfService = selfService
       render(<Pharmacy />)
       expectUnavailable(sentence)
-      expect(sentence).toBe(pharmacyRefusalText('prescriptions', selfService ? { selfService } : {}, permissions))
+      expect(sentence).toBe(pharmacyRefusalText('prescriptions', { selfService, roles: [] }, permissions))
     })
   })
 })

@@ -171,7 +171,7 @@ export function statusWord(status: PharmacyStatus): string {
  * themselves; while Health ID support checks a facility that will get Pharmacy, it opens after the check; once checked,
  * they add a pharmacist on the Staff page; a facility that will not get Pharmacy has no step.
  */
-export function pharmacyRefusalText(work: string, facility: Pick<Facility, 'selfService'> | undefined,
+export function pharmacyRefusalText(work: string, facility: Pick<Facility, 'selfService' | 'roles'> | undefined,
   permissions: readonly string[]): string {
   return refusedWorkText(facility, permissions, { ...PHARMACY_WORK, work })
 }
