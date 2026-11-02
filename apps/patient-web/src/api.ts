@@ -174,6 +174,12 @@ export const PATIENT_ENTRY_MEDIA_TYPES = ['image/jpeg', 'image/png', 'applicatio
 export type PatientEntryMediaType = typeof PATIENT_ENTRY_MEDIA_TYPES[number]
 export const PATIENT_ENTRY_MAX_FILES = 5
 export const PATIENT_ENTRY_MAX_FILE_BYTES = 10 * 1024 * 1024
+/**
+ * The files a patient may add in a day, across all their entries, which the backend enforces (BACKEND-NEEDS.md §1): an
+ * upload link asked for over it is refused 429 with this code, and the website says so and offers no Try again for it.
+ */
+export const PATIENT_UPLOAD_DAILY_LIMIT_FILES = 10
+export const PATIENT_UPLOAD_DAILY_LIMIT_CODE = 'PATIENT_UPLOAD_DAILY_LIMIT_REACHED'
 export const isPatientEntryMediaType = (value: string): value is PatientEntryMediaType =>
   (PATIENT_ENTRY_MEDIA_TYPES as readonly string[]).includes(value)
 
@@ -796,11 +802,13 @@ export function createPatientApi(sender: ApiClient) {
     /**
      * One photo or file of a saved entry, as staff uploads go (staffApi.uploadDocument): the SHA-256 of its exact bytes,
      * the upload intent, a PUT of the File itself to the signed link (no cookies; plain http only to this machine, in the
-     * local environment), then the confirm. Nothing is re-encoded. `idempotencyKey` is this file's, sent again when it is
-     * retried under the same entry; one `signal` covers every step, and nothing more is sent once it is aborted. A file
-     * the entry cannot take (type or size) is refused here, before anything is read or sent. When an earlier try of this
-     * same file was confirmed though its answer never came back, the replayed upload intent answers 409
-     * PATIENT_DOCUMENT_ALREADY_UPLOADED: the file is uploaded, and nothing more is sent (no PUT, no confirm).
+     * local environment), then the confirm. Nothing is re-encoded, and nothing is taken out here: the drawer gives a photo
+     * already without its metadata (photoMetadata.ts), and these bytes are what is hashed and sent. `idempotencyKey` is
+     * this file's, sent again when it is retried under the same entry; one `signal` covers every step, and nothing more
+     * is sent once it is aborted. A file the entry cannot take (type or size) is refused here, before anything is read or
+     * sent. When an earlier try of this same file was confirmed though its answer never came back, the replayed upload
+     * intent answers 409 PATIENT_DOCUMENT_ALREADY_UPLOADED: the file is uploaded, and nothing more is sent (no PUT, no
+     * confirm). An upload intent over the day's limit (429 PATIENT_UPLOAD_DAILY_LIMIT_REACHED) is thrown as it is.
      */
     uploadOwnRecordDocument: async (entryId: string, file: File, idempotencyKey: string, signal?: AbortSignal): Promise<PatientEntryDocumentUploaded> => {
       if (!isPatientEntryMediaType(file.type) || file.size < 1 || file.size > PATIENT_ENTRY_MAX_FILE_BYTES) {

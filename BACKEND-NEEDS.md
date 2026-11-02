@@ -12,6 +12,11 @@ file's bytes never pass through the API, so production's edge limit on a request
 them. Every route takes a patient session only, with no facility. A 404 on a served route carries its own code, never
 `NOT_FOUND`.
 
+**Limits (the owner's).** JPG, PNG or PDF (`image/jpeg`, `image/png`, `application/pdf`), each 1 byte to 10 MB
+(10 485 760 bytes), at most 5 files per entry, and at most 10 files a day per patient. The UI checks the type, size and
+5 per entry before anything is sent; only the server can count the day, so it enforces the 10 a day (step 2), and
+enforces the type, size and 5 per entry again.
+
 **1. Save the entry.** `POST /api/v1/ehr/me/patient-entries`, with an `Idempotency-Key` header, one per Save and
 reused when that Save is retried. The body is at most 8000 bytes of JSON:
 
@@ -34,13 +39,45 @@ reused when that Save is retried. The body is at most 8000 bytes of JSON:
 `application/pdf`, `image/jpeg` or `image/png`; up to 10 MB each, at most 5 files per entry. The server sets the
 patient, the classification and the retention; the browser sends none of them. Answers
 `201 { document: { id, status: 'initiated', scanStatus: 'pending' }, upload: { method: 'PUT', url, requiredHeaders, expiresInSeconds } }`,
-the staff shape. The same key asked again once that file is confirmed (a confirm that went through though its answer
+the staff shape. The UI's Try again sends the same key with the same body for a file that didn't upload: before that
+file is confirmed, it answers `201` again for the same document, with a link that is still valid (the first may have
+expired). The same key asked again once that file is confirmed (a confirm that went through though its answer
 was lost) answers `409 PATIENT_DOCUMENT_ALREADY_UPLOADED` with `document: { id, status, scanStatus }`: the UI counts
 that file as uploaded and sends no PUT and no confirm for it. The UI goes by the 409 and its `code` alone and does not
 read `document`. Any other 409, or that code with another status, is a failed upload.
 
-**3. PUT the file** to `upload.url` with `requiredHeaders`: the exact bytes that were hashed, no cookies. The document
-bucket's CORS must allow this PUT from the patient host (app.) and its staging and development hosts.
+*The day's limit.* An upload intent with a new key, when the patient has already opened 10 documents that day, answers
+`429` with `code: 'PATIENT_UPLOAD_DAILY_LIMIT_REACHED'` (the usual problem shape) and opens no document. The day is
+the calendar day in Lagos (`Africa/Lagos`), across all the patient's entries; each new key that was answered `201`
+counts once, whether or not its file was then confirmed, and a removed entry's files still count. A replay of a key
+already counted is never refused for the limit: it answers its `201` or `409` as above. The UI reads the status and
+`code` alone: it says "You've added 10 files today. You can add more tomorrow.", sends nothing more for that file and
+offers no Try again for it, and closing the drawer keeps the saved entry without it. It still asks for each of that
+Save's other files, and goes by each answer. A `429` with any other code (the edge's rate limit, for one) is an
+ordinary failed upload, which Try again may send again with the same key.
+
+*Photos arrive without their metadata.* Before a JPEG or PNG is hashed, the browser takes out its metadata without
+re-encoding it (`apps/patient-web/src/photoMetadata.ts`), so the picture's own bytes are unchanged. From a JPEG it
+drops APP1 (EXIF, with the GPS position, the camera's make and model and the EXIF thumbnail; XMP), APP13 (IPTC), COM,
+every other APPn (the APP2 MPF index among them) and everything after the primary image's end of image (the further
+pictures phones append, each with its own EXIF and GPS); it keeps APP0 JFIF (without a thumbnail), APP2
+`ICC_PROFILE`, APP14 Adobe (its 12 bytes, nothing after them), the tables, the one frame and each scan byte for byte.
+From a PNG it keeps the critical chunks (IHDR, PLTE, IDAT, IEND) and the ancillary chunks display needs (tRNS; cHRM,
+gAMA, iCCP, sBIT, sRGB, cICP, mDCV, cLLI; bKGD, hIST, pHYs; APNG's acTL, fcTL, fdAT), each byte for byte, and drops
+every other chunk: eXIf (and its earlier spellings exIf and zxIf), tEXt, zTXt, iTXt, tIME, C2PA's caBX (which can
+carry the place), private chunks (Apple's iDOT among them), and anything after IEND. `sizeBytes`, `sha256Hex` and the
+PUT body are all of the stripped bytes, and the same file always strips to the same bytes, so Try again sends the
+same body. A photo that can't be walked cleanly is refused in the browser and never sent: among others, a JPEG table,
+frame or scan header whose length says more than its fields, a second frame, a PNG chunk whose CRC is wrong, and a
+critical chunk other than IHDR, PLTE, IDAT and IEND (or a second IHDR). So is a file declared `application/pdf` whose
+bytes start as a picture or a phone's video (JPEG, PNG, TIFF or DNG, HEIC/HEIF, AVIF, MP4 or MOV, WebP, GIF, JPEG
+XL). PDFs are sent as they are. The server must not rely on any of this (an older page or another client may send a
+photo as taken): it may strip again, after the confirm has checked the stored object against `sizeBytes` and
+`sha256Hex`.
+
+**3. PUT the file** to `upload.url` with `requiredHeaders`: the exact bytes that were hashed (for a photo, its stripped
+bytes), no cookies. The document bucket's CORS must allow this PUT from the patient host (app.) and its staging and
+development hosts.
 
 **4. Confirm.** `POST /api/v1/ehr/me/patient-entries/:entryId/documents/:documentId/complete`, no body; only the
 account that asked for the link may confirm. The server checks the stored object's size, SHA-256 and type. Answers

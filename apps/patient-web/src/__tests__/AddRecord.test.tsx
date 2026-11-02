@@ -4,9 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { ToastProvider } from '../kasuwa/toast'
 import { AddRecordDrawer } from '../routes/AddRecord'
-import { PATIENT_ENTRY_MAX_FILE_BYTES, PATIENT_ENTRY_MAX_FILES, PATIENT_ENTRY_MEDIA_TYPES } from '../api'
+import {
+  PATIENT_ENTRY_MAX_FILE_BYTES, PATIENT_ENTRY_MAX_FILES, PATIENT_ENTRY_MEDIA_TYPES, PATIENT_UPLOAD_DAILY_LIMIT_CODE, PATIENT_UPLOAD_DAILY_LIMIT_FILES,
+} from '../api'
 import { forgetPatientEntriesServed, patientEntriesServed } from '../patientEntriesServed'
 import { json, press, problem, renderPortal, shownText, type Handler, type Sent } from './portalHarness'
+import { NEVER_LEFT, PLAIN_JPEG, contains, gpsTaggedJpeg, metadataPng } from './photoFixtures'
 
 vi.mock('../env', () => ({ getEnvironment: () => ({ name: 'staging' }) }))
 
@@ -23,8 +26,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 const bytesOf = (text: string) => new TextEncoder().encode(text)
-const photo = (name = 'result-slip.jpg', content = 'not really a jpeg, but exact bytes') =>
-  new File([bytesOf(content)], name, { type: 'image/jpeg', lastModified: 1 })
+// A photo is walked and kept only without its metadata (photoMetadata.ts), so it has to be a JPEG: this one has none to
+// take out, so what goes up is its every byte (photoMetadata.test.ts and the tests at the end take metadata out).
+const photo = (name = 'result-slip.jpg', content: Uint8Array = PLAIN_JPEG) =>
+  new File([new Uint8Array(content)], name, { type: 'image/jpeg', lastModified: 1 })
 const pdf = (name = 'discharge.pdf', content = '%PDF-1.7 fictional discharge summary') =>
   new File([bytesOf(content)], name, { type: 'application/pdf', lastModified: 2 })
 
@@ -233,16 +238,18 @@ describe('Add a record, once a backend serves it', () => {
     // Each upload link is asked for with the file's name, type, size and the SHA-256 of its exact bytes, and a key of its own.
     const intents = entryRequests(sent).filter(request => request.path === intentPath)
     expect(intents.map(request => request.body)).toEqual([
-      { fileName: 'result-slip.jpg', mediaType: 'image/jpeg', sizeBytes: first.size, sha256Hex: sha256(bytesOf('not really a jpeg, but exact bytes')) },
+      { fileName: 'result-slip.jpg', mediaType: 'image/jpeg', sizeBytes: first.size, sha256Hex: sha256(PLAIN_JPEG) },
       { fileName: 'discharge.pdf', mediaType: 'application/pdf', sizeBytes: second.size, sha256Hex: sha256(bytesOf('%PDF-1.7 fictional discharge summary')) },
     ])
     const fileKeys = [headerOf(headers, intentPath, 0), headerOf(headers, intentPath, 1)]
     for (const key of fileKeys) expect(key).toMatch(UUID)
     expect(new Set([saveKey, ...fileKeys]).size).toBe(3)
 
-    // The PUT carries the very File, with the signed headers and no cookies; the confirm has no body.
-    expect(puts.map(put => put.body)).toEqual([first, second])
-    expect(puts[0]?.body).toBe(first)
+    // The PUT carries the photo as walked, a new File of its name and type (this one had no metadata to take out, so
+    // every byte of it), and the PDF's very File, with the signed headers and no cookies; the confirm has no body.
+    const sentPhoto = puts[0]?.body as File
+    expect([sentPhoto.name, sentPhoto.type]).toEqual(['result-slip.jpg', 'image/jpeg'])
+    expect([...new Uint8Array(await sentPhoto.arrayBuffer())]).toEqual([...PLAIN_JPEG])
     expect(puts[1]?.body).toBe(second)
     expect(puts[0]?.headers.get('content-type')).toBe('image/jpeg')
     expect(puts[0]?.headers.get('x-amz-meta-declared-sha256')).toBe('from-the-intent')
@@ -573,5 +580,202 @@ describe('what the drawer takes', () => {
     expect(screen.getByText('page-5.jpg')).toBeTruthy()
     expect(screen.queryByText('page-6.jpg')).toBeNull()
     expect(screen.getByRole('button', { name: /Take a photo/ })).toHaveProperty('disabled', true)
+  })
+})
+
+describe('a photo’s metadata, taken out before it leaves the device (NDPA data minimisation)', () => {
+  const blobBytes = async (blob: unknown) => new Uint8Array(await (blob as Blob).arrayBuffer())
+
+  it('sends a GPS-tagged photo without its metadata: its preview, PUT, SHA-256 and size are of the stripped bytes; a PDF goes as it is', async () => {
+    const { puts } = storage()
+    const { sent, onSaved } = renderDrawer()
+    fill()
+    const jpeg = gpsTaggedJpeg(), png = metadataPng()
+    const taken = new File([jpeg.file], 'IMG_20261020_093012.jpg', { type: 'image/jpeg', lastModified: 3 })
+    const scanned = new File([png.file], 'scan.png', { type: 'image/png', lastModified: 4 })
+    const document = pdf()
+    await pick(cameraInput(), taken)
+    await pick(uploadInput(), scanned, document)
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    // What is previewed is what will be sent: the stripped bytes, never the picked file.
+    const previewed = vi.mocked(URL.createObjectURL).mock.calls.map(([blob]) => blob)
+    expect(previewed).toHaveLength(2)
+    expect(previewed).not.toContain(taken)
+    expect([...await blobBytes(previewed[0])]).toEqual([...jpeg.stripped])
+    expect([...await blobBytes(previewed[1])]).toEqual([...png.stripped])
+
+    await press(screen.getByRole('button', { name: 'Save record' }))
+    expect(await screen.findByText('Record added')).toBeTruthy()
+    expect(onSaved).toHaveBeenCalledTimes(1)
+
+    // The upload links are asked for with the stripped bytes' size and SHA-256.
+    expect(jpeg.stripped.length).toBeLessThan(jpeg.file.length)
+    expect(entryRequests(sent).filter(request => request.path === intentPath).map(request => request.body)).toEqual([
+      { fileName: 'IMG_20261020_093012.jpg', mediaType: 'image/jpeg', sizeBytes: jpeg.stripped.length, sha256Hex: sha256(jpeg.stripped) },
+      { fileName: 'scan.png', mediaType: 'image/png', sizeBytes: png.stripped.length, sha256Hex: sha256(png.stripped) },
+      { fileName: 'discharge.pdf', mediaType: 'application/pdf', sizeBytes: document.size, sha256Hex: sha256(bytesOf('%PDF-1.7 fictional discharge summary')) },
+    ])
+    // Each photo's PUT is a new File of its name and type with exactly those bytes; the PDF's is the very File.
+    expect(puts).toHaveLength(3)
+    const [jpegPut, pngPut] = [puts[0]?.body as File, puts[1]?.body as File]
+    expect([jpegPut.name, jpegPut.type, pngPut.name, pngPut.type]).toEqual(['IMG_20261020_093012.jpg', 'image/jpeg', 'scan.png', 'image/png'])
+    expect(jpegPut).not.toBe(taken)
+    expect([...await blobBytes(jpegPut)]).toEqual([...jpeg.stripped])
+    expect([...await blobBytes(pngPut)]).toEqual([...png.stripped])
+    expect(puts[2]?.body).toBe(document)
+
+    // Nothing of where it was taken, the phone, the comments or the picture appended after it reached the wire.
+    const wire = [...await Promise.all(puts.map(put => blobBytes(put.body))), ...sent.map(request => bytesOf(JSON.stringify(request.body ?? null)))]
+    for (const sentBytes of wire) for (const needle of NEVER_LEFT) expect(contains(sentBytes, needle), String(needle)).toBe(false)
+  })
+
+  it('refuses a photo that can’t be prepared safely, in plain words, and never sends it', async () => {
+    const { puts } = storage()
+    const { sent } = renderDrawer()
+    fill()
+    const { file } = gpsTaggedJpeg()
+    const refused: Array<[string, File]> = [
+      // Cut short inside its EXIF: its metadata can't be walked past, so it can't be taken out with certainty.
+      ['cut-short.jpg', new File([file.subarray(0, 60)], 'cut-short.jpg', { type: 'image/jpeg' })],
+      // Bytes that are not the type the file says.
+      ['renamed.jpg', new File([metadataPng().file], 'renamed.jpg', { type: 'image/jpeg' })],
+      // A photo under a PDF's name would go up with its metadata.
+      ['photo.pdf', new File([file], 'photo.pdf', { type: 'application/pdf' })],
+    ]
+    for (const [name, refusedFile] of refused) {
+      await pick(uploadInput(), refusedFile)
+      expect(screen.getByRole('alert').textContent).toBe(`${name} couldn’t be prepared safely. Try another photo.`)
+      expect(screen.queryByText(name, { selector: 'span' })).toBeNull()
+    }
+    // Picked with a good one, only the good one is taken.
+    await pick(uploadInput(), photo('good.jpg'), refused[0]![1])
+    expect(screen.getByRole('alert').textContent).toBe('cut-short.jpg couldn’t be prepared safely. Try another photo.')
+    expect(screen.getByText('good.jpg')).toBeTruthy()
+    expect(vi.mocked(URL.createObjectURL)).toHaveBeenCalledTimes(1)
+    // Picking sent nothing at all.
+    expect(log).toEqual([])
+    expect(puts).toEqual([])
+
+    await press(screen.getByRole('button', { name: 'Save record' }))
+    expect(await screen.findByText('Record added')).toBeTruthy()
+    expect(entryRequests(sent).filter(request => request.path === intentPath).map(request => (request.body as { fileName: string }).fileName)).toEqual(['good.jpg'])
+    expect(puts).toHaveLength(1)
+    for (const request of sent) expect(JSON.stringify(request.body ?? null)).not.toMatch(/cut-short|renamed|photo\.pdf/)
+  })
+
+  it('waits for a photo being prepared: it isn’t listed, and nothing can be picked or saved, until it is ready', async () => {
+    const { puts } = storage()
+    const { sent, view } = renderDrawer()
+    fill()
+    let ready: (buffer: ArrayBuffer) => void = () => {}
+    const slow = photo('slow.jpg')
+    Object.defineProperty(slow, 'arrayBuffer', { value: () => new Promise<ArrayBuffer>(resolve => { ready = resolve }) })
+    await pick(cameraInput(), slow)
+    expect(dialog().querySelector('#own-record-photos')?.getAttribute('aria-busy')).toBe('true')
+    expect(screen.queryByText('slow.jpg')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Save record' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: /Take a photo/ })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: /Upload a file/ })).toHaveProperty('disabled', true)
+    // The form sent (Enter in a field) saves nothing meanwhile.
+    await act(async () => { fireEvent.submit(dialog().querySelector('form')!) })
+    expect(entryRequests(sent)).toEqual([])
+
+    await act(async () => { ready(PLAIN_JPEG.slice().buffer) })
+    await waitFor(() => expect(screen.getByText('slow.jpg')).toBeTruthy())
+    expect(dialog().querySelector('#own-record-photos')?.hasAttribute('aria-busy')).toBe(false)
+    expect(screen.getByRole('button', { name: 'Save record' })).toHaveProperty('disabled', false)
+
+    // A page left while a photo is prepared keeps nothing of it, and makes no preview.
+    const created = vi.mocked(URL.createObjectURL).mock.calls.length
+    const another = photo('left-behind.jpg')
+    Object.defineProperty(another, 'arrayBuffer', { value: () => new Promise<ArrayBuffer>(resolve => { ready = resolve }) })
+    await pick(uploadInput(), another)
+    view.unmount()
+    await act(async () => { ready(PLAIN_JPEG.slice().buffer) })
+    expect(vi.mocked(URL.createObjectURL).mock.calls.length).toBe(created)
+    expect(puts).toEqual([])
+  })
+})
+
+describe('the day’s limit of 10 files, which the backend enforces', () => {
+  const dailyLimit = () => problem(429, PATIENT_UPLOAD_DAILY_LIMIT_CODE, 'You have reached today’s upload limit.')
+  const row = (name: string) => within(dialog()).getByText(name).parentElement?.textContent ?? ''
+
+  it('says so plainly when an upload link answers 429 PATIENT_UPLOAD_DAILY_LIMIT_REACHED, offers no Try again, and closing keeps the record', async () => {
+    expect([PATIENT_UPLOAD_DAILY_LIMIT_FILES, PATIENT_UPLOAD_DAILY_LIMIT_CODE]).toEqual([10, 'PATIENT_UPLOAD_DAILY_LIMIT_REACHED'])
+    const { puts } = storage()
+    const { sent, onSaved } = renderDrawer({ intent: file => { if (file.fileName === 'discharge.pdf') { loseFocus(); return dailyLimit() } return undefined } })
+    fill()
+    await pick(cameraInput(), photo())
+    await pick(uploadInput(), pdf())
+    await press(screen.getByRole('button', { name: 'Save record' }))
+
+    const alert = (await screen.findByText(/Your record was saved\./)).closest('[role]') as HTMLElement
+    expect(shownText(alert)).toContain('Your record was saved. 1 of your photos or files didn’t upload. You’ve added 10 files today. '
+      + 'You can add more tomorrow. Close to keep your record without them.')
+    expect(shownText(alert)).not.toMatch(/Try again/)
+    expect(row('discharge.pdf').split(' · ').at(-1)).toBe('Over today’s limit')
+    expect(row('result-slip.jpg').split(' · ').at(-1)).toBe('Uploaded')
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    // Focus, lost while it ran, comes back to Close: there is nothing to try again.
+    const closeButton = within(dialog()).getAllByRole('button', { name: 'Close' }).at(-1)!
+    await waitFor(() => expect(document.activeElement).toBe(closeButton))
+    // Nothing more for the refused file: no PUT, no confirm, and the form sent again sends nothing.
+    const sentSoFar = [`POST ${ENTRIES}`, `POST ${intentPath}`, 'PUT /bucket/clinical/objects/doc-result-slip.jpg',
+      `POST ${ENTRIES}/${ENTRY_ID}/documents/doc-result-slip.jpg/complete`, `POST ${intentPath}`]
+    expect(log).toEqual(sentSoFar)
+    await act(async () => { fireEvent.submit(dialog().querySelector('form')!) })
+    expect(log).toEqual(sentSoFar)
+    expect(puts).toHaveLength(1)
+    expect(onSaved).not.toHaveBeenCalled()
+
+    // Closing keeps the record, and says why the file isn't in it.
+    await press(closeButton)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(await screen.findByText('Your record was saved')).toBeTruthy()
+    expect(screen.getByText('1 of your photos or files didn’t upload. You’ve added 10 files today. You can add more tomorrow.')).toBeTruthy()
+    expect(onSaved).toHaveBeenCalledTimes(1)
+    expect(entryRequests(sent).some(request => request.path.endsWith('/withdraw'))).toBe(false)
+  })
+
+  it('offers Try again only for a file that failed otherwise, never for one the limit refused', async () => {
+    let failing = true
+    const { puts } = storage(() => failing ? new Response(null, { status: 500 }) : new Response(null, { status: 200 }))
+    const { sent, onSaved } = renderDrawer({ intent: file => file.fileName === 'discharge.pdf' ? dailyLimit() : undefined })
+    fill()
+    await pick(cameraInput(), photo())
+    await pick(uploadInput(), pdf())
+    await press(screen.getByRole('button', { name: 'Save record' }))
+    const alert = (await screen.findByText(/Your record was saved\./)).closest('[role]') as HTMLElement
+    expect(shownText(alert)).toContain('Your record was saved. 2 of your photos or files didn’t upload. You’ve added 10 files today. '
+      + 'You can add more tomorrow. Try again, or close to keep your record without them.')
+    expect([row('result-slip.jpg'), row('discharge.pdf')].map(text => text.split(' · ').at(-1))).toEqual(['Didn’t upload', 'Over today’s limit'])
+
+    failing = false
+    await press(screen.getByRole('button', { name: 'Try again' }))
+    // Only the photo was sent again; the record isn't complete without the PDF, so the drawer stays, with no Try again.
+    const again = (await screen.findByText(/Your record was saved\./)).closest('[role]') as HTMLElement
+    expect(shownText(again)).toContain('1 of your photos or files didn’t upload. You’ve added 10 files today. You can add more tomorrow. Close to keep')
+    expect([row('result-slip.jpg'), row('discharge.pdf')].map(text => text.split(' · ').at(-1))).toEqual(['Uploaded', 'Over today’s limit'])
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    expect(screen.queryByText('Record added')).toBeNull()
+    expect(entryRequests(sent).filter(request => request.path === intentPath).map(request => (request.body as { fileName: string }).fileName))
+      .toEqual(['result-slip.jpg', 'discharge.pdf', 'result-slip.jpg'])
+    expect(puts).toHaveLength(2)
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it('takes any other 429 (a rate limit on the way) as a file that didn’t upload, with Try again', async () => {
+    storage()
+    renderDrawer({ intent: () => problem(429, 'RATE_LIMITED', 'Too many requests.') })
+    fill()
+    await pick(cameraInput(), photo())
+    await press(screen.getByRole('button', { name: 'Save record' }))
+    const alert = (await screen.findByText(/Your record was saved\./)).closest('[role]') as HTMLElement
+    expect(shownText(alert)).toContain('Your record was saved. 1 of your photos or files didn’t upload. Try again, or close to keep your record without them.')
+    expect(shownText(alert)).not.toMatch(/today/)
+    expect(row('result-slip.jpg').split(' · ').at(-1)).toBe('Didn’t upload')
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
   })
 })

@@ -3,6 +3,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { RecordsPage } from '../routes/Portal'
 import { forgetPatientEntriesServed, patientEntriesServed } from '../patientEntriesServed'
 import { json, press, problem, renderPortal, shownText, type Handler, type Sent } from './portalHarness'
+import { PLAIN_JPEG } from './photoFixtures'
 
 vi.mock('../backendContract', () => ({ usesNovuBackend: () => true }))
 vi.mock('../env', () => ({ getEnvironment: () => ({ name: 'production' }) }))
@@ -370,7 +371,8 @@ describe('after "Add a record" saves one', () => {
     await press(screen.getByRole('button', { name: 'Add a record' }))
     fireEvent.change(await screen.findByLabelText('Name it'), { target: { value: 'Typhoid test' } })
     const camera = screen.getByRole('dialog').querySelector<HTMLInputElement>('input[type=file][capture]')!
-    await act(async () => { fireEvent.change(camera, { target: { files: [new File(['fictional'], 'typhoid-slip.jpg', { type: 'image/jpeg' })] } }) })
+    // A JPEG with no metadata to take out (the drawer walks each photo before it is listed: photoMetadata.ts).
+    await act(async () => { fireEvent.change(camera, { target: { files: [new File([PLAIN_JPEG], 'typhoid-slip.jpg', { type: 'image/jpeg' })] } }) })
     await press(screen.getByRole('button', { name: 'Save record' }))
 
     // Saved, so served; its photo is on its way. The page behind is unchanged until its records are read again.

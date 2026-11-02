@@ -56,4 +56,11 @@ describe('a record the patient adds themselves', () => {
   it('names the replayed upload link’s answer once its file is confirmed', () => {
     expect(findEndpoint('ehr.myPatientEntryUploadIntent')?.note).toContain('409 PATIENT_DOCUMENT_ALREADY_UPLOADED')
   })
+
+  it('names the day’s limit, and says the photos arrive without their metadata but are not to be relied on for it', () => {
+    const note = findEndpoint('ehr.myPatientEntryUploadIntent')?.note
+    expect(note).toContain('429 PATIENT_UPLOAD_DAILY_LIMIT_REACHED')
+    expect(note).toContain('At most 10 files a day per patient')
+    expect(note).toContain('must not rely on that')
+  })
 })

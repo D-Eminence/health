@@ -759,8 +759,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'mediaType: application/pdf | image/jpeg | image/png, sizeBytes (up to 10 MB; at most 5 files per entry), sha256Hex }; the server '
     + 'sets the patient, classification and retention. 201 { document: { id, status: \'initiated\', scanStatus: \'pending\' }, upload: '
     + '{ method: \'PUT\', url, requiredHeaders, expiresInSeconds } }, the staff shape: the exact bytes are PUT to upload.url, no cookies. '
-    + 'The same key once that document is confirmed answers 409 PATIENT_DOCUMENT_ALREADY_UPLOADED with { document: { id, status, '
-    + 'scanStatus } }: the file is uploaded, and the portal sends no PUT and no confirm.')),
+    + 'The same key before that document is confirmed answers 201 again for it, with a link still valid; once it is confirmed, 409 '
+    + 'PATIENT_DOCUMENT_ALREADY_UPLOADED with { document: { id, status, scanStatus } }: the file is uploaded, and the portal sends no PUT '
+    + 'and no confirm. At most 10 files a day per patient (the Lagos day, across all their entries): a new key past them answers 429 '
+    + 'PATIENT_UPLOAD_DAILY_LIMIT_REACHED and opens no document; a replayed key is never refused for it. A photo arrives without its '
+    + 'metadata (EXIF and GPS, XMP, IPTC, C2PA, comments, text chunks), taken out in the browser without re-encoding; the server must not '
+    + 'rely on that.')),
   proposed(r('ehr.myPatientEntryDocumentComplete','ehr','/api/v1/ehr/me/patient-entries/:entryId/documents/:documentId/complete',P,false,undefined,
     'PROPOSED (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only; only the account that asked for the link. No body. '
     + 'The server checks the stored object\'s size, SHA-256 and type: 200 { document: { id, status, scanStatus } }, or 409 '
