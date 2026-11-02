@@ -1,6 +1,6 @@
 import { EhrButton, EhrCard, EhrPageHeading } from '@hid/ui/ehr'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter, type OrderRouteKind } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
@@ -16,16 +16,21 @@ import { TodaySections } from './TodaySections'
 
 /**
  * The list page: the design's heading and table, or the chart's own state (no patient, access ended, emergency). An
- * order Home links to (today's `location.state.order`) opens that order's page instead.
+ * order Home links to (today's `location.state.order`) opens that order's page instead. Under emergency access this
+ * address is the read-only emergency summary, as today's /provider/clinical is (staff/routes/Clinical.tsx:1376-1378):
+ * a role that may open it is taken there; one that may not keeps the chart's emergency notice.
  */
 export function EncounterList() {
   const chart = useChart()
+  const href = useWorkspaceHref()
   const linked = useLinkedOrder(chart)
   if (linked) return <OpenLinkedOrder to={linked} />
+  if (chart && chart.purpose === 'emergency' && chart.can('identity.break-glass.write')) return <Navigate replace to={href.to('emergency', 'summary')} />
   if (chart && chart.purpose === 'direct-care') return <ChartGate>{open => <Encounters chart={open} />}</ChartGate>
   return (
     <>
-      <ListHeading title={TITLE} />
+      {/* Today's eyebrow over the page with no patient open (staff/routes/Clinical.tsx:1375). */}
+      <EhrPageHeading eyebrow="Clinical record" title={TITLE} />
       <ChartGate>{open => <Encounters chart={open} />}</ChartGate>
     </>
   )
@@ -139,6 +144,8 @@ function Encounters({ chart }: { chart: Chart }) {
   return (
     <>
       <EhrPageHeading
+        // Today's eyebrow over the open patient's record (staff/routes/Clinical.tsx:1767).
+        eyebrow={`Clinical record · ${chart.facilityName}`}
         title={TITLE}
         // One primary: "New consultation" (only when changes are allowed; read-only offers no dead end). Refresh is secondary.
         primaryAction={canCreate ? <EhrButton onClick={() => navigate(href('new'))}>{NEW_TITLE}</EhrButton> : undefined}
@@ -151,6 +158,7 @@ function Encounters({ chart }: { chart: Chart }) {
         ) : null}
         {paged ? (
           <Pager
+            label="Encounter pages"
             page={cursors.length}
             busy={loading}
             onPrevious={cursors.length >= 2 ? () => void load({ cursors: cursors.slice(0, -1), paging: true }) : undefined}
@@ -164,7 +172,9 @@ function Encounters({ chart }: { chart: Chart }) {
             contextHeader="Complaint"
             rows={filtered}
             hrefFor={row => href(row.id)}
-            emptyMessage={rows.length === 0 ? NO_ENCOUNTERS : 'Change your search.'}
+            // No encounters is said in today's one sentence; "No matching records" is only for a search that found none.
+            emptyTitle={rows.length === 0 ? NO_ENCOUNTERS : undefined}
+            emptyMessage={rows.length === 0 ? null : 'Change your search.'}
           />
         )}
       </EhrCard>

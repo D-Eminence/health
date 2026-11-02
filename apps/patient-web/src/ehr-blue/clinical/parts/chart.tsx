@@ -1,6 +1,6 @@
 import { isHidApiError } from '@hid/http'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { SAY } from '../../../copy'
+import { Link } from 'react-router-dom'
 import { PatientBanner } from '../../../kasuwa/parts'
 import { Alert, Button, EmptyState, type Tone } from '../../../kasuwa/ui'
 import { isAllowedPatientLookup, staffApi } from '../../../staff/api'
@@ -8,15 +8,20 @@ import type { ActivePatient } from '../../../staff/App'
 import { patientFacts, type PatientFacts } from './PatientHeader'
 import { useClinical, useWorkspaceHref } from './Workspace'
 
-/** The chart's wording, in plain words (copy.ts). */
-export const OPEN_FIRST = 'Open a patient first.'
-export const ACCESS_ENDED = 'Your access to this patient has ended. Open the patient again to keep working.'
-export const READ_ONLY = `${SAY.readOnly} To add or change records, ask the patient to approve access that includes changes.`
+/** The chart's wording, in plain words. */
+export const OPEN_FIRST = 'Find the patient first.'
+export const ACCESS_ENDED = 'Patient access has ended. Find the patient again to reopen their record.'
+export const READ_ONLY = 'You can view this record but not change it.'
 export const WRITE_UNKNOWN = 'We couldn’t check whether you can make changes, so changes are off. Refresh the page to try again.'
+/** Today's page with no patient open, word for word (staff/routes/Clinical.tsx:1375). */
 export const CHOOSE_FIRST = 'Choose a patient first.'
+// The detail sentence and the how-to are shown again, as today's page shows them, in the redesign's words with today's
+// "documented".
 export const CHOOSE_FIRST_DETAIL = 'Records show only for a patient you have access to at this facility.'
 export const NO_AUTHORIZED_PATIENT = 'No patient open'
-export const OPEN_PATIENT_HOW = 'Open a patient with an approved request, the patient’s PIN, or emergency access.'
+export const OPEN_PATIENT_HOW = 'Open a patient with an approved request, the patient’s PIN, or documented emergency access.'
+/** Today's line under the patient's name for direct care (staff/routes/Clinical.tsx:1767), in plain words. */
+export const DIRECT_CARE = 'Direct care access.'
 
 type WriteAccess = { readonly scope: string; readonly lookup: object; readonly allowed: boolean; readonly failed: boolean }
 
@@ -192,7 +197,8 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
   }
   if (!chart) {
     return (
-      <EmptyState illustration="patient" title={CHOOSE_FIRST} description={OPEN_PATIENT_HOW}
+      <EmptyState illustration="patient" title={CHOOSE_FIRST}
+        description={<>{CHOOSE_FIRST_DETAIL} <strong>{NO_AUTHORIZED_PATIENT}.</strong> {OPEN_PATIENT_HOW}</>}
         action={<Button variant="primary" to={href.to('patients')}>Find a patient</Button>} />
     )
   }
@@ -210,6 +216,13 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
   return (
     <>
       {banner ? <ChartBanner chart={chart} sticky /> : null}
+      {banner && chart.purpose === 'direct-care' ? (
+        // Today's line and "Change patient →" under the patient's name (staff/routes/Clinical.tsx:1767-1768).
+        <p className="mt-2 mb-4 text-[13px] text-ink-2">
+          HID {chart.patient.hid} · {DIRECT_CARE}{' '}
+          <Link className="font-medium text-brand-ink underline underline-offset-2" to={href.to('patients')}>Change patient →</Link>
+        </p>
+      ) : null}
       {banner && chart.writeNotice ? <Alert intent="info" size="sm" className="mb-4">{chart.writeNotice}</Alert> : null}
       {children(chart)}
     </>

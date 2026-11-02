@@ -313,7 +313,7 @@ describe('Connected orders past 50 (review item 6: pagers past 50)', () => {
     // The lab requests fit on one page: only the prescriptions are paged.
     expect(screen.getAllByRole('navigation', { name: 'Record pages' })).toHaveLength(1)
     expect(within(pager).getByText('Page 1')).toBeTruthy()
-    expect(pageButton(pager, 'Previous page').disabled).toBe(true)
+    expect(pageButton(pager, 'Previous page').getAttribute('aria-disabled')).toBe('true')
     const list = screen.getByRole('list', { name: 'Orders from this consultation' })
     expect(within(list).getAllByRole('link', { name: /^Pharmacy · / })).toHaveLength(50)
     expect(within(list).queryByRole('link', { name: 'Pharmacy · Test medicine 51' })).toBeNull()
@@ -327,8 +327,8 @@ describe('Connected orders past 50 (review item 6: pagers past 50)', () => {
     expect(within(second).getAllByRole('link', { name: /^Pharmacy · / }).map(link => link.textContent))
       .toEqual(['Pharmacy · Test medicine 51', 'Pharmacy · Test medicine 52', 'Pharmacy · Test medicine 53'])
     expect(within(second).getByRole('link', { name: 'Laboratory · Haemoglobin' })).toBeTruthy()
-    expect(pageButton(pager, 'Next page').disabled).toBe(true)
-    expect(pageButton(pager, 'Previous page').disabled).toBe(false)
+    expect(pageButton(pager, 'Next page').getAttribute('aria-disabled')).toBe('true')
+    expect(pageButton(pager, 'Previous page').getAttribute('aria-disabled')).toBeNull()
 
     fireEvent.click(pageButton(pager, 'Previous page'))
     expect(await within(pager).findByText('Page 1')).toBeTruthy()
@@ -355,7 +355,7 @@ describe('Connected orders past 50 (review item 6: pagers past 50)', () => {
     // The prescriptions stay on their own first page.
     expect(within(rx.pager).getByText('Page 1')).toBeTruthy()
     expect(within(list).getAllByRole('link', { name: /^Pharmacy · / })).toHaveLength(50)
-    expect(pageButton(lab.pager, 'Next page').disabled).toBe(true)
+    expect(pageButton(lab.pager, 'Next page').getAttribute('aria-disabled')).toBe('true')
 
     fireEvent.click(pageButton(lab.pager, 'Previous page'))
     expect(await within(lab.pager).findByText('Page 1')).toBeTruthy()
@@ -369,8 +369,9 @@ describe('Connected orders past 50 (review item 6: pagers past 50)', () => {
     open(ENCOUNTER_ID)
     const { group, pager } = await pagerOf('Pharmacy')
     fireEvent.click(pageButton(pager, 'Next page'))
-    const notice = await within(group).findByRole('status')
-    expect(notice.textContent).toBe('This list changed since it was opened, so it shows the newest entries again.')
+    // Said in a status region of its own (the pager's page is one too).
+    const notice = await within(group).findByText('This list changed since it was opened, so it shows the newest entries again.')
+    expect(notice.getAttribute('role')).toBe('status')
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: 'rx-page-2', fresh: false })
     expect(api.records).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: undefined, fresh: true })
     const shown = within(screen.getByRole('group', { name: 'Pharmacy' })).getByRole('navigation', { name: 'Record pages' })

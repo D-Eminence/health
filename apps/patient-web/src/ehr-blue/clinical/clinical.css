@@ -208,9 +208,26 @@
   margin-top: 18px;
 }
 
+/* A page button that cannot act stays focusable (aria-disabled, as today's pager) and looks unavailable. */
+.hid-ehr .hid-ehr-clinical-pager .hid-ehr-button[aria-disabled='true']:not([aria-busy='true']) {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ...and keeps its resting look on hover: it is no longer :disabled, so ehr.css's secondary hover would still tint it. */
+.hid-ehr .hid-ehr-clinical-pager .hid-ehr-button.hid-ehr-button-secondary[aria-disabled='true']:not([aria-busy='true']):hover {
+  border-color: var(--ehr-line-strong);
+  background: var(--ehr-surface);
+}
+
 /* The table region (or its empty state) under the search field. */
 .hid-ehr .hid-ehr-clinical-list-table {
   margin-top: 18px;
+}
+
+/* An empty list said in its title alone (today's one sentence) has no empty line under it. */
+.hid-ehr .hid-ehr-clinical-list-table .hid-ehr-state-message:empty {
+  display: none;
 }
 
 /* Where the page's content is under 820px wide (whatever the window), a record row is a card: the record and its status, the context, when, then Quick view and Open. */

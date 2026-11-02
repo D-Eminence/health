@@ -3,6 +3,7 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
+import { ENCOUNTER_STATUS_UPDATED } from '../../../ehr-blue/clinical/consult/encounters'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 
@@ -55,9 +56,12 @@ const DOCUMENT = {
   id: 'doc-1', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, fileName: 'referral-letter.pdf', mediaType: 'application/pdf',
   sizeBytes: '20480', status: 'available', scanStatus: 'clean', createdAt: '2026-10-30T08:30:00.000Z',
 }
-const READ_ONLY = 'You can view this, but not change it. To add or change records, ask the patient to approve access that includes changes.'
+const READ_ONLY = 'You can view this record but not change it.'
 const ENDED = 'Open the patient again to keep working.'
 const STALE = new HidApiError(412, 'The record changed since it was read.', { code: 'PRECONDITION_FAILED' })
+/** Today's warnings on an encounter status change, word for word (staff/routes/Clinical.tsx:80 on main, :85 on Novu). */
+const MAIN_WARNING = 'Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests; its notes, diagnoses, vitals, documents and completed orders are not changed. Marking it entered in error also marks entered in error its notes, diagnoses and vitals, its documents (other than rejected uploads), and its prescriptions and lab requests that are not cancelled, completed ones included. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
+const NOVU_WARNING = 'Closing or cancelling the encounter does not change its lab requests or prescriptions. Change or cancel each one: one sent to another facility is then withdrawn there, or cancelled if that facility had accepted it.'
 
 let records: Record<string, unknown[]>
 
@@ -84,7 +88,10 @@ beforeEach(() => {
   api.uploadDocument.mockResolvedValue('doc-2')
 })
 
-afterEach(() => { vi.restoreAllMocks() })
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllEnvs()
+})
 
 async function openEncounter() {
   renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
@@ -292,7 +299,7 @@ describe('Consultation record', () => {
     staff.permissions = ['ehr.encounter.read', 'ehr.encounter.write']
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e0000000' })).toBeTruthy()
-    expect(screen.getByText('Your role here can’t see these records.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility can’t open visit records. Ask your facility administrator.')).toBeTruthy()
     expect(api.records).not.toHaveBeenCalled()
     expect(api.documents).not.toHaveBeenCalled()
   })
@@ -301,7 +308,7 @@ describe('Consultation record', () => {
     staff.permissions = ['ehr.encounter.read', 'ehr.vital.read']
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     expect(await screen.findByRole('link', { name: 'Vitals · vital-1' })).toBeTruthy()
-    expect(screen.queryByText('Your role here can’t see these records.')).toBeNull()
+    expect(screen.queryByText('Your role at this facility can’t open visit records. Ask your facility administrator.')).toBeNull()
   })
 
   it('item 7: signs the consultation note under the clinician’s typed reason, only after SIGN is typed, after the access re-check', async () => {
@@ -441,13 +448,15 @@ describe('Consultation record', () => {
   it('completes the encounter with a reason, re-checking access first', async () => {
     await openEncounter()
     chooseMore('Complete consultation')
-    expect(actions().getByText(/^Cancelling also cancels its open prescriptions and lab requests\./)).toBeTruthy()
+    expect(actions().getByText(MAIN_WARNING)).toBeTruthy()
     fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: '  ' } })
     const save = () => actions().getAllByRole('button', { name: 'Complete consultation' }).find(button => button.getAttribute('type') === 'submit')!
     fireEvent.click(save())
     expect(actions().getByText('Give a reason of at least 3 characters.')).toBeTruthy()
     expect(api.updateEncounter).not.toHaveBeenCalled()
     fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Seen and treated' } })
+    // EHR's encounter once changed, as the re-read after the change finds it.
+    api.encounter.mockResolvedValue({ ...ENCOUNTER, status: 'completed', rowVersion: 4 })
     fireEvent.click(save())
     expect(await screen.findByText('Consultation updated.')).toBeTruthy()
     expect(api.updateEncounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID,
@@ -455,6 +464,113 @@ describe('Consultation record', () => {
     expect(within(meta()).getByText('Completed')).toBeTruthy()
     expect(actions().queryByRole('button', { name: 'Complete consultation' })).toBeNull()
     expect(menuLabels()).not.toContain('Complete consultation')
+  })
+
+  it('parity: shows today’s warning word for word in each status form, and ties the submit to it', async () => {
+    await openEncounter()
+    for (const label of ['Complete consultation', 'Put on hold', 'Cancel consultation', 'Mark as entered in error']) {
+      chooseMore(label)
+      const warning = actions().getByText(MAIN_WARNING)
+      expect(warning.id).not.toBe('')
+      expect(submitOf(label).getAttribute('aria-describedby')).toBe(warning.id)
+      fireEvent.click(actions().getByRole('button', { name: 'Cancel' }))
+    }
+  })
+
+  it('parity: on Novu, shows today’s Novu warning word for word, tied to the submit', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    await openEncounter()
+    chooseMore('Cancel consultation')
+    const warning = actions().getByText(NOVU_WARNING)
+    expect(submitOf('Cancel consultation').getAttribute('aria-describedby')).toBe(warning.id)
+    expect(actions().queryByText(MAIN_WARNING)).toBeNull()
+  })
+
+  it('parity: after a change whose answer carries no encounter, reads the encounter again after the access re-check, and sends the next change against it', async () => {
+    api.updateEncounter.mockResolvedValue(undefined)
+    await openEncounter()
+    api.encounter.mockClear()
+    api.encounter.mockResolvedValue({ ...ENCOUNTER, status: 'on_hold', rowVersion: 4 })
+    chooseMore('Put on hold')
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Waiting for results' } })
+    const checks = api.lookupPatient.mock.calls.length
+    fireEvent.click(submitOf('Put on hold'))
+    expect(await screen.findByText('Consultation updated.')).toBeTruthy()
+    await waitFor(() => expect(within(meta()).getByText('On hold')).toBeTruthy())
+    expect(api.encounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID)
+    // A re-check before the change and another before the re-read, then the read.
+    expect(api.lookupPatient.mock.calls.length).toBe(checks + 2)
+    expect(api.lookupPatient.mock.invocationCallOrder.at(-1)!).toBeLessThan(api.encounter.mock.invocationCallOrder[0]!)
+    expect(api.updateEncounter.mock.invocationCallOrder[0]!).toBeLessThan(api.encounter.mock.invocationCallOrder[0]!)
+    // The transitions are the current status's, and the next change is sent with the version read.
+    expect(menuLabels()).toContain('Resume consultation')
+    expect(menuLabels()).not.toContain('Put on hold')
+    chooseMore('Resume consultation')
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Results are back' } })
+    fireEvent.click(submitOf('Resume consultation'))
+    await waitFor(() => expect(api.updateEncounter).toHaveBeenCalledTimes(2))
+    expect(api.updateEncounter).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID,
+      { expectedRowVersion: 4, changeReason: 'Results are back', status: 'in_progress' })
+  })
+
+  it('parity: reports a status change only once the encounter is read again, the form busy until then', async () => {
+    api.updateEncounter.mockResolvedValue(undefined)
+    await openEncounter()
+    let reread!: (value: unknown) => void
+    api.encounter.mockReturnValueOnce(new Promise(done => { reread = done }))
+    const reads = api.encounter.mock.calls.length
+    chooseMore('Put on hold')
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Waiting for results' } })
+    const submit = submitOf('Put on hold')
+    fireEvent.click(submit)
+    // The change is sent and the re-read asked for: until it answers, nothing is reported, the form stays open and busy,
+    // and no stale change is offered as if done.
+    await waitFor(() => expect(api.encounter).toHaveBeenCalledTimes(reads + 1))
+    expect(api.updateEncounter).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(ENCOUNTER_STATUS_UPDATED)).toBeNull()
+    expect(submit.isConnected).toBe(true)
+    expect(submit.getAttribute('aria-busy')).toBe('true')
+    await act(async () => reread({ ...ENCOUNTER, status: 'on_hold', rowVersion: 4 }))
+    expect(await screen.findByText(ENCOUNTER_STATUS_UPDATED)).toBeTruthy()
+    expect(within(meta()).getByText('On hold')).toBeTruthy()
+    expect(submit.isConnected).toBe(false)
+  })
+
+  it('parity: never lets an older re-read of the encounter replace a newer one', async () => {
+    await openEncounter()
+    let older!: (value: unknown) => void
+    api.encounter
+      .mockReturnValueOnce(new Promise(done => { older = done }))
+      .mockResolvedValueOnce({ ...ENCOUNTER, status: 'completed', rowVersion: 5 })
+    const reads = api.encounter.mock.calls.length
+    chooseMore('Put on hold')
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Waiting for results' } })
+    fireEvent.click(submitOf('Put on hold'))
+    await waitFor(() => expect(api.encounter).toHaveBeenCalledTimes(reads + 1))
+    // While that re-read is out, another change is sent and refused as stale; its own read finds the encounter completed.
+    api.updateEncounter.mockRejectedValueOnce(STALE)
+    chooseMore('Complete consultation')
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Seen and treated' } })
+    fireEvent.click(submitOf('Complete consultation'))
+    await waitFor(() => expect(api.encounter).toHaveBeenCalledTimes(reads + 2))
+    await waitFor(() => expect(within(meta()).getByText('Completed')).toBeTruthy())
+    // The first re-read answers last, with what was true before: the page keeps the newer read.
+    await act(async () => older({ ...ENCOUNTER, status: 'on_hold', rowVersion: 4 }))
+    expect(await screen.findByText(ENCOUNTER_STATUS_UPDATED)).toBeTruthy()
+    expect(within(meta()).getByText('Completed')).toBeTruthy()
+    expect(within(meta()).queryByText('On hold')).toBeNull()
+  })
+
+  it('parity: says when the re-read after a change fails, the change still reported', async () => {
+    await openEncounter()
+    api.encounter.mockRejectedValue(UNAVAILABLE())
+    chooseMore('Put on hold')
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Waiting for results' } })
+    fireEvent.click(submitOf('Put on hold'))
+    expect(await screen.findByText('Consultation updated.')).toBeTruthy()
+    expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    // The change's own answer is still shown.
+    expect(within(meta()).getByText('On hold')).toBeTruthy()
   })
 
   it('asks before cancelling the encounter (no typed word), and says when the role may not', async () => {
@@ -728,12 +844,12 @@ describe('Consultation record: More actions, diagnoses with a note change, and v
   it('"Cancel" closes a status change More actions opened, changing nothing, with focus back on the menu button', async () => {
     await openEncounter()
     chooseMore('Cancel consultation')
-    expect(actions().getByText(/^Cancelling also cancels/)).toBeTruthy()
+    expect(actions().getByText(MAIN_WARNING)).toBeTruthy()
     const cancel = actions().getByRole('button', { name: 'Cancel' })
     expect(cancel.getAttribute('type')).toBe('button')
     act(() => { cancel.focus() })
     fireEvent.click(cancel)
-    expect(actions().queryByText(/^Cancelling also cancels/)).toBeNull()
+    expect(actions().queryByText(MAIN_WARNING)).toBeNull()
     expect(actions().queryByLabelText(labelled('Reason for change'))).toBeNull()
     expect(document.activeElement).toBe(moreButton())
     expect(moreButton().textContent).not.toContain('open')

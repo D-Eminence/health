@@ -31,10 +31,13 @@ const NOTE_LIMIT = 100_000
 const NOTE_TOO_LONG = 'The note is too long. History, Examination, Clinical note and Follow-up together can be up to 100,000 characters.'
 /** Said after a partial save, once the draft note is in: its fields are gone, and it is changed from the encounter's page. */
 const NOTE_SAVED = 'The draft note is saved; change it from the consultation’s page.'
+/** Today's line over the form (staff/routes/Clinical.tsx:455), in plain words: what starting a consultation needs. */
+const START_REQUIRES = 'To start a consultation, you need current access to this patient and must give the reason for the visit.'
 
 const ENCOUNTER_FIELDS: readonly FieldDef[] = [
   { key: 'encounterType', label: 'Type of visit', required: true, choices: ENCOUNTER_TYPES },
-  { key: 'complaint', label: 'Presenting complaint', required: true, maxLength: 4000 },
+  // Today's textarea (staff/routes/Clinical.tsx:455): a complaint keeps its line breaks.
+  { key: 'complaint', label: 'Presenting complaint', type: 'textarea', required: true, maxLength: 4000 },
 ]
 // The note's fields are optional, as today: type and complaint alone start the encounter, and the draft note is written
 // only when History, Examination, Clinical note or Follow-up has text.
@@ -137,14 +140,17 @@ function NewConsultationForm({ chart }: { chart: Chart }) {
       <EhrCard>
         <PatientContext chart={chart} />
         {canStart ? (
-          <RecordForm fields={fields} initial={INITIAL} submitLabel={started ? 'Save the rest' : 'Start consultation'} validate={validate} onSubmit={submit}>
-            {started ? (
-              <p className="hid-ehr-clinical-note" role="status">
-                {`${ENCOUNTER_CREATED} ${encounterTypeLabel(started.encounterType)} · ${started.chiefComplaint ?? ''}.${noteSaved ? ` ${NOTE_SAVED}` : ''} Save again to add the rest to it.`}
-              </p>
-            ) : null}
-            {writesNote ? <p className="hid-ehr-clinical-note">{NOTES_ARE_DRAFTS}</p> : null}
-          </RecordForm>
+          <>
+            <p className="hid-ehr-clinical-note">{START_REQUIRES}</p>
+            <RecordForm fields={fields} initial={INITIAL} submitLabel={started ? 'Save the rest' : 'Start consultation'} validate={validate} onSubmit={submit}>
+              {started ? (
+                <p className="hid-ehr-clinical-note" role="status">
+                  {`${ENCOUNTER_CREATED} ${encounterTypeLabel(started.encounterType)} · ${started.chiefComplaint ?? ''}.${noteSaved ? ` ${NOTE_SAVED}` : ''} Save again to add the rest to it.`}
+                </p>
+              ) : null}
+              {writesNote ? <p className="hid-ehr-clinical-note">{NOTES_ARE_DRAFTS}</p> : null}
+            </RecordForm>
+          </>
         ) : null}
       </EhrCard>
     </>
