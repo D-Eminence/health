@@ -15,8 +15,8 @@ export type NamedRole = 'doctor' | 'clinician' | 'nurse' | 'lab' | 'pharmacist' 
  * include, the roles whose holders do that work (at least one, as the administrator's step names them), and the kinds of
  * self-signed-up facility that get it once Health ID support has checked them, the ones whose locked list names it
  * (staff/routes/ReviewBanner.tsx LOCKED). A facility of another kind is never promised it. With `askForRole`, everyone
- * else is told which of those roles to ask the administrator for; without it, they are only told to ask, as the
- * Laboratory's refusal has always said.
+ * else is told which of those roles to ask the administrator for, where one would bring the work; without it, they are
+ * only told to ask, as the Laboratory's refusal has always said.
  */
 export interface RefusedWork {
   readonly name: string
@@ -43,16 +43,22 @@ function eitherOf(words: readonly string[]): string {
  * administrator, which they are. While Health ID support checks a facility that will get the work, it is locked for them
  * too (the banner above says so): it opens after the check. Once the facility is checked, they add the staff who do it on
  * the Staff page. A facility that will not get it has no step. Everyone else, and every facility Health ID support
- * manages, is told to ask the facility administrator (for one of the roles that do the work, with `askForRole`).
+ * manages, is told to ask the facility administrator. With `askForRole`, they are told to ask for one of the roles that
+ * do the work, unless that could not help: at a facility that will not get it, the role would not bring it, and someone
+ * who holds one of those roles already (a facility's own grants can differ) would be asking for what they have.
  */
-export function refusedWorkText(facility: Pick<Facility, 'selfService'> | undefined, permissions: readonly string[], refused: RefusedWork): string {
+export function refusedWorkText(facility: Pick<Facility, 'selfService' | 'roles'> | undefined, permissions: readonly string[], refused: RefusedWork): string {
   const review = usesNovuBackend() ? selfServiceReview(facility) : null
   const type = selfServiceType(facility)
   const getsIt = type !== null && refused.gets.has(type)
   if (review === 'pending' && getsIt) return `${refused.name} opens once Health ID support has checked your facility.`
   const administrator = review !== null && permissions.includes('workforce.manage')
+  // A role brings the work where the facility gets it or its kind is not known (Health ID support manages it, or there
+  // is none), and only to someone who holds none of those roles yet.
+  const held = facility?.roles ?? []
+  const helps = (type === null || getsIt) && !refused.doneBy.some(role => held.includes(role))
   // The roles by their words in the role list ("the Receptionist or Records officer role"), so the sentence follows it.
-  const ask = refused.askForRole ? ` for the ${eitherOf(refused.doneBy.map(roleLabel))} role` : ''
+  const ask = refused.askForRole && helps ? ` for the ${eitherOf(refused.doneBy.map(roleLabel))} role` : ''
   const next = !administrator ? ` Ask your facility administrator${ask}.`
     : review === 'reviewed' && getsIt ? ` Add ${eitherOf(refused.doneBy.map(roleInSentence))} on the Staff page.` : ''
   return `Your role at this facility doesn’t include ${refused.work}.${next}`

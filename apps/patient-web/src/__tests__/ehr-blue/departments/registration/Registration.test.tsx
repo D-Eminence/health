@@ -18,12 +18,14 @@ const session = vi.hoisted(() => ({
   permissions: [] as string[], facility: 'hospital' as 'hospital' | 'other' | 'none',
   // Set only for a facility that signed itself up (P4b): where it stands with Health ID support, and its kind.
   selfService: undefined as FakeFacility['selfService'],
+  // The member's roles there: a records officer, who registers patients, unless a case says otherwise.
+  roles: ['records_officer'],
 }))
 vi.mock('../../../../staff/App', async () => {
   const { fakeFacility, staffContext, DEMO_HOSPITAL_ID: hospital } = await import('../harness')
   return {
     useStaff: () => staffContext(session.facility === 'none' ? undefined : fakeFacility(session.permissions, {
-      id: session.facility === 'other' ? '98d00002-0000-4000-8000-000000000004' : hospital, name: 'Demo Hospital', roles: ['records_officer'],
+      id: session.facility === 'other' ? '98d00002-0000-4000-8000-000000000004' : hospital, name: 'Demo Hospital', roles: session.roles,
       ...(session.selfService ? { selfService: session.selfService } : {}),
     })),
   }
@@ -67,6 +69,7 @@ beforeEach(() => {
   session.permissions = [WRITE, APPROVE]
   session.facility = 'hospital'
   session.selfService = undefined
+  session.roles = ['records_officer']
   api.registrationCapabilities.mockResolvedValue(ENABLED)
   setItem = vi.spyOn(Storage.prototype, 'setItem')
 })
@@ -136,6 +139,9 @@ const PERMISSION_WORDS = /permission|membership|registration write|identity\.reg
 const ROLE_CODES = /\b[a-z]+(?:_[a-z]+)+\b/
 
 describe('who can open Patient registration', () => {
+  // Refused as a nurse: a role that does not register patients, so being told which roles do could help.
+  beforeEach(() => { session.roles = ['nurse'] })
+
   it.each([
     ['without identity registration write', 'hospital' as const, [APPROVE]],
     ['without a facility', 'none' as const, [WRITE, APPROVE]],
@@ -173,6 +179,8 @@ describe('who can open Patient registration', () => {
     const AWAITING_REVIEW = ['workforce.manage', 'audit.read', 'outreach.registration.read', 'outreach.registration.write',
       'outreach.campaign.read', 'outreach.campaign.write']
     const ROLE_SENTENCE = 'Your role at this facility doesn’t include registering patients.'
+    /** Told to ask, naming no role: where neither role would help. */
+    const ASK_ONLY = `${ROLE_SENTENCE} Ask your facility administrator.`
     beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
     afterEach(() => { vi.unstubAllEnvs() })
 
@@ -213,8 +221,33 @@ describe('who can open Patient registration', () => {
       expect(refusalAs(AWAITING_REVIEW, { review: 'pending', organizationType })).toBe('Patient registration opens once Health ID support has checked your facility.')
     })
 
-    it('anyone else at a checked hospital: told to ask its administrator for either role', () => {
-      expect(refusalAs([APPROVE], { review: 'reviewed', organizationType: 'hospital' })).toBe(REFUSAL)
+    it.each(['hospital', 'clinic'])('anyone else at a %s Health ID support is still checking: registration opens after the check', organizationType => {
+      expect(refusalAs([APPROVE], { review: 'pending', organizationType })).toBe('Patient registration opens once Health ID support has checked your facility.')
+    })
+
+    it.each(['hospital', 'clinic'])('anyone else at a checked %s: told to ask its administrator for either role', organizationType => {
+      expect(refusalAs([APPROVE], { review: 'reviewed', organizationType })).toBe(REFUSAL)
+    })
+
+    it('anyone else at a facility Health ID support manages: told to ask its administrator for either role', () => {
+      expect(refusalAs([APPROVE])).toBe(REFUSAL)
+    })
+
+    // Neither role brings registration to a laboratory, pharmacy or "other" facility, so nobody there is sent to ask for one.
+    it.each([
+      ['checked', 'laboratory', 'reviewed'], ['checked', 'pharmacy', 'reviewed'], ['checked', 'other', 'reviewed'],
+      ['being checked', 'laboratory', 'pending'], ['being checked', 'pharmacy', 'pending'], ['being checked', 'other', 'pending'],
+    ])('anyone else at a %s %s, which is not promised registration: told to ask its administrator, naming no role', (_checked, organizationType, review) => {
+      expect(refusalAs([APPROVE], { review, organizationType })).toBe(ASK_ONLY)
+    })
+
+    // A records officer without the work (a facility's own grants can differ) is not told to ask for the role they hold.
+    it.each([
+      ['at a checked hospital', { review: 'reviewed', organizationType: 'hospital' }],
+      ['at a facility Health ID support manages', undefined],
+    ])('a records officer who does not hold registration, %s: told to ask its administrator, naming no role', (_where, selfService) => {
+      session.roles = ['records_officer']
+      expect(refusalAs([APPROVE], selfService)).toBe(ASK_ONLY)
     })
 
     it('an administrator at a facility Health ID support manages: told to ask its administrator for either role', () => {

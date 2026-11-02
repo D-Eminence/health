@@ -52,16 +52,33 @@ describe('Patient registration in the frame', () => {
   })
 
   it('without identity registration write, refuses at the address in plain words that name no permission, and reads nothing', async () => {
-    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.registration.approve'], ['records_officer'])
+    // A nurse: a role that does not register patients.
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.registration.approve'], ['nurse'])
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [CAPABILITIES]: many(enabled) })
     await openStaffApp('/provider/registration')
     const title = await screen.findByRole('heading', { level: 1, name: 'Registration unavailable' })
     // The two roles that register patients, by their words (owner's answer, 2 Nov 2026), never their codes.
     expect(screen.getByText('Your role at this facility doesn’t include registering patients. Ask your facility administrator for the Receptionist or Records officer role.')).toBeDefined()
+    // The frame names the person's own role, which is neither of them.
+    expect(screen.getAllByText(/^Nurse\b/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/^Records officer\b/)).toBeNull()
     expect(title.closest('.hid-ehr-dept')?.textContent).not.toMatch(/permission|membership|registration write|identity\.registration\.write/i)
     expect(title.closest('.hid-ehr-dept')?.textContent).not.toMatch(/\b[a-z]+(?:_[a-z]+)+\b/)
     expect(screen.queryByText(/is not open to you here$/)).toBeNull()
     expect(within(nav()).queryByRole('link', { name: 'Patient registration' })).toBeNull()
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(sent.map(call => call.route)).toEqual([SESSION])
+  })
+
+  it('a records officer without identity registration write is not told to ask for the role the frame names as theirs', async () => {
+    // A facility's own grants can differ from the roles' usual ones (owner's answer: both roles register patients).
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.registration.approve'], ['records_officer'])
+    const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [CAPABILITIES]: many(enabled) })
+    await openStaffApp('/provider/registration')
+    const title = await screen.findByRole('heading', { level: 1, name: 'Registration unavailable' })
+    expect(screen.getAllByText(/^Records officer\b/).length).toBeGreaterThan(0)
+    expect(screen.getByText('Your role at this facility doesn’t include registering patients. Ask your facility administrator.')).toBeDefined()
+    expect(title.closest('.hid-ehr-dept')?.textContent).not.toMatch(/Receptionist|Records officer|\b[a-z]+(?:_[a-z]+)+\b/)
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
     expect(sent.map(call => call.route)).toEqual([SESSION])
   })

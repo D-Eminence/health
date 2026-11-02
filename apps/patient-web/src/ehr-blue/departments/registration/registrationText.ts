@@ -56,7 +56,8 @@ export const UNAVAILABLE_TITLE = 'Registration unavailable'
  * either, and everyone else to ask the administrator for either role. Only a hospital or a clinic gets it: sign-up
  * promises the clinical record to them alone (ProviderEnrollment.tsx ORGANIZATION_TYPE_NOTES). A laboratory or pharmacy
  * never does, as registration stays in the EHR (the owner's rule); an "other" facility agrees its access with Health ID
- * support, so the refusal never promises it.
+ * support, so the refusal never promises it: there, nobody is told to ask for either role, as neither would bring it.
+ * Nor is someone who holds one of them already.
  */
 export const REGISTRATION_WORK: RefusedWork = {
   name: 'Patient registration', work: 'registering patients', doneBy: ['receptionist', 'records_officer'], askForRole: true,
