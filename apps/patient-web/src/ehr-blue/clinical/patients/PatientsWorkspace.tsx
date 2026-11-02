@@ -185,9 +185,9 @@ function PatientList() {
             <div className="min-w-0 flex-1"><Input id="patient-hid" icon={IdCard} value={hid} placeholder="HID-ADA2345" autoComplete="off" spellCheck={false}
               required aria-required="true" aria-invalid={problem ? true : undefined} aria-describedby={problem ? 'patient-hid-hint patient-hid-problem' : 'patient-hid-hint'}
               onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); setProblem(null); setRefused(null) }} className="h-11 font-medium tracking-[.06em] uppercase" /></div>
-            {/* Busy, it stays focusable (aria-disabled, not disabled), as today's Verify access: focus is not lost while the
-                lookup runs, and a second press looks nothing up (search() returns while one is on its way). */}
-            <Button type="submit" variant="primary" icon={Search} disabled={!canLook} aria-disabled={busy || undefined} className="h-11">Find</Button>
+            {/* Busy (aria-busy), it stays focusable (aria-disabled, not disabled), as today's Verify access: focus is not lost
+                while the lookup runs, and a second press looks nothing up (search() returns while one is on its way). */}
+            <Button type="submit" variant="primary" icon={Search} disabled={!canLook} aria-busy={busy || undefined} aria-disabled={busy || undefined} className="h-11">Find</Button>
           </div>
           <p id="patient-hid-hint" className="m-0 text-[12px] text-ink-3">It’s on the patient’s Health ID card. {HID_FORMAT}</p>
           {hidError ? <p id="patient-hid-problem" className="m-0 text-[13px] font-medium text-danger-ink">{hidError}</p> : null}

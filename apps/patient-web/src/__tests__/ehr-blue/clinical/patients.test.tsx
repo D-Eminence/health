@@ -6,12 +6,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropOfferedHealthId, offerHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
 import { PatientsWorkspace, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
 import { EmergencyWorkspace } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
+import { READ_ONLY } from '../../../ehr-blue/clinical/parts/chart'
 import { shareDay } from '../../../shareRecords'
 import {
   BASE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage,
 } from './harness'
 import { consultationLabel } from '../../../plainLabels'
-import { READ_ONLY } from '../../../ehr-blue/clinical/parts/chart'
 
 /**
  * Patients ("Find a patient"): the Health ID search (today's governed access), the patient open now and that patient's
@@ -19,7 +19,7 @@ import { READ_ONLY } from '../../../ehr-blue/clinical/parts/chart'
  */
 
 const api = vi.hoisted(() => ({
-  lookupPatient: vi.fn(), consentStatus: vi.fn(), closeGrant: vi.fn(), encounters: vi.fn(), verifyPin: vi.fn(),
+  lookupPatient: vi.fn(), consentStatus: vi.fn(), closeGrant: vi.fn(), encounters: vi.fn(), verifyPin: vi.fn(), breakGlass: vi.fn(),
   sharedWithMe: vi.fn(), staffShareInvitations: vi.fn(), acceptShareInvitation: vi.fn(), reportedHealthProfile: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined, roles: undefined as string[] | undefined }))
@@ -354,11 +354,13 @@ describe('Find a patient', () => {
     await act(async () => { fireEvent.click(findButton()) })
     expect(findButton().disabled).toBe(false)
     expect(findButton().getAttribute('aria-disabled')).toBe('true')
+    expect(findButton().getAttribute('aria-busy')).toBe('true')
     expect(document.activeElement).toBe(findButton())
     await act(async () => { fireEvent.click(findButton()) })
     expect(api.lookupPatient).toHaveBeenCalledTimes(1)
     await act(async () => { refuse(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' })) })
     expect(findButton().getAttribute('aria-disabled')).toBeNull()
+    expect(findButton().getAttribute('aria-busy')).toBeNull()
     expect(document.activeElement).toBe(findButton())
   })
 
@@ -369,8 +371,10 @@ describe('Find a patient', () => {
     findButton().focus()
     fireEvent.click(findButton())
     const alert = await screen.findByRole('alert')
-    expect(within(alert).getByText(`You don’t have access to ${PATIENT_HID} yet`)).toBeTruthy()
-    expect(within(alert).getByText('Patient access is not authorized')).toBeTruthy()
+    // Which patient, then why, both in the alert. The reason's words are pinned by 'offers the ways in for a refused patient'.
+    const reason = within(alert).getByText(`You don’t have access to ${PATIENT_HID} yet`).nextElementSibling
+    expect(reason?.textContent).toBeTruthy()
+    expect(alert.contains(reason)).toBe(true)
     // The ways in are not read out with it: they stay buttons to reach.
     expect(within(alert).queryAllByRole('button')).toEqual([])
     expect(document.activeElement).toBe(findButton())
@@ -648,6 +652,7 @@ describe('The open patient’s page', () => {
     await act(async () => { fireEvent.click(end) })
     expect(end.disabled).toBe(false)
     expect(end.getAttribute('aria-disabled')).toBe('true')
+    expect(end.getAttribute('aria-busy')).toBe('true')
     expect(document.activeElement).toBe(end)
     await act(async () => { fireEvent.click(end) })
     expect(api.closeGrant).toHaveBeenCalledTimes(1)
@@ -655,6 +660,7 @@ describe('The open patient’s page', () => {
     await act(async () => { refuse(new HidApiError(409, 'This access had already ended', { code: 'CONSENT_COMMAND_CONFLICT' })) })
     expect((await screen.findByRole('alert')).textContent).toContain('This access had already ended')
     expect(end.getAttribute('aria-disabled')).toBeNull()
+    expect(end.getAttribute('aria-busy')).toBeNull()
     expect(document.activeElement).toBe(end)
   })
 
@@ -1269,6 +1275,7 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
       await settle()
       expect(api.lookupPatient).not.toHaveBeenCalled()
+      expect(api.breakGlass).not.toHaveBeenCalled()
       expect(staff.setActivePatient).not.toHaveBeenCalled()
     })
   })

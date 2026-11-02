@@ -20,7 +20,7 @@ import type { ActivePatient } from '../../../staff/App'
 
 export const CLOSED_NOTICE = 'closed'
 /** After the chart's READ_ONLY, on the patient page only: how to get changes. */
-export const READ_ONLY_HOW = 'To make changes, ask the patient to let you see and add to their records.'
+const READ_ONLY_HOW = 'To make changes, ask the patient to let you see and add to their records.'
 
 function sexText(value: string | undefined) {
   if (!value) return ''
@@ -221,10 +221,10 @@ function PatientRecord({ chart }: { chart: Chart }) {
           </dl> : null}
           {grantId ? <div className="border-t border-line px-4 py-2.5">
             {closeUnavailable ? <p id="close-grant-unavailable" className="m-0 mb-1.5 text-[12px] text-ink-3">{closeUnavailable}</p> : null}
-            {/* Busy, it stays focusable (aria-disabled, not disabled), as today's Close my grant and the emergency summary's
-                End emergency access: a refused close leaves focus on it, and a second press sends nothing. */}
+            {/* Busy (aria-busy), it stays focusable (aria-disabled, not disabled), as today's Close my grant and the emergency
+                summary's End emergency access: a refused close leaves focus on it, and a second press sends nothing. */}
             <Button variant="danger" size="sm" icon={LogOut} disabled={closeUnavailable !== null} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}
-              aria-disabled={ending || undefined} onClick={() => void closeGrant()}>End my access</Button>
+              aria-busy={ending || undefined} aria-disabled={ending || undefined} onClick={() => void closeGrant()}>End my access</Button>
           </div> : null}
         </Card>
       </div>
