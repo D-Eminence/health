@@ -1,6 +1,21 @@
 import { useEffect,useRef,useState } from 'react'
 import type { StagingPatientChatSource } from '@hid/contracts'
 import { useSession } from './session'
+/**
+ * Where a source's facts came from (the source's `origin`, parsed by @hid/contracts), in the screen's own words (the
+ * owner's decision 25): to the patient, "You added this", "Recorded by a health worker" or "From a scanned paper record";
+ * to a clinician, the same about the patient. Anything else says nothing.
+ */
+const ORIGIN_WORDS:Readonly<Record<string,{patient:string;staff:string}>>={
+  patient:{patient:'You added this',staff:'Added by the patient'},
+  health_worker:{patient:'Recorded by a health worker',staff:'Recorded by a health worker'},
+  scanned_paper:{patient:'From a scanned paper record',staff:'From a scanned paper record'},
+  health_id_profile:{patient:'From your Health ID profile',staff:'From the patient’s Health ID profile'},
+}
+export function originText(origin:unknown,staff=false):string|null {
+  const words=typeof origin==='string'&&Object.hasOwn(ORIGIN_WORDS,origin)?ORIGIN_WORDS[origin]:undefined
+  return words?(staff?words.staff:words.patient):null
+}
 function fields(value:unknown,depth=0):React.ReactNode {
   if(value===null||value===undefined)return 'Not recorded'
   if(typeof value!=='object')return String(value)
@@ -12,7 +27,7 @@ export function ChatSource({source}:{source:StagingPatientChatSource}) {
   const {api}=useSession()
   return <ChatSourceContent source={source} loadSource={api.chatSource} />
 }
-export function ChatSourceContent({source,loadSource}:{source:StagingPatientChatSource;loadSource:(kind:string,id:string,signal?:AbortSignal)=>Promise<Record<string,unknown>>}) {
+export function ChatSourceContent({source,loadSource,staff=false}:{source:StagingPatientChatSource;loadSource:(kind:string,id:string,signal?:AbortSignal)=>Promise<Record<string,unknown>>;staff?:boolean}) {
   const [detail,setDetail]=useState<Record<string,unknown>|null>(null);const [error,setError]=useState('');
   const [loading,setLoading]=useState(false);const flight=useRef<AbortController|null>(null)
   useEffect(()=>()=>flight.current?.abort(),[])
@@ -28,7 +43,10 @@ export function ChatSourceContent({source,loadSource}:{source:StagingPatientChat
     finally{if(!controller.signal.aborted)setLoading(false)}
   }
   const date='kind' in source?source.effectiveAt??source.recordedAt:source.signedAt
+  // Said only when the service says where the facts came from; a service before the chat source labels shows as before.
+  const origin='kind' in source&&'origin' in source?originText(source.origin,staff):null
   return <li><span className="record-chat-source-number">[{source.number}]</span><div><strong>{source.title}</strong>
+    {origin&&<span className="record-chat-source-origin">{origin}</span>}
     <span>{'kind' in source?`${source.provenance} · ${source.quality}`:`Revision ${source.revisionNo} · Signed`}
       {date?' · '+new Date(date).toLocaleDateString('en-NG',{day:'numeric',month:'short',year:'numeric'}):' · Date not recorded'}</span>
     {'kind' in source&&<button type="button" onClick={()=>void open()} disabled={loading}>{loading?'Loading record…':'View source record'}</button>}

@@ -75,7 +75,7 @@ describe('a product site whose own page this session may not open', () => {
     await openOn('lab.healthidentitydirectory.com', ['audit.read', 'lab.walk-in.create'])
     await screen.findAllByRole('heading', { level: 1 })
     expect(where()).toBe('/provider')
-    // The pages every product keeps (Audit & Compliance, under Insight) follow in their own folded group.
+    // The pages every product keeps (Audit trail, under Insight) follow in their own folded group.
     expect(menuNames().slice(0, 2)).toEqual(['Home', 'New request'])
     expect(menuLink('New request')?.getAttribute('href')).toBe('/provider/laboratory/new')
   })
@@ -94,7 +94,7 @@ describe('a product site whose own page this session may not open', () => {
     expect(where()).toBe('/provider')
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     const drawer = await screen.findByRole('dialog', { name: 'Edit shortcuts' })
-    expect(within(drawer).getByRole('checkbox', { name: 'Audit & Compliance' })).toBeDefined()
+    expect(within(drawer).getByRole('checkbox', { name: 'Audit trail' })).toBeDefined()
     expect(within(drawer).queryByRole('checkbox', { name: /Patient registration/ })).toBeNull()
   })
 })

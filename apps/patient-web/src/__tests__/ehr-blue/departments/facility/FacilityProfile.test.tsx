@@ -92,8 +92,8 @@ describe('Facility profile: the target’s sections, read-only', () => {
     expect(valueOf('Facility name', facts)).toBe('Demo Hospital')
     expect(valueOf('Facility type', facts)).toBe('Not reported')
     expect(valueOf('Facility code', facts)).toBe('DEMO-HOSP')
-    // Today's Overview card words the roles: codes as they are on main, Health ID's words on Novu.
-    expect(valueOf('Your roles here', facts)).toBe('org_admin')
+    // Health ID's words for the roles on either backend, never their codes (parity report 3.1 #16).
+    expect(valueOf('Your roles here', facts)).toBe('Facility administrator')
     expect(valueOf('Your primary facility', facts)).toBe('Yes')
 
     const summary = within(facts).getByText('3 permissions')
@@ -113,6 +113,15 @@ describe('Facility profile: the target’s sections, read-only', () => {
     expect(valueOf('Your roles here', facts)).toBe('Staff')
     expect(valueOf('Your primary facility', facts)).toBe('No')
     expect(valueOf('Your permissions here', facts)).toBe('None')
+  })
+
+  // "porter" is a fictional code Health ID has no name for.
+  it.each(['main-v1', 'novu-v1'])('reads "Staff" for a role Health ID has no name for on a %s build, never its code', contract => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+    session.facility = fakeFacility([], { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital', roles: ['porter'] })
+    renderDept(<FacilityProfile />)
+    expect(valueOf('Your roles here', section('Facility details'))).toBe('Staff')
+    expect(document.body.textContent).not.toMatch(/\bporter\b/)
   })
 
   it('follows a switch of the working facility', () => {

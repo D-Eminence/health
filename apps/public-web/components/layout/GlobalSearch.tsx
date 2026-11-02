@@ -212,7 +212,7 @@ const SITE_SEARCH_ITEMS: readonly SiteSearchItem[] = [
     id: 'provider-sign-in',
     label: 'Sign in as a healthcare provider',
     category: 'access',
-    description: 'Continue to your provider workspace in the authenticated Health ID portal.',
+    description: 'Sign in to your facility’s workspace on Health ID EHR.',
     href: APP_ENTRY.staffSignIn,
     icon: 'hospital',
     keywords: ['staff login', 'hospital login', 'facility account'],

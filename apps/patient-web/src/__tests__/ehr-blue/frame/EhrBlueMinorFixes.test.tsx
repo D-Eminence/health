@@ -61,7 +61,11 @@ describe('b. today\'s own routes keep today\'s tab title inside the blue frame',
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp('/provider/migrate')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Migration workspace unavailable' })).toBeDefined()
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Migration workspace unavailable' })
+    // Today's page refuses in plain words that name no permission (the owner's rule), as Document OCR does.
+    const page = heading.closest('.hid-ehr-blue-live')
+    expect(page?.textContent).toContain('Reading scanned documents isn’t available at your facility yet.')
+    expect(page?.textContent).not.toMatch(/permission|membership|OCR job read|ocr\.job\.read/i)
     await waitFor(() => expect(document.title).toBe('Migration workspace · Health ID EHR'))
   })
 
@@ -81,6 +85,11 @@ describe('b. today\'s own routes keep today\'s tab title inside the blue frame',
     await openStaffApp('/provider/staff/join')
     await screen.findByRole('navigation', { name: 'Main navigation' })
     await waitFor(() => expect(document.title).toBe('Page not found · Health ID EHR'))
+    // The frame's own Page not found, not today's catch-all inside it: one look and one way back across the workspace.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
+    const page = document.querySelector<HTMLElement>('.hid-ehr-blue-page')!
+    expect(within(page).getAllByRole('link')).toEqual([within(page).getByRole('link', { name: 'Go to Home' })])
+    expect(screen.queryByText(/provider overview/)).toBeNull()
   })
 })
 
@@ -121,7 +130,7 @@ describe('c. Needs attention says nothing needs attention only when it lists not
 })
 
 describe('d. role dashboards link sample records only into sample pages', () => {
-  it('names a record of a workspace that is live here, and links the others', async () => {
+  it('names a record of a workspace that is live here, links the others, and links every shortcut', async () => {
     const [{ RoleDashboard }, { RoleViewProvider }, { BluePagesProvider }, { BLUE_PAGES }, store] = await Promise.all([
       import('../../../ehr-blue/home/RoleDashboard'), import('../../../ehr-blue/frame/roleView'),
       import('../../../ehr-blue/frame/pageContext'), import('../../../ehr-blue/routes'), import('../../../ehr-blue/frame/sample/store'),
@@ -135,11 +144,10 @@ describe('d. role dashboards link sample records only into sample pages', () => 
     expect(attention.getAllByRole('link').map(link => link.getAttribute('href'))).toEqual([
       `/provider/bloodbank/${store.sampleRecords('bloodbank')[0]!.id}`, `/provider/supply/${store.sampleRecords('inventory')[0]!.id}`,
     ])
+    // A shortcut opens the page itself, live or sample (audit item 6): Laboratory is today's page at its own address.
     const shortcuts = within(screen.getByRole('heading', { name: 'Pinned shortcuts' }).nextElementSibling as HTMLElement)
-    expect(shortcuts.queryByRole('link', { name: 'Laboratory' })).toBeNull()
-    expect(shortcuts.getByText('Laboratory')).toBeDefined()
     expect(shortcuts.getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')])).toEqual([
-      ['Blood Bank', '/provider/bloodbank'], ['Stock', '/provider/supply'],
+      ['Laboratory', '/provider/laboratory'], ['Blood Bank', '/provider/bloodbank'], ['Supply', '/provider/supply'],
     ])
   })
 })
