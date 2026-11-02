@@ -8,13 +8,15 @@ import { offeredHere, siteElsewhere, siteHref, siteOf, SITE_NAMES, STAFF_SITES, 
  * of the address, keeps them in this page's memory only, and offers "Back to <site>" to that page on that site's fixed
  * hostname.
  *
- * Dark: only a build that sets VITE_HID_SSO to exactly "1" does any of this. Unset, every link is today's siteHref,
- * and no address is read or changed.
+ * Dark: only a build that sets VITE_HID_SSO to "1" or "true" does any of this, as the sign-in hand-off reads it
+ * (packages/config ssoEnabled, #100). Unset or anything else, every link is today's siteHref, and no address is read or
+ * changed.
  */
 
-/** Whether single sign-on's switching is on in this build. */
+/** Whether single sign-on's switching is on in this build: VITE_HID_SSO is "1" or "true", and nothing else. */
 export function switchingOn(): boolean {
-  return import.meta.env.VITE_HID_SSO === '1'
+  const value = import.meta.env.VITE_HID_SSO
+  return value === '1' || value === 'true'
 }
 
 /**

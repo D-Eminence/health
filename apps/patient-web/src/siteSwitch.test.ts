@@ -72,8 +72,10 @@ describe('isSwitchBackPath', () => {
   })
 })
 
-describe('switchHref, off (VITE_HID_SSO unset or anything but "1")', () => {
-  it.each([undefined, '', '0', 'true', 'yes', ' 1', '1 '])('is today’s siteHref exactly with VITE_HID_SSO=%j', async value => {
+describe('switchHref, off (VITE_HID_SSO unset or anything but "1" or "true")', () => {
+  // Only "1" and "true" turn it on, as packages/config reads them: no other spelling, case or space.
+  const OFF = [undefined, '', '0', 'false', 'yes', 'on', 'TRUE', 'True', ' 1', '1 ', ' true', 'true ']
+  it.each(OFF)('is today’s siteHref exactly with VITE_HID_SSO=%j', async value => {
     if (value !== undefined) vi.stubEnv('VITE_HID_SSO', value)
     const { switchHref } = await loadAt(`https://${EHR}/provider/patients`)
     for (const to of [LAB, PHARMACY, 'migrate.healthidentitydirectory.com', 'outreach.healthidentitydirectory.com']) {
@@ -84,6 +86,13 @@ describe('switchHref, off (VITE_HID_SSO unset or anything but "1")', () => {
 })
 
 describe('switchHref, on (VITE_HID_SSO=1)', () => {
+  it.each(['1', 'true'])('is on with VITE_HID_SSO=%j, as the sign-in hand-off reads it (packages/config ssoEnabled)', async value => {
+    vi.stubEnv('VITE_HID_SSO', value)
+    const { switchingOn, switchHref } = await loadAt(`https://${EHR}/provider/patients`)
+    expect(switchingOn()).toBe(true)
+    expect(switchHref(site(LAB), EHR, '/provider/patients')).toBe('https://lab.healthidentitydirectory.com/provider?from=ehr&back=%2Fprovider%2Fpatients')
+  })
+
   it('opens the other site’s workspace with from= this site and back= this page, and nothing else', async () => {
     vi.stubEnv('VITE_HID_SSO', '1')
     const { switchHref } = await loadAt(`https://${EHR}/provider/patients`)
