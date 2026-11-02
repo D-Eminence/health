@@ -406,7 +406,11 @@ staff site of the invitee's role at `/provider/invitation` (Turnstile `staff-inv
 signed in at `/provider/staff/join` on their own staff site: the workspace
 takes the link out of the address before its sign-in gate, holds it in
 memory for 30 minutes (the portal keeps nothing in browser storage), and a
-sign-in returns to the join page. The console's review form chooses the
+sign-in returns to the join page. Identity opens no invitation for a browser
+that holds a Health ID sign-in (409 `STAFF_INVITATION_REQUIRES_SIGN_OUT`; on a
+product site that is the site's own staff sign-in), so the invitation page
+then offers that join page with the link, or signing out first (a shared
+computer). The console's review form chooses the
 administrator's role and how support checked them, and its facility pages
 show staff and licences on demand and find an invitation by its reference.
 Laboratory and pharmacy pages of a stand-alone facility say where its work

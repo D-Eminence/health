@@ -8,8 +8,8 @@ import { Turnstile } from '../../../Turnstile'
 import { STAFF_JOIN_PATH, STAFF_SIGN_IN_PATH, staffHostForRole, staffPagesOrigin } from '../../../productHostname'
 import { OpenStaffPage, sameStaffPageOn } from '../../../staffSignIn'
 import { getEnvironment } from '../../../staff/env'
-import { staffInvitationApi, type StaffInvitationOpened, type StaffInvitationProof } from '../../../staff/api'
-import { invitationLinkOf, type InvitationLink } from '../../../staff/invitationCapture'
+import { staffApi, staffInvitationApi, type StaffInvitationOpened, type StaffInvitationProof } from '../../../staff/api'
+import { invitationLinkOf, staffJoinAddress, type InvitationLink } from '../../../staff/invitationCapture'
 import { licenceBodyForRole, roleInSentence } from '../../../staff/staffAccess'
 import { isRouteMissing, joinProblemText } from '../../../staff/staffProblems'
 import { BlueAuthLayout, NOTE } from './BlueAuthLayout'
@@ -21,7 +21,9 @@ import { BlueAuthLayout, NOTE } from './BlueAuthLayout'
  * acceptance on the person's own site for existing staff; and today's refusals. Each product site opens invitations
  * itself (hid-system accepts staff-invitation there, and the email links to the site of the invitee's role); a site
  * that serves no staff pages (the production patient portal, an admin site) opens the EHR site's page at once, with
- * the link. The page's private helpers are copied
+ * the link. Identity opens no invitation for a browser signed in on the site: someone signed in there (staff of
+ * another facility, with the link from the email) is offered the signed-in join page with the link, as before, or to
+ * sign out first (a shared computer). The page's private helpers are copied
  * below, word for word, until both pages share them (README.md). App.tsx opens it at /provider/invitation in place of
  * today's page once the clinic switch is on (BLUE_FOR_ALL).
  */
@@ -97,11 +99,14 @@ function InvitationSteps() {
   const [fieldError, setFieldError] = useState('')
   const [unavailable, setUnavailable] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Identity refused to open the invitation because this browser is signed in on the site; then signed out here.
+  const [signedInHere, setSignedInHere] = useState(false)
+  const [signedOut, setSignedOut] = useState(false)
 
   async function open(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy || !turnstileToken) return
-    setError(''); setFieldError('')
+    setError(''); setFieldError(''); setSignedOut(false)
     let proof: StaffInvitationProof
     if (mode === 'link' && link) proof = link
     else {
@@ -117,12 +122,25 @@ function InvitationSteps() {
       setOpened(await staffInvitationApi.open(proof, turnstileToken))
     } catch (caught) {
       if (isRouteMissing(caught)) setUnavailable(true)
+      else if (isHidApiError(caught) && caught.code === 'STAFF_INVITATION_REQUIRES_SIGN_OUT') setSignedInHere(true)
       else setError(joinProblemText(caught, null))
     } finally {
       setTurnstileToken(null)
       setResetKey(value => value + 1)
       setBusy(false)
     }
+  }
+
+  /** Ends the session this browser holds on the site, then the invitation can be opened without an account. */
+  async function signOutFirst() {
+    if (busy) return
+    setError(''); setBusy(true)
+    try {
+      await staffApi.logout()
+      setSignedInHere(false); setSignedOut(true)
+    } catch {
+      setError('We couldn’t sign you out. Try again, or open the invitation in a private window.')
+    } finally { setBusy(false) }
   }
 
   async function accept(event: FormEvent<HTMLFormElement>) {
@@ -156,8 +174,13 @@ function InvitationSteps() {
         </section>
       ) : null}
 
-      {!unavailable && !opened && !accepted ? (
+      {!unavailable && signedInHere ? (
+        <SignedInHere link={mode === 'link' ? link : null} busy={busy} onSignOut={() => void signOutFirst()} />
+      ) : null}
+
+      {!unavailable && !signedInHere && !opened && !accepted ? (
         <form className="staff-form" noValidate onSubmit={event => void open(event)}>
+          {signedOut ? <Alert intent="success" size="sm">You’re signed out. Select Continue to open your invitation.</Alert> : null}
           <h2>{mode === 'link' ? 'Open your invitation' : 'Enter your invitation code'}</h2>
           {mode === 'link'
             ? <p className={NOTE}>Complete the security check, then select Continue to see who invited you.</p>
@@ -200,6 +223,25 @@ function InvitationSteps() {
         </section>
       ) : null}
     </BlueAuthLayout>
+  )
+}
+
+/**
+ * This browser is signed in on the site, so Identity opens no invitation here. If it is the invited person (staff
+ * elsewhere), they accept signed in on the join page, which takes the link from its address; if not, they sign out.
+ */
+function SignedInHere({ link, busy, onSignOut }: {
+  readonly link: InvitationLink | null; readonly busy: boolean; readonly onSignOut: () => void
+}) {
+  return (
+    <section className="staff-form" aria-labelledby="blue-invitation-signed-in-title">
+      <FocusedHeading id="blue-invitation-signed-in-title">You’re already signed in</FocusedHeading>
+      <p className={NOTE}>Someone is signed in to Health ID in this browser. If it’s you, accept the invitation with your
+        account.{link ? '' : ' You’ll enter the code from the invitation email again.'} If it’s someone else, or you
+        don’t have a Health ID staff account yet, sign out first.</p>
+      <a className={buttonClass({ variant: 'primary', size: 'lg', block: true })} href={staffJoinAddress(link)}>Accept with my account</a>
+      <Button size="lg" block loading={busy} disabled={busy} onClick={onSignOut}>{busy ? 'Signing out…' : 'Sign out first'}</Button>
+    </section>
   )
 }
 

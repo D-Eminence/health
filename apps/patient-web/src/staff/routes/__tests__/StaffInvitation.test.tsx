@@ -103,8 +103,7 @@ describe('opening an invitation', () => {
     ['STAFF_INVITATION_WITHDRAWN', 410, 'This invitation is no longer available: the facility withdrew it, or can’t take new staff '
       + 'on Health ID right now. Ask the facility about it.'],
     ['STAFF_INVITATION_ALREADY_ACCEPTED', 409, 'This invitation has already been accepted. Sign in to use it.'],
-    ['STAFF_INVITATION_REQUIRES_SIGN_OUT', 409, 'This browser is signed in to Health ID, for example as a patient. Sign out, or '
-      + 'open the link in a private window.'],
+    // STAFF_INVITATION_REQUIRES_SIGN_OUT offers the signed-in join page or signing out (StaffInvitationSignedIn.test.tsx).
     ['STAFF_INVITATIONS_UNAVAILABLE', 423, 'Joining is paused by Health ID. Try again later.'],
     ['STAFF_INVITATION_RATE_LIMITED', 429, 'Too many invitations have been opened from your network. Please try again in an hour.'],
     ['TURNSTILE_CONTEXT_MISMATCH', 403, 'The security check was made for another Health ID site. Open the link in the invitation '
@@ -265,6 +264,9 @@ describe('what the invited person does next', () => {
       + 'the email.'],
     ['STAFF_INVITATION_WITHDRAWN', 410, 'This invitation is no longer available: Ikeja Care withdrew it, or can’t take new staff on '
       + 'Health ID right now. Ask the facility about it.'],
+    // Signed in somewhere else since the invitation was opened (another tab): the password step can't finish here.
+    ['STAFF_INVITATION_REQUIRES_SIGN_OUT', 409, 'This browser is signed in to Health ID, for example as a patient. Sign out, or '
+      + 'open the link in a private window.'],
   ])('says a refused acceptance (%s) in its own words', async (code, status, text) => {
     api.accept.mockRejectedValueOnce(new HidApiError(status, 'Identity’s detail', { code }))
     await openWith({})

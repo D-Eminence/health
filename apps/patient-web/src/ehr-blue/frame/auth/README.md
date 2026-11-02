@@ -38,7 +38,9 @@ import in the route file). The Design tour shows the design's journeys.
 - **Hosts.** Each product site keeps every way in on itself: sign in, register,
   recover access and accept an invitation. The production patient portal and
   the admin sites open the same page on the EHR site at once; existing staff
-  accept an invitation signed in on their own site.
+  accept an invitation signed in on their own site. Identity opens no
+  invitation for a browser signed in on the site, so someone signed in there
+  is offered the signed-in join page with the link, or to sign out first.
 
 `SignIn.tsx` keeps `TurnstileChallenge`, `passwordRefusal` and
 `getStaffLandingPath` inside the page, and `StaffInvitation.tsx` keeps its link,
