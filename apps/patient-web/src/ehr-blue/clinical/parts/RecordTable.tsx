@@ -229,16 +229,19 @@ export function SearchField({ label, value, onChange, placeholder = 'Search save
  * "Previous page | Page n of m | Next page" (`total` unknown: "Page n"), as today's Pager (Clinical.tsx): the page
  * reached is announced (role="status"), and a button that cannot act, at either end or while a page loads, is marked
  * unavailable (aria-disabled) rather than disabled, so the one just pressed keeps focus; a press then does nothing.
+ * Its landmark is today's pager name (staff/routes/Clinical.tsx:367): "Record pages" unless it pages something else,
+ * as "Encounter pages" does (:1794).
  */
-export function Pager({ page, total, onPrevious, onNext, busy = false }: {
+export function Pager({ page, total, onPrevious, onNext, busy = false, label = 'Record pages' }: {
   page: number
   total?: number
   onPrevious?: () => void
   onNext?: () => void
   busy?: boolean
+  label?: string
 }) {
   return (
-    <nav className="hid-ehr-clinical-pager" aria-label="Record pages">
+    <nav className="hid-ehr-clinical-pager" aria-label={label}>
       <EhrButton variant="secondary" aria-disabled={!onPrevious || undefined} busy={busy} onClick={onPrevious}>Previous page</EhrButton>
       <span role="status">{total ? `Page ${page} of ${total}` : `Page ${page}`}</span>
       <EhrButton variant="secondary" aria-disabled={!onNext || undefined} busy={busy} onClick={onNext}>Next page</EhrButton>
