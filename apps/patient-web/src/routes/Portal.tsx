@@ -336,13 +336,13 @@ type Row<S extends RecordSection> = PatientRecords[S][number]
  * where a note's text names them.
  */
 const SEARCHED: { readonly [S in RecordSection]: (item: Row<S>) => Array<string | null> } = {
-  encounters: item => ['Encounter', item.encounterType, item.status, date(item.startedAt)],
+  encounters: item => ['Encounter', visitClassLabel(item.encounterType), visitStatusLabel(item.status), item.encounterType, item.status, date(item.startedAt)],
   notes: item => ['Clinical note', item.title, item.noteType, item.status, item.content, date(item.signedAt)],
   vitals: item => ['Vitals', date(item.recordedAt), vitalsSummary(item)],
   diagnoses: item => ['Diagnosis', item.display, item.code, item.clinicalStatus, item.verificationStatus, item.notes],
   prescriptions: item => ['Prescription', item.medicationDisplay, item.frequency, item.instructions, item.status],
   labRequests: item => ['Laboratory request', item.testDisplay, item.priority, item.status, item.clinicalInformation, date(item.createdAt)],
-  documents: item => ['Clinical document', item.fileName, item.mediaType, date(item.createdAt)],
+  documents: item => ['Clinical document', item.fileName, fileTypeLabel(item.mediaType), item.mediaType, date(item.createdAt)],
 }
 /** The date each section's rows are listed under. */
 const DATED: { readonly [S in RecordSection]: (item: Row<S>) => string | null } = {
