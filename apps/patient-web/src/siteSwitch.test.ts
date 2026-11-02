@@ -98,12 +98,19 @@ describe('switchHref, on (VITE_HID_SSO=1)', () => {
     expect(switchHref(site(LAB), EHR, path)).toBe('https://lab.healthidentitydirectory.com/provider?from=ehr')
   })
 
-  it('leaves back out when this site does not serve the page (it would only send the person on)', async () => {
+  it('leaves back out when this site does not open the page itself (productSites.ts offeredHere)', async () => {
     vi.stubEnv('VITE_HID_SSO', '1')
     const { switchHref } = await loadAt(`https://${LAB}/provider/laboratory`)
-    expect(switchHref(site(EHR), LAB, '/provider/patients')).toBe('https://ehr.healthidentitydirectory.com/provider?from=lab')
-    expect(switchHref(site(EHR), LAB, '/provider/laboratory/work'))
-      .toBe('https://ehr.healthidentitydirectory.com/provider?from=lab&back=%2Fprovider%2Flaboratory%2Fwork')
+    // Pharmacy's own page opens on its own site; Consultation is the hospital EHR's, which the laboratory site would
+    // only replace with its Home.
+    for (const back of ['/provider/pharmacy', '/provider/clinical']) {
+      expect(switchHref(site(PHARMACY), LAB, back), back).toBe('https://pharmacy.healthidentitydirectory.com/provider?from=lab')
+    }
+    // Patients is every product's page (#78), and the laboratory's own pages are its own.
+    expect(switchHref(site(PHARMACY), LAB, '/provider/patients'))
+      .toBe('https://pharmacy.healthidentitydirectory.com/provider?from=lab&back=%2Fprovider%2Fpatients')
+    expect(switchHref(site(PHARMACY), LAB, '/provider/laboratory/work'))
+      .toBe('https://pharmacy.healthidentitydirectory.com/provider?from=lab&back=%2Fprovider%2Flaboratory%2Fwork')
   })
 
   it('takes the other site’s hostname from the fixed table, never from the Site it is given', async () => {
@@ -223,11 +230,20 @@ describe('takeSwitchArrival, on', () => {
     expect(address()).toBe('/provider')
   })
 
-  it('comes back to the other site’s workspace when that site does not serve the page', async () => {
+  it('comes back to the other site’s workspace when that site does not open the page itself', async () => {
     vi.stubEnv('VITE_HID_SSO', '1')
-    // Patients is the Hospital EHR's page: the laboratory site would only send the person on.
+    // Consultation is the hospital EHR's page, which the laboratory site would only replace with its Home; Pharmacy's
+    // own page opens on Pharmacy's site.
+    for (const back of ['/provider/clinical', '/provider/pharmacy']) {
+      const { takeSwitchArrival } = await loadAt(`https://${PHARMACY}/provider?from=lab&back=${encodeURIComponent(back)}`)
+      expect(takeSwitchArrival()?.href, back).toBe('https://lab.healthidentitydirectory.com/provider')
+    }
+  })
+
+  it('comes back to Patients on a product’s site, which every product opens (#78)', async () => {
+    vi.stubEnv('VITE_HID_SSO', '1')
     const { takeSwitchArrival } = await loadAt(`https://${PHARMACY}/provider?from=lab&back=%2Fprovider%2Fpatients`)
-    expect(takeSwitchArrival()?.href).toBe('https://lab.healthidentitydirectory.com/provider')
+    expect(takeSwitchArrival()?.href).toBe('https://lab.healthidentitydirectory.com/provider/patients')
   })
 
   it.each(['web', 'admin', 'auth', 'EHR', 'ehr ', '__proto__', 'constructor', 'toString', 'hasOwnProperty', '', 'evil.example',

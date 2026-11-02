@@ -1,5 +1,5 @@
 import type { StaffProductKey } from './productHostname'
-import { siteElsewhere, siteHref, siteOf, siteServing, SITE_NAMES, STAFF_SITES, type Site } from './productSites'
+import { offeredHere, siteElsewhere, siteHref, siteOf, SITE_NAMES, STAFF_SITES, type Site } from './productSites'
 
 /**
  * Moving between the staff sites with a way back (single sign-on contract v2, health "switch-back"). Signed in on one
@@ -47,7 +47,8 @@ function isStaffSite(key: string): key is StaffProductKey {
 
 /**
  * The link from this staff site to another: that site's workspace on its fixed hostname, with from=<this site> and,
- * when `backPath` passes isSwitchBackPath and this site serves it, back=<backPath>. Nothing else of this page goes.
+ * when `backPath` passes isSwitchBackPath and this site opens it itself (productSites.ts offeredHere), back=<backPath>.
+ * Nothing else of this page goes.
  * Today's siteHref(site) while switching is off, and from or to any host that is not a staff site.
  */
 export function switchHref(site: Site, hostname: string, backPath: string | null): string {
@@ -57,7 +58,7 @@ export function switchHref(site: Site, hostname: string, backPath: string | null
   const there = siteElsewhere(site.key, hostname)
   if (!there) return siteHref(site)
   const query = new URLSearchParams({ from: here.key })
-  if (isSwitchBackPath(backPath) && siteServing(backPath, hostname) === null) query.set('back', backPath)
+  if (isSwitchBackPath(backPath) && offeredHere(backPath, hostname)) query.set('back', backPath)
   return `https://${there.hostname}${SWITCH_ENTRY}?${query.toString()}`
 }
 
@@ -87,7 +88,9 @@ function arrivalFrom(from: readonly string[], back: readonly string[], hostname:
   const site = siteElsewhere(key, hostname)
   if (!site) return null
   const asked = back[0]
-  const path = isSwitchBackPath(asked) && siteServing(asked, site.hostname) === null ? asked : SWITCH_ENTRY
+  // A page the site left opens itself (productSites.ts offeredHere): never another product's page, nor, on a product's
+  // site, a page of the hospital EHR's, which would only open that product's Home.
+  const path = isSwitchBackPath(asked) && offeredHere(asked, site.hostname) ? asked : SWITCH_ENTRY
   return { from: key, name: SITE_NAMES[key], path, href: `https://${site.hostname}${path}` }
 }
 

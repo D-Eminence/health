@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import { DEMO_HOSPITAL, DEMO_LABORATORY, facility, homeHeading, openStaffApp, serve, sessionAt, where } from '../ehr-blue/frame/blueHarness'
-import { backToTestSite, EVERY_PERMISSION, onSite, siteLinks } from './siteHarness'
+import { backToTestSite, EVERY_PERMISSION, expectNoHostnameShown, onSite, siteLinks } from './siteHarness'
 
 /**
  * Moving between the staff sites with single sign-on on (VITE_HID_SSO=1, siteSwitch.ts), in the blue EHR: the links
@@ -80,6 +80,13 @@ describe('off (VITE_HID_SSO unset): exactly today', () => {
     expect(screen.queryByRole('link', { name: /^Back to / })).toBeNull()
   })
 
+  it('shows Home on lab. where the laboratory’s own page would only refuse, as #94 does', async () => {
+    await arrive(LAB, '/provider', CLINICAL)
+    expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeTruthy()
+    expect(where()).toBe('/provider')
+    expect(screen.queryByRole('heading', { name: CANNOT_USE })).toBeNull()
+  })
+
   it('shows Home on ehr. to an account with nothing of the EHR, as today', async () => {
     await arrive(EHR, '/provider', ['audit.read'])
     expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeTruthy()
@@ -91,18 +98,30 @@ describe('on (VITE_HID_SSO=1): the links to the other sites', () => {
   it('say which site and page they leave, and nothing else', async () => {
     on()
     await arrive(LAB, '/provider/laboratory/tests', [...LABORATORY, 'billing.catalogue.read', 'identity.patient.read'])
+    // A product's site never links to the EHR site (#113, #115), nor any staff page to app.
     expect(otherSites()).toContainEqual(
-      ['Hospital EHR', 'https://ehr.healthidentitydirectory.com/provider?from=lab&back=%2Fprovider%2Flaboratory%2Ftests'])
+      ['Pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider?from=lab&back=%2Fprovider%2Flaboratory%2Ftests'])
     for (const [name, href] of otherSites()) {
-      expect(href, name).toMatch(/^https:\/\/[a-z]+\.healthidentitydirectory\.com\/provider\?from=lab&back=%2Fprovider%2Flaboratory%2Ftests$/)
+      expect(href, name).toMatch(/^https:\/\/(?:lab|pharmacy|migrate|outreach)\.healthidentitydirectory\.com\/provider\?from=lab&back=%2Fprovider%2Flaboratory%2Ftests$/)
     }
   })
 
   it('leave the record a page has open here: back names the page, never what is below it', async () => {
     on()
     await arrive(LAB, `/provider/laboratory/work/${WORK_ITEM}`, [...LABORATORY, 'identity.patient.read'])
-    expect(otherSites()).toContainEqual(['Hospital EHR', 'https://ehr.healthidentitydirectory.com/provider?from=lab&back=%2Fprovider%2Flaboratory%2Fwork'])
+    expect(otherSites()).toContainEqual(['Pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider?from=lab&back=%2Fprovider%2Flaboratory%2Fwork'])
     for (const [, href] of otherSites()) expect(href).not.toContain(WORK_ITEM.slice(-12))
+  })
+})
+
+describe('on (VITE_HID_SSO=1): app. is for patients only', () => {
+  it('never links a staff page to app.: every site link and the way back are staff sites', async () => {
+    on()
+    await arrive(LAB, '/provider/laboratory/work?from=pharmacy&back=%2Fprovider%2Fpharmacy%2Fprescriptions', [...LABORATORY, 'pharmacy.work-item.read'])
+    expect(screen.getByRole('link', { name: 'Back to Pharmacy' })).toBeTruthy()
+    const hosts = [...document.querySelectorAll('a[href^="https:"]')].map(link => new URL(link.getAttribute('href')!).hostname)
+    expect(hosts.length).toBeGreaterThan(1)
+    for (const host of hosts) expect(host).toMatch(/^(?:ehr|lab|pharmacy|migrate|outreach)\.healthidentitydirectory\.com$/)
   })
 })
 
@@ -172,14 +191,22 @@ describe('on (VITE_HID_SSO=1): an account its facility gives nothing of this sit
   it('without a way back in memory, offers the other sites whose product the account does use, and only those', async () => {
     on()
     // As after the sign-in hand-off's round trip, which leaves the page and its memory: no from or back to read.
-    await arrive(LAB, '/provider/laboratory/work', CLINICAL)
+    await arrive(LAB, '/provider/laboratory/work', [...CLINICAL, 'pharmacy.work-item.read'])
     expect(await screen.findByRole('heading', { level: 1, name: 'Your account can\'t use Laboratory at this facility.' })).toBeTruthy()
-    // The Hospital EHR is open to clinical roles. Pharmacy is not: its menu page asks for nothing, which is no reason.
+    // Pharmacy is open to these roles. A product's site never links to the EHR site (#113, #115), whatever the roles.
     expect(onward()).toEqual([
-      ['Open Hospital EHR', 'https://ehr.healthidentitydirectory.com/provider?from=lab&back=%2Fprovider%2Flaboratory%2Fwork'],
+      ['Open Pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider?from=lab&back=%2Fprovider%2Flaboratory%2Fwork'],
     ])
     expect(screen.queryByRole('link', { name: /^Back to / })).toBeNull()
     expect(signInShown()).toBe(false)
+  })
+
+  it('offers no way to the EHR site from a product’s site, even to clinical roles', async () => {
+    on()
+    await arrive(LAB, '/provider/laboratory/work', CLINICAL)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your account can\'t use Laboratory at this facility.' })).toBeTruthy()
+    expect(onward()).toEqual([])
+    expect(thePage().queryAllByRole('link')).toEqual([])
   })
 
   it('makes no way on up: an account no other site opens either gets no link', async () => {
@@ -195,6 +222,15 @@ describe('on (VITE_HID_SSO=1): an account its facility gives nothing of this sit
     await arrive(LAB, '/provider/audit', CLINICAL)
     await waitFor(() => expect(where()).toBe('/provider/audit'))
     expect(screen.queryByRole('heading', { name: CANNOT_USE })).toBeNull()
+  })
+
+  it('on lab., says so in place of the Home #94 opens, and stays at /provider', async () => {
+    on()
+    await arrive(LAB, '/provider', CLINICAL)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your account can\'t use Laboratory at this facility.' })).toBeTruthy()
+    expect(where()).toBe('/provider')
+    expect(screen.queryByRole('heading', { name: homeHeading() })).toBeNull()
+    expect(document.title).toBe('No access · Health ID Lab')
   })
 
   it('on ehr., replaces Home for an account with nothing of the EHR', async () => {
@@ -232,14 +268,16 @@ describe('a demo facility opened on another staff site', () => {
 
   it('off: links to the site’s root and says it signs in separately, as today', async () => {
     const page = await demoHospitalOnLab()
-    expect(page.getByText('Demo Hospital is on ehr.healthidentitydirectory.com, where you sign in separately. To work at another facility here, choose it.')).toBeTruthy()
+    expect(page.getByText('Demo Hospital is on Health ID EHR, where you sign in separately. To work at another facility here, choose it.')).toBeTruthy()
+    expectNoHostnameShown()
     expect(page.getByRole('link', { name: 'Open Hospital EHR' }).getAttribute('href')).toBe('https://ehr.healthidentitydirectory.com/')
   })
 
   it('on: links to the site’s workspace with from and back, and warns of no second sign-in', async () => {
     on()
     const page = await demoHospitalOnLab()
-    expect(page.getByText('Demo Hospital is on ehr.healthidentitydirectory.com. To work at another facility here, choose it.')).toBeTruthy()
+    expect(page.getByText('Demo Hospital is on Health ID EHR. To work at another facility here, choose it.')).toBeTruthy()
+    expectNoHostnameShown()
     expect(page.queryByText(/sign in separately/)).toBeNull()
     expect(page.getByRole('link', { name: 'Open Hospital EHR' }).getAttribute('href'))
       .toBe('https://ehr.healthidentitydirectory.com/provider?from=lab&back=%2Fprovider%2Faudit')
