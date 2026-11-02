@@ -56,8 +56,10 @@ function PatientRoutes() {
       <Route path="/enroll" element={<Enrollment />} />
       <Route path="/enroll/facilities" element={<ParticipatingFacilitiesPage />} />
       <Route path="/recover" element={<Recovery />} />
-      {/* Sharing by card: the patient's preview of the provider's page, and the provider's page itself (the email's link). */}
+      {/* Sharing by card: the patient's preview of the provider's page, and the page a shared link opens (dormant until the
+          one-time-code routes exist: it says it isn't available yet and reads nothing). */}
       <Route path="/card/preview" element={<RequireAccess requirement={PATIENT_ROUTE}><SharedCardPreview /></RequireAccess>} />
+      <Route path="/card" element={<SharedCardPage />} />
       <Route path="/card/:token" element={<SharedCardPage />} />
       {/* hid-1.0's old addresses open the page that replaces each; nothing of the old address is kept. */}
       {Object.entries(LEGACY_PATIENT_PATHS).map(([from, to]) => <Route key={from} path={from} element={<Navigate to={to} replace />} />)}
