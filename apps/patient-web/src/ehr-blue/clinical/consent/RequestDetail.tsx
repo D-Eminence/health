@@ -104,20 +104,32 @@ export function RequestDetail() {
     setSettled(value => value + 1)
   }
 
+  // Try again reads the request again, as today's reload does: what that read finds replaces a refused close, with the
+  // list's own refusal when it fails too (AccessRequests.tsx:75,78). It never sends the close again.
+  async function readAgain() {
+    await list.load()
+    setFailure('')
+  }
+
   const statusRegion = (
     <div ref={status} tabIndex={-1} role="status" className="outline-none empty:hidden">
       {notice ? <Alert intent="success" live={false}>{notice}</Alert> : null}
     </div>
   )
 
+  // A refused close is said whatever the read after it found: today's page reads again, then puts the refusal in its one
+  // alert, in place of any list error (AccessRequests.tsx:94-95,118).
+  const refusedClose = failure ? <Alert intent="error" title="Couldn’t close access">{failure}</Alert> : null
+
   // A request just sent is confirmed ("Request sent.") even while the list is read, cannot be read, or lacks it. The
   // page and its heading stay the same element while the request loads, so the focus the frame gave the heading stays.
   if (!request) {
-    if (!list.error && list.requests !== null) return <><RecordNotFound backHref={href()} />{statusRegion}</>
+    if (!list.error && list.requests !== null) return <><RecordNotFound backHref={href()} />{refusedClose}{statusRegion}</>
     return <FormPage title="Access request" back={{ to: href(), label: 'Back to access requests' }}>
       {statusRegion}
-      {list.error ? <Alert intent="error" title="Couldn’t load this request" action={<Button size="sm" onClick={() => void list.load()}>Try again</Button>}>{list.error}</Alert>
-        : <Card><LoadingRows rows={3} label="Loading this request" /></Card>}
+      {list.error ? <Alert intent="error" title={failure ? 'Couldn’t close access' : 'Couldn’t load this request'}
+        action={<Button size="sm" onClick={() => void readAgain()}>Try again</Button>}>{failure || list.error}</Alert>
+        : <>{refusedClose}<Card><LoadingRows rows={3} label="Loading this request" /></Card></>}
     </FormPage>
   }
 
@@ -131,7 +143,7 @@ export function RequestDetail() {
       {ended ? <Alert intent="error" title="Access to this patient ended"
         action={<Button size="sm" to={href.to('patients')}>Find a patient</Button>}>{ACCESS_ENDED}</Alert> : null}
       {statusRegion}
-      {failure ? <Alert intent="error" title="Couldn’t close access">{failure}</Alert> : null}
+      {refusedClose}
       {list.error ? <Alert intent="error" title="Couldn’t refresh this request">{list.error}</Alert> : null}
       <StateNote request={request} />
       <Card>
@@ -143,7 +155,7 @@ export function RequestDetail() {
         <div className="flex flex-col gap-2 p-5">
           {closeUnavailable ? <p id="close-access-unavailable" className="m-0 text-[13px] text-ink-3">{closeUnavailable}</p> : null}
           <Button variant="danger" className="self-start" disabled={closeUnavailable !== null}
-            aria-describedby={closeUnavailable ? 'close-access-unavailable' : undefined} loading={closing} onClick={() => void close()}>Close access</Button>
+            aria-describedby={closeUnavailable ? 'close-access-unavailable' : undefined} loading={closing} onClick={() => void close()}>{closing ? 'Closing…' : 'Close access'}</Button>
         </div>
       </Card> : null}
       {offerEmergency ? <Card>

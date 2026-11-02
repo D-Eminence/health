@@ -1,4 +1,5 @@
 import { createElement } from 'react'
+import { ConsentRefusal } from './consent/ConsentRefusal'
 import { ConsentWorkspace, consentStatus } from './consent/ConsentWorkspace'
 import { ConsultWorkspace, consultStatus } from './consult/ConsultWorkspace'
 import { EmergencyWorkspace, emergencyStatus } from './emergency/EmergencyWorkspace'
@@ -17,7 +18,7 @@ const sample = (id: string) => createElement(SampleWorkspace, { id })
  * stand-in path for the workspace (under /provider, taking every address below it), so each page replaces its stand-in
  * in place; Consultation and External record access keep today's addresses (clinical, requests). Groups and labels are
  * the design's; a permission is the one today's page for the same work checks. Sample pages have no permission: they
- * call nothing and save nothing.
+ * call nothing and save nothing. Access requests opened without its permission says why in today's words (ConsentRefusal).
  */
 export const pages: EhrBluePage[] = [
   { path: 'patients/*', group: 'Clinical', label: 'Patients', icon: icon('user'), permission: 'identity.patient.read', status: patientsStatus, element: createElement(PatientsWorkspace) },
@@ -33,7 +34,8 @@ export const pages: EhrBluePage[] = [
   { path: 'surgery/*', group: 'Clinical', label: 'Theatre & Procedures', icon: icon('scissors'), status: 'sample', element: sample('surgery') },
   { path: 'icu/*', group: 'Clinical', label: 'ICU', icon: icon('monitor'), status: 'sample', element: sample('icu') },
   { path: 'dental/*', group: 'Clinical', label: 'Dental', icon: icon('tooth'), status: 'sample', element: sample('dental') },
-  { path: 'requests/*', group: 'Clinical', label: 'Access requests', icon: icon('lock'), permission: 'identity.consent.write', status: consentStatus, element: createElement(ConsentWorkspace) },
+  { path: 'requests/*', group: 'Clinical', label: 'Access requests', icon: icon('lock'), permission: 'identity.consent.write', status: consentStatus, element: createElement(ConsentWorkspace),
+    refusal: createElement(ConsentRefusal) },
   { path: 'nursing-tasks/*', group: 'Clinical', label: 'Nursing tasks', icon: icon('check'), status: 'sample', element: sample('nursing-tasks') },
   { path: 'radiology/*', group: 'Diagnostics', label: 'Radiology', icon: icon('scan'), status: 'sample', element: sample('radiology') },
   { path: 'referrals/*', group: 'Network & Services', label: 'Referral Network', icon: icon('share'), status: 'sample', element: sample('referrals') },

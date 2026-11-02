@@ -107,7 +107,7 @@ function searchField() {
 }
 
 const findButton = () => screen.getByRole('button', { name: 'Find' }) as HTMLButtonElement
-const REQUEST_UNAVAILABLE = 'Your role at this facility cannot ask patients for access: it needs identity.consent.write. Ask your organization administrator.'
+const REQUEST_UNAVAILABLE = 'Your role at this facility cannot send access requests: it needs identity.consent.write. Ask your organization administrator.'
 const EMERGENCY_UNAVAILABLE = 'Your role at this facility cannot activate emergency access: it also needs identity.break-glass.write. Ask your organization administrator.'
 const WRITES = ['ehr.encounter.write', 'ehr.vital.read', 'ehr.vital.write']
 
@@ -523,7 +523,7 @@ describe('The open patient’s page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'End my access' }))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(screen.queryByRole('alertdialog')).toBeNull()
-    const said = await screen.findByText('Your access has ended.')
+    const said = await screen.findByText('Access was closed.')
     expect(said.closest('[role="status"]')).toBeTruthy()
     expect(api.closeGrant).toHaveBeenCalledTimes(1)
     expect(api.closeGrant).toHaveBeenCalledWith(FACILITY_ID, 'grant-1', 'Clinician closed completed patient access')
@@ -551,7 +551,7 @@ describe('The open patient’s page', () => {
     const button = screen.getByRole('button', { name: 'End my access' }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
     expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent)
-      .toBe('Your role at this facility cannot end your access: it needs identity.consent.write. Ask your organization administrator.')
+      .toBe('Your role at this facility cannot close this grant: it needs identity.consent.write. Ask your organization administrator.')
     fireEvent.click(button)
     expect(api.closeGrant).not.toHaveBeenCalled()
   })
