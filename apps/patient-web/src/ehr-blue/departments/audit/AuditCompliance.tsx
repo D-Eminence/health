@@ -12,7 +12,7 @@ import { SERVICE_AUTH_UNAVAILABLE, errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 
 /*
- * Audit & Compliance (target admin/audit.png): the working facility's audit events, newest first, as the target lists
+ * Audit trail (target admin/audit.png): the working facility's audit events, newest first, as the target lists
  * them. The reads are today's (staff/routes/Audit.tsx): staffApi.facilityAudit for the working facility, 50 events a
  * page, an older page by the last page's cursor; only for a membership holding audit.read; an answer for an earlier
  * facility or page is dropped. Only what the API returns is shown: it withholds patient identifiers, reasons and event
@@ -123,7 +123,7 @@ export function AuditCompliance() {
 
   if (!facility || !allowed) {
     return (
-      <DeptPage title="Audit & Compliance">
+      <DeptPage title="Audit trail">
         {/* The same words as the page's refusal (page.tsx) and the classic page: no permission named. */}
         <DeptNotice role="status">{facility
           ? 'Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.'
@@ -158,11 +158,11 @@ export function AuditCompliance() {
   })
 
   return (
-    <DeptPage title="Audit & Compliance"
+    <DeptPage title="Audit trail"
       secondaryActions={<EhrButton variant="secondary" busy={busy} onClick={refresh}>Refresh</EhrButton>}>
       <p className="hid-ehr-dept-audit-intro">Audit events for {facility.name}. Health ID checks your membership and records each review.
         Patient identifiers, reasons and event details are not shown here.</p>
-      <DeptSearch label="Search Audit & Compliance" value={search} onChange={setSearch}
+      <DeptSearch label="Search Audit trail" value={search} onChange={setSearch}
         placeholder="Search what happened, who did it or the outcome…"
         hint="Search and outcome apply to the events loaded on this page. Use Older events to look further back."
         filters={(

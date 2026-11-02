@@ -119,7 +119,7 @@ export const pages: EhrBluePage[] = [
 
   // Made-up figures that read as the facility's own: the demo facilities' alone (parity report 3.2).
   demoOnly(page('reports', 'Insight', 'Reports & Analytics', 'chart', 'sample', createElement(ReportsSample))),
-  live('audit', 'Insight', 'Audit & Compliance', 'history', 'audit.read'),
+  live('audit', 'Insight', 'Audit trail', 'history', 'audit.read'),
 
   // Listed only at the demo facilities; everywhere, the account menu's Switch facility opens it.
   demoOnly(page('whats-left', 'Design review', 'What’s left', 'checklist', 'live', createElement(WhatsLeft))),

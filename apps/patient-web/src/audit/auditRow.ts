@@ -2,7 +2,7 @@ import { AUDIT_ACTION_LABELS, LEGACY_ACTION_LABELS, LEGACY_ACTIVITY } from './ac
 
 /**
  * One facility audit event as the audit pages show it (docs/AUDIT_ACTION_LABELS.md; owner rule of 1 Nov 2026): what was
- * done, who did it, and whether it was Allowed, Refused or Failed, in plain words. The blue Audit & Compliance page and the
+ * done, who did it, and whether it was Allowed, Refused or Failed, in plain words. The blue Audit trail page and the
  * classic facility audit page both use it, so they say the same thing. The action code, the resource type and the actor
  * type as stored are never part of what is shown: a code can still be searched for (matchesAuditSearch), off the line.
  */

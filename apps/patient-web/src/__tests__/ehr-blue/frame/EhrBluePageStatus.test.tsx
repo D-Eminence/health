@@ -38,7 +38,7 @@ describe('page statuses', () => {
   it.each([
     ['registration', 'Patient registration', 'identity.registration.write'],
     ['in-person-check', 'In-person check', 'identity.patient.assisted_registration'],
-    ['audit', 'Audit & Compliance', 'audit.read'],
+    ['audit', 'Audit trail', 'audit.read'],
     ['billing', 'Facility subscription', 'billing.subscription.read'],
     ['outreach', 'Outreach', undefined],
     ['ocr', 'Document OCR', 'ocr.job.read'],
@@ -152,7 +152,7 @@ describe('What\'s left on a product\'s own site', () => {
     for (const label of [...EHR_ONLY, other]) expect(within(table).queryByRole('link', { name: label })).toBeNull()
     for (const address of addresses(table)) expect(address).toMatch(new RegExp(`^(${home}(/|$)|(staff|audit|facility|hr|institutions|patients|requests)$)`))
     // Its own pages, and the facility's own (its people, its audit trail), are still there.
-    for (const label of [...own, 'Staff & access', 'Audit & Compliance']) expect(within(table).getAllByRole('link', { name: label }).length).toBeGreaterThan(0)
+    for (const label of [...own, 'Staff & access', 'Audit trail']) expect(within(table).getAllByRole('link', { name: label }).length).toBeGreaterThan(0)
     // The page says what it lists, and its counts are of those rows only.
     expect(screen.getByText(`Every page of the ${product} workspace, and how much of it runs on Health ID today.`)).toBeDefined()
     expect(screen.queryByText(/of the design/)).toBeNull()

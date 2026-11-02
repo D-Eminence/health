@@ -7,7 +7,7 @@ vi.mock('./env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.
 /**
  * The facility audit read leaves the request log out (owner, 2026-11-01): the events whose action starts 'api.' (an HTTP
  * method and route, "api.get./api/v1/…", or a route's own name), which sit beside the action each request carried out.
- * The blue Audit & Compliance page and today's facility audit page both read through staffApi.facilityAudit, which
+ * The blue Audit trail page and today's facility audit page both read through staffApi.facilityAudit, which
  * returns facilityAuditPageFrom of the server's page, so neither shows a route. The resource "http-request" alone does
  * not hide an event (owner decision, docs/AUDIT_ACTION_LABELS.md note 8(i)): the security refusals carry it too, and a
  * facility sees them.

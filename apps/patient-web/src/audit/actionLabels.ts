@@ -1,7 +1,7 @@
 /**
  * The words for every audit action the backend writes (docs/AUDIT_ACTION_LABELS.md, D-Eminence/health#75), as the spec
  * writes them: owner rule of 1 Nov 2026, a facility's audit view never shows an action code, only what was done. The
- * blue Audit & Compliance page and the classic facility audit page both read them through auditRow.ts.
+ * blue Audit trail page and the classic facility audit page both read them through auditRow.ts.
  *
  * Copied from the spec's two tables, in its order; actionLabels.test.ts checks them against actionLabels.spec-tables.md
  * (those tables' code and label columns), so a label is changed in the spec first, then in both files. A label with

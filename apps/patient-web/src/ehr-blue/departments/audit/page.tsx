@@ -6,7 +6,7 @@ import { AuditCompliance } from './AuditCompliance'
 export const auditPage: EhrBluePage = {
   path: 'audit',
   group: 'Insight',
-  label: 'Audit & Compliance',
+  label: 'Audit trail',
   permission: 'audit.read',
   // Partial, not live: it works on Health ID, but not yet with today's words and steps throughout.
   status: 'partial',

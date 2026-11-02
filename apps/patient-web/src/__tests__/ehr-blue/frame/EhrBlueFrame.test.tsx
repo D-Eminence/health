@@ -52,7 +52,7 @@ describe('the page registry', () => {
     expect(groups).toEqual(DESIGN_GROUPS)
     expect(labels.slice(0, 1)).toEqual(['Home'])
     expect(labels).toEqual(expect.arrayContaining(['Facility review', 'Staff & access', 'Facility profile', 'Facility settings',
-      'Facility subscription', 'Reports & Analytics', 'Audit & Compliance', 'What’s left', 'Choose workspace']))
+      'Facility subscription', 'Reports & Analytics', 'Audit trail', 'What’s left', 'Choose workspace']))
   })
 
   it('keeps every page, from every folder, well formed: a status, one address each, and tabs that join a page', () => {
@@ -140,7 +140,7 @@ describe('the blue frame', () => {
     expect(within(nav).getByRole('link', { name: 'Access requests' })).toBeDefined()
     // Live pages this facility's permissions do not open are hidden.
     expect(within(nav).queryByRole('link', { name: 'Pharmacy' })).toBeNull()
-    expect(within(nav).queryByRole('link', { name: 'Audit & Compliance' })).toBeNull()
+    expect(within(nav).queryByRole('link', { name: 'Audit trail' })).toBeNull()
   })
 
   it('lists every page with its status on What\'s left', async () => {

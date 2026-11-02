@@ -30,7 +30,7 @@ const sentences = () => (events() ? within(events()!).getAllByRole('listitem') :
 
 /*
  * Each event reads as a plain sentence (docs/AUDIT_ACTION_LABELS.md, owner rule of 1 Nov 2026): what was done, by whom,
- * when, and Allowed, Refused or Failed, in the same words as the blue Audit & Compliance page (audit/auditRow.ts). Its
+ * when, and Allowed, Refused or Failed, in the same words as the blue Audit trail page (audit/auditRow.ts). Its
  * action code, correlation ID and resource type are never shown; the code can still be searched for. Fictional data only.
  */
 describe('facility audit review', () => {

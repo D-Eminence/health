@@ -8,7 +8,7 @@ import type * as StaffApi from '../../../../staff/api'
 import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 
 /**
- * Audit & Compliance in the blue EHR (target admin/audit.png): today's facility audit read (staff/routes/Audit.tsx)
+ * Audit trail in the blue EHR (target admin/audit.png): today's facility audit read (staff/routes/Audit.tsx)
  * drawn as the target's event list. The API's own mapping keeps only seven fields; the page shows only those, so a
  * patient identifier, a reason or event details that reach it are never shown. Each event reads as a plain sentence
  * (docs/AUDIT_ACTION_LABELS.md, owner rule of 1 Nov 2026): what was done, by whom, when, and Allowed, Refused or Failed.
@@ -63,7 +63,7 @@ beforeEach(() => {
   session.facility = HOSPITAL
 })
 
-describe('Audit & Compliance: the event list', () => {
+describe('Audit trail: the event list', () => {
   it('lists the working facility’s events as the target does, and nothing the API withholds', async () => {
     api.facilityAudit.mockResolvedValueOnce(pageOf([
       event('51', { patientId: 'patient-secret', reason: 'sensitive reason', details: { note: 'sensitive payload' },
@@ -72,7 +72,7 @@ describe('Audit & Compliance: the event list', () => {
     ], '50'))
     renderDept(<AuditCompliance />)
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Audit & Compliance' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Audit trail' })).toBeTruthy()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(screen.getByText(/^Audit events for Demo Hospital\. Health ID checks your membership and records each review\./)
       .textContent).toContain('Patient identifiers, reasons and event details are not shown here.')
@@ -98,7 +98,7 @@ describe('Audit & Compliance: the event list', () => {
     expect(button('Older events')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Newer events' })).toBeNull()
     // Today's search and outcome filter, as the target's list search, and Refresh beside the heading.
-    const search = screen.getByRole('searchbox', { name: 'Search Audit & Compliance' })
+    const search = screen.getByRole('searchbox', { name: 'Search Audit trail' })
     expect(search.getAttribute('placeholder')).toBe('Search what happened, who did it or the outcome…')
     expect(document.getElementById(search.getAttribute('aria-describedby') ?? '')?.textContent)
       .toBe('Search and outcome apply to the events loaded on this page. Use Older events to look further back.')
@@ -126,7 +126,7 @@ describe('Audit & Compliance: the event list', () => {
   })
 })
 
-describe('Audit & Compliance: search, outcome and refresh', () => {
+describe('Audit trail: search, outcome and refresh', () => {
   const PAGE = pageOf([
     event('53', { action: 'identity.patient.lookup', outcome: 'success', resourceType: 'patient', actorType: 'staff' }),
     event('52', { action: 'identity.access.denied', outcome: 'denied', resourceType: null, actorType: 'service', correlationId: 'Corr-XYZ' }),
@@ -140,7 +140,7 @@ describe('Audit & Compliance: search, outcome and refresh', () => {
     renderDept(<AuditCompliance />)
     await screen.findByRole('list')
     expect(shown()).toEqual(['Looked up a patient by Health ID', 'Patient access and registration activity (refused)', 'Tried to start a new visit'])
-    const search = screen.getByRole('searchbox', { name: 'Search Audit & Compliance' })
+    const search = screen.getByRole('searchbox', { name: 'Search Audit trail' })
     const outcome = screen.getByRole('combobox', { name: 'Outcome' })
 
     // The code is never shown, but it still finds its event.
@@ -268,7 +268,7 @@ describe('Audit & Compliance: search, outcome and refresh', () => {
   })
 })
 
-describe('Audit & Compliance: older and newer pages', () => {
+describe('Audit trail: older and newer pages', () => {
   it('reads an older page by the last page’s cursor and a newer one back, focus staying on the pager', async () => {
     const older = deferred<unknown>()
     const newer = deferred<unknown>()
@@ -347,7 +347,7 @@ describe('Audit & Compliance: older and newer pages', () => {
   })
 })
 
-describe('Audit & Compliance: refusals and failures', () => {
+describe('Audit trail: refusals and failures', () => {
   it('says a 403 refusal plainly, and Try again reads the page again, focus then on the events', async () => {
     api.facilityAudit
       .mockRejectedValueOnce(new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' }))
@@ -407,7 +407,7 @@ describe('Audit & Compliance: refusals and failures', () => {
     session.facility = fakeFacility(['lab.work-item.read'], { id: DEMO_HOSPITAL_ID, name: 'Demo Hospital' })
     renderDept(<AuditCompliance />)
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Audit & Compliance' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Audit trail' })).toBeTruthy()
     expect(screen.getByRole('status').textContent).toBe('Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.')
     expect(document.body.textContent).not.toContain('audit.read')
     expect(screen.queryByRole('list')).toBeNull()
@@ -423,7 +423,7 @@ describe('Audit & Compliance: refusals and failures', () => {
   })
 })
 
-describe('Audit & Compliance: switching facility', () => {
+describe('Audit trail: switching facility', () => {
   it('reads the new facility’s first page and drops the earlier facility’s late answer', async () => {
     const hospitalOlder = deferred<unknown>()
     api.facilityAudit

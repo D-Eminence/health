@@ -7,7 +7,7 @@ import { auditRow, matchesAuditSearch, type AuditRow } from '../../audit/auditRo
 
 /*
  * Each event reads as a plain sentence (owner rule of 1 Nov 2026, docs/AUDIT_ACTION_LABELS.md): what was done, by whom,
- * when, and Allowed, Refused or Failed, in the words audit/auditRow.ts gives the blue Audit & Compliance page too. The
+ * when, and Allowed, Refused or Failed, in the words audit/auditRow.ts gives the blue Audit trail page too. The
  * action code, the correlation ID and the resource type are never shown; the search still finds an event by its code.
  */
 
