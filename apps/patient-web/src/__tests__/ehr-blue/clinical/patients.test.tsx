@@ -767,7 +767,9 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
     api.acceptShareInvitation.mockResolvedValue({ ...ACCEPT_ANSWER, invitationId: 'inv-2' })
     open()
     const shared = (await screen.findByRole('heading', { level: 2, name: 'Shared with you' })).closest('section')!
-    expect(within(shared).getByText('Patients who chose to share their record with you at this facility. Opening one checks access with the server.')).toBeTruthy()
+    expect(within(shared).getByText('Patients who chose to share their record with you at this facility.')).toBeTruthy()
+    // No word about servers on a facility screen (the owner's plain-English rule).
+    expect(shared.textContent).not.toMatch(/server/i)
     expect(within(shared).getByText('No patient has shared their record with you here.')).toBeTruthy()
     expect(within(shared).queryByRole('list')).toBeNull()
     const invitations = (await screen.findByRole('heading', { level: 2, name: 'Invitations' })).closest('section')!

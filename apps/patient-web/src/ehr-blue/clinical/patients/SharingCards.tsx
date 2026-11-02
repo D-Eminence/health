@@ -58,7 +58,7 @@ export function SharedWithYou({ facilityId, permissions, openUnavailable, busy, 
   if (load.state === 'failed') return <Alert intent="error" title="Couldn’t load patients shared with you">{load.message}</Alert>
   return (
     <Card>
-      <CardHeader as="h2" title="Shared with you" description="Patients who chose to share their record with you at this facility. Opening one checks access with the server."
+      <CardHeader as="h2" title="Shared with you" description="Patients who chose to share their record with you at this facility."
         icon={Share2} iconTone="brand" />
       {load.value.length === 0 ? <p className="m-0 px-5 py-4 text-[13px] text-ink-3">No patient has shared their record with you here.</p> : null}
       {openUnavailable && load.value.length > 0 ? <p id="shared-open-unavailable" className="m-0 px-5 pt-3 text-[12px] text-ink-3">{openUnavailable}</p> : null}

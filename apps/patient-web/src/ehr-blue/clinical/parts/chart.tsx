@@ -1,5 +1,6 @@
 import { isHidApiError } from '@hid/http'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { SAY } from '../../../copy'
 import { PatientBanner } from '../../../kasuwa/parts'
 import { Alert, Button, EmptyState, type Tone } from '../../../kasuwa/ui'
 import { isAllowedPatientLookup, staffApi } from '../../../staff/api'
@@ -7,13 +8,10 @@ import type { ActivePatient } from '../../../staff/App'
 import { patientFacts, type PatientFacts } from './PatientHeader'
 import { useClinical, useWorkspaceHref } from './Workspace'
 
-/**
- * The chart's wording. READ_ONLY is today's, word for word (staff/routes/Clinical.tsx:1771). ACCESS_ENDED and
- * WRITE_UNKNOWN stay in plain words.
- */
+/** The chart's wording, in plain words (copy.ts). */
 export const OPEN_FIRST = 'Open a patient first.'
 export const ACCESS_ENDED = 'Your access to this patient has ended. Open the patient again to keep working.'
-export const READ_ONLY = 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'
+export const READ_ONLY = `${SAY.readOnly} To add or change records, ask the patient to approve access that includes changes.`
 export const WRITE_UNKNOWN = 'We couldn’t check whether you can make changes, so changes are off. Refresh the page to try again.'
 export const CHOOSE_FIRST = 'Choose a patient first.'
 export const CHOOSE_FIRST_DETAIL = 'Records show only for a patient you have access to at this facility.'
