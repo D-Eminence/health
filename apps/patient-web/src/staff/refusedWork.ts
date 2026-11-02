@@ -1,4 +1,5 @@
 import { usesNovuBackend } from '../backendContract'
+import { pointOfCareOpen } from '../ehr-blue/departments/commerce/served'
 import type { Facility } from './api'
 import { roleInSentence, roleLabel, selfServiceReview, selfServiceType, type OrganizationType } from './staffAccess'
 
@@ -41,8 +42,10 @@ function eitherOf(words: readonly string[]): string {
 
 /**
  * Pharmacy's work: a pharmacy gets the Pharmacy workspace, a hospital or clinic its work list; a laboratory, or another
- * kind, is never promised it. A refusal of Prescriptions names it by pharmacyWorkFor; the blue Pharmacy names a refused
- * dispensing more closely ("dispensing medicines": ehr-blue/departments/pharmacy/pharmacyText.ts), by the same rule.
+ * kind, is never promised it. The classic page's refusal of Prescriptions names it by pharmacyWorkFor, the blue
+ * Prescriptions' by the pages that open at the facility (ehr-blue/departments/pharmacy/page.tsx), which come to the
+ * same; the blue Pharmacy names a refused dispensing more closely ("dispensing medicines":
+ * ehr-blue/departments/pharmacy/pharmacyText.ts), by the same rule.
  */
 export const PHARMACY_WORK: RefusedWork = {
   name: 'Pharmacy', work: 'pharmacy work', doneBy: ['pharmacist'], gets: new Set(['pharmacy', 'hospital', 'clinic']),
@@ -50,19 +53,22 @@ export const PHARMACY_WORK: RefusedWork = {
 
 /**
  * The permissions of the blue Pharmacy's pages besides Prescriptions (Sell, Sales & receipts, Stock, Products & prices,
- * Till / End of day, Payment setup: ehr-blue/departments/pharmacy/page.tsx, whose test keeps the two the same), written
- * out here so the classic portal words its refusal as the blue one does without loading the blue pages.
+ * Till / End of day, Payment setup: ehr-blue/departments/pharmacy/page.tsx, whose test keeps the two the same, and keeps
+ * each of those pages shown only where the point-of-care pages open), written out here so the classic portal words its
+ * refusal as the blue one does without loading the blue pages.
  */
 export const OTHER_PHARMACY_PAGE_PERMISSIONS: readonly string[] = ['pharmacy.walk-in.create', 'billing.bill.read',
   'pharmacy.stock.read', 'billing.catalogue.read', 'billing.shift.own', 'billing.settings.manage']
 
 /**
- * Pharmacy's work as a refusal of Prescriptions names it, in the blue Pharmacy and the classic page alike: a role that
- * may open another Pharmacy page (it sells, keeps stock or takes payment) does pharmacy work, so it is told only that
- * prescriptions are not in it.
+ * Pharmacy's work as the classic page's refusal of Prescriptions names it, as the blue Prescriptions' does: a role that
+ * may open another Pharmacy page at this facility (it sells, keeps stock or takes payment) does pharmacy work, so it is
+ * told only that prescriptions are not in it. Those pages open only where the point-of-care pages do
+ * (ehr-blue/departments/commerce/served.ts pointOfCareOpen, the demo facilities until Health ID serves their routes):
+ * anywhere else no Pharmacy page is in the role, so a seller there is told their role doesn't include pharmacy work.
  */
-export function pharmacyWorkFor(permissions: readonly string[]): RefusedWork {
-  return permissions.some(permission => OTHER_PHARMACY_PAGE_PERMISSIONS.includes(permission))
+export function pharmacyWorkFor(permissions: readonly string[], facilityId: string | null | undefined): RefusedWork {
+  return pointOfCareOpen(facilityId) && permissions.some(permission => OTHER_PHARMACY_PAGE_PERMISSIONS.includes(permission))
     ? { ...PHARMACY_WORK, work: 'prescriptions' } : PHARMACY_WORK
 }
 

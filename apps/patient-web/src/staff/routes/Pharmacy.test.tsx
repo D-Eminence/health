@@ -235,19 +235,39 @@ describe('Pharmacy page access', () => {
       expectUnavailable(NO_PHARMACY_WORK)
     })
 
-    // A role that sells, or takes payment, does pharmacy work: like the blue Prescriptions, only prescriptions are not in it.
+    /*
+     * A role that sells, or takes payment, does pharmacy work where those pages open: like the blue Prescriptions, only
+     * prescriptions are not in it. They open at the demo facilities only (ehr-blue/departments/commerce/served.ts), so at
+     * a real facility the same role has no Pharmacy page, and both portals say its role doesn't include pharmacy work.
+     */
     const PRESCRIPTIONS = 'Your role at this facility doesn’t include prescriptions.'
+    const DEMO_PHARMACY = '98d00002-0000-4000-8000-000000000003'
     it.each([
       ['a seller at a checked pharmacy', ['pharmacy.walk-in.create'], { review: 'reviewed', organizationType: 'pharmacy' }, `${PRESCRIPTIONS} Ask your facility administrator.`],
       ['a cashier at a hospital Health ID support manages', ['billing.bill.read'], undefined, `${PRESCRIPTIONS} Ask your facility administrator.`],
       ['the administrator of a checked pharmacy who sells', ['workforce.manage', 'pharmacy.walk-in.create'], { review: 'reviewed', organizationType: 'pharmacy' },
         `${PRESCRIPTIONS} Add a pharmacist on the Staff page.`],
-    ])('%s: the blue Prescriptions’ words', (_reader, permissions, selfService, sentence) => {
+    ])('%s, at a demo facility: the blue Prescriptions’ words', (_reader, permissions, selfService, sentence) => {
+      staff.facilityId = DEMO_PHARMACY
       staff.permissions = permissions
       staff.selfService = selfService
       render(<Pharmacy />)
       expectUnavailable(sentence)
       expect(sentence).toBe(pharmacyRefusalText('prescriptions', { selfService, roles: [] }, permissions))
+    })
+
+    it.each([
+      ['a seller at a checked pharmacy', ['pharmacy.walk-in.create'], { review: 'reviewed', organizationType: 'pharmacy' }, NO_PHARMACY_WORK],
+      ['a stock keeper and cashier at a hospital Health ID support manages', ['pharmacy.stock.read', 'billing.bill.read'], undefined, NO_PHARMACY_WORK],
+      ['the administrator of a checked pharmacy who sells', ['workforce.manage', 'pharmacy.walk-in.create'], { review: 'reviewed', organizationType: 'pharmacy' },
+        `${ROLE} Add a pharmacist on the Staff page.`],
+    ])('%s, at a real facility, where Sell and the other pages do not open: the blue Prescriptions’ words there', (_reader, permissions, selfService, sentence) => {
+      staff.permissions = permissions
+      staff.selfService = selfService
+      render(<Pharmacy />)
+      expectUnavailable(sentence)
+      expect(document.body.textContent).not.toMatch(/include prescriptions/)
+      expect(sentence).toBe(pharmacyRefusalText('pharmacy work', { selfService, roles: [] }, permissions))
     })
   })
 })

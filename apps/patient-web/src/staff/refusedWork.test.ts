@@ -110,8 +110,8 @@ describe('Audit, by who reads the refusal', () => {
 })
 
 /*
- * Pharmacy's work, as the blue Pharmacy and the classic page both name it: the rule is written once (refusedWorkText), and
- * its words are #82's (ehr-blue/departments/pharmacy/pharmacyText.ts), unchanged.
+ * Pharmacy's work, as the blue Pharmacy and the classic page both refuse it: the rule is written once (refusedWorkText),
+ * and its words are #82's (ehr-blue/departments/pharmacy/pharmacyText.ts), unchanged.
  */
 describe('Pharmacy, by who reads the refusal', () => {
   const ROLE = 'Your role at this facility doesn’t include pharmacy work.'
@@ -130,17 +130,28 @@ describe('Pharmacy, by who reads the refusal', () => {
 })
 
 /*
- * The work a refusal of Prescriptions names, in the blue Pharmacy and the classic page alike: a role that may open another
- * Pharmacy page (it sells, keeps stock, takes payment…) is told only that prescriptions are not in it.
+ * The work the classic page's refusal of Prescriptions names, as the blue Prescriptions' does: a role that may open
+ * another Pharmacy page at the facility (it sells, keeps stock, takes payment…) is told only that prescriptions are not
+ * in it. Those pages open at the demo facilities only (ehr-blue/departments/commerce/served.ts), so anywhere else the
+ * same role is told its role doesn't include pharmacy work. The real facility's id is fictional.
  */
 describe('the Pharmacy work a refusal names', () => {
-  it.each([[[]], [['pharmacy.dispensing.read', 'pharmacy.dispensing.create']], [['ehr.encounter.read']]])('with %j: pharmacy work', permissions => {
-    expect(pharmacyWorkFor(permissions)).toBe(PHARMACY_WORK)
+  const DEMO_PHARMACY = '98d00002-0000-4000-8000-000000000003'
+  const REAL_PHARMACY = 'f0000000-0000-4000-8000-000000000003'
+  const OTHER_PAGES = ['pharmacy.walk-in.create', 'billing.bill.read', 'pharmacy.stock.read', 'billing.catalogue.read', 'billing.shift.own',
+    'billing.settings.manage']
+
+  it.each([[[]], [['pharmacy.dispensing.read', 'pharmacy.dispensing.create']], [['ehr.encounter.read']]])('with %j: pharmacy work, wherever', permissions => {
+    for (const facilityId of [DEMO_PHARMACY, REAL_PHARMACY, undefined]) expect(pharmacyWorkFor(permissions, facilityId)).toBe(PHARMACY_WORK)
   })
 
-  it.each(['pharmacy.walk-in.create', 'billing.bill.read', 'pharmacy.stock.read', 'billing.catalogue.read', 'billing.shift.own',
-    'billing.settings.manage'])('with %s, which opens another Pharmacy page: prescriptions, by the same rule', permission => {
-    expect(pharmacyWorkFor([permission])).toEqual({ ...PHARMACY_WORK, work: 'prescriptions' })
+  it.each(OTHER_PAGES)('with %s, at a demo facility, where it opens another Pharmacy page: prescriptions, by the same rule', permission => {
+    expect(pharmacyWorkFor([permission], DEMO_PHARMACY)).toEqual({ ...PHARMACY_WORK, work: 'prescriptions' })
+  })
+
+  it.each(OTHER_PAGES)('with %s, at a real facility, where that page does not open: pharmacy work', permission => {
+    expect(pharmacyWorkFor([permission], REAL_PHARMACY)).toBe(PHARMACY_WORK)
+    expect(pharmacyWorkFor([permission], undefined)).toBe(PHARMACY_WORK)
   })
 })
 

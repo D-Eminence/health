@@ -1127,8 +1127,9 @@ export function Pharmacy() {
   const said = useRowSaid('pharmacy', read.value, list.refresh, (mode, route) => mode === 'wrong_patient'
     ? wrongPatientOffered(route, permissions, 'pharmacy') : cannotCompleteOffered(route, permissions, 'pharmacy', cannotServed))
   // The blue Prescriptions' words for the same facts (refusedWorkText, pharmacyWorkFor), so a facility's own
-  // administrator is never told to ask themselves, and a role that sells is told only prescriptions are not in it.
-  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description={refusalAt(facilityId, refusedWorkText(facility, permissions, pharmacyWorkFor(permissions)))} />
+  // administrator is never told to ask themselves, and a role that sells where Sell opens is told only prescriptions
+  // are not in it.
+  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description={refusalAt(facilityId, refusedWorkText(facility, permissions, pharmacyWorkFor(permissions, facilityId)))} />
   function notCompletedHere(ending: Omit<CannotCompleteEnding, 'key'>) {
     notCompleted.add(ending)
     said.clear()

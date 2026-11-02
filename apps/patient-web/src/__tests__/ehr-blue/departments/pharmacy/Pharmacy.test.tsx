@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import type { PharmacyWorkItem } from '../../../../staff/api'
 import { pharmacyPage, pharmacyPages } from '../../../../ehr-blue/departments/pharmacy/page'
+import { pointOfCareShown } from '../../../../ehr-blue/departments/commerce/served'
 import { OTHER_PHARMACY_PAGE_PERMISSIONS } from '../../../../staff/refusedWork'
 import { Pharmacy } from '../../../../ehr-blue/departments/pharmacy/Pharmacy'
 import { PharmacyRecord, type PharmacyRecordProps } from '../../../../ehr-blue/departments/pharmacy/PharmacyRecord'
@@ -93,10 +94,14 @@ describe('the page entry', () => {
     expect(screen.getByText('Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.')).toBeTruthy()
   })
 
-  // The classic Pharmacy chooses its words from the same list without loading these pages (staff/refusedWork.ts).
-  it('names the other pages’ permissions as the classic Pharmacy reads them, so both refusals name the same work', () => {
-    const others = pharmacyPages.filter(page => page !== pharmacyPage).flatMap(page => page.permission === undefined ? [] : [page.permission])
-    expect([...OTHER_PHARMACY_PAGE_PERMISSIONS].sort()).toEqual(others.sort())
+  /*
+   * The classic Pharmacy chooses its words from the same list without loading these pages (staff/refusedWork.ts
+   * pharmacyWorkFor), and counts it only where the point-of-care pages open, as each of these shows only there.
+   */
+  it('names the other pages’ permissions as the classic Pharmacy reads them, and where they open, so both refusals name the same work', () => {
+    const others = pharmacyPages.filter(page => page !== pharmacyPage && page.permission !== undefined)
+    expect([...OTHER_PHARMACY_PAGE_PERMISSIONS].sort()).toEqual(others.map(page => page.permission).sort())
+    for (const page of others) expect(page.visible).toBe(pointOfCareShown)
   })
 })
 
