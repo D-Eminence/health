@@ -446,6 +446,15 @@ describe('New pharmacy (prescription)', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Amoxicillin' })).toBeTruthy()
   })
 
+  it('says to open the saved prescription to send it elsewhere, as Send to a pharmacy is on its own page (review)', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    staff.permissions = [...READ_WRITE, 'ehr.order-route.send']
+    setLists([], [], { crossFacilityOrders: true })
+    await form()
+    expect(await screen.findByText('This saves a draft. To send it to a pharmacy elsewhere, open it and choose Send to a pharmacy.')).toBeTruthy()
+    expect(screen.queryByText(/in the list/)).toBeNull()
+  })
+
   it('sends nothing when the patient is not confirmed (Cancel), and keeps what was typed', async () => {
     const save = await form()
     fill()
@@ -731,7 +740,7 @@ describe('New laboratory (lab request)', () => {
     expect(handling()).toEqual(['draft', 'active'])
     expect(options('Request handling')).toEqual(['Save EHR draft', 'Create active request and send to Lab'])
     expect(screen.getByText('Active creation saves the request, then asks Lab to accept it. If Lab does not, the request stays saved and active, even when an error is shown: '
-      + 'check the list before creating it again, then use Send to Lab on it there, or contact the laboratory if the EHR cannot send it.')).toBeTruthy()
+      + 'check the list before creating it again, then open the request and use Send to Lab.')).toBeTruthy()
     fill()
     fireEvent.change(field('Request handling'), { target: { value: 'active' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create lab request' }))
