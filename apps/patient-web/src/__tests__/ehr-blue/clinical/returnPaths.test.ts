@@ -258,10 +258,31 @@ describe('clinicalReturnPath is dark', () => {
     })
   }
 
+  /** The clinical module, without its extension, as an import of it resolves. */
+  const clinicalModule = join(src, 'ehr-blue', 'clinical', 'returnPaths')
+
+  /**
+   * Whether a file uses the clinical module: names its function, or imports the module by any relative path. The blue
+   * EHR's page list of the same name (ehr-blue/returnPaths.ts, which staff/session.ts reads) is another module.
+   */
+  function usesClinicalModule(file: string): boolean {
+    const text = readFileSync(file, 'utf8')
+    if (/clinicalReturnPath/.test(text)) return true
+    const imported = [...text.matchAll(/(?:from\s+|import\(\s*)['"]([^'"]*returnPaths)['"]/g)].map(match => match[1]!)
+    return imported.some(specifier => specifier.startsWith('.') && resolve(dirname(file), specifier) === clinicalModule)
+  }
+
   it('is called by nothing in the app yet, so every page works exactly as today until the sign-in hand-off uses it', () => {
     const files = sources(src)
     expect(files.length).toBeGreaterThan(100)
-    const callers = files.filter(file => !file.endsWith(join('clinical', 'returnPaths.ts')) && /returnPaths|clinicalReturnPath/.test(readFileSync(file, 'utf8')))
+    const callers = files.filter(file => !file.endsWith(join('clinical', 'returnPaths.ts')) && usesClinicalModule(file))
     expect(callers.map(file => relative(src, file))).toEqual([])
+  })
+
+  it('would see a caller that imports the clinical module, and not the blue EHR\'s page list of the same name', () => {
+    const staffSession = join(src, 'staff', 'session.ts')
+    expect(readFileSync(staffSession, 'utf8')).toMatch(/from '\.\.\/ehr-blue\/returnPaths'/)
+    expect(usesClinicalModule(staffSession)).toBe(false)
+    expect(resolve(join(src, 'ehr-blue', 'clinical', 'consult'), '../returnPaths')).toBe(clinicalModule)
   })
 })
