@@ -37,8 +37,10 @@ Each area restores the shared backend cookie session and applies its own
 permission checks. The backend remains the
 authority for access control. Unsupported modules from the reference material
 are not represented by local fixture data or simulated mutations. The public site's
-`/provider/apply` page sends providers to the portal's `/provider/enroll`,
-which uses the self-service provider-enrollment routes, and `/provider/complete`
+`/provider/apply` page sends providers to the chosen product's own site's
+`/provider/enroll` (the EHR site's when none is chosen; the local portal's in
+local development), which uses the self-service provider-enrollment routes, and
+`/provider/complete`
 uses the completion routes. The public site has no organization application
 form: the unused `ProviderApplicationForm` was removed, so no screen calls
 `POST /api/v1/identity/organization-applications`, though the route stays
@@ -401,12 +403,16 @@ facility) records the administrator's own licence, invites staff (a role,
 the regulator's licence for a clinical role, an attestation and the
 administrator's password, with an `Idempotency-Key`), and resends, revokes,
 removes and changes roles with the version read. An invitation opens on the
-main site at `/provider/invitation` (Turnstile `staff-invitation`, the link's
+staff site of the invitee's role at `/provider/invitation` (Turnstile `staff-invitation`, the link's
 `#<id>.<token>` taken out of the address at once), or, for existing staff,
 signed in at `/provider/staff/join` on their own staff site: the workspace
 takes the link out of the address before its sign-in gate, holds it in
 memory for 30 minutes (the portal keeps nothing in browser storage), and a
-sign-in returns to the join page. The console's review form chooses the
+sign-in returns to the join page. Identity opens no invitation for a browser
+that holds a Health ID sign-in (409 `STAFF_INVITATION_REQUIRES_SIGN_OUT`; on a
+product site that is the site's own staff sign-in), so the invitation page
+then offers that join page with the link, or signing out first (a shared
+computer). The console's review form chooses the
 administrator's role and how support checked them, and its facility pages
 show staff and licences on demand and find an invitation by its reference.
 Laboratory and pharmacy pages of a stand-alone facility say where its work
@@ -637,10 +643,11 @@ recovery codes); staff sign-in's `StaffMfaSteps` is unchanged. Form values,
 security-check tokens, the password, the setup key, recovery codes and the
 applications live only in component state; the Idempotency-Key of a submission
 is kept in memory and reused only for that submission. The pages' security
-checks (`clinician-application`, `clinician-application-status`) are accepted
-only on the main site, so on a staff product host or the admin site each page,
-and every link to it, goes to the main site's address
-(`clinicianPageHref` in `productHostname.ts`). Provider sign-in and provider
+checks (`clinician-application`, `clinician-application-status`) are not
+accepted anywhere on the Novu backend yet; like every other staff page, the
+clinician pages open on each product site itself, and from the production
+patient portal or an admin site on the EHR site (`clinicianPageHref` in
+`productHostname.ts`). Provider sign-in and provider
 enrollment offer the way in only while `GET .../availability` answers
 `{ open: true }`.
 
@@ -1065,15 +1072,45 @@ Each staff product host accepts only its own login action (`lab-login`,
 `ehr-login` and `staff-login`. Staff sign-in sends the current host's action,
 and `staff-login` on `ehr` and elsewhere (`staffLoginAction` in
 `apps/patient-web/src/productHostname.ts`). The `admin` host accepts
-`admin-login` and `admin-reset`. The admin approval message sends a new
-administrator to `/provider/recover` on `www` (or `staging`) to set a password,
-and the provider sign-in page on a staff product host (`ehr`, `lab`,
-`pharmacy`, `migrate`, `outreach`) or the admin site links "Forgot your
-password?" to the same page and says resets are done on the main site
-(`staffRecoveryHref` in `productHostname.ts`). Opened directly on one of those
-hosts, `/provider/recover` shows that notice and link instead of a reset form.
-The address is one of three fixed values and carries no return address; after
-a reset, the recovery page's sign-in link stays on the main site.
+`admin-login` and `admin-reset`. Each product is its own site (owner,
+2026-11-01): hid-system accepts `staff-reset`, `provider-enrollment` and
+`staff-invitation` on every product site besides its own sign-in, so each
+product site's sign-in links its own "Forgot password?", "Register" and
+"Accept invitation" (`staffRecoveryHref`, `providerEnrollmentHref` and
+`staffInvitationHref` in `productHostname.ts`). Sign-up, sign-in, password
+reset and invitations are each product site's own, individually (owner,
+2026-11-02). Facility sign-up on each product site offers that site's own kind
+of facility only (`facilitySignUpScope`): `lab` a laboratory for Health ID
+Laboratory, `pharmacy` a pharmacy for Health ID Pharmacy, `ehr` a hospital,
+clinic or other provider for Health ID EHR, `migrate` the same facilities for
+Health ID Migrate, and `outreach` the same facilities for Health ID EHR
+(Outreach has no product of its own to sign up for); a plain line under the
+facility type links the other kinds to their own site's sign-up, and "Your
+account may already be ready" links the facility's own site's sign-in
+(`facilitySignInHref`). Staging's portal and local builds still offer every
+kind. Each product site's staff sign-in also points a patient to the patient
+portal's own sign-in (`patientSignInHref`).
+
+The production patient portal (`app`) serves patients only: its own pages are
+`/sign-in`, `/enroll`, patient recovery and the signed-in patient portal. The
+admin sites serve platform administrators only (`staffPagesOrigin`). No staff
+page is served on either: every `/provider` page there opens the same page on
+the product site it belongs on, at once, before any staff code loads or asks
+for a session, in the app (`App.tsx`, `staffSignIn.tsx`, `staffPageElsewhere`)
+and, for a full load of `app`, at the edge (a 302 with no cache lifetime that
+keeps the path and query; writes are never redirected). The address picks the
+site only where it names a product (`staffAddressProduct`, and `staffSiteOf` in
+`frontend-worker.mjs`): a product's workspace (`/provider/laboratory` and so
+on), facility sign-up for a laboratory or a pharmacy (`?type=`) or for one
+product (`?product=`), or the staff sign-in returning to a product's workspace;
+everything else opens on the EHR site. No product site sends any staff page
+elsewhere, password recovery included. Staging's portal keeps its own staff
+pages. The public site links staff sign-in and facility sign-up to the EHR
+site, and "Setup Your Facility" for a chosen product to that product's own
+site's sign-up (`APP_ENTRY`, `productSignUpHref`); only local development, with
+no product sites, links the local portal's. The admin approval message sends a
+new administrator to the recovery page of the staff site of the organization's
+type. Every address is a fixed value and carries no return address.
 Hosting patient sign-in, enrollment or patient and staff recovery on another
 hostname requires a backend Turnstile allowlist/configuration change. No staging environment exists yet, and no live
 end-to-end acceptance has been run. Backend defects and deployment decisions

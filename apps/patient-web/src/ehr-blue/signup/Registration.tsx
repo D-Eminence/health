@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { EhrButton, EhrDialog, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { Turnstile } from '../../Turnstile'
-import { organizationTypeLabel, organizationTypes, productLabel, productOptions, waitWords, type Product } from './enrollmentRules'
+import { hasOtherFacilitySignUps, OtherFacilitySignUps } from '../../staff/routes/ProviderEnrollment'
+import { organizationTypeLabel, productLabel, waitWords, type Product } from './enrollmentRules'
 import { PasswordField } from './PasswordField'
 import { ErrorWords, Required } from './parts'
 import { CAC_STEP, REGISTRATION_STEPS, REVIEW_STEP, type Enrollment } from './useEnrollment'
@@ -209,10 +210,11 @@ export function Registration({ e, agreed, onAgree }: {
               hint={`${NOT_COLLECTED}: your facility’s registered name comes from its CAC record.`}>
               <EhrInput disabled />
             </NotCollected>
-            <EhrField label={<Required>Facility type</Required>} controlId={IDS.type}>
+            <EhrField label={<Required>Facility type</Required>} controlId={IDS.type}
+              hint={hasOtherFacilitySignUps() ? <OtherFacilitySignUps inline linkClassName="hid-ehr-signup-link" /> : undefined}>
               <EhrSelect required value={e.organizationType}
                 onChange={event => e.setType(event.target.value as typeof e.organizationType)}>
-                {organizationTypes.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                {e.typeChoices.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
               </EhrSelect>
             </EhrField>
             <NotCollected label="Ownership"><EhrSelect disabled><Options list={OWNERSHIP} /></EhrSelect></NotCollected>
@@ -260,7 +262,7 @@ export function Registration({ e, agreed, onAgree }: {
               <EhrField label={<Required>Product to start with</Required>} controlId={IDS.product} hint={e.productNote}
                 className="hid-ehr-signup-full">
                 <EhrSelect required value={e.productCode} onChange={event => e.setProductCode(event.target.value as Product)}>
-                  {productOptions[e.organizationType].map(code => <option key={code} value={code}>{productLabel(code)}</option>)}
+                  {e.productChoices.map(code => <option key={code} value={code}>{productLabel(code)}</option>)}
                 </EhrSelect>
               </EhrField>
               <NotCollected label="Migrating existing records?"><EhrSelect disabled><Options list={YES_NO} /></EhrSelect></NotCollected>

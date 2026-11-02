@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 're
 import { Link } from 'react-router-dom'
 import { Field, PasswordInput } from '@hid/ui'
 import { useDocumentTitle } from '../../authSteps'
-import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_RECOVERY_PATH, clinicianMainSiteHref } from '../../productHostname'
+import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_RECOVERY_PATH, clinicianOtherSiteHref } from '../../productHostname'
 import { servesClinicianApplications } from '../../backendContract'
 import { CLINICIAN_REGULATOR_OF, clinicianApplicationApi, newClinicianIdempotencyKey, type ClinicianSignUp as SignUpInput,
   type ClinicianSubmitted } from '../clinicianApplicationApi'
@@ -12,10 +12,10 @@ import { Declarations, DetailsFields, EMPTY_DETAILS, applicationDetails, declara
 import { EmailCode } from '../clinician/EmailCode'
 import { APPLICATIONS_LIMITED, FACILITY_UNAVAILABLE, PROFESSION_NAME, REGULATOR_NAME, SIGNUP_CLOSED, SIGNUP_CLOSED_KEPT,
   SIGNUP_SEARCHES_USED, codeOf, codeSentCopy, formatDate, isUnavailable, refusalCopy } from '../clinician/copy'
-import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, StepHeading, TextButton, fieldError, shownError,
+import { ClinicianFrame, ErrorSummary, PrimaryButton, StepError, StepHeading, TextButton, fieldError, shownError,
   type Problem } from '../clinician/ui'
 import { buttonClass } from '../../kasuwa/ui'
-import { StaffSignInLink } from '../../staffSignIn'
+import { OpenStaffPage, StaffSignInLink } from '../../staffSignIn'
 
 /**
  * Clinician self sign-up at /provider/join (hid-system ADR-066, owner decision
@@ -45,8 +45,9 @@ const SUBMIT_REFUSAL: Readonly<Record<string, string>> = {
 }
 
 export function ClinicianSignUp() {
-  const mainSite = clinicianMainSiteHref(window.location.hostname, CLINICIAN_SIGNUP_PATH)
-  return mainSite ? <MainSiteOnly href={mainSite} path={CLINICIAN_SIGNUP_PATH} /> : <SignUp />
+  // A site that serves no staff pages (the production portal, an admin site) opens the EHR site's page at once.
+  const elsewhere = clinicianOtherSiteHref(window.location.hostname, CLINICIAN_SIGNUP_PATH)
+  return elsewhere ? <OpenStaffPage href={elsewhere} /> : <SignUp />
 }
 
 function SignUp() {

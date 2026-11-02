@@ -1,29 +1,29 @@
 import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { Link, Navigate, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Field, Input, PasswordInput } from '@hid/ui'
 import './providerSetup.css'
 import { AuthLayout } from '../../AuthLayout'
 import { useDocumentTitle } from '../../authSteps'
 import { Turnstile } from '../../Turnstile'
-import {
-  isPlatformAdminHostname, resolveStaffProductHostname, STAFF_JOIN_PATH, STAFF_SIGN_IN_PATH, staffHostForRole,
-  staffInvitationHref,
-} from '../../productHostname'
+import { STAFF_JOIN_PATH, STAFF_SIGN_IN_PATH, staffHostForRole, staffPagesOrigin } from '../../productHostname'
 import { getEnvironment } from '../env'
-import { staffSignInAddress } from '../../staffSignIn'
-import { staffInvitationApi, type StaffInvitationOpened, type StaffInvitationProof } from '../api'
-import { invitationLinkOf, type InvitationLink } from '../invitationCapture'
+import { OpenStaffPage, sameStaffPageOn, staffSignInAddress } from '../../staffSignIn'
+import { staffApi, staffInvitationApi, type StaffInvitationOpened, type StaffInvitationProof } from '../api'
+import { invitationLinkOf, staffJoinAddress, type InvitationLink } from '../invitationCapture'
 import { licenceBodyForRole, roleInSentence } from '../staffAccess'
 import { isRouteMissing, joinProblemText } from '../staffProblems'
 
 /**
- * Joining a facility by invitation (Novu, P4b SPEC 8.2), the page the invitation email links to on the main site
- * (app in production, staging on staging): `/provider/invitation#<invitationId>.<token>`, or, without the link, the
+ * Joining a facility by invitation (Novu, P4b SPEC 8.2), the page the invitation email links to on the staff site of
+ * the invitee's role (each product site opens invitations itself; staging's portal and local too):
+ * `/provider/invitation#<invitationId>.<token>`, or, without the link, the
  * email address and the 6-digit code. The page proves the invitation with Identity (Turnstile action
  * `staff-invitation`), shows who invited whom to what, and lets a new person, or one whose staff account works nowhere
  * now, set a password. Nobody is signed in here: they sign in on their role's site afterwards. Someone who already
- * works elsewhere on Health ID accepts signed in on their own site.
+ * works elsewhere on Health ID accepts signed in on their own site. Identity opens no invitation for a browser signed
+ * in on the site: someone signed in there (staff of another facility, with the link from the email) is offered the
+ * signed-in join page with the link, as before, or to sign out first (a shared computer).
  */
 
 /** Where the page keeps the link once it has taken it out of the address: the browser's history entry. */
@@ -80,17 +80,10 @@ function SignInOnSite({ role, children }: { role: string; children: ReactNode })
 export function StaffInvitation() {
   useDocumentTitle('Join your facility · Health ID Provider')
   const location = useLocation()
-  const hostname = window.location.hostname
-  // A staff site (ehr, lab, pharmacy …) is where existing staff accept, signed in: the link is carried there.
-  if (resolveStaffProductHostname(hostname)) return <Navigate to={{ pathname: STAFF_JOIN_PATH, hash: location.hash }} replace />
-  // The admin site accepts no invitation check: the person is sent to the main site's page, without the link.
-  if (isPlatformAdminHostname(hostname)) {
-    return <AuthLayout brandTo="/provider/sign-in" title="Join your facility." titleId="staff-invitation-title"
-      lede="Invitations are opened on the main Health ID site.">
-      <p><a className="patient-primary-button" href={staffInvitationHref(hostname)}>Continue to the invitation page</a></p>
-    </AuthLayout>
-  }
-  return <InvitationSteps />
+  // A site that serves no staff pages (the production portal, an admin site) opens the EHR site's page at once, with
+  // the link: hid-system accepts the invitation check there.
+  const elsewhere = staffPagesOrigin(window.location.hostname)
+  return elsewhere ? <OpenStaffPage href={sameStaffPageOn(elsewhere, location)} /> : <InvitationSteps />
 }
 
 function InvitationSteps() {
@@ -108,11 +101,14 @@ function InvitationSteps() {
   const [fieldError, setFieldError] = useState('')
   const [unavailable, setUnavailable] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Identity refused to open the invitation because this browser is signed in on the site; then signed out here.
+  const [signedInHere, setSignedInHere] = useState(false)
+  const [signedOut, setSignedOut] = useState(false)
 
   async function open(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy || !turnstileToken) return
-    setError(''); setFieldError('')
+    setError(''); setFieldError(''); setSignedOut(false)
     let proof: StaffInvitationProof
     if (mode === 'link' && link) proof = link
     else {
@@ -128,12 +124,25 @@ function InvitationSteps() {
       setOpened(await staffInvitationApi.open(proof, turnstileToken))
     } catch (caught) {
       if (isRouteMissing(caught)) setUnavailable(true)
+      else if (isHidApiError(caught) && caught.code === 'STAFF_INVITATION_REQUIRES_SIGN_OUT') setSignedInHere(true)
       else setError(joinProblemText(caught, null))
     } finally {
       setTurnstileToken(null)
       setResetKey(value => value + 1)
       setBusy(false)
     }
+  }
+
+  /** Ends the session this browser holds on the site, then the invitation can be opened without an account. */
+  async function signOutFirst() {
+    if (busy) return
+    setError(''); setBusy(true)
+    try {
+      await staffApi.logout()
+      setSignedInHere(false); setSignedOut(true)
+    } catch {
+      setError('We couldn’t sign you out. Try again, or open the invitation in a private window.')
+    } finally { setBusy(false) }
   }
 
   async function accept(event: FormEvent<HTMLFormElement>) {
@@ -169,7 +178,11 @@ function InvitationSteps() {
       <p className="patient-field-hint">Joining a facility by invitation isn’t available. Contact the facility that invited you.</p>
     </section>}
 
-    {!unavailable && !opened && !accepted && <form className="patient-form" noValidate onSubmit={event => void open(event)}>
+    {!unavailable && signedInHere && <SignedInHere link={mode === 'link' ? link : null} busy={busy}
+      onSignOut={() => void signOutFirst()} />}
+
+    {!unavailable && !signedInHere && !opened && !accepted && <form className="patient-form" noValidate onSubmit={event => void open(event)}>
+      {signedOut && <p role="status" className="patient-field-hint">You’re signed out. Select Continue to open your invitation.</p>}
       <h2>{mode === 'link' ? 'Open your invitation' : 'Enter your invitation code'}</h2>
       {mode === 'link'
         ? <p className="patient-field-hint">Complete the security check, then select Continue to see who invited you.</p>
@@ -203,6 +216,22 @@ function InvitationSteps() {
       <SignInOnSite role={accepted.roleCode}>Go to staff sign-in</SignInOnSite>
     </section>}
   </AuthLayout>
+}
+
+/**
+ * This browser is signed in on the site, so Identity opens no invitation here. If it is the invited person (staff
+ * elsewhere), they accept signed in on the join page, which takes the link from its address; if not, they sign out.
+ */
+function SignedInHere({ link, busy, onSignOut }: { link: InvitationLink | null; busy: boolean; onSignOut: () => void }) {
+  return <section className="patient-form" aria-labelledby="staff-invitation-signed-in-title">
+    <FocusedHeading id="staff-invitation-signed-in-title">You’re already signed in</FocusedHeading>
+    <p className="patient-field-hint">Someone is signed in to Health ID in this browser. If it’s you, accept the invitation
+      with your account.{link ? '' : ' You’ll enter the code from the invitation email again.'} If it’s someone else, or
+      you don’t have a Health ID staff account yet, sign out first.</p>
+    <a className="patient-primary-button" href={staffJoinAddress(link)}>Accept with my account</a>
+    <button type="button" className="patient-secondary-button" disabled={busy} onClick={onSignOut}>
+      {busy ? 'Signing out…' : 'Sign out first'}</button>
+  </section>
 }
 
 /** "You can now sign in at ehr.healthidentitydirectory.com with … and your new password." */

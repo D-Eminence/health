@@ -2,8 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type Keyb
 import { Link } from 'react-router-dom'
 import { useDocumentTitle } from '../../authSteps'
 import { servesClinicianApplications } from '../../backendContract'
-import { CLINICIAN_STATUS_PATH, clinicianMainSiteHref } from '../../productHostname'
-import { StaffSignInLink } from '../../staffSignIn'
+import { CLINICIAN_STATUS_PATH, clinicianOtherSiteHref } from '../../productHostname'
+import { OpenStaffPage, StaffSignInLink } from '../../staffSignIn'
 import { CLINICIAN_REGULATOR_OF, clinicianApplicationApi, newClinicianIdempotencyKey, type ClinicianAccountView,
   type ClinicianApplicationDetails, type ClinicianApplicationView, type ClinicianStatusVerified } from '../clinicianApplicationApi'
 import { ClinicianAuthenticator } from '../clinician/ClinicianAuthenticator'
@@ -13,7 +13,7 @@ import { EmailCode } from '../clinician/EmailCode'
 import { ACCOUNT_UNAVAILABLE, APPLICATIONS_LIMITED, APPLICATION_CHANGED, APPLY_REFUSAL, FACILITY_UNAVAILABLE, MAINTENANCE, PAGE_EXPIRED,
   PROFESSION_NAME, REGULATOR_NAME, SIGNUP_CLOSED_NOT_SENT, STAFF_SIGN_IN_REQUIRED, STATE_LABEL, STATUS_SEARCHES_USED, codeOf, formatDate,
   refusalCopy, stateCopy, statusCodeSentCopy } from '../clinician/copy'
-import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, StepHeading, TextButton, shownError,
+import { ClinicianFrame, ErrorSummary, PrimaryButton, StepError, StepHeading, TextButton, shownError,
   type Problem } from '../clinician/ui'
 import { buttonClass } from '../../kasuwa/ui'
 
@@ -41,9 +41,10 @@ const CLOSE = 'clinician-status-close'
 interface Done { notice: string; change(view: ClinicianAccountView): ClinicianAccountView }
 
 export function ClinicianApplicationStatus() {
-  const mainSite = clinicianMainSiteHref(window.location.hostname, CLINICIAN_STATUS_PATH)
+  const elsewhere = clinicianOtherSiteHref(window.location.hostname, CLINICIAN_STATUS_PATH)
   if (!servesClinicianApplications()) return <NoApplications />
-  return mainSite ? <MainSiteOnly href={mainSite} path={CLINICIAN_STATUS_PATH} /> : <StatusPage />
+  // A site that serves no staff pages (the production portal, an admin site) opens the EHR site's page at once.
+  return elsewhere ? <OpenStaffPage href={elsewhere} /> : <StatusPage />
 }
 
 /** On a backend without clinician sign-up (Novu) there is no application to check. */

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { STAFF_SIGN_IN_PATH, staffSignInHref } from '../../productHostname'
+import { facilitySignInHref, STAFF_SIGN_IN_PATH } from '../../productHostname'
 import { supportAddress, type Support } from './enrollmentRules'
 import type { EnrollmentError } from './useEnrollment'
 
@@ -22,13 +22,14 @@ export function SupportContact({ purpose }: { purpose: Support | 'register' | 'f
 }
 
 /**
- * Where this administrator signs in next time: the EHR site in production, this portal elsewhere. Ported from
- * staff/routes/ProviderEnrollment.tsx:279-284, drawn as the design's primary button.
+ * Where this administrator signs in next time: the facility's own site's staff sign-in (facilitySignInHref), which on
+ * a product site is this site's own. Ported from staff/routes/ProviderEnrollment.tsx SignInLink, drawn as the design's
+ * primary button.
  */
-export function SignInLink({ children }: { children: ReactNode }) {
-  const elsewhere = staffSignInHref(window.location.hostname)
-  return elsewhere ? <a className="hid-ehr-button hid-ehr-signup-wide" href={elsewhere}>{children}</a>
-    : <Link className="hid-ehr-button hid-ehr-signup-wide" to={STAFF_SIGN_IN_PATH}>{children}</Link>
+export function SignInLink({ organizationType, children }: { organizationType?: string | null; children: ReactNode }) {
+  const href = facilitySignInHref(organizationType, window.location.hostname)
+  return href === STAFF_SIGN_IN_PATH ? <Link className="hid-ehr-button hid-ehr-signup-wide" to={href}>{children}</Link>
+    : <a className="hid-ehr-button hid-ehr-signup-wide" href={href}>{children}</a>
 }
 
 /**
