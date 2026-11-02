@@ -77,8 +77,17 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const lab = kind === 'laboratory'
   const back = href(encounterId)
   const [loaded, setLoaded] = useState<Loaded>({ status: 'loading' })
-  const [success, setSuccess] = useState(() => flash?.orderId === orderId ? flash.success ?? '' : '')
-  const [pageError, setPageError] = useState(() => flash?.orderId === orderId ? flash.error ?? '' : '')
+  // Arrived from the create page: what it said is shown here whatever the read below finds, as today's page says it
+  // beside the list after a create (Clinical.tsx createRecord), so a save or a "Do not create it again" is never lost.
+  const [created] = useState(() => flash?.orderId === orderId ? flash : null)
+  const afterCreate = created !== null
+  const [success, setSuccess] = useState(() => created?.success ?? '')
+  const [pageError, setPageError] = useState('')
+  // The order is being read again after a change: no change may start from the version shown (today's recordsLoading).
+  const [reloading, setReloading] = useState(false)
+  // Only the latest read of the order is kept, and only it lifts the lock: today's recordLoad sequence, shared by the
+  // first read and the reads after a change (Clinical.tsx:1319-1334, :1417, :1426, :1435, :1440).
+  const readSeq = useRef(0)
   const [selected, setSelected] = useState<string | null>(null)
   const [resultsOpen, setResultsOpen] = useState(false)
   const [resultsRevision, setResultsRevision] = useState(0)
@@ -105,32 +114,66 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
 
   const { facilityId, patientId } = chart
   useEffect(() => {
-    let active = true
-    readOrder(chartRef.current, encounterId, kind, orderId, false).then(
+    const seq = ++readSeq.current
+    const latest = () => seq === readSeq.current
+    // After a create the list is read afresh, as today's page reads it after a change (Clinical.tsx loadRecords). This
+    // is the create's one read: a warning it left ends with what the read came to (reloadSentence), and a failed read
+    // is said there, not again ("The change was saved, …"), as today's labWarning and createAndSend replace it
+    // (Clinical.tsx:1437, :1447-1448, :1659-1667).
+    const warning = created?.warning
+    const warn = (read: Reload) => {
+      if (warning) setPageError(`${warning.text}${reloadSentence(read, warning.what, warning.listChanged)}`)
+    }
+    readOrder(chartRef.current, encounterId, kind, orderId, afterCreate).then(
       read => {
-        if (!active) return
+        if (!latest()) return
+        warn(read.record ? [read.record] : [])
         setLoaded(read.record ? { status: 'ready', record: read.record, crossFacilityOrders: read.crossFacilityOrders } : { status: 'missing' })
+        setReloading(false)
       },
-      caught => { if (active) setLoaded({ status: 'error', text: caught instanceof Error ? caught.message : 'Records could not be loaded.' }) },
+      caught => {
+        if (!latest()) return
+        warn('failed')
+        setLoaded({ status: 'error', text: warning ? '' : afterCreate ? `The change was saved, but the records could not be reloaded. ${refusalText(caught, '')}`.trim()
+          : caught instanceof Error ? caught.message : 'Records could not be loaded.' })
+        setReloading(false)
+      },
     )
-    return () => { active = false }
-  }, [facilityId, patientId, encounterId, kind, orderId])
+    return () => { readSeq.current += 1 }
+  }, [facilityId, patientId, encounterId, kind, orderId, afterCreate, created])
 
   /** The order read again after a change, as today's page re-reads its list: the rows, or 'failed'. */
   const reload = async (): Promise<Reload> => {
+    // Two reads can overlap (a withdrawal while a status change's read is out): an older answer is dropped (null, as
+    // today's), and the lock stays until the latest read lands.
+    const seq = ++readSeq.current
+    setReloading(true)
     try {
       const read = await readOrder(chartRef.current, encounterId, kind, orderId, true)
+      if (seq !== readSeq.current) return null
       setLoaded(read.record ? { status: 'ready', record: read.record, crossFacilityOrders: read.crossFacilityOrders } : { status: 'missing' })
       return read.record ? [read.record] : []
     } catch (caught) {
+      if (seq !== readSeq.current) return null
       setPageError(`The change was saved, but the records could not be reloaded. ${refusalText(caught, '')}`.trim())
       return 'failed'
+    } finally {
+      if (seq === readSeq.current) setReloading(false)
     }
   }
 
+  // What a change said, drawn on every state of the page below the loading one.
+  const said = (
+    <>
+      <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
+      {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
+    </>
+  )
+
   if (loaded.status === 'loading') return <Loading label="Loading records…" />
-  if (loaded.status === 'error') return <><RecordHeadingOnly title={info.title} back={back} /><ErrorBox>{loaded.text}</ErrorBox></>
-  if (loaded.status === 'missing') return <RecordNotFound backHref={back} />
+  if (loaded.status === 'error') return <><RecordHeadingOnly title={info.title} back={back} />{said}{loaded.text ? <ErrorBox>{loaded.text}</ErrorBox> : null}</>
+  // The page's heading first, then what the create said, as on the other states.
+  if (loaded.status === 'missing') return <><RecordNotFound backHref={back} />{said}</>
 
   const record = loaded.record
   const status = text(record.status)
@@ -284,18 +327,24 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
         return { formError: refusalText(caught, 'Status could not be changed.') }
       }
     }
+    // Today's status form's title, "New status" and button (Clinical.tsx:1819, :1830, :612-618). The new status is the
+    // action pressed above, so the form names it, with today's choice label, rather than asking for it again.
     return (
-      <RecordForm
-        key={`status-${option.value}-${version}`}
-        className="hid-ehr-clinical-orders-action-form"
-        fields={[{ key: 'reason', label: 'Reason for change', required: true, maxLength: 500 }]}
-        validate={values => minimum(values, 3)}
-        submitLabel={label}
-        busyLabel="Updating…"
-        onSubmit={submit}
-      >
-        {warning ? <div className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{warning}</div> : null}
-      </RecordForm>
+      <div className="hid-ehr-clinical-orders-action-form">
+        <p className="hid-ehr-clinical-orders-lead"><strong>{lab ? 'Lab request status' : 'Prescription status'}</strong></p>
+        <p>New status: {option.label}</p>
+        <RecordForm
+          key={`status-${option.value}-${version}`}
+          fields={[{ key: 'reason', label: 'Reason for change', required: true, maxLength: 500 }]}
+          validate={values => minimum(values, 3)}
+          submitLabel="Update status"
+          busyLabel="Updating…"
+          disabled={reloading}
+          onSubmit={submit}
+        >
+          {warning ? <div className="hid-ehr-clinical-orders-notice hid-ehr-clinical-orders-danger">{warning}</div> : null}
+        </RecordForm>
+      </div>
     )
   }
 
@@ -308,6 +357,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
         validate={values => minimum(values, 8)}
         submitLabel="Send to Pharmacy"
         busyLabel="Working…"
+        disabled={reloading}
         onSubmit={async values => {
           const why = reason(values)
           if (pharmacyAttempt.current?.reason !== why) pharmacyAttempt.current = { reason: why, key: crypto.randomUUID() }
@@ -329,6 +379,7 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
         fields={[]}
         submitLabel="Send to Lab"
         busyLabel="Sending…"
+        disabled={reloading}
         onSubmit={async () => {
           labAttempt.current ??= crypto.randomUUID()
           try {
@@ -386,24 +437,30 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
         back={<EhrBackButton label="Back to consultation" onClick={() => navigate(back)} />}
       />
       <DetailMeta status={status || 'unknown'} saved={text(record.updatedAt) || record.createdAt} />
-      <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
-      {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
+      {said}
       <DetailGrid>
         <SavedRecord items={items} />
         <EhrCard title={<span id={ACTIONS_ID} tabIndex={-1}>Actions</span>}>
           {actions.length > 0 ? (
             <div className="hid-ehr-clinical-orders-actions">
               <ActionList>
-                {actions.map(action => (
-                  <EhrButton key={action.id} id={actionId(action.id)} variant="secondary"
-                    aria-expanded={action.toggle ? resultsOpen : selected === action.id}
-                    onClick={() => {
-                      if (action.toggle) { setResultsOpen(open => !open); return }
-                      setSelected(open => open === action.id ? null : action.id)
-                    }}>
-                    {action.label}
-                  </EhrButton>
-                ))}
+                {actions.map(action => {
+                  // While the order is read again, a change can't be opened on the version shown (today's
+                  // disabled={recordsLoading}): the button stays focusable and says so, and a press does nothing.
+                  const locked = reloading && !action.toggle && selected !== action.id
+                  return (
+                    <EhrButton key={action.id} id={actionId(action.id)} variant="secondary"
+                      aria-expanded={action.toggle ? resultsOpen : selected === action.id}
+                      aria-disabled={locked || undefined}
+                      onClick={() => {
+                        if (action.toggle) { setResultsOpen(open => !open); return }
+                        if (locked) return
+                        setSelected(open => open === action.id ? null : action.id)
+                      }}>
+                      {action.label}
+                    </EhrButton>
+                  )
+                })}
               </ActionList>
             </div>
           ) : <NoActions />}
