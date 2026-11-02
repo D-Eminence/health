@@ -19,9 +19,10 @@ function AuditUnavailable() {
 export const auditPage: EhrBluePage = {
   path: 'audit',
   group: 'Insight',
-  label: 'Audit & Compliance',
+  label: 'Audit trail',
   permission: 'audit.read',
-  status: 'live',
+  // Partial, not live: it works on Health ID, but not yet with today's words and steps throughout.
+  status: 'partial',
   icon: <HistoryIcon />,
   element: <AuditCompliance />,
   refusal: <AuditUnavailable />,

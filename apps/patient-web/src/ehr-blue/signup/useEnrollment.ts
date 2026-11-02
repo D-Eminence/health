@@ -3,10 +3,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { providerEnrollmentApi, type ProviderEnrollmentStart } from '../../staff/api'
 import { announceStaffSessionChange } from '../../staff/session'
-import { organizationTypeNote } from '../../staff/routes/ProviderEnrollment'
 import {
-  availabilityOf, CAC_REFUSALS, cacProductKey, carriesOtherThan, DAY_MS, DEFAULT_RESEND_SECONDS, isOrganizationType, isProduct,
-  MAX_CODE_WAIT_SECONDS, nextCodeAt, OPEN_SIGN_UP_MS, productOptions, refusalOf, registeringOf, secondsUntil, signUpKey,
+  facilityProductChoices, facilityTypeChoices, initialFacilityChoice, organizationTypeNote,
+} from '../../staff/routes/ProviderEnrollment'
+import {
+  availabilityOf, CAC_REFUSALS, cacProductKey, carriesOtherThan, DAY_MS, DEFAULT_RESEND_SECONDS,
+  MAX_CODE_WAIT_SECONDS, nextCodeAt, OPEN_SIGN_UP_MS, refusalOf, registeringOf, secondsUntil, signUpKey,
   type CodeCarries, type OrganizationType, type Product, type Registering, type StartDetails, type StartOutcome, type Step,
   type Support, type Unapplied,
 } from './enrollmentRules'
@@ -51,18 +53,12 @@ export function useEnrollment() {
   // Novu since P4c: whether orders between facilities are on, which a laboratory's or pharmacy's note says.
   const [ordersOn, setOrdersOn] = useState(false)
   const [help, setHelp] = useState<{ title: string; text: string; restart?: boolean } | null>(null)
-  // The public site's product links arrive here with ?product= (and may name ?type=), preselecting the choice.
+  // The public site's product links arrive here with ?product= (and may name ?type=), preselecting the choice; without
+  // either, a product site starts with its own product (initialFacilityChoice, today's page's own rule).
   const [params] = useSearchParams()
-  const [organizationType, setOrganizationType] = useState<OrganizationType>(() => {
-    const type = params.get('type')
-    return isOrganizationType(type) ? type : 'hospital'
-  })
-  const [productCode, setProductCode] = useState<Product>(() => {
-    const product = params.get('product')
-    const type = params.get('type')
-    const allowed = productOptions[isOrganizationType(type) ? type : 'hospital']
-    return isProduct(product) && allowed.includes(product) ? product : allowed[0]!
-  })
+  const [organizationType, setOrganizationType] = useState<OrganizationType>(
+    () => initialFacilityChoice(params, window.location.hostname).organizationType)
+  const [productCode, setProductCode] = useState<Product>(() => initialFacilityChoice(params, window.location.hostname).productCode)
   const [cac, setCacValue] = useState('')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -142,7 +138,7 @@ export function useEnrollment() {
 
   function setType(value: OrganizationType) {
     setOrganizationType(value)
-    const allowed = productOptions[value]
+    const allowed = facilityProductChoices(value, window.location.hostname)
     if (!allowed.includes(productCode)) setProductCode(allowed[0]!)
   }
 
@@ -575,6 +571,9 @@ export function useEnrollment() {
   // Back at the details of a sign-up Identity accepted, with its email changed (otherEmailThanFirst).
   const kept = stage === 'details' ? otherEmailThanFirst(details) : null
   const productNote = organizationTypeNote(organizationType, ordersOn)
+  // What this site's sign-up offers: on a product site, its own kind of facility and product only.
+  const typeChoices = facilityTypeChoices(window.location.hostname)
+  const productChoices = facilityProductChoices(organizationType, window.location.hostname)
   // The address as Identity has it: the code was sent to it, and the administrator signs in with it.
   const administratorEmail = email.trim().toLowerCase()
   const accountEmail = registering?.administratorEmail ?? administratorEmail
@@ -584,7 +583,7 @@ export function useEnrollment() {
   return {
     stage, availability, closed, ordersOn, help, organizationType, productCode, cac, name, email, code, password, busy, error,
     resent, unsent, codesReported, codeInForce, turnstileToken, resetKey, registering, registeringFailed, regStep, submitted,
-    headingFocus, carried, retryIn, resendIn, codeLimitIn, kept, productNote, administratorEmail, accountEmail, cacNumber, now,
+    headingFocus, carried, retryIn, resendIn, codeLimitIn, kept, productNote, typeChoices, productChoices, administratorEmail, accountEmail, cacNumber, now,
     setType, setProductCode, setCac, setName, setEmail, setCode, setPassword, setTurnstileToken, setError, setSubmitted,
     toStep, checkAvailabilityAgain, start, resend, verify, readRegisteringAgain, activate, openWorkspace, startAgain, notMine,
     enterCodeInForce, anotherEmail, firstEmail,

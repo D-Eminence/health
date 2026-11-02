@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useState, type FormEvent } from 'react'
 import { isHidApiError, plainErrorText } from '@hid/http'
 import { Button, Card, Field, Input, Select } from '@hid/ui'
 import { TurnstileWidget } from '@/components/shared/TurnstileWidget'
-import { APP_ENTRY, ROUTES } from '@/content/site'
+import { ROUTES, productSignInHref } from '@/content/site'
 import { getEnvironment } from '@/lib/env'
 import {
   APPLICATION_PRODUCTS,
@@ -263,7 +263,8 @@ export function ProviderCompletionForm({ initialProduct }: { readonly initialPro
           </form>
         </Card>
       )}
-      <p className="text-center text-sm text-muted">Already have facility access? <a className="font-semibold text-brand hover:text-brand-hover" href={APP_ENTRY.staffSignIn}>Sign in</a></p>
+      {/* The sign-in on the chosen product's own site: each product site has its own (owner, 2026-11-02). */}
+      <p className="text-center text-sm text-muted">Already have facility access? <a className="font-semibold text-brand hover:text-brand-hover" href={productSignInHref(productCode)}>Sign in</a></p>
     </div>
   )
 }

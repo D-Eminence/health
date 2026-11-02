@@ -15,6 +15,7 @@ import { ListPaging } from './Notes'
 import type { RecordList } from './records'
 
 const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff']
+/** 50 MiB, today's limit (staff/routes/Clinical.tsx Documents). */
 const MAX_BYTES = 52_428_800
 /**
  * Today's OCR page, where today's link goes (staff/routes/Clinical.tsx Documents). It is today's provider route, not a
@@ -76,7 +77,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
     setNotice('')
     const refuse = (message: string) => { setFileError(message); input.current?.focus() }
     if (!file || file.size === 0) return refuse('Select a file first.')
-    if (!ACCEPTED.includes(file.type) || file.size > MAX_BYTES) return refuse('Use a PDF, JPEG, PNG or TIFF file up to 50 MB.')
+    if (!ACCEPTED.includes(file.type) || file.size > MAX_BYTES) return refuse('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')
     setFileError(undefined)
     sending.current = true
     setUploading(true)
@@ -112,7 +113,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
                   {`${fileType(document.mediaType)} · ${fileSize(document.sizeBytes)}${document.status === 'initiated' ? '' : ` · ${scanWords(document.scanStatus)}`}`}
                 </span>
                 {document.status === 'initiated' ? (
-                  <span className="hid-ehr-clinical-cell-sub">Upload didn’t finish. Upload the file again.</span>
+                  <span className="hid-ehr-clinical-cell-sub">Upload not completed; only the person who started it can finish it. Upload the file again.</span>
                 ) : null}
               </span>
               <span className="hid-ehr-clinical-consult-document-actions">

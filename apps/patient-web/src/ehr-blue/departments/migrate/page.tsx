@@ -8,7 +8,8 @@ export const migratePage: EhrBluePage = {
   group: 'Network & Services',
   label: 'Document OCR',
   permission: 'ocr.job.read',
-  status: 'live',
+  // Partial, not live: it works on Health ID, but not yet with today's words and steps throughout.
+  status: 'partial',
   icon: <UploadIcon />,
   element: <Migrate />,
   // Opened by its address without the permission: the page's own refusal, in the same words as on the page, and nothing is read.

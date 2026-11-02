@@ -393,6 +393,17 @@ describe('campaigns, read only', () => {
     expect(document.activeElement).toBe(card(await campaignsList(), 'Demo screening week'))
   })
 
+  // A campaign role the page has no word for is never shown by its code (parity report 3.1 #16).
+  it.each(['field_supervisor', 'constructor'])('reads “Member” for a campaign role it has no word for (%s)', async role => {
+    api.outreachCampaignMembers.mockImplementation(async (_facilityId: string, campaignId: string) =>
+      [{ id: `${campaignId}-other`, campaignId, membershipId: 'membership-demo-9', role, createdAt: '2026-01-02T00:00:00.000Z' }])
+    renderPage()
+    await press(card(await campaignsList(), 'Demo screening week'))
+    const members = screen.getByRole('heading', { name: 'Members' }).closest('section') as HTMLElement
+    expect(await within(members).findByText('Member')).toBeTruthy()
+    expect(members.textContent).not.toMatch(/field.supervisor|constructor|function/i)
+  })
+
   it('says when a campaign has no members, and when its members cannot be read, with a retry', async () => {
     api.outreachCampaignMembers.mockImplementation(async (_facilityId: string, campaignId: string) => {
       if (campaignId === 'campaign-2') throw new HidApiError(403, 'Members of this campaign cannot be read here.', { code: 'FORBIDDEN' })
@@ -907,5 +918,58 @@ describe('a registration case', () => {
     await openCase()
     expect(window.location.href).toBe(before)
     expect(window.location.href).not.toContain(CASE_ID)
+  })
+})
+
+/*
+ * Outreach sends the phone number and the notes for the team on every case (hid-system outreach.types.ts
+ * registrationCase(), live in production): the case's own view shows them, the phone in full so the team can call back
+ * (owner, 2026-11-02); the list card and the search never carry it. A backend without them sends neither key, and the
+ * case shows what it does today (the term list above).
+ */
+describe('a case\'s phone number and notes', () => {
+  const PHONE = '+2348031234567'
+  const withContact = { ...pendingCase, phone: PHONE, operationalNotes: 'Met at the market stall.\nNeeds a follow-up visit.' }
+
+  it('shows the phone and the notes in full on the case', async () => {
+    api.outreachCases.mockResolvedValue([withContact, resolvedCase])
+    renderPage()
+    await openCase()
+    expect(within(registration()).getAllByRole('term').map(term => term.textContent)).toEqual(
+      ['Full name', 'Age', 'Sex', 'Phone number', 'Status', 'Temporary patient ID', 'Campaign', 'Created', 'Notes for the team'])
+    expect(within(registration()).getByText(PHONE)).toBeTruthy()
+    expect(within(registration()).queryByText(/••••/)).toBeNull()
+    const notes = within(registration()).getByText(/^Met at the market stall\./)
+    expect(notes.textContent).toBe('Met at the market stall.\nNeeds a follow-up visit.')
+  })
+
+  it('says when no phone number or notes were given', async () => {
+    api.outreachCases.mockResolvedValue([{ ...pendingCase, phone: null, operationalNotes: null }, resolvedCase])
+    renderPage()
+    await openCase()
+    const terms = within(registration()).getAllByRole('term')
+    const valueOf = (label: string) => terms.find(term => term.textContent === label)!.nextElementSibling!.textContent
+    expect(valueOf('Phone number')).toBe('Not recorded')
+    expect(valueOf('Notes for the team')).toBe('None')
+  })
+
+  it('shows a phone number Outreach already masked as it was sent', async () => {
+    api.outreachCases.mockResolvedValue([{ ...pendingCase, phone: '+234 ••• ••• 4567' }, resolvedCase])
+    renderPage()
+    await openCase()
+    expect(within(registration()).getByText('+234 ••• ••• 4567')).toBeTruthy()
+  })
+
+  it('never finds a case by its phone number, and the list card never carries it', async () => {
+    api.outreachCases.mockResolvedValue([withContact, resolvedCase])
+    renderPage()
+    await casesList()
+    await showTab('All')
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search Outreach' }), { target: { value: '8031234567' } })
+    expect(screen.getByText('No matching registrations')).toBeTruthy()
+    // Nor does the card in the list carry it.
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search Outreach' }), { target: { value: '' } })
+    expect(card(await casesList(), 'Patient One').textContent).not.toContain('4567')
+    expect(document.body.textContent).not.toContain('8031234567')
   })
 })

@@ -1,8 +1,9 @@
 import type { Facility } from './api'
 
 /**
- * Facility roles and licences as the provider portal names them (P4b, Novu only). Identity reports role codes; the
- * portal shows these words instead. A code not listed here is shown as it is.
+ * Facility roles and licences as Health ID names them. Identity reports role codes; the classic portal and the blue EHR
+ * show these words instead, and never a code: a code not listed here reads "Staff" (owner's rule, 1 Nov 2026; parity
+ * report 3.1 #16).
  */
 const ROLE_LABELS: Readonly<Record<string, string>> = {
   org_admin: 'Facility administrator',
@@ -14,26 +15,75 @@ const ROLE_LABELS: Readonly<Record<string, string>> = {
   lab: 'Laboratory scientist',
   pharmacist: 'Pharmacist',
   receptionist: 'Receptionist',
+  // Owner decision 20 (1 Nov 2026): Identity reports these roles too. Without names here the blue EHR could only call
+  // them "Staff", and would not offer them when an administrator invites someone or changes their access.
+  records_officer: 'Records officer',
+  billing: 'Billing officer',
+  outreach_officer: 'Outreach officer',
 }
 
-export function roleLabel(code: string): string {
-  // A role with no words yet is 'Staff', never its internal key (owner's rule, 1 Nov 2026).
-  return ROLE_LABELS[code] ?? 'Staff'
+/*
+ * A role's words from the list. A code the list does not name reads "Staff" instead of appearing as it is. Own keys
+ * only: a code such as "constructor" is not a role.
+ */
+function listedRole(code: string): string | undefined {
+  return Object.hasOwn(ROLE_LABELS, code) ? ROLE_LABELS[code] : undefined
 }
+
+/** A role's words: "Doctor"; "Staff" for a code the list does not name, never its internal key. */
+export function roleName(code: string): string {
+  return listedRole(code) ?? 'Staff'
+}
+
+/** The classic portal's name for roleName: the same words, "Staff" for a role with no words yet. */
+export const roleLabel = roleName
 
 /** Each role's words once, in the order given ("Facility administrator, Doctor"). */
 export function roleLabels(codes: readonly string[]): string {
   return [...new Set(codes.map(roleLabel))].join(', ')
 }
 
+function withArticle(word: string): string {
+  return `${/^[aeiou]/.test(word) ? 'an' : 'a'} ${word}`
+}
+
 /**
  * The role in a sentence: "a doctor", "a laboratory scientist". A role with no words yet is "a staff member", as the
- * owner chose (2 Nov 2026) and PR #97's roleNameInSentence says it, never its internal key.
+ * owner chose (2 Nov 2026), never its internal key. The classic portal and the blue EHR say it the same way: this is
+ * the one place those words are made (roleNameInSentence is the same function).
  */
 export function roleInSentence(code: string): string {
-  if (!Object.hasOwn(ROLE_LABELS, code)) return 'a staff member'
-  const word = roleLabel(code).toLowerCase()
-  return `${/^[aeiou]/.test(word) ? 'an' : 'a'} ${word}`
+  const word = listedRole(code)
+  return word ? withArticle(word.toLowerCase()) : 'a staff member'
+}
+
+/** A role in a blue EHR sentence (PR #97's name): roleInSentence itself, "a staff member" for a code the list does not name. */
+export const roleNameInSentence = roleInSentence
+
+/**
+ * A member's roles in the blue EHR, each once ("Facility administrator, Doctor"). A code the list does not name is left
+ * out beside one it does, as "Doctor, Staff" would read oddly; with none named, "Staff".
+ */
+export function roleNames(codes: readonly string[]): string {
+  return [...new Set(codes.flatMap(code => listedRole(code) ?? []))].join(', ') || 'Staff'
+}
+
+/** Whether the list names this role. The blue EHR offers only these when an administrator assigns a role. */
+export function hasRoleName(code: string): boolean {
+  return listedRole(code) !== undefined
+}
+
+/**
+ * Every role a member holds, for the blue screens where an administrator sees and changes access (Staff & access, HR &
+ * Credentials). A role the list does not name still carries its own permissions, so it is counted, never left out and
+ * never shown by its code: "Nurse and another role", "Nurse and 2 other roles"; "Staff" alone, "2 staff roles".
+ */
+export function heldRoleNames(codes: readonly string[]): string {
+  const named = [...new Set(codes.flatMap(code => listedRole(code) ?? []))]
+  const unnamed = new Set(codes.filter(code => !hasRoleName(code))).size
+  if (named.length === 0) return unnamed > 1 ? `${unnamed} staff roles` : 'Staff'
+  if (unnamed === 0) return named.join(', ')
+  return `${named.join(', ')} and ${unnamed === 1 ? 'another role' : `${unnamed} other roles`}`
 }
 
 /** The regulators whose licences a facility vouches for (P4b SPEC 4.2). */

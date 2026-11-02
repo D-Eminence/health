@@ -124,7 +124,9 @@ describe('a section of the profile', () => {
     expect(within(await openSection('Insurance & hospital')).getByRole('textbox', { name: HMO })).toBeTruthy()
     const health = within(await openSection('Health information'))
     expect(health.getByRole('combobox', { name: 'Blood group' })).toBeTruthy()
-    expect(health.getByRole('button', { name: 'Add emergency contact' })).toBeTruthy()
+    // The contacts are a read of their own (availability, then the list), which nothing above waits for: on Novu they
+    // show nothing until it is in.
+    expect(await health.findByRole('button', { name: 'Add emergency contact' })).toBeTruthy()
     expect(within(await openSection('Verify your NIN')).getByRole('textbox', { name: NIN })).toBeTruthy()
   })
 
@@ -164,6 +166,9 @@ describe('a section of the profile', () => {
     await allShown()
     expect(screen.queryByRole('heading', { name: 'Emergency contacts', level: 2 })).toBeNull()
     const health = await openSection('Health information')
+    // On Novu the contacts show nothing until their own read is in (availability, then the list), which neither the
+    // sections' headings nor the section's opening wait for.
+    await within(health).findByText('Up to 5 contacts.')
     const block = health.querySelector('#emergency-contacts') as HTMLElement
     expect(block.parentElement?.closest('section')).toBe(health)
     expect(block.tagName).not.toBe('SECTION')
@@ -373,15 +378,30 @@ describe('a link to a section of the profile', () => {
 
   it('to #emergency-contacts on hid-system main, before the health information is served, opens Health information holding them alone', async () => {
     novu.on = false
-    atProfile('/profile#emergency-contacts', gateway({ 'GET /ehr/me/health-profile': () => problem(404, 'NOT_FOUND', 'Cannot GET') }))
+    // On main the contacts' title is shown, with "Loading your contacts", as soon as the health information's 404 shows
+    // the section, and focus goes to it then. The completion ("Finish your profile") and "Add emergency contact" are
+    // shown only once the contacts are read (availability, then the list, one read the page and the card share), which
+    // can be after that. The list is held back until focus is there, so every run takes that order, not only a slow one.
+    let answer!: () => void
+    const listed = new Promise<void>(resolve => { answer = resolve })
+    atProfile('/profile#emergency-contacts', gateway({
+      'GET /ehr/me/health-profile': () => problem(404, 'NOT_FOUND', 'Cannot GET'),
+      'GET /identity/me/emergency-contacts': async () => { await listed; return json([]) },
+    }))
     const title = await screen.findByRole('heading', { name: 'Emergency contacts', level: 3 })
     await waitFor(() => expect(document.activeElement).toBe(title))
+    answer()
+    // Once the list is in: the completion is shown, and the contacts offer to add one.
+    await screen.findByRole('heading', { name: 'Finish your profile', level: 2 })
+    const health = within(content('Health information'))
+    expect(await health.findByRole('button', { name: 'Add emergency contact' })).toBeTruthy()
     // Main sends no hid-1.0 health details, so there is no section for them.
     expect(screen.getAllByRole('heading', { level: 2 })).toEqual(['Finish your profile', 'About you', 'Insurance & hospital', 'Health information',
       'Verify your NIN', 'Settings'].map(name => heading(name)))
     expect(isOpen('Health information')).toBe(true)
-    expect(within(content('Health information')).queryByRole('combobox', { name: 'Blood group' })).toBeNull()
-    expect(within(content('Health information')).getByRole('button', { name: 'Add emergency contact' })).toBeTruthy()
+    expect(health.queryByRole('combobox', { name: 'Blood group' })).toBeNull()
+    // The list taking the place of "Loading your contacts", and the completion appearing above, leave focus where it was.
+    expect(document.activeElement).toBe(title)
   })
 
   it('to #access-pin opens About you, alone, with focus on the Access PIN heading', async () => {
