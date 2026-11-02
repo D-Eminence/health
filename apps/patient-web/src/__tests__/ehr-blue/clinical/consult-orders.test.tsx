@@ -1340,7 +1340,7 @@ describe('blockers: what a create said is shown even when the saved order’s pa
   it('blocker: a saved prescription says it was saved when its page cannot be read, which reads the list afresh as today after a change', async () => {
     api.records.mockRejectedValue(UNAVAILABLE())
     await savePrescription()
-    expect(await screen.findByText('The change was saved, but the records could not be reloaded. EHR is unavailable.')).toBeTruthy()
+    expect(await screen.findByText(`The change was saved, but the records could not be reloaded. ${SAID_UNAVAILABLE}`)).toBeTruthy()
     expect(screen.getByText('Clinical record saved.')).toBeTruthy()
     expect(api.createRecord).toHaveBeenCalledTimes(1)
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: undefined, fresh: true })
@@ -1357,13 +1357,16 @@ describe('blockers: what a create said is shown even when the saved order’s pa
   it('blocker: "Do not create it again" stays on the page when the saved active lab request is not found there', async () => {
     staff.permissions = [...READ_WRITE, 'lab.work-item.accept']
     setLists([], [])
-    api.createRecord.mockRejectedValue(new HidApiError(409, `Lab request ${LAB} is saved and active in the EHR, but Lab refused it (LAB_TEST_UNKNOWN)`, { code: 'LAB_HANDOFF_REFUSED' }))
+    // The server's words name the saved request; the HTTP client keeps them as `detail`, never shown.
+    api.createRecord.mockRejectedValue(new HidApiError(409, `Lab request ${LAB} is saved and active in the EHR, but Lab refused it (LAB_TEST_UNKNOWN)`,
+      { code: 'LAB_HANDOFF_REFUSED', detail: `Lab request ${LAB} is saved and active in the EHR, but Lab refused it (LAB_TEST_UNKNOWN)` }))
     await labForm('active')
     fireEvent.click(screen.getByRole('button', { name: 'Create lab request' }))
     await confirmPatient(SEND_LAB(), 'Send lab request')
     expect(await screen.findByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
-    expect(screen.getByText('Lab request saved and active in the EHR, but Lab refused it (LAB_TEST_UNKNOWN), so the Laboratory does not have it. '
-      + 'Do not create it again: once that is resolved, use Send to Lab on the request.')).toBeTruthy()
+    expect(screen.getByText('Lab request saved and active in the EHR, but the laboratory didn’t accept it, so they don’t have it yet. '
+      + 'Do not create it again: contact the laboratory, then use Send to Lab on the request.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('LAB_TEST_UNKNOWN')
   })
 
   it('blocker: an active lab request Lab did not accept says so when its page cannot be read', async () => {
@@ -1373,10 +1376,11 @@ describe('blockers: what a create said is shown even when the saved order’s pa
     api.records.mockRejectedValue(UNAVAILABLE())
     fireEvent.click(screen.getByRole('button', { name: 'Create lab request' }))
     await confirmPatient(SEND_LAB(), 'Send lab request')
-    expect(await screen.findByText('Lab request created in the EHR: its status is saved, but Lab refused it (LAB_TEST_UNKNOWN). Once that is resolved, '
-      + 'use Send to Lab on the request. The list could not be reloaded; refresh it to see the request.')).toBeTruthy()
+    expect(await screen.findByText('Lab request created in the EHR: its status is saved, but the laboratory didn’t accept it. Contact the laboratory, '
+      + 'then use Send to Lab on the request. The list could not be reloaded; refresh it to see the request.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('LAB_TEST_UNKNOWN')
     // One read, said once: today's labWarning replaces loadRecords' own sentence (Clinical.tsx:1437, :1447-1448).
-    expect(screen.queryByText('The change was saved, but the records could not be reloaded. EHR is unavailable.')).toBeNull()
+    expect(screen.queryByText(`The change was saved, but the records could not be reloaded. ${SAID_UNAVAILABLE}`)).toBeNull()
   })
 
   it('blocker: a lab request saved but not sent to another laboratory says so when its page cannot be read', async () => {
@@ -1396,7 +1400,7 @@ describe('blockers: what a create said is shown even when the saved order’s pa
     expect(await screen.findByText('Saved as a draft. Not sent: Demo Laboratory can’t receive this order on Health ID at the moment. Choose another laboratory. '
       + 'The list could not be reloaded; refresh it to see the lab requests.')).toBeTruthy()
     // One read, said once: today's createAndSend replaces loadRecords' own sentence (Clinical.tsx:1437, :1666-1667).
-    expect(screen.queryByText('The change was saved, but the records could not be reloaded. EHR is unavailable.')).toBeNull()
+    expect(screen.queryByText(`The change was saved, but the records could not be reloaded. ${SAID_UNAVAILABLE}`)).toBeNull()
   })
 })
 
@@ -1449,7 +1453,7 @@ describe('review: after a create the list is read once, and what the read came t
     await confirmPatient(`Send this lab request (Haemoglobin) for ${PATIENT_NAME} to Demo Laboratory?`, 'Send lab request')
     expect(await screen.findByText(`${UNANSWERED} The list could not be reloaded; refresh it to see the lab requests.`)).toBeTruthy()
     expect(screen.queryByText(/The list was reloaded\./)).toBeNull()
-    expect(screen.queryByText('The change was saved, but the records could not be reloaded. EHR is unavailable.')).toBeNull()
+    expect(screen.queryByText(`The change was saved, but the records could not be reloaded. ${SAID_UNAVAILABLE}`)).toBeNull()
   })
 
   it('blocker: an active request Lab did not accept is read once, by its page', async () => {
@@ -1460,20 +1464,23 @@ describe('review: after a create the list is read once, and what the read came t
     const before = freshLabReads()
     submitWith('Test code')
     await confirmPatient(SEND_LAB(), 'Send lab request')
-    expect(await screen.findByText('Lab request created in the EHR: its status is saved, but Lab refused it (LAB_TEST_UNKNOWN). Once that is resolved, '
-      + 'use Send to Lab on the request.')).toBeTruthy()
+    expect(await screen.findByText('Lab request created in the EHR: its status is saved, but the laboratory didn’t accept it. Contact the laboratory, '
+      + 'then use Send to Lab on the request.')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('LAB_TEST_UNKNOWN')
     expect(freshLabReads() - before).toBe(1)
   })
 
   it('format: on a saved request’s page that does not find it, the page’s heading comes before what the create said', async () => {
     staff.permissions = [...READ_WRITE, 'lab.work-item.accept']
     setLists([], [])
-    api.createRecord.mockRejectedValue(new HidApiError(409, `Lab request ${LAB} is saved and active in the EHR, but Lab refused it (LAB_TEST_UNKNOWN)`, { code: 'LAB_HANDOFF_REFUSED' }))
+    // The server's words name the saved request; the HTTP client keeps them as `detail`, never shown.
+    api.createRecord.mockRejectedValue(new HidApiError(409, `Lab request ${LAB} is saved and active in the EHR, but Lab refused it (LAB_TEST_UNKNOWN)`,
+      { code: 'LAB_HANDOFF_REFUSED', detail: `Lab request ${LAB} is saved and active in the EHR, but Lab refused it (LAB_TEST_UNKNOWN)` }))
     await labForm('active')
     submitWith('Test code')
     await confirmPatient(SEND_LAB(), 'Send lab request')
     const heading = await screen.findByRole('heading', { level: 1, name: 'Record not found' })
-    const said = screen.getByText(/^Lab request saved and active in the EHR, but Lab refused it/)
+    const said = screen.getByText(/^Lab request saved and active in the EHR, but the laboratory didn’t accept it/)
     expect(heading.compareDocumentPosition(said) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
@@ -1568,11 +1575,13 @@ describe('gaps: who may add an order, and the request handling the EHR refused',
     await labForm()
     fireEvent.click(screen.getByRole('button', { name: 'Create lab request' }))
     await confirmPatient(SAVE_LAB(), 'Save draft')
-    expect((await screen.findByRole('alert')).textContent).toBe('One or more request fields are invalid. Status must be one of the following values: draft, active.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_FIELDS_REFUSED)
     const handling = field('Request handling')
     expect(handling.getAttribute('aria-invalid')).toBe('true')
     const described = (handling.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent)
-    expect(described).toContain('Status must be one of the following values: draft, active.')
+    // At the field: a plain word, never the field's internal name or the validator's words.
+    expect(described).toContain('Check this detail.')
+    expect(document.body.textContent).not.toMatch(/Status must be|following values|request fields are invalid/)
   })
 })
 

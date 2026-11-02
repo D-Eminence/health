@@ -600,7 +600,8 @@ describe('Consultation record', () => {
     fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Waiting for results' } })
     fireEvent.click(submitOf('Put on hold'))
     expect(await screen.findByText('Consultation updated.')).toBeTruthy()
-    expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await screen.findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     // The change's own answer is still shown.
     expect(within(meta()).getByText('On hold')).toBeTruthy()
   })

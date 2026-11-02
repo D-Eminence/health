@@ -441,7 +441,8 @@ describe('Nursing observation record', () => {
   it('gap: "Refresh revisions" is the retry after a failed read, as today: it reads them again, with no access re-check', async () => {
     api.noteRevisions.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     await openRecord()
-    expect((await within(saved()).findByRole('alert')).textContent).toBe('EHR is unavailable.')
+    expect((await within(saved()).findByRole('alert')).textContent).toBe(SAID_UNAVAILABLE)
+    expect(document.body.textContent).not.toContain('EHR is unavailable.')
     expect(within(actions()).getByText('Nothing more to do here.')).toBeTruthy()
     const checks = api.lookupPatient.mock.calls.length
     fireEvent.click(within(saved()).getByRole('button', { name: 'Refresh revisions' }))

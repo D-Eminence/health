@@ -584,7 +584,8 @@ describe('An access request’s page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(shownText(screen.getByRole('alert'))).toContain('Couldn’t load this request'))
     const alert = shownText(screen.getByRole('alert'))
-    expect(alert).toContain('Select a facility where you are an active member to see your access requests.')
+    expect(alert).toContain('Choose a facility you work at to see your access requests.')
+    expect(alert).not.toContain('FACILITY_ACCESS_DENIED')
     expect(alert).not.toContain('This access had already ended.')
     expect(screen.queryByText('Couldn’t close access')).toBeNull()
     // Read again, and it works: nothing about the close is said any more (AccessRequests.tsx:75).
