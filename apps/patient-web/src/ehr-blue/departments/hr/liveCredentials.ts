@@ -85,11 +85,12 @@ export function useLiveStaff(facility: Facility | undefined, waiting = false): L
   return { kind: 'ready', staff: current.staff, read: current }
 }
 
-/** One member as an HR & Credentials record: their licence, in the design's record shape. */
+/**
+ * One member as an HR & Credentials record: their licence, in the design's record shape, but for the reference the
+ * design draws under a record's name: here it would be part of the member's membership id, and screens show no ids.
+ */
 export interface LiveCredential {
   readonly key: string
-  /** The membership's first 8 characters, as the design shows a record's reference. */
-  readonly reference: string
   /** The credential: "MDCN licence", or "No licence on record". */
   readonly name: string
   readonly staff: string
@@ -143,7 +144,6 @@ export function liveCredentials(staff: FacilityStaff): LiveCredential[] {
     ]
     return {
       key: member.membershipId,
-      reference: member.membershipId.slice(0, 8),
       name,
       staff: member.name,
       roles,

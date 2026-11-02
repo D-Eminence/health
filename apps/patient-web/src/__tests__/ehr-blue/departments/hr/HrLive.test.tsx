@@ -97,7 +97,9 @@ describe('the live list', () => {
     expect(within(admin).getByText('Demo Administrator')).toBeTruthy()
     expect(within(admin).getByText('Facility administrator, Doctor · You')).toBeTruthy()
     expect(within(admin).getByText('reviewed')).toBeTruthy()
-    expect(within(admin).getByText(ADMIN_ID.slice(0, 8))).toBeTruthy()
+    // The design draws a reference under the record's name; here it would be part of the membership id, and screens show no ids.
+    expect(admin.textContent).not.toContain(ADMIN_ID.slice(0, 8))
+    expect(within(admin).getByRole('button', { name: 'MDCN licence' }).parentElement?.querySelector('.hid-ehr-dept-reference')).toBeNull()
     expect(within(admin).getByText(dateText('2026-10-24T12:00:00.000Z'))).toBeTruthy()
     const vouched = row('NMCN licence')
     expect(within(vouched).getByText('Demo Nurse')).toBeTruthy()
@@ -105,6 +107,7 @@ describe('the live list', () => {
     const none = row('No licence on record')
     expect(within(none).getByText('Demo Receptionist')).toBeTruthy()
     expect(within(none).getByText('no licence')).toBeTruthy()
+    for (const id of [ADMIN_ID, NURSE_ID, DESK_ID]) expect(table.textContent).not.toContain(id.slice(0, 8))
     expectOnlyTheRead()
   })
 
@@ -116,6 +119,9 @@ describe('the live list', () => {
     expect(screen.getByRole('button', { name: 'NMCN licence' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'MDCN licence' })).toBeNull()
     fireEvent.keyDown(search, { key: 'Enter' })
+    // The membership id is not on screen, so a search for it finds nothing.
+    fireEvent.change(search, { target: { value: NURSE_ID.slice(0, 8) } })
+    expect(screen.queryByRole('button', { name: 'NMCN licence' })).toBeNull()
     fireEvent.change(search, { target: { value: 'nobody here' } })
     const list = screen.getByRole('region', { name: 'Search HR & Credentials' })
     expect(within(list).getByText('No matching records')).toBeTruthy()
@@ -135,7 +141,10 @@ describe('the live list', () => {
 
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('NMCN licence')
     expect(document.activeElement?.id).toBe('hr-title')
-    expect(screen.getByText(`Demo Nurse · ${NURSE_ID.slice(0, 8)}`)).toBeTruthy()
+    // The line under the title names the member, and no part of their membership id.
+    const context = document.querySelector('.hid-ehr-dept-context') as HTMLElement
+    expect(within(context).getByText('Demo Nurse')).toBeTruthy()
+    expect(document.body.textContent).not.toContain(NURSE_ID.slice(0, 8))
     expect(screen.getByText('vouched')).toBeTruthy()
     expect(screen.getByText(`Saved ${dateText('2026-10-25T08:00:00.000Z')}`)).toBeTruthy()
     const saved = savedRecord()
