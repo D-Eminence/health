@@ -3,12 +3,17 @@
 The redesign changes the frontend only. Where a screen needs something the backend doesn't serve yet, it's
 listed here instead. The UI calls the proposed endpoint and says plainly when it isn't served.
 
-## 1. Patient-added records — `POST /api/v1/ehr/me/patient-entries` (proposed)
+## 1. Patient-added records, with photos and files (proposed)
 
-Patients record their own care: a visit, test result, medicine, diagnosis or vaccine from any hospital, clinic,
-lab or pharmacy, with photos or PDFs of the paper.
+Patients record their own care: a visit, test result, medicine, diagnosis or vaccine from any hospital, clinic, lab
+or pharmacy, with photos or PDFs of the paper. The entry is saved first, with no file bytes in it. Then each file goes
+up under it in turn, in the three steps staff uploads take: ask for an upload link, PUT the exact bytes, confirm. A
+file's bytes never pass through the API, so production's edge limit on a request body (8000 bytes) never applies to
+them. Every route takes a patient session only, with no facility. A 404 on a served route carries its own code, never
+`NOT_FOUND`.
 
-Request (patient session):
+**1. Save the entry.** `POST /api/v1/ehr/me/patient-entries`, with an `Idempotency-Key` header, one per Save and
+reused when that Save is retried. The body is at most 8000 bytes of JSON:
 
 ```json
 {
@@ -16,18 +21,66 @@ Request (patient session):
   "title": "Malaria test",
   "facilityName": "Lagos General Hospital",
   "occurredOn": "2026-10-20",
-  "notes": "Positive, given ACT",
-  "attachments": [{ "fileName": "slip.jpg", "mediaType": "image/jpeg", "sizeBytes": 812345, "contentBase64": "…" }]
+  "notes": "Positive, given ACT"
 }
 ```
 
-Response: `201 { "id": "…" }`. Limits the UI enforces: up to 5 files, 10 MB each, images or PDF, title 2–160
-characters, date not in the future.
+`title` 2–160 characters; `facilityName` up to 160 characters or null, free text that gives that facility no access;
+`occurredOn` not after today in Lagos; `notes` ("Anything else to note?") up to 2000 characters or null. Answers
+`201 { entry }`; the same key with the same body replays the 201.
 
-The records answer (`GET /ehr/me/records`) should then return these entries marked as patient-entered (for
-example `source: "patient"`), so the UI can label them "Added by you" and clinicians can tell them apart.
+**2. Ask for an upload link.** `POST /api/v1/ehr/me/patient-entries/:entryId/documents/upload-intents`, with an
+`Idempotency-Key` header, one per file. Body `{ fileName, mediaType, sizeBytes, sha256Hex }`: `mediaType` is
+`application/pdf`, `image/jpeg` or `image/png`; up to 10 MB each, at most 5 files per entry. The server sets the
+patient, the classification and the retention; the browser sends none of them. Answers
+`201 { document: { id, status: 'initiated', scanStatus: 'pending' }, upload: { method: 'PUT', url, requiredHeaders, expiresInSeconds } }`,
+the staff shape. The same key asked again once that file is confirmed (a confirm that went through though its answer
+was lost) answers `409 PATIENT_DOCUMENT_ALREADY_UPLOADED` with `document: { id, status, scanStatus }`: the UI counts
+that file as uploaded and sends no PUT and no confirm for it. The UI goes by the 409 and its `code` alone and does not
+read `document`. Any other 409, or that code with another status, is a failed upload.
 
-Registered as `ehr.myPatientEntries` (status `proposed`) in `packages/contracts/src/registry.ts`.
+**3. PUT the file** to `upload.url` with `requiredHeaders`: the exact bytes that were hashed, no cookies. The document
+bucket's CORS must allow this PUT from the patient host (app.) and its staging and development hosts.
+
+**4. Confirm.** `POST /api/v1/ehr/me/patient-entries/:entryId/documents/:documentId/complete`, no body; only the
+account that asked for the link may confirm. The server checks the stored object's size, SHA-256 and type. Answers
+`200 { document: { id, status, scanStatus } }`; a missing or mismatched object answers `409 PATIENT_DOCUMENT_UPLOAD_INCOMPLETE`.
+
+**List.** No route of its own: the records answer the Records page already reads, `GET /api/v1/ehr/me/records`,
+carries a new key
+`patientEntries: [{ id, source: 'patient', kind, title, facilityName, occurredOn, notes, createdAt, documents: [{ id, fileName, mediaType, sizeBytes, status, scanStatus, createdAt }] }]`,
+newest first. Only confirmed documents are listed, and removed entries are left out. The UI lists these as "Added by
+you" on the Records page from that answer, and reads the records again after a Save or a removal. An entry or file
+missing what it needs is left out, and a status the UI does not know never reads as clean. Each file shows its name,
+type, size and virus check ("Checking for viruses" while `scanStatus` is `pending`, "Couldn't be checked" when
+rejected); no file can be opened there yet, since this contract has no patient download.
+
+**Remove.** `POST /api/v1/ehr/me/patient-entries/:entryId/withdraw`, no body, answers
+`200 { entry: { id, status: 'withdrawn', withdrawnAt } }`, and a replay answers the same. From then on the entry and
+its files are gone from `patientEntries`, the patient chat and every staff read. Nothing is erased, so the UI says "Removed
+from your records", never "deleted".
+
+**Who reads.** The patient, always. Staff only as they read the patient's imported history: at a facility whose own
+membership holds an active consent grant for the patient (a share at any level, an approved access request, the desk
+PIN, or emergency access); a deny overrides it, and revoking or expiry ends it. The facility name the patient types
+gives that facility nothing. Every staff read is logged and raises "Your records were opened". Nobody but the patient
+writes, at any share level.
+
+**The patient chat** reads each live, confirmed, scan-clean patient document as it reads other documents, labelled
+"Patient provided file; machine extracted, not clinician verified", and each entry's kind, title, place, date and notes
+as patient-reported.
+
+**Served or not.** The records answer carrying `patientEntries` (a list, empty or not), or a Save answering 201, means
+served. A records answer without the key (today's), or a Save's 404 `NOT_FOUND` (an unrouted path), means not served,
+but only while nothing has said otherwise; a `patientEntries` that is not a list is left out and says neither. The UI
+keeps this in memory only (`apps/patient-web/src/patientEntriesServed.ts`). Without the key the Records page sends
+exactly today's requests and looks exactly as today. Until served, the drawer's Save gets that 404 and says "This
+isn't set up for your account"; no file leaves the device until the Save and that file's upload link have both been
+answered.
+
+Registered as `ehr.myPatientEntries` (POST), `ehr.myPatientEntryUploadIntent`, `ehr.myPatientEntryDocumentComplete`
+and `ehr.myPatientEntryWithdraw` (status `proposed`) in `packages/contracts/src/registry.ts`; the list is part of
+`ehr.myRecords`.
 
 ## 2. Sharing by card: the email and the link it carries
 

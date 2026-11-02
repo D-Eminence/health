@@ -4,12 +4,17 @@ import {
   type ImportedHistorySharingChange, type ImportedMedicalRecord,
 } from './importedRecords'
 import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory } from '@hid/contracts'
-import { NO_RETRY, type ApiClient, type DownloadResult, type HidApiError, type RequestSpec, type RetryPolicy } from '@hid/http'
+import {
+  HidApiError, NO_RETRY, uploadPresignedObject,
+  type ApiClient, type DownloadResult, type PresignedUpload, type RequestSpec, type RetryPolicy,
+} from '@hid/http'
 import { createEhrService, createSupportService } from '@hid/api'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from './sessionRefreshTurn'
 import { ACCESS_LOG_PAGE_SIZE, parseAccessLog, type AccessLogPage } from './accessLog'
+import { getEnvironment } from './env'
+import { learnPatientEntriesServed, saysPatientEntriesNotServed } from './patientEntriesServed'
 import {
-  parseEmailChangeStarted, parseHealthProfile, parsePhoneChanged, parseProfileDetails,
+  EDGE_BODY_MAX_BYTES, jsonBodyBytes, parseEmailChangeStarted, parseHealthProfile, parsePhoneChanged, parseProfileDetails,
   type EmailChangeStarted, type HealthFields, type HealthProfile, type PhoneChanged, type ProfileDetails,
 } from './profileParity'
 import { photoBody } from './photoImage'
@@ -147,14 +152,190 @@ export interface SharedCardAnswer {
   records: PatientRecords
 }
 
-/** What the patient enters for a record they add themselves (proposed: ehr/me/patient-entries). */
+/**
+ * A record the patient adds themselves ("Add a record"), PROPOSED (BACKEND-NEEDS.md §1, routes ehr.myPatientEntries and
+ * the three after it in packages/contracts): the entry is saved first, with no file bytes in it; then each photo or file
+ * goes up under it in the three steps staff uploads take (an upload link, a PUT of the exact bytes, a confirm).
+ */
+export const PATIENT_ENTRY_KINDS = ['visit', 'test', 'medicine', 'diagnosis', 'vaccination', 'other'] as const
+export type PatientEntryKind = typeof PATIENT_ENTRY_KINDS[number]
+
+/** What the patient enters for a record they add themselves: the Save's whole body. */
 export interface OwnRecordInput {
-  kind: 'visit' | 'test' | 'medicine' | 'diagnosis' | 'vaccination' | 'other'
+  kind: PatientEntryKind
   title: string
   facilityName: string | null
   occurredOn: string
   notes: string | null
-  attachments: Array<{ fileName: string; mediaType: string; sizeBytes: number; contentBase64: string }>
+}
+
+/** The photos and files one entry takes: these types only, at most 5, each 1 byte to 10 MB. */
+export const PATIENT_ENTRY_MEDIA_TYPES = ['image/jpeg', 'image/png', 'application/pdf'] as const
+export type PatientEntryMediaType = typeof PATIENT_ENTRY_MEDIA_TYPES[number]
+export const PATIENT_ENTRY_MAX_FILES = 5
+export const PATIENT_ENTRY_MAX_FILE_BYTES = 10 * 1024 * 1024
+export const isPatientEntryMediaType = (value: string): value is PatientEntryMediaType =>
+  (PATIENT_ENTRY_MEDIA_TYPES as readonly string[]).includes(value)
+
+/**
+ * A confirmed photo or file of an entry, as the records answer lists it. A status it does not know reads as not yet
+ * cleared, never as clean.
+ */
+export interface PatientEntryDocument {
+  id: string
+  fileName: string
+  mediaType: string
+  /** Null when it is missing or not a number (a bigint may come as a string, and is read as a number). */
+  sizeBytes: number | null
+  status: 'uploaded' | 'available' | 'rejected'
+  scanStatus: 'pending' | 'clean' | 'rejected'
+  createdAt: string
+}
+
+/**
+ * One record the patient added, as the records answer (GET ehr/me/records) lists it under `patientEntries`: newest
+ * first, with removed entries and unconfirmed files left out. There is no list route of its own.
+ */
+export interface PatientEntry {
+  id: string
+  source: 'patient'
+  kind: PatientEntryKind
+  title: string
+  facilityName: string | null
+  occurredOn: string
+  notes: string | null
+  createdAt: string
+  documents: PatientEntryDocument[]
+}
+
+/** What the upload intent takes for one file: the server sets the patient, the classification and the retention. */
+export interface PatientEntryUploadInput {
+  fileName: string
+  mediaType: PatientEntryMediaType
+  sizeBytes: number
+  sha256Hex: string
+}
+
+/** The upload intent's answer: the document it opened, and the signed link to PUT its exact bytes to. */
+export interface PatientEntryUploadIntent {
+  document: { id: string; status: string; scanStatus: string }
+  upload: PresignedUpload
+}
+
+/** A document's state once confirmed (the confirm's answer). */
+export interface PatientEntryDocumentState {
+  id: string
+  status: string
+  scanStatus: string
+}
+
+/**
+ * What one photo or file's upload came to: uploaded either way. `document` is the confirm's answer; null when an earlier
+ * try of this same file (its same key) had already been confirmed, which the replayed upload intent says with 409
+ * PATIENT_DOCUMENT_ALREADY_UPLOADED, and nothing more was sent. That 409 carries the document too, but the http client
+ * keeps no such member of a refusal (@hid/http parseErrorEnvelope), so it is not read here.
+ */
+export type PatientEntryDocumentUploaded =
+  | { alreadyUploaded: false; document: PatientEntryDocumentState }
+  | { alreadyUploaded: true; document: null }
+
+/** The removal's answer: nothing is erased, the entry and its files are gone from every read. */
+export interface PatientEntryWithdrawal {
+  id: string
+  status: 'withdrawn'
+  withdrawnAt: string
+}
+
+/** Exactly what a Save sends for `entry`, and nothing else it may carry. */
+export function ownRecordBody(entry: OwnRecordInput): OwnRecordInput {
+  return { kind: entry.kind, title: entry.title, facilityName: entry.facilityName, occurredOn: entry.occurredOn, notes: entry.notes }
+}
+
+/** Whether a Save of `entry` fits under production's edge limit on a request body (profileParity.ts). */
+export const ownRecordFits = (entry: OwnRecordInput): boolean => jsonBodyBytes(ownRecordBody(entry)) <= EDGE_BODY_MAX_BYTES
+
+const isRow = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+const entryText = (value: unknown, max: number): string | null => typeof value === 'string' && value !== '' && value.length <= max ? value : null
+const entryTextOrNull = (value: unknown, max: number): string | null => typeof value === 'string' && value.length <= max ? value : null
+const notRead = (what: string) => new HidApiError(502, `${what} could not be read. Please try again.`, { code: 'INVALID_RESPONSE', retryable: false })
+const cancelled = () => new HidApiError(0, 'The upload was cancelled.', { code: 'REQUEST_CANCELLED', retryable: false })
+
+function parsePatientEntryDocument(value: unknown): PatientEntryDocument | null {
+  if (!isRow(value)) return null
+  const id = entryText(value.id, 128), fileName = entryText(value.fileName, 255), mediaType = entryText(value.mediaType, 128), createdAt = entryText(value.createdAt, 64)
+  if (!id || !fileName || !mediaType || !createdAt) return null
+  const size = typeof value.sizeBytes === 'number' || typeof value.sizeBytes === 'string' ? Number(value.sizeBytes) : NaN
+  return {
+    id, fileName, mediaType, createdAt,
+    sizeBytes: value.sizeBytes !== '' && Number.isFinite(size) && size >= 0 ? size : null,
+    status: value.status === 'available' || value.status === 'rejected' ? value.status : 'uploaded',
+    scanStatus: value.scanStatus === 'clean' || value.scanStatus === 'rejected' ? value.scanStatus : 'pending',
+  }
+}
+
+function parsePatientEntry(value: unknown): PatientEntry | null {
+  if (!isRow(value)) return null
+  const id = entryText(value.id, 128), title = entryText(value.title, 160), occurredOn = entryText(value.occurredOn, 32), createdAt = entryText(value.createdAt, 64)
+  if (!id || !title || !occurredOn || !createdAt || value.source !== 'patient') return null
+  return {
+    id, source: 'patient', title, occurredOn, createdAt,
+    kind: PATIENT_ENTRY_KINDS.find(kind => kind === value.kind) ?? 'other',
+    facilityName: entryTextOrNull(value.facilityName, 160) || null,
+    notes: entryTextOrNull(value.notes, 2000) || null,
+    documents: Array.isArray(value.documents)
+      ? value.documents.flatMap(document => { const read = parsePatientEntryDocument(document); return read ? [read] : [] }) : [],
+  }
+}
+
+/**
+ * The records answer's `patientEntries`, read: an entry or document missing what it needs is left out, never shown half.
+ * Null when it is not a list.
+ */
+export function parsePatientEntries(value: unknown): PatientEntry[] | null {
+  return Array.isArray(value) ? value.flatMap(item => { const read = parsePatientEntry(item); return read ? [read] : [] }) : null
+}
+
+/**
+ * The records the patient added themselves, as the records answer carries them (PROPOSED, BACKEND-NEEDS.md §1), read in
+ * place, and what the answer says of whether they are served (patientEntriesServed.ts): the key `patientEntries`, a
+ * list, says served; an answer without it (today's) says not served, but only while nothing has said otherwise. A key
+ * that is not a list is left out and says neither.
+ */
+function readPatientEntries(records: PatientRecords): void {
+  if (records.patientEntries === undefined) { learnPatientEntriesServed(false); return }
+  const entries = parsePatientEntries(records.patientEntries)
+  if (!entries) { delete records.patientEntries; return }
+  records.patientEntries = entries
+  learnPatientEntriesServed(true)
+}
+
+/** A replayed upload intent's refusal when an earlier try of the same file was already confirmed (BACKEND-NEEDS.md §1). */
+const saysAlreadyUploaded = (error: unknown): boolean =>
+  error instanceof HidApiError && error.status === 409 && error.code === 'PATIENT_DOCUMENT_ALREADY_UPLOADED'
+
+function parseUploadIntent(value: unknown): PatientEntryUploadIntent {
+  const document = isRow(value) ? value.document : null, upload = isRow(value) ? value.upload : null
+  if (!isRow(document) || !isRow(upload) || !entryText(document.id, 128) || upload.method !== 'PUT' || !entryText(upload.url, 8192)
+    || !isRow(upload.requiredHeaders) || !Object.values(upload.requiredHeaders).every(header => typeof header === 'string')) {
+    throw notRead('The upload link')
+  }
+  return {
+    document: { id: document.id as string, status: String(document.status ?? 'initiated'), scanStatus: String(document.scanStatus ?? 'pending') },
+    upload: { method: 'PUT', url: upload.url as string, requiredHeaders: upload.requiredHeaders as Record<string, string>,
+      expiresInSeconds: typeof upload.expiresInSeconds === 'number' ? upload.expiresInSeconds : 0 },
+  }
+}
+
+function parseDocumentState(value: unknown): PatientEntryDocumentState {
+  const document = isRow(value) ? value.document : null
+  if (!isRow(document) || !entryText(document.id, 128)) throw notRead('The upload')
+  return { id: document.id as string, status: String(document.status ?? 'uploaded'), scanStatus: String(document.scanStatus ?? 'pending') }
+}
+
+/** The SHA-256 of these exact bytes, as 64 lowercase hex characters (staffApi.uploadDocument's). */
+async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
 /** A participating facility as the public list shows it (ADR-063): no id. */
@@ -227,6 +408,12 @@ export interface PatientRecords {
    * on hid-1.0, null for anyone else. hid-system main sends no such key.
    */
   importedHealthProfile?: ImportedHealthProfile | null
+  /**
+   * PROPOSED (BACKEND-NEEDS.md §1): the records the patient added themselves ("Added by you"), newest first. No backend
+   * sends it yet; the key says the patient-entry routes are served (patientEntriesServed.ts), and is left out when it is
+   * not a list.
+   */
+  patientEntries?: PatientEntry[]
   encounters: Array<{ id: string; facilityId: string; encounterType: string; status: string; startedAt: string; endedAt: string | null }>
   notes: Array<{ id: string; encounterId: string; facilityId: string; noteType: string; title: string; status: string; revisionNo: number; content: string; signedAt: string | null }>
   vitals: Array<{ id: string; encounterId: string; facilityId: string; recordedAt: string; heightCm: number | null; weightKg: number | null; temperatureC: number | null; pulseBpm: number | null; respiratoryRate: number | null; systolicMmhg: number | null; diastolicMmhg: number | null; oxygenSaturationPercent: number | null; source: string }>
@@ -492,6 +679,15 @@ export function createPatientApi(sender: ApiClient) {
 
   const chatService = createEhrService({ app: 'patient-web', client })
 
+  // A saved entry's photos and files (BACKEND-NEEDS.md §1): the steps uploadOwnRecordDocument takes, each also offered alone.
+  const entryDocuments = (entryId: string) => `ehr/me/patient-entries/${encodeURIComponent(entryId)}/documents`
+  const ownRecordUploadIntent = async (entryId: string, input: PatientEntryUploadInput, idempotencyKey: string,
+    signal?: AbortSignal): Promise<PatientEntryUploadIntent> => parseUploadIntent(await call<unknown>('POST', `${entryDocuments(entryId)}/upload-intents`,
+    { fileName: input.fileName, mediaType: input.mediaType, sizeBytes: input.sizeBytes, sha256Hex: input.sha256Hex },
+    { signal, headers: { 'Idempotency-Key': idempotencyKey } }))
+  const completeOwnRecordDocument = async (entryId: string, documentId: string, signal?: AbortSignal): Promise<PatientEntryDocumentState> =>
+    parseDocumentState(await call<unknown>('POST', `${entryDocuments(entryId)}/${encodeURIComponent(documentId)}/complete`, undefined, { signal }))
+
   return {
     /** Calls `listener` each time a request that needs the session is answered; returns the way to stop. */
     onSessionAccepted: (listener: () => void): (() => void) => {
@@ -555,11 +751,79 @@ export function createPatientApi(sender: ApiClient) {
     // Only `{ open: true }` means open (INTERFACE_CONTRACT.md, public patient enrollment).
     enrollmentAvailability: () => call<EnrollmentAvailability>('GET', 'identity/patient-enrollments/availability'),
     /**
-     * A record the patient adds themselves (a visit, a result, a medicine), with where it happened and photos or files of
-     * the paper. PROPOSED: no backend serves it yet (logged in dev/mock-gateway/backend-needs and BACKEND-NEEDS.md); until
-     * one does it answers 404, and the page says nothing was saved. Kept as "added by you", never as a clinician's.
+     * A record the patient adds themselves (a visit, a result, a medicine), with where it happened: the entry alone, no
+     * file bytes (each photo or file goes up after, with uploadOwnRecordDocument). PROPOSED (BACKEND-NEEDS.md §1): no
+     * backend serves it yet; until one does it answers 404 NOT_FOUND and nothing is saved. `idempotencyKey` is one per
+     * Save, sent again when that Save is retried, so the server answers a retry with the same entry. A body over the edge
+     * limit is refused here, before anything is sent. A 201 says the routes are served; a 404 NOT_FOUND that they are not
+     * (patientEntriesServed.ts). Kept as "added by you", never as a clinician's: the records answer lists it under
+     * `patientEntries` once read again.
      */
-    addOwnRecord: (entry: OwnRecordInput, signal?: AbortSignal) => call<{ id: string }>('POST', 'ehr/me/patient-entries', entry, { signal }),
+    addOwnRecord: async (entry: OwnRecordInput, idempotencyKey: string, signal?: AbortSignal): Promise<{ id: string }> => {
+      const body = ownRecordBody(entry)
+      if (jsonBodyBytes(body) > EDGE_BODY_MAX_BYTES) {
+        throw new HidApiError(413, 'This record is too long to send. Shorten the notes and try again.', { code: 'PATIENT_ENTRY_TOO_LARGE', retryable: false })
+      }
+      let answer: unknown
+      try {
+        answer = await call<unknown>('POST', 'ehr/me/patient-entries', body, { signal, headers: { 'Idempotency-Key': idempotencyKey } })
+      } catch (error) {
+        if (saysPatientEntriesNotServed(error)) learnPatientEntriesServed(false)
+        throw error
+      }
+      const saved = isRow(answer) && isRow(answer.entry) ? entryText(answer.entry.id, 128) : null
+      if (!saved) throw notRead('The saved record')
+      learnPatientEntriesServed(true)
+      return { id: saved }
+    },
+    /**
+     * Removes an entry the patient added, with its photos and files: gone from the records answer's `patientEntries`, the
+     * patient chat and every staff read. Nothing is erased (the website says "Removed from your records", never
+     * "deleted"); a repeat answers the same. PROPOSED (BACKEND-NEEDS.md §1).
+     */
+    withdrawOwnRecord: async (entryId: string, signal?: AbortSignal): Promise<PatientEntryWithdrawal> => {
+      const answer = await call<unknown>('POST', `ehr/me/patient-entries/${encodeURIComponent(entryId)}/withdraw`, undefined, { signal })
+      const entry = isRow(answer) ? answer.entry : null
+      if (!isRow(entry) || !entryText(entry.id, 128) || entry.status !== 'withdrawn' || !entryText(entry.withdrawnAt, 64)) throw notRead('The removal')
+      return { id: entry.id as string, status: 'withdrawn', withdrawnAt: entry.withdrawnAt as string }
+    },
+    /** Step 1 of a file's upload: the signed link for one file of a saved entry. `idempotencyKey` is one per file. */
+    ownRecordUploadIntent: (entryId: string, input: PatientEntryUploadInput, idempotencyKey: string, signal?: AbortSignal) =>
+      ownRecordUploadIntent(entryId, input, idempotencyKey, signal),
+    /** Step 3 of a file's upload, after the PUT: the server checks the stored object's size, SHA-256 and type. */
+    completeOwnRecordDocument: (entryId: string, documentId: string, signal?: AbortSignal) =>
+      completeOwnRecordDocument(entryId, documentId, signal),
+    /**
+     * One photo or file of a saved entry, as staff uploads go (staffApi.uploadDocument): the SHA-256 of its exact bytes,
+     * the upload intent, a PUT of the File itself to the signed link (no cookies; plain http only to this machine, in the
+     * local environment), then the confirm. Nothing is re-encoded. `idempotencyKey` is this file's, sent again when it is
+     * retried under the same entry; one `signal` covers every step, and nothing more is sent once it is aborted. A file
+     * the entry cannot take (type or size) is refused here, before anything is read or sent. When an earlier try of this
+     * same file was confirmed though its answer never came back, the replayed upload intent answers 409
+     * PATIENT_DOCUMENT_ALREADY_UPLOADED: the file is uploaded, and nothing more is sent (no PUT, no confirm).
+     */
+    uploadOwnRecordDocument: async (entryId: string, file: File, idempotencyKey: string, signal?: AbortSignal): Promise<PatientEntryDocumentUploaded> => {
+      if (!isPatientEntryMediaType(file.type) || file.size < 1 || file.size > PATIENT_ENTRY_MAX_FILE_BYTES) {
+        throw new HidApiError(422, 'This file can’t be added. Choose a photo (JPEG or PNG) or a PDF of up to 10 MB.',
+          { code: 'PATIENT_DOCUMENT_NOT_ACCEPTED', retryable: false })
+      }
+      if (signal?.aborted) throw cancelled()
+      const hash = await sha256Hex(await file.arrayBuffer())
+      if (signal?.aborted) throw cancelled()
+      let intent: PatientEntryUploadIntent
+      try {
+        intent = await ownRecordUploadIntent(entryId, { fileName: file.name, mediaType: file.type, sizeBytes: file.size, sha256Hex: hash },
+          idempotencyKey, signal)
+      } catch (error) {
+        if (saysAlreadyUploaded(error) && !signal?.aborted) return { alreadyUploaded: true, document: null }
+        throw error
+      }
+      if (signal?.aborted) throw cancelled()
+      await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders, signal,
+        allowLocalHttp: getEnvironment().name === 'local' })
+      if (signal?.aborted) throw cancelled()
+      return { alreadyUploaded: false, document: await completeOwnRecordDocument(entryId, intent.document.id, signal) }
+    },
     /**
      * The card a provider opens from the email a patient's share sends (PROPOSED, BACKEND-NEEDS.md §2): the patient's card
      * and the records the share allows, for as long as the share lasts. No session: the link's token is the access.
@@ -614,6 +878,8 @@ export function createPatientApi(sender: ApiClient) {
       // Only the staging branches' answer carries importedRecords; main's does not (it keeps exactly its keys).
       if (value.importedRecords !== undefined) value.importedRecords = parseImportedRecords(value.importedRecords)
       if (value.importedHealthProfile !== undefined) value.importedHealthProfile = parseImportedHealthProfile(value.importedHealthProfile)
+      // The records the patient added, and whether they are served: from this same answer, never a read of their own.
+      readPatientEntries(value)
       return value
     },
     importedAttachment: (id: string, signal?: AbortSignal) => call<ImportedAttachmentDownload>('GET',
