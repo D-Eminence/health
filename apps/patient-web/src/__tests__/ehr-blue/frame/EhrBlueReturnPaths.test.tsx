@@ -32,6 +32,9 @@ describe('the blue return list', () => {
     // Design review pages open only at the demo facilities: a clinic would be told the page is not open to it.
     ['/provider/tour/sign-in', null],
     ['/provider/whats-left', null],
+    // So do the sample Facility settings and Reports & Analytics (parity report 3.2).
+    ['/provider/setup', null],
+    ['/provider/reports', null],
     ['/provider/appointments/5a020001', null],
     ['/provider/appointments/', null],
     ['/provider/appointments?status=booked', null],
