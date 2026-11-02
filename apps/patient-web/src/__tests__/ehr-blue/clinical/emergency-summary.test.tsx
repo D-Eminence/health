@@ -265,7 +265,7 @@ describe('the summary is read-only', () => {
     staff.permissions = [...EVERY_READ, 'lab.result.released.read', 'ehr.note.write', 'ehr.prescription.write', 'ehr.lab-request.write']
     await renderSummary()
     const names = screen.getAllByRole('button').map(button => button.textContent)
-    for (const name of names) expect(['Refresh', 'End emergency access', 'View released results']).toContain(name)
+    for (const name of names) expect(['Refresh', 'End emergency access', 'Show results']).toContain(name)
     expect(screen.queryAllByRole('textbox')).toEqual([])
     expect(screen.queryAllByRole('combobox')).toEqual([])
     expect(screen.queryAllByRole('checkbox')).toEqual([])
@@ -580,13 +580,13 @@ describe('released Lab results in the emergency summary', () => {
     await renderSummary()
     const request = entry('Lab tests', 'Haemoglobin')
     expect(api.labReleasedResultsForOrder).not.toHaveBeenCalled()
-    const view = within(request).getByRole('button', { name: 'View released results' })
+    const view = within(request).getByRole('button', { name: 'Show results' })
     expect(view.getAttribute('aria-expanded')).toBe('false')
     await act(async () => { fireEvent.click(view) })
-    expect(await within(request).findByText('No result released yet.')).toBeTruthy()
+    expect(await within(request).findByText('No results released yet.')).toBeTruthy()
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledWith(FACILITY_ID, 'lab-2', 'emergency')
-    expect(within(request).getByRole('button', { name: 'Hide released results' }).getAttribute('aria-expanded')).toBe('true')
-    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Refresh released results' })) })
+    expect(within(request).getByRole('button', { name: 'Hide results' }).getAttribute('aria-expanded')).toBe('true')
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Refresh' })) })
     expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2)
   })
 
@@ -595,11 +595,11 @@ describe('released Lab results in the emergency summary', () => {
     api.labReleasedResultsForOrder.mockResolvedValue(released())
     await renderSummary()
     const request = entry('Lab tests', 'Haemoglobin')
-    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'View released results' })) })
-    await within(request).findByText('No result released yet.')
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
+    await within(request).findByText('No results released yet.')
     let answer: (value: unknown) => void = () => {}
     api.labReleasedResultsForOrder.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
-    const refresh = within(request).getByRole('button', { name: 'Refresh released results' }) as HTMLButtonElement
+    const refresh = within(request).getByRole('button', { name: 'Refresh' }) as HTMLButtonElement
     refresh.focus()
     await act(async () => { fireEvent.click(refresh) })
     await waitFor(() => expect(api.labReleasedResultsForOrder).toHaveBeenCalledTimes(2))
@@ -624,18 +624,31 @@ describe('released Lab results in the emergency summary', () => {
     ]))
     await renderSummary()
     const request = entry('Lab tests', 'Haemoglobin')
-    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'View released results' })) })
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
     expect(await within(request).findByText('Result 1')).toBeTruthy()
-    // Today's words (staff/routes/Clinical.tsx:935-942, staff/labRevisions.tsx:30-40).
-    expect(request.textContent).toContain('Haemoglobin · LOINC 718-7 · accepted by Lab ')
-    expect(within(request).getAllByText('Released')).toHaveLength(1)
-    expect(request.textContent).toContain('9.1 g/dL · low')
-    expect(within(request).getAllByText(/^Entered .* · verified$/).length).toBe(3)
-    expect(within(request).getAllByText(/^Released .+/).length).toBe(3)
-    expect(request.textContent).toContain('Reference range: 12-16')
-    expect(request.textContent).toContain('Reason: Recalibrated analyser')
-    expect(request.textContent).toContain('Version numbers skip revisions that were never released; those are not shown.')
-    expect(request.textContent).toContain('The latest released version was marked entered in error: do not use it.')
+    expect(request.textContent).toContain('Haemoglobin · accepted by the lab ')
+    expect(request.textContent).toMatch(/9\.1\s*g\/dL\s*Low/)
+    expect(request.textContent).toContain('Normal range: 12-16')
+    expect(request.textContent).toContain('Why it changed: Recalibrated analyser')
+    expect(request.textContent).toContain('Versions that were never released are not shown.')
+    expect(request.textContent).toContain('The latest version was marked entered in error. Don’t use it.')
+  })
+
+  it('says where each version is in friendly words, never the raw status (review)', async () => {
+    staff.permissions = [...EVERY_READ, 'lab.result.released.read']
+    const revision = (version: number, releaseStatus: string) => ({ version, resultType: 'numeric', numericValue: 9.1, textValue: null, unit: 'g/dL',
+      referenceRange: '12-16', abnormalFlag: 'low', entrySource: 'manual', verificationStatus: 'verified', releaseStatus, enteredAt: '2026-10-01T09:00:00.000Z',
+      releasedAt: releaseStatus === 'released' ? '2026-10-01T09:30:00.000Z' : null, correctionReason: null })
+    api.labReleasedResultsForOrder.mockResolvedValue(released([
+      { id: 'result-1', executionId: 'execution-1', status: 'released', verificationStatus: 'verified', currentVersion: 2, currentReleasedVersion: 1,
+        revisions: [revision(1, 'released'), revision(2, 'verified_not_released')] },
+    ]))
+    await renderSummary()
+    const request = entry('Lab tests', 'Haemoglobin')
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
+    expect(await within(request).findByText('Checked, not released')).toBeTruthy()
+    expect(within(request).getByText('Released')).toBeTruthy()
+    expect(request.textContent).not.toMatch(/verified not released|verified_not_released|LOINC|718-7/)
   })
 
   it('says why released results could not be read', async () => {
@@ -643,8 +656,8 @@ describe('released Lab results in the emergency summary', () => {
     api.labReleasedResultsForOrder.mockRejectedValue(new HidApiError(404, 'Not found', { code: 'LAB_WORK_ITEM_NOT_FOUND' }))
     await renderSummary()
     const request = entry('Lab tests', 'Haemoglobin')
-    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'View released results' })) })
-    await waitFor(() => expect(within(request).getByRole('alert').textContent).toContain('Lab has no work item for this request that you can see: Lab has not accepted it, accepted it at another facility, or your access to this patient does not cover it.'))
+    await act(async () => { fireEvent.click(within(request).getByRole('button', { name: 'Show results' })) })
+    await waitFor(() => expect(within(request).getByRole('alert').textContent).toContain('The lab hasn’t taken this test here yet, or your access doesn’t cover it.'))
   })
 
   it('offers no released results for a draft, or without lab.result.released.read', async () => {
@@ -655,6 +668,6 @@ describe('released Lab results in the emergency summary', () => {
     first.unmount()
     staff.permissions = [...EVERY_READ]
     await renderSummary()
-    expect(screen.queryByRole('button', { name: 'View released results' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Show results' })).toBeNull()
   })
 })
