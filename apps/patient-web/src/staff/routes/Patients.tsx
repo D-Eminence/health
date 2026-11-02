@@ -19,6 +19,10 @@ const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health ID
 
 type AccessMethod = 'request' | 'pin' | 'emergency'
 
+/** A PIN check Identity refused (403 PATIENT_PIN_ACCESS_DENIED, or the older PATIENT_ACCESS_PIN_INVALID), in plain words. */
+const PIN_REFUSED_CODES: ReadonlySet<string> = new Set(['PATIENT_PIN_ACCESS_DENIED', 'PATIENT_ACCESS_PIN_INVALID'])
+const PIN_NOT_RIGHT = 'That PIN isn’t right. Check it with the patient and try again.'
+
 interface MethodRoute { readonly route: string; readonly method: EndpointMethod; readonly purpose?: string }
 interface Action { readonly routes: readonly MethodRoute[]; readonly action: string }
 
@@ -178,7 +182,13 @@ export function Patients() {
         const request = await staffApi.requestAccess(facility.id, normalized, scope, reason.trim(), 60)
         setMessage(`Request ${request.accessRequestId} is ${request.status}. The patient must approve before records are available.`)
       } else if (mode === 'pin') {
-        await staffApi.verifyPin(facility.id, normalized, compactPin)
+        try { await staffApi.verifyPin(facility.id, normalized, compactPin) }
+        catch (caught) {
+          // Identity answers every failed PIN check with 403 PATIENT_PIN_ACCESS_DENIED (identity-api consent.service.ts),
+          // so a wrong PIN, an unknown Health ID and paused PIN checks read the same; the older code reads the same too.
+          if (isHidApiError(caught) && caught.status === 403 && PIN_REFUSED_CODES.has(caught.code)) throw new PlainError(PIN_NOT_RIGHT)
+          throw caught
+        }
         await untilStaffSessionReady(sentIn)
         await openPatient('direct-care')
       } else {
@@ -198,6 +208,11 @@ export function Patients() {
           if (isHidApiError(caught) && caught.status === 429 && caught.code === 'EMERGENCY_PROBATION_LIMITED') {
             throw new PlainError(`${facility.name} is new to Health ID: emergency access is limited to 5 times a day in its first `
               + '30 days. Contact Health ID support to lift the limit.')
+          }
+          // Identity's per-account limit: 10 emergency activations in a rolling hour (ehr-api migration 0031).
+          if (isHidApiError(caught) && caught.status === 429 && caught.code === 'EMERGENCY_RATE_LIMITED') {
+            throw new PlainError('You’ve used emergency access too many times in the last hour, so the record was not opened. '
+              + 'Ask your facility administrator, or try again later.')
           }
           if (isHidApiError(caught) && caught.status === 400 && caught.code === 'INVALID_CONSENT_COMMAND') {
             throw new PlainError('Emergency access may not be turned on for your facility yet, so the record was not opened. Ask your Health ID administrator to turn it on.')

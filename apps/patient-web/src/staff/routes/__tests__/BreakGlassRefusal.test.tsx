@@ -90,6 +90,23 @@ describe('emergency access limited at a new self-signed-up facility', () => {
   })
 })
 
+/**
+ * Identity allows each account 10 emergency activations in a rolling hour (ehr-api migration 0031) and answers the next
+ * with 429 EMERGENCY_RATE_LIMITED (identity-api consent.service.ts).
+ */
+describe('emergency access used too often in the last hour', () => {
+  it('says so in plain words, and who to ask, without Identity’s words or the code', async () => {
+    api.breakGlass.mockRejectedValue(new HidApiError(429, 'Too many emergency activations. Contact your facility emergency access administrator.',
+      { code: 'EMERGENCY_RATE_LIMITED' }))
+    await activateEmergencyAccess()
+    const said = (await screen.findByRole('alert')).textContent
+    expect(said).toBe('You’ve used emergency access too many times in the last hour, so the record was not opened. '
+      + 'Ask your facility administrator, or try again later.')
+    expect(said).not.toMatch(/Too many emergency activations|EMERGENCY_RATE_LIMITED/)
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+})
+
 /** Who to ask for a permission the role lacks: at a self-signed-up facility (Novu, P4b), its administrator is the one asked. */
 describe('a role that cannot reach patients', () => {
   const ADMIN = ['workforce.manage', 'audit.read', 'outreach.registration.read', 'outreach.registration.write',

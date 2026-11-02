@@ -401,6 +401,10 @@ describe('recording emergency access', () => {
       'Emergency access is switched off right now, so the record was not opened. Ask Health ID support.'],
     ['429 EMERGENCY_PROBATION_LIMITED', new HidApiError(429, 'Too many emergency activations', { code: 'EMERGENCY_PROBATION_LIMITED' }),
       `${FACILITY_NAME} is new to Health ID: emergency access is limited to 5 times a day in its first 30 days. Contact Health ID support to lift the limit.`],
+    // Identity's per-account limit: 10 emergency activations in a rolling hour (ehr-api migration 0031; identity-api
+    // consent.service.ts answers 429 EMERGENCY_RATE_LIMITED).
+    ['429 EMERGENCY_RATE_LIMITED', new HidApiError(429, 'Too many emergency activations. Contact your facility emergency access administrator.', { code: 'EMERGENCY_RATE_LIMITED' }),
+      'You’ve used emergency access too many times in the last hour, so the record was not opened. Ask your facility administrator, or try again later.'],
     ['400 INVALID_CONSENT_COMMAND', new HidApiError(400, 'The consent command failed integrity validation', { code: 'INVALID_CONSENT_COMMAND' }),
       'Emergency access isn’t set up for your facility, so the record was not opened. Contact support.'],
     ['any other refusal, in plain words', new HidApiError(403, 'Break-glass access is not authorized', { code: 'CONSENT_COMMAND_DENIED' }),

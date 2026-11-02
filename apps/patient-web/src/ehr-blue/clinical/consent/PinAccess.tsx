@@ -15,9 +15,15 @@ import {
 import { PlainError, plainErrorText } from '@hid/http'
 
 export const PIN_PROBLEM = 'Enter the patient’s 4 to 8 digit access PIN.'
-/** A PIN the patient's record refused (403 PATIENT_ACCESS_PIN_INVALID), in plain words. */
+const PIN_NOT_RIGHT = 'That PIN isn’t right. Check it with the patient and try again.'
+/**
+ * A PIN check Identity refused, in plain words. Identity answers every failed check with 403 PATIENT_PIN_ACCESS_DENIED
+ * (identity-api consent.service.ts), so a wrong PIN, an unknown Health ID and paused PIN checks read the same; the older
+ * PATIENT_ACCESS_PIN_INVALID reads the same too.
+ */
 const PIN_REFUSALS: Readonly<Record<string, string>> = {
-  PATIENT_ACCESS_PIN_INVALID: 'That PIN isn’t right. Check it with the patient and try again.',
+  PATIENT_PIN_ACCESS_DENIED: PIN_NOT_RIGHT,
+  PATIENT_ACCESS_PIN_INVALID: PIN_NOT_RIGHT,
 }
 
 /**

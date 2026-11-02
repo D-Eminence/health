@@ -51,6 +51,10 @@ export const CLOSE_REFUSALS: Readonly<Record<string, string>> = {
  */
 export const EMERGENCY_MINUTES = 30
 
+/** Patients.tsx: an account that opened emergency access 10 times in the last hour (429 EMERGENCY_RATE_LIMITED). */
+export const EMERGENCY_RATE_LIMITED = 'You’ve used emergency access too many times in the last hour, so the record was not '
+  + 'opened. Ask your facility administrator, or try again later.'
+
 /** Patients.tsx:184-204: today's words for the break-glass refusals it knows; null for any other (shown as sent). */
 export function breakGlassRefusal(caught: unknown, facilityName: string): string | null {
   if (!isHidApiError(caught)) return null
@@ -61,6 +65,8 @@ export function breakGlassRefusal(caught: unknown, facilityName: string): string
     return `${facilityName} is new to Health ID: emergency access is limited to 5 times a day in its first `
       + '30 days. Contact Health ID support to lift the limit.'
   }
+  // Identity's per-account limit: 10 activations in a rolling hour (ehr-api migration 0031).
+  if (caught.status === 429 && caught.code === 'EMERGENCY_RATE_LIMITED') return EMERGENCY_RATE_LIMITED
   if (caught.status === 400 && caught.code === 'INVALID_CONSENT_COMMAND') {
     return 'Emergency access isn’t set up for your facility, so the record was not opened. Contact support.'
   }

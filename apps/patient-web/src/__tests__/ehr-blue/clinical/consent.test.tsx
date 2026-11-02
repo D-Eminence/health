@@ -444,14 +444,23 @@ describe('Use the patient’s Access PIN (once Patient PIN access)', () => {
     expect(where()).toBeNull()
   })
 
-  it('shows the PIN refusal as the server words it', async () => {
-    api.verifyPin.mockRejectedValue(new HidApiError(403, 'Patient access PIN is not valid', { code: 'PATIENT_ACCESS_PIN_INVALID' }))
+  // Identity answers every failed PIN check with 403 PATIENT_PIN_ACCESS_DENIED, "Patient access could not be verified"
+  // (hid-system identity-api consent.service.ts patientPinDenied): a wrong PIN, an unknown Health ID, no PIN, or PIN checks
+  // paused after wrong tries all read the same. The older PATIENT_ACCESS_PIN_INVALID reads the same too.
+  it.each([
+    ['PATIENT_PIN_ACCESS_DENIED', 'Patient access could not be verified'],
+    ['PATIENT_ACCESS_PIN_INVALID', 'Patient access PIN is not valid'],
+  ])('says a PIN Identity refuses with 403 %s isn’t right, not to ask an administrator', async (code, serverText) => {
+    api.verifyPin.mockRejectedValue(new HidApiError(403, serverText, { code }))
     open('/pin')
     fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
     fireEvent.change(screen.getByLabelText(PIN), { target: { value: '1234' } })
     fireEvent.click(screen.getByRole('button', { name: OPEN_WITH_PIN }))
-    expect(shownText(await screen.findByRole('alert'))).toContain('That PIN isn’t right. Check it with the patient and try again.')
-    expect(document.body.textContent).not.toMatch(/Patient access PIN is not valid|PATIENT_ACCESS_PIN_INVALID/)
+    const said = shownText(await screen.findByRole('alert'))
+    expect(said).toContain('That PIN isn’t right. Check it with the patient and try again.')
+    expect(said).not.toMatch(/administrator/)
+    expect(document.body.textContent).not.toContain(serverText)
+    expect(document.body.textContent).not.toContain(code)
     expect(api.lookupPatient).not.toHaveBeenCalled()
   })
 
