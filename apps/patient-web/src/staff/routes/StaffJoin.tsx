@@ -6,7 +6,7 @@ import { staffInvitationApi, type StaffInvitationPreview } from '../api'
 import { useStaff } from '../App'
 import { BUSY } from '../focus'
 import { capturedStaffInvitation, forgetStaffInvitation, type InvitationLink } from '../invitationCapture'
-import { roleInSentence } from '../staffAccess'
+import { roleNameInSentence } from '../staffAccess'
 import { isRouteMissing, isUnavailable, joinProblemText } from '../staffProblems'
 
 /**
@@ -14,6 +14,11 @@ import { isRouteMissing, isUnavailable, joinProblemText } from '../staffProblems
  * `/provider/staff/join#<id>.<token>` there; the workspace keeps the link through the sign-in (invitationCapture).
  * Without the link the page asks for the email's code: the email is the session's own. Identity answers for the
  * signed-in account and names no facility of theirs; once accepted, the new facility is the one worked at.
+ */
+
+/*
+ * The blue EHR shows this page too, as the next step of its invitation page, so a role is named as there: "a staff
+ * member" for a code Health ID has no name for, never the code (parity report 3.1 #16).
  */
 
 /** The page each role works on first; the page itself checks the facility's permissions. */
@@ -117,7 +122,7 @@ export function StaffJoin() {
     const landing = landingFor(joined.roleCode)
     return <>
       <div className="staff-page-head"><p className="staff-eyebrow">Invitation</p><h1 tabIndex={-1}>You’ve joined {joined.facilityName}</h1>
-        <p>You’re now working at {joined.facilityName} as {roleInSentence(joined.roleCode)}. Next time you sign in, Health ID opens
+        <p>You’re now working at {joined.facilityName} as {roleNameInSentence(joined.roleCode)}. Next time you sign in, Health ID opens
           your main facility: switch to {joined.facilityName} from “Working at”.</p></div>
       <Button onClick={() => navigate(landing.to)}>Open {landing.title}</Button>
     </>
@@ -131,7 +136,7 @@ export function StaffJoin() {
     {error && <p role="alert" className="staff-error">{error}</p>}
     {busy && !preview && <p role="status">Checking your invitation…</p>}
     {preview && <Card className="staff-card">
-      <h2>Join {preview.facilityName} as {roleInSentence(preview.roleCode)}</h2>
+      <h2>Join {preview.facilityName} as {roleNameInSentence(preview.roleCode)}</h2>
       <p>{preview.inviterName ? `${preview.inviterName}, the facility administrator, invited you.`
         : 'The facility administrator invited you.'}{expires ? ` The invitation expires on ${expires}.` : ''}</p>
       <div className="staff-row">

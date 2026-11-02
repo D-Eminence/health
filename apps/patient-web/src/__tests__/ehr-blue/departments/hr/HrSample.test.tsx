@@ -336,3 +336,38 @@ describe('without the live list', () => {
     expect(touched).toEqual([])
   })
 })
+
+describe('at a real facility', () => {
+  const RIVERSIDE = 'Riverside Teaching Hospital (fictional)'
+  const REAL_FACILITY_ID = 'f0000000-0000-4000-8000-000000000001'
+  const real = (permissions: string[]) => fakeFacility(permissions, { id: REAL_FACILITY_ID, name: RIVERSIDE, roles: ['org_admin'],
+    selfService: { review: 'reviewed', organizationType: 'hospital' } })
+  /** Nothing of the sample half: no notice, no fictional records, no way to create, edit or review one. */
+  function expectNoSampleHalf() {
+    expect(screen.queryByRole('note')).toBeNull()
+    expect(screen.queryByText(SAMPLE_NOTICE)).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Search sample records' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    // The design's fictional records (the facility's own name here is fictional too, as every test name is).
+    expect(screen.queryByText(/^(Medical licence|Nursing registration) \(fictional\)$/)).toBeNull()
+  }
+
+  it('shows the live list alone: the sample half, and its Create record, are the demo facilities’ only', async () => {
+    session.facility = real(['workforce.manage'])
+    api.read.mockResolvedValue({ ...staff, facility: { ...staff.facility, id: REAL_FACILITY_ID, name: RIVERSIDE } })
+    renderDept(<HrCredentials />)
+    expect(await screen.findByRole('button', { name: 'No licence on record' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('HR & Credentials')
+    expectNoSampleHalf()
+    expect(api.read).toHaveBeenCalledWith(REAL_FACILITY_ID)
+    expectNoSampleRequest()
+  })
+
+  it('offers no sample either where the live list does not apply', () => {
+    session.facility = real(['ehr.encounter.read'])
+    renderDept(<HrCredentials />)
+    expect(screen.getByText(`Permission denied. Only ${RIVERSIDE}’s administrator can open its staff records.`)).toBeTruthy()
+    expectNoSampleHalf()
+    expect(api.read).not.toHaveBeenCalled()
+  })
+})

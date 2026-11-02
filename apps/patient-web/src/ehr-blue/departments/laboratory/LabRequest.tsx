@@ -6,6 +6,7 @@ import { Alert, Badge, Button, Card, CardHeader, DescriptionList, cx } from '../
 import type { LabAccession, LabExecution, LabWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import { cannotCompleteOffered, licenceLine, routeClosedForWork, wrongPatientOffered } from '../../../staff/orderRoutes'
+import { isUrgent } from '../parts/WorkQueue'
 import { OrderEndingActions, type CannotCompleteEnding, type OrderEndingMode } from '../../../staff/routes/CannotComplete'
 import type { WrongPatientEnding } from '../../../staff/routes/WrongPatient'
 import { useCannotCompleteServed } from '../../../cannotCompleteServed'
@@ -137,7 +138,7 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
 
   return <FormPage wide back={{ to: backTo, label: 'Back to the work list' }}
     title={<span id="lab-record-title" tabIndex={-1} className="outline-none">{test}</span>}
-    description={[item.priority === 'urgent' || item.priority === 'stat' ? 'Urgent' : null, waitedText(item.acceptedAt) ? `waiting ${waitedText(item.acceptedAt)}` : null]
+    description={[isUrgent(item.priority) ? 'Urgent' : null, waitedText(item.acceptedAt) ? `waiting ${waitedText(item.acceptedAt)}` : null]
       .filter(Boolean).join(' · ') || undefined}>
     {personBanner(person)}
     <StageTrack stage={stage} />
@@ -198,7 +199,8 @@ export function LabRequest({ facilityId, item, siblings, permissions: granted, s
       <CardHeader as="h2" title="Request" actions={bill !== undefined ? <BillBadge bill={bill} /> : undefined} />
       <DescriptionList items={[
         ['Test', test],
-        ['Priority', item.priority === 'urgent' || item.priority === 'stat' ? <Badge size="sm" tone="warn">Urgent</Badge> : 'Routine'],
+        // Stat, as soon as possible and urgent requests are all marked Urgent, as the work list sorts them first.
+        ['Priority', isUrgent(item.priority) ? <Badge size="sm" tone="warn">Urgent</Badge> : 'Routine'],
         requestOf(item) ? ['Request', requestOf(item)!.number] : null,
         accession ? ['Sample number', accession.accessionNumber] : item.accessionNumber ? ['Sample number', item.accessionNumber] : null,
         person.phone ? ['Phone', person.phone] : null,
