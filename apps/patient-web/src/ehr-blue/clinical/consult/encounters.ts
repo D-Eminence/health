@@ -141,11 +141,13 @@ export function rowVersion(value: unknown): number | null {
   return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null
 }
 
-/** A file size as EHR sends it, a number or text, in KB or MB. */
+/**
+ * A file size as EHR sends it, a number or text (pg returns bigint and ::text columns as strings), in KiB: counted in
+ * 1024s and named so, with an empty file as 0 KiB, as today's fileSize (staff/routes/Clinical.tsx).
+ */
 export function fileSize(value: number | string | null | undefined): string {
   const count = value == null || value === '' ? NaN : Number(value)
-  if (!Number.isFinite(count) || count < 0) return 'Size unknown'
-  return count >= 1024 * 1024 ? `${(count / (1024 * 1024)).toFixed(1).replace(/\.0$/, '')} MB` : `${Math.max(1, Math.ceil(count / 1024)).toLocaleString('en-GB')} KB`
+  return Number.isFinite(count) && count >= 0 ? `${Math.ceil(count / 1024).toLocaleString()} KiB` : 'Size unknown'
 }
 
 export function isoNow() { return new Date().toISOString() }
