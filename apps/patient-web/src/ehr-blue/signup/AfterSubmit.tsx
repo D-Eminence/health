@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { EhrButton, EhrField, EhrInput } from '@hid/ui/ehr'
 import { Turnstile } from '../../Turnstile'
-import { staffSignInHref, staffSiteForOrganizationType, staffSiteHostname } from '../../productHostname'
 import { organizationTypeNote } from '../../staff/routes/ProviderEnrollment'
 import { registeringDetails, seconds, waitWords, type OrganizationType } from './enrollmentRules'
 import { PasswordField } from './PasswordField'
@@ -134,20 +133,16 @@ export function PasswordStep({ e }: { readonly e: Enrollment }) {
 }
 
 /**
- * Your facility is set up: today's ending on Novu (FacilityReady, ProviderEnrollment.tsx:1188-1208). The administrator
- * is signed in here, and in production signs in on the staff site of the facility's type from then on.
+ * Your facility is set up: today's ending on Novu (FacilityReady, ProviderEnrollment.tsx). The administrator is signed
+ * in on this site, where the sign-up ran (each product site has its own), and the workspace opens here.
  */
 export function FacilityReady({ e }: { readonly e: Enrollment }) {
-  const hostname = window.location.hostname
   const type: OrganizationType = e.registering?.organizationType ?? e.organizationType
-  const site = staffSignInHref(hostname) !== null ? staffSiteHostname(staffSiteForOrganizationType(type), hostname) : null
   return (
     <>
       <ScreenHeading id="hid-ehr-signup-done-title">Your facility is set up</ScreenHeading>
       <p className="hid-ehr-signup-lede">You’re signed in as your facility’s administrator.</p>
-      <p className="hid-ehr-signup-lede">{site
-        ? `Next time, sign in at ${site} with ${e.accountEmail} and the password you just chose.`
-        : `Next time, sign in to the Provider Portal with ${e.accountEmail} and the password you just chose.`}</p>
+      <p className="hid-ehr-signup-lede">{`Next time, sign in to the Provider Portal with ${e.accountEmail} and the password you just chose.`}</p>
       <p className="hid-ehr-signup-lede">{organizationTypeNote(type, e.ordersOn)}</p>
       <EhrButton className="hid-ehr-signup-wide" onClick={e.openWorkspace}>Continue to the Provider Portal</EhrButton>
     </>
@@ -165,7 +160,7 @@ export function MaybeActive({ e }: { readonly e: Enrollment }) {
       <p className="hid-ehr-signup-lede">We couldn’t confirm that your facility was set up, but it may have been. Sign in with
         {e.accountEmail ? ` ${e.accountEmail}` : ' your administrator email'} and the password you chose. If you can’t sign in,
         {' '}<SupportContact purpose="inline" /></p>
-      <SignInLink>Sign in to the Provider Portal</SignInLink>
+      <SignInLink organizationType={e.registering?.organizationType ?? e.organizationType}>Sign in to the Provider Portal</SignInLink>
     </>
   )
 }

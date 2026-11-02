@@ -27,7 +27,8 @@ export const inPersonCheckPage: EhrBluePage = {
   group: 'Clinical',
   label: TITLE,
   permission: ASSISTED_REGISTRATION_PERMISSION,
-  status: 'live',
+  // Partial, not live: it works on Health ID, but not yet with today's words and steps throughout.
+  status: 'partial',
   icon: <IdCardIcon />,
   element: <InPersonCheck />,
   refusal: <InPersonUnavailable />,

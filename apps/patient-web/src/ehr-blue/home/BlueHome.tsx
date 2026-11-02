@@ -8,17 +8,19 @@ import { useReloadAccessRequests } from '../frame/attention'
 import { useBluePages } from '../frame/pageContext'
 import { pageHrefOf } from '../frame/pageHref'
 import { pageAllowed } from '../frame/pageAccess'
+import { inProduct, opensInProduct, productHere } from '../frame/product'
 import { useRoleView } from '../frame/roleView'
 import { sampleModule, sampleRecords, sampleVersion, subscribeSamples } from '../frame/sample/store'
 import { IncomingOrdersCard, loadLab, loadPharmacy, useIncomingServices, useWork, WrongPatientOrdersCard } from './liveCards'
 import { useAccessRequests } from '../frame/attention'
 import { basePath } from '../frame/pageHref'
-import type { LabWorkItem, PharmacyWorkItem } from '../../staff/api'
+import type { LabWorkItem, PharmacyWorkItem, ReceivingService } from '../../staff/api'
 import { Activity, ChevronRight, ClipboardList, FlaskConical, Pill, RotateCcw, Search, ShieldAlert, ShieldCheck, Stethoscope, Users } from 'lucide-react'
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, IconChip, ListRow, PageHeader, SectionHeader, Select, StatCard, StatGroup, greeting } from '../../kasuwa/ui'
 import { Drawer } from '../../kasuwa/interactive'
 import { LoadingRows } from '../../kasuwa/parts'
 import { RoleDashboard } from './RoleDashboard'
+import { HomeBillingCard, HomePeopleCard } from './adminCards'
 
 const ACTIVITY = ['patients', 'appointments', 'journey', 'triage'] as const
 const MAX_SHORTCUTS = 6
@@ -29,7 +31,10 @@ const MAX_SHORTCUTS = 6
  * - Live: Needs attention (access requests, the current patient; incoming orders and orders accepted for the wrong
  *   person as their own cards, in today's words) and Today (laboratory and pharmacy work), each under today's
  *   permission and read as today's Overview and work pages read them.
- * - Sample (demo facilities only): the reporting period and its activity counts (Health ID serves no such counts yet).
+ * - Sample (demo facilities only): the reporting period and its activity counts (Health ID serves no such counts yet);
+ *   on a facility administrator's Home, Patient billing in their place.
+ * - People, for whoever manages the facility's staff: the staff read live at a demo facility where Staff is listed, a
+ *   sample figure at the other demo facilities, and the way to Staff & access.
  * - The shortcuts a person picks are kept in memory only.
  * Each demo role's dashboard replaces it from the account menu ("View Home as").
  */
@@ -51,23 +56,35 @@ export function BlueHome() {
   // Read once here (each read is audited) and shared by the stat tray and Today's work; before any early return.
   const access = useAccessRequests()
   const demo = isDemoFacility(facility?.id)
-  const labRead = useWork<LabWorkItem>(facility?.id ?? '', demo && permissions.includes('lab.work-item.read'), loadLab)
-  const rxRead = useWork<PharmacyWorkItem>(facility?.id ?? '', demo && permissions.includes('pharmacy.work-item.read'), loadPharmacy)
+  // Home offers this workspace's pages only, as the frame's menu and search do (product.ts). In a single product (a lab
+  // or an outreach team on its own) Home opens when the product's own page is not open to this session, and it offers
+  // none of the hospital's pages there: patient registration stays in the EHR. A hospital's EHR has them all.
+  const product = productHere(session)
+  const lab = permissions.includes('lab.work-item.read') && inProduct(product, 'laboratory')
+  const pharmacy = permissions.includes('pharmacy.work-item.read') && inProduct(product, 'pharmacy')
+  const labRead = useWork<LabWorkItem>(facility?.id ?? '', demo && lab, loadLab)
+  const rxRead = useWork<PharmacyWorkItem>(facility?.id ?? '', demo && pharmacy, loadPharmacy)
   // A sample dashboard is the demo's alone, even when chosen there before a switch to a clinic.
-  if (role.viewing && demo) return <RoleDashboard role={role.viewing} />
+  if (role.viewing && demo) return <RoleDashboard key={role.viewing} role={role.viewing} />
   if (!session) return null
   const name = session.actor.displayName ?? 'colleague'
   const candidates = pages.filter(page => page.path !== '' && !page.group.startsWith('Design') && pageAllowed(page, session)
-    && (page.listed?.(session) ?? true))
+    && inProduct(product, page.path) && (page.listed?.(session) ?? true))
   const shortcuts = candidates.filter(page => (chosen ?? []).includes(page.path))
-  const lab = permissions.includes('lab.work-item.read')
-  const pharmacy = permissions.includes('pharmacy.work-item.read')
 
   const pending = access.state === 'ready' ? access.pending : 0
   const labItems = labRead.state === 'ready' ? labRead.items : []
   const rxItems = rxRead.state === 'ready' ? rxRead.items.filter(item => !item.dispensing || item.dispensing.reversed) : []
   const urgentLab = labItems.filter(item => (item as { priority?: string }).priority === 'urgent' || (item as { priority?: string }).priority === 'stat').length
   const canFind = candidates.some(page => basePath(page.path) === 'patients')
+  // A link from Home leads only to a page this site opens: the frame sends any other back here (product.ts). So on a
+  // single product, which has no Consultation, the open patient leads to their page under Patients, where this role may
+  // open it, and Incoming orders offers only this product's own work. In a hospital's EHR every page opens.
+  const opens = (path: string) => opensInProduct(product, path)
+  const patientTo = opens('clinical') ? '/provider/clinical' : canFind ? '/provider/patients/open' : null
+  const receivedHere = (service: ReceivingService) => opens(service === 'lab' ? 'laboratory' : 'pharmacy')
+  const incomingHere = { services: incoming.services.filter(receivedHere), unsure: incoming.unsure.filter(receivedHere),
+    sure: incoming.sure.filter(receivedHere) }
   const work = [
     ...labItems.slice(0, 5).map(item => ({ key: `lab-${item.id}`, title: item.testName ?? 'Lab test', meta: `Laboratory · ${item.status.replace(/[-_]+/g, ' ')}`,
       to: '/provider/laboratory', icon: FlaskConical, urgent: (item as { priority?: string }).priority === 'urgent' })),
@@ -77,7 +94,7 @@ export function BlueHome() {
   const attention = [
     ...(pending > 0 ? [{ key: 'requests', to: '/provider/requests', icon: ShieldAlert, tone: 'warn' as const,
       title: `${pending} access request${pending === 1 ? '' : 's'} waiting`, subtitle: 'Review and send them on' }] : []),
-    ...(activePatient ? [{ key: 'patient', to: '/provider/clinical', icon: Stethoscope, tone: 'brand' as const,
+    ...(activePatient && patientTo ? [{ key: 'patient', to: patientTo, icon: Stethoscope, tone: 'brand' as const,
       title: activePatient.lookup.patient.fullName ?? activePatient.hid,
       subtitle: activePatient.purpose === 'emergency' ? 'Open now · emergency access, view only' : 'Open now · continue where you left off' }] : []),
     ...(urgentLab > 0 ? [{ key: 'urgent-lab', to: '/provider/laboratory', icon: FlaskConical, tone: 'danger' as const,
@@ -135,10 +152,10 @@ export function BlueHome() {
 
         {/* Today's card and its once-only "Done" rule, at a self-signed-up facility (Novu). */}
         {facility ? <FacilityCheckCard facility={facility} /> : null}
-        {facility && usesNovuBackend() && incoming.services.length > 0
-          ? <IncomingOrdersCard facility={facility} services={incoming.services} unsure={incoming.unsure} sure={incoming.sure} /> : null}
+        {facility && usesNovuBackend() && incomingHere.services.length > 0
+          ? <IncomingOrdersCard facility={facility} services={incomingHere.services} unsure={incomingHere.unsure} sure={incomingHere.sure} /> : null}
         {facility && usesNovuBackend() && permissions.includes('ehr.order-route.send')
-          ? <WrongPatientOrdersCard key={facility.id} facilityId={facility.id} facilityName={facility.name} /> : null}
+          ? <WrongPatientOrdersCard key={facility.id} facilityId={facility.id} facilityName={facility.name} consultation={opens('clinical')} /> : null}
       </div>
 
       <div className="flex flex-col gap-6">
@@ -157,7 +174,10 @@ export function BlueHome() {
           ) : null}
         </section>
 
-        {demo ? <Card aria-label="Activity in period">
+        {facility && permissions.includes('workforce.manage') ? <HomePeopleCard facility={facility} /> : null}
+
+        {/* A facility administrator's Home shows Patient billing where a clinician's shows Activity. */}
+        {demo && facility?.roles.includes('org_admin') ? <HomeBillingCard /> : demo ? <Card aria-label="Activity in period">
           <CardHeader as="h2" title="Activity" description="Sample records created" icon={Activity}
             actions={<Select controlSize="sm" aria-label="Reporting period" value={period} onChange={event => setPeriod(event.target.value)}>
               <option value="7">Last 7 days</option><option value="30">Last 30 days</option></Select>} />

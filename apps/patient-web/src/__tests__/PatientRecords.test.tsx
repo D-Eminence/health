@@ -85,8 +85,8 @@ describe('patient health records', () => {
       documents: [{ id: 'doc-1', encounterId: 'enc-1', facilityId: 'facility-1', fileName: 'scan.pdf', mediaType: 'application/pdf', sizeBytes: 2048, classification: 'clinical', status: 'uploaded', createdAt: '2026-10-08T10:15:00Z' }],
       limit: 100,
     })
-    expect(await screen.findByText('Ambulatory')).toBeTruthy()
-    expect(card('Visits').getByText('Ambulatory')).toBeTruthy()
+    expect(await screen.findByText('Outpatient visit')).toBeTruthy()
+    expect(card('Visits').getByText('Outpatient visit')).toBeTruthy()
     expect(card('Clinical notes').getByText('Doing well.')).toBeTruthy()
     expect(card('Vitals').getByText('Temp 36.8°C')).toBeTruthy()
     expect(card('Diagnoses').getByText('Upper respiratory infection')).toBeTruthy()

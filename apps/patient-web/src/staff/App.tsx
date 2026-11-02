@@ -35,11 +35,11 @@ import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { blueForAll, demoFacilitySite, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
-import { otherStaffSites, servedHere, siteElsewhere, siteHref, SITE_NAMES, type Site } from '../productSites'
+import { offeredHere, otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
 import './style.css'
 
 // The blue Hospital EHR (ehr-blue/blueFacilities.ts says for whom): loaded on demand, so no other facility downloads
-// it. "Use the classic EHR" brings this tab back to today's workspace until it reloads.
+// it.
 const EhrBlueApp = lazy(() => import('../ehr-blue/EhrBlueApp'))
 // The blue EHR's sign-in, once the clinic switch is on (blueForAll): today's steps and words, in the design's look.
 const BlueSignIn = lazy(async () => ({ default: (await import('../ehr-blue/frame/auth/BlueSignIn')).BlueSignIn }))
@@ -367,7 +367,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     startPeriod()
     away.current = null
     setLock(null)
-    // A session that ended without Sign out left the last person's choice of the classic EHR: the next starts on blue.
+    // The next person starts on the blue EHR (the old classic-EHR flag, which nothing sets now, is cleared).
     resetClassicEhr()
     setState({ status: 'ready', session })
     announceStaffSessionChange()
@@ -396,7 +396,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     away.current = null
     setState({ status: 'signed-out', session: null })
     setLock(null)
-    // "Use the classic EHR" was this person's choice: the next one starts on the blue EHR.
+    // The next person starts on the blue EHR (the old classic-EHR flag, which nothing sets now, is cleared).
     resetClassicEhr()
     announceStaffSessionChange()
   }
@@ -634,7 +634,7 @@ function ProviderTitle() {
  */
 function FacilityOnAnotherSite({ facility, site }: { facility: string; site: Site }) {
   return <EmptyState titleAs="h1" title={`${facility} works on ${SITE_NAMES[site.key]}`}
-    description={`${facility} is on ${site.hostname}, where you sign in separately. To work at another facility here, choose it under “Working at”.`}
+    description={`${facility} is on ${SITE_PRODUCT_NAMES[site.key]}, where you sign in separately. To work at another facility here, choose it under “Working at”.`}
     action={<a className="staff-text-link" href={siteHref(site)}>Open {SITE_NAMES[site.key]} →</a>} />
 }
 
@@ -687,12 +687,18 @@ function Shell() {
   if (!classic && showsBlueEhr(state.session.actor, choiceNeeded !== null)) {
     return <Suspense fallback={<main className="staff-centered"><p role="status">Opening Health ID EHR…</p></main>}><EhrBlueApp /></Suspense>
   }
+  // Each product works on its own (owner, 2026-11-02): on a product site, a page of the sidebar's that its product does
+  // not open (one of the hospital EHR's, typed or a sign-in's return address) opens this site's Overview instead, as the
+  // blue frame opens the product's Home. The page never mounts, so it reads nothing. Any other address is left to the
+  // routes below (Page not found).
+  const asked = pathname.replace(/\/+$/, '').toLowerCase()
+  if (navigation.some(item => item.to === asked) && !offeredHere(pathname)) return <Navigate to="/provider" replace />
   const { actor } = state.session
   const currentFacility = actor.facility
-  // Each product on its own site (productSites.ts): the sidebar lists this site's pages, and links to the other sites
-  // that serve the rest the facility may open. A demo facility works on its own site.
+  // Each product on its own site (productSites.ts): the sidebar lists what this site's product opens, and links to the
+  // other products' sites for their own pages the facility may open. A demo facility works on its own site.
   const permitted = visibleNavigation(currentFacility)
-  const visible = permitted.filter(item => servedHere(item.to))
+  const visible = permitted.filter(item => offeredHere(item.to))
   const otherSites = otherStaffSites(permitted.map(item => item.to))
   const demoSite = demoFacilitySite(currentFacility?.id)
   const facilitySite = demoSite ? siteElsewhere(demoSite) : null
@@ -763,7 +769,7 @@ function Shell() {
         <nav className="staff-nav" onFocus={revealFocusedLink}>{visible.map(item => <NavLink key={item.to} to={item.to} end={item.to === '/provider'} className={({ isActive }) => `staff-nav-link${isActive ? ' active' : ''}`}>{item.label}{item.to === '/provider/clinical' && !activePatient && <span className="staff-nav-meta">Select patient</span>}</NavLink>)}</nav>
         {otherSites.length > 0 && <nav className="staff-nav staff-nav-sites" aria-labelledby="staff-nav-sites-title" onFocus={revealFocusedLink}>
           <p id="staff-nav-sites-title" className="staff-nav-sites-title">Other Health ID sites</p>
-          {otherSites.map(site => <a key={site.key} className="staff-nav-link" href={siteHref(site)}>{SITE_NAMES[site.key]}<span className="staff-nav-meta">{site.hostname}</span></a>)}
+          {otherSites.map(site => <a key={site.key} className="staff-nav-link" href={siteHref(site)}>{SITE_NAMES[site.key]}<span className="staff-nav-meta">{SITE_PRODUCT_NAMES[site.key]}</span></a>)}
         </nav>}
         <div className="staff-sidebar-footer"><Badge tone="information">{(usesNovuBackend() ? roleLabels(actor.roles) : actor.roles.join(', ')) || 'Staff'}</Badge><p>Access is limited to your active facility and server permissions.</p></div>
       </aside>}

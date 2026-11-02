@@ -1053,10 +1053,10 @@
   }
 }
 
-/* ---- Audit & Compliance ---------------------------------------------------------- */
+/* ---- Audit trail ----------------------------------------------------------------  */
 
 /*
- * Audit & Compliance (admin/audit.png): the line under the heading, and each event
+ * Audit trail (admin/audit.png): the line under the heading, and each event
  * as the target's list row: the action in bold, then its facts in small muted lines.
  */
 .hid-ehr .hid-ehr-dept-audit-intro {

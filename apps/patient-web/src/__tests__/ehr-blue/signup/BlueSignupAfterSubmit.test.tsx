@@ -149,7 +149,7 @@ describe('Didn’t get the code?', () => {
     fireEvent.click(button('Change unverified email'))
     await step('Your account')
     for (let index = 0; index < 4; index++) fireEvent.click(button('Continue'))
-    await step('Agreements')
+    await step('Check and send')
     fireEvent.click(button('Complete the security check'))
     await submitRegistration()
     fireEvent.click(await screen.findByRole('button', { name: 'Continue to verification' }))
@@ -337,7 +337,8 @@ describe('the ending, and the panels in place of a step', () => {
     const reload = vi.fn()
     const kept = vi.spyOn(Storage.prototype, 'setItem')
     await toPassword()
-    vi.stubGlobal('location', { ...window.location, hostname: 'app.healthidentitydirectory.com', reload })
+    // Staging's portal keeps its own staff sign-in and workspace.
+    vi.stubGlobal('location', { ...window.location, hostname: 'staging.healthidentitydirectory.com', reload })
     const shown = focusWhenShown(() => screen.queryByRole('heading', { level: 1, name: 'Your facility is set up' }))
     const activated = deferred<unknown>()
     api.activate.mockReturnValueOnce(activated.promise)
@@ -347,7 +348,7 @@ describe('the ending, and the panels in place of a step', () => {
     expect(focused).toBe(element)
     actAgain()
     expect(screen.getByText('You’re signed in as your facility’s administrator.')).toBeTruthy()
-    expect(screen.getByText(`Next time, sign in at ehr.healthidentitydirectory.com with ${EMAIL} and the password you just chose.`))
+    expect(screen.getByText(`Next time, sign in to the Provider Portal with ${EMAIL} and the password you just chose.`))
       .toBeTruthy()
     expect(screen.getByText(ORGANIZATION_TYPE_NOTES.hospital)).toBeTruthy()
     expect(TabChannel.posted).toEqual([TOLD])
@@ -355,6 +356,32 @@ describe('the ending, and the panels in place of a step', () => {
     // The whole sign-up lived in the page's memory: nothing in browser storage, no cookie written by the page.
     expect(kept).not.toHaveBeenCalled()
     expect(document.cookie).toBe('')
+    fireEvent.click(button('Continue to the Provider Portal'))
+    expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['hospital', 'ehr.healthidentitydirectory.com'],
+    ['laboratory', 'lab.healthidentitydirectory.com'],
+    ['pharmacy', 'pharmacy.healthidentitydirectory.com'],
+    ['laboratory', 'lab.staging.healthidentitydirectory.com'],
+  ] as const)('on its own product site, a %s’s administrator is signed in on %s, and the workspace opens there', async (type, site) => {
+    const reload = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname: site, reload, replace: vi.fn() })
+    await toReview({ type })
+    await submitRegistration()
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue to verification' }))
+    await screen.findByRole('heading', { level: 1, name: 'Enter your verification code' })
+    await verifyWith()
+    await screen.findByRole('heading', { level: 1, name: 'Create your provider account' })
+    choosePassword()
+    await screen.findByRole('heading', { level: 1, name: 'Your facility is set up' })
+    expect(screen.getByText('You’re signed in as your facility’s administrator.')).toBeTruthy()
+    expect(screen.getByText(ORGANIZATION_TYPE_NOTES[type])).toBeTruthy()
+    // No other site to go to: never the patient portal, nor a sign-in somewhere else.
+    expect(screen.queryByRole('link', { name: 'Go to sign in' })).toBeNull()
+    expect(TabChannel.posted).toEqual([TOLD])
     fireEvent.click(button('Continue to the Provider Portal'))
     expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
     expect(reload).toHaveBeenCalledTimes(1)
@@ -410,6 +437,26 @@ describe('the ending, and the panels in place of a step', () => {
     // No session was set, so the other tabs are told nothing.
     expect(TabChannel.posted).toEqual([])
     expect(api.activate).toHaveBeenCalledTimes(1)
+  })
+
+  // The facility's own site's sign-in (facilitySignInHref): this site's own on a product site, which signs up its own
+  // kind of facility; the facility type's site from a site that serves no staff pages.
+  it.each([
+    ['lab.healthidentitydirectory.com', 'laboratory', '/provider/sign-in'],
+    ['pharmacy.healthidentitydirectory.com', 'pharmacy', '/provider/sign-in'],
+    ['migrate.healthidentitydirectory.com', 'hospital', '/provider/sign-in'],
+    ['app.healthidentitydirectory.com', 'laboratory', 'https://lab.healthidentitydirectory.com/provider/sign-in'],
+    ['app.healthidentitydirectory.com', 'pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider/sign-in'],
+    ['admin.staging.healthidentitydirectory.com', 'clinic', 'https://ehr.staging.healthidentitydirectory.com/provider/sign-in'],
+  ])('on %s, a %s’s “may already be ready” links to %s', async (hostname, organizationType, href) => {
+    api.profile.mockResolvedValueOnce({ organizationName: 'Demo Facility Limited', registrationNumber: 'RC123456',
+      organizationType, administratorName: NAME, administratorEmail: EMAIL })
+    api.activate.mockRejectedValueOnce(new HidApiError(401, 'Unauthorized', { code: 'AUTHENTICATION_REQUIRED' }))
+    await toPassword()
+    vi.stubGlobal('location', { ...window.location, hostname, reload: vi.fn() })
+    choosePassword()
+    await screen.findByRole('heading', { level: 1, name: 'Your account may already be ready' })
+    expect(screen.getByRole('link', { name: 'Sign in to the Provider Portal' }).getAttribute('href')).toBe(href)
   })
 
   it('links to the EHR site’s sign-in in production when the account may already be ready', async () => {

@@ -1,24 +1,39 @@
+import { useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, screen, within } from '@testing-library/react'
 import { rightSiteHref, servedHere } from '../../productSites'
+import type * as BlueFacilities from '../../ehr-blue/blueFacilities'
 import { DEMO_HOSPITAL, DEMO_LABORATORY, facility } from '../ehr-blue/frame/blueHarness'
 import {
-  address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_CLASSIC_PAGE, EVERY_PERMISSION, expectOpenedElsewhere, openBlueOn,
-  openClassicOn, openPortalOn, overviewWorkspaces, signInActionOn, siteLinks,
+  address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_CLASSIC_PAGE, EVERY_PERMISSION, expectNoHostnameShown,
+  expectOpenedElsewhere, openBlueOn, openClassicOn, openPortalOn, overviewWorkspaces, signInActionOn, siteLinks,
 } from './siteHarness'
 
 /**
  * ehr.: the hospital EHR, with the hospital's own laboratory, pharmacy, OCR, migration and outreach (owner,
- * 2026-10-31), and the pages every staff site serves. The patient portal opens on the main site.
+ * 2026-10-31), its own sign-up, sign-in, recovery and invitations, and every other staff page. The patient portal opens
+ * on the main site.
  */
 vi.mock('../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 vi.mock('../../staff/clinicianApplicationApi', () => ({ clinicianApplicationApi: { availability: () => Promise.resolve({ open: false }) } }))
 vi.mock('../../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: false }))
 const opened = vi.hoisted(() => vi.fn())
 vi.mock('../../openSite', () => ({ openSite: opened }))
+// The classic EHR is gone (#104): nothing in the app sets the flag staff/App.tsx still reads for today's workspace. This
+// file sets it, to see today's workspace with a demo facility as a tab that chose the classic EHR had it.
+const classicTab = vi.hoisted(() => ({ on: false, listeners: new Set<() => void>() }))
+vi.mock('../../ehr-blue/blueFacilities', async importOriginal => {
+  const subscribe = (listener: () => void) => { classicTab.listeners.add(listener); return () => { classicTab.listeners.delete(listener) } }
+  const chosen = () => classicTab.on
+  return { ...await importOriginal<typeof BlueFacilities>(), useClassicEhrChosen: () => useSyncExternalStore(subscribe, chosen, chosen) }
+})
+function chooseClassicEhr() {
+  classicTab.on = true
+  classicTab.listeners.forEach(listener => listener())
+}
 
 class TabChannel extends EventTarget { postMessage() {} close() {} }
-beforeEach(() => { opened.mockClear(); vi.stubGlobal('BroadcastChannel', TabChannel) })
+beforeEach(() => { opened.mockClear(); classicTab.on = false; classicTab.listeners.clear(); vi.stubGlobal('BroadcastChannel', TabChannel) })
 afterEach(() => { backToTestSite(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
 const EHR = 'ehr.healthidentitydirectory.com'
@@ -59,10 +74,15 @@ describe(EHR, () => {
     expect(address()).toBe('/provider/sign-in?returnTo=%2Fprovider%2Fclinical')
   })
 
-  it('keeps the main site’s public staff pages’ own link there (clinician sign-up)', async () => {
+  // Each staff site keeps its own sign-up, sign-in, recovery and invitations (owner, 2026-11-02): the gate sends none of
+  // them elsewhere. Where each page's own links lead is the page's (productHostname.ts), not this table's.
+  it('opens the public staff pages here: clinician sign-up, as the others', async () => {
+    for (const path of ['/provider/recover', '/provider/enroll', '/provider/invitation', '/provider/join', '/provider/join/status']) {
+      expect(servedHere(path, EHR), path).toBe(true)
+    }
     await openPortalOn(EHR, '/provider/join')
-    const link = await screen.findByRole('link', { name: /main Health ID site|Continue/ })
-    expect(link.getAttribute('href')).toBe('https://app.healthidentitydirectory.com/provider/join')
+    expect(await screen.findByRole('heading', { level: 1 })).toBeTruthy()
+    expect(screen.queryByText(/Opening it there/)).toBeNull()
     expect(opened).not.toHaveBeenCalled()
   })
 
@@ -101,15 +121,17 @@ describe(EHR, () => {
     const page = within(document.querySelector<HTMLElement>('.hid-ehr-blue-page')!)
     expect(page.getByRole('link', { name: 'Open Laboratory' }).getAttribute('href')).toBe('https://lab.healthidentitydirectory.com/')
     expect(screen.queryByRole('heading', { name: 'Laboratory worklist' })).toBeNull()
+    expect(page.getByText(/^Demo Laboratory is on Health ID Lab, where you sign in separately\./)).toBeTruthy()
+    expectNoHostnameShown()
 
-    // Today's workspace, as a tab that chose the classic EHR has it (the redesign offers no way there from the frame).
-    const { chooseClassicEhr } = await import('../../ehr-blue/blueFacilities')
+    // Today's workspace, as a tab that chose the classic EHR had it (nothing offers a way there now: the flag is set above).
     act(() => chooseClassicEhr())
     const sidebar = await screen.findByRole('complementary', { name: 'Provider navigation' })
     expect(within(sidebar).getByRole('combobox', { name: 'Working at' })).toBeTruthy()
     expect(await screen.findByRole('heading', { level: 1, name: 'Demo Laboratory works on Laboratory' })).toBeTruthy()
     const main = within(document.querySelector<HTMLElement>('main.staff-main')!)
-    expect(main.getByText(/Demo Laboratory is on lab\.healthidentitydirectory\.com, where you sign in separately\./)).toBeTruthy()
+    expect(main.getByText(/Demo Laboratory is on Health ID Lab, where you sign in separately\./)).toBeTruthy()
+    expectNoHostnameShown()
     expect(main.getByRole('link', { name: 'Open Laboratory →' }).getAttribute('href')).toBe('https://lab.healthidentitydirectory.com/')
   })
 })

@@ -44,6 +44,8 @@
 .record-chat-sources li > div { display: grid; min-width: 0; gap: 5px; }
 .record-chat-sources strong { color: var(--color-ink); font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .record-chat-sources li > div > span { color: var(--color-muted); font-size: 11px; }
+/* Where the source's facts came from, as words in a chip (never colour alone). */
+.record-chat-sources li > div > span.record-chat-source-origin { justify-self: start; padding: 1px 8px; border: 1px solid var(--color-line); border-radius: 999px; background: var(--color-subtle, var(--color-surface)); color: var(--color-ink); font-weight: 600; }
 .record-chat-thinking { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--color-muted); font-size: 13px; }
 .record-chat-thinking-dots { display: inline-flex; gap: 4px; }
 .record-chat-thinking-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--color-brand); }

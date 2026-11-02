@@ -211,11 +211,35 @@ describe('clinician sign-up availability', () => {
     expect(screen.getByText(/Use your own email address, not your facility's admin account\./)).toBeTruthy()
   })
 
-  it('links to the main site on a staff product host, with no form and no request', async () => {
-    vi.stubGlobal('location', { ...window.location, hostname: 'ehr.healthidentitydirectory.com' })
+  it.each([
+    ['lab.healthidentitydirectory.com', '/provider/sign-in'],
+    ['ehr.staging.healthidentitydirectory.com', '/provider/sign-in'],
+    ['staging.healthidentitydirectory.com', '/provider/sign-in'],
+  ])('on %s, every way to the staff sign-in leads to the site’s own, %s', async (hostname, href) => {
+    vi.stubGlobal('location', { ...window.location, hostname })
     open()
-    expect(screen.getByRole('link', { name: 'Continue on the Health ID site' }).getAttribute('href'))
-      .toBe('https://app.healthidentitydirectory.com/provider/join')
+    await screen.findByRole('heading', { level: 1, name: 'Apply as a doctor or nurse' })
+    // The top bar's logo and Sign in, and the page's own "Sign in to the provider portal".
+    expect(screen.getByRole('link', { name: 'Health ID provider sign in' }).getAttribute('href')).toBe(href)
+    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe(href)
+    expect(screen.getByRole('link', { name: 'Sign in to the provider portal' }).getAttribute('href')).toBe(href)
+  })
+
+  it('on a product site, is the site’s own page: it asks whether sign-up is open, and opens nothing else', async () => {
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname: 'ehr.healthidentitydirectory.com', replace })
+    open()
+    await act(async () => { await Promise.resolve() })
+    expect(api.availability).toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
+    expect(screen.queryByText(/main Health ID site|Continue on the Health ID site/)).toBeNull()
+  })
+
+  it('on an admin site, which serves no staff pages, opens the EHR site’s page at once, with no form and no request', async () => {
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname: 'admin.healthidentitydirectory.com', replace })
+    open()
+    expect(replace).toHaveBeenCalledWith('https://ehr.healthidentitydirectory.com/provider/join')
     expect(screen.queryByRole('textbox', { name: 'Work email' })).toBeNull()
     await act(async () => { await Promise.resolve() })
     expect(api.availability).not.toHaveBeenCalled()

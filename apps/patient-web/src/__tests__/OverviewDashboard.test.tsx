@@ -247,7 +247,7 @@ describe('what the overview counts', () => {
 
   it('lists the latest signed notes and encounters, newest first, never an unsigned note', () => {
     const answer = { ...records, notes: [...records.notes, { ...records.notes[0]!, id: 'note-2', title: 'Draft', signedAt: null }] } as unknown as PatientRecords
-    expect(providerContributions(answer).map(row => [row.kind, row.title])).toEqual([['Clinical note', 'Malaria review'], ['Encounter', 'outpatient visit']])
+    expect(providerContributions(answer).map(row => [row.kind, row.title])).toEqual([['Clinical note', 'Malaria review'], ['Encounter', 'Outpatient visit']])
     expect(providerContributions({ encounters: 'x' } as unknown as PatientRecords)).toEqual([])
   })
 

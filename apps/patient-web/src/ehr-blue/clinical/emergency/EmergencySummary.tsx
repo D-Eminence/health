@@ -1,10 +1,12 @@
 import { RotateCcw, Siren, UserSearch } from 'lucide-react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { FormPage, LoadingRows, PatientBanner, Value } from '../../../kasuwa/parts'
-import { Alert, Badge, Button, Card, CardHeader, EmptyState } from '../../../kasuwa/ui'
+import { Alert, Badge, Button, Card, CardHeader, EmptyState, type Tone } from '../../../kasuwa/ui'
 import { usesNovuBackend } from '../../../backendContract'
+import { fileTypeLabel, visitClassLabel } from '../../../plainLabels'
 import { staffApi, type EmergencyRecords, type EmergencySection } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
+import { priorityLabel } from '../../../staff/orderRoutes'
 import { selfServiceReview } from '../../../staff/staffAccess'
 import { ChartGate, type Chart } from '../parts/chart'
 import { formatWhen } from '../parts/format'
@@ -22,14 +24,15 @@ export const LOADING_SUMMARY = 'Loading emergency summary'
 // What EHR's emergency summary sends of each section at most (Clinical.tsx EMERGENCY_CAPS).
 const EMERGENCY_CAPS = { encounters: 50, notes: 50, diagnoses: 100, prescriptions: 100, labRequests: 100, documents: 100 } as const
 
-// Prescription and lab request statuses (EHR OrderStatus), what is current first (Clinical.tsx ORDER_STATUSES).
-const ORDER_STATUSES: Readonly<Record<string, { readonly label: string; readonly rank: number }>> = {
-  active: { label: 'Active', rank: 0 },
-  on_hold: { label: 'On hold', rank: 1 },
-  draft: { label: 'Draft', rank: 2 },
-  completed: { label: 'Completed', rank: 3 },
-  cancelled: { label: 'Cancelled', rank: 4 },
-  entered_in_error: { label: 'Entered in error', rank: 5 },
+// Prescription and lab request statuses (EHR OrderStatus), what is current first, each with today's tone
+// (Clinical.tsx:1006-1013 ORDER_STATUSES).
+const ORDER_STATUSES: Readonly<Record<string, { readonly label: string; readonly tone: Tone; readonly rank: number }>> = {
+  active: { label: 'Active', tone: 'success', rank: 0 },
+  on_hold: { label: 'On hold', tone: 'warn', rank: 1 },
+  draft: { label: 'Draft', tone: 'info', rank: 2 },
+  completed: { label: 'Completed', tone: 'neutral', rank: 3 },
+  cancelled: { label: 'Cancelled', tone: 'neutral', rank: 4 },
+  entered_in_error: { label: 'Entered in error', tone: 'danger', rank: 5 },
 }
 
 function orderRank(status: string) { return ORDER_STATUSES[status]?.rank ?? 3 }
@@ -62,12 +65,9 @@ function fileSize(value: number | string | null | undefined): string {
   return count >= 1024 * 1024 ? `${(count / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.ceil(count / 1024)).toLocaleString()} KB`
 }
 
-/** A file type in words: "PDF", "Image", else the subtype in capitals. */
+/** A file type in words ("JPEG image", "PDF document"), else "File": never the media type. */
 function fileKind(mediaType: string | null | undefined): string {
-  if (!mediaType) return 'File'
-  if (mediaType === 'application/pdf') return 'PDF'
-  if (mediaType.startsWith('image/')) return 'Image'
-  return (mediaType.split('/')[1] ?? mediaType).split(/[.+-]/)[0]!.toUpperCase()
+  return fileTypeLabel(mediaType)
 }
 
 const words = (value: string) => { const text = value.replaceAll('_', ' '); return text.charAt(0).toUpperCase() + text.slice(1) }
@@ -76,9 +76,11 @@ function ErrorBadge() {
   return <Badge size="sm" tone="danger" solid>Entered in error</Badge>
 }
 
+/** An order's status in today's tone (Clinical.tsx:1047-1050 OrderStatus); entered in error as every other here. */
 function OrderStatus({ status }: { status: string }) {
   if (status === 'entered_in_error') return <ErrorBadge />
-  return <Badge size="sm" tone={status === 'active' ? 'success' : 'neutral'}>{ORDER_STATUSES[status]?.label ?? words(status)}</Badge>
+  const known = ORDER_STATUSES[status]
+  return <Badge size="sm" tone={known?.tone ?? 'neutral'}>{known?.label ?? words(status)}</Badge>
 }
 
 /**
@@ -110,7 +112,12 @@ function SummarySection<T extends { id: string }>({ title, items, cap, empty, no
           : <ul className="m-0 list-none divide-y divide-line p-0">
               {items.map(item => <li key={item.id} className="flex flex-col gap-1 px-5 py-3.5 text-[13px] text-ink-2">{render(item)}</li>)}
             </ul>}
-      {shortened ? <p className="m-0 border-t border-line px-5 py-3 text-[12px] text-ink-3">Only the {cap} most recent are shown.</p> : null}
+      {/* One EHR reports as cut short has older entries; from one that reports nothing, it may (Clinical.tsx:1070-1073). */}
+      {shortened ? (
+        <p className="m-0 border-t border-line px-5 py-3 text-[12px] text-ink-3">
+          {truncated === undefined ? `Only the ${cap} most recent are shown.` : `Only the ${cap} most recent are shown; older ones exist and are not shown.`}
+        </p>
+      ) : null}
     </Card>
   )
 }
@@ -136,13 +143,14 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
       {released('vitals') ? <Alert intent="info" size="sm" live={false}>{VITALS_NOTICE}</Alert> : null}
       <SummarySection title="Finished visits" items={summary.encounters} {...sectionProps('encounters')}
         empty="No finished visits at this facility." render={item => <>
-          <Head>{words(item.encounterType)}</Head>
+          <Head>{visitClassLabel(item.encounterType)}</Head>
           <span>{formatWhen(item.startedAt)}{item.endedAt ? ` to ${formatWhen(item.endedAt)}` : ''}</span>
         </>} />
       <SummarySection title="Signed notes" items={summary.notes} {...sectionProps('notes')}
         empty="No signed notes at this facility." render={item => <>
           <Head>{item.title}</Head>
-          <span>{words(item.noteType)} · version {item.revisionNo}{item.signedAt ? ` · signed ${formatWhen(item.signedAt)}` : ''}</span>
+          {/* The note's status says whether it was amended (Clinical.tsx:1130). */}
+          <span>{words(item.noteType)} · {words(item.status)} · version {item.revisionNo}{item.signedAt ? ` · signed ${formatWhen(item.signedAt)}` : ''}</span>
           <Text>{item.content}</Text>
         </>} />
       {may('ehr.diagnosis.read') ? (
@@ -155,7 +163,8 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
               {item.verificationStatus === 'refuted' ? <Badge size="sm">Ruled out</Badge> : null}
             </Head>
             {item.verificationStatus === 'entered_in_error' ? <span className="font-medium text-danger-ink">Recorded in error: not a diagnosis of this patient.</span> : null}
-            <span>{words(item.clinicalStatus)} · {words(item.verificationStatus)}{item.code ? ` · code ${item.code}` : ''}</span>
+            {/* The code with its code system, ICD-10 or SNOMED (Clinical.tsx:1141). */}
+            <span>{words(item.clinicalStatus)} · {words(item.verificationStatus)}{item.code ? ` · code ${item.codeSystem} ${item.code}` : ''}</span>
             {item.notes ? <Text>{item.notes}</Text> : null}
           </>} />
       ) : null}
@@ -183,7 +192,8 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
           empty="No lab tests at this facility." render={item => <>
             <Head>{item.testDisplay}<OrderStatus status={item.status} />{item.priority && item.priority !== 'routine' ? <Badge size="sm" tone="danger">{words(item.priority)}</Badge> : null}</Head>
             {item.status === 'entered_in_error' ? <span className="font-medium text-danger-ink">Recorded in error: not a test for this patient.</span> : null}
-            <span>Asked for {formatWhen(item.createdAt)}</span>
+            {/* The test's code with its code system, and its priority in words, routine too (Clinical.tsx:1158). */}
+            <span>{item.testCodeSystem} {item.testCode}{item.priority ? ` · Priority: ${priorityLabel(item.priority)}` : ''} · Asked for {formatWhen(item.createdAt)}</span>
             {item.clinicalInformation ? <Text>{item.clinicalInformation}</Text> : null}
             {/* Lab allows a released-results read under an active emergency grant; a draft never reached Lab. */}
             {item.status !== 'draft' && may('lab.result.released.read') ? <ReleasedResults facilityId={facilityId} requestId={item.id} /> : null}
