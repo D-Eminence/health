@@ -10,8 +10,9 @@ import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/s
 import { DeptSection } from '../parts/DeptPage'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptLinkButton } from '../parts/DeptRecord'
+import { fileSizeLabel, fileTypeLabel, scanStatusLabel, visitClassLabel, visitStatusLabel } from '../../../plainLabels'
 import { dateText } from '../parts/format'
-import { FormRefusal, statusWords } from './ocrSteps'
+import { FormRefusal } from './ocrSteps'
 
 /*
  * Document capture: a file uploaded into a patient's documents, on the encounter it belongs to, as today's clinical
@@ -32,10 +33,9 @@ async function readPage<P extends Page<unknown>>(read: (cursor: string | undefin
   }
 }
 
-/** A file size as EHR sends it, a number or text, in KiB (Clinical.tsx fileSize). */
+/** A file size as EHR sends it, a number or text, counted as Clinical.tsx fileSize counts it, in plain units ("56 KB"). */
 function fileSize(value: number | string | null | undefined): string {
-  const count = value == null || value === '' ? NaN : Number(value)
-  return Number.isFinite(count) && count >= 0 ? `${Math.ceil(count / 1024).toLocaleString()} KiB` : 'Size unavailable'
+  return fileSizeLabel(value, 'Size unavailable')
 }
 
 const ACCESS_ENDED = 'Access to this patient has ended. Open the patient again through approved access.'
@@ -151,7 +151,7 @@ function PatientDocuments({ facilityId, permissions, onExtract, onAccessEnded }:
     {items.length > 0 && <div className="hid-ehr-dept-migrate-encounter">
       <EhrField label="Encounter" controlId="migrate-encounter">
         <EhrSelect value={selected?.id ?? ''} onChange={event => setChosen(event.target.value)}>
-          {items.map(item => <option key={item.id} value={item.id}>{`${statusWords(item.encounterType)} · started ${dateText(item.startedAt)} · ${statusWords(item.status)}`}</option>)}
+          {items.map(item => <option key={item.id} value={item.id}>{`${visitClassLabel(item.encounterType)} · started ${dateText(item.startedAt)} · ${visitStatusLabel(item.status)}`}</option>)}
         </EhrSelect>
       </EhrField>
       {(cursors.length > 1 || encounters?.next) && <nav className="hid-ehr-dept-toolbar" aria-label="Encounter pages">
@@ -234,9 +234,9 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
       columns={[
         { id: 'record', header: 'Record', cell: item => <div className="hid-ehr-dept-record-name">
           <span className="hid-ehr-dept-strong" id={`migrate-document-${item.id}`}>{item.fileName}</span>
-          <span className="hid-ehr-dept-reference">{`${item.mediaType} · ${fileSize(item.sizeBytes)}`}</span></div> },
+          <span className="hid-ehr-dept-reference">{`${fileTypeLabel(item.mediaType)} · ${fileSize(item.sizeBytes)}`}</span></div> },
         { id: 'status', header: 'Status', cell: item => <>
-          <EhrBadge tone={item.status === 'initiated' ? 'caution' : 'brand'}>{item.status === 'initiated' ? 'not completed' : `scan ${statusWords(item.scanStatus)}`}</EhrBadge>
+          <EhrBadge tone={item.status === 'initiated' ? 'caution' : 'brand'}>{item.status === 'initiated' ? 'not completed' : scanStatusLabel(item.scanStatus) || 'Uploaded'}</EhrBadge>
           {item.status === 'initiated' && <span className="hid-ehr-dept-reference">Upload not completed. Only the person who started it can finish it: upload the file again.</span>}</> },
         { id: 'updated', header: 'Updated', cell: item => dateText(item.createdAt) },
         { id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: item => <div className="hid-ehr-dept-table-actions">

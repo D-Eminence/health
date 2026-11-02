@@ -24,6 +24,7 @@ import { neverSaved } from './HealthInformation'
 import { useOnNotificationChange } from '../notificationBadge'
 import { useShareProbe } from './ShareRecords'
 import { ButtonR } from './profileParts'
+import { visitClassLabel } from '../plainLabels'
 
 /**
  * The home dashboard as hid-1.0 had it (HomeDashboard.tsx; hid-1.0 parity B3, contract D): the profile card with the
@@ -73,7 +74,7 @@ export interface ContributionRow { id: string; at: string | null; kind: string; 
 export function providerContributions(records: PatientRecords | null | undefined, rows = RECENT_ROWS): ContributionRow[] {
   const encounters = list<PatientRecords['encounters'][number]>(records?.encounters).filter(item => typeof item?.id === 'string')
     .map((item): ContributionRow => ({ id: `encounter-${item.id}`, at: item.endedAt ?? item.startedAt ?? null, kind: 'Encounter',
-      title: typeof item.encounterType === 'string' ? item.encounterType.replace(/_/g, ' ') : 'Encounter' }))
+      title: visitClassLabel(typeof item.encounterType === 'string' ? item.encounterType : null) }))
   const notes = list<PatientRecords['notes'][number]>(records?.notes).filter(item => typeof item?.id === 'string' && item.signedAt)
     .map((item): ContributionRow => ({ id: `note-${item.id}`, at: item.signedAt, kind: 'Clinical note', title: item.title || item.noteType || 'Clinical note' }))
   const time = (row: ContributionRow) => { const value = stamp(row.at); return Number.isNaN(value) ? -Infinity : value }

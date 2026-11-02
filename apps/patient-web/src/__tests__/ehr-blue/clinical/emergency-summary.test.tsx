@@ -358,7 +358,7 @@ describe('the emergency summary shows every section EHR returns that the role ma
     for (const name of ['Finished visits', 'Signed notes', 'Diagnoses', 'Prescriptions', 'Lab tests', 'Documents']) {
       expect(screen.getByRole('heading', { level: 2, name })).toBeTruthy()
     }
-    expect(entry('Finished visits', 'Emergency').textContent).toMatch(/\d{4}, \d\d:\d\d to \d/)
+    expect(entry('Finished visits', 'Emergency visit').textContent).toMatch(/\d{4}, \d\d:\d\d to \d/)
     const signed = entry('Signed notes', 'Triage note 1')
     expect(signed.textContent).toMatch(/Triage · Signed · version 1 · signed \d/)
     expect(signed.textContent).toContain('Alert and oriented.\nNo distress.')
@@ -368,7 +368,7 @@ describe('the emergency summary shows every section EHR returns that the role ma
     const lab = entry('Lab tests', 'Haemoglobin')
     expect(within(lab).getByText('Urgent')).toBeTruthy()
     expect(lab.textContent).toMatch(/LOINC 718-7 · Priority: Urgent · Asked for \d/)
-    expect(entry('Documents', 'referral-letter.pdf').textContent).toMatch(/PDF · 20 KB · added \d/)
+    expect(entry('Documents', 'referral-letter.pdf').textContent).toMatch(/PDF document · 20 KB · added \d/)
   })
 
   it.each([

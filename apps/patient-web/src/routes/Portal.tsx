@@ -47,7 +47,7 @@ import { ShareInvitationsCard } from './ShareInvitations'
 import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
-import { accessLevelLabel } from '../plainLabels'
+import { accessLevelLabel, fileSizeLabel, fileTypeLabel, visitClassLabel, visitStatusLabel } from '../plainLabels'
 
 function date(value: string | null | undefined) {
   if (!value) return 'Not available'
@@ -76,22 +76,9 @@ function forHowLong(minutes: number | null | undefined) {
   return unit(minutes, 'minute')
 }
 
-/** A size EHR sends as a number or, for a bigint column, as text: in KB or MB, as people read it. */
+/** A size EHR sends as a number or, for a bigint column, as text: in KB or MB, as people read it; nothing when unknown. */
 function bytes(value: number | string | null) {
-  const count = value == null || value === '' ? NaN : Number(value)
-  if (!Number.isFinite(count) || count < 0) return ''
-  return count < 1024 * 1024 ? `${Math.max(1, Math.round(count / 1024))} KB` : `${(count / 1024 / 1024).toFixed(1)} MB`
-}
-
-/** A file's type in words: "application/pdf" is "PDF", "image/jpeg" is "Photo". */
-function fileKind(mediaType: string | null | undefined) {
-  const type = (mediaType ?? '').toLowerCase()
-  if (type === 'application/pdf') return 'PDF'
-  if (type.startsWith('image/')) return 'Photo'
-  if (/word|officedocument\.wordprocessing/.test(type)) return 'Word document'
-  if (/sheet|excel|csv/.test(type)) return 'Spreadsheet'
-  if (type.startsWith('text/')) return 'Text'
-  return 'File'
+  return fileSizeLabel(value, '')
 }
 
 /** Every measurement in a vitals entry, so one holding only blood pressure is not shown as a bare date. */
@@ -446,7 +433,7 @@ export function RecordsPage() {
   const [opened, setOpened] = useState<OpenRecord | null>(null)
   const row = (record: OpenRecord, key: string) => <RecordRow key={key} record={record} onOpen={setOpened} />
   const rows: { readonly [S in RecordSection]: (item: Row<S>) => ReactNode } = {
-    encounters: item => row({ section: 'encounters', title: plainCode(item.encounterType), meta: plainCode(item.status), when: item.startedAt }, item.id),
+    encounters: item => row({ section: 'encounters', title: visitClassLabel(item.encounterType), meta: visitStatusLabel(item.status), when: item.startedAt }, item.id),
     notes: item => row({ section: 'notes', title: item.title || plainCode(item.noteType), meta: plainCode(item.status), detail: item.content, when: item.signedAt, multiline: true }, item.id),
     vitals: item => row({ section: 'vitals', title: vitalsSummary(item) || 'Vitals', when: item.recordedAt }, item.id),
     // Plain: the name and its date. The code is for clinicians, so it is kept to the record's own view.
@@ -455,7 +442,7 @@ export function RecordsPage() {
     prescriptions: item => row({ section: 'prescriptions', title: item.medicationDisplay,
       meta: [item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}`.trim() : '', item.frequency, item.status].filter(Boolean).join(' · '), detail: item.instructions, when: item.startsOn }, item.id),
     labRequests: item => row({ section: 'labRequests', title: item.testDisplay, meta: `${plainCode(item.priority)} · ${item.status}`, detail: item.clinicalInformation, when: item.createdAt }, item.id),
-    documents: item => row({ section: 'documents', title: item.fileName, meta: [fileKind(item.mediaType), bytes(item.sizeBytes)].filter(Boolean).join(' · '), when: item.createdAt }, item.id),
+    documents: item => row({ section: 'documents', title: item.fileName, meta: [fileTypeLabel(item.mediaType), bytes(item.sizeBytes)].filter(Boolean).join(' · '), when: item.createdAt }, item.id),
   }
   const NONE: { readonly [S in RecordSection]: string } = {
     encounters: 'No completed visits yet.', notes: 'No signed clinical notes yet.', vitals: 'No vitals recorded yet.', diagnoses: 'No diagnoses recorded.',
