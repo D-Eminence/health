@@ -121,7 +121,7 @@ export function RequestDetail() {
   // alert, in place of any list error (AccessRequests.tsx:94-95,118).
   const refusedClose = failure ? <Alert intent="error" title="Couldn’t close access">{failure}</Alert> : null
 
-  // A request just sent is confirmed ("Request … is pending.") even while the list is read, cannot be read, or lacks it. The
+  // A request just sent is confirmed ("Request sent.") even while the list is read, cannot be read, or lacks it. The
   // page and its heading stay the same element while the request loads, so the focus the frame gave the heading stays.
   if (!request) {
     if (!list.error && list.requests !== null) return <><RecordNotFound backHref={href()} />{refusedClose}{statusRegion}</>

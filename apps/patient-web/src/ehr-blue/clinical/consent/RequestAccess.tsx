@@ -101,12 +101,11 @@ export function RequestAccess() {
     setBusy(true)
     try {
       const request = await staffApi.requestAccess(facility.id, normalizeHealthIdInput(hid), scope, reason.trim(), Number(duration.trim()))
-      // Today's confirmation (Patients.tsx:178): the request's id and status, never the patient.
       navigate(href(request.accessRequestId), {
-        state: { notice: `Request ${request.accessRequestId} is ${request.status}. The patient must approve before records are available.` },
+        state: { notice: 'Request sent. The patient must approve before records are available.' },
       })
     } catch (caught) {
-      setFormError(failureText(caught, 'The access command failed.'))
+      setFormError(failureText(caught, 'The request couldn’t be sent. Please try again.'))
     } finally {
       sending.current = false
       setBusy(false)

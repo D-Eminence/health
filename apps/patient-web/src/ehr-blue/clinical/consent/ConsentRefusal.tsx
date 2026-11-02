@@ -4,15 +4,16 @@ import { FormPage } from '../../../kasuwa/parts'
 import { Alert, PageHeader } from '../../../kasuwa/ui'
 import { accessRequestsError } from '../../../staff/routes/AccessRequests'
 import { Workspace, useClinical, useWorkspaceHref } from '../parts/Workspace'
-import { METHOD_ROUTES, actionUnavailable, administratorOf } from './access'
+import { administratorOf, whoToAsk } from './access'
 import { TITLE } from './ConsentWorkspace'
 import { REQUEST_TITLE } from './RequestAccess'
 
 /**
  * Access requests opened without identity.consent.write, from a link or a typed address (the sidebar does not offer
- * it). Today's portal has no gate there: its list read is refused, and it says why (AccessRequests.tsx:33-43,118); its
- * Request method names the permission the role lacks (Patients.tsx:122,244). This stands in for the page, so nothing is
- * read, and it says the same. The patient PIN needs no identity.consent.write: its address here opens it at Patients.
+ * it). Today's portal has no gate there: its list read is refused, and it says why (AccessRequests.tsx:33-43,118). This
+ * stands in for the page, so nothing is read: the list says today's refusal, and a new request says in plain words that
+ * the role can't ask patients for access, never the permission's name. The patient PIN needs no identity.consent.write:
+ * its address here opens it at Patients.
  */
 export function ConsentRefusal() {
   return (
@@ -40,12 +41,19 @@ function ListRefused() {
   )
 }
 
+/** A new request refused for the role: why, without the permission's name, and who to ask. */
+const REQUEST_REFUSED = 'Your role at this facility can’t ask patients for access.'
+
 function RequestRefused() {
   const { facility, permissions } = useClinical()
-  const unavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administratorOf(facility, permissions))
+  // A self-signed-up facility's own administrator is never told to ask the facility administrator: today's words say
+  // who gives their role clinical access (access.ts whoToAsk).
+  const administrator = administratorOf(facility, permissions)
   return (
     <FormPage title={REQUEST_TITLE}>
-      <Alert intent="warning" live={false}>{unavailable ?? listRefused()}</Alert>
+      <Alert intent="warning" live={false}>
+        {`${REQUEST_REFUSED} ${administrator ? whoToAsk(administrator) : 'Ask your facility administrator.'}`}
+      </Alert>
     </FormPage>
   )
 }

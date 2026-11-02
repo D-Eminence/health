@@ -33,7 +33,7 @@ vi.mock('../../../staff/App', async () => {
 })
 vi.mock('../../../staff/session', () => session)
 
-const SENT = 'Request r0000000-0000-4000-8000-000000000001 is pending. The patient must approve before records are available.'
+const SENT = 'Request sent. The patient must approve before records are available.'
 const ALL = ['identity.patient.read', 'identity.consent.write', 'identity.patient-access-pin.verify', 'identity.break-glass.write', 'ehr.encounter.read', 'ehr.note.read']
 
 function request(overrides: Record<string, unknown> = {}) {
@@ -376,6 +376,15 @@ describe('Ask the patient for access (once New external record access)', () => {
     fireEvent.click(screen.getByRole('button', { name: SEND }))
     expect(shownText(await screen.findByRole('alert'))).toContain('Patient was not found or is not available')
     expect((screen.getByLabelText(REASON) as HTMLTextAreaElement).value).toBe('Follow-up consultation')
+  })
+
+  it('says plainly that the request couldn’t be sent when the failure has no words of its own', async () => {
+    api.requestAccess.mockRejectedValue(new Error(''))
+    open('/new')
+    fireEvent.change(screen.getByLabelText(labelled('Health ID')), { target: { value: PATIENT_HID } })
+    fireEvent.change(screen.getByLabelText(REASON), { target: { value: 'Follow-up consultation' } })
+    fireEvent.click(screen.getByRole('button', { name: SEND }))
+    expect(shownText(await screen.findByRole('alert'))).toContain('The request couldn’t be sent. Please try again.')
   })
 
   it('names the permission a role lacks and offers no submit', () => {

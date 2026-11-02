@@ -40,7 +40,7 @@ export const OPEN_SHARED: Action = { routes: [{ route: 'identity.patientLookup',
 
 export type Administrator = 'pending' | 'reviewed' | null
 
-function whoToAsk(administrator: Administrator): string {
+export function whoToAsk(administrator: Administrator): string {
   if (administrator === 'pending') return 'You are this facility’s administrator. Health ID support gives your own role '
     + 'clinical access when it checks your facility: add your licence on the Staff page.'
   if (administrator === 'reviewed') return 'You are this facility’s administrator. Health ID support gives your own role '
