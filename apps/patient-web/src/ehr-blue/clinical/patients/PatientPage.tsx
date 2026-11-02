@@ -19,6 +19,8 @@ import { CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administra
 import type { ActivePatient } from '../../../staff/App'
 
 export const CLOSED_NOTICE = 'closed'
+/** After the chart's READ_ONLY, on the patient page only: how to get changes. */
+export const READ_ONLY_HOW = 'To make changes, ask the patient to let you see and add to their records.'
 
 function sexText(value: string | undefined) {
   if (!value) return ''
@@ -219,8 +221,10 @@ function PatientRecord({ chart }: { chart: Chart }) {
           </dl> : null}
           {grantId ? <div className="border-t border-line px-4 py-2.5">
             {closeUnavailable ? <p id="close-grant-unavailable" className="m-0 mb-1.5 text-[12px] text-ink-3">{closeUnavailable}</p> : null}
+            {/* Busy, it stays focusable (aria-disabled, not disabled), as today's Close my grant and the emergency summary's
+                End emergency access: a refused close leaves focus on it, and a second press sends nothing. */}
             <Button variant="danger" size="sm" icon={LogOut} disabled={closeUnavailable !== null} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}
-              loading={ending} onClick={() => void closeGrant()}>End my access</Button>
+              aria-disabled={ending || undefined} onClick={() => void closeGrant()}>End my access</Button>
           </div> : null}
         </Card>
       </div>
@@ -232,8 +236,7 @@ function PatientRecord({ chart }: { chart: Chart }) {
         {/* Read only, said once. */}
         {emergency ? <Alert intent="warning" title="View only">{`Emergency access shows the emergency summary only. Nothing can be added or changed for ${facts.name}.`}</Alert>
           : chart.writeNotice ? <Alert intent="info" title="View only">{chart.writeNotice === READ_ONLY
-            ? 'You can see this record but not add to it. To make changes, ask the patient to let you see and add to their records.'
-            : chart.writeNotice}</Alert> : null}
+            ? `${READ_ONLY} ${READ_ONLY_HOW}` : chart.writeNotice}</Alert> : null}
         {error ? <Alert intent="error" title="Couldn’t end access">{error}</Alert> : null}
 
         {!emergency ? <Card>
