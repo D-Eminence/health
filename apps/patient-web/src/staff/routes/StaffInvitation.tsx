@@ -11,6 +11,7 @@ import {
   staffInvitationHref,
 } from '../../productHostname'
 import { getEnvironment } from '../env'
+import { staffSignInAddress } from '../../staffSignIn'
 import { staffInvitationApi, type StaffInvitationOpened, type StaffInvitationProof } from '../api'
 import { invitationLinkOf, type InvitationLink } from '../invitationCapture'
 import { licenceBodyForRole, roleInSentence } from '../staffAccess'
@@ -156,8 +157,10 @@ function InvitationSteps() {
   }
 
   const title = accepted ? 'You’ve joined.' : 'Join your facility.'
-  return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
-    headerLink={{ to: STAFF_SIGN_IN_PATH, label: 'Sign in' }} title={title} titleId="staff-invitation-title"
+  // Staff sign in on the EHR site from the production portal (staffSignIn.tsx), and on this site elsewhere.
+  const signIn = staffSignInAddress()
+  return <AuthLayout brandTo={signIn} brandLabel="Health ID provider sign in"
+    headerLink={{ to: signIn, label: 'Sign in' }} title={title} titleId="staff-invitation-title"
     lede="Open the invitation your facility sent you, then set up your Health ID staff account.">
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
 

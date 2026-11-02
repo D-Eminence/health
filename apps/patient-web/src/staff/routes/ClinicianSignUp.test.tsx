@@ -211,6 +211,19 @@ describe('clinician sign-up availability', () => {
     expect(screen.getByText(/Use your own email address, not your facility's admin account\./)).toBeTruthy()
   })
 
+  it.each([
+    ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+    ['staging.healthidentitydirectory.com', '/provider/sign-in'],
+  ])('on %s, every way to the staff sign-in leads to %s', async (hostname, href) => {
+    vi.stubGlobal('location', { ...window.location, hostname })
+    open()
+    await screen.findByRole('heading', { level: 1, name: 'Apply as a doctor or nurse' })
+    // The top bar's logo and Sign in, and the page's own "Sign in to the provider portal".
+    expect(screen.getByRole('link', { name: 'Health ID provider sign in' }).getAttribute('href')).toBe(href)
+    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe(href)
+    expect(screen.getByRole('link', { name: 'Sign in to the provider portal' }).getAttribute('href')).toBe(href)
+  })
+
   it('links to the main site on a staff product host, with no form and no request', async () => {
     vi.stubGlobal('location', { ...window.location, hostname: 'ehr.healthidentitydirectory.com' })
     open()

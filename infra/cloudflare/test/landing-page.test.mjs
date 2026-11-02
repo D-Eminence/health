@@ -56,7 +56,9 @@ const PATIENTS_PAGE = '<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8
   + '<a href="/products/laboratory">Laboratory</a><a href="/providers">For providers</a>'
   // The module showcase's Identity card (content/module-showcase.ts), whose call to action is sign-up.
   + '<a class="module-showcase-cta" href="https://app.healthidentitydirectory.com/enroll">Get your Health ID</a></main>'
-  + '<footer><a href="/privacy">Privacy</a><a href="mailto:support@healthidentitydirectory.com">Email us</a></footer>'
+  + '<footer><a href="/privacy">Privacy</a><a href="mailto:support@healthidentitydirectory.com">Email us</a>'
+  // The public site's staff sign-in (content/site.ts APP_ENTRY.staffSignIn), at the portal it was built with.
+  + '<a href="https://app.healthidentitydirectory.com/provider/sign-in">Provider sign in</a></footer>'
   + '</body></html>'
 
 /** The patient portal's own index.html, which a signed-in patient gets at "/". */
@@ -252,6 +254,8 @@ test('the patient portal shows a stranger the Health ID page from the public sit
     ['Get your Health ID', 'https://app.healthidentitydirectory.com/enroll'],
     ['Privacy', 'https://healthidentitydirectory.com/privacy'],
     ['Email us', 'mailto:support@healthidentitydirectory.com'],
+    // The portal serves patients only: staff sign in on the EHR site, straight from this page.
+    ['Provider sign in', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
   ])
   // The two the edge made links within the page say so, for the page's script; the page's own (#main) do not.
   assert.deepEqual([...page.matchAll(/<a[^>]*\bdata-hid-in-page\b[^>]*>([^<]*)</g)].map(match => match[1]),
@@ -297,6 +301,22 @@ test('the patient portal is a signed-in patient\'s front page, as before', async
     assert.equal(await (await portal.fetch(`https://app.healthidentitydirectory.com${path}`)).text(), PORTAL_INDEX, path)
   }
   assert.match(await (await portal.fetch('https://app.healthidentitydirectory.com/sw.js')).text(), /push/)
+})
+
+test('the patient portal sends its staff entrance and sign-in to the EHR site\'s sign-in, signed in or not', async () => {
+  for (const path of ['/provider', '/provider/sign-in', '/provider/sign-in?returnTo=https://evil.example']) {
+    for (const headers of [{}, { cookie: 'hid_access_csrf=4f9c2b' }]) {
+      const response = await portal.fetch(`https://app.healthidentitydirectory.com${path}`, { headers, redirect: 'manual' })
+      assert.equal(response.status, 302, path)
+      assert.equal(response.headers.get('location'), 'https://ehr.healthidentitydirectory.com/provider/sign-in', path)
+      await response.arrayBuffer()
+    }
+  }
+  // Staff recovery, facility sign-up, invitations and the clinician pages stay the portal's own until hid-system
+  // accepts their security checks on the product sites.
+  for (const path of ['/provider/recover', '/provider/enroll', '/provider/invitation', '/provider/join', '/provider/join/status']) {
+    assert.equal(await (await portal.fetch(`https://app.healthidentitydirectory.com${path}`)).text(), PORTAL_INDEX, path)
+  }
 })
 
 test('the patient portal serves the public site\'s static files the Health ID page loads', async () => {

@@ -262,6 +262,47 @@ test('the production portal sends staff sign-in to the EHR site, and staging kee
   assert.notEqual(staging.status, 302)
 })
 
+test('the production portal serves patients only: its staff entrance and sign-in are the EHR site\'s sign-in', async () => {
+  const portal = environment({ APP_NAME: 'web', PUBLIC_SITE: UNUSED_BINDING })
+  for (const path of ['/provider', '/provider/', '/provider/sign-in', '/provider/sign-in/', '/provider?returnTo=https://evil.example',
+    '/provider/sign-in?returnTo=/provider/laboratory#top']) {
+    for (const cookie of [null, 'hid_access_csrf=4f9c2b']) {
+      for (const method of ['GET', 'HEAD']) {
+        const label = `${method} ${path} ${cookie}`
+        const response = await worker.fetch(new Request(`https://app.healthidentitydirectory.com${path}`,
+          { method, headers: withCookie(cookie) }), portal)
+        assert.equal(response.status, 302, label)
+        // One fixed address: nothing of the request (its query, its fragment) is carried over.
+        assert.equal(response.headers.get('location'), 'https://ehr.healthidentitydirectory.com/provider/sign-in', label)
+        assert.equal(response.headers.get('x-frame-options'), 'DENY', label)
+        assert.equal(response.headers.get('cache-control'), null, label)
+      }
+    }
+  }
+  // Until hid-system accepts their security checks elsewhere, the portal keeps its staff recovery, facility sign-up,
+  // staff invitation and clinician pages, and every other /provider address is still its own app's.
+  for (const path of ['/provider/recover', '/provider/recover?returnTo=ehr', '/provider/enroll', '/provider/enroll?product=ehr',
+    '/provider/invitation', '/provider/join', '/provider/join/status', '/provider/staff/join', '/provider/clinical',
+    '/provider/sign-in/extra', '/providers', '/provider-sign-in']) {
+    const response = await worker.fetch(new Request(`https://app.healthidentitydirectory.com${path}`), portal)
+    assert.equal(response.status, 200, path)
+    assert.equal(await response.text(), `<p>${new URL(path, 'https://x.invalid').pathname}</p>`, path)
+  }
+  // A write is never redirected.
+  const post = await worker.fetch(new Request('https://app.healthidentitydirectory.com/provider/sign-in', { method: 'POST' }), portal)
+  assert.equal(post.status, 200)
+  // Staging's portal, and every product site, keep their own staff entrance and sign-in.
+  for (const [deployment, app] of [['staging', 'web'], ['production', 'ehr'], ['production', 'lab'], ['staging', 'ehr']]) {
+    const host = deploymentProfiles[deployment].hosts[app]
+    for (const path of ['/provider', '/provider/sign-in']) {
+      const response = await worker.fetch(new Request(`https://${host}${path}`),
+        environment({ DEPLOYMENT_ENV: deployment, APP_NAME: app, PUBLIC_SITE: UNUSED_BINDING }))
+      assert.equal(response.status, 200, `${deployment} ${app} ${path}`)
+      assert.equal(await response.text(), `<p>${path}</p>`)
+    }
+  }
+})
+
 test('patient popup policy allows Google messaging without relaxing other portals', async () => {
   const patient = await worker.fetch(new Request('https://staging.healthidentitydirectory.com/sign-in'), environment({ DEPLOYMENT_ENV: 'staging', APP_NAME: 'web' }))
   assert.equal(patient.headers.get('cross-origin-opener-policy'), 'same-origin-allow-popups')
@@ -965,7 +1006,7 @@ test('rewrites each link of the Health ID page for the patient portal that shows
     ['https://app.healthidentitydirectory.com/', 'https://app.healthidentitydirectory.com/sign-in'],
     ['https://app.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/sign-in'],
     ['https://app.healthidentitydirectory.com/?from=nav#top', 'https://app.healthidentitydirectory.com/sign-in'],
-    // Staff sign-in on the portal is left as it is (the portal sends it to the EHR site's).
+    // Staff sign-in on the portal is left as it is where the portal keeps its own (staging); see the next test.
     ['https://app.healthidentitydirectory.com/provider/sign-in', 'https://app.healthidentitydirectory.com/provider/sign-in'],
     // Its own sections stay on this page, which scrolls there (on the public site, they are /patients#...).
     ['/patients#steps', '#steps'],
@@ -984,6 +1025,22 @@ test('rewrites each link of the Health ID page for the patient portal that shows
     ['/provider/apply?product=ehr', 'https://app.healthidentitydirectory.com/provider/enroll?product=ehr'],
     ['#main', '#main'],
     ['mailto:support@healthidentitydirectory.com', 'mailto:support@healthidentitydirectory.com'],
+  ])
+})
+
+test('on the production portal, the Health ID page\'s staff sign-in opens the EHR site\'s sign-in, never the portal', () => {
+  const site = { ...LAB_LANDING_SITE, page: 'https://healthidentitydirectory.com/patients',
+    staffSignIn: 'https://ehr.healthidentitydirectory.com/provider/sign-in', patientSignIn: 'https://app.healthidentitydirectory.com/sign-in' }
+  assertLandingLinks(site, [
+    ['https://app.healthidentitydirectory.com/provider/sign-in', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+    ['https://app.healthidentitydirectory.com/provider/sign-in?returnTo=https://evil.example', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+    ['https://ehr.healthidentitydirectory.com/provider/sign-in', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+    // Patients still sign in and sign up on the portal; facility sign-up and staff recovery stay there for now.
+    ['https://app.healthidentitydirectory.com/sign-in', 'https://app.healthidentitydirectory.com/sign-in'],
+    ['https://app.healthidentitydirectory.com/', 'https://app.healthidentitydirectory.com/sign-in'],
+    ['https://app.healthidentitydirectory.com/enroll', 'https://app.healthidentitydirectory.com/enroll'],
+    ['/provider/apply?product=ehr', 'https://app.healthidentitydirectory.com/provider/enroll?product=ehr'],
+    ['https://app.healthidentitydirectory.com/provider/recover', 'https://app.healthidentitydirectory.com/provider/recover'],
   ])
 })
 

@@ -90,26 +90,33 @@ it.each([
   expect(screen.getByText(/You reset it on the main Health ID site\./)).toBeTruthy()
 })
 
-it('on the production portal sends staff to the EHR site to sign in, with no form hid-system would refuse', () => {
-  serveFrom('app.healthidentitydirectory.com')
+it('on the production portal opens the EHR site’s sign-in at once, with no step of its own and no form hid-system would refuse', () => {
+  const replace = vi.fn()
+  vi.stubGlobal('location', { ...window.location, hostname: 'app.healthidentitydirectory.com', replace })
   vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
 
-  render(<MemoryRouter><SignIn /></MemoryRouter>)
+  render(<MemoryRouter initialEntries={['/provider/sign-in?returnTo=https://evil.example']}><SignIn /></MemoryRouter>)
 
-  expect(screen.getByRole('heading', { level: 1, name: 'Staff sign in is on the provider site.' })).toBeTruthy()
-  expect(screen.getByRole('link', { name: 'Go to staff sign in' }).getAttribute('href'))
+  expect(replace).toHaveBeenCalledTimes(1)
+  expect(replace).toHaveBeenCalledWith('https://ehr.healthidentitydirectory.com/provider/sign-in')
+  expect(screen.getByRole('status').textContent).toBe('Opening the EHR sign-in…')
+  expect(screen.getByRole('link', { name: 'Go to the EHR sign-in' }).getAttribute('href'))
     .toBe('https://ehr.healthidentitydirectory.com/provider/sign-in')
+  expect(screen.queryByRole('heading')).toBeNull()
+  expect(screen.queryByText(/continue/i)).toBeNull()
   expect(screen.queryByLabelText('Work email')).toBeNull()
   expect((window as unknown as { turnstile: { render: ReturnType<typeof vi.fn> } }).turnstile.render).not.toHaveBeenCalled()
 })
 
-it.each(['staging.healthidentitydirectory.com', 'ehr.healthidentitydirectory.com'])(
-  'on %s keeps its own staff sign-in form', hostname => {
-    serveFrom(hostname)
+it.each(['staging.healthidentitydirectory.com', 'ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com'])(
+  'on %s keeps its own staff sign-in form, and opens nothing else', hostname => {
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname, replace })
     vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
     render(<MemoryRouter><SignIn /></MemoryRouter>)
     expect(screen.getByLabelText(/Work email/)).toBeTruthy()
-    expect(screen.queryByRole('link', { name: 'Continue to provider sign in' })).toBeNull()
+    expect(screen.queryByText('Opening the EHR sign-in…')).toBeNull()
+    expect(replace).not.toHaveBeenCalled()
   })
 
 /**
