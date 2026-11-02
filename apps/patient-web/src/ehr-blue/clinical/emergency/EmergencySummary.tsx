@@ -184,8 +184,7 @@ function Sections({ summary, facilityId, may }: { summary: EmergencyRecords; fac
         <SummarySection title="Lab requests" {...sectionProps('labRequests')}
           items={Array.isArray(summary.labRequests) ? currentFirst(summary.labRequests, item => orderRank(item.status)) : undefined}
           empty="No lab requests are available from this facility." render={item => <>
-            {/* The status badge alone: the priority is said once, in the line below, as today (Clinical.tsx:1155-1158). */}
-            <Head>{item.testDisplay}<OrderStatus status={item.status} /></Head>
+            <Head>{item.testDisplay}<OrderStatus status={item.status} />{item.priority && item.priority !== 'routine' ? <Badge size="sm" tone="danger">{words(item.priority)}</Badge> : null}</Head>
             {item.status === 'entered_in_error' ? <span className="font-medium text-danger-ink">Recorded in error: not a request for this patient.</span> : null}
             {/* The test's code with its code system, and its priority, routine too (Clinical.tsx:1158). */}
             <span>{item.testCodeSystem} {item.testCode} · {item.priority} priority · Requested {formatWhen(item.createdAt)}</span>
