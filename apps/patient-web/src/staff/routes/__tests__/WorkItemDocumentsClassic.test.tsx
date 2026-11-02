@@ -10,6 +10,7 @@ import { forgetWrongPatientServed } from '../../../wrongPatientServed'
 import { forgetReceiving } from '../../orderRoutes'
 import { setStaffSessionReady } from '../../session'
 import { Laboratory, Pharmacy } from '../Operations'
+import { SAID_REFUSED } from '../../../__tests__/said'
 
 /**
  * The work item documents on the classic Laboratory and Pharmacy pages ("Use the classic EHR"): "Result documents" on a
@@ -663,14 +664,15 @@ describe('switch on: Prescription sheets on a Pharmacy work item', () => {
     for (const request of gateway()) expect(`${request.url.href} ${String(request.body ?? '')}`).not.toMatch(/encounterId|labWorkItemId/)
   })
 
-  it('keeps the backend’s own words for a prescription sheet it refuses: the lab-result words are not about it', async () => {
+  it('says a refused prescription sheet in plain words, never the backend’s: the lab-result words are not about it', async () => {
     network.refuse = { status: 403, body: { code: 'DOCUMENT_TYPE_NOT_ALLOWED_HERE', message: 'Prescription sheets are not accepted here' } }
     renderPage('pharmacy')
     const shown = await openSheets()
     await within(shown).findByText('prescription-sheet.png')
     choose(shown, /^Prescription sheet file/, png())
     send(shown, 'Attach prescription sheet')
-    expect((await within(shown).findByRole('alert')).textContent).toBe('Prescription sheets are not accepted here')
+    expect((await within(shown).findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    expect(document.body.textContent).not.toMatch(/Prescription sheets are not accepted here|Lab results can be uploaded/)
     expect(within(shown).queryByText(SHEET_ATTACHED)).toBeNull()
   })
 

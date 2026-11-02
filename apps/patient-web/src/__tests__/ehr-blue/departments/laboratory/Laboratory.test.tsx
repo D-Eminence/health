@@ -601,7 +601,8 @@ describe('registering the sample (the accession), with lab.accession.create alon
     press(register)
     expect(api.createLabAccession).toHaveBeenCalledTimes(1)
     await act(async () => { pending.reject(problem(503, 'SERVICE_UNAVAILABLE', 'Upstream lab-service timed out')) })
-    await waitFor(() => expect(alertsIn(card)).toEqual(['Error: The sample could not be registered. Refresh the list and try again.']))
+    // The words every page shares for Health ID being unavailable (plainErrorText), never the service's.
+    await waitFor(() => expect(alertsIn(card)).toEqual([`Error: ${SAID_UNAVAILABLE}`]))
     expect(card.textContent).not.toMatch(/Upstream|SERVICE_/)
     expect(register.getAttribute('aria-disabled')).toBeNull()
     expect(document.activeElement).toBe(register)
@@ -832,7 +833,8 @@ describe('sample custody', () => {
     press(receive)
     expect(api.transitionSpecimen).toHaveBeenCalledTimes(1)
     await act(async () => { pending.reject(problem(503, 'SERVICE_UNAVAILABLE', 'Upstream lab-service timed out')) })
-    await waitFor(() => expect(alertsIn(stageCard())).toEqual(['Error: The sample could not be updated. Refresh and try again.']))
+    await waitFor(() => expect(alertsIn(stageCard())).toEqual([`Error: ${SAID_UNAVAILABLE}`]))
+    expect(stageCard().textContent).not.toMatch(/Upstream|SERVICE_/)
     expect(document.activeElement).toBe(receive)
   })
 

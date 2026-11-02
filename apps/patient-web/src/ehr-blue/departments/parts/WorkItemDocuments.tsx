@@ -228,7 +228,7 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, canRea
       if (canRead && shown.current) await read()
     } catch (caught) {
       // The backend's refusal of a lab result on this host (403 DOCUMENT_TYPE_NOT_ALLOWED_HERE) in the core's words; those
-      // words are about lab results, so any other type's refusal keeps the backend's own.
+      // words are about lab results, so any other type's refusal is said in plain words (errorText), never the backend's.
       const typeRefused = said.type === 'lab_result' ? documentTypeRefusalText(caught) : null
       setAttachError(typeRefused ?? errorText(caught, ATTACH_FAILED))
       focus(submitId, true)
