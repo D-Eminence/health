@@ -108,6 +108,11 @@ describe('a return path on a staff site', () => {
     'refuses %s on the Laboratory: a page of the hospital EHR’s would only open the Laboratory’s Home (#113)', path => {
       expect(isSafeReturnPath(path, LAB)).toBe(false)
     })
+
+  it('takes Migrate’s migration workspace on the Migrate site, which opens it though no menu offers it', () => {
+    expect(isSafeReturnPath('/provider/migrate', 'migrate.healthidentitydirectory.com')).toBe(true)
+    expect(isSafeReturnPath('/provider/migrate', LAB)).toBe(false)
+  })
 })
 
 describe('a return path on app.', () => {

@@ -38,6 +38,7 @@ afterEach(() => { backToTestSite(); vi.unstubAllGlobals(); vi.restoreAllMocks();
 const APP = 'app.healthidentitydirectory.com'
 const EHR = 'ehr.healthidentitydirectory.com'
 const LAB = 'lab.healthidentitydirectory.com'
+const MIGRATE = 'migrate.healthidentitydirectory.com'
 const ENCOUNTER = '3f1c2b7a-9d4e-4c1b-8a2f-6e5d4c3b2a10'
 const START = '/api/v1/auth/sso/start'
 
@@ -118,6 +119,12 @@ describe('with single sign-on on, on a staff site', () => {
   ])('comes back to the product’s own page in place of %s', async (_label, host, returnTo, home) => {
     await openSignedOut(host, `/provider/sign-in?returnTo=${encodeURIComponent(returnTo)}`)
     await expectHandedOff(`${START}?return_to=${home}`)
+  })
+
+  it('comes back to Migrate’s migration workspace on the Migrate site, which opens it though no menu offers it', async () => {
+    await openSignedOut(MIGRATE, '/provider/migrate')
+    await expectHandedOff(`${START}?return_to=%2Fprovider%2Fmigrate`)
+    expect(address()).toBe('/provider/sign-in?returnTo=%2Fprovider%2Fmigrate')
   })
 
   it('comes back to the product’s own page when the address names two pages', async () => {

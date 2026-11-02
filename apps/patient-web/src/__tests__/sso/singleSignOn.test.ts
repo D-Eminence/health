@@ -113,7 +113,7 @@ describe('the page a staff sign-in would come back to', () => {
     expect((await load()).singleSignOnReturnPath(RECORD)).toBeNull()
   })
 
-  it('is none on another site’s page, and always none while single sign-on is off', async () => {
+  it('is none on the Laboratory for a page of the hospital EHR’s, which opens the Laboratory’s Home there (#113), and always none while single sign-on is off', async () => {
     environment.current = { ssoEnabled: true }
     onSite('lab.healthidentitydirectory.com')
     expect((await load()).singleSignOnReturnPath(RECORD)).toBeNull()

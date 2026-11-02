@@ -1,6 +1,6 @@
 import { patientChatEnabled } from '../chatFeatures'
 import { clinicalReturnPath } from '../ehr-blue/clinical/returnPaths'
-import { offeredHere, siteOf } from '../productSites'
+import { offeredHere, servedHere, siteOf } from '../productSites'
 import { staffReturnPath } from '../staff/session'
 
 /**
@@ -76,11 +76,18 @@ function isPortalReturnPath(path: string): boolean {
 }
 
 /**
+ * Migrate's migration workspace (productSites.ts ownProductOf): today's page the migration notice links to. No menu offers
+ * it, but migrate. opens it itself, in both workspaces (staff/App.tsx MigrateGap, ehr-blue/routes.tsx LIVE_ONLY_TITLES).
+ */
+const MIGRATION_WORKSPACE = '/provider/migrate'
+
+/**
  * Whether `path` is a page a sign-in on `hostname` may come back to. Only a Health ID product site has any (productSites.ts
  * siteOf); local, preview and admin hosts never hand off. Then:
  * - the shared shape (hasSafeReturnShape);
  * - this host opens the page itself (productSites.ts offeredHere): a page of another product opens on its own site, and
- *   on a product's site a page of the hospital EHR's would only open the product's Home (#113), so neither comes back;
+ *   on a product's site a page of the hospital EHR's would only open the product's Home (#113), so neither comes back.
+ *   Migrate's migration workspace comes back where it is served (MIGRATION_WORKSPACE): no menu offers it, but it opens;
  * - this site's own exact list. On app. the portal's pages (PORTAL_RETURN_PATHS). On a staff site the provider workspace
  *   pages of staff/session.ts (staffReturnPath, read there and never copied) and the clinical record pages
  *   (ehr-blue/clinical/returnPaths.ts clinicalReturnPath), whose only query is an access request's status filter.
@@ -90,7 +97,7 @@ export function isSafeReturnPath(path: string, hostname: string): boolean {
   const site = siteOf(hostname)
   if (!site) return false
   const pathname = path.split('?', 1)[0] ?? ''
-  if (!offeredHere(pathname, hostname)) return false
+  if (!offeredHere(pathname, hostname) && !(pathname === MIGRATION_WORKSPACE && servedHere(pathname, hostname))) return false
   if (site.key === 'web') return isPortalReturnPath(path)
   return staffReturnPath(path) !== null || clinicalReturnPath(path) !== null
 }
