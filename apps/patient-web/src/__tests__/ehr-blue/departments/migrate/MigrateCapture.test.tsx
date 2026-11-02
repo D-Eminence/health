@@ -112,13 +112,18 @@ describe('Patient documents: an encounter\'s documents', () => {
     expect(api.documents).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, PATIENT, ENCOUNTER)
     expect(within(card()).getByText('Patient One · HID-ZDEMAAA2')).toBeTruthy()
     expect((within(card()).getByLabelText('Encounter') as HTMLSelectElement).value).toBe(ENCOUNTER)
+    // The visit in plain words: its kind and where it is, never the raw class or status (owner, 2 November).
+    expect([...(within(card()).getByLabelText('Encounter') as HTMLSelectElement).options].map(option => option.textContent))
+      .toEqual(expect.arrayContaining([expect.stringMatching(/^Outpatient visit · started .+ · In progress$/)]))
+    expect(card().textContent).not.toMatch(/KiB|application\/|image\/|scan clean|in progress/)
     const cleanRow = screen.getByText('discharge-summary.pdf').closest('tr') as HTMLElement
-    expect(within(cleanRow).getByText('scan clean')).toBeTruthy()
-    expect(within(cleanRow).getByText('application/pdf · 20 KiB')).toBeTruthy()
+    expect(within(cleanRow).getByText('Checked')).toBeTruthy()
+    expect(within(cleanRow).getByText('PDF document · 20 KB')).toBeTruthy()
     expect((within(cleanRow).getByRole('button', { name: 'Open file' }) as HTMLButtonElement).disabled).toBe(false)
     expect(within(cleanRow).getByRole('button', { name: 'Extract with OCR' })).toBeTruthy()
     const pendingRow = screen.getByText('lab-report.png').closest('tr') as HTMLElement
-    expect(within(pendingRow).getByText('scan pending')).toBeTruthy()
+    expect(within(pendingRow).getByText('Being checked for viruses')).toBeTruthy()
+    expect(within(pendingRow).getByText(/^PNG image · /)).toBeTruthy()
     expect((within(pendingRow).getByRole('button', { name: 'Open file' }) as HTMLButtonElement).disabled).toBe(true)
     expect(within(pendingRow).queryByRole('button', { name: 'Extract with OCR' })).toBeNull()
     const initiatedRow = screen.getByText('referral.pdf').closest('tr') as HTMLElement

@@ -3,10 +3,10 @@ import { useRef, useState, type ReactNode } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 import { staffApi, type ClinicalRecord, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
-import { REVISION_CONTENT_FIELD, REVISION_REASON_FIELD } from '../consult/encounters'
+import { REVISION_CONTENT_FIELD, REVISION_REASON_FIELD, encounterTitle } from '../consult/encounters'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
 import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord, VersionsCard, type VersionItem } from '../parts/Detail'
-import { formatWhen, shortId } from '../parts/format'
+import { formatWhen } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import { MoreActions } from '../parts/MoreActions'
 import { ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
@@ -20,7 +20,7 @@ import {
 import {
   AMEND_LABEL, CONTENT_EMPTY, DETAILS_LIMIT, LOADING_REVISIONS, NOTE_STATUS_UPDATED, NOTE_TRANSITIONS, NO_CONTENT, RECORDING, RECORD_REVISION,
   REFRESH_REVISIONS, RELOAD_NOTE, RELOAD_RECORD, REVISION_FAILED, REVISION_RECORDED, STATUS_FAILED, TITLE, UNITS_LIMIT, composeObservation,
-  isObservation, noteStatus, observationItems, parseObservation, useRevisions, type NoteStatusChange, type Revisions,
+  isObservation, noteStatus, observationItems, observationName, parseObservation, useRevisions, type NoteStatusChange, type Revisions,
 } from './observations'
 
 /** One nursing observation's page, or the chart's own state. */
@@ -212,14 +212,14 @@ function Observation({ chart, encounter, note, reload }: {
   }
 
   const saved: KeyValue[] = [
-    { label: 'Visit', value: shortId(encounter.id) },
+    { label: 'Visit', value: encounterTitle(encounter) },
     { label: 'Category', value: field(note, 'title') },
     ...contentItems(revisions, latest?.content ?? null),
   ]
 
   return (
     <>
-      <RecordHeading title={shortId(note.id)} backHref={href()} />
+      <RecordHeading title={observationName(note)} backHref={href()} />
       {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
       <div className="hid-ehr-clinical-status" role="status">{success}</div>
       <DetailMeta status={noteStatus(note)} saved={field(note, 'updatedAt') || note.createdAt} />

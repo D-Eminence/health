@@ -115,3 +115,28 @@ describe('ProductDashboard', () => {
     }
   })
 })
+
+/**
+ * Owner, 2 November: the EHR product page's illustration showed app.healthidentitydirectory.com in its address bar.
+ * app. is the patients' site; each product's illustration shows the product's own site.
+ */
+describe('the illustration’s address bar', () => {
+  const hosts: Record<string, string> = {
+    ehr: 'ehr.healthidentitydirectory.com',
+    laboratory: 'lab.healthidentitydirectory.com',
+    pharmacy: 'pharmacy.healthidentitydirectory.com',
+    migrate: 'migrate.healthidentitydirectory.com',
+    outreach: 'outreach.healthidentitydirectory.com',
+  }
+
+  it('shows each product’s own site, never the patients’ app.', () => {
+    for (const product of PRODUCT_DETAILS) {
+      const { container, unmount } = render(<ProductDashboard product={product} />)
+      const address = container.querySelector('.console-address')?.textContent?.trim()
+      expect(address).not.toMatch(/\bapp\.healthidentitydirectory\.com/)
+      if (hosts[product.slug]) expect(address).toBe(hosts[product.slug])
+      else expect(address).toMatch(/healthidentitydirectory\.com$/)
+      unmount()
+    }
+  })
+})

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { assertSignedStorageUrl, isHidApiError } from '@hid/http'
 import { EhrBadge, EhrButton, EhrDataTable, EhrEmptyState, EhrField, EhrInput, EhrSelect, EhrSkeleton } from '@hid/ui/ehr'
+import {
+  DEFAULT_DOCUMENT_TYPE, documentTypeLabel, documentTypeOf, documentTypeRefusalText, documentTypesHere, isDocumentType,
+  learnDocumentTypesFrom, useDocumentTypesServed, type DocumentType,
+} from '../../../documentTypes'
 import { isAllowedPatientLookup, staffApi, type DocumentRecord, type Encounter, type Page } from '../../../staff/api'
 import { useStaff } from '../../../staff/App'
 import { getEnvironment } from '../../../staff/env'
@@ -10,13 +14,20 @@ import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/s
 import { DeptSection } from '../parts/DeptPage'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptLinkButton } from '../parts/DeptRecord'
+import { fileSizeLabel, fileTypeLabel, scanStatusLabel, visitClassLabel, visitStatusLabel } from '../../../plainLabels'
 import { dateText } from '../parts/format'
-import { FormRefusal, statusWords } from './ocrSteps'
+import { FormRefusal } from './ocrSteps'
 
 /*
  * Document capture: a file uploaded into a patient's documents, on the encounter it belongs to, as today's clinical
  * record takes it (staff/routes/Clinical.tsx Documents): the same patient opened through governed access, the same
  * write-access check, the same upload, file rules and download. A clean document can then go to OCR on this page.
+ *
+ * Document types (documentTypes.ts, the owner's rule of 31 Oct): once the EHR's document list says it serves them
+ * (`documentTypes: true`), the upload asks for the document's type among those this host may upload, sends it with the
+ * file, and each listed document says its type. Until then no type is asked, sent or shown. A host that uploads nothing
+ * (outreach, the admin site) offers no upload either way, as the classic card does: the storage's CORS rule leaves those
+ * hosts out, so an upload started there would only leave an intent that is never completed.
  */
 
 // EHR lists encounters newest first, 50 to a page, and hands back an opaque cursor for the next; it gives no total.
@@ -32,13 +43,37 @@ async function readPage<P extends Page<unknown>>(read: (cursor: string | undefin
   }
 }
 
-/** A file size as EHR sends it, a number or text, in KiB (Clinical.tsx fileSize). */
+/** A file size as EHR sends it, a number or text, counted as Clinical.tsx fileSize counts it, in plain units ("56 KB"). */
 function fileSize(value: number | string | null | undefined): string {
-  const count = value == null || value === '' ? NaN : Number(value)
-  return Number.isFinite(count) && count >= 0 ? `${Math.ceil(count / 1024).toLocaleString()} KiB` : 'Size unavailable'
+  return fileSizeLabel(value, 'Size unavailable')
+}
+
+/**
+ * A listed document's file type and size in plain words ("PDF · 56 KB"); once the types are served, its document type
+ * first. A type this page does not know is not named.
+ */
+function documentReference(item: DocumentRecord, served: boolean): string {
+  const today = `${fileTypeLabel(item.mediaType)} · ${fileSize(item.sizeBytes)}`
+  const type = served ? documentTypeOf(item) : null
+  return type ? `${documentTypeLabel(type)} · ${today}` : today
 }
 
 const ACCESS_ENDED = 'Access to this patient has ended. Open the patient again through approved access.'
+
+/** What the file field says under it: today's words until a type is asked; then that the file is kept as chosen. */
+function uploadHint(type: DocumentType | undefined): string {
+  if (!type) return 'Files are scanned for viruses before they can be opened or sent to OCR.'
+  return type === 'lab_result'
+    ? 'Files are stored exactly as uploaded and scanned for viruses before they can be opened. A lab result is read by OCR automatically once its scan is clean.'
+    : 'Files are stored exactly as uploaded and scanned for viruses before they can be opened or sent to OCR.'
+}
+
+/** What an upload says once done: today's words for a clinical document, or for one sent without a type. */
+function uploadedNotice(type: DocumentType | undefined): string {
+  if (type === 'lab_result') return 'Lab result uploaded. It can be opened once its virus scan is clean, and OCR then reads it automatically.'
+  if (type === 'prescription_sheet') return 'Prescription sheet uploaded. It can be opened once its virus scan is clean.'
+  return 'Document uploaded. It can be opened once its virus scan is clean.'
+}
 
 /** "Patient documents": shown to a membership that reads documents, as the clinical record's Documents tab is. */
 export function DocumentCapture({ facilityId, permissions, onExtract }: {
@@ -151,7 +186,7 @@ function PatientDocuments({ facilityId, permissions, onExtract, onAccessEnded }:
     {items.length > 0 && <div className="hid-ehr-dept-migrate-encounter">
       <EhrField label="Encounter" controlId="migrate-encounter">
         <EhrSelect value={selected?.id ?? ''} onChange={event => setChosen(event.target.value)}>
-          {items.map(item => <option key={item.id} value={item.id}>{`${statusWords(item.encounterType)} · started ${dateText(item.startedAt)} · ${statusWords(item.status)}`}</option>)}
+          {items.map(item => <option key={item.id} value={item.id}>{`${visitClassLabel(item.encounterType)} · started ${dateText(item.startedAt)} · ${visitStatusLabel(item.status)}`}</option>)}
         </EhrSelect>
       </EhrField>
       {(cursors.length > 1 || encounters?.next) && <nav className="hid-ehr-dept-toolbar" aria-label="Encounter pages">
@@ -183,9 +218,22 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
   const [notice, setNotice] = useState('')
   const [problem, setProblem] = useState<FieldProblem | null>(null)
   const focus = useFocusById()
+  // Whether the backend serves the document types, learned from the document list's own answer; and the types this
+  // host may upload, the default first (none on a host that uploads nothing). Before served, today's form everywhere.
+  const served = useDocumentTypesServed() === true
+  const offered = documentTypesHere()
+  const uploadsHere = !served || offered.length > 0
+  const [documentType, setDocumentType] = useState<DocumentType>(DEFAULT_DOCUMENT_TYPE)
+  // Once served, the type chosen (the host's one type, were it to offer only one) is sent; before that none, as today.
+  const sentType: DocumentType | undefined = !served ? undefined : offered.includes(documentType) ? documentType : offered[0]
+  const offersChoice = served && offered.length > 1
   const load = useCallback(async () => {
     setLoading(true); setError('')
-    try { setItems((await staffApi.documents(facilityId, patientId, encounterId)).items) }
+    try {
+      const page = await staffApi.documents(facilityId, patientId, encounterId)
+      learnDocumentTypesFrom(page)
+      setItems(page.items)
+    }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Documents could not be loaded.') }
     finally { setLoading(false) }
   }, [facilityId, patientId, encounterId])
@@ -206,10 +254,17 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
     }
     setBusy(true)
     try {
-      await verify(); await staffApi.uploadDocument(facilityId, patientId, encounterId, file); await load(); formElement.reset()
-      setNotice('Document uploaded. It can be opened once its virus scan is clean.')
+      await verify()
+      // The File itself goes up, never re-encoded: stored exactly as chosen.
+      if (sentType) await staffApi.uploadDocument(facilityId, patientId, encounterId, file, sentType)
+      else await staffApi.uploadDocument(facilityId, patientId, encounterId, file)
+      await load(); formElement.reset(); setDocumentType(DEFAULT_DOCUMENT_TYPE)
+      setNotice(uploadedNotice(sentType))
     }
-    catch (caught) { setUploadError(caught instanceof Error ? caught.message : 'The document was not uploaded.'); focus('migrate-document-submit', true) }
+    catch (caught) {
+      setUploadError(documentTypeRefusalText(caught) ?? (caught instanceof Error ? caught.message : 'The document was not uploaded.'))
+      focus('migrate-document-submit', true)
+    }
     finally { setBusy(false) }
   }
   async function download(id: string) {
@@ -234,9 +289,9 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
       columns={[
         { id: 'record', header: 'Record', cell: item => <div className="hid-ehr-dept-record-name">
           <span className="hid-ehr-dept-strong" id={`migrate-document-${item.id}`}>{item.fileName}</span>
-          <span className="hid-ehr-dept-reference">{`${item.mediaType} · ${fileSize(item.sizeBytes)}`}</span></div> },
+          <span className="hid-ehr-dept-reference">{documentReference(item, served)}</span></div> },
         { id: 'status', header: 'Status', cell: item => <>
-          <EhrBadge tone={item.status === 'initiated' ? 'caution' : 'brand'}>{item.status === 'initiated' ? 'not completed' : `scan ${statusWords(item.scanStatus)}`}</EhrBadge>
+          <EhrBadge tone={item.status === 'initiated' ? 'caution' : 'brand'}>{item.status === 'initiated' ? 'not completed' : scanStatusLabel(item.scanStatus) || 'Uploaded'}</EhrBadge>
           {item.status === 'initiated' && <span className="hid-ehr-dept-reference">Upload not completed. Only the person who started it can finish it: upload the file again.</span>}</> },
         { id: 'updated', header: 'Updated', cell: item => dateText(item.createdAt) },
         { id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: item => <div className="hid-ehr-dept-table-actions">
@@ -246,10 +301,16 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
             onClick={() => onExtract(item.id, patientId)}>Extract with OCR</DeptLinkButton>}
         </div> },
       ]} />
-    {canWrite && <form className="hid-ehr-dept-form hid-ehr-dept-migrate-upload" noValidate aria-labelledby="migrate-upload-title" onSubmit={event => void upload(event)}>
+    {canWrite && !uploadsHere && <DeptNotice role="status">Documents can be uploaded only in the EHR, Lab, Pharmacy or Migrate.</DeptNotice>}
+    {canWrite && uploadsHere && <form className="hid-ehr-dept-form hid-ehr-dept-migrate-upload" noValidate aria-labelledby="migrate-upload-title" onSubmit={event => void upload(event)}>
       <h3 id="migrate-upload-title">Upload a document</h3>
-      <EhrField label={<>Clinical document (PDF, JPEG, PNG or TIFF, max 50 MiB)<span aria-hidden="true"> *</span></>} controlId="migrate-document-file"
-        hint="Files are scanned for viruses before they can be opened or sent to OCR." error={problemText(problem, 'migrate-document-file')}>
+      {offersChoice && <EhrField label="Document type" controlId="migrate-document-type">
+        <EhrSelect value={sentType} onChange={event => { if (isDocumentType(event.target.value)) setDocumentType(event.target.value) }}>
+          {offered.map(type => <option key={type} value={type}>{documentTypeLabel(type)}</option>)}
+        </EhrSelect>
+      </EhrField>}
+      <EhrField label={<>{`${offersChoice ? 'File' : documentTypeLabel(sentType ?? DEFAULT_DOCUMENT_TYPE)} (PDF, JPEG, PNG or TIFF, max 50 MiB)`}<span aria-hidden="true"> *</span></>}
+        controlId="migrate-document-file" hint={uploadHint(sentType)} error={problemText(problem, 'migrate-document-file')}>
         <EhrInput name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required />
       </EhrField>
       <FormRefusal error={uploadError} />

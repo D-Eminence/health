@@ -69,8 +69,8 @@ export function OutreachCampaignView({ campaign, members, onBack }: {
             {(items ?? []).map(member => (
               <li key={member.id}>
                 <div className="hid-ehr-dept-row-main">
-                  <span className="hid-ehr-dept-row-title">Membership {reference(member.membershipId)}</span>
-                  <span className="hid-ehr-dept-muted">Added {dateText(member.createdAt)}</span>
+                  <span className="hid-ehr-dept-row-title">Team member</span>
+                  <span className="hid-ehr-dept-muted">Added {dateText(member.createdAt)} · Reference {reference(member.membershipId)}</span>
                 </div>
                 <EhrBadge>{roleWords(member.role)}</EhrBadge>
               </li>

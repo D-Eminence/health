@@ -20,6 +20,7 @@ import { errorText, MODULE_NOT_IN_SERVICE } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { patientLabel, RoutedWorkLines, RoutedWorkPaused } from '../parts/routedWork'
 import { isUrgent, PriorityBadge, statusTitle } from '../parts/WorkQueue'
+import { WorkItemDocuments } from '../parts/WorkItemDocuments'
 import { DrugTile } from './DrugTile'
 import { drugOf, FORM_WORD } from './drugForm'
 import { Breakable } from './PharmacyQueue'
@@ -29,6 +30,7 @@ import {
 } from './pharmacyText'
 import type { PaymentSettings, WorkItemBill } from '../commerce/api'
 import { BillBadge } from '../commerce/BillBadge'
+import { pointOfCareOpen } from '../commerce/served'
 import { PaidLine, PaymentStep, StockLine } from './pointOfCare'
 import { billOf, billOwing, paysFirst, stockOf } from './pocFields'
 
@@ -265,7 +267,8 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
   const waitsForPayment = canDispense && !done && paysFirst(settings, 'pharmacy') && billOwing(bill)
   const stock = stockOf(item)
   const outOfStock = canDispense && !done && stock !== null && stock.onHand <= 0
-  const canReceiveStock = permissions.includes('pharmacy.stock.manage')
+  // Stock is a point-of-care page, shown only where its routes may answer (commerce/served.ts).
+  const canReceiveStock = pointOfCareOpen(facilityId) && permissions.includes('pharmacy.stock.manage')
   const paymentHeading = `pharmacy-${item.id}-payment`
 
   function tick(step: CheckStep, on: boolean) {
@@ -470,6 +473,10 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
           <div className="p-5"><DeptFacts facts={recordFacts(item, status)} />
             {route && <div className="hid-ehr-dept-pharmacy-route"><RoutedWorkLines route={route} /></div>}</div>
         </Card>
+        {/* Its prescription sheets, beside the prescription, once the backend serves them (dormant until then): never
+            written once its order from another facility has closed. */}
+        <WorkItemDocuments kind="pharmacy" facilityId={facilityId} workItemId={item.id} patientId={item.patientId}
+          permissions={permissions} writable={!closed} />
         {otherActions}
       </div>
     </div>
