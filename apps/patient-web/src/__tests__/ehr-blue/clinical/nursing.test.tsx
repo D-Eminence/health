@@ -176,7 +176,7 @@ describe('Nursing observations list', () => {
   it('says so, and reads nothing, when the role may not read notes', async () => {
     staff.permissions = ['ehr.vital.read']
     open()
-    expect(screen.getByText('Your role here can’t see these records.')).toBeTruthy()
+    expect(screen.getByText('Your role at this facility can’t open visit records. Ask your facility administrator.')).toBeTruthy()
     await act(async () => {})
     expect(api.encounters).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()

@@ -374,6 +374,7 @@ describe('Connected orders past 50 (review item 6: pagers past 50)', () => {
     open(ENCOUNTER_ID)
     const { group, pager } = await pagerOf('Pharmacy')
     fireEvent.click(pageButton(pager, 'Next page'))
+    // Said in a status region of its own (the pager's page is one too).
     const notice = await within(group).findByText('This list changed since it was opened, so it shows the newest entries again.')
     expect(notice.getAttribute('role')).toBe('status')
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', { cursor: 'rx-page-2', fresh: false })

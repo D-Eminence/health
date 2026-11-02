@@ -226,11 +226,10 @@ export function SearchField({ label, value, onChange, placeholder = 'Search save
 }
 
 /**
- * "Previous page | Page n of m | Next page" (`total` unknown: "Page n"), as today's Pager (Clinical.tsx): the page
- * reached is announced (role="status"), and a button that cannot act, at either end or while a page loads, is marked
- * unavailable (aria-disabled) rather than disabled, so the one just pressed keeps focus; a press then does nothing.
- * Its landmark is today's pager name (staff/routes/Clinical.tsx:367): "Record pages" unless it pages something else,
- * as "Encounter pages" does (:1794).
+ * "Previous page | Page n of m | Next page" (`total` unknown: "Page n"), named by `label` (today's "Record pages", or
+ * the list's own, such as "Encounter pages"). As today's pager (staff/routes/Clinical.tsx:355-374), a button that
+ * cannot act is marked unavailable (aria-disabled) rather than disabled, so the one just pressed keeps focus at either
+ * end and while its page loads, and a press does nothing; the page reached is announced.
  */
 export function Pager({ page, total, onPrevious, onNext, busy = false, label = 'Record pages' }: {
   page: number
@@ -242,9 +241,9 @@ export function Pager({ page, total, onPrevious, onNext, busy = false, label = '
 }) {
   return (
     <nav className="hid-ehr-clinical-pager" aria-label={label}>
-      <EhrButton variant="secondary" aria-disabled={!onPrevious || undefined} busy={busy} onClick={onPrevious}>Previous page</EhrButton>
+      <EhrButton variant="secondary" aria-disabled={!onPrevious || undefined} busy={busy} onClick={() => onPrevious?.()}>Previous page</EhrButton>
       <span role="status">{total ? `Page ${page} of ${total}` : `Page ${page}`}</span>
-      <EhrButton variant="secondary" aria-disabled={!onNext || undefined} busy={busy} onClick={onNext}>Next page</EhrButton>
+      <EhrButton variant="secondary" aria-disabled={!onNext || undefined} busy={busy} onClick={() => onNext?.()}>Next page</EhrButton>
     </nav>
   )
 }
