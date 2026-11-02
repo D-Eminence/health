@@ -13,7 +13,8 @@ export const outreachPage: EhrBluePage = {
   icon: <OutreachIcon />,
   element: <Outreach />,
   // As today: the page opens with campaign or registration read, and reads only what each allows; the sidebar lists it
-  // with registration read (staff/navigation.ts). With neither, its address says in plain words what the role doesn't include.
+  // with registration read (staff/navigation.ts). With neither, its address says Outreach isn't available at the facility yet
+  // (NO_OUTREACH, the owner's answer of 2 November), as Document OCR's does, asking nobody.
   visible: session => holds(session, 'outreach.registration.read') || holds(session, 'outreach.campaign.read'),
   listed: session => holds(session, 'outreach.registration.read'),
   refusal: <OutreachRefusal />,

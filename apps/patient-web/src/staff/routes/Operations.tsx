@@ -1794,7 +1794,7 @@ export function Outreach() {
     finally { setBusy(false) }
   }
 
-  // The blue Outreach's words (NO_OUTREACH): one sentence for everyone, as Document OCR's, since no role holds Outreach.
+  // The blue Outreach's words (NO_OUTREACH): one sentence for everyone, as Document OCR's (see NO_OUTREACH for why).
   if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState titleAs="h1" title="Outreach unavailable" description={refusalAt(facilityId, NO_OUTREACH)} />
   return <>
     <PageHead eyebrow="Community care" title="Outreach">View facility campaigns and manage registration cases. A temporary registration is pending identity resolution until it is linked to a verified patient.</PageHead>

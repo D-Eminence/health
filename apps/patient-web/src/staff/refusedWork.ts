@@ -62,8 +62,9 @@ export function pharmacyWorkFor(permissions: readonly string[]): RefusedWork {
  * classic page alike: one sentence for everyone, as Document OCR's is (ehr-blue/departments/migrate/Migrate.tsx
  * NO_DOCUMENT_OCR), not refusedWorkText's choice by who reads it (the owner's answer of 2 November). On hid-system main
  * no role has held any Outreach permission since migration 0091 (docs/ARCHITECTURE.md), so a facility administrator
- * could not give it, and nobody is told to ask anyone. Written here so the classic portal says it without loading the
- * blue pages.
+ * could not give it, and nobody is told to ask anyone. On Novu a self-signed-up facility's administrator does hold
+ * Outreach (P4b SPEC 3.3), so their staff without it read this sentence too while the administrator uses Outreach: the
+ * owner chose one sentence for everyone. Written here so the classic portal says it without loading the blue pages.
  */
 export const NO_OUTREACH = 'Outreach isn’t available at your facility yet.'
 

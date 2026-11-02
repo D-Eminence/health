@@ -134,7 +134,8 @@ describe('who can open Outreach', () => {
    * Who reads the refusal makes no difference (the owner's answer of 2 November): as for Document OCR, everyone is told
    * Outreach isn't available at the facility yet, and nobody is told to ask anyone, to wait for the check, or to add
    * someone. On hid-system main no role has held any Outreach permission since migration 0091, so the facility
-   * administrator could not give it.
+   * administrator could not give it. On Novu a self-signed-up facility's administrator does hold Outreach, and their
+   * staff without it still read the same sentence: the owner chose one sentence for everyone.
    */
   describe('by who reads it', () => {
     /** A self-signed-up facility's administrator whose role here holds no Outreach (fictional: on Novu theirs holds it, P4b SPEC 3.3). */
@@ -163,7 +164,7 @@ describe('who can open Outreach', () => {
       expect(refusalAs(['workforce.manage', 'audit.read'], { review: 'pending', organizationType })).toBe(NO_OUTREACH)
     })
 
-    it('anyone else at a checked facility: the same', () => {
+    it('anyone else at a checked facility, whose administrator holds Outreach on Novu: the same', () => {
       expect(refusalAs(['ehr.encounter.read'], { review: 'reviewed', organizationType: 'hospital' })).toBe(NO_OUTREACH)
     })
 
