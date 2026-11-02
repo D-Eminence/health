@@ -106,7 +106,9 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
   const { facilityId, patientId } = chart
   useEffect(() => {
     let active = true
-    readOrder(chartRef.current, encounterId, kind, orderId, false).then(
+    // The open patient's access is checked on the server again before the order is read, as the encounter and record
+    // pages do: this page may be reached by its address alone (a link, the browser's Back, a return after signing in).
+    chartRef.current.verify().then(() => readOrder(chartRef.current, encounterId, kind, orderId, false)).then(
       read => {
         if (!active) return
         setLoaded(read.record ? { status: 'ready', record: read.record, crossFacilityOrders: read.crossFacilityOrders } : { status: 'missing' })
