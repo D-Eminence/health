@@ -45,9 +45,11 @@ const DPO = DATA_PROTECTION_OFFICER
 
 /**
  * The privacy notice: what the live product does today, in plain words. Keep it true to the product: consent before
- * any facility sees a record, the Access PIN, emergency access (emergency summary only, the patient is told, 30
- * minutes), the audit log, ending access under Access & sharing, data held in AWS eu-west-1 (Ireland), the chat
- * assistant's service provider, and no patient uploads yet.
+ * any facility sees a record, the Access PIN, emergency access (a reason is required, the patient is told, it is in
+ * the audit log, it ends by itself after the 30 minutes the website asks for; no review process exists yet, so the
+ * notice does not promise one, and it does not list what staff see), ending access under Access & sharing, data held
+ * in AWS eu-west-1 (Ireland), the chat assistant's service provider, the profile photo (re-drawn in the browser so
+ * nothing hidden in the file is sent, photoImage.ts), and no uploads of health documents or paper records yet.
  */
 const PRIVACY_NOTICE: LegalNotice = {
   title: 'Privacy notice',
@@ -80,7 +82,7 @@ const PRIVACY_NOTICE: LegalNotice = {
       title: 'Who can see it, and how you stay in control',
       bullets: [
         'No facility sees your records until you say yes. You can share your records with a facility, approve or refuse a facility’s request, or give your Access PIN to the staff caring for you.',
-        'In an emergency, a health worker can open your emergency summary without asking you first, if they can justify it. You are told each time, every emergency view is reviewed, and emergency access ends after 30 minutes.',
+        'In an emergency, when you can’t give permission and care can’t wait, a health worker can open your records without asking you first. They must give a reason. You are told each time, it is recorded in the audit log, and their access ends by itself after 30 minutes.',
         'Every time staff open your records, it is recorded in an audit log.',
         'You can see who has access, and end a facility’s access at any time, under Access & sharing in your Health ID account. If that facility knows your Access PIN, change your PIN too.',
         'Companies that help us run Health ID, such as cloud hosting, text message and email delivery, identity checks and the service behind the Health ID chat assistant, handle some of your information for us. They may use it only to provide the service, and only as we instruct.',
@@ -94,7 +96,8 @@ const PRIVACY_NOTICE: LegalNotice = {
         'Some of the companies that help us run Health ID may handle information in other countries, for example when you use the chat assistant. When they do, the rules in Cross-Border Data Transfers below apply.',
         'We keep your account details for as long as you have a Health ID.',
         'If you close your account, your health records are kept, because they are part of your medical history and the facilities that cared for you may need them. [owner to add: how long records are kept]',
-        'You cannot upload your own photos or files to Health ID yet. When you can, this notice will say how they are handled.',
+        'If you add a profile photo, it is made smaller and its hidden details, such as where it was taken, are removed on your device before it is sent.',
+        'You cannot add your own health documents, or photos or files of your paper records, to Health ID yet. When you can, this notice will say how they are handled.',
       ],
     },
     {

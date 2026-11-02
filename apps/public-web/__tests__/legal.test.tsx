@@ -67,4 +67,15 @@ describe('the Terms of Service and Privacy Policy', () => {
     ])
     expect(screen.queryByText(/may appoint/)).toBeNull()
   })
+
+  it('promises only what the product does: no emergency review, and a profile photo is the only upload today', () => {
+    render(<PrivacyPage />)
+    const notice = screen.getByRole('region', { name: 'Privacy notice' })
+    expect(within(notice).getByText(/a health worker can open your records without asking you first\. They must give a reason\. You are told each time, it is recorded in the audit log, and their access ends by itself after 30 minutes\./)).toBeTruthy()
+    expect(within(notice).queryByText(/reviewed/)).toBeNull()
+    expect(within(notice).queryByText(/emergency summary/)).toBeNull()
+    expect(within(notice).getByText(/If you add a profile photo, it is made smaller and its hidden details/)).toBeTruthy()
+    expect(within(notice).getByText(/You cannot add your own health documents, or photos or files of your paper records, to Health ID yet\./)).toBeTruthy()
+    expect(within(notice).queryByText(/cannot upload your own photos/)).toBeNull()
+  })
 })
