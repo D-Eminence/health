@@ -971,14 +971,14 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
  * at Find, so the refused panel (the only place the PIN and emergency access were offered) never shows for them. Find a
  * patient now always offers both under the search, as today's "Obtain access" card does, and the refused panel adds
  * only Ask the patient; a patient's page offers emergency access under direct care (at a demo facility only) and the way
- * back to direct care under emergency access; the PIN page says, at a demo facility only, that no demo patient has a PIN
- * yet and how one gets one.
+ * back to direct care under emergency access; the PIN page says, at a demo facility only, which demo patients have an
+ * Access PIN and where a tester gets it, and never shows the PIN itself.
  */
 describe('PIN and emergency access offered as today’s portal offers them', () => {
   /** Every permission the PIN and emergency access need, with this file's role. */
   const WITH_ACCESS = [...ALL, 'identity.patient-access-pin.verify', 'identity.break-glass.write']
   const PIN_UNAVAILABLE = 'Your role at this facility can’t use a patient’s Access PIN. Ask your facility administrator.'
-  const DEMO_PIN_NOTE = 'No demo patient has a PIN yet. Demo Patient One or Two can set an Access PIN in the Health ID app, but not within 24 hours of a password reset. Patients Three to Ten have no login, so they never have one. Five wrong PINs in 15 minutes pause PIN checks for this demo login here for 15 minutes.'
+  const DEMO_PIN_NOTE = 'Adaeze Okafor (HID-ZDEMAAA2) and Chinedu Okafor (HID-ZDEMAAA3) have an Access PIN. If you are testing the demo, ask the Health ID team for it. The other demo patients have no login, so they have no PIN: use emergency access for them. Five wrong PINs in 15 minutes pause PIN checks for this demo login here for 15 minutes.'
 
   /** Every address the router showed, in order, so a test can tell that none of them named the patient. */
   const addresses: string[] = []
@@ -1266,16 +1266,18 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
   })
 
   describe('on the PIN page', () => {
-    it('says that no demo patient has a PIN yet and how one gets one, at a demo facility only, and reads nothing', async () => {
+    it('says which demo patients have a PIN and where a tester gets it, at a demo facility only, and reads nothing', async () => {
       const real = openTracked('/pin')
       expect(screen.getByRole('heading', { level: 1, name: 'Use the patient’s Access PIN' })).toBeTruthy()
       expect(screen.queryByText(DEMO_PIN_NOTE)).toBeNull()
       // No part of the note, whatever its wording: nothing names a demo patient or the demo login at a real facility.
-      expect(document.body.textContent).not.toMatch(/demo patient|demo login|Patients? (One|Two|Three)/i)
+      expect(document.body.textContent).not.toMatch(/demo patient|demo login|Patients? (One|Two|Three)|Adaeze|Chinedu|Okafor|ZDEM|Health ID team/i)
       real.unmount()
       atDemoHospital()
       openTracked('/pin')
       const note = screen.getByText(DEMO_PIN_NOTE)
+      // The website is public: the note names who has a PIN, never the PIN itself (no run of 4 or more digits).
+      expect(note.textContent).not.toMatch(/\d{4,}/)
       const hidField = screen.getByLabelText(labelled('Health ID'))
       // In the form's card, after the page's sentence on who knows the PIN and before the fields.
       expect(screen.getByText('Ask the patient to type their PIN. Only they should know it.').compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
