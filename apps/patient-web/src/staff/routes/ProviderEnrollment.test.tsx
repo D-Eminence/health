@@ -1822,22 +1822,25 @@ describe('provider enrollment on main keeps Identity’s words for a refused act
 
 /**
  * Each product site has its own facility sign-up, which hid-system accepts there. A site that serves no staff pages (the
- * production patient portal, an admin site) opens the EHR site's at once, keeping only a product the sign-up knows.
+ * production patient portal, an admin site) opens the same address at once on the product site it names (a laboratory's
+ * on lab., a pharmacy's on pharmacy.), else the EHR site's.
  */
 describe('provider enrollment opened on a site that serves no staff pages', () => {
   it.each([
-    ['admin.healthidentitydirectory.com', '/provider/enroll', 'https://ehr.healthidentitydirectory.com/provider/enroll'],
-    ['app.healthidentitydirectory.com', '/provider/enroll?product=laboratory', 'https://ehr.healthidentitydirectory.com/provider/enroll?product=laboratory'],
+    ['admin.healthidentitydirectory.com', '/provider/enroll', 'https://ehr.healthidentitydirectory.com/provider/enroll', 'Health ID EHR'],
+    ['app.healthidentitydirectory.com', '/provider/enroll?product=laboratory',
+      'https://lab.healthidentitydirectory.com/provider/enroll?product=laboratory', 'Health ID Laboratory'],
     ['admin.staging.healthidentitydirectory.com', '/provider/enroll?product=pharmacy',
-      'https://ehr.staging.healthidentitydirectory.com/provider/enroll?product=pharmacy'],
-    ['app.healthidentitydirectory.com', '/provider/enroll?product=https://evil.example', 'https://ehr.healthidentitydirectory.com/provider/enroll'],
-  ])('on %s (%s) opens %s at once, with no form', async (hostname, entry, href) => {
+      'https://pharmacy.staging.healthidentitydirectory.com/provider/enroll?product=pharmacy', 'Health ID Pharmacy'],
+    ['app.healthidentitydirectory.com', '/provider/enroll?product=https://evil.example',
+      'https://ehr.healthidentitydirectory.com/provider/enroll?product=https://evil.example', 'Health ID EHR'],
+  ])('on %s (%s) opens %s at once, with no form', async (hostname, entry, href, name) => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     const replace = vi.fn()
     vi.stubGlobal('location', { ...window.location, hostname, replace })
     open(entry)
     expect(replace).toHaveBeenCalledWith(href)
-    expect(screen.getByRole('link', { name: 'Go to Health ID EHR' }).getAttribute('href')).toBe(href)
+    expect(screen.getByRole('link', { name: `Go to ${name}` }).getAttribute('href')).toBe(href)
     expect(screen.queryByText(/continue|main Health ID site/i)).toBeNull()
     expect(screen.queryByRole('textbox', { name: 'CAC registration number' })).toBeNull()
     expect(api.availability).not.toHaveBeenCalled()

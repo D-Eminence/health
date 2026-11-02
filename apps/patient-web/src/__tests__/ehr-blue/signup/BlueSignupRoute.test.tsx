@@ -73,14 +73,14 @@ describe('the clinic switch chooses the page at /provider/enroll', () => {
     expect(replace).not.toHaveBeenCalled()
   })
 
-  it('on the production patient portal, opens the EHR site’s registration at once, with its address', async () => {
+  it('on the production patient portal, opens the laboratory site’s registration at once, with its address', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     const replace = vi.fn()
     vi.stubGlobal('location', { ...window.location, hostname: 'app.healthidentitydirectory.com', replace })
     clinic.switchedOn = true
     await openPortal('/provider/enroll?product=laboratory')
-    expect(screen.getByRole('status').textContent).toBe('Opening Health ID EHR…')
-    expect(replace).toHaveBeenCalledWith('https://ehr.healthidentitydirectory.com/provider/enroll?product=laboratory')
+    expect(screen.getByRole('status').textContent).toBe('Opening Health ID Laboratory…')
+    expect(replace).toHaveBeenCalledWith('https://lab.healthidentitydirectory.com/provider/enroll?product=laboratory')
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(api.availability).not.toHaveBeenCalled()
   })
@@ -148,19 +148,20 @@ describe('the blue registration on a product site, and where it is not', () => {
   })
 
   it.each([
-    ['admin.healthidentitydirectory.com', '/provider/enroll', 'https://ehr.healthidentitydirectory.com/provider/enroll'],
+    ['admin.healthidentitydirectory.com', '/provider/enroll', 'https://ehr.healthidentitydirectory.com/provider/enroll', 'Health ID EHR'],
     ['admin.staging.healthidentitydirectory.com', '/provider/enroll?product=pharmacy',
-      'https://ehr.staging.healthidentitydirectory.com/provider/enroll?product=pharmacy'],
+      'https://pharmacy.staging.healthidentitydirectory.com/provider/enroll?product=pharmacy', 'Health ID Pharmacy'],
     ['app.healthidentitydirectory.com', '/provider/enroll?product=laboratory',
-      'https://ehr.healthidentitydirectory.com/provider/enroll?product=laboratory'],
-    ['app.healthidentitydirectory.com', '/provider/enroll?product=https://evil.example', 'https://ehr.healthidentitydirectory.com/provider/enroll'],
-  ])('on %s (%s), which serves no staff pages, opens %s at once and sends nothing', async (hostname, entry, href) => {
+      'https://lab.healthidentitydirectory.com/provider/enroll?product=laboratory', 'Health ID Laboratory'],
+    ['app.healthidentitydirectory.com', '/provider/enroll?product=https://evil.example',
+      'https://ehr.healthidentitydirectory.com/provider/enroll?product=https://evil.example', 'Health ID EHR'],
+  ])('on %s (%s), which serves no staff pages, opens %s at once and sends nothing', async (hostname, entry, href, name) => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     const replace = vi.fn()
     vi.stubGlobal('location', { ...window.location, hostname, replace })
     open(entry)
     expect(replace).toHaveBeenCalledWith(href)
-    expect(screen.getByRole('link', { name: 'Go to Health ID EHR' }).getAttribute('href')).toBe(href)
+    expect(screen.getByRole('link', { name: `Go to ${name}` }).getAttribute('href')).toBe(href)
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(screen.queryByText(/continue|main site/i)).toBeNull()
     expect(api.availability).not.toHaveBeenCalled()

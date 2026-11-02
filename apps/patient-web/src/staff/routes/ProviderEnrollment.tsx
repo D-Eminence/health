@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent, type ReactNode } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Field, Input, PasswordInput, Select } from '@hid/ui'
 import './providerSetup.css'
@@ -11,7 +11,7 @@ import {
   facilitySignUpPreset, PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref, STAFF_SIGN_IN_PATH, staffSignInHref,
 } from '../../productHostname'
 import { getEnvironment } from '../env'
-import { OpenStaffPage, StaffSignInLink, staffSignInAddress } from '../../staffSignIn'
+import { StaffPageElsewhere, StaffSignInLink, staffSignInAddress } from '../../staffSignIn'
 import { providerEnrollmentApi, staffApi, type ProviderEnrollmentAvailability, type ProviderEnrollmentProfile,
   type ProviderEnrollmentStart, type StaffLoginChallenge } from '../api'
 import { announceStaffSessionChange } from '../session'
@@ -430,16 +430,14 @@ type StartOutcome = 'sent' | 'in-force' | 'none'
 
 export function ProviderEnrollment() {
   // Each product site has its own facility sign-up, which hid-system accepts there. A site that serves no staff pages
-  // (the production portal, an admin site; a page kept from before) opens the EHR site's at once, keeping only a
-  // product it knows.
-  const elsewhere = providerEnrollmentHref(window.location.hostname)
-  return elsewhere === PROVIDER_ENROLLMENT_PATH ? <EnrollmentSteps /> : <EnrollElsewhere href={elsewhere} />
+  // (the production portal, an admin site; a page kept from before) opens the one the address belongs on at once: the
+  // product site it names, else the EHR site's.
+  return providerEnrollmentHref(window.location.hostname) === PROVIDER_ENROLLMENT_PATH ? <EnrollmentSteps /> : <EnrollElsewhere />
 }
 
-function EnrollElsewhere({ href }: { href: string }) {
-  const [params] = useSearchParams()
-  const product = params.get('product')
-  return <OpenStaffPage href={isProduct(product) ? `${href}?product=${product}` : href} />
+/** The same sign-up on the product site the address names (a laboratory's on lab.), else the EHR site's. */
+function EnrollElsewhere() {
+  return <StaffPageElsewhere location={useLocation()} />
 }
 
 /**

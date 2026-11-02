@@ -107,6 +107,91 @@ export function staffPagesOrigin(hostname: string): string | null {
   return null
 }
 
+/** Each product site of each deployment, as hid-system's Cloudflare config names it. */
+const PRODUCT_SITE_HOSTNAMES: Record<'production' | 'staging', Record<StaffProductKey, string>> = {
+  production: { ehr: 'ehr.healthidentitydirectory.com', lab: 'lab.healthidentitydirectory.com',
+    pharmacy: 'pharmacy.healthidentitydirectory.com', migrate: 'migrate.healthidentitydirectory.com',
+    outreach: 'outreach.healthidentitydirectory.com' },
+  staging: { ehr: 'ehr.staging.healthidentitydirectory.com', lab: 'lab.staging.healthidentitydirectory.com',
+    pharmacy: 'pharmacy.staging.healthidentitydirectory.com', migrate: 'migrate.staging.healthidentitydirectory.com',
+    outreach: 'outreach.staging.healthidentitydirectory.com' },
+}
+
+/** What each product is called, as its own site names it. */
+export const PRODUCT_SITE_NAMES: Readonly<Record<StaffProductKey, string>> = {
+  ehr: 'Health ID EHR',
+  lab: 'Health ID Laboratory',
+  pharmacy: 'Health ID Pharmacy',
+  migrate: 'Health ID Migrate',
+  outreach: 'Health ID Outreach',
+}
+
+/** The workspace a staff address opens, by its first two steps (/provider/laboratory/...), in any case; null for none. */
+function workspaceProductOf(pathname: string): StaffProductKey | null {
+  const path = pathname.toLowerCase()
+  for (const [key, route] of Object.entries(STAFF_PRODUCT_ROUTES) as Array<[StaffProductKey, string]>) {
+    if (path === route || path.startsWith(`${route}/`)) return key
+  }
+  return null
+}
+
+/** The site whose facility sign-up registers each kind of facility the address names (?type=, then ?product=). */
+const SIGN_UP_TYPE_SITES: Readonly<Record<string, StaffProductKey>> = { laboratory: 'lab', pharmacy: 'pharmacy' }
+const SIGN_UP_PRODUCT_SITES: Readonly<Record<string, StaffProductKey>> = {
+  ehr: 'ehr', laboratory: 'lab', pharmacy: 'pharmacy', migrate: 'migrate',
+}
+
+/**
+ * The product site a staff address belongs on, when it is opened on a site that serves no staff pages (the production
+ * patient portal, an admin site). The address picks the site only where it names a product itself:
+ * - a product's workspace, or a page in it (/provider/laboratory, /provider/pharmacy, /provider/ocr,
+ *   /provider/outreach, /provider/clinical): that product's site;
+ * - facility sign-up (/provider/enroll) for a laboratory or a pharmacy (?type=laboratory or pharmacy), or for one
+ *   product (?product=laboratory, pharmacy, migrate or ehr, as the public site and the landing pages link it): that
+ *   product's site;
+ * - the staff sign-in returning to a product's workspace (?returnTo=/provider/laboratory): that product's site.
+ * Anything else (the staff entrance, sign-in, password reset, invitations, the clinician pages): the EHR site. The
+ * infra/cloudflare edge (frontend-worker.mjs, staffSiteOf) follows the same rule. Only a choice among five keys: nothing
+ * of the address is copied.
+ */
+export function staffAddressProduct(pathname: string, search: string): StaffProductKey {
+  const workspace = workspaceProductOf(pathname)
+  if (workspace) return workspace
+  const page = pathname.toLowerCase().replace(/\/+$/, '')
+  const params = new URLSearchParams(search)
+  if (page === PROVIDER_ENROLLMENT_PATH) {
+    const type = params.get('type')
+    if (type && Object.hasOwn(SIGN_UP_TYPE_SITES, type)) return SIGN_UP_TYPE_SITES[type]!
+    const product = params.get('product')
+    if (product && Object.hasOwn(SIGN_UP_PRODUCT_SITES, product)) return SIGN_UP_PRODUCT_SITES[product]!
+  }
+  if (page === STAFF_SIGN_IN_PATH) {
+    const back = params.get('returnTo')
+    const product = back && back.startsWith('/') && !back.startsWith('//') ? workspaceProductOf(back.split(/[?#]/)[0]!) : null
+    if (product) return product
+  }
+  return 'ehr'
+}
+
+/**
+ * Where the staff address `location` opens from here, when this site serves no staff pages (staffPagesOrigin: the
+ * production patient portal, an admin site): the product site staffAddressProduct names, in this site's deployment,
+ * with the address's path, query and fragment. Null anywhere else, where the page is this site's own. Only the path,
+ * query and fragment come from the address: the origin is one of ten fixed ones.
+ */
+export function staffPageElsewhere(hostname: string, location: { pathname: string; search: string; hash: string }):
+  { href: string; product: StaffProductKey } | null {
+  const origin = staffPagesOrigin(hostname)
+  if (!origin) return null
+  const deployment = origin === EHR_SITE_ORIGINS.production ? 'production' : 'staging'
+  const product = staffAddressProduct(location.pathname, location.search)
+  const target = new URL(`https://${PRODUCT_SITE_HOSTNAMES[deployment][product]}`)
+  target.pathname = location.pathname
+  target.search = location.search
+  target.hash = location.hash
+  return { href: target.href, product }
+}
+
 /** Where the staff page at `path` opens from here: this site's own page, or the EHR site's (staffPagesOrigin). */
 function staffPageHref(hostname: string, path: string): string {
   return `${staffPagesOrigin(hostname) ?? ''}${path}`

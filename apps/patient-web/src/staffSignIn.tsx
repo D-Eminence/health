@@ -1,6 +1,6 @@
 import { useEffect, type AnchorHTMLAttributes } from 'react'
 import { Link } from 'react-router-dom'
-import { STAFF_SIGN_IN_PATH, staffSignInHref } from './productHostname'
+import { PRODUCT_SITE_NAMES, STAFF_SIGN_IN_PATH, staffPageElsewhere, staffSignInHref, type StaffProductKey } from './productHostname'
 
 /**
  * Staff pages on a site that serves none (productHostname.ts staffPagesOrigin): the production patient portal (app.)
@@ -33,17 +33,28 @@ export function sameStaffPageOn(origin: string, location: { pathname: string; se
 }
 
 /**
- * Opens `href`, a staff page on the EHR site, in place of this page, leaving no history entry for it. Until the browser
- * leaves, one line says so, with a plain link.
+ * Opens `href`, a staff page on a product site (the EHR site unless `site` names another), in place of this page,
+ * leaving no history entry for it. Until the browser leaves, one line says so, with a plain link.
  */
-export function OpenStaffPage({ href }: { href: string }) {
+export function OpenStaffPage({ href, site = 'ehr' }: { href: string; site?: StaffProductKey }) {
   useEffect(() => { window.location.replace(href) }, [href])
+  const name = PRODUCT_SITE_NAMES[site]
   return (
     <main className="mx-auto max-w-xl px-4 py-12">
-      <p className="m-0 text-sm text-ink-2"><span role="status">Opening Health ID EHR…</span>{' '}
-        <a className="font-medium text-brand-ink underline" href={href}>Go to Health ID EHR</a></p>
+      <p className="m-0 text-sm text-ink-2"><span role="status">Opening {name}…</span>{' '}
+        <a className="font-medium text-brand-ink underline" href={href}>Go to {name}</a></p>
     </main>
   )
+}
+
+/**
+ * Where a site that serves no staff pages (the production patient portal, an admin site) sends this staff address: the
+ * same page on the product site it belongs on (productHostname.ts staffPageElsewhere), opened at once. Null anywhere
+ * else. Every staff page drawn there by mistake, and the app's own gate, use it, so they all agree with the edge.
+ */
+export function StaffPageElsewhere({ location }: { location: { pathname: string; search: string; hash: string } }) {
+  const elsewhere = staffPageElsewhere(window.location.hostname, location)
+  return elsewhere ? <OpenStaffPage href={elsewhere.href} site={elsewhere.product} /> : null
 }
 
 /** Where a link to the staff sign-in (or to `path`, a page that asks for one) leads from this host. */

@@ -23,6 +23,8 @@ import {
   staffSiteForOrganizationType,
   staffSiteHostname,
   staffSiteOrigin,
+  staffAddressProduct,
+  staffPageElsewhere,
 } from './productHostname'
 
 describe('resolveStaffProductHostname', () => {
@@ -307,6 +309,76 @@ describe('staff invitations and staff sites (P4b)', () => {
     for (const host of ['localhost', '127.0.0.1', 'preview.pages.dev', 'healthidentitydirectory.com.evil.example']) {
       expect(staffSiteHostname('ehr', host)).toBeNull()
       expect(staffHostForRole('pharmacist', host)).toBeNull()
+    }
+  })
+})
+
+/**
+ * Where a staff address opens from a site that serves no staff pages (owner, 2026-11-02: app. is for patients only, and
+ * each product has its own sign-up, sign-in, password reset and invitation): the product site the address names, else
+ * the EHR site. The edge (frontend-worker.mjs, staffSiteOf) follows the same rule.
+ */
+describe('staffAddressProduct', () => {
+  it.each([
+    ['/provider', '', 'ehr'],
+    ['/provider/sign-in', '', 'ehr'],
+    ['/provider/recover', '', 'ehr'],
+    ['/provider/invitation', '', 'ehr'],
+    ['/provider/join', '', 'ehr'],
+    ['/provider/enroll', '', 'ehr'],
+    ['/provider/enroll', '?product=ehr', 'ehr'],
+    ['/provider/enroll', '?product=laboratory', 'lab'],
+    ['/provider/enroll/', '?product=laboratory', 'lab'],
+    ['/Provider/Enroll', '?product=pharmacy', 'pharmacy'],
+    ['/provider/enroll', '?product=migrate', 'migrate'],
+    ['/provider/enroll', '?type=laboratory', 'lab'],
+    ['/provider/enroll', '?type=pharmacy&product=ehr', 'pharmacy'],
+    ['/provider/enroll', '?type=hospital&product=migrate', 'migrate'],
+    ['/provider/enroll', '?product=outreach', 'ehr'],
+    ['/provider/enroll', '?product=toString', 'ehr'],
+    ['/provider/enroll', '?type=__proto__', 'ehr'],
+    ['/provider/enroll', '?product=https://lab.healthidentitydirectory.com', 'ehr'],
+    ['/provider/recover', '?product=laboratory', 'ehr'],
+    ['/provider/clinical', '', 'ehr'],
+    ['/provider/laboratory', '', 'lab'],
+    ['/provider/laboratory/queue', '?x=1', 'lab'],
+    ['/provider/pharmacy', '', 'pharmacy'],
+    ['/provider/ocr', '', 'migrate'],
+    ['/provider/outreach', '', 'outreach'],
+    ['/provider/laboratoryx', '', 'ehr'],
+    ['/provider/sign-in', '?returnTo=/provider/laboratory', 'lab'],
+    ['/provider/sign-in', '?returnTo=/provider/pharmacy?tab=queue', 'pharmacy'],
+    ['/provider/sign-in', '?returnTo=//evil.example/provider/laboratory', 'ehr'],
+    ['/provider/sign-in', '?returnTo=https://lab.healthidentitydirectory.com/provider/laboratory', 'ehr'],
+  ])('sends %s%s to the %s site', (pathname, search, product) => {
+    expect(staffAddressProduct(pathname, search)).toBe(product)
+  })
+})
+
+describe('staffPageElsewhere', () => {
+  it.each([
+    ['app.healthidentitydirectory.com', '/provider/enroll', '?product=laboratory', '',
+      'https://lab.healthidentitydirectory.com/provider/enroll?product=laboratory'],
+    ['app.healthidentitydirectory.com', '/provider/invitation', '', '#a1.token',
+      'https://ehr.healthidentitydirectory.com/provider/invitation#a1.token'],
+    ['APP.HEALTHIDENTITYDIRECTORY.COM.', '/provider/pharmacy', '', '', 'https://pharmacy.healthidentitydirectory.com/provider/pharmacy'],
+    ['admin.healthidentitydirectory.com', '/provider/ocr', '', '', 'https://migrate.healthidentitydirectory.com/provider/ocr'],
+    ['admin.staging.healthidentitydirectory.com', '/provider/enroll', '?type=pharmacy', '',
+      'https://pharmacy.staging.healthidentitydirectory.com/provider/enroll?type=pharmacy'],
+    ['admin.staging.healthidentitydirectory.com', '/provider/recover', '', '', 'https://ehr.staging.healthidentitydirectory.com/provider/recover'],
+  ])('on %s, opens %s%s%s at %s', (hostname, pathname, search, hash, href) => {
+    expect(staffPageElsewhere(hostname, { pathname, search, hash })?.href).toBe(href)
+  })
+
+  it.each(['ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com', 'pharmacy.staging.healthidentitydirectory.com',
+    'staging.healthidentitydirectory.com', 'localhost', ...LOOKALIKE_HOSTS])('is null on %s, which serves its own staff pages', hostname => {
+    expect(staffPageElsewhere(hostname, { pathname: '/provider/enroll', search: '?product=laboratory', hash: '' })).toBeNull()
+  })
+
+  it('keeps only the path, query and fragment: the origin is always a fixed product site', () => {
+    for (const pathname of ['//evil.example/provider', '/provider//evil.example', '/provider/@evil.example']) {
+      const href = staffPageElsewhere('app.healthidentitydirectory.com', { pathname, search: '', hash: '' })?.href ?? ''
+      expect(new URL(href).origin, pathname).toBe('https://ehr.healthidentitydirectory.com')
     }
   })
 })

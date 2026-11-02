@@ -77,8 +77,8 @@ afterEach(() => { vi.unstubAllGlobals() })
 describe('on the production portal, every staff page is the same page on the EHR site', () => {
   it.each(['/provider', '/provider/', '/provider/sign-in', '/provider/sign-in/', '/Provider/Sign-In',
     '/provider/sign-in?returnTo=/provider/clinical', '/provider?returnTo=/provider/laboratory', '/provider/recover',
-    '/provider/enroll?product=laboratory', '/provider/invitation#2f6c1a.token', '/provider/join', '/provider/join/status',
-    '/provider/staff/join', '/provider/clinical'])(
+    '/provider/enroll', '/provider/enroll?product=ehr', '/provider/invitation#2f6c1a.token', '/provider/join',
+    '/provider/join/status', '/provider/staff/join', '/provider/clinical'])(
     'opening %s replaces the page with the EHR site’s at once, and the staff workspace never loads', async path => {
       serveFrom('app.healthidentitydirectory.com')
       open(path)
@@ -131,6 +131,44 @@ describe('on the production portal, every staff page is the same page on the EHR
       expect(screen.queryByText('Opening Health ID EHR…'), path).toBeNull()
       unmount()
     }
+  })
+})
+
+describe('on the production portal, a staff address that names a product opens that product’s own site', () => {
+  it.each([
+    ['/provider/enroll?product=laboratory', 'https://lab.healthidentitydirectory.com', 'Health ID Laboratory'],
+    ['/provider/enroll?type=laboratory', 'https://lab.healthidentitydirectory.com', 'Health ID Laboratory'],
+    ['/provider/enroll?product=pharmacy', 'https://pharmacy.healthidentitydirectory.com', 'Health ID Pharmacy'],
+    ['/provider/enroll?type=pharmacy&product=pharmacy', 'https://pharmacy.healthidentitydirectory.com', 'Health ID Pharmacy'],
+    ['/provider/enroll?product=migrate', 'https://migrate.healthidentitydirectory.com', 'Health ID Migrate'],
+    ['/provider/laboratory', 'https://lab.healthidentitydirectory.com', 'Health ID Laboratory'],
+    ['/Provider/Pharmacy/queue', 'https://pharmacy.healthidentitydirectory.com', 'Health ID Pharmacy'],
+    ['/provider/ocr', 'https://migrate.healthidentitydirectory.com', 'Health ID Migrate'],
+    ['/provider/outreach', 'https://outreach.healthidentitydirectory.com', 'Health ID Outreach'],
+    ['/provider/sign-in?returnTo=/provider/laboratory', 'https://lab.healthidentitydirectory.com', 'Health ID Laboratory'],
+    // Anything the sign-up does not know stays on the EHR site.
+    ['/provider/enroll?product=https://evil.example', EHR, 'Health ID EHR'],
+    ['/provider/enroll?product=outreach', EHR, 'Health ID EHR'],
+    ['/provider/sign-in?returnTo=//lab.healthidentitydirectory.com/provider/laboratory', EHR, 'Health ID EHR'],
+  ])('opening %s replaces the page with the same page on %s, before any staff page loads', async (path, origin, name) => {
+    serveFrom('app.healthidentitydirectory.com')
+    open(path)
+    const target = new URL(path, origin).href
+    expect(screen.getByText(`Opening ${name}…`).getAttribute('role')).toBe('status')
+    expect(screen.getByRole('link', { name: `Go to ${name}` }).getAttribute('href')).toBe(target)
+    await settle()
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace).toHaveBeenCalledWith(target)
+    expect(calls.staffSession).not.toHaveBeenCalled()
+    expect(calls.staffRefresh).not.toHaveBeenCalled()
+    expect(screen.queryByRole('heading')).toBeNull()
+  })
+
+  it('on staging’s admin site, a laboratory’s sign-up opens on staging’s laboratory site', async () => {
+    serveFrom('admin.staging.healthidentitydirectory.com')
+    open('/provider/enroll?product=laboratory')
+    await settle()
+    expect(replace).toHaveBeenCalledWith('https://lab.staging.healthidentitydirectory.com/provider/enroll?product=laboratory')
   })
 })
 
