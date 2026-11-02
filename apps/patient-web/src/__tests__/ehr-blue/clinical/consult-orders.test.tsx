@@ -544,7 +544,7 @@ describe('New pharmacy (prescription)', () => {
     fireEvent.click(save)
     await confirmPatient(SAVE_RX(), 'Save prescription')
     expect(await screen.findByText('Access to this patient ended')).toBeTruthy()
-    expect(screen.getByText('Patient access has ended. Reopen the record through governed access.')).toBeTruthy()
+    expect(screen.getByText('Open the patient again to keep working.')).toBeTruthy()
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.createRecord).not.toHaveBeenCalled()
   })

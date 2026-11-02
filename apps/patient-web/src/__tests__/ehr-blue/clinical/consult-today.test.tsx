@@ -146,9 +146,9 @@ describe('Consultation record: today’s chart sections', () => {
     builds.chat = true
     builds.importedRecords = true
     renderPage(<ConsultWorkspace />, 'consult')
-    expect(await screen.findByText('No encounters are available for this patient and facility.')).toBeTruthy()
+    expect(await screen.findByText('No consultations for this patient here yet.')).toBeTruthy()
     // The read-only grant is said once, under the patient banner, whose access says "Read only".
-    expect(await screen.findByText('Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.')).toBeTruthy()
+    expect(await screen.findByText('You can view this, but not change it. To add or change records, ask the patient to approve access that includes changes.')).toBeTruthy()
     expect(within(patientBanner()).getByText('Read only')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'New consultation' })).toBeNull()
     const card = (await screen.findByRole('heading', { level: 2, name: 'Reported by the patient' })).closest('section')!
@@ -159,7 +159,7 @@ describe('Consultation record: today’s chart sections', () => {
     expect(api.importedRecords).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, 'direct-care', expect.any(AbortSignal))
     expect(screen.getByText('Loading imported medical history…')).toBeTruthy()
     // Under the encounter table (here its empty state).
-    const empty = screen.getByText('No encounters are available for this patient and facility.')
+    const empty = screen.getByText('No consultations for this patient here yet.')
     expect(empty.compareDocumentPosition(sections()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 

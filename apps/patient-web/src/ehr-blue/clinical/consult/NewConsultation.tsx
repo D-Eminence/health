@@ -9,7 +9,7 @@ import { RecordHeading } from '../parts/Notices'
 import { RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
 import {
-  ENCOUNTER_CREATED, ENCOUNTER_TYPES, ENCOUNTER_TYPE_LABEL, NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NEW_TITLE, NOTES_ARE_DRAFTS,
+  ENCOUNTER_CREATED, ENCOUNTER_TYPES, NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NEW_TITLE, NOTES_ARE_DRAFTS,
   composeNote, encounterTypeLabel, isoNow, newDiagnosisBody, newDiagnosisCheck, refusedFieldErrors, text,
 } from './encounters'
 
@@ -35,9 +35,9 @@ const NOTE_SAVED = 'The draft note is saved; change it from the consultation’s
 const START_REQUIRES = 'Creating a clinical encounter requires current server authorization and a documented reason for care.'
 
 const ENCOUNTER_FIELDS: readonly FieldDef[] = [
-  { key: 'encounterType', label: ENCOUNTER_TYPE_LABEL, required: true, choices: ENCOUNTER_TYPES },
-  // Today's label and textarea (staff/routes/Clinical.tsx:455): a complaint keeps its line breaks.
-  { key: 'complaint', label: 'Chief complaint', type: 'textarea', required: true, maxLength: 4000 },
+  { key: 'encounterType', label: 'Type of visit', required: true, choices: ENCOUNTER_TYPES },
+  // Today's textarea (staff/routes/Clinical.tsx:455): a complaint keeps its line breaks.
+  { key: 'complaint', label: 'Presenting complaint', type: 'textarea', required: true, maxLength: 4000 },
 ]
 // The note's fields are optional, as today: type and complaint alone start the encounter, and the draft note is written
 // only when History, Examination, Clinical note or Follow-up has text.
@@ -129,8 +129,7 @@ function NewConsultationForm({ chart }: { chart: Chart }) {
       attempt.current = {}
       navigate(href(encounterId), { state: { created: true } })
     } catch (caught) {
-      // Today's create refusal (staff/routes/Clinical.tsx:452) for the encounter; the rest is blue's own step.
-      const fallback = current.encounter ? 'The rest could not be saved.' : 'Encounter could not be created.'
+      const fallback = current.encounter ? 'The rest could not be saved.' : 'The consultation could not be started.'
       return { formError: refusalText(caught, fallback), fieldErrors: refusedFieldErrors(caught, map) }
     }
   }

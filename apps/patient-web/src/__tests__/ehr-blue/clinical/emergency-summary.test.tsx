@@ -189,7 +189,7 @@ describe('the emergency summary page', () => {
     open()
     const ended = await screen.findByRole('alert')
     expect(within(ended).getByText('Access to this patient ended')).toBeTruthy()
-    expect(ended.textContent).toContain('Patient access has ended. Reopen the record through governed access.')
+    expect(ended.textContent).toContain('Open the patient again to keep working.')
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
     expect(api.emergencyRecords).not.toHaveBeenCalled()
     expect(banner()).toBeNull()
@@ -207,7 +207,7 @@ describe('the emergency summary page', () => {
     staff.activePatient = null
     open()
     expect(screen.getByText('Choose a patient first.')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Go to patient access →' }).getAttribute('href')).toBe('/provider/patients')
+    expect(screen.getByRole('link', { name: 'Find a patient' }).getAttribute('href')).toBe('/provider/patients')
     await act(async () => {})
     expect(api.lookupPatient).not.toHaveBeenCalled()
     expect(api.emergencyRecords).not.toHaveBeenCalled()

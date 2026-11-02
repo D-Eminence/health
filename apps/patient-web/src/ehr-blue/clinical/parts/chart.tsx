@@ -1,6 +1,7 @@
 import { isHidApiError } from '@hid/http'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { SAY } from '../../../copy'
 import { PatientBanner } from '../../../kasuwa/parts'
 import { Alert, Button, EmptyState, type Tone } from '../../../kasuwa/ui'
 import { isAllowedPatientLookup, staffApi } from '../../../staff/api'
@@ -8,16 +9,11 @@ import type { ActivePatient } from '../../../staff/App'
 import { patientFacts, type PatientFacts } from './PatientHeader'
 import { useClinical, useWorkspaceHref } from './Workspace'
 
-/**
- * The chart's wording: today's, word for word (staff/routes/Clinical.tsx:1245 OPEN_FIRST, :1254,1260 ACCESS_ENDED,
- * :1771 READ_ONLY, :1770 WRITE_UNKNOWN).
- */
-export const OPEN_FIRST = 'Open a patient through governed access first.'
-export const ACCESS_ENDED = 'Patient access has ended. Reopen the record through governed access.'
-export const READ_ONLY = 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'
-export const WRITE_UNKNOWN = 'Write access could not be confirmed, so changes are unavailable. Refresh the page to try again.'
-/** Today's link to patient access (staff/routes/Clinical.tsx:1375). */
-export const GO_TO_PATIENT_ACCESS = 'Go to patient access →'
+/** The chart's wording, in plain words (copy.ts). */
+export const OPEN_FIRST = 'Open a patient first.'
+export const ACCESS_ENDED = 'Your access to this patient has ended. Open the patient again to keep working.'
+export const READ_ONLY = `${SAY.readOnly} To add or change records, ask the patient to approve access that includes changes.`
+export const WRITE_UNKNOWN = 'We couldn’t check whether you can make changes, so changes are off. Refresh the page to try again.'
 /** Today's page with no patient open, word for word (staff/routes/Clinical.tsx:1375). */
 export const CHOOSE_FIRST = 'Choose a patient first.'
 // The detail sentence and the how-to are shown again, as today's page shows them, in the redesign's words with today's
@@ -177,8 +173,7 @@ export function ChartBanner({ chart, compact = false, sticky = false }: { chart:
 function accessStatus(chart: Chart): { label: string; tone: Tone } {
   if (chart.purpose === 'emergency') return { label: 'Emergency access · Read only', tone: 'danger' }
   if (chart.writeNotice) return { label: 'Read only', tone: 'warn' }
-  // Today's badge (staff/routes/Clinical.tsx:1768).
-  return { label: 'Authorized', tone: 'success' }
+  return { label: 'Access allowed', tone: 'success' }
 }
 
 /**
@@ -196,8 +191,8 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
 
   if (ended && !chart) {
     return (
-      <Alert intent="error" title="Access to this patient ended" action={<Button size="sm" to={href.to('patients')}>{GO_TO_PATIENT_ACCESS}</Button>}>
-        {ACCESS_ENDED}
+      <Alert intent="error" title="Access to this patient ended" action={<Button size="sm" to={href.to('patients')}>Find a patient</Button>}>
+        Open the patient again to keep working.
       </Alert>
     )
   }
@@ -205,7 +200,7 @@ export function ChartGate({ children, allowEmergency = false, banner = !allowEme
     return (
       <EmptyState illustration="patient" title={CHOOSE_FIRST}
         description={<>{CHOOSE_FIRST_DETAIL} <strong>{NO_AUTHORIZED_PATIENT}.</strong> {OPEN_PATIENT_HOW}</>}
-        action={<Button variant="primary" to={href.to('patients')}>{GO_TO_PATIENT_ACCESS}</Button>} />
+        action={<Button variant="primary" to={href.to('patients')}>Find a patient</Button>} />
     )
   }
   if (chart.purpose === 'emergency' && !allowEmergency) {

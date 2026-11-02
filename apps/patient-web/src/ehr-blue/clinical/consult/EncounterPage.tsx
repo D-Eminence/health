@@ -20,8 +20,7 @@ import { vitalStatus } from '../triage/vitals'
 import { DiagnosesCard } from './Diagnoses'
 import { DocumentsCard } from './Documents'
 import {
-  AMEND_LABEL, CLOSING_STATUSES, EDIT_DRAFT_LABEL, ENCOUNTER_CHANGED, ENCOUNTER_CREATED, ENCOUNTER_STATUS_UPDATED, ENCOUNTER_TRANSITIONS, ENCOUNTER_TYPE_LABEL,
-  ENCOUNTERS_FAILED, LOADING_ENCOUNTERS, RELOAD_ENCOUNTER,
+  AMEND_LABEL, CLOSING_STATUSES, EDIT_DRAFT_LABEL, ENCOUNTER_CHANGED, ENCOUNTER_CREATED, ENCOUNTER_STATUS_UPDATED, ENCOUNTER_TRANSITIONS, ENCOUNTERS_FAILED,
   NEW_DIAGNOSIS_FIELDS, NEW_DIAGNOSIS_INITIAL, NEW_DIAGNOSIS_REFUSED, NOTES_ARE_DRAFTS, NOTE_EIE_LABEL, NOTE_STATUS_UPDATED, NO_COMPLAINT, NO_WRITE, REASON_FIELD, RECORD_NOT_SAVED, RECORD_SAVED, RELOAD_FAILED, RELOAD_NOTE,
   RELOAD_RECORD, REVISION_FAILED, REVISION_REASON_FIELD, REVISION_RECORDED, SAVE_DRAFT, SIGN_LABEL, STATUS_FAILED, TITLE, UPDATING,
   WRITE_NOTE_LABEL, consultationNote, contentCheck, diagnosisStatus, encounterClosesRecords, encounterTitle, encounterTypeLabel, field,
@@ -77,13 +76,13 @@ function EncounterLoader({ chart }: { chart: Chart }) {
       } catch (caught) {
         if (!current) return
         if (isHidApiError(caught) && caught.status === 404) return setLoaded({ phase: 'missing' })
-        setLoaded({ phase: 'failed', message: refusalText(caught, ENCOUNTERS_FAILED) })
+        setLoaded({ phase: 'failed', message: refusalText(caught, 'This consultation could not be loaded.') })
       }
     })()
     return () => { current = false }
   }, [facilityId, patientId, recordId, verify])
 
-  if (loaded.phase === 'loading') return <Loading label={LOADING_ENCOUNTERS} />
+  if (loaded.phase === 'loading') return <Loading label="Loading consultations…" />
   if (loaded.phase === 'missing') return <RecordNotFound backHref={href()} />
   if (loaded.phase === 'failed') {
     return (
@@ -306,7 +305,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
 
   const encounterStatus = (status: string) => async (values: FormValues): Promise<SubmitOutcome> => {
     const expectedRowVersion = rowVersion(encounter.rowVersion)
-    if (expectedRowVersion === null) return { formError: RELOAD_ENCOUNTER }
+    if (expectedRowVersion === null) return { formError: 'Reload the consultation before changing it.' }
     begin()
     let updated: Encounter
     try {
@@ -381,7 +380,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     for (const transition of ENCOUNTER_TRANSITIONS[encounter.status] ?? []) {
       more.push({
         id: `encounter-${transition.value}`, label: transition.label, fields: [REASON_FIELD], validate: reasonCheck,
-        confirm: CLOSING_STATUSES.has(transition.value) ? {} : undefined, warning: encounterClosesRecords(), busy: UPDATING, run: encounterStatus(transition.value),
+        confirm: CLOSING_STATUSES.has(transition.value) ? {} : undefined, warning: encounterClosesRecords(), run: encounterStatus(transition.value),
       })
     }
   }
@@ -408,7 +407,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
     .map(item => field(item, 'display')).filter(Boolean)
   const readsNone = !Object.values(reads).some(Boolean)
   const saved: KeyValue[] = [
-    { label: ENCOUNTER_TYPE_LABEL, value: encounterTypeLabel(encounter.encounterType) },
+    { label: 'Type of visit', value: encounterTypeLabel(encounter.encounterType) },
     { label: 'Complaint', value: encounter.chiefComplaint || NO_COMPLAINT },
     { label: 'Started', value: formatWhen(encounter.startedAt) },
   ]

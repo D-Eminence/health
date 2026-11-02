@@ -9,8 +9,7 @@ import { ErrorBox, ListHeading, Loading } from '../parts/Notices'
 import { Pager, RecordTable, SearchField, type RecordRow } from '../parts/RecordTable'
 import { useWorkspaceHref } from '../parts/Workspace'
 import {
-  ENCOUNTERS_FAILED, ENCOUNTER_TYPE_LABEL, FIRST_PAGE, LOADING_ENCOUNTERS, NEW_TITLE, NO_COMPLAINT, NO_ENCOUNTERS, RESTARTED, TITLE, encounterTitle,
-  encounterTypeLabel, readPage, useLatest, type Cursors,
+  FIRST_PAGE, NEW_TITLE, NO_COMPLAINT, NO_ENCOUNTERS, RESTARTED, TITLE, encounterTitle, encounterTypeLabel, readPage, useLatest, type Cursors,
 } from './encounters'
 import { orderPath, type OrderKind } from './orders'
 import { TodaySections } from './TodaySections'
@@ -104,7 +103,7 @@ function Encounters({ chart }: { chart: Chart }) {
     } catch (caught) {
       if (run !== sequence.current) return
       if (request.paging) setNotice({ text: `The page could not be loaded. ${refusalText(caught, '')}`.trim(), alert: true })
-      else setError(refusalText(caught, ENCOUNTERS_FAILED))
+      else setError(refusalText(caught, 'Consultations could not be loaded.'))
     } finally {
       if (run === sequence.current) setLoading(false)
     }
@@ -124,7 +123,7 @@ function Encounters({ chart }: { chart: Chart }) {
     status: encounter.status,
     updated: encounter.startedAt,
     details: [
-      { label: ENCOUNTER_TYPE_LABEL, value: encounterTypeLabel(encounter.encounterType) },
+      { label: 'Type of visit', value: encounterTypeLabel(encounter.encounterType) },
       { label: 'Complaint', value: encounter.chiefComplaint || NO_COMPLAINT },
       { label: 'Status', value: statusLabel(encounter.status) },
       { label: 'Started', value: formatWhen(encounter.startedAt) },
@@ -167,7 +166,7 @@ function Encounters({ chart }: { chart: Chart }) {
           />
         ) : null}
         {error ? <ErrorBox>{error}</ErrorBox> : null}
-        {rows === null ? (loading ? <Loading label={LOADING_ENCOUNTERS} /> : null) : (
+        {rows === null ? (loading ? <Loading label="Loading consultations…" /> : null) : (
           <RecordTable
             caption="Consultations"
             contextHeader="Complaint"
