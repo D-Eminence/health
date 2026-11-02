@@ -342,9 +342,12 @@ describe('the records the patient added, where the backend serves them', () => {
 })
 
 describe('after "Add a record" saves one', () => {
-  /** Opens the drawer, names the record and saves it, with no photo. */
-  async function addRecord(title: string) {
-    await press(screen.getByRole('button', { name: 'Add a record' }))
+  /**
+   * Opens the drawer, names the record and saves it, with no photo. Where the records said not served, the page offers no
+   * "Add a record", so the drawer is already open from its address (/records?add=record, an older link).
+   */
+  async function addRecord(title: string, opened = false) {
+    if (!opened) await press(screen.getByRole('button', { name: 'Add a record' }))
     fireEvent.change(await screen.findByLabelText('Name it'), { target: { value: title } })
     await press(screen.getByRole('button', { name: 'Save record' }))
   }
@@ -379,10 +382,11 @@ describe('after "Add a record" saves one', () => {
       const answer = saving(items)(path, method, body)
       if (answer) isServed = true
       return answer
-    }))
+    }), {}, { at: '/records?add=record' })
     await screen.findByText('Outpatient visit')
     expect(patientEntriesServed()).toBe(false)
-    await addRecord('Typhoid test')
+    expect(screen.queryByRole('button', { name: 'Add a record' })).toBeNull()
+    await addRecord('Typhoid test', true)
     const card = await ownCard()
     expect(within(card).getByText('Typhoid test')).toBeTruthy()
     expect(patientEntriesServed()).toBe(true)
@@ -410,10 +414,9 @@ describe('after "Add a record" saves one', () => {
       const answer = saving(items)(path, method, body)
       if (answer) isServed = true
       return answer
-    }))
+    }), {}, { at: '/records?add=record' })
     await screen.findByText('Outpatient visit')
     expect(patientEntriesServed()).toBe(false)
-    await press(screen.getByRole('button', { name: 'Add a record' }))
     fireEvent.change(await screen.findByLabelText('Name it'), { target: { value: 'Typhoid test' } })
     const camera = screen.getByRole('dialog').querySelector<HTMLInputElement>('input[type=file][capture]')!
     // A JPEG with no metadata to take out (the drawer walks each photo before it is listed: photoMetadata.ts).

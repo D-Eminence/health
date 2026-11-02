@@ -33,7 +33,7 @@ import { useSession } from '../session'
  * photo or file in turn under the saved entry, as staff uploads go: its exact bytes to a signed link, then a confirm
  * (api.uploadOwnRecordDocument). Nothing of a file leaves the device until the Save and that file's upload link have
  * both been answered. No backend serves it yet (BACKEND-NEEDS.md §1): until one does, the Save's 404 NOT_FOUND is said
- * plainly ("This isn't set up for your account") and what was entered stays in the drawer.
+ * plainly ("Adding your own records isn't available yet") and what was entered stays in the drawer.
  *
  * A refusal is said in this drawer's own fixed words, chosen by its status and code alone; the server's own words (its
  * message or detail) are never shown. The Save: 404 NOT_FOUND as above; 413, or PATIENT_ENTRY_TOO_LARGE (api.addOwnRecord's
@@ -77,7 +77,8 @@ const CAMERA_TYPES = 'image/jpeg,image/png'
 const UPLOAD_TYPES = MEDIA_TYPES.join(',')
 const NOT_ADDED = 'Couldn’t add your record'
 // The Save's refusals, in this drawer's own words.
-const NOT_SET_UP = 'This isn’t set up for your account. Contact support. What you entered is still here.'
+// Today's backend doesn't keep a patient's own records yet: not a fault, so nobody is sent to support for it.
+const NOT_SET_UP = 'Adding your own records isn’t available yet. What you entered is still here.'
 const TOO_LONG = 'It’s too long to send. Shorten the notes, then save again. What you entered is still here.'
 const NOT_SAVED = 'Your record couldn’t be saved. Please try again.'
 /** A file whose bytes aren't its type's: refused as it is picked, and said of one the server refuses for it. */
@@ -118,7 +119,7 @@ function uploadRefused(error: unknown): Exclude<Sending, 'sending' | 'sent'> {
 
 /** Why the Save was refused, in this drawer's words, by its status and code alone: never the server's own words. */
 function notSavedWords(error: unknown): string {
-  // Only the Save's own 404 NOT_FOUND (no backend serves it) reads as "not set up".
+  // Only the Save's own 404 NOT_FOUND (no backend serves it) reads as "not available yet".
   if (saysPatientEntriesNotServed(error)) return NOT_SET_UP
   if (isHidApiError(error) && (error.status === 413 || error.code === 'PATIENT_ENTRY_TOO_LARGE')) return TOO_LONG
   return NOT_SAVED

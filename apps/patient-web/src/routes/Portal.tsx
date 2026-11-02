@@ -137,6 +137,8 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
   useOnProfileChange(() => { void profile.reload().then(() => photo.reload()) })
   const share = useShareServed()
   const shareTo = share === true ? '/access/share' : '/access'
+  // "Add a record" only once the backend serves the records a patient adds (patientEntriesServed.ts): today's refuses the Save.
+  const adds = usePatientEntriesServed() === true
   const name = shown?.fullName ?? 'Your Health ID'
   const avatar = shown ? <Avatar name={shown.fullName} src={photo.url} size="sm" /> : undefined
   const nav: NavGroup[] = [
@@ -163,8 +165,8 @@ function PatientChrome({ api, signingOut, onSignOut, children }: { api: ReturnTy
     headerActions={<NotificationBell />}
     tabs={[{ to: '/', label: 'Home', icon: House, end: true }, { to: '/records', label: 'Records', icon: FolderHeart }, { to: '/access', label: 'Access', icon: ShieldCheck }]}
     create={{ label: 'Add or share', items: [
-      { to: '/records?add=record', label: 'Add a record', hint: 'A visit, result or medicine, with a photo', icon: FilePlus2, main: true },
-      { to: shareTo, label: 'Share my records', hint: 'Let a hospital or doctor see them', icon: Share2 },
+      ...(adds ? [{ to: '/records?add=record', label: 'Add a record', hint: 'A visit, result or medicine, with a photo', icon: FilePlus2, main: true }] : []),
+      { to: shareTo, label: 'Share my records', hint: 'Let a hospital or doctor see them', icon: Share2, main: !adds },
       { to: '/profile#health-information', label: 'Update health information', hint: 'Blood group, genotype, allergies', icon: HeartPulse },
       { to: '/profile#emergency-contacts', label: 'Add an emergency contact', hint: 'Who we tell in an emergency', icon: PhoneCall },
     ] }}>
@@ -632,7 +634,7 @@ export function RecordsPage() {
 
   return <div className="flex flex-col gap-6">
     <PageHeader titleRef={heading} title="Records" description={recordsIntro(records.error ? null : data)}
-      actions={<Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />
+      actions={ownServed === true ? <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button> : undefined} />
     <PageState what="your records" loading={records.loading} error={records.error} hasData={data !== null}
       onRetry={() => recordsRetry.retry(records.reload)} retryRef={recordsRetry.button}>{null}</PageState>
     {/* hid-1.0's "Search by date, title, or keyword": over the records on this page; nothing is sent. */}
@@ -662,8 +664,9 @@ export function RecordsPage() {
     {ready && <>
       {visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0 && <EmptyState icon={searching ? Search : FolderHeart}
         title={searching ? 'Nothing matches' : 'No records yet'}
-        description={searching ? 'Try a date like “March 2024”, a type like “vitals”, or a word from a note.' : 'Records from your providers appear here. You can add your own too, from any hospital, with a photo of the paper.'}
-        action={searching ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}
+        description={searching ? 'Try a date like “March 2024”, a type like “vitals”, or a word from a note.'
+          : `Records from your providers appear here.${ownServed === true ? ' You can add your own too, from any hospital, with a photo of the paper.' : ''}`}
+        action={searching || ownServed !== true ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}
       <p className="m-0 flex items-center gap-1.5 text-[12px] text-ink-3"><Lock className="size-3.5" aria-hidden />Only you can see this page. {SAY.everyViewRecorded}</p>
     </>}
     <AddRecordDrawer open={adding} onClose={() => setAdding(false)} onSaved={() => void records.reload()} />
