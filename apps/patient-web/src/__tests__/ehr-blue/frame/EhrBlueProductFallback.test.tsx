@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { LAB_WORK, REAL_FACILITY, SESSION, facility, homeHeading, json, openStaffApp, serve, sessionAt, where } from './blueHarness'
+import { DEMO_LABORATORY, LAB_WORK, REAL_FACILITY, SESSION, facility, homeHeading, json, openStaffApp, serve, sessionAt, where } from './blueHarness'
 
 /**
  * A product's own site (lab., outreach., migrate.) opens its own page at /provider, as long as this session may open
@@ -23,9 +23,10 @@ const many = <T,>(answer: T, count = 8): T[] => Array.from({ length: count }, ()
  * Opens the staff app at /provider on a product's site, for a person at a fictional clinic holding `permissions`. With
  * no host, it stays on the test's own address, which is no product's: the EHR's address, as on the main site.
  */
-async function openOn(host: string | null, permissions: readonly string[], routes: Record<string, (() => Response)[]> = {}) {
+async function openOn(host: string | null, permissions: readonly string[], routes: Record<string, (() => Response)[]> = {},
+  facilityId = REAL_FACILITY) {
   if (host) jsdom.reconfigure({ url: `https://${host}/provider` })
-  const clinic = facility(REAL_FACILITY, 'Riverside Diagnostics (fictional)', permissions, ['org_admin'])
+  const clinic = facility(facilityId, 'Riverside Diagnostics (fictional)', permissions, ['org_admin'])
   const sent = serve({ [SESSION]: [sessionAt(clinic, [clinic])], ...routes })
   await openStaffApp('/provider')
   await screen.findByRole('navigation', { name: 'Main navigation' })
@@ -71,8 +72,10 @@ describe('a product site whose own page this session may not open', () => {
     expect(firstTab().textContent).toBe('Home')
   })
 
+  // New request is a point-of-care page, shown at the demo facilities only until Health ID serves its routes
+  // (departments/commerce/served.ts): these cases are at the demo laboratory, and each has its case at a real facility.
   it('leads the menu with Home, where it landed, then the lab pages this role holds (a lab reception: new requests only)', async () => {
-    await openOn('lab.healthidentitydirectory.com', ['audit.read', 'lab.walk-in.create'])
+    await openOn('lab.healthidentitydirectory.com', ['audit.read', 'lab.walk-in.create'], {}, DEMO_LABORATORY)
     await screen.findAllByRole('heading', { level: 1 })
     expect(where()).toBe('/provider')
     // The pages every product keeps (Audit trail, under Insight) follow in their own folded group.
@@ -80,12 +83,30 @@ describe('a product site whose own page this session may not open', () => {
     expect(menuLink('New request')?.getAttribute('href')).toBe('/provider/laboratory/new')
   })
 
+  it('at a real facility, the same lab reception lands on Home too, with no New request in the menu', async () => {
+    await openOn('lab.healthidentitydirectory.com', ['audit.read', 'lab.walk-in.create'])
+    await screen.findAllByRole('heading', { level: 1 })
+    expect(where()).toBe('/provider')
+    expect(screen.queryByRole('heading', { name: 'Laboratory unavailable' })).toBeNull()
+    expect(menuNames()[0]).toBe('Home')
+    expect(menuLink('New request')).toBeNull()
+  })
+
   it('on the EHR\'s address, a facility that runs only a lab (detected from its permissions) also lands on Home', async () => {
-    await openOn(null, ['lab.walk-in.create'])
+    await openOn(null, ['lab.walk-in.create'], {}, DEMO_LABORATORY)
     await screen.findAllByRole('heading', { level: 1 })
     expect(where()).toBe('/provider')
     expect(screen.queryByRole('heading', { name: 'Laboratory unavailable' })).toBeNull()
     expect(menuNames().slice(0, 2)).toEqual(['Home', 'New request'])
+  })
+
+  it('on the EHR\'s address, a real facility that runs only a lab lands on Home, with no New request in the menu', async () => {
+    await openOn(null, ['lab.walk-in.create'])
+    await screen.findAllByRole('heading', { level: 1 })
+    expect(where()).toBe('/provider')
+    expect(screen.queryByRole('heading', { name: 'Laboratory unavailable' })).toBeNull()
+    expect(menuNames()[0]).toBe('Home')
+    expect(menuLink('New request')).toBeNull()
   })
 
   it('offers only this product\'s pages as Home\'s shortcuts: never patient registration, which stays in the EHR', async () => {
