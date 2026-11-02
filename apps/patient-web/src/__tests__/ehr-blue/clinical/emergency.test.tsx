@@ -19,7 +19,10 @@ const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), breakGlass: vi.fn(), closeGrant: vi.fn(), emergencyRecords: vi.fn(),
   labReleasedResultsForOrder: vi.fn(),
 }))
-const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined }))
+const staff = vi.hoisted(() => ({
+  permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined,
+  roles: undefined as string[] | undefined,
+}))
 const session = vi.hoisted(() => ({
   staffSessionGeneration: vi.fn(() => 7), untilStaffSessionReady: vi.fn(async (_sentIn: number) => {}),
   staffSessionSignal: vi.fn(() => new AbortController().signal),
@@ -53,6 +56,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   dropOfferedHealthId()
   staff.facilityId = undefined
+  staff.roles = undefined
   staff.permissions = [...EMERGENCY_PERMISSIONS]
   staff.activePatient = null
   staff.setActivePatient.mockImplementation(value => { staff.activePatient = value; return true })
@@ -97,10 +101,25 @@ describe('the Emergency page', () => {
     expect(emergencyStatus).toBe('partial')
   })
 
-  it('shows the heading, the live emergency access form, then the sample board', () => {
+  it('audit 16: at a demo facility, the board’s New board entry follows the design’s roles (a Doctor’s, not a Nurse’s); the live page is unchanged', () => {
+    staff.facilityId = DEMO_HOSPITAL_ID
+    const doctor = open()
+    expect(screen.getByRole('link', { name: 'New board entry' })).toBeTruthy()
+    doctor.unmount()
+    // The design gives a Nurse no Emergency module: no sample record to create, but the same live form and board.
+    staff.roles = ['nurse']
+    open()
+    expect(screen.getByRole('heading', { level: 1, name: 'Emergency access' })).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'New board entry' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Open emergency access' })).toBeTruthy()
+    expect(screen.getByTestId('sample-list').textContent).toBe('emergency')
+  })
+
+  it('shows the heading, the live emergency access form, then the sample board', async () => {
     staff.facilityId = DEMO_HOSPITAL_ID
     open()
     expect(screen.getByRole('heading', { level: 1, name: 'Emergency access' })).toBeTruthy()
+    // Owner, 31 October: the live break-glass form is on offer on the demo Emergency page too, as at a real facility.
     expect(within(card()).getByRole('textbox', { name: labelled('Health ID') })).toBeTruthy()
     expect(hidField().value).toBe('HID-')
     expect(card().textContent).toContain(HID_FORMAT)
@@ -116,6 +135,9 @@ describe('the Emergency page', () => {
     const board = screen.getByTestId('sample-list')
     expect(board.textContent).toBe('emergency')
     expect(card().compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Offering the form reads and sends nothing: only Open emergency access does.
+    await act(async () => {})
+    for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled()
   })
 
   it('names the tab “Emergency · Health ID EHR” on every page of the workspace, never the patient', () => {
@@ -424,30 +446,32 @@ describe('recording emergency access', () => {
   })
 })
 
-describe('a role that cannot activate emergency access', () => {
+describe('a role that cannot open emergency access', () => {
   const reason = () => document.getElementById(submitButton().getAttribute('aria-describedby') ?? '')?.textContent ?? ''
+  const NO_EMERGENCY = 'Your role at this facility can’t open emergency access. Ask your facility administrator.'
 
-  it('is not offered the button, and is told exactly what it lacks', async () => {
+  it('is not offered the button, and is told in plain words, naming no permission', async () => {
     staff.permissions = ['identity.patient.read', 'identity.break-glass.write']
     open()
     expect(submitButton().disabled).toBe(true)
-    expect(reason()).toBe('Your role at this facility cannot activate emergency access: it also needs identity.consent.write, and '
-      + 'ehr.encounter.read and ehr.note.read to read the emergency summary. Ask your organization administrator.')
+    expect(reason()).toBe(NO_EMERGENCY)
+    expect(document.body.textContent).not.toMatch(/identity\.|ehr\.(encounter|note)\./)
     fill()
     await act(async () => { fireEvent.submit(submitButton().form!) })
     expect(api.breakGlass).not.toHaveBeenCalled()
   })
 
   it.each([
-    ['identity.consent.write', 'identity.consent.write'],
-    ['identity.break-glass.write', 'identity.break-glass.write'],
-    ['identity.patient.read', 'identity.patient.read to open the record'],
-    ['ehr.note.read', 'ehr.note.read to read the emergency summary'],
-  ])('without %s, names it', (missing, named) => {
+    ['identity.consent.write'],
+    ['identity.break-glass.write'],
+    ['identity.patient.read'],
+    ['ehr.note.read'],
+  ])('without %s, is turned off with the plain reason, which never names it', missing => {
     staff.permissions = EMERGENCY_PERMISSIONS.filter(permission => permission !== missing)
     open()
     expect(submitButton().disabled).toBe(true)
-    expect(reason()).toContain(`also needs ${named}.`)
+    expect(reason()).toBe(NO_EMERGENCY)
+    expect(document.body.textContent).not.toContain(missing)
   })
 
   it('at a self-signed-up facility, tells its administrator who gives clinical access', () => {
@@ -455,7 +479,7 @@ describe('a role that cannot activate emergency access', () => {
     staff.permissions = ['workforce.manage', 'audit.read']
     open()
     // The harness facility carries no self-service review, so the administrator is asked as usual.
-    expect(reason().endsWith('Ask your organization administrator.')).toBe(true)
+    expect(reason()).toBe(NO_EMERGENCY)
   })
 
   it.each([
@@ -463,8 +487,7 @@ describe('a role that cannot activate emergency access', () => {
     ['reviewed', 'You are this facility’s administrator. Health ID support gives your own role clinical access; ask them, or invite a colleague who holds this role.'],
   ] as const)('ends with today’s words for an administrator whose facility review is %s', (review, ending) => {
     const said = actionUnavailable(EMERGENCY_ACCESS, ['workforce.manage'], review)
-    expect(said?.startsWith('Your role at this facility cannot activate emergency access: it needs ')).toBe(true)
-    expect(said?.endsWith(ending)).toBe(true)
+    expect(said).toBe(`Your role at this facility can’t open emergency access. ${ending}`)
   })
 
   it('offers the button with every permission', () => {

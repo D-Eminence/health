@@ -2,13 +2,14 @@ import { EhrButton, EhrCard, EhrPageHeading } from '@hid/ui/ehr'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
-import { formatWhen, shortId } from '../parts/format'
+import { encounterTitle } from '../consult/encounters'
+import { formatWhen } from '../parts/format'
 import { ListHeading } from '../parts/Notices'
 import type { RecordRow } from '../parts/RecordTable'
 import { useWorkspaceHref } from '../parts/Workspace'
 import { ListCard } from '../triage/ListCard'
 import { NO_RECORD_ACCESS, field, recordKey, usePatientRecords } from '../triage/records'
-import { TITLE, isObservation, noteStatus } from './observations'
+import { TITLE, isObservation, noteStatus, observationName } from './observations'
 
 /** The list page: the design's heading and table, or the chart's own state (no patient, access ended, emergency). */
 export function NursingList() {
@@ -47,13 +48,12 @@ function ObservationsTable({ chart }: { chart: Chart }) {
 
   const rows: RecordRow[] = (list.records ?? []).map(({ encounter, record }) => ({
     id: recordKey(encounter.id, record.id),
-    name: shortId(record.id),
-    reference: shortId(record.id),
+    name: observationName(record),
     context: field(record, 'title'),
     status: noteStatus(record),
     updated: field(record, 'updatedAt') || record.createdAt,
     details: [
-      { label: 'Visit', value: shortId(encounter.id) },
+      { label: 'Visit', value: encounterTitle(encounter) },
       { label: 'Category', value: field(record, 'title') },
       { label: 'Recorded', value: formatWhen(record.createdAt) },
     ],

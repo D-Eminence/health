@@ -10,6 +10,8 @@ import { PatientsWorkspace } from '../../../ehr-blue/clinical/patients/PatientsW
 import { clinicalReturnPath } from '../../../ehr-blue/clinical/returnPaths'
 import { TriageWorkspace } from '../../../ehr-blue/clinical/triage/TriageWorkspace'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup } from './harness'
+import { vitalName } from '../../../ehr-blue/clinical/triage/vitals'
+import { observationName } from '../../../ehr-blue/clinical/nursing/observations'
 
 /**
  * A clinical page reached by its address alone, as after signing in again: no open patient, no router state, nothing
@@ -238,8 +240,8 @@ describe('With the patient opened again, the page checks access on the server be
   })
 
   it.each([
-    ['a vitals record', VITALS_PAGE, 'vitals', 'f0000000'],
-    ['a nursing record', NURSING_PAGE, 'clinical-notes', 'c1000000'],
+    ['a vitals record', VITALS_PAGE, 'vitals', vitalName(VITAL)],
+    ['a nursing record', NURSING_PAGE, 'clinical-notes', observationName(OBSERVATION)],
   ])('%s: the re-check, then the encounter, then the record', async (_name, address, kind, title) => {
     openAt(address)
     expect(await screen.findByRole('heading', { level: 1, name: title })).toBeTruthy()

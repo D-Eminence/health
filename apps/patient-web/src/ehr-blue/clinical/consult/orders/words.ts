@@ -78,11 +78,6 @@ export function labDraftWarning(sendingElsewhere: boolean, canSendToLab: boolean
 
 const LAB_REFUSALS: ReadonlySet<number> = new Set([400, 403, 409])
 
-/** Clinical.tsx `labCode`. */
-export function labCode(value: unknown): string | undefined {
-  return typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(value) ? value : undefined
-}
-
 /** Clinical.tsx `handoffNames`: the saved request and Lab's code a 409 LAB_HANDOFF_REFUSED names (never shown). */
 export function handoffNames(message: string) {
   const named = /Lab request ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) is saved and active in the EHR, but Lab refused it \(([A-Z][A-Z0-9_]{0,63})\)/i.exec(message)
@@ -106,11 +101,9 @@ export function labHandoffOutcome(handoff: LabHandoff | null, done: string, canS
     case 'failed': {
       if (handoff.code === 'LAB_ORDER_NOT_CURRENT') return { accepted: false, sendable: true, listChanged: true,
         text: `Lab request ${done} in the EHR, but it changed again before Lab accepted it, and Lab may hold that later version: check the request, and if it is still needed, ${sendItFrom(canSend)}.` }
-      const code = labCode(handoff.code)
-      const named = code ? ` (${code})` : ''
       return { accepted: false, sendable: true, text: LAB_REFUSALS.has(handoff.status)
-        ? `Lab request ${done} in the EHR: its status is saved, but Lab refused it${named}. Once that is resolved, ${sendItFrom(canSend)}.`
-        : `Lab request ${done} in the EHR: its status is saved, but Lab did not confirm it${named}, so the Laboratory may not have it: to send it again, ${sendItFrom(canSend)}.` }
+        ? `Lab request ${done} in the EHR: its status is saved, but Lab refused it. Once that is resolved, ${sendItFrom(canSend)}.`
+        : `Lab request ${done} in the EHR: its status is saved, but Lab did not confirm it, so the Laboratory may not have it: to send it again, ${sendItFrom(canSend)}.` }
     }
     case 'not_sent':
       if (handoff.code === 'ORDER_ROUTED') return { accepted: true, text: `Lab request ${done}. It was sent to another facility, so it was not sent to this facility’s Lab.` }
@@ -152,8 +145,7 @@ export function labSendRefusal(caught: unknown): LabSendRefusal {
   if (caught.status === 404) return { reload: true, sendable: false,
     text: 'The EHR did not find this lab request to send, or cannot send a saved request to Lab. Contact the laboratory if the test is still needed.' }
   if (caught.status === 401) return { text: refusalText(caught, 'Sign in again to send this request to Lab.') }
-  const code = labCode(caught.code)
-  return { text: `This lab request was not sent to Lab: it was refused${code ? ` (${code})` : ''}. Contact the laboratory if the test is still needed.` }
+  return { text: 'This lab request was not sent to Lab: it was refused. Contact the laboratory if the test is still needed.' }
 }
 
 /** Clinical.tsx `handoffPrescription`: what an IDEMPOTENCY_CONFLICT from Send to Pharmacy says. */
@@ -179,7 +171,7 @@ export function releasedResultsRefusal(caught: unknown): string {
   if (caught.status === 404) return caught.code === 'LAB_WORK_ITEM_NOT_FOUND'
     ? 'Lab has no work item for this request that you can see: Lab has not accepted it, accepted it at another facility, or your access to this patient does not cover it.'
     : 'Released results are not available from this Lab service.'
-  if (caught.status === 403) return `Access denied: you may not read this request's Lab results here${labCode(caught.code) ? ` (${caught.code})` : ''}.`
+  if (caught.status === 403) return 'You can’t see this request’s lab results here.'
   return refusalText(caught, 'Released results could not be loaded.')
 }
 

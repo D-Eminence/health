@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { TriageWorkspace, triageStatus } from '../../../ehr-blue/clinical/triage/TriageWorkspace'
 import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
+import { consultationLabel } from '../../../plainLabels'
+import { vitalName } from '../../../ehr-blue/clinical/triage/vitals'
 
 /**
  * Triage & Vitals: the open patient's vitals (today's records of kind "vitals", per encounter) in the design's list,
@@ -118,7 +120,7 @@ describe('Triage & Vitals list', () => {
     const table = await screen.findByRole('table', { name: 'Triage & Vitals' })
     // One patient's chart: the second column holds the readings, with their units; the patient is the banner.
     expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Record', 'Readings', 'Status', 'Updated', 'Actions'])
-    const link = within(table).getByRole('link', { name: 'f0000000' })
+    const link = within(table).getByRole('link', { name: vitalName(VITAL) })
     expect(link.getAttribute('href')).toBe(`/provider/triage/${ENCOUNTER_ID}~${VITAL_ID}`)
     expect(within(table).queryByText(PATIENT_NAME)).toBeNull()
     expect(within(patientBanner()).getByText(PATIENT_NAME)).toBeTruthy()
@@ -137,15 +139,15 @@ describe('Triage & Vitals list', () => {
     open()
     const table = await screen.findByRole('table', { name: 'Triage & Vitals' })
     expect(document.title).toBe('Triage & Vitals · Health ID EHR')
-    expect(within(table).getAllByText('f0000000').map(element => element.tagName)).toEqual(['A', 'SPAN'])
-    expect(within(table).queryByText('e0000000')).toBeNull()
+    expect(within(table).getAllByText(vitalName(VITAL)).map(element => element.tagName)).toEqual(['A'])
+    expect(within(table).queryByText(consultationLabel(ENCOUNTER))).toBeNull()
   })
 
   it('opens the record quick view with the current values, and Escape closes it', async () => {
     open()
-    fireEvent.click(await screen.findByRole('button', { name: 'Quick view f0000000' }))
+    fireEvent.click(await screen.findByRole('button', { name: `Quick view ${vitalName(VITAL)}` }))
     const drawer = await screen.findByRole('dialog', { name: 'Record quick view' })
-    expect(within(drawer).getByRole('heading', { level: 3, name: 'f0000000' })).toBeTruthy()
+    expect(within(drawer).getByRole('heading', { level: 3, name: vitalName(VITAL) })).toBeTruthy()
     expect(within(drawer).getByText('Fever, headache')).toBeTruthy()
     expect(within(drawer).getByText('120/80')).toBeTruthy()
     expect(within(drawer).getByText('36.6')).toBeTruthy()
@@ -158,7 +160,7 @@ describe('Triage & Vitals list', () => {
     api.vitalCorrections.mockResolvedValue(CORRECTIONS)
     open()
     expect(await screen.findByText('Corrected (correction 2)')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Quick view f0000000' }))
+    fireEvent.click(screen.getByRole('button', { name: `Quick view ${vitalName(VITAL)}` }))
     const drawer = await screen.findByRole('dialog', { name: 'Record quick view' })
     expect(within(drawer).getByText('118/76')).toBeTruthy()
     expect(within(drawer).queryByText('120/80')).toBeNull()
@@ -169,7 +171,7 @@ describe('Triage & Vitals list', () => {
     vitals = [{ ...VITAL, currentCorrectionNo: 1, rowVersion: '2' }]
     api.vitalCorrections.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     open()
-    fireEvent.click(await screen.findByRole('button', { name: 'Quick view f0000000' }))
+    fireEvent.click(await screen.findByRole('button', { name: `Quick view ${vitalName(VITAL)}` }))
     const drawer = await screen.findByRole('dialog', { name: 'Record quick view' })
     expect(await within(drawer).findByText(/These vitals were corrected, but the correction could not be loaded/)).toBeTruthy()
   })
@@ -180,7 +182,7 @@ describe('Triage & Vitals list', () => {
     fireEvent.change(screen.getByLabelText('Search Triage & Vitals'), { target: { value: 'nothing like this' } })
     expect(screen.getByText('Change your search.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
-    expect(screen.getByRole('link', { name: 'f0000000' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: vitalName(VITAL) })).toBeTruthy()
   })
 
   it('has today’s empty states: no encounters, and encounters with no vitals', async () => {
@@ -322,7 +324,7 @@ describe('New triage & vitals', () => {
   it('records the vitals for the chosen visit after the access re-check, then opens the record', async () => {
     const form = await openNew()
     const visit = input(form, 'Visit') as unknown as HTMLSelectElement
-    expect(Array.from(visit.options).map(option => option.textContent)).toEqual(['Select…', expect.stringMatching(/^e0000000 · in progress · /)])
+    expect(Array.from(visit.options).map(option => option.textContent)).toEqual(['Select…', expect.stringMatching(/^Outpatient visit · In progress · /)])
     fireEvent.change(visit, { target: { value: ENCOUNTER_ID } })
     expect(screen.getByText('Presenting complaint: Fever, headache')).toBeTruthy()
     type(form, 'Systolic BP (mmHg)', '120')
@@ -335,7 +337,7 @@ describe('New triage & vitals', () => {
     expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'vitals',
       { recordedAt: expect.any(String), source: 'manual', systolicMmhg: 120, diastolicMmhg: 80, temperatureC: 37.2 }, expect.any(String))
     expect(api.lookupPatient.mock.invocationCallOrder.at(-2)!).toBeLessThan(api.createRecord.mock.invocationCallOrder[0]!)
-    expect(screen.getByRole('heading', { level: 1, name: 'f1111111' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: /^Vitals · \d/ })).toBeTruthy()
   })
 
   it('shows no sample fields at a real facility: everything in the form is saved', async () => {
@@ -452,7 +454,7 @@ describe('New triage & vitals', () => {
     // Page 2's visit is offered; the one chosen stays chosen, and today's sentence says it is on another page.
     expect(Array.from(visit.options).map(option => option.value)).toEqual(['', ENCOUNTER_ID, second.id])
     expect(visit.value).toBe(ENCOUNTER_ID)
-    const elsewhere = `The encounter being documented, ambulatory started ${formatWhen(ENCOUNTER.startedAt)}, is on another page.`
+    const elsewhere = `The visit being documented (Outpatient visit, started ${formatWhen(ENCOUNTER.startedAt)}) is on another page.`
     expect(described(visit)).toBe(`Presenting complaint: Fever, headache ${elsewhere}`)
     // Each is a line of its own, as today's sentence is (Clinical.tsx:1795), not run on after the complaint.
     const hint = document.getElementById(visit.getAttribute('aria-describedby')!)!
@@ -557,7 +559,7 @@ describe('New triage & vitals', () => {
 describe('Triage & Vitals record', () => {
   async function openRecord() {
     open(RECORD)
-    expect(await screen.findByRole('heading', { level: 1, name: 'f0000000' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: vitalName(VITAL) })).toBeTruthy()
   }
 
   function saved() {
@@ -575,9 +577,9 @@ describe('Triage & Vitals record', () => {
     open(RECORD)
     expect(await screen.findByText('Loading records…')).toBeTruthy()
     await act(async () => encounter.resolve(ENCOUNTER))
-    expect(await screen.findByRole('heading', { level: 1, name: 'f0000000' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: vitalName(VITAL) })).toBeTruthy()
     const card = saved()
-    expect(within(card).getByText('e0000000')).toBeTruthy()
+    expect(within(card).getByText(consultationLabel(ENCOUNTER))).toBeTruthy()
     expect(within(card).getByText('Fever, headache')).toBeTruthy()
     expect(within(card).getByText('120/80')).toBeTruthy()
     expect(within(card).getByText('72')).toBeTruthy()
@@ -585,7 +587,7 @@ describe('Triage & Vitals record', () => {
     expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.encounter.mock.invocationCallOrder[0]!)
     expect(api.encounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID)
     const history = screen.getByRole('heading', { level: 2, name: 'History' }).closest('section')!
-    expect(within(history).getByRole('link', { name: 'Consultation · e0000000' }).getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
+    expect(within(history).getByRole('link', { name: consultationLabel(ENCOUNTER) }).getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
   })
 
   it('says when the vitals were recorded, as today’s "Recorded" does, and prints stored decimals as the design does (display only)', async () => {
@@ -884,11 +886,11 @@ describe('Triage & Vitals record', () => {
     await openRecord()
     await waitFor(() => expect(within(history()).queryByText('Loading records…')).toBeNull())
     expect(historyRows()).toEqual([
-      ['Consultation · e0000000', `/provider/clinical/${ENCOUNTER_ID}`],
+      [consultationLabel(ENCOUNTER), `/provider/clinical/${ENCOUNTER_ID}`],
       ['Laboratory · Full blood count', `/provider/clinical/${ENCOUNTER_ID}/orders/laboratory/${LAB_ID}`],
       // Today's word for an order with no name.
       ['Pharmacy · Prescription', `/provider/clinical/${ENCOUNTER_ID}/orders/pharmacy/${PRESCRIPTION_ID}`],
-      ['Nursing observations · c0000000', `/provider/nursing/${ENCOUNTER_ID}~${OBSERVATION_ID}`],
+      [`Nursing observations · ${formatWhen(OBSERVATION.createdAt)}`, `/provider/nursing/${ENCOUNTER_ID}~${OBSERVATION_ID}`],
     ])
     expect(within(history()).getAllByRole('listitem').map(row => row.lastElementChild?.textContent)).toEqual(['In progress', 'Completed', 'Active', 'Draft'])
     expect(within(history()).queryByText(/f2222222|c2222222|c9999999/)).toBeNull()
@@ -904,10 +906,10 @@ describe('Triage & Vitals record', () => {
     others = { 'clinical-notes': [OBSERVATION], 'lab-requests': [LAB], prescriptions: [PRESCRIPTION] }
     staff.permissions = ['ehr.vital.read', 'ehr.vital.write']
     let view = open(RECORD)
-    await screen.findByRole('heading', { level: 1, name: 'f0000000' })
+    await screen.findByRole('heading', { level: 1, name: vitalName(VITAL) })
     await act(async () => {})
     // Without encounter read the visit is named, not linked; without note, lab or prescription read nothing else is read.
-    expect(historyRows()).toEqual([['Consultation · e0000000', null]])
+    expect(historyRows()).toEqual([[consultationLabel(ENCOUNTER), null]])
     expect(api.records.mock.calls.map(call => call[3])).toEqual(['vitals'])
     view.unmount()
 
@@ -919,13 +921,13 @@ describe('Triage & Vitals record', () => {
       return { items: kind === 'vitals' ? vitals : others[kind] ?? [], nextCursor: null }
     })
     view = open(RECORD)
-    await screen.findByRole('heading', { level: 1, name: 'f0000000' })
+    await screen.findByRole('heading', { level: 1, name: vitalName(VITAL) })
     expect(await within(history()).findByText('Loading records…')).toBeTruthy()
     await act(async () => notesRead.resolve({ items: [OBSERVATION], nextCursor: null }))
     expect(within(history()).queryByText('Loading records…')).toBeNull()
     expect(within(history()).getByRole('alert').textContent).toBe('This role may not read prescriptions.')
     // The other rows still show, and the record itself is unaffected.
-    expect(historyRows().map(row => row[0])).toEqual(['Consultation · e0000000', 'Laboratory · Full blood count', 'Nursing observations · c0000000'])
+    expect(historyRows().map(row => row[0])).toEqual([consultationLabel(ENCOUNTER), 'Laboratory · Full blood count', `Nursing observations · ${formatWhen(OBSERVATION.createdAt)}`])
     expect(within(saved()).getByText('120/80')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Correct these vitals' })).toBeTruthy()
     view.unmount()
@@ -944,20 +946,20 @@ describe('Triage & Vitals record', () => {
     const pages = await within(history()).findByRole('group', { name: 'Nursing observations' })
     expect(within(pages).getByRole('navigation', { name: 'Record pages' })).toBeTruthy()
     expect(within(pages).getByText('Page 1')).toBeTruthy()
-    expect(historyRows()).toEqual([['Consultation · e0000000', `/provider/clinical/${ENCOUNTER_ID}`]])
+    expect(historyRows()).toEqual([[consultationLabel(ENCOUNTER), `/provider/clinical/${ENCOUNTER_ID}`]])
 
     fireEvent.click(within(pages).getByRole('button', { name: 'Next page' }))
-    expect(await within(history()).findByText('Nursing observations · c0000000')).toBeTruthy()
+    expect(await within(history()).findByText(`Nursing observations · ${formatWhen(OBSERVATION.createdAt)}`)).toBeTruthy()
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: 'notes-2', fresh: false })
     expect(within(pages).getByText('Page 2')).toBeTruthy()
-    expect(historyRows()).toContainEqual(['Nursing observations · c0000000', `/provider/nursing/${ENCOUNTER_ID}~${OBSERVATION_ID}`])
+    expect(historyRows()).toContainEqual([`Nursing observations · ${formatWhen(OBSERVATION.createdAt)}`, `/provider/nursing/${ENCOUNTER_ID}~${OBSERVATION_ID}`])
 
     // A failed move keeps the page shown and says so beside its pager.
     refuseFirst = true
     fireEvent.click(within(pages).getByRole('button', { name: 'Previous page' }))
     const failed = await within(pages).findByRole('alert')
     expect(failed.textContent).toContain('The page could not be loaded.')
-    expect(within(history()).getByText('Nursing observations · c0000000')).toBeTruthy()
+    expect(within(history()).getByText(`Nursing observations · ${formatWhen(OBSERVATION.createdAt)}`)).toBeTruthy()
     expect(within(pages).getByText('Page 2')).toBeTruthy()
     // The record itself is unaffected, and no cursor reaches the address.
     expect(within(saved()).getByText('120/80')).toBeTruthy()
@@ -968,11 +970,11 @@ describe('Triage & Vitals record', () => {
     staff.permissions = ['ehr.vital.read', 'ehr.vital.write', 'ehr.lab-request.read', 'ehr.prescription.read']
     others = { 'lab-requests': [LAB], prescriptions: [PRESCRIPTION] }
     open(RECORD)
-    await screen.findByRole('heading', { level: 1, name: 'f0000000' })
+    await screen.findByRole('heading', { level: 1, name: vitalName(VITAL) })
     await waitFor(() => expect(within(history()).queryByText('Loading records…')).toBeNull())
     // Named, not linked: Consultation (where the visit and its orders open) needs encounter read.
     expect(historyRows()).toEqual([
-      ['Consultation · e0000000', null],
+      [consultationLabel(ENCOUNTER), null],
       ['Laboratory · Full blood count', null],
       ['Pharmacy · Prescription', null],
     ])
@@ -985,7 +987,7 @@ describe('Triage & Vitals record', () => {
     api.vitalCorrections.mockResolvedValue([{ ...CORRECTIONS[0]!, replacementValues: { ...all, pulseBpm: 76 } }])
     const proper = ['BP', 'Pulse', 'Temperature', 'SpO₂', 'Respiratory rate', 'Weight', 'Height']
     const view = open(RECORD)
-    await screen.findByRole('heading', { level: 1, name: 'f0000000' })
+    await screen.findByRole('heading', { level: 1, name: vitalName(VITAL) })
     expect(await within(saved()).findByText('Cuff too small')).toBeTruthy()
     expect(labels(saved())).toEqual(['Visit', 'Complaint', ...proper, 'Reason', 'Corrected at'])
     const versions = screen.getByRole('heading', { level: 2, name: 'Earlier versions' }).closest('section')!
@@ -994,7 +996,7 @@ describe('Triage & Vitals record', () => {
     view.unmount()
 
     open()
-    fireEvent.click(await screen.findByRole('button', { name: 'Quick view f0000000' }))
+    fireEvent.click(await screen.findByRole('button', { name: `Quick view ${vitalName(VITAL)}` }))
     const drawer = await screen.findByRole('dialog', { name: 'Record quick view' })
     await within(drawer).findByText('76')
     expect(labels(drawer)).toEqual(expect.arrayContaining(proper))

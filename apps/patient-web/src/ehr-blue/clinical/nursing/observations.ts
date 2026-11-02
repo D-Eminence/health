@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { staffApi, type ClinicalRecord, type NoteRevision } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import type { Chart } from '../parts/chart'
+import { formatWhen } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 
 /** The sidebar label, the list's heading; the create page's heading ("New " + the label, lower case). */
@@ -21,6 +22,12 @@ const UNITS = 'Units / dose: '
 /** Today's note content limit, less room for the units line. */
 export const DETAILS_LIMIT = 99_000
 export const UNITS_LIMIT = 200
+
+/** An observation named by when it was recorded ("Observation · 2 Nov 2026, 09:14"), never by its id. */
+export function observationName(record: Pick<ClinicalRecord, 'createdAt'>): string {
+  const when = formatWhen(record.createdAt)
+  return when ? `Observation · ${when}` : 'Observation'
+}
 
 export function isObservation(record: ClinicalRecord) {
   return record.noteType === NOTE_TYPE

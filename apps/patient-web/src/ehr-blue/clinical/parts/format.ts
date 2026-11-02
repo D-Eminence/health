@@ -20,11 +20,6 @@ export function formatDate(value: string | null | undefined): string {
   return Number.isNaN(day.getTime()) ? '' : day.toLocaleDateString('en-GB', DAY)
 }
 
-/** The short reference under a record's name: the first eight characters of its id. */
-export function shortId(id: string): string {
-  return id.slice(0, 8)
-}
-
 /** A status as the design's badges print it: lower case words; underscores become spaces. */
 export function statusLabel(status: string): string {
   return status.replaceAll('_', ' ')

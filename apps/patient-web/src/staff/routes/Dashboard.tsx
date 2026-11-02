@@ -9,6 +9,7 @@ import { useStaff } from '../App'
 import { accessRequestsError } from './AccessRequests'
 import { FacilityCheckCard } from './ReviewBanner'
 import { usesNovuBackend } from '../../backendContract'
+import { offeredHere, servedHere, SITE_PRODUCT_NAMES, siteOf } from '../../productSites'
 import { isHidApiError } from '@hid/http'
 import { roleLabels } from '../staffAccess'
 import {
@@ -230,9 +231,21 @@ export function Dashboard() {
   const session = state.status === 'ready' ? state.session : null
   const facility = session?.actor.facility
   const permissions = facility?.permissions ?? []
+  // Each product on its own site (productSites.ts): the Overview offers what this site's product opens, and reads only
+  // for it. The others it mentions are another product's own pages, on that product's site.
+  const requestsHere = permissions.includes('identity.consent.write') && offeredHere('/provider/requests')
+  const workspaces = modules.filter(module => permissions.includes(module.permission))
+  const workspacesHere = workspaces.filter(module => offeredHere(module.to))
+  const workspacesElsewhere = workspaces.some(module => !servedHere(module.to))
+  // A role whose workspaces are all the hospital EHR's has none on a product site, which leaves them out and links to
+  // none of them: the Overview says so, by the product's plain name, rather than show an empty list.
+  const noWorkspaceHere = workspaces.length > 0 && workspacesHere.length === 0 && !workspacesElsewhere
+  const site = siteOf(window.location.hostname)
+  const productName = site ? SITE_PRODUCT_NAMES[site.key] : 'Health ID'
+  const clinicalHere = offeredHere('/provider/clinical')
 
   useEffect(() => {
-    if (!facility || !permissions.includes('identity.consent.write')) return
+    if (!facility || !requestsHere) return
     let active = true
     void staffApi.listAccessRequests(facility.id).then(items => { if (active) setRequests(items) })
       .catch(error => { if (active) setLoadError(accessRequestsError(error)) })
@@ -252,15 +265,15 @@ export function Dashboard() {
     {facility && <div className="staff-grid">
       <Card className="staff-card"><h2>Active facility</h2><p>{facility.name}</p><Badge tone="information">{(usesNovuBackend() ? roleLabels(facility.roles) : facility.roles.join(', ')) || 'Staff'}</Badge></Card>
       <FacilityCheckCard facility={facility} />
-      {permissions.includes('identity.consent.write') && <Card className="staff-card"><h2>Access requests</h2><p>{requests ? `${requests.filter(request => request.status === 'pending').length} pending request${requests.filter(request => request.status === 'pending').length === 1 ? '' : 's'}` : loadError || 'Loading requests…'}</p><Link to="/provider/requests" className="staff-text-link">Review requests →</Link></Card>}
+      {requestsHere && <Card className="staff-card"><h2>Access requests</h2><p>{requests ? `${requests.filter(request => request.status === 'pending').length} pending request${requests.filter(request => request.status === 'pending').length === 1 ? '' : 's'}` : loadError || 'Loading requests…'}</p><Link to="/provider/requests" className="staff-text-link">Review requests →</Link></Card>}
       {usesNovuBackend() && receiving.length > 0 && <IncomingOrdersCard facility={facility} services={receiving} unsure={unsure}
         sure={sure} />}
-      {usesNovuBackend() && permissions.includes('ehr.order-route.send') && <WrongPatientOrdersCard key={facility.id}
+      {usesNovuBackend() && permissions.includes('ehr.order-route.send') && clinicalHere && <WrongPatientOrdersCard key={facility.id}
         facilityId={facility.id} facilityName={facility.name} />}
-      {activePatient && <Card className="staff-card"><h2>Current patient</h2><p>{activePatient.lookup.patient.fullName ?? activePatient.hid}</p><Link to="/provider/clinical" className="staff-text-link">Open clinical record →</Link></Card>}
+      {activePatient && clinicalHere && <Card className="staff-card"><h2>Current patient</h2><p>{activePatient.lookup.patient.fullName ?? activePatient.hid}</p><Link to="/provider/clinical" className="staff-text-link">Open clinical record →</Link></Card>}
     </div>}
-    <section className="staff-section"><h2>Workspaces</h2><div className="staff-grid">{modules.filter(module => permissions.includes(module.permission)).map(module => <Link className="staff-module" key={module.to} to={module.to}><strong>{module.title}</strong><span>{module.detail}</span><small>Open workspace →</small></Link>)}</div>{facility && !holdsClinicalModule(permissions) && <p className="staff-muted">Your active facility has no clinical module permissions. Ask an administrator to review your assignment.</p>}</section>
+    <section className="staff-section"><h2>Workspaces</h2><div className="staff-grid">{workspacesHere.map(module => <Link className="staff-module" key={module.to} to={module.to}><strong>{module.title}</strong><span>{module.detail}</span><small>Open workspace →</small></Link>)}</div>{facility && !holdsClinicalModule(permissions) && <p className="staff-muted">Your active facility has no clinical module permissions. Ask an administrator to review your assignment.</p>}{workspacesElsewhere && <p className="staff-muted">Your other workspaces are on other Health ID sites, linked in the sidebar.</p>}{noWorkspaceHere && <p className="staff-muted">Your role has no workspace in {productName}. Ask an administrator to review your assignment.</p>}</section>
     {/* It leads only to Document OCR, which a role without ocr.job.read cannot open: OCR is closed at launch, and no role holds it (hid-system 0091). */}
-    {permissions.includes('ocr.job.read') && <Card className="staff-card staff-gap-card"><h2>Health ID Migrate</h2><p>Document capture, extraction, validation, and publication.</p><Link to="/provider/ocr" className="staff-text-link">Open document workflow →</Link></Card>}
+    {permissions.includes('ocr.job.read') && offeredHere('/provider/ocr') && <Card className="staff-card staff-gap-card"><h2>Health ID Migrate</h2><p>Document capture, extraction, validation, and publication.</p><Link to="/provider/ocr" className="staff-text-link">Open document workflow →</Link></Card>}
   </>
 }

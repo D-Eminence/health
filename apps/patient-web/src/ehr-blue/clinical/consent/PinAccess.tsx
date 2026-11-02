@@ -6,6 +6,7 @@ import { Alert, Button, Card, Field, Input } from '../../../kasuwa/ui'
 import { useNavigate } from 'react-router-dom'
 import { staffApi } from '../../../staff/api'
 import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/session'
+import { isDemoFacility } from '../../blueFacilities'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import {
   HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem, offeredHealthId,
@@ -15,9 +16,16 @@ import {
 export const PIN_PROBLEM = 'Enter the patient’s 4 to 8 digit access PIN.'
 
 /**
+ * At the demo facilities only: which demo patients have an Access PIN, where a tester gets it, what to use for the others,
+ * and how wrong PINs pause the check. The PIN itself is never here: this website is public.
+ */
+export const DEMO_PIN_NOTE = 'Adaeze Okafor (HID-ZDEMAAA2) and Chinedu Okafor (HID-ZDEMAAA3) have an Access PIN. If you are testing the demo, ask the Health ID team for it. The other demo patients have no login, so they have no PIN: use emergency access for them. Five wrong PINs in 15 minutes pause PIN checks for this demo login here for 15 minutes.'
+
+/**
  * Patient PIN access (today's "Patient PIN" method), one column. The Health ID handed over from Find a patient is
  * already in it, so the PIN field takes focus. Once the session that sent the PIN is ready again, the patient lookup
- * opens the record, and only an allowed lookup does.
+ * opens the record, and only an allowed lookup does. At a demo facility, the form first says which demo patients have a
+ * PIN and where a tester gets it.
  */
 export function PinAccess() {
   const { facility, permissions, setActivePatient } = useClinical()
@@ -82,6 +90,7 @@ export function PinAccess() {
       back={{ to: href(), label: 'Back to access requests' }}>
       <Card>
         <form noValidate className="flex flex-col gap-5 p-5" onSubmit={event => void submit(event)}>
+          {isDemoFacility(facility?.id) ? <p className="m-0 text-[13px] text-ink-3">{DEMO_PIN_NOTE}</p> : null}
           <Field label="Health ID" htmlFor={hidId} hint={HID_FORMAT} hintId={`${hidId}-hint`} error={shown('hid')} errorId={`${hidId}-error`}>
             <Input id={hidId} autoComplete="off" spellCheck={false} required value={hid} placeholder="HID-ADA2345"
               className="font-medium tracking-[.06em] uppercase"

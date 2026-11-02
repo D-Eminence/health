@@ -39,20 +39,33 @@ const meta = async (fileName: string) => (await screen.findByText(fileName)).nex
 describe('patient record documents', () => {
   it('formats a size sent as a string, as pg sends a bigint', async () => {
     renderRecords({ ...empty, documents: [upload('1234567'), upload('20480', 'small.pdf')] })
-    expect(await meta('referral.pdf')).toBe('PDF · 1.2 MB')
-    expect(await meta('small.pdf')).toBe('PDF · 20 KB')
+    expect(await meta('referral.pdf')).toBe('PDF document · 1.2 MB')
+    expect(await meta('small.pdf')).toBe('PDF document · 20 KB')
   })
 
   it('formats a size sent as a number the same way', async () => {
     renderRecords({ ...empty, documents: [upload(1234567), upload(20480, 'small.pdf')] })
-    expect(await meta('referral.pdf')).toBe('PDF · 1.2 MB')
-    expect(await meta('small.pdf')).toBe('PDF · 20 KB')
+    expect(await meta('referral.pdf')).toBe('PDF document · 1.2 MB')
+    expect(await meta('small.pdf')).toBe('PDF document · 20 KB')
   })
 
   it('leaves the size out when it is missing or not a number, never a wrong one', async () => {
     renderRecords({ ...empty, documents: [upload(null), upload('not a size', 'scan.pdf')] })
-    expect(await meta('referral.pdf')).toBe('PDF')
-    expect(await meta('scan.pdf')).toBe('PDF')
+    expect(await meta('referral.pdf')).toBe('PDF document')
+    expect(await meta('scan.pdf')).toBe('PDF document')
     expect(document.body.textContent).not.toMatch(/NaN|undefined|null/)
+  })
+})
+
+/** Owner, 2 November: a visit's kind and status in plain words, never the system's lower-case class ("ambulatory"). */
+describe('patient record visits', () => {
+  it('names the kind of visit and where it is in plain words', async () => {
+    renderRecords({ ...empty, encounters: [
+      { id: 'enc-1', facilityId: 'facility-1', encounterType: 'ambulatory', status: 'in_progress', startedAt: '2026-10-01T08:00:00.000Z', endedAt: null },
+      { id: 'enc-2', facilityId: 'facility-1', encounterType: 'IMP', status: 'finished', startedAt: '2026-09-01T08:00:00.000Z', endedAt: null },
+    ], documents: [] })
+    expect((await screen.findByText('Outpatient visit')).nextElementSibling?.textContent).toBe('In progress')
+    expect((await screen.findByText('Inpatient stay')).nextElementSibling?.textContent).toBe('Finished')
+    expect(document.body.textContent).not.toMatch(/ambulatory|Ambulatory|\bIMP\b/)
   })
 })

@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { Actor } from '../staff/api'
+import type { StaffProductKey } from '../productHostname'
 import { BLUE_FOR_ALL } from './clinicSwitch'
 import { PAGE_FILES } from './pageSets'
 
@@ -20,6 +21,19 @@ export const BLUE_FACILITIES = [
 ] as const
 
 const BLUE_IDS: ReadonlySet<string> = new Set(BLUE_FACILITIES.map(facility => facility.id))
+
+/** The staff site each demo facility works on (owner, 2026-10-31: each product on its own site, productSites.ts). */
+const DEMO_FACILITY_SITES: ReadonlyMap<string, StaffProductKey> = new Map([
+  ['98d00002-0000-4000-8000-000000000001', 'ehr'],
+  ['98d00002-0000-4000-8000-000000000002', 'lab'],
+  ['98d00002-0000-4000-8000-000000000003', 'pharmacy'],
+  ['98d00002-0000-4000-8000-000000000004', 'outreach'],
+])
+
+/** The staff site a demo facility works on; null for any other facility, which works on the site it is opened on. */
+export function demoFacilitySite(id: string | null | undefined): StaffProductKey | null {
+  return typeof id === 'string' ? DEMO_FACILITY_SITES.get(id.toLowerCase()) ?? null : null
+}
 
 /** The page sets whose arrival switches the blue EHR on for every facility. */
 export const SWITCH_PAGE_SETS = ['./clinical/pages.ts', './departments/pages.ts'] as const

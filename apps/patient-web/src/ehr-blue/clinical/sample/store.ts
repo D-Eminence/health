@@ -222,15 +222,17 @@ export interface HistoryEntry {
  * "Connected hospital history": the same patient's records in the other workspaces, in the design's module order: a
  * sample workspace's records, and for a workspace with no sample definition (a live one) the seed's fictional
  * history-only rows (audit item 17), which only this sample page shows. A visit lists only the rows started from it.
+ * Only workspaces `canOpen` allows are listed (audit item 16: the design lists the modules the role may view), the
+ * live ones' fictional rows included, since they are sample content on a sample page.
  */
-export function historyFor(current: SampleState, definition: SampleDefinition, record: SampleRecord): HistoryEntry[] {
+export function historyFor(current: SampleState, definition: SampleDefinition, record: SampleRecord, canOpen: (workspace: string) => boolean): HistoryEntry[] {
   const patientId = record.patientId
   if (!patientId) return []
   const included = (item: { readonly patientId?: string; readonly parentId?: string }) =>
     item.patientId === patientId && (!definition.historyFromRecord || item.parentId === record.id)
   const entries: HistoryEntry[] = []
   for (const id of HISTORY_ORDER) {
-    if (id === definition.id) continue
+    if (id === definition.id || !canOpen(id)) continue
     const other = sampleDefinition(id)
     if (other) {
       for (const item of listedRecords(current, other).filter(included)) {

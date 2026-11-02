@@ -170,13 +170,15 @@ describe('closing the grant that opened a record', () => {
 
   // POST /identity/consent-grants/:grantId/close requires identity.consent.write
   // (hid-system identity consent.controller.ts; contracts registry access.closeOwnGrant).
-  it('is unavailable to a role without identity.consent.write, and says why', () => {
+  it('is unavailable to a role without identity.consent.write, and says why in plain words', () => {
     staff.permissions = ['identity.patient.read', 'identity.patient-access-pin.verify', 'ehr.encounter.read', 'ehr.note.read']
     staff.activePatient = { hid: 'HID-ABCDEF', purpose: 'direct-care', lookup: allowedLookup('c0000000-0000-4000-8000-000000000001') }
     render(<MemoryRouter><Patients /></MemoryRouter>)
     const close = screen.getByRole('button', { name: 'Close my grant' }) as HTMLButtonElement
     expect(close.disabled).toBe(true)
-    expect(document.getElementById(close.getAttribute('aria-describedby') ?? '')?.textContent).toMatch(/identity\.consent\.write/)
+    expect(document.getElementById(close.getAttribute('aria-describedby') ?? '')?.textContent)
+      .toBe('Your role at this facility can’t close this grant. Ask your facility administrator.')
+    expect(document.body.textContent).not.toContain('identity.consent.write')
     fireEvent.click(close)
     expect(api.closeGrant).not.toHaveBeenCalled()
   })

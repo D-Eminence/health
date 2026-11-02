@@ -3,6 +3,7 @@ import {
   staffApi, type RegistrationCapabilities, type RegistrationCase, type RegistrationEnrollment, type ResolveNinInput,
 } from '../../../staff/api'
 import { useStaff } from '../../../staff/App'
+import { refusedWorkText } from '../../../staff/refusedWork'
 import { focusLost } from '../../../pageFocus'
 import { useDeptAccess } from '../parts/access'
 import { DeptUnavailable } from '../parts/DeptPage'
@@ -13,8 +14,8 @@ import { FIELD, START_HEADING, type Availability, type CaseLoading, type ReviewA
 import { useCommandKey, useFormProblems } from './registrationParts'
 import {
   APPROVE_PERMISSION, APPROVED, CAPABILITY_FAILED, CANDIDATE_REFUSED, CASE_CREATED, CASE_CREATED_RELOAD, CASE_ID_REFUSED,
-  CASE_LOAD_FAILED, COMPLETED, ENROLL_FAILED, ENROLL_REFUSED, ENROLLED, LINKED, NAME_DATE_REFUSED, NIN_REFUSED, REVIEW_FAILED,
-  REVIEW_REASON_REFUSED, safeError, UNAVAILABLE_MESSAGE, UNAVAILABLE_TITLE, UUID, VERIFY_FAILED, WRITE_PERMISSION,
+  CASE_LOAD_FAILED, COMPLETED, ENROLL_FAILED, ENROLL_REFUSED, ENROLLED, LINKED, NAME_DATE_REFUSED, NIN_REFUSED, REGISTRATION_WORK,
+  REVIEW_FAILED, REVIEW_REASON_REFUSED, safeError, UNAVAILABLE_TITLE, UUID, VERIFY_FAILED, WRITE_PERMISSION,
 } from './registrationText'
 import './registration.css'
 
@@ -28,9 +29,14 @@ import './registration.css'
 /** Where the page is. In memory only: nothing about a case goes in the address or the history. */
 type View = { kind: 'list' } | { kind: 'new' } | { kind: 'case'; caseId: string }
 
-/** Today's refusal without a facility or the write permission (Registration.tsx 215): also the frame's at the address. */
+/**
+ * The refusal without a facility or the write permission (Registration.tsx 215): also the frame's at the address. Its
+ * sentence follows who reads it, as the Laboratory's and Pharmacy's do: a self-signed-up facility's administrator is
+ * never told to ask themselves.
+ */
 export function RegistrationUnavailable() {
-  return <DeptUnavailable title={UNAVAILABLE_TITLE} message={UNAVAILABLE_MESSAGE} />
+  const { facility, permissions } = useDeptAccess()
+  return <DeptUnavailable title={UNAVAILABLE_TITLE} message={refusedWorkText(facility, permissions, REGISTRATION_WORK)} />
 }
 
 export function PatientRegistration() {
