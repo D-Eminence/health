@@ -184,11 +184,19 @@ describe('opening the status page', () => {
     expect(api.current).toHaveBeenCalledTimes(1)
   })
 
-  it('links to the main site on a staff product host, with no form and no request', () => {
-    vi.stubGlobal('location', { ...window.location, hostname: 'lab.staging.healthidentitydirectory.com' })
+  it('on a product site, is the site’s own page and opens nothing else', () => {
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname: 'lab.staging.healthidentitydirectory.com', replace })
     open()
-    expect(screen.getByRole('link', { name: 'Continue on the Health ID site' }).getAttribute('href'))
-      .toBe('https://staging.healthidentitydirectory.com/provider/join/status')
+    expect(replace).not.toHaveBeenCalled()
+    expect(screen.queryByRole('link', { name: 'Continue on the Health ID site' })).toBeNull()
+  })
+
+  it('on an admin site, which serves no staff pages, opens the EHR site’s page at once, with no request', () => {
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname: 'admin.staging.healthidentitydirectory.com', replace })
+    open()
+    expect(replace).toHaveBeenCalledWith('https://ehr.staging.healthidentitydirectory.com/provider/join/status')
     expect(api.current).not.toHaveBeenCalled()
   })
 })

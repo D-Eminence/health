@@ -365,9 +365,10 @@ describe('the ending, and the panels in place of a step', () => {
     ['hospital', 'ehr.healthidentitydirectory.com'],
     ['laboratory', 'lab.healthidentitydirectory.com'],
     ['pharmacy', 'pharmacy.healthidentitydirectory.com'],
-  ] as const)('on the production portal, which serves patients only, a %s’s administrator goes on to sign in at %s', async (type, site) => {
+    ['laboratory', 'lab.staging.healthidentitydirectory.com'],
+  ] as const)('on its own product site, a %s’s administrator is signed in on %s, and the workspace opens there', async (type, site) => {
     const reload = vi.fn()
-    vi.stubGlobal('location', { ...window.location, hostname: 'app.healthidentitydirectory.com', reload })
+    vi.stubGlobal('location', { ...window.location, hostname: site, reload, replace: vi.fn() })
     await toReview({ type })
     await submitRegistration()
     fireEvent.click(await screen.findByRole('button', { name: 'Continue to verification' }))
@@ -376,16 +377,14 @@ describe('the ending, and the panels in place of a step', () => {
     await screen.findByRole('heading', { level: 1, name: 'Create your provider account' })
     choosePassword()
     await screen.findByRole('heading', { level: 1, name: 'Your facility is set up' })
-    expect(screen.getByText('Your administrator account is ready.')).toBeTruthy()
-    expect(screen.getByText(`Sign in at ${site} with ${EMAIL} and the password you just chose.`)).toBeTruthy()
+    expect(screen.getByText('You’re signed in as your facility’s administrator.')).toBeTruthy()
     expect(screen.getByText(ORGANIZATION_TYPE_NOTES[type])).toBeTruthy()
-    // A plain link the browser follows itself, to one fixed address: never the portal's own staff pages.
-    const link = screen.getByRole('link', { name: 'Go to sign in' })
-    expect(link.getAttribute('href')).toBe(`https://${site}/provider/sign-in`)
-    expect(screen.queryByText('You’re signed in as your facility’s administrator.')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Continue to the Provider Portal' })).toBeNull()
+    // No other site to go to: never the patient portal, nor a sign-in somewhere else.
+    expect(screen.queryByRole('link', { name: 'Go to sign in' })).toBeNull()
     expect(TabChannel.posted).toEqual([TOLD])
-    expect(reload).not.toHaveBeenCalled()
+    fireEvent.click(button('Continue to the Provider Portal'))
+    expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
+    expect(reload).toHaveBeenCalledTimes(1)
   })
 
   it('outside production says to sign in to the Provider Portal next time, with the laboratory’s note', async () => {

@@ -103,8 +103,7 @@ describe('opening an invitation', () => {
     ['STAFF_INVITATION_WITHDRAWN', 410, 'This invitation is no longer available: the facility withdrew it, or can’t take new staff '
       + 'on Health ID right now. Ask the facility about it.'],
     ['STAFF_INVITATION_ALREADY_ACCEPTED', 409, 'This invitation has already been accepted. Sign in to use it.'],
-    ['STAFF_INVITATION_REQUIRES_SIGN_OUT', 409, 'This browser is signed in to Health ID, for example as a patient. Sign out, or '
-      + 'open the link in a private window.'],
+    // STAFF_INVITATION_REQUIRES_SIGN_OUT offers the signed-in join page or signing out (StaffInvitationSignedIn.test.tsx).
     ['STAFF_INVITATIONS_UNAVAILABLE', 423, 'Joining is paused by Health ID. Try again later.'],
     ['STAFF_INVITATION_RATE_LIMITED', 429, 'Too many invitations have been opened from your network. Please try again in an hour.'],
     ['TURNSTILE_CONTEXT_MISMATCH', 403, 'The security check was made for another Health ID site. Open the link in the invitation '
@@ -265,6 +264,9 @@ describe('what the invited person does next', () => {
       + 'the email.'],
     ['STAFF_INVITATION_WITHDRAWN', 410, 'This invitation is no longer available: Ikeja Care withdrew it, or can’t take new staff on '
       + 'Health ID right now. Ask the facility about it.'],
+    // Signed in somewhere else since the invitation was opened (another tab): the password step can't finish here.
+    ['STAFF_INVITATION_REQUIRES_SIGN_OUT', 409, 'This browser is signed in to Health ID, for example as a patient. Sign out, or '
+      + 'open the link in a private window.'],
   ])('says a refused acceptance (%s) in its own words', async (code, status, text) => {
     api.accept.mockRejectedValueOnce(new HidApiError(status, 'Identity’s detail', { code }))
     await openWith({})
@@ -275,25 +277,35 @@ describe('what the invited person does next', () => {
   })
 })
 
-describe('on a staff or admin site', () => {
-  it('carries the link to the signed-in join page on a staff site', async () => {
-    vi.stubGlobal('location', { ...window.location, hostname: 'lab.healthidentitydirectory.com', hash: `#${INVITATION}.${TOKEN}` })
-    render(<MemoryRouter initialEntries={[linkAddress]}><Routes>
-      <Route path="/provider/invitation" element={<StaffInvitation />} />
-      <Route path="/provider/staff/join" element={<><h1>Join on the staff site</h1><Where /></>} />
-    </Routes></MemoryRouter>)
-    expect(await screen.findByRole('heading', { name: 'Join on the staff site' })).toBeTruthy()
-    expect(screen.getByTestId('where').textContent).toBe(`/provider/staff/join#${INVITATION}.${TOKEN}`)
-    expect(api.open).not.toHaveBeenCalled()
-  })
+describe('on a product site, and on a site that serves no staff pages', () => {
+  it.each(['lab.healthidentitydirectory.com', 'pharmacy.healthidentitydirectory.com', 'ehr.staging.healthidentitydirectory.com'])(
+    'on the product site %s, opens the invitation itself (hid-system accepts it there): never the signed-in join page', async hostname => {
+      const replace = vi.fn()
+      vi.stubGlobal('location', { ...window.location, hostname, replace })
+      render(<MemoryRouter initialEntries={['/provider/invitation']}><Routes>
+        <Route path="/provider/invitation" element={<><StaffInvitation /><Where /></>} />
+        <Route path="/provider/staff/join" element={<h1>Join on the staff site</h1>} />
+      </Routes></MemoryRouter>)
+      expect(screen.getByTestId('where').textContent).toBe('/provider/invitation')
+      expect(screen.queryByRole('heading', { name: 'Join on the staff site' })).toBeNull()
+      expect(screen.getByRole('textbox', { name: /email/i })).toBeTruthy()
+      expect(replace).not.toHaveBeenCalled()
+      expect(api.open).not.toHaveBeenCalled()
+    })
 
-  it('links to the main site’s page from the admin site, without the link', () => {
-    vi.stubGlobal('location', { ...window.location, hostname: 'admin.healthidentitydirectory.com' })
-    render(<MemoryRouter initialEntries={[linkAddress]}><Routes>
+  it.each([
+    ['admin.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com'],
+    ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com'],
+    ['admin.staging.healthidentitydirectory.com', 'https://ehr.staging.healthidentitydirectory.com'],
+  ])('on %s, opens the EHR site’s page at once, with the link', (hostname, origin) => {
+    const replace = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname, replace })
+    render(<MemoryRouter initialEntries={[`/provider/invitation#${INVITATION}.${TOKEN}`]}><Routes>
       <Route path="/provider/invitation" element={<StaffInvitation />} />
     </Routes></MemoryRouter>)
-    expect(screen.getByRole('link', { name: 'Continue to the invitation page' }).getAttribute('href'))
-      .toBe('https://app.healthidentitydirectory.com/provider/invitation')
+    expect(replace).toHaveBeenCalledWith(`${origin}/provider/invitation#${INVITATION}.${TOKEN}`)
+    expect(screen.queryByText(/continue|main site/i)).toBeNull()
+    expect(api.open).not.toHaveBeenCalled()
   })
 })
 

@@ -6,6 +6,7 @@ import { Turnstile } from '../Turnstile'
 import { AuthLayout } from '../AuthLayout'
 import { createPrincipalRecoveryApi, type RecoveryAudience } from '../recoveryApi'
 import { STAFF_RECOVERY_PATH, staffRecoveryHref, staffSignInHref } from '../productHostname'
+import { OpenStaffPage } from '../staffSignIn'
 import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
 import { CODE_BUDGET_HINT, useCodeBudgetNote, useResendWait } from './recoveryWait'
 
@@ -15,7 +16,7 @@ type Step = 'start' | 'code' | 'password' | 'complete'
 export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) {
   const api = useMemo(() => createPrincipalRecoveryApi(audience), [audience])
   const signInPath = audience === 'staff' ? '/provider/sign-in' : '/admin/sign-in'
-  // On the production portal, staff sign in on the EHR site (staffSignInHref).
+  // On the production portal or an admin site, staff sign in on the EHR site (staffSignInHref).
   const signInElsewhere = audience === 'staff' ? staffSignInHref(window.location.hostname) : null
   const signInLink = (label: string, className?: string) => signInElsewhere
     ? <a className={className} href={signInElsewhere}>{label}</a>
@@ -42,16 +43,10 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
   const budget = useCodeBudgetNote()
   const resend = useResendWait()
 
-  // hid-system refuses a staff reset everywhere but the main site. Opened on a
-  // product or admin site (a bookmark, history), the page points there instead.
-  const mainSiteRecovery = audience === 'staff' ? staffRecoveryHref(window.location.hostname) : STAFF_RECOVERY_PATH
-  if (mainSiteRecovery !== STAFF_RECOVERY_PATH) {
-    return <AuthLayout brandTo={signInPath} title="Reset your password." titleId="principal-recovery-title"
-      lede={`${accountLabel} account recovery. Password resets are done on the main Health ID site.`}>
-      <a className="patient-primary-button auth-primary" href={mainSiteRecovery}>Reset your password on the main site</a>
-      <p className="patient-auth-footer">{signInLink(`Back to ${accountLabel.toLowerCase()} sign in`)}</p>
-    </AuthLayout>
-  }
+  // Each product site has its own staff reset, which hid-system accepts there (staff-reset). Opened on a site that
+  // serves no staff pages (the production portal, an admin site), the page opens the EHR site's at once.
+  const elsewhere = audience === 'staff' ? staffRecoveryHref(window.location.hostname) : STAFF_RECOVERY_PATH
+  if (elsewhere !== STAFF_RECOVERY_PATH) return <OpenStaffPage href={elsewhere} />
 
   async function run(operation: () => Promise<void>, stepCodes: readonly string[] = []) {
     const fromField = stepFocus.onTarget()

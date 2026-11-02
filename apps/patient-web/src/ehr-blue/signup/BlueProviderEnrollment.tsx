@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useDocumentTitle } from '../../authSteps'
 import { usesNovuBackend } from '../../backendContract'
 import { PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref } from '../../productHostname'
+import { OpenStaffPage } from '../../staffSignIn'
 import { ProviderEnrollment } from '../../staff/routes/ProviderEnrollment'
 import { ClosedPanel, CodeStep, FacilityReady, HelpPanel, MaybeActive, PasswordStep, Submitted, UnavailablePanel } from './AfterSubmit'
 import { isProduct } from './enrollmentRules'
@@ -20,28 +21,21 @@ import { useEnrollment } from './useEnrollment'
  * - On hid-system main (main-v1) it is today's page itself. The blue flow is Novu only (novu-v1, which production and
  *   staging build with): main adds an authenticator step after the password and counts codes itself, which the design
  *   does not draw.
- * - On a staff product host or the admin site it says, as today's does, that sign-up is done on the main Health ID site,
- *   with today's link (hid-system accepts the sign-up's security check only there), and asks nothing.
+ * - Each product site has its own (hid-system accepts the sign-up's security check there), starting with the site's own
+ *   product chosen (facilitySignUpPreset). On a site that serves no staff pages (the production patient portal, an
+ *   admin site) it opens the EHR site's at once, as today's does, keeping only a product it knows.
  */
 export function BlueProviderEnrollment() {
   if (!usesNovuBackend()) return <ProviderEnrollment />
   const elsewhere = providerEnrollmentHref(window.location.hostname)
-  return elsewhere === PROVIDER_ENROLLMENT_PATH ? <BlueEnrollmentSteps /> : <EnrollOnMainSite href={elsewhere} />
+  return elsewhere === PROVIDER_ENROLLMENT_PATH ? <BlueEnrollmentSteps /> : <EnrollElsewhere href={elsewhere} />
 }
 
-/** Today's EnrollOnMainSite (staff/routes/ProviderEnrollment.tsx:438-449), in the design's look. */
-function EnrollOnMainSite({ href }: { readonly href: string }) {
-  useDocumentTitle('Provider enrollment · Health ID Provider')
+/** Today's EnrollElsewhere (staff/routes/ProviderEnrollment.tsx): the EHR site's sign-up, with a product it knows. */
+function EnrollElsewhere({ href }: { readonly href: string }) {
   const [params] = useSearchParams()
   const product = params.get('product')
-  const target = isProduct(product) ? `${href}?product=${product}` : href
-  return (
-    <SignupShell centered onMainSite={false}>
-      <h1 className="hid-ehr-page-title hid-ehr-signup-title">Register your facility</h1>
-      <p className="hid-ehr-signup-lede">Facility sign-up is done on the main Health ID site.</p>
-      <a className="hid-ehr-button hid-ehr-signup-wide" href={target}>Continue to facility sign-up</a>
-    </SignupShell>
-  )
+  return <OpenStaffPage href={isProduct(product) ? `${href}?product=${product}` : href} />
 }
 
 function BlueEnrollmentSteps() {

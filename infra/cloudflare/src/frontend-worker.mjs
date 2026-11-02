@@ -89,24 +89,29 @@ const PATIENT_SIGN_IN_PATH = '/sign-in'
 const STAFF_WORKSPACE_PATH = '/provider'
 
 /**
- * The production patient portal serves patients only (owner, 2026-11-01): staff sign in on the EHR site, where
- * hid-system accepts staff-login, never on app. (owner decision, 2026-10-22). One fixed address, nothing from the
- * request copied into it. Staging's portal keeps its own staff sign-in.
+ * The production patient portal serves patients only (owner, 2026-11-01). Every staff page (/provider and every page
+ * under it: sign-in, recovery, facility sign-up, invitations, the clinician pages and the workspace) is on the product
+ * sites, each with its own, and hid-system accepts their security checks there; from the portal they open on the EHR
+ * site. One fixed origin: only the path and query are kept from the request. Staging's portal keeps its own staff pages.
  */
 const PRODUCTION_PORTAL_HOST = 'app.healthidentitydirectory.com'
+const PRODUCTION_EHR_ORIGIN = 'https://ehr.healthidentitydirectory.com'
 const PRODUCTION_STAFF_SIGN_IN = 'https://ehr.healthidentitydirectory.com/provider/sign-in'
 
 /**
- * The portal addresses that are the staff sign-in: the workspace's entrance, which asks for one, and the sign-in page,
- * each with or without a closing slash (the portal's router opens the same page either way). The portal's other
- * /provider pages stay its own: hid-system accepts their security checks (staff-reset, provider-enrollment,
- * staff-invitation, the clinician pages) only there for now.
+ * A staff page: /provider or any page under it, in any case (the portal's router opens the same page in any case, with
+ * or without a closing slash). /providers and the like are not.
  */
-const PORTAL_STAFF_SIGN_IN_PATHS = Object.freeze(['/provider', '/provider/', '/provider/sign-in', '/provider/sign-in/'])
+const STAFF_PATH = /^\/provider(?:\/|$)/i
+
+/** Where the production patient portal sends its staff pages, or '' on any other site. */
+function portalStaffSite(deployment) {
+  return deployment.application === 'web' && deployment.expectedHost === PRODUCTION_PORTAL_HOST ? PRODUCTION_EHR_ORIGIN : ''
+}
 
 /** Where the production patient portal sends staff to sign in, or '' on any other site. */
 function portalStaffSignIn(deployment) {
-  return deployment.application === 'web' && deployment.expectedHost === PRODUCTION_PORTAL_HOST ? PRODUCTION_STAFF_SIGN_IN : ''
+  return portalStaffSite(deployment) ? PRODUCTION_STAFF_SIGN_IN : ''
 }
 
 /** The addresses of a site's front page. */
@@ -130,7 +135,7 @@ const SIGNED_IN_COOKIE = 'hid_access_csrf'
 const SIGN_IN_RECHECK_MS = 10000
 const SIGN_IN_RECHECK_KEY = 'hid-front-page-recheck'
 
-/** The products a facility signs up for on the portal's /provider/enroll (public-web APPLICATION_PRODUCTS). */
+/** The products a facility signs up for on a product site's /provider/enroll (public-web APPLICATION_PRODUCTS). */
 const APPLICATION_PRODUCTS = Object.freeze(['ehr', 'migrate', 'laboratory', 'pharmacy'])
 
 /**
@@ -286,12 +291,13 @@ function productSiteOf(pathname, deployment) {
  * Where each link on a landing page leads when the page is shown on a product site or the patient portal. The page was
  * built for the public site, so its addresses are the public site's: a link to a section of this same page
  * (/patients#steps on the patient page) stays on it, as a link within the page; a link to another public page opens on
- * the public site; a product's page opens on that product's own site, at the section asked for; "Setup Your Facility"
- * opens the portal's facility sign-up, where Identity accepts its security check (productHostname.ts,
- * providerEnrollmentHref). On a product site, staff sign-in opens this site's workspace entrance, which asks for a
- * sign-in itself; on the production patient portal, which serves patients only, the EHR site's sign-in. On the patient
- * portal, a link to the portal's front page opens its sign-in instead, as that front page is this page to someone not
- * signed in. Anything else (mailto:, the patient portal's other pages, a link within
+ * the public site; a product's page opens on that product's own site, at the section asked for. "Setup Your Facility"
+ * (the public site's /provider/apply, or the portal's /provider/enroll) opens this product site's own facility sign-up,
+ * where Identity accepts its security check (productHostname.ts, providerEnrollmentHref); on the production patient
+ * portal, which serves patients only, the EHR site's; on staging's portal, its own. On a product site, staff sign-in
+ * opens this site's workspace entrance, which asks for a sign-in itself; on the production patient portal, the EHR
+ * site's sign-in. On the patient portal, a link to the portal's front page opens its sign-in instead, as that front page
+ * is this page to someone not signed in, and its other patient pages stay on it. Anything else (mailto:, a link within
  * the page) is left as it is.
  *
  * The same function rewrites the page's links at the edge and, copied into the page as its source text, the links
@@ -318,6 +324,10 @@ export function landingHref(href, site) {
   }
   if (target.origin === site.portalOrigin) {
     if (site.staffSignIn && target.pathname === '/provider/sign-in') return site.staffSignIn
+    if (target.pathname === '/provider/enroll') {
+      var chosen = target.searchParams.get('product')
+      return site.enroll + (chosen && site.applicationProducts.indexOf(chosen) !== -1 ? '?product=' + chosen : '')
+    }
     if (site.patientSignIn && target.pathname === '/') return site.patientSignIn
   }
   return href
@@ -344,6 +354,10 @@ function landingSite(deployment) {
   const products = {}
   for (const [app, page] of Object.entries(PRODUCT_LANDING_PAGES)) products[page.slug] = `https://${deployment.hosts[app]}/`
   const signIn = `https://${deployment.expectedHost}${deployment.landing.signIn}`
+  // Where this page's staff pages are: this product site's own; the EHR site's from the production patient portal;
+  // staging's portal's own.
+  const staffSite = deployment.landing.signedIn === 'workspace' ? `https://${deployment.expectedHost}`
+    : portalStaffSite(deployment) || deployment.portalOrigin
   return {
     page: `${deployment.publicOrigin}${deployment.landing.path}`,
     publicOrigin: deployment.publicOrigin,
@@ -351,7 +365,7 @@ function landingSite(deployment) {
     products,
     staffSignIn: deployment.landing.signedIn === 'workspace' ? signIn : portalStaffSignIn(deployment),
     patientSignIn: deployment.landing.signedIn === 'portal' ? signIn : '',
-    enroll: `${deployment.portalOrigin}/provider/enroll`,
+    enroll: `${staffSite}/provider/enroll`,
     applicationProducts: APPLICATION_PRODUCTS,
   }
 }
@@ -553,18 +567,18 @@ function applicationRouteRedirect(request, requestUrl, deployment) {
     target.pathname = `/admin${requestUrl.pathname}`
     return Response.redirect(target, 308)
   }
-  const products = { ehr: 'ehr', lab: 'lab', pharmacy: 'pharmacy', ocr: 'migrate', outreach: 'outreach' }
-  if (products[deployment.application] && requestUrl.pathname === '/provider/recover') {
-    const staging = deployment.expectedHost.includes('.staging.')
-    const target = new URL(`https://${staging ? 'staging' : 'app'}.healthidentitydirectory.com/provider/recover`)
-    target.searchParams.set('returnTo', products[deployment.application])
+  // Each product site keeps its own staff recovery, which hid-system accepts there (staff-reset). The production portal
+  // serves patients only (owner, 2026-11-01): every staff page there opens the same page on the EHR site, with its path
+  // and query, so a link from an old email or a page kept in a browser still works (a browser keeps the fragment, where
+  // an invitation link carries its invitation). One fixed origin: only the path and query come from the request. A 302
+  // with no cache lifetime, as before, so a later change of address reaches everyone.
+  const staffSite = portalStaffSite(deployment)
+  if (staffSite && STAFF_PATH.test(requestUrl.pathname)) {
+    const target = new URL(staffSite)
+    target.pathname = requestUrl.pathname
+    target.search = requestUrl.search
     return Response.redirect(target, 302)
   }
-  // The production portal serves patients only: its staff sign-in and the workspace's entrance send staff to the EHR
-  // site's sign-in (owner decisions, 2026-10-22 and 2026-11-01). One fixed address: nothing from the request is copied
-  // into it. A 302 with no cache lifetime, as before, so a later change of address reaches everyone.
-  const staffSignIn = portalStaffSignIn(deployment)
-  if (staffSignIn && PORTAL_STAFF_SIGN_IN_PATHS.includes(requestUrl.pathname)) return Response.redirect(staffSignIn, 302)
   if (deployment.application === 'public' && requestUrl.pathname === '/products/identity') {
     return Response.redirect(new URL('/patients', requestUrl), 308)
   }

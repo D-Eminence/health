@@ -3,9 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { providerEnrollmentApi, type ProviderEnrollmentStart } from '../../staff/api'
 import { announceStaffSessionChange } from '../../staff/session'
-import { organizationTypeNote } from '../../staff/routes/ProviderEnrollment'
+import { initialFacilityChoice, organizationTypeNote } from '../../staff/routes/ProviderEnrollment'
 import {
-  availabilityOf, CAC_REFUSALS, cacProductKey, carriesOtherThan, DAY_MS, DEFAULT_RESEND_SECONDS, isOrganizationType, isProduct,
+  availabilityOf, CAC_REFUSALS, cacProductKey, carriesOtherThan, DAY_MS, DEFAULT_RESEND_SECONDS,
   MAX_CODE_WAIT_SECONDS, nextCodeAt, OPEN_SIGN_UP_MS, productOptions, refusalOf, registeringOf, secondsUntil, signUpKey,
   type CodeCarries, type OrganizationType, type Product, type Registering, type StartDetails, type StartOutcome, type Step,
   type Support, type Unapplied,
@@ -51,18 +51,12 @@ export function useEnrollment() {
   // Novu since P4c: whether orders between facilities are on, which a laboratory's or pharmacy's note says.
   const [ordersOn, setOrdersOn] = useState(false)
   const [help, setHelp] = useState<{ title: string; text: string; restart?: boolean } | null>(null)
-  // The public site's product links arrive here with ?product= (and may name ?type=), preselecting the choice.
+  // The public site's product links arrive here with ?product= (and may name ?type=), preselecting the choice; without
+  // either, a product site starts with its own product (initialFacilityChoice, today's page's own rule).
   const [params] = useSearchParams()
-  const [organizationType, setOrganizationType] = useState<OrganizationType>(() => {
-    const type = params.get('type')
-    return isOrganizationType(type) ? type : 'hospital'
-  })
-  const [productCode, setProductCode] = useState<Product>(() => {
-    const product = params.get('product')
-    const type = params.get('type')
-    const allowed = productOptions[isOrganizationType(type) ? type : 'hospital']
-    return isProduct(product) && allowed.includes(product) ? product : allowed[0]!
-  })
+  const [organizationType, setOrganizationType] = useState<OrganizationType>(
+    () => initialFacilityChoice(params, window.location.hostname).organizationType)
+  const [productCode, setProductCode] = useState<Product>(() => initialFacilityChoice(params, window.location.hostname).productCode)
   const [cac, setCacValue] = useState('')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')

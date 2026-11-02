@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { EhrButton, EhrField, EhrInput } from '@hid/ui/ehr'
 import { Turnstile } from '../../Turnstile'
-import { facilitySignInHref } from '../../productHostname'
 import { organizationTypeNote } from '../../staff/routes/ProviderEnrollment'
 import { registeringDetails, seconds, waitWords, type OrganizationType } from './enrollmentRules'
 import { PasswordField } from './PasswordField'
@@ -134,25 +133,11 @@ export function PasswordStep({ e }: { readonly e: Enrollment }) {
 }
 
 /**
- * Your facility is set up: today's ending on Novu (FacilityReady, ProviderEnrollment.tsx:1188-1208). The administrator
- * is signed in here. In production, where this portal serves patients only, they go on to sign in on the staff site of
- * the facility's type (facilitySignInHref), with a plain link; elsewhere the workspace opens here.
+ * Your facility is set up: today's ending on Novu (FacilityReady, ProviderEnrollment.tsx). The administrator is signed
+ * in on this site, where the sign-up ran (each product site has its own), and the workspace opens here.
  */
 export function FacilityReady({ e }: { readonly e: Enrollment }) {
-  const hostname = window.location.hostname
   const type: OrganizationType = e.registering?.organizationType ?? e.organizationType
-  const signIn = facilitySignInHref(type, hostname)
-  if (signIn) {
-    return (
-      <>
-        <ScreenHeading id="hid-ehr-signup-done-title">Your facility is set up</ScreenHeading>
-        <p className="hid-ehr-signup-lede">Your administrator account is ready.</p>
-        <p className="hid-ehr-signup-lede">{`Sign in at ${new URL(signIn).hostname} with ${e.accountEmail} and the password you just chose.`}</p>
-        <p className="hid-ehr-signup-lede">{organizationTypeNote(type, e.ordersOn)}</p>
-        <a className="hid-ehr-button hid-ehr-signup-wide" href={signIn}>Go to sign in</a>
-      </>
-    )
-  }
   return (
     <>
       <ScreenHeading id="hid-ehr-signup-done-title">Your facility is set up</ScreenHeading>

@@ -3,7 +3,7 @@ import { FilterTabs } from '../kasuwa/ui'
 import { Link } from 'react-router-dom'
 import { adminApi, type AdminActor, type ApplicationStatus, type Facility, type OrganizationApplication } from './api'
 import { environment } from './env'
-import { MAIN_SITE_ORIGINS, STAFF_RECOVERY_PATH } from '../productHostname'
+import { STAFF_RECOVERY_PATH, staffSiteForOrganizationType, staffSiteOrigin } from '../productHostname'
 import { usesNovuBackend } from '../backendContract'
 import { failure } from './problems'
 import {
@@ -120,8 +120,8 @@ function ApplicationReview({ application, actor, onReviewed }: {
       return approved.organizationReused
         ? 'Application approved and linked to the existing organization and its active administrator, who signs in as before.'
         : 'Application approved. A new organization, facility and administrator account were created. '
-          + `The administrator has no password yet: ask them to set one at ${staffRecoveryUrl()}. `
-          + 'Password setup is done only on the main site; the product sites (ehr., lab., pharmacy., migrate., outreach.) link there.'
+          + `The administrator has no password yet: ask them to set one at ${staffRecoveryUrl(application.organizationType)}, `
+          + 'or with “Forgot password?” on the sign-in page of the Health ID site they use.'
     }, 'The review could not be completed.', reviewProblems())
     setPending(null)
     if (result) { setReason(''); onReviewed(result) }
@@ -169,12 +169,14 @@ function ApplicationCard({ application, actor, onReviewed }: {
 }
 
 /** Organization applications. The backend has no organization directory, so organizations are reached through these and facilities. */
-// Staff password setup ('staff-reset' Turnstile) is accepted only on the main
-// site: app in production, staging on staging (hid-system turnstile.service.ts).
-function staffRecoveryUrl(): string {
+// Staff password setup ('staff-reset' Turnstile) is accepted on each product site (hid-system turnstile.service.ts),
+// never on the patient portal: the recovery page of the staff site of the organization's type (ehr, lab or pharmacy,
+// productHostname.ts staffSiteForOrganizationType).
+function staffRecoveryUrl(organizationType: string | null): string {
   let name = 'local'
   try { name = environment().name } catch { /* A configuration problem is reported where the API is used. */ }
-  const origin = name === 'production' || name === 'staging' ? MAIN_SITE_ORIGINS[name] : window.location.origin
+  const origin = name === 'production' || name === 'staging'
+    ? staffSiteOrigin(staffSiteForOrganizationType(organizationType ?? ''), name) : window.location.origin
   return `${origin}${STAFF_RECOVERY_PATH}`
 }
 

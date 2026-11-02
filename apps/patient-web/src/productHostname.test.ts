@@ -8,19 +8,21 @@ import {
   staffLoginAction,
   staffRecoveryHref,
   staffSignInHref,
-  facilitySignInHref,
   CLINICIAN_SIGNUP_PATH,
   CLINICIAN_STATUS_PATH,
-  clinicianMainSiteHref,
+  clinicianOtherSiteHref,
   clinicianPageHref,
+  facilitySignUpPreset,
   PROVIDER_ENROLLMENT_PATH,
   providerEnrollmentHref,
   STAFF_INVITATION_PATH,
   STAFF_JOIN_PATH,
   staffHostForRole,
   staffInvitationHref,
+  staffPagesOrigin,
   staffSiteForOrganizationType,
   staffSiteHostname,
+  staffSiteOrigin,
 } from './productHostname'
 
 describe('resolveStaffProductHostname', () => {
@@ -138,160 +140,153 @@ describe('staffLoginAction', () => {
     })
 })
 
+/** Every staff product host of both deployments: each serves its own staff pages (hid-system accepts their checks there). */
+const PRODUCT_HOSTS = ['ehr', 'lab', 'pharmacy', 'migrate', 'outreach'].flatMap(product =>
+  [`${product}.healthidentitydirectory.com`, `${product}.staging.healthidentitydirectory.com`])
+
+/** Hosts that are not Health ID sites, or only look like one: nothing in them may ever reach an address. */
+const LOOKALIKE_HOSTS = [
+  'app.healthidentitydirectory.com.evil.example', 'evil-app.healthidentitydirectory.com', 'app.evil.healthidentitydirectory.com',
+  'admin.healthidentitydirectory.com.evil.example', 'lab.healthidentitydirectory.com.evil.example', 'https://app.healthidentitydirectory.com',
+  'app.healthidentitydirectory.com/provider/recover?next=https://evil.example', 'preview.pages.dev', '',
+]
+
 /**
- * hid-system accepts the staff password-reset check ('staff-reset') only on the
- * main site: www in production, staging on staging (turnstile.service.ts). A
- * staff product host therefore sends staff to the main site's recovery page.
+ * Each product is its own site (owner, 2026-11-01): hid-system accepts staff-reset, provider-enrollment and
+ * staff-invitation on every product site, besides its own sign-in. The production patient portal (app.) serves
+ * patients only, and the admin sites platform administrators only: from there, staff pages are the EHR site's.
  */
-describe('staffRecoveryHref', () => {
-  const APP = 'https://app.healthidentitydirectory.com/provider/recover'
-  const STAGING = 'https://staging.healthidentitydirectory.com/provider/recover'
-
+describe('staffPagesOrigin', () => {
   it.each([
-    ['lab.healthidentitydirectory.com', APP],
-    ['pharmacy.healthidentitydirectory.com', APP],
-    ['migrate.healthidentitydirectory.com', APP],
-    ['outreach.healthidentitydirectory.com', APP],
-    ['ehr.healthidentitydirectory.com', APP],
-    ['lab.staging.healthidentitydirectory.com', STAGING],
-    ['pharmacy.staging.healthidentitydirectory.com', STAGING],
-    ['migrate.staging.healthidentitydirectory.com', STAGING],
-    ['outreach.staging.healthidentitydirectory.com', STAGING],
-    ['ehr.staging.healthidentitydirectory.com', STAGING],
-    ['LAB.HEALTHIDENTITYDIRECTORY.COM.', APP],
-    // The admin site accepts only admin-login and admin-reset, so a staff reset is refused there too.
-    ['admin.healthidentitydirectory.com', APP],
-    ['admin.staging.healthidentitydirectory.com', STAGING],
-  ])('sends staff on %s to the main site recovery page', (hostname, href) => {
-    expect(staffRecoveryHref(hostname)).toBe(href)
+    ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com'],
+    ['APP.HEALTHIDENTITYDIRECTORY.COM.', 'https://ehr.healthidentitydirectory.com'],
+    ['admin.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com'],
+    ['admin.staging.healthidentitydirectory.com', 'https://ehr.staging.healthidentitydirectory.com'],
+  ])('opens staff pages from %s on %s', (hostname, origin) => {
+    expect(staffPagesOrigin(hostname)).toBe(origin)
   })
 
-  it.each([
-    'www.healthidentitydirectory.com',
-    'staging.healthidentitydirectory.com',
-    'localhost',
-    '127.0.0.1',
-  ])('keeps recovery on %s, the main site or a local build', hostname => {
-    expect(staffRecoveryHref(hostname)).toBe(STAFF_RECOVERY_PATH)
-  })
-
-  it.each([
-    'lab.healthidentitydirectory.com.evil.example',
-    'evil-lab.healthidentitydirectory.com',
-    'lab.evil.healthidentitydirectory.com',
-    'lab.healthidentitydirectory.co',
-    'lab.staging.staging.healthidentitydirectory.com',
-    'https://lab.healthidentitydirectory.com',
-    'lab.healthidentitydirectory.com/provider/recover?next=https://evil.example',
-    '',
-  ])('never builds an address from an unrecognised host (%s)', hostname => {
-    // Only three fixed destinations exist; nothing in the hostname is copied into the link.
-    expect(staffRecoveryHref(hostname)).toBe(STAFF_RECOVERY_PATH)
+  it.each([...PRODUCT_HOSTS, 'staging.healthidentitydirectory.com', 'www.healthidentitydirectory.com', 'localhost', '127.0.0.1',
+    ...LOOKALIKE_HOSTS])('keeps staff pages on %s itself', hostname => {
+    expect(staffPagesOrigin(hostname)).toBeNull()
   })
 })
 
-/**
- * Clinician self sign-up (hid-system ADR-066) is checked by Turnstile actions
- * hid-system accepts only on the main site, as the staff password reset is.
- */
-describe('clinicianMainSiteHref', () => {
+describe('staffRecoveryHref', () => {
+  it.each(PRODUCT_HOSTS)('keeps staff recovery on the product site %s, which hid-system accepts there', hostname => {
+    expect(staffRecoveryHref(hostname)).toBe(STAFF_RECOVERY_PATH)
+    expect(staffRecoveryHref(hostname.toUpperCase() + '.')).toBe(STAFF_RECOVERY_PATH)
+  })
+
   it.each([
-    ['ehr.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com'],
-    ['lab.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com'],
-    ['admin.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com'],
-    ['pharmacy.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com'],
-    ['admin.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com'],
-  ])('sends %s to the main site', (hostname, origin) => {
-    expect(clinicianMainSiteHref(hostname, CLINICIAN_SIGNUP_PATH)).toBe(`${origin}/provider/join`)
-    expect(clinicianMainSiteHref(hostname, CLINICIAN_STATUS_PATH)).toBe(`${origin}/provider/join/status`)
+    ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/recover'],
+    ['admin.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/recover'],
+    ['admin.staging.healthidentitydirectory.com', 'https://ehr.staging.healthidentitydirectory.com/provider/recover'],
+  ])('sends staff on %s, which serves no staff pages, to %s', (hostname, href) => {
+    expect(staffRecoveryHref(hostname)).toBe(href)
+  })
+
+  it.each(['staging.healthidentitydirectory.com', 'localhost', '127.0.0.1', ...LOOKALIKE_HOSTS])(
+    'keeps recovery on %s and never builds an address from it', hostname => {
+      // Only three fixed values exist; nothing in the hostname is copied into the link.
+      expect(staffRecoveryHref(hostname)).toBe(STAFF_RECOVERY_PATH)
+    })
+})
+
+/**
+ * Clinician self sign-up (hid-system ADR-066) opens on each product site, as every other staff page does; the Novu
+ * backend serves no clinician sign-up yet, so no site accepts its checks today.
+ */
+describe('clinicianOtherSiteHref', () => {
+  it.each([
+    ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com'],
+    ['admin.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com'],
+    ['admin.staging.healthidentitydirectory.com', 'https://ehr.staging.healthidentitydirectory.com'],
+  ])('sends %s to the EHR site', (hostname, origin) => {
+    expect(clinicianOtherSiteHref(hostname, CLINICIAN_SIGNUP_PATH)).toBe(`${origin}/provider/join`)
+    expect(clinicianOtherSiteHref(hostname, CLINICIAN_STATUS_PATH)).toBe(`${origin}/provider/join/status`)
     expect(clinicianPageHref(hostname, CLINICIAN_SIGNUP_PATH)).toBe(`${origin}/provider/join`)
   })
 
-  it.each(['www.healthidentitydirectory.com', 'staging.healthidentitydirectory.com', 'localhost',
-    'lab.healthidentitydirectory.com.evil.example', 'evil-lab.healthidentitydirectory.com'])('keeps the page on %s', hostname => {
-    expect(clinicianMainSiteHref(hostname, CLINICIAN_SIGNUP_PATH)).toBeNull()
+  it.each([...PRODUCT_HOSTS, 'staging.healthidentitydirectory.com', 'localhost', ...LOOKALIKE_HOSTS])('keeps the page on %s', hostname => {
+    expect(clinicianOtherSiteHref(hostname, CLINICIAN_SIGNUP_PATH)).toBeNull()
     expect(clinicianPageHref(hostname, CLINICIAN_STATUS_PATH)).toBe('/provider/join/status')
   })
 })
 
 describe('staffSignInHref', () => {
-  it.each(['app.healthidentitydirectory.com', 'APP.HEALTHIDENTITYDIRECTORY.COM.'])(
-    'sends staff on the production portal %s to the EHR site', hostname => {
-      expect(staffSignInHref(hostname)).toBe('https://ehr.healthidentitydirectory.com/provider/sign-in')
-    })
+  it.each([
+    ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+    ['APP.HEALTHIDENTITYDIRECTORY.COM.', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+    ['admin.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+    ['admin.staging.healthidentitydirectory.com', 'https://ehr.staging.healthidentitydirectory.com/provider/sign-in'],
+  ])('sends staff on %s to %s', (hostname, href) => {
+    expect(staffSignInHref(hostname)).toBe(href)
+  })
 
-  it.each(['staging.healthidentitydirectory.com', 'ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com',
-    'www.healthidentitydirectory.com', 'app.healthidentitydirectory.com.evil.example', 'localhost'])(
+  it.each([...PRODUCT_HOSTS, 'staging.healthidentitydirectory.com', 'www.healthidentitydirectory.com', 'localhost', ...LOOKALIKE_HOSTS])(
     'keeps staff sign-in on %s itself', hostname => {
       expect(staffSignInHref(hostname)).toBeNull()
     })
 })
 
-/**
- * Facility self sign-up's security check (`provider-enrollment`) is accepted
- * only on the main site, so "Set up your facility" on a staff product host or
- * the admin site opens the main site's page (P4, W1).
- */
 describe('providerEnrollmentHref', () => {
-  const APP = 'https://app.healthidentitydirectory.com/provider/enroll'
-  const STAGING = 'https://staging.healthidentitydirectory.com/provider/enroll'
-
-  it.each([
-    ['ehr.healthidentitydirectory.com', APP],
-    ['lab.healthidentitydirectory.com', APP],
-    ['pharmacy.healthidentitydirectory.com', APP],
-    ['migrate.healthidentitydirectory.com', APP],
-    ['outreach.healthidentitydirectory.com', APP],
-    ['admin.healthidentitydirectory.com', APP],
-    ['EHR.HEALTHIDENTITYDIRECTORY.COM.', APP],
-    ['ehr.staging.healthidentitydirectory.com', STAGING],
-    ['lab.staging.healthidentitydirectory.com', STAGING],
-    ['pharmacy.staging.healthidentitydirectory.com', STAGING],
-    ['migrate.staging.healthidentitydirectory.com', STAGING],
-    ['outreach.staging.healthidentitydirectory.com', STAGING],
-    ['admin.staging.healthidentitydirectory.com', STAGING],
-  ])('sends %s to the main site sign-up page', (hostname, href) => {
-    expect(providerEnrollmentHref(hostname)).toBe(href)
-  })
-
-  it.each([
-    'app.healthidentitydirectory.com',
-    'staging.healthidentitydirectory.com',
-    'www.healthidentitydirectory.com',
-    'localhost',
-    '127.0.0.1',
-  ])('keeps the sign-up page on %s, the main site or a local build', hostname => {
+  it.each(PRODUCT_HOSTS)('keeps facility sign-up on the product site %s, which hid-system accepts there', hostname => {
     expect(providerEnrollmentHref(hostname)).toBe(PROVIDER_ENROLLMENT_PATH)
     expect(PROVIDER_ENROLLMENT_PATH).toBe('/provider/enroll')
   })
 
   it.each([
-    'ehr.healthidentitydirectory.com.evil.example',
-    'evil-ehr.healthidentitydirectory.com',
-    'ehr.evil.healthidentitydirectory.com',
-    'ehr.staging.staging.healthidentitydirectory.com',
-    'https://ehr.healthidentitydirectory.com',
-    '',
-  ])('never builds an address from an unrecognised host (%s)', hostname => {
-    expect(providerEnrollmentHref(hostname)).toBe(PROVIDER_ENROLLMENT_PATH)
+    ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/enroll'],
+    ['admin.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/enroll'],
+    ['admin.staging.healthidentitydirectory.com', 'https://ehr.staging.healthidentitydirectory.com/provider/enroll'],
+  ])('sends %s, which serves no staff pages, to %s', (hostname, href) => {
+    expect(providerEnrollmentHref(hostname)).toBe(href)
   })
+
+  it.each(['staging.healthidentitydirectory.com', 'www.healthidentitydirectory.com', 'localhost', '127.0.0.1', ...LOOKALIKE_HOSTS])(
+    'keeps the sign-up page on %s and never builds an address from it', hostname => {
+      expect(providerEnrollmentHref(hostname)).toBe(PROVIDER_ENROLLMENT_PATH)
+    })
+})
+
+describe('facilitySignUpPreset', () => {
+  it.each([
+    ['lab.healthidentitydirectory.com', { organizationType: 'laboratory', productCode: 'laboratory' }],
+    ['lab.staging.healthidentitydirectory.com', { organizationType: 'laboratory', productCode: 'laboratory' }],
+    ['PHARMACY.HEALTHIDENTITYDIRECTORY.COM.', { organizationType: 'pharmacy', productCode: 'pharmacy' }],
+    ['pharmacy.staging.healthidentitydirectory.com', { organizationType: 'pharmacy', productCode: 'pharmacy' }],
+    ['migrate.healthidentitydirectory.com', { organizationType: 'hospital', productCode: 'migrate' }],
+  ])('starts facility sign-up on %s with its own product', (hostname, preset) => {
+    expect(facilitySignUpPreset(hostname)).toEqual(preset)
+  })
+
+  it.each(['ehr.healthidentitydirectory.com', 'outreach.healthidentitydirectory.com', 'app.healthidentitydirectory.com',
+    'staging.healthidentitydirectory.com', 'admin.healthidentitydirectory.com', 'localhost', ...LOOKALIKE_HOSTS])(
+    'names no preset on %s, where the form starts as before', hostname => {
+      expect(facilitySignUpPreset(hostname)).toBeNull()
+    })
 })
 
 /** P4b (Novu only): where an invitation is opened, and the staff site each role and facility type signs in on. */
 describe('staff invitations and staff sites (P4b)', () => {
-  it('opens an invitation on the main site from a staff product or admin host, and here anywhere else', () => {
+  it('opens an invitation on each product site itself, and on the EHR site from the portal or an admin site', () => {
     expect(STAFF_INVITATION_PATH).toBe('/provider/invitation')
     expect(STAFF_JOIN_PATH).toBe('/provider/staff/join')
-    for (const host of ['ehr', 'lab', 'pharmacy', 'migrate', 'outreach', 'admin']) {
-      expect(staffInvitationHref(`${host}.healthidentitydirectory.com`)).toBe('https://app.healthidentitydirectory.com/provider/invitation')
-      expect(staffInvitationHref(`${host}.staging.healthidentitydirectory.com`))
-        .toBe('https://staging.healthidentitydirectory.com/provider/invitation')
-    }
-    for (const host of ['app.healthidentitydirectory.com', 'staging.healthidentitydirectory.com', 'localhost',
-      'ehr.healthidentitydirectory.com.evil.example', 'preview.pages.dev']) {
+    for (const host of [...PRODUCT_HOSTS, 'staging.healthidentitydirectory.com', 'localhost', ...LOOKALIKE_HOSTS]) {
       expect(staffInvitationHref(host)).toBe('/provider/invitation')
     }
+    expect(staffInvitationHref('app.healthidentitydirectory.com')).toBe('https://ehr.healthidentitydirectory.com/provider/invitation')
+    expect(staffInvitationHref('admin.healthidentitydirectory.com')).toBe('https://ehr.healthidentitydirectory.com/provider/invitation')
+    expect(staffInvitationHref('admin.staging.healthidentitydirectory.com'))
+      .toBe('https://ehr.staging.healthidentitydirectory.com/provider/invitation')
   })
+
+  it.each([['ehr', 'production', 'https://ehr.healthidentitydirectory.com'], ['lab', 'production', 'https://lab.healthidentitydirectory.com'],
+    ['pharmacy', 'staging', 'https://pharmacy.staging.healthidentitydirectory.com']] as const)(
+    'names the %s site of %s as %s', (site, deployment, origin) => {
+      expect(staffSiteOrigin(site, deployment)).toBe(origin)
+    })
 
   it.each([
     ['doctor', 'ehr'], ['clinician', 'ehr'], ['nurse', 'ehr'], ['receptionist', 'ehr'], ['org_admin', 'ehr'],
@@ -313,24 +308,5 @@ describe('staff invitations and staff sites (P4b)', () => {
       expect(staffSiteHostname('ehr', host)).toBeNull()
       expect(staffHostForRole('pharmacist', host)).toBeNull()
     }
-  })
-})
-
-describe('facilitySignInHref', () => {
-  it.each([
-    ['hospital', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
-    ['clinic', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
-    ['other', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
-    ['laboratory', 'https://lab.healthidentitydirectory.com/provider/sign-in'],
-    ['pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider/sign-in'],
-    ['https://evil.example', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
-  ])('on the production portal, a %s signs in at %s, one of three fixed addresses', (type, href) => {
-    expect(facilitySignInHref(type, 'app.healthidentitydirectory.com')).toBe(href)
-    expect(facilitySignInHref(type, 'APP.healthidentitydirectory.com.')).toBe(href)
-  })
-
-  it.each(['staging.healthidentitydirectory.com', 'ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com', 'localhost',
-    'app.healthidentitydirectory.com.evil.example'])('is null on %s, where the workspace opens on this site', hostname => {
-    expect(facilitySignInHref('laboratory', hostname)).toBeNull()
   })
 })
