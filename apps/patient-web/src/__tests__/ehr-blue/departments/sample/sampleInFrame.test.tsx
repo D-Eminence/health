@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type * as BlueRoutes from '../../../../ehr-blue/routes'
 import { DEMO_HOSPITAL, REQUESTS, SESSION, facility, json, openStaffApp, serve, sessionAt, where } from '../../frame/blueHarness'
-import { SAMPLE_TEXT } from './sampleHarness'
 
 /*
  * The sample workspaces inside the blue EHR's frame, in place of its stand-ins for them: the frame draws their tabs
@@ -26,9 +25,16 @@ beforeEach(() => {
 })
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
-async function openDemo(path: string) {
-  // A facility administrator: the design opens its finance and administration samples to a Hospital Admin.
-  const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write'], ['org_admin'])
+// Written out, not imported from sampleHarness: that loads the pages, and through their design role check the staff
+// session client, before fetch is served, and the client keeps the fetch it finds.
+const SAMPLE_TEXT = 'Sample only: not connected to Health ID yet. Nothing you do here is saved.'
+
+/**
+ * Opens the frame at the demo facility for a member with these Health ID roles: a facility administrator unless said
+ * otherwise, whom the design (as a Hospital Admin) lets open its finance and administration samples.
+ */
+async function openDemo(path: string, roles: readonly string[] = ['org_admin']) {
+  const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write'], roles)
   serve({ [SESSION]: [sessionAt(demo, [demo])], [REQUESTS]: [() => json([]), () => json([])] })
   await openStaffApp(path)
   return screen.findByRole('navigation', { name: 'Main navigation' })
@@ -89,7 +95,8 @@ describe('the frame\'s tabs', () => {
   })
 
   it('keeps Claims | Policies on every view, and the page\'s own tab goes back to its list', async () => {
-    await openDemo('/provider/insurance')
+    // A billing officer: the design lets a Billing Officer create claims (a Hospital Admin may only view them).
+    await openDemo('/provider/insurance', ['billing'])
     const tabs = () => screen.getByRole('navigation', { name: 'Insurance & Claims' })
     fireEvent.click(screen.getByRole('button', { name: '2a6f15aa' }))
     expect(heading().textContent).toBe('2a6f15aa')
@@ -150,5 +157,41 @@ describe('connected hospital history', () => {
     fireEvent.click(within(history).getByRole('link', { name: 'Policies · POL-DEMO-2' }))
     await waitFor(() => expect(where()).toBe('/provider/policies'))
     expect(heading().textContent).toBe('Policies')
+  })
+})
+
+describe('the viewer\'s design role, through the frame\'s own check', () => {
+  const card = (title: string) => screen.getByRole('heading', { level: 2, name: title }).closest('section')!
+  const actionsOf = () => within(card('Available actions')).queryAllByRole('button').map(button => button.textContent)
+  const NONE = 'No further actions for your permission and this record state.'
+
+  it('shows a billing officer no action on DEMO-1, as the design\'s Billing Officer sees it, and the invoice actions on a draft', async () => {
+    await openDemo('/provider/patient-billing', ['billing'])
+    expect(screen.getByRole('button', { name: 'Create record' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'DEMO-1' }))
+    expect(heading().textContent).toBe('DEMO-1')
+    // Payments and refunds are a cashier's and the owner's: the design's billing-3-detail1.
+    expect(actionsOf()).toEqual([])
+    expect(within(card('Available actions')).getByText(NONE)).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'DEMO-3' }))
+    expect(actionsOf()).toEqual(['Issue invoice', 'Void invoice'])
+    expect(within(card('Available actions')).queryByText(NONE)).toBeNull()
+  })
+
+  it('lets a facility administrator only look at patient billing: no Create record, no actions', async () => {
+    await openDemo('/provider/patient-billing')
+    expect(heading().textContent).toBe('Patient billing')
+    expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'DEMO-3' }))
+    expect(actionsOf()).toEqual([])
+    expect(within(card('Available actions')).getByText(NONE)).toBeDefined()
+  })
+
+  it('lets a facility administrator create and act in an administration sample', async () => {
+    await openDemo('/provider/quality')
+    expect(screen.getByRole('button', { name: 'Create record' })).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Near-miss labelling (fictional)' }))
+    expect(actionsOf()).toEqual(['Assign reviewer'])
   })
 })

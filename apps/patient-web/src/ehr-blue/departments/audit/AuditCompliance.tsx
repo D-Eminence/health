@@ -1,12 +1,11 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
-import { EhrButton, EhrEmptyState, EhrField, EhrSelect, EhrSkeleton } from '@hid/ui/ehr'
+import { EhrButton, EhrEmptyState, EhrSkeleton } from '@hid/ui/ehr'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type FacilityAuditEvent, type FacilityAuditPage } from '../../../staff/api'
 import { focusIsLost } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
 import { DeptPage } from '../parts/DeptPage'
 import { DeptNotice } from '../parts/DeptNotice'
-import { DeptSearch } from '../parts/DeptSearch'
 import { errorText } from '../parts/errors'
 
 /*
@@ -14,8 +13,8 @@ import { errorText } from '../parts/errors'
  * them. The reads are today's (staff/routes/Audit.tsx): staffApi.facilityAudit for the working facility, 50 events a
  * page, an older page by the last page's cursor; only for a membership holding audit.read; an answer for an earlier
  * facility or page is dropped. Only what the API returns is shown: it withholds patient identifiers, reasons and event
- * details, and names no actor or membership. The search and the outcome filter are today's too, over the page loaded
- * only, drawn as the target's list search.
+ * details, and names no actor or membership. As the target draws it, the page has no Refresh, search or outcome filter:
+ * the events of the page loaded are listed in one card, with the pager under them.
  */
 
 type PagePosition = { facilityId: string; cursors: Array<string | undefined> }
@@ -29,13 +28,6 @@ const EVENTS = 'hid-ehr-dept-audit-events'
 const NEWER = 'hid-ehr-dept-audit-newer'
 const OLDER = 'hid-ehr-dept-audit-older'
 const TRY_AGAIN = 'hid-ehr-dept-audit-try-again'
-
-const OUTCOMES = [
-  { value: 'all', label: 'All outcomes' },
-  { value: 'success', label: 'Success' },
-  { value: 'denied', label: 'Denied' },
-  { value: 'failure', label: 'Failure' },
-] as const
 
 /** The time as the target shows it (ISO, UTC), or that it is not available. */
 function eventTime(value: string): string {
@@ -67,8 +59,6 @@ export function AuditCompliance() {
   // How many reads have answered: a focus request waits for the read its button started.
   const [settled, setSettled] = useState(0)
   const [focusAfter, setFocusAfter] = useState<FocusAfter | null>(null)
-  const [search, setSearch] = useState('')
-  const [outcome, setOutcome] = useState('all')
   const cursors = position.facilityId === facilityId ? position.cursors : [undefined]
   const cursor = cursors[cursors.length - 1]
   const page = loaded?.facilityId === facilityId && loaded.cursor === cursor ? loaded.page : null
@@ -132,34 +122,18 @@ export function AuditCompliance() {
     setFocusAfter({ facilityId, pressed: OLDER, settledAt: settled })
     setPosition({ facilityId, cursors: [...cursors, next] })
   }
-  const refresh = () => setReload(value => value + 1)
   const tryAgain = () => {
     setFocusAfter({ facilityId, pressed: TRY_AGAIN, settledAt: settled })
     setReload(value => value + 1)
   }
 
-  // Today's search and filter, over the page loaded only: any of the action, correlation ID, resource type or actor type.
-  const query = search.trim().toLocaleLowerCase()
-  const visible = page?.items.filter(event =>
-    (outcome === 'all' || event.outcome === outcome)
-    && (!query || [event.action, event.correlationId, event.resourceType ?? '', event.actorType]
-      .some(value => value.toLocaleLowerCase().includes(query)))) ?? []
+  const items = page?.items ?? []
 
   return (
-    <DeptPage title="Audit & Compliance"
-      secondaryActions={<EhrButton variant="secondary" busy={busy} onClick={refresh}>Refresh</EhrButton>}>
+    <DeptPage title="Audit & Compliance">
       <p className="hid-ehr-dept-audit-intro">Audit events for {facility.name}. Health ID checks your membership and records each review.
         Patient identifiers, reasons and event details are not shown here.</p>
-      <DeptSearch label="Search Audit & Compliance" value={search} onChange={setSearch}
-        placeholder="Search actions, actor types, resources or correlation IDs…"
-        hint="Search and outcome apply to the events loaded on this page. Use Older events to look further back."
-        filters={(
-          <EhrField label="Outcome" className="hid-ehr-dept-audit-outcome">
-            <EhrSelect value={outcome} onChange={event => setOutcome(event.target.value)}>
-              {OUTCOMES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </EhrSelect>
-          </EhrField>
-        )}>
+      <section className="hid-ehr-card hid-ehr-dept-section hid-ehr-dept-list-card">
         <div id={EVENTS} className="hid-ehr-dept-audit-card" role="region" aria-label="Audit events" tabIndex={-1}>
           {error && (
             <DeptNotice tone="critical" role="alert">
@@ -175,12 +149,9 @@ export function AuditCompliance() {
             : cursors.length > 1
               ? <EhrEmptyState title="No older events" message={`There are no earlier audit events at ${facility.name}.`} />
               : <EhrEmptyState title="No audit events yet" message={`Events at ${facility.name} appear here once they are recorded.`} />)}
-          {!loading && page && page.items.length > 0 && visible.length === 0 && (
-            <EhrEmptyState title="No matching events" message="Change the search or outcome, or look at another page." />
-          )}
-          {visible.length > 0 && (
+          {items.length > 0 && (
             <ul className="hid-ehr-dept-rows" aria-label={`Audit events, page ${cursors.length}`} aria-busy={loading || undefined}>
-              {visible.map(event => <AuditEvent key={event.sequenceId} event={event} />)}
+              {items.map(event => <AuditEvent key={event.sequenceId} event={event} />)}
             </ul>
           )}
           {(showNewer || showOlder) && (
@@ -191,7 +162,7 @@ export function AuditCompliance() {
             </div>
           )}
         </div>
-      </DeptSearch>
+      </section>
     </DeptPage>
   )
 }

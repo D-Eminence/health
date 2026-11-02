@@ -1,14 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import type { SampleDefinition } from '../../../../ehr-blue/departments/parts/sample/model'
 import { samplePages } from '../../../../ehr-blue/departments/sample/pages'
 import { pageTabs } from '../../../../ehr-blue/frame/pageAccess'
 import { basePath } from '../../../../ehr-blue/frame/pageHref'
+import { moduleOf } from '../../../../ehr-blue/frame/sampleAccess'
 import { guardBrowser, heading, noticeUnderHeading, renderSample, where } from './sampleHarness'
 
 /*
  * The ten sample-only workspaces as the frame lists them: each one's place in the sidebar or among a page's tabs, its
- * title, the sample notice and its fictional rows. None reads the staff session or calls the staff API, none touches
- * browser storage, and none makes a request.
+ * title, the sample notice and its fictional rows. None reads the staff session other than through the frame's design
+ * role check (useSampleCan, answered here by sampleViewer) or calls the staff API, none touches browser storage, and
+ * none makes a request.
  */
 
 const touched = vi.hoisted(() => [] as string[])
@@ -18,6 +21,8 @@ vi.mock('../../../../staff/api', () => ({
 vi.mock('../../../../staff/App', () => ({
   useStaff: () => { touched.push('useStaff'); throw new Error('A sample page must not read the staff session.') },
 }))
+// The design's role check (useSampleCan) answers for the roles viewAs sets: a Hospital Owner unless a test says otherwise.
+vi.mock('../../../../ehr-blue/frame/sampleAccess', async importOriginal => (await import('./sampleViewer')).sampleAccessAsViewer(importOriginal))
 
 guardBrowser()
 afterEach(() => {
@@ -64,6 +69,25 @@ describe('the sample pages', () => {
       expect(page.icon).toBeDefined()
       expect(page.visible).toBeUndefined()
     }
+  })
+
+  it('asks for its actions\' and Create record\'s verbs in the design module the frame opens it as', () => {
+    // The frame opens a page by its address's design module (moduleOf); the page checks its verbs in its definition's id.
+    const modules = samplePages.map(page => [
+      basePath(page.path), moduleOf(page), (page.element.props as { readonly definition: SampleDefinition }).definition.id,
+    ])
+    expect(modules).toEqual([
+      ['patient-billing', 'billing', 'billing'],
+      ['insurance', 'insurance', 'insurance'],
+      ['policies', 'policies', 'policies'],
+      ['services', 'services', 'services'],
+      ['supply', 'inventory', 'inventory'],
+      ['procurement', 'procurement', 'procurement'],
+      ['quality', 'quality', 'quality'],
+      ['shifts', 'shifts', 'shifts'],
+      ['ambulance', 'ambulance', 'ambulance'],
+      ['vehicles', 'vehicles', 'vehicles'],
+    ])
   })
 
   it('joins the frame\'s tabs as the design draws them: Claims | Policies and Stock | Procurement', () => {

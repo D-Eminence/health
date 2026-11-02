@@ -64,7 +64,7 @@ export const inventorySample: SampleDefinition = {
   created: () => ({ state: { batches: [] } }),
   actions: [
     {
-      id: 'receive', label: 'Receive stock', from: ['active'], to: 'active',
+      id: 'receive', label: 'Receive stock', from: ['active'], to: 'active', permission: 'edit',
       fields: [
         { key: 'lot', label: 'Batch number' },
         { key: 'quantity', label: 'Base units received', type: 'number' },
@@ -73,11 +73,11 @@ export const inventorySample: SampleDefinition = {
       ],
     },
     {
-      id: 'adjust', label: 'Consume / adjust stock', from: ['active'], to: 'active',
+      id: 'adjust', label: 'Consume / adjust stock', from: ['active'], to: 'active', permission: 'edit',
       fields: [{ key: 'batch', label: 'Batch', options: batchOptions }, { key: 'delta', label: 'Signed unit change', type: 'number' }, reason],
     },
     {
-      id: 'transfer', label: 'Transfer stock', from: ['active'], to: 'active',
+      id: 'transfer', label: 'Transfer stock', from: ['active'], to: 'active', permission: 'assign',
       fields: [
         { key: 'batch', label: 'Batch', options: batchOptions },
         { key: 'quantity', label: 'Units to transfer', type: 'number' },
@@ -138,10 +138,13 @@ export const procurementSample: SampleDefinition = {
   defaults: { quantity: '1' },
   validate: values => above(values.quantity) === undefined ? QUANTITY_TEXT : undefined,
   actions: [
-    { id: 'approve', label: 'Approve request', from: ['requested'], to: 'approved' },
-    { id: 'order', label: 'Create purchase order', from: ['approved'], to: 'ordered', fields: [{ key: 'reference', label: 'Purchase order reference' }] },
+    { id: 'approve', label: 'Approve request', from: ['requested'], to: 'approved', permission: 'approve' },
     {
-      id: 'receive', label: 'Receive goods', from: ['ordered', 'partial'], to: 'partial',
+      id: 'order', label: 'Create purchase order', from: ['approved'], to: 'ordered', permission: 'create',
+      fields: [{ key: 'reference', label: 'Purchase order reference' }],
+    },
+    {
+      id: 'receive', label: 'Receive goods', from: ['ordered', 'partial'], to: 'partial', permission: 'edit',
       fields: [
         { key: 'quantity', label: 'Base units received', type: 'number' },
         { key: 'lot', label: 'Batch' },

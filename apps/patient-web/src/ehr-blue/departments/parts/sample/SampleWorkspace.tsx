@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
+import { useSampleCan } from '../../../frame/sampleAccess'
 import { useListAtBase } from '../baseAddress'
 import { SampleCreate } from './SampleCreate'
 import { SampleDetail } from './SampleDetail'
@@ -20,6 +21,9 @@ type View = { readonly kind: 'list' } | { readonly kind: 'new' } | { readonly ki
  * `base` is the page's own path without '/*' ('insurance'). An address below it (a record link from Home or the
  * Notifications drawer, /provider/insurance/<id>) opens the list and goes back to the base: the id is never looked up.
  * The page's own tab or sidebar entry, followed while it is open, opens its list again, as the design's tab does.
+ *
+ * As in the design, "Create record" and its form are only for a viewer whose design role may create in the
+ * definition's module (useSampleCan, 'create'); each record's actions ask for their own verb (SampleDetail).
  */
 export function SampleWorkspace({ base, definition }: { readonly base: string; readonly definition: SampleDefinition }) {
   useListAtBase(base)
@@ -33,6 +37,7 @@ export function SampleWorkspace({ base, definition }: { readonly base: string; r
   const [announcement, setAnnouncementState] = useState({ text: '', count: 0 })
   const setAnnouncement = (text: string) => setAnnouncementState(old => ({ text, count: old.count + 1 }))
   const requestFocus = useSampleFocus(rootRef)
+  const mayCreate = useSampleCan()(definition.id, 'create')
 
   // The page's own tab or sidebar entry goes to the address the page is already at, where the frame keeps the page as
   // it is: each new visit shows the list, focus on its heading.
@@ -126,7 +131,8 @@ export function SampleWorkspace({ base, definition }: { readonly base: string; r
 
   return (
     <div ref={rootRef} className="hid-ehr-dept-sample">
-      {view.kind === 'new' ? (
+      {/* The form only while the viewer may create (the design refuses its /new without it): otherwise the list. */}
+      {view.kind === 'new' && mayCreate ? (
         <SampleCreate definition={definition} onBack={() => showList(createId)} onCreate={create} />
       ) : current ? (
         <SampleDetail key={current.id} base={base} definition={definition} record={current} onBack={() => showList(nameId(current.id))}
@@ -135,7 +141,7 @@ export function SampleWorkspace({ base, definition }: { readonly base: string; r
         <SampleList definition={definition} records={records} search={search} onSearch={setSearch}
           // "Clear search" goes as it is pressed: focus goes to the search field it cleared.
           onClearSearch={() => { setSearch(''); requestFocus({ selector: 'input[type="search"]' }) }}
-          onCreate={() => { setView({ kind: 'new' }); setAnnouncement(''); requestFocus() }} onOpen={open}
+          onCreate={mayCreate ? () => { setView({ kind: 'new' }); setAnnouncement(''); requestFocus() } : undefined} onOpen={open}
           nameId={nameId} createId={createId} />
       )}
       <p className="hid-ehr-sr-only" role="status">{announcement.text ? <span key={announcement.count}>{announcement.text}</span> : null}</p>

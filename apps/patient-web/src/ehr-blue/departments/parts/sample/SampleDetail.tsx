@@ -1,5 +1,6 @@
 import { useId, useState } from 'react'
 import { EhrBadge, EhrButton } from '@hid/ui/ehr'
+import { useSampleCan } from '../../../frame/sampleAccess'
 import { DeptPage, DeptSection } from '../DeptPage'
 import { DeptActions, DeptFacts, DeptHistory, DeptRecordLayout } from '../DeptRecord'
 import { dateText } from '../format'
@@ -42,13 +43,15 @@ function confirmFor(action: SampleAction): SampleConfirm | undefined {
 
 /**
  * The design's record view: the record's name with "Back to list", and the sample notice under it; its status, patient
- * and when it was saved; "Saved record" beside "Available actions" (each action the record's status allows, its form
- * under the actions once chosen); "Connected hospital history" on a record about a patient; and "Preserved versions &
+ * and when it was saved; "Saved record" beside "Available actions" (each action the record's status allows and the
+ * viewer's design role may do, its form under the actions once chosen, else "No further actions for your permission
+ * and this record state."); "Connected hospital history" on a record about a patient; and "Preserved versions &
  * amendments".
  *
- * "Edit record" is the design's "Edit unsigned draft" pattern (as on HR & Credentials): a button in "Saved record"
- * while the record is still in the status it was created in, opening the fields there with "Save changes"; each edit
- * keeps the version before.
+ * "Edit record" is the design's "Edit unsigned draft" pattern (as on HR & Credentials), offered only where the
+ * definition sets `editable` (none does today: the design's sample record views have no such button): a button in
+ * "Saved record" while the record is still in the status it was created in, opening the fields there with "Save
+ * changes"; each edit keeps the version before.
  */
 export function SampleDetail({ base, definition, record, onBack, onAct, onEdit, focus, savedHeadingId }: SampleDetailProps) {
   const uid = useId()
@@ -57,10 +60,13 @@ export function SampleDetail({ base, definition, record, onBack, onAct, onEdit, 
   const editFormId = `${uid}-edit-form`
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
-  const editable = record.status === definition.initial
+  const editable = definition.editable === true && record.status === definition.initial
   const { href, follow } = useSiblingPages(base)
   const patient = samplePatient(record.patientId)
-  const available = definition.actions.filter(action => action.from.includes(record.status))
+  // As the design's record view: the status allows it, and the viewer's design role holds its verb in this module.
+  const can = useSampleCan()
+  const available = definition.actions.filter(action => action.from.includes(record.status)
+    && (!action.permission || can(definition.id, action.permission)))
   const selected = available.find(action => action.id === selectedId)
   const connections = patient && definition.connected ? definition.connected(patient.id) : []
 

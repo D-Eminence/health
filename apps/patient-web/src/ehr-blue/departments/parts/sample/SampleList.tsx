@@ -13,7 +13,8 @@ export interface SampleListProps {
   readonly search: string
   readonly onSearch: (value: string) => void
   readonly onClearSearch: () => void
-  readonly onCreate: () => void
+  /** Opens the create form; left out where the viewer may not create, as the design leaves out "Create record". */
+  readonly onCreate?: () => void
   readonly onOpen: (id: string) => void
   /** The id of a record's name in the list, where focus returns from its detail. */
   readonly nameId: (id: string) => string
@@ -21,10 +22,10 @@ export interface SampleListProps {
 }
 
 /**
- * The design's list: "Create record" by the title and the sample notice under it; "Search <title>" over the rows on
- * the page; each row's name (and the start of its id), its patient or the record itself, its status, when it last
- * changed, and "Quick view" (a drawer with the notice first, then its values) and "Open". A sample hands out no file:
- * the design's "Export filtered records" is left out.
+ * The design's list: "Create record" by the title (for a viewer who may create) and the sample notice under it;
+ * "Search <title>" over the rows on the page; each row's name (and the start of its id), its patient or the record
+ * itself, its status, when it last changed, and "Quick view" (a drawer with the notice first, then its values) and
+ * "Open". A sample hands out no file: the design's "Export filtered records" is left out.
  */
 export function SampleList({ definition, records, search, onSearch, onClearSearch, onCreate, onOpen, nameId, createId }: SampleListProps) {
   const [quickId, setQuickId] = useState<string | null>(null)
@@ -55,7 +56,8 @@ export function SampleList({ definition, records, search, onSearch, onClearSearc
   ]
 
   return (
-    <DeptPage title={definition.title} primaryAction={<EhrButton id={createId} onClick={onCreate}>Create record</EhrButton>}>
+    <DeptPage title={definition.title}
+      primaryAction={onCreate ? <EhrButton id={createId} onClick={onCreate}>Create record</EhrButton> : undefined}>
       <SampleBanner />
       <EhrDrawer open={quick !== undefined} title="Record quick view" returnFocusRef={openerRef} onClose={() => setQuickId(null)}>
         <SampleBanner />

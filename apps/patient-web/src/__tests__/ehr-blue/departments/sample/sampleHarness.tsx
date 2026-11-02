@@ -1,6 +1,8 @@
+import { cloneElement, type ComponentProps, type ReactElement } from 'react'
 import { afterEach, beforeEach, expect, vi, type MockInstance } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import { Route, Routes, useLocation } from 'react-router-dom'
+import type { SampleWorkspace } from '../../../../ehr-blue/departments/parts/sample/SampleWorkspace'
 import { samplePages } from '../../../../ehr-blue/departments/sample/pages'
 import { renderDept } from '../harness'
 
@@ -16,11 +18,22 @@ function Where() {
   return <div data-testid="where">{`${location.pathname}${location.search}${location.hash}`}</div>
 }
 
-export function renderSample(path: string) {
+/**
+ * A page as it would be if its definition set `editable`. No workspace sets it today (the design's record views have
+ * no "Edit record"), so the engine's edit is tested through this copy.
+ */
+function editableCopy(element: ReactElement) {
+  const workspace = element as ReactElement<ComponentProps<typeof SampleWorkspace>>
+  return cloneElement(workspace, { definition: { ...workspace.props.definition, editable: true } })
+}
+
+export function renderSample(path: string, { editable = false }: { readonly editable?: boolean } = {}) {
   return renderDept(
     <>
       <Routes>
-        {samplePages.map(page => <Route key={page.path} path={`/ehr/${page.path}`} element={page.element} />)}
+        {samplePages.map(page => (
+          <Route key={page.path} path={`/ehr/${page.path}`} element={editable ? editableCopy(page.element) : page.element} />
+        ))}
       </Routes>
       <Where />
     </>,

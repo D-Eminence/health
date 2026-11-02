@@ -49,12 +49,18 @@ export const qualitySample: SampleDefinition = {
     { key: 'description', label: 'Description', type: 'textarea' },
   ],
   actions: [
-    { id: 'assign', label: 'Assign reviewer', from: ['reported'], to: 'assigned', fields: [{ key: 'reviewer', label: 'Reviewer membership ID' }] },
     {
-      id: 'investigate', label: 'Record investigation', from: ['assigned'], to: 'investigated',
+      id: 'assign', label: 'Assign reviewer', from: ['reported'], to: 'assigned', permission: 'assign',
+      fields: [{ key: 'reviewer', label: 'Reviewer membership ID' }],
+    },
+    {
+      id: 'investigate', label: 'Record investigation', from: ['assigned'], to: 'investigated', permission: 'edit',
       fields: [{ key: 'investigation', label: 'Investigation', type: 'textarea' }, { key: 'corrective', label: 'Corrective actions', type: 'textarea' }],
     },
-    { id: 'resolve', label: 'Resolve incident', from: ['investigated'], to: 'resolved', fields: [{ key: 'resolution', label: 'Resolution', type: 'textarea' }] },
+    {
+      id: 'resolve', label: 'Resolve incident', from: ['investigated'], to: 'resolved', permission: 'approve',
+      fields: [{ key: 'resolution', label: 'Resolution', type: 'textarea' }],
+    },
   ],
   records: [
     row('05aafd3d-6f7a-4b8c-8d9e-8b7c0d1e2f08', 'assigned', { ...quality, reviewer: 'Admin' }, '2026-10-26T11:41:16.763Z', [
@@ -102,8 +108,11 @@ export const shiftsSample: SampleDefinition = {
     return overlaps ? 'Staff roster conflict.' : undefined
   },
   actions: [
-    { id: 'clockin', label: 'Simulated clock-in', from: ['assigned'], to: 'on-duty' },
-    { id: 'clockout', label: 'Simulated clock-out', from: ['on-duty'], to: 'completed', fields: [{ key: 'handover', label: 'Handover notes', type: 'textarea' }] },
+    { id: 'clockin', label: 'Simulated clock-in', from: ['assigned'], to: 'on-duty', permission: 'edit' },
+    {
+      id: 'clockout', label: 'Simulated clock-out', from: ['on-duty'], to: 'completed', permission: 'edit',
+      fields: [{ key: 'handover', label: 'Handover notes', type: 'textarea' }],
+    },
   ],
   // When the simulated clock-in and clock-out happened, as the design records them.
   apply: ({ action, at }): SampleApplied => {
@@ -147,9 +156,12 @@ export const ambulanceSample: SampleDefinition = {
     { key: 'crew', label: 'Assigned crew' },
   ],
   actions: [
-    { id: 'dispatch', label: 'Dispatch vehicle', from: ['requested'], to: 'dispatched' },
-    { id: 'complete', label: 'Complete dispatch', from: ['dispatched'], to: 'completed', fields: [{ key: 'handover', label: 'Handover details' }] },
-    { id: 'cancel', label: 'Cancel dispatch', from: ['requested', 'dispatched'], to: 'cancelled', fields: [reason] },
+    { id: 'dispatch', label: 'Dispatch vehicle', from: ['requested'], to: 'dispatched', permission: 'assign' },
+    {
+      id: 'complete', label: 'Complete dispatch', from: ['dispatched'], to: 'completed', permission: 'edit',
+      fields: [{ key: 'handover', label: 'Handover details' }],
+    },
+    { id: 'cancel', label: 'Cancel dispatch', from: ['requested', 'dispatched'], to: 'cancelled', fields: [reason], permission: 'edit' },
   ],
   // A vehicle goes out only when it is available and not already out on another dispatch.
   apply: ({ record, records, action }): SampleApplied => {
@@ -180,9 +192,13 @@ export const vehiclesSample: SampleDefinition = {
     { key: 'name', label: 'Vehicle registration' },
     { key: 'crew', label: 'Default crew' },
   ],
+  // The design's catalogue names no verb for these two: its record view then asks for 'edit', as here.
   actions: [
-    { id: 'maintenance', label: 'Maintenance', from: ['available'], to: 'maintenance', fields: [reason] },
-    { id: 'release', label: 'Release vehicle', from: ['maintenance'], to: 'available', fields: [{ key: 'review', label: 'Maintenance completed' }] },
+    { id: 'maintenance', label: 'Maintenance', from: ['available'], to: 'maintenance', fields: [reason], permission: 'edit' },
+    {
+      id: 'release', label: 'Release vehicle', from: ['maintenance'], to: 'available', permission: 'edit',
+      fields: [{ key: 'review', label: 'Maintenance completed' }],
+    },
   ],
   records: VEHICLE_ROWS,
 }
