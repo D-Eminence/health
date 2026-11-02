@@ -123,7 +123,7 @@ describe('What\'s left', () => {
 
 /**
  * On a product's own site What's left lists only the pages that site shows, by the frame's own rule: its own pages and
- * the shared ones (staff, audit, facility), never Patient registration (the EHR's alone, by the owner's rule) or another
+ * the shared ones (staff, audit, facility, Patients and Access requests), never Patient registration (the EHR's alone, by the owner's rule) or another
  * EHR-only page, and its frame notes describe that site's frame. The product is the frame's own (productHere): from the
  * address, or off a product's address from the facility's permissions. In the EHR it lists every page, as before.
  */
@@ -143,13 +143,14 @@ describe('What\'s left on a product\'s own site', () => {
   const addresses = (table: HTMLElement) => within(table).getAllByRole('link').map(link => link.getAttribute('href')!.replace(/^\/provider\/?/, ''))
 
   // Pages only a hospital's EHR has: none may be listed on a lab's, pharmacy's, outreach team's or migration site.
-  const EHR_ONLY = ['Patient registration', 'Home', 'Patients', 'In-person check', 'Triage & Vitals', 'Consultation', 'Nursing observations',
-    'Emergency', 'Access requests', 'Radiology', 'Patient billing', 'Facility subscription', 'Reports & Analytics']
+  // Patients and Access requests are every product's too (product.ts, parity report 3.1 #7).
+  const EHR_ONLY = ['Patient registration', 'Home', 'In-person check', 'Triage & Vitals', 'Consultation', 'Nursing observations',
+    'Emergency', 'Radiology', 'Patient billing', 'Facility subscription', 'Reports & Analytics']
 
   /** What's left lists only this product's own pages and the shared ones, says so, counts only those, and notes no EHR part. */
   function expectOnly(table: HTMLElement, product: string, home: string, own: readonly string[], other: string) {
     for (const label of [...EHR_ONLY, other]) expect(within(table).queryByRole('link', { name: label })).toBeNull()
-    for (const address of addresses(table)) expect(address).toMatch(new RegExp(`^(${home}(/|$)|(staff|audit|facility|hr|institutions)$)`))
+    for (const address of addresses(table)) expect(address).toMatch(new RegExp(`^(${home}(/|$)|(staff|audit|facility|hr|institutions|patients|requests)$)`))
     // Its own pages, and the facility's own (its people, its audit trail), are still there.
     for (const label of [...own, 'Staff & access', 'Audit & Compliance']) expect(within(table).getAllByRole('link', { name: label }).length).toBeGreaterThan(0)
     // The page says what it lists, and its counts are of those rows only.
