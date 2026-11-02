@@ -35,9 +35,12 @@ import in the route file). The Design tour shows the design's journeys.
   them: `STAFF_MFA_FACTOR_UNPROVEN`, `STAFF_MFA_UNAVAILABLE`, the clinician
   application note, `joinProblemText`, the code-budget hint, the password
   mismatch.
-- **Hosts.** Each product site keeps every way in on itself: sign in, register,
-  recover access and accept an invitation. The production patient portal and
-  the admin sites open the same page on the EHR site at once; existing staff
+- **Hosts.** Each product site keeps every way in on itself, individually:
+  sign in, register (its own kind of facility only), recover access and accept
+  an invitation; its sign-in also points a patient to the patient portal's own
+  sign-in. The production patient portal (`app.`, patients only) and the admin
+  sites serve no staff page: they open the same page at once on the product
+  site the address names, else on the EHR site; existing staff
   accept an invitation signed in on their own site. Identity opens no
   invitation for a browser signed in on the site, so someone signed in there
   is offered the signed-in join page with the link, or to sign out first.
