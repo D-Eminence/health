@@ -94,13 +94,16 @@ export function ReleasedResults({ facilityId, requestId }: { facilityId: string;
           {error ? <Alert intent="error" size="sm" title="Couldn’t load results">{error}</Alert> : null}
           {released ? released.results.length === 0 ? <p className="m-0 text-[13px] text-ink-3">No results released yet.</p> : (
             <>
-              <p className="m-0 text-[13px] text-ink-3">{released.test.name} · accepted by the lab {when(released.acceptedAt)}</p>
+              {/* The test with its code system and code (Clinical.tsx:935). */}
+              <p className="m-0 text-[13px] text-ink-3">{released.test.name} · {released.test.codeSystem} {released.test.code} · accepted by the lab {when(released.acceptedAt)}</p>
               <ul className="m-0 flex list-none flex-col gap-3 p-0">
                 {released.results.map((result, index) => (
                   <li key={result.id} className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-ink">Result {index + 1}</span>
-                      {result.status === 'entered_in_error' ? <Badge size="sm" tone="danger" solid>Entered in error</Badge> : null}
+                      {/* Each result says whether it is released or entered in error (Clinical.tsx:938). */}
+                      {result.status === 'entered_in_error' ? <Badge size="sm" tone="danger" solid>Entered in error</Badge>
+                        : <Badge size="sm" tone="success">Released</Badge>}
                     </div>
                     {result.status === 'entered_in_error' ? <p className="m-0 text-[13px] font-medium text-danger-ink">The latest version was marked entered in error. Don’t use it.</p> : null}
                     {skipsVersions(result.revisions) ? <p className="m-0 text-[12px] text-ink-3">Versions that were never released are not shown.</p> : null}
