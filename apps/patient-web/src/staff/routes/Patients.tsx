@@ -6,6 +6,7 @@ import {
 import { isHidApiError, PlainError, plainErrorText } from '@hid/http'
 import { Badge, Button, Card, Field, Input, Select, Textarea } from '@hid/ui'
 import { usesNovuBackend } from '../../backendContract'
+import { offeredHere } from '../../productSites'
 import { isAllowedPatientLookup, staffApi } from '../api'
 import { useStaff } from '../App'
 import { BUSY, UNAVAILABLE, useFocusById } from '../focus'
@@ -58,7 +59,7 @@ function whoToAsk(administrator: 'pending' | 'reviewed' | null): string {
     + 'clinical access when it checks your facility: add your licence on the Staff page.'
   if (administrator === 'reviewed') return 'You are this facility’s administrator. Health ID support gives your own role '
     + 'clinical access; ask them, or invite a colleague who holds this role.'
-  return 'Ask your organization administrator.'
+  return 'Ask your facility administrator.'
 }
 
 /** Why the role cannot take `action`, or null when it holds every permission its routes require. */
@@ -66,10 +67,10 @@ function actionUnavailable({ routes, action }: Action, permissions: readonly str
   administrator: 'pending' | 'reviewed' | null = null): string | null {
   const needs = routes.map(item => ({ ...item, required: findEndpoint(item.route)?.permissions?.[item.method] ?? [] }))
   // A route the registry does not describe is never offered.
-  if (needs.some(item => item.required.length === 0)) return `You can’t ${action} here.`
-  // Never the permission's own name (owner's rule, 1 Nov 2026): the role can't, and who to ask.
-  const lacking = needs.some(item => item.required.some(permission => !permissions.includes(permission)))
-  return lacking ? `Your role here can’t ${action}. ${whoToAsk(administrator)}` : null
+  if (needs.some(item => item.required.length === 0)) return `This portal cannot ${action} here.`
+  // The permissions themselves are never named: the role is told, in plain words, what it can't do and whom to ask.
+  return needs.every(item => item.required.every(permission => permissions.includes(permission))) ? null
+    : `Your role at this facility can’t ${action}. ${whoToAsk(administrator)}`
 }
 
 /** Why `normalized` is not a Health ID, or null when it is one. */
@@ -117,6 +118,9 @@ export function Patients() {
   const unavailable = actionUnavailable(METHOD_ROUTES[mode], permissions, administrator)
   const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administrator)
   const openSharedUnavailable = actionUnavailable(OPEN_SHARED, permissions, administrator)
+  // A product site (lab., pharmacy., migrate., outreach.) opens no clinical record (productSites.ts): there, an opened
+  // patient stays on this page, which says so, and nothing links to a record the site would not open.
+  const clinicalHere = offeredHere('/provider/clinical')
 
   function clearFeedback() { setMessage(''); setError(''); problems.clear() }
 
@@ -137,7 +141,9 @@ export function Patients() {
       throw new PlainError('Health ID has not granted access to this patient. Request approval, verify their PIN, or use documented emergency access when justified.')
     }
     // A lookup answered after the session or facility changed opens nothing.
-    if (setActivePatient({ hid: candidate, lookup, purpose })) navigate('/provider/clinical')
+    if (!setActivePatient({ hid: candidate, lookup, purpose })) return
+    if (clinicalHere) navigate('/provider/clinical')
+    else setMessage('Access is allowed.')
   }
 
   async function checkAccess(event: FormEvent<HTMLFormElement>) {
@@ -227,13 +233,13 @@ export function Patients() {
 
   return <>
     <div className="staff-page-head"><p className="staff-eyebrow">Governed access</p><h1 id="patients-title" tabIndex={-1}>Open a patient record.</h1><p>Enter the patient’s Health ID. Their identity and records remain hidden until Health ID authorizes this facility and purpose.</p></div>
-    {activePatient && <Card className="staff-card staff-current"><h2>{activePatient.purpose === 'emergency' ? 'Current emergency summary' : 'Current authorized record'}</h2><div className="staff-row"><strong>{activePatient.lookup.patient.fullName ?? activePatient.hid}</strong><Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'}>{activePatient.purpose === 'emergency' ? 'Emergency access' : 'Access allowed'}</Badge><Link to="/provider/clinical" className="staff-text-link">{activePatient.purpose === 'emergency' ? 'Open read-only emergency summary →' : 'Open clinical record →'}</Link></div>{grantId && <>{closeUnavailable && <p id="close-grant-unavailable" className="staff-muted">{closeUnavailable}</p>}<Button tone="secondary" size="sm" onClick={() => void closeGrant()} disabled={closeUnavailable !== null} aria-disabled={busy || undefined} className={UNAVAILABLE} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}>Close my grant</Button></>}</Card>}
+    {activePatient && <Card className="staff-card staff-current"><h2>{activePatient.purpose === 'emergency' ? 'Current emergency summary' : 'Current authorized record'}</h2><div className="staff-row"><strong>{activePatient.lookup.patient.fullName ?? activePatient.hid}</strong><Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'}>{activePatient.purpose === 'emergency' ? 'Emergency access' : 'Access allowed'}</Badge>{clinicalHere && <Link to="/provider/clinical" className="staff-text-link">{activePatient.purpose === 'emergency' ? 'Open read-only emergency summary →' : 'Open clinical record →'}</Link>}</div>{grantId && <>{closeUnavailable && <p id="close-grant-unavailable" className="staff-muted">{closeUnavailable}</p>}<Button tone="secondary" size="sm" onClick={() => void closeGrant()} disabled={closeUnavailable !== null} aria-disabled={busy || undefined} className={UNAVAILABLE} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}>Close my grant</Button></>}</Card>}
     <div className="staff-two-col">
       <Card className="staff-card"><h2>Check current access</h2><p>Already approved? Verify with the server before opening the chart.</p><form className="staff-form" noValidate onSubmit={event => void checkAccess(event)}><Field label="Health ID" htmlFor="patient-hid" hint={HID_FORMAT} error={hidError ? hidAlert ? <span key={focusHid} role="alert">{hidError}</span> : hidError : undefined} required><Input id="patient-hid" autoComplete="off" value={hid} onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); setHidError('') }} required invalid={!!hidError} aria-describedby={hidError ? 'patient-hid-error' : 'patient-hid-hint'} /></Field><Button type="submit" disabled={!facility || !permissions.includes('identity.patient.read')} aria-disabled={busy || undefined} className={BUSY}>Verify access</Button></form></Card>
       <Card className="staff-card"><h2>Obtain access</h2><div className="staff-tabs" role="group" aria-label="Access method"><button type="button" aria-pressed={mode === 'request'} onClick={() => { problems.clear(); setMode('request') }}>Request</button><button type="button" aria-pressed={mode === 'pin'} onClick={() => { problems.clear(); setMode('pin') }}>Patient PIN</button><button type="button" aria-pressed={mode === 'emergency'} onClick={() => { problems.clear(); setMode('emergency') }}>Emergency</button></div>
         {/* The page checks each method's fields itself and says what is wrong at the field. */}
         <form className="staff-form" noValidate onSubmit={event => void submitAccess(event)}>
-          {mode === 'request' && <><p className="staff-muted">Ask the patient to approve access. A pending request does not expose their record.</p><Field label="Access scope" htmlFor="request-scope"><Select id="request-scope" value={scope} onChange={event => setScope(event.target.value as 'read_records' | 'write_records')}><option value="read_records">Read records</option><option value="write_records">Read and write records</option></Select></Field><Field label="Clinical reason" htmlFor="request-reason" error={problems.error('request-reason')} required><Textarea id="request-reason" value={reason} onChange={event => setReason(event.target.value)} minLength={8} maxLength={500} required {...problems.control('request-reason')} /></Field></>}
+          {mode === 'request' && <><p className="staff-muted">Ask the patient to approve access. A pending request does not expose their record.</p><Field label="Access scope" htmlFor="request-scope"><Select id="request-scope" value={scope} onChange={event => setScope(event.target.value as 'read_records' | 'write_records')}><option value="read_records">Can view records</option><option value="write_records">Can view and add records</option></Select></Field><Field label="Clinical reason" htmlFor="request-reason" error={problems.error('request-reason')} required><Textarea id="request-reason" value={reason} onChange={event => setReason(event.target.value)} minLength={8} maxLength={500} required {...problems.control('request-reason')} /></Field></>}
           {mode === 'pin' && <><p className="staff-muted">Only the patient should share their access PIN. Verification and grant creation happen on the server.</p><Field label="Patient access PIN" htmlFor="patient-pin" hint="4 to 8 digits." error={problems.error('patient-pin')} required><Input id="patient-pin" type="password" inputMode="numeric" autoComplete="off" pattern="\s*(\d\s*){4,8}" maxLength={16} value={pin} onChange={event => setPin(event.target.value)} required aria-describedby="patient-pin-hint" {...problems.control('patient-pin')} /></Field></>}
           {mode === 'emergency' && <><div className="staff-notice staff-danger">Use emergency access only when the patient cannot consent and care cannot wait. The action is time limited and audited.{usesNovuBackend() && ` ${EMERGENCY_CONTACTS_TOLD}`} It opens a read-only summary from this facility: completed encounters and signed notes, and the diagnoses, prescriptions, lab requests and documents your role may read. It shows no vital signs and opens no files.</div><Field label="Emergency reason" htmlFor="emergency-reason" error={problems.error('emergency-reason')} required><Textarea id="emergency-reason" value={emergencyReason} onChange={event => setEmergencyReason(event.target.value)} minLength={8} maxLength={500} required {...problems.control('emergency-reason')} /></Field></>}
           {unavailable && <p id="access-method-unavailable" className="staff-muted">{unavailable}</p>}

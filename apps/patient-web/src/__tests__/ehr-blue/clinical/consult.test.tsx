@@ -3,6 +3,7 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace, consultStatus } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
+import { consultationLabel } from '../../../plainLabels'
 import { BASE, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 import { SAID_FIELDS_REFUSED, SAID_UNAVAILABLE } from '../../said'
 
@@ -40,7 +41,7 @@ const ENCOUNTER = {
   id: ENCOUNTER_ID, patientId: PATIENT_ID, facilityId: FACILITY_ID, encounterType: 'ambulatory', status: 'in_progress',
   startedAt: '2026-10-30T08:00:00.000Z', chiefComplaint: 'Fever for two days', rowVersion: 1,
 }
-const SECOND = { ...ENCOUNTER, id: 'e2222222-0000-4000-8000-000000000002', status: 'completed', chiefComplaint: null }
+const SECOND = { ...ENCOUNTER, id: 'e2222222-0000-4000-8000-000000000002', status: 'completed', chiefComplaint: null, startedAt: '2026-09-21T08:00:00.000Z' }
 const NEW_ID = 'e1111111-0000-4000-8000-000000000003'
 const READ_ONLY = 'You can view this record but not change it.'
 
@@ -112,7 +113,7 @@ describe('Consultation list', () => {
     const table = await screen.findByRole('table', { name: 'Consultations' })
     // One patient's chart: the second column says what the visit was for; the patient is named once, in the banner.
     expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Record', 'Complaint', 'Status', 'Updated', 'Actions'])
-    const link = within(table).getByRole('link', { name: 'e0000000' })
+    const link = within(table).getByRole('link', { name: consultationLabel(ENCOUNTER) })
     expect(link.getAttribute('href')).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
     expect(within(table).getByText('Fever for two days')).toBeTruthy()
     expect(within(table).getByText('No complaint recorded')).toBeTruthy()
@@ -129,9 +130,9 @@ describe('Consultation list', () => {
 
   it('opens the record quick view, and Escape closes it', async () => {
     open()
-    fireEvent.click(await screen.findByRole('button', { name: 'Quick view e0000000' }))
+    fireEvent.click(await screen.findByRole('button', { name: `Quick view ${consultationLabel(ENCOUNTER)}` }))
     const drawer = await screen.findByRole('dialog', { name: 'Record quick view' })
-    expect(within(drawer).getByRole('heading', { level: 3, name: 'e0000000' })).toBeTruthy()
+    expect(within(drawer).getByRole('heading', { level: 3, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     expect(within(drawer).getByText('Outpatient')).toBeTruthy()
     expect(within(drawer).getByText('Fever for two days')).toBeTruthy()
     expect(within(drawer).getByRole('button', { name: 'Open full record' })).toBeTruthy()
@@ -204,7 +205,7 @@ describe('Consultation list', () => {
     expect(await within(pager).findByText('Page 2')).toBeTruthy()
     expect(api.encounters).toHaveBeenLastCalledWith(FACILITY_ID, PATIENT_ID, { cursor: 'cursor-2', fresh: false })
     expect(api.lookupPatient).toHaveBeenCalledTimes(2)
-    expect(screen.getByRole('link', { name: 'e2222222' }).getAttribute('href')).toBe(`/provider/clinical/${SECOND.id}`)
+    expect(screen.getByRole('link', { name: consultationLabel(SECOND) }).getAttribute('href')).toBe(`/provider/clinical/${SECOND.id}`)
 
     // A failed page read is an alert; the page shown stays.
     api.encounters.mockRejectedValueOnce(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
@@ -470,7 +471,7 @@ describe('New consultation', () => {
     fill('Presenting complaint', 'Cough')
     fill('History', 'Three days of cough.')
     fireEvent.click(save)
-    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e1111111' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     expect(api.createRecord).toHaveBeenCalledTimes(1)
     expect(api.createRecord.mock.calls.filter(call => call[3] === 'diagnoses')).toHaveLength(0)
   })
@@ -496,7 +497,7 @@ describe('New consultation', () => {
     fill('Presenting complaint', 'Cough')
     fireEvent.click(save)
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e1111111' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     expect(api.createEncounter).toHaveBeenCalledTimes(1)
     expect(api.createEncounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID,
       { encounterType: 'virtual', status: 'in_progress', startedAt: expect.any(String), chiefComplaint: 'Cough' }, expect.any(String))
@@ -510,7 +511,7 @@ describe('New consultation', () => {
       fill('Presenting complaint', 'Cough')
       fill(label, 'Fictional text.')
       fireEvent.click(save)
-      expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e1111111' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
       const notes = api.createRecord.mock.calls.filter(call => call[3] === 'clinical-notes')
       expect(notes).toHaveLength(1)
       expect(notes[0]!.slice(0, 5)).toEqual([FACILITY_ID, PATIENT_ID, NEW_ID, 'clinical-notes', {
@@ -552,7 +553,7 @@ describe('New consultation', () => {
     expect(checks.some(order => order < api.createEncounter.mock.invocationCallOrder[0]!)).toBe(true)
     expect(checks.filter(order => order > api.createEncounter.mock.invocationCallOrder[0]! && order < api.createRecord.mock.invocationCallOrder[0]!)).toHaveLength(1)
     // The new encounter's page.
-    expect(screen.getByRole('heading', { level: 1, name: 'Consultation e1111111' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
   })
 
   it('shows a refused note at its field, keeps the encounter started and reuses its keys on retry', async () => {
@@ -574,7 +575,7 @@ describe('New consultation', () => {
     expect(screen.queryByLabelText(labelled('Presenting complaint'))).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Save the rest' }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e1111111' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     expect(api.createEncounter).toHaveBeenCalledTimes(1)
     expect(api.createRecord).toHaveBeenCalledTimes(2)
     expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
@@ -608,7 +609,7 @@ describe('New consultation', () => {
 
     fill('Code', 'J06.9')
     fireEvent.click(screen.getByRole('button', { name: 'Save the rest' }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Consultation e1111111' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: consultationLabel(ENCOUNTER) })).toBeTruthy()
     expect(api.createEncounter).toHaveBeenCalledTimes(1)
     expect(api.createRecord.mock.calls.filter(call => call[3] === 'clinical-notes')).toHaveLength(1)
     const diagnoses = api.createRecord.mock.calls.filter(call => call[3] === 'diagnoses')

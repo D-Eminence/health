@@ -144,7 +144,13 @@ function othersText(others: SentWrongPatientOrderRoutes['others'], own: number):
     + `reported accepted for the wrong person${named ? `: ${named}` : ''}.`
 }
 
-export function WrongPatientOrdersCard({ facilityId, facilityName }: { readonly facilityId: string; readonly facilityName: string }) {
+/**
+ * `consultation`: whether this site opens Consultation, where an order is found. A lab's, outreach team's or migration
+ * site does not (the frame sends it back Home), so there the card still tells what happened, with no way to open the
+ * order that would only come back.
+ */
+export function WrongPatientOrdersCard({ facilityId, facilityName, consultation = true }: { readonly facilityId: string
+  readonly facilityName: string; readonly consultation?: boolean }) {
   const { activePatient } = useStaff()
   const lateServed = useLateCorrectionServed() === true
   const [answer, setAnswer] = useState<SentWrongPatientOrderRoutes | 'failed' | 'missing' | null>(null)
@@ -188,7 +194,7 @@ export function WrongPatientOrdersCard({ facilityId, facilityName }: { readonly 
           <strong>{what.charAt(0).toUpperCase()}{what.slice(1)}{item.reference ? ` · Ref ${item.reference}` : ''} · {patient}</strong>
           <p>{reportedText(item, receiving, patient)}</p>
           {(item.late !== true || withdrewSomething(item)) && <p>{withdrawnText(item, patient)}</p>}
-          {link && (openPatient === link.patientId
+          {link && consultation && (openPatient === link.patientId
             ? <Link to="/provider/clinical" state={{ order: link }} className="hid-ehr-blue-link">Open the {what} →</Link>
             : <p className="hid-ehr-blue-muted">To see it, open {patient}’s record from <Link to="/provider/patients"
               className="hid-ehr-blue-link">Patients</Link>, then the {what}{item.reference ? ` with reference ${item.reference}` : ''}.</p>)}

@@ -10,6 +10,7 @@ import { SubHeading } from '../parts/Detail'
 import { ErrorBox, Loading } from '../parts/Notices'
 import { StatusBadge } from '../parts/StatusBadge'
 import { useClinical } from '../parts/Workspace'
+import { fileTypeLabel, scanStatusLabel } from '../../../plainLabels'
 import { RELOAD_FAILED, fileSize } from './encounters'
 import { ListPaging } from './Notes'
 import type { RecordList } from './records'
@@ -110,7 +111,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
               <span>
                 <strong>{document.fileName}</strong>
                 <span className="hid-ehr-clinical-cell-sub">
-                  {`${fileType(document.mediaType)} · ${fileSize(document.sizeBytes)}${document.status === 'initiated' ? '' : ` · ${scanWords(document.scanStatus)}`}`}
+                  {[fileTypeLabel(document.mediaType), fileSize(document.sizeBytes), document.status === 'initiated' ? '' : scanStatusLabel(document.scanStatus)].filter(Boolean).join(' · ')}
                 </span>
                 {document.status === 'initiated' ? (
                   <span className="hid-ehr-clinical-cell-sub">Upload not completed; only the person who started it can finish it. Upload the file again.</span>
@@ -148,16 +149,4 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       {error ? <ErrorBox>{error}</ErrorBox> : null}
     </EhrCard>
   )
-}
-
-/** A file's type in words: "PDF", not "application/pdf". */
-function fileType(mediaType: string): string {
-  const named: Record<string, string> = { 'application/pdf': 'PDF', 'image/jpeg': 'JPEG image', 'image/png': 'PNG image', 'image/tiff': 'TIFF image' }
-  return named[mediaType] ?? mediaType
-}
-
-/** The virus check in words. */
-function scanWords(scanStatus: string): string {
-  const named: Record<string, string> = { clean: 'Checked', pending: 'Being checked', infected: 'Blocked: virus found', failed: 'Check failed' }
-  return named[scanStatus] ?? `Check: ${scanStatus.replaceAll('_', ' ')}`
 }

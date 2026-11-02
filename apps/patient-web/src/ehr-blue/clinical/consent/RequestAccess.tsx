@@ -44,7 +44,7 @@ const ORDER = ['hid', 'scope', 'duration', 'reason'] as const
 type Key = (typeof ORDER)[number]
 
 const SCOPES: ReadonlyArray<{ value: Scope; label: string; hint: string }> = [
-  { value: 'read_records', label: SCOPE_LABELS.read_records, hint: 'Read only' },
+  { value: 'read_records', label: SCOPE_LABELS.read_records, hint: 'View only' },
   { value: 'write_records', label: SCOPE_LABELS.write_records, hint: 'For notes, vitals and orders' },
 ]
 

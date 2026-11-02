@@ -97,7 +97,8 @@ describe('Shared with you', () => {
     await renderPatients()
     const open = within(card('Shared with you')).getByRole('button', { name: 'Open Amaka Eze’s record' }) as HTMLButtonElement
     expect(open.disabled).toBe(true)
-    expect(document.getElementById(open.getAttribute('aria-describedby') ?? '')?.textContent).toMatch(/^Your role here can’t /)
+    expect(document.getElementById(open.getAttribute('aria-describedby') ?? '')?.textContent)
+      .toBe('Your role at this facility can’t open a patient’s record. Ask your facility administrator.')
     expect(document.body.textContent).not.toContain('identity.patient.read')
   })
 })

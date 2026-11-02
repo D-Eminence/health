@@ -385,7 +385,9 @@ describe('campaigns, read only', () => {
     expect(screen.getByRole('heading', { name: 'Available actions' })).toBeTruthy()
     expect(screen.getByText('No further actions for your permission and this record state.')).toBeTruthy()
     const members = screen.getByRole('heading', { name: 'Members' }).closest('section') as HTMLElement
-    expect(await within(members).findByText('Membership membersh')).toBeTruthy()
+    expect(await within(members).findByText('Team member')).toBeTruthy()
+    expect(within(members).getByText(/Reference membersh/)).toBeTruthy()
+    expect(within(members).queryByText(/^Membership /)).toBeNull()
     expect(within(members).getByText('Health worker')).toBeTruthy()
     expect(screen.getAllByRole('button')).toEqual([screen.getByRole('button', { name: 'Back to list' })])
     // Back to the list, focus returns to the campaign opened.

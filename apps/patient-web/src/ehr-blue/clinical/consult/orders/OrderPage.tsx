@@ -12,7 +12,7 @@ import { useLateCorrectionServed } from '../../../../lateCorrectionServed'
 import { useWrongPatientServed } from '../../../../wrongPatientServed'
 import type { Chart } from '../../parts/chart'
 import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord } from '../../parts/Detail'
-import { formatWhen, shortId } from '../../parts/format'
+import { formatWhen } from '../../parts/format'
 import type { KeyValue } from '../../parts/KeyValueList'
 import { Value } from '../../../../kasuwa/parts'
 import { ErrorBox, Loading, NoActions, RecordNotFound } from '../../parts/Notices'
@@ -419,7 +419,6 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     { label: 'Priority', value: priorityText(record.priority) },
     { label: 'Specimen type', value: text(record.specimenTypeCode) },
     { label: 'Clinical information', value: text(record.clinicalInformation) },
-    { label: 'Consultation', value: shortId(encounterId) },
     { label: 'Recorded', value: formatWhen(record.createdAt) },
   ] : [
     { label: 'Medicine', value: text(record.medicationDisplay) },
@@ -428,7 +427,6 @@ export function OrderPage({ kind, chart, encounterId, orderId }: { kind: OrderKi
     { label: 'Route', value: text(record.routeCode) },
     { label: 'How often', value: text(record.frequency) },
     { label: 'Instructions', value: text(record.instructions) },
-    { label: 'Consultation', value: shortId(encounterId) },
     { label: 'Recorded', value: formatWhen(record.createdAt) },
   ]
 

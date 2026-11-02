@@ -2,16 +2,16 @@ import { ImportedHistory, matchingImported } from '../ImportedHistory'
 import { usesNovuBackend } from '../backendContract'
 import { PatientImportedHistory } from '../ImportedHistoryPage'
 import { getEnvironment } from '../env'
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError, PLAIN, plainErrorText } from '@hid/http'
-import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart } from 'lucide-react'
+import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart, FileImage } from 'lucide-react'
 import { AppShell, type NavGroup } from '../kasuwa/AppShell'
 import { Avatar, Badge, Button, buttonClass, Card, CardHeader, EmptyState, Field, FilterTabs, IconChip, Input, PageHeader, SectionHeader, cx, statusTone, timeAgo, type Icon } from '../kasuwa/ui'
 import { PageState } from '../kasuwa/parts'
 import { PATIENT_REFUSALS, SAY, WORDS } from '../copy'
 import { useAccountDeletionServed } from '../accountDeletionServed'
-import { ButtonR, Hint, InputR, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
+import { Actions, ButtonR, Hint, InputR, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
 import { HealthIdCard } from './HealthIdCard'
 import { AddRecordDrawer } from './AddRecord'
 import { Drawer } from '../kasuwa/interactive'
@@ -20,6 +20,8 @@ import { BrandLogo } from '../BrandLogo'
 import { ItemName } from '../ItemName'
 import { useSession } from '../session'
 import { IMPORTED_NOTIFICATIONS_PAGE, type AccessHistory, type PatientProfile, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
+import type { PatientEntry, PatientEntryDocument, PatientEntryKind } from '../api'
+import { usePatientEntriesServed } from '../patientEntriesServed'
 import { IMPORTED_HEALTH_FIELDS, type ImportedHealthField, type ImportedHealthProfile, type ImportedMedicalRecord } from '../importedRecords'
 import { patientChatEnabled } from '../chatFeatures'
 import { usePatientResource } from './usePatientResource'
@@ -47,6 +49,7 @@ import { ShareInvitationsCard } from './ShareInvitations'
 import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
+import { accessLevelLabel, fileSizeLabel, fileTypeLabel, visitClassLabel, visitStatusLabel } from '../plainLabels'
 
 function date(value: string | null | undefined) {
   if (!value) return 'Not available'
@@ -75,22 +78,9 @@ function forHowLong(minutes: number | null | undefined) {
   return unit(minutes, 'minute')
 }
 
-/** A size EHR sends as a number or, for a bigint column, as text: in KB or MB, as people read it. */
+/** A size EHR sends as a number or, for a bigint column, as text: in KB or MB, as people read it; nothing when unknown. */
 function bytes(value: number | string | null) {
-  const count = value == null || value === '' ? NaN : Number(value)
-  if (!Number.isFinite(count) || count < 0) return ''
-  return count < 1024 * 1024 ? `${Math.max(1, Math.round(count / 1024))} KB` : `${(count / 1024 / 1024).toFixed(1)} MB`
-}
-
-/** A file's type in words: "application/pdf" is "PDF", "image/jpeg" is "Photo". */
-function fileKind(mediaType: string | null | undefined) {
-  const type = (mediaType ?? '').toLowerCase()
-  if (type === 'application/pdf') return 'PDF'
-  if (type.startsWith('image/')) return 'Photo'
-  if (/word|officedocument\.wordprocessing/.test(type)) return 'Word document'
-  if (/sheet|excel|csv/.test(type)) return 'Spreadsheet'
-  if (type.startsWith('text/')) return 'Text'
-  return 'File'
+  return fileSizeLabel(value, '')
 }
 
 /** Every measurement in a vitals entry, so one holding only blood pressure is not shown as a bare date. */
@@ -348,13 +338,13 @@ type Row<S extends RecordSection> = PatientRecords[S][number]
  * where a note's text names them.
  */
 const SEARCHED: { readonly [S in RecordSection]: (item: Row<S>) => Array<string | null> } = {
-  encounters: item => ['Encounter', item.encounterType, item.status, date(item.startedAt)],
+  encounters: item => ['Encounter', visitClassLabel(item.encounterType), visitStatusLabel(item.status), item.encounterType, item.status, date(item.startedAt)],
   notes: item => ['Clinical note', item.title, item.noteType, item.status, item.content, date(item.signedAt)],
   vitals: item => ['Vitals', date(item.recordedAt), vitalsSummary(item)],
   diagnoses: item => ['Diagnosis', item.display, item.code, item.clinicalStatus, item.verificationStatus, item.notes],
   prescriptions: item => ['Prescription', item.medicationDisplay, item.frequency, item.instructions, item.status],
   labRequests: item => ['Laboratory request', item.testDisplay, item.priority, item.status, item.clinicalInformation, date(item.createdAt)],
-  documents: item => ['Clinical document', item.fileName, item.mediaType, date(item.createdAt)],
+  documents: item => ['Clinical document', item.fileName, fileTypeLabel(item.mediaType), item.mediaType, date(item.createdAt)],
 }
 /** The date each section's rows are listed under. */
 const DATED: { readonly [S in RecordSection]: (item: Row<S>) => string | null } = {
@@ -413,6 +403,178 @@ function SectionCard<S extends RecordSection>({ data, section, none, query, row 
   </Card>
 }
 
+/** What each kind of record the patient adds is called, as "Add a record" names it (AddRecord.tsx). */
+const OWN_KINDS: Readonly<Record<PatientEntryKind, string>> = {
+  visit: 'Visit', test: 'Test result', medicine: 'Medicine', diagnosis: 'Diagnosis', vaccination: 'Vaccine', other: 'Other',
+}
+
+const OWN_DAY = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'UTC' })
+/** The day the patient entered (YYYY-MM-DD), as that same calendar day wherever the browser is. */
+function ownDay(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) ? OWN_DAY.format(new Date(`${value}T00:00:00Z`)) : date(value)
+}
+
+/** Everything an entry the patient added shows, for the page's search. */
+const ownRecordText = (entry: PatientEntry): Array<string | null> => ['Added by you', OWN_KINDS[entry.kind], entry.title, entry.facilityName,
+  entry.notes, ownDay(entry.occurredOn), dayWords(entry.occurredOn), ...entry.documents.map(file => file.fileName)]
+
+const FILE_NOT_ADDED = 'This file couldn’t be added'
+/**
+ * Where a photo or file is in its virus check, in words; nothing once it has passed. One the check rejected reads as not
+ * added, with no word of why.
+ */
+function scanWords(file: PatientEntryDocument): string | null {
+  if (file.scanStatus === 'rejected' || file.status === 'rejected') return FILE_NOT_ADDED
+  return file.scanStatus === 'pending' ? 'Checking for viruses' : null
+}
+
+// What a removal comes to, in this page's own words: never the server's.
+const REMOVED = 'Removed from your records'
+const ALREADY_REMOVED = 'This record has already been removed.'
+const NOT_REMOVED = 'This record couldn’t be removed. Please try again.'
+/** The removal refused as the entry is no longer there (BACKEND-NEEDS.md §1): its status and code alone. */
+const saysAlreadyRemoved = (error: unknown): boolean => isHidApiError(error) && error.status === 404 && error.code === 'PATIENT_ENTRY_NOT_FOUND'
+
+/** Notes longer than this, or on more than three lines, are shown cut short first. */
+const OWN_NOTES_SHORT = 160
+/** The start of long notes, cut at a word, or null when they are short enough to show whole. */
+function notesStart(notes: string): string | null {
+  const lines = notes.split('\n')
+  if (notes.length <= OWN_NOTES_SHORT && lines.length <= 3) return null
+  const start = lines.slice(0, 3).join('\n')
+  if (start.length <= OWN_NOTES_SHORT) return `${start.trimEnd()}…`
+  const space = start.lastIndexOf(' ', OWN_NOTES_SHORT)
+  return `${start.slice(0, space > OWN_NOTES_SHORT / 2 ? space : OWN_NOTES_SHORT).trimEnd()}…`
+}
+
+/** An entry's notes ("Anything else to note?"): whole when short; when long, their start and "Show all". */
+function OwnNotes({ id, title, notes }: { id: string; title: string; notes: string }) {
+  const [open, setOpen] = useState(false)
+  const start = notesStart(notes)
+  const textId = `own-record-notes-${id}`
+  return <div className="flex flex-col items-start gap-1">
+    <p id={textId} className="m-0 whitespace-pre-wrap text-[13px] leading-relaxed [overflow-wrap:anywhere] text-ink-2">{start && !open ? start : notes}</p>
+    {start && <Button size="sm" variant="ghost" aria-expanded={open} aria-controls={textId} onClick={() => setOpen(value => !value)}>
+      {open ? 'Show less' : 'Show all'} <ItemName>notes for {title}</ItemName></Button>}
+  </div>
+}
+
+/**
+ * "Added by you" (BACKEND-NEEDS.md §1): the records the patient added with "Add a record", newest first, each with its
+ * kind, place, date, notes and photos and files, and Remove. They come in the page's own records answer, under
+ * `patientEntries`; nothing is read for them alone. Mounted only once that answer (or a Save) has said they are served:
+ * where they are not (today's answer, without the key) the page is exactly as it was. A file can't be opened here yet;
+ * while its virus check runs that is said, and one the check rejected reads "This file couldn't be added".
+ *
+ * Remove asks first, in place, then withdraws the entry and reads the page's records again. Nothing is erased, so the
+ * page says "Removed from your records", never "deleted". An entry the server no longer has (404
+ * PATIENT_ENTRY_NOT_FOUND: removed from another device, say) reads as "This record has already been removed.", and the
+ * records are read again just the same; any other refusal is "This record couldn't be removed. Please try again." The
+ * server's own words are never shown. Focus goes as on the profile's cards (useActionFocus): to the question's safe
+ * answer as it opens, back to Remove when kept, and to this list's heading when removed (or the page's, once the list is
+ * empty or the records could not be read again); the outcome is said in a live region mounted throughout, also while the
+ * page shows that its records could not be read.
+ */
+function OwnRecords({ entries, matches, searching, shown, loading, reload, pageHeading }: {
+  /** The entries the records answer listed (none while it could not be read), and those the page's search matches. */
+  entries: readonly PatientEntry[]; matches: readonly PatientEntry[]; searching: boolean
+  /** With the records read, on the page's All tab. On another tab they are kept, but not shown. */
+  shown: boolean
+  /** Whether the page's records are being read again, and the way to read them again (usePatientResource's). */
+  loading: boolean; reload: () => Promise<void>
+  pageHeading: RefObject<HTMLHeadingElement | null>
+}) {
+  const { api } = useSession()
+  const [removing, setRemoving] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const title = useRef<HTMLSpanElement>(null)
+  // A removal still on its way is stopped as the page is left.
+  const request = useRef<AbortController | null>(null)
+  useEffect(() => () => request.current?.abort(), [])
+  const focusAfter = useActionFocus()
+  const heading = useMemo(() => ({ get current(): HTMLElement | null { return title.current ?? pageHeading.current } }), [pageHeading])
+  const byId = (id: string) => () => document.getElementById(id)
+
+  const ask = (entry: PatientEntry) => {
+    setRemoving(entry.id); setProblem(null); setNotice(null)
+    focusAfter(byId(`own-record-keep-${entry.id}`))
+  }
+  const keep = (entry: PatientEntry) => {
+    setRemoving(null); setProblem(null)
+    focusAfter(byId(`own-record-remove-${entry.id}`))
+  }
+  const remove = async (entry: PatientEntry) => {
+    if (busy) return
+    const controller = new AbortController()
+    request.current = controller
+    setBusy(true); setProblem(null)
+    try {
+      let outcome = REMOVED
+      try {
+        await api.withdrawOwnRecord(entry.id, controller.signal)
+      } catch (cause) {
+        // Already gone: said so, and the records are read again all the same.
+        if (controller.signal.aborted || !saysAlreadyRemoved(cause)) throw cause
+        outcome = ALREADY_REMOVED
+      }
+      // Removed once the page's records, read again, show it gone.
+      await reload()
+      if (controller.signal.aborted) return
+      setRemoving(null); setNotice(outcome)
+      focusAfter(() => heading.current)
+    } catch {
+      if (controller.signal.aborted) return
+      setProblem(NOT_REMOVED)
+      focusAfter(byId(`own-record-confirm-${entry.id}`))
+    } finally {
+      if (!controller.signal.aborted) { setBusy(false); request.current = null }
+    }
+  }
+
+  const listed = searching ? matches : entries
+  return <>
+    <Saved>{notice}</Saved>
+    {shown && listed.length > 0 && <Card aria-labelledby="own-records-title">
+      <CardHeader as="h2" titleId="own-records-title" icon={FilePlus2} iconTone="brand"
+        title={<span ref={title} tabIndex={-1} className="outline-none">Added by you</span>}
+        description={searching ? `${matches.length} of ${entries.length} match` : 'What you added yourself, newest first.'} />
+      <ul className="m-0 list-none divide-y divide-line p-0" aria-busy={loading || undefined}>{listed.map(entry => {
+        const day = ownDay(entry.occurredOn)
+        return <li key={entry.id} className="flex flex-col gap-3 px-5 py-4">
+          <div className="min-w-0">
+            <h3 className="m-0 text-sm font-medium [overflow-wrap:anywhere] text-ink">{entry.title}</h3>
+            <p className="m-0 mt-0.5 text-[13px] [overflow-wrap:anywhere] text-ink-3">{[OWN_KINDS[entry.kind], entry.facilityName, day].filter(Boolean).join(' · ')}</p>
+          </div>
+          {entry.notes && <OwnNotes id={entry.id} title={entry.title} notes={entry.notes} />}
+          {entry.documents.length > 0 && <ul aria-label={`Photos and files for ${entry.title}`} className="m-0 flex list-none flex-col gap-1.5 p-0">
+            {entry.documents.map(file => {
+              const scan = scanWords(file)
+              const FileIcon = file.mediaType === 'application/pdf' ? FileText : FileImage
+              return <li key={file.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg bg-subtle px-3 py-2">
+                <FileIcon className="size-4 shrink-0 text-ink-3" aria-hidden />
+                <span className="min-w-0 text-[13px] font-medium [overflow-wrap:anywhere] text-ink">{file.fileName}</span>
+                <span className="text-[12px] text-ink-3">{[fileTypeLabel(file.mediaType), bytes(file.sizeBytes)].filter(Boolean).join(' · ')}</span>
+                {scan && <Badge size="sm" tone={scan === FILE_NOT_ADDED ? 'warn' : 'neutral'}>{scan}</Badge>}
+              </li>
+            })}
+          </ul>}
+          {removing === entry.id
+            ? <div role="group" aria-labelledby={`own-record-ask-${entry.id}`} className="flex flex-col gap-3 rounded-lg bg-danger-soft/50 p-3">
+              <p id={`own-record-ask-${entry.id}`} className="m-0 text-sm text-ink">Remove this record? It’s taken off your records, your chat and what your care team can see. Nothing is deleted.</p>
+              {problem && <Problem>{problem}</Problem>}
+              <Actions><Button id={`own-record-confirm-${entry.id}`} size="sm" variant="destructive" loading={busy} onClick={() => void remove(entry)}>Yes, remove</Button>
+                <Button id={`own-record-keep-${entry.id}`} size="sm" disabled={busy} onClick={() => keep(entry)}>Keep record</Button></Actions>
+            </div>
+            : <Actions><Button id={`own-record-remove-${entry.id}`} size="sm" variant="danger" disabled={busy} onClick={() => ask(entry)}>
+              Remove <ItemName>{entry.title}, {day}</ItemName></Button></Actions>}
+        </li>
+      })}</ul>
+    </Card>}
+  </>
+}
+
 /** The sections each backend sends: Novu serves encounters and notes, and imported history with them. */
 const sectionsShown = (): RecordSection[] => usesNovuBackend() ? ['encounters', 'notes']
   : ['encounters', 'notes', 'vitals', 'diagnoses', 'prescriptions', 'labRequests', 'documents']
@@ -436,16 +598,22 @@ export function RecordsPage() {
   const [pagedImported, setPagedImported] = useState<readonly ImportedMedicalRecord[]>([])
   const data = records.data
   const searching = query.trim() !== ''
-  const matched = data && searching ? sectionsShown().reduce((count, section) => count + sectionMatches(data, section, query).length,
-    matchingImported([...data.importedRecords ?? [], ...pagedImported], query).length) : 0
   const ready = data && !records.error ? data : null
+  // The records the patient added themselves (OwnRecords): in this page's own records answer, under `patientEntries`,
+  // which also says whether they are served (api.records). Nothing is read for them alone: the page reads its records
+  // again after "Add a record" saves one and after a removal. Without the key (today's backend) nothing more shows.
+  const ownServed = usePatientEntriesServed()
+  const ownEntries = ready?.patientEntries ?? []
+  const ownMatches = searching ? ownEntries.filter(entry => matchesQuery(ownRecordText(entry), query)) : ownEntries
+  const matched = data && searching ? sectionsShown().reduce((count, section) => count + sectionMatches(data, section, query).length,
+    matchingImported([...data.importedRecords ?? [], ...pagedImported], query).length + ownMatches.length) : 0
   // On All, a section with nothing in it (or nothing that matches) is left out: its tab still says 0.
   const visible = ready ? sectionsShown().filter(section => tab === section
     || (tab === 'all' && (searching ? sectionMatches(ready, section, query).length > 0 : (ready[section] as unknown[]).length > 0))) : []
   const [opened, setOpened] = useState<OpenRecord | null>(null)
   const row = (record: OpenRecord, key: string) => <RecordRow key={key} record={record} onOpen={setOpened} />
   const rows: { readonly [S in RecordSection]: (item: Row<S>) => ReactNode } = {
-    encounters: item => row({ section: 'encounters', title: plainCode(item.encounterType), meta: plainCode(item.status), when: item.startedAt }, item.id),
+    encounters: item => row({ section: 'encounters', title: visitClassLabel(item.encounterType), meta: visitStatusLabel(item.status), when: item.startedAt }, item.id),
     notes: item => row({ section: 'notes', title: item.title || plainCode(item.noteType), meta: plainCode(item.status), detail: item.content, when: item.signedAt, multiline: true }, item.id),
     vitals: item => row({ section: 'vitals', title: vitalsSummary(item) || 'Vitals', when: item.recordedAt }, item.id),
     // Plain: the name and its date. The code is for clinicians, so it is kept to the record's own view.
@@ -454,7 +622,7 @@ export function RecordsPage() {
     prescriptions: item => row({ section: 'prescriptions', title: item.medicationDisplay,
       meta: [item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}`.trim() : '', item.frequency, item.status].filter(Boolean).join(' · '), detail: item.instructions, when: item.startsOn }, item.id),
     labRequests: item => row({ section: 'labRequests', title: item.testDisplay, meta: `${plainCode(item.priority)} · ${item.status}`, detail: item.clinicalInformation, when: item.createdAt }, item.id),
-    documents: item => row({ section: 'documents', title: item.fileName, meta: [fileKind(item.mediaType), bytes(item.sizeBytes)].filter(Boolean).join(' · '), when: item.createdAt }, item.id),
+    documents: item => row({ section: 'documents', title: item.fileName, meta: [fileTypeLabel(item.mediaType), bytes(item.sizeBytes)].filter(Boolean).join(' · '), when: item.createdAt }, item.id),
   }
   const NONE: { readonly [S in RecordSection]: string } = {
     encounters: 'No completed visits yet.', notes: 'No signed clinical notes yet.', vitals: 'No vitals recorded yet.', diagnoses: 'No diagnoses recorded.',
@@ -486,7 +654,13 @@ export function RecordsPage() {
       {/* Novu serves encounters, notes and imported history; the other sections belong to main-v1 and are absent from its response. */}
       {visible.map(section => <SectionCard key={section} data={ready} section={section} none={NONE[section]} query={query}
         row={rows[section] as (item: Row<typeof section>) => ReactNode} />)}
-      {visible.length === 0 && !(ready.importedRecords?.length) && <EmptyState icon={searching ? Search : FolderHeart}
+    </>}
+    {/* Nothing of it where they are not served (today's backend). Kept mounted while the records are read again, so a
+      removal is said even when that read fails. */}
+    {ownServed === true && <OwnRecords entries={ownEntries} matches={ownMatches} searching={searching} shown={ready !== null && tab === 'all'}
+      loading={records.loading} reload={records.reload} pageHeading={heading} />}
+    {ready && <>
+      {visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0 && <EmptyState icon={searching ? Search : FolderHeart}
         title={searching ? 'Nothing matches' : 'No records yet'}
         description={searching ? 'Try a date like “March 2024”, a type like “vitals”, or a word from a note.' : 'Records from your providers appear here. You can add your own too, from any hospital, with a photo of the paper.'}
         action={searching ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}
@@ -660,12 +834,12 @@ export function AccessPage() {
             <IconChip icon={item.breakGlass ? Siren : Building2} tone={item.breakGlass ? 'danger' : item.status === 'active' ? 'success' : 'neutral'} />
             <div className="min-w-0 flex-1">
               <p className="m-0 text-sm font-semibold [overflow-wrap:anywhere] text-ink">{grantee(item)}</p>
-              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? plainCode(item.scope)} · until {date(item.expiresAt)}</p>
+              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? accessLevelLabel(item.scope)} · until {date(item.expiresAt)}</p>
               {item.breakGlass && <p className="m-0 mt-2 text-[13px] text-ink-2">Used in an emergency. It ends by itself, and you can’t end it here.</p>}
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
               <Badge tone={statusTone(item.status)} size="sm">{plainCode(item.status)}</Badge>
-              {item.patientRevocable === true && <Button id={`revoke-${item.consentGrantId}`} size="sm" variant="ghost" className="!text-danger-ink" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>End access <ItemName>for {grantee(item)}, {item.scope}, from {dateTime(item.startsAt)}</ItemName></Button>}
+              {item.patientRevocable === true && <Button id={`revoke-${item.consentGrantId}`} size="sm" variant="ghost" className="!text-danger-ink" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>End access <ItemName>for {grantee(item)}, {accessLevelLabel(item.scope)}, from {dateTime(item.startsAt)}</ItemName></Button>}
             </div>
           </li>)}
         </ul>)}
@@ -684,13 +858,13 @@ export function AccessPage() {
       footer={open && open.status.toLowerCase() === 'pending' ? <div className="grid w-full grid-cols-2 gap-2">{denying
         ? <><Button size="lg" block disabled={!!working} onClick={() => { setDenying(false); setReasonProblem(false); focusAfter(byId(`deny-${open.accessRequestId}`)) }}>Back</Button>
             <Button size="lg" block variant="destructive" type="submit" form="deny-form" loading={working === open.accessRequestId} disabled={!!working}>Deny</Button></>
-        : <><Button size="lg" block id={`deny-${open.accessRequestId}`} icon={X} disabled={!!working || requests.loading} onClick={() => setDenying(true)}>Deny <ItemName>the request from {open.facilityName}, {open.scope}, {dateTime(open.requestedAt)}</ItemName></Button>
-            <Button size="lg" block id={`approve-${open.accessRequestId}`} variant="primary" icon={Check} loading={working === open.accessRequestId} disabled={!!working || requests.loading} onClick={() => void decide(open.accessRequestId, 'approve')}>Approve <ItemName>the request from {open.facilityName}, {open.scope}, {dateTime(open.requestedAt)}</ItemName></Button></>}</div>
+        : <><Button size="lg" block id={`deny-${open.accessRequestId}`} icon={X} disabled={!!working || requests.loading} onClick={() => setDenying(true)}>Deny <ItemName>the request from {open.facilityName}, {accessLevelLabel(open.scope)}, {dateTime(open.requestedAt)}</ItemName></Button>
+            <Button size="lg" block id={`approve-${open.accessRequestId}`} variant="primary" icon={Check} loading={working === open.accessRequestId} disabled={!!working || requests.loading} onClick={() => void decide(open.accessRequestId, 'approve')}>Approve <ItemName>the request from {open.facilityName}, {accessLevelLabel(open.scope)}, {dateTime(open.requestedAt)}</ItemName></Button></>}</div>
         : <Button onClick={closeReview}>Close</Button>}>
       {open && <div className="flex flex-col gap-5">
         {open.reason && <blockquote className="m-0 rounded-xl bg-subtle px-4 py-3 text-sm [overflow-wrap:anywhere] text-ink ring-1 ring-line">“{open.reason}”</blockquote>}
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
-          <div><dt className="text-ink-3">They want to</dt><dd className="m-0 mt-0.5 font-medium text-ink">{open.scope === 'read' ? 'See your records' : plainCode(open.scope)}</dd></div>
+          <div><dt className="text-ink-3">Access asked for</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(open.scope)}</dd></div>
           <div><dt className="text-ink-3">For</dt><dd className="m-0 mt-0.5 font-medium text-ink">{forHowLong(open.requestedDurationMinutes).replace(/^ for /, '') || 'Not stated'}</dd></div>
           {open.status.toLowerCase() !== 'pending' && <div><dt className="text-ink-3">Status</dt><dd className="m-0 mt-0.5"><Badge tone={statusTone(open.status)} size="sm">{plainCode(open.status)}</Badge></dd></div>}
         </dl>
@@ -721,7 +895,7 @@ export function AccessPage() {
         <Button variant="destructive" type="submit" form="revoke-form" loading={revokeBusy} disabled={revokeBusy || history.loading || revokeReason.trim().length < 3}>{WORDS.endAccess}</Button></>}>
       {ending && <div className="flex flex-col gap-5">
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
-          <div><dt className="text-ink-3">Access</dt><dd className="m-0 mt-0.5 font-medium text-ink">{plainCode(ending.scope)}</dd></div>
+          <div><dt className="text-ink-3">Access</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(ending.scope)}</dd></div>
           <div><dt className="text-ink-3">Purpose</dt><dd className="m-0 mt-0.5 font-medium text-ink">{ending.purpose}</dd></div>
           <div><dt className="text-ink-3">From</dt><dd className="m-0 mt-0.5 font-medium text-ink">{date(ending.startsAt)}</dd></div>
           <div><dt className="text-ink-3">Until</dt><dd className="m-0 mt-0.5 font-medium text-ink">{date(ending.expiresAt)}</dd></div>

@@ -75,7 +75,7 @@ export const EMERGENCY_ACCESS: AccessAction = {
   routes: [{ route: 'access.breakGlass', method: 'POST' },
     { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' },
     { route: 'ehr.emergencyRecords', method: 'GET', purpose: 'to read the emergency summary' }],
-  action: 'activate emergency access',
+  action: 'open emergency access',
 }
 
 /** Patients.tsx:48. */
@@ -89,16 +89,16 @@ export function whoToAsk(administrator: Administrator): string {
     + 'clinical access when it checks your facility: add your licence on the Staff page.'
   if (administrator === 'reviewed') return 'You are this facility’s administrator. Health ID support gives your own role '
     + 'clinical access; ask them, or invite a colleague who holds this role.'
-  return 'Ask your organization administrator.'
+  return 'Ask your facility administrator.'
 }
 
 /** Patients.tsx:65-78: why the role cannot take `action`, or null when it holds every permission its routes need. (in plain words: never a permission's name). */
 export function actionUnavailable({ routes, action }: AccessAction, permissions: readonly string[], administrator: Administrator = null): string | null {
   const needs = routes.map(item => ({ ...item, required: findEndpoint(item.route)?.permissions?.[item.method] ?? [] }))
-  if (needs.some(item => item.required.length === 0)) return `You can’t ${action} here.`
-  // Never the permission's own name (owner's rule, 1 Nov 2026): the role can't, and who to ask.
-  const lacking = needs.some(item => item.required.some(permission => !permissions.includes(permission)))
-  return lacking ? `Your role here can’t ${action}. ${whoToAsk(administrator)}` : null
+  if (needs.some(item => item.required.length === 0)) return `This portal cannot ${action} here.`
+  // The permissions themselves are never named: the role is told, in plain words, what it can't do and whom to ask.
+  return needs.every(item => item.required.every(permission => permissions.includes(permission))) ? null
+    : `Your role at this facility can’t ${action}. ${whoToAsk(administrator)}`
 }
 
 /**
