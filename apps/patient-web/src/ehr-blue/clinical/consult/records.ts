@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { learnDocumentTypesFrom } from '../../../documentTypes'
 import { staffApi, type ClinicalRecord, type DocumentRecord, type NoteRevision, type Page, type RecordKind } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import type { Chart } from '../parts/chart'
@@ -174,7 +175,8 @@ export function useRecordList(chart: Chart, encounterId: string, kind: RecordKin
 /**
  * The encounter's documents. Today's read (`documents(facility, patient, encounter)`, `.items`) takes no cursor, so
  * what it answers is paged here, 50 to a page, with the same pager; moving between pages reads nothing. When EHR says
- * it holds more than it answered (`nextCursor`), `truncated` says so.
+ * it holds more than it answered (`nextCursor`), `truncated` says so. Each answer also teaches the page whether the
+ * document types are served, as blue Migrate's and today's Documents reads do.
  */
 export function useDocumentList(chart: Chart, encounterId: string, enabled: boolean): RecordList<DocumentRecord> {
   const { facilityId, patientId } = chart
@@ -182,6 +184,8 @@ export function useDocumentList(chart: Chart, encounterId: string, enabled: bool
   const held = useRef<{ scope: string; page: Page<DocumentRecord> } | null>(null)
   const readAll = async () => {
     const page = await staffApi.documents(facilityId, patientId, encounterId)
+    // Its answer says whether the backend serves the document types (`documentTypes: true`, documentTypes.ts).
+    learnDocumentTypesFrom(page)
     held.current = { scope, page }
     return page
   }
