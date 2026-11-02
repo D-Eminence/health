@@ -20,9 +20,11 @@ export const WRITE_UNKNOWN = 'Write access could not be confirmed, so changes ar
 export const GO_TO_PATIENT_ACCESS = 'Go to patient access →'
 /** Today's page with no patient open, word for word (staff/routes/Clinical.tsx:1375). */
 export const CHOOSE_FIRST = 'Choose a patient first.'
-export const CHOOSE_FIRST_DETAIL = 'Clinical records require a current authorization for the selected facility.'
+// The detail sentence and the how-to are shown again, as today's page shows them, in the redesign's words with today's
+// "documented"; "No authorized patient" is today's.
+export const CHOOSE_FIRST_DETAIL = 'Records show only for a patient you have access to at this facility.'
 export const NO_AUTHORIZED_PATIENT = 'No authorized patient'
-export const OPEN_PATIENT_HOW = 'Open a patient using an approved request, patient PIN, or documented emergency access.'
+export const OPEN_PATIENT_HOW = 'Open a patient with an approved request, the patient’s PIN, or documented emergency access.'
 /** Today's line under the patient's name for direct care, word for word (staff/routes/Clinical.tsx:1767). */
 export const DIRECT_CARE = 'Direct care access. The server rechecks authorization before changes.'
 
