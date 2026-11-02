@@ -312,8 +312,8 @@ describe('switch on: Result documents on a Lab work item', () => {
     expect(Object.fromEntries(read!.url.searchParams)).toEqual({ patientId: PATIENT, labWorkItemId: 'work-item-1' })
     expect(read!.headers.get('X-Facility-ID')).toBe(DEMO_LABORATORY_ID)
     expect(documentReads()).toHaveLength(1)
-    expect(listedLine(shown, 'full-blood-count.jpg')).toBe('Lab result · image/jpeg · 20 KiB · scan: clean')
-    expect(listedLine(shown, 'haemoglobin-report.pdf')).toBe('Lab result · application/pdf · 100 KiB · scan: pending')
+    expect(listedLine(shown, 'full-blood-count.jpg')).toBe('Lab result · JPEG image · 20 KB · Checked')
+    expect(listedLine(shown, 'haemoglobin-report.pdf')).toBe('Lab result · PDF document · 100 KB · Being checked for viruses')
     // Open file only once its scan is clean.
     const clean = within(shown).getByText('full-blood-count.jpg').closest<HTMLElement>('.staff-list-item')!
     const scanning = within(shown).getByText('haemoglobin-report.pdf').closest<HTMLElement>('.staff-list-item')!
@@ -332,6 +332,29 @@ describe('switch on: Result documents on a Lab work item', () => {
     expect(await within(shown).findByText('full-blood-count.jpg')).toBeTruthy()
     expect(within(shown).queryByText('other-patient.pdf')).toBeNull()
     expect(within(shown).queryByText('other-work.pdf')).toBeNull()
+  })
+
+  it('says each file’s type, size and check in plain words, never its media type, byte count or scan code', async () => {
+    network.documents = [
+      { ...LAB_RESULT, id: 'document-5', fileName: 'report.pdf', mediaType: 'application/pdf', sizeBytes: 1_468_006, scanStatus: 'infected' },
+      { ...LAB_RESULT, id: 'document-6', fileName: 'scan.tif', mediaType: 'image/tiff', sizeBytes: 0, scanStatus: 'failed' },
+      { ...LAB_RESULT, id: 'document-7', fileName: 'odd.bin', mediaType: 'application/x-strange', sizeBytes: 'not a size',
+        scanStatus: 'no_scanner_here', documentType: 'imaging_report' },
+      { ...LAB_RESULT, id: 'document-8', fileName: 'unfinished.png', mediaType: 'image/png', status: 'initiated', scanStatus: 'clean' },
+    ]
+    renderPage('lab')
+    const shown = await openLabDocuments()
+    await within(shown).findByText('report.pdf')
+    expect(listedLine(shown, 'report.pdf')).toBe('Lab result · PDF document · 1.4 MB · Blocked: virus found')
+    expect(listedLine(shown, 'scan.tif')).toBe('Lab result · TIFF image · 0 KB · Couldn’t be checked')
+    // A document type, file type or check this page does not know is not named: no raw words in their place.
+    expect(listedLine(shown, 'odd.bin')).toBe('File · Size unavailable')
+    // An upload not completed has no check to tell.
+    expect(listedLine(shown, 'unfinished.png')).toBe('Lab result · PNG image · 20 KB')
+    const text = shown.textContent ?? ''
+    for (const raw of ['application/', 'image/', 'scan:', 'KiB', '1468006', 'infected', 'no_scanner_here', 'no scanner here']) {
+      expect(text).not.toContain(raw)
+    }
   })
 
   it('says when there are none yet', async () => {
@@ -625,7 +648,7 @@ describe('switch on: Prescription sheets on a Pharmacy work item', () => {
     const shown = card('Prescription sheets')
     expect(item.contains(shown)).toBe(true)
     expect(await within(shown).findByText('prescription-sheet.png')).toBeTruthy()
-    expect(listedLine(shown, 'prescription-sheet.png')).toBe('Prescription sheet · image/png · 4 KiB · scan: pending')
+    expect(listedLine(shown, 'prescription-sheet.png')).toBe('Prescription sheet · PNG image · 4 KB · Being checked for viruses')
     // Scan pending: no Open file.
     expect(within(shown).queryByRole('button', { name: 'Open file' })).toBeNull()
     expect(documentReads()).toHaveLength(1)
