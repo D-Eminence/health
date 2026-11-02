@@ -11,7 +11,7 @@ import { forgetWrongPatientServed } from '../../../../wrongPatientServed'
 import { Laboratory } from '../../../../ehr-blue/departments/laboratory/Laboratory'
 import { WorkItemDocuments } from '../../../../ehr-blue/departments/parts/WorkItemDocuments'
 import { DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
-import { SAID_REFUSED } from '../../../said'
+import { SAID_NETWORK, SAID_REFUSED } from '../../../said'
 
 /**
  * "Result documents" on the blue Laboratory request (the owner's rule of 31 Oct, documentTypes.ts), as the redesign lays
@@ -347,6 +347,21 @@ describe('served, for a member who reads and attaches lab documents', () => {
     await within(card()).findByText('full-blood-count.jpg')
     fireEvent.click(within(card()).getByRole('button', { name: 'Open file' }))
     expect((await within(card()).findByRole('alert')).textContent).toBe('The document could not be opened.')
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('says a refused or failed open in plain words, never the backend’s or the browser’s', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    api.documentDownload.mockRejectedValueOnce(new HidApiError(403, 'Download denied: membership m-0001 lacks lab.document.read', { code: 'FORBIDDEN' }))
+    renderPage()
+    await openRecord()
+    await within(card()).findByText('full-blood-count.jpg')
+    fireEvent.click(within(card()).getByRole('button', { name: 'Open file' }))
+    expect((await within(card()).findByRole('alert')).textContent).toBe(SAID_REFUSED)
+    api.documentDownload.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    fireEvent.click(within(card()).getByRole('button', { name: 'Open file' }))
+    await waitFor(() => expect(within(card()).getByRole('alert').textContent).toBe(SAID_NETWORK))
+    expect(window.document.body.textContent).not.toMatch(/Download denied|m-0001|lab\.document\.read|FORBIDDEN|Failed to fetch/)
     expect(open).not.toHaveBeenCalled()
   })
 

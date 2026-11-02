@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Check, ExternalLink, Paperclip } from 'lucide-react'
-import { assertSignedStorageUrl } from '@hid/http'
+import { assertSignedStorageUrl, plainErrorText } from '@hid/http'
 import { Button, Card, CardHeader, Field, cx } from '../../../kasuwa/ui'
 import {
   documentTypeLabel, documentTypeOf, documentTypeRefusalText, documentTypesHere, learnDocumentTypesFrom, useDocumentTypesServed,
@@ -185,7 +185,8 @@ function WorkItemDocumentsCard({ kind, facilityId, workItemId, patientId, canRea
       await untilStaffSessionReady(sentIn)
       window.open(result.url, '_blank', 'noopener,noreferrer')
     } catch (caught) {
-      setOpenError(caught instanceof Error && caught.message ? caught.message : OPEN_FAILED)
+      // In plain words, never the backend's or the browser's (a link that is not a signed storage link says OPEN_FAILED).
+      setOpenError(plainErrorText(caught, OPEN_FAILED, { audience: 'facility' }))
     } finally {
       setOpening(null)
     }
