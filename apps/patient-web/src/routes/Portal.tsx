@@ -2,16 +2,16 @@ import { ImportedHistory, matchingImported } from '../ImportedHistory'
 import { usesNovuBackend } from '../backendContract'
 import { PatientImportedHistory } from '../ImportedHistoryPage'
 import { getEnvironment } from '../env'
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart } from 'lucide-react'
+import { Bell, Building2, Check, ClipboardList, FileText, FlaskConical, HeartPulse, House, LayoutDashboard, Lock, MessageSquareText, NotebookPen, PhoneCall, Pill, Search, Share2, ShieldCheck, Siren, Stethoscope, UserRound, X, ChevronDown, ChevronRight, Plus, FilePlus2, FolderHeart, FileImage } from 'lucide-react'
 import { AppShell, type NavGroup } from '../kasuwa/AppShell'
 import { Avatar, Badge, Button, buttonClass, Card, CardHeader, EmptyState, Field, FilterTabs, IconChip, Input, PageHeader, SectionHeader, cx, statusTone, timeAgo, type Icon } from '../kasuwa/ui'
 import { PageState } from '../kasuwa/parts'
 import { SAY, WORDS } from '../copy'
 import { useAccountDeletionServed } from '../accountDeletionServed'
-import { ButtonR, Hint, InputR, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
+import { Actions, ButtonR, Hint, InputR, LoadProblem, Problem, Saved, TextareaR } from './profileParts'
 import { HealthIdCard } from './HealthIdCard'
 import { AddRecordDrawer } from './AddRecord'
 import { Drawer } from '../kasuwa/interactive'
@@ -20,6 +20,8 @@ import { BrandLogo } from '../BrandLogo'
 import { ItemName } from '../ItemName'
 import { useSession } from '../session'
 import { IMPORTED_NOTIFICATIONS_PAGE, type AccessHistory, type PatientProfile, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
+import type { PatientEntry, PatientEntryDocument, PatientEntryKind } from '../api'
+import { usePatientEntriesServed } from '../patientEntriesServed'
 import { IMPORTED_HEALTH_FIELDS, type ImportedHealthField, type ImportedHealthProfile, type ImportedMedicalRecord } from '../importedRecords'
 import { patientChatEnabled } from '../chatFeatures'
 import { usePatientResource } from './usePatientResource'
@@ -413,6 +415,158 @@ function SectionCard<S extends RecordSection>({ data, section, none, query, row 
   </Card>
 }
 
+/** What each kind of record the patient adds is called, as "Add a record" names it (AddRecord.tsx). */
+const OWN_KINDS: Readonly<Record<PatientEntryKind, string>> = {
+  visit: 'Visit', test: 'Test result', medicine: 'Medicine', diagnosis: 'Diagnosis', vaccination: 'Vaccine', other: 'Other',
+}
+
+const OWN_DAY = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'UTC' })
+/** The day the patient entered (YYYY-MM-DD), as that same calendar day wherever the browser is. */
+function ownDay(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) ? OWN_DAY.format(new Date(`${value}T00:00:00Z`)) : date(value)
+}
+
+/** Everything an entry the patient added shows, for the page's search. */
+const ownRecordText = (entry: PatientEntry): Array<string | null> => ['Added by you', OWN_KINDS[entry.kind], entry.title, entry.facilityName,
+  entry.notes, ownDay(entry.occurredOn), dayWords(entry.occurredOn), ...entry.documents.map(file => file.fileName)]
+
+const CHECK_FAILED = 'Couldn’t be checked'
+/** Where a photo or file is in its virus check, in words; nothing once it has passed. */
+function scanWords(file: PatientEntryDocument): string | null {
+  if (file.scanStatus === 'rejected' || file.status === 'rejected') return CHECK_FAILED
+  return file.scanStatus === 'pending' ? 'Checking for viruses' : null
+}
+
+/** Notes longer than this, or on more than three lines, are shown cut short first. */
+const OWN_NOTES_SHORT = 160
+/** The start of long notes, cut at a word, or null when they are short enough to show whole. */
+function notesStart(notes: string): string | null {
+  const lines = notes.split('\n')
+  if (notes.length <= OWN_NOTES_SHORT && lines.length <= 3) return null
+  const start = lines.slice(0, 3).join('\n')
+  if (start.length <= OWN_NOTES_SHORT) return `${start.trimEnd()}…`
+  const space = start.lastIndexOf(' ', OWN_NOTES_SHORT)
+  return `${start.slice(0, space > OWN_NOTES_SHORT / 2 ? space : OWN_NOTES_SHORT).trimEnd()}…`
+}
+
+/** An entry's notes ("Anything else to note?"): whole when short; when long, their start and "Show all". */
+function OwnNotes({ id, title, notes }: { id: string; title: string; notes: string }) {
+  const [open, setOpen] = useState(false)
+  const start = notesStart(notes)
+  const textId = `own-record-notes-${id}`
+  return <div className="flex flex-col items-start gap-1">
+    <p id={textId} className="m-0 whitespace-pre-wrap text-[13px] leading-relaxed [overflow-wrap:anywhere] text-ink-2">{start && !open ? start : notes}</p>
+    {start && <Button size="sm" variant="ghost" aria-expanded={open} aria-controls={textId} onClick={() => setOpen(value => !value)}>
+      {open ? 'Show less' : 'Show all'} <ItemName>notes for {title}</ItemName></Button>}
+  </div>
+}
+
+/**
+ * "Added by you" (BACKEND-NEEDS.md §1): the records the patient added with "Add a record", newest first, each with its
+ * kind, place, date, notes and photos and files, and Remove. They come in the page's own records answer, under
+ * `patientEntries`; nothing is read for them alone. Mounted only once that answer (or a Save) has said they are served:
+ * where they are not (today's answer, without the key) the page is exactly as it was. A file can't be opened here yet;
+ * while its virus check runs, or when it failed, that is said.
+ *
+ * Remove asks first, in place, then withdraws the entry and reads the page's records again. Nothing is erased, so the
+ * page says "Removed from your records", never "deleted". Focus goes as on the profile's cards (useActionFocus): to the
+ * question's safe answer as it opens, back to Remove when kept, and to this list's heading when removed (or the page's,
+ * once the list is empty or the records could not be read again); the outcome is said in a live region mounted
+ * throughout, also while the page shows that its records could not be read.
+ */
+function OwnRecords({ entries, matches, searching, shown, loading, reload, pageHeading }: {
+  /** The entries the records answer listed (none while it could not be read), and those the page's search matches. */
+  entries: readonly PatientEntry[]; matches: readonly PatientEntry[]; searching: boolean
+  /** With the records read, on the page's All tab. On another tab they are kept, but not shown. */
+  shown: boolean
+  /** Whether the page's records are being read again, and the way to read them again (usePatientResource's). */
+  loading: boolean; reload: () => Promise<void>
+  pageHeading: RefObject<HTMLHeadingElement | null>
+}) {
+  const { api } = useSession()
+  const [removing, setRemoving] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const title = useRef<HTMLSpanElement>(null)
+  // A removal still on its way is stopped as the page is left.
+  const request = useRef<AbortController | null>(null)
+  useEffect(() => () => request.current?.abort(), [])
+  const focusAfter = useActionFocus()
+  const heading = useMemo(() => ({ get current(): HTMLElement | null { return title.current ?? pageHeading.current } }), [pageHeading])
+  const byId = (id: string) => () => document.getElementById(id)
+
+  const ask = (entry: PatientEntry) => {
+    setRemoving(entry.id); setProblem(null); setNotice(null)
+    focusAfter(byId(`own-record-keep-${entry.id}`))
+  }
+  const keep = (entry: PatientEntry) => {
+    setRemoving(null); setProblem(null)
+    focusAfter(byId(`own-record-remove-${entry.id}`))
+  }
+  const remove = async (entry: PatientEntry) => {
+    if (busy) return
+    const controller = new AbortController()
+    request.current = controller
+    setBusy(true); setProblem(null)
+    try {
+      await api.withdrawOwnRecord(entry.id, controller.signal)
+      // Removed once the page's records, read again, show it gone.
+      await reload()
+      if (controller.signal.aborted) return
+      setRemoving(null); setNotice('Removed from your records')
+      focusAfter(() => heading.current)
+    } catch {
+      if (controller.signal.aborted) return
+      setProblem('This record wasn’t removed. Please try again.')
+      focusAfter(byId(`own-record-confirm-${entry.id}`))
+    } finally {
+      if (!controller.signal.aborted) { setBusy(false); request.current = null }
+    }
+  }
+
+  const listed = searching ? matches : entries
+  return <>
+    <Saved>{notice}</Saved>
+    {shown && listed.length > 0 && <Card aria-labelledby="own-records-title">
+      <CardHeader as="h2" titleId="own-records-title" icon={FilePlus2} iconTone="brand"
+        title={<span ref={title} tabIndex={-1} className="outline-none">Added by you</span>}
+        description={searching ? `${matches.length} of ${entries.length} match` : 'What you added yourself, newest first.'} />
+      <ul className="m-0 list-none divide-y divide-line p-0" aria-busy={loading || undefined}>{listed.map(entry => {
+        const day = ownDay(entry.occurredOn)
+        return <li key={entry.id} className="flex flex-col gap-3 px-5 py-4">
+          <div className="min-w-0">
+            <h3 className="m-0 text-sm font-medium [overflow-wrap:anywhere] text-ink">{entry.title}</h3>
+            <p className="m-0 mt-0.5 text-[13px] [overflow-wrap:anywhere] text-ink-3">{[OWN_KINDS[entry.kind], entry.facilityName, day].filter(Boolean).join(' · ')}</p>
+          </div>
+          {entry.notes && <OwnNotes id={entry.id} title={entry.title} notes={entry.notes} />}
+          {entry.documents.length > 0 && <ul aria-label={`Photos and files for ${entry.title}`} className="m-0 flex list-none flex-col gap-1.5 p-0">
+            {entry.documents.map(file => {
+              const scan = scanWords(file)
+              const FileIcon = file.mediaType === 'application/pdf' ? FileText : FileImage
+              return <li key={file.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg bg-subtle px-3 py-2">
+                <FileIcon className="size-4 shrink-0 text-ink-3" aria-hidden />
+                <span className="min-w-0 text-[13px] font-medium [overflow-wrap:anywhere] text-ink">{file.fileName}</span>
+                <span className="text-[12px] text-ink-3">{[fileKind(file.mediaType), bytes(file.sizeBytes)].filter(Boolean).join(' · ')}</span>
+                {scan && <Badge size="sm" tone={scan === CHECK_FAILED ? 'warn' : 'neutral'}>{scan}</Badge>}
+              </li>
+            })}
+          </ul>}
+          {removing === entry.id
+            ? <div role="group" aria-labelledby={`own-record-ask-${entry.id}`} className="flex flex-col gap-3 rounded-lg bg-danger-soft/50 p-3">
+              <p id={`own-record-ask-${entry.id}`} className="m-0 text-sm text-ink">Remove this record? It’s taken off your records, your chat and what your care team can see. Nothing is deleted.</p>
+              {problem && <Problem>{problem}</Problem>}
+              <Actions><Button id={`own-record-confirm-${entry.id}`} size="sm" variant="destructive" loading={busy} onClick={() => void remove(entry)}>Yes, remove</Button>
+                <Button id={`own-record-keep-${entry.id}`} size="sm" disabled={busy} onClick={() => keep(entry)}>Keep record</Button></Actions>
+            </div>
+            : <Actions><Button id={`own-record-remove-${entry.id}`} size="sm" variant="danger" disabled={busy} onClick={() => ask(entry)}>
+              Remove <ItemName>{entry.title}, {day}</ItemName></Button></Actions>}
+        </li>
+      })}</ul>
+    </Card>}
+  </>
+}
+
 /** The sections each backend sends: Novu serves encounters and notes, and imported history with them. */
 const sectionsShown = (): RecordSection[] => usesNovuBackend() ? ['encounters', 'notes']
   : ['encounters', 'notes', 'vitals', 'diagnoses', 'prescriptions', 'labRequests', 'documents']
@@ -436,9 +590,15 @@ export function RecordsPage() {
   const [pagedImported, setPagedImported] = useState<readonly ImportedMedicalRecord[]>([])
   const data = records.data
   const searching = query.trim() !== ''
-  const matched = data && searching ? sectionsShown().reduce((count, section) => count + sectionMatches(data, section, query).length,
-    matchingImported([...data.importedRecords ?? [], ...pagedImported], query).length) : 0
   const ready = data && !records.error ? data : null
+  // The records the patient added themselves (OwnRecords): in this page's own records answer, under `patientEntries`,
+  // which also says whether they are served (api.records). Nothing is read for them alone: the page reads its records
+  // again after "Add a record" saves one and after a removal. Without the key (today's backend) nothing more shows.
+  const ownServed = usePatientEntriesServed()
+  const ownEntries = ready?.patientEntries ?? []
+  const ownMatches = searching ? ownEntries.filter(entry => matchesQuery(ownRecordText(entry), query)) : ownEntries
+  const matched = data && searching ? sectionsShown().reduce((count, section) => count + sectionMatches(data, section, query).length,
+    matchingImported([...data.importedRecords ?? [], ...pagedImported], query).length + ownMatches.length) : 0
   // On All, a section with nothing in it (or nothing that matches) is left out: its tab still says 0.
   const visible = ready ? sectionsShown().filter(section => tab === section
     || (tab === 'all' && (searching ? sectionMatches(ready, section, query).length > 0 : (ready[section] as unknown[]).length > 0))) : []
@@ -486,7 +646,13 @@ export function RecordsPage() {
       {/* Novu serves encounters, notes and imported history; the other sections belong to main-v1 and are absent from its response. */}
       {visible.map(section => <SectionCard key={section} data={ready} section={section} none={NONE[section]} query={query}
         row={rows[section] as (item: Row<typeof section>) => ReactNode} />)}
-      {visible.length === 0 && !(ready.importedRecords?.length) && <EmptyState icon={searching ? Search : FolderHeart}
+    </>}
+    {/* Nothing of it where they are not served (today's backend). Kept mounted while the records are read again, so a
+      removal is said even when that read fails. */}
+    {ownServed === true && <OwnRecords entries={ownEntries} matches={ownMatches} searching={searching} shown={ready !== null && tab === 'all'}
+      loading={records.loading} reload={records.reload} pageHeading={heading} />}
+    {ready && <>
+      {visible.length === 0 && !(ready.importedRecords?.length) && ownMatches.length === 0 && <EmptyState icon={searching ? Search : FolderHeart}
         title={searching ? 'Nothing matches' : 'No records yet'}
         description={searching ? 'Try a date like “March 2024”, a type like “vitals”, or a word from a note.' : 'Records from your providers appear here. You can add your own too, from any hospital, with a photo of the paper.'}
         action={searching ? undefined : <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>Add a record</Button>} />}

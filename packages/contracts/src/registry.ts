@@ -743,10 +743,36 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     'PROPOSED by the patient-portal redesign (BACKEND-NEEDS.md §2); no backend serves it. Public: the link in the email a provider '
     + 'receives when a patient shares. Answers { card, sharedBy, recipientEmail, level, duration, expiresAt, records } while the share '
     + 'is active, 404 once it has ended or been revoked. Every read is audited to the patient\'s access log as the recipient.')),
+  // A record the patient adds themselves ("Add a record", BACKEND-NEEDS.md §1): the entry is saved first, with no file bytes
+  // in it, then each photo or file goes up under it as staff uploads do (an upload link, a PUT of the exact bytes to it, a
+  // confirm). Until a backend serves them each answers 404 NOT_FOUND, and the portal sends no file at all. The entries are
+  // listed in ehr.myRecords' own answer, under `patientEntries`: there is no list route.
   proposed(r('ehr.myPatientEntries','ehr','/api/v1/ehr/me/patient-entries',P,false,undefined,
-    'PROPOSED by the patient-portal redesign (BACKEND-NEEDS.md); no backend serves it. Patient sessions only. POST { kind, title, '
-    + 'facilityName, occurredOn, notes, attachments[{ fileName, mediaType, sizeBytes, contentBase64 }] } answers 201 { id }. A record the '
-    + 'patient adds themselves, kept apart from clinicians\' and shown as "added by you". Until served it answers 404 and nothing is saved.')),
+    'PROPOSED by the patient-portal redesign (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only, no facility. POST '
+    + '(Idempotency-Key, one per Save) { kind, title, facilityName, occurredOn, notes }, a JSON body of at most 8000 bytes with no file '
+    + 'in it, answers 201 { entry }; the same key with the same body replays it. A record the patient adds themselves, kept apart from '
+    + 'clinicians\' and shown as "added by you". Not read back here: ehr.myRecords lists the entries under patientEntries [{ id, source: '
+    + '\'patient\', kind, title, facilityName, occurredOn, notes, createdAt, documents[] }], newest first, removed entries left out; that '
+    + 'key, or a 201, says served. Until then the Save answers 404 NOT_FOUND and nothing is saved.')),
+  proposed(r('ehr.myPatientEntryUploadIntent','ehr','/api/v1/ehr/me/patient-entries/:entryId/documents/upload-intents',P,false,undefined,
+    'PROPOSED (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only. Idempotency-Key, one per file. Body { fileName, '
+    + 'mediaType: application/pdf | image/jpeg | image/png, sizeBytes (up to 10 MB; at most 5 files per entry), sha256Hex }; the server '
+    + 'sets the patient, classification and retention. 201 { document: { id, status: \'initiated\', scanStatus: \'pending\' }, upload: '
+    + '{ method: \'PUT\', url, requiredHeaders, expiresInSeconds } }, the staff shape: the exact bytes are PUT to upload.url, no cookies. '
+    + 'The same key before that document is confirmed answers 201 again for it, with a link still valid; once it is confirmed, 409 '
+    + 'PATIENT_DOCUMENT_ALREADY_UPLOADED with { document: { id, status, scanStatus } }: the file is uploaded, and the portal sends no PUT '
+    + 'and no confirm. At most 10 files a day per patient (the Lagos day, across all their entries): a new key past them answers 429 '
+    + 'PATIENT_UPLOAD_DAILY_LIMIT_REACHED and opens no document; a replayed key is never refused for it. A photo arrives without its '
+    + 'metadata (EXIF and GPS, XMP, IPTC, C2PA, comments, text chunks), taken out in the browser without re-encoding; the server must not '
+    + 'rely on that.')),
+  proposed(r('ehr.myPatientEntryDocumentComplete','ehr','/api/v1/ehr/me/patient-entries/:entryId/documents/:documentId/complete',P,false,undefined,
+    'PROPOSED (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only; only the account that asked for the link. No body. '
+    + 'The server checks the stored object\'s size, SHA-256 and type: 200 { document: { id, status, scanStatus } }, or 409 '
+    + 'PATIENT_DOCUMENT_UPLOAD_INCOMPLETE for a missing or mismatched object.')),
+  proposed(r('ehr.myPatientEntryWithdraw','ehr','/api/v1/ehr/me/patient-entries/:entryId/withdraw',P,false,undefined,
+    'PROPOSED (BACKEND-NEEDS.md §1); no backend serves it. Patient sessions only. No body. 200 { entry: { id, status: \'withdrawn\', '
+    + 'withdrawnAt } }, and a replay answers the same: the entry and its files are gone from the list, the patient chat and every staff '
+    + 'read. Nothing is erased, so the portal says "Removed from your records", never "deleted".')),
   proposed(r('ehr.myImportedAttachment','ehr','/api/v1/ehr/me/imported-attachments/:fileId/download',G,false,undefined,
     `${NOT_ON_MAIN} Offered only when ehr.myRecords carries importedRecords, which main's does not.`)),
   proposed(r('ehr.importedRecords','ehr','/api/v1/ehr/patients/:patientId/imported-records',G,false,one('GET','ehr.note.read'),
