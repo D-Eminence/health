@@ -15,7 +15,7 @@ import { learnLateCorrectionServed, saysLateCorrection, useLateCorrectionServed 
 import { learnCannotCompleteFrom, useCannotCompleteServed } from '../../cannotCompleteServed'
 import { BETWEEN_FACILITIES } from '../betweenFacilities'
 import { selfServiceReview, selfServiceType } from '../staffAccess'
-import { LAB_WORK, OUTREACH_WORK, pharmacyWorkFor, refusedWorkText } from '../refusedWork'
+import { LAB_WORK, NO_OUTREACH, pharmacyWorkFor, refusedWorkText } from '../refusedWork'
 import {
   cannotCompleteOffered, handOverCheckText, holdsReceivePermission, licenceLine, receivingAnswer, receivingHere,
   rememberedReceiving, rememberReceiving, routeClosedForWork, routedWorkEndedText, sampleCheckText, wrongPatientOffered,
@@ -1736,7 +1736,7 @@ function OutreachCaseCard({ facilityId, item, canLink, onChanged }: { facilityId
 }
 
 export function Outreach() {
-  const { facilityId, membershipId, permissions, facility } = useFacilityAccess()
+  const { facilityId, membershipId, permissions } = useFacilityAccess()
   const canReadCases = permissions.includes('outreach.registration.read')
   const canReadCampaigns = permissions.includes('outreach.campaign.read')
   const campaigns = useFacilityList(facilityId, canReadCampaigns, useCallback(id => staffApi.outreachCampaigns(id), []))
@@ -1794,8 +1794,8 @@ export function Outreach() {
     finally { setBusy(false) }
   }
 
-  // The blue Outreach's words (refusedWorkText), so a facility's own administrator is never told to ask themselves.
-  if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState titleAs="h1" title="Outreach unavailable" description={refusalAt(facilityId, refusedWorkText(facility, permissions, OUTREACH_WORK))} />
+  // The blue Outreach's words (NO_OUTREACH): one sentence for everyone, as Document OCR's, since no role holds Outreach.
+  if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState titleAs="h1" title="Outreach unavailable" description={refusalAt(facilityId, NO_OUTREACH)} />
   return <>
     <PageHead eyebrow="Community care" title="Outreach">View facility campaigns and manage registration cases. A temporary registration is pending identity resolution until it is linked to a verified patient.</PageHead>
     {error && <p className="staff-error" role="alert">{error}</p>}

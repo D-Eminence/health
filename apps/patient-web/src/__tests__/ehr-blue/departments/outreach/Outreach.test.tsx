@@ -41,8 +41,8 @@ vi.mock('../../../../staff/api', () => ({
   }),
 }))
 
-/** What a role without Outreach reads: the work in everyday words, then who to ask, if anyone. */
-const OUTREACH_ROLE = 'Your role at this facility doesn’t include outreach campaigns or registering people in the field.'
+/** What a role without Outreach reads, whoever it is: as Document OCR says it, asking nobody (the owner's answer of 2 November). */
+const NO_OUTREACH = 'Outreach isn’t available at your facility yet.'
 const MEMBERSHIP = 'membership-demo-1'
 const READ = ['outreach.campaign.read', 'outreach.registration.read']
 const ALL = [...READ, 'outreach.campaign.write', 'outreach.registration.write']
@@ -121,20 +121,20 @@ describe('who can open Outreach', () => {
   it('refuses a membership with no outreach read permission, and reads nothing', async () => {
     session.permissions = ['outreach.registration.write', 'outreach.campaign.write']
     renderPage()
-    // Today's heading, and in plain words what the role doesn't include: no permission is named (owner's rule).
+    // Today's heading, and in plain words that Outreach isn't available yet: no permission is named (owner's rule).
     expect(heading().textContent).toBe('Outreach unavailable')
-    expect(screen.getByText(`${OUTREACH_ROLE} Ask your facility administrator.`)).toBeTruthy()
-    expect(document.body.textContent).not.toMatch(/permission|membership|outreach\.(campaign|registration)\.read/i)
+    expect(screen.getByText(NO_OUTREACH)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/permission|membership|outreach\.(campaign|registration)\.read|Ask your facility administrator/i)
     expect(screen.queryByRole('button', { name: 'New registration' })).toBeNull()
     expect(api.outreachCases).not.toHaveBeenCalled()
     expect(api.outreachCampaigns).not.toHaveBeenCalled()
   })
 
   /*
-   * Who reads the refusal (#104's rule, the owner's decision for #107): no locked list names Outreach, so a facility's
-   * own administrator is never told to ask themselves, to wait for the check, or to add someone: only that their role
-   * doesn't include it. On hid-system main no role holds Outreach (migration 0091) and no administrator has words of
-   * their own: everyone is told to ask.
+   * Who reads the refusal makes no difference (the owner's answer of 2 November): as for Document OCR, everyone is told
+   * Outreach isn't available at the facility yet, and nobody is told to ask anyone, to wait for the check, or to add
+   * someone. On hid-system main no role has held any Outreach permission since migration 0091, so the facility
+   * administrator could not give it.
    */
   describe('by who reads it', () => {
     /** A self-signed-up facility's administrator whose role here holds no Outreach (fictional: on Novu theirs holds it, P4b SPEC 3.3). */
@@ -147,40 +147,40 @@ describe('who can open Outreach', () => {
       session.selfService = selfService
       renderPage()
       expect(heading().textContent).toBe('Outreach unavailable')
-      // No permission, code or address, whoever reads it.
+      // No permission, code or address, and nobody to ask, whoever reads it.
       expect(document.body.textContent).not.toMatch(/permission|membership|workforce|outreach\.|_|\/provider/i)
+      expect(document.body.textContent).not.toMatch(/Ask your facility administrator|Staff page|opens once|doesn’t include/)
       expect(api.outreachCases).not.toHaveBeenCalled()
       expect(api.outreachCampaigns).not.toHaveBeenCalled()
       return document.querySelector('.hid-ehr-state-message')?.textContent
     }
 
-    it.each(['hospital', 'clinic', 'laboratory', 'pharmacy', 'other'])('the administrator of a checked facility (%s): the role sentence only', organizationType => {
-      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType })).toBe(OUTREACH_ROLE)
-      expect(document.body.textContent).not.toMatch(/Ask your facility administrator|Staff page|opens once/)
+    it.each(['hospital', 'clinic', 'laboratory', 'pharmacy', 'other'])('the administrator of a checked facility (%s): Outreach isn’t available yet', organizationType => {
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType })).toBe(NO_OUTREACH)
     })
 
-    it.each(['hospital', 'pharmacy'])('the administrator of a facility (%s) Health ID support is still checking: the role sentence only', organizationType => {
-      expect(refusalAs(['workforce.manage', 'audit.read'], { review: 'pending', organizationType })).toBe(OUTREACH_ROLE)
+    it.each(['hospital', 'pharmacy'])('the administrator of a facility (%s) Health ID support is still checking: the same', organizationType => {
+      expect(refusalAs(['workforce.manage', 'audit.read'], { review: 'pending', organizationType })).toBe(NO_OUTREACH)
     })
 
-    it('anyone else at a checked facility: told to ask its administrator', () => {
-      expect(refusalAs(['ehr.encounter.read'], { review: 'reviewed', organizationType: 'hospital' })).toBe(`${OUTREACH_ROLE} Ask your facility administrator.`)
+    it('anyone else at a checked facility: the same', () => {
+      expect(refusalAs(['ehr.encounter.read'], { review: 'reviewed', organizationType: 'hospital' })).toBe(NO_OUTREACH)
     })
 
-    it('an administrator at a facility Health ID support manages: told to ask its administrator', () => {
-      expect(refusalAs(ADMINISTRATOR)).toBe(`${OUTREACH_ROLE} Ask your facility administrator.`)
+    it('an administrator at a facility Health ID support manages: the same', () => {
+      expect(refusalAs(ADMINISTRATOR)).toBe(NO_OUTREACH)
     })
 
-    it.each(['', 'main-v1'])('the administrator of a checked facility on today’s backend (%j): told to ask its administrator', contract => {
+    it.each(['', 'main-v1'])('the administrator of a checked facility on today’s backend (%j): the same', contract => {
       vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
-      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'hospital' })).toBe(`${OUTREACH_ROLE} Ask your facility administrator.`)
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'hospital' })).toBe(NO_OUTREACH)
     })
 
     it('says the same at the page’s address as on the page', () => {
       session.permissions = ADMINISTRATOR
       session.selfService = { review: 'reviewed', organizationType: 'clinic' }
       renderDept(<>{outreachPage.refusal}</>)
-      expect(document.querySelector('.hid-ehr-state-message')?.textContent).toBe(OUTREACH_ROLE)
+      expect(document.querySelector('.hid-ehr-state-message')?.textContent).toBe(NO_OUTREACH)
     })
   })
 

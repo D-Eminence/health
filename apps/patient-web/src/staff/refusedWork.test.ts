@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AUDIT_WORK, LAB_WORK, OUTREACH_WORK, PHARMACY_WORK, pharmacyWorkFor, refusedWorkText, type NamedRole, type RefusedWork } from './refusedWork'
+import { AUDIT_WORK, LAB_WORK, NO_OUTREACH, PHARMACY_WORK, pharmacyWorkFor, refusedWorkText, type NamedRole, type RefusedWork } from './refusedWork'
 import { roleInSentence, roleLabel } from './staffAccess'
 
 describe('the role a refusal names', () => {
@@ -21,14 +21,26 @@ describe('the role a refusal names', () => {
 })
 
 /*
- * Outreach and Audit by who reads their refusal (#104's rule, the owner's decision for #107). No locked list names either
- * (staff/routes/ReviewBanner.tsx), so neither opens only after the check and no role is named: an administrator is
- * never told either opens after the check, nor to add someone, only that their role doesn't include it. Everyone else
- * is told to ask the facility administrator. On Novu the administrator holds both (P4b SPEC 3.3), so their cases here
- * are for an administrator role without them; off Novu no administrator has words of their own. Every facility here is
+ * Outreach's refusal (the owner's answer of 2 November): one sentence for everyone, as Document OCR's is, so it asks
+ * nobody. On hid-system main no role has held any Outreach permission since migration 0091, so a facility administrator
+ * could not give it.
+ */
+describe('Outreach’s refusal', () => {
+  it('says Outreach isn’t available at the facility yet, as Document OCR does, asking nobody and naming no permission', () => {
+    expect(NO_OUTREACH).toBe('Outreach isn’t available at your facility yet.')
+    expect(NO_OUTREACH).not.toMatch(/administrator|Staff page|opens once|[a-z]\.[a-z]|_|\/|permission|membership|workforce|code/i)
+  })
+})
+
+/*
+ * Audit by who reads its refusal (#104's rule, the owner's decision for #107). No locked list names it
+ * (staff/routes/ReviewBanner.tsx), so it never opens only after the check and no role is named: an administrator is
+ * never told it opens after the check, nor to add someone, only that their role doesn't include it. Everyone else is
+ * told to ask the facility administrator. On Novu the administrator holds it (P4b SPEC 3.3), so their cases here are
+ * for an administrator role without it; off Novu no administrator has words of their own. Every facility here is
  * fictional.
  */
-describe('Outreach and Audit, by who reads the refusal', () => {
+describe('Audit, by who reads the refusal', () => {
   const KINDS = ['hospital', 'clinic', 'laboratory', 'pharmacy', 'other']
   /** A facility administrator's own permissions here, without the page's: only workforce.manage makes them one. */
   const ADMINISTRATOR = ['organization.manage', 'workforce.manage']
@@ -38,7 +50,6 @@ describe('Outreach and Audit, by who reads the refusal', () => {
   afterEach(() => { vi.unstubAllEnvs() })
 
   describe.each([
-    ['Outreach', OUTREACH_WORK, 'Your role at this facility doesn’t include outreach campaigns or registering people in the field.'],
     ['Audit', AUDIT_WORK, 'Your role at this facility doesn’t include reviewing audit events.'],
   ])('%s', (_name, work, role) => {
     it.each(KINDS)('the administrator of a checked facility (%s): the role sentence only, asking nobody and adding no one', kind => {
@@ -68,7 +79,7 @@ describe('Outreach and Audit, by who reads the refusal', () => {
   it('names no permission, code or address in any sentence, whoever reads it', () => {
     const readers: Array<[Parameters<typeof refusedWorkText>[0], string[]]> = [[undefined, []], [at('reviewed', 'hospital'), []],
       ...KINDS.flatMap(kind => [[at('reviewed', kind), ADMINISTRATOR], [at('pending', kind), ADMINISTRATOR]] as Array<[ReturnType<typeof at>, string[]]>)]
-    for (const work of [OUTREACH_WORK, AUDIT_WORK, PHARMACY_WORK, LAB_WORK]) {
+    for (const work of [AUDIT_WORK, PHARMACY_WORK, LAB_WORK]) {
       for (const [facility, permissions] of readers) {
         expect(refusedWorkText(facility, permissions, work)).not.toMatch(/[a-z]\.[a-z]|_|\/|permission|membership|workforce|code/i)
       }

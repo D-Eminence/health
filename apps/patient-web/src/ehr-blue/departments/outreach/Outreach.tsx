@@ -7,7 +7,7 @@ import { staffApi, type OutreachCampaign, type OutreachCase } from '../../../sta
 import { useStaff } from '../../../staff/App'
 import { useFocusById } from '../../../staff/focus'
 import { focusLost } from '../../../pageFocus'
-import { OUTREACH_WORK, refusedWorkText } from '../../../staff/refusedWork'
+import { NO_OUTREACH } from '../../../staff/refusedWork'
 import { useDeptAccess } from '../parts/access'
 import { DeptPage, DeptUnavailable } from '../parts/DeptPage'
 import { dateText, matchesSearch } from '../parts/format'
@@ -350,10 +350,9 @@ function CaseCard({ item, campaign, canLink, onOpen }: {
 /**
  * What Outreach says to a membership with neither campaign nor registration read, as the classic page does
  * (staff/routes/Operations.tsx Outreach); the frame shows it at the address. Screens name no permission (the owner's
- * rule), so it names the work in everyday words, chosen by who reads them (refusedWorkText): a self-signed-up
- * facility's administrator is never told to ask themselves.
+ * rule), and no role holds Outreach on hid-system main (migration 0091), so like Document OCR it says to everyone that
+ * it isn't available yet, asking nobody (NO_OUTREACH, the owner's answer of 2 November).
  */
 export function OutreachRefusal() {
-  const { facility, permissions } = useDeptAccess()
-  return <DeptUnavailable title="Outreach unavailable" message={refusedWorkText(facility, permissions, OUTREACH_WORK)} />
+  return <DeptUnavailable title="Outreach unavailable" message={NO_OUTREACH} />
 }

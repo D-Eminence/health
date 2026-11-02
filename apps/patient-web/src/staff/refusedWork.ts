@@ -58,17 +58,14 @@ export function pharmacyWorkFor(permissions: readonly string[]): RefusedWork {
 }
 
 /**
- * Outreach: its campaigns, and the people registered in the field, in the words the page itself uses ("People
- * registered in the field"). No locked list names it, so no kind gets it only after the check, and no role is named.
- * On Novu (P4b SPEC 3.3: staff/navigation.test.ts ORG_ADMIN and AWAITING_REVIEW) the administrator holds it while
- * Health ID support checks the facility and after, so their words here are for an administrator role without it. On
- * hid-system main no role has held any of it since migration 0091 (docs/ARCHITECTURE.md); only Novu checks
- * self-signed-up facilities, so there refusedWorkText gives no administrator words of their own: everyone is told to
- * ask the facility administrator, as for the Laboratory and Pharmacy, which 0091 also took from every role.
+ * What Outreach says to a role without campaign or registration read, in the blue page and at its address and on the
+ * classic page alike: one sentence for everyone, as Document OCR's is (ehr-blue/departments/migrate/Migrate.tsx
+ * NO_DOCUMENT_OCR), not refusedWorkText's choice by who reads it (the owner's answer of 2 November). On hid-system main
+ * no role has held any Outreach permission since migration 0091 (docs/ARCHITECTURE.md), so a facility administrator
+ * could not give it, and nobody is told to ask anyone. Written here so the classic portal says it without loading the
+ * blue pages.
  */
-export const OUTREACH_WORK: RefusedWork = {
-  name: 'Outreach', work: 'outreach campaigns or registering people in the field', doneBy: null, gets: new Set(),
-}
+export const NO_OUTREACH = 'Outreach isn’t available at your facility yet.'
 
 /**
  * Reviewing the facility's audit events: every product keeps the page (ehr-blue/frame/product.ts SHARED), and no locked
@@ -81,8 +78,8 @@ export const AUDIT_WORK: RefusedWork = {
 }
 
 /**
- * What a role without `refused` work reads at its facility, by who reads it: the one rule the Pharmacy's, Laboratory's,
- * Outreach's and Audit's refusals follow, in the blue EHR and the classic portal alike, so both say the same. The
+ * What a role without `refused` work reads at its facility, by who reads it: the one rule the Pharmacy's, Laboratory's
+ * and Audit's refusals follow, in the blue EHR and the classic portal alike, so both say the same. The
  * administrator of a facility that signed itself up (the only role there that manages staff) is never told to ask the
  * facility administrator, which they are. While Health ID support checks a facility that will get the work, it is locked
  * for them too (the banner above says so): it opens after the check. Once the facility is checked, they add the staff who
