@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useMemo, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { ClipboardList, Clock, Eye, FileText, FlaskConical, HeartPulse, Lock, Mail, NotebookPen, Pill, Stethoscope } from 'lucide-react'
-import { isHidApiError } from '@hid/http'
-import type { PatientRecords, SharedCardAnswer } from '../api'
+import type { PatientRecords } from '../api'
 import { Button, Card, CardHeader, EmptyState, cx, type Icon } from '../kasuwa/ui'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 import { useSession } from '../session'
+import { useDocumentTitle } from '../authSteps'
 import { usePatientResource } from './usePatientResource'
 import { useProfileSources } from './profileSources'
 import { initialsOf, usePatientPhoto } from './ProfilePhoto'
@@ -22,6 +22,11 @@ import logoSrc from '../../../public-web/public/brand/logo.png'
  *
  * Three views of it here: the email as the provider receives it (shown to the patient before they share), the page the
  * link opens (/card/:token, proposed: BACKEND-NEEDS.md §2), and the patient's own preview of that page (/card/preview).
+ *
+ * The owner's decisions of 2026-11-01 (decision 25) replace the open link: the link opens the card only after a one-time
+ * code, emailed to the address the patient shared with, and the link's secret is never in the address path. Until Health
+ * ID sends those codes, the page the link opens is dormant (SharedCardPage): it says plainly that this isn't available
+ * yet, reads nothing and shows nothing.
  */
 
 export interface CardData { name: string; hid: string; verified: boolean | null; bloodGroup: string | null; genotype: string | null; allergies: string | null; photoUrl: string | null }
@@ -67,18 +72,28 @@ const SECTIONS: ReadonlyArray<{ key: keyof Pick<PatientRecords, 'encounters' | '
 const words = (text: string | null | undefined) => text ? text.replace(/[_-]+/g, ' ').replace(/^./, c => c.toUpperCase()) : ''
 const day = (iso: string | null | undefined) => iso ? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso)) : ''
 
+type SectionKey = (typeof SECTIONS)[number]['key']
+
+/**
+ * One section's records, or none. Production's records answer (Novu, patient-records.service.ts) sends only visits and
+ * signed notes, with the other sections left out rather than empty, so a missing or malformed section is read as empty.
+ */
+function listOf<K extends SectionKey>(records: PatientRecords, key: K): PatientRecords[K] {
+  const value: unknown = records[key]
+  return (Array.isArray(value) ? value : []) as PatientRecords[K]
+}
+
 /** One row per record, read-only: what it is, its detail, and when. */
-function rowsOf(records: PatientRecords, key: (typeof SECTIONS)[number]['key']): Array<{ id: string; title: string; meta: string; detail?: string | null }> {
-  const list = Array.isArray(records[key]) ? records[key] : []
+function rowsOf(records: PatientRecords, key: SectionKey): Array<{ id: string; title: string; meta: string; detail?: string | null }> {
   switch (key) {
-    case 'diagnoses': return records.diagnoses.map(d => ({ id: d.id, title: d.display, meta: [words(d.clinicalStatus), day(d.onsetAt)].filter(Boolean).join(' · '), detail: d.notes }))
-    case 'prescriptions': return records.prescriptions.map(p => ({ id: p.id, title: p.medicationDisplay, meta: [p.doseQuantity != null ? `${p.doseQuantity} ${p.doseUnit ?? ''}`.trim() : '', p.frequency, words(p.status)].filter(Boolean).join(' · '), detail: p.instructions }))
-    case 'labRequests': return records.labRequests.map(l => ({ id: l.id, title: l.testDisplay, meta: [words(l.status), day(l.createdAt)].filter(Boolean).join(' · '), detail: l.clinicalInformation }))
-    case 'vitals': return records.vitals.map(v => ({ id: v.id, title: [v.systolicMmhg != null ? `BP ${v.systolicMmhg}/${v.diastolicMmhg}` : '', v.temperatureC != null ? `${v.temperatureC}°C` : '', v.pulseBpm != null ? `Pulse ${v.pulseBpm}` : '', v.oxygenSaturationPercent != null ? `SpO₂ ${v.oxygenSaturationPercent}%` : ''].filter(Boolean).join(' · ') || 'Vitals', meta: day(v.recordedAt) }))
-    case 'encounters': return records.encounters.map(e => ({ id: e.id, title: words(e.encounterType), meta: [words(e.status), day(e.startedAt)].filter(Boolean).join(' · ') }))
-    case 'notes': return records.notes.map(n => ({ id: n.id, title: n.title || words(n.noteType), meta: day(n.signedAt), detail: n.content }))
-    case 'documents': return records.documents.map(d => ({ id: d.id, title: d.fileName, meta: [d.mediaType, day(d.createdAt)].filter(Boolean).join(' · ') }))
-    default: return list as never
+    case 'diagnoses': return listOf(records, key).map(d => ({ id: d.id, title: d.display, meta: [words(d.clinicalStatus), day(d.onsetAt)].filter(Boolean).join(' · '), detail: d.notes }))
+    case 'prescriptions': return listOf(records, key).map(p => ({ id: p.id, title: p.medicationDisplay, meta: [p.doseQuantity != null ? `${p.doseQuantity} ${p.doseUnit ?? ''}`.trim() : '', p.frequency, words(p.status)].filter(Boolean).join(' · '), detail: p.instructions }))
+    case 'labRequests': return listOf(records, key).map(l => ({ id: l.id, title: l.testDisplay, meta: [words(l.status), day(l.createdAt)].filter(Boolean).join(' · '), detail: l.clinicalInformation }))
+    case 'vitals': return listOf(records, key).map(v => ({ id: v.id, title: [v.systolicMmhg != null ? `BP ${v.systolicMmhg}/${v.diastolicMmhg}` : '', v.temperatureC != null ? `${v.temperatureC}°C` : '', v.pulseBpm != null ? `Pulse ${v.pulseBpm}` : '', v.oxygenSaturationPercent != null ? `SpO₂ ${v.oxygenSaturationPercent}%` : ''].filter(Boolean).join(' · ') || 'Vitals', meta: day(v.recordedAt) }))
+    case 'encounters': return listOf(records, key).map(e => ({ id: e.id, title: words(e.encounterType), meta: [words(e.status), day(e.startedAt)].filter(Boolean).join(' · ') }))
+    case 'notes': return listOf(records, key).map(n => ({ id: n.id, title: n.title || words(n.noteType), meta: day(n.signedAt), detail: n.content }))
+    case 'documents': return listOf(records, key).map(d => ({ id: d.id, title: d.fileName, meta: [d.mediaType, day(d.createdAt)].filter(Boolean).join(' · ') }))
+    default: return []
   }
 }
 
@@ -125,25 +140,17 @@ export function SharedCardView({ card, sharedBy, recipient, level, expiresAt, re
   </div>
 }
 
-/** /card/:token: the provider's page, from the proposed shared-card answer; a link that has ended says so plainly. */
+/**
+ * /card and /card/:token: the page a shared card's link will open. Dormant until Health ID sends the one-time code that
+ * opens a card (the owner's decision 25; BACKEND-NEEDS.md §2): it says plainly that this isn't available yet, and reads
+ * nothing, sends nothing (not even what is in its address) and shows no one's details.
+ */
 export function SharedCardPage() {
-  const { api } = useSession()
-  const { token = '' } = useParams()
-  const [state, setState] = useState<{ answer: SharedCardAnswer } | { gone: string } | null>(null)
-  useEffect(() => {
-    const controller = new AbortController()
-    api.sharedCard(token, controller.signal).then(answer => setState({ answer }), (cause: unknown) => {
-      if (controller.signal.aborted) return
-      setState({ gone: isHidApiError(cause) && cause.status !== 404 ? cause.message : 'This card has ended or was taken back by the patient.' })
-    })
-    return () => controller.abort()
-  }, [api, token])
-  if (!state) return <div className="flex min-h-svh items-center justify-center bg-canvas text-sm text-ink-3" role="status">Opening the card…</div>
-  if ('gone' in state) return <div className="flex min-h-svh items-center justify-center bg-canvas p-4"><div className="w-full max-w-md">
-    <EmptyState icon={Lock} title="This card is no longer shared" description={state.gone} action={<Button href="https://healthid.ng">About Health ID</Button>} /></div></div>
-  const { answer } = state
-  return <SharedCardView sharedBy={answer.sharedBy} recipient={answer.recipientEmail} level={answer.level} expiresAt={answer.expiresAt} records={answer.records}
-    card={{ name: answer.card.fullName, hid: answer.card.hid, verified: answer.card.ninVerified, bloodGroup: answer.card.bloodGroup, genotype: answer.card.genotype, allergies: answer.card.allergies, photoUrl: answer.card.photoUrl }} />
+  useDocumentTitle('Not available yet · Health ID')
+  return <main className="flex min-h-svh items-center justify-center bg-canvas p-4"><div className="w-full max-w-md">
+    <EmptyState icon={Lock} titleAs="h1" title="This isn’t available yet"
+      description="Opening a shared Health ID card from a link isn’t available yet. No health information is shown here."
+      action={<Button href="https://healthid.ng">About Health ID</Button>} /></div></main>
 }
 
 /** The patient's own card as the email and the provider's page will show it. */

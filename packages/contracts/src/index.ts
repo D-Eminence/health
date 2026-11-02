@@ -73,9 +73,9 @@ export {
   chatQuestion, parseSupportChat, parsePatientChat, parsePatientChatAvailability, parsePatientChatHistory,
   parsePatientChatCleared,
 } from './chat'
-export { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory } from './stagingChat'
+export { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory, STAGING_CHAT_SOURCE_ORIGINS } from './stagingChat'
 export type {
-  StagingPatientChatReply, StagingPatientChatSource, StagingPatientChatHistory,
+  StagingPatientChatReply, StagingPatientChatSource, StagingPatientChatHistory, StagingChatSourceOrigin,
 } from './stagingChat'
 export type {
   SupportChatReply, PatientChatReply, PatientChatSource, PatientChatSourceKind, PatientChatStatus, PatientChatBlock,

@@ -70,16 +70,35 @@ export function campaignSearchText(campaign: OutreachCampaign) {
   return [campaign.name, statusWords(campaign.status), campaign.id, campaign.services.join(' '), dateText(campaign.startsAt)]
 }
 
-/** A registration case's saved fields, as the design's "Saved record" and quick view list them. */
+/**
+ * A case's phone number as the case's own view shows it: in full, as Outreach sent it, so the team can call the person
+ * back (owner, 2026-11-02). Only the case's view shows it: the list card never carries it and the search never matches
+ * it. A number Outreach sends already masked is shown as it was sent.
+ */
+export function phoneText(phone: string | null | undefined): string {
+  const given = phone?.trim()
+  return given ? given : 'Not recorded'
+}
+
+/**
+ * A registration case's saved fields, as the design's "Saved record" and quick view list them. The phone number and the
+ * notes for the team are listed when Outreach sends them (null: none was given); a backend without them sends neither,
+ * and they are left out.
+ */
 export function caseFacts(item: OutreachCase, campaign: OutreachCampaign | undefined): DeptFact[] {
+  const notes = item.operationalNotes?.trim()
   return [
     { label: 'Full name', value: caseName(item) },
     { label: 'Age', value: ageText(item) },
     { label: 'Sex', value: sexText(item) },
+    ...(item.phone !== undefined ? [{ label: 'Phone number', value: phoneText(item.phone) }] : []),
     { label: 'Status', value: statusLabel(item.status) },
     { label: 'Temporary patient ID', value: item.temporaryPatientId ?? 'Not assigned' },
     { label: 'Campaign', value: item.campaignId ? (campaign?.name ?? reference(item.campaignId)) : 'No campaign' },
     { label: 'Created', value: dateText(item.createdAt) },
+    ...(item.operationalNotes !== undefined
+      ? [{ label: 'Notes for the team', value: notes ? <span className="whitespace-pre-wrap break-words">{notes}</span> : 'None' }]
+      : []),
   ]
 }
 

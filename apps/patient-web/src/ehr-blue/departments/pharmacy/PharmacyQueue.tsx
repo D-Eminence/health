@@ -2,15 +2,16 @@ import { Fragment, type ReactNode } from 'react'
 import { ChevronRight, TriangleAlert } from 'lucide-react'
 import { Badge, cx, timeAgo, type Tone } from '../../../kasuwa/ui'
 import type { PharmacyWorkItem } from '../../../staff/api'
-import { QueuePatient } from '../parts/WorkQueue'
+import { isUrgent, PriorityBadge, QueuePatient } from '../parts/WorkQueue'
 import { DrugTile } from './DrugTile'
-import { drugFormOf, FORM_WORD, nameAndStrength } from './drugForm'
-import { DOSE_MISSING, doseText, statusWord, type PharmacyStatus } from './pharmacyText'
+import { drugOf, FORM_WORD } from './drugForm'
+import { DOSE_MISSING, doseText, durationText, statusWord, type PharmacyStatus } from './pharmacyText'
 
 /*
  * The pharmacy queue as large cards, one per prescription, made for a counter tablet and a phone. Each card leads with
- * the drug (its form drawn, its name large, strength and form under it), then the dose and how often with units, then
- * who it is for, smaller. The whole card is one button that opens the picking view; its name is the medicine as
+ * the drug (its form drawn, its name large, strength and form under it), then the dose and how often with units (and how
+ * long, when the prescriber said), then who it is for, smaller. A stat, as soon as possible or urgent prescription says
+ * so beside its status. The whole card is one button that opens the picking view; its name is the medicine as
  * prescribed, and the rest of the card describes it.
  */
 
@@ -35,9 +36,9 @@ export interface PharmacyCardProps {
 }
 
 export function PharmacyCard({ item, buttonId, status, tone, missing, patientFallback, when, below, badges, onOpen }: PharmacyCardProps) {
-  const form = drugFormOf(item)
-  const { name, strength } = nameAndStrength(item.medication.display)
+  const { form, name, strength } = drugOf(item)
   const dose = doseText(item)
+  const duration = durationText(item)
   const detailId = `${buttonId}-detail`
   return (
     <li className={cx('@container flex min-w-0 flex-col overflow-hidden rounded-2xl bg-surface shadow-[var(--shadow-card)] ring-1',
@@ -48,6 +49,7 @@ export function PharmacyCard({ item, buttonId, status, tone, missing, patientFal
         <span id={detailId} className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex flex-wrap items-center gap-1.5">
             <Badge size="sm" tone={tone}>{statusWord(status)}</Badge>
+            {isUrgent(item.priority) ? <PriorityBadge priority={item.priority} /> : null}
             {missing ? <span className="inline-flex items-center gap-1 rounded-md bg-warn-soft px-2 py-0.5 text-[12px] font-semibold text-warn-ink">
               <TriangleAlert className="size-3.5" aria-hidden />{DOSE_MISSING}</span> : null}
             {badges}
@@ -58,6 +60,7 @@ export function PharmacyCard({ item, buttonId, status, tone, missing, patientFal
             {dose ?? <span className={missing ? 'text-warn-ink' : 'text-ink-2'}>Dose not recorded</span>}
             <span className="text-ink-3"> · </span>
             {item.frequency?.trim() || <span className="text-warn-ink">How often not recorded</span>}
+            {duration ? <><span className="text-ink-3"> · </span>for {duration}</> : null}
           </span>
           {item.instructions ? <span className="text-[13px] text-ink-2 break-words">{item.instructions}</span> : null}
           <span className="mt-2 flex flex-wrap items-end justify-between gap-x-3 gap-y-1 border-t border-line pt-2 text-[13px]">

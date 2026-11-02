@@ -1103,3 +1103,43 @@ describe('ending an order from its request', () => {
     expect(within(routedLines()).getByText('Cancelled by Demo Hospital: stop work.')).toBeTruthy()
   })
 })
+
+/*
+ * The patient card on this facility's own work (proposed hid-system 0106; not served today) and the priority Lab already
+ * sends: each used when present, and today's screens when absent (the work list's and request's tests above).
+ */
+describe('the patient and the priority on this facility\'s own work', () => {
+  it('names the patient Lab sends on own work, on its card and request, and asks to check them before a sample is taken', async () => {
+    as([...ACCESSION, 'lab.specimen.collect'])
+    api.labWorkItems.mockResolvedValue({ items: [workItem({ patient: PERSON }), local] })
+    renderPage()
+    const card = (await findCard('Haemoglobin')).closest('li')!
+    expect(within(card).getByText('Patient One')).toBeTruthy()
+    expect(card.textContent).not.toContain(MASKED)
+    // Work without the card is masked as today.
+    expect(cardButton('Malaria parasite').textContent).toMatch(/Patient ••••aa11bb/)
+    await openRecord()
+    expect(screen.getByRole('region', { name: 'Patient: Patient One' }).textContent).toContain('Health ID ending AAA2')
+    expect(within(stageCard()).getByText('Check that the person is Patient One before you take a sample.')).toBeTruthy()
+  })
+
+  it('asks no check on own work Lab sends no patient for, as today', async () => {
+    as([...ACCESSION, 'lab.specimen.collect'])
+    api.labWorkItems.mockResolvedValue({ items: [workItem()] })
+    renderPage()
+    await openRecord()
+    expect(within(stageCard()).queryByText(/^Check that the person is/)).toBeNull()
+  })
+
+  it('puts an as-soon-as-possible request first and marks it urgent, as it does stat and urgent ones', async () => {
+    api.labWorkItems.mockResolvedValue({ items: [workItem({ id: 'w-old', testName: 'Old', acceptedAt: '2026-10-09T07:00:00.000Z', priority: 'routine' }),
+      workItem({ id: 'w-asap', testName: 'Soon one', priority: 'asap', acceptedAt: '2026-10-09T10:00:00.000Z' })] })
+    renderPage()
+    await findCard('Old')
+    const list = screen.getByRole('list', { name: 'Waiting for sample' })
+    expect(within(list).getAllByRole('listitem').map(item => within(item).getByRole('button').textContent?.split(', ').at(-1))).toEqual(['Soon one', 'Old'])
+    expect(within(cardButton('Soon one').closest('li')!).getByText('Urgent')).toBeTruthy()
+    await openRecord('Soon one')
+    expect(requestFacts().Priority).toBe('Urgent')
+  })
+})
