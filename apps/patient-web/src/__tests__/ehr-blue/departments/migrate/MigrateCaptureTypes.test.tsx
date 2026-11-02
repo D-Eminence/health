@@ -112,8 +112,8 @@ describe('Patient documents with types: before the backend serves them', () => {
     expect(field.id).toBe('migrate-document-file')
     expect(descriptions(field)).toEqual([TODAY_HINT])
     // No type named on any listed document, whatever it carries.
-    expect(within(row('discharge-summary.pdf')).getByText('application/pdf · 20 KiB')).toBeTruthy()
-    expect(within(row('full-blood-count.jpg')).getByText('image/jpeg · 20 KiB')).toBeTruthy()
+    expect(within(row('discharge-summary.pdf')).getByText('PDF document · 20 KB')).toBeTruthy()
+    expect(within(row('full-blood-count.jpg')).getByText('JPEG image · 20 KB')).toBeTruthy()
     expect(within(card()).queryByText(/Lab result|Prescription sheet/)).toBeNull()
     const file = image()
     fireEvent.change(field, { target: { files: [file] } })
@@ -131,9 +131,9 @@ describe('Patient documents with types: before the backend serves them', () => {
     api.documents.mockResolvedValue(listed([clean, bare]))
     await openDocuments()
     const reference = (name: string) => row(name).querySelector('.hid-ehr-dept-reference')?.textContent
-    expect(reference('discharge-summary.pdf')).toBe('application/pdf · 20 KiB')
-    // Today's template, even for a media type left empty: nothing filtered out, no type named.
-    expect(reference('scan.tif')).toBe(' · 20 KiB')
+    expect(reference('discharge-summary.pdf')).toBe('PDF document · 20 KB')
+    // Today's template, even for a media type left empty: no document type named, and the file read as a plain "File".
+    expect(reference('scan.tif')).toBe('File · 20 KB')
   })
 
   it('asks no type while nothing has said the types are served (the list not yet answered)', async () => {
@@ -149,7 +149,7 @@ describe('Patient documents with types: before the backend serves them', () => {
     api.documents.mockResolvedValue(listed([clean, labResult], 'true'))
     await openDocuments()
     expect(typeField()).toBeNull()
-    expect(within(row('full-blood-count.jpg')).getByText('image/jpeg · 20 KiB')).toBeTruthy()
+    expect(within(row('full-blood-count.jpg')).getByText('JPEG image · 20 KB')).toBeTruthy()
     expect(within(card()).getByLabelText(`Clinical document ${FILE_LIMITS} *`)).toBeTruthy()
   })
 
@@ -183,10 +183,10 @@ describe('Patient documents with types: once served', () => {
   it('names each listed document\'s type: none given is a clinical document, one not known is not named', async () => {
     await openDocuments()
     expect(api.documents).toHaveBeenCalledWith(DEMO_HOSPITAL_ID, PATIENT, ENCOUNTER)
-    expect(within(row('discharge-summary.pdf')).getByText('Clinical document · application/pdf · 20 KiB')).toBeTruthy()
-    expect(within(row('full-blood-count.jpg')).getByText('Lab result · image/jpeg · 20 KiB')).toBeTruthy()
-    expect(within(row('prescription.png')).getByText('Prescription sheet · image/png · 20 KiB')).toBeTruthy()
-    expect(within(row('imaging.pdf')).getByText('application/pdf · 20 KiB')).toBeTruthy()
+    expect(within(row('discharge-summary.pdf')).getByText('Clinical document · PDF document · 20 KB')).toBeTruthy()
+    expect(within(row('full-blood-count.jpg')).getByText('Lab result · JPEG image · 20 KB')).toBeTruthy()
+    expect(within(row('prescription.png')).getByText('Prescription sheet · PNG image · 20 KB')).toBeTruthy()
+    expect(within(row('imaging.pdf')).getByText('PDF document · 20 KB')).toBeTruthy()
   })
 
   it('sends a lab result with its type, the very file chosen, and says OCR reads it once its scan is clean', async () => {
@@ -296,7 +296,7 @@ describe('Patient documents with types: once served', () => {
       expect(typeField()).toBeNull()
       expect(within(card()).getByText(NO_UPLOAD_HERE)).toBeTruthy()
       // The list still names each type.
-      expect(within(row('full-blood-count.jpg')).getByText('Lab result · image/jpeg · 20 KiB')).toBeTruthy()
+      expect(within(row('full-blood-count.jpg')).getByText('Lab result · JPEG image · 20 KB')).toBeTruthy()
       unmount()
     }
   })
@@ -306,7 +306,7 @@ describe('Patient documents with types: once served', () => {
     api.documents.mockResolvedValue(listed([clean]))
     await openDocuments()
     expect(typeField()).toBeTruthy()
-    expect(within(row('discharge-summary.pdf')).getByText('Clinical document · application/pdf · 20 KiB')).toBeTruthy()
+    expect(within(row('discharge-summary.pdf')).getByText('Clinical document · PDF document · 20 KB')).toBeTruthy()
   })
 
   it('offers no type to a membership without document write, nor under read-only access', async () => {

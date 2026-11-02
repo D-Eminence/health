@@ -70,7 +70,7 @@ afterEach(() => { vi.unstubAllGlobals() })
 describe('the records the patient added, where the backend does not serve them', () => {
   it('sends only the records’ read, and shows exactly the page it showed before', async () => {
     const { sent } = renderPortal(<RecordsPage />, gateway(() => RECORDS))
-    await screen.findByText('Ambulatory')
+    await screen.findByText('Outpatient visit')
     expect(patientEntriesServed()).toBe(false)
     await settle()
 
@@ -80,7 +80,7 @@ describe('the records the patient added, where the backend does not serve them',
     expect(screen.queryAllByRole('alert')).toEqual([])
     expect(screen.getByText('Your visits, doctor’s notes and older records.')).toBeTruthy()
     // A search, and a tab, read nothing more.
-    search('ambulatory')
+    search('outpatient')
     expect(screen.getByText('1 record matches your search.')).toBeTruthy()
     fireEvent.click(tab('Visits'))
     fireEvent.click(tab('All'))
@@ -109,7 +109,7 @@ describe('the records the patient added, where the backend does not serve them',
 
   it('shows the page as before when the key is not a list, and learns nothing from it', async () => {
     const { sent } = renderPortal(<RecordsPage />, gateway(() => ({ ...RECORDS, patientEntries: { items: [malaria] } })))
-    await screen.findByText('Ambulatory')
+    await screen.findByText('Outpatient visit')
     await settle()
     expect(screen.queryByText(/Added by you|Malaria test/)).toBeNull()
     expect(screen.queryAllByRole('alert')).toEqual([])
@@ -146,11 +146,11 @@ describe('the records the patient added, where the backend serves them', () => {
     const files = (title: string) => within(within(card).getByRole('list', { name: `Photos and files for ${title}` })).getAllByRole('listitem')
       .map(item => [...item.children].map(part => part.textContent).filter(Boolean))
     expect(files('Malaria test')).toEqual([
-      ['result-slip.jpg', 'Photo · 240 KB', 'Checking for viruses'],
-      ['lab-report.pdf', 'PDF · 1.2 MB', 'This file couldn’t be added'],
+      ['result-slip.jpg', 'JPEG image · 240 KB', 'Checking for viruses'],
+      ['lab-report.pdf', 'PDF document · 1.2 MB', 'This file couldn’t be added'],
     ])
     expect(within(card).queryByText(/Couldn’t be checked|infected|rejected/i)).toBeNull()
-    expect(files('Amoxicillin 500 mg')).toEqual([['prescription.png', 'Photo · 20 KB']])
+    expect(files('Amoxicillin 500 mg')).toEqual([['prescription.png', 'PNG image · 20 KB']])
     // No download yet.
     expect(within(card).queryAllByRole('link')).toEqual([])
     expect(within(card).queryByRole('button', { name: /Download|Open/ })).toBeNull()
@@ -199,7 +199,7 @@ describe('the records the patient added, where the backend serves them', () => {
     expect(within(card).getByText('Amoxicillin 500 mg')).toBeTruthy()
     expect(within(card).queryByRole('group')).toBeNull()
     // The rest of the page is read again with them, and still shown.
-    expect(screen.getByText('Ambulatory')).toBeTruthy()
+    expect(screen.getByText('Outpatient visit')).toBeTruthy()
     await waitFor(() => expect(document.activeElement).toBe(ownTitle(card)))
     expect(document.body.textContent).not.toMatch(/delete/i)
   })
@@ -359,7 +359,7 @@ describe('after "Add a record" saves one', () => {
   it('reads the records again and shows it', async () => {
     const items: unknown[] = []
     const { sent } = renderPortal(<RecordsPage />, gateway(() => served(items), saving(items)))
-    await screen.findByText('Ambulatory')
+    await screen.findByText('Outpatient visit')
     expect(patientEntriesServed()).toBe(true)
     // Served, with nothing added yet: nothing more is shown.
     expect(screen.queryByRole('region', { name: 'Added by you' })).toBeNull()
@@ -380,7 +380,7 @@ describe('after "Add a record" saves one', () => {
       if (answer) isServed = true
       return answer
     }))
-    await screen.findByText('Ambulatory')
+    await screen.findByText('Outpatient visit')
     expect(patientEntriesServed()).toBe(false)
     await addRecord('Typhoid test')
     const card = await ownCard()
@@ -411,7 +411,7 @@ describe('after "Add a record" saves one', () => {
       if (answer) isServed = true
       return answer
     }))
-    await screen.findByText('Ambulatory')
+    await screen.findByText('Outpatient visit')
     expect(patientEntriesServed()).toBe(false)
     await press(screen.getByRole('button', { name: 'Add a record' }))
     fireEvent.change(await screen.findByLabelText('Name it'), { target: { value: 'Typhoid test' } })
