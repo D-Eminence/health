@@ -5,12 +5,12 @@ import { Drawer } from '../kasuwa/interactive'
 import { useToast } from '../kasuwa/toast'
 import { Alert, Field, IconChip, Input, Textarea, cx, type Icon } from '../kasuwa/ui'
 import { Step } from '../kasuwa/parts'
-import { SAY } from '../copy'
 import { ButtonR, InputR } from './profileParts'
 import { useActionFocus } from './actionFocus'
 import type { OwnRecordInput } from '../api'
 import { EDGE_BODY_MAX_BYTES, jsonBodyBytes } from '../profileParity'
 import { saysPatientEntriesNotServed } from '../patientEntriesServed'
+import { fileStartsAsItsType } from '../fileSignature'
 import { withoutPhotoMetadata } from '../photoMetadata'
 import { useSession } from '../session'
 
@@ -21,16 +21,24 @@ import { useSession } from '../session'
  * memory until sent and are never kept in the browser; previews are object URLs, let go with their files. Saved as
  * "added by you", so a clinician can tell it apart.
  *
- * A photo is read as it is picked and kept only without its metadata (photoMetadata.ts: the GPS position where it was
- * taken, the camera's details, any thumbnail, text or further picture; never re-encoded, so the picture is unchanged):
- * what is previewed, hashed and sent are those stripped bytes, a new File of the same name and type. A photo that can't
- * be walked cleanly is refused there in plain words and never listed, so never sent. A PDF goes as it is.
+ * Each file's first 8 bytes are read as it is picked, and must be its type's (fileSignature.ts: a JPEG FF D8 FF, a PNG
+ * its signature, a PDF "%PDF-"); one whose bytes aren't (a program renamed scan.png, say) is refused ("This file isn't a
+ * JPEG, PNG or PDF.") and never listed, so never sent. A photo is then read and kept only without its metadata
+ * (photoMetadata.ts: the GPS position where it was taken, the camera's details, any thumbnail, text or further picture;
+ * never re-encoded, so the picture is unchanged): what is previewed, hashed and sent are those stripped bytes, a new File
+ * of the same name and type. A photo that can't be walked cleanly is refused there in plain words and never listed, so
+ * never sent. A PDF goes as it is.
  *
  * Save sends the entry alone (POST ehr/me/patient-entries, no file bytes, its body kept under the edge limit), then each
  * photo or file in turn under the saved entry, as staff uploads go: its exact bytes to a signed link, then a confirm
  * (api.uploadOwnRecordDocument). Nothing of a file leaves the device until the Save and that file's upload link have
  * both been answered. No backend serves it yet (BACKEND-NEEDS.md §1): until one does, the Save's 404 NOT_FOUND is said
  * plainly ("This isn't set up for your account") and what was entered stays in the drawer.
+ *
+ * A refusal is said in this drawer's own fixed words, chosen by its status and code alone; the server's own words (its
+ * message or detail) are never shown. The Save: 404 NOT_FOUND as above; 413, or PATIENT_ENTRY_TOO_LARGE (api.addOwnRecord's
+ * own, before sending), that it's too long; anything else "Your record couldn't be saved. Please try again." A file's
+ * upload link, PUT and confirm: as below.
  *
  * If a file doesn't go up after the entry is saved, the drawer stays open, says so, and offers Try again: only those
  * files, under the same entry and with their same keys, and no second Save; the saved fields are kept from changing. A
@@ -41,8 +49,11 @@ import { useSession } from '../session'
  * again if it was lost while the run went; during Try again, a file not yet sent again says Waiting.
  *
  * The backend allows 10 files a day (BACKEND-NEEDS.md §1). A file whose upload link is refused for that (429
- * PATIENT_UPLOAD_DAILY_LIMIT_REACHED) says so plainly ("You’ve added 10 files today. You can add more tomorrow.") and is
- * not offered Try again; closing keeps the record without it. Any other refusal is a file that didn't upload.
+ * PATIENT_DOCUMENT_DAILY_LIMIT) says so plainly ("You can add up to 10 photos or files a day. Your record is saved; add
+ * the rest tomorrow.") and is not offered Try again; closing keeps the record without it. A file the server finds isn't
+ * its type (409 PATIENT_DOCUMENT_TYPE_MISMATCH, at the confirm) says "This file isn't a JPEG, PNG or PDF." and is not
+ * offered Try again either: the same bytes would be refused the same way. Any other refusal (409
+ * PATIENT_DOCUMENT_UPLOAD_INCOMPLETE among them) is a file that didn't upload, which Try again sends again.
  */
 const KINDS: ReadonlyArray<{ value: OwnRecordInput['kind']; label: string; icon: Icon; example: string }> = [
   { value: 'visit', label: 'Visit', icon: Stethoscope, example: 'Check-up at Lagos General' },
@@ -53,34 +64,65 @@ const KINDS: ReadonlyArray<{ value: OwnRecordInput['kind']; label: string; icon:
   { value: 'other', label: 'Other', icon: NotebookPen, example: 'What it was' },
 ]
 // The entry's limits (api.ts PATIENT_ENTRY_*, which the upload enforces again): at most 5, each 1 byte to 10 MB, and these
-// types only; and the backend's 10 files a day in all (api.ts PATIENT_UPLOAD_DAILY_LIMIT_*). Kept here as plain values:
+// types only; and the backend's 10 files a day in all (api.ts PATIENT_DOCUMENT_DAILY_LIMIT_*). Kept here as plain values:
 // this page imports only types from api.ts.
 const MAX_FILES = 5
 const MAX_BYTES = 10 * 1024 * 1024
 const MEDIA_TYPES: readonly string[] = ['image/jpeg', 'image/png', 'application/pdf']
 const DAILY_FILES = 10
-const DAILY_LIMIT_CODE = 'PATIENT_UPLOAD_DAILY_LIMIT_REACHED'
+const DAILY_LIMIT_CODE = 'PATIENT_DOCUMENT_DAILY_LIMIT'
+const TYPE_MISMATCH_CODE = 'PATIENT_DOCUMENT_TYPE_MISMATCH'
 // What each picker offers: the camera a photo, the upload a photo or a PDF. Anything else picked is refused in words.
 const CAMERA_TYPES = 'image/jpeg,image/png'
 const UPLOAD_TYPES = MEDIA_TYPES.join(',')
 const NOT_ADDED = 'Couldn’t add your record'
+// The Save's refusals, in this drawer's own words.
+const NOT_SET_UP = 'This isn’t set up for your account. Contact support. What you entered is still here.'
+const TOO_LONG = 'It’s too long to send. Shorten the notes, then save again. What you entered is still here.'
+const NOT_SAVED = 'Your record couldn’t be saved. Please try again.'
+/** A file whose bytes aren't its type's: refused as it is picked, and said of one the server refuses for it. */
+const NOT_ITS_TYPE = 'This file isn’t a JPEG, PNG or PDF.'
 
 /** A photo or file as picked: a photo already without its metadata (the bytes previewed and sent), a PDF as it is. */
 interface Picked { id: string; file: File; preview: string | null }
-/** Where a photo or file is once its entry is saved: `limited` didn't upload as today's 10 are added, and isn't retried. */
-type Sending = 'sending' | 'sent' | 'failed' | 'limited'
+/**
+ * Where a photo or file is once its entry is saved. Neither `limited` (refused as today's 10 are added) nor `refused`
+ * (the server found it isn't its type) is sent again by Try again.
+ */
+type Sending = 'sending' | 'sent' | 'failed' | 'limited' | 'refused'
 /** The entry this drawer saved: its photos and files go up under it, and Try again uses it. */
 interface Saved { id: string; title: string }
 
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' })
 const size = (bytes: number) => bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
 const notUploadedWords = (count: number) => `${count} of your photos or files didn’t upload.`
-const DAILY_LIMIT_WORDS = `You’ve added ${DAILY_FILES} files today. You can add more tomorrow.`
-const SENDING_WORDS: Record<Sending, string> = { sending: 'Uploading…', sent: 'Uploaded', failed: 'Didn’t upload', limited: 'Over today’s limit' }
-/** What didn't upload, said plainly: how many, and, when today's limit refused any, that more can be added tomorrow. */
+const DAILY_LIMIT_WORDS = `You can add up to ${DAILY_FILES} photos or files a day. Your record is saved; add the rest tomorrow.`
+const SENDING_WORDS: Record<Sending, string> = {
+  sending: 'Uploading…', sent: 'Uploaded', failed: 'Didn’t upload', limited: 'Over today’s limit', refused: NOT_ITS_TYPE,
+}
+/** What didn't upload, said plainly: how many, and, when today's limit refused any, that the rest can be added tomorrow. */
 const shortWords = (missing: number, overLimit: number) => overLimit > 0 ? `${notUploadedWords(missing)} ${DAILY_LIMIT_WORDS}` : notUploadedWords(missing)
-/** The upload link refused as the patient has added today's 10 files (BACKEND-NEEDS.md §1): its status and code alone. */
-const saysDailyLimitReached = (error: unknown): boolean => isHidApiError(error) && error.status === 429 && error.code === DAILY_LIMIT_CODE
+
+/**
+ * What a file's refused upload comes to, by its status and code alone (BACKEND-NEEDS.md §1), never by the server's words:
+ * today's 10 files already added (429 PATIENT_DOCUMENT_DAILY_LIMIT, from the upload link), or a file the confirm found
+ * isn't its type (409 PATIENT_DOCUMENT_TYPE_MISMATCH), neither of them sent again; anything else (409
+ * PATIENT_DOCUMENT_UPLOAD_INCOMPLETE, a rate limit on the way, a PUT that failed) didn't upload, and Try again sends it.
+ */
+function uploadRefused(error: unknown): Exclude<Sending, 'sending' | 'sent'> {
+  if (!isHidApiError(error)) return 'failed'
+  if (error.status === 429 && error.code === DAILY_LIMIT_CODE) return 'limited'
+  if (error.status === 409 && error.code === TYPE_MISMATCH_CODE) return 'refused'
+  return 'failed'
+}
+
+/** Why the Save was refused, in this drawer's words, by its status and code alone: never the server's own words. */
+function notSavedWords(error: unknown): string {
+  // Only the Save's own 404 NOT_FOUND (no backend serves it) reads as "not set up".
+  if (saysPatientEntriesNotServed(error)) return NOT_SET_UP
+  if (isHidApiError(error) && (error.status === 413 || error.code === 'PATIENT_ENTRY_TOO_LARGE')) return TOO_LONG
+  return NOT_SAVED
+}
 
 export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved?: () => void }) {
   const { api } = useSession()
@@ -121,8 +163,8 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
   const locked = saved !== null
   const notUploaded = saved ? files.filter(item => sending[item.id] !== 'sent').length : 0
   const overLimit = saved ? files.filter(item => sending[item.id] === 'limited').length : 0
-  // What Try again sends: what didn't upload, apart from what today's limit refused.
-  const retryable = files.filter(item => sending[item.id] !== 'sent' && sending[item.id] !== 'limited')
+  // What Try again sends: what didn't upload, apart from what today's limit refused and what the server found isn't its type.
+  const retryable = files.filter(item => sending[item.id] !== 'sent' && sending[item.id] !== 'limited' && sending[item.id] !== 'refused')
   const offersTryAgain = !locked || busy || retryable.length > 0
 
   // Facilities on Health ID, offered as the patient types; any other place can be typed in full.
@@ -142,8 +184,9 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
 
   /**
    * Takes what was picked, in turn: refused in words when it is not a JPEG, PNG or PDF of 1 byte to 10 MB, or past the
-   * entry's 5; a photo is read and kept only without its metadata, and refused when that can't be done with certainty.
-   * Nothing is listed, or previewed, until all of it is ready.
+   * entry's 5, or when its first 8 bytes are not its type's; a photo is read and kept only without its metadata, and
+   * refused when that can't be done with certainty. Nothing is listed, or previewed, until all of it is ready, and
+   * nothing is sent.
    */
   const add = async (list: FileList | null) => {
     if (!list || busy || locked || preparingNow.current) return
@@ -161,6 +204,7 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
         if (file.size > MAX_BYTES) { said = `${file.name} is over 10 MB.`; continue }
         if (file.size === 0) { said = `${file.name} is empty.`; continue }
         try {
+          if (!await fileStartsAsItsType(file)) { said = `${file.name}: ${NOT_ITS_TYPE}`; continue }
           next.push({ id: `${file.name}-${file.size}-${file.lastModified}-${Math.random()}`, file: await withoutPhotoMetadata(file) })
         } catch {
           said = `${file.name} couldn’t be prepared safely. Try another photo.`
@@ -197,9 +241,9 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
 
   /**
    * Sends `items` in turn under the saved entry; each failure is kept, and nothing more is sent once `controller` is
-   * aborted. A file refused for today's limit is kept as such; the backend decides for each file, so the rest still go.
-   * `heldBack` counts the files today's limit refused before, which Try again doesn't send: the record is complete only
-   * when there are none.
+   * aborted. A file refused for today's limit, or as not its type, is kept as such; the backend decides for each file,
+   * so the rest still go. `heldBack` counts the files refused so before, which Try again doesn't send: the record is
+   * complete only when there are none.
    */
   const send = async (entry: Saved, items: readonly Picked[], controller: AbortController, heldBack = 0) => {
     let short = 0
@@ -214,7 +258,7 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
       } catch (cause) {
         if (controller.signal.aborted) return
         short += 1
-        const state: Sending = saysDailyLimitReached(cause) ? 'limited' : 'failed'
+        const state = uploadRefused(cause)
         setSending(current => ({ ...current, [item.id]: state }))
       }
     }
@@ -230,7 +274,7 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
     // One run at a time, also before the render that shows it busy; and none while picked photos are being prepared.
     if (busy || run.current || preparingNow.current) return
     // After the entry is saved, the same button is Try again: only what didn't upload, under the same entry, and never
-    // what today's limit refused.
+    // what today's limit refused or the server found isn't its type.
     if (saved) {
       const again = retryable
       if (again.length === 0) return
@@ -243,7 +287,7 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
         return next
       })
       setBusy(true); setRetrying(true)
-      await send(saved, again, controller, overLimit)
+      await send(saved, again, controller, notUploaded - again.length)
       return
     }
     // Save is never silently off: what is missing is said under its field, and focus goes there.
@@ -253,7 +297,7 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
     setProblem(null)
     // Production's edge refuses a body over 8000 bytes: one that would be is not sent at all (api.addOwnRecord checks again).
     if (jsonBodyBytes(entry) > EDGE_BODY_MAX_BYTES) {
-      setNotSaved({ title: NOT_ADDED, message: 'It’s too long to send. Shorten the notes, then save again. What you entered is still here.' })
+      setNotSaved({ title: NOT_ADDED, message: TOO_LONG })
       return
     }
     const body = JSON.stringify(entry)
@@ -271,10 +315,8 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
       if (controller.signal.aborted || run.current !== controller) return
       run.current = null
       setBusy(false)
-      // Only the Save's own 404 NOT_FOUND (no backend serves it) reads as "not set up".
-      setNotSaved(saysPatientEntriesNotServed(cause)
-        ? { title: NOT_ADDED, message: 'This isn’t set up for your account. Contact support. What you entered is still here.' }
-        : { title: NOT_ADDED, message: isHidApiError(cause) ? cause.message : SAY.tryAgain })
+      // In this drawer's own words, never the server's.
+      setNotSaved({ title: NOT_ADDED, message: notSavedWords(cause) })
       // Save was disabled while it went: focus comes back to it, in the drawer, if it was lost meanwhile.
       focusAfter(() => primary.current)
       return
@@ -386,7 +428,7 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
               {item.preview ? <img src={item.preview} alt="" className="size-12 shrink-0 rounded-lg object-cover" />
                 : <span className="inline-flex size-12 shrink-0 items-center justify-center rounded-lg bg-danger-soft text-danger-ink"><FileText className="size-5" aria-hidden /></span>}
               <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium text-ink">{item.file.name}</span>
-                <span className={cx('block text-[12px]', sending[item.id] === 'failed' || sending[item.id] === 'limited' ? 'font-medium text-danger-ink' : 'text-ink-3')}>
+                <span className={cx('block text-[12px]', sending[item.id] === 'failed' || sending[item.id] === 'limited' || sending[item.id] === 'refused' ? 'font-medium text-danger-ink' : 'text-ink-3')}>
                   {[size(item.file.size), progress(item.id)].filter(Boolean).join(' · ')}</span></span>
               {!busy && !locked && !preparing && <button type="button" onClick={() => remove(item.id)} aria-label={`Remove ${item.file.name}`} className="inline-flex size-11 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-ink-3 hover:bg-danger-soft hover:text-danger-ink sm:size-9"><Trash2 className="size-4" aria-hidden /></button>}
             </li>)}
@@ -399,8 +441,9 @@ export function AddRecordDrawer({ open, onClose, onSaved }: { open: boolean; onC
       </Step>
       <p className="m-0 flex gap-2 text-[12px] text-ink-3"><Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />Marked “added by you”, so a clinician knows it came from you. Shared only when you share your records.</p>
       {notSaved && <Alert intent="warning" size="sm" title={notSaved.title}>{notSaved.message}</Alert>}
+      {/* Today's limit says itself that the record is saved, so it isn't said twice. */}
       {locked && !busy && notUploaded > 0 && <Alert intent="warning" size="sm" title="Not everything uploaded">
-        Your record was saved. {shortWords(notUploaded, overLimit)} {retryable.length > 0 ? 'Try again, or close' : 'Close'} to keep your record without them.</Alert>}
+        {overLimit > 0 ? '' : 'Your record was saved. '}{shortWords(notUploaded, overLimit)} {retryable.length > 0 ? 'Try again, or close' : 'Close'} to keep your record without them.</Alert>}
     </form>
   </Drawer>
 }

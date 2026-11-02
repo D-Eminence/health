@@ -5,7 +5,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { ToastProvider } from '../kasuwa/toast'
 import { AddRecordDrawer } from '../routes/AddRecord'
 import {
-  PATIENT_ENTRY_MAX_FILE_BYTES, PATIENT_ENTRY_MAX_FILES, PATIENT_ENTRY_MEDIA_TYPES, PATIENT_UPLOAD_DAILY_LIMIT_CODE, PATIENT_UPLOAD_DAILY_LIMIT_FILES,
+  PATIENT_DOCUMENT_DAILY_LIMIT_CODE, PATIENT_DOCUMENT_DAILY_LIMIT_FILES, PATIENT_ENTRY_MAX_FILE_BYTES, PATIENT_ENTRY_MAX_FILES, PATIENT_ENTRY_MEDIA_TYPES,
 } from '../api'
 import { forgetPatientEntriesServed, patientEntriesServed } from '../patientEntriesServed'
 import { json, press, problem, renderPortal, shownText, type Handler, type Sent } from './portalHarness'
@@ -140,6 +140,11 @@ function fill() {
 }
 
 const SAVED_BODY = { kind: 'test', title: 'Malaria test', facilityName: 'Lagos General Hospital', occurredOn: '2026-10-20', notes: 'Positive, given ACT' }
+/** The drawer's own words for a refused Save. */
+const NOT_SAVED = 'Your record couldn’t be saved. Please try again.'
+const TOO_LONG = 'It’s too long to send. Shorten the notes, then save again. What you entered is still here.'
+/** Its words for a file whose bytes aren't its type's. */
+const NOT_ITS_TYPE = 'This file isn’t a JPEG, PNG or PDF.'
 
 const entryRequests = (sent: Sent[]) => sent.filter(request => request.path.startsWith(ENTRIES))
 const headerOf = (headers: ReturnType<typeof renderPortal>['headers'], path: string, at = 0) =>
@@ -189,13 +194,60 @@ describe('Add a record, before a backend serves it', () => {
     expect(headerOf(headers, ENTRIES, 2)).not.toBe(headerOf(headers, ENTRIES, 0))
   })
 
-  it('reads only the Save’s 404 NOT_FOUND as not set up: a 404 with its own code says its own words', async () => {
+  it('reads only the Save’s 404 NOT_FOUND as not set up: a 404 with its own code says the drawer’s own words, never the server’s', async () => {
     renderDrawer({ save: () => problem(404, 'PATIENT_NOT_FOUND', 'Your record could not be found.') })
     fill()
     await press(screen.getByRole('button', { name: 'Save record' }))
-    expect(await screen.findByText('Your record could not be found.')).toBeTruthy()
+    const alert = (await screen.findByText(NOT_SAVED)).closest('[role]') as HTMLElement
+    expect(shownText(alert)).toBe(`Couldn’t add your record${NOT_SAVED}`)
+    expect(screen.queryByText(/could not be found/)).toBeNull()
+    expect(document.body.textContent).not.toContain('Your record could not be found.')
     expect(screen.queryByText(/isn’t set up/)).toBeNull()
     expect(patientEntriesServed()).toBeNull()
+  })
+
+  it('shows only its own words for a 404 PATIENT_ENTRIES_DISABLED with a long server message: uploads off reads as nothing the server says', async () => {
+    const detail = 'Patient document uploads are disabled for this environment pending NDPA sign-off (flag ehr.patient_uploads, '
+      + 'migration 0110_patient_entries not applied); contact platform-ops@example.test with request id 7f3c-fictional.'
+    const { sent } = renderDrawer({ save: () => json({ type: 'about:blank', title: 'Patient entries disabled', status: 404,
+      code: 'PATIENT_ENTRIES_DISABLED', detail, message: detail }, 404) })
+    fill()
+    await pick(cameraInput(), photo())
+    await press(screen.getByRole('button', { name: 'Save record' }))
+    const alert = (await screen.findByText(NOT_SAVED)).closest('[role]') as HTMLElement
+    expect(shownText(alert)).toBe(`Couldn’t add your record${NOT_SAVED}`)
+    for (const part of ['disabled', 'NDPA', 'ehr.patient_uploads', '0110', 'platform-ops', '7f3c', 'Patient entries disabled']) {
+      expect(document.body.textContent, part).not.toContain(part)
+    }
+    // Not the "not set up" words either, which belong to 404 NOT_FOUND alone; nothing learned; no file sent.
+    expect(screen.queryByText(/isn’t set up/)).toBeNull()
+    expect(patientEntriesServed()).toBeNull()
+    expect(entryRequests(sent)).toEqual([{ path: ENTRIES, method: 'POST', body: SAVED_BODY }])
+    expect(log).toEqual([`POST ${ENTRIES}`])
+  })
+
+  it('says the record is too long for a 413, and one fixed sentence for any other refusal', async () => {
+    let answer = () => problem(413, 'PAYLOAD_TOO_LARGE', 'Request entity too large (nginx, edge-7).')
+    const { sent } = renderDrawer({ save: () => answer() })
+    fill()
+    await press(screen.getByRole('button', { name: 'Save record' }))
+    expect(await screen.findByText(TOO_LONG)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/nginx|edge-7|entity/)
+
+    answer = () => problem(500, 'INTERNAL_ERROR', 'relation "ehr.patient_entries" does not exist')
+    await press(screen.getByRole('button', { name: 'Save record' }))
+    expect(await screen.findByText(NOT_SAVED)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/relation|patient_entries|too long/)
+
+    answer = () => problem(422, 'VALIDATION_FAILED', 'occurredOn must not be after 2026-11-02 in Africa/Lagos')
+    fireEvent.change(screen.getByLabelText(/Anything else to note/), { target: { value: 'Seen again' } })
+    await press(screen.getByRole('button', { name: 'Save record' }))
+    expect(await screen.findByText(NOT_SAVED)).toBeTruthy()
+    expect(entryRequests(sent)).toHaveLength(3)
+    expect(document.body.textContent).not.toMatch(/occurredOn|Africa\/Lagos/)
+    // What was entered is kept, and Save offered again.
+    expect(screen.getByLabelText(/Anything else to note/)).toHaveProperty('value', 'Seen again')
+    expect(screen.getByRole('button', { name: 'Save record' })).toHaveProperty('disabled', false)
   })
 
   it('does not send a Save over the edge limit of 8000 bytes, and says so plainly', async () => {
@@ -204,7 +256,7 @@ describe('Add a record, before a backend serves it', () => {
     // Pasted text whose characters JSON escapes (6 bytes each): within the field's 2000 characters, over 8000 bytes.
     fireEvent.change(screen.getByLabelText(/Anything else to note/), { target: { value: `Copied from the slip ${'\u0002'.repeat(1970)}` } })
     await press(screen.getByRole('button', { name: 'Save record' }))
-    expect(await screen.findByText('It’s too long to send. Shorten the notes, then save again. What you entered is still here.')).toBeTruthy()
+    expect(await screen.findByText(TOO_LONG)).toBeTruthy()
     expect(entryRequests(sent)).toEqual([])
   })
 })
@@ -569,8 +621,56 @@ describe('what the drawer takes', () => {
     expect(screen.getByRole('alert').textContent).toBe('huge.pdf is over 10 MB.')
     await pick(uploadInput(), new File([], 'empty.png', { type: 'image/png' }))
     expect(screen.getByRole('alert').textContent).toBe('empty.png is empty.')
-    await pick(uploadInput(), new File([new Uint8Array(10 * 1024 * 1024)], 'just-fits.pdf', { type: 'application/pdf' }))
+    // A PDF of exactly 10 MB, which starts as a PDF does.
+    const justFits = new Uint8Array(10 * 1024 * 1024)
+    justFits.set(bytesOf('%PDF-1.7'))
+    await pick(uploadInput(), new File([justFits], 'just-fits.pdf', { type: 'application/pdf' }))
     expect(screen.getByText('just-fits.pdf')).toBeTruthy()
+  })
+
+  it('reads each file’s first bytes and refuses one that isn’t its type, in plain words, listing and sending nothing', async () => {
+    const { puts } = storage()
+    const { sent } = renderDrawer()
+    fill()
+    // A Windows program ("MZ") renamed scan.png: the browser says image/png, from its name.
+    const program = new Uint8Array(4096)
+    program.set([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00, 0x04, 0x00])
+    program.set(bytesOf('This program cannot be run in DOS mode.'), 0x4e)
+    const refused: Array<[File, string]> = [
+      [new File([program], 'scan.png', { type: 'image/png' }), 'scan.png'],
+      // A .pdf of zeros, and one whose "%PDF-" isn't at its start.
+      [new File([new Uint8Array(2048)], 'zeros.pdf', { type: 'application/pdf' }), 'zeros.pdf'],
+      [new File([new Uint8Array([0x0a, ...bytesOf('%PDF-1.4 fictional')])], 'late.pdf', { type: 'application/pdf' }), 'late.pdf'],
+      // The program under the other names, and a picture under another picture’s type.
+      [new File([program], 'scan.jpg', { type: 'image/jpeg' }), 'scan.jpg'],
+      [new File([program], 'scan.pdf', { type: 'application/pdf' }), 'scan.pdf'],
+      [new File([PLAIN_JPEG], 'renamed.png', { type: 'image/png' }), 'renamed.png'],
+      // Fewer bytes than its type’s signature.
+      [new File([new Uint8Array([0xff, 0xd8])], 'stub.jpg', { type: 'image/jpeg' }), 'stub.jpg'],
+    ]
+    for (const [file, name] of refused) {
+      await pick(uploadInput(), file)
+      expect(screen.getByRole('alert').textContent, name).toBe(`${name}: ${NOT_ITS_TYPE}`)
+      expect(screen.queryByText(name, { selector: 'span' }), name).toBeNull()
+    }
+    expect(dialog().querySelectorAll('li')).toHaveLength(0)
+    expect(vi.mocked(URL.createObjectURL)).not.toHaveBeenCalled()
+
+    // A real PDF is taken, the very File, unchanged; picked with the program, only the PDF is listed.
+    const real = pdf()
+    await pick(uploadInput(), refused[0]![0], real)
+    expect(screen.getByRole('alert').textContent).toBe(`scan.png: ${NOT_ITS_TYPE}`)
+    expect(screen.getByText('discharge.pdf')).toBeTruthy()
+    expect(dialog().querySelectorAll('li')).toHaveLength(1)
+    expect(log).toEqual([])
+
+    await press(screen.getByRole('button', { name: 'Save record' }))
+    expect(await screen.findByText('Record added')).toBeTruthy()
+    expect(entryRequests(sent).filter(request => request.path === intentPath).map(request => request.body))
+      .toEqual([{ fileName: 'discharge.pdf', mediaType: 'application/pdf', sizeBytes: real.size, sha256Hex: sha256(bytesOf('%PDF-1.7 fictional discharge summary')) }])
+    expect(puts).toHaveLength(1)
+    expect(puts[0]?.body).toBe(real)
+    for (const request of sent) expect(JSON.stringify(request.body ?? null)).not.toMatch(/scan\.|zeros|late\.pdf|renamed|stub/)
   })
 
   it('takes up to 5', async () => {
@@ -630,22 +730,22 @@ describe('a photo’s metadata, taken out before it leaves the device (NDPA data
     for (const sentBytes of wire) for (const needle of NEVER_LEFT) expect(contains(sentBytes, needle), String(needle)).toBe(false)
   })
 
-  it('refuses a photo that can’t be prepared safely, in plain words, and never sends it', async () => {
+  it('refuses a photo that can’t be prepared safely, or isn’t the type it says, in plain words, and never sends it', async () => {
     const { puts } = storage()
     const { sent } = renderDrawer()
     fill()
     const { file } = gpsTaggedJpeg()
-    const refused: Array<[string, File]> = [
+    const refused: Array<[string, File, string]> = [
       // Cut short inside its EXIF: its metadata can't be walked past, so it can't be taken out with certainty.
-      ['cut-short.jpg', new File([file.subarray(0, 60)], 'cut-short.jpg', { type: 'image/jpeg' })],
+      ['cut-short.jpg', new File([file.subarray(0, 60)], 'cut-short.jpg', { type: 'image/jpeg' }), 'couldn’t be prepared safely. Try another photo.'],
       // Bytes that are not the type the file says.
-      ['renamed.jpg', new File([metadataPng().file], 'renamed.jpg', { type: 'image/jpeg' })],
-      // A photo under a PDF's name would go up with its metadata.
-      ['photo.pdf', new File([file], 'photo.pdf', { type: 'application/pdf' })],
+      ['renamed.jpg', new File([metadataPng().file], 'renamed.jpg', { type: 'image/jpeg' }), `${NOT_ITS_TYPE}`],
+      // A photo under a PDF's name would go up with its metadata: it doesn't start "%PDF-".
+      ['photo.pdf', new File([file], 'photo.pdf', { type: 'application/pdf' }), `${NOT_ITS_TYPE}`],
     ]
-    for (const [name, refusedFile] of refused) {
+    for (const [name, refusedFile, words] of refused) {
       await pick(uploadInput(), refusedFile)
-      expect(screen.getByRole('alert').textContent).toBe(`${name} couldn’t be prepared safely. Try another photo.`)
+      expect(screen.getByRole('alert').textContent).toBe(words === NOT_ITS_TYPE ? `${name}: ${words}` : `${name} ${words}`)
       expect(screen.queryByText(name, { selector: 'span' })).toBeNull()
     }
     // Picked with a good one, only the good one is taken.
@@ -699,11 +799,14 @@ describe('a photo’s metadata, taken out before it leaves the device (NDPA data
 })
 
 describe('the day’s limit of 10 files, which the backend enforces', () => {
-  const dailyLimit = () => problem(429, PATIENT_UPLOAD_DAILY_LIMIT_CODE, 'You have reached today’s upload limit.')
+  const DAILY_WORDS = 'You can add up to 10 photos or files a day. Your record is saved; add the rest tomorrow.'
+  const dailyLimit = () => json({ type: 'about:blank', title: 'Daily limit', status: 429, code: PATIENT_DOCUMENT_DAILY_LIMIT_CODE,
+    detail: 'Patient 3f2a has opened 10 of 10 documents since 2026-11-02T00:00:00+01:00.' }, 429)
   const row = (name: string) => within(dialog()).getByText(name).parentElement?.textContent ?? ''
+  const notEverything = async () => (await screen.findByText('Not everything uploaded')).closest('[role]') as HTMLElement
 
-  it('says so plainly when an upload link answers 429 PATIENT_UPLOAD_DAILY_LIMIT_REACHED, offers no Try again, and closing keeps the record', async () => {
-    expect([PATIENT_UPLOAD_DAILY_LIMIT_FILES, PATIENT_UPLOAD_DAILY_LIMIT_CODE]).toEqual([10, 'PATIENT_UPLOAD_DAILY_LIMIT_REACHED'])
+  it('says so plainly when an upload link answers 429 PATIENT_DOCUMENT_DAILY_LIMIT, offers no Try again, and closing keeps the record', async () => {
+    expect([PATIENT_DOCUMENT_DAILY_LIMIT_FILES, PATIENT_DOCUMENT_DAILY_LIMIT_CODE]).toEqual([10, 'PATIENT_DOCUMENT_DAILY_LIMIT'])
     const { puts } = storage()
     const { sent, onSaved } = renderDrawer({ intent: file => { if (file.fileName === 'discharge.pdf') { loseFocus(); return dailyLimit() } return undefined } })
     fill()
@@ -711,10 +814,10 @@ describe('the day’s limit of 10 files, which the backend enforces', () => {
     await pick(uploadInput(), pdf())
     await press(screen.getByRole('button', { name: 'Save record' }))
 
-    const alert = (await screen.findByText(/Your record was saved\./)).closest('[role]') as HTMLElement
-    expect(shownText(alert)).toContain('Your record was saved. 1 of your photos or files didn’t upload. You’ve added 10 files today. '
-      + 'You can add more tomorrow. Close to keep your record without them.')
-    expect(shownText(alert)).not.toMatch(/Try again/)
+    // The limit's words say the record is saved, so the alert doesn't say it twice; the server's words are never shown.
+    const alert = await notEverything()
+    expect(shownText(alert)).toBe(`Not everything uploaded1 of your photos or files didn’t upload. ${DAILY_WORDS} Close to keep your record without them.`)
+    expect(document.body.textContent).not.toMatch(/3f2a|10 of 10|opened/)
     expect(row('discharge.pdf').split(' · ').at(-1)).toBe('Over today’s limit')
     expect(row('result-slip.jpg').split(' · ').at(-1)).toBe('Uploaded')
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
@@ -734,7 +837,7 @@ describe('the day’s limit of 10 files, which the backend enforces', () => {
     await press(closeButton)
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(await screen.findByText('Your record was saved')).toBeTruthy()
-    expect(screen.getByText('1 of your photos or files didn’t upload. You’ve added 10 files today. You can add more tomorrow.')).toBeTruthy()
+    expect(screen.getByText(`1 of your photos or files didn’t upload. ${DAILY_WORDS}`)).toBeTruthy()
     expect(onSaved).toHaveBeenCalledTimes(1)
     expect(entryRequests(sent).some(request => request.path.endsWith('/withdraw'))).toBe(false)
   })
@@ -747,16 +850,16 @@ describe('the day’s limit of 10 files, which the backend enforces', () => {
     await pick(cameraInput(), photo())
     await pick(uploadInput(), pdf())
     await press(screen.getByRole('button', { name: 'Save record' }))
-    const alert = (await screen.findByText(/Your record was saved\./)).closest('[role]') as HTMLElement
-    expect(shownText(alert)).toContain('Your record was saved. 2 of your photos or files didn’t upload. You’ve added 10 files today. '
-      + 'You can add more tomorrow. Try again, or close to keep your record without them.')
+    const alert = await notEverything()
+    expect(shownText(alert)).toBe(`Not everything uploaded2 of your photos or files didn’t upload. ${DAILY_WORDS} Try again, or close to keep your record without them.`)
     expect([row('result-slip.jpg'), row('discharge.pdf')].map(text => text.split(' · ').at(-1))).toEqual(['Didn’t upload', 'Over today’s limit'])
 
     failing = false
     await press(screen.getByRole('button', { name: 'Try again' }))
     // Only the photo was sent again; the record isn't complete without the PDF, so the drawer stays, with no Try again.
-    const again = (await screen.findByText(/Your record was saved\./)).closest('[role]') as HTMLElement
-    expect(shownText(again)).toContain('1 of your photos or files didn’t upload. You’ve added 10 files today. You can add more tomorrow. Close to keep')
+    await waitFor(() => expect(row('result-slip.jpg').split(' · ').at(-1)).toBe('Uploaded'))
+    const again = await notEverything()
+    expect(shownText(again)).toBe(`Not everything uploaded1 of your photos or files didn’t upload. ${DAILY_WORDS} Close to keep your record without them.`)
     expect([row('result-slip.jpg'), row('discharge.pdf')].map(text => text.split(' · ').at(-1))).toEqual(['Uploaded', 'Over today’s limit'])
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
     expect(screen.queryByText('Record added')).toBeNull()
@@ -766,16 +869,117 @@ describe('the day’s limit of 10 files, which the backend enforces', () => {
     expect(onSaved).not.toHaveBeenCalled()
   })
 
-  it('takes any other 429 (a rate limit on the way) as a file that didn’t upload, with Try again', async () => {
+  it('takes any other 429 (a rate limit on the way), or that code with another status, as a file that didn’t upload, with Try again', async () => {
+    // The code is read whole: one that only starts as it is another code.
+    for (const refusal of [problem(429, 'RATE_LIMITED', 'Too many requests.'), problem(403, PATIENT_DOCUMENT_DAILY_LIMIT_CODE, 'Refused.'),
+      problem(429, `${PATIENT_DOCUMENT_DAILY_LIMIT_CODE}_EXCEEDED`, 'A code that only starts as this page’s.')]) {
+      storage()
+      const { view } = renderDrawer({ intent: () => refusal.clone() })
+      fill()
+      await pick(cameraInput(), photo())
+      await press(screen.getByRole('button', { name: 'Save record' }))
+      const alert = await notEverything()
+      expect(shownText(alert)).toBe('Not everything uploadedYour record was saved. 1 of your photos or files didn’t upload. Try again, or close to keep your record without them.')
+      expect(shownText(alert)).not.toMatch(/a day|tomorrow/)
+      expect(document.body.textContent).not.toMatch(/Too many|Refused|only starts/)
+      expect(row('result-slip.jpg').split(' · ').at(-1)).toBe('Didn’t upload')
+      expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
+      view.unmount()
+      vi.unstubAllGlobals()
+    }
+  })
+})
+
+describe('a file the server refuses at its confirm', () => {
+  const row = (name: string) => within(dialog()).getByText(name).parentElement?.textContent ?? ''
+
+  it('says a file whose stored bytes aren’t its type isn’t a JPEG, PNG or PDF (409 PATIENT_DOCUMENT_TYPE_MISMATCH), with no Try again for it', async () => {
+    const { puts } = storage()
+    const { sent, onSaved } = renderDrawer({ complete: documentId => documentId === 'doc-discharge.pdf'
+      ? problem(409, 'PATIENT_DOCUMENT_TYPE_MISMATCH', 'Stored object 0f2b starts 4D 5A, expected 25 50 44 46 2D for application/pdf.') : undefined })
+    fill()
+    await pick(cameraInput(), photo())
+    await pick(uploadInput(), pdf())
+    await press(screen.getByRole('button', { name: 'Save record' }))
+
+    const alert = (await screen.findByText('Not everything uploaded')).closest('[role]') as HTMLElement
+    expect(shownText(alert)).toBe('Not everything uploadedYour record was saved. 1 of your photos or files didn’t upload. Close to keep your record without them.')
+    expect(row('discharge.pdf').split(' · ').at(-1)).toBe(NOT_ITS_TYPE)
+    expect(row('result-slip.jpg').split(' · ').at(-1)).toBe('Uploaded')
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/Stored object|4D 5A|expected/)
+    // The form sent again sends nothing more; closing keeps the record without it.
+    const sentSoFar = log.length
+    await act(async () => { fireEvent.submit(dialog().querySelector('form')!) })
+    expect(log).toHaveLength(sentSoFar)
+    expect(puts).toHaveLength(2)
+    await press(within(dialog()).getAllByRole('button', { name: 'Close' }).at(-1)!)
+    expect(await screen.findByText('Your record was saved')).toBeTruthy()
+    expect(screen.getByText('1 of your photos or files didn’t upload.')).toBeTruthy()
+    expect(onSaved).toHaveBeenCalledTimes(1)
+    expect(entryRequests(sent).filter(request => request.path === ENTRIES)).toHaveLength(1)
+  })
+
+  it('keeps a file refused as not its type out of Try again, and the record incomplete without it, once the rest go up', async () => {
+    let failing = true
+    const { puts } = storage()
+    const { onSaved } = renderDrawer({ complete: documentId => {
+      if (documentId === 'doc-discharge.pdf') return problem(409, 'PATIENT_DOCUMENT_TYPE_MISMATCH', 'Stored object starts 4D 5A.')
+      return failing ? problem(500, 'INTERNAL_ERROR', 'confirm worker crashed') : undefined
+    } })
+    fill()
+    await pick(cameraInput(), photo())
+    await pick(uploadInput(), pdf())
+    await press(screen.getByRole('button', { name: 'Save record' }))
+    const alert = (await screen.findByText('Not everything uploaded')).closest('[role]') as HTMLElement
+    expect(shownText(alert)).toBe('Not everything uploadedYour record was saved. 2 of your photos or files didn’t upload. Try again, or close to keep your record without them.')
+    expect([row('result-slip.jpg'), row('discharge.pdf')].map(text => text.split(' · ').at(-1))).toEqual(['Didn’t upload', NOT_ITS_TYPE])
+
+    failing = false
+    await press(screen.getByRole('button', { name: 'Try again' }))
+    // Only the photo went again; without the PDF the record isn't complete, so the drawer stays, with no Try again.
+    await waitFor(() => expect(row('result-slip.jpg').split(' · ').at(-1)).toBe('Uploaded'))
+    const again = (await screen.findByText('Not everything uploaded')).closest('[role]') as HTMLElement
+    expect(shownText(again)).toBe('Not everything uploadedYour record was saved. 1 of your photos or files didn’t upload. Close to keep your record without them.')
+    expect(row('discharge.pdf').split(' · ').at(-1)).toBe(NOT_ITS_TYPE)
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    expect(screen.queryByText('Record added')).toBeNull()
+    expect(onSaved).not.toHaveBeenCalled()
+    expect(puts).toHaveLength(3)
+    expect(document.body.textContent).not.toMatch(/4D 5A|worker crashed/)
+  })
+
+  it('reads that code only with its 409: with another status it is a file that didn’t upload, with Try again', async () => {
     storage()
-    renderDrawer({ intent: () => problem(429, 'RATE_LIMITED', 'Too many requests.') })
+    renderDrawer({ complete: () => problem(422, 'PATIENT_DOCUMENT_TYPE_MISMATCH', 'Unprocessable.') })
     fill()
     await pick(cameraInput(), photo())
     await press(screen.getByRole('button', { name: 'Save record' }))
-    const alert = (await screen.findByText(/Your record was saved\./)).closest('[role]') as HTMLElement
-    expect(shownText(alert)).toContain('Your record was saved. 1 of your photos or files didn’t upload. Try again, or close to keep your record without them.')
-    expect(shownText(alert)).not.toMatch(/today/)
+    const alert = (await screen.findByText('Not everything uploaded')).closest('[role]') as HTMLElement
+    expect(shownText(alert)).toBe('Not everything uploadedYour record was saved. 1 of your photos or files didn’t upload. Try again, or close to keep your record without them.')
     expect(row('result-slip.jpg').split(' · ').at(-1)).toBe('Didn’t upload')
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/Unprocessable|isn’t a JPEG/)
+  })
+
+  it('takes 409 PATIENT_DOCUMENT_UPLOAD_INCOMPLETE as a file that didn’t upload, which Try again sends again', async () => {
+    let incomplete = true
+    const { puts } = storage()
+    const { onSaved, headers } = renderDrawer({ complete: () => incomplete
+      ? problem(409, 'PATIENT_DOCUMENT_UPLOAD_INCOMPLETE', 'Object clinical/objects/doc-result-slip.jpg has 0 of 1234 bytes.') : undefined })
+    fill()
+    await pick(cameraInput(), photo())
+    await press(screen.getByRole('button', { name: 'Save record' }))
+    const alert = (await screen.findByText('Not everything uploaded')).closest('[role]') as HTMLElement
+    expect(shownText(alert)).toBe('Not everything uploadedYour record was saved. 1 of your photos or files didn’t upload. Try again, or close to keep your record without them.')
+    expect(row('result-slip.jpg').split(' · ').at(-1)).toBe('Didn’t upload')
+    expect(document.body.textContent).not.toMatch(/clinical\/objects|1234 bytes/)
+
+    incomplete = false
+    await press(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Record added')).toBeTruthy()
+    expect(onSaved).toHaveBeenCalledTimes(1)
+    expect(puts).toHaveLength(2)
+    expect(headerOf(headers, intentPath, 1)).toBe(headerOf(headers, intentPath, 0))
   })
 })

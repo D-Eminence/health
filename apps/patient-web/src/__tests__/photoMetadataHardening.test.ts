@@ -124,10 +124,25 @@ describe('a photo under a PDF’s name', () => {
     }
   })
 
-  it('sends a PDF as it is, the very File, whatever it holds after its start', async () => {
-    for (const bytes of [ascii('%PDF-1.7 fictional'), [0x0a, ...ascii('%PDF-1.4')], Array(16).fill(0)]) {
+  it('sends a PDF as it is, the very File, whatever it holds after its start "%PDF-"', async () => {
+    for (const bytes of [ascii('%PDF-1.7 fictional'), ascii('%PDF-'), [...ascii('%PDF-2.0'), 0xff, 0xd8, 0xff, ...exif]]) {
       const pdf = new File([toBytes(bytes)], 'discharge.pdf', { type: 'application/pdf' })
       expect(await withoutPhotoMetadata(pdf)).toBe(pdf)
+    }
+  })
+
+  it('refuses anything said to be a PDF that doesn’t start "%PDF-": zeros, a late "%PDF-", a program, a short or wrong start', async () => {
+    const notPdfs: Array<[string, number[]]> = [
+      ['zeros', Array(16).fill(0)],
+      ['a "%PDF-" after a newline', [0x0a, ...ascii('%PDF-1.4')]],
+      ['a Windows program', [0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00]],
+      ['"%PDF" without its dash', ascii('%PDF1.7')],
+      ['lower case', ascii('%pdf-1.7')],
+      ['only "%PDF"', ascii('%PDF')],
+    ]
+    for (const [what, bytes] of notPdfs) {
+      await expect(withoutPhotoMetadata(new File([toBytes(bytes)], 'scan.pdf', { type: 'application/pdf' })), what)
+        .rejects.toMatchObject({ name: 'PhotoMetadataError', problem: 'type-mismatch' })
     }
   })
 

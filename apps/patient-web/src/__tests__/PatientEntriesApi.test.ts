@@ -283,7 +283,10 @@ describe('api.uploadOwnRecordDocument', () => {
     controller.abort()
     expect(await refusal(api.uploadOwnRecordDocument(ENTRY_ID, png(), 'k', controller.signal))).toMatchObject({ code: 'REQUEST_CANCELLED' })
     for (const file of [new File([bytes], 'a.heic', { type: 'image/heic' }), new File([], 'empty.png', { type: 'image/png' }),
-      new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'big.pdf', { type: 'application/pdf' })]) {
+      new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'big.pdf', { type: 'application/pdf' }),
+      // Bytes that aren't the type it says (fileSignature.ts): a program under a PNG's name, zeros under a PDF's, a PNG under a JPEG's.
+      new File([new Uint8Array([0x4d, 0x5a, 0x90, 0, 3, 0, 0, 0, 4, 0])], 'scan.png', { type: 'image/png' }),
+      new File([new Uint8Array(64)], 'zeros.pdf', { type: 'application/pdf' }), new File([bytes], 'slip.jpg', { type: 'image/jpeg' })]) {
       const error = await refusal(api.uploadOwnRecordDocument(ENTRY_ID, file, 'k'))
       expect(isHidApiError(error) && error.code, file.name).toBe('PATIENT_DOCUMENT_NOT_ACCEPTED')
     }

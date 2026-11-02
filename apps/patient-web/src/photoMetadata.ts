@@ -21,9 +21,14 @@
  *
  * Fail closed: a file that cannot be walked cleanly (a bad marker or chunk, a segment or chunk running past the end, no
  * end of image or IEND, a second JPEG frame, a PNG chunk whose CRC is wrong, a critical chunk PNG doesn't have, or bytes
- * that are not the type the file says it is) throws PhotoMetadataError, and the page
- * refuses it rather than send it as it is. Pure: nothing here reads a file, keeps one, or sends anything.
+ * that are not the type the file says it is) throws PhotoMetadataError, and the page refuses it rather than send it as
+ * it is. Pure apart from withoutPhotoMetadata, which reads the file it is given: nothing here keeps a file or sends
+ * anything.
+ *
+ * The drawer has already checked each file's first 8 bytes against its type (fileSignature.ts) before this is reached;
+ * a PDF is checked again here, as it is not walked.
  */
+import { fileStartsAsItsType } from './fileSignature'
 
 export type StrippedPhotoType = 'image/jpeg' | 'image/png'
 
@@ -54,39 +59,17 @@ export function stripPhotoMetadata(bytes: Uint8Array, mediaType: StrippedPhotoTy
 
 /**
  * The file as it is uploaded: a JPEG or PNG as a new File of the same name and type holding only its stripped bytes,
- * read once here, so what is hashed and sent is exactly what was walked; a PDF as it is. A file that says it is a PDF
- * but starts as a picture (startsAsPicture) is a photo under another name, and is refused rather than sent with its
- * metadata.
+ * read once here, so what is hashed and sent is exactly what was walked; a PDF as it is, once its first bytes are
+ * "%PDF-" (fileSignature.ts). Anything else that says it is a PDF (a photo or a phone's video under a PDF's name, which
+ * would go up with its metadata, or any other file) is refused as `type-mismatch`, never sent.
  */
 export async function withoutPhotoMetadata(file: File): Promise<File> {
   if (!isPhotoType(file.type)) {
-    if (startsAsPicture(new Uint8Array(await file.slice(0, PICTURE_HEAD).arrayBuffer()))) {
-      throw new PhotoMetadataError('type-mismatch', 'a photo that says it is a PDF')
-    }
+    if (!await fileStartsAsItsType(file)) throw new PhotoMetadataError('type-mismatch', `a file that says it is ${file.type || 'nothing'} but doesn't start as one`)
     return file
   }
   const stripped = stripPhotoMetadata(new Uint8Array(await file.arrayBuffer()), file.type)
   return new File([stripped], file.name, { type: file.type, lastModified: file.lastModified })
-}
-
-/** The bytes read from a file's start to tell a picture by. */
-const PICTURE_HEAD = 12
-
-/**
- * Whether `head` starts as a picture or a phone's video, each of which carries EXIF (and so the GPS position) in its own
- * way: JPEG; PNG; TIFF (II or MM, classic or BigTIFF; DNG among them); an ISO media file (HEIC/HEIF, the iPhone's photo,
- * AVIF, MP4 and MOV: "ftyp" at byte 4); JPEG XL (its codestream or its container); RIFF (WebP); GIF.
- */
-function startsAsPicture(head: Uint8Array): boolean {
-  const at = (offset: number, ...expected: number[]) => expected.every((byte, index) => head[offset + index] === byte)
-  const text = (offset: number, value: string) => at(offset, ...Array.from(value, character => character.charCodeAt(0)))
-  return at(0, 0xff, 0xd8, 0xff)
-    || at(0, ...PNG_SIGNATURE)
-    || at(0, 0x49, 0x49, 0x2a, 0x00) || at(0, 0x4d, 0x4d, 0x00, 0x2a) || at(0, 0x49, 0x49, 0x2b, 0x00) || at(0, 0x4d, 0x4d, 0x00, 0x2b)
-    || text(4, 'ftyp')
-    || at(0, 0xff, 0x0a) || at(0, 0x00, 0x00, 0x00, 0x0c, 0x4a, 0x58, 0x4c, 0x20)
-    || text(0, 'RIFF')
-    || text(0, 'GIF8')
 }
 
 /** The parts kept, joined into one new array. */

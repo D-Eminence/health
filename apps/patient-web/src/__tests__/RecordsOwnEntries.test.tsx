@@ -119,7 +119,7 @@ describe('the records the patient added, where the backend does not serve them',
 })
 
 describe('the records the patient added, where the backend serves them', () => {
-  it('lists each, newest first, with its kind, place, date, notes and files, and their virus check in words', async () => {
+  it('lists each, newest first, with its kind, place, date, notes and files, and their virus check in words (a rejected file as not added)', async () => {
     const { sent } = renderPortal(<RecordsPage />, gateway(() => served([malaria, amoxicillin])))
     const card = await ownCard()
     expect(patientEntriesServed()).toBe(true)
@@ -141,13 +141,15 @@ describe('the records the patient added, where the backend serves them', () => {
     expect(more.textContent).toBe('Show less notes for Malaria test')
     expect(document.activeElement).toBe(more)
 
-    // Each file by name, type and size; while its check runs, and when it failed, that is said.
+    // Each file by name, type and size; while its check runs, that is said, and one it rejected reads as not added, with
+    // no word of a virus.
     const files = (title: string) => within(within(card).getByRole('list', { name: `Photos and files for ${title}` })).getAllByRole('listitem')
       .map(item => [...item.children].map(part => part.textContent).filter(Boolean))
     expect(files('Malaria test')).toEqual([
       ['result-slip.jpg', 'Photo · 240 KB', 'Checking for viruses'],
-      ['lab-report.pdf', 'PDF · 1.2 MB', 'Couldn’t be checked'],
+      ['lab-report.pdf', 'PDF · 1.2 MB', 'This file couldn’t be added'],
     ])
+    expect(within(card).queryByText(/Couldn’t be checked|infected|rejected/i)).toBeNull()
     expect(files('Amoxicillin 500 mg')).toEqual([['prescription.png', 'Photo · 20 KB']])
     // No download yet.
     expect(within(card).queryAllByRole('link')).toEqual([])
@@ -214,19 +216,62 @@ describe('the records the patient added, where the backend serves them', () => {
     expect(requests(sent)).toEqual([`GET ${RECORDS_PATH}`])
   })
 
-  it('keeps the record and says so when the removal fails, without reading the records again', async () => {
+  it('keeps the record and says so in its own words when the removal fails, without reading the records again', async () => {
     const { sent } = renderPortal(<RecordsPage />, gateway(() => served([malaria]), (path, method) =>
       method === 'POST' ? problem(503, 'PATIENT_ENTRIES_UNAVAILABLE', 'ehr.patient_entries is unavailable') : undefined))
     const card = await ownCard()
     await press(within(card).getByRole('button', { name: 'Remove Malaria test, 20 Oct 2026' }))
     await press(within(card).getByRole('button', { name: 'Yes, remove' }))
     const alert = await within(card).findByRole('alert')
-    expect(shownText(alert)).toBe('This record wasn’t removed. Please try again.')
+    expect(shownText(alert)).toBe('This record couldn’t be removed. Please try again.')
     expect(document.body.textContent).not.toContain('patient_entries')
     expect(within(card).getByText('Malaria test')).toBeTruthy()
     expect(screen.queryByText('Removed from your records')).toBeNull()
     expect(requests(sent)).toEqual([`GET ${RECORDS_PATH}`, `POST ${ENTRIES}/${MALARIA}/withdraw`])
     expect(document.activeElement).toBe(within(card).getByRole('button', { name: 'Yes, remove' }))
+  })
+
+  it('shows one fixed sentence, never the server’s words, for any other refusal, a 404 with another code among them', async () => {
+    for (const [status, code, detail] of [[404, 'NOT_FOUND', 'Cannot POST /api/v1/ehr/me/patient-entries/3f2a/withdraw'],
+      [404, 'PATIENT_ENTRIES_DISABLED', 'Patient uploads are disabled pending NDPA sign-off (migration 0110 not applied).'],
+      [409, 'PATIENT_ENTRY_LOCKED', 'Entry 3f2a is locked by a legal hold.'], [500, 'INTERNAL_ERROR', 'TypeError: cannot read withdrawnAt'],
+      // The not-found code is read only with its 404.
+      [410, 'PATIENT_ENTRY_NOT_FOUND', 'Gone: TypeError in withdraw handler']] as const) {
+      const { sent, view } = renderPortal(<RecordsPage />, gateway(() => served([malaria]), (path, method) =>
+        method === 'POST' ? problem(status, code, detail) : undefined))
+      const card = await ownCard()
+      await press(within(card).getByRole('button', { name: 'Remove Malaria test, 20 Oct 2026' }))
+      await press(within(card).getByRole('button', { name: 'Yes, remove' }))
+      expect(shownText(await within(card).findByRole('alert')), code).toBe('This record couldn’t be removed. Please try again.')
+      expect(document.body.textContent, code).not.toMatch(/Cannot POST|NDPA|0110|legal hold|TypeError|already been removed/)
+      expect(requests(sent), code).toEqual([`GET ${RECORDS_PATH}`, `POST ${ENTRIES}/${MALARIA}/withdraw`])
+      view.unmount()
+    }
+  })
+
+  it('says it has already been removed when the server no longer has it (404 PATIENT_ENTRY_NOT_FOUND), and reads the records again', async () => {
+    let items: unknown[] = [malaria, amoxicillin]
+    const { sent } = renderPortal(<RecordsPage />, gateway(() => served(items), (path, method) => {
+      if (path !== `${ENTRIES}/${MALARIA}/withdraw` || method !== 'POST') return undefined
+      // Removed meanwhile, from another device.
+      items = [amoxicillin]
+      return problem(404, 'PATIENT_ENTRY_NOT_FOUND', 'No live patient entry 3f2a1b4c for patient 8e7d (withdrawn 2026-11-01).')
+    }))
+    const card = await ownCard()
+    await press(within(card).getByRole('button', { name: 'Remove Malaria test, 20 Oct 2026' }))
+    await press(within(card).getByRole('button', { name: 'Yes, remove' }))
+    const notice = await screen.findByText('This record has already been removed.')
+    expect(notice.closest('[role="status"]')).not.toBeNull()
+    expect(sent.slice(1)).toEqual([
+      { path: `${ENTRIES}/${MALARIA}/withdraw`, method: 'POST', body: null },
+      { path: RECORDS_PATH, method: 'GET', body: null },
+    ])
+    expect(within(card).queryByText('Malaria test')).toBeNull()
+    expect(within(card).getByText('Amoxicillin 500 mg')).toBeTruthy()
+    expect(within(card).queryByRole('group')).toBeNull()
+    expect(screen.queryAllByRole('alert')).toEqual([])
+    expect(document.body.textContent).not.toMatch(/No live|8e7d|withdrawn 2026/)
+    await waitFor(() => expect(document.activeElement).toBe(ownTitle(card)))
   })
 
   it('says it was removed once the last one is gone, and gives focus to the page heading', async () => {

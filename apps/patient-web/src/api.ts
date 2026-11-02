@@ -13,6 +13,7 @@ import { inRefreshTurn, refreshInTurn, signOutInTurn } from './sessionRefreshTur
 import { ACCESS_LOG_PAGE_SIZE, parseAccessLog, type AccessLogPage } from './accessLog'
 import { getEnvironment } from './env'
 import { learnPatientEntriesServed, saysPatientEntriesNotServed } from './patientEntriesServed'
+import { startsAsType } from './fileSignature'
 import {
   EDGE_BODY_MAX_BYTES, jsonBodyBytes, parseEmailChangeStarted, parseHealthProfile, parsePhoneChanged, parseProfileDetails,
   type EmailChangeStarted, type HealthFields, type HealthProfile, type PhoneChanged, type ProfileDetails,
@@ -175,11 +176,12 @@ export type PatientEntryMediaType = typeof PATIENT_ENTRY_MEDIA_TYPES[number]
 export const PATIENT_ENTRY_MAX_FILES = 5
 export const PATIENT_ENTRY_MAX_FILE_BYTES = 10 * 1024 * 1024
 /**
- * The files a patient may add in a day, across all their entries, which the backend enforces (BACKEND-NEEDS.md §1): an
- * upload link asked for over it is refused 429 with this code, and the website says so and offers no Try again for it.
+ * The files a patient may add in a day (the Lagos calendar day), across all their entries, which the backend enforces
+ * (BACKEND-NEEDS.md §1): an upload link asked for over it is refused 429 with this code, and the website says so and
+ * offers no Try again for it.
  */
-export const PATIENT_UPLOAD_DAILY_LIMIT_FILES = 10
-export const PATIENT_UPLOAD_DAILY_LIMIT_CODE = 'PATIENT_UPLOAD_DAILY_LIMIT_REACHED'
+export const PATIENT_DOCUMENT_DAILY_LIMIT_FILES = 10
+export const PATIENT_DOCUMENT_DAILY_LIMIT_CODE = 'PATIENT_DOCUMENT_DAILY_LIMIT'
 export const isPatientEntryMediaType = (value: string): value is PatientEntryMediaType =>
   (PATIENT_ENTRY_MEDIA_TYPES as readonly string[]).includes(value)
 
@@ -785,7 +787,9 @@ export function createPatientApi(sender: ApiClient) {
     /**
      * Removes an entry the patient added, with its photos and files: gone from the records answer's `patientEntries`, the
      * patient chat and every staff read. Nothing is erased (the website says "Removed from your records", never
-     * "deleted"); a repeat answers the same. PROPOSED (BACKEND-NEEDS.md §1).
+     * "deleted"); a repeat answers the same. An id that is not one of the patient's entries answers 404
+     * PATIENT_ENTRY_NOT_FOUND, thrown as it is (the Records page says the record has already been removed). PROPOSED
+     * (BACKEND-NEEDS.md §1).
      */
     withdrawOwnRecord: async (entryId: string, signal?: AbortSignal): Promise<PatientEntryWithdrawal> => {
       const answer = await call<unknown>('POST', `ehr/me/patient-entries/${encodeURIComponent(entryId)}/withdraw`, undefined, { signal })
@@ -806,17 +810,20 @@ export function createPatientApi(sender: ApiClient) {
      * already without its metadata (photoMetadata.ts), and these bytes are what is hashed and sent. `idempotencyKey` is
      * this file's, sent again when it is retried under the same entry; one `signal` covers every step, and nothing more
      * is sent once it is aborted. A file the entry cannot take (type or size) is refused here, before anything is read or
-     * sent. When an earlier try of this same file was confirmed though its answer never came back, the replayed upload
-     * intent answers 409 PATIENT_DOCUMENT_ALREADY_UPLOADED: the file is uploaded, and nothing more is sent (no PUT, no
-     * confirm). An upload intent over the day's limit (429 PATIENT_UPLOAD_DAILY_LIMIT_REACHED) is thrown as it is.
+     * sent; so is one whose first bytes are not its type's (fileSignature.ts), once read and before anything is sent.
+     * When an earlier try of this same file was confirmed though its answer never came back, the replayed upload intent
+     * answers 409 PATIENT_DOCUMENT_ALREADY_UPLOADED: the file is uploaded, and nothing more is sent (no PUT, no confirm).
+     * Any other refusal (an upload intent over the day's limit, 429 PATIENT_DOCUMENT_DAILY_LIMIT; a confirm that finds
+     * the stored object isn't its type, 409 PATIENT_DOCUMENT_TYPE_MISMATCH) is thrown as it is, its words not for showing.
      */
     uploadOwnRecordDocument: async (entryId: string, file: File, idempotencyKey: string, signal?: AbortSignal): Promise<PatientEntryDocumentUploaded> => {
-      if (!isPatientEntryMediaType(file.type) || file.size < 1 || file.size > PATIENT_ENTRY_MAX_FILE_BYTES) {
-        throw new HidApiError(422, 'This file can’t be added. Choose a photo (JPEG or PNG) or a PDF of up to 10 MB.',
-          { code: 'PATIENT_DOCUMENT_NOT_ACCEPTED', retryable: false })
-      }
+      const notAccepted = () => new HidApiError(422, 'This file can’t be added. Choose a photo (JPEG or PNG) or a PDF of up to 10 MB.',
+        { code: 'PATIENT_DOCUMENT_NOT_ACCEPTED', retryable: false })
+      if (!isPatientEntryMediaType(file.type) || file.size < 1 || file.size > PATIENT_ENTRY_MAX_FILE_BYTES) throw notAccepted()
       if (signal?.aborted) throw cancelled()
-      const hash = await sha256Hex(await file.arrayBuffer())
+      const bytes = await file.arrayBuffer()
+      if (!startsAsType(new Uint8Array(bytes), file.type)) throw notAccepted()
+      const hash = await sha256Hex(bytes)
       if (signal?.aborted) throw cancelled()
       let intent: PatientEntryUploadIntent
       try {

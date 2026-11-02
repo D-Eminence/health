@@ -430,12 +430,22 @@ function ownDay(value: string) {
 const ownRecordText = (entry: PatientEntry): Array<string | null> => ['Added by you', OWN_KINDS[entry.kind], entry.title, entry.facilityName,
   entry.notes, ownDay(entry.occurredOn), dayWords(entry.occurredOn), ...entry.documents.map(file => file.fileName)]
 
-const CHECK_FAILED = 'Couldn’t be checked'
-/** Where a photo or file is in its virus check, in words; nothing once it has passed. */
+const FILE_NOT_ADDED = 'This file couldn’t be added'
+/**
+ * Where a photo or file is in its virus check, in words; nothing once it has passed. One the check rejected reads as not
+ * added, with no word of why.
+ */
 function scanWords(file: PatientEntryDocument): string | null {
-  if (file.scanStatus === 'rejected' || file.status === 'rejected') return CHECK_FAILED
+  if (file.scanStatus === 'rejected' || file.status === 'rejected') return FILE_NOT_ADDED
   return file.scanStatus === 'pending' ? 'Checking for viruses' : null
 }
+
+// What a removal comes to, in this page's own words: never the server's.
+const REMOVED = 'Removed from your records'
+const ALREADY_REMOVED = 'This record has already been removed.'
+const NOT_REMOVED = 'This record couldn’t be removed. Please try again.'
+/** The removal refused as the entry is no longer there (BACKEND-NEEDS.md §1): its status and code alone. */
+const saysAlreadyRemoved = (error: unknown): boolean => isHidApiError(error) && error.status === 404 && error.code === 'PATIENT_ENTRY_NOT_FOUND'
 
 /** Notes longer than this, or on more than three lines, are shown cut short first. */
 const OWN_NOTES_SHORT = 160
@@ -466,13 +476,16 @@ function OwnNotes({ id, title, notes }: { id: string; title: string; notes: stri
  * kind, place, date, notes and photos and files, and Remove. They come in the page's own records answer, under
  * `patientEntries`; nothing is read for them alone. Mounted only once that answer (or a Save) has said they are served:
  * where they are not (today's answer, without the key) the page is exactly as it was. A file can't be opened here yet;
- * while its virus check runs, or when it failed, that is said.
+ * while its virus check runs that is said, and one the check rejected reads "This file couldn't be added".
  *
  * Remove asks first, in place, then withdraws the entry and reads the page's records again. Nothing is erased, so the
- * page says "Removed from your records", never "deleted". Focus goes as on the profile's cards (useActionFocus): to the
- * question's safe answer as it opens, back to Remove when kept, and to this list's heading when removed (or the page's,
- * once the list is empty or the records could not be read again); the outcome is said in a live region mounted
- * throughout, also while the page shows that its records could not be read.
+ * page says "Removed from your records", never "deleted". An entry the server no longer has (404
+ * PATIENT_ENTRY_NOT_FOUND: removed from another device, say) reads as "This record has already been removed.", and the
+ * records are read again just the same; any other refusal is "This record couldn't be removed. Please try again." The
+ * server's own words are never shown. Focus goes as on the profile's cards (useActionFocus): to the question's safe
+ * answer as it opens, back to Remove when kept, and to this list's heading when removed (or the page's, once the list is
+ * empty or the records could not be read again); the outcome is said in a live region mounted throughout, also while the
+ * page shows that its records could not be read.
  */
 function OwnRecords({ entries, matches, searching, shown, loading, reload, pageHeading }: {
   /** The entries the records answer listed (none while it could not be read), and those the page's search matches. */
@@ -510,15 +523,22 @@ function OwnRecords({ entries, matches, searching, shown, loading, reload, pageH
     request.current = controller
     setBusy(true); setProblem(null)
     try {
-      await api.withdrawOwnRecord(entry.id, controller.signal)
+      let outcome = REMOVED
+      try {
+        await api.withdrawOwnRecord(entry.id, controller.signal)
+      } catch (cause) {
+        // Already gone: said so, and the records are read again all the same.
+        if (controller.signal.aborted || !saysAlreadyRemoved(cause)) throw cause
+        outcome = ALREADY_REMOVED
+      }
       // Removed once the page's records, read again, show it gone.
       await reload()
       if (controller.signal.aborted) return
-      setRemoving(null); setNotice('Removed from your records')
+      setRemoving(null); setNotice(outcome)
       focusAfter(() => heading.current)
     } catch {
       if (controller.signal.aborted) return
-      setProblem('This record wasn’t removed. Please try again.')
+      setProblem(NOT_REMOVED)
       focusAfter(byId(`own-record-confirm-${entry.id}`))
     } finally {
       if (!controller.signal.aborted) { setBusy(false); request.current = null }
@@ -548,7 +568,7 @@ function OwnRecords({ entries, matches, searching, shown, loading, reload, pageH
                 <FileIcon className="size-4 shrink-0 text-ink-3" aria-hidden />
                 <span className="min-w-0 text-[13px] font-medium [overflow-wrap:anywhere] text-ink">{file.fileName}</span>
                 <span className="text-[12px] text-ink-3">{[fileKind(file.mediaType), bytes(file.sizeBytes)].filter(Boolean).join(' · ')}</span>
-                {scan && <Badge size="sm" tone={scan === CHECK_FAILED ? 'warn' : 'neutral'}>{scan}</Badge>}
+                {scan && <Badge size="sm" tone={scan === FILE_NOT_ADDED ? 'warn' : 'neutral'}>{scan}</Badge>}
               </li>
             })}
           </ul>}

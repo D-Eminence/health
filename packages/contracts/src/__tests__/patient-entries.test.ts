@@ -57,10 +57,34 @@ describe('a record the patient adds themselves', () => {
     expect(findEndpoint('ehr.myPatientEntryUploadIntent')?.note).toContain('409 PATIENT_DOCUMENT_ALREADY_UPLOADED')
   })
 
-  it('names the day’s limit, and says the photos arrive without their metadata but are not to be relied on for it', () => {
+  it('names the day’s limit, what counts, its refusal and Retry-After, and says the photos arrive without their metadata but are not to be relied on for it', () => {
     const note = findEndpoint('ehr.myPatientEntryUploadIntent')?.note
-    expect(note).toContain('429 PATIENT_UPLOAD_DAILY_LIMIT_REACHED')
-    expect(note).toContain('At most 10 files a day per patient')
+    expect(note).toContain('429 PATIENT_DOCUMENT_DAILY_LIMIT')
+    // That code alone, under no other name.
+    expect(note?.match(/[A-Z_]*DAILY_LIMIT[A-Z_]*/g)).toEqual(['PATIENT_DOCUMENT_DAILY_LIMIT'])
+    expect(note).toContain('At most 10 files per patient per Lagos calendar day')
+    expect(note).toContain('each new key answered 201 counts once, confirmed or not, and a removed entry\'s files still count')
+    expect(note).toContain('a replayed key is never refused')
+    expect(note).toContain('Retry-After (the seconds until the next Lagos midnight; the portal does not depend on it)')
+    expect(note).toContain('1 to 10485760 bytes')
     expect(note).toContain('must not rely on that')
+  })
+
+  it('names the confirm’s check of the stored object’s leading bytes against mediaType, and its refusal', () => {
+    const note = findEndpoint('ehr.myPatientEntryDocumentComplete')?.note
+    expect(note).toContain('its leading bytes against mediaType')
+    expect(note).toContain('not the request\'s Content-Type')
+    expect(note).toContain('409 PATIENT_DOCUMENT_TYPE_MISMATCH')
+    expect(note).toContain('409 PATIENT_DOCUMENT_UPLOAD_INCOMPLETE')
+  })
+
+  it('names the removal’s refusal for an entry that is not there', () => {
+    expect(findEndpoint('ehr.myPatientEntryWithdraw')?.note).toContain('404 PATIENT_ENTRY_NOT_FOUND')
+  })
+
+  it('says uploads switched off look exactly as not built, and patientEntries waits for NDPA clearance', () => {
+    const note = findEndpoint('ehr.myPatientEntries')?.note
+    expect(note).toContain('every patient-entry route answers exactly as if it were not built (404 NOT_FOUND)')
+    expect(note).toContain('must not send patientEntries until uploads are cleared under the NDPA')
   })
 })
