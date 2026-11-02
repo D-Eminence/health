@@ -6,8 +6,9 @@ import { backToTestSite, onSite, openBlueOn, openPortalOn } from './siteHarness'
 
 /**
  * app. (staging. on staging): the patient portal, for patients only (owner, 2026-11-02). Its staff addresses follow the
- * portal's own rule (staffSignIn.tsx, #114 and #115), which sends them to the EHR site. This branch's table of sites
- * adds no staff page to app. and sends none of its addresses anywhere itself. Every account here is fictional.
+ * portal's own rule (staffSignIn.tsx, #114 and #115), which opens them on the product site the address names, else the
+ * EHR site. This branch's table of sites adds no staff page to app. and sends none of its addresses anywhere itself.
+ * Every account here is fictional.
  */
 vi.mock('../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 vi.mock('../../staff/clinicianApplicationApi', () => ({ clinicianApplicationApi: { availability: () => Promise.resolve({ open: false }) } }))
@@ -50,9 +51,8 @@ describe(APP, () => {
     expect(rightSiteHref({ pathname, search, hash }, STAGING)).toBeNull()
   })
 
-  // The portal's own rule (staffSignIn.tsx) sends them on: today the staff entrance, sign-in and, through it, any
-  // workspace page open the EHR sign-in (#114); #115 will open the same page on the EHR site. Either way, this table
-  // shows no leaving page of its own and no staff page renders on app.
+  // The portal's own rule (staffSignIn.tsx, #115) sends them on: each opens the same page on the EHR site, none of
+  // these naming another product. This table shows no leaving page of its own and no staff page renders on app.
   it.each(['/provider', '/provider/sign-in', '/provider/requests?status=pending', '/provider/clinical'])(
     'sends %s to the EHR site by the portal’s own rule: no staff page shows here', async path => {
       await openOnApp(path)

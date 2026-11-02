@@ -146,8 +146,8 @@ describe('siteServing', () => {
     }
   })
 
-  // app. serves patients only (owner, 2026-11-02): its staff addresses are the portal's own rule (staffSignIn.tsx, #114),
-  // never this table's. This table opens none of them on another site, and adds none to app.
+  // app. serves patients only (owner, 2026-11-02): its staff addresses are the portal's own rule (staffSignIn.tsx, #114
+  // and #115), never this table's. This table opens none of them on another site, and adds none to app.
   it('leaves the main site’s staff addresses to the portal’s patients-only rule', () => {
     for (const path of ['/provider', '/provider/sign-in', '/provider/patients', '/provider/requests', '/provider/laboratory',
       '/provider/recover', '/provider/staff/join']) {
