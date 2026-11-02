@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Facility, StaffSession } from './api'
 import { PROVIDER_NAVIGATION, staffLandingPath, visibleNavigation } from './navigation'
-import { roleInSentence, roleLabel, roleLabels } from './staffAccess'
+import { hasRoleName, heldRoleNames, roleInSentence, roleLabel, roleLabels, roleName, roleNameInSentence, roleNames } from './staffAccess'
 import { ASSISTED_REGISTRATION_PERMISSION } from './routes/InPersonCheck'
 import { STAFF_PRODUCT_ROUTES } from '../productHostname'
 
@@ -115,7 +115,10 @@ describe('role names shown to staff', () => {
   it.each([
     ['org_admin', 'Facility administrator'], ['org_admin_awaiting_review', 'Facility administrator'], ['doctor', 'Doctor'],
     ['clinician', 'Clinician'], ['nurse', 'Nurse'], ['lab', 'Laboratory scientist'], ['pharmacist', 'Pharmacist'],
-    ['receptionist', 'Receptionist'], ['records_officer', 'records_officer'],
+    ['receptionist', 'Receptionist'], ['records_officer', 'Records officer'], ['billing', 'Billing officer'],
+    ['outreach_officer', 'Outreach officer'],
+    // A fictional code the list does not name: the classic portal shows it as it is.
+    ['porter', 'porter'],
   ])('%s reads “%s”', (code, label) => {
     expect(roleLabel(code)).toBe(label)
   })
@@ -124,6 +127,58 @@ describe('role names shown to staff', () => {
     expect(roleLabels(['org_admin', 'org_admin_awaiting_review', 'nurse'])).toBe('Facility administrator, Nurse')
     expect(roleInSentence('lab')).toBe('a laboratory scientist')
     expect(roleInSentence('org_admin')).toBe('a facility administrator')
+    expect(roleInSentence('outreach_officer')).toBe('an outreach officer')
+  })
+})
+
+/**
+ * The blue EHR's role words (parity report 3.1 #16): the same names, but never a code, whichever role it is. "porter"
+ * and "store_keeper" are fictional codes, standing for any role the list does not name.
+ */
+describe('role names shown in the blue EHR', () => {
+  it.each([
+    ['org_admin', 'Facility administrator'], ['org_admin_awaiting_review', 'Facility administrator'], ['doctor', 'Doctor'],
+    ['lab', 'Laboratory scientist'], ['records_officer', 'Records officer'], ['billing', 'Billing officer'],
+    ['outreach_officer', 'Outreach officer'], ['porter', 'Staff'], ['lab_scientist', 'Staff'], ['', 'Staff'],
+    ['constructor', 'Staff'], ['toString', 'Staff'],
+  ])('%s reads “%s”', (code, label) => {
+    expect(roleName(code)).toBe(label)
+  })
+
+  it('names each role once, leaves out one it has no name for, and reads "Staff" when none is named', () => {
+    expect(roleNames(['org_admin', 'org_admin_awaiting_review', 'nurse'])).toBe('Facility administrator, Nurse')
+    expect(roleNames(['nurse', 'porter'])).toBe('Nurse')
+    expect(roleNames(['porter', 'store_keeper'])).toBe('Staff')
+    expect(roleNames(['records_officer', 'billing', 'outreach_officer'])).toBe('Records officer, Billing officer, Outreach officer')
+    expect(roleNames([])).toBe('Staff')
+  })
+
+  it('reads well in a sentence, as "a staff member" for a role it has no name for', () => {
+    expect(roleNameInSentence('lab')).toBe('a laboratory scientist')
+    expect(roleNameInSentence('org_admin')).toBe('a facility administrator')
+    expect(roleNameInSentence('records_officer')).toBe('a records officer')
+    expect(roleNameInSentence('billing')).toBe('a billing officer')
+    expect(roleNameInSentence('outreach_officer')).toBe('an outreach officer')
+    expect(roleNameInSentence('lab_scientist')).toBe('a staff member')
+    expect(roleNameInSentence('porter')).toBe('a staff member')
+  })
+
+  it('knows which roles it names, own keys only', () => {
+    expect(['org_admin', 'nurse', 'receptionist', 'records_officer', 'billing', 'outreach_officer'].every(hasRoleName)).toBe(true)
+    expect(['porter', 'lab_scientist', '', 'constructor', 'toString'].some(hasRoleName)).toBe(false)
+  })
+
+  // Where an administrator sees and changes a member's access, a role with no name still carries permissions: it is
+  // counted, never left out, and never shown by its code.
+  it('counts every role a member holds for the access screens, never naming an unnamed one by its code', () => {
+    expect(heldRoleNames(['org_admin', 'org_admin_awaiting_review', 'nurse'])).toBe('Facility administrator, Nurse')
+    expect(heldRoleNames(['nurse', 'porter'])).toBe('Nurse and another role')
+    expect(heldRoleNames(['nurse', 'porter', 'porter'])).toBe('Nurse and another role')
+    expect(heldRoleNames(['org_admin', 'doctor', 'porter', 'store_keeper'])).toBe('Facility administrator, Doctor and 2 other roles')
+    expect(heldRoleNames(['porter'])).toBe('Staff')
+    expect(heldRoleNames(['porter', 'store_keeper'])).toBe('2 staff roles')
+    expect(heldRoleNames(['records_officer', 'porter'])).toBe('Records officer and another role')
+    expect(heldRoleNames([])).toBe('Staff')
   })
 })
 
