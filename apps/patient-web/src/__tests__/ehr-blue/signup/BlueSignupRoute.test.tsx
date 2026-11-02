@@ -55,6 +55,21 @@ describe('the clinic switch chooses the page at /provider/enroll', () => {
     expect(screen.queryByRole('heading', { name: 'Set up your facility.' })).toBeNull()
   })
 
+  it.each([
+    ['app.healthidentitydirectory.com', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+    ['staging.healthidentitydirectory.com', '/provider/sign-in'],
+  ])('on %s, its logo and Sign in lead to %s, while recovery and invitations stay the main site’s own', async (hostname, href) => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    vi.stubGlobal('location', { ...window.location, hostname })
+    clinic.switchedOn = true
+    await openPortal()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Register your facility' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Health ID provider sign in' }).getAttribute('href')).toBe(href)
+    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe(href)
+    expect(screen.getByRole('link', { name: 'Recover access' }).getAttribute('href')).toBe('/provider/recover')
+    expect(screen.getByRole('link', { name: 'Accept invitation' }).getAttribute('href')).toBe('/provider/invitation')
+  })
+
   it('keeps today’s page while the switch is off', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     await openPortal()

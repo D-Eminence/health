@@ -10,6 +10,7 @@ import { STAFF_MFA_NOTICE } from '../../../staff/routes/SignIn'
 import { StaffMfaSteps, type StaffMfaLook } from '../../../staff/routes/StaffMfaSteps'
 import { ClinicianSignUpEntry, PageLink } from '../../../staff/clinician/ClinicianSignUpEntry'
 import { CLINICIAN_STATUS_PATH, STAFF_RECOVERY_PATH, staffRecoveryHref, staffSignInHref } from '../../../productHostname'
+import { OpenEhrSignIn } from '../../../staffSignIn'
 import { servesClinicianApplications } from '../../../backendContract'
 import { authHrefs, BlueAuthLayout, HINT, LINK, NOTE, SiteLink } from './BlueAuthLayout'
 import { getStaffLandingPath, passwordRefusal, TurnstileChallenge } from './signInParts'
@@ -28,8 +29,8 @@ const BLUE_MFA_LOOK: StaffMfaLook = {
 /**
  * The Hospital EHR's staff sign-in, working as today's does (staff/routes/SignIn.tsx): work email and password with
  * Turnstile, then the authenticator or its set-up, recovery codes, today's refusals and landing. On a site where staff
- * do not sign in, it points to the one where they do. staff/App.tsx opens it at /provider/sign-in in place of today's
- * page once the clinic switch is on (README.md).
+ * do not sign in (the production patient portal), it opens the EHR site's sign-in at once, with no step of its own.
+ * staff/App.tsx opens it at /provider/sign-in in place of today's page once the clinic switch is on (README.md).
  */
 export function BlueSignIn() {
   const { state, login, verifyMfa, sendEnrollmentCode, startEnrollment, activateEnrollment, completeSignIn } = useStaff()
@@ -51,15 +52,7 @@ export function BlueSignIn() {
   const mfaRequired = (state.status === 'signed-out' || state.status === 'ended') && state.reason === 'mfa-required'
 
   if (state.status === 'ready') return <Navigate to={getStaffLandingPath(location.search, state.session)} replace />
-  const elsewhere = staffSignInHref(window.location.hostname)
-  if (elsewhere) {
-    return (
-      <BlueAuthLayout title="Sign in on the EHR site." titleId="blue-sign-in-title" lede="Use your work account at ehr.healthidentitydirectory.com.">
-        <a className={buttonClass({ variant: 'primary', size: 'lg', block: true })} href={elsewhere}>Continue to provider sign in</a>
-        <ClinicianSignUpEntry className={HINT} />
-      </BlueAuthLayout>
-    )
-  }
+  if (staffSignInHref(window.location.hostname)) return <OpenEhrSignIn />
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()

@@ -235,3 +235,15 @@ export function staffSiteHostname(site: StaffSiteKey, hostname: string): string 
 export function staffHostForRole(role: string, hostname: string): string | null {
   return staffSiteHostname(staffSiteForRole(role), hostname)
 }
+
+/**
+ * Where a facility's administrator goes to sign in once the facility is signed up on the production portal, which
+ * serves patients only (owner, 2026-11-01): the sign-in of the staff site of the facility's type (ehr, lab or
+ * pharmacy, staffSiteForOrganizationType). Null anywhere else (staging, local), where the workspace opens on this site.
+ * One of three fixed addresses: nothing copied from the hostname.
+ */
+export function facilitySignInHref(organizationType: string, hostname: string): string | null {
+  if (staffSignInHref(hostname) === null) return null
+  const site = staffSiteHostname(staffSiteForOrganizationType(organizationType), hostname)
+  return site ? `https://${site}${STAFF_SIGN_IN_PATH}` : null
+}

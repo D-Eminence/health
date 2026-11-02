@@ -531,29 +531,63 @@ describe('facility self sign-up on Novu (P4)', () => {
     expect(screen.queryByText(/can't also hold a\s+clinical role there/)).toBeNull()
   })
 
-  it('signs the administrator in, says where staff sign in next time, then opens the workspace', async () => {
+  it('on the production portal, says the account is ready and links to the EHR site’s sign-in, never the portal’s workspace', async () => {
     const reload = vi.fn()
     api.activate.mockResolvedValueOnce(session)
     await toPassword()
-    // Production: the portal is app.healthidentitydirectory.com, and staff sign in on the EHR site.
+    // Production: the portal is app.healthidentitydirectory.com, which serves patients only; staff sign in on the EHR site.
     vi.stubGlobal('location', { ...window.location, hostname: 'app.healthidentitydirectory.com', reload })
     createAccount()
 
     const heading = await screen.findByRole('heading', { name: 'Your facility is set up' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
     expect(api.activate).toHaveBeenCalledWith('a-long-enough-password')
-    expect(screen.getByText('You’re signed in as your facility’s administrator.')).toBeTruthy()
-    expect(screen.getByText('Next time, sign in at ehr.healthidentitydirectory.com with ada@example.test and the password you just chose.')).toBeTruthy()
+    expect(screen.getByText('Your administrator account is ready.')).toBeTruthy()
+    expect(screen.getByText('Sign in at ehr.healthidentitydirectory.com with ada@example.test and the password you just chose.')).toBeTruthy()
     expect(screen.getByText(ORGANIZATION_TYPE_NOTES.hospital)).toBeTruthy()
-    // The browser holds the session already: the other tabs are told at once; the page waits for the administrator.
+    // The browser holds the session already: the other tabs are told at once.
+    expect(TabChannel.posted).toEqual([TOLD])
+    expect(screen.queryByLabelText('Password')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Go to sign in' }).getAttribute('href'))
+      .toBe('https://ehr.healthidentitydirectory.com/provider/sign-in')
+    expect(screen.queryByRole('button', { name: 'Continue to the Provider Portal' })).toBeNull()
+    expect(reload).not.toHaveBeenCalled()
+  })
+
+  it('on staging, signs the administrator in, says where staff sign in next time, then opens the workspace', async () => {
+    const reload = vi.fn()
+    api.activate.mockResolvedValueOnce(session)
+    await toPassword()
+    vi.stubGlobal('location', { ...window.location, hostname: 'staging.healthidentitydirectory.com', reload })
+    createAccount()
+
+    const heading = await screen.findByRole('heading', { name: 'Your facility is set up' })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    expect(screen.getByText('You’re signed in as your facility’s administrator.')).toBeTruthy()
+    expect(screen.getByText('Next time, sign in to the Provider Portal with ada@example.test and the password you just chose.')).toBeTruthy()
     expect(TabChannel.posted).toEqual([TOLD])
     expect(reload).not.toHaveBeenCalled()
-    expect(screen.queryByLabelText('Password')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Continue to the Provider Portal' }))
 
     expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
     expect(reload).toHaveBeenCalledTimes(1)
     expect(TabChannel.posted).toEqual([TOLD])
+  })
+
+  it('on the production portal, sends a laboratory’s administrator to the laboratory site’s sign-in', async () => {
+    api.activate.mockResolvedValueOnce(session)
+    await toDetails('/provider/enroll?type=laboratory')
+    await submitDetails()
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    await screen.findByLabelText('Password')
+    vi.stubGlobal('location', { ...window.location, hostname: 'app.healthidentitydirectory.com', reload: vi.fn() })
+    createAccount()
+
+    await screen.findByRole('heading', { name: 'Your facility is set up' })
+    expect(screen.getByText('Sign in at lab.healthidentitydirectory.com with ada@example.test and the password you just chose.')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Go to sign in' }).getAttribute('href'))
+      .toBe('https://lab.healthidentitydirectory.com/provider/sign-in')
   })
 
   it('outside production, says to sign in to the Provider Portal next time, and gives a laboratory its own note', async () => {

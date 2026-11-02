@@ -3,6 +3,7 @@ import { AuthLayout } from '../../AuthLayout'
 import { useDocumentTitle } from '../../authSteps'
 import { buttonClass } from '../../kasuwa/ui'
 import type { ClinicianPagePath } from '../../productHostname'
+import { staffSignInAddress } from '../../staffSignIn'
 import './clinician.css'
 
 /**
@@ -13,7 +14,9 @@ import './clinician.css'
  */
 
 export function ClinicianFrame({ labelledBy, children }: { labelledBy?: string; children: ReactNode }) {
-  return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in" headerLink={{ to: '/provider/sign-in', label: 'Sign in' }}
+  // Staff sign in on the EHR site from the production portal (staffSignIn.tsx), and on this site elsewhere.
+  const signIn = staffSignInAddress()
+  return <AuthLayout brandTo={signIn} brandLabel="Health ID provider sign in" headerLink={{ to: signIn, label: 'Sign in' }}
     title="For doctors and nurses" titleId="clinician-frame-title" titleAs="p" panelLabelledBy={labelledBy}>
     <div className="clinician-card flex flex-col gap-4">{children}</div>
   </AuthLayout>

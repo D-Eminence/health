@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useDocumentTitle } from '../../authSteps'
 import { servesClinicianApplications } from '../../backendContract'
 import { CLINICIAN_STATUS_PATH, clinicianMainSiteHref } from '../../productHostname'
+import { StaffSignInLink } from '../../staffSignIn'
 import { CLINICIAN_REGULATOR_OF, clinicianApplicationApi, newClinicianIdempotencyKey, type ClinicianAccountView,
   type ClinicianApplicationDetails, type ClinicianApplicationView, type ClinicianStatusVerified } from '../clinicianApplicationApi'
 import { ClinicianAuthenticator } from '../clinician/ClinicianAuthenticator'
@@ -52,7 +53,7 @@ function NoApplications() {
     <StepHeading id="clinician-status-none-title" level={1} focus={false}>Clinician sign-up isn't open yet</StepHeading>
     <p className="patient-page-copy">Nobody can apply as a clinician on Health ID yet, so there is no application to check. If you
       already have a provider account, sign in.</p>
-    <ul className="clinician-links clinician-panel"><li><Link to="/provider/sign-in">Sign in</Link></li></ul>
+    <ul className="clinician-links clinician-panel"><li><StaffSignInLink>Sign in</StaffSignInLink></li></ul>
   </ClinicianFrame>
 }
 
@@ -263,7 +264,7 @@ function StatusPage() {
         <StepHeading id="clinician-status-staff-title" focus>Your authenticator can't be set up here</StepHeading>
         <p role="alert" className="patient-inline-error">{STAFF_SIGN_IN_REQUIRED}</p>
         <div className="clinician-actions">
-          <Link className={buttonClass({ variant: 'primary', block: true })} to="/provider/sign-in">Sign in to the provider portal</Link>
+          <StaffSignInLink className={buttonClass({ variant: 'primary', block: true })}>Sign in to the provider portal</StaffSignInLink>
           <TextButton onClick={() => toForm(null)}>Check another email address</TextButton>
         </div>
       </section>
@@ -366,7 +367,7 @@ function ApplicationCard({ view, stage, onSetUp, onWithdraw }: {
     <div className="clinician-actions">
       {view.state === 'awaiting_authenticator' && stage === 'enrolment_required' &&
         <PrimaryButton onClick={onSetUp}>Set up authenticator</PrimaryButton>}
-      {active && <Link className={buttonClass({ variant: 'primary', block: true })} to="/provider/sign-in">Sign in to the provider portal</Link>}
+      {active && <StaffSignInLink className={buttonClass({ variant: 'primary', block: true })}>Sign in to the provider portal</StaffSignInLink>}
       {view.canWithdraw && <button type="button" className={buttonClass({ variant: 'secondary' })} onClick={onWithdraw}>
         Withdraw<span className="patient-visually-hidden"> application to {view.facility.name}</span></button>}
     </div>
