@@ -95,6 +95,59 @@ describe('platform overview', () => {
     expect(region.queryByRole('link', { name: /^Demo requests/ })).toBeNull()
   })
 
+  // Owner rule: the overview never shows a reference id, a problem code or the server's own text. Each failure says in
+  // plain words what could not be checked and what to do next.
+  it('shows a failed count in plain words, without the reference, code or server text', async () => {
+    mocks.demos.mockRejectedValue(new HidApiError(500, 'relation "identity.demo_requests" violates check constraint',
+      { code: 'INTERNAL_ERROR', requestId: 'hid_web_0b692cd0-f30f-416e-84ff-9325f6163f7d' }))
+    open(ALL)
+    const region = within(screen.getByRole('region', { name: 'Waiting for attention' }))
+    const alert = (await region.findByRole('alert')).textContent ?? ''
+    expect(alert).toMatch(/Demo requests: /)
+    expect(alert).toMatch(/Try again/)
+    expect(alert).not.toMatch(/Reference|hid_web_|0b692cd0|INTERNAL_ERROR|constraint|relation/)
+  })
+
+  it('never shows the text or code of a refusal the overview does not know', async () => {
+    mocks.demos.mockRejectedValue(new HidApiError(400, 'limit must not be greater than 50', { code: 'VALIDATION_FAILED' }))
+    mocks.integrations.mockRejectedValue(new TypeError('Failed to fetch'))
+    open(ALL)
+    const region = within(screen.getByRole('region', { name: 'Waiting for attention' }))
+    await region.findAllByRole('alert')
+    const text = region.getAllByRole('alert').map(alert => alert.textContent ?? '').join('\n')
+    expect(text).toMatch(/Demo requests: /)
+    expect(text).toMatch(/Integrations: /)
+    expect(text).not.toMatch(/limit must|VALIDATION_FAILED|Failed to fetch|Reference/)
+  })
+
+  it('leaves out an area the backend refuses this administrator, instead of showing it as an error', async () => {
+    mocks.applications.mockRejectedValue(new HidApiError(403, 'Organization review is not permitted',
+      { code: 'PERMISSION_DENIED', requestId: 'hid_web_x' }))
+    open(ALL)
+    expect((await findRow('Approvals')).textContent).toContain('2 waiting')
+    const region = within(screen.getByRole('region', { name: 'Waiting for attention' }))
+    expect(region.queryByRole('alert')).toBeNull()
+    expect(region.queryByText(/permission/i)).toBeNull()
+    expect(region.queryByRole('link', { name: /^Organization applications/ })).toBeNull()
+    expect(region.getByText(/Organization applications aren’t available here right now\./)).toBeTruthy()
+  })
+
+  it('still names the end of a session, which the administrator can act on', async () => {
+    mocks.demos.mockRejectedValue(new HidApiError(401, 'jwt expired', { code: 'AUTHENTICATION_REQUIRED', requestId: 'hid_web_y' }))
+    open(ALL)
+    const region = within(screen.getByRole('region', { name: 'Waiting for attention' }))
+    const alert = (await region.findByRole('alert')).textContent ?? ''
+    expect(alert).toContain('Demo requests: Your platform session has ended. Sign in again to continue.')
+    expect(alert).not.toMatch(/jwt|hid_web_|Reference/)
+  })
+
+  it('shows failed totals in plain words, without the reference', async () => {
+    mocks.overview.mockRejectedValue(new HidApiError(503, 'upstream timed out', { code: 'SERVICE_UNAVAILABLE', requestId: 'hid_web_z' }))
+    open(ALL)
+    const alert = await screen.findByText(/The platform totals couldn’t be loaded just now/)
+    expect(alert.textContent).not.toMatch(/Reference|hid_web_|upstream|SERVICE_UNAVAILABLE/)
+  })
+
   // The owner removed the overview's "Your areas" and "Not available yet" lists (the navigation lists the areas): the
   // overview now reads only what the administrator may open, and has nothing waiting for an area it cannot read.
   it('reads nothing for areas the administrator cannot use, and lists no unavailable capabilities', async () => {

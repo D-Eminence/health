@@ -1,4 +1,5 @@
 import { useCallback, type ReactNode } from 'react'
+import { isHidApiError } from '@hid/http'
 import { adminApi, type AdminActor, type CursorPage, type PlatformOverview } from './api'
 import { canOpen, navigationItemFor } from './navigation'
 import { has, useResource, type Resource } from './ui'
@@ -32,15 +33,43 @@ function counted(page: CursorPage<unknown>) {
 /** Nothing to read: the administrator may not open that area. */
 const nothing = () => Promise.resolve(null)
 
+/** The backend refused this administrator the area: the overview leaves it out instead of showing an error. */
+const UNAVAILABLE = { unavailable: true } as const
+type Unavailable = typeof UNAVAILABLE
+const isUnavailable = (value: unknown): value is Unavailable => value === UNAVAILABLE
+
+/**
+ * Refusals the administrator can act on, shown in the plain words of `problems.ts`: a session that ended or needs
+ * signing in again, and platform-wide pauses. Every other failure reads as the screen's own plain sentence.
+ */
+const ACTIONABLE = new Set(['AUTHENTICATION_REQUIRED', 'PLATFORM_SESSION_EXPIRED', 'PLATFORM_SESSION_REVOKED',
+  'PLATFORM_SESSION_REQUIRED', 'CSRF_VALIDATION_FAILED', 'PLATFORM_PORTAL_DISABLED', 'PLATFORM_MAINTENANCE'])
+
+/**
+ * Owner rule: the overview never shows a reference id, a problem code or the server's own text. A refusal of the
+ * area itself (403) leaves it out; a session or platform-wide refusal keeps its plain message; anything else becomes
+ * a plain Error, which `useResource` shows as the screen's own sentence.
+ */
+function plainFailure(error: unknown): never {
+  if (isHidApiError(error) && (ACTIONABLE.has(error.code) || error.status === 401 || error.status === 429)) throw error
+  throw new Error('overview read failed')
+}
+function overviewRead<T>(load: Promise<T>): Promise<T | Unavailable> {
+  return load.catch((error: unknown) => isHidApiError(error) && error.status === 403 && !ACTIONABLE.has(error.code)
+    ? UNAVAILABLE : plainFailure(error))
+}
+const plain = (what: string) => `Couldn’t check ${what} just now. Select Try again in a minute.`
+
 interface Waiting { key: string; title: string; to: string; icon: Icon; tone: Tone; count: number; badge: string; detail: string }
 
 /** One kind of waiting work: a row while there is some (or its read failed), else nothing. */
-function waiting<T>(resource: Resource<T | null>, row: Omit<Waiting, 'count' | 'badge' | 'detail'>, read: (value: T) => { count: number; badge: string; detail: string }):
-  { row: Waiting | null; failed: string | null; loading: boolean } {
-  if (resource.error) return { row: null, failed: `${row.title}: ${resource.error}`, loading: false }
-  if (resource.data === null) return { row: null, failed: null, loading: resource.loading }
+function waiting<T>(resource: Resource<T | null | Unavailable>, row: Omit<Waiting, 'count' | 'badge' | 'detail'>, read: (value: T) => { count: number; badge: string; detail: string }):
+  { row: Waiting | null; failed: string | null; loading: boolean; unavailable: string | null } {
+  if (resource.error) return { row: null, failed: `${row.title}: ${resource.error}`, loading: false, unavailable: null }
+  if (resource.data === null) return { row: null, failed: null, loading: resource.loading, unavailable: null }
+  if (isUnavailable(resource.data)) return { row: null, failed: null, loading: false, unavailable: row.title }
   const shown = read(resource.data)
-  return { row: shown.count > 0 ? { ...row, ...shown } : null, failed: null, loading: false }
+  return { row: shown.count > 0 ? { ...row, ...shown } : null, failed: null, loading: false, unavailable: null }
 }
 
 /**
@@ -49,7 +78,8 @@ function waiting<T>(resource: Resource<T | null>, row: Omit<Waiting, 'count' | '
  * who may open that page. Waiting work lists only what has something waiting.
  */
 export function OverviewPage({ actor }: { actor: AdminActor }) {
-  const totals = useResource(adminApi.overview, 'The platform overview could not be loaded.')
+  const totals = useResource(useCallback((signal?: AbortSignal) => adminApi.overview(signal).catch(plainFailure), []),
+    'The platform totals couldn’t be loaded just now. Select Try again in a minute.')
   // A total links to its area only for an administrator who may open it there.
   const opens = (link: string) => { const item = navigationItemFor(link.split('?')[0] ?? link); return item !== undefined && canOpen(item, actor) }
   const mayApprovals = opens('/admin/approvals')
@@ -58,17 +88,17 @@ export function OverviewPage({ actor }: { actor: AdminActor }) {
   const mayDemos = has(actor, 'platform.demo.read')
   const mayIntegrations = has(actor, 'platform.integration.read')
 
-  const approvals = useResource(useCallback((signal?: AbortSignal) => mayApprovals ? adminApi.approvals('pending', {}, signal) : nothing(), [mayApprovals]),
-    'Couldn’t load approvals.')
+  const approvals = useResource(useCallback((signal?: AbortSignal) => mayApprovals ? overviewRead(adminApi.approvals('pending', {}, signal)) : nothing(), [mayApprovals]),
+    plain('for approvals'))
   // Item 3 (D11): reports to review, where the backend serves them (an Identity without the list reads as none).
-  const wrongPatient = useResource(useCallback((signal?: AbortSignal) => mayWrongPatient ? unreviewedWrongPatientReports(signal) : nothing(), [mayWrongPatient]),
-    'Couldn’t load wrong-patient reports.')
-  const applications = useResource(useCallback((signal?: AbortSignal) => mayApplications ? adminApi.applications(undefined, signal) : nothing(), [mayApplications]),
-    'Couldn’t load applications.')
-  const demos = useResource(useCallback((signal?: AbortSignal) => mayDemos ? adminApi.demos({ status: 'new' }, { limit: ATTENTION_PAGE }, signal) : nothing(), [mayDemos]),
-    'Couldn’t load demo requests.')
-  const integrations = useResource(useCallback((signal?: AbortSignal) => mayIntegrations ? adminApi.integrations(signal) : nothing(), [mayIntegrations]),
-    'Couldn’t load integrations.')
+  const wrongPatient = useResource(useCallback((signal?: AbortSignal) => mayWrongPatient ? overviewRead(unreviewedWrongPatientReports(signal)) : nothing(), [mayWrongPatient]),
+    plain('for wrong-patient reports'))
+  const applications = useResource(useCallback((signal?: AbortSignal) => mayApplications ? overviewRead(adminApi.applications(undefined, signal)) : nothing(), [mayApplications]),
+    plain('for organization applications'))
+  const demos = useResource(useCallback((signal?: AbortSignal) => mayDemos ? overviewRead(adminApi.demos({ status: 'new' }, { limit: ATTENTION_PAGE }, signal)) : nothing(), [mayDemos]),
+    plain('for new demo requests'))
+  const integrations = useResource(useCallback((signal?: AbortSignal) => mayIntegrations ? overviewRead(adminApi.integrations(signal)) : nothing(), [mayIntegrations]),
+    plain('the integrations'))
 
   const reads = [
     waiting(approvals, { key: 'approvals', title: 'Approvals', to: '/admin/approvals', icon: ClipboardCheck, tone: 'warn' }, value =>
@@ -89,6 +119,7 @@ export function OverviewPage({ actor }: { actor: AdminActor }) {
   ]
   const rows = reads.flatMap(read => read.row ? [read.row] : [])
   const failures = reads.flatMap(read => read.failed ? [read.failed] : [])
+  const unavailable = reads.flatMap(read => read.unavailable ? [read.unavailable] : [])
   const stillLoading = reads.some(read => read.loading)
   const anyArea = mayApprovals || mayWrongPatient || mayApplications || mayDemos || mayIntegrations
   const reloadAll = () => { totals.reload(); approvals.reload(); wrongPatient.reload(); applications.reload(); demos.reload(); integrations.reload() }
@@ -100,7 +131,7 @@ export function OverviewPage({ actor }: { actor: AdminActor }) {
   </li>)}</ul>
   else if (stillLoading) attention = <LoadingRows rows={2} label="Loading waiting work" />
   else if (failures.length === 0) attention = <p className="m-0 flex items-center gap-2 px-5 py-4 text-sm text-ink-2" role="status">
-    <CircleCheck className="size-4 text-success" aria-hidden />All clear. Nothing is waiting.</p>
+    <CircleCheck className="size-4 text-success" aria-hidden />{unavailable.length ? 'Nothing is waiting in the areas checked here.' : 'All clear. Nothing is waiting.'}</p>
 
   const t = totals.data
   return <div className="flex flex-col gap-8">
@@ -122,6 +153,7 @@ export function OverviewPage({ actor }: { actor: AdminActor }) {
       <SectionHeader id="admin-attention-title" title="Waiting for attention" count={rows.length || null} />
       {failures.map(message => <Alert key={message} intent="error" size="sm" action={<Button size="sm" onClick={reloadAll}>Try again</Button>}>{message}</Alert>)}
       {attention && <Card>{attention}</Card>}
+      {unavailable.map(title => <p key={title} className="m-0 px-1 text-sm text-ink-3">{title} aren’t available here right now.</p>)}
     </section>}
   </div>
 }
