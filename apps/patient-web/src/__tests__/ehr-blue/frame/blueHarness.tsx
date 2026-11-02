@@ -38,8 +38,8 @@ export function sessionAt(current: ReturnType<typeof facility> | undefined, faci
   })
 }
 
-export function serve(routes: Record<string, Answer[]>) {
-  const sent: Sent[] = []
+/** Answers the app's requests from `routes`, in order; what it sent lands in `sent` as it sends it. */
+export function serve(routes: Record<string, Answer[]>, sent: Sent[] = []) {
   vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const route = `${String(init?.method ?? 'GET')} ${new URL(String(url)).pathname}`
     sent.push({ route, body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined, headers: new Headers(init?.headers) })
