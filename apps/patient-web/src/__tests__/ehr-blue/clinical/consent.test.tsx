@@ -120,19 +120,19 @@ describe('Access requests list (once External record access)', () => {
     expect(document.body.textContent).not.toMatch(/another facility/i)
   })
 
-  // The quick view and "Create record" were replaced: each row opens its request; "Request" opens a new one.
-  it('opens a request from its row, and Request goes to the new request', async () => {
+  // The quick view and "Create record" were replaced: each row opens its request; "Ask for access" opens a new one.
+  it('opens a request from its row, and Ask for access goes to the new request', async () => {
     open()
     fireEvent.click(within(await list()).getByRole('link', { name: /^Review of results/ }))
     expect(await screen.findByRole('heading', { level: 1, name: 'Access request · Patient ••••0001' })).toBeTruthy()
     expect(screen.getAllByText('Read records').length).toBeGreaterThan(0)
   })
 
-  it('puts Patient PIN first and Request last, the one primary action, with today’s names and lede', () => {
+  it('puts Patient PIN first and Ask for access last, the one primary action, with today’s PIN name and lede', () => {
     open()
     // Today's method names (Patients.tsx:238) and lede (AccessRequests.tsx:108).
     expect(screen.getByText('Requests are scoped to your active facility and staff account. A pending request never grants record access.')).toBeTruthy()
-    const ask = screen.getByRole('link', { name: 'Request' })
+    const ask = screen.getByRole('link', { name: 'Ask for access' })
     const pin = screen.getByRole('link', { name: 'Patient PIN' })
     expect(pin.compareDocumentPosition(ask) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     fireEvent.click(pin)

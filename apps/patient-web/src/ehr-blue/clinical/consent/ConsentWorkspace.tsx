@@ -60,12 +60,12 @@ function RequestList() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* One primary: ask a patient. The PIN is the quieter second way in. Today's names and lede (Patients.tsx:238,
-          AccessRequests.tsx:108). */}
+      {/* One primary: ask a patient. The PIN is the quieter second way in. Today's PIN name and lede (Patients.tsx:238,
+          AccessRequests.tsx:108); the request button says "Ask for access", as the Start menu asks (owner, 2 Nov). */}
       <PageHeader title={TITLE} description="Requests are scoped to your active facility and staff account. A pending request never grants record access."
         actions={can('identity.consent.write') || can('identity.patient-access-pin.verify') ? <>
           {can('identity.patient-access-pin.verify') ? <Button to={href('pin')} icon={KeyRound}>Patient PIN</Button> : null}
-          {can('identity.consent.write') ? <Button to={href('new')} variant="primary" icon={Send}>Request</Button> : null}
+          {can('identity.consent.write') ? <Button to={href('new')} variant="primary" icon={Send}>Ask for access</Button> : null}
         </> : undefined} />
       <div className="flex flex-col gap-3 @xl:flex-row @xl:items-end">
         <Field label="Search" htmlFor="consent-search" className="min-w-0 flex-1">
