@@ -16,16 +16,16 @@ import {
 export const PIN_PROBLEM = 'Enter the patient’s 4 to 8 digit access PIN.'
 
 /**
- * At the demo facilities only: that the seed gives no demo patient a PIN, how Patient One or Two sets one, and how wrong
- * PINs pause the check.
+ * At the demo facilities only: which demo patients have an Access PIN, where a tester gets it, what to use for the others,
+ * and how wrong PINs pause the check. The PIN itself is never here: this website is public.
  */
-export const DEMO_PIN_NOTE = 'No demo patient has a PIN yet. Demo Patient One or Two can set an Access PIN in the Health ID app, but not within 24 hours of a password reset. Patients Three to Ten have no login, so they never have one. Five wrong PINs in 15 minutes pause PIN checks for this demo login here for 15 minutes.'
+export const DEMO_PIN_NOTE = 'Adaeze Okafor (HID-ZDEMAAA2) and Chinedu Okafor (HID-ZDEMAAA3) have an Access PIN. If you are testing the demo, ask the Health ID team for it. The other demo patients have no login, so they have no PIN: use emergency access for them. Five wrong PINs in 15 minutes pause PIN checks for this demo login here for 15 minutes.'
 
 /**
  * Patient PIN access (today's "Patient PIN" method), one column. The Health ID handed over from Find a patient is
  * already in it, so the PIN field takes focus. Once the session that sent the PIN is ready again, the patient lookup
- * opens the record, and only an allowed lookup does. At a demo facility, the form first says that no demo patient has a
- * PIN yet and how one gets one. `backLabel` names where the back arrow goes (its workspace's list): Access requests at
+ * opens the record, and only an allowed lookup does. At a demo facility, the form first says which demo patients have a
+ * PIN and where a tester gets it. `backLabel` names where the back arrow goes (its workspace's list): Access requests at
  * `requests/pin`, Find a patient at `patients/pin`.
  */
 export function PinAccess({ backLabel = 'Back to access requests' }: { backLabel?: string }) {
