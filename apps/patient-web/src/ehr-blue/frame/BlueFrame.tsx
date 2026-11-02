@@ -10,12 +10,13 @@ import { BillingBanner } from '../../staff/routes/Billing'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { isDemoFacility } from '../blueFacilities'
-import { PRODUCTS, inProduct, productOf } from './product'
-import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
+import { PRODUCTS, productHere, productLists } from './product'
+import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
 import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage } from './LivePages'
+import { NotFoundPage } from './NotFoundPage'
 import { BluePageProvider, BluePagesProvider, OpenPagesProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
 import { TODAY_PAGES } from './pages'
@@ -80,8 +81,8 @@ const READS_BEFORE_REFUSING: ReadonlySet<string> = new Set(['requests', 'clinica
 /**
  * The blue Hospital EHR's frame: EhrAppShell with the design's sidebar and top bar, and the page
  * the address opens. Session, sign-out and facility switch are today's (useStaff). A page another folder exports
- * replaces the frame's stand-in for its path. An address no page takes opens Home, and so does a page this session may
- * not open, with a note saying why (the design's admin/unknown-route and denied-route-redirect).
+ * replaces the frame's stand-in for its path. A page this session may not open sends it Home, with a note saying why
+ * (the design's denied-route-redirect); an address no page takes says "Page not found", as today's portal does.
  */
 export function BlueFrame() {
   const { state, lock, signOut } = useStaff()
@@ -103,10 +104,10 @@ export function BlueFrame() {
   // Only working screens are offered (the owner's decision of 2026-10-31): sample modules with fictional figures stay in
   // the code for demos but are not listed in the sidebar or search. Home is always listed.
   // A lab, pharmacy or outreach on its own sees only its product (product.ts); a hospital's EHR has them all.
-  const product = productOf(window.location.hostname, permissions)
+  const product = productHere(session)
   const info = PRODUCTS[product]
   const listed = useMemo(() => allowed.filter(page => (page.status !== 'sample' || page.path === '') && !INTERNAL_GROUPS.has(page.group)
-    && inProduct(product, page.path) && (product === 'ehr' || page.path !== '')
+    && productLists(product, page.path)
     && (!session || (page.listed?.(session) ?? true))), [allowed, session, product])
   const match = matchBluePage(BLUE_PAGES, location.pathname)
   // A pharmacy or lab on its own lists a product's pages in the sidebar, so it draws no tabs above them as well.
@@ -142,13 +143,18 @@ export function BlueFrame() {
   const shownHere = match === null || (match.page.visible?.(session) ?? true)
   const todayRefuses = match !== null && TODAY_PAGES.has(match.page) && shownHere
     && !READS_BEFORE_REFUSING.has(basePath(match.page.path))
+  // The first item: Home in the EHR, and a single product's own first page (it has no Home).
+  const home: NavItem = product === 'ehr' ? { to: '/provider', label: 'Home', icon: House, end: true }
+    : { to: `/provider/${info.home}`, label: info.name, icon: info.icon }
   const content = match
     ? pageAllowed(match.page, session, viewing) || todayRefuses
       ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
       : match.page.refusal ?? (shownHere
         ? <Navigate replace to="/provider" state={{ frameNotice: DENIED_NOTICE }} />
         : <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'} />)
-    : isLiveOnlyPath(location.pathname) ? <LivePage /> : <Navigate replace to="/provider" />
+    // Today's "Page not found", not the design's silent trip Home (admin/unknown-route). Today's own route opens only
+    // where today serves it (the invitation on Novu only): elsewhere it is the frame's Page not found, not today's.
+    : liveOnlyTitle(location.pathname) !== undefined ? <LivePage /> : <NotFoundPage to={home.to} label={home.label} />
 
   const name = session.actor.displayName ?? session.actor.email ?? 'Staff member'
   const roles = facility ? facility.roles.join(', ') || 'Staff' : 'Staff'
@@ -173,8 +179,6 @@ export function BlueFrame() {
   }))
   const tabsFor = (path: string) => listed.find(page => page.path === path || page.path === `${path}/*`)
   const tab = (path: string, label: string, fallback: NavItem) => { const page = tabsFor(path); return page ? { to: pageHrefOf(page), label, icon: iconOf(page.icon) } : fallback }
-  const home: NavItem = product === 'ehr' ? { to: '/provider', label: 'Home', icon: House, end: true }
-    : { to: `/provider/${info.home}`, label: info.name, icon: info.icon }
   const facilityTab: NavItem = { to: '/provider/institutions', label: 'Facility', icon: Hospital }
 
   return (

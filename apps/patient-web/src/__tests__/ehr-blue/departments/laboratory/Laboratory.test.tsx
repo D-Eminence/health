@@ -205,7 +205,7 @@ const PERMISSION_WORDS = /permission|membership|work-item|lab\.work-item\.read/i
 
 describe('the page entries', () => {
   it('keeps the hospital’s Laboratory entry, refusing at its address in plain words that name no permission', () => {
-    expect(laboratoryPage).toMatchObject({ path: 'laboratory', group: 'Diagnostics', label: 'Laboratory', permission: 'lab.work-item.read', status: 'live' })
+    expect(laboratoryPage).toMatchObject({ path: 'laboratory', group: 'Diagnostics', label: 'Laboratory', permission: 'lab.work-item.read', status: 'partial' })
     renderDept(<>{laboratoryPage.refusal}</>)
     expect(screen.getByRole('heading', { level: 1, name: 'Laboratory unavailable' })).toBeTruthy()
     expect(screen.getByText(LAB_REFUSAL)).toBeTruthy()

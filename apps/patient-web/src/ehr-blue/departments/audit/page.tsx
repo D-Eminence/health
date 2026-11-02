@@ -8,7 +8,8 @@ export const auditPage: EhrBluePage = {
   group: 'Insight',
   label: 'Audit & Compliance',
   permission: 'audit.read',
-  status: 'live',
+  // Partial, not live: it works on Health ID, but not yet with today's words and steps throughout.
+  status: 'partial',
   icon: <HistoryIcon />,
   element: <AuditCompliance />,
   // Opened by its address without the permission: today's own words (staff/routes/Audit.tsx), and nothing is read.
