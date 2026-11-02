@@ -6,6 +6,7 @@ import {
   documentTypeLabel, documentTypeOf, documentTypeRefusalText, documentTypesHere, learnDocumentTypesFrom, useDocumentTypesServed,
   type DocumentType,
 } from '../../../documentTypes'
+import { fileSizeLabel, fileTypeLabel, scanStatusLabel } from '../../../plainLabels'
 import { staffApi, type DocumentRecord } from '../../../staff/api'
 import { getEnvironment } from '../../../staff/env'
 import { problemText, refusal, type FieldProblem } from '../../../staff/fieldProblem'
@@ -114,20 +115,14 @@ export function WorkItemDocuments({ kind, facilityId, workItemId, patientId, per
     workItemId={workItemId} patientId={patientId} canRead={canRead} canWrite={canWrite && writable} />
 }
 
-/** A file size as EHR sends it, a number or text, in KiB. */
-function fileSize(value: number | string | null | undefined): string {
-  const count = value == null || value === '' ? NaN : Number(value)
-  return Number.isFinite(count) && count >= 0 ? `${Math.ceil(count / 1024).toLocaleString()} KiB` : 'Size unavailable'
-}
-
-function words(value: string): string {
-  return value.replaceAll('_', ' ').toLowerCase()
-}
-
-/** A listed document's media type, size and virus scan, as the classic Documents card says them. */
+/**
+ * A listed document's file type, size and virus check in plain words, as the blue Documents card says them
+ * (ehr-blue/clinical/consult/Documents.tsx): "JPEG image · 20 KB · Checked". An upload never completed says no virus
+ * check, a scan state not known here says nothing, and a size that cannot be read says "Size unknown".
+ */
 function documentLine(document: DocumentRecord): string {
-  const scan = document.status === 'initiated' ? '' : ` · scan: ${words(document.scanStatus)}`
-  return `${document.mediaType} · ${fileSize(document.sizeBytes)}${scan}`
+  return [fileTypeLabel(document.mediaType), fileSizeLabel(document.sizeBytes),
+    document.status === 'initiated' ? '' : scanStatusLabel(document.scanStatus)].filter(Boolean).join(' · ')
 }
 
 /**
