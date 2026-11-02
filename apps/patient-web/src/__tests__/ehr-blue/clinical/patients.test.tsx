@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dropOfferedHealthId, offerHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
 import { PatientsWorkspace, patientsStatus } from '../../../ehr-blue/clinical/patients/PatientsWorkspace'
+import { EmergencyWorkspace } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
 import { shareDay } from '../../../shareRecords'
 import {
   BASE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage,
@@ -1246,6 +1247,29 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       expect(addresses).not.toContain('/provider/patients/pin')
       expect(addresses).not.toContain('/provider/emergency')
       expect(api.verifyPin).not.toHaveBeenCalled()
+    })
+
+    it('parity (area 7): Emergency access opens the Emergency page, “Emergency access”, with the Health ID typed, and sends nothing', async () => {
+      staff.permissions = [...WITH_ACCESS]
+      render(
+        <MemoryRouter initialEntries={[`${BASE}/patients`]}>
+          <Routes>
+            <Route path={`${BASE}/patients/*`} element={<PatientsWorkspace />} />
+            <Route path={`${BASE}/emergency/*`} element={<EmergencyWorkspace />} />
+          </Routes>
+        </MemoryRouter>,
+      )
+      fireEvent.change(searchField(), { target: { value: 'hid-zdemaaa2' } })
+      fireEvent.click(groupTile('Emergency access'))
+      // Emergency's own page (href.to('emergency')), never a board record such as `emergency/break-glass`.
+      expect(screen.getByRole('heading', { level: 1, name: 'Emergency access' })).toBeTruthy()
+      expect((screen.getByRole('textbox', { name: labelled('Health ID') }) as HTMLInputElement).value).toBe(PATIENT_HID)
+      expect(screen.getByRole('button', { name: 'Open emergency access' })).toBeTruthy()
+      // Read once by the form; nothing is looked up or opened until Open emergency access.
+      expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+      await settle()
+      expect(api.lookupPatient).not.toHaveBeenCalled()
+      expect(staff.setActivePatient).not.toHaveBeenCalled()
     })
   })
 
