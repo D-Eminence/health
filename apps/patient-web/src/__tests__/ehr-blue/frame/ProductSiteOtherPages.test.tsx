@@ -8,6 +8,8 @@ import { BlueSignIn } from '../../../ehr-blue/frame/auth/BlueSignIn'
 import { staffApi } from '../../../staff/api'
 import { DEMO_LABORATORY, REAL_FACILITY } from './blueHarness'
 
+const DEMO_PHARMACY = '98d00002-0000-4000-8000-000000000003'
+
 /**
  * On a product's own site (lab., pharmacy., outreach., migrate.) the workspace is that product's (review, 2026-11-01):
  * a page that is neither the product's own nor one every product keeps opens the product's Home instead, whether its
@@ -229,9 +231,25 @@ describe('what a product opens without listing it still opens', () => {
       .toEqual({ where: '/provider/patients', heading: 'Patients (stand-in)' })
   })
 
-  it.each(SITES.slice(0, 2))('%s: Payment setup, where the product’s own Till leads when it has no tills', async (site, own) => {
+  // Point of care (the Till and Payment setup) shows at the demo facilities only until Health ID serves it
+  // (commerce/served.ts), so a Till that leads to Payment setup is a demo facility's.
+  const TILL_SITES: readonly (readonly [string, string, string])[] = [
+    ['lab.healthidentitydirectory.com', 'lab.work-item.read', DEMO_LABORATORY],
+    ['pharmacy.healthidentitydirectory.com', 'pharmacy.work-item.read', DEMO_PHARMACY],
+  ]
+
+  it.each(TILL_SITES)('%s, at a demo facility: Payment setup, where the product’s own Till leads when it has no tills', async (site, own, facility) => {
+    staff.facilityId = facility
     expect(await settle(site, [own, 'billing.settings.manage'], '/provider/payment-setup'))
       .toEqual({ where: '/provider/payment-setup', heading: 'Payment setup (stand-in)' })
+  })
+
+  it.each(SITES.slice(0, 2))('%s, at a real facility: Payment setup stays at its address and says it is the demo’s, without mounting', async (site, own) => {
+    // Not sent to the product’s Home: the frame’s demo-only words, in place of the page.
+    expect(await settle(site, [own, 'billing.settings.manage'], '/provider/payment-setup'))
+      .toEqual({ where: '/provider/payment-setup', heading: 'Payment setup' })
+    expect(screen.getByText('Payment setup is part of the Health ID demo only')).toBeDefined()
+    expect(screen.queryByText('Payment setup (stand-in)')).toBeNull()
   })
 
   it('lab., at a demo facility: the Demo chip’s “See what’s left” opens What’s left', async () => {
