@@ -1,13 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
-import { rightSiteHref, servedHere } from '../../productSites'
-import { DEMO_HOSPITAL, facility, REAL_FACILITY } from '../ehr-blue/frame/blueHarness'
+import { screen, waitFor, within } from '@testing-library/react'
+import { offeredHere, rightSiteHref, servedHere } from '../../productSites'
+import { DEMO_HOSPITAL, facility, REAL_FACILITY, where } from '../ehr-blue/frame/blueHarness'
 import {
   address, backToTestSite, blueAddresses, blueProduct, classicPages, EVERY_PERMISSION, expectNoHostnameShown, expectOpenedElsewhere, openBlueOn,
   openClassicOn, openPortalOn, signInActionOn, siteLinks,
 } from './siteHarness'
 
-/** migrate.: the Migrate product, with the pages every staff site serves. Everything else opens on its own site. */
+/**
+ * migrate.: the Migrate product, which works on its own (owner, 2026-11-02). It serves every page Migrate opens
+ * (ehr-blue/frame/product.ts opensInProduct) and its own sign-up, sign-in, recovery and invitations. Another product's own
+ * page opens on that product's site; a page of the hospital EHR's stays here, where the frame opens Migrate's Home.
+ */
 vi.mock('../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 vi.mock('../../staff/clinicianApplicationApi', () => ({ clinicianApplicationApi: { availability: () => Promise.resolve({ open: false }) } }))
 const clinic = vi.hoisted(() => ({ switchedOn: false }))
@@ -23,15 +27,15 @@ const SITE = 'migrate.healthidentitydirectory.com'
 const SITE_STAGING = 'migrate.staging.healthidentitydirectory.com'
 
 describe(SITE, () => {
-  it.each(['/provider/ocr', '/provider/migrate', '/provider', '/provider/sign-in', '/provider/audit', '/provider/billing', '/provider/staff',
-    '/provider/staff/join', '/provider/institutions', '/provider/patients', '/provider/patients/5a020001', '/provider/requests',
-    '/'])('serves %s', path => {
+  it.each(['/provider/ocr', '/provider/migrate', '/provider', '/provider/sign-in', '/provider/recover', '/provider/enroll', '/provider/invitation',
+    '/provider/join', '/provider/audit', '/provider/billing', '/provider/staff', '/provider/staff/join', '/provider/institutions',
+    '/provider/patients', '/provider/patients/5a020001', '/provider/requests', '/provider/whats-left', '/provider/onboarding',
+    '/provider/registration', '/provider/clinical', '/provider/payments', '/'])('serves %s', path => {
     expect(servedHere(path, SITE)).toBe(true)
     expect(servedHere(path, SITE_STAGING)).toBe(true)
   })
 
   it.each([
-    ['/provider/registration', 'https://ehr.healthidentitydirectory.com/provider/registration'],
     ['/provider/laboratory', 'https://lab.healthidentitydirectory.com/provider/laboratory'],
     ['/provider/pharmacy', 'https://pharmacy.healthidentitydirectory.com/provider/pharmacy'],
     ['/provider/outreach', 'https://outreach.healthidentitydirectory.com/provider/outreach'],
@@ -40,9 +44,18 @@ describe(SITE, () => {
     expect(rightSiteHref({ pathname, search: '', hash: '' }, SITE)).toBe(href)
   })
 
-  it('sends the Hospital EHR’s pages there, in place of this address', async () => {
+  it('keeps the Hospital EHR’s pages here, behind its own sign-in: nothing opens the EHR site', async () => {
     await openPortalOn(SITE, '/provider/clinical')
-    await expectOpenedElsewhere(opened, 'https://ehr.healthidentitydirectory.com/provider/clinical')
+    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(address()).toBe('/provider/sign-in?returnTo=%2Fprovider%2Fclinical')
+    expect(opened).not.toHaveBeenCalled()
+  })
+
+  it('opens Migrate’s Home in place of Patient registration, once the clinic switch is on, on this site', async () => {
+    clinic.switchedOn = true
+    await openBlueOn(SITE, { id: REAL_FACILITY, name: 'Fictional Records Office' }, EVERY_PERMISSION, [], '/provider/registration')
+    await waitFor(() => expect(where()).toBe('/provider/ocr'))
+    expect(opened).not.toHaveBeenCalled()
   })
 
   it('sends Outreach to its own site', async () => {
@@ -61,11 +74,10 @@ describe(SITE, () => {
     expect(await signInActionOn(SITE)).toBe('ocr-login')
   })
 
-  it('lists its own pages in today’s sidebar, and links to the sites that serve the rest', async () => {
+  it('lists its own pages in today’s sidebar, and links to the other products’ sites, never the EHR’s', async () => {
     const sidebar = await openClassicOn(SITE)
     expect(classicPages(sidebar)).toEqual(['Overview', 'Patient access', 'Access requests', 'Facility audit', 'Document OCR', 'Plan & billing'])
     expect(siteLinks(sidebar)).toEqual([
-      ['Hospital EHR', 'https://ehr.healthidentitydirectory.com/'],
       ['Laboratory', 'https://lab.healthidentitydirectory.com/'],
       ['Pharmacy', 'https://pharmacy.healthidentitydirectory.com/'],
       ['Outreach', 'https://outreach.healthidentitydirectory.com/'],
@@ -73,13 +85,13 @@ describe(SITE, () => {
     expectNoHostnameShown(sidebar)
   })
 
-  it('serves Patients and Access requests here, behind its own sign-in, and leaves Patient registration to the Hospital EHR', async () => {
+  it('serves Patients and Access requests here, behind its own sign-in, and offers no Patient registration', async () => {
     await openPortalOn(SITE, '/provider/patients')
     expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
     expect(address()).toBe('/provider/sign-in?returnTo=%2Fprovider%2Fpatients')
     expect(opened).not.toHaveBeenCalled()
-    expect(servedHere('/provider/requests', SITE)).toBe(true)
-    expect(servedHere('/provider/registration', SITE)).toBe(false)
+    expect(offeredHere('/provider/requests', SITE)).toBe(true)
+    expect(offeredHere('/provider/registration', SITE)).toBe(false)
   })
 
   it('offers Patients and Access requests only to a role holding their own permissions', async () => {
@@ -93,9 +105,8 @@ describe(SITE, () => {
     // The redesign names the product and lists its own pages (frame/product.ts): each is one this site serves.
     expect(blueProduct()).toBe('Migrate')
     expect(blueAddresses(nav).some(address => address === '/provider/ocr' || address.startsWith('/provider/ocr/'))).toBe(true)
-    expect(blueAddresses(nav).filter(address => !servedHere(address, SITE))).toEqual([])
+    expect(blueAddresses(nav).filter(address => !offeredHere(address, SITE))).toEqual([])
     expect(siteLinks(nav)).toEqual([
-      ['Hospital EHR', 'https://ehr.healthidentitydirectory.com/'],
       ['Laboratory', 'https://lab.healthidentitydirectory.com/'],
       ['Pharmacy', 'https://pharmacy.healthidentitydirectory.com/'],
       ['Outreach', 'https://outreach.healthidentitydirectory.com/'],
@@ -118,8 +129,9 @@ describe(SITE_STAGING, () => {
     expect(await signInActionOn(SITE_STAGING)).toBe('ocr-login')
   })
 
-  it('sends the Hospital EHR’s pages to the staging EHR site', async () => {
-    await openPortalOn(SITE_STAGING, '/provider/registration')
-    await expectOpenedElsewhere(opened, 'https://ehr.staging.healthidentitydirectory.com/provider/registration')
+  it('keeps the Hospital EHR’s pages here, and sends another product’s own page to its staging site', async () => {
+    expect(rightSiteHref({ pathname: '/provider/registration', search: '', hash: '' }, SITE_STAGING)).toBeNull()
+    await openPortalOn(SITE_STAGING, '/provider/outreach')
+    await expectOpenedElsewhere(opened, 'https://outreach.staging.healthidentitydirectory.com/provider/outreach')
   })
 })

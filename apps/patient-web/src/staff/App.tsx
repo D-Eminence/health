@@ -35,7 +35,7 @@ import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { blueForAll, demoFacilitySite, resetClassicEhr, showsBlueEhr, useClassicEhrChosen } from '../ehr-blue/blueFacilities'
-import { otherStaffSites, servedHere, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
+import { offeredHere, otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../productSites'
 import './style.css'
 
 // The blue Hospital EHR (ehr-blue/blueFacilities.ts says for whom): loaded on demand, so no other facility downloads
@@ -687,12 +687,18 @@ function Shell() {
   if (!classic && showsBlueEhr(state.session.actor, choiceNeeded !== null)) {
     return <Suspense fallback={<main className="staff-centered"><p role="status">Opening Health ID EHR…</p></main>}><EhrBlueApp /></Suspense>
   }
+  // Each product works on its own (owner, 2026-11-02): on a product site, a page of the sidebar's that its product does
+  // not open (one of the hospital EHR's, typed or a sign-in's return address) opens this site's Overview instead, as the
+  // blue frame opens the product's Home. The page never mounts, so it reads nothing. Any other address is left to the
+  // routes below (Page not found).
+  const asked = pathname.replace(/\/+$/, '').toLowerCase()
+  if (navigation.some(item => item.to === asked) && !offeredHere(pathname)) return <Navigate to="/provider" replace />
   const { actor } = state.session
   const currentFacility = actor.facility
-  // Each product on its own site (productSites.ts): the sidebar lists this site's pages, and links to the other sites
-  // that serve the rest the facility may open. A demo facility works on its own site.
+  // Each product on its own site (productSites.ts): the sidebar lists what this site's product opens, and links to the
+  // other products' sites for their own pages the facility may open. A demo facility works on its own site.
   const permitted = visibleNavigation(currentFacility)
-  const visible = permitted.filter(item => servedHere(item.to))
+  const visible = permitted.filter(item => offeredHere(item.to))
   const otherSites = otherStaffSites(permitted.map(item => item.to))
   const demoSite = demoFacilitySite(currentFacility?.id)
   const facilitySite = demoSite ? siteElsewhere(demoSite) : null

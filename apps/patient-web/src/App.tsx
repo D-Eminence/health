@@ -117,7 +117,9 @@ function ProductHostnameGate({ children }: { children: React.ReactNode }) {
   }
 
   // Each product on its own site (owner, 2026-10-31): an address another site serves, typed or followed from a link,
-  // opens there.
+  // opens there. That is only another product's own page, or the patient portal's: a product site keeps the hospital
+  // EHR's pages, where the frame opens the product's Home, and the main site's staff addresses are the rule above's
+  // (owner, 2026-11-02).
   const elsewhere = rightSiteHref(location, hostname)
   if (elsewhere) return <OnAnotherSite href={elsewhere} />
 

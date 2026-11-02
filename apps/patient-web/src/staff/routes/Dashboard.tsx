@@ -9,7 +9,7 @@ import { useStaff } from '../App'
 import { accessRequestsError } from './AccessRequests'
 import { FacilityCheckCard } from './ReviewBanner'
 import { usesNovuBackend } from '../../backendContract'
-import { servedHere } from '../../productSites'
+import { offeredHere, servedHere } from '../../productSites'
 import { isHidApiError } from '@hid/http'
 import { roleLabels } from '../staffAccess'
 import {
@@ -231,10 +231,12 @@ export function Dashboard() {
   const session = state.status === 'ready' ? state.session : null
   const facility = session?.actor.facility
   const permissions = facility?.permissions ?? []
-  // Each product on its own site (productSites.ts): the Overview offers this site's pages, and reads only for them.
-  const requestsHere = permissions.includes('identity.consent.write') && servedHere('/provider/requests')
+  // Each product on its own site (productSites.ts): the Overview offers what this site's product opens, and reads only
+  // for it. The others it mentions are another product's own pages, on that product's site.
+  const requestsHere = permissions.includes('identity.consent.write') && offeredHere('/provider/requests')
   const workspaces = modules.filter(module => permissions.includes(module.permission))
-  const workspacesHere = workspaces.filter(module => servedHere(module.to))
+  const workspacesHere = workspaces.filter(module => offeredHere(module.to))
+  const workspacesElsewhere = workspaces.some(module => !servedHere(module.to))
 
   useEffect(() => {
     if (!facility || !requestsHere) return
@@ -260,12 +262,12 @@ export function Dashboard() {
       {requestsHere && <Card className="staff-card"><h2>Access requests</h2><p>{requests ? `${requests.filter(request => request.status === 'pending').length} pending request${requests.filter(request => request.status === 'pending').length === 1 ? '' : 's'}` : loadError || 'Loading requests…'}</p><Link to="/provider/requests" className="staff-text-link">Review requests →</Link></Card>}
       {usesNovuBackend() && receiving.length > 0 && <IncomingOrdersCard facility={facility} services={receiving} unsure={unsure}
         sure={sure} />}
-      {usesNovuBackend() && permissions.includes('ehr.order-route.send') && servedHere('/provider/clinical') && <WrongPatientOrdersCard key={facility.id}
+      {usesNovuBackend() && permissions.includes('ehr.order-route.send') && offeredHere('/provider/clinical') && <WrongPatientOrdersCard key={facility.id}
         facilityId={facility.id} facilityName={facility.name} />}
       {activePatient && <Card className="staff-card"><h2>Current patient</h2><p>{activePatient.lookup.patient.fullName ?? activePatient.hid}</p><Link to="/provider/clinical" className="staff-text-link">Open clinical record →</Link></Card>}
     </div>}
-    <section className="staff-section"><h2>Workspaces</h2><div className="staff-grid">{workspacesHere.map(module => <Link className="staff-module" key={module.to} to={module.to}><strong>{module.title}</strong><span>{module.detail}</span><small>Open workspace →</small></Link>)}</div>{facility && !holdsClinicalModule(permissions) && <p className="staff-muted">Your active facility has no clinical module permissions. Ask an administrator to review your assignment.</p>}{workspacesHere.length < workspaces.length && <p className="staff-muted">Your other workspaces are on other Health ID sites, linked in the sidebar.</p>}</section>
+    <section className="staff-section"><h2>Workspaces</h2><div className="staff-grid">{workspacesHere.map(module => <Link className="staff-module" key={module.to} to={module.to}><strong>{module.title}</strong><span>{module.detail}</span><small>Open workspace →</small></Link>)}</div>{facility && !holdsClinicalModule(permissions) && <p className="staff-muted">Your active facility has no clinical module permissions. Ask an administrator to review your assignment.</p>}{workspacesElsewhere && <p className="staff-muted">Your other workspaces are on other Health ID sites, linked in the sidebar.</p>}</section>
     {/* It leads only to Document OCR, which a role without ocr.job.read cannot open: OCR is closed at launch, and no role holds it (hid-system 0091). */}
-    {permissions.includes('ocr.job.read') && servedHere('/provider/ocr') && <Card className="staff-card staff-gap-card"><h2>Health ID Migrate</h2><p>Document capture, extraction, validation, and publication.</p><Link to="/provider/ocr" className="staff-text-link">Open document workflow →</Link></Card>}
+    {permissions.includes('ocr.job.read') && offeredHere('/provider/ocr') && <Card className="staff-card staff-gap-card"><h2>Health ID Migrate</h2><p>Document capture, extraction, validation, and publication.</p><Link to="/provider/ocr" className="staff-text-link">Open document workflow →</Link></Card>}
   </>
 }

@@ -74,8 +74,10 @@ export function navigationGroups(pages: readonly EhrBluePage[]): EhrNavGroup[] {
 
 /**
  * The sidebar's links to the other Health ID sites that serve live pages this session may open (productSites.ts): each
- * product is on its own site. Sample pages are the hospital EHR's design, not a reason to link to it. None on a host
- * that is not a Health ID site, which serves every page.
+ * product is on its own site, and only another product's own pages are served elsewhere. A product site keeps the
+ * hospital EHR's pages and opens its own Home in their place, so it never links to the EHR site. Sample pages are the
+ * hospital EHR's design, not a reason to link anywhere. None on a host that is not a Health ID site, which serves every
+ * page.
  */
 export function otherSitesGroup(pages: readonly EhrBluePage[]): NavGroup | null {
   const sites = otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf))

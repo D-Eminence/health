@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { act, screen } from '@testing-library/react'
 import { rightSiteHref, servedHere } from '../../productSites'
-import { backToTestSite, expectOpenedElsewhere, openPortalOn } from './siteHarness'
+import { address, backToTestSite, onSite, openPortalOn } from './siteHarness'
 
 /**
- * app. (staging. on staging): the patient portal only, with the public staff pages Identity accepts only there (staff
- * recovery, facility sign-up, a staff invitation, clinician sign-up). Every other staff page, sign-in included, opens on
- * the hospital EHR's site, which serves them all.
+ * app. (staging. on staging): the patient portal, for patients only (owner, 2026-11-02). Its staff addresses follow the
+ * portal's own rule (staffSignIn.tsx, #114): on app., the staff entrance and sign-in, and any workspace page through its
+ * sign-in, open the EHR site's sign-in. This branch's table of sites adds no staff page to app. and sends none of its
+ * addresses anywhere itself. Every account here is fictional.
  */
 vi.mock('../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 vi.mock('../../staff/clinicianApplicationApi', () => ({ clinicianApplicationApi: { availability: () => Promise.resolve({ open: false }) } }))
@@ -15,58 +16,64 @@ const opened = vi.hoisted(() => vi.fn())
 vi.mock('../../openSite', () => ({ openSite: opened }))
 
 class TabChannel extends EventTarget { postMessage() {} close() {} }
-beforeEach(() => { opened.mockClear(); vi.stubGlobal('BroadcastChannel', TabChannel) })
+const replace = vi.fn()
+beforeEach(() => { opened.mockClear(); replace.mockClear(); vi.stubGlobal('BroadcastChannel', TabChannel) })
 afterEach(() => { backToTestSite(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
 const APP = 'app.healthidentitydirectory.com'
 const STAGING = 'staging.healthidentitydirectory.com'
+const EHR_SIGN_IN = 'https://ehr.healthidentitydirectory.com/provider/sign-in'
+
+/** The portal at `path` on app., with the browser's own replace of the page stood in for (staffSignIn.tsx calls it). */
+async function openOnApp(path: string) {
+  onSite(APP, path)
+  vi.stubGlobal('location', { ...window.location, replace })
+  await openPortalOn(APP, path)
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
+}
 
 describe(APP, () => {
-  it.each(['/', '/records', '/profile', '/access/share', '/notifications', '/sign-in', '/enroll', '/recover', '/provider/recover',
-    '/provider/enroll', '/provider/invitation', '/provider/join', '/provider/join/status', '/admin/overview'])('serves %s', path => {
-    expect(servedHere(path, APP)).toBe(true)
-    expect(servedHere(path, STAGING)).toBe(true)
-  })
+  it.each(['/', '/records', '/profile', '/access/share', '/notifications', '/sign-in', '/enroll', '/recover', '/admin/overview'])(
+    'serves the patient portal’s %s', path => {
+      expect(servedHere(path, APP)).toBe(true)
+      expect(servedHere(path, STAGING)).toBe(true)
+    })
 
   it.each([
-    ['/provider', '', '', 'https://ehr.healthidentitydirectory.com/provider'],
-    ['/provider/sign-in', '?returnTo=%2Fprovider%2Frequests', '', 'https://ehr.healthidentitydirectory.com/provider/sign-in?returnTo=%2Fprovider%2Frequests'],
-    ['/provider/patients', '', '', 'https://ehr.healthidentitydirectory.com/provider/patients'],
-    ['/provider/laboratory', '', '', 'https://ehr.healthidentitydirectory.com/provider/laboratory'],
-    ['/provider/outreach', '', '', 'https://ehr.healthidentitydirectory.com/provider/outreach'],
-    ['/provider/staff/join', '', '#invitation-1.fictional-token', 'https://ehr.healthidentitydirectory.com/provider/staff/join#invitation-1.fictional-token'],
-  ])('opens %s%s on the hospital EHR’s site', (pathname, search, hash, href) => {
-    expect(rightSiteHref({ pathname, search, hash }, APP)).toBe(href)
+    ['/provider', '', ''],
+    ['/provider/sign-in', '?returnTo=%2Fprovider%2Frequests', ''],
+    ['/provider/requests', '?status=pending', ''],
+    ['/provider/laboratory', '', ''],
+    ['/provider/recover', '', ''],
+    ['/provider/staff/join', '', '#invitation-1.fictional-token'],
+  ])('sends none of its staff addresses, %s%s, to another site itself', (pathname, search, hash) => {
+    expect(rightSiteHref({ pathname, search, hash }, APP)).toBeNull()
+    expect(rightSiteHref({ pathname, search, hash }, STAGING)).toBeNull()
   })
 
-  it('sends staff sign-in to the hospital EHR’s, in place of this address: no staff sign-in is shown here', async () => {
-    await openPortalOn(APP, '/provider/sign-in')
-    await expectOpenedElsewhere(opened, 'https://ehr.healthidentitydirectory.com/provider/sign-in')
-    expect(screen.queryByRole('heading', { name: 'Welcome back.' })).toBeNull()
-  })
-
-  it('sends the provider workspace there too, with its query', async () => {
-    await openPortalOn(APP, '/provider/requests?status=pending')
-    await expectOpenedElsewhere(opened, 'https://ehr.healthidentitydirectory.com/provider/requests?status=pending')
-  })
-
-  it('opens clinician sign-up here, where Identity accepts its check', async () => {
-    await openPortalOn(APP, '/provider/join')
-    expect(await screen.findByRole('heading', { level: 1 })).toBeTruthy()
+  it('opens staff sign-in as the EHR site’s, by the portal’s own rule, with nothing of this branch’s leaving page', async () => {
+    await openOnApp('/provider/sign-in')
+    expect(screen.getByText('Opening the EHR sign-in…').getAttribute('role')).toBe('status')
+    expect(replace).toHaveBeenCalledWith(EHR_SIGN_IN)
     expect(screen.queryByText(/Opening it there/)).toBeNull()
-    expect(screen.queryByRole('link', { name: /main Health ID site/ })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Welcome back.' })).toBeNull()
+    expect(opened).not.toHaveBeenCalled()
+  })
+
+  it('sends a workspace page through its sign-in, which is the EHR site’s: app. shows no staff page', async () => {
+    await openOnApp('/provider/requests?status=pending')
+    expect(await screen.findByText('Opening the EHR sign-in…')).toBeTruthy()
+    expect(replace).toHaveBeenCalledWith(EHR_SIGN_IN)
+    expect(address()).toBe('/provider/sign-in')
+    expect(screen.queryByRole('heading', { name: 'Welcome back.' })).toBeNull()
     expect(opened).not.toHaveBeenCalled()
   })
 })
 
 describe(STAGING, () => {
-  it('sends staff sign-in to the staging EHR site', async () => {
+  it('leaves staff sign-in to the portal, which keeps staging’s own (#114): this branch sends it nowhere', async () => {
     await openPortalOn(STAGING, '/provider/sign-in')
-    await expectOpenedElsewhere(opened, 'https://ehr.staging.healthidentitydirectory.com/provider/sign-in')
-  })
-
-  it('opens Pharmacy on the staging EHR site, which serves every staff page', () => {
-    expect(rightSiteHref({ pathname: '/provider/pharmacy', search: '', hash: '' }, STAGING))
-      .toBe('https://ehr.staging.healthidentitydirectory.com/provider/pharmacy')
+    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(opened).not.toHaveBeenCalled()
   })
 })

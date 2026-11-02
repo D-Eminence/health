@@ -1,16 +1,20 @@
 import type { StaffProductKey } from './productHostname'
+import { opensInProduct, PRODUCTS } from './ehr-blue/frame/product'
 
 /**
- * Each Health ID product on its own site (owner, 2026-10-31: "Each product should be on their '.'"):
- * - the main site (app in production, staging on staging) is the patient portal, with the public staff pages Identity
- *   accepts only there (staff recovery, facility sign-up, a staff invitation, clinician sign-up);
- * - ehr is the hospital EHR, with the hospital's own laboratory, pharmacy, OCR, migration and outreach;
- * - lab, pharmacy, migrate and outreach each serve their own product;
- * - every staff site also serves what any facility needs: sign-in, the overview, the choice of facility, its staff and
- *   joining, its subscription, its audit, its profile and HR, and Patients and Access requests, each behind its own
- *   permission. Registering a patient stays in the hospital EHR.
- * An address another site serves opens there. The admin site, and any host that is not a Health ID site (local,
- * preview), serve every address, as before.
+ * Each Health ID product on its own site (owner, 2026-10-31: "Each product should be on their '.'"; 2026-11-02: each
+ * product works on its own, and app. is for patients only):
+ * - the main site (app in production, staging on staging) is the patient portal. Its staff addresses are the portal's
+ *   own rule (staffSignIn.tsx: on app., the EHR site's sign-in), not this table's, which adds no staff page there;
+ * - ehr is the hospital EHR, with every staff page, the hospital's own laboratory, pharmacy, OCR, migration and
+ *   outreach included;
+ * - lab, pharmacy, migrate and outreach each serve what their product opens (ehr-blue/frame/product.ts opensInProduct:
+ *   its own pages, the facility's, Patients and Access requests, each behind its own permission);
+ * - every staff site serves its own sign-up, sign-in, password reset and invitations.
+ * Another product's own page opens on that product's site. A page of the hospital EHR's stays on the product site, where
+ * the frame opens the product's Home in its place: no product site sends anyone to the EHR site. Patient registration
+ * stays in the hospital EHR. The admin site, and any host that is not a Health ID site (local, preview), serve every
+ * address, as before.
  */
 export type SiteKey = 'web' | StaffProductKey
 
@@ -88,25 +92,24 @@ function siteIn(deployment: Deployment, key: SiteKey): Site {
   return { key, deployment, hostname: SITE_HOSTNAMES[deployment][key] }
 }
 
-/** The main site's public staff pages, by the first part of their address under /provider: each links to them itself. */
-const MAIN_SITE_STAFF_PAGES: ReadonlySet<string> = new Set(['recover', 'enroll', 'invitation', 'join'])
+/**
+ * The public staff pages, by the first part of their address under /provider: sign-in, password reset, facility sign-up,
+ * a staff invitation and clinician sign-up. Every staff site serves its own (owner, 2026-11-02); where each page's own
+ * links lead is the page's (productHostname.ts), not this table's.
+ */
+const PUBLIC_STAFF_PAGES: ReadonlySet<string> = new Set(['sign-in', 'recover', 'enroll', 'invitation', 'join'])
+
+type SingleProduct = Exclude<StaffProductKey, 'ehr'>
+const SINGLE_PRODUCTS: readonly SingleProduct[] = ['lab', 'pharmacy', 'migrate', 'outreach']
 
 /**
- * On every staff site: sign-in, the overview, the choice of facility, staff and joining, subscription and audit, the
- * pages the blue EHR keeps for every product (ehr-blue/frame/product.ts): the facility's profile and HR, and Patients
- * and Access requests, which the classic portal offered on every site and each page still opens only with its own
- * permission (the patient's own permission is still asked for). Patient registration ('registration') is not one: it
- * stays in the hospital EHR.
+ * The single product whose own page this is: its home and the pages below it (frame/product.ts PRODUCTS), and Migrate's
+ * migration workspace, today's page the migration notice links to, which no page of the frame lists (routes.tsx
+ * LIVE_ONLY_TITLES). Null for every other page.
  */
-const SHARED_STAFF_PAGES: ReadonlySet<string> = new Set(['', 'sign-in', 'institutions', 'staff', 'billing', 'audit', 'facility', 'hr',
-  'patients', 'requests'])
-
-/** Each product site's own pages. Every other staff page is the hospital EHR's. */
-const PRODUCT_PAGES: Readonly<Record<Exclude<StaffProductKey, 'ehr'>, readonly string[]>> = {
-  lab: ['laboratory'],
-  pharmacy: ['pharmacy'],
-  migrate: ['ocr', 'migrate'],
-  outreach: ['outreach'],
+function ownProductOf(page: string): SingleProduct | null {
+  if (page === 'migrate') return 'migrate'
+  return SINGLE_PRODUCTS.find(product => PRODUCTS[product].home === page) ?? null
 }
 
 /** The first part of an address under /provider, lower-case ('' for the overview), or null outside /provider. */
@@ -115,17 +118,17 @@ function providerPage(pathname: string): string | null {
   return match ? (match[1] ?? '').toLowerCase() : null
 }
 
-/** The staff site a page under /provider belongs to: a product site's own page, else the hospital EHR. */
-function productOf(page: string): StaffProductKey {
-  const product = (Object.keys(PRODUCT_PAGES) as Exclude<StaffProductKey, 'ehr'>[])
-    .find(key => PRODUCT_PAGES[key].includes(page))
-  return product ?? 'ehr'
+/** The single product a site is; null for the main site and the hospital EHR's. */
+function singleProductOf(site: Site): SingleProduct | null {
+  return site.key === 'web' || site.key === 'ehr' ? null : site.key
 }
 
 /**
  * The site that serves `pathname`, when it is not this host: null where this host serves it. Hosts that are not a
- * Health ID site serve every address; so does any site for the admin pages, which the admin site routes itself, and a
- * staff site for the main site's public staff pages, which link to the main site's own (staffRecoveryHref and the like).
+ * Health ID site serve every address; so does any site for the admin pages, which the admin site routes itself, and the
+ * main site for its staff addresses, which the portal's own rule sends on (staffSignIn.tsx). A product site sends only
+ * another product's own page to that product's site: a page of the hospital EHR's stays, and the frame opens the
+ * product's Home in its place (frame/BlueFrame.tsx).
  */
 export function siteServing(pathname: string, hostname: string): Site | null {
   const here = siteOf(hostname)
@@ -135,17 +138,29 @@ export function siteServing(pathname: string, hostname: string): Site | null {
     // The patient portal: a staff site's own address opens its product (ProductHostnameGate).
     return here.key === 'web' || pathname === '/' ? null : siteIn(here.deployment, 'web')
   }
-  if (MAIN_SITE_STAFF_PAGES.has(page)) return null
-  if (here.key === 'web') return siteIn(here.deployment, 'ehr')
+  const product = singleProductOf(here)
   // The hospital EHR keeps the hospital's own laboratory, pharmacy, OCR, migration and outreach (owner, 2026-10-31).
-  if (SHARED_STAFF_PAGES.has(page) || here.key === 'ehr') return null
-  const owner = productOf(page)
-  return owner === here.key ? null : siteIn(here.deployment, owner)
+  if (!product || PUBLIC_STAFF_PAGES.has(page) || opensInProduct(product, page)) return null
+  const owner = ownProductOf(page)
+  return owner && owner !== product ? siteIn(here.deployment, owner) : null
 }
 
 /** Whether this host serves `pathname`. */
 export function servedHere(pathname: string, hostname: string = window.location.hostname): boolean {
   return siteServing(pathname, hostname) === null
+}
+
+/**
+ * Whether this host offers `pathname` in its menus and Overview: a page it serves that, on a product site, the product
+ * opens (frame/product.ts opensInProduct, the one list of what a product site keeps). A page of the hospital EHR's is
+ * served on a product site only for the frame to open the product's Home in its place, so it is never offered there.
+ */
+export function offeredHere(pathname: string, hostname: string = window.location.hostname): boolean {
+  if (!servedHere(pathname, hostname)) return false
+  const here = siteOf(hostname)
+  const product = here ? singleProductOf(here) : null
+  const page = providerPage(pathname)
+  return !product || page === null || opensInProduct(product, page)
 }
 
 /**
