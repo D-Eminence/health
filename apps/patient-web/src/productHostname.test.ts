@@ -26,6 +26,7 @@ import {
   staffSiteOrigin,
   staffAddressProduct,
   staffPageElsewhere,
+  patientSignInHref,
 } from './productHostname'
 
 describe('resolveStaffProductHostname', () => {
@@ -403,5 +404,17 @@ describe('staffPageElsewhere', () => {
       const href = staffPageElsewhere('app.healthidentitydirectory.com', { pathname, search: '', hash: '' })?.href ?? ''
       expect(new URL(href).origin, pathname).toBe('https://ehr.healthidentitydirectory.com')
     }
+  })
+})
+
+describe('patientSignInHref', () => {
+  it.each([
+    ['ehr.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/sign-in'],
+    ['LAB.HEALTHIDENTITYDIRECTORY.COM.', 'https://app.healthidentitydirectory.com/sign-in'],
+    ['pharmacy.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com/sign-in'],
+    ['localhost', '/sign-in'],
+    ['preview.pages.dev', '/sign-in'],
+  ])('on %s is %s', (hostname, href) => {
+    expect(patientSignInHref(hostname)).toBe(href)
   })
 })

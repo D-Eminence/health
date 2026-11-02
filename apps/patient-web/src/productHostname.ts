@@ -232,6 +232,21 @@ export function facilitySignInHref(organizationType: string | null | undefined, 
   return `${staffSiteOrigin(staffSiteForOrganizationType(organizationType ?? ''), deployment)}${STAFF_SIGN_IN_PATH}`
 }
 
+/** The patient portal's sign-in in each deployment: app. serves patients, and only patients (owner, 2026-11-02). */
+const PATIENT_SIGN_IN = {
+  production: 'https://app.healthidentitydirectory.com/sign-in',
+  staging: 'https://staging.healthidentitydirectory.com/sign-in',
+} as const
+
+/**
+ * Where a patient who opened a staff page signs in ("Are you a patient?"): the patient portal's sign-in in this site's
+ * deployment, or this build's own /sign-in anywhere else (local, preview). One of three fixed values.
+ */
+export function patientSignInHref(hostname: string): string {
+  const deployment = deploymentOf(hostname)
+  return deployment ? PATIENT_SIGN_IN[deployment] : '/sign-in'
+}
+
 /** The facility self sign-up page ("Register your facility"). */
 export const PROVIDER_ENROLLMENT_PATH = '/provider/enroll'
 

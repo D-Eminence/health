@@ -116,8 +116,15 @@ describe('BlueSignIn', () => {
       expect(screen.getByRole('link', { name: register }).getAttribute('href')).toBe('/provider/enroll')
       expect(screen.getByRole('link', { name: 'Forgot password?' }).getAttribute('href')).toBe('/provider/recover')
       expect(screen.getByRole('link', { name: 'Accept invitation' }).getAttribute('href')).toBe('/provider/invitation')
-      // Nothing here leads to another site, the patient portal least of all.
-      for (const link of screen.getAllByRole('link')) expect(link.getAttribute('href')).toMatch(/^\/provider\//)
+      // Nothing here leads to another site, except a patient's way to the patient portal's own sign-in (app. is for
+      // patients, each product site for its staff).
+      const patients = hostname.includes('.staging.') ? 'https://staging.healthidentitydirectory.com/sign-in'
+        : 'https://app.healthidentitydirectory.com/sign-in'
+      expect(screen.getByRole('link', { name: 'Sign in to Health ID' }).getAttribute('href')).toBe(patients)
+      expect(screen.getByText('Are you a patient?', { exact: false }).textContent).toBe('Are you a patient? Sign in to Health ID')
+      for (const link of screen.getAllByRole('link')) {
+        if (link.textContent !== 'Sign in to Health ID') expect(link.getAttribute('href')).toMatch(/^\/provider\//)
+      }
       expect(screen.queryByText(/main Health ID site/)).toBeNull()
     } finally { vi.unstubAllGlobals() }
   })

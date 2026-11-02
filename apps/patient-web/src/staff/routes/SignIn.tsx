@@ -9,7 +9,7 @@ import type { StaffLoginChallenge, StaffSession } from '../api'
 import { AuthLayout } from '../../AuthLayout'
 import { loadTurnstileScript, turnstileSize } from '../../Turnstile'
 import {
-  CLINICIAN_STATUS_PATH, PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref, resolveStaffProductHostname, STAFF_JOIN_PATH,
+  CLINICIAN_STATUS_PATH, patientSignInHref, PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref, resolveStaffProductHostname, STAFF_JOIN_PATH,
   STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref, staffSignInHref,
 } from '../../productHostname'
 import { staffLandingPath } from '../navigation'
@@ -185,6 +185,7 @@ export function SignIn() {
         <Button type="submit" variant="primary" block loading={busy} disabled={busy || !!siteKey && !token}>{busy ? 'Signing in…' : 'Sign in'}</Button>
       </form>
       <RecoveryLink />
+      <PatientLink />
       <ClinicianSignUpEntry className="m-0 text-[13px] text-ink-3" />
     </>}
   </AuthLayout>
@@ -196,5 +197,13 @@ function RecoveryLink() {
   return <p className="m-0 text-[13px] text-ink-3">
     {href === STAFF_RECOVERY_PATH ? <Link to={href}>Forgot your password?</Link> : <a href={href}>Forgot your password?</a>}
     {' '}Need a staff account? Ask your facility administrator.
+  </p>
+}
+
+/** For a patient who opened the staff sign-in: the patient portal's own sign-in (app. is for patients). */
+function PatientLink() {
+  const href = patientSignInHref(window.location.hostname)
+  return <p className="m-0 text-[13px] text-ink-3">
+    Are you a patient? {/^https?:\/\//.test(href) ? <a href={href}>Sign in to Health ID</a> : <Link to={href}>Sign in to Health ID</Link>}
   </p>
 }

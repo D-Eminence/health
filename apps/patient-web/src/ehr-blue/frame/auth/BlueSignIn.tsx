@@ -9,7 +9,7 @@ import { getEnvironment } from '../../../staff/env'
 import { STAFF_MFA_NOTICE } from '../../../staff/routes/SignIn'
 import { StaffMfaSteps, type StaffMfaLook } from '../../../staff/routes/StaffMfaSteps'
 import { ClinicianSignUpEntry, PageLink } from '../../../staff/clinician/ClinicianSignUpEntry'
-import { CLINICIAN_STATUS_PATH, staffRecoveryHref, staffSignInHref } from '../../../productHostname'
+import { CLINICIAN_STATUS_PATH, patientSignInHref, staffRecoveryHref, staffSignInHref } from '../../../productHostname'
 import { OpenStaffPage } from '../../../staffSignIn'
 import { servesClinicianApplications } from '../../../backendContract'
 import { authHrefs, BlueAuthLayout, HINT, LINK, NOTE, registerLabel, SiteLink } from './BlueAuthLayout'
@@ -125,6 +125,7 @@ export function BlueSignIn() {
         <div className="flex flex-col gap-1">
           <p className={NOTE}>New to Health ID? <SiteLink className={LINK} href={hrefs.register}>{registerLabel()}</SiteLink></p>
           <p className={NOTE}>Joining your team? <SiteLink className={LINK} href={hrefs.invitation}>Accept invitation</SiteLink></p>
+          <p className={NOTE}>Are you a patient? <SiteLink className={LINK} href={patientSignInHref(window.location.hostname)}>Sign in to Health ID</SiteLink></p>
           <ClinicianSignUpEntry className={HINT} />
         </div>
       </>}

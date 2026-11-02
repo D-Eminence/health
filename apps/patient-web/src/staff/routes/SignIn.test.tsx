@@ -406,3 +406,17 @@ describe('focus as soon as it is shown', () => {
     expect(focused).toBe(element)
   })
 })
+
+it.each([
+  ['ehr.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/sign-in'],
+  ['lab.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com/sign-in'],
+  ['localhost', '/sign-in'],
+])('on %s, a patient who opened the staff sign-in is pointed to the patient sign-in at %s', (hostname, href) => {
+  if (hostname !== 'localhost') serveFrom(hostname)
+  vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
+
+  render(<MemoryRouter><SignIn /></MemoryRouter>)
+
+  expect(screen.getByRole('link', { name: 'Sign in to Health ID' }).getAttribute('href')).toBe(href)
+  expect(screen.getByText('Are you a patient?', { exact: false }).textContent).toBe('Are you a patient? Sign in to Health ID')
+})
