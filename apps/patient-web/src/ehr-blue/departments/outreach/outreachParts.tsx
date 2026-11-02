@@ -3,7 +3,6 @@ import type { OutreachCampaign, OutreachCampaignMember, OutreachCase } from '../
 import type { Tone } from '../../../kasuwa/ui'
 import type { DeptFact } from '../parts/DeptRecord'
 import { dateText } from '../parts/format'
-import { maskPhone } from '../../../profileParity'
 
 /*
  * Words and small parts the Outreach views share, in the design's voice (the target's
@@ -71,17 +70,14 @@ export function campaignSearchText(campaign: OutreachCampaign) {
   return [campaign.name, statusWords(campaign.status), campaign.id, campaign.services.join(' '), dateText(campaign.startsAt)]
 }
 
-/** A mark a phone number already masked by the service carries: shown as it was sent, never masked twice. */
-const MASKED = /[•*]/
-
 /**
- * A case's phone number as the page shows it: masked to its last four digits ("+234 •••• 4567"), or as Outreach sent it
- * when it is already masked. The full number is never put on the screen.
+ * A case's phone number as the case's own view shows it: in full, as Outreach sent it, so the team can call the person
+ * back (owner, 2026-11-02). Only the case's view shows it: the list card never carries it and the search never matches
+ * it. A number Outreach sends already masked is shown as it was sent.
  */
 export function phoneText(phone: string | null | undefined): string {
   const given = phone?.trim()
-  if (!given) return 'Not recorded'
-  return MASKED.test(given) ? given : maskPhone(given)
+  return given ? given : 'Not recorded'
 }
 
 /**

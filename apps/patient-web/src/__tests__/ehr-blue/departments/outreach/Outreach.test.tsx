@@ -846,24 +846,24 @@ describe('a registration case', () => {
 
 /*
  * Outreach sends the phone number and the notes for the team on every case (hid-system outreach.types.ts
- * registrationCase(), live in production): the case shows them, the phone masked to its last four digits. A backend
- * without them sends neither key, and the case shows what it does today (the term list above).
+ * registrationCase(), live in production): the case's own view shows them, the phone in full so the team can call back
+ * (owner, 2026-11-02); the list card and the search never carry it. A backend without them sends neither key, and the
+ * case shows what it does today (the term list above).
  */
 describe('a case\'s phone number and notes', () => {
   const PHONE = '+2348031234567'
   const withContact = { ...pendingCase, phone: PHONE, operationalNotes: 'Met at the market stall.\nNeeds a follow-up visit.' }
 
-  it('shows the phone masked and the notes in full, and never puts the whole number on the screen', async () => {
+  it('shows the phone and the notes in full on the case', async () => {
     api.outreachCases.mockResolvedValue([withContact, resolvedCase])
     renderPage()
     await openCase()
     expect(within(registration()).getAllByRole('term').map(term => term.textContent)).toEqual(
       ['Full name', 'Age', 'Sex', 'Phone number', 'Status', 'Temporary patient ID', 'Campaign', 'Created', 'Notes for the team'])
-    expect(within(registration()).getByText('+234 •••• 4567')).toBeTruthy()
+    expect(within(registration()).getByText(PHONE)).toBeTruthy()
+    expect(within(registration()).queryByText(/••••/)).toBeNull()
     const notes = within(registration()).getByText(/^Met at the market stall\./)
     expect(notes.textContent).toBe('Met at the market stall.\nNeeds a follow-up visit.')
-    expect(document.body.textContent).not.toContain('8031234567')
-    expect(document.body.textContent).not.toContain(PHONE)
   })
 
   it('says when no phone number or notes were given', async () => {
@@ -883,7 +883,7 @@ describe('a case\'s phone number and notes', () => {
     expect(within(registration()).getByText('+234 ••• ••• 4567')).toBeTruthy()
   })
 
-  it('never finds a case by its phone number, so the search cannot reveal the hidden digits', async () => {
+  it('never finds a case by its phone number, and the list card never carries it', async () => {
     api.outreachCases.mockResolvedValue([withContact, resolvedCase])
     renderPage()
     await casesList()
@@ -893,5 +893,6 @@ describe('a case\'s phone number and notes', () => {
     // Nor does the card in the list carry it.
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search Outreach' }), { target: { value: '' } })
     expect(card(await casesList(), 'Patient One').textContent).not.toContain('4567')
+    expect(document.body.textContent).not.toContain('8031234567')
   })
 })
