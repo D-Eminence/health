@@ -674,7 +674,7 @@ describe('released Lab results in the emergency summary', () => {
     expect(request.textContent).toContain('The latest version was marked entered in error. Don’t use it.')
   })
 
-  it('says what Lab sent: the test’s code, Released on each released result, every flag in words and each version’s verification (Clinical.tsx:935,938, labRevisions.tsx:34-35)', async () => {
+  it('says what Lab sent: the test’s code and Released on each released result, with the flags in main’s friendly labels and no raw values (Clinical.tsx:935,938)', async () => {
     staff.permissions = [...EVERY_READ, 'lab.result.released.read']
     const revision = (version: number, abnormalFlag: string, verificationStatus: string) => ({ version, resultType: 'numeric', numericValue: 9.1 + version,
       textValue: null, unit: 'g/dL', referenceRange: '12-16', abnormalFlag, entrySource: 'manual', verificationStatus, releaseStatus: 'released',
@@ -690,13 +690,13 @@ describe('released Lab results in the emergency summary', () => {
     expect(request.textContent).toContain('Haemoglobin · LOINC 718-7 · accepted by the lab ')
     const result = within(request).getByText('Result 1').closest('li')!
     expect(within(result).getByText('Result 1').parentElement!.textContent).toBe('Result 1Released')
-    expect(result.textContent).toMatch(/10\.1\s*g\/dL\s*· normal/)
-    expect(result.textContent).toMatch(/11\.1\s*g\/dL\s*· unknown/)
-    // A critical candidate is not a confirmed critical value: it is said as Lab says it.
-    expect(result.textContent).toMatch(/12\.1\s*g\/dL\s*· critical candidate/)
-    expect(within(result).queryByText('Critical')).toBeNull()
-    expect(result.textContent).toMatch(/Entered [^·]+ · unverified · released /)
-    expect(result.textContent).toMatch(/Entered [^·]+ · verified · released /)
+    // Main's labels: a critical candidate is the design's Critical flag; normal, unknown and the verification are not shown as raw values.
+    expect(result.textContent).toMatch(/12\.1\s*g\/dL\s*Critical/)
+    expect(result.textContent).toMatch(/10\.1\s*g\/dL\s*Normal range: /)
+    expect(result.textContent).toMatch(/11\.1\s*g\/dL\s*Normal range: /)
+    for (const raw of ['· normal', 'unknown', 'critical candidate', 'critical_candidate', 'unverified', '· verified']) {
+      expect(result.textContent).not.toContain(raw)
+    }
   })
 
   it('says why released results could not be read', async () => {
