@@ -51,14 +51,16 @@ export function candidatesText(registration: RegistrationCase) {
 export const UNAVAILABLE_TITLE = 'Registration unavailable'
 /**
  * The work the refusal names, in a sentence refusedWorkText (staff/refusedWork.ts) writes by who reads it. Screens name
- * no permission (the owner's rule), so it replaces today's words, which named the one lacking. The front desk registers
- * patients, so a facility's own administrator is told to add a receptionist. Only a hospital or a clinic gets it: sign-up
+ * no permission (the owner's rule), so it replaces today's words, which named the one lacking. Receptionists and records
+ * officers both register patients (the owner's answer, 2 Nov 2026), so a facility's own administrator is told to add
+ * either, and everyone else to ask the administrator for either role. Only a hospital or a clinic gets it: sign-up
  * promises the clinical record to them alone (ProviderEnrollment.tsx ORGANIZATION_TYPE_NOTES). A laboratory or pharmacy
  * never does, as registration stays in the EHR (the owner's rule); an "other" facility agrees its access with Health ID
  * support, so the refusal never promises it.
  */
 export const REGISTRATION_WORK: RefusedWork = {
-  name: 'Patient registration', work: 'registering patients', doneBy: 'receptionist', gets: new Set(['hospital', 'clinic']),
+  name: 'Patient registration', work: 'registering patients', doneBy: ['receptionist', 'records_officer'], askForRole: true,
+  gets: new Set(['hospital', 'clinic']),
 }
 
 /** Registration.tsx 218: the page head. Today's title ends in a full stop; the design's headings have none. */

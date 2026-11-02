@@ -125,10 +125,15 @@ async function findCase(caseId = CASE) {
 const actions = () => screen.getByRole('heading', { name: 'Available actions' }).closest('section') as HTMLElement
 const savedRecord = () => screen.getByRole('heading', { name: 'Saved record' }).closest('section') as HTMLElement
 
-/** The refusal for a role that doesn't register patients, at a facility Health ID support manages or for anyone else. */
-const REFUSAL = 'Your role at this facility doesn’t include registering patients. Ask your facility administrator.'
+/**
+ * The refusal for a role that doesn't register patients, at a facility Health ID support manages or for anyone else. It
+ * names the two roles that do, by their words in the role list (owner's answer, 2 Nov 2026).
+ */
+const REFUSAL = 'Your role at this facility doesn’t include registering patients. Ask your facility administrator for the Receptionist or Records officer role.'
 /** A permission's name, Identity's code or the old "membership needs … permission" words: none belongs on a screen. */
 const PERMISSION_WORDS = /permission|membership|registration write|identity\.registration\.write/i
+/** A role code such as records_officer: the roles are named by their words, never their codes. */
+const ROLE_CODES = /\b[a-z]+(?:_[a-z]+)+\b/
 
 describe('who can open Patient registration', () => {
   it.each([
@@ -141,6 +146,7 @@ describe('who can open Patient registration', () => {
     expect(heading().textContent).toBe('Registration unavailable')
     expect(screen.getByText(REFUSAL)).toBeTruthy()
     expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
+    expect(document.body.textContent).not.toMatch(ROLE_CODES)
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
     expect(api.registrationCapabilities).not.toHaveBeenCalled()
   })
@@ -151,6 +157,7 @@ describe('who can open Patient registration', () => {
     expect(heading().textContent).toBe('Registration unavailable')
     expect(screen.getByText(REFUSAL)).toBeTruthy()
     expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
+    expect(document.body.textContent).not.toMatch(ROLE_CODES)
   })
 
   /*
@@ -177,6 +184,7 @@ describe('who can open Patient registration', () => {
         const { unmount } = renderDept(element)
         expect(heading().textContent).toBe('Registration unavailable')
         expect(document.body.textContent).not.toMatch(PERMISSION_WORDS)
+        expect(document.body.textContent).not.toMatch(ROLE_CODES)
         const text = document.querySelector('.hid-ehr-state-message')?.textContent
         unmount()
         return text
@@ -186,8 +194,10 @@ describe('who can open Patient registration', () => {
       return said[0]
     }
 
-    it.each(['hospital', 'clinic'])('the administrator of a checked %s: the role sentence and the step that is theirs, adding a receptionist', organizationType => {
-      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType })).toBe(`${ROLE_SENTENCE} Add a receptionist on the Staff page.`)
+    // Both roles register patients (owner's answer, 2 Nov 2026), so the administrator may add either.
+    it.each(['hospital', 'clinic'])('the administrator of a checked %s: the role sentence and the step that is theirs, adding a receptionist or a records officer', organizationType => {
+      expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType }))
+        .toBe(`${ROLE_SENTENCE} Add a receptionist or a records officer on the Staff page.`)
     })
 
     it.each([
@@ -203,16 +213,16 @@ describe('who can open Patient registration', () => {
       expect(refusalAs(AWAITING_REVIEW, { review: 'pending', organizationType })).toBe('Patient registration opens once Health ID support has checked your facility.')
     })
 
-    it('anyone else at a checked hospital: told to ask its administrator', () => {
+    it('anyone else at a checked hospital: told to ask its administrator for either role', () => {
       expect(refusalAs([APPROVE], { review: 'reviewed', organizationType: 'hospital' })).toBe(REFUSAL)
     })
 
-    it('an administrator at a facility Health ID support manages: told to ask its administrator', () => {
+    it('an administrator at a facility Health ID support manages: told to ask its administrator for either role', () => {
       expect(refusalAs(ADMINISTRATOR)).toBe(REFUSAL)
     })
 
     // Only Novu checks self-signed-up facilities (P4b), so on today's backend nobody is that facility's administrator.
-    it.each(['', 'main-v1'])('the administrator of a checked hospital on today’s backend (%j): told to ask its administrator', contract => {
+    it.each(['', 'main-v1'])('the administrator of a checked hospital on today’s backend (%j): told to ask its administrator for either role', contract => {
       vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
       expect(refusalAs(ADMINISTRATOR, { review: 'reviewed', organizationType: 'hospital' })).toBe(REFUSAL)
     })

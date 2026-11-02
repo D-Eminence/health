@@ -56,8 +56,10 @@ describe('Patient registration in the frame', () => {
     const sent = serve({ [SESSION]: [sessionAt(demo, [demo])], [CAPABILITIES]: many(enabled) })
     await openStaffApp('/provider/registration')
     const title = await screen.findByRole('heading', { level: 1, name: 'Registration unavailable' })
-    expect(screen.getByText('Your role at this facility doesn’t include registering patients. Ask your facility administrator.')).toBeDefined()
+    // The two roles that register patients, by their words (owner's answer, 2 Nov 2026), never their codes.
+    expect(screen.getByText('Your role at this facility doesn’t include registering patients. Ask your facility administrator for the Receptionist or Records officer role.')).toBeDefined()
     expect(title.closest('.hid-ehr-dept')?.textContent).not.toMatch(/permission|membership|registration write|identity\.registration\.write/i)
+    expect(title.closest('.hid-ehr-dept')?.textContent).not.toMatch(/\b[a-z]+(?:_[a-z]+)+\b/)
     expect(screen.queryByText(/is not open to you here$/)).toBeNull()
     expect(within(nav()).queryByRole('link', { name: 'Patient registration' })).toBeNull()
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
