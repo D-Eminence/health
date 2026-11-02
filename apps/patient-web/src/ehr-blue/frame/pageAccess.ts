@@ -17,6 +17,23 @@ export function pageAllowed(page: EhrBluePage, session: StaffSession | null, vie
 }
 
 /**
+ * Whether this session can use a page, not only open its address. A page with no permission of its own and pages of its
+ * own below it (Pharmacy's own address, pharmacy/*) is only a way in: it sends each visitor on to one of them, so every
+ * session may open it. It is of use only when this session may open one of the pages below it, each behind its own
+ * permission; otherwise it leads to a refusal. Any other page is of use where it opens (pageAllowed). Only the menu's
+ * links to the other Health ID sites ask this (BlueFrame.tsx otherSitesGroup): which pages open, where a site lands,
+ * and what each page reads stay pageAllowed's and the page's own.
+ */
+export function pageUsable(page: EhrBluePage, pages: readonly EhrBluePage[], session: StaffSession | null,
+  viewing: DemoRole | null = null): boolean {
+  if (!pageAllowed(page, session, viewing)) return false
+  const base = basePath(page.path)
+  if (page.permission || page.status === 'sample' || base === '') return true
+  const below = pages.filter(other => other !== page && basePath(other.path).startsWith(`${base}/`))
+  return below.length === 0 || below.some(other => other.permission !== undefined && pageAllowed(other, session, viewing))
+}
+
+/**
  * The tabs a page shows above its heading: the page the tabs belong to, then each page that joins it (tabOf), in
  * registry order. None when the page has no tabs.
  */

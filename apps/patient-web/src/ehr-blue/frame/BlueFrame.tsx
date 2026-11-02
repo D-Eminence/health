@@ -13,7 +13,7 @@ import { useFocusOnPageChange } from '../../pageFocus'
 import { otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../../productSites'
 import { demoFacilitySite, isDemoFacility } from '../blueFacilities'
 import { PRODUCTS, opensInProduct, productHere, productLists, type Product } from './product'
-import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
+import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs, pageUsable } from '../routes'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
 import { ConnectionStatus } from './ConnectionStatus'
@@ -85,8 +85,10 @@ export function navigationGroups(pages: readonly EhrBluePage[], product: Product
  * The sidebar's links to the other Health ID sites that serve live pages this session may open (productSites.ts): each
  * product is on its own site, and only another product's own pages are served elsewhere. A product site keeps the
  * hospital EHR's pages and opens its own Home in their place, so it never links to the EHR site. Sample pages are the
- * hospital EHR's design, not a reason to link anywhere. None on a host that is not a Health ID site, which serves every
- * page.
+ * hospital EHR's design, not a reason to link anywhere. `pages` are the pages this session can use (pageUsable), not
+ * every address it may open: Pharmacy's own address opens for everyone and only sends on to its pages, so it is no
+ * reason to link to the Pharmacy's site for a role that may open none of them. None on a host that is not a Health ID
+ * site, which serves every page.
  */
 export function otherSitesGroup(pages: readonly EhrBluePage[]): NavGroup | null {
   const sites = otherStaffSites(pages.filter(page => page.status !== 'sample').map(pageHrefOf))
@@ -249,7 +251,7 @@ export function BlueFrame() {
       end: item.href === '/provider' || (product !== 'ehr' && item.href === `/provider/${info.home}`) })),
   }))
   // Each product on its own site: the other sites that serve the rest of what this session may open.
-  const otherSites = otherSitesGroup(allowed)
+  const otherSites = otherSitesGroup(allowed.filter(page => pageUsable(page, BLUE_PAGES, session, viewing)))
   if (otherSites) nav.push(otherSites)
   const tabsFor = (path: string) => listed.find(page => page.path === path || page.path === `${path}/*`)
   const tab = (path: string, label: string, fallback: NavItem) => { const page = tabsFor(path); return page ? { to: pageHrefOf(page), label, icon: iconOf(page.icon) } : fallback }
