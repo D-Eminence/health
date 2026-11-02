@@ -54,9 +54,13 @@ const PATIENTS_PAGE = '<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8
   + '<a href="https://app.healthidentitydirectory.com/sign-in">I already have a Health ID</a>'
   + '<a href="https://app.healthidentitydirectory.com/">Open Health ID</a>'
   + '<a href="/products/laboratory">Laboratory</a><a href="/providers">For providers</a>'
+  // A facility's call to action (the public site's /provider/apply, as its pricing cards link it).
+  + '<a href="/provider/apply?product=pharmacy">Register your facility</a>'
   // The module showcase's Identity card (content/module-showcase.ts), whose call to action is sign-up.
   + '<a class="module-showcase-cta" href="https://app.healthidentitydirectory.com/enroll">Get your Health ID</a></main>'
-  + '<footer><a href="/privacy">Privacy</a><a href="mailto:support@healthidentitydirectory.com">Email us</a></footer>'
+  + '<footer><a href="/privacy">Privacy</a><a href="mailto:support@healthidentitydirectory.com">Email us</a>'
+  // The public site's staff sign-in (content/site.ts APP_ENTRY.staffSignIn), at the portal it was built with.
+  + '<a href="https://app.healthidentitydirectory.com/provider/sign-in">Provider sign in</a></footer>'
   + '</body></html>'
 
 /** The patient portal's own index.html, which a signed-in patient gets at "/". */
@@ -142,7 +146,8 @@ test('the lab site\'s front page is the Laboratory page, its links rewritten for
     Providers: 'https://healthidentitydirectory.com/providers#products',
     // The workspace's entrance on this site, which asks for a sign-in itself.
     'Sign in': 'https://lab.healthidentitydirectory.com/provider',
-    'Setup Your Facility': 'https://app.healthidentitydirectory.com/provider/enroll?product=laboratory',
+    // This site's own facility sign-up, which Identity accepts here.
+    'Setup Your Facility': 'https://lab.healthidentitydirectory.com/provider/enroll?product=laboratory',
     'Book a demo': '#demo',
     Blog: 'https://healthidentitydirectory.com/blog?tag=a&amp;page=2',
     // A section of this same page: it stays here.
@@ -249,9 +254,14 @@ test('the patient portal shows a stranger the Health ID page from the public sit
     ['Open Health ID', 'https://app.healthidentitydirectory.com/sign-in'],
     ['Laboratory', 'https://lab.healthidentitydirectory.com/'],
     ['For providers', 'https://healthidentitydirectory.com/providers'],
+    // The portal serves patients only: a facility signs up on its product's own site (here a pharmacy, on the pharmacy
+    // site), straight from this page.
+    ['Register your facility', 'https://pharmacy.healthidentitydirectory.com/provider/enroll?product=pharmacy'],
     ['Get your Health ID', 'https://app.healthidentitydirectory.com/enroll'],
     ['Privacy', 'https://healthidentitydirectory.com/privacy'],
     ['Email us', 'mailto:support@healthidentitydirectory.com'],
+    // The portal serves patients only: staff sign in on the EHR site, straight from this page.
+    ['Provider sign in', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
   ])
   // The two the edge made links within the page say so, for the page's script; the page's own (#main) do not.
   assert.deepEqual([...page.matchAll(/<a[^>]*\bdata-hid-in-page\b[^>]*>([^<]*)</g)].map(match => match[1]),
@@ -297,6 +307,24 @@ test('the patient portal is a signed-in patient\'s front page, as before', async
     assert.equal(await (await portal.fetch(`https://app.healthidentitydirectory.com${path}`)).text(), PORTAL_INDEX, path)
   }
   assert.match(await (await portal.fetch('https://app.healthidentitydirectory.com/sw.js')).text(), /push/)
+})
+
+test('the patient portal sends every staff page to the same page on its product site, signed in or not', async () => {
+  for (const [path, site] of [['/provider', 'ehr'], ['/provider/sign-in', 'ehr'], ['/provider/sign-in?returnTo=/provider/clinical', 'ehr'],
+    ['/provider/recover', 'ehr'], ['/provider/enroll', 'ehr'], ['/provider/enroll?product=pharmacy', 'pharmacy'],
+    ['/provider/enroll?product=laboratory', 'lab'], ['/provider/laboratory', 'lab'], ['/provider/invitation', 'ehr'],
+    ['/provider/join', 'ehr'], ['/provider/join/status', 'ehr'], ['/provider/staff/join', 'ehr']]) {
+    for (const headers of [{}, { cookie: 'hid_access_csrf=4f9c2b' }]) {
+      const response = await portal.fetch(`https://app.healthidentitydirectory.com${path}`, { headers, redirect: 'manual' })
+      assert.equal(response.status, 302, path)
+      assert.equal(response.headers.get('location'), `https://${site}.healthidentitydirectory.com${path}`, path)
+      await response.arrayBuffer()
+    }
+  }
+  // Its patient pages stay its own.
+  for (const path of ['/sign-in', '/enroll', '/providers']) {
+    assert.equal(await (await portal.fetch(`https://app.healthidentitydirectory.com${path}`)).text(), PORTAL_INDEX, path)
+  }
 })
 
 test('the patient portal serves the public site\'s static files the Health ID page loads', async () => {

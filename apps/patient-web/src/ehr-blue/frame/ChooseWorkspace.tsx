@@ -4,8 +4,7 @@ import { isHidApiError } from '@hid/http'
 import { ArrowLeft, ArrowRight, Hospital, LogOut } from 'lucide-react'
 import { Alert, Badge, Button, IconChip } from '../../kasuwa/ui'
 import { useStaff } from '../../staff/App'
-import { roleLabels } from '../../staff/staffAccess'
-import { usesNovuBackend } from '../../backendContract'
+import { roleNames } from '../../staff/staffAccess'
 import type { FacilityChoiceReason } from '../../staff/facilitySelection'
 
 /** Why the question is asked: as Identity reports the selection, 'lost' mid-session, or 'switch' from the account menu. */
@@ -82,14 +81,14 @@ export function ChooseWorkspace({ reason, onChosen }: { readonly reason: Workspa
       </div>
       <ul className="m-0 flex list-none flex-col gap-1.5 rounded-2xl bg-tray p-1.5">
         {actor.facilities.map(facility => {
-          const roles = (usesNovuBackend() ? roleLabels(facility.roles) : facility.roles.join(', ')) || 'Staff'
+          const roles = roleNames(facility.roles)
           const here = facility.id === current
           return (
             <li key={facility.id} className="flex items-center gap-3 rounded-xl bg-surface p-4 ring-1 ring-line">
               <IconChip icon={Hospital} tone={here ? 'success' : 'brand'} />
               <div className="min-w-0 flex-1">
                 <h2 className="m-0 truncate text-title-3 text-ink">{facility.name}</h2>
-                <p className="m-0 mt-0.5 text-[13px] text-ink-3 capitalize">{roles}</p>
+                <p className="m-0 mt-0.5 text-[13px] text-ink-3">{roles}</p>
               </div>
               {here ? <Badge tone="success" size="sm">You’re here</Badge> : (
                 <Button variant="primary" size="sm" iconRight={ArrowRight} loading={busy === facility.id} disabled={busy !== null && busy !== facility.id}

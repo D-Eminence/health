@@ -105,7 +105,8 @@ export function CollectStep({ facilityId, permissions, subject, routed, onDone, 
   }
 
   return <form className="@container flex flex-col gap-4" noValidate onSubmit={check}>
-    {routed && item.patient ? <Alert intent="warning" size="sm">{sampleCheckText(item.patient.fullName)}</Alert> : null}
+    {/* Whenever Lab names the patient: on work from another facility, and on own work with its patient card (0106). */}
+    {item.patient ? <Alert intent="warning" size="sm">{sampleCheckText(item.patient.fullName)}</Alert> : null}
     {needsAccession ? <>
       <Field label="Sample" htmlFor="lab-collect-type" error={errors.type} errorId="lab-collect-type-error">
         <Input id="lab-collect-type" value={type} maxLength={240} autoComplete="off" className="h-11" placeholder="Blood, urine, swab…"

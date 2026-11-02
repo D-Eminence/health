@@ -41,8 +41,9 @@ export const ENCOUNTER_TRANSITIONS: Readonly<Record<string, readonly StatusOptio
 /** The changes that also change the encounter's records (today's CLOSING_STATUSES). */
 export const CLOSING_STATUSES: ReadonlySet<string> = new Set(['cancelled', 'entered_in_error'])
 
-const MAIN_ENCOUNTER_CLOSES_RECORDS = 'Cancelling also cancels its open prescriptions and lab requests. Marking it entered in error also marks its notes, diagnoses, vitals, documents and orders. Pharmacy and the laboratory are not told: contact them about any order already sent.'
-const NOVU_ENCOUNTER_CLOSES_RECORDS = 'Closing or cancelling doesn’t change its prescriptions or lab requests. Change or cancel each one; one sent to another facility is then withdrawn there.'
+/** Today's warnings, word for word (staff/routes/Clinical.tsx:80 on main, :85 on Novu): what each change does to the records. */
+const MAIN_ENCOUNTER_CLOSES_RECORDS = 'Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests; its notes, diagnoses, vitals, documents and completed orders are not changed. Marking it entered in error also marks entered in error its notes, diagnoses and vitals, its documents (other than rejected uploads), and its prescriptions and lab requests that are not cancelled, completed ones included. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
+const NOVU_ENCOUNTER_CLOSES_RECORDS = 'Closing or cancelling the encounter does not change its lab requests or prescriptions. Change or cancel each one: one sent to another facility is then withdrawn there, or cancelled if that facility had accepted it.'
 
 /** The warning on a consultation status change, for the service this build talks to. */
 export function encounterClosesRecords(): string {
@@ -61,18 +62,15 @@ export const NOTE_EIE_LABEL = 'Mark note entered in error'
 export const SIGN_LABEL = 'Sign note'
 export const AMEND_LABEL = 'Amend signed note'
 export const EDIT_DRAFT_LABEL = 'Edit draft'
-export const WRITE_NOTE_LABEL = 'Write note'
+export const WRITE_NOTE_LABEL = 'Add notes'
 
 /** The Notes card (today's Notes tab): every clinical note of the encounter, nursing observations included. */
-export const NOTES_TITLE = 'Clinical notes'
+export const NOTES_TITLE = 'Notes'
 export const NO_NOTES = 'No notes for this encounter.'
 export const NO_NOTES_ON_PAGE = 'No clinical notes on this page.'
 export const REVIEW_NOTE = 'Review note content'
 export const HIDE_NOTE = 'Hide note content'
-export const REFRESH_REVISIONS = 'Refresh revisions'
 export const ADD_REVISION_LABEL = 'Add a note revision'
-export const RECORD_REVISION = 'Record revision'
-export const RECORDING = 'Recording…'
 export const SAVE_DRAFT = 'Save draft'
 export const UPDATING = 'Updating…'
 
@@ -111,15 +109,17 @@ export const RESTARTED = 'This list changed since it was opened, so it shows the
 export const NO_ENCOUNTERS = 'No consultations for this patient here yet.'
 export const NO_COMPLAINT = 'No complaint recorded'
 export const ENCOUNTER_CREATED = 'Consultation started.'
-export const RECORD_SAVED = 'Saved.'
-export const NOTE_STATUS_UPDATED = 'Note updated.'
+export const RECORD_SAVED = 'Clinical record saved.'
+export const NOTE_STATUS_UPDATED = 'Clinical note status updated.'
 export const ENCOUNTER_STATUS_UPDATED = 'Consultation updated.'
-export const REVISION_RECORDED = 'Note changes saved.'
+export const REVISION_RECORDED = 'A new note revision was recorded.'
 export const DIAGNOSIS_UPDATED = 'Diagnosis updated.'
 export const REASON_SHORT = 'Give a reason of at least 3 characters.'
+/** A failed re-read of this consultation, in the redesign's word (today's says "Encounters could not be loaded.", staff/routes/Clinical.tsx:1306). */
+export const ENCOUNTERS_FAILED = 'This consultation could not be loaded.'
 export const ENCOUNTER_CHANGED = 'Someone changed this consultation while you had it open. It now shows its current status; choose the change again if it’s still needed.'
-export const NOTES_ARE_DRAFTS = 'The note saves as a draft. Sign it on the consultation’s page.'
-export const NO_WRITE = 'Your access doesn’t allow changes to this patient’s records.'
+export const NOTES_ARE_DRAFTS = 'Notes are saved as drafts. Signing needs its own reviewed action.'
+export const NO_WRITE = 'This access does not permit changes to the patient record.'
 
 // EHR lists encounters and each record kind newest first, 50 to a page, with an opaque cursor for the next and no
 // total. A list keeps the cursors that led to the page shown, the first page's being none.
@@ -141,11 +141,13 @@ export function rowVersion(value: unknown): number | null {
   return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null
 }
 
-/** A file size as EHR sends it, a number or text, in KB or MB. */
+/**
+ * A file size as EHR sends it, a number or text (pg returns bigint and ::text columns as strings), in KiB: counted in
+ * 1024s and named so, with an empty file as 0 KiB, as today's fileSize (staff/routes/Clinical.tsx).
+ */
 export function fileSize(value: number | string | null | undefined): string {
   const count = value == null || value === '' ? NaN : Number(value)
-  if (!Number.isFinite(count) || count < 0) return 'Size unknown'
-  return count >= 1024 * 1024 ? `${(count / (1024 * 1024)).toFixed(1).replace(/\.0$/, '')} MB` : `${Math.max(1, Math.ceil(count / 1024)).toLocaleString('en-GB')} KB`
+  return Number.isFinite(count) && count >= 0 ? `${Math.ceil(count / 1024).toLocaleString()} KiB` : 'Size unknown'
 }
 
 export function isoNow() { return new Date().toISOString() }
