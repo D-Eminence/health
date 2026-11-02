@@ -352,7 +352,7 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
       const named = handoffNames(caught.message)
       attempt.clear()
       const text = caught.code === 'LAB_HANDOFF_REFUSED'
-        ? `Lab request saved and active in the EHR, but Lab refused it${named.code ? ` (${named.code})` : ''}, so the Laboratory does not have it. Do not create it again: once that is resolved, ${sendItFrom(canSendToLab)}.`
+        ? `Lab request saved and active in the EHR, but Lab refused it, so the Laboratory does not have it. Do not create it again: once that is resolved, ${sendItFrom(canSendToLab)}.`
         : `Lab request saved and active in the EHR, but Lab did not confirm it, so the Laboratory may not have it. Do not create it again: to send it again, ${sendItFrom(canSendToLab)}.`
       const warning = { text, what: 'request', listChanged: false }
       if (named.requestId) return open(named.requestId, { warning })

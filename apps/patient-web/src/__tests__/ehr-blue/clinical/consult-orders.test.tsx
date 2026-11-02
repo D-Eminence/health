@@ -775,7 +775,7 @@ describe('New laboratory (lab request)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create lab request' }))
     await confirmPatient(SEND_LAB(), 'Send lab request')
     const alert = await screen.findByText(/^Lab request saved and active in the EHR, but Lab refused it/)
-    expect(alert.textContent).toBe('Lab request saved and active in the EHR, but Lab refused it (LAB_TEST_UNKNOWN), so the Laboratory does not have it. Do not create it again: once that is resolved, use Send to Lab on the request.')
+    expect(alert.textContent).toBe('Lab request saved and active in the EHR, but Lab refused it, so the Laboratory does not have it. Do not create it again: once that is resolved, use Send to Lab on the request.')
     expect(alert.textContent).not.toContain(LAB)
     expect(await screen.findByRole('heading', { level: 1, name: 'Haemoglobin' })).toBeTruthy()
     expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests', { cursor: undefined, fresh: true })
@@ -1122,7 +1122,7 @@ describe('A lab request’s page', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('Lab has no work item for this request that you can see: Lab has not accepted it, accepted it at another facility, or your access to this patient does not cover it.')
     api.labReleasedResultsForOrder.mockRejectedValueOnce(new HidApiError(403, 'Forbidden', { code: 'LAB_ACCESS_DENIED' }))
     fireEvent.click(screen.getByRole('button', { name: 'Refresh released results' }))
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Access denied: you may not read this request\'s Lab results here (LAB_ACCESS_DENIED).'))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('You can’t see this request’s lab results here.'))
   })
 
   it('offers no released results for a draft', async () => {
@@ -1348,7 +1348,7 @@ describe('blockers: what a create said is shown even when the saved order’s pa
     fireEvent.click(screen.getByRole('button', { name: 'Create lab request' }))
     await confirmPatient(SEND_LAB(), 'Send lab request')
     expect(await screen.findByRole('heading', { level: 1, name: 'Record not found' })).toBeTruthy()
-    expect(screen.getByText('Lab request saved and active in the EHR, but Lab refused it (LAB_TEST_UNKNOWN), so the Laboratory does not have it. '
+    expect(screen.getByText('Lab request saved and active in the EHR, but Lab refused it, so the Laboratory does not have it. '
       + 'Do not create it again: once that is resolved, use Send to Lab on the request.')).toBeTruthy()
   })
 
@@ -1359,7 +1359,7 @@ describe('blockers: what a create said is shown even when the saved order’s pa
     api.records.mockRejectedValue(UNAVAILABLE())
     fireEvent.click(screen.getByRole('button', { name: 'Create lab request' }))
     await confirmPatient(SEND_LAB(), 'Send lab request')
-    expect(await screen.findByText('Lab request created in the EHR: its status is saved, but Lab refused it (LAB_TEST_UNKNOWN). Once that is resolved, '
+    expect(await screen.findByText('Lab request created in the EHR: its status is saved, but Lab refused it. Once that is resolved, '
       + 'use Send to Lab on the request. The list could not be reloaded; refresh it to see the request.')).toBeTruthy()
     // One read, said once: today's labWarning replaces loadRecords' own sentence (Clinical.tsx:1437, :1447-1448).
     expect(screen.queryByText('The change was saved, but the records could not be reloaded. EHR is unavailable.')).toBeNull()
@@ -1446,7 +1446,7 @@ describe('review: after a create the list is read once, and what the read came t
     const before = freshLabReads()
     submitWith('Test code')
     await confirmPatient(SEND_LAB(), 'Send lab request')
-    expect(await screen.findByText('Lab request created in the EHR: its status is saved, but Lab refused it (LAB_TEST_UNKNOWN). Once that is resolved, '
+    expect(await screen.findByText('Lab request created in the EHR: its status is saved, but Lab refused it. Once that is resolved, '
       + 'use Send to Lab on the request.')).toBeTruthy()
     expect(freshLabReads() - before).toBe(1)
   })

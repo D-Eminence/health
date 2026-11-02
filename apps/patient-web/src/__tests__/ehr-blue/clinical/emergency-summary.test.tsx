@@ -740,3 +740,13 @@ describe('released Lab results in the emergency summary', () => {
     expect(screen.queryByRole('button', { name: 'Show results' })).toBeNull()
   })
 })
+
+/** Owner, 2 November: a refusal never shows Lab's code in brackets ("... (LAB_ACCESS_DENIED)"). */
+describe('released results refusal', () => {
+  it('says why in plain words, without the code', async () => {
+    const { releasedResultsRefusal } = await import('../../../ehr-blue/clinical/emergency/ReleasedResults')
+    const text = releasedResultsRefusal(new HidApiError(403, 'Forbidden', { code: 'LAB_ACCESS_DENIED' }))
+    expect(text).toBe('You can’t see this test’s results here.')
+    expect(text).not.toMatch(/LAB_|\(/)
+  })
+})
