@@ -11,7 +11,7 @@ import {
 import { getEnvironment } from '../../../staff/env'
 import { staffInvitationApi, type StaffInvitationOpened, type StaffInvitationProof } from '../../../staff/api'
 import { invitationLinkOf, type InvitationLink } from '../../../staff/invitationCapture'
-import { licenceBodyForRole, roleInSentence } from '../../../staff/staffAccess'
+import { licenceBodyForRole, roleNameInSentence } from '../../../staff/staffAccess'
 import { isRouteMissing, joinProblemText } from '../../../staff/staffProblems'
 import { BlueAuthLayout, NOTE } from './BlueAuthLayout'
 
@@ -224,7 +224,7 @@ function Opened({ opened, link, busy, password, confirm, onPassword, onConfirm, 
   const inviter = opened.inviterName ?? 'The facility administrator'
   const expires = when(opened.expiresAt)
   const intro = <p className={NOTE}>{inviter} invited you to join <strong>{opened.facilityName}</strong> as
-    {' '}{roleInSentence(opened.roleCode)}.{expires ? ` The invitation expires on ${expires}.` : ''}</p>
+    {' '}{roleNameInSentence(opened.roleCode)}.{expires ? ` The invitation expires on ${expires}.` : ''}</p>
   const host = staffHostForRole(opened.roleCode, window.location.hostname)
   const site = host ?? 'the Provider Portal'
 

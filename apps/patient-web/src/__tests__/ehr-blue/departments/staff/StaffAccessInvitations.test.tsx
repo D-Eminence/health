@@ -84,6 +84,19 @@ describe('the invitation rows', () => {
     expect(screen.getByText('Invite staff to give them access to this facility.')).toBeTruthy()
   })
 
+  // Role names, never role codes (parity report 3.1 #16): a role Health ID has no name for reads "Staff". "porter" is a
+  // fictional code Health ID has no name for.
+  it('reads "Staff" for a role Health ID has no name for, in the row and the drawer, never its code', async () => {
+    api.read.mockResolvedValue(staff({ invitations: [invitation({ roleCode: 'porter', licence: null })] }))
+    openPage()
+    const item = await row('Demo Doctor')
+    expect(within(item).getByText('demo.doctor@example.test · Staff · pending')).toBeTruthy()
+    fireEvent.click(within(item).getByRole('button', { name: 'Invitation details' }))
+    const drawer = screen.getByRole('dialog', { name: 'Invitation details' })
+    expect(within(drawer).getByText('demo.doctor@example.test / Staff / pending')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/\bporter\b/)
+  })
+
   it('opens the details drawer with what Identity knows of the invitation', async () => {
     api.read.mockResolvedValue(staff({ invitations: [invitation({ deliveryOutcome: 'definitive_failure', sendCount: 2 })] }))
     openPage()

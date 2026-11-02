@@ -83,6 +83,27 @@ describe('the page entry', () => {
 })
 
 describe('the live list', () => {
+  // Role names, never role codes (parity report 3.1 #16): a role Health ID has no name for reads "Staff". "porter" is a
+  // fictional code Health ID has no name for.
+  it('reads "Staff" for a role Health ID has no name for, never its code', async () => {
+    api.read.mockResolvedValue(staff({ members: [administrator(), { ...receptionist(), roles: ['porter'] }] }))
+    open()
+    expect(await screen.findByRole('button', { name: 'MDCN licence' })).toBeTruthy()
+    expect(within(row('No licence on record')).getByText('Staff')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/\bporter\b/)
+  })
+
+  // A role with no name still carries permissions: the administrator's view counts it rather than leaving it out.
+  it('counts a role Health ID has no name for beside a named one, in the list and under Employment, never its code', async () => {
+    api.read.mockResolvedValue(staff({ members: [administrator(), { ...receptionist(), roles: ['receptionist', 'porter'] }] }))
+    open()
+    await screen.findByRole('button', { name: 'No licence on record' })
+    expect(within(row('No licence on record')).getByText('Receptionist and another role')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'No licence on record' }))
+    expect(fact(savedRecord(), 'Employment')).toBe('Receptionist and another role')
+    expect(document.body.textContent).not.toMatch(/\bporter\b/)
+  })
+
   it('lists each member’s licence as a record, from the one Staff read', async () => {
     api.read.mockResolvedValue(staff())
     open()
