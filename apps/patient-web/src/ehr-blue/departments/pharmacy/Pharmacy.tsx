@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { EhrButton } from '@hid/ui/ehr'
 import { CircleCheck, FileText, Pill, Search, Wallet } from 'lucide-react'
 import { PageState } from '../../../kasuwa/parts'
@@ -29,7 +29,8 @@ import { PaperPrescription } from './PaperPrescription'
 import { PharmacyRecord } from './PharmacyRecord'
 import { doseMissing, inTab, matchesItem, queueOrder, queueTone, routeAlert, statusOf, type PharmacyTab } from './pharmacyText'
 import { BillBadge } from '../commerce/BillBadge'
-import { StockLine, usePaymentSettings } from './pointOfCare'
+import { pointOfCareOpen } from '../commerce/served'
+import { StockLine } from './pointOfCare'
 import { billOf, stockOf } from './pocFields'
 
 const LOAD_FAILED = 'Prescriptions could not be loaded. Please retry.'
@@ -48,7 +49,12 @@ export const PRESCRIPTIONS = '/provider/pharmacy/prescriptions'
  * pharmacy/prescriptions/paper, then opened here to pick, pay and dispense.
  */
 export function Prescriptions() {
-  return openedOf(useLocation().pathname) === 'paper' ? <PaperPrescription /> : <PrescriptionQueue />
+  const { facilityId } = useDeptAccess()
+  const { pathname } = useLocation()
+  if (openedOf(pathname) !== 'paper') return <PrescriptionQueue />
+  // A paper prescription is sent on point-of-care routes Health ID does not serve yet (commerce/served.ts): anywhere but
+  // the demo facilities its address is the list, so nothing is typed in only to be refused.
+  return pointOfCareOpen(facilityId) ? <PaperPrescription /> : <Navigate replace to={PRESCRIPTIONS} />
 }
 /** The name earlier code knew this page by. */
 export { Prescriptions as Pharmacy }
@@ -92,10 +98,9 @@ function PrescriptionQueue() {
   // A dispensing or reversal being sent from the open record: Back to list waits for its outcome.
   const [recording, setRecording] = useState(false)
   const focus = useFocusById()
-  // The facility's payment setup (POINT_OF_CARE_SPEC §1): whether a bill must be paid before dispensing. Off (404) or
-  // unread, nothing waits for payment, as today.
-  const paymentSettings = usePaymentSettings(canRead ? facilityId : undefined)
-  const settings = paymentSettings.status === 'ready' ? paymentSettings.data : null
+  // The facility's payment setup (POINT_OF_CARE_SPEC §1), whether a bill must be paid before dispensing, is not read:
+  // its address is proposed, not served (commerce/served.ts), so reading it on every open sent a request that always
+  // failed. Unread, nothing waits for payment, as today. Pass it to the record again once Health ID serves it.
 
   // The rows shown: an order this pharmacy couldn't complete and later withdrew as the wrong person is no longer shown.
   const visible = items ? notCompleted.shown(items) : null
@@ -197,7 +202,7 @@ function PrescriptionQueue() {
     <DeptPage title={selected ? <span id={`pharmacy-${selected.id}-title`} tabIndex={-1}>{selected.medication.display}</span>
       : <span id={HEADING} tabIndex={-1}>Prescriptions</span>}
       onBack={selected ? back : undefined} backLabel="Back to prescriptions" backUnavailable={selected ? recording : undefined}
-      primaryAction={!selected && permissions.includes('pharmacy.walk-in.create')
+      primaryAction={!selected && pointOfCareOpen(facilityId) && permissions.includes('pharmacy.walk-in.create')
         ? <Button variant="primary" icon={FileText} to={`${PRESCRIPTIONS}/paper`}>Paper prescription</Button> : undefined}
       secondaryActions={selected ? undefined : refresh}>
       {read.error && (listed || selected) && <Alert intent="error" title="Couldn’t refresh prescriptions"
@@ -274,7 +279,7 @@ function PrescriptionQueue() {
           ids: new Set(current.facilityId === here ? current.ids : []).add(selected.id) }))}
         said={said.rowSaid(selected.orderRoute?.id)} holds={holds} crossFacilityWork={read.value?.crossFacilityWork}
         onChanged={read.refresh} onBusy={setRecording} onEnded={endedHere} onNotCompleted={notCompletedHere} onReread={said.reread}
-        next={nextItem ? nextItem.medication.display : null} onNext={openNext} onBack={back} settings={settings} />}
+        next={nextItem ? nextItem.medication.display : null} onNext={openNext} onBack={back} />}
     </DeptPage>
   )
 }
