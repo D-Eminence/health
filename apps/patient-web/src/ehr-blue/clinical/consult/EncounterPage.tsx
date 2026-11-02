@@ -16,9 +16,8 @@ import { ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../
 import { COMPLETE_FIELD, RecordForm, type FieldDef, type FieldErrors, type FormValues, type SubmitOutcome } from '../parts/RecordForm'
 import { useWorkspaceHref } from '../parts/Workspace'
 import { NOTE_TRANSITIONS, isObservation, noteStatus as observationStatus } from '../nursing/observations'
-import { HistoryPages } from '../triage/ConnectedHistory'
 import { NO_RECORD_ACCESS, recordKey } from '../triage/records'
-import { TITLE as TRIAGE_TITLE, vitalStatus } from '../triage/vitals'
+import { vitalStatus } from '../triage/vitals'
 import { DiagnosesCard } from './Diagnoses'
 import { DocumentsCard } from './Documents'
 import {
@@ -33,6 +32,7 @@ import { EncounterOrders, orderPath } from './orders'
 import { KINDS, learnFrom } from './orders/orders'
 import { TodaySections } from './TodaySections'
 import { useDocumentList, useRecordList, useRevisions, type RecordList } from './records'
+import { VitalsCard } from './Vitals'
 
 /** One encounter's page, or the chart's own state. */
 export function EncounterPage() {
@@ -426,7 +426,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   // quietly behind More actions.
   const variantOf = (item: ActionDef) => item.id === 'sign' ? 'primary' : 'secondary'
 
-  // In the order a clinician works: the note, every note, diagnoses, orders, documents, then history and earlier versions.
+  // In the order a clinician works: the note, every note, vitals, diagnoses, orders, documents, then history and earlier versions.
   return (
     <>
       <RecordHeading title={encounterTitle(encounter)} backHref={href()} />
@@ -492,6 +492,10 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       {reads.notes ? (
         <NotesCard chart={chart} encounterId={encounterId} list={notes} canWrite={writes.notes} onSaved={setSuccess} onError={setPageError} />
       ) : null}
+      {/* Today's tab order: Notes, Vitals, Diagnoses (Clinical.tsx:25-32). */}
+      {reads.vitals ? (
+        <VitalsCard chart={chart} encounterId={encounterId} list={vitals} canRecord={chart.canWrite && chart.can('ehr.vital.write')} />
+      ) : null}
       {reads.diagnoses ? (
         <DiagnosesCard chart={chart} encounterId={encounterId} list={diagnoses} canWrite={writes.diagnoses} onSaved={setSuccess} onError={setPageError} />
       ) : null}
@@ -507,8 +511,6 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
       <TodaySections chart={chart} />
       <HistoryCard items={historyItems(href, encounterId, others, { notes, diagnoses, vitals, prescriptions, labs }, documents)}>
         <HistoryErrors lists={[notes, diagnoses, vitals, prescriptions, labs, documents]} />
-        {/* Today's Vitals tab pages the encounter's vitals, 50 to a page (Clinical.tsx:1807): one past the first page is reached here. */}
-        <HistoryPages title={TRIAGE_TITLE} list={vitals} />
       </HistoryCard>
       <VersionsCard versions={versionItems(note, revisions.items)} />
       <ConfirmAction

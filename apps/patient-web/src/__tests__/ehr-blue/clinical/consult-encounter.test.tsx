@@ -245,17 +245,18 @@ describe('Consultation record', () => {
     }
   })
 
-  it('gap: vitals past the encounter’s first page are reached with the history’s "Triage & Vitals" record pages, as today’s Vitals tab', async () => {
+  it('gap: vitals past the encounter’s first page are reached with the Vitals card’s record pages, as today’s Vitals tab, History following', async () => {
     const later = { ...VITAL, id: 'vital-2', createdAt: '2026-10-29T08:05:00.000Z', pulseBpm: 88 }
     api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string, page?: { cursor?: string }) => {
       if (kind !== 'vitals') return { items: records[kind] ?? [], nextCursor: null }
       return page?.cursor === 'vitals-2' ? { items: [later], nextCursor: null } : { items: [VITAL], nextCursor: 'vitals-2' }
     })
     await openEncounter()
-    const pages = await history().findByRole('group', { name: 'Triage & Vitals' })
-    expect(within(pages).getByRole('navigation', { name: 'Record pages' })).toBeTruthy()
+    const pages = await within(card('Vitals')).findByRole('navigation', { name: 'Record pages' })
     expect(within(pages).getByText('Page 1')).toBeTruthy()
     expect(history().getByRole('link', { name: `Vitals · ${formatWhen(VITAL.createdAt)}` })).toBeTruthy()
+    // One pager for the list, as for Notes and Diagnoses: History has none of its own.
+    expect(history().queryByRole('group', { name: 'Triage & Vitals' })).toBeNull()
 
     fireEvent.click(within(pages).getByRole('button', { name: 'Next page' }))
     const link = await history().findByRole('link', { name: `Vitals · ${formatWhen(later.createdAt)}` })
@@ -269,7 +270,7 @@ describe('Consultation record', () => {
   it('shows no vitals pager while the encounter’s vitals fit on one page', async () => {
     await openEncounter()
     expect(history().getByRole('link', { name: `Vitals · ${formatWhen(VITAL.createdAt)}` })).toBeTruthy()
-    expect(history().queryByRole('group', { name: 'Triage & Vitals' })).toBeNull()
+    expect(within(card('Vitals')).queryByRole('navigation', { name: 'Record pages' })).toBeNull()
   })
 
   it('item 1: offers "Add notes" while the encounter already has a note, with today’s note type, title and content', async () => {
@@ -336,7 +337,8 @@ describe('Consultation record', () => {
   it('does not say so when the role holds one record read', async () => {
     staff.permissions = ['ehr.encounter.read', 'ehr.vital.read']
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
-    expect(await screen.findByRole('link', { name: `Vitals · ${formatWhen(VITAL.createdAt)}` })).toBeTruthy()
+    // In the Vitals card and in History.
+    expect(await screen.findAllByRole('link', { name: `Vitals · ${formatWhen(VITAL.createdAt)}` })).toHaveLength(2)
     expect(screen.queryByText('Your role at this facility can’t open visit records. Ask your facility administrator.')).toBeNull()
   })
 
