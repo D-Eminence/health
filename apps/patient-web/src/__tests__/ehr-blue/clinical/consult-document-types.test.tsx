@@ -226,11 +226,15 @@ describe('Consultation documents with types: once served', () => {
     expect(typeField()!.value).toBe('lab_result')
   })
 
-  it('says any other refusal in the backend’s words, as today', async () => {
-    api.uploadDocument.mockRejectedValue(new HidApiError(413, 'The file is too large', { code: 'DOCUMENT_TOO_LARGE' }))
+  it('says any other refusal as the card says it without types, never as the lab-result refusal', async () => {
+    // Another code, with no words of its own, while a lab result is chosen: the card's own sentence. It does not pin how
+    // a server's words are shown, so it holds with today's handling and with the shared plain words alike.
+    api.uploadDocument.mockRejectedValue(new HidApiError(400, '', { code: 'BAD_REQUEST' }))
     await openDocuments()
+    fireEvent.change(typeField()!, { target: { value: 'lab_result' } })
     await upload(pdf(), 'File')
-    expect((await within(card()).findByRole('alert')).textContent).toBe('The file is too large')
+    expect((await within(card()).findByRole('alert')).textContent).toBe('Document could not be uploaded.')
+    expect(within(card()).queryByText(LAB_REFUSED)).toBeNull()
   })
 
   it('still refuses no file at the field, sending nothing', async () => {
@@ -240,6 +244,19 @@ describe('Consultation documents with types: once served', () => {
     expect(within(card()).getByText('Select a file first.')).toBeTruthy()
     expect(document.activeElement).toBe(fileField('File'))
     expect(api.uploadDocument).not.toHaveBeenCalled()
+  })
+
+  it('learns it from the list read again after an upload, too', async () => {
+    api.documents.mockResolvedValueOnce(listed([LETTER])).mockResolvedValue(listed([LETTER], true))
+    await openDocuments()
+    expect(typeField()).toBeNull()
+    await upload(pdf(), 'Clinical document')
+    expect(await within(card()).findByText(UPLOADED)).toBeTruthy()
+    // Sent as today, since nothing had said so yet; the list read again then says it.
+    expect(api.uploadDocument.mock.calls[0]).toHaveLength(4)
+    expect(api.documents).toHaveBeenCalledTimes(2)
+    expect(await within(card()).findByLabelText('Document type')).toBeTruthy()
+    expect(line('referral-letter.pdf')).toBe('Clinical document · PDF document · 20 KB · Checked')
   })
 
   it('stays served once learned, even when a later answer says nothing of the types', async () => {
