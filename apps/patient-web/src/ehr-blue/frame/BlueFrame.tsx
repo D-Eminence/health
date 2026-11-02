@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, Route, Routes, UNSAFE_RouteContext, useLocation, useNavigate, useOutlet } from 'react-router-dom'
 import { EhrAppShell, EhrModuleTabs, type EhrNavGroup, type EhrNavItem } from '@hid/ui/ehr'
 import { Activity, Check, ExternalLink, Hospital, House, Search, ShieldCheck, UserPlus, UserRound } from 'lucide-react'
 import { AppShell, type NavGroup, type NavItem } from '../../kasuwa/AppShell'
@@ -7,17 +7,19 @@ import { Alert, Badge, Button, cx, EmptyState, type Icon } from '../../kasuwa/ui
 import { useStaff } from '../../staff/App'
 import { ReviewBanner } from '../../staff/routes/ReviewBanner'
 import { BillingBanner } from '../../staff/routes/Billing'
+import { roleNames } from '../../staff/staffAccess'
 import { BrandLogo } from '../../BrandLogo'
 import { useFocusOnPageChange } from '../../pageFocus'
 import { otherStaffSites, siteElsewhere, siteHref, SITE_NAMES, SITE_PRODUCT_NAMES, type Site } from '../../productSites'
 import { demoFacilitySite, isDemoFacility } from '../blueFacilities'
-import { PRODUCTS, inProduct, opensInProduct, productOf } from './product'
-import { BLUE_PAGES, isLiveOnlyPath, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
+import { PRODUCTS, opensInProduct, productHere, productLists, type Product } from './product'
+import { BLUE_PAGES, liveOnlyTitle, matchBluePage, movedAddress, pageAllowed, pageTabs } from '../routes'
 import { AttentionProvider } from './attention'
 import { BluePageBoundary } from './BluePageBoundary'
 import { ConnectionStatus } from './ConnectionStatus'
 import { DeniedPage, LivePage } from './LivePages'
-import { BluePageProvider, BluePagesProvider, OpenPagesProvider } from './pageContext'
+import { NotFoundPage } from './NotFoundPage'
+import { BluePageProvider, BluePagesProvider, OpenPagesProvider, TodayPageProvider } from './pageContext'
 import { basePath, pageHrefOf } from './pageHref'
 import { TODAY_PAGES } from './pages'
 import { DENIED_NOTICE, RedirectNotice } from './RedirectNotice'
@@ -36,6 +38,12 @@ const CLINICAL_SIDEBAR: Readonly<Record<string, string>> = {
   surgery: 'Wards & units', icu: 'Wards & units', dental: 'Wards & units',
 }
 
+/**
+ * A single product keeps only Patients and Access requests of the clinical pages (product.ts): they share one plain
+ * heading there, as the classic portal listed them, not the hospital's front desk and care.
+ */
+const PRODUCT_CLINICAL_HEADING = 'Patients'
+
 /** A page's EHR icon (an element) as the shell's icon component: it takes the shell's size and colour. */
 const iconCache = new WeakMap<object, Icon>()
 function iconOf(element: ReactNode): Icon {
@@ -48,16 +56,17 @@ function iconOf(element: ReactNode): Icon {
 /** Design tools for the team, not places staff work: reachable by address, never listed. */
 const INTERNAL_GROUPS: ReadonlySet<string> = new Set(['Design review', 'Design tour'])
 
-/** The heading a page is listed under in the sidebar. */
-export function sidebarGroupOf(page: Pick<EhrBluePage, 'path' | 'group'>): string {
-  return page.group === 'Clinical' ? CLINICAL_SIDEBAR[basePath(page.path)] ?? page.group : page.group
+/** The heading a page is listed under in the sidebar, in this product's workspace. */
+export function sidebarGroupOf(page: Pick<EhrBluePage, 'path' | 'group'>, product: Product = 'ehr'): string {
+  if (page.group !== 'Clinical') return page.group
+  return product === 'ehr' ? CLINICAL_SIDEBAR[basePath(page.path)] ?? page.group : PRODUCT_CLINICAL_HEADING
 }
 
 /** The sidebar: the pages the facility may open, by group, in order; a lone page named as its group gets no heading. */
-export function navigationGroups(pages: readonly EhrBluePage[]): EhrNavGroup[] {
+export function navigationGroups(pages: readonly EhrBluePage[], product: Product = 'ehr'): EhrNavGroup[] {
   const groups: { id: string; label: string; items: EhrNavItem[] }[] = []
   for (const page of pages) {
-    const label = sidebarGroupOf(page)
+    const label = sidebarGroupOf(page, product)
     let group = groups.find(candidate => candidate.label === label)
     if (!group) {
       group = { id: label || 'home', label, items: [] }
@@ -103,6 +112,12 @@ function FacilityOnAnotherSite({ facility, site, choosing }: { facility: string;
 }
 
 /**
+ * Where a page's own routes start: no parent route. The blue EHR is mounted inside today's pathless Shell route, and
+ * react-router warns about every <Routes> below a parent route without a trailing "*" (a page's own, or the frame's).
+ */
+const NO_PARENT_ROUTE = { outlet: null, matches: [], isDataRoute: false }
+
+/**
  * Today's pages that send a request before they refuse (Access requests reads the requests; Clinical record looks up
  * the patient, consent and encounters): without the permission, the frame refuses for them instead.
  */
@@ -111,13 +126,15 @@ const READS_BEFORE_REFUSING: ReadonlySet<string> = new Set(['requests', 'clinica
 /**
  * The blue Hospital EHR's frame: EhrAppShell with the design's sidebar and top bar, and the page
  * the address opens. Session, sign-out and facility switch are today's (useStaff). A page another folder exports
- * replaces the frame's stand-in for its path. An address no page takes opens Home, and so does a page this session may
- * not open, with a note saying why (the design's admin/unknown-route and denied-route-redirect).
+ * replaces the frame's stand-in for its path. A page this session may not open sends it Home, with a note saying why
+ * (the design's denied-route-redirect); an address no page takes says "Page not found", as today's portal does.
  */
 export function BlueFrame() {
   const { state, lock, signOut } = useStaff()
   const location = useLocation()
   const navigate = useNavigate()
+  // Today's page for this address, which a live stand-in shows.
+  const todayPage = useOutlet()
   const pageRef = useRef<HTMLDivElement>(null)
   const [samplePanel, setSamplePanel] = useState<'profile' | 'preferences' | 'help' | null>(null)
   // Today's sign-out: a refusal is said, and the session stays, as the account menu said it.
@@ -133,11 +150,12 @@ export function BlueFrame() {
   // What the sidebar and search offer: the allowed pages this session lists.
   // Only working screens are offered (the owner's decision of 2026-10-31): sample modules with fictional figures stay in
   // the code for demos but are not listed in the sidebar or search. Home is always listed.
-  // A lab, pharmacy or outreach on its own sees only its product (product.ts); a hospital's EHR has them all.
-  const product = productOf(window.location.hostname, permissions)
+  // A lab, pharmacy or outreach on its own sees its own pages, the facility's, and Patients and Access requests
+  // (product.ts); a hospital's EHR has them all.
+  const product = productHere(session)
   const info = PRODUCTS[product]
   const listed = useMemo(() => allowed.filter(page => (page.status !== 'sample' || page.path === '') && !INTERNAL_GROUPS.has(page.group)
-    && inProduct(product, page.path) && (product === 'ehr' || page.path !== '')
+    && productLists(product, page.path)
     && (!session || (page.listed?.(session) ?? true))), [allowed, session, product])
   const match = matchBluePage(BLUE_PAGES, location.pathname)
   // A pharmacy or lab on its own lists a product's pages in the sidebar, so it draws no tabs above them as well.
@@ -181,6 +199,9 @@ export function BlueFrame() {
   const shownHere = match === null || (match.page.visible?.(session) ?? true)
   const todayRefuses = match !== null && TODAY_PAGES.has(match.page) && shownHere
     && !READS_BEFORE_REFUSING.has(basePath(match.page.path))
+  // The first item: Home in the EHR, and a single product's own first page (it has no Home).
+  const home: NavItem = product === 'ehr' ? { to: '/provider', label: 'Home', icon: House, end: true }
+    : { to: `/provider/${info.home}`, label: info.name, icon: info.icon }
   // A demo facility works on its own site (productSites.ts): opened on another, the page says so and opens nothing.
   const demoSite = demoFacilitySite(facility?.id)
   const facilitySite = demoSite ? siteElsewhere(demoSite) : null
@@ -192,21 +213,24 @@ export function BlueFrame() {
       : match.page.refusal ?? (shownHere
         ? <Navigate replace to="/provider" state={{ frameNotice: DENIED_NOTICE }} />
         : <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'} />)
-    : isLiveOnlyPath(location.pathname) ? <LivePage /> : <Navigate replace to="/provider" />
+    // Today's "Page not found", not the design's silent trip Home (admin/unknown-route). Today's own route opens only
+    // where today serves it (the invitation on Novu only): elsewhere it is the frame's Page not found, not today's.
+    : liveOnlyTitle(location.pathname) !== undefined ? <LivePage /> : <NotFoundPage to={home.to} label={home.label} />
 
   const name = session.actor.displayName ?? session.actor.email ?? 'Staff member'
-  const roles = facility ? facility.roles.join(', ') || 'Staff' : 'Staff'
+  // Role names, never codes (parity report 3.1 #16): "Facility administrator, Doctor", not "org_admin, doctor".
+  const roles = roleNames(facility?.roles ?? [])
   // In the EHR a page that joins another's tabs has no sidebar entry; in a single product (a pharmacy or lab on its own)
   // each is listed by its tab name ("To dispense", "New sale", "Stock").
   // A single product's own pages come first (its menu), then anything else it holds (settings, insight).
   const own = (page: EhrBluePage) => basePath(page.path) === info.home || basePath(page.path).startsWith(`${info.home}/`)
   const ordered = product === 'ehr' ? listed : [...listed.filter(own), ...listed.filter(page => !own(page))]
   const groups = navigationGroups(product === 'ehr' ? ordered.filter(page => !page.tabOf)
-    : ordered.map(page => page.tabLabel ? { ...page, label: page.tabLabel } : page))
+    : ordered.map(page => page.tabLabel ? { ...page, label: page.tabLabel } : page), product)
   // The groups a clinician opens all day stay open; the rest fold (Hick's Law), each opening while it holds the page.
-  // A single product's own group is its whole job, so it stays open too.
+  // A single product's own group is its whole job, so it stays open too, as do its Patients and Access requests.
   // (A pharmacy's home is a menu of pages below it, pharmacy/sell first: its group is theirs.)
-  const OPEN = new Set(['Front desk', 'Care', ...(product === 'ehr' ? [] : [listed.find(page => basePath(page.path) === info.home
+  const OPEN = new Set(['Front desk', 'Care', ...(product === 'ehr' ? [] : [PRODUCT_CLINICAL_HEADING, listed.find(page => basePath(page.path) === info.home
     || basePath(page.path).startsWith(`${info.home}/`))?.group ?? ''])])
   const nav: NavGroup[] = groups.map(group => ({
     title: group.label,
@@ -220,8 +244,6 @@ export function BlueFrame() {
   if (otherSites) nav.push(otherSites)
   const tabsFor = (path: string) => listed.find(page => page.path === path || page.path === `${path}/*`)
   const tab = (path: string, label: string, fallback: NavItem) => { const page = tabsFor(path); return page ? { to: pageHrefOf(page), label, icon: iconOf(page.icon) } : fallback }
-  const home: NavItem = product === 'ehr' ? { to: '/provider', label: 'Home', icon: House, end: true }
-    : { to: `/provider/${info.home}`, label: info.name, icon: info.icon }
   const facilityTab: NavItem = { to: '/provider/institutions', label: 'Facility', icon: Hospital }
 
   return (
@@ -281,7 +303,15 @@ export function BlueFrame() {
                 />
               ) : null}
               {/* A page that fails would take the frame with it: the boundary keeps the sidebar and the account menu. */}
-              <BluePageBoundary key={match?.page.keepsState ? match.page.path : location.pathname}>{content}</BluePageBoundary>
+              <BluePageBoundary key={match?.page.keepsState ? match.page.path : location.pathname}>
+                {/* A page's own <Routes> resolve from its address: index is the page, "new" is <page>/new. */}
+                <UNSAFE_RouteContext.Provider value={NO_PARENT_ROUTE}>
+                  <Routes>
+                    <Route path={match ? `${pageHrefOf(match.page)}/*` : '/provider/*'}
+                      element={<TodayPageProvider value={todayPage}>{content}</TodayPageProvider>} />
+                  </Routes>
+                </UNSAFE_RouteContext.Provider>
+              </BluePageBoundary>
             </div>
             {/* Fictional figures: only where the page itself is a sample. */}
             {match?.page.status === 'sample' ? <ConnectionStatus /> : null}

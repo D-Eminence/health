@@ -19,6 +19,7 @@ import { DeptEmbedded } from '../parts/DeptEmbedded'
 import { DeptNotice } from '../parts/DeptNotice'
 import { matchesSearch } from '../parts/format'
 import { useFacilityRead } from '../parts/useFacilityRead'
+import { isUrgent, urgencyRank } from '../parts/WorkQueue'
 import {
   CAP_CANNOT_COMPLETE, RoutedWorkLines, RoutedWorkPaused, SaidAboveList, SaidAboveTheList, StandaloneWorkNote, useLearnCannotCompleteServed,
   useLearnLateCorrectionServed, useLearnWrongPatientServed, useNotCompletedEndings, useReceiving, useRowSaid, WorkListCap, type Said,
@@ -101,7 +102,8 @@ export function Laboratory() {
   // With no stage in the address: the first with work waiting, else Waiting for sample.
   const stage: LabStage = isStage(asked) ? asked : STAGES.find(value => value !== 'done' && groupsOf(items).some(group => group.stage === value)) ?? 'collect'
   const shown = byUrgencyThenWait(groups.filter(group => group.stage === stage),
-    group => group.items.some(item => item.priority === 'stat') ? 'stat' : group.items.some(item => item.priority === 'urgent') ? 'urgent' : group.items[0]!.priority,
+    // A request is as urgent as its most urgent test: stat, then as soon as possible, then urgent.
+    group => group.items.map(item => item.priority).reduce((most, priority) => urgencyRank(priority) < urgencyRank(most) ? priority : most),
     group => group.items[0]!.acceptedAt)
   // The card each work item is reached from: focus goes back there from its record.
   const cardOf = new Map(groupsOf(items).flatMap(group => group.items.map(item => [item.id, `lab-${group.items[0]!.id}-record`] as const)))
@@ -211,7 +213,7 @@ function RequestCard({ group, settings, onOpen, below }: {
 }) {
   const first = group.items[0]!
   const person = personOf(first)
-  const urgent = group.items.some(item => item.priority === 'urgent' || item.priority === 'stat')
+  const urgent = group.items.some(item => isUrgent(item.priority))
   const bill = billOf(first)
   const owing = group.stage === 'collect' && paysFirst(settings, 'lab') && billOwing(bill)
   const action = nextAction(group.stage, factsOfItem(first), owing)

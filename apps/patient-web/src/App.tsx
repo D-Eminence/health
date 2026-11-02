@@ -15,8 +15,8 @@ import { ParticipatingFacilitiesPage } from './routes/ParticipatingFacilities'
 import { Recovery } from './routes/Recovery'
 import { PrincipalRecovery } from './routes/PrincipalRecovery'
 import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, SettingsRedirect } from './routes/Portal'
-import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE, STAFF_RECOVERY_PATH, staffSignInHref } from './productHostname'
-import { isStaffSignInEntrance, OpenEhrSignIn } from './staffSignIn'
+import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE, STAFF_RECOVERY_PATH, staffPageElsewhere } from './productHostname'
+import { isStaffPath, OpenStaffPage } from './staffSignIn'
 import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_INVITATION_PATH } from './productHostname'
 import { rightSiteHref, siteNameOf } from './productSites'
 import { openSite } from './openSite'
@@ -59,8 +59,10 @@ function PatientRoutes() {
       <Route path="/enroll" element={<Enrollment />} />
       <Route path="/enroll/facilities" element={<ParticipatingFacilitiesPage />} />
       <Route path="/recover" element={<Recovery />} />
-      {/* Sharing by card: the patient's preview of the provider's page, and the provider's page itself (the email's link). */}
+      {/* Sharing by card: the patient's preview of the provider's page, and the page a shared link opens (dormant until the
+          one-time-code routes exist: it says it isn't available yet and reads nothing). */}
       <Route path="/card/preview" element={<RequireAccess requirement={PATIENT_ROUTE}><SharedCardPreview /></RequireAccess>} />
+      <Route path="/card" element={<SharedCardPage />} />
       <Route path="/card/:token" element={<SharedCardPage />} />
       {/* hid-1.0's old addresses open the page that replaces each; nothing of the old address is kept. */}
       {Object.entries(LEGACY_PATIENT_PATHS).map(([from, to]) => <Route key={from} path={from} element={<Navigate to={to} replace />} />)}
@@ -104,9 +106,12 @@ function ProductHostnameGate({ children }: { children: React.ReactNode }) {
   const hostname = window.location.hostname
   const product = resolveStaffProductHostname(hostname)
 
-  // The production portal serves patients only: its staff entrance and sign-in, however they are reached, open the EHR
-  // site's sign-in at once (staffSignIn.tsx), before the staff workspace loads or asks anything.
-  if (staffSignInHref(hostname) && isStaffSignInEntrance(location.pathname)) return <OpenEhrSignIn />
+  // The production portal serves patients only, and an admin site platform administrators only: any staff page there
+  // (/provider and every page under it), however it is reached, opens the same page on the product site it belongs on
+  // at once (the EHR site unless the address names another product: staffSignIn.tsx), before the staff workspace
+  // loads or asks anything.
+  const elsewhere = isStaffPath(location.pathname) ? staffPageElsewhere(hostname, location) : null
+  if (elsewhere) return <OpenStaffPage href={elsewhere.href} site={elsewhere.product} />
 
   if (isPlatformAdminHostname(hostname) && location.pathname === '/') {
     return <Navigate to={PLATFORM_ADMIN_ROUTE} replace />
@@ -120,8 +125,8 @@ function ProductHostnameGate({ children }: { children: React.ReactNode }) {
   // opens there. That is only another product's own page, or the patient portal's: a product site keeps the hospital
   // EHR's pages, where the frame opens the product's Home, and the main site's staff addresses are the rule above's
   // (owner, 2026-11-02).
-  const elsewhere = rightSiteHref(location, hostname)
-  if (elsewhere) return <OnAnotherSite href={elsewhere} />
+  const otherSiteHref = rightSiteHref(location, hostname)
+  if (otherSiteHref) return <OnAnotherSite href={otherSiteHref} />
 
   return <>{children}</>
 }

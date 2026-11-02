@@ -201,9 +201,9 @@ describe('a product site opens only its own pages and those every product keeps'
     expect(await settle(site, [own, 'audit.read'], '/provider/audit')).toEqual({ where: '/provider/audit', heading: 'Audit (stand-in)' })
   })
 
-  it.each(SITES)('%s: an address no page takes is left to the frame’s own handling', async (site, own, home, heading) => {
-    // Today the frame opens Home for it; where it says "Page not found", that heading is expected here instead.
-    expect(await settle(site, [own], '/provider/no-such-page')).toEqual({ where: home, heading })
+  it.each(SITES)('%s: an address no page takes is left to the frame’s own handling', async (site, own) => {
+    // The frame says "Page not found" for it, at the address typed, as today's portal does.
+    expect(await settle(site, [own], '/provider/no-such-page')).toEqual({ where: '/provider/no-such-page', heading: 'Page not found' })
   })
 
   it('today’s own route (the staff invitation) still opens on lab.', async () => {

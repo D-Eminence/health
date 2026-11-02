@@ -8,8 +8,8 @@ import { DEMO_HOSPITAL, REAL_FACILITY, SESSION, facility, homeHeading, openStaff
 /**
  * Who may open a sample workspace: the design's role mapping (design/ehr-target src/catalog.ts permissions(role)), for
  * the person's roles or the demo role whose Home is being viewed; live pages keep their live permission. A page the
- * role may not open, and an address that is no page, open Home, the first with the design's notice. Every account and
- * facility here is fictional.
+ * role may not open opens Home with the design's notice; an address that is no page says "Page not found". Every
+ * account and facility here is fictional.
  */
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 beforeEach(() => { withFramePages() })
@@ -134,7 +134,7 @@ describe('the sidebar follows the design\'s roles', () => {
   })
 })
 
-describe('Home in place of a refused or unknown page', () => {
+describe('Home in place of a refused page, and Page not found for an unknown one', () => {
   it('sends a page the role may not open to Home, with the design\'s notice, until it is dismissed', async () => {
     const sent = await openAs(['receptionist'], '/provider/patient-billing')
     expect(await screen.findByText(NOTICE)).toBeDefined()
@@ -160,11 +160,13 @@ describe('Home in place of a refused or unknown page', () => {
     expect(document.querySelector('.hid-ehr-blue-redirect-notice')).toBeNull()
   })
 
-  it('opens Home for an address that is no page, without the notice', async () => {
-    await openAs(['receptionist'], '/provider/not-a-page')
-    await waitFor(() => expect(where()).toBe('/provider'))
-    expect(await screen.findByRole('heading', { level: 1, name: homeHeading() })).toBeDefined()
+  it('says Page not found for an address that is no page, without the notice, and reads nothing', async () => {
+    const sent = await openAs(['receptionist'], '/provider/not-a-page')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
+    expect(where()).toBe('/provider/not-a-page')
     expect(screen.queryByText(NOTICE)).toBeNull()
+    expect(screen.getByRole('link', { name: 'Go to Home' }).getAttribute('href')).toBe('/provider')
+    expect(sent.every(call => call.route === SESSION)).toBe(true)
   })
 })
 

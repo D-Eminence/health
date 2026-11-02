@@ -1,8 +1,6 @@
 import { useLayoutEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { AuthLayout } from '../../AuthLayout'
-import { useDocumentTitle } from '../../authSteps'
 import { buttonClass } from '../../kasuwa/ui'
-import type { ClinicianPagePath } from '../../productHostname'
 import { staffSignInAddress } from '../../staffSignIn'
 import './clinician.css'
 
@@ -83,21 +81,4 @@ export function ErrorSummary({ problems, focusKey }: { problems: readonly Proble
 /** A refused field's message, by its control's id, for the control's aria-describedby. */
 export function fieldError(problems: readonly Problem[], field: string): string | undefined {
   return problems.find(problem => problem.field === field)?.message
-}
-
-/**
- * A clinician page opened on a staff product host or the admin site: their
- * security checks are accepted only on the main site, so the page links there
- * instead of showing a form that would be refused.
- */
-export function MainSiteOnly({ href, path }: { href: string; path: ClinicianPagePath }) {
-  const signUp = path === '/provider/join'
-  useDocumentTitle(signUp ? 'Clinician sign-up · Health ID Provider' : 'Clinician application · Health ID Provider')
-  return <ClinicianFrame labelledBy="clinician-main-site-title">
-    <h1 id="clinician-main-site-title" className="m-0 text-title-1 text-ink">
-      {signUp ? 'Apply as a doctor or nurse' : 'Check your clinician application'}</h1>
-    <p className="patient-page-copy">{signUp ? 'Clinician sign-up is on the main Health ID site.'
-      : 'Clinician applications are checked on the main Health ID site.'}</p>
-    <a className={buttonClass({ variant: 'primary', block: true })} href={href}>Continue on the Health ID site</a>
-  </ClinicianFrame>
 }

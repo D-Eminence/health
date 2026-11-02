@@ -11,6 +11,9 @@ const mocks = vi.hoisted(() => ({
     facilities: vi.fn(), stepUp: vi.fn() },
 }))
 vi.mock('../api', () => ({ adminApi: mocks.api, newIdempotencyKey: () => 'key-1' }))
+// The deployment the console runs in, which decides where a new administrator sets a password.
+const deployment = vi.hoisted(() => ({ name: 'local' }))
+vi.mock('../env', () => ({ environment: () => ({ name: deployment.name }) }))
 
 const application = (overrides: Partial<OrganizationApplication> = {}): OrganizationApplication => ({
   applicationId: 'app-1', productCode: 'ehr', organizationName: 'Ikeja Care Ltd', organizationType: 'clinic', cacHint: 'RC••••56',
@@ -88,19 +91,27 @@ describe('organization applications', () => {
       'Registry evidence matches the profile', { organizationId: 'org-9', facilityId: 'facility-9' })
   })
 
-  it('tells the reviewer where a new administrator sets a password', async () => {
-    mocks.api.applications.mockResolvedValue({ items: [application()] })
-    mocks.api.approveApplication.mockResolvedValueOnce({ organizationId: 'org-1', facilityId: 'facility-1',
-      firstAdminAccountId: 'account-1', version: 6, organizationReused: false })
-    open()
-    const item = await card('Ikeja Care Ltd')
-    fireEvent.change(within(item).getByLabelText('Reason for your decision'), { target: { value: 'Registry evidence matches the profile' } })
-    fireEvent.click(within(item).getByRole('button', { name: 'Approve application' }))
-    const message = await screen.findByText(/A new organization, facility and administrator account were created/)
-    // The administrator is created pending_reset; recovery works only on the main site.
-    expect(message.textContent).toContain(`${window.location.origin}/provider/recover`)
-    expect(message.textContent).toContain('Password setup is done only on the main site')
-    expect(message.textContent).not.toContain('does not work yet')
+  it.each([
+    ['local', 'clinic', `${window.location.origin}/provider/recover`],
+    ['production', 'clinic', 'https://ehr.healthidentitydirectory.com/provider/recover'],
+    ['production', 'laboratory', 'https://lab.healthidentitydirectory.com/provider/recover'],
+    ['staging', 'pharmacy', 'https://pharmacy.staging.healthidentitydirectory.com/provider/recover'],
+  ])('in %s, tells the reviewer a new %s administrator sets a password at %s, never the patient portal', async (name, type, href) => {
+    deployment.name = name
+    try {
+      mocks.api.applications.mockResolvedValue({ items: [application({ organizationType: type })] })
+      mocks.api.approveApplication.mockResolvedValueOnce({ organizationId: 'org-1', facilityId: 'facility-1',
+        firstAdminAccountId: 'account-1', version: 6, organizationReused: false })
+      open()
+      const item = await card('Ikeja Care Ltd')
+      fireEvent.change(within(item).getByLabelText('Reason for your decision'), { target: { value: 'Registry evidence matches the profile' } })
+      fireEvent.click(within(item).getByRole('button', { name: 'Approve application' }))
+      const message = await screen.findByText(/A new organization, facility and administrator account were created/)
+      // The administrator is created pending_reset; each product site has its own password recovery.
+      expect(message.textContent).toContain(`ask them to set one at ${href}, or with “Forgot password?” on the sign-in page`)
+      expect(message.textContent).not.toMatch(/main site|https:\/\/app\.healthidentitydirectory\.com|https:\/\/staging\.healthidentitydirectory\.com/)
+      expect(message.textContent).not.toContain('does not work yet')
+    } finally { deployment.name = 'local' }
   })
 
   // Novu (P4b): an approval that would reuse a company which signed itself up waits for its review on New facility sign-ups.

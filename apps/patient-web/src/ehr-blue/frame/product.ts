@@ -2,13 +2,14 @@ import type { LucideIcon } from 'lucide-react'
 import { FlaskConical, Hospital, Pill, ScanText, Users } from 'lucide-react'
 import { resolveStaffProductHostname } from '../../productHostname'
 import { PUBLIC_ENVIRONMENT } from '../../publicEnvironment'
+import type { StaffSession } from '../../staff/api'
 import { basePath } from './pageHref'
 
 /**
  * Which Health ID product this workspace is (the owner's decision of 2026-10-31). A hospital may run everything: the
  * EHR with its laboratory, pharmacy and outreach inside it. A pharmacy, a laboratory or an outreach team may run only
  * its own product. Then it gets a focused workspace: its own name, its queue as home, and none of the hospital's
- * clinical places.
+ * clinical places but finding a patient and asking for their record.
  *
  * Decided from what the backend already gives:
  *  - The product's own address (lab., pharmacy., outreach., migrate.: productHostname.ts) is that product.
@@ -28,8 +29,13 @@ export const PRODUCTS: Readonly<Record<Product, ProductInfo>> = {
   migrate: { name: 'Migrate', icon: ScanText, home: 'ocr', prefix: 'ocr.' },
 }
 
-/** Pages every product keeps: running the facility itself (its people, its audit trail, its profile). */
-const SHARED: ReadonlySet<string> = new Set(['staff', 'audit', 'facility', 'hr', 'institutions'])
+/**
+ * Pages every product keeps: running the facility itself (its people, its audit trail, its profile), and Patients and
+ * Access requests. A lab scientist or a pharmacist reaches a patient's record only through a request the patient
+ * approves, and the classic portal listed both pages on every site, by permission (staff/navigation.ts). Each still
+ * needs its own permission; the EHR's other clinical pages, registration among them, stay out.
+ */
+const SHARED: ReadonlySet<string> = new Set(['staff', 'audit', 'facility', 'hr', 'institutions', 'patients', 'requests'])
 
 const SINGLE: readonly Exclude<Product, 'ehr'>[] = ['lab', 'pharmacy', 'outreach', 'migrate']
 
@@ -57,6 +63,14 @@ export function productOf(hostname: string, permissions: readonly string[]): Pro
   return held.length === 1 ? held[0]! : 'ehr'
 }
 
+/**
+ * The product this workspace is for this session, here: by this page's address and the current facility's permissions.
+ * The frame and What's left both ask this way, so its sidebar and What's left never disagree about which site this is.
+ */
+export function productHere(session: StaffSession | null): Product {
+  return productOf(window.location.hostname, session?.actor.facility?.permissions ?? [])
+}
+
 /** Whether a page belongs in this product's workspace. The EHR has them all. */
 export function inProduct(product: Product, path: string): boolean {
   if (product === 'ehr') return true
@@ -64,6 +78,15 @@ export function inProduct(product: Product, path: string): boolean {
   // The product's own pages below its home too: pharmacy/sell … pharmacy/settings, laboratory/new … laboratory/settings.
   return base === PRODUCTS[product].home || base.startsWith(`${PRODUCTS[product].home}/`) || SHARED.has(base)
     || (SELLS.has(product) && COUNTER_PAGES.has(base))
+}
+
+/**
+ * Whether this product's workspace offers a page: the frame lists only these (each still under its own permission), and
+ * What's left shows only these, so a lab's, pharmacy's, outreach team's or migration site never offers the hospital's
+ * pages (Patient registration is the EHR's alone). A single product has no Home: its first page is its own.
+ */
+export function productLists(product: Product, path: string): boolean {
+  return inProduct(product, path) && (product === 'ehr' || path !== '')
 }
 
 /**

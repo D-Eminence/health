@@ -61,7 +61,11 @@ describe('b. today\'s own routes keep today\'s tab title inside the blue frame',
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(demo, [demo])] })
     await openStaffApp('/provider/migrate')
-    expect(await screen.findByRole('heading', { level: 1, name: 'Migration workspace unavailable' })).toBeDefined()
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Migration workspace unavailable' })
+    // Today's page refuses in plain words that name no permission (the owner's rule), as Document OCR does.
+    const page = heading.closest('.hid-ehr-blue-live')
+    expect(page?.textContent).toContain('Reading scanned documents isn’t available at your facility yet.')
+    expect(page?.textContent).not.toMatch(/permission|membership|OCR job read|ocr\.job\.read/i)
     await waitFor(() => expect(document.title).toBe('Migration workspace · Health ID EHR'))
   })
 
@@ -81,6 +85,11 @@ describe('b. today\'s own routes keep today\'s tab title inside the blue frame',
     await openStaffApp('/provider/staff/join')
     await screen.findByRole('navigation', { name: 'Main navigation' })
     await waitFor(() => expect(document.title).toBe('Page not found · Health ID EHR'))
+    // The frame's own Page not found, not today's catch-all inside it: one look and one way back across the workspace.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeDefined()
+    const page = document.querySelector<HTMLElement>('.hid-ehr-blue-page')!
+    expect(within(page).getAllByRole('link')).toEqual([within(page).getByRole('link', { name: 'Go to Home' })])
+    expect(screen.queryByText(/provider overview/)).toBeNull()
   })
 })
 
