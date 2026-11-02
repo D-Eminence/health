@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 
 const navigation = vi.hoisted(() => ({ params: new URLSearchParams() }))
 
@@ -97,6 +97,33 @@ describe('the public site’s staff links', () => {
     render(createElement(ProviderApplyRedirect))
     expect(replace).toHaveBeenCalledWith(href)
     expect(screen.getByRole('link', { name: 'Continue to facility setup' }).getAttribute('href')).toBe(href)
+  })
+
+  it.each([
+    ['laboratory', 'production', 'https://lab.healthidentitydirectory.com/provider/sign-in'],
+    ['pharmacy', 'production', 'https://pharmacy.healthidentitydirectory.com/provider/sign-in'],
+    ['migrate', 'production', 'https://migrate.healthidentitydirectory.com/provider/sign-in'],
+    ['ehr', 'production', 'https://ehr.healthidentitydirectory.com/provider/sign-in'],
+    ['laboratory', 'staging', 'https://lab.staging.healthidentitydirectory.com/provider/sign-in'],
+    ['laboratory', 'local', 'http://localhost:3200/provider/sign-in'],
+  ] as const)('the facility completion page for %s, in %s, signs in at %s', async (product, environment, href) => {
+    await deployedAs(environment)
+    vi.stubEnv('NEXT_PUBLIC_HID_API_BASE_URL', 'https://healthidentitydirectory.com')
+    vi.stubEnv('NEXT_PUBLIC_HID_APP_ORIGIN', 'https://healthidentitydirectory.com')
+    const { ProviderCompletionForm } = await import('../app/provider/complete/ProviderCompletionForm')
+    render(createElement(ProviderCompletionForm, { initialProduct: product }))
+    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe(href)
+  })
+
+  it('the facility completion page signs in on the product chosen on the page', async () => {
+    await deployedAs('production')
+    vi.stubEnv('NEXT_PUBLIC_HID_API_BASE_URL', 'https://healthidentitydirectory.com')
+    vi.stubEnv('NEXT_PUBLIC_HID_APP_ORIGIN', 'https://healthidentitydirectory.com')
+    const { ProviderCompletionForm } = await import('../app/provider/complete/ProviderCompletionForm')
+    render(createElement(ProviderCompletionForm, { initialProduct: 'ehr' }))
+    fireEvent.change(screen.getByRole('combobox', { name: 'Product' }), { target: { value: 'pharmacy' } })
+    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href'))
+      .toBe('https://pharmacy.healthidentitydirectory.com/provider/sign-in')
   })
 
   it('in production, no footer, navigation or product page link opens a staff page on the patient portal', async () => {
