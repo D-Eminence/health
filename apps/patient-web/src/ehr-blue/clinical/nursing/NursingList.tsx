@@ -29,7 +29,7 @@ function NursingRecords({ chart }: { chart: Chart }) {
   const canCreate = reads && chart.canWrite && chart.can('ehr.note.write')
   return (
     <>
-      <EhrPageHeading title={TITLE} primaryAction={canCreate ? <EhrButton onClick={() => navigate(href('new'))}>New observation</EhrButton> : undefined} />
+      <EhrPageHeading title={TITLE} primaryAction={canCreate ? <EhrButton onClick={() => navigate(href('new'))}>Create record</EhrButton> : undefined} />
       {reads ? <ObservationsTable chart={chart} /> : <EhrCard><p>{NO_RECORD_ACCESS}</p></EhrCard>}
     </>
   )
