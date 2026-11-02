@@ -29,10 +29,9 @@ export const patientsStatus: EhrBluePageStatus = 'live'
  * offers the patient's Access PIN and emergency access, as today's "Obtain access" card does, so a patient Find opens at
  * once (the demo patients' seeded share) can still be opened by PIN or for an emergency. Ask the patient leads the group,
  * as today's Request method leads its card. A refused lookup adds only which patient and why: every way in stays in the
- * one group, for the Health ID in the field. There is no list of
- * every patient: Health ID shows a patient only once this facility may see them. "Register a patient" is today's
- * Patient registration page (/provider/registration), offered only with identity.registration.write; nothing of a
- * patient goes with it.
+ * one group, for the Health ID in the field. There is no list of every patient: Health ID shows a patient only once
+ * this facility may see them. "Register a patient" is today's Patient registration page (/provider/registration),
+ * offered only with identity.registration.write; nothing of a patient goes with it.
  */
 export function PatientsWorkspace() {
   return (

@@ -120,7 +120,7 @@ const NOT_ELIGIBLE = 'Only a doctor, clinician or nurse at a facility Health ID 
 const tile = (scope: HTMLElement, title: 'Ask the patient' | 'Use their Access PIN' | 'Emergency access') =>
   within(scope).getByRole('button', { name: new RegExp(`^${title}`) }) as HTMLButtonElement
 
-/** Searches for the patient, whom the lookup refuses, and answers the panel of ways in. */
+/** Searches for the patient, whom the lookup refuses, and answers the panel that says which patient and why. */
 async function refusedPanel() {
   api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
   open()
@@ -199,7 +199,7 @@ describe('Find a patient', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Find a patient' })).toBeTruthy()
   })
 
-  it('offers the ways in for a refused patient and hands the Health ID to the request form', async () => {
+  it('says which refused patient, and Obtain access hands their Health ID to the request form', async () => {
     const panel = await refusedPanel()
     // In the search card, under the search.
     expect(panel.parentElement!.contains(searchField())).toBe(true)
@@ -243,11 +243,14 @@ describe('Find a patient', () => {
 
   it('review item 11: a role without identity.consent.write sees Ask the patient turned off with today’s sentence, and hands no Health ID over', async () => {
     staff.permissions = ['identity.patient.read', 'identity.patient-access-pin.verify']
-    await refusedPanel()
+    const panel = await refusedPanel()
     const request = groupTile('Ask the patient')
     expect(request.disabled).toBe(true)
     expect(describedBy(request)).toBe(REQUEST_UNAVAILABLE)
     expect(within(accessGroup()).getByText(REQUEST_UNAVAILABLE)).toBeTruthy()
+    // Said once, in Obtain access: the panel says only which patient and why.
+    expect(screen.getAllByText(REQUEST_UNAVAILABLE)).toHaveLength(1)
+    expect(within(panel).queryByText(REQUEST_UNAVAILABLE)).toBeNull()
     fireEvent.click(request)
     expect(where()).toBeNull()
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
@@ -968,10 +971,10 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
 /**
  * Owner, 31 October: "I want access pin and emergency to work on demo too". The demo patients' seeded share opens them
  * at Find, so the refused panel (the only place the PIN and emergency access were offered) never shows for them. Find a
- * patient now always offers both under the search, as today's "Obtain access" card does, and the refused panel adds
- * only Ask the patient; a patient's page offers emergency access under direct care (at a demo facility only) and the way
- * back to direct care under emergency access; the PIN page says, at a demo facility only, that no demo patient has a PIN
- * yet and how one gets one.
+ * patient now always offers them under the search, Ask the patient first, as today's "Obtain access" card does, and the
+ * refused panel says only which patient and why; a patient's page offers emergency access under direct care (at a demo
+ * facility only) and the way back to direct care under emergency access; the PIN page says, at a demo facility only,
+ * that no demo patient has a PIN yet and how one gets one.
  */
 describe('PIN and emergency access offered as today’s portal offers them', () => {
   /** Every permission the PIN and emergency access need, with this file's role. */
@@ -1076,7 +1079,7 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       expect(api.lookupPatient).not.toHaveBeenCalled()
     })
 
-    it('parity: tells a role without identity.consent.write before it starts that it can’t ask patients, and hands nothing over', () => {
+    it('parity: tells a role without identity.consent.write before it starts why Ask the patient is off, and hands nothing over', () => {
       staff.permissions = ['identity.patient.read', 'identity.patient-access-pin.verify']
       openTracked()
       const request = groupTile('Ask the patient')
@@ -1185,9 +1188,10 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       // Today's busy pattern: the tiles say they are unavailable while the lookup runs.
       await waitFor(() => expect(groupTile('Use their Access PIN').getAttribute('aria-disabled')).toBe('true'))
       expect(groupTile('Emergency access').getAttribute('aria-disabled')).toBe('true')
-      // Each press leaves the user on Find a patient with nothing handed over: no PIN or Emergency page the answer could
-      // take them away from.
-      for (const title of ['Use their Access PIN', 'Emergency access'] as const) {
+      expect(groupTile('Ask the patient').getAttribute('aria-disabled')).toBe('true')
+      // Each press leaves the user on Find a patient with nothing handed over: no request form, PIN or Emergency page
+      // the answer could take them away from.
+      for (const title of ['Ask the patient', 'Use their Access PIN', 'Emergency access'] as const) {
         fireEvent.click(groupTile(title))
         expect(screen.getByRole('heading', { level: 1, name: 'Find a patient' })).toBeTruthy()
         expect(address()).toBe('/provider/patients')
@@ -1197,6 +1201,7 @@ describe('PIN and emergency access offered as today’s portal offers them', () 
       await act(async () => { answer(allowedLookup) })
       expect(await screen.findByRole('heading', { level: 1, name: PATIENT_NAME })).toBeTruthy()
       expect(address()).toBe('/provider/patients/open')
+      expect(addresses).not.toContain('/provider/requests/new')
       expect(addresses).not.toContain('/provider/patients/pin')
       expect(addresses).not.toContain('/provider/emergency')
       expect(api.verifyPin).not.toHaveBeenCalled()
