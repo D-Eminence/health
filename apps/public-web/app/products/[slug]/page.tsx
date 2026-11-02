@@ -12,7 +12,7 @@ import { WorkflowBento } from '@/components/product/WorkflowBento'
 import { EhrWorkflowBento } from '@/components/product/EhrWorkflowBento'
 import { HealthIDModuleShowcase } from '@/components/product/HealthIDModuleShowcase'
 import { PRODUCT_DETAILS, findProductDetail } from '@/content/product-details'
-import { APP_ENTRY, productSignInHref, ROUTES } from '@/content/site'
+import { productSignInHref, ROUTES } from '@/content/site'
 import type { HealthIDModuleSlug } from '@/content/module-showcase'
 import { isApplicationProduct, providerApplicationHref } from '@/lib/provider-application'
 
@@ -98,7 +98,7 @@ export default async function ProductPage({ params }: PageProps) {
           primary={product.cta}
           primaryHref={isApplicationProduct(product.slug) ? providerApplicationHref(product.slug) : '#demo'}
           secondary="Hospital sign in"
-          secondaryHref={APP_ENTRY.staffSignIn}
+          secondaryHref={productSignInHref(product.slug)}
         />
       </main>
       <SiteFooter />

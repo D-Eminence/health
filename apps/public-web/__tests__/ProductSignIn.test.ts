@@ -31,9 +31,10 @@ afterEach(() => {
 /**
  * Each product page's Sign in goes to that product's own site's staff sign-in (owner, 2026-11-01: each product its own
  * sign-in): the site productSiteHref names for this build's deployment (health#108), whose front page is this same
- * page. Where there is no product site (local development, or a page with no site of its own), the portal's own staff
- * sign-in. The portal's address plays no part: this module was loaded with the local portal, and the product sites
- * still follow NEXT_PUBLIC_HID_ENVIRONMENT alone. Only the link changes: the pages' design and words stay as they are.
+ * page. Where there is no product site (a page with no site of its own), APP_ENTRY.staffSignIn: the EHR site's (owner
+ * 2026-11-02: app. is for patients only), or the local portal's in local development. The portal's address plays no
+ * part: this module was loaded with the local portal, and the product sites still follow NEXT_PUBLIC_HID_ENVIRONMENT
+ * alone. Only the link changes: the pages' design and words stay as they are.
  */
 describe('a product page’s Sign in', () => {
   it.each([
@@ -59,15 +60,17 @@ describe('a product page’s Sign in', () => {
   })
 
   it.each([['local development', 'local'], ['no environment', undefined]])(
-    'keeps the portal’s staff sign-in for every product in %s, where this site serves the product pages itself',
+    'keeps the local portal’s staff sign-in for every product in %s, where this site serves the product pages itself',
     (_name, environment) => {
       vi.stubEnv('NEXT_PUBLIC_HID_ENVIRONMENT', environment)
       for (const slug of Object.keys(PRODUCT_SITE_SUBDOMAINS)) expect(productSignInHref(slug)).toBe(APP_ENTRY.staffSignIn)
     })
 
-  it.each(['production', 'staging'])('keeps the portal’s staff sign-in in %s for the pages with no product site', environment => {
+  it.each(['production', 'staging'])('uses the EHR site’s staff sign-in in %s for the pages with no product site', environment => {
     vi.stubEnv('NEXT_PUBLIC_HID_ENVIRONMENT', environment)
     for (const slug of ['identity', 'api', 'toString', '']) expect(productSignInHref(slug)).toBe(APP_ENTRY.staffSignIn)
+    expect(APP_ENTRY.staffSignIn).toBe(environment === 'production' ? 'https://ehr.healthidentitydirectory.com/provider/sign-in'
+      : 'https://ehr.staging.healthidentitydirectory.com/provider/sign-in')
   })
 
   it.each(['production', 'staging'])('signs in on the product site’s own host in %s, for every product site', environment => {
@@ -89,8 +92,8 @@ describe('a product page’s Sign in', () => {
   })
 
   // Even where the product sites exist, the api page (no site of its own) and every other provider page, which use the
-  // navigation's default, keep the portal's staff sign-in.
-  it('stays the portal’s staff sign-in on the api page in production', async () => {
+  // navigation's default, use APP_ENTRY.staffSignIn: the EHR site's in production, never the patient portal's.
+  it('is the EHR site’s staff sign-in on the api page in production', async () => {
     vi.stubEnv('NEXT_PUBLIC_HID_ENVIRONMENT', 'production')
     const { default: ProductPage } = await import('../app/products/[slug]/page')
     render(await ProductPage({ params: Promise.resolve({ slug: 'api' }) }))
@@ -99,7 +102,7 @@ describe('a product page’s Sign in', () => {
     for (const link of signIn) expect(link.getAttribute('href')).toBe(APP_ENTRY.staffSignIn)
   })
 
-  it('stays the portal’s staff sign-in in the provider navigation’s default in production', async () => {
+  it('is the EHR site’s staff sign-in in the provider navigation’s default in production', async () => {
     vi.stubEnv('NEXT_PUBLIC_HID_ENVIRONMENT', 'production')
     const { ProviderNav } = await import('@/components/layout/SiteNav')
     render(createElement(ProviderNav))

@@ -104,18 +104,52 @@ function portalOrigin(configured: string | undefined, localOrigin: string): stri
 
 const PORTAL_ORIGIN = portalOrigin(process.env.NEXT_PUBLIC_HID_PORTAL_ORIGIN, 'http://localhost:3200')
 
+/**
+ * The staff page at `path` (provider/sign-in, provider/enroll) on the EHR site of this build's deployment, the site
+ * staff and facilities use when no product is named. The patient portal (app.) is for patients only (owner,
+ * 2026-11-02): no link here opens a staff page there. In local development, where there is no product site, the local
+ * portal's own staff page.
+ */
+function ehrSitePage(path: string): string {
+  const site = productSiteHref('ehr')
+  return site ? new URL(path, site).href : `${PORTAL_ORIGIN}/${path}`
+}
+
+/**
+ * The ways in. Patients sign in and get a Health ID on the patient portal (app.). Staff sign in, and a facility signs
+ * up, on the EHR site (each product site has its own: productSignInHref, productSignUpHref). The staff addresses are
+ * read when asked for, so they follow NEXT_PUBLIC_HID_ENVIRONMENT as productSiteHref does.
+ */
 export const APP_ENTRY = {
   patientSignIn: `${PORTAL_ORIGIN}/sign-in`,
   patientSignUp: `${PORTAL_ORIGIN}/enroll`,
-  staffSignIn: `${PORTAL_ORIGIN}/provider/sign-in`,
-  providerSignUp: `${PORTAL_ORIGIN}/provider/enroll`,
+  get staffSignIn(): string { return ehrSitePage('provider/sign-in') },
+  get providerSignUp(): string { return ehrSitePage('provider/enroll') },
 } as const
+
+/** The product site each sign-up product belongs to (lib/provider-application.ts APPLICATION_PRODUCTS). */
+const SIGN_UP_PRODUCT_SITES: Readonly<Record<string, string>> = {
+  ehr: 'ehr', laboratory: 'laboratory', pharmacy: 'pharmacy', migrate: 'migrate',
+}
+
+/**
+ * Where a facility signs up for `product`: that product's own site's facility sign-up (each product site signs up its
+ * own kind of facility, owner 2026-11-02), with the product named so the form starts with it. With no product, or one
+ * the sign-up does not know, the EHR site's. In local development, the local portal's.
+ */
+export function productSignUpHref(product?: string | null): string {
+  const slug = product && Object.hasOwn(SIGN_UP_PRODUCT_SITES, product) ? SIGN_UP_PRODUCT_SITES[product]! : null
+  if (!slug || !product) return APP_ENTRY.providerSignUp
+  const site = productSiteHref(slug)
+  const base = site ? new URL('provider/enroll', site).href : `${PORTAL_ORIGIN}/provider/enroll`
+  return `${base}?product=${product}`
+}
 
 /**
  * Where a product page's Sign in goes: the staff sign-in on that product's own site (each product its own sign-in,
  * owner 2026-11-01), the same site productSiteHref names, so the page's Sign in and its front page are always one host.
- * Where productSiteHref names no site (local development, or a page with no site of its own), the portal's own staff
- * sign-in. Absolute even though the page is that site's own front page in production and on staging: the edge reads the
+ * Where productSiteHref names no site (local development, or a page with no site of its own), APP_ENTRY.staffSignIn:
+ * the EHR site's, or the local portal's in local development. Absolute even though the page is that site's own front page in production and on staging: the edge reads the
  * page's addresses as this site's (frontend-worker.mjs, landingHref), so a relative /provider/sign-in would open this
  * site's, which has none. The edge leaves an address on the product site's own host as it is.
  */
