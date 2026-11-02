@@ -61,24 +61,39 @@ offers no Try again for it, and closing the drawer keeps the saved entry without
 Save's other files, and goes by each answer. A `429` with any other code (the edge's rate limit, for one) is an
 ordinary failed upload, which Try again may send again with the same key.
 
-*Photos arrive without their metadata.* Before a JPEG or PNG is hashed, the browser takes out its metadata without
-re-encoding it (`apps/patient-web/src/photoMetadata.ts`), so the picture's own bytes are unchanged. From a JPEG it
-drops APP1 (EXIF, with the GPS position, the camera's make and model and the EXIF thumbnail; XMP), APP13 (IPTC), COM,
-every other APPn (the APP2 MPF index among them) and everything after the primary image's end of image (the further
-pictures phones append, each with its own EXIF and GPS); it keeps APP0 JFIF (without a thumbnail), APP2
-`ICC_PROFILE`, APP14 Adobe (its 12 bytes, nothing after them), the tables, the one frame and each scan byte for byte.
-From a PNG it keeps the critical chunks (IHDR, PLTE, IDAT, IEND) and the ancillary chunks display needs (tRNS; cHRM,
-gAMA, iCCP, sBIT, sRGB, cICP, mDCV, cLLI; bKGD, hIST, pHYs; APNG's acTL, fcTL, fdAT), each byte for byte, and drops
-every other chunk: eXIf (and its earlier spellings exIf and zxIf), tEXt, zTXt, iTXt, tIME, C2PA's caBX (which can
-carry the place), private chunks (Apple's iDOT among them), and anything after IEND. `sizeBytes`, `sha256Hex` and the
-PUT body are all of the stripped bytes, and the same file always strips to the same bytes, so Try again sends the
-same body. A photo that can't be walked cleanly is refused in the browser and never sent: among others, a JPEG table,
-frame or scan header whose length says more than its fields, a second frame, a PNG chunk whose CRC is wrong, and a
-critical chunk other than IHDR, PLTE, IDAT and IEND (or a second IHDR). PDFs are sent as they are, once their first
-bytes are `%PDF-` (above): a photo or a phone's video under a PDF's name, which would go up with its metadata, is
-refused, as is anything else that isn't a PDF. The server must not rely on any of this (an older page or another client
-may send a photo as taken): it may strip again, after the confirm has checked the stored object against `sizeBytes`,
-`sha256Hex` and `mediaType`.
+*Photos arrive without their metadata, but for which way up they are.* Before a JPEG or PNG is hashed, the browser
+takes out its metadata without re-encoding it (`apps/patient-web/src/photoMetadata.ts`), so the picture's own bytes
+are unchanged. From a JPEG it drops APP1 (EXIF, with the GPS position, the camera's make and model and the EXIF
+thumbnail, all of it but the orientation below; XMP), APP13 (IPTC), COM, every other APPn (the APP2 MPF index among
+them) and everything after the primary image's end of image (the further pictures phones append, each with its own
+EXIF and GPS); it keeps APP0 JFIF (without a thumbnail), APP2 `ICC_PROFILE`, APP14 Adobe (its 12 bytes, nothing after
+them), the tables, the one frame and each scan byte for byte. From a PNG it keeps the critical chunks (IHDR, PLTE,
+IDAT, IEND) and the ancillary chunks display needs (tRNS; cHRM, gAMA, iCCP, sBIT, sRGB, cICP, mDCV, cLLI; bKGD, hIST,
+pHYs; APNG's acTL, fcTL, fdAT), each byte for byte, and drops every other chunk: eXIf (all of it but the orientation
+below; and its earlier spellings exIf and zxIf), tEXt, zTXt, iTXt, tIME, C2PA's caBX (which can carry the place),
+private chunks (Apple's iDOT among them), and anything after IEND. One thing of EXIF is kept, which way up the picture
+is (the owner's decision, 2 November: "keep the orientation tag only"), so a photo of a page taken sideways doesn't
+show on its side. The browser reads the Orientation tag (0x0112, a SHORT of count 1) from IFD0 of the first APP1
+`Exif\0\0` before the first scan, in that EXIF's own byte order (`II` or `MM`), with every offset and count checked
+against the segment. When it is 2 to 8, the JPEG gets a new APP1 built from that value alone: `Exif\0\0`, a TIFF
+header that is always little-endian (`II`, whatever the camera wrote), IFD0 with that one entry, and next IFD 0; 36
+bytes in all, `FF E1 00 22 45 78 69 66 00 00 49 49 2A 00 08 00 00 00 01 00 12 01 03 00 01 00 00 00 0v 00 00 00 00 00
+00 00` (`v` the value), right after SOI, or right after APP0 JFIF when the photo opens with one. Nothing else of the
+original EXIF is copied: no other tag, no IFD1 or thumbnail, no GPS or EXIF sub-IFD, no MakerNote, no padding. A PNG
+is treated the same way from its first eXIf before the first IDAT: it gets a new eXIf chunk holding that same 26-byte
+TIFF, with its own CRC, right after IHDR. Orientation 1, none, a value out of range, an EXIF that can't be read within
+its own bounds (a count or offset that lies, say), a later APP1 or eXIf, or an orientation that only XMP gives, means
+no APP1 or eXIf at all; an EXIF that can't be read is dropped like any other metadata and does not by itself make the
+photo refused. `sizeBytes`, `sha256Hex` and the PUT body are all of the stripped bytes, and the same file always
+strips to the same bytes, so Try again sends the same body. A photo that can't be walked cleanly is refused in the
+browser and never sent: among others, a JPEG table, frame or scan header whose length says more than its fields, a
+second frame, a PNG chunk whose CRC is wrong, and a critical chunk other than IHDR, PLTE, IDAT and IEND (or a second
+IHDR). PDFs are sent as they are, once their first bytes are `%PDF-` (above): a photo or a phone's video under a PDF's
+name, which would go up with its metadata, is refused, as is anything else that isn't a PDF. The server must not rely
+on any of this (an older page or another client may send a photo as taken, with all its EXIF): it may strip again,
+after the confirm has checked the stored object against `sizeBytes`, `sha256Hex` and `mediaType`, and if it does,
+keeping the orientation by the same rule keeps the picture the right way up. Nor may it take the orientation that
+arrives for anything more than a hint for display.
 
 **3. PUT the file** to `upload.url` with `requiredHeaders`: the exact bytes that were hashed (for a photo, its stripped
 bytes), no cookies. The document bucket's CORS must allow this PUT from the patient host (app.) and its staging and

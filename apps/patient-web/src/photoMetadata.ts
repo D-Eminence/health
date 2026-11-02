@@ -9,15 +9,29 @@
  * SOFn, DHT, DAC, DRI, DNL, DHP, EXP, each exactly as long as its own fields, or the file is refused: a length that says
  * more could hide an EXIF block behind them), each scan with its entropy-coded data exactly as it was (FF00 stuffing and
  * RST0-7 included; a progressive JPEG has several scans, with tables between them), and the end of image. Dropped:
- * APP1 (EXIF, with the GPS position, the camera's make and model and the EXIF thumbnail; XMP), APP13 (IPTC and
- * Photoshop), COM, every other APPn (APP2 MPF, the index of the further pictures a phone stores) and everything after
- * the primary image's end: phones append further JPEGs there (depth and gain maps, each with its own EXIF and GPS), and
- * some a video.
+ * APP1 (EXIF, with the GPS position, the camera's make and model and the EXIF thumbnail, all of it but which way up the
+ * picture is, below; XMP), APP13 (IPTC and Photoshop), COM, every other APPn (APP2 MPF, the index of the further
+ * pictures a phone stores) and everything after the primary image's end: phones append further JPEGs there (depth and
+ * gain maps, each with its own EXIF and GPS), and some a video.
  *
  * A PNG keeps its signature, its critical chunks and the ancillary chunks its display needs (transparency, colour, pixel
- * size, animation), each byte for byte (so each CRC stays valid). Dropped: eXIf (and the earlier spellings exIf and
- * zxIf), tEXt, zTXt, iTXt (which also carries XMP), tIME, and every other ancillary chunk (C2PA's caBX, which can carry
- * the place; private chunks such as Apple's iDOT); nothing after IEND is kept.
+ * size, animation), each byte for byte (so each CRC stays valid). Dropped: eXIf (all of it but which way up the picture
+ * is, below; and the earlier spellings exIf and zxIf), tEXt, zTXt, iTXt (which also carries XMP), tIME, and every other
+ * ancillary chunk (C2PA's caBX, which can carry the place; private chunks such as Apple's iDOT); nothing after IEND is
+ * kept.
+ *
+ * Which way up the picture is, alone, is kept (the owner's decision, 2 Nov): a phone stores a photo as its sensor read it
+ * and says in EXIF's Orientation (IFD0's tag 0x0112, a SHORT of count 1) how to turn it, so without it a photo of a
+ * page can show on its side. When the first APP1 EXIF before the first scan says 2 to 8 (a browser reads none after
+ * it), the JPEG gets an APP1 built anew from that value alone, right after the start of image, or right after APP0 JFIF
+ * when the photo opens with one; when the first eXIf before the first IDAT does (the same), the PNG gets an eXIf built
+ * the same way, right after IHDR, with its own CRC. The APP1 holds "Exif\0\0" and then, as the eXIf does, a 26-byte
+ * TIFF: little-endian whatever the original's byte order (so that tells nothing of the camera either), IFD0 at 8 with
+ * the one entry, its value, and no next IFD. Nothing of the original EXIF is copied: no other tag or IFD, no thumbnail,
+ * no GPS or EXIF sub-IFD, no MakerNote, no padding. Orientation 1 (the picture as stored), none, a value out of range,
+ * a later EXIF, or an EXIF that can't be read within its own bounds gives none, so no EXIF at all; an EXIF that can't
+ * be read is dropped like any other metadata and does not by itself make the photo refused. The same file always
+ * strips to the same bytes.
  *
  * Fail closed: a file that cannot be walked cleanly (a bad marker or chunk, a segment or chunk running past the end, no
  * end of image or IEND, a second JPEG frame, a PNG chunk whose CRC is wrong, a critical chunk PNG doesn't have, or bytes
@@ -87,11 +101,65 @@ function startsWith(bytes: Uint8Array, at: number, end: number, text: string): b
   return true
 }
 
+/** `text` as bytes, a byte per character. */
+const asciiBytes = (text: string) => Uint8Array.from(text, character => character.charCodeAt(0))
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Orientation, the one thing of EXIF kept
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** EXIF's Orientation: in IFD0, tag 0x0112, a SHORT (type 3) of count 1. */
+const ORIENTATION_TAG = 0x0112
+const SHORT = 3
+
+/**
+ * The Orientation that the TIFF in `bytes` from `from` up to `to` (an EXIF's, in either byte order) gives in its IFD0,
+ * when it is 2 to 8. Null when it is 1 (the picture as stored), missing, out of range or not a SHORT of count 1, or when
+ * the TIFF can't be read that far within its own bounds: no byte order, no 42, an IFD0 inside the header or past the
+ * end, entries running past the end. The first Orientation entry decides, and nothing else of the TIFF is read (no
+ * further IFD, no value elsewhere). Never throws: an EXIF that can't be read only gives no orientation.
+ */
+function orientationIn(bytes: Uint8Array, from: number, to: number): number | null {
+  if (to - from < 8) return null
+  const little = bytes[from] === 0x49 && bytes[from + 1] === 0x49
+  if (!little && !(bytes[from] === 0x4d && bytes[from + 1] === 0x4d)) return null
+  const u16 = (at: number) => little ? bytes[at]! | (bytes[at + 1]! << 8) : (bytes[at]! << 8) | bytes[at + 1]!
+  const u32 = (at: number) => little ? (u16(at + 2) * 0x10000) + u16(at) : (u16(at) * 0x10000) + u16(at + 2)
+  if (u16(from + 2) !== 42) return null
+  // IFD0 after the 8-byte header, its count of entries within the TIFF, then each entry (12 bytes) within it too.
+  const ifd = u32(from + 4)
+  if (ifd < 8 || ifd > to - from - 2) return null
+  const entries = from + ifd + 2, count = u16(from + ifd)
+  if (entries + 12 * count > to) return null
+  for (let entry = entries; entry < entries + 12 * count; entry += 12) {
+    if (u16(entry) !== ORIENTATION_TAG) continue
+    if (u16(entry + 2) !== SHORT || u32(entry + 4) !== 1) return null
+    // A SHORT is the first two of the entry's four value bytes.
+    const value = u16(entry + 8)
+    return value >= 2 && value <= 8 ? value : null
+  }
+  return null
+}
+
+/**
+ * The TIFF kept for `orientation` (2 to 8), built from that value alone: little-endian whatever the original's byte
+ * order, IFD0 at 8 with one entry (Orientation, a SHORT of count 1, its value in the first two of its four bytes) and
+ * no next IFD. 26 bytes, the same for every photo turned the same way.
+ */
+function orientationTiff(orientation: number): Uint8Array {
+  return Uint8Array.from([
+    0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00,
+    0x01, 0x00,
+    ORIENTATION_TAG & 0xff, ORIENTATION_TAG >> 8, SHORT, 0x00, 0x01, 0x00, 0x00, 0x00, orientation, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+  ])
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // JPEG
 // ---------------------------------------------------------------------------------------------------------------------
 
-const SOI = 0xd8, EOI = 0xd9, SOS = 0xda, APP0 = 0xe0, APP2 = 0xe2, APP14 = 0xee, APP15 = 0xef, COM = 0xfe
+const SOI = 0xd8, EOI = 0xd9, SOS = 0xda, APP0 = 0xe0, APP1 = 0xe1, APP2 = 0xe2, APP14 = 0xee, APP15 = 0xef, COM = 0xfe
 const DHT = 0xc4, DAC = 0xcc, DQT = 0xdb, DNL = 0xdc, DRI = 0xdd, EXP = 0xdf
 const isRestart = (marker: number) => marker >= 0xd0 && marker <= 0xd7
 /** The frame headers: SOF0-3, 5-7, 9-11 and 13-15 (C4 is DHT, C8 reserved, CC DAC). */
@@ -113,6 +181,18 @@ function rebuilt(marker: number, data: Uint8Array): Uint8Array {
   segment.set([0xff, marker, (data.length + 2) >> 8, (data.length + 2) & 0xff])
   segment.set(data, 4)
   return segment
+}
+
+/** What starts an APP1 EXIF, before its TIFF. */
+const EXIF_IDENTIFIER = 'Exif\0\0'
+
+/** The JPEG's one APP1 when it is to be turned: "Exif\0\0" and the orientation's TIFF alone (36 bytes in all). */
+function orientationApp1(orientation: number): Uint8Array {
+  const tiff = orientationTiff(orientation)
+  const data = new Uint8Array(EXIF_IDENTIFIER.length + tiff.length)
+  data.set(asciiBytes(EXIF_IDENTIFIER))
+  data.set(tiff, EXIF_IDENTIFIER.length)
+  return rebuilt(APP1, data)
 }
 
 /**
@@ -184,6 +264,11 @@ function stripJpeg(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
   let at = 2
   let frame = false
   let scanned = false
+  // Which way up the picture is, from the first APP1 EXIF before the first scan (browsers read none after it), and where
+  // its new APP1 goes among what is kept: after the start of image, or after APP0 JFIF when the photo opens with one.
+  let exifRead = false
+  let orientation: number | null = null
+  let orientationAt = 1
   for (;;) {
     if (at >= bytes.length) throw new PhotoMetadataError('truncated', 'no end of image')
     if (bytes[at] !== 0xff) throw new PhotoMetadataError('bad-marker', `no marker at byte ${at}`)
@@ -194,6 +279,7 @@ function stripJpeg(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
     if (marker === EOI) {
       if (!scanned) throw new PhotoMetadataError('no-image', 'the end of image before any scan')
       kept.push(bytes.subarray(at, at + 2))
+      if (orientation != null) kept.splice(orientationAt, 0, orientationApp1(orientation))
       // Whatever follows the primary image's end (further pictures, a video) is left behind.
       return join(kept)
     }
@@ -212,7 +298,14 @@ function stripJpeg(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
     if (!isMetadata && !exactSegment(bytes, marker, at + 4, end)) {
       throw new PhotoMetadataError('bad-segment', `a segment ${marker.toString(16)} whose length isn't its fields' at byte ${at}`)
     }
+    // The EXIF is read for its orientation alone, and dropped like any other APP1; one that can't be read gives none.
+    if (marker === APP1 && !exifRead && !scanned && startsWith(bytes, at + 4, end, EXIF_IDENTIFIER)) {
+      exifRead = true
+      orientation = orientationIn(bytes, at + 4 + EXIF_IDENTIFIER.length, end)
+    }
     const segment = keptSegment(bytes, marker, at, end)
+    // APP0 is kept only as JFIF.
+    if (segment && marker === APP0 && kept.length === 1) orientationAt = 2
     if (segment) kept.push(segment)
     at = end
     if (marker !== SOS) continue
@@ -265,6 +358,18 @@ function crc32(bytes: Uint8Array, from: number, to: number): number {
   return (c ^ 0xffffffff) >>> 0
 }
 
+/** The PNG's one eXIf when it is to be turned: the orientation's TIFF alone, as a chunk with its own CRC (38 bytes). */
+function orientationChunk(orientation: number): Uint8Array {
+  const tiff = orientationTiff(orientation)
+  const chunk = new Uint8Array(12 + tiff.length)
+  chunk.set([0, 0, 0, tiff.length])
+  chunk.set(asciiBytes('eXIf'), 4)
+  chunk.set(tiff, 8)
+  const crc = crc32(chunk, 4, 8 + tiff.length)
+  chunk.set([crc >>> 24, (crc >>> 16) & 0xff, (crc >>> 8) & 0xff, crc & 0xff], 8 + tiff.length)
+  return chunk
+}
+
 function stripPng(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
   if (bytes.length < PNG_SIGNATURE.length || !PNG_SIGNATURE.every((byte, index) => bytes[index] === byte)) {
     throw new PhotoMetadataError('not-png', 'no PNG signature')
@@ -273,6 +378,10 @@ function stripPng(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
   let at: number = PNG_SIGNATURE.length
   let first = true
   let image = false
+  // Which way up the picture is, from the first eXIf before the first IDAT (where PNG puts it, and browsers read it);
+  // its new eXIf goes right after IHDR.
+  let exifRead = false
+  let orientation: number | null = null
   for (;;) {
     // Length (4), type (4), data, CRC (4).
     if (at + 12 > bytes.length) throw new PhotoMetadataError('truncated', 'no IEND')
@@ -297,8 +406,14 @@ function stripPng(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
     if (type === 'IEND') {
       if (!image || length !== 0) throw new PhotoMetadataError('no-image', 'IEND without image data')
       kept.push(bytes.subarray(at, end))
+      if (orientation != null) kept.splice(2, 0, orientationChunk(orientation))
       // Whatever follows IEND is left behind.
       return join(kept)
+    }
+    // The eXIf (its data a TIFF) is read for its orientation alone, and dropped; one that can't be read gives none.
+    if (type === 'eXIf' && !exifRead && !image) {
+      exifRead = true
+      orientation = orientationIn(bytes, at + 8, end - 4)
     }
     if (type === 'IDAT') image = true
     if (isCriticalChunk(type) || PNG_KEPT_ANCILLARY.has(type)) kept.push(bytes.subarray(at, end))
