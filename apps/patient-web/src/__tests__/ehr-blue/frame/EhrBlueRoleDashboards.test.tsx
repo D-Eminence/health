@@ -148,12 +148,12 @@ describe('5. the dashboard\'s markup is Home\'s', () => {
 
 describe('6. pinned shortcuts', () => {
   it.each([
-    ['Platform Super Admin', ['Facility review', 'Staff & access', 'Audit & Compliance', 'Facility settings']],
+    ['Platform Super Admin', ['Facility review', 'Staff & access', 'Audit trail', 'Facility settings']],
     ['Hospital Owner', ['Patient billing', 'Insurance & Claims', 'Dispatch', 'Shifts & Roster']],
     ['Hospital Admin', ['Patient billing', 'Insurance & Claims', 'Dispatch', 'Shifts & Roster']],
     ['Doctor', ['Patients', 'Appointments', 'Patient visits', 'Triage & Vitals']],
     ['Receptionist', ['Patients', 'Appointments', 'Patient visits']],
-    ['Records Officer', ['Patients', 'Reports & Analytics', 'Audit & Compliance']],
+    ['Records Officer', ['Patients', 'Reports & Analytics', 'Audit trail']],
     ['Lab Scientist', ['Laboratory', 'Blood Bank', 'Supply']],
     ['Pharmacist', ['Pharmacy', 'Supply']],
     ['Billing Officer', ['Patient billing', 'Insurance & Claims', 'Reports & Analytics', 'Facility subscription']],

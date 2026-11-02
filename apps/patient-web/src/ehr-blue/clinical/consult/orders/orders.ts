@@ -19,18 +19,18 @@ export interface KindInfo {
   readonly title: string
   /** Today's word for one order. */
   readonly what: string
-  /** Today's empty list sentence. */
+  /** Today's empty list sentence (Clinical.tsx:1808). */
   readonly empty: string
 }
 
 export const KINDS: Readonly<Record<OrderKind, KindInfo>> = {
   pharmacy: {
     record: 'prescriptions', route: 'prescription', read: 'ehr.prescription.read', write: 'ehr.prescription.write',
-    title: 'Pharmacy', what: 'prescription', empty: 'No prescriptions yet.',
+    title: 'Pharmacy', what: 'prescription', empty: 'No prescriptions for this encounter.',
   },
   laboratory: {
     record: 'lab-requests', route: 'lab_request', read: 'ehr.lab-request.read', write: 'ehr.lab-request.write',
-    title: 'Laboratory', what: 'lab request', empty: 'No lab requests yet.',
+    title: 'Laboratory', what: 'lab request', empty: 'No lab requests for this encounter.',
   },
 }
 
@@ -64,7 +64,7 @@ export interface OrderRead {
 /**
  * One order of this encounter, found in today's records list (there is no single-record read): the newest page
  * first, then older pages until it is found. `fresh` re-reads past the client's de-duplication, as today's page
- * does after a change.
+ * does after a change. Null when it is not there, or is of another patient or encounter.
  */
 export async function readOrder(chart: Chart, encounterId: string, kind: OrderKind, orderId: string, fresh: boolean): Promise<OrderRead> {
   const recordKind = KINDS[kind].record
@@ -74,7 +74,9 @@ export async function readOrder(chart: Chart, encounterId: string, kind: OrderKi
   const crossFacilityOrders = learnFrom(answer)
   for (let pages = 1; ; pages += 1) {
     const found = (Array.isArray(answer?.items) ? answer.items : []).find(item => item.id === orderId)
-    if (found) return { record: found, crossFacilityOrders }
+    // The address names the consultation and the order, never the patient: one of another patient or consultation is
+    // not shown under the open patient (as encounters and visit records are checked).
+    if (found) return { record: found.patientId === chart.patientId && found.encounterId === encounterId ? found : null, crossFacilityOrders }
     if (!answer?.nextCursor || pages >= 40) return { record: null, crossFacilityOrders }
     answer = await staffApi.records(chart.facilityId, chart.patientId, encounterId, recordKind, { cursor: answer.nextCursor, fresh })
   }
@@ -107,11 +109,22 @@ export function mayBeSent(record: ClinicalRecord): boolean {
   return (record.status === 'draft' || record.status === 'active') && route !== undefined && (route === null || route.resendAllowed)
 }
 
+/**
+ * A warning a create leaves for the saved order's page. That page reads the list afresh and ends the warning with what
+ * its read came to (reloadSentence `what`, `listChanged`), so the list is read once after a create and said once, as
+ * today's page does (Clinical.tsx labWarning :1447-1448, createAndSend :1659-1667).
+ */
+export interface CreateWarning {
+  readonly text: string
+  readonly what: string
+  readonly listChanged: boolean
+}
+
 /** A message one order page leaves for the next (after a create): held in memory only, never in the URL or router state. */
 export interface Flash {
   readonly orderId: string
   readonly success?: string
-  readonly error?: string
+  readonly warning?: CreateWarning
 }
 
 export const FlashContext = createContext<{ flash: Flash | null; setFlash: (flash: Flash | null) => void }>({

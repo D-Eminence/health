@@ -11,13 +11,13 @@ export interface AuthStep {
 }
 
 interface AuthLayoutProps {
-  /** Where the logo leads. */
+  /** Where the logo leads: a page of this site, or an address on another Health ID site, which is a plain link. */
   readonly brandTo: string
   readonly brandLabel?: string
   /**
    * The one link in the top bar: the other way in (sign in, or sign up). `to`
-   * stays in this site; `href` leaves it (another host of the portal) and is a
-   * plain link.
+   * stays in this site, unless it is a full address; `href` leaves it (another
+   * host of the portal). An address on another site is a plain link.
    */
   readonly headerLink?: { readonly to: string; readonly label: string } | { readonly href: string; readonly label: string }
   readonly title: ReactNode
@@ -35,6 +35,15 @@ interface AuthLayoutProps {
   /** The panel's own label, when the title is not the panel's heading. */
   readonly panelLabelledBy?: string
   readonly children: ReactNode
+}
+
+/** A link in the top bar: within this site, or a plain link to a full address on another (the EHR site's sign-in). */
+function BarLink({ to, className, children, 'aria-label': label }: {
+  readonly to: string; readonly className: string; readonly children: ReactNode; readonly 'aria-label'?: string
+}) {
+  return /^https?:\/\//.test(to)
+    ? <a href={to} className={className} aria-label={label}>{children}</a>
+    : <Link to={to} className={className} aria-label={label}>{children}</Link>
 }
 
 /**
@@ -63,11 +72,11 @@ export function AuthLayout({
         </aside>
         <div className="auth-main">
           <header className="auth-bar">
-            <Link to={brandTo} className="auth-brand auth-brand-mobile" aria-label={brandLabel}><BrandLogo /></Link>
+            <BarLink to={brandTo} className="auth-brand auth-brand-mobile" aria-label={brandLabel}><BrandLogo /></BarLink>
             <span className="auth-bar-spacer" />
             {headerLink && ('href' in headerLink
               ? <a href={headerLink.href} className="auth-bar-link">{headerLink.label}</a>
-              : <Link to={headerLink.to} className="auth-bar-link">{headerLink.label}</Link>)}
+              : <BarLink to={headerLink.to} className="auth-bar-link">{headerLink.label}</BarLink>)}
             <ThemeToggle className="auth-theme" />
           </header>
           <div className="auth-center">

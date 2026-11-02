@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "The services as deployed now, after backend release backend-41333594692-1-124c45a5cdf6c1c7 (D-Eminence/hid-system#141 at 6c6fc18, which released the pharmacy guard from hid-system#139). That release rebuilt and deployed every service at 6c6fc18, because #141 changed scripts/, so every service pins to 6c6fc18. Browser-facing changes since the previous pins (82f52b9): pharmacy-api refuses a same-facility acceptance that is not exactly its active EHR prescription (404 PRESCRIPTION_SOURCE_NOT_FOUND, 409 PRESCRIPTION_SOURCE_NOT_ACTIVE, 409 PRESCRIPTION_SOURCE_VERSION_MISMATCH, 422 PRESCRIPTION_SOURCE_MISMATCH) and a dispensing whose prescription has changed (409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE); this frontend shows its general refusal for these until the pharmacy reload mapping ships. ehr-api sends a prescription's startsOn and endsOn as calendar days (YYYY-MM-DD) instead of timestamps, which every formatter here already reads (calendarDate, calendarDay); a send to another facility now runs SERIALIZABLE with retry, with no change in shape. gateway, identity-api, lab-api, ocr-api, outreach-api, support-api and notification-api have no code change since 82f52b9. Nothing else this frontend calls changed shape. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-11-01 (\"Approve re-pin\", for re-pinning the website after the pharmacy guard release so the five urgent EHR fixes, health#104, can release).",
+  "review_reference": "The services as deployed now, after backend releases backend-41369624838-1-e9666a23262ea216 (D-Eminence/hid-system#145 at a42b48a: identity-api and notification-api) and backend-41371342099-1-69bbfeff0bebc8f6 (D-Eminence/hid-system#146 at 6f900b6: ehr-api, lab-api and pharmacy-api). gateway, ocr-api, outreach-api and support-api are unchanged since 6c6fc18. Browser-facing changes since the previous pins (6c6fc18): identity-api accepts the staff-reset, provider-enrollment and staff-invitation security checks on the five product sites (ehr., lab., pharmacy., migrate., outreach.) as well as app., and notification-api's staff emails link to the staff member's product site; lab-api and pharmacy-api work lists answer open work first, then done work, with the same shape (a reversed dispensing counts as done); ehr-api's chat sources may carry origin and originLabel, which this frontend reads as optional. Nothing else this frontend calls changed shape. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-11-01 (\"approve re-pin\", for the backend release that lets staff pages run on each product site) and on 2026-11-02 (\"all recommended\", which included re-pinning after the step 1 backend release).",
   "backend_commits": {
     "gateway": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
-    "identity-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
-    "ehr-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
-    "lab-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
-    "pharmacy-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
+    "identity-api": "a42b48ae78da2fad0c1ed8cf939275ef71956cc6",
+    "ehr-api": "6f900b6ccedcd572dd7a0e02ecb971a68f3a78a5",
+    "lab-api": "6f900b6ccedcd572dd7a0e02ecb971a68f3a78a5",
+    "pharmacy-api": "6f900b6ccedcd572dd7a0e02ecb971a68f3a78a5",
     "ocr-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
     "outreach-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
     "support-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450",
-    "notification-api": "6c6fc18d976ddacc951ac95e4c87ff2a4365b450"
+    "notification-api": "a42b48ae78da2fad0c1ed8cf939275ef71956cc6"
   }
 }

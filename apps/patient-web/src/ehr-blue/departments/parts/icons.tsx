@@ -24,7 +24,7 @@ export const UploadIcon = () => <Icon><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 
 export const OutreachIcon = () => <Icon><path d="M3 11v2a1 1 0 0 0 1 1h3l6 4V6L7 10H4a1 1 0 0 0-1 1z" /><path d="M17 9a4 4 0 0 1 0 6M7 14l1 5h2.5" /></Icon>
 /** Staff & access (users). */
 export const UsersIcon = () => <Icon><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2A6.5 6.5 0 0 1 21.5 20" /></Icon>
-/** Audit & Compliance (history). */
+/** Audit trail (history). */
 export const HistoryIcon = () => <Icon><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></Icon>
 /** Facility profile (building). */
 export const BuildingIcon = () => <Icon><rect x="4" y="3" width="16" height="18" rx="1.5" /><path d="M9 7h1M14 7h1M9 11h1M14 11h1M9 15h1M14 15h1M10 21v-3h4v3" /></Icon>

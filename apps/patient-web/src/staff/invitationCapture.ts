@@ -26,6 +26,14 @@ export function invitationLinkOf(hash: string): InvitationLink | null {
 }
 
 /**
+ * The signed-in join page on this site, carrying the link in its fragment when there is one (without it, the page asks
+ * for the email's code).
+ */
+export function staffJoinAddress(link: InvitationLink | null): string {
+  return link ? `${STAFF_JOIN_PATH}#${link.invitationId}.${link.token}` : STAFF_JOIN_PATH
+}
+
+/**
  * On the signed-in join page, takes the link's fragment out of the address and holds it. Called synchronously on the
  * workspace's first render, before the sign-in gate decides where to go. Returns whether it found one.
  */
