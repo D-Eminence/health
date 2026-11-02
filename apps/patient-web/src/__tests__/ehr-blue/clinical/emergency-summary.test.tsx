@@ -359,7 +359,7 @@ describe('the emergency summary shows every section EHR returns that the role ma
     for (const name of ['Finished visits', 'Signed notes', 'Diagnoses', 'Prescriptions', 'Lab tests', 'Documents']) {
       expect(screen.getByRole('heading', { level: 2, name })).toBeTruthy()
     }
-    expect(entry('Finished visits', 'Emergency').textContent).toMatch(/\d{4}, \d\d:\d\d to \d/)
+    expect(entry('Finished visits', 'Emergency visit').textContent).toMatch(/\d{4}, \d\d:\d\d to \d/)
     const signed = entry('Signed notes', 'Triage note 1')
     expect(signed.textContent).toMatch(/Triage · Signed · version 1 · signed \d/)
     expect(signed.textContent).toContain('Alert and oriented.\nNo distress.')
@@ -369,7 +369,7 @@ describe('the emergency summary shows every section EHR returns that the role ma
     const lab = entry('Lab tests', 'Haemoglobin')
     expect(within(lab).getByText('Urgent')).toBeTruthy()
     expect(lab.textContent).toMatch(/LOINC 718-7 · Priority: Urgent · Asked for \d/)
-    expect(entry('Documents', 'referral-letter.pdf').textContent).toMatch(/PDF · 20 KB · added \d/)
+    expect(entry('Documents', 'referral-letter.pdf').textContent).toMatch(/PDF document · 20 KB · added \d/)
   })
 
   it.each([
@@ -739,5 +739,15 @@ describe('released Lab results in the emergency summary', () => {
     staff.permissions = [...EVERY_READ]
     await renderSummary()
     expect(screen.queryByRole('button', { name: 'Show results' })).toBeNull()
+  })
+})
+
+/** Owner, 2 November: a refusal never shows Lab's code in brackets ("... (LAB_ACCESS_DENIED)"). */
+describe('released results refusal', () => {
+  it('says why in plain words, without the code', async () => {
+    const { releasedResultsRefusal } = await import('../../../ehr-blue/clinical/emergency/ReleasedResults')
+    const text = releasedResultsRefusal(new HidApiError(403, 'Forbidden', { code: 'LAB_ACCESS_DENIED' }))
+    expect(text).toBe('You can’t see this test’s results here.')
+    expect(text).not.toMatch(/LAB_|\(/)
   })
 })

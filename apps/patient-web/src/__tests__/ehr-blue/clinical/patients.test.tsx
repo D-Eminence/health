@@ -9,6 +9,7 @@ import { shareDay } from '../../../shareRecords'
 import {
   BASE, DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage,
 } from './harness'
+import { consultationLabel } from '../../../plainLabels'
 
 /**
  * Patients ("Find a patient"): the Health ID search (today's governed access), the patient open now and that patient's
@@ -341,7 +342,7 @@ describe('The open patient’s page', () => {
     expect(screen.getAllByText(PATIENT_HID).length).toBeGreaterThan(0)
     expect(screen.getByText('You have access')).toBeTruthy()
     expect(screen.getByRole('heading', { level: 2, name: 'Next steps' })).toBeTruthy()
-    const visit = await screen.findByRole('button', { name: /^Consultation · e0000000/ })
+    const visit = await screen.findByRole('button', { name: new RegExp(`^${consultationLabel(ENCOUNTER)}`) })
     expect(api.lookupPatient.mock.invocationCallOrder[0]!).toBeLessThan(api.encounters.mock.invocationCallOrder[0]!)
     expect(api.encounters).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID)
     fireEvent.click(visit)
@@ -365,7 +366,7 @@ describe('The open patient’s page', () => {
     expect(screen.queryByRole('button', { name: /^Ask for more access/ })).toBeNull()
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
     expect(screen.getByRole('button', { name: 'Open chart' })).toBeTruthy()
-    expect(await screen.findByRole('button', { name: /^Consultation · e0000000/ })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: new RegExp(`^${consultationLabel(ENCOUNTER)}`) })).toBeTruthy()
   })
 
   it('hand-off 01: offers Open chart and the visits only with ehr.encounter.read, Consultation’s permission, and reads no encounters without it', async () => {
@@ -948,7 +949,7 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
       .mockReturnValueOnce(new Promise(resolve => { answerTwo = resolve }))
     const view = render(page('/open'))
     // Patient One's re-check and visits are done before Patient Two opens.
-    expect(await screen.findByRole('button', { name: /^Consultation · e0000000/ })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: new RegExp(`^${consultationLabel(ENCOUNTER)}`) })).toBeTruthy()
     expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
     api.lookupPatient.mockResolvedValue(lookupTwo)
     api.consentStatus.mockResolvedValue({ ...CONSENT, patientId: PATIENT_TWO_ID })

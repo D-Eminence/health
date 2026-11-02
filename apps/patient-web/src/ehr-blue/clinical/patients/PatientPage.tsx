@@ -8,7 +8,8 @@ import { staffApi, type Encounter } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, READ_ONLY, type Chart } from '../parts/chart'
 import { LoadingRows } from '../../../kasuwa/parts'
-import { formatDate, formatWhen, shortId } from '../parts/format'
+import { consultationLabel } from '../../../plainLabels'
+import { formatDate, formatWhen } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import type { PatientFacts } from '../parts/PatientHeader'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
@@ -308,7 +309,7 @@ function EncounterHistory({ chart, canStart }: { chart: Chart; canStart: boolean
       : 'error' in state ? <div className="p-5"><Alert intent="error" title="Couldn’t load visits">{state.error}</Alert></div>
       : state.items.length === 0 ? <p className="m-0 px-5 py-5 text-[13px] text-ink-3">No visits at this facility yet.{canStart ? ' Start a consultation to begin one.' : ''}</p>
       : <ul className="m-0 list-none divide-y divide-line p-0">{state.items.map(item => <li key={item.id}>
-          <ListRow onClick={() => navigate(href.to('consult', item.id))} leading={<IconChip size="sm" icon={Stethoscope} />} title={`Consultation · ${shortId(item.id)}`}
+          <ListRow onClick={() => navigate(href.to('consult', item.id))} leading={<IconChip size="sm" icon={Stethoscope} />} title={consultationLabel(item)}
             trailing={<Badge size="sm" tone={item.status === 'in_progress' || item.status === 'open' ? 'brand' : 'neutral'}>{sexText(item.status)}</Badge>} />
         </li>)}</ul>}
   </Card>

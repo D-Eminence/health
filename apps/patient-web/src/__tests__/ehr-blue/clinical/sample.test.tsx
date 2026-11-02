@@ -131,7 +131,8 @@ describe('sample engine', () => {
     expect(rows.map(row => within(row).getByRole('link', { name: /^(?!Open)/ }).textContent)).toEqual([
       'Review of results', 'Medication review', 'Patient requested another day', 'Antenatal review',
     ])
-    expect(rows[0]!.textContent).toContain('0b048a1b')
+    // No id under a row's name (owner, 2 November: never an id on a screen).
+    expect(rows[0]!.textContent).not.toContain('0b048a1b')
     expect(rows[0]!.textContent).toContain('Taylor Fiction')
     expect(rows[0]!.textContent).toContain('Checked-in')
     expect(within(rows[0]!).getByRole('link', { name: 'Open Review of results' }).getAttribute('href')).toBe(`${BASE}/appointments/${IDS.apptTaylor}`)
@@ -143,7 +144,7 @@ describe('sample engine', () => {
     view.unmount()
     open('wards')
     const cells = within(within(screen.getByRole('table')).getAllByRole('row')[1]!).getAllByRole('cell')
-    expect(cells[0]!.textContent).toBe('Bed 17fe7785d')
+    expect(cells[0]!.textContent).toBe('Bed 1')
     expect(cells[1]!.textContent).toBe('Bed 1')
   })
 
@@ -463,11 +464,11 @@ describe('sample engine', () => {
     expect(Array.from(versions.querySelectorAll('summary')).map(item => item.textContent)).toEqual([summary])
   })
 
-  it('shows the design’s telemedicine id and Abdominal ultrasound values', () => {
+  it('shows the telemedicine row without its id, and Abdominal ultrasound values', () => {
     const view = open('telemedicine')
     const row = within(screen.getByRole('table')).getAllByRole('row')[1]!
     expect(within(row).getByRole('link', { name: 'Open Remote follow-up' }).getAttribute('href')).toBe(`${BASE}/telemedicine/${IDS.telemedicine}`)
-    expect(row.textContent).toContain('9426ba7f')
+    expect(row.textContent).not.toContain('9426ba7f')
     view.unmount()
 
     open('radiology', `/${IDS.ultrasound}`)

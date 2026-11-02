@@ -4,7 +4,7 @@ import { usesNovuBackend } from '../../../backendContract'
 import type { ClinicalRecord, Encounter, Page } from '../../../staff/api'
 import { refusedFields, refusalSentences } from '../../../staff/fieldProblem'
 import { COMPLETE_FIELD, type FieldDef, type FieldErrors, type FormValues } from '../parts/RecordForm'
-import { shortId } from '../parts/format'
+import { consultationLabel, fileSizeLabel, visitClassLabel } from '../../../plainLabels'
 import { NOTE_TYPE as NURSING_NOTE_TYPE } from '../nursing/observations'
 
 /** The sidebar label, the list's heading. */
@@ -20,12 +20,12 @@ export const ENCOUNTER_TYPES: readonly StatusOption[] = [
 ]
 
 export function encounterTypeLabel(value: string): string {
-  return ENCOUNTER_TYPES.find(type => type.value === value)?.label ?? value.replaceAll('_', ' ')
+  return ENCOUNTER_TYPES.find(type => type.value === value)?.label ?? visitClassLabel(value)
 }
 
-/** The design titles a consultation by the first eight characters of its id. */
-export function encounterTitle(encounter: Pick<Encounter, 'id'>): string {
-  return shortId(encounter.id)
+/** A consultation's title by the day it started ("Consultation · today", "Consultation · 21 Sept"), never its id. */
+export function encounterTitle(encounter: Pick<Encounter, 'startedAt'>): string {
+  return consultationLabel(encounter)
 }
 
 /** The consultation's status changes, by its status: the new status, then the button and form label. */
@@ -142,12 +142,11 @@ export function rowVersion(value: unknown): number | null {
 }
 
 /**
- * A file size as EHR sends it, a number or text (pg returns bigint and ::text columns as strings), in KiB: counted in
- * 1024s and named so, with an empty file as 0 KiB, as today's fileSize (staff/routes/Clinical.tsx).
+ * A file size as EHR sends it, a number or text (pg returns bigint and ::text columns as strings), counted in 1024s as
+ * today's fileSize (staff/routes/Clinical.tsx) and said in plain units: "56 KB", an empty file "0 KB", "1.4 MB".
  */
 export function fileSize(value: number | string | null | undefined): string {
-  const count = value == null || value === '' ? NaN : Number(value)
-  return Number.isFinite(count) && count >= 0 ? `${Math.ceil(count / 1024).toLocaleString()} KiB` : 'Size unknown'
+  return fileSizeLabel(value)
 }
 
 export function isoNow() { return new Date().toISOString() }

@@ -49,6 +49,7 @@ import { ShareInvitationsCard } from './ShareInvitations'
 import { useShareProbe } from './ShareRecords'
 import { useShareServed } from '../shareServed'
 import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
+import { accessLevelLabel, fileSizeLabel, fileTypeLabel, visitClassLabel, visitStatusLabel } from '../plainLabels'
 
 function date(value: string | null | undefined) {
   if (!value) return 'Not available'
@@ -77,22 +78,9 @@ function forHowLong(minutes: number | null | undefined) {
   return unit(minutes, 'minute')
 }
 
-/** A size EHR sends as a number or, for a bigint column, as text: in KB or MB, as people read it. */
+/** A size EHR sends as a number or, for a bigint column, as text: in KB or MB, as people read it; nothing when unknown. */
 function bytes(value: number | string | null) {
-  const count = value == null || value === '' ? NaN : Number(value)
-  if (!Number.isFinite(count) || count < 0) return ''
-  return count < 1024 * 1024 ? `${Math.max(1, Math.round(count / 1024))} KB` : `${(count / 1024 / 1024).toFixed(1)} MB`
-}
-
-/** A file's type in words: "application/pdf" is "PDF", "image/jpeg" is "Photo". */
-function fileKind(mediaType: string | null | undefined) {
-  const type = (mediaType ?? '').toLowerCase()
-  if (type === 'application/pdf') return 'PDF'
-  if (type.startsWith('image/')) return 'Photo'
-  if (/word|officedocument\.wordprocessing/.test(type)) return 'Word document'
-  if (/sheet|excel|csv/.test(type)) return 'Spreadsheet'
-  if (type.startsWith('text/')) return 'Text'
-  return 'File'
+  return fileSizeLabel(value, '')
 }
 
 /** Every measurement in a vitals entry, so one holding only blood pressure is not shown as a bare date. */
@@ -350,13 +338,13 @@ type Row<S extends RecordSection> = PatientRecords[S][number]
  * where a note's text names them.
  */
 const SEARCHED: { readonly [S in RecordSection]: (item: Row<S>) => Array<string | null> } = {
-  encounters: item => ['Encounter', item.encounterType, item.status, date(item.startedAt)],
+  encounters: item => ['Encounter', visitClassLabel(item.encounterType), visitStatusLabel(item.status), item.encounterType, item.status, date(item.startedAt)],
   notes: item => ['Clinical note', item.title, item.noteType, item.status, item.content, date(item.signedAt)],
   vitals: item => ['Vitals', date(item.recordedAt), vitalsSummary(item)],
   diagnoses: item => ['Diagnosis', item.display, item.code, item.clinicalStatus, item.verificationStatus, item.notes],
   prescriptions: item => ['Prescription', item.medicationDisplay, item.frequency, item.instructions, item.status],
   labRequests: item => ['Laboratory request', item.testDisplay, item.priority, item.status, item.clinicalInformation, date(item.createdAt)],
-  documents: item => ['Clinical document', item.fileName, item.mediaType, date(item.createdAt)],
+  documents: item => ['Clinical document', item.fileName, fileTypeLabel(item.mediaType), item.mediaType, date(item.createdAt)],
 }
 /** The date each section's rows are listed under. */
 const DATED: { readonly [S in RecordSection]: (item: Row<S>) => string | null } = {
@@ -567,7 +555,7 @@ function OwnRecords({ entries, matches, searching, shown, loading, reload, pageH
               return <li key={file.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg bg-subtle px-3 py-2">
                 <FileIcon className="size-4 shrink-0 text-ink-3" aria-hidden />
                 <span className="min-w-0 text-[13px] font-medium [overflow-wrap:anywhere] text-ink">{file.fileName}</span>
-                <span className="text-[12px] text-ink-3">{[fileKind(file.mediaType), bytes(file.sizeBytes)].filter(Boolean).join(' · ')}</span>
+                <span className="text-[12px] text-ink-3">{[fileTypeLabel(file.mediaType), bytes(file.sizeBytes)].filter(Boolean).join(' · ')}</span>
                 {scan && <Badge size="sm" tone={scan === FILE_NOT_ADDED ? 'warn' : 'neutral'}>{scan}</Badge>}
               </li>
             })}
@@ -625,7 +613,7 @@ export function RecordsPage() {
   const [opened, setOpened] = useState<OpenRecord | null>(null)
   const row = (record: OpenRecord, key: string) => <RecordRow key={key} record={record} onOpen={setOpened} />
   const rows: { readonly [S in RecordSection]: (item: Row<S>) => ReactNode } = {
-    encounters: item => row({ section: 'encounters', title: plainCode(item.encounterType), meta: plainCode(item.status), when: item.startedAt }, item.id),
+    encounters: item => row({ section: 'encounters', title: visitClassLabel(item.encounterType), meta: visitStatusLabel(item.status), when: item.startedAt }, item.id),
     notes: item => row({ section: 'notes', title: item.title || plainCode(item.noteType), meta: plainCode(item.status), detail: item.content, when: item.signedAt, multiline: true }, item.id),
     vitals: item => row({ section: 'vitals', title: vitalsSummary(item) || 'Vitals', when: item.recordedAt }, item.id),
     // Plain: the name and its date. The code is for clinicians, so it is kept to the record's own view.
@@ -634,7 +622,7 @@ export function RecordsPage() {
     prescriptions: item => row({ section: 'prescriptions', title: item.medicationDisplay,
       meta: [item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}`.trim() : '', item.frequency, item.status].filter(Boolean).join(' · '), detail: item.instructions, when: item.startsOn }, item.id),
     labRequests: item => row({ section: 'labRequests', title: item.testDisplay, meta: `${plainCode(item.priority)} · ${item.status}`, detail: item.clinicalInformation, when: item.createdAt }, item.id),
-    documents: item => row({ section: 'documents', title: item.fileName, meta: [fileKind(item.mediaType), bytes(item.sizeBytes)].filter(Boolean).join(' · '), when: item.createdAt }, item.id),
+    documents: item => row({ section: 'documents', title: item.fileName, meta: [fileTypeLabel(item.mediaType), bytes(item.sizeBytes)].filter(Boolean).join(' · '), when: item.createdAt }, item.id),
   }
   const NONE: { readonly [S in RecordSection]: string } = {
     encounters: 'No completed visits yet.', notes: 'No signed clinical notes yet.', vitals: 'No vitals recorded yet.', diagnoses: 'No diagnoses recorded.',
@@ -846,12 +834,12 @@ export function AccessPage() {
             <IconChip icon={item.breakGlass ? Siren : Building2} tone={item.breakGlass ? 'danger' : item.status === 'active' ? 'success' : 'neutral'} />
             <div className="min-w-0 flex-1">
               <p className="m-0 text-sm font-semibold [overflow-wrap:anywhere] text-ink">{grantee(item)}</p>
-              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? plainCode(item.scope)} · until {date(item.expiresAt)}</p>
+              <p className="m-0 mt-0.5 text-[13px] text-ink-3">{item.breakGlass ? WORDS.emergencyAccess : sharedAs(item) ?? accessLevelLabel(item.scope)} · until {date(item.expiresAt)}</p>
               {item.breakGlass && <p className="m-0 mt-2 text-[13px] text-ink-2">Used in an emergency. It ends by itself, and you can’t end it here.</p>}
             </div>
             <div className="flex shrink-0 flex-col items-end gap-2">
               <Badge tone={statusTone(item.status)} size="sm">{plainCode(item.status)}</Badge>
-              {item.patientRevocable === true && <Button id={`revoke-${item.consentGrantId}`} size="sm" variant="ghost" className="!text-danger-ink" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>End access <ItemName>for {grantee(item)}, {item.scope}, from {dateTime(item.startsAt)}</ItemName></Button>}
+              {item.patientRevocable === true && <Button id={`revoke-${item.consentGrantId}`} size="sm" variant="ghost" className="!text-danger-ink" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>End access <ItemName>for {grantee(item)}, {accessLevelLabel(item.scope)}, from {dateTime(item.startsAt)}</ItemName></Button>}
             </div>
           </li>)}
         </ul>)}
@@ -870,13 +858,13 @@ export function AccessPage() {
       footer={open && open.status.toLowerCase() === 'pending' ? <div className="grid w-full grid-cols-2 gap-2">{denying
         ? <><Button size="lg" block disabled={!!working} onClick={() => { setDenying(false); setReasonProblem(false); focusAfter(byId(`deny-${open.accessRequestId}`)) }}>Back</Button>
             <Button size="lg" block variant="destructive" type="submit" form="deny-form" loading={working === open.accessRequestId} disabled={!!working}>Deny</Button></>
-        : <><Button size="lg" block id={`deny-${open.accessRequestId}`} icon={X} disabled={!!working || requests.loading} onClick={() => setDenying(true)}>Deny <ItemName>the request from {open.facilityName}, {open.scope}, {dateTime(open.requestedAt)}</ItemName></Button>
-            <Button size="lg" block id={`approve-${open.accessRequestId}`} variant="primary" icon={Check} loading={working === open.accessRequestId} disabled={!!working || requests.loading} onClick={() => void decide(open.accessRequestId, 'approve')}>Approve <ItemName>the request from {open.facilityName}, {open.scope}, {dateTime(open.requestedAt)}</ItemName></Button></>}</div>
+        : <><Button size="lg" block id={`deny-${open.accessRequestId}`} icon={X} disabled={!!working || requests.loading} onClick={() => setDenying(true)}>Deny <ItemName>the request from {open.facilityName}, {accessLevelLabel(open.scope)}, {dateTime(open.requestedAt)}</ItemName></Button>
+            <Button size="lg" block id={`approve-${open.accessRequestId}`} variant="primary" icon={Check} loading={working === open.accessRequestId} disabled={!!working || requests.loading} onClick={() => void decide(open.accessRequestId, 'approve')}>Approve <ItemName>the request from {open.facilityName}, {accessLevelLabel(open.scope)}, {dateTime(open.requestedAt)}</ItemName></Button></>}</div>
         : <Button onClick={closeReview}>Close</Button>}>
       {open && <div className="flex flex-col gap-5">
         {open.reason && <blockquote className="m-0 rounded-xl bg-subtle px-4 py-3 text-sm [overflow-wrap:anywhere] text-ink ring-1 ring-line">“{open.reason}”</blockquote>}
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
-          <div><dt className="text-ink-3">They want to</dt><dd className="m-0 mt-0.5 font-medium text-ink">{open.scope === 'read' ? 'See your records' : plainCode(open.scope)}</dd></div>
+          <div><dt className="text-ink-3">Access asked for</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(open.scope)}</dd></div>
           <div><dt className="text-ink-3">For</dt><dd className="m-0 mt-0.5 font-medium text-ink">{forHowLong(open.requestedDurationMinutes).replace(/^ for /, '') || 'Not stated'}</dd></div>
           {open.status.toLowerCase() !== 'pending' && <div><dt className="text-ink-3">Status</dt><dd className="m-0 mt-0.5"><Badge tone={statusTone(open.status)} size="sm">{plainCode(open.status)}</Badge></dd></div>}
         </dl>
@@ -907,7 +895,7 @@ export function AccessPage() {
         <Button variant="destructive" type="submit" form="revoke-form" loading={revokeBusy} disabled={revokeBusy || history.loading || revokeReason.trim().length < 3}>{WORDS.endAccess}</Button></>}>
       {ending && <div className="flex flex-col gap-5">
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
-          <div><dt className="text-ink-3">Access</dt><dd className="m-0 mt-0.5 font-medium text-ink">{plainCode(ending.scope)}</dd></div>
+          <div><dt className="text-ink-3">Access</dt><dd className="m-0 mt-0.5 font-medium text-ink">{accessLevelLabel(ending.scope)}</dd></div>
           <div><dt className="text-ink-3">Purpose</dt><dd className="m-0 mt-0.5 font-medium text-ink">{ending.purpose}</dd></div>
           <div><dt className="text-ink-3">From</dt><dd className="m-0 mt-0.5 font-medium text-ink">{date(ending.startsAt)}</dd></div>
           <div><dt className="text-ink-3">Until</dt><dd className="m-0 mt-0.5 font-medium text-ink">{date(ending.expiresAt)}</dd></div>

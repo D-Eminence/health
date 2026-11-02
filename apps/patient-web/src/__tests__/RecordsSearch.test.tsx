@@ -62,12 +62,12 @@ const IMPORTED = 'Older health records'
 describe('the records page', () => {
   it('lists each section\'s records under their day, newest day first and newest first within a day', async () => {
     renderPortal(<RecordsPage />, gateway(NOVU_RECORDS))
-    await screen.findByText('Emergency')
+    await screen.findByText('Emergency visit')
     const encounters = within(cardOf('Visits'))
     expect(encounters.getAllByRole('heading', { level: 3 }).map(heading => heading.textContent)).toEqual([dayLabel('2026-10-08'), dayLabel('2026-10-02')])
     const [newest, oldest] = encounters.getAllByRole('list')
-    expect(titles(newest!)).toEqual(['Emergency', 'Inpatient'])
-    expect(titles(oldest!)).toEqual(['Ambulatory'])
+    expect(titles(newest!)).toEqual(['Emergency visit', 'Inpatient stay'])
+    expect(titles(oldest!)).toEqual(['Outpatient visit'])
     expect(within(cardOf('Clinical notes')).getAllByRole('heading', { level: 3 }).map(heading => heading.textContent))
       .toEqual([dayLabel('2026-10-08'), dayLabel('2026-10-02')])
     // Imported history too, each record's title a level under its day.
@@ -78,7 +78,7 @@ describe('the records page', () => {
 
   it('finds records by the words in a note, and says how many match', async () => {
     const { sent } = renderPortal(<RecordsPage />, gateway(NOVU_RECORDS))
-    await screen.findByText('Emergency')
+    await screen.findByText('Emergency visit')
     expect(screen.getByRole('search')).toBeTruthy()
     type('okafor')
     expect(screen.getByText('Chest pain review')).toBeTruthy()
@@ -95,7 +95,7 @@ describe('the records page', () => {
 
   it('finds records by type, title, date and imported details, with every word', async () => {
     renderPortal(<RecordsPage />, gateway(NOVU_RECORDS))
-    await screen.findByText('Emergency')
+    await screen.findByText('Emergency visit')
     type('encounter')
     expect(within(cardOf('Visits')).getAllByRole('listitem')).toHaveLength(3)
     expect(screen.queryByRole('heading', { name: 'Clinical notes', level: 2 })).toBeNull()
@@ -116,10 +116,10 @@ describe('the records page', () => {
 
   it('finds records by the words of the day they are listed under, as its heading names it', async () => {
     renderPortal(<RecordsPage />, gateway(NOVU_RECORDS))
-    await screen.findByText('Emergency')
+    await screen.findByText('Emergency visit')
     // Under "Thursday, 8 October 2026", where each record's own date reads "8 Oct 2026".
     type('Thursday October')
-    expect(titles(cardOf('Visits'))).toEqual(['Emergency', 'Inpatient'])
+    expect(titles(cardOf('Visits'))).toEqual(['Emergency visit', 'Inpatient stay'])
     expect(within(cardOf('Clinical notes')).getAllByRole('listitem')).toHaveLength(1)
     expect(screen.getByText('3 records match your search.')).toBeTruthy()
     // Imported history's day too: "Wednesday, 17 June 2026".
@@ -167,5 +167,14 @@ describe('the records page', () => {
     renderPortal(<RecordsPage />, () => problem(503, 'EHR_UNAVAILABLE', 'Records are unavailable.'))
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(screen.queryByRole('searchbox')).toBeNull()
+  })
+})
+
+describe('searching by the words shown', () => {
+  it('finds a visit by its kind as the page names it', async () => {
+    renderPortal(<RecordsPage />, gateway(NOVU_RECORDS))
+    await screen.findByText('Emergency visit')
+    type('outpatient')
+    expect(titles(cardOf('Visits'))).toEqual(['Outpatient visit'])
   })
 })

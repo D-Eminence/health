@@ -9,7 +9,7 @@ import { ChartGate, useChart, type Chart } from '../parts/chart'
 import {
   ActionList, ConfirmAction, DetailGrid, DetailMeta, HistoryCard, SavedRecord, VersionsCard, type HistoryItem, type VersionItem,
 } from '../parts/Detail'
-import { formatWhen, shortId, statusLabel, statusWords } from '../parts/format'
+import { formatWhen, statusLabel, statusWords } from '../parts/format'
 import type { KeyValue } from '../parts/KeyValueList'
 import { MoreActions } from '../parts/MoreActions'
 import { ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
@@ -429,7 +429,7 @@ function EncounterRecord({ chart, initial, others }: { chart: Chart; initial: En
   // In the order a clinician works: the note, every note, diagnoses, orders, documents, then history and earlier versions.
   return (
     <>
-      <RecordHeading title={`${TITLE} ${encounterTitle(encounter)}`} backHref={href()} />
+      <RecordHeading title={encounterTitle(encounter)} backHref={href()} />
       {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
       <div className="hid-ehr-clinical-status" role="status">{success}</div>
       <DetailMeta status={encounter.status}>
@@ -552,11 +552,11 @@ function historyItems(href: ReturnType<typeof useWorkspaceHref>, encounterId: st
     records.map(record => ({ key: `${kind}-${record.id}`, label: `${kind} · ${title(record)}`, status: status(record), ...(link ? { href: link(record) } : {}) }))
   const notes = lists.notes.items ?? []
   return [
-    ...others.map(item => ({ key: `encounter-${item.id}`, label: `${TITLE} · ${encounterTitle(item)}`, href: href(item.id), status: item.status })),
+    ...others.map(item => ({ key: `encounter-${item.id}`, label: encounterTitle(item), href: href(item.id), status: item.status })),
     ...rows(notes.filter(note => !isObservation(note)), 'Notes', record => field(record, 'title') || 'Clinical note', record => recordStatus(record, 'unknown')),
-    ...rows(notes.filter(isObservation), 'Nursing observations', record => shortId(record.id), observationStatus, record => href.to('nursing', recordKey(encounterId, record.id))),
+    ...rows(notes.filter(isObservation), 'Nursing observations', record => formatWhen(record.createdAt) || 'Observation', observationStatus, record => href.to('nursing', recordKey(encounterId, record.id))),
     ...rows(lists.diagnoses.items ?? [], 'Diagnoses', record => field(record, 'display') || 'Diagnosis', diagnosisStatus),
-    ...rows(lists.vitals.items ?? [], 'Vitals', record => shortId(record.id), vitalStatus, record => href.to('triage', recordKey(encounterId, record.id))),
+    ...rows(lists.vitals.items ?? [], 'Vitals', record => formatWhen(record.createdAt) || 'Vitals', vitalStatus, record => href.to('triage', recordKey(encounterId, record.id))),
     ...rows(lists.prescriptions.items ?? [], 'Pharmacy', record => field(record, 'medicationDisplay') || 'Prescription', record => recordStatus(record), record => href(orderPath(encounterId, 'pharmacy', record.id))),
     ...rows(lists.labs.items ?? [], 'Laboratory', record => field(record, 'testDisplay') || 'Lab request', record => recordStatus(record), record => href(orderPath(encounterId, 'laboratory', record.id))),
     ...(documents.items ?? []).map(item => ({ key: `document-${item.id}`, label: `Documents · ${item.fileName}`, status: item.status || 'uploaded' })),
