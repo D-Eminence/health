@@ -976,7 +976,7 @@ describe('Registration, sharing and the patient-reported allergies (#62, in this
 describe('PIN and emergency access offered as today’s portal offers them', () => {
   /** Every permission the PIN and emergency access need, with this file's role. */
   const WITH_ACCESS = [...ALL, 'identity.patient-access-pin.verify', 'identity.break-glass.write']
-  const PIN_UNAVAILABLE = 'Your role at this facility cannot use a patient’s Access PIN: it also needs identity.patient-access-pin.verify. Ask your organization administrator.'
+  const PIN_UNAVAILABLE = 'Your role at this facility cannot verify a patient’s PIN: it also needs identity.patient-access-pin.verify. Ask your organization administrator.'
   const DEMO_PIN_NOTE = 'No demo patient has a PIN yet. Demo Patient One or Two can set an Access PIN in the Health ID app, but not within 24 hours of a password reset. Patients Three to Ten have no login, so they never have one. Five wrong PINs in 15 minutes pause PIN checks for this demo login here for 15 minutes.'
 
   /** Every address the router showed, in order, so a test can tell that none of them named the patient. */
