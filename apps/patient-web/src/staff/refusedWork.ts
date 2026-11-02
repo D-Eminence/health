@@ -4,7 +4,7 @@ import { roleInSentence, selfServiceReview, selfServiceType, type OrganizationTy
 
 /**
  * The staff roles ROLE_LABELS (staffAccess.ts) names, the administrator's apart. A refusal names the role that does the
- * work by those words, and roleInSentence says "a member of staff" for a code it has no words for, which would tell an
+ * work by those words, and roleInSentence says "a staff member" for a code it has no words for, which would tell an
  * administrator to add nobody in particular: so only these can be named. Add a role here once ROLE_LABELS names it, and
  * to refusedWork.test.ts, which checks each has words.
  */

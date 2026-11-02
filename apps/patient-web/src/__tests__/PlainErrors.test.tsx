@@ -118,7 +118,7 @@ describe('shared error helpers say every failure in plain English', () => {
   it('never shows a role’s internal key', () => {
     expect(roleLabel('lab_manager')).toBe('Staff')
     expect(roleLabels(['doctor', 'records_officer'])).toBe('Doctor, Staff')
-    expect(roleInSentence('records_officer')).toBe('a member of staff')
+    expect(roleInSentence('records_officer')).toBe('a staff member')
   })
 })
 

@@ -6,17 +6,17 @@ describe('the role a refusal names', () => {
   /** Every NamedRole, once: the type lists them, so leaving one out here, or adding one there only, fails to build. */
   const NAMED: Readonly<Record<NamedRole, true>> = { doctor: true, clinician: true, nurse: true, lab: true, pharmacist: true, receptionist: true }
 
-  // A code with no words reads "Staff" and "a member of staff" (staffAccess.ts), never itself: so those are what to rule out.
-  it.each(Object.keys(NAMED))('%s has words, so the step names the role, never its code or "a member of staff"', code => {
+  // A code with no words reads "Staff" and "a staff member" (staffAccess.ts), never itself: so those are what to rule out.
+  it.each(Object.keys(NAMED))('%s has words, so the step names the role, never its code or "a staff member"', code => {
     expect(roleLabel(code)).not.toBe('Staff')
-    expect(roleInSentence(code)).not.toBe('a member of staff')
+    expect(roleInSentence(code)).not.toBe('a staff member')
     expect(roleInSentence(code)).toMatch(/^an? [a-z ]+$/)
   })
 
   it('cannot name a role the list has no words for', () => {
-    // @ts-expect-error: a code ROLE_LABELS does not name would ask for no role in particular ("Add a member of staff…").
+    // @ts-expect-error: a code ROLE_LABELS does not name would ask for no role in particular ("Add a staff member…").
     const unnamed: RefusedWork = { ...LAB_WORK, doneBy: 'unnamed_role' }
-    expect(roleInSentence(unnamed.doneBy as string)).toBe('a member of staff')
+    expect(roleInSentence(unnamed.doneBy as string)).toBe('a staff member')
   })
 })
 

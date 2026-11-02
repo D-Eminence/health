@@ -26,9 +26,12 @@ export function roleLabels(codes: readonly string[]): string {
   return [...new Set(codes.map(roleLabel))].join(', ')
 }
 
-/** The role in a sentence: "a doctor", "a laboratory scientist". */
+/**
+ * The role in a sentence: "a doctor", "a laboratory scientist". A role with no words yet is "a staff member", as the
+ * owner chose (2 Nov 2026) and PR #97's roleNameInSentence says it, never its internal key.
+ */
 export function roleInSentence(code: string): string {
-  if (!Object.hasOwn(ROLE_LABELS, code)) return 'a member of staff'
+  if (!Object.hasOwn(ROLE_LABELS, code)) return 'a staff member'
   const word = roleLabel(code).toLowerCase()
   return `${/^[aeiou]/.test(word) ? 'an' : 'a'} ${word}`
 }
