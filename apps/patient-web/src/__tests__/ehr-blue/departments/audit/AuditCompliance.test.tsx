@@ -9,11 +9,10 @@ import { DEMO_HOSPITAL_ID, DEMO_LABORATORY_ID, fakeFacility, renderDept, type Fa
 
 /**
  * Audit trail in the blue EHR (target admin/audit.png): today's facility audit read (staff/routes/Audit.tsx)
- * drawn as the target's event list, one card under the heading's line with no Refresh, search or outcome filter. The
- * API's own mapping keeps only seven fields; the page shows only those, so a patient identifier, a reason or event
- * details that reach it are never shown. Each event reads as a plain sentence (docs/AUDIT_ACTION_LABELS.md, owner rule
- * of 1 Nov 2026): what was done, by whom, when, and Allowed, Refused or Failed. Its action code, correlation ID and
- * resource type are never shown.
+ * drawn as the target's event list. The API's own mapping keeps only seven fields; the page shows only those, so a
+ * patient identifier, a reason or event details that reach it are never shown. Each event reads as a plain sentence
+ * (docs/AUDIT_ACTION_LABELS.md, owner rule of 1 Nov 2026): what was done, by whom, when, and Allowed, Refused or Failed.
+ * Its action code, correlation ID and resource type are never shown.
  */
 const session = vi.hoisted(() => ({ facility: undefined as unknown }))
 vi.mock('../../../../staff/App', async () => {
@@ -57,14 +56,6 @@ const view = () => <MemoryRouter><div className="hid-ehr"><AuditCompliance /></d
 const button = (name: string) => screen.getByRole('button', { name })
 const events = () => screen.getByRole('region', { name: 'Audit events' })
 const onlyAuditRead = () => expect(api.touched.filter(key => key !== 'facilityAudit')).toEqual([])
-/** The target draws no Refresh beside the heading, and no search or outcome filter over the events. */
-function expectNoRefreshSearchOrFilter() {
-  expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull()
-  expect(screen.queryByRole('searchbox')).toBeNull()
-  expect(screen.queryByRole('combobox')).toBeNull()
-  expect(screen.queryByRole('textbox')).toBeNull()
-  expect(screen.queryByText(/^Search /)).toBeNull()
-}
 
 beforeEach(() => {
   api.facilityAudit.mockReset()
@@ -106,28 +97,16 @@ describe('Audit trail: the event list', () => {
     expect(screen.getByText('Page 1 · 2 events')).toBeTruthy()
     expect(button('Older events')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Newer events' })).toBeNull()
-    // The events and their pager are the one list card under the heading's line, with no Refresh, search or filter.
-    expectNoRefreshSearchOrFilter()
-    expect(screen.getAllByRole('button').map(element => element.textContent)).toEqual(['Older events'])
+    // Today's search and outcome filter, as the target's list search, and Refresh beside the heading.
+    const search = screen.getByRole('searchbox', { name: 'Search Audit trail' })
+    expect(search.getAttribute('placeholder')).toBe('Search what happened, who did it or the outcome…')
+    expect(document.getElementById(search.getAttribute('aria-describedby') ?? '')?.textContent)
+      .toBe('Search and outcome apply to the events loaded on this page. Use Older events to look further back.')
+    const outcome = screen.getByRole('combobox', { name: 'Outcome' }) as HTMLSelectElement
+    expect(outcome.value).toBe('all')
+    expect(within(outcome).getAllByRole('option').map(option => option.textContent)).toEqual(['All outcomes', 'Allowed', 'Refused', 'Failed'])
+    expect(button('Refresh').getAttribute('type')).toBe('button')
     onlyAuditRead()
-  })
-
-  it('draws the events as the one list card right under the heading’s line', async () => {
-    api.facilityAudit.mockResolvedValueOnce(pageOf([event('51')], '51'))
-    renderDept(<AuditCompliance />)
-    await screen.findByRole('list', { name: 'Audit events, page 1' })
-
-    const card = events().parentElement as HTMLElement
-    expect(card.tagName).toBe('SECTION')
-    expect(card.className).toBe('hid-ehr-card hid-ehr-dept-section hid-ehr-dept-list-card')
-    expect(card.children).toHaveLength(1)
-    // Not a second landmark: the events' own region names the list.
-    expect(card.hasAttribute('aria-label')).toBe(false)
-    const intro = screen.getByText(/^Audit events for Demo Hospital\./)
-    expect(intro.nextElementSibling).toBe(card)
-    expect(card.nextElementSibling).toBeNull()
-    expect(document.querySelectorAll('.hid-ehr-card')).toHaveLength(1)
-    expect(within(card).getByRole('button', { name: 'Older events' })).toBeTruthy()
   })
 
   it('shows its loading state, then says when the facility has no events yet', async () => {
@@ -142,41 +121,67 @@ describe('Audit trail: the event list', () => {
     expect(screen.getByText('Events at Demo Hospital appear here once they are recorded.')).toBeTruthy()
     expect(screen.queryByRole('status')).toBeNull()
     expect(screen.queryByRole('list')).toBeNull()
-    expect(screen.queryAllByRole('button')).toEqual([])
+    expect(screen.getAllByRole('button').map(element => element.textContent)).toEqual(['Refresh'])
     onlyAuditRead()
   })
 })
 
-describe('Audit trail: every event of the page loaded', () => {
+describe('Audit trail: search, outcome and refresh', () => {
   const PAGE = pageOf([
     event('53', { action: 'identity.patient.lookup', outcome: 'success', resourceType: 'patient', actorType: 'staff' }),
     event('52', { action: 'identity.access.denied', outcome: 'denied', resourceType: null, actorType: 'service', correlationId: 'Corr-XYZ' }),
     event('51', { action: 'ehr.encounter.create', outcome: 'failure', resourceType: 'encounter', actorType: 'staff' }),
   ], '51')
-  const shown = (page = 1) => within(screen.getByRole('list', { name: `Audit events, page ${page}` })).getAllByRole('listitem')
+  const shown = () => within(screen.getByRole('list', { name: 'Audit events, page 1' })).getAllByRole('listitem')
     .map(item => item.querySelector('strong')?.textContent)
 
-  it('lists each event the page holds, whatever its outcome, newest first, in words, with nothing to filter them by', async () => {
+  it('searches the loaded page by what happened, who did it, the outcome or the action code, and filters by outcome, sending nothing', async () => {
     api.facilityAudit.mockResolvedValueOnce(PAGE)
     renderDept(<AuditCompliance />)
     await screen.findByRole('list')
-
     expect(shown()).toEqual(['Looked up a patient by Health ID', 'Patient access and registration activity (refused)', 'Tried to start a new visit'])
-    const when = dateText('2026-01-01T12:00:00.000Z')
-    expect(screen.getByText(`Staff member · ${when} · Allowed`)).toBeTruthy()
-    expect(screen.getByText(`Someone · ${when} · Refused`)).toBeTruthy()
-    expect(screen.getByText(`Staff member · ${when} · Failed`)).toBeTruthy()
-    for (const withheld of ['identity.patient.lookup', 'identity.access.denied', 'ehr.encounter.create', 'Corr-XYZ', 'encounter']) {
-      expect(document.body.innerHTML).not.toContain(withheld)
+    const search = screen.getByRole('searchbox', { name: 'Search Audit trail' })
+    const outcome = screen.getByRole('combobox', { name: 'Outcome' })
+
+    // The code is never shown, but it still finds its event.
+    fireEvent.change(search, { target: { value: '  ENCOUNTER ' } })
+    expect(shown()).toEqual(['Tried to start a new visit'])
+    fireEvent.change(search, { target: { value: 'ehr.encounter.create' } })
+    expect(shown()).toEqual(['Tried to start a new visit'])
+    fireEvent.change(search, { target: { value: 'new visit' } })
+    expect(shown()).toEqual(['Tried to start a new visit'])
+    fireEvent.change(search, { target: { value: 'someone' } })
+    expect(shown()).toEqual(['Patient access and registration activity (refused)'])
+    fireEvent.change(search, { target: { value: 'health id' } })
+    expect(shown()).toEqual(['Looked up a patient by Health ID'])
+    fireEvent.change(search, { target: { value: 'refused' } })
+    expect(shown()).toEqual(['Patient access and registration activity (refused)'])
+    // What is never shown beside the code is not searched: the correlation ID, the resource type, the actor type as stored.
+    for (const hidden of ['corr-xyz', 'service']) {
+      fireEvent.change(search, { target: { value: hidden } })
+      expect(screen.queryByRole('list')).toBeNull()
     }
+
+    fireEvent.change(search, { target: { value: '' } })
+    fireEvent.change(outcome, { target: { value: 'denied' } })
+    expect(shown()).toEqual(['Patient access and registration activity (refused)'])
+    fireEvent.change(outcome, { target: { value: 'failure' } })
+    expect(shown()).toEqual(['Tried to start a new visit'])
+
+    fireEvent.change(search, { target: { value: 'lookup' } })
+    expect(screen.queryByRole('list')).toBeNull()
+    expect(screen.getByText('No matching events')).toBeTruthy()
+    expect(screen.getByText('Change the search or outcome, or look at another page.')).toBeTruthy()
+    // The page's count is the page loaded, not what the search shows.
     expect(screen.getByText('Page 1 · 3 events')).toBeTruthy()
-    expect(screen.queryByText('No matching events')).toBeNull()
-    expectNoRefreshSearchOrFilter()
+
+    fireEvent.change(outcome, { target: { value: 'all' } })
+    expect(shown()).toEqual(['Looked up a patient by Health ID'])
     expect(api.facilityAudit).toHaveBeenCalledTimes(1)
     onlyAuditRead()
   })
 
-  it('shows a row whose label says it failed as Failed, even when it was stored as a success', async () => {
+  it('shows a row whose label says it failed as Failed, even when it was stored as a success, and the Failed filter finds it', async () => {
     api.facilityAudit.mockResolvedValueOnce(pageOf([
       event('61', { action: 'ocr.publication.fail', outcome: 'success', resourceType: 'ocr-job' }),
       event('60', { action: 'identity.patient.lookup', outcome: 'success' }),
@@ -187,8 +192,12 @@ describe('Audit trail: every event of the page loaded', () => {
     expect(within(first!).getByText('Scanned document could not be added').tagName).toBe('STRONG')
     expect(within(first!).getByText(`Staff member · ${dateText('2026-01-01T12:00:00.000Z')} · Failed`)).toBeTruthy()
     expect(within(first!).queryByText(/Allowed/)).toBeNull()
-    expect(shown()).toEqual(['Scanned document could not be added', 'Looked up a patient by Health ID'])
-    expectNoRefreshSearchOrFilter()
+
+    const outcome = screen.getByRole('combobox', { name: 'Outcome' })
+    fireEvent.change(outcome, { target: { value: 'failure' } })
+    expect(shown()).toEqual(['Scanned document could not be added'])
+    fireEvent.change(outcome, { target: { value: 'success' } })
+    expect(shown()).toEqual(['Looked up a patient by Health ID'])
   })
 
   it('shows a refused access check as a plain sentence beside Refused, and still leaves the request log out (owner decision)', async () => {
@@ -208,49 +217,53 @@ describe('Audit trail: every event of the page loaded', () => {
     expect(within(first!).getByText('Their role here does not allow this action').tagName).toBe('STRONG')
     expect(within(first!).getByText(`Staff member · ${dateText('2026-01-01T12:00:00.000Z')} · Refused`)).toBeTruthy()
     for (const withheld of ['security', 'authorization', 'http-request', '/api/', 'encounters']) expect(document.body.innerHTML).not.toContain(withheld)
-    expect(shown()).toEqual(['Their role here does not allow this action', 'Looked up a patient by Health ID'])
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Outcome' }), { target: { value: 'denied' } })
+    expect(shown()).toEqual(['Their role here does not allow this action'])
   })
 
-  it('lists every event of the next page loaded too', async () => {
+  it('keeps the search and outcome on the next page loaded', async () => {
     api.facilityAudit.mockResolvedValueOnce(PAGE).mockResolvedValueOnce(pageOf([
-      event('50', { action: 'identity.consent.write', outcome: 'denied' }), event('49', { action: 'ehr.note.read', outcome: 'failure' }),
+      event('50', { action: 'identity.consent.write', outcome: 'denied' }), event('49', { action: 'ehr.note.read' }),
     ]))
     renderDept(<AuditCompliance />)
     await screen.findByRole('list')
+    fireEvent.change(screen.getByRole('combobox', { name: 'Outcome' }), { target: { value: 'denied' } })
     fireEvent.click(button('Older events'))
 
-    await screen.findByRole('list', { name: 'Audit events, page 2' })
-    expect(shown(2)).toEqual(['Patient access and registration activity (refused)', 'Tried to open a clinical note'])
+    const list = await screen.findByRole('list', { name: 'Audit events, page 2' })
+    expect(within(list).getAllByRole('listitem').map(item => item.querySelector('strong')?.textContent)).toEqual(['Patient access and registration activity (refused)'])
     expect(api.facilityAudit).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, '51')
-    expectNoRefreshSearchOrFilter()
   })
 
-  it('keeps a page already shown while it is read again, and says so', async () => {
-    // Page 1 is shown, an older page is refused, and Newer events reads page 1 again with it still on screen.
+  it('reads the same page again on Refresh, keeping the list and focus while it runs', async () => {
     const again = deferred<unknown>()
-    api.facilityAudit.mockResolvedValueOnce(PAGE).mockRejectedValueOnce(new Error('Health ID did not answer.'))
-      .mockReturnValueOnce(again.promise)
+    api.facilityAudit.mockResolvedValueOnce(PAGE).mockReturnValueOnce(again.promise)
     renderDept(<AuditCompliance />)
     await screen.findByRole('list')
-    fireEvent.click(button('Older events'))
-    await screen.findByRole('alert')
-    fireEvent.click(button('Newer events'))
+    const refresh = button('Refresh')
+    refresh.focus()
+    fireEvent.click(refresh)
 
-    await waitFor(() => expect(api.facilityAudit).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(api.facilityAudit).toHaveBeenCalledTimes(2))
     expect(api.facilityAudit).toHaveBeenLastCalledWith(DEMO_HOSPITAL_ID, undefined)
+    expect(refresh.getAttribute('aria-busy')).toBe('true')
+    expect(document.activeElement).toBe(refresh)
     expect(screen.getByRole('list', { name: 'Audit events, page 1' }).getAttribute('aria-busy')).toBe('true')
+    // The list stays on screen, and a visually hidden status says it is being read again.
     const status = screen.getByRole('status')
     expect(status.textContent).toBe('Loading audit events')
     expect(status.className).toBe('hid-ehr-sr-only')
     expect(screen.getByText('Tried to start a new visit')).toBeTruthy()
-    expect(button('Older events').getAttribute('aria-busy')).toBe('true')
+    fireEvent.click(refresh)
+    expect(api.facilityAudit).toHaveBeenCalledTimes(2)
 
-    await act(async () => { again.resolve(pageOf([event('54', { action: 'auth.facility.select' })], '54')) })
-    expect(shown()).toEqual(['Switched to this facility'])
+    await act(async () => { again.resolve(pageOf([event('54', { action: 'auth.facility.select' })])) })
+    expect(screen.getByText('Switched to this facility')).toBeTruthy()
     expect(screen.queryByText('Tried to start a new visit')).toBeNull()
     expect(screen.queryByRole('status')).toBeNull()
-    expect(screen.getByRole('list', { name: 'Audit events, page 1' }).hasAttribute('aria-busy')).toBe(false)
-    expect(document.activeElement).toBe(button('Older events'))
+    expect(refresh.hasAttribute('aria-busy')).toBe(false)
+    expect(document.activeElement).toBe(refresh)
     onlyAuditRead()
   })
 })

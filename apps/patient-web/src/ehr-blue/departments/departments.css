@@ -1296,6 +1296,11 @@
   white-space: nowrap;
 }
 
+/* Audit's Outcome filter lines up with the search box beside it, not with its hint below. */
+.hid-ehr .hid-ehr-dept-audit-outcome {
+  align-self: start;
+}
+
 /* In a list table: the reference sits tight under the name, and the name keeps the table's size (design rows 69px). */
 .hid-ehr .hid-ehr-table .hid-ehr-dept-reference {
   margin-top: 0;
