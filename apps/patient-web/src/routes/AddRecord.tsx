@@ -25,7 +25,7 @@ import { useSession } from '../session'
  * its signature, a PDF "%PDF-"); one whose bytes aren't (a program renamed scan.png, say) is refused ("This file isn't a
  * JPEG, PNG or PDF.") and never listed, so never sent. A photo is then read and kept only without its metadata
  * (photoMetadata.ts: the GPS position where it was taken, the camera's details, any thumbnail, text or further picture;
- * never re-encoded, so the picture is unchanged): what is previewed, hashed and sent are those stripped bytes, a new File
+ * only which way up it goes is kept; never re-encoded, so the picture is unchanged): what is previewed, hashed and sent are those stripped bytes, a new File
  * of the same name and type. A photo that can't be walked cleanly is refused there in plain words and never listed, so
  * never sent. A PDF goes as it is.
  *
