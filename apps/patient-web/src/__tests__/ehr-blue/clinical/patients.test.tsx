@@ -421,30 +421,6 @@ describe('The open patient’s page', () => {
     expect(where()).toBe(`/provider/clinical/${ENCOUNTER_ID}`)
   })
 
-  it('tells a role that brings in paper records that this access covers them, only for an adult under direct care', async () => {
-    const LINE = 'This access also lets you bring in the patient’s paper records while it lasts.'
-    staff.permissions = [...ALL, 'ocr.job.read']
-    staff.activePatient = activePatient()
-    const view = open('/open')
-    expect(await screen.findByText(LINE)).toBeTruthy()
-    view.unmount()
-
-    // Not to a role without paper records, not under emergency access, not for a patient under 18.
-    staff.permissions = [...ALL]
-    open('/open').unmount()
-    expect(screen.queryByText(LINE)).toBeNull()
-    staff.permissions = [...ALL, 'ocr.job.read']
-    staff.activePatient = activePatient('emergency')
-    const emergency = open('/open')
-    expect(screen.queryByText(LINE)).toBeNull()
-    emergency.unmount()
-    const child = new Date().getUTCFullYear() - 10
-    staff.activePatient = { ...activePatient(), lookup: { ...activePatient().lookup, patient: { ...activePatient().lookup.patient, dateOfBirth: `${child}-01-01` } } }
-    open('/open')
-    await screen.findByText('You have access')
-    expect(screen.queryByText(LINE)).toBeNull()
-  })
-
   it('hands the Health ID to the request form from Ask for more access', () => {
     staff.activePatient = activePatient()
     open('/open')

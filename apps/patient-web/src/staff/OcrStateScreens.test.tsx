@@ -7,8 +7,8 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 vi.mock('../ehr-blue/clinicSwitch', () => ({ BLUE_FOR_ALL: false }))
 
 /**
- * OCR-A11Y-09. Opening Paper records could show a screen with no h1 or no main
- * landmark: Paper records unavailable (an h2 only), and the workspace's own state
+ * OCR-A11Y-09. Opening Document OCR could show a screen with no h1 or no main
+ * landmark: Document OCR unavailable (an h2 only), and the workspace's own state
  * screens in front of it (checking the session, session unavailable, no
  * facility assignment, the session check and the session-ended screen), and the
  * page-not-found route. Page-change focus then fell back to the main region,
@@ -66,11 +66,11 @@ async function expectScreen(name: string | RegExp) {
   expect(mains[0]!.contains(heading)).toBe(true)
 }
 
-describe('OCR-A11Y-09: opening Paper records, every screen has a main landmark and an h1', () => {
-  it('Paper records unavailable, for a role without OCR job read', async () => {
+describe('OCR-A11Y-09: opening Document OCR, every screen has a main landmark and an h1', () => {
+  it('Document OCR unavailable, for a role without OCR job read', async () => {
     serve({ 'GET /api/v1/auth/session': [() => session()] })
     await open('/provider/ocr')
-    await expectScreen('Paper records unavailable')
+    await expectScreen('Document OCR unavailable')
   })
 
   it('checking the session: a main region holding the status', async () => {
@@ -104,7 +104,7 @@ describe('OCR-A11Y-09: opening Paper records, every screen has a main landmark a
     let answer: (response: Response) => void = () => {}
     serve({ 'GET /api/v1/auth/session': [() => session([facility(['ocr.job.read'])]), () => new Promise<Response>(resolve => { answer = resolve })] })
     await open('/provider/ocr')
-    await screen.findByRole('heading', { level: 1, name: 'Bring in paper records' })
+    await screen.findByRole('heading', { level: 1, name: 'Document OCR' })
     fromAnotherTab()
     await expectScreen('Checking your session…')
     // HTML's rule is on the attribute itself, which a hidden ancestor does not give: one main without it.
@@ -113,14 +113,14 @@ describe('OCR-A11Y-09: opening Paper records, every screen has a main landmark a
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Checking your session…' })).toBeNull())
     expect(shownMains()).toHaveLength(1)
     expect(document.querySelectorAll('main:not([hidden])')).toHaveLength(1)
-    expect(within(shownMains()[0]!).getByRole('heading', { level: 1, name: 'Bring in paper records' })).toBeTruthy()
+    expect(within(shownMains()[0]!).getByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
   })
 
   it('the session-ended screen', async () => {
     serve({ 'GET /api/v1/auth/session': [() => session([facility(['ocr.job.read'])]), () => problem(401, 'AUTHENTICATION_REQUIRED')],
       'POST /api/v1/auth/refresh': [() => problem(401, 'AUTHENTICATION_REQUIRED')] })
     await open('/provider/ocr')
-    await screen.findByRole('heading', { level: 1, name: 'Bring in paper records' })
+    await screen.findByRole('heading', { level: 1, name: 'Document OCR' })
     fromAnotherTab()
     await expectScreen('Your session has ended')
   })

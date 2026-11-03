@@ -24,7 +24,7 @@ export const FRAME_PARTS: readonly { readonly name: string; readonly status: Ehr
   { name: 'Demo chip', status: 'live', note: 'Says what is live and what is a sample.' },
   { name: 'Connection popover', status: 'sample', note: 'Health ID has no offline sync for staff yet.' },
   { name: 'Sync drawer', status: 'sample', note: 'Health ID has no offline sync for staff yet.' },
-  { name: 'Record quick view', status: 'partial', note: 'On sample workspace lists, and on some working lists such as Consultation.' },
+  { name: 'Record quick view', status: 'partial', note: 'On sample workspace lists, and on some working lists such as Consultation and Document OCR.' },
   { name: 'My profile drawer', status: 'sample', note: 'From the account menu.' },
   { name: 'Unknown address', status: 'live', note: 'An address that is no page says “Page not found”, with one way back: to Home, or to the first page of a lab, pharmacy, outreach or migration site.' },
   // Partial: on a lab, pharmacy, outreach or migration site, Home is that site's own page, and the notice is lost on the way.

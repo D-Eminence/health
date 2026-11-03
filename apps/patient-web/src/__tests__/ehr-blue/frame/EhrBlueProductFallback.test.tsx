@@ -51,7 +51,7 @@ describe('a product site whose own page this session may not open', () => {
   it.each([
     ['lab.healthidentitydirectory.com', 'Laboratory unavailable', '/lab/'],
     ['outreach.healthidentitydirectory.com', 'Outreach unavailable', '/outreach/'],
-    ['migrate.healthidentitydirectory.com', 'Paper records unavailable', '/ocr/'],
+    ['migrate.healthidentitydirectory.com', 'Document OCR unavailable', '/ocr/'],
   ])('on %s, opens the Overview at /provider instead of the refusal, and reads none of the product\'s work', async (host, refusal, api) => {
     const sent = await openOn(host, ADMIN_ONLY)
     const [heading] = await screen.findAllByRole('heading', { level: 1 })

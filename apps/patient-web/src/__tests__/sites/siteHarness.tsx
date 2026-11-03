@@ -30,7 +30,7 @@ export const EVERY_PERMISSION = ['identity.patient.read', 'identity.registration
 
 /** The classic sidebar's pages, in order, at a facility holding every permission. */
 export const EVERY_CLASSIC_PAGE = ['Overview', 'Patient access', 'Patient registration', 'In-person check', 'Access requests',
-  'Facility audit', 'Clinical record', 'Laboratory', 'Pharmacy', 'Paper records', 'Outreach', 'Plan & billing']
+  'Facility audit', 'Clinical record', 'Laboratory', 'Pharmacy', 'Document OCR', 'Outreach', 'Plan & billing']
 
 export const REAL_CLINIC = 'f0000000-0000-4000-8000-0000000051e5'
 /** The demo tenant's pharmacy and outreach (ehr-blue/blueFacilities.ts). */

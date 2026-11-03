@@ -77,7 +77,7 @@ describe(SITE, () => {
 
   it('lists its own pages in today’s sidebar, and links to the other products’ sites, never the EHR’s', async () => {
     const sidebar = await openClassicOn(SITE)
-    expect(classicPages(sidebar)).toEqual(['Overview', 'Patient access', 'Access requests', 'Facility audit', 'Paper records', 'Plan & billing'])
+    expect(classicPages(sidebar)).toEqual(['Overview', 'Patient access', 'Access requests', 'Facility audit', 'Document OCR', 'Plan & billing'])
     expect(siteLinks(sidebar)).toEqual([
       ['Laboratory', 'https://lab.healthidentitydirectory.com/'],
       ['Pharmacy', 'https://pharmacy.healthidentitydirectory.com/'],
@@ -97,7 +97,7 @@ describe(SITE, () => {
 
   it('offers Patients and Access requests only to a role holding their own permissions', async () => {
     const sidebar = await openClassicOn(SITE, '/provider', [], ['ocr.job.read'])
-    expect(classicPages(sidebar)).toEqual(['Overview', 'Paper records'])
+    expect(classicPages(sidebar)).toEqual(['Overview', 'Document OCR'])
   })
 
   it('opens the blue EHR, once the clinic switch is on, as Migrate, with this site’s pages only', async () => {

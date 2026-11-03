@@ -100,7 +100,7 @@ describe(EHR, () => {
   it('offers every workspace on the Overview, with the access requests', async () => {
     await openClassicOn(EHR)
     expect(await screen.findByRole('heading', { level: 2, name: 'Workspaces' })).toBeTruthy()
-    expect(overviewWorkspaces()).toEqual(['Patient access', 'Clinical record', 'Laboratory', 'Pharmacy', 'Paper records', 'Outreach'])
+    expect(overviewWorkspaces()).toEqual(['Patient access', 'Clinical record', 'Laboratory', 'Pharmacy', 'Document OCR', 'Outreach'])
     expect(screen.queryByText(/Your other workspaces are on other Health ID sites/)).toBeNull()
     expect(await screen.findByText('0 pending requests')).toBeTruthy()
   })

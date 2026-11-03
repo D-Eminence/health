@@ -67,7 +67,7 @@ export interface HistoryItem {
   readonly open?: { readonly onOpen: () => void; readonly disabled?: boolean; readonly busy?: boolean }
   /** Lines under the label (a document's type, size and scan), which also describe its button. */
   readonly detail?: readonly string[]
-  /** Controls after the status. */
+  /** Controls after the status (a document's "Extract with OCR"). */
   readonly extra?: ReactNode
 }
 

@@ -24,7 +24,7 @@ export const PROVIDER_NAVIGATION: ReadonlyArray<{ to: string; label: string; per
   { to: '/provider/clinical', label: 'Clinical record', permission: 'ehr.encounter.read' },
   { to: '/provider/laboratory', label: 'Laboratory', permission: 'lab.work-item.read' },
   { to: '/provider/pharmacy', label: 'Pharmacy', permission: 'pharmacy.work-item.read' },
-  { to: '/provider/ocr', label: 'Paper records', permission: 'ocr.job.read' },
+  { to: '/provider/ocr', label: 'Document OCR', permission: 'ocr.job.read' },
   { to: '/provider/outreach', label: 'Outreach', permission: 'outreach.registration.read' },
   { to: '/provider/billing', label: 'Plan & billing', permission: 'billing.subscription.read' },
 ]

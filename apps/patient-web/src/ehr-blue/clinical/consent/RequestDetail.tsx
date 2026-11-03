@@ -8,7 +8,6 @@ import { outcome } from '../../../staff/routes/AccessRequests'
 import { ACCESS_ENDED } from '../parts/chart'
 import { RecordNotFound } from '../parts/Notices'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
-import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording'
 import { ACCESS_CLOSED, CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf } from './access'
 import { closable, closeError, latest, patientContext, requestDetails, statusFilter, useAccessRequests } from './requests'
 import { formatWhen } from '../parts/format'
@@ -24,16 +23,11 @@ export function OutcomeBadge({ request }: { request: AccessRequest }) {
 /** What the outcome means for the clinician, said once, with its one next step. */
 function StateNote({ request }: { request: AccessRequest }) {
   const href = useWorkspaceHref()
-  const { activePatient, permissions } = useClinical()
-  // The paper records line only once this patient's age is known here (their record is open for direct care) and they
-  // are an adult, to a role that brings in paper records, on a request that allows adding to the record.
-  const open = activePatient?.purpose === 'direct-care' && activePatient.lookup.patient.patientId === request.patientId ? activePatient : null
-  const coversPaper = open !== null && request.scope === 'write_records' && permissions.includes('ocr.job.read') && isAdult(open.lookup.patient.dateOfBirth)
   const key = request.effectiveStatus ?? request.status
   if (key === 'pending') return <Alert intent="info" live={false} title="Waiting for the patient">You can see their records once they approve.</Alert>
   if (key === 'active' || key === 'approved') {
     return <Alert intent="success" live={false} title="The patient approved" action={<Button size="sm" variant="primary" to={href.to('patients')}>Find a patient</Button>}>
-      Open their record from Find a patient.{coversPaper ? ` ${STAFF_ACCESS_COVERS_PAPER}` : ''}</Alert>
+      Open their record from Find a patient.</Alert>
   }
   if (key === 'denied') return <Alert intent="warning" live={false} title="The patient said no">{request.deniedReason || undefined}</Alert>
   return null
