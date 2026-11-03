@@ -10,8 +10,8 @@ import { dateText } from '../parts/format'
  * say them.
  */
 
-/** The design's line when a record offers nothing to do. */
-export const NO_ACTIONS = 'No further actions for your permission and this record state.'
+/** The line when a record offers nothing to do. */
+export const NO_ACTIONS = 'Nothing else to do here.'
 /** The design's line under a form whose save was refused. */
 export const RETRY_NOTE = 'Correct the issue or retry using the same button. No success is reported until saved.'
 /** The design's word for a required field left empty. */
@@ -35,14 +35,25 @@ export const LINK_FAILED = 'The patient could not be linked. Check your access t
 
 export const PENDING = 'identity_resolution_pending'
 
-/** A status as the design's badges say it: lowercase words. */
-export function statusWords(status: string) {
-  return status.replaceAll('_', ' ').toLowerCase()
+/**
+ * A campaign's status in plain words. Outreach sends planned, active or closed (campaign.types.ts CampaignStatus); the
+ * others are words a campaign could plausibly be given. A status with no word here is never printed as its code.
+ */
+const CAMPAIGN_STATUS: Readonly<Record<string, string>> = {
+  draft: 'Not started',
+  planned: 'Not started',
+  scheduled: 'Not started',
+  active: 'Running',
+  paused: 'Paused',
+  closed: 'Finished',
+  completed: 'Finished',
+  ended: 'Finished',
+  cancelled: 'Cancelled',
+  archived: 'Finished',
 }
 
-/** A record's short reference under its name, as the design's lists show it. */
-export function reference(id: string) {
-  return id.slice(0, 8)
+export function campaignStatusLabel(status: string) {
+  return (Object.hasOwn(CAMPAIGN_STATUS, status) ? CAMPAIGN_STATUS[status] : undefined) ?? 'Status not known'
 }
 
 export function caseName(item: OutreachCase) {
@@ -58,13 +69,13 @@ export function sexText(item: OutreachCase) {
   return item.sex === 'unknown' ? 'Sex not known' : item.sex.replace(/^./, letter => letter.toUpperCase())
 }
 
-/** The words a list search looks in: what a row shows, and its full references. */
+/** The words a list search looks in: what a row shows, and nothing that is not on screen. */
 export function caseSearchText(item: OutreachCase) {
-  return [caseName(item), statusWords(item.status), item.id, ageText(item), sexText(item), item.temporaryPatientId, dateText(item.createdAt)]
+  return [caseName(item), statusLabel(item.status), ageText(item), sexText(item), item.temporaryPatientId, dateText(item.createdAt)]
 }
 
 export function campaignSearchText(campaign: OutreachCampaign) {
-  return [campaign.name, statusWords(campaign.status), campaign.id, campaign.services.join(' '), dateText(campaign.startsAt)]
+  return [campaign.name, campaignStatusLabel(campaign.status), campaign.services.join(' '), dateText(campaign.startsAt)]
 }
 
 /**
@@ -91,7 +102,7 @@ export function caseFacts(item: OutreachCase, campaign: OutreachCampaign | undef
     ...(item.phone !== undefined ? [{ label: 'Phone number', value: phoneText(item.phone) }] : []),
     { label: 'Status', value: statusLabel(item.status) },
     { label: 'Temporary patient ID', value: item.temporaryPatientId ?? 'Not assigned' },
-    { label: 'Campaign', value: item.campaignId ? (campaign?.name ?? reference(item.campaignId)) : 'No campaign' },
+    { label: 'Campaign', value: item.campaignId ? (campaign?.name ?? 'A campaign not listed here') : 'No campaign' },
     { label: 'Created', value: dateText(item.createdAt) },
     ...(item.operationalNotes !== undefined
       ? [{ label: 'Notes for the team', value: notes ? <span className="whitespace-pre-wrap break-words">{notes}</span> : 'None' }]
@@ -102,7 +113,7 @@ export function caseFacts(item: OutreachCase, campaign: OutreachCampaign | undef
 export function campaignFacts(campaign: OutreachCampaign): DeptFact[] {
   return [
     { label: 'Name', value: campaign.name },
-    { label: 'Status', value: statusWords(campaign.status) },
+    { label: 'Status', value: campaignStatusLabel(campaign.status) },
     { label: 'Services', value: campaign.services.length ? campaign.services.join(', ') : 'None listed' },
     { label: 'Starts', value: dateText(campaign.startsAt) },
   ]
@@ -169,28 +180,35 @@ export interface FieldErrors<Field extends string> {
   readonly seq: number
 }
 
-/** A case's status in plain words, as the cards and record say it: "Waiting to link", "Linked". */
+/** A case's status in plain words, as the cards and record say it: "Waiting to link", "Linked". Never its code. */
 const STATUS_LABEL: Readonly<Record<string, string>> = {
   [PENDING]: 'Waiting to link',
   identity_resolved: 'Linked',
   resolved: 'Linked',
   linked_existing: 'Linked',
   resolved_existing_identity: 'Already on Health ID',
+  // Cases that ended without a link: said in words too, rather than read as unknown.
+  rejected: 'Rejected',
+  cancelled: 'Cancelled',
+  closed: 'Closed',
+  duplicate: 'Duplicate',
 }
+/** The statuses that mean the person was linked to a Health ID: the only green ones. */
+const LINKED_STATUSES: ReadonlySet<string> = new Set(['identity_resolved', 'resolved', 'linked_existing', 'resolved_existing_identity'])
 
 export function statusLabel(status: string) {
-  return STATUS_LABEL[status] ?? statusWords(status).replace(/^./, letter => letter.toUpperCase())
+  return (Object.hasOwn(STATUS_LABEL, status) ? STATUS_LABEL[status] : undefined) ?? 'Status not known'
 }
 
 /** A case's tone, with its word always beside it: waiting is amber, linked is green, anything else neutral. */
 export function caseTone(status: string): Tone {
   if (status === PENDING) return 'warn'
-  return STATUS_LABEL[status] ? 'success' : 'neutral'
+  return LINKED_STATUSES.has(status) ? 'success' : 'neutral'
 }
 
 /** What happens next on a case, said on its card: the one next step, or that it is done. */
 export function nextStepText(item: OutreachCase, canLink: boolean): string {
-  if (item.status !== PENDING) return 'Done: nothing more to do'
+  if (item.status !== PENDING) return Object.hasOwn(STATUS_LABEL, item.status) ? 'Done: nothing more to do' : 'Nothing else to do here.'
   return canLink ? 'Next: link their Health ID' : 'Waiting for someone to link their Health ID'
 }
 

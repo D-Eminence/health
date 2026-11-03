@@ -141,3 +141,25 @@
 .hid-ehr .hid-ehr-dept-registration-next p {
   margin: 0 0 12px;
 }
+
+/* "More details": the case's reference, out of the way, under its facts. */
+.hid-ehr .hid-ehr-dept-registration-more {
+  margin-top: 16px;
+  border-top: 1px solid var(--ehr-line);
+  padding-top: 12px;
+}
+
+.hid-ehr .hid-ehr-dept-registration-more summary {
+  cursor: pointer;
+  color: var(--ehr-ink);
+  font-weight: 600;
+}
+
+.hid-ehr .hid-ehr-dept-registration-more summary:focus-visible {
+  outline: 3px solid var(--ehr-brand);
+  outline-offset: 3px;
+}
+
+.hid-ehr .hid-ehr-dept-registration-more p {
+  margin: 8px 0 0;
+}
