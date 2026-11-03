@@ -9,7 +9,7 @@ import { DEMO_HOSPITAL, SESSION, facility, openStaffApp, serve, sessionAt } from
  * here", and reads nothing but the session. Every account is fictional.
  */
 const LAB_REFUSAL = 'Your role at this facility doesn’t include the lab’s work list and results. Ask your facility administrator.'
-const OCR_REFUSAL = 'Reading scanned documents isn’t available at your facility yet.'
+const OCR_REFUSAL = 'Bringing in paper records isn’t part of your role at this facility.'
 // Both roles register patients (owner's answer, 2 Nov 2026), so registration names them; the Laboratory names none.
 const REGISTRATION_REFUSAL = 'Your role at this facility doesn’t include registering patients. Ask your facility administrator for the Receptionist or Records officer role.'
 vi.mock('../../../staff/env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
@@ -28,7 +28,7 @@ describe('a department page without its permission', () => {
   it.each([
     ['/provider/laboratory', 'Laboratory unavailable', LAB_REFUSAL],
     ['/provider/pharmacy', 'Pharmacy unavailable', 'Your role at this facility doesn’t include pharmacy work. Ask your facility administrator.'],
-    ['/provider/ocr', 'Document OCR unavailable', OCR_REFUSAL],
+    ['/provider/ocr', 'Paper records unavailable', OCR_REFUSAL],
     ['/provider/registration', 'Registration unavailable', REGISTRATION_REFUSAL],
     ['/provider/audit', 'Audit access unavailable', 'Your role at this facility doesn’t include reviewing audit events. Ask your facility administrator.'],
   ])('%s gives its own refusal, %s, and reads nothing', async (path, title, message) => {
@@ -42,11 +42,11 @@ describe('a department page without its permission', () => {
     expect(sent.map(request => request.route).filter(route => route !== SESSION)).toEqual([])
   })
 
-  // The Laboratory's, Document OCR's and Patient registration's refusals no longer name the permission they lack (the
+  // The Laboratory's, Paper records' and Patient registration's refusals no longer name the permission they lack (the
   // owner's rule: screens show no codes; plain words). Registration names its roles by their words, not their codes.
   it.each([
     ['/provider/laboratory', 'Laboratory unavailable', /permission|membership|work-item|lab\.work-item\.read/i],
-    ['/provider/ocr', 'Document OCR unavailable', /permission|membership|OCR job read|ocr\.job\.read/i],
+    ['/provider/ocr', 'Paper records unavailable', /permission|membership|OCR job read|ocr\.job\.read/i],
     ['/provider/registration', 'Registration unavailable', /permission|membership|registration write|identity\.registration\.write|\b[a-z]+(?:_[a-z]+)+\b/i],
   ])('%s names no permission', async (path, title, permissionWords) => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['ehr.encounter.read'])

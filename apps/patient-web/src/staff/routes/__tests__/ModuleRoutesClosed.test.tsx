@@ -1,8 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
-import { Laboratory, Ocr, Outreach, Pharmacy } from '../Operations'
+import { Laboratory, Outreach, Pharmacy } from '../Operations'
 
 /**
  * Since hid-system #65 the gateway answers every Lab, Pharmacy, OCR and
@@ -15,7 +14,7 @@ import { Laboratory, Ocr, Outreach, Pharmacy } from '../Operations'
  */
 const api = vi.hoisted(() => ({
   labWorkItems: vi.fn(), pharmacyWorkItems: vi.fn(), outreachCampaigns: vi.fn(), outreachCases: vi.fn(),
-  outreachCampaignMembers: vi.fn(), findOcrJob: vi.fn(),
+  outreachCampaignMembers: vi.fn(),
 }))
 const permissions = vi.hoisted(() => ({ value: [] as string[] }))
 
@@ -34,7 +33,7 @@ const NOT_IN_SERVICE = 'This part of Health ID isn’t turned on for your facili
 
 beforeEach(() => {
   vi.clearAllMocks()
-  for (const read of [api.labWorkItems, api.pharmacyWorkItems, api.outreachCampaigns, api.outreachCases, api.findOcrJob]) {
+  for (const read of [api.labWorkItems, api.pharmacyWorkItems, api.outreachCampaigns, api.outreachCases]) {
     read.mockRejectedValue(routeClosed())
   }
 })
@@ -64,15 +63,7 @@ describe('a workspace whose module the gateway has closed', () => {
     expect(await alerts()).toEqual([NOT_IN_SERVICE, NOT_IN_SERVICE])
   })
 
-  it('OCR says the module is not in service when a job is looked up', async () => {
-    permissions.value = ['ocr.job.read']
-    render(<MemoryRouter initialEntries={['/provider/ocr']}><Ocr /></MemoryRouter>)
-    fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: 'd0000000-0000-4000-8000-000000000001' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Find job' }))
-    expect(await alerts()).toEqual([NOT_IN_SERVICE])
-  })
-
-  it('says a 404 the module itself sent as not found, in plain words', async () => {
+  it('keeps the message of a 404 the module itself sent', async () => {
     permissions.value = ['lab.work-item.read']
     api.labWorkItems.mockRejectedValue(new HidApiError(404, 'Lab work item was not found', { code: 'LAB_WORK_ITEM_NOT_FOUND' }))
     render(<Laboratory />)

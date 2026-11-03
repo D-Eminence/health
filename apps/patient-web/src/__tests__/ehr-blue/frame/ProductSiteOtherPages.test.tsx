@@ -59,7 +59,7 @@ vi.mock('../../../ehr-blue/departments/outreach/Outreach', async importOriginal 
   ...await importOriginal<object>(), Outreach: () => <h1>Outreach (stand-in)</h1>,
 }))
 vi.mock('../../../ehr-blue/departments/migrate/Migrate', async importOriginal => ({
-  ...await importOriginal<object>(), Migrate: () => <h1>Document OCR (stand-in)</h1>,
+  ...await importOriginal<object>(), Migrate: () => <h1>Paper records (stand-in)</h1>,
 }))
 vi.mock('../../../ehr-blue/departments/audit/AuditCompliance', () => ({ AuditCompliance: () => <h1>Audit (stand-in)</h1> }))
 vi.mock('../../../ehr-blue/frame/BlueSubscription', async importOriginal => ({
@@ -151,7 +151,7 @@ const SITES: readonly (readonly [string, string, string, string])[] = [
   ['lab.healthidentitydirectory.com', 'lab.work-item.read', '/provider/laboratory/work', 'Work list (stand-in)'],
   ['pharmacy.healthidentitydirectory.com', 'pharmacy.work-item.read', '/provider/pharmacy/prescriptions', 'Prescriptions (stand-in)'],
   ['outreach.healthidentitydirectory.com', 'outreach.registration.read', '/provider/outreach', 'Outreach (stand-in)'],
-  ['migrate.staging.healthidentitydirectory.com', 'ocr.job.read', '/provider/ocr', 'Document OCR (stand-in)'],
+  ['migrate.staging.healthidentitydirectory.com', 'ocr.job.read', '/provider/ocr', 'Paper records (stand-in)'],
 ]
 
 /** The EHR's own pages, each with its permission: a role holding them still works on a product site as that product. */

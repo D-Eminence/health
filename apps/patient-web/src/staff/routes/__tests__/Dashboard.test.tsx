@@ -9,7 +9,7 @@ import { forgetReceiving, RECEIVING_MEMORY_MS, rememberReceiving } from '../../o
  * The "Health ID Migrate" card leads to the governed OCR workflow. OCR is closed
  * at launch: the gateway answers every OCR route 404 API_ROUTE_NOT_FOUND, and
  * since hid-system migration 0091 no role holds any ocr.* permission. The card is
- * shown, like the Document OCR workspace, only to a role holding ocr.job.read.
+ * shown, like the Paper records workspace, only to a role holding ocr.job.read.
  */
 const api = vi.hoisted(() => ({ listAccessRequests: vi.fn() }))
 const routes = vi.hoisted(() => ({ incoming: vi.fn() }))
@@ -45,14 +45,14 @@ describe('the Health ID Migrate card', () => {
     open()
     expect(await screen.findByRole('link', { name: /Clinical record/ })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Health ID Migrate' })).toBeNull()
-    expect(screen.queryByRole('link', { name: 'Open document workflow →' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Open paper records →' })).toBeNull()
   })
 
   it('is shown to a role holding ocr.job.read, leading to the document workflow', async () => {
     staff.permissions = ['identity.patient.read', 'ocr.job.read']
     open()
     expect(await screen.findByRole('heading', { name: 'Health ID Migrate' })).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Open document workflow →' }).getAttribute('href')).toBe('/provider/ocr')
+    expect(screen.getByRole('link', { name: 'Open paper records →' }).getAttribute('href')).toBe('/provider/ocr')
   })
 })
 

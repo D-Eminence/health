@@ -1,7 +1,6 @@
 import { assertSignedStorageUrl, plainErrorText } from '@hid/http'
 import { EhrButton, EhrCard, EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
 import { useRef, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
 import {
   DEFAULT_DOCUMENT_TYPE, documentTypeLabel, documentTypeOf, documentTypeRefusalText, documentTypesHere, isDocumentType,
   useDocumentTypesServed, type DocumentType,
@@ -13,21 +12,15 @@ import type { Chart } from '../parts/chart'
 import { SubHeading } from '../parts/Detail'
 import { ErrorBox, Loading } from '../parts/Notices'
 import { StatusBadge } from '../parts/StatusBadge'
-import { useClinical } from '../parts/Workspace'
 import { fileTypeLabel, scanStatusLabel } from '../../../plainLabels'
 import { RELOAD_FAILED, fileSize } from './encounters'
 import { ListPaging } from './Notes'
 import type { RecordList } from './records'
 
-const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff']
+// No TIFF: most browsers cannot show one, so it could not be opened again here.
+const ACCEPTED = ['application/pdf', 'image/jpeg', 'image/png']
 /** 50 MiB, today's limit (staff/routes/Clinical.tsx Documents). */
 const MAX_BYTES = 52_428_800
-/**
- * Today's OCR page, where today's link goes (staff/routes/Clinical.tsx Documents). It is today's provider route, not a
- * blue workspace, so it is named as today names it rather than below this page's base.
- */
-const OCR_PATH = '/provider/ocr'
-const OCR_LABEL = 'Extract with OCR'
 /** Said when EHR holds more documents than today's read answers (it takes no cursor). */
 const DOCUMENTS_TRUNCATED = 'Not every document of this encounter is listed here.'
 /** Said in place of the upload, once the types are served, on a host that uploads none (as blue Migrate says it). */
@@ -56,14 +49,13 @@ function reloadFailed(failure: string): CardError {
 
 /**
  * The encounter's documents (today's Documents tab), 50 to a page: each with its type, size and scan result, "Open
- * file" only once the virus scan is clean, today's "Extract with OCR" for a clean one when the role may read OCR jobs
- * (the ids go in router state, never in the address, as today), and "Upload a document". Opening and uploading
- * re-check access first, as today.
+ * file" only once the virus scan is clean, and "Upload a document". Opening and uploading re-check access first, as
+ * today. Paper records are brought in from the patient's page, not from here.
  *
- * Document types (documentTypes.ts, the owner's rule of 31 Oct), as blue Migrate asks them: once the document list has
- * answered `documentTypes: true`, the upload asks for the document's type among those this host may upload (the
- * clinical document first), sends it with the file, and each listed document names its type. Until then no type is
- * asked, sent or shown, and the upload is exactly today's. "Extract with OCR" hands over the same ids whatever the type.
+ * Document types (documentTypes.ts, the owner's rule of 31 Oct): once the document list has answered
+ * `documentTypes: true`, the upload asks for the document's type among those this host may upload (the clinical
+ * document first), sends it with the file, and each listed document names its type. Until then no type is asked, sent
+ * or shown, and the upload is exactly today's.
  */
 export function DocumentsCard({ chart, encounterId, list, canWrite }: {
   chart: Chart
@@ -72,10 +64,6 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
   canWrite: boolean
 }) {
   const { facilityId, patientId } = chart
-  const { state } = useClinical()
-  // Today's OCR handoff names who made it and where, since the history entry holding it outlives both.
-  const actorId = state.status === 'ready' ? state.session.actor.id : undefined
-  const canOcr = chart.can('ocr.job.read')
   const [error, showError] = useState<CardError>(NO_ERROR)
   const setError = (text: string) => showError(text ? { text, again: false } : NO_ERROR)
   const [notice, setNotice] = useState('')
@@ -120,7 +108,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
     setNotice('')
     const refuse = (message: string) => { setFileError(message); input.current?.focus() }
     if (!file || file.size === 0) return refuse('Select a file first.')
-    if (!ACCEPTED.includes(file.type) || file.size > MAX_BYTES) return refuse('Use a PDF, JPEG, PNG or TIFF file of up to 50 MB.')
+    if (!ACCEPTED.includes(file.type) || file.size > MAX_BYTES) return refuse('Use a PDF, JPEG or PNG file of up to 50 MB.')
     setFileError(undefined)
     sending.current = true
     setUploading(true)
@@ -182,11 +170,6 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
                   aria-label={`Open file ${document.fileName}`} onClick={() => open(document)}>
                   Open file
                 </EhrButton>
-                {canOcr && document.scanStatus === 'clean' ? (
-                  <Link className="hid-ehr-clinical-link" to={OCR_PATH} state={{ ocrDocumentId: document.id, ocrPatientId: patientId, actorId, facilityId }}>
-                    {OCR_LABEL}
-                  </Link>
-                ) : null}
               </span>
             </li>
           ))}
@@ -205,7 +188,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
             </EhrField>
           ) : null}
           <EhrField label={<>{offersChoice ? 'File' : documentTypeLabel(sentType ?? DEFAULT_DOCUMENT_TYPE)}<span aria-hidden="true"> *</span></>} error={fileError}>
-            <EhrInput ref={input} name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required onChange={() => setFileError(undefined)} />
+            <EhrInput ref={input} name="document" type="file" accept=".pdf,.jpg,.jpeg,.png" required onChange={() => setFileError(undefined)} />
           </EhrField>
           <div className="hid-ehr-clinical-form-footer">
             <EhrButton type="submit" variant="secondary" busy={uploading}>{uploading ? 'Uploading…' : 'Upload document'}</EhrButton>
