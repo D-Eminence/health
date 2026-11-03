@@ -1,5 +1,5 @@
 import { findEndpoint, isBlankHealthIdInput, isCompleteHealthId, type EndpointMethod } from '@hid/contracts'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, PlainError } from '@hid/http'
 import { useCallback } from 'react'
 import { usesNovuBackend } from '../../../backendContract'
 import { isAllowedPatientLookup, staffApi, type Facility } from '../../../staff/api'
@@ -28,7 +28,7 @@ export interface Action { readonly routes: readonly MethodRoute[]; readonly acti
 
 /** Each backend route a method calls, whose every listed permission the role must hold (today's METHOD_ROUTES). */
 export const METHOD_ROUTES: Readonly<Record<AccessMethod, Action>> = {
-  request: { routes: [{ route: 'access.staffRequests', method: 'POST' }], action: 'send access requests' },
+  request: { routes: [{ route: 'access.staffRequests', method: 'POST' }], action: 'ask patients for access' },
   pin: { routes: [{ route: 'access.verifyPin', method: 'POST' },
     { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' }], action: 'use a patient’s Access PIN' },
   emergency: { routes: [{ route: 'access.breakGlass', method: 'POST' },
@@ -48,10 +48,10 @@ export function whoToAsk(administrator: Administrator): string {
   return 'Ask your facility administrator.'
 }
 
-/** Why the role cannot take `action`, or null when it holds every permission its routes require. */
+/** Why the role cannot take `action`, or null when it holds every permission its routes require. (in plain words: never a permission's name). */
 export function actionUnavailable({ routes, action }: Action, permissions: readonly string[], administrator: Administrator = null): string | null {
   const needs = routes.map(item => ({ ...item, required: findEndpoint(item.route)?.permissions?.[item.method] ?? [] }))
-  if (needs.some(item => item.required.length === 0)) return `This portal cannot ${action} here.`
+  if (needs.some(item => item.required.length === 0)) return `You can’t ${action} here.`
   // The permissions themselves are never named: the role is told, in plain words, what it can't do and whom to ask.
   return needs.every(item => item.required.every(permission => permissions.includes(permission))) ? null
     : `Your role at this facility can’t ${action}. ${whoToAsk(administrator)}`
@@ -92,11 +92,11 @@ export function isRefusedLookup(caught: unknown): boolean {
 export function useOpenPatient() {
   const { facility, setActivePatient } = useClinical()
   return useCallback(async (hid: string, purpose: 'direct-care' | 'emergency' = 'direct-care') => {
-    if (!facility) throw new Error('Select an active facility first.')
+    if (!facility) throw new PlainError('Select an active facility first.')
     const lookup = await staffApi.lookupPatient(facility.id, hid, purpose)
     if (!isAllowedPatientLookup(lookup)) {
       setActivePatient(null)
-      throw new Error(NOT_GRANTED)
+      throw new PlainError(NOT_GRANTED)
     }
     return setActivePatient({ hid, lookup, purpose })
   }, [facility, setActivePatient])

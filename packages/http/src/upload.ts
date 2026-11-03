@@ -1,4 +1,8 @@
 import { HidApiError } from './errors'
+import { PLAIN } from './plain'
+
+/** What every failed upload says: nothing about links, storage or signing. */
+const UPLOAD_FAILED = 'We couldn’t upload this document. Please try again.'
 
 /** Short-lived object-storage URL returned by EHR's upload-intent command. */
 export interface PresignedUpload {
@@ -32,7 +36,7 @@ export function assertSignedStorageUrl(value: string, options: SignedStorageUrlO
   try { url = new URL(value) } catch { url = null }
   const local = options.allowLocalHttp === true && url?.protocol === 'http:' && THIS_MACHINE.includes(url.hostname)
   if (!url || (url.protocol !== 'https:' && !local) || url.username || url.password) {
-    throw new HidApiError(400, options.message ?? 'The storage link is invalid.', {
+    throw new HidApiError(400, options.message ?? 'We couldn’t open this document. Please try again.', {
       code: options.code ?? 'INVALID_STORAGE_URL', retryable: false,
     })
   }
@@ -66,7 +70,7 @@ function uploadHeaders(url: URL, requiredHeaders: Readonly<Record<string, string
 /** Sends bytes directly to the exact signed storage URL, without HID cookies. */
 export async function uploadPresignedObject(options: PresignedUploadOptions): Promise<void> {
   const url = assertSignedStorageUrl(options.url, {
-    allowLocalHttp: options.allowLocalHttp, code: 'INVALID_UPLOAD_URL', message: 'The document upload link is invalid.',
+    allowLocalHttp: options.allowLocalHttp, code: 'INVALID_UPLOAD_URL', message: UPLOAD_FAILED,
   })
 
   let response: Response
@@ -81,16 +85,15 @@ export async function uploadPresignedObject(options: PresignedUploadOptions): Pr
       signal: options.signal,
     })
   } catch (cause) {
-    if (options.signal?.aborted) throw new HidApiError(0, 'The upload was cancelled.', {
+    if (options.signal?.aborted) throw new HidApiError(0, PLAIN.stopped, {
       code: 'REQUEST_CANCELLED', retryable: false, cause,
     })
-    throw new HidApiError(0, 'The document could not be uploaded. Please try again.', {
+    throw new HidApiError(0, UPLOAD_FAILED, {
       code: 'NETWORK_ERROR', retryable: false, cause,
     })
   }
 
-  if (!response.ok) throw new HidApiError(response.status,
-    'The document could not be uploaded. Please try again.', {
+  if (!response.ok) throw new HidApiError(response.status, UPLOAD_FAILED, {
       code: 'UPLOAD_FAILED', retryable: false,
     })
 }

@@ -1,4 +1,4 @@
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, plainErrorText } from '@hid/http'
 
 /**
  * Facility billing as specified in docs/BILLING_SPEC.md: a 14-day free trial
@@ -64,9 +64,9 @@ export function isBillingUnavailable(caught: unknown): boolean {
 export function billingProblem(caught: unknown, fallback: string): BillingRead<never> {
   if (isBillingUnavailable(caught)) return { kind: 'unavailable' }
   if (isHidApiError(caught) && caught.status === 403) {
-    return { kind: 'error', message: 'Your facility membership cannot manage billing. Ask your facility administrator.' }
+    return { kind: 'error', message: 'Only your facility administrator can manage billing.' }
   }
-  return { kind: 'error', message: isHidApiError(caught) && caught.status < 500 ? caught.message : fallback }
+  return { kind: 'error', message: plainErrorText(caught, fallback, { audience: 'facility' }) }
 }
 
 const STATUSES: readonly SubscriptionStatus[] = ['none', 'trialing', 'active', 'past_due', 'read_only', 'cancelled']

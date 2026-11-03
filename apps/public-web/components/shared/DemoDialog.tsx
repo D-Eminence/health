@@ -14,6 +14,7 @@ import {
 } from '@/lib/demo-request'
 import { submitDemoRequest } from '@/lib/commercial-api'
 import { getEnvironment } from '@/lib/env'
+import { plainErrorText } from '@hid/http'
 
 const EMPTY: DemoRequest = { service: '', facility: '', contactName: '', role: '', otherRole: '', email: '', phone: '', notes: '' }
 /** The fields in the order the form shows them. */
@@ -147,7 +148,7 @@ export function DemoDialog() {
       await submitDemoRequest(body, submissionKeyRef.current)
       setSent(true)
     } catch (reason) {
-      setSubmitError(reason instanceof Error ? reason.message : 'The request could not be sent. Please try again.')
+      setSubmitError(plainErrorText(reason, 'The request could not be sent. Please try again.'))
     } finally {
       setPending(false)
       setTurnstileToken(null)

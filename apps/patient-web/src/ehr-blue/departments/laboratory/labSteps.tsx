@@ -49,7 +49,9 @@ const busyMark = (busy: boolean) => ({ 'aria-busy': busy || undefined, 'aria-dis
 /**
  * What a refused sample step says. Screens never repeat the server's words, so only the refusals the page words by their
  * code (errorText: a closed order, paused work, a workspace not in service, a fault between services) keep their
- * sentence, given the error without the server's message or the fields it names; anything else says `fallback`.
+ * sentence, given the error without the server's message or the fields it names; anything else says the words every
+ * page shares for its status (@hid/http plainErrorText: Health ID unavailable, changed meanwhile, no access…), or else
+ * `fallback`.
  */
 function sampleProblem(caught: unknown, fallback: string, routed: boolean) {
   return isHidApiError(caught) ? errorText(new HidApiError(caught.status, fallback, { code: caught.code }), fallback, routed) : fallback
