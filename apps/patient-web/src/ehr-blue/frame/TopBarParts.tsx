@@ -235,6 +235,9 @@ export function AccountMenu({ onSample }: {
 
 /** The sample panels the account menu opens (screens/admin/profile.png and the design's preferences and help). */
 export function AccountSamplePanel({ panel, onClose }: { readonly panel: 'profile' | 'preferences' | 'help' | null; readonly onClose: () => void }) {
+  // Samples that save nothing: they open at a demo facility only.
+  const { state } = useStaff()
+  if (!isDemoFacility(state.status === 'ready' ? state.session.actor.facility?.id : null)) return null
   const title = panel === 'profile' ? 'Edit my profile' : panel === 'preferences' ? 'Preferences' : 'Help'
   return (
     <EhrDrawer open={panel !== null} title={title} onClose={onClose}>
