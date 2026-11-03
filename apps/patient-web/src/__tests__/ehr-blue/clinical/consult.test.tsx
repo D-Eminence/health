@@ -3,6 +3,7 @@ import { HidApiError } from '@hid/http'
 import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace, consultStatus } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
+import { formatWhen } from '../../../ehr-blue/clinical/parts/format'
 import { consultationLabel } from '../../../plainLabels'
 import { BASE, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, patientBanner, renderPage } from './harness'
 
@@ -147,6 +148,9 @@ describe('Consultation list', () => {
     open()
     await screen.findByRole('table', { name: 'Consultations' })
     fireEvent.change(screen.getByLabelText('Search consultations'), { target: { value: 'fever' } })
+    expect(screen.getAllByRole('link', { name: /^Open / })).toHaveLength(1)
+    // The time the Started column shows finds its row.
+    fireEvent.change(screen.getByLabelText('Search consultations'), { target: { value: formatWhen(SECOND.startedAt) } })
     expect(screen.getAllByRole('link', { name: /^Open / })).toHaveLength(1)
     fireEvent.change(screen.getByLabelText('Search consultations'), { target: { value: 'nothing like this' } })
     expect(screen.getByText('No matching records')).toBeTruthy()

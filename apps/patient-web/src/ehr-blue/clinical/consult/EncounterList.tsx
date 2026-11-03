@@ -4,7 +4,7 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { staffApi, type Encounter, type OrderRouteKind } from '../../../staff/api'
 import { refusalText } from '../../../staff/fieldProblem'
 import { ChartGate, useChart, type Chart } from '../parts/chart'
-import { statusLabel } from '../parts/format'
+import { formatWhen, statusLabel } from '../parts/format'
 import { ErrorBox, ListHeading, Loading } from '../parts/Notices'
 import { Pager, RecordTable, SearchField, type RecordRow } from '../parts/RecordTable'
 import { useWorkspaceHref } from '../parts/Workspace'
@@ -131,7 +131,8 @@ function Encounters({ chart }: { chart: Chart }) {
   const filtered = useMemo(() => {
     const words = search.trim().toLowerCase()
     if (!words) return tableRows
-    return tableRows.filter(row => [row.name, row.id, row.context, statusLabel(row.status), ...row.details.map(detail => String(detail.value))]
+    // The time shown in the Started column is searched too, as it was while the quick view repeated it.
+    return tableRows.filter(row => [row.name, row.id, row.context, statusLabel(row.status), formatWhen(row.updated), ...row.details.map(detail => String(detail.value))]
       .join(' ').toLowerCase().includes(words))
   }, [search, tableRows])
 
