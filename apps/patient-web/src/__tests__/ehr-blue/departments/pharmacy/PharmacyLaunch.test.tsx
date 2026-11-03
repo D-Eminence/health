@@ -76,6 +76,8 @@ describe('a medicine with more than one strength', () => {
       .toMatchObject({ name: 'Paracetamol syrup', strength: '120 mg/5 ml' })
     expect(drugOf({ medication: { display: 'Artemether/Lumefantrine 80/480 mg' }, doseUnit: 'tablet', routeCode: 'oral' }))
       .toMatchObject({ name: 'Artemether/Lumefantrine', strength: '80/480 mg' })
+    // A name that is only a strength stays whole, so the card never shows an empty name.
+    expect(drugOf({ medication: { display: '500 mg' }, doseUnit: 'tablet', routeCode: 'oral' })).toMatchObject({ name: '500 mg', strength: null })
   })
 })
 
