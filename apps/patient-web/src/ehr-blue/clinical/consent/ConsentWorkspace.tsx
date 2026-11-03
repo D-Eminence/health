@@ -55,12 +55,15 @@ function RequestList() {
   // A close already on its way is not sent again by a second press.
   const sending = useRef(false)
   const statusRef = useRef<HTMLDivElement>(null)
+  const failureRef = useRef<HTMLDivElement>(null)
 
-  // Closing takes its row's Close access away: focus goes to what happened, unless it is somewhere already.
+  // Closing, or a refresh after a refused close, can take the row's Close access away: focus goes to what happened,
+  // unless it is somewhere already.
   useLayoutEffect(() => {
     if (!settled) return
     const focused = document.activeElement
-    if (!focused || focused === document.body || !focused.isConnected) statusRef.current?.focus()
+    // The failure's box is mounted only while a close has been refused.
+    if (!focused || focused === document.body || !focused.isConnected) (failureRef.current ?? statusRef.current)?.focus()
   }, [settled])
 
   /** Today's Close access from the list (AccessRequests.tsx:83-98): the same close as the request's page, at once. */
@@ -143,11 +146,13 @@ function RequestList() {
       </div>
       {ended ? <Alert intent="error" title="Access to this patient ended"
         action={<Button size="sm" to={href.to('patients')}>Find a patient</Button>}>{ACCESS_ENDED}</Alert> : null}
-      {/* Mounted throughout, so what a close says is announced. */}
-      <div ref={statusRef} tabIndex={-1} role="status" className="outline-none empty:hidden">
+      {/* Mounted throughout and only visually hidden while empty, so what a close says is announced. */}
+      <div ref={statusRef} tabIndex={-1} role="status" className="outline-none empty:sr-only">
         {notice ? <Alert intent="success" live={false}>{notice}</Alert> : null}
       </div>
-      {failure ? <Alert intent="error" title="Couldn’t close access">{failure}</Alert> : null}
+      {failure ? <div ref={failureRef} tabIndex={-1} className="outline-none">
+        <Alert intent="error" title="Couldn’t close access">{failure}</Alert>
+      </div> : null}
       {!facility ? null : <PageState loading={loading} error={error} hasData={requests !== null} onRetry={() => void load()} what="requests" empty={empty}>
         <Card>
           <ul className="m-0 list-none divide-y divide-line p-0" aria-label="Access requests">

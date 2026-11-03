@@ -303,9 +303,17 @@ describe('Close access from the list (parity 3.1 #23)', () => {
   it('says, in today’s words, that an access that had already ended was refreshed', async () => {
     api.closeGrant.mockRejectedValue(new HidApiError(409, 'Conflict', { code: 'CONSENT_COMMAND_CONFLICT' }))
     open()
-    fireEvent.click(within(await list()).getByRole('button', { name: CLOSE_ROW }))
+    const button = within(await list()).getByRole('button', { name: CLOSE_ROW })
+    // The refresh shows the grant as ended, so the row's Close access goes away.
+    api.listAccessRequests.mockResolvedValue([request(), { ...ACTIVE, effectiveStatus: 'closed' }, DENIED])
+    button.focus()
+    fireEvent.click(button)
     const alert = await screen.findByText('This access had already ended. The list has been refreshed.')
     expect(alert.closest('[role="alert"]')?.textContent).toContain('Couldn’t close access')
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Close access/ })).toBeNull())
+    // Focus goes to what happened, not lost to the page.
+    expect(document.activeElement).not.toBe(document.body)
+    expect(document.activeElement?.contains(alert)).toBe(true)
     expect(screen.queryByText('Access was closed.')).toBeNull()
     expect(api.listAccessRequests).toHaveBeenCalledTimes(2)
     expect(document.body.textContent).not.toContain('CONSENT_COMMAND_CONFLICT')
