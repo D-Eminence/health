@@ -13,7 +13,7 @@ import { FACILITY_ID, PATIENT_HID, PATIENT_ID, activePatient, allowedLookup, den
 
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), listAccessRequests: vi.fn(), requestAccess: vi.fn(), verifyPin: vi.fn(), closeGrant: vi.fn(),
-  breakGlass: vi.fn(),
+  breakGlass: vi.fn(), sharedWithMe: vi.fn(), staffShareInvitations: vi.fn(), acceptShareInvitation: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true) }))
 const session = vi.hoisted(() => ({
@@ -68,6 +68,8 @@ beforeEach(() => {
   api.closeGrant.mockResolvedValue({})
   api.breakGlass.mockResolvedValue({ accessRequestId: 'request-9', consentGrantId: 'grant-9', patientId: PATIENT_ID, status: 'active', expiresAt: '2026-10-30T12:00:00.000Z' })
   api.consentStatus.mockResolvedValue({ writeAllowed: true })
+  api.sharedWithMe.mockResolvedValue([])
+  api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [] })
 })
 
 function open(rest = '') {
@@ -105,9 +107,11 @@ describe('Access requests list (once External record access)', () => {
     expect(within(rows).getByText('Waiting for the patient')).toBeTruthy()
     expect(within(rows).getByText('Access active')).toBeTruthy()
     expect(within(rows).getByText('Denied by the patient')).toBeTruthy()
-    // Today's extras after the status (AccessRequests.tsx:123-125): how it was given, until when, the patient's reason.
-    expect(within(rows).getByText(`Patient ••••0001 · Can view records · updated ${formatWhen('2026-10-30T09:05:00.000Z')} · Patient approval · until ${formatWhen('2026-10-30T10:05:00.000Z')}`)).toBeTruthy()
-    expect(within(rows).getByText(`Patient ••••0001 · Can view records · updated ${formatWhen('2026-10-30T09:10:00.000Z')} · Not my clinician`)).toBeTruthy()
+    // When it was requested, as today's list shows (AccessRequests.tsx:123), then today's extras after the status
+    // (AccessRequests.tsx:123-125): how it was given, until when, the patient's reason.
+    expect(within(rows).getByText(`Patient ••••0001 · Can view records · requested ${formatWhen('2026-10-30T09:00:00.000Z')} · Patient approval · until ${formatWhen('2026-10-30T10:05:00.000Z')}`)).toBeTruthy()
+    expect(within(rows).getByText(`Patient ••••0001 · Can view records · requested ${formatWhen('2026-10-30T09:00:00.000Z')} · Not my clinician`)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/updated/i)
     // No patient name or Health ID anywhere on the list.
     expect(document.body.textContent).not.toContain(PATIENT_HID)
   })
@@ -247,6 +251,95 @@ describe('Access requests list (once External record access)', () => {
     expect(await screen.findByText('Showing the 100 most recent requests.')).toBeTruthy()
     expect(api.listAccessRequests).toHaveBeenLastCalledWith(FACILITY_ID, undefined)
     expect(screen.getByLabelText('Status')).toBeTruthy()
+  })
+})
+
+describe('Close access from the list (parity 3.1 #23)', () => {
+  const CLOSE_ROW = 'Close access: Review of results'
+
+  it('offers Close access only on an active grant’s row, beside its link', async () => {
+    open()
+    const rows = await list()
+    expect(within(rows).getAllByRole('button', { name: /^Close access/ })).toHaveLength(1)
+    const button = within(rows).getByRole('button', { name: CLOSE_ROW })
+    expect(button.closest('a')).toBeNull()
+  })
+
+  it('closes at once with today’s reason, reads the list again, announces it and keeps focus on what happened', async () => {
+    staff.activePatient = activePatient()
+    open()
+    const button = within(await list()).getByRole('button', { name: CLOSE_ROW })
+    api.listAccessRequests.mockResolvedValue([request(), { ...ACTIVE, effectiveStatus: 'closed' }, DENIED])
+    button.focus()
+    fireEvent.click(button)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    const said = await screen.findByText('Access was closed.')
+    expect(said.closest('[role="status"]')).toBeTruthy()
+    expect(api.closeGrant).toHaveBeenCalledTimes(1)
+    expect(api.closeGrant).toHaveBeenCalledWith(FACILITY_ID, 'grant-1', 'Clinician closed completed patient access')
+    expect(api.listAccessRequests).toHaveBeenCalledTimes(2)
+    expect(within(await list()).getByText('Closed by you')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Close access/ })).toBeNull()
+    expect(document.activeElement).toBe(said.closest('[role="status"]'))
+    // The open patient this grant opened has ended too.
+    expect(staff.setActivePatient).toHaveBeenCalledWith(null)
+    expect(screen.getByText('Access to this patient ended')).toBeTruthy()
+  })
+
+  it('sends one close on a double press, and says Closing… while it is on its way', async () => {
+    let finish: (value: unknown) => void = () => {}
+    api.closeGrant.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    open()
+    const button = within(await list()).getByRole('button', { name: CLOSE_ROW })
+    fireEvent.click(button)
+    fireEvent.click(button)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Closing access: Review of results' }).textContent).toBe('Closing…'))
+    api.listAccessRequests.mockResolvedValue([{ ...ACTIVE, effectiveStatus: 'closed' }])
+    await act(async () => { finish({}) })
+    expect(await screen.findByText('Access was closed.')).toBeTruthy()
+    expect(api.closeGrant).toHaveBeenCalledTimes(1)
+  })
+
+  it('says, in today’s words, that an access that had already ended was refreshed', async () => {
+    api.closeGrant.mockRejectedValue(new HidApiError(409, 'Conflict', { code: 'CONSENT_COMMAND_CONFLICT' }))
+    open()
+    fireEvent.click(within(await list()).getByRole('button', { name: CLOSE_ROW }))
+    const alert = await screen.findByText('This access had already ended. The list has been refreshed.')
+    expect(alert.closest('[role="alert"]')?.textContent).toContain('Couldn’t close access')
+    expect(screen.queryByText('Access was closed.')).toBeNull()
+    expect(api.listAccessRequests).toHaveBeenCalledTimes(2)
+    expect(document.body.textContent).not.toContain('CONSENT_COMMAND_CONFLICT')
+  })
+})
+
+describe('Patient sharing on Access requests (parity 3.1 #14)', () => {
+  const SHARE = { consentGrantId: 'grant-9', patientId: PATIENT_ID, hid: PATIENT_HID, fullName: 'Ada Example', level: 'view_only', duration: '7d', scope: 'read_records', startsAt: '2026-10-29T08:00:00.000Z', expiresAt: '2026-11-05T08:00:00.000Z' }
+  const INVITATION = { invitationId: 'inv-1', reference: 'AB12', inviteeName: null, level: 'clinical_review', duration: '24h', createdAt: '2026-10-29T08:00:00.000Z', expiresAt: '2026-11-05T08:00:00.000Z' }
+
+  it('is not shown here to a role that has it on Patients, so nobody sees it twice', async () => {
+    open()
+    await list()
+    expect(api.sharedWithMe).not.toHaveBeenCalled()
+    expect(api.staffShareInvitations).not.toHaveBeenCalled()
+    expect(screen.queryByRole('heading', { name: 'Shared with you' })).toBeNull()
+  })
+
+  it('shows a consent-only role its shared patients and invitations here, and lets it accept one', async () => {
+    staff.permissions = ['identity.consent.write']
+    api.sharedWithMe.mockResolvedValue([SHARE])
+    api.staffShareInvitations.mockResolvedValue({ eligible: true, items: [INVITATION] })
+    api.acceptShareInvitation.mockResolvedValue({ invitationId: 'inv-1', status: 'accepted', acceptedAt: '2026-10-30T08:00:00.000Z', replayed: false })
+    open()
+    expect(await screen.findByRole('heading', { name: 'Shared with you' })).toBeTruthy()
+    // Opening a shared record needs a patient lookup, which this role cannot make: Open says why, in plain words.
+    const openShared = screen.getByRole('button', { name: 'Open Ada Example’s record' }) as HTMLButtonElement
+    expect(openShared.disabled).toBe(true)
+    expect(screen.getByText(/^Your role at this facility can’t open a patient’s record\./)).toBeTruthy()
+    expect(document.body.textContent).not.toContain('identity.patient.read')
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept invitation AB12' }))
+    expect(await screen.findByText('You accepted invitation AB12. The patient must now confirm before you can open their record. Once they do, they appear under Shared with you.')).toBeTruthy()
+    expect(api.acceptShareInvitation).toHaveBeenCalledWith(FACILITY_ID, 'inv-1')
+    expect(api.lookupPatient).not.toHaveBeenCalled()
   })
 })
 
@@ -496,7 +589,7 @@ describe('An access request’s page', () => {
     expect(where()).toBe('/provider/emergency')
   })
 
-  it('shows the latest change as Updated, as the list does', async () => {
+  it('shows the latest change as Updated', async () => {
     open('/r0000000-0000-4000-8000-000000000003')
     expect(await screen.findByText(`Updated ${formatWhen('2026-10-30T09:10:00.000Z')}`)).toBeTruthy()
     expect(screen.queryByText(`Updated ${formatWhen('2026-10-30T09:00:00.000Z')}`)).toBeNull()
