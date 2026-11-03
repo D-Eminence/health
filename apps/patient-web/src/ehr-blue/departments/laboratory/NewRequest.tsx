@@ -208,7 +208,7 @@ function RequestForm({ facilityId, permissions }: { readonly facilityId: string;
         <span className="text-[15px] text-ink-2">Total</span>
         <span className="text-[24px] font-semibold text-ink tabular" aria-live="polite">{naira(total)}</span>
       </div>
-      <FormActions><Button variant="primary" size="lg" iconRight={ArrowRight} onClick={doneTests}>Continue</Button></FormActions>
+      <FormActions sticky={false}><Button variant="primary" size="lg" iconRight={ArrowRight} onClick={doneTests}>Continue</Button></FormActions>
     </StepCard>
 
     <StepCard anchor="lab-new-step-2" n={2} title="Patient" hint="Name, age, sex and phone: for the label, the ranges and the result."
@@ -219,7 +219,7 @@ function RequestForm({ facilityId, permissions }: { readonly facilityId: string;
           onFound={found => { setBasics(current => ({ ...current, ...found })); setBasicsErrors({}) }}
           onUnlink={() => setBasics(current => ({ ...current, healthId: null }))} />
         <BasicsFields basics={basics} errors={basicsErrors} onChange={next => { setBasics(next); setBasicsErrors({}) }} />
-        <FormActions><Button type="submit" variant="primary" size="lg" iconRight={ArrowRight}>Continue</Button></FormActions>
+        <FormActions sticky={false}><Button type="submit" variant="primary" size="lg" iconRight={ArrowRight}>Continue</Button></FormActions>
       </form>
     </StepCard>
 
@@ -228,7 +228,7 @@ function RequestForm({ facilityId, permissions }: { readonly facilityId: string;
       summary={doctorUsed(doctor) ? [doctor.name, doctor.facility, doctor.email].filter(Boolean).join(' · ') : 'None'}>
       <DoctorFields doctor={doctor} emailError={doctorEmailError} photoUpload={photoUpload} nameMissing={doctorUsed(doctor) && !doctor.name.trim()}
         onChange={next => { setDoctor(next); setDoctorEmailError('') }} />
-      <FormActions>
+      <FormActions sticky={false}>
         {!doctorUsed(doctor) ? <Button onClick={() => go(4)}>Skip</Button> : null}
         <Button variant="primary" size="lg" iconRight={ArrowRight} onClick={doneDoctor}>Continue</Button>
       </FormActions>
@@ -253,7 +253,7 @@ function RequestForm({ facilityId, permissions }: { readonly facilityId: string;
       </div>
       {off ? <div id="lab-new-off" tabIndex={-1} className="outline-none"><NotSwitchedOn message={NOT_SET_UP_UNSAVED} /></div> : null}
       {sendError ? <Alert intent="error" title="The request wasn’t made">{sendError} Check it and try again: the same request won’t be made twice.</Alert> : null}
-      {!off ? <FormActions>
+      {!off ? <FormActions sticky={false}>
         <Button onClick={() => go(3)}>Back</Button>
         <Button variant="primary" size="lg" loading={sending} onClick={() => void send()}>
           {sending ? 'Making the request…' : settings?.wherePaid === 'cashier' ? 'Make request and send to cashier' : settings ? 'Make request and take payment' : 'Make request'}</Button>

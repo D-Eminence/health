@@ -137,7 +137,7 @@ export function PatientBanner({ name, hid, dateOfBirth, sex, status, sticky = fa
     compact ? 'px-3 py-2' : 'px-4 py-3', sticky && 'sticky top-16 z-[var(--z-sticky)] lg:top-20')}>
     <span aria-hidden="true" className={cx('inline-flex shrink-0 items-center justify-center rounded-full bg-brand-soft font-semibold text-brand-ink', compact ? 'size-8 text-[12px]' : 'size-10 text-sm')}>{initials}</span>
     <div className="min-w-0 flex-[1_1_12rem]">
-      <p className="m-0 truncate text-title-3 text-ink">{name}</p>
+      <p className="m-0 break-words text-title-3 text-ink">{name}</p>
       <p className="m-0 text-caption text-ink-2">
         <span className="font-medium tracking-[.04em] text-ink">{hid}</span>
         {dateOfBirth ? <> · born {day(dateOfBirth)}{age !== null ? ` (${age})` : ''}</> : null}

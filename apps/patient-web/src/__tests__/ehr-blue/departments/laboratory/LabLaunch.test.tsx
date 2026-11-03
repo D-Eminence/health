@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import type { LabAccession, LabExecution, LabResult, LabResultRevision, LabSpecimen, LabWorkItem } from '../../../../staff/api'
@@ -7,7 +7,9 @@ import { forgetCannotCompleteServed } from '../../../../cannotCompleteServed'
 import { forgetLateCorrectionServed } from '../../../../lateCorrectionServed'
 import { forgetWrongPatientServed } from '../../../../wrongPatientServed'
 import { Laboratory } from '../../../../ehr-blue/departments/laboratory/Laboratory'
+import { NewRequest } from '../../../../ehr-blue/departments/laboratory/NewRequest'
 import { Results } from '../../../../ehr-blue/departments/laboratory/Results'
+import { PatientBanner } from '../../../../kasuwa/parts'
 import { DEMO_LABORATORY_ID, fakeFacility, renderDept, type FakeFacility } from '../harness'
 
 /*
@@ -489,5 +491,25 @@ describe('lab launch: lists and pages in plain words (loading, empty, access, cl
     expect(await screen.findByText(/^Normal range: 12\.0-15\.5/)).toBeTruthy()
     expect(screen.getByText('A link to this result only.')).toBeTruthy()
     expect(document.body.textContent).not.toMatch(/on their Health ID/)
+  })
+})
+
+describe('lab launch: phone width', () => {
+  it('never cuts off the patient’s name on the banner', () => {
+    const name = 'Oluwaseyifunmi Adebanjo-Olatunde Chukwuemeka (fictional)'
+    render(<PatientBanner name={name} hid="No Health ID · 47 y" sex="female" />)
+    const shown = screen.getByText(name)
+    // Wrapped, never cut with an ellipsis: on a phone the whole name is what the sample is checked against.
+    expect(shown.className).not.toMatch(/\btruncate\b/)
+    expect(shown.className).toMatch(/\bbreak-words\b/)
+  })
+
+  it('keeps New request’s buttons in place on a phone, so they never cover the Total', async () => {
+    as([...WORK, 'lab.walk-in.create'])
+    renderDept(<NewRequest />, { route: '/provider/laboratory/new' })
+    const continueButton = await screen.findByRole('button', { name: 'Continue' })
+    expect(continueButton.closest('[data-form-actions]')?.className).not.toMatch(/max-sm:sticky/)
+    expect([...document.querySelectorAll('[data-form-actions]')].filter(bar => /max-sm:sticky/.test(bar.className))).toEqual([])
+    expect(screen.getByText('Total')).toBeTruthy()
   })
 })
