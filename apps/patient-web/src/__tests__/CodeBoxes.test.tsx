@@ -278,4 +278,35 @@ describe('six-box code entry', () => {
     for (const input of screen.getAllByRole('textbox')) expect(input.getAttribute('aria-invalid')).toBe('true')
     expect(screen.getByLabelText('Recovery code').getAttribute('aria-describedby')).toBe('hint error')
   })
+
+  /**
+   * A refused code's error (an emergency contact's, a changed email's): a screen reader user who comes back to the boxes
+   * later, to any box that holds a digit, hears what is wrong there, not only from the alert said once as it appeared.
+   */
+  describe('an error about the code', () => {
+    const describedBy = (input: HTMLElement) => (input.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean)
+
+    it('describes every box and the group by the error while the code is invalid, the first box by the hint too', () => {
+      render(<CodeBoxes id="contact-code" label="Code from Ada" value="123456" onChange={() => {}} invalid describedBy="contact-hint" errorId="contact-error" />)
+      const inputs = screen.getAllByRole('textbox')
+      expect(describedBy(inputs[0]!)).toEqual(['contact-hint', 'contact-error'])
+      for (const input of inputs.slice(1)) expect(describedBy(input)).toEqual(['contact-error'])
+      expect(describedBy(screen.getByRole('group', { name: 'Code from Ada' }))).toEqual(['contact-hint', 'contact-error'])
+      for (const input of inputs) expect(input.getAttribute('aria-invalid')).toBe('true')
+    })
+
+    it('says nothing of the error once the code is no longer invalid', () => {
+      render(<CodeBoxes id="contact-code" label="Code from Ada" value="12345" onChange={() => {}} invalid={false} describedBy="contact-hint" errorId="contact-error" />)
+      const inputs = screen.getAllByRole('textbox')
+      expect(describedBy(inputs[0]!)).toEqual(['contact-hint'])
+      for (const input of inputs.slice(1)) expect(input.getAttribute('aria-describedby')).toBeNull()
+      for (const input of inputs) expect(input.getAttribute('aria-invalid')).toBeNull()
+      expect(describedBy(screen.getByRole('group', { name: 'Code from Ada' }))).toEqual(['contact-hint'])
+    })
+
+    it('names the error once when the page already passes it with the hint', () => {
+      render(<CodeBoxes id="contact-code" label="Code from Ada" value="123456" onChange={() => {}} invalid describedBy="contact-hint contact-error" errorId="contact-error" />)
+      expect(describedBy(screen.getAllByRole('textbox')[0]!)).toEqual(['contact-hint', 'contact-error'])
+    })
+  })
 })
