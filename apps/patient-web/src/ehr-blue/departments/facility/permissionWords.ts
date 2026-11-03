@@ -14,7 +14,7 @@ const PERMISSION_WORDS: Readonly<Record<string, string>> = {
   'identity.break-glass.write': 'Open a record in an emergency',
   'identity.patient-access-pin.verify': 'Check a patient’s access PIN',
   'identity.nin.verify': 'Check a patient’s NIN',
-  'identity.authorization.check': 'Check what staff may do',
+  'identity.authorization.check': 'Check access to a patient’s record',
   'audit.read': 'See the facility audit',
   'workforce.manage': 'Manage staff and access',
   'organization.manage': 'Manage the facility',
