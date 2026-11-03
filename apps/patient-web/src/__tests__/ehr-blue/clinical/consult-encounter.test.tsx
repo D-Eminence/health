@@ -1343,4 +1343,148 @@ describe('Consultation record: "Try again" after a change made in a card whose l
     expect(api.records.mock.calls.slice(reads)).toEqual([[FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: undefined, fresh: true }]])
     expect(row().getByText('Entered in error')).toBeTruthy()
   })
+
+  it('after two cards’ lists fail to be read again in turn, reads both again, and each shows what EHR now holds', async () => {
+    await openEncounter()
+    // The Notes card: a note marked entered in error, its list not read again.
+    const row = () => within(within(card('Notes')).getByText('Consultation note').closest('li') as HTMLElement)
+    fireEvent.click(row().getByRole('button', { name: 'Review note content' }))
+    expect(await row().findByText('Cough for three days.', { exact: false })).toBeTruthy()
+    fireEvent.click(row().getByRole('button', { name: 'Mark entered in error' }))
+    fireEvent.change(row().getByLabelText(labelled('Reason for change')), { target: { value: 'Written on the wrong visit' } })
+    const read = api.records.getMockImplementation()!
+    api.records.mockRejectedValue(UNAVAILABLE())
+    api.updateRecord.mockResolvedValue({ ...NOTE, status: 'entered_in_error', rowVersion: 3 })
+    fireEvent.click(row().getAllByRole('button', { name: 'Mark entered in error' }).find(button => button.getAttribute('type') === 'submit')!)
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Mark entered in error' }))
+    expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
+    await waitFor(() => expect(sentence()).not.toBeNull())
+    records['clinical-notes'] = [{ ...NOTE, status: 'entered_in_error', rowVersion: 3 }]
+    // Then the Diagnoses card: a diagnosis changed, its list not read again either.
+    const diagnoses = within(card('Diagnoses'))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Change this diagnosis' }))
+    const dx = within(diagnoses.getByText('Malaria (fictional)').closest('li') as HTMLElement)
+    fireEvent.change(dx.getByLabelText(labelled('Verification')), { target: { value: 'confirmed' } })
+    fireEvent.change(dx.getByLabelText(labelled('Reason for change')), { target: { value: 'Smear positive' } })
+    const failed = api.records.mock.calls.length
+    fireEvent.click(dx.getByRole('button', { name: 'Update diagnosis' }))
+    expect(await screen.findByText('Diagnosis updated.')).toBeTruthy()
+    await waitFor(() => expect(api.records.mock.calls.length).toBe(failed + 1))
+    await act(async () => {})
+    expect(screen.getAllByRole('button', { name: 'Try again' })).toHaveLength(1)
+    expect(row().getByText('Draft')).toBeTruthy()
+    records.diagnoses = [{ ...DIAGNOSIS, verificationStatus: 'confirmed', rowVersion: 2 }]
+    api.records.mockImplementation(read)
+    const reads = api.records.mock.calls.length
+    fireEvent.click(within(sentence()!).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(sentence()).toBeNull())
+    expect(api.records.mock.calls.slice(reads).map(call => call[3]).sort()).toEqual(['clinical-notes', 'diagnoses'])
+    expect(row().getByText('Entered in error')).toBeTruthy()
+    expect(within(card('Diagnoses')).getByText('ICD-10 B54 · Active · Confirmed')).toBeTruthy()
+  })
+
+  it('keeps the outcome of a change made while Try again reads: a later failure of that read does not bring the sentence back', async () => {
+    await openEncounter()
+    const diagnoses = within(card('Diagnoses'))
+    fireEvent.click(diagnoses.getByRole('button', { name: 'Change this diagnosis' }))
+    const row = within(diagnoses.getByText('Malaria (fictional)').closest('li') as HTMLElement)
+    fireEvent.change(row.getByLabelText(labelled('Verification')), { target: { value: 'confirmed' } })
+    fireEvent.change(row.getByLabelText(labelled('Reason for change')), { target: { value: 'Smear positive' } })
+    const read = api.records.getMockImplementation()!
+    api.records.mockRejectedValue(UNAVAILABLE())
+    fireEvent.click(row.getByRole('button', { name: 'Update diagnosis' }))
+    await waitFor(() => expect(sentence()).not.toBeNull())
+    let release!: () => void
+    const held = new Promise<void>(resolve => { release = resolve })
+    api.records.mockImplementation(async (...args: Parameters<typeof read>) => {
+      if (args[3] === 'diagnoses') { await held; throw UNAVAILABLE() }
+      return read(...args)
+    })
+    fireEvent.click(within(sentence()!).getByRole('button', { name: 'Try again' }))
+    // Meanwhile a note is added: the page says that change's own outcome.
+    fireEvent.click(actions().getByRole('button', { name: 'Add notes' }))
+    fireEvent.change(actions().getByLabelText(labelled('Note type')), { target: { value: 'Progress' } })
+    fireEvent.change(actions().getByLabelText(labelled('Title')), { target: { value: 'Evening review' } })
+    fireEvent.change(actions().getByLabelText(labelled('Clinical note')), { target: { value: 'Fever settling.' } })
+    fireEvent.click(actions().getByRole('button', { name: 'Save draft' }))
+    expect(await screen.findByText('Clinical record saved.')).toBeTruthy()
+    expect(sentence()).toBeNull()
+    await act(async () => release())
+    await act(async () => {})
+    expect(sentence()).toBeNull()
+    expect(screen.getByText('Clinical record saved.')).toBeTruthy()
+  })
+
+  it('in the Documents card, after an upload whose list could not be read again, reads the documents again and focus goes to the file field', async () => {
+    await openEncounter()
+    const documents = () => within(card('Documents'))
+    const input = documents().getByLabelText(labelled('Clinical document')) as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })] } })
+    api.documents.mockRejectedValue(UNAVAILABLE())
+    fireEvent.click(documents().getByRole('button', { name: 'Upload document' }))
+    expect(await documents().findByText('Uploaded. It can be opened once the virus check is done.')).toBeTruthy()
+    await waitFor(() => expect(sentence()?.textContent).toBe(`${RELOAD_FAILED} EHR is unavailable.Try again`))
+    // The sentence and its Try again are the card's own, as before, and the only ones on the page.
+    expect(card('Documents').contains(sentence())).toBe(true)
+    expect(screen.getAllByRole('button', { name: 'Try again' })).toEqual([within(sentence()!).getByRole('button', { name: 'Try again' })])
+    expect(documents().queryByText('scan.pdf')).toBeNull()
+    api.documents.mockResolvedValue({ items: [DOCUMENT, { ...DOCUMENT, id: 'doc-2', fileName: 'scan.pdf', scanStatus: 'pending' }], nextCursor: null })
+    const reads = api.documents.mock.calls.length
+    const checks = api.lookupPatient.mock.calls.length
+    const button = within(sentence()!).getByRole('button', { name: 'Try again' })
+    button.focus()
+    fireEvent.click(button)
+    await waitFor(() => expect(sentence()).toBeNull())
+    expect(api.documents.mock.calls.length).toBe(reads + 1)
+    expect(api.lookupPatient.mock.calls.length).toBe(checks)
+    expect(documents().getByText('scan.pdf')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    expect(document.activeElement).toBe(documents().getByLabelText(labelled('Clinical document')))
+  })
+
+  it('in the Documents card, keeps the sentence when Try again fails, said anew, and offers no Try again beside another failure', async () => {
+    await openEncounter()
+    const documents = () => within(card('Documents'))
+    const input = documents().getByLabelText(labelled('Clinical document')) as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })] } })
+    api.documents.mockRejectedValue(UNAVAILABLE())
+    fireEvent.click(documents().getByRole('button', { name: 'Upload document' }))
+    await waitFor(() => expect(sentence()).not.toBeNull())
+    const before = sentence()!.querySelector('p')!
+    const button = within(sentence()!).getByRole('button', { name: 'Try again' })
+    fireEvent.click(button)
+    await waitFor(() => expect(sentence()!.querySelector('p')).not.toBe(before))
+    expect(sentence()!.querySelector('p')!.textContent).toBe(`${RELOAD_FAILED} EHR is unavailable.`)
+    expect(within(sentence()!).getByRole('button', { name: 'Try again' })).toBe(button)
+    // An upload refused outright says only why, with no Try again.
+    fireEvent.change(input, { target: { files: [new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })] } })
+    api.uploadDocument.mockRejectedValue(new HidApiError(503, 'Uploads are paused.', { code: 'UNAVAILABLE' }))
+    fireEvent.click(documents().getByRole('button', { name: 'Upload document' }))
+    await waitFor(() => expect(documents().getByRole('alert').textContent).toBe('Uploads are paused.'))
+    expect(sentence()).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+  })
+
+  it('in the Documents card, keeps the outcome of an upload made while Try again reads', async () => {
+    await openEncounter()
+    const documents = () => within(card('Documents'))
+    const input = documents().getByLabelText(labelled('Clinical document')) as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })] } })
+    api.documents.mockRejectedValue(UNAVAILABLE())
+    fireEvent.click(documents().getByRole('button', { name: 'Upload document' }))
+    await waitFor(() => expect(sentence()).not.toBeNull())
+    let release!: () => void
+    const held = new Promise<void>(resolve => { release = resolve })
+    api.documents.mockImplementation(async () => { await held; throw UNAVAILABLE() })
+    fireEvent.click(within(sentence()!).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(api.documents).toHaveBeenCalledTimes(3))
+    fireEvent.change(input, { target: { files: [new File(['%PDF-1.4'], 'scan.pdf', { type: 'application/pdf' })] } })
+    api.uploadDocument.mockRejectedValue(new HidApiError(503, 'Uploads are paused.', { code: 'UNAVAILABLE' }))
+    fireEvent.click(documents().getByRole('button', { name: 'Upload document' }))
+    await waitFor(() => expect(documents().getByRole('alert').textContent).toBe('Uploads are paused.'))
+    await act(async () => release())
+    await act(async () => {})
+    expect(documents().getByRole('alert').textContent).toBe('Uploads are paused.')
+    expect(sentence()).toBeNull()
+  })
 })

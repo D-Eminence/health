@@ -28,6 +28,17 @@ const OCR_LABEL = 'Extract with OCR'
 const DOCUMENTS_TRUNCATED = 'Not every document of this encounter is listed here.'
 
 /**
+ * The card's error. After an upload whose list could not be read again it has "Try again" beside it (`again`), and
+ * counts how many times it has been said, so a failure said again in the same words is announced again.
+ */
+type CardError = { readonly text: string; readonly again: boolean; readonly said?: number }
+const NO_ERROR: CardError = { text: '', again: false }
+
+function reloadFailed(failure: string): CardError {
+  return { text: `${RELOAD_FAILED} ${failure}`.trim(), again: true }
+}
+
+/**
  * The encounter's documents (today's Documents tab), 50 to a page: each with its type, size and scan result, "Open
  * file" only once the virus scan is clean, today's "Extract with OCR" for a clean one when the role may read OCR jobs
  * (the ids go in router state, never in the address, as today), and "Upload a document". Opening and uploading
@@ -44,7 +55,8 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
   // Today's OCR handoff names who made it and where, since the history entry holding it outlives both.
   const actorId = state.status === 'ready' ? state.session.actor.id : undefined
   const canOcr = chart.can('ocr.job.read')
-  const [error, setError] = useState('')
+  const [error, showError] = useState<CardError>(NO_ERROR)
+  const setError = (text: string) => showError(text ? { text, again: false } : NO_ERROR)
   const [notice, setNotice] = useState('')
   const [fileError, setFileError] = useState<string | undefined>(undefined)
   const [uploading, setUploading] = useState(false)
@@ -88,13 +100,28 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       const failure = await list.reload(true)
       form.reset()
       setNotice('Uploaded. It can be opened once the virus check is done.')
-      if (failure !== null) setError(`${RELOAD_FAILED} ${failure}`.trim())
+      if (failure !== null) showError(reloadFailed(failure))
     } catch (caught) {
       setError(caught instanceof Error && caught.message ? caught.message : 'Document could not be uploaded.')
     } finally {
       sending.current = false
       setUploading(false)
     }
+  }
+
+  /**
+   * "Try again": the list read again, fresh, as the upload read it (its first page), with no access re-check. The
+   * sentence stays until it is read, then goes, focus moving from Try again to the file field; an upload or an open
+   * meanwhile says its own outcome, which this never replaces.
+   */
+  const readAgain = async (event: { readonly currentTarget: HTMLButtonElement }) => {
+    const button = event.currentTarget
+    const shown = error
+    const failure = await list.reload(true)
+    showError(current => current !== shown ? current : failure !== null ? { ...reloadFailed(failure), said: (shown.said ?? 0) + 1 } : NO_ERROR)
+    // Try again goes with the sentence: focus on it, or on nothing, moves to the file field, never from elsewhere.
+    const active = document.activeElement
+    if (failure === null && (active === button || active === null || active === document.body)) input.current?.focus()
   }
 
   return (
@@ -146,7 +173,13 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
           <div role="status" className="hid-ehr-clinical-status">{notice}</div>
         </form>
       ) : null}
-      {error ? <ErrorBox>{error}</ErrorBox> : null}
+      {error.text ? (
+        <ErrorBox>
+          <p key={error.said ?? 0}>{error.text}</p>
+          {/* Busy, it stays focusable (aria-disabled, aria-busy), so focus stays on it, and a second press does nothing. */}
+          {error.again ? <p><EhrButton variant="secondary" size="sm" onClick={readAgain}>Try again</EhrButton></p> : null}
+        </ErrorBox>
+      ) : null}
     </EhrCard>
   )
 }
