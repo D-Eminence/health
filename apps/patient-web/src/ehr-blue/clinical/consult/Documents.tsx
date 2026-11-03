@@ -108,7 +108,7 @@ export function DocumentsCard({ chart, encounterId, list, canWrite }: {
       const failure = await list.reload(true)
       form.reset()
       setDocumentType(DEFAULT_DOCUMENT_TYPE)
-      setNotice('Uploaded.')
+      setNotice('Uploaded. It can be opened once the virus check is done.')
       if (failure !== null) setError(`${RELOAD_FAILED} ${failure}`.trim())
     } catch (caught) {
       // A lab result from a host other than the EHR, Lab or Migrate is refused (403 DOCUMENT_TYPE_NOT_ALLOWED_HERE).

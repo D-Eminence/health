@@ -18,6 +18,7 @@ import { useSampleCan } from '../../frame/sampleAccess'
 import { CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf, offerHealthId } from '../consent/access'
 import { CLOSE_REFUSALS } from '../emergency/access'
 import type { ActivePatient } from '../../../staff/App'
+import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording'
 
 export const CLOSED_NOTICE = 'closed'
 /** After the chart's READ_ONLY, on the patient page only: how to get changes. */
@@ -213,6 +214,8 @@ function PatientRecord({ chart }: { chart: Chart }) {
             <div className="min-w-0 flex-1">
               <p className="m-0 text-sm font-semibold text-ink">{emergency ? 'Emergency access' : 'You have access'}</p>
               {expires ? <p className="m-0 text-[12px] text-ink-3">Until {formatWhen(expires)}</p> : null}
+              {/* Direct care from the patient's own OK also covers bringing in paper records while it lasts: adults only. */}
+              {!emergency && isAdult(facts.dateOfBirth) ? <p className="m-0 mt-1 text-[12px] text-ink-3">{STAFF_ACCESS_COVERS_PAPER}</p> : null}
             </div>
           </div>
           {/* What the patient entered in their Health ID portal: labelled as theirs, not a clinical finding. */}

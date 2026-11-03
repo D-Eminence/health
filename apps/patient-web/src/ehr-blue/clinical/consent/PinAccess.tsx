@@ -8,6 +8,7 @@ import { staffApi } from '../../../staff/api'
 import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/session'
 import { isDemoFacility } from '../../blueFacilities'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
+import { isAdult, STAFF_ACCESS_COVERS_PAPER } from '../../../paperRecordsWording'
 import {
   HID_FORMAT, METHOD_ROUTES, actionUnavailable, administratorOf, dropOfferedHealthId, healthIdProblem, offeredHealthId,
   useOpenPatient,
@@ -40,7 +41,7 @@ export const DEMO_PIN_NOTE = 'Adaeze Okafor (HID-ZDEMAAA2) and Chinedu Okafor (H
  * `requests/pin`, Find a patient at `patients/pin`.
  */
 export function PinAccess({ backLabel = 'Back to access requests' }: { backLabel?: string }) {
-  const { facility, permissions, setActivePatient } = useClinical()
+  const { facility, permissions, activePatient, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
   const id = useId()
@@ -115,6 +116,10 @@ export function PinAccess({ backLabel = 'Back to access requests' }: { backLabel
               aria-invalid={problem?.field === 'pin' ? true : undefined} aria-describedby={problem?.field === 'pin' ? `${pinId}-error` : `${pinId}-hint`}
               onChange={event => { setPin(event.target.value); if (problem?.field === 'pin') setProblem(null) }} />
           </Field>
+          {/* The paper records line only when the patient's age is known here (their record is open, for instance under
+              emergency access) and they are an adult; the PIN gives direct care, which also covers paper records. */}
+          {activePatient && activePatient.hid === normalizeHealthIdInput(hid) && isAdult(activePatient.lookup.patient.dateOfBirth)
+            ? <p className="m-0 text-[13px] text-ink-3">{STAFF_ACCESS_COVERS_PAPER}</p> : null}
           {unavailable ? <p id="pin-access-unavailable" className="m-0 text-[13px] text-ink-3">{unavailable}</p> : null}
           {error ? <Alert intent="error" title="Couldn’t open the record">{error}</Alert> : null}
           <FormActions sticky={false}>

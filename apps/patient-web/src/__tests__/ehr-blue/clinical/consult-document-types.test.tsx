@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { forgetDocumentTypesServed, learnDocumentTypesServed } from '../../../documentTypes'
 import type * as DocumentTypesModule from '../../../documentTypes'
@@ -291,27 +291,17 @@ describe('Consultation documents with types: once served', () => {
     expect(api.uploadDocument).not.toHaveBeenCalled()
   })
 
-  it('hands a clean lab result to today’s OCR page with exactly today’s router state, whatever its type', async () => {
+  it('offers no Extract with OCR on a clean lab result: paper records start on the patient’s page', async () => {
     staff.permissions = [...ALL, 'ocr.job.read']
-    function OcrPage() {
-      const location = useLocation()
-      return <p data-testid="ocr-state">{JSON.stringify(location.state)}</p>
-    }
     render(
       <MemoryRouter initialEntries={[`/provider/clinical/${ENCOUNTER_ID}`]}>
         <Routes>
           <Route path="/provider/clinical/*" element={<ConsultWorkspace />} />
-          <Route path="/provider/ocr" element={<OcrPage />} />
         </Routes>
       </MemoryRouter>,
     )
     const row = (await within(await screen.findByRole('heading', { level: 2, name: 'Documents' }).then(heading => heading.closest('section') as HTMLElement))
       .findByText('full-blood-count.jpg')).closest('li') as HTMLElement
-    const link = within(row).getByRole('link', { name: 'Extract with OCR' })
-    expect(link.getAttribute('href')).toBe('/provider/ocr')
-    fireEvent.click(link)
-    expect(JSON.parse((await screen.findByTestId('ocr-state')).textContent ?? 'null')).toEqual({
-      ocrDocumentId: 'doc-2', ocrPatientId: PATIENT_ID, actorId: 'staff-1', facilityId: FACILITY_ID,
-    })
+    expect(within(row).queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
   })
 })

@@ -5,12 +5,13 @@ import { createRegisteredBrowserClient } from '@hid/api'
 import { createApiClient } from '@hid/http'
 import { createPatientApi, type AccessRequest } from '../api'
 import { createTestSessionValue, SessionContext } from '../session'
-import { AccessPage, PIN_COVERS, paperRecordsOnApproval } from '../routes/Portal'
+import { AccessPage } from '../routes/Portal'
+import { isAdult, PIN_COVERS, paperRecordsOnApproval, STAFF_ACCESS_COVERS_PAPER } from '../paperRecordsWording'
 import { ToastProvider } from '../kasuwa/toast'
 
 /**
- * The 24-hour paper records rule as the patient reads it (records processing, 0104; coordinator wording of 3 Nov 2026):
- * a request's first OK, or the Access PIN, also lets the facility add the patient's old paper records for 24 hours.
+ * The paper records rule as the patient reads it (records processing, 0104; wording approved 3 Nov 2026, Q22): an approved
+ * request, or the Access PIN, also lets the facility add the patient's old paper records while that access lasts.
  * Said word for word, only on a pending request, and never to someone under 18 (paper records are refused for them).
  */
 function json(value: unknown, status = 200) {
@@ -44,12 +45,13 @@ async function review() {
   return within(screen.getByRole('dialog', { name: 'Lagos General' }))
 }
 
-const WORDS = 'Approving also lets Lagos General add your old paper records to your Health ID for 24 hours after you approve.'
+const WORDS = 'Approving also lets Lagos General add your old paper records to your Health ID while their access lasts.'
 
 describe('the 24-hour paper records rule, as the patient reads it', () => {
   it('is the decided sentence, word for word', () => {
     expect(paperRecordsOnApproval('Lagos General')).toBe(WORDS)
-    expect(PIN_COVERS).toBe('A hospital you give it to can use it to open your records. For 24 hours after they use it, they can also add your old paper records to your Health ID.')
+    expect(PIN_COVERS).toBe('A hospital you give it to can use it to open your records, and to add your old paper records to your Health ID while that access lasts.')
+    expect(STAFF_ACCESS_COVERS_PAPER).toBe('This access also lets you bring in the patient’s paper records while it lasts.')
   })
 
   it('is said on a pending request to an adult', async () => {
@@ -69,5 +71,13 @@ describe('the 24-hour paper records rule, as the patient reads it', () => {
     renderAccess({ ...pending, status: 'approved', approvedAt: '2026-10-08T10:05:00Z' }, '1991-03-04')
     fireEvent.click(await screen.findByRole('button', { name: /^Lagos General/ }))
     expect(screen.queryByText(/paper records/)).toBeNull()
+  })
+
+  it('counts an adult from the 18th birthday, and never while the age is unknown', () => {
+    const now = new Date('2026-11-03T12:00:00Z')
+    expect(isAdult('2008-11-03', now)).toBe(true)
+    expect(isAdult('2008-11-04', now)).toBe(false)
+    expect(isAdult(null, now)).toBe(false)
+    expect(isAdult('not a date', now)).toBe(false)
   })
 })
