@@ -44,7 +44,7 @@ function open(path: string, page: React.ReactElement) {
 
 /** Fills both required fields (the form submits only then) and signs in. */
 function signInWith(email: string, password: string) {
-  fireEvent.change(screen.getByRole('textbox', { name: 'Email' }), { target: { value: email } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: email } })
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: password } })
   fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 }
@@ -61,7 +61,7 @@ describe('BlueSignIn', () => {
     expect(screen.getByRole('link', { name: 'Forgot password?' }).getAttribute('href')).toBe('/provider/recover')
     expect(screen.getByRole('link', { name: 'Register a hospital' })).toBeDefined()
     expect(screen.getByRole('link', { name: 'Accept invitation' }).getAttribute('href')).toBe('/provider/invitation')
-    fireEvent.change(screen.getByRole('textbox', { name: 'Email' }), { target: { value: ' demo.nurse@example.test ' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: ' demo.nurse@example.test ' } })
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'fictional-password-1' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     await waitFor(() => expect(staff.completeSignIn).toHaveBeenCalledWith(SESSION))
@@ -98,10 +98,24 @@ describe('BlueSignIn', () => {
       try {
         open('/provider/sign-in', <BlueSignIn />)
         expect(screen.getByRole('heading', { level: 1, name: 'Welcome back.' })).toBeDefined()
-        expect(screen.getByRole('textbox', { name: 'Email' })).toBeDefined()
+        expect(screen.getByRole('textbox', { name: 'Work email' })).toBeDefined()
         expect(replace).not.toHaveBeenCalled()
       } finally { vi.unstubAllGlobals() }
     })
+
+  it.each([
+    ['ehr.healthidentitydirectory.com', 'you@hospital.org'],
+    ['lab.healthidentitydirectory.com', 'you@work.org'],
+    ['pharmacy.healthidentitydirectory.com', 'you@work.org'],
+    ['outreach.healthidentitydirectory.com', 'you@work.org'],
+  ])('on %s asks for the work email as today, with an example address that fits the site, and says who gives accounts', (hostname, example) => {
+    vi.stubGlobal('location', { ...window.location, hostname, replace: vi.fn() })
+    try {
+      open('/provider/sign-in', <BlueSignIn />)
+      expect(screen.getByRole('textbox', { name: 'Work email' }).getAttribute('placeholder')).toBe(example)
+      expect(screen.getByText('Need a staff account? Ask your facility administrator.')).toBeDefined()
+    } finally { vi.unstubAllGlobals() }
+  })
 
   it.each([
     ['ehr.healthidentitydirectory.com', 'Register a hospital'],
@@ -146,8 +160,8 @@ describe('BlueSignIn', () => {
   })
 
   it('ends the authenticator step with each product\'s own name', () => {
-    expect(signInWords('ehr')).toEqual({ lede: 'Sign in to your hospital workspace.', done: 'Continue to the Hospital EHR' })
-    expect(signInWords('lab')).toEqual({ lede: 'Sign in to Health ID Lab.', done: 'Continue to Health ID Lab' })
+    expect(signInWords('ehr')).toEqual({ lede: 'Sign in to your hospital workspace.', done: 'Continue to the Hospital EHR', emailExample: 'you@hospital.org' })
+    expect(signInWords('lab')).toEqual({ lede: 'Sign in to Health ID Lab.', done: 'Continue to Health ID Lab', emailExample: 'you@work.org' })
     expect(signInWords('pharmacy').done).toBe('Continue to Health ID Pharmacy')
     expect(signInWords('outreach').done).toBe('Continue to Health ID Outreach')
     expect(signInWords('migrate').done).toBe('Continue to Health ID Migrate')

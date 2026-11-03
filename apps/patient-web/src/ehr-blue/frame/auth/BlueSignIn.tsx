@@ -31,10 +31,11 @@ const BLUE_MFA_LOOK: StaffMfaLook = {
  * The sign-in's welcome line and its last button, in the words of the product this site is (product.ts): the Hospital
  * EHR on ehr. (and wherever no product site is named), each product's own name on lab., pharmacy., outreach., migrate.
  */
-export function signInWords(product: Product): { readonly lede: string; readonly done: string } {
-  if (product === 'ehr') return { lede: 'Sign in to your hospital workspace.', done: 'Continue to the Hospital EHR' }
+export function signInWords(product: Product): { readonly lede: string; readonly done: string; readonly emailExample: string } {
+  if (product === 'ehr') return { lede: 'Sign in to your hospital workspace.', done: 'Continue to the Hospital EHR', emailExample: 'you@hospital.org' }
   const name = siteName(product)
-  return { lede: `Sign in to ${name}.`, done: `Continue to ${name}` }
+  // A lab, pharmacy or outreach team is not always a hospital's: the example address names no kind of workplace.
+  return { lede: `Sign in to ${name}.`, done: `Continue to ${name}`, emailExample: 'you@work.org' }
 }
 
 /**
@@ -118,8 +119,8 @@ export function BlueSignIn() {
             is approved. <PageLink path={CLINICIAN_STATUS_PATH}>Check your application</PageLink>.</> : null}</Alert> : null}
         <form className="staff-form" onSubmit={event => void submit(event)}>
           <div className="auth-field-label">
-            <label htmlFor="blue-sign-in-email">Email</label>
-            <input id="blue-sign-in-email" type="email" autoComplete="username" placeholder="you@hospital.org" value={email} required
+            <label htmlFor="blue-sign-in-email">Work email</label>
+            <input id="blue-sign-in-email" type="email" autoComplete="username" placeholder={words.emailExample} value={email} required
               onChange={event => setEmail(event.target.value)} />
           </div>
           <div className="auth-field-label">
@@ -129,6 +130,7 @@ export function BlueSignIn() {
           </div>
           <p className="-mt-3 m-0 flex flex-wrap items-center justify-end gap-x-2 text-[13px]">
             <SiteLink className={LINK} href={recovery}>Forgot password?</SiteLink>
+            <span className="text-ink-3">Need a staff account? Ask your facility administrator.</span>
           </p>
           <TurnstileChallenge onToken={setToken} resetKey={turnstileResetKey} />
           <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={busy || (!!siteKey && !token)}>
