@@ -184,7 +184,7 @@ describe('patient sign-out', () => {
     // tab out, the portal would show sign-in while the server session stayed live.
     await signedInAs('subject-a', routes)
     await act(async () => { screen.getByRole('button', { name: 'Sign out' }).click() })
-    expect((await screen.findByRole('alert')).textContent).toBe('UPSTREAM_UNAVAILABLE')
+    expect((await screen.findByRole('alert')).textContent).toBe('Health ID isn’t available right now. Please try again in a few minutes.')
     expect(screen.getByTestId('status').textContent).toBe('authenticated')
   })
 

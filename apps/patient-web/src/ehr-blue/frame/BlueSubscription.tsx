@@ -12,6 +12,7 @@ import {
 import { PRODUCT_LABELS, STATUS, statusDetail } from '../../staff/routes/Billing'
 import { blueForAll } from '../blueFacilities'
 import { LivePage } from './LivePages'
+import { PlainError } from '@hid/http'
 
 const TONE: Record<(typeof STATUS)[keyof typeof STATUS]['tone'], Tone> = {
   success: 'success', warning: 'warn', danger: 'danger', neutral: 'neutral', information: 'info',
@@ -98,7 +99,7 @@ export function BlueSubscription() {
     setActionError('')
     try {
       const url = paystackCheckoutUrl(await billingApi.checkout(facilityId))
-      if (!url) throw new Error('Payment could not be started. Try again later.')
+      if (!url) throw new PlainError('Payment could not be started. Try again later.')
       window.location.assign(url)
     } catch (caught) {
       const problem = billingProblem(caught, 'Payment could not be started. Try again.')

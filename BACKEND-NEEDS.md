@@ -70,9 +70,16 @@ pictures phones append, each with its own EXIF and GPS); it keeps APP0 JFIF (wit
 From a PNG it keeps the critical chunks (IHDR, PLTE, IDAT, IEND) and the ancillary chunks display needs (tRNS; cHRM,
 gAMA, iCCP, sBIT, sRGB, cICP, mDCV, cLLI; bKGD, hIST, pHYs; APNG's acTL, fcTL, fdAT), each byte for byte, and drops
 every other chunk: eXIf (and its earlier spellings exIf and zxIf), tEXt, zTXt, iTXt, tIME, C2PA's caBX (which can
-carry the place), private chunks (Apple's iDOT among them), and anything after IEND. `sizeBytes`, `sha256Hex` and the
-PUT body are all of the stripped bytes, and the same file always strips to the same bytes, so Try again sends the
-same body. A photo that can't be walked cleanly is refused in the browser and never sent: among others, a JPEG table,
+carry the place), private chunks (Apple's iDOT among them), and anything after IEND. Of the EXIF, orientation alone is
+kept, so a photo a phone took upright doesn't show on its side: when the first APP1 EXIF before the first scan (or a
+PNG's first eXIf before IDAT) says an Orientation (tag 0x0112) other than 1, the browser writes a new APP1 (or eXIf,
+with its CRC) holding only that: a TIFF header in the original's byte order and an IFD0 with that one entry, no other
+tag, no next IFD (so no thumbnail), no EXIF, GPS or interoperability IFD pointer and no MakerNote. The APP1 goes
+straight after the start of image, or after APP0 JFIF; the eXIf where the original was, before IDAT. Orientation 1, no
+Orientation, or an EXIF that can't be read with certainty (a bad TIFF header, an offset outside it, a second
+Orientation, one that isn't a single SHORT of 1 to 8) leaves none, and the photo is still sent. `sizeBytes`,
+`sha256Hex` and the PUT body are all of the stripped bytes, and the same file always strips to the same bytes (the
+orientation's included), so Try again sends the same body. A photo that can't be walked cleanly is refused in the browser and never sent: among others, a JPEG table,
 frame or scan header whose length says more than its fields, a second frame, a PNG chunk whose CRC is wrong, and a
 critical chunk other than IHDR, PLTE, IDAT and IEND (or a second IHDR). PDFs are sent as they are, once their first
 bytes are `%PDF-` (above): a photo or a phone's video under a PDF's name, which would go up with its metadata, is

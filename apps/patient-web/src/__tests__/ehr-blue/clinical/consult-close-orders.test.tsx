@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
 import { ENCOUNTER_STATUS_UPDATED, RELOAD_FAILED } from '../../../ehr-blue/clinical/consult/encounters'
 import { consultationLabel } from '../../../plainLabels'
+import { SAID_UNAVAILABLE } from '../../said'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_ID, activePatient, allowedLookup, labelled, renderPage } from './harness'
 
 /**
@@ -214,7 +215,8 @@ describe('"Try again" beside "The change was saved, but the records could not be
     api.encounter.mockRejectedValue(UNAVAILABLE())
     change('Put on hold')
     expect(await screen.findByText(ENCOUNTER_STATUS_UPDATED)).toBeTruthy()
-    await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toContain('EHR is unavailable.'))
+    await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toContain(SAID_UNAVAILABLE))
+    expect(document.body.textContent).not.toContain('EHR is unavailable')
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
     // A cancel whose records are not read again: the sentence, with Try again beside it.
     changed = 'cancelled'
@@ -222,7 +224,7 @@ describe('"Try again" beside "The change was saved, but the records could not be
     api.records.mockRejectedValue(UNAVAILABLE())
     change('Cancel consultation')
     await waitFor(() => expect(sentence()).not.toBeNull())
-    expect(sentence()!.textContent).toBe(`${RELOAD_FAILED} EHR is unavailable.Try again`)
+    expect(sentence()!.textContent).toBe(`${RELOAD_FAILED} ${SAID_UNAVAILABLE}Try again`)
     expect(screen.getAllByRole('button', { name: 'Try again' })).toEqual([tryAgain()])
   })
 
@@ -323,7 +325,7 @@ describe('"Try again" beside "The change was saved, but the records could not be
     await waitFor(() => expect(readsOf('prescriptions')).toHaveLength(reads + 1))
     await waitFor(() => expect(button.getAttribute('aria-busy')).toBeNull())
     expect(said()).not.toBe(before)
-    expect(said().textContent).toBe(`${RELOAD_FAILED} EHR is unavailable.`)
+    expect(said().textContent).toBe(`${RELOAD_FAILED} ${SAID_UNAVAILABLE}`)
     expect(tryAgain()).toBe(button)
     expect(document.activeElement).toBe(button)
   })

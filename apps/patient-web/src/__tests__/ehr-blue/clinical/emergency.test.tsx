@@ -6,6 +6,7 @@ import { EMERGENCY_ACCESS, actionUnavailable } from '../../../ehr-blue/clinical/
 import { EmergencyWorkspace, emergencyStatus } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
 import { SAMPLE_NOTICE } from '../../../ehr-blue/clinical/parts/SampleBanner'
 import { SampleCreate, SampleDetail, SampleList } from '../../../ehr-blue/clinical/sample/SampleWorkspace'
+import { SAID_REFUSED } from '../../said'
 import { DEMO_HOSPITAL_ID, FACILITY_ID, FACILITY_NAME, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, deniedLookup, labelled, renderPage } from './harness'
 
 /**
@@ -374,12 +375,13 @@ describe('recording emergency access', () => {
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
   })
 
-  it('shows a refused lookup as it is', async () => {
+  it('shows a refused lookup in plain words', async () => {
     api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
     open()
     fill()
     await record()
-    expect((await screen.findByRole('alert')).textContent).toContain('Patient access is not authorized')
+    expect((await screen.findByRole('alert')).textContent).toContain(SAID_REFUSED)
+    expect(document.body.textContent).not.toContain('Patient access is not authorized')
     expect(staff.setActivePatient).not.toHaveBeenCalled()
   })
 
@@ -388,7 +390,8 @@ describe('recording emergency access', () => {
     open()
     fill()
     await record()
-    expect((await screen.findByRole('alert')).textContent).toContain('Stopped because the session it belonged to ended.')
+    expect((await screen.findByRole('alert')).textContent).toContain('This was stopped before it finished. Please try again.')
+    expect(document.body.textContent).not.toContain('Stopped because the session it belonged to ended.')
     expect(api.lookupPatient).not.toHaveBeenCalled()
     expect(staff.setActivePatient).not.toHaveBeenCalled()
   })
@@ -398,10 +401,14 @@ describe('recording emergency access', () => {
       'Emergency access is switched off right now, so the record was not opened. Ask Health ID support.'],
     ['429 EMERGENCY_PROBATION_LIMITED', new HidApiError(429, 'Too many emergency activations', { code: 'EMERGENCY_PROBATION_LIMITED' }),
       `${FACILITY_NAME} is new to Health ID: emergency access is limited to 5 times a day in its first 30 days. Contact Health ID support to lift the limit.`],
+    // Identity's per-account limit: 10 emergency activations in a rolling hour (ehr-api migration 0031; identity-api
+    // consent.service.ts answers 429 EMERGENCY_RATE_LIMITED).
+    ['429 EMERGENCY_RATE_LIMITED', new HidApiError(429, 'Too many emergency activations. Contact your facility emergency access administrator.', { code: 'EMERGENCY_RATE_LIMITED' }),
+      'You’ve used emergency access too many times in the last hour, so the record was not opened. Ask your facility administrator, or try again later.'],
     ['400 INVALID_CONSENT_COMMAND', new HidApiError(400, 'The consent command failed integrity validation', { code: 'INVALID_CONSENT_COMMAND' }),
       'Emergency access isn’t set up for your facility, so the record was not opened. Contact support.'],
-    ['any other refusal, as it is', new HidApiError(403, 'Break-glass access is not authorized', { code: 'CONSENT_COMMAND_DENIED' }),
-      'Break-glass access is not authorized'],
+    ['any other refusal, in plain words', new HidApiError(403, 'Break-glass access is not authorized', { code: 'CONSENT_COMMAND_DENIED' }),
+      SAID_REFUSED],
   ])('says what a %s means, and looks nothing up', async (_name, refusal, said) => {
     api.breakGlass.mockRejectedValue(refusal)
     open()
@@ -410,6 +417,7 @@ describe('recording emergency access', () => {
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toContain(FAILED_TITLE)
     expect(alert.textContent).toContain(said)
+    expect(alert.textContent).not.toContain(refusal.message)
     expect(alert.closest('form')).toBe(submitButton().form)
     expect(session.untilStaffSessionReady).not.toHaveBeenCalled()
     expect(api.lookupPatient).not.toHaveBeenCalled()

@@ -25,6 +25,8 @@ describe('the page a shared link opens', () => {
       expect(screen.getByRole('heading', { level: 1, name: 'This isn’t available yet' })).toBeTruthy()
       expect(screen.getByRole('main')).toBeTruthy()
       expect(screen.getByText('Opening a shared Health ID card from a link isn’t available yet. No health information is shown here.')).toBeTruthy()
+      // Health ID's own page for patients on the public site, never another organisation's.
+      expect(screen.getByRole('link', { name: 'About Health ID' }).getAttribute('href')).toBe('https://healthidentitydirectory.com/patients')
       // Give any read a chance to start: none does, and the link's secret goes nowhere.
       await new Promise(resolve => setTimeout(resolve, 0))
       expect(sent).toEqual([])

@@ -86,13 +86,13 @@ describe('Coverage', () => {
     expect(handler.saved().rowVersion).toBe(3)
   })
 
-  it('says what Identity refused', async () => {
+  it('says a refusal in plain words, never Identity\'s', async () => {
     renderPortal(<ProfilePage />, gateway({ hospitalCurrentlyUsing: null, hmoName: null, rowVersion: 0 },
       () => problem(400, 'VALIDATION_FAILED', 'The HMO name is not valid.')), {}, { parityB3: true })
     const shown = await card()
     fireEvent.change(shown.getByRole('textbox', { name: HMO }), { target: { value: 'Hygeia' } })
     await press(shown.getByRole('button', { name: 'Save' }))
-    expect(shownText(await shown.findByRole('alert'))).toBe('The HMO name is not valid.')
+    expect(shownText(await shown.findByRole('alert'))).toBe('Check the details you entered and try again.')
   })
 
   it('offers the hospital suggestions of the sign-up', async () => {
@@ -118,7 +118,7 @@ describe('Coverage', () => {
       return problem(404, 'NOT_FOUND', path)
     }, {}, { parityB3: true })
     const shown = await card()
-    expect((await shown.findByRole('alert')).textContent).toContain('Coverage is unavailable.')
+    expect((await shown.findByRole('alert')).textContent).toContain('Health ID isn’t available right now. Please try again in a few minutes.')
     fail = false
     await press(shown.getByRole('button', { name: 'Try again loading your insurance and hospital' }))
     await waitFor(() => expect((shown.getByRole('textbox', { name: HMO }) as HTMLInputElement).value).toBe('Hygeia'))
